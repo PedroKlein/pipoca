@@ -21,7 +21,7 @@ Pipoca already knows each person's git hosts and tokens ([ADR 0043](0043-git-hos
 ### Polling with the person's token
 
 - The `git-hosts` server polls each watched pull request with the token of the person who started the Session (decided 2026-10-31). This works on GitHub Enterprise hosts with no app or webhook, and it notices merge conflicts, which webhooks don't announce.
-- A watched pull request is polled about once a minute, with ETags so an unchanged answer costs little of the host's rate limit. Each poll reads the pull request (state, head commit, mergeable), the check runs and statuses of its head, and reviews and review comments newer than the last ones seen.
+- A watched pull request is polled about once a minute (the plugin's `pollSeconds` setting), with ETags so an unchanged answer costs little of the host's rate limit. Each poll reads the pull request (state, head commit, mergeable), the check runs and statuses of its head, and reviews and review comments newer than the last ones seen.
 - Webhooks come later as an optional speed-up where an admin sets them up, and so does a Pipoca GitHub App that people install (decided 2026-10-31).
 
 ### The Session that opened it hears its news
@@ -53,6 +53,6 @@ Each person sets these in their Git hosts settings (decided 2026-10-31):
 ## Consequences
 
 - `git-hosts` gains a Session part, a poller on the server, two Session tools and a table, and the web gets a slot that the Changes card renders.
-- Polling costs requests. Each watched pull request makes about three requests a minute, under 200 an hour, well inside GitHub's 5,000 an hour per token, but a person with dozens of open pull requests will feel it. Webhooks are the fix when that matters.
+- Polling costs requests. Each poll of a watched pull request makes five requests, so about 300 an hour at the default minute, inside GitHub's 5,000 an hour per token, though a person with a dozen open pull requests will feel it. Admins can poll less often with the plugin's `pollSeconds` setting, and webhooks are the fix when that matters.
 - News reaches a Session up to a minute late.
 - A Session can push to the pull request's branch on its own while auto-fix is on, as Claude Code's does. Commenting as the person is opt-in.
