@@ -1,6 +1,7 @@
 import type {
   MountedSession,
   SessionPartProps,
+  WebContext,
   WebPlugin,
 } from "@pipoca/plugins/web";
 import { Button, cn, Icon, isComposing } from "@pipoca/ui";
@@ -22,7 +23,10 @@ export const changes: WebPlugin = {
 
 // The header's Diff button opens the session's changes in a side panel, like
 // the mockups and Claude Code's diff view.
-function SessionHeader({ session }: SessionPartProps): ReactElement | null {
+function SessionHeader({
+  context,
+  session,
+}: SessionPartProps): ReactElement | null {
   const [open, setOpen] = useState(false);
   const [found, setFound] = useState<readonly CheckoutChanges[]>([]);
   const [pullRequests, setPullRequests] = useState<readonly PullRequest[]>([]);
@@ -110,6 +114,7 @@ function SessionHeader({ session }: SessionPartProps): ReactElement | null {
           {changed.map((checkout) => (
             <Checkout
               key={checkout.name}
+              context={context}
               checkout={checkout}
               session={session}
               pullRequest={pullRequests.find(
@@ -124,10 +129,12 @@ function SessionHeader({ session }: SessionPartProps): ReactElement | null {
 }
 
 function Checkout({
+  context,
   checkout: { name, fileCount, patch, truncated, branched },
   session,
   pullRequest,
 }: {
+  readonly context: WebContext;
   readonly checkout: CheckoutChanges;
   readonly session: MountedSession;
   readonly pullRequest: PullRequest | undefined;
@@ -178,6 +185,7 @@ function Checkout({
         </h3>
         {branched && (
           <PullRequestActions
+            context={context}
             name={name}
             session={session}
             pullRequest={pullRequest}
@@ -224,10 +232,12 @@ const modes = [
 
 // The Create PR button runs the session part's /pr command (ADR 0021).
 function PullRequestActions({
+  context,
   name,
   session,
   pullRequest,
 }: {
+  readonly context: WebContext;
   readonly name: string;
   readonly session: MountedSession;
   readonly pullRequest: PullRequest | undefined;
@@ -254,6 +264,10 @@ function PullRequestActions({
       <div className="flex items-center gap-2">
         {pullRequest?.status === "open" && (
           <>
+            <context.PullRequestStatus
+              session={session}
+              url={pullRequest.url}
+            />
             <Button
               onClick={() => {
                 run("");

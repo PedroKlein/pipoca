@@ -24,6 +24,9 @@ let server: ReturnType<typeof serve>;
 let pedro: () => Promise<string>;
 let host: ReturnType<typeof Bun.serve>;
 
+// Command streams the tests opened, closed before their server stops.
+let streams: AsyncGenerator[];
+
 // The pull request the host knows, which tests change between polls.
 let pull: {
   checks: "pending" | "failure" | "success";
@@ -37,6 +40,7 @@ const pullUrl = `https://${enterprise}/I572543/dotfiles/pull/7`;
 
 beforeEach(() => {
   logs = [];
+  streams = [];
 
   pull = {
     checks: "pending",
@@ -159,6 +163,8 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  await Promise.all(streams.map(async (stream) => stream.return(undefined)));
+
   await server.stop();
   await host.stop();
 });
@@ -246,6 +252,8 @@ async function pedroSession(): Promise<{
     await agent(`commands?generation=${String(generation)}`),
     10_000,
   );
+
+  streams.push(commands);
 
   const next = async (type: string): Promise<Record<string, unknown>> => {
     for (;;) {

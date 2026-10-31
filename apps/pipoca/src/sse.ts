@@ -137,5 +137,7 @@ export async function* readSse(
     }
   } finally {
     clearTimeout(watchdog);
+    // A reader that stops early lets the connection go.
+    reader.cancel().catch(() => undefined);
   }
 }
