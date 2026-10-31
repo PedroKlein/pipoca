@@ -166,7 +166,7 @@ function repositoriesIn(list: unknown): readonly Repository[] {
   });
 }
 
-async function reach(
+export async function reach(
   host: HostConfig,
   url: string,
   init: RequestInit,

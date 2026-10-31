@@ -1,16 +1,35 @@
 import {
   json,
+  type NoticeProps,
+  type PullRequestProps,
   useLoaded,
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, Field, fieldClass, Section } from "@pipoca/ui";
+import {
+  Badge,
+  Button,
+  Field,
+  fieldClass,
+  Icon,
+  Picker,
+  Section,
+  Switch,
+} from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import type { Account, HostInput, HostView } from "../src/model";
+import type {
+  Account,
+  HostInput,
+  HostView,
+  Preferences,
+  PullWatch,
+} from "../src/model";
 
 export const gitHosts: WebPlugin = {
   name: "git-hosts",
   SettingsSection,
+  PullRequest,
+  notices: { pull_request: PullRequestNotice },
   repositories: async (context, query) =>
     json(context.request(`repositories?q=${encodeURIComponent(query)}`)),
 };
@@ -54,8 +73,218 @@ function SettingsSection({
           />
         ))}
       </ul>
+      <PullRequestChoices context={context} />
       {value.admin && <Hosts context={context} onChange={reload} />}
     </Section>
+  );
+}
+
+// What a Session may do on its own about the pull requests it watches
+// (ADR 0051).
+function PullRequestChoices({
+  context,
+}: {
+  readonly context: WebContext;
+}): ReactElement | null {
+  const { value, reload } = useLoaded(
+    async () => json<Preferences>(context.request("preferences")),
+    "preferences",
+  );
+
+  const [error, setError] = useState<string>();
+
+  if (value === undefined) {
+    return null;
+  }
+
+  const save = (change: Partial<Preferences>): void => {
+    setError(undefined);
+
+    json(
+      context.request("preferences", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...value, ...change }),
+      }),
+    ).then(reload, (failure: unknown) => {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    });
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <h3 className="text-label font-medium text-fg-strong">Pull requests</h3>
+      <Switch
+        label="Auto-fix the pull requests my Sessions open"
+        checked={value.autoFix}
+        onChange={(autoFix) => {
+          save({ autoFix });
+        }}
+      />
+      <Switch
+        label="Let Sessions reply on review threads as me"
+        checked={value.reply}
+        onChange={(reply) => {
+          save({ reply });
+        }}
+      />
+      <p className="text-label text-fg-dim">
+        With auto-fix on, a Session hears when its pull request's checks fail,
+        someone reviews it or it conflicts, and pushes fixes. Replies end with
+        “via Pipoca”.
+      </p>
+      {error !== undefined && (
+        <p role="alert" className="text-label text-failed">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// A watched pull request's checks, reviews and conflicts, with Auto-fix and
+// Merge, beside it on the Changes panel (ADR 0051).
+function PullRequest({
+  context,
+  session,
+  url,
+}: PullRequestProps): ReactElement | null {
+  const { value, reload } = useLoaded(
+    async () =>
+      json<readonly PullWatch[]>(
+        context.request(
+          `pull-requests?session=${encodeURIComponent(session.id)}`,
+        ),
+      ),
+    `pull-requests ${session.id}`,
+    { topics: ["git-hosts.pull-requests"] },
+  );
+
+  const [error, setError] = useState<string>();
+  const watch = value?.find((each) => each.url === url);
+
+  if (watch === undefined) {
+    return null;
+  }
+
+  const problem = error ?? watch.error;
+
+  const post = (action: string, body: unknown): void => {
+    setError(undefined);
+
+    json(
+      context.request(`pull-requests/${watch.id}/${action}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    ).then(reload, (failure: unknown) => {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    });
+  };
+
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-1.5">
+      <PullBadges watch={watch} />
+      <Picker
+        label="Pull request"
+        options={[{ value: "auto-fix", label: "Auto-fix" }]}
+        selected={watch.autoFix ? ["auto-fix"] : []}
+        multiple
+        actions={
+          watch.state === "open"
+            ? [
+                {
+                  label: "Merge",
+                  run: () => {
+                    post("merge", {});
+                  },
+                },
+              ]
+            : []
+        }
+        onChange={(values) => {
+          post("auto-fix", { on: values.includes("auto-fix") });
+        }}
+      >
+        <Icon name="more" className="size-3.5" />
+      </Picker>
+      {problem !== null && (
+        <p role="alert" className="w-full text-right text-label text-failed">
+          {problem}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function PullBadges({
+  watch: { state, checks, conflicts, changesRequested },
+}: {
+  readonly watch: PullWatch;
+}): ReactElement {
+  if (state !== "open") {
+    return (
+      <Badge state="done">{state === "merged" ? "Merged" : "Closed"}</Badge>
+    );
+  }
+
+  return (
+    <>
+      {checks.failed > 0 && (
+        <Badge state="failed">{`${String(checks.failed)} failed`}</Badge>
+      )}
+      {checks.failed === 0 && checks.pending > 0 && (
+        <Badge state="working">Checks running</Badge>
+      )}
+      {checks.failed === 0 && checks.pending === 0 && checks.passed > 0 && (
+        <Badge state="done">Checks passed</Badge>
+      )}
+      {changesRequested && <Badge state="waiting">Changes requested</Badge>}
+      {conflicts === true && <Badge state="failed">Conflicts</Badge>}
+    </>
+  );
+}
+
+// The news Pipoca sent the Session about a pull request it watches.
+function PullRequestNotice({ data }: NoticeProps): ReactElement {
+  const { url, news } = (data ?? {}) as {
+    url?: unknown;
+    news?: unknown;
+  };
+
+  const lines = Array.isArray(news)
+    ? news.filter((line): line is string => typeof line === "string")
+    : [];
+
+  return (
+    <div className="flex min-w-0 flex-col gap-1 px-2 py-1 text-label text-fg-dim">
+      <p className="flex min-w-0 items-center gap-2">
+        <Icon name="git-pull-request" className="size-4 shrink-0" />
+        <span className="truncate">
+          News on{" "}
+          <a
+            href={typeof url === "string" ? url : undefined}
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-fg"
+          >
+            {typeof url === "string"
+              ? url.replace(/^https:\/\//, "")
+              : "a pull request"}
+          </a>
+        </span>
+      </p>
+      {lines.length > 0 && (
+        <ul className="ml-6 list-disc">
+          {lines.map((line) => (
+            <li key={line} className="break-words">
+              {line}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

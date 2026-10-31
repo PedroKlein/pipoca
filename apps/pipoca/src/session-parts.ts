@@ -6,6 +6,7 @@ import { ask } from "@pipoca/ask/session";
 import changesPackage from "@pipoca/changes/package.json";
 import { changes } from "@pipoca/changes/session";
 import gitHostsPackage from "@pipoca/git-hosts/package.json";
+import { gitHosts } from "@pipoca/git-hosts/session";
 import kubernetesPackage from "@pipoca/kubernetes/package.json";
 import libraryPackage from "@pipoca/library/package.json";
 import { library as librarySession } from "@pipoca/library/session";
@@ -56,6 +57,7 @@ export const sessionPlugins: readonly SessionPlugin[] = [
   subagents,
   metaSession,
   logins,
+  gitHosts,
 ];
 
 // The Session parts an assignment names, each with its settings. A server

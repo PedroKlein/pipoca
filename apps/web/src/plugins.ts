@@ -8,6 +8,7 @@ import { models } from "@pipoca/models/web";
 import { oidc } from "@pipoca/oidc/web";
 import type {
   NavItemsProps,
+  PullRequestStatusProps,
   ToolCallProps,
   WebContext,
   WebPlugin,
@@ -25,7 +26,12 @@ import { usage } from "@pipoca/usage/web";
 import * as plugins from "@pipoca/plugins/web";
 import * as ui from "@pipoca/ui";
 import * as react from "react";
-import type { ComponentType } from "react";
+import {
+  type ComponentType,
+  createElement,
+  Fragment,
+  type ReactElement,
+} from "react";
 import * as reactDom from "react-dom";
 import * as reactDomClient from "react-dom/client";
 import * as jsxRuntime from "react/jsx-runtime";
@@ -150,11 +156,30 @@ export function pluginContext(name: string): WebContext {
     href: (path) => `#plugin/${name}/${path}`,
     settings: settings.get(name) ?? {},
     SessionView: EmbeddedSession,
+    PullRequestStatus,
   };
 
   contexts.set(name, context);
 
   return context;
+}
+
+function PullRequestStatus(props: PullRequestStatusProps): ReactElement {
+  return createElement(
+    Fragment,
+    null,
+    ...enabled.flatMap(({ name, PullRequest }) =>
+      PullRequest === undefined
+        ? []
+        : [
+            createElement(PullRequest, {
+              key: name,
+              ...props,
+              context: pluginContext(name),
+            }),
+          ],
+    ),
+  );
 }
 
 export interface Claimed<Props> {
