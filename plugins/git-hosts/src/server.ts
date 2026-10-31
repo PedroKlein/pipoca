@@ -17,6 +17,7 @@ import {
   redeem,
   repositoriesOf,
 } from "./github";
+import { pullRequests } from "./pull-requests";
 import { type HostSearch, repositoriesTool } from "./tool";
 import {
   type HostConfig,
@@ -289,13 +290,29 @@ export const gitHosts: ServerPlugin = {
         : undefined,
     );
 
-    context.routes.handle(async (request, path) => {
+    const pulls = pullRequests(context, hosts, (userId) =>
+      connections
+        .accounts(userId)
+        .filter(({ host }) => hosts.get(host) !== undefined),
+    );
+
+    context.routes.handle(async (request, path, caller) => {
+      const parts = path.split("/");
+      const answered = await pulls(request, parts, caller);
+
+      if (answered !== undefined) {
+        return answered;
+      }
+
+      if (caller.kind !== "user") {
+        throw new NotFound(`no route ${path}`);
+      }
+
       const user = context.auth.userOf(request);
       if (user === undefined) {
         throw new HttpError(401, "Sign in again.", "signed_out");
       }
 
-      const parts = path.split("/");
       const [route, name] = parts;
 
       if (route === "hosts") {

@@ -24,13 +24,32 @@ let server: ReturnType<typeof serve>;
 let pedro: () => Promise<string>;
 let host: ReturnType<typeof Bun.serve>;
 
+// The pull request the host knows, which tests change between polls.
+let pull: {
+  checks: "pending" | "failure" | "success";
+  mergeable: boolean;
+  merged: boolean;
+  comments: { id: number; login: string; body: string }[];
+  mergedWith: string | undefined;
+};
+
+const pullUrl = `https://${enterprise}/I572543/dotfiles/pull/7`;
+
 beforeEach(() => {
   logs = [];
+
+  pull = {
+    checks: "pending",
+    mergeable: true,
+    merged: false,
+    comments: [],
+    mergedWith: undefined,
+  };
 
   // The host's REST API, which knows one token.
   host = Bun.serve({
     port: 0,
-    fetch: (request) => {
+    fetch: async (request) => {
       const url = new URL(request.url);
 
       if (request.headers.get("authorization") !== `Bearer ${goodToken}`) {
@@ -42,7 +61,53 @@ beforeEach(() => {
         clone_url: `https://${enterprise}/${name}.git`,
       });
 
+      const repo = "/api/v3/repos/I572543/dotfiles";
+
       switch (url.pathname) {
+        case `${repo}/pulls/7`:
+          return Response.json({
+            html_url: pullUrl,
+            title: "Tidy the dotfiles",
+            state: pull.merged ? "closed" : "open",
+            merged: pull.merged,
+            mergeable: pull.mergeable,
+            head: { sha: "abc1234def" },
+          });
+        case `${repo}/commits/abc1234def/check-runs`:
+          return Response.json({
+            check_runs: [
+              {
+                name: "test",
+                status: pull.checks === "pending" ? "in_progress" : "completed",
+                conclusion: pull.checks === "pending" ? null : pull.checks,
+                html_url: "https://ci.example/test",
+              },
+            ],
+          });
+        case `${repo}/commits/abc1234def/status`:
+          return Response.json({ statuses: [] });
+        case `${repo}/pulls/7/reviews`:
+          return Response.json([]);
+        case `${repo}/pulls/7/comments`:
+          return Response.json(
+            pull.comments.map(({ id, login, body }) => ({
+              id,
+              user: { login },
+              body,
+              path: "zshrc",
+              html_url: `${pullUrl}#discussion_r${String(id)}`,
+            })),
+          );
+        case repo:
+          return Response.json({ allow_squash_merge: true });
+        case `${repo}/pulls/7/merge`:
+          pull.mergedWith = String(
+            ((await request.json()) as { merge_method?: unknown }).merge_method,
+          );
+
+          pull.merged = true;
+
+          return Response.json({ merged: true });
         case "/api/v3/user":
           return Response.json({ login: "pedro-sap" });
         case "/api/v3/user/repos":
@@ -148,11 +213,13 @@ async function polled(token: string): Promise<Assignment | undefined> {
   return work.start[0];
 }
 
-// What a new Session of Pedro's sees of the repositories tool, and what it
-// answers to the query.
-async function repositoriesTool(
-  input: Readonly<Record<string, string>>,
-): Promise<{ offered: boolean; answer: unknown }> {
+// A new Session of Pedro's, as its runner sees it.
+async function pedroSession(): Promise<{
+  readonly id: string;
+  readonly tools: () => Promise<readonly string[]>;
+  readonly call: (name: string, input: unknown) => Promise<unknown>;
+  readonly next: (type: string) => Promise<Record<string, unknown>>;
+}> {
   const token = await runnerToken();
 
   await api("POST", "/api/sessions", {
@@ -175,29 +242,94 @@ async function repositoriesTool(
       ...(body !== undefined && { body: JSON.stringify(body) }),
     });
 
-  const tools = (await (
-    await agent(`tools?generation=${String(generation)}`)
-  ).json()) as ToolSpec[];
+  const commands = readSse(
+    await agent(`commands?generation=${String(generation)}`),
+    10_000,
+  );
 
-  await agent("tool-calls", {
-    generation,
-    id: "call-1",
-    name: "git_hosts_repositories",
-    input,
+  const next = async (type: string): Promise<Record<string, unknown>> => {
+    for (;;) {
+      const read: IteratorResult<unknown> = await commands.next();
+
+      if (read.done === true) {
+        throw new Error(`no ${type} command`);
+      }
+
+      const command = read.value as Record<string, unknown>;
+
+      if (command["type"] === type) {
+        return command;
+      }
+    }
+  };
+
+  let calls = 0;
+
+  return {
+    id: sessionId,
+    tools: async () =>
+      (
+        (await (
+          await agent(`tools?generation=${String(generation)}`)
+        ).json()) as ToolSpec[]
+      ).map(({ name }) => name),
+    call: async (name, input) => {
+      calls += 1;
+
+      await agent("tool-calls", {
+        generation,
+        id: `call-${String(calls)}`,
+        name,
+        input,
+      });
+
+      return (await next("tool_result"))["result"];
+    },
+    next,
+  };
+}
+
+// What a new Session of Pedro's sees of the repositories tool, and what it
+// answers to the query.
+async function repositoriesTool(
+  input: Readonly<Record<string, string>>,
+): Promise<{ offered: boolean; answer: unknown }> {
+  const session = await pedroSession();
+
+  return {
+    offered: (await session.tools()).includes("git_hosts_repositories"),
+    answer: await session.call("git_hosts_repositories", input),
+  };
+}
+
+// Pedro's Session watching the pull request, polled every second.
+async function watching(): Promise<Awaited<ReturnType<typeof pedroSession>>> {
+  await api("POST", "/api/plugins/git-hosts/connect", {
+    host: enterprise,
+    token: goodToken,
   });
 
-  const stream = await agent(`commands?generation=${String(generation)}`);
+  await api("PATCH", "/api/plugins/git-hosts", {
+    settings: { pollSeconds: 1 },
+  });
 
-  for await (const command of readSse(stream, 3000)) {
-    if ((command as { type?: unknown }).type === "tool_result") {
-      return {
-        offered: tools.some(({ name }) => name === "git_hosts_repositories"),
-        answer: (command as { result: unknown }).result,
-      };
-    }
-  }
+  const session = await pedroSession();
 
-  throw new Error("no tool result");
+  expect(await session.call("git_hosts_watch", { url: pullUrl })).toEqual({
+    isError: false,
+    text: `Watching ${pullUrl}. Its news will come here.`,
+  });
+
+  return session;
+}
+
+async function watched(sessionId: string): Promise<unknown> {
+  return (
+    await api(
+      "GET",
+      `/api/plugins/git-hosts/pull-requests?session=${sessionId}`,
+    )
+  ).json();
 }
 
 test("lists only github.com when the config file names no hosts", async () => {
@@ -474,3 +606,111 @@ test("tells a Session the person hasn't connected the host it asked to search", 
     text: "The user hasn't connected github.com. They can connect it in Pipoca's Settings, under Git hosts.",
   });
 });
+
+test("tells the Session watching a pull request that its checks failed, with the rules first", async () => {
+  const session = await watching();
+
+  pull.checks = "failure";
+
+  const notice = await session.next("notice");
+
+  expect(notice["text"]).toStartWith(
+    `News on ${pullUrl}:\n- Checks failed on abc1234: test (https://ci.example/test)\n\nYou are watching this pull request.`,
+  );
+
+  expect(notice["text"]).toContain(
+    "Never comment, review or reply on GitHub as the user.",
+  );
+
+  expect(await watched(session.id)).toMatchObject([
+    {
+      url: pullUrl,
+      title: "Tidy the dotfiles",
+      state: "open",
+      checks: { passed: 0, failed: 1, pending: 0 },
+      autoFix: true,
+    },
+  ]);
+}, 15_000);
+
+test("passes on new review comments and conflicts without repeating the rules", async () => {
+  const session = await watching();
+
+  pull.checks = "failure";
+  await session.next("notice");
+
+  pull.comments = [{ id: 1, login: "reviewer", body: "Rename this alias" }];
+  pull.mergeable = false;
+
+  const notice = await session.next("notice");
+
+  expect(notice["text"]).toBe(
+    [
+      `News on ${pullUrl}:`,
+      `- reviewer commented on zshrc: Rename this alias (${pullUrl}#discussion_r1)`,
+      "- It has a merge conflict with its base branch. Merge the base branch in, resolve it, and push.",
+    ].join("\n"),
+  );
+}, 15_000);
+
+test("lets the Session reply on GitHub only when the person chose so", async () => {
+  await api("POST", "/api/plugins/git-hosts/preferences", {
+    autoFix: true,
+    reply: true,
+  });
+
+  const session = await watching();
+
+  pull.checks = "failure";
+
+  expect((await session.next("notice"))["text"]).toContain(
+    "End each reply with a line that reads: via Pipoca",
+  );
+}, 15_000);
+
+test("keeps a pull request's news on its card when the person turned auto-fix off", async () => {
+  await api("POST", "/api/plugins/git-hosts/preferences", {
+    autoFix: false,
+    reply: false,
+  });
+
+  await api("POST", "/api/plugins/git-hosts/connect", {
+    host: enterprise,
+    token: goodToken,
+  });
+
+  await api("PATCH", "/api/plugins/git-hosts", {
+    settings: { pollSeconds: 1 },
+  });
+
+  const session = await pedroSession();
+
+  expect(await session.call("git_hosts_watch", { url: pullUrl })).toMatchObject(
+    { isError: false },
+  );
+
+  pull.checks = "failure";
+
+  await Bun.sleep(2500);
+
+  expect(await watched(session.id)).toMatchObject([
+    { checks: { failed: 1 }, autoFix: false },
+  ]);
+
+  expect(logs.join("\n")).not.toContain("pull request news sent");
+}, 15_000);
+
+test("merges a watched pull request the way its repository allows, and stops watching", async () => {
+  const session = await watching();
+  const [{ id }] = (await watched(session.id)) as [{ id: string }];
+
+  const merged = await api(
+    "POST",
+    `/api/plugins/git-hosts/pull-requests/${id}/merge`,
+    {},
+  );
+
+  expect(merged.status).toBe(200);
+  expect(pull.mergedWith).toBe("squash");
+  expect(await watched(session.id)).toEqual([]);
+}, 15_000);

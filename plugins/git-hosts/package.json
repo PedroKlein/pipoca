@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     "./server": "./src/server.ts",
+    "./session": "./src/session.ts",
     "./web": "./web/index.tsx",
     "./package.json": "./package.json"
   },
@@ -20,9 +21,20 @@
     "id": "git-hosts",
     "title": "Git hosts",
     "description": "Lets each person connect their own GitHub and GitHub Enterprise accounts, so their Sessions clone, push, use gh and install Profile packages as them. Admins list the hosts in Settings.",
+    "settings": {
+      "pollSeconds": {
+        "type": "number",
+        "title": "Seconds between pull request checks",
+        "description": "How often each watched pull request is checked on its host. Each check makes five requests with its owner's token.",
+        "default": 60,
+        "min": 1,
+        "max": 3600
+      }
+    },
     "capabilities": [
       "routes",
-      "tools"
+      "tools",
+      "sessions"
     ]
   }
 }

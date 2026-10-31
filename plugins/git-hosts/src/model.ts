@@ -31,3 +31,27 @@ export interface Account {
   }[];
   readonly connections: readonly Connection[];
 }
+
+// A watched pull request as its row on the Changes card shows it (ADR 0051).
+export interface PullWatch {
+  readonly id: string;
+  readonly url: string;
+  readonly title: string;
+  readonly state: "open" | "closed" | "merged";
+  readonly checks: {
+    readonly passed: number;
+    readonly failed: number;
+    readonly pending: number;
+  };
+  // null while the host still works it out.
+  readonly conflicts: boolean | null;
+  readonly changesRequested: boolean;
+  readonly autoFix: boolean;
+  // Why the last poll failed, such as a host the person disconnected.
+  readonly error: string | null;
+}
+
+export interface Preferences {
+  readonly autoFix: boolean;
+  readonly reply: boolean;
+}
