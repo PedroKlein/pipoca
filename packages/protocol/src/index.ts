@@ -200,8 +200,9 @@ export function profilePath(path: string): boolean {
   );
 }
 
-// A Profile folder's files by their path in it, base64 encoded, and a hash
-// of them all, which runners compare with their copy's (ADR 0041).
+// A Profile folder's or the docs folder's files by their path in it, base64
+// encoded, and a hash of them all, which runners compare with their copy's
+// (ADR 0041, ADR 0052).
 export interface ProfileFiles {
   readonly hash: string;
   readonly files: Readonly<Record<string, string>>;
@@ -211,6 +212,9 @@ export interface Assignment {
   readonly sessionId: string;
   readonly generation: number;
   readonly profile: { readonly id: string; readonly hash: string };
+  // The hash of the docs every Session gets as files (ADR 0052). Older
+  // servers leave it out.
+  readonly docs?: string;
   readonly workspace: Workspace;
   // Whether the user trusts the repository's own Pi configuration in .pi, or
   // null when nobody was asked yet (ADR 0031).

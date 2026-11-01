@@ -219,7 +219,8 @@ function isObject(value: unknown): value is Settings {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function encoded(files: ReadonlyMap<string, Buffer>): ProfileFiles {
+// Files by path with the hash runners compare their copy with.
+export function encoded(files: ReadonlyMap<string, Buffer>): ProfileFiles {
   const paths = [...files.keys()].sort((a, b) => (a < b ? -1 : 1));
   const hash = createHash("sha256");
 

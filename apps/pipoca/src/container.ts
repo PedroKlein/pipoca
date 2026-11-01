@@ -19,8 +19,8 @@ export interface ContainerSession {
 // A container Session runs the runner's own binary, mounted into any image
 // with glibc, bash and git, as the runner's user. It sees only what it needs:
 // its workspace, the listed folders its worktrees belong to, its Profile
-// folder, its own Session folder, the machine's logins folder and local
-// extensions.
+// folder, its own Session folder, the machine's logins folder, the docs and
+// local extensions.
 // Paths are mounted at the same place, so the Session's spec needs no
 // rewriting (ADR 0032).
 export async function containerSession(options: {
@@ -51,7 +51,10 @@ export async function containerSession(options: {
     ])),
   ];
 
-  const readOnly = session.extensionPaths.filter(isAbsolute);
+  const readOnly = [
+    ...session.extensionPaths.filter(isAbsolute),
+    ...(session.docsDir === undefined ? [] : [session.docsDir]),
+  ];
 
   // Values come from the docker client's environment, so they stay out of
   // the process list.

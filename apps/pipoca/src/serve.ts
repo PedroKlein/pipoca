@@ -20,6 +20,7 @@ import web from "@pipoca/web/index.html";
 import { type AgentOptions, runAgent } from "./agent";
 import { Auth } from "./auth";
 import { configFolder } from "./config";
+import { sessionDocs } from "./docs";
 import { environmentTemplates } from "./templates";
 import {
   buildPlugin,
@@ -205,6 +206,13 @@ export function serve(options: ServeOptions): {
     pluginProfile: (id) => pluginHost.profile(id),
     gitLogins: (userId) => pluginHost.gitLogins(userId),
     templates: () => templates.list(),
+    docs: sessionDocs(
+      folder === undefined
+        ? []
+        : installed.flatMap(({ manifest: { id }, on }) =>
+            on ? [{ id, folder: join(folder.root, id) }] : [],
+          ),
+    ),
   });
 
   const pluginsStop = new AbortController();

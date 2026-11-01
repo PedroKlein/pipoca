@@ -176,6 +176,8 @@ export interface SessionsOptions {
   readonly gitLogins?: (userId: string) => readonly GitLogin[];
   // The admins' Environment templates (ADR 0049).
   readonly templates?: () => readonly EnvironmentTemplate[];
+  // The docs every Session gets as files (ADR 0052).
+  readonly docs?: ProfileFiles;
 }
 
 export interface PluginProfile {
@@ -214,6 +216,7 @@ export class Sessions {
   readonly #pluginProfile: (id: string) => PluginProfile | undefined;
   readonly #gitLogins: (userId: string) => readonly GitLogin[];
   readonly #templates: () => readonly EnvironmentTemplate[];
+  readonly #docs: ProfileFiles | undefined;
   readonly #watchers = new Map<string, Set<Listener<SessionEvent>>>();
   readonly #hosts = new Map<
     string,
@@ -246,6 +249,8 @@ export class Sessions {
 
     this.#sessionPlugins =
       options.sessionPlugins ?? (() => ({ plugins: [], pluginSettings: {} }));
+
+    this.#docs = options.docs;
 
     this.#offeredModels = options.offeredModels ?? (() => ({ models: [] }));
     this.#startsRunners = options.startsRunners ?? (() => false);
@@ -1255,6 +1260,7 @@ export class Sessions {
           generation: session.generation,
           trusted: this.#trusted(session),
           profile: { id: session.profileId, hash: profile.hash },
+          ...(this.#docs && { docs: this.#docs.hash }),
           workspace: session.workspace,
           model: session.model,
           thinking: session.thinking,
@@ -1338,6 +1344,10 @@ export class Sessions {
   }
 
   // What a runner downloads for a Profile (ADR 0041).
+  docs(): ProfileFiles | undefined {
+    return this.#docs;
+  }
+
   profileFiles(id: string): ProfileFiles | undefined {
     const provided = this.#pluginProfile(id);
     if (!provided) {
