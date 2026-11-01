@@ -63,7 +63,7 @@ This applies to every Project's coordinator, the assistant's included, as Claude
 
 ### Cards stay in the history
 
-- A tool that creates or opens something, such as a Session, Project, Profile, Environment or plugin, leaves a card in the chat with its name, live state and an Open button.
+- A tool that creates or opens something, such as a Session, Project, Profile, Environment or plugin, leaves a card in the chat with its name and an Open button.
 - The card is drawn from the tool's result, so it is still there after a reload and when scrolling back. Any plugin's toolset gets it by declaring what its tool opens, as it does now.
 - On a wide screen the live action still opens the thing at once ([ADR 0035](0035-meta-sessions.md#meta-sessions-drive-the-ui)).
 

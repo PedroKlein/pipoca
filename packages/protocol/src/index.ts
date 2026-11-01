@@ -400,6 +400,9 @@ export interface ToolCall {
 export interface ToolResult {
   readonly text: string;
   readonly isError: boolean;
+  // What the tool opened, kept in its result so the chat can draw a card
+  // for it after a reload (ADR 0052).
+  readonly opened?: UiAction;
 }
 
 export interface Attempt {
