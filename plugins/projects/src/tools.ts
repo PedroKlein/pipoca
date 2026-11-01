@@ -160,7 +160,7 @@ export function projectTools(
             systemPrompt: threadPrompt(
               project,
               title,
-              projects.readMemory(project.id, "MEMORY.md"),
+              projects.readMemory(project.id, "MEMORY.md")?.content,
             ),
             firstMessage: message,
           },
@@ -353,7 +353,8 @@ export function projectTools(
     tool(
       {
         name: "memory_read",
-        description: "Read one Project memory file.",
+        description:
+          "Read one Project memory file, with the revision memory_write needs to change it.",
         parameters: object({ name: text("File name, like MEMORY.md") }, [
           "name",
         ]),
@@ -361,23 +362,28 @@ export function projectTools(
       "both",
       (input, { project }) => {
         const name = required(input, "name");
-        const content = projects.readMemory(project.id, name);
-        if (content === undefined) {
+        const file = projects.readMemory(project.id, name);
+        if (file === undefined) {
           throw new Error(`no memory file ${name}`);
         }
 
-        return content;
+        return `${name}, revision ${String(file.revision)}:\n\n${file.content}`;
       },
     ),
     tool(
       {
         name: "memory_write",
         description:
-          "Replace one Project memory file (16 KB at most). The last write wins. MEMORY.md is the index every new Project session gets in its system prompt.",
+          "Replace one Project memory file (16 KB at most). To change a file that exists, read it first and pass the revision memory_read gave; a write on top of an older revision is refused, so read again and redo your change. MEMORY.md is the index every new Project session gets in its system prompt.",
         parameters: object(
           {
             name: text("File name, like MEMORY.md or decisions.md"),
             content: text("The whole new content"),
+            revision: {
+              type: "integer",
+              description:
+                "The revision memory_read gave, for a file that exists",
+            },
           },
           ["name", "content"],
         ),
@@ -389,11 +395,14 @@ export function projectTools(
           throw new Error("file names may use letters, digits, . _ and -");
         }
 
+        const { revision } = input;
+
         projects.writeMemory(
           project.id,
           name,
           required(input, "content"),
           actor,
+          typeof revision === "number" ? revision : undefined,
         );
 
         return `Wrote ${name}.`;

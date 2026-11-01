@@ -959,6 +959,16 @@ function ProjectPage({
               <h3 className="text-label font-medium text-fg-dim">Memory</h3>
               <Memory context={context} path={path} project={project} />
             </section>
+            <StartFresh
+              context={context}
+              path={path}
+              project={project}
+              href={to}
+              onDone={() => {
+                reload();
+                go("");
+              }}
+            />
             <ArchiveProject
               context={context}
               project={project}
@@ -1459,6 +1469,75 @@ function Settings({
         </p>
       )}
     </form>
+  );
+}
+
+function StartFresh({
+  context,
+  path,
+  project,
+  href,
+  onDone,
+}: {
+  readonly context: WebContext;
+  readonly path: string;
+  readonly project: ProjectView;
+  readonly href: (where: string) => string;
+  readonly onDone: () => void;
+}): ReactElement {
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <section
+      aria-label="Coordinator"
+      className="flex flex-col items-start gap-2"
+    >
+      <p className="text-caption text-fg-dim">
+        A fresh coordinator starts with an empty context and a handoff: the
+        latest messages, the threads and memory. This happens by itself when the
+        coordinator&apos;s context fills up.
+      </p>
+      <Button
+        disabled={busy || project.coordinatorState === "archived"}
+        onClick={() => {
+          setError("");
+          setBusy(true);
+
+          ok(context.request(`${path}/fresh`, { method: "POST" }))
+            .then(onDone, (failure: unknown) => {
+              setError(
+                failure instanceof Error ? failure.message : String(failure),
+              );
+            })
+            .finally(() => {
+              setBusy(false);
+            });
+        }}
+      >
+        <Icon name="plus" />
+        Start fresh
+      </Button>
+      {project.formerCoordinators.length > 0 && (
+        <ul className="flex flex-col gap-0.5 text-caption">
+          {project.formerCoordinators.toReversed().map((sessionId, index) => (
+            <li key={sessionId}>
+              <a
+                href={href(`${sessionId}/full`)}
+                className="text-fg-dim hover:text-fg hover:underline"
+              >
+                Earlier conversation {project.formerCoordinators.length - index}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+      {error !== "" && (
+        <p role="alert" className="text-caption text-failed">
+          {error}
+        </p>
+      )}
+    </section>
   );
 }
 

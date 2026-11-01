@@ -15,6 +15,7 @@ import { type Actor, checkoutName } from "@pipoca/protocol";
 import { type ProjectSummary, type ProjectView, workStates } from "./model";
 import {
   coordinatorPrompt,
+  handoffText,
   runState,
   threadNotice,
   threadView,
@@ -29,7 +30,13 @@ import {
 } from "./projects";
 import { modelRef, projectTools } from "./tools";
 import { projectsToolset } from "./toolset";
-import { lastReply, messagedCoordinator, turnError } from "./transcript";
+import {
+  compacted,
+  lastReply,
+  messagedCoordinator,
+  recentChat,
+  turnError,
+} from "./transcript";
 
 // The settings a Project can change after it starts. Null takes its Profile
 // away.
@@ -108,6 +115,25 @@ export const projects: ServerPlugin = {
             kind: "turn",
             threadId: thread.sessionId,
             ...(transcriptLength !== undefined && { end: transcriptLength }),
+          });
+        }
+      }
+    });
+
+    // Once Pi compacts a coordinator's context, a fresh coordinator takes
+    // over from a handoff, as Claude Code's does (ADR 0052).
+    context.events.subscribe("TurnEnded", ({ session }) => {
+      const project = coordinated(store, session.id);
+      if (
+        project?.coordinatorId === session.id &&
+        compacted(context.sessions.transcript(session.id))
+      ) {
+        try {
+          startFresh(project, store, context);
+        } catch (error) {
+          context.log("could not start a fresh coordinator", {
+            project: project.id,
+            error: String(error),
           });
         }
       }
@@ -394,8 +420,14 @@ async function route(
     );
   }
 
+  if (project && child === "fresh" && request.method === "POST") {
+    return Response.json(
+      view(startFresh(project, store, context), store, context),
+    );
+  }
+
   if (project && child === "memory" && name !== undefined) {
-    const content = store.readMemory(project.id, decoded(name));
+    const content = store.readMemory(project.id, decoded(name))?.content;
 
     if (content === undefined) {
       throw new NotFound(`no memory file ${name}`);
@@ -574,6 +606,79 @@ function create(
   return project;
 }
 
+// The old coordinator is archived but stays readable, and what waited for it
+// goes to the new one.
+function startFresh(
+  project: Project,
+  store: ProjectStore,
+  { sessions, log }: ServerPluginContext,
+): Project {
+  const previous = sessions.get(project.coordinatorId);
+
+  const handoff = handoffText(
+    recentChat(sessions.transcript(project.coordinatorId)),
+    store
+      .threads(project.id)
+      .map((thread) => threadView(thread, sessions.get(thread.sessionId))),
+  );
+
+  let coordinator;
+  try {
+    const environment = previous?.environmentId ?? project.environmentId;
+    const profile = previous?.profileId ?? project.profileId;
+
+    coordinator = sessions.start(
+      {
+        ...(previous?.model && { model: previous.model }),
+        actor: `user:${project.ownerId}`,
+        ...(environment !== null && { environment }),
+        ...(profile !== null && { profile }),
+        workspace: {
+          kind: "repositories",
+          repositories: project.repositories.map((repository) => ({
+            repository,
+          })),
+        },
+        // In the system prompt, since Pi keeps no context message in a
+        // Session's file before its first reply.
+        systemPrompt: `${coordinatorPrompt(
+          project,
+          store.readMemory(project.id, "MEMORY.md")?.content,
+        )}\n\n${handoff}`,
+      },
+      project.id,
+    );
+  } catch (error) {
+    throw new BadRequest((error as Error).message);
+  }
+
+  store.replaceCoordinator(project, {
+    sessionId: coordinator.id,
+    projectId: project.id,
+    role: "coordinator",
+    title: "Coordinator",
+    workState: "in_progress",
+    lastActivity: new Date().toISOString(),
+  });
+
+  try {
+    sessions.archive(project.coordinatorId);
+  } catch (error) {
+    log("could not archive the coordinator a fresh one replaced", {
+      sessionId: project.coordinatorId,
+      error: String(error),
+    });
+  }
+
+  log("fresh coordinator started", {
+    project: project.id,
+    previous: project.coordinatorId,
+    coordinator: coordinator.id,
+  });
+
+  return store.get(project.id) ?? project;
+}
+
 // A Project is its starter's alone (ADR 0049). One from before Projects
 // had a person is an admin's.
 function theirs(
@@ -634,6 +739,9 @@ function view(
     threadModel: project.threadModel,
     coordinatorId: project.coordinatorId,
     coordinatorState: runState(sessions.get(project.coordinatorId)),
+    formerCoordinators: store
+      .formers(project.id)
+      .map(({ sessionId }) => sessionId),
     threads: store
       .threads(project.id)
       .map((thread) => threadView(thread, sessions.get(thread.sessionId))),

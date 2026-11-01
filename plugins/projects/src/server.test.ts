@@ -1266,3 +1266,120 @@ test("keeps each Project to the person who started it (ADR 0049)", async () => {
 
   expect((await projectView(kernel)).name).toBe("Release");
 });
+
+async function startFresh(kernel: FakeKernel): Promise<ProjectView> {
+  const { id } = await projectView(kernel);
+
+  const response = await kernel.route()(
+    new Request(`http://pipoca/projects/${id}/fresh`, { method: "POST" }),
+    `projects/${id}/fresh`,
+    pedro,
+  );
+
+  expect(response.status).toBe(200);
+
+  return (await response.json()) as ProjectView;
+}
+
+test("starts a fresh coordinator with a handoff and keeps the old one readable", async () => {
+  const kernel = fakeKernel();
+  projects.register(kernel.context);
+  const { coordinatorId, threadId } = await startProject(kernel);
+
+  await kernel
+    .tool("memory_write")
+    .run(
+      { name: "MEMORY.md", content: "- ships on Fridays" },
+      { session: kernel.session(coordinatorId), actor: user },
+    );
+
+  kernel.transcripts
+    .get(coordinatorId)
+    ?.push(userLine("ship v2 next week"), replyLine("Started Bump version."));
+
+  const fresh = await startFresh(kernel);
+  const next = kernel.session(fresh.coordinatorId);
+
+  expect(fresh.coordinatorId).not.toBe(coordinatorId);
+  expect(fresh.formerCoordinators).toEqual([coordinatorId]);
+  expect(kernel.session(coordinatorId).archivedAt).not.toBeNull();
+  expect(fresh.threads.map(({ sessionId }) => sessionId)).toEqual([threadId]);
+  expect(next.systemPrompt).toContain("ships on Fridays");
+  expect(next.owner?.key).toBe(fresh.id);
+
+  expect(next.systemPrompt).toContain("ship v2 next week");
+  expect(next.systemPrompt).toContain("Started Bump version.");
+  expect(next.systemPrompt).toContain(`Bump version (${threadId})`);
+
+  turn(kernel, threadId, [replyLine("Bumped.")]);
+  await until(() => kernel.delivered.length > 0);
+
+  const listThreads = kernel.tool("list_threads");
+
+  expect(kernel.delivered[0]?.text).toContain("Bumped.");
+  expect(listThreads.appliesTo(kernel.session(coordinatorId))).toBe(false);
+  expect(listThreads.appliesTo(next)).toBe(true);
+}, 10_000);
+
+test("starts a fresh coordinator once Pi compacts the old one's context", async () => {
+  const kernel = fakeKernel();
+  projects.register(kernel.context);
+  const { coordinatorId } = await startProject(kernel);
+
+  turn(kernel, coordinatorId, [
+    userLine("first ask"),
+    JSON.stringify({
+      type: "compaction",
+      summary: "The user wants v2 shipped.",
+      firstKeptEntryId: null,
+    }),
+    userLine("latest ask"),
+    replyLine("On it."),
+  ]);
+
+  const view = await projectView(kernel);
+  expect(view.formerCoordinators).toEqual([coordinatorId]);
+
+  const text = kernel.session(view.coordinatorId).systemPrompt ?? "";
+  expect(text).toContain("The user wants v2 shipped.");
+  expect(text).toContain("latest ask");
+  expect(text).not.toContain("first ask");
+}, 10_000);
+
+test("refuses a memory write made on top of a revision that changed since", async () => {
+  const kernel = fakeKernel();
+  projects.register(kernel.context);
+  const { coordinatorId, threadId } = await startProject(kernel);
+
+  const coordinator = { session: kernel.session(coordinatorId), actor: user };
+  const thread = { session: kernel.session(threadId), actor: user };
+  const write = kernel.tool("memory_write");
+
+  await write.run({ name: "MEMORY.md", content: "one" }, coordinator);
+
+  const read = await kernel
+    .tool("memory_read")
+    .run({ name: "MEMORY.md" }, thread);
+
+  expect(read.text).toContain("revision 1");
+
+  const blind = await write.run({ name: "MEMORY.md", content: "two" }, thread);
+
+  const first = await write.run(
+    { name: "MEMORY.md", content: "two", revision: 1 },
+    thread,
+  );
+
+  const stale = await write.run(
+    { name: "MEMORY.md", content: "three", revision: 1 },
+    coordinator,
+  );
+
+  expect([blind.isError, first.isError, stale.isError]).toEqual([
+    true,
+    false,
+    true,
+  ]);
+
+  expect(stale.text).toContain("revision 2");
+}, 10_000);

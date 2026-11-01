@@ -71,6 +71,11 @@ interface MemberRow {
 
 const memoryLimit = 16 * 1024;
 
+export interface MemoryFile {
+  readonly content: string;
+  readonly revision: number;
+}
+
 export interface ProjectStore {
   readonly create: (project: Project) => void;
   readonly list: () => readonly Project[];
@@ -85,15 +90,22 @@ export interface ProjectStore {
   readonly addMember: (member: Member) => void;
   readonly member: (sessionId: string) => Member | undefined;
   readonly threads: (projectId: string) => readonly Member[];
+  readonly formers: (projectId: string) => readonly Member[];
+  readonly replaceCoordinator: (project: Project, next: Member) => void;
   readonly setWorkState: (sessionId: string, state: WorkState) => void;
   readonly touch: (sessionId: string) => void;
   readonly memory: (projectId: string) => readonly MemoryFileView[];
-  readonly readMemory: (projectId: string, name: string) => string | undefined;
+  readonly readMemory: (
+    projectId: string,
+    name: string,
+  ) => MemoryFile | undefined;
+  // A file that exists changes only on top of the revision it is at.
   readonly writeMemory: (
     projectId: string,
     name: string,
     content: string,
     actor: Actor,
+    revision?: number,
   ) => void;
   readonly enqueue: (
     sessionId: string,
@@ -147,6 +159,16 @@ export function projectStore(
     primary key (project_id, name)
   )`);
 
+  const memoryColumns = store.all("pragma table_info(projects_memory)") as {
+    name: string;
+  }[];
+
+  if (!memoryColumns.some(({ name }) => name === "revision")) {
+    store.exec(
+      "alter table projects_memory add column revision integer not null default 1",
+    );
+  }
+
   store.exec(`create table if not exists projects_memory_log (
     project_id text not null,
     name text not null,
@@ -195,6 +217,37 @@ export function projectStore(
       store.run("delete from projects_outbox where id = ?", id);
       deliveredIds.delete(id);
     }
+  };
+
+  const moveToCoordinator = (project: Project, next: Member): void => {
+    store.run(
+      "update projects_outbox set session_id = ? where session_id = ?",
+      next.sessionId,
+      project.coordinatorId,
+    );
+
+    store.run(
+      "update projects_members set role = 'former' where session_id = ?",
+      project.coordinatorId,
+    );
+
+    store.run(
+      "update projects_projects set coordinator_id = ? where id = ?",
+      next.sessionId,
+      project.id,
+    );
+
+    store.run(
+      `insert into projects_members
+        (session_id, project_id, role, title, work_state, last_activity)
+        values (?, ?, ?, ?, ?, ?)`,
+      next.sessionId,
+      next.projectId,
+      next.role,
+      next.title,
+      next.workState,
+      next.lastActivity,
+    );
   };
 
   return {
@@ -274,6 +327,29 @@ export function projectStore(
           projectId,
         ) as MemberRow[]
       ).map(toMember),
+    formers: (projectId) =>
+      (
+        store.all(
+          `select * from projects_members
+            where project_id = ? and role = 'former'
+            order by rowid`,
+          projectId,
+        ) as MemberRow[]
+      ).map(toMember),
+    // What waits for the old coordinator goes to the new one.
+    replaceCoordinator: (project, next) => {
+      store.exec("begin immediate");
+
+      try {
+        moveToCoordinator(project, next);
+        store.exec("commit");
+      } catch (error) {
+        store.exec("rollback");
+        throw error;
+      }
+
+      memberAdded(next);
+    },
     setWorkState: (sessionId, state) => {
       store.run(
         "update projects_members set work_state = ? where session_id = ?",
@@ -303,14 +379,14 @@ export function projectStore(
       })),
     readMemory: (projectId, name) => {
       const [row] = store.all(
-        "select content from projects_memory where project_id = ? and name = ?",
+        "select content, revision from projects_memory where project_id = ? and name = ?",
         projectId,
         name,
-      ) as { content: string }[];
+      ) as MemoryFile[];
 
-      return row?.content;
+      return row;
     },
-    writeMemory: (projectId, name, content, actor) => {
+    writeMemory: (projectId, name, content, actor, revision) => {
       const size = new TextEncoder().encode(content).length;
 
       if (size > memoryLimit) {
@@ -319,15 +395,28 @@ export function projectStore(
         );
       }
 
+      const [current] = store.all(
+        "select revision from projects_memory where project_id = ? and name = ?",
+        projectId,
+        name,
+      ) as { revision: number }[];
+
+      if (current !== undefined && current.revision !== revision) {
+        throw new Error(
+          `${name} is at revision ${String(current.revision)}: read it, then write your change on top of what it says now`,
+        );
+      }
+
       const at = new Date().toISOString();
 
       store.run(
-        `insert into projects_memory (project_id, name, content, updated_at, actor)
-          values (?, ?, ?, ?, ?)
+        `insert into projects_memory (project_id, name, content, updated_at, actor, revision)
+          values (?, ?, ?, ?, ?, 1)
           on conflict (project_id, name) do update set
             content = excluded.content,
             updated_at = excluded.updated_at,
-            actor = excluded.actor`,
+            actor = excluded.actor,
+            revision = revision + 1`,
         projectId,
         name,
         content,

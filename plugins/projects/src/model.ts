@@ -11,7 +11,8 @@ export type WorkState = (typeof workStates)[number];
 export type RunState =
   "working" | "waiting" | "idle" | "offline" | "interrupted" | "archived";
 
-export type Role = "coordinator" | "thread";
+// A former coordinator was swapped for a fresh one and stays readable.
+export type Role = "coordinator" | "thread" | "former";
 
 export interface ProjectSummary {
   readonly id: string;
@@ -56,6 +57,8 @@ export interface ProjectView {
   readonly threadModel: string | null;
   readonly coordinatorId: string;
   readonly coordinatorState: RunState;
+  // Earlier coordinators, oldest first.
+  readonly formerCoordinators: readonly string[];
   readonly threads: readonly ThreadView[];
   readonly memory: readonly MemoryFileView[];
 }
