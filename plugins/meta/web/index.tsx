@@ -62,7 +62,7 @@ function titleOf(session: Session): string {
 
 function Home({ context, onNewSession }: HomeProps): ReactElement {
   // Once the assistant exists, its own chat switches models.
-  const assistant = useAssistant(context);
+  const assistant = useAssistantLoad(context);
 
   const environments = useLoaded(
     async () => json<Environment[]>(context.request("/api/environments")),
@@ -78,7 +78,7 @@ function Home({ context, onNewSession }: HomeProps): ReactElement {
         <Composer
           context={context}
           models={modelNames(environments)}
-          picksModel={assistant === undefined}
+          picksModel={typeof assistant !== "string"}
         />
       )}
       <Continue context={context} />
@@ -88,7 +88,7 @@ function Home({ context, onNewSession }: HomeProps): ReactElement {
           Start a session yourself
         </Button>
       </div>
-      <Recent context={context} />
+      {assistant === null && <Recent context={context} />}
     </div>
   );
 }
@@ -299,19 +299,22 @@ function projectHref(id: string): string {
 
 // The person's assistant Project, or undefined before their first ask.
 function useAssistant(context: WebContext): string | undefined {
-  return (
-    useLoaded(
-      async () => {
-        const response = await context.request(assistantPath);
+  return useAssistantLoad(context) ?? undefined;
+}
 
-        return response.ok
-          ? (await json<{ id: string }>(Promise.resolve(response))).id
-          : null;
-      },
-      "assistant",
-      { topics: ["projects.projects"] },
-    ).value ?? undefined
-  );
+// Undefined while loading, null when the person has no assistant yet.
+function useAssistantLoad(context: WebContext): string | null | undefined {
+  return useLoaded(
+    async () => {
+      const response = await context.request(assistantPath);
+
+      return response.ok
+        ? (await json<{ id: string }>(Promise.resolve(response))).id
+        : null;
+    },
+    "assistant",
+    { topics: ["projects.projects"] },
+  ).value;
 }
 
 function Continue({ context }: { readonly context: WebContext }): ReactElement {
@@ -330,8 +333,31 @@ function Continue({ context }: { readonly context: WebContext }): ReactElement {
   );
 }
 
+// Meta-sessions from before the assistant was a Project stay reachable,
+// behind one link, once it is.
+const earlier = "earlier";
+
 function Items({ context, path }: NavItemsProps): ReactElement {
   const sessions = useMetaSessions(context);
+  const assistant = useAssistant(context);
+
+  if (assistant !== undefined) {
+    return sessions.length === 0 ? (
+      <></>
+    ) : (
+      <ul className="flex flex-col gap-0.5">
+        <li>
+          <a
+            href={context.href(earlier)}
+            aria-current={path === earlier ? "page" : undefined}
+            className="block truncate rounded-md py-1.5 pr-2 pl-10.5 text-label text-fg-dim hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:text-fg-strong"
+          >
+            Earlier conversations
+          </a>
+        </li>
+      </ul>
+    );
+  }
 
   return (
     <ul className="flex flex-col gap-0.5">
@@ -352,6 +378,10 @@ function Items({ context, path }: NavItemsProps): ReactElement {
 
 function Page({ context, path }: PageProps): ReactElement {
   if (path === "") {
+    return <Opening context={context} />;
+  }
+
+  if (path === earlier) {
     return <Conversations context={context} />;
   }
 
@@ -366,6 +396,19 @@ function Page({ context, path }: PageProps): ReactElement {
       }
     />
   );
+}
+
+// The Assistant entry opens the person's assistant Project once it exists.
+function Opening({ context }: { readonly context: WebContext }): ReactElement {
+  const assistant = useAssistantLoad(context);
+
+  useEffect(() => {
+    if (typeof assistant === "string") {
+      location.replace(projectHref(assistant));
+    }
+  }, [assistant]);
+
+  return assistant === null ? <Conversations context={context} /> : <></>;
 }
 
 function Conversations({

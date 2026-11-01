@@ -325,8 +325,19 @@ test("chats from Pi's own TUI and goes back to the chat when Pi quits", async ()
 }, 30_000);
 
 test("asks the assistant from the home screen with the model picked, then continues there", async () => {
-  faux.setResponses([fauxAssistantMessage([fauxText("Happy to help")])]);
+  faux.setResponses([
+    fauxAssistantMessage([fauxText("From before")]),
+    fauxAssistantMessage([fauxText("Happy to help")]),
+  ]);
+
+  await fetch(new URL("/api/plugins/meta/sessions", server.url), {
+    method: "POST",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ text: "An older question" }),
+  });
+
   await page.goto(server.url.href);
+  await page.getByRole("heading", { name: "Earlier conversations" }).waitFor();
 
   await page
     .getByRole("heading", { name: "What do you want to build today?" })
@@ -349,7 +360,8 @@ test("asks the assistant from the home screen with the model picked, then contin
     .locator('#chat li[data-role="assistant"]', { hasText: "Happy to help" })
     .waitFor();
 
-  expect(new URL(page.url()).hash).toMatch(/^#plugin\/projects\/[\w-]+$/);
+  const projectHash = new URL(page.url()).hash;
+  expect(projectHash).toMatch(/^#plugin\/projects\/[\w-]+$/);
 
   const assistant = (await (
     await fetch(new URL("/api/plugins/projects/assistant", server.url), {
@@ -375,6 +387,16 @@ test("asks the assistant from the home screen with the model picked, then contin
     .waitFor();
 
   expect(await model.count()).toBe(0);
+
+  expect(
+    await page.getByRole("heading", { name: "Earlier conversations" }).count(),
+  ).toBe(0);
+
+  await page.getByRole("link", { name: "Earlier conversations" }).click();
+  await page.getByRole("link", { name: "An older question" }).waitFor();
+
+  await page.getByRole("link", { name: "Assistant", exact: true }).click();
+  await page.waitForURL((url) => url.hash === projectHash);
 }, 30_000);
 
 test("goes where the assistant opens on a wide screen, and offers it on a phone", async () => {
