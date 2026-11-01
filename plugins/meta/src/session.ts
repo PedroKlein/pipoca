@@ -5,6 +5,7 @@ import {
   type SessionPlugin,
 } from "@pipoca/plugins";
 import type { PermissionDetail } from "@pipoca/protocol";
+import { installTools } from "./install";
 
 // tool_search only loads tools, but carries no hints.
 const readers = new Set(["tool_search"]);
@@ -15,13 +16,17 @@ const readers = new Set(["tool_search"]);
 export const metaSession: SessionPlugin = {
   name: "meta",
   ownSessionsOnly: true,
+  tools: installTools,
   extension: (cloud) => (pi) => {
     const allowed = new Set<string>();
 
     pi.on("tool_call", async (event, ctx) => {
       const tool = toolOf(pi, event.toolName);
 
-      if (!destructive(event.toolName, tool) || allowed.has(event.toolName)) {
+      if (
+        !destructive(event.toolName, tool, event.input) ||
+        allowed.has(event.toolName)
+      ) {
         return undefined;
       }
 
@@ -46,11 +51,20 @@ function toolOf(pi: ExtensionAPI, name: string): ToolInfo | undefined {
   return pi.getAllTools().find((tool) => tool.name === name);
 }
 
-function destructive(name: string, tool: ToolInfo | undefined): boolean {
+// A new Profile is the person's own, so making one asks nothing; writing
+// into one they have does.
+function destructive(
+  name: string,
+  tool: ToolInfo | undefined,
+  input: unknown,
+): boolean {
   const hints = tool?.annotations;
 
   return !(
     readers.has(name) ||
+    (name === "install_profile" &&
+      isObject(input) &&
+      input["id"] === undefined) ||
     hints?.readOnlyHint === true ||
     hints?.destructiveHint === false
   );
@@ -63,6 +77,12 @@ async function question(
   name: string,
   input: unknown,
 ): Promise<string> {
+  const own = ownQuestion(name, input);
+
+  if (own !== undefined) {
+    return own;
+  }
+
   try {
     const response = await cloud.request("asks", {
       method: "POST",
@@ -83,6 +103,21 @@ async function question(
   }
 
   return `Let the assistant run “${name.replaceAll("_", " ")}”?`;
+}
+
+function ownQuestion(name: string, input: unknown): string | undefined {
+  const field = (key: string): string =>
+    isObject(input) && typeof input[key] === "string" ? input[key] : "";
+
+  if (name === "install_profile") {
+    return `Write the files of ${field("path")} into the Profile ${field("id")}?`;
+  }
+
+  if (name === "install_plugin") {
+    return `Install the plugin “${field("plugin")}” from ${field("path")}? It stays off until an admin turns it on.`;
+  }
+
+  return undefined;
 }
 
 // What the call would change, as labelled values. Ids and empty fields say

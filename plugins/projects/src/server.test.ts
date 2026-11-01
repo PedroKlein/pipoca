@@ -200,6 +200,7 @@ function fakeKernel(): {
       register: () => undefined,
       loadInOwnSessions: () => undefined,
       asks: async () => Promise.resolve(undefined),
+      call: async () => Promise.resolve({ text: "", isError: false }),
     },
     routes: {
       handle: (handler) => {

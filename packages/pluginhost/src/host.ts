@@ -387,6 +387,10 @@ export function startPlugins(
     routeTools.set(tool.spec.name, tool);
   }
 
+  // What the model and MCP clients see; internal tools are for plugins.
+  const modelTools = (): ToolsetTool[] =>
+    [...routeTools.values()].filter(({ tool }) => tool.internal !== true);
+
   const loadsToolsets = (session: Session): boolean =>
     toolsetUsers.has(deps.sessions.powersOf(session) ?? "");
 
@@ -465,6 +469,24 @@ export function startPlugins(
               return (
                 found && routeToolQuestion(found, input, ownerOf(session), deps)
               );
+            },
+            call: async (session, name, input) => {
+              const found = loadsToolsets(session)
+                ? routeTools.get(name)
+                : undefined;
+
+              return found === undefined
+                ? { text: `no tool named ${name}`, isError: true }
+                : runRouteTool(
+                    found,
+                    input,
+                    ownerOf(session),
+                    deps,
+                    () => undefined,
+                  ).catch((error: unknown) => ({
+                    text: String(error),
+                    isError: true,
+                  }));
             },
           },
           events: {
@@ -853,9 +875,7 @@ export function startPlugins(
       ...[...tools.values()]
         .filter(({ tool }) => tool.appliesTo(session))
         .map(({ tool: { appliesTo: _appliesTo, run: _run, ...spec } }) => spec),
-      ...(loadsToolsets(session)
-        ? [...routeTools.values()].map(({ spec }) => spec)
-        : []),
+      ...(loadsToolsets(session) ? modelTools().map(({ spec }) => spec) : []),
     ],
     call: (session, call) => {
       const actor: Actor = `session:${session.id}`;
@@ -868,7 +888,7 @@ export function startPlugins(
       });
 
       const routed = loadsToolsets(session)
-        ? routeTools.get(call.name)
+        ? modelTools().find(({ spec }) => spec.name === call.name)
         : undefined;
 
       const found = tools.get(call.name);
@@ -910,9 +930,9 @@ export function startPlugins(
           });
         });
     },
-    toolsetTools: () => [...routeTools.values()].map(({ spec }) => spec),
+    toolsetTools: () => modelTools().map(({ spec }) => spec),
     callToolset: async (name, input, actor) => {
-      const found = routeTools.get(name);
+      const found = modelTools().find(({ spec }) => spec.name === name);
 
       return found === undefined
         ? { text: `no tool named ${name}`, isError: true }

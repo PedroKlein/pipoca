@@ -96,6 +96,9 @@ export interface RouteTool extends Omit<ToolSpec, "namespace"> {
   // marked not destructive, such as Archive “Fix login”?. lookup is a GET
   // path whose reply text gets, to name what the call changes; text gets
   // undefined when that fails.
+  // Only plugins call it, through toolsets.call, never the model or an MCP
+  // client, such as a step of a tool a Session part runs (ADR 0052).
+  readonly internal?: boolean;
   readonly asks?: {
     readonly lookup?: (input: Readonly<Record<string, unknown>>) => string;
     readonly text: (
@@ -233,6 +236,13 @@ export interface ServerPluginContext {
       name: string,
       input: unknown,
     ) => Promise<string | undefined>;
+    // Runs a toolset tool, internal ones too, as a Session that loads
+    // toolsets would, acting for the person who started it.
+    readonly call: (
+      session: Session,
+      name: string,
+      input: unknown,
+    ) => Promise<ToolResult>;
   };
   readonly events: {
     readonly publish: (event: PluginEvent) => void;

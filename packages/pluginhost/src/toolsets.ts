@@ -67,7 +67,7 @@ const profileFields = {
   settings: { type: "object", description: "Pi settings" },
 };
 
-const pluginInstructions = `An in-place plugin is a folder in the server's plugins folder, named by its id (lowercase letters, digits and dashes). Write its files with plugins_write_file, then plugins_build to check it builds. You never turn a plugin on: tell the user to turn it on on the Plugins page and restart the server, since its code then runs in the server and on runners. A plugin that is turned on can't be changed until the user turns it off. After writing, always build, then tell the user in a sentence what you wrote, whether it builds, and that they turn it on on the Plugins page; if a tool refuses, say why.
+const pluginInstructions = `An in-place plugin is a folder in the server's plugins folder, named by its id (lowercase letters, digits and dashes). Write its files in a folder of your workspace, then install it with install_plugin, which writes them and builds the plugin. You never turn a plugin on: tell the user to turn it on on the Plugins page and restart the server, since its code then runs in the server and on runners. A plugin that is turned on can't be changed until the user turns it off. After installing, tell the user in a sentence what you wrote, whether it builds, and that they turn it on on the Plugins page; if a tool refuses, say why.
 
 Its package.json has "type": "module", any npm "dependencies" its parts import, and a "pipoca" field:
 - id (the folder's name), title, description, engine: 1, and an optional version;
@@ -340,6 +340,22 @@ export const kernelToolsets: readonly Toolset[] = [
         result: (body) => profileView(body as Profile),
       },
       {
+        name: "upload",
+        description:
+          "Write files into a Profile's folder, as { path: base64 content }.",
+        internal: true,
+        parameters: object(
+          { id: { type: "string" }, files: { type: "object" } },
+          ["id", "files"],
+        ),
+        annotations: { destructiveHint: true },
+        request: (input) => ({
+          method: "POST",
+          path: `/api/profiles/${idOf(input)}/files`,
+          body: picked(input, ["files"]),
+        }),
+      },
+      {
         name: "make_default",
         description: "Make a Profile the one new Sessions use by default.",
         parameters: object({ id: { type: "string" } }, ["id"]),
@@ -360,7 +376,7 @@ export const kernelToolsets: readonly Toolset[] = [
     namespace: {
       name: "plugins",
       description:
-        "List plugins, and write and build in-place plugins, which the user then turns on (ADR 0035).",
+        "List plugins and read their files. In-place plugins are installed with install_plugin (ADR 0052).",
       instructions: pluginInstructions,
     },
     tools: [
@@ -398,6 +414,7 @@ export const kernelToolsets: readonly Toolset[] = [
       },
       {
         name: "write_file",
+        internal: true,
         description:
           "Write a file of an in-place plugin, making the plugin when it doesn't exist yet. Nothing in it runs until the user turns it on.",
         parameters: object(
@@ -421,6 +438,7 @@ export const kernelToolsets: readonly Toolset[] = [
       },
       {
         name: "build",
+        internal: true,
         description:
           "Install an in-place plugin's dependencies and bundle its parts, to see whether it builds. None of its code runs.",
         parameters: object({ plugin: { type: "string" } }, ["plugin"]),
@@ -553,6 +571,7 @@ export function toolsetTools(toolset: Toolset, plugin?: string): ToolsetTool[] {
       result: _result,
       opens: _opens,
       asks: _asks,
+      internal: _internal,
       ...spec
     } = tool;
 

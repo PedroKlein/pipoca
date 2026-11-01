@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, realpath, rm, stat } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -728,7 +735,7 @@ test("lets the assistant read files but not run commands or change files", async
 
   expect(declared).toContain('{"name":"sessions_list"');
 
-  for (const tool of ["read", "grep", "find", "ls"]) {
+  for (const tool of ["read", "grep", "find", "ls", "install_profile"]) {
     expect(declared).toContain(`{"name":"${tool}"`);
   }
 
@@ -737,50 +744,118 @@ test("lets the assistant read files but not run commands or change files", async
   }
 });
 
-test("writes and builds an in-place plugin from a meta-session, and leaves turning it on to the user", async () => {
+test("keeps the tools that installs use away from the model", async () => {
   await server.stop();
   start(undefined, { root: join(root, "plugins"), plugins: [] });
-
-  const manifest = JSON.stringify({
-    pipoca: {
-      id: "hello",
-      title: "Hello",
-      description: "Says hi.",
-      engine: 1,
-      capabilities: ["routes"],
-      parts: { server: "server.ts" },
-    },
-  });
 
   faux.setResponses([
     call("tool_search", { query: "write a plugin file" }),
     call("plugins_write_file", {
       plugin: "hello",
       path: "package.json",
-      content: manifest,
+      content: "{}",
     }),
-    call("plugins_write_file", {
-      plugin: "hello",
-      path: "server.ts",
-      content: `export default { name: "hello", register: () => undefined };\n`,
+    fauxAssistantMessage([fauxText("tried")]),
+  ]);
+
+  const metaSession = await startMeta("Write a plugin file");
+  const events = await follow(metaSession.id, entriesInclude("tried"));
+
+  const transcript = transcriptOf(events);
+
+  expect(transcript).not.toContain("- plugins_write_file:");
+  expect(transcript).toContain("Tool plugins_write_file not found");
+});
+
+test("installs an in-place plugin from a folder after asking, and leaves turning it on to the user", async () => {
+  await server.stop();
+  start(undefined, { root: join(root, "plugins"), plugins: [] });
+
+  const folder = join(root, "work", "hello");
+  await mkdir(join(folder, "node_modules", "left-out"), { recursive: true });
+
+  await writeFile(
+    join(folder, "package.json"),
+    JSON.stringify({
+      pipoca: {
+        id: "hello",
+        title: "Hello",
+        description: "Says hi.",
+        engine: 1,
+        capabilities: ["routes"],
+        parts: { server: "server.ts" },
+      },
     }),
-    call("tool_search", { query: "build a plugin" }),
-    call("plugins_build", { plugin: "hello" }),
+  );
+
+  await writeFile(
+    join(folder, "server.ts"),
+    `export default { name: "hello", register: () => undefined };\n`,
+  );
+
+  await writeFile(join(folder, "node_modules", "left-out", "index.js"), "");
+
+  faux.setResponses([
+    call("install_plugin", { path: folder, plugin: "hello" }),
     fauxAssistantMessage([fauxText("built it")]),
   ]);
 
   const metaSession = await startMeta("Make me a hello plugin");
+  const asked = await allowNext(metaSession.id);
   const events = await follow(metaSession.id, entriesInclude("built it"));
 
   const hello = (await json<PluginInfo[]>(api("/api/plugins"))).find(
     ({ id }) => id === "hello",
   );
 
-  expect(prompts(events)).toEqual([]);
+  expect(asked.title).toBe(
+    `Install the plugin “hello” from ${folder}? It stays off until an admin turns it on.`,
+  );
+
   expect(transcriptOf(events)).toContain("It builds.");
   expect(hello).toMatchObject({ state: "off", turnedOn: false });
 
   expect(
     (await stat(join(root, "plugins", "hello", ".build"))).isDirectory(),
   ).toBe(true);
+
+  expect(
+    await json<unknown>(api("/api/plugin-files/hello")),
+  ).not.toContainEqual(expect.stringContaining("node_modules"));
+});
+
+test("installs a folder as a new Profile without asking, leaving out what isn't the Profile's", async () => {
+  const folder = join(root, "work", "dotfiles");
+  await mkdir(join(folder, "skills", "review"), { recursive: true });
+  await mkdir(join(folder, ".git"), { recursive: true });
+  await writeFile(join(folder, "AGENTS.md"), "Be brief.");
+  await writeFile(join(folder, "skills", "review", "SKILL.md"), "# Review");
+  await writeFile(join(folder, ".git", "HEAD"), "ref: main");
+
+  faux.setResponses([
+    call("install_profile", { path: folder }),
+    fauxAssistantMessage([fauxText("installed it")]),
+  ]);
+
+  const metaSession = await startMeta("Make a Profile from my dotfiles");
+  const events = await follow(metaSession.id, entriesInclude("installed it"));
+
+  const profile = (
+    await json<{ id: string; name: string }[]>(api("/api/profiles"))
+  ).find(({ name }) => name === "dotfiles");
+
+  expect(prompts(events)).toEqual([]);
+  expect(profile).toBeDefined();
+
+  expect(transcriptOf(events)).toContain(
+    `"opened":{"kind":"open","route":"profiles/${profile?.id ?? ""}","label":"dotfiles"}`,
+  );
+
+  const files = JSON.stringify(
+    await json<unknown>(api(`/api/profiles/${profile?.id ?? ""}/files`)),
+  );
+
+  expect(files).toContain("AGENTS.md");
+  expect(files).toContain("skills/review/SKILL.md");
+  expect(files).not.toContain(".git");
 });
