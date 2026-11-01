@@ -61,6 +61,8 @@ function titleOf(session: Session): string {
 }
 
 function Home({ context, onNewSession }: HomeProps): ReactElement {
+  // Once the assistant exists, its own chat switches models.
+  const assistant = useAssistant(context);
   const environments = useLoaded(
     async () => json<Environment[]>(context.request("/api/environments")),
     "environments",
@@ -72,7 +74,11 @@ function Home({ context, onNewSession }: HomeProps): ReactElement {
         What do you want to build today?
       </h1>
       {environments !== undefined && environments.length > 0 && (
-        <Composer context={context} models={modelNames(environments)} />
+        <Composer
+          context={context}
+          models={modelNames(environments)}
+          picksModel={assistant === undefined}
+        />
       )}
       <Continue context={context} />
       <div className="flex justify-center">
@@ -121,9 +127,11 @@ function Recent({ context }: { readonly context: WebContext }): ReactElement {
 function Composer({
   context,
   models,
+  picksModel,
 }: {
   readonly context: WebContext;
   readonly models: readonly string[];
+  readonly picksModel: boolean;
 }): ReactElement {
   const textId = useId();
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -148,7 +156,7 @@ function Composer({
     setSending(true);
     setError(undefined);
 
-    const ref = modelRef(model);
+    const ref = picksModel ? modelRef(model) : undefined;
 
     ask(context, text, ref).then(
       (where) => {
@@ -213,24 +221,28 @@ function Composer({
             {error}
           </p>
         )}
-        <Picker
-          label="Model"
-          quiet
-          options={[{ value: "", label: "Default model" }, ...options]}
-          {...(openGroups && { openGroups })}
-          selected={[model]}
-          {...(models.length > 6 && { placeholder: "Search models" })}
-          onChange={([name = ""]) => {
-            setModel(name);
-            remember(name);
+        {picksModel && (
+          <Picker
+            label="Model"
+            quiet
+            options={[{ value: "", label: "Default model" }, ...options]}
+            {...(openGroups && { openGroups })}
+            selected={[model]}
+            {...(models.length > 6 && { placeholder: "Search models" })}
+            onChange={([name = ""]) => {
+              setModel(name);
+              remember(name);
 
-            if (name !== "") {
-              rememberModel(name);
-            }
-          }}
-        >
-          {model === "" ? "Default model" : model.slice(model.indexOf("/") + 1)}
-        </Picker>
+              if (name !== "") {
+                rememberModel(name);
+              }
+            }}
+          >
+            {model === ""
+              ? "Default model"
+              : model.slice(model.indexOf("/") + 1)}
+          </Picker>
+        )}
         <Button
           variant="primary"
           iconOnly
