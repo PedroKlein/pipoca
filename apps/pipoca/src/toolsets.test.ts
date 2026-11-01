@@ -424,6 +424,80 @@ test("gives another plugin's Session on a toolset plugin's shared Profile its to
   expect((await api("/api/plugins/stranger/start", {})).ok).toBe(false);
 });
 
+test("runs the person's assistant as a Project of their own, on the assistant's Profiles", async () => {
+  const seen = { coordinator: "", thread: "" };
+
+  faux.setResponses([
+    (context) => {
+      seen.coordinator = JSON.stringify(context);
+
+      return call("start_thread", {
+        title: "Build a Profile",
+        message: "Build it",
+      });
+    },
+    fauxAssistantMessage([fauxText("thread started")]),
+    (context) => {
+      seen.thread = JSON.stringify(context);
+
+      return fauxAssistantMessage([fauxText("built")]);
+    },
+    fauxAssistantMessage([fauxText("noted")]),
+    fauxAssistantMessage([fauxText("second ask")]),
+  ]);
+
+  await environmentReady();
+
+  const asked = {
+    profile: "meta.assistant",
+    threadProfile: "meta.builder",
+  };
+
+  const assistant = await json<{
+    id: string;
+    coordinatorId: string;
+    assistant: boolean;
+    repositories: string[];
+  }>(
+    api("/api/plugins/projects/assistant", {
+      ...asked,
+      text: "Build me a Profile",
+    }),
+  );
+
+  expect(assistant.assistant).toBe(true);
+  expect(assistant.repositories).toEqual([]);
+
+  await follow(assistant.coordinatorId, entriesInclude("thread started"));
+
+  expect(seen.coordinator).toContain("You are Pipoca's assistant.");
+  expect(seen.coordinator).toContain("coordinator of their assistant Project");
+  expect(seen.coordinator).toContain('{"name":"sessions_list"');
+  expect(seen.coordinator).not.toContain('{"name":"bash"');
+
+  const [thread] = (
+    await json<{ threads: { sessionId: string }[] }>(
+      api(`/api/plugins/projects/projects/${assistant.id}`),
+    )
+  ).threads;
+
+  await follow(thread?.sessionId ?? "", entriesInclude("built"));
+
+  expect(seen.thread).toContain("thread of the person's Pipoca assistant");
+  expect(seen.thread).toContain('{"name":"bash"');
+  expect(seen.thread).toContain('{"name":"sessions_list"');
+
+  expect(await json<unknown[]>(api("/api/plugins/projects/projects"))).toEqual(
+    [],
+  );
+
+  const again = await json<{ id: string }>(
+    api("/api/plugins/projects/assistant", { ...asked, text: "And another" }),
+  );
+
+  expect(again.id).toBe(assistant.id);
+}, 20_000);
+
 test("shows a Profile's MCP servers by name only", async () => {
   await api("/api/profiles", {
     name: "With MCP",
@@ -638,7 +712,7 @@ test("opens a Session on request without asking, and only routes of the app", as
   ]);
 });
 
-test("gives a meta-session no tools that reach the runner's files or shell", async () => {
+test("lets the assistant read files but not run commands or change files", async () => {
   let declared = "";
 
   faux.setResponses([
@@ -654,7 +728,11 @@ test("gives a meta-session no tools that reach the runner's files or shell", asy
 
   expect(declared).toContain('{"name":"sessions_list"');
 
-  for (const tool of ["read", "bash", "edit", "write"]) {
+  for (const tool of ["read", "grep", "find", "ls"]) {
+    expect(declared).toContain(`{"name":"${tool}"`);
+  }
+
+  for (const tool of ["bash", "edit", "write"]) {
     expect(declared).not.toContain(`{"name":"${tool}"`);
   }
 });

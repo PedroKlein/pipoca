@@ -25,6 +25,10 @@ const started = new EventTarget();
 
 const modelKey = "pipoca.meta.model";
 
+// The assistant is a Project of the person's own, with this plugin's
+// Profiles for its coordinator and threads (ADR 0052).
+const assistantPath = "/api/plugins/projects/assistant";
+
 export const meta: WebPlugin = {
   name: "meta",
   nav: { label: "Assistant", Page, Items, fills: (path) => path !== "" },
@@ -57,6 +61,9 @@ function titleOf(session: Session): string {
 }
 
 function Home({ context, onNewSession }: HomeProps): ReactElement {
+  // Once the assistant exists, its own chat switches models.
+  const assistant = useAssistant(context);
+
   const environments = useLoaded(
     async () => json<Environment[]>(context.request("/api/environments")),
     "environments",
@@ -68,8 +75,13 @@ function Home({ context, onNewSession }: HomeProps): ReactElement {
         What do you want to build today?
       </h1>
       {environments !== undefined && environments.length > 0 && (
-        <Composer context={context} models={modelNames(environments)} />
+        <Composer
+          context={context}
+          models={modelNames(environments)}
+          picksModel={assistant === undefined}
+        />
       )}
+      <Continue context={context} />
       <div className="flex justify-center">
         <Button variant="ghost" onClick={onNewSession}>
           <Icon name="plus" />
@@ -116,9 +128,11 @@ function Recent({ context }: { readonly context: WebContext }): ReactElement {
 function Composer({
   context,
   models,
+  picksModel,
 }: {
   readonly context: WebContext;
   readonly models: readonly string[];
+  readonly picksModel: boolean;
 }): ReactElement {
   const textId = useId();
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -143,17 +157,11 @@ function Composer({
     setSending(true);
     setError(undefined);
 
-    const ref = modelRef(model);
+    const ref = picksModel ? modelRef(model) : undefined;
 
-    json<Session>(
-      context.request("sessions", {
-        method: "POST",
-        body: JSON.stringify({ text, ...(ref && { model: ref }) }),
-      }),
-    ).then(
-      (session) => {
-        started.dispatchEvent(new Event("started"));
-        location.hash = context.href(session.id);
+    ask(context, text, ref).then(
+      (where) => {
+        location.hash = where;
       },
       (reason: unknown) => {
         setSending(false);
@@ -214,24 +222,28 @@ function Composer({
             {error}
           </p>
         )}
-        <Picker
-          label="Model"
-          quiet
-          options={[{ value: "", label: "Default model" }, ...options]}
-          {...(openGroups && { openGroups })}
-          selected={[model]}
-          {...(models.length > 6 && { placeholder: "Search models" })}
-          onChange={([name = ""]) => {
-            setModel(name);
-            remember(name);
+        {picksModel && (
+          <Picker
+            label="Model"
+            quiet
+            options={[{ value: "", label: "Default model" }, ...options]}
+            {...(openGroups && { openGroups })}
+            selected={[model]}
+            {...(models.length > 6 && { placeholder: "Search models" })}
+            onChange={([name = ""]) => {
+              setModel(name);
+              remember(name);
 
-            if (name !== "") {
-              rememberModel(name);
-            }
-          }}
-        >
-          {model === "" ? "Default model" : model.slice(model.indexOf("/") + 1)}
-        </Picker>
+              if (name !== "") {
+                rememberModel(name);
+              }
+            }}
+          >
+            {model === ""
+              ? "Default model"
+              : model.slice(model.indexOf("/") + 1)}
+          </Picker>
+        )}
         <Button
           variant="primary"
           iconOnly
@@ -244,6 +256,77 @@ function Composer({
         </Button>
       </div>
     </form>
+  );
+}
+
+// Without the Projects plugin, an ask starts a meta-session as before.
+async function ask(
+  context: WebContext,
+  text: string,
+  model: ModelRef | undefined,
+): Promise<string> {
+  const response = await context.request(assistantPath, {
+    method: "POST",
+    body: JSON.stringify({
+      text,
+      ...(model && { model: `${model.provider}/${model.id}` }),
+      profile: "meta.assistant",
+      threadProfile: "meta.builder",
+    }),
+  });
+
+  if (response.status !== 404) {
+    const project = await json<{ id: string }>(Promise.resolve(response));
+
+    return projectHref(project.id);
+  }
+
+  const session = await json<Session>(
+    context.request("sessions", {
+      method: "POST",
+      body: JSON.stringify({ text, ...(model && { model }) }),
+    }),
+  );
+
+  started.dispatchEvent(new Event("started"));
+
+  return context.href(session.id);
+}
+
+function projectHref(id: string): string {
+  return `#plugin/projects/${encodeURIComponent(id)}`;
+}
+
+// The person's assistant Project, or undefined before their first ask.
+function useAssistant(context: WebContext): string | undefined {
+  return (
+    useLoaded(
+      async () => {
+        const response = await context.request(assistantPath);
+
+        return response.ok
+          ? (await json<{ id: string }>(Promise.resolve(response))).id
+          : null;
+      },
+      "assistant",
+      { topics: ["projects.projects"] },
+    ).value ?? undefined
+  );
+}
+
+function Continue({ context }: { readonly context: WebContext }): ReactElement {
+  const assistant = useAssistant(context);
+
+  if (assistant === undefined) {
+    return <></>;
+  }
+
+  return (
+    <div className="flex justify-center">
+      <a href={projectHref(assistant)} className="text-accent hover:underline">
+        Continue with the assistant
+      </a>
+    </div>
   );
 }
 
@@ -295,6 +378,7 @@ function Conversations({
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-display font-semibold text-fg-strong">Assistant</h1>
+      <Continue context={context} />
       {sessions.length === 0 ? (
         <p className="text-fg-dim">
           Conversations with the Pipoca assistant show here.{" "}

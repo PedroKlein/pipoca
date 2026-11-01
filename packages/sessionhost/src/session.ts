@@ -147,18 +147,16 @@ export async function startSession(
   // a terminal. What extensions draw goes to the web and the Pi view.
   chalk.level = 3;
 
-  const systemPrompt = options.systemPrompt ?? null;
-  const { docsDir } = options;
+  // Added to what the Profile's APPEND_SYSTEM.md says, which Pi's
+  // appendSystemPrompt would replace.
+  const appended = [
+    ...[options.systemPrompt ?? ""].filter((prompt) => prompt !== ""),
+    ...(options.docsDir === undefined ? [] : [docsNote(options.docsDir)]),
+  ];
 
   const services = await loadServices(cwd, options, {
     projectTrusted: options.trusted ?? !asksForTrust(cwd, options),
-    ...(systemPrompt !== null && { appendSystemPrompt: [systemPrompt] }),
-    ...(docsDir !== undefined && {
-      appendSystemPromptOverride: (base: string[]) => [
-        ...base,
-        docsNote(docsDir),
-      ],
-    }),
+    appendSystemPromptOverride: (base: string[]) => [...base, ...appended],
     extensionFactories: [
       ...builtInExtensions(host),
       ...(host ? [toolFinders(host.tools)] : []),
@@ -283,7 +281,6 @@ async function loadServices(
   }: {
     readonly credentials?: CredentialStore;
     readonly projectTrusted?: boolean;
-    readonly appendSystemPrompt?: string[];
     readonly appendSystemPromptOverride?: (base: string[]) => string[];
     readonly extensionFactories?: InlineExtension[];
     readonly packages?: readonly string[];

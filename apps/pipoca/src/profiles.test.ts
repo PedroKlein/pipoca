@@ -958,7 +958,7 @@ test("gives assistant sessions the base Profile's extensions and packages only",
   expect(text("extensions/provider.ts")).toBe("export default () => {};");
 
   expect(JSON.parse(text("settings.json"))).toEqual({
-    defaultTools: ["-read", "-bash", "-edit", "-write"],
+    defaultTools: ["-bash", "-edit", "-write", "+grep", "+find", "+ls"],
     packages: ["npm:ai-provider"],
   });
 });

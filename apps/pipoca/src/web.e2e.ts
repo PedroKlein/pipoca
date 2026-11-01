@@ -324,39 +324,13 @@ test("chats from Pi's own TUI and goes back to the chat when Pi quits", async ()
   ).toEqual(["hi from the web tui"]);
 }, 30_000);
 
-test("asks the assistant from the home screen and lists the conversation", async () => {
+test("asks the assistant from the home screen with the model picked, then continues there", async () => {
   faux.setResponses([fauxAssistantMessage([fauxText("Happy to help")])]);
   await page.goto(server.url.href);
 
   await page
     .getByRole("heading", { name: "What do you want to build today?" })
     .waitFor();
-
-  const ask = page.getByLabel("Ask the Pipoca assistant");
-  await ask.fill("What can you do?");
-  await ask.press("Enter");
-
-  await page
-    .locator('#chat li[data-role="assistant"]', { hasText: "Happy to help" })
-    .waitFor();
-
-  expect(new URL(page.url()).hash).toMatch(/^#plugin\/meta\/[\w-]+$/);
-
-  await page
-    .locator('nav a[aria-current="page"]', { hasText: "What can you do?" })
-    .waitFor({ timeout: 2000 });
-
-  await page.goto(server.url.href);
-
-  await page
-    .getByRole("region", { name: "Earlier conversations" })
-    .getByRole("link", { name: "What can you do?" })
-    .waitFor();
-}, 30_000);
-
-test("asks the assistant with the model picked last time", async () => {
-  faux.setResponses([fauxAssistantMessage([fauxText("Deep answer")])]);
-  await page.goto(server.url.href);
 
   const ask = page.getByLabel("Ask the Pipoca assistant");
 
@@ -368,30 +342,39 @@ test("asks the assistant with the model picked last time", async () => {
   await page.getByRole("combobox", { name: "Model" }).fill("faux-deep");
   await page.getByRole("combobox", { name: "Model" }).press("Enter");
 
-  await ask.fill("Think hard");
+  await ask.fill("What can you do?");
   await ask.press("Enter");
 
   await page
-    .locator('#chat li[data-role="assistant"]', { hasText: "Deep answer" })
+    .locator('#chat li[data-role="assistant"]', { hasText: "Happy to help" })
     .waitFor();
 
-  const sessions = (await (
-    await fetch(new URL("/api/plugins/meta/sessions", server.url), {
+  expect(new URL(page.url()).hash).toMatch(/^#plugin\/projects\/[\w-]+$/);
+
+  const assistant = (await (
+    await fetch(new URL("/api/plugins/projects/assistant", server.url), {
       headers: { cookie },
     })
-  ).json()) as { firstMessage: string; model: { id: string } | null }[];
+  ).json()) as { coordinatorId: string };
+
+  const coordinator = (await (
+    await fetch(
+      new URL(`/api/sessions/${assistant.coordinatorId}`, server.url),
+      {
+        headers: { cookie },
+      },
+    )
+  ).json()) as { model: { id: string } | null };
+
+  expect(coordinator.model?.id).toBe("faux-deep");
 
   await page.goto(server.url.href);
 
-  expect(
-    sessions.find(({ firstMessage }) => firstMessage === "Think hard")?.model
-      ?.id,
-  ).toBe("faux-deep");
+  await page
+    .getByRole("link", { name: "Continue with the assistant" })
+    .waitFor();
 
-  await model.filter({ hasText: "faux-deep" }).waitFor();
-
-  await model.click();
-  await page.getByRole("option", { name: "Default model" }).click();
+  expect(await model.count()).toBe(0);
 }, 30_000);
 
 test("goes where the assistant opens on a wide screen, and offers it on a phone", async () => {
@@ -447,7 +430,7 @@ test("goes where the assistant opens on a wide screen, and offers it on a phone"
 
   await notice.waitFor();
 
-  expect(new URL(page.url()).hash).toMatch(/^#plugin\/meta\//);
+  expect(new URL(page.url()).hash).toMatch(/^#plugin\/projects\//);
 
   await notice.getByRole("link", { name: "Open" }).click();
   await page.waitForURL(/#(?!plugin\/)[\w-]+$/);
