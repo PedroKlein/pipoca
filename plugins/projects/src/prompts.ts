@@ -1,8 +1,10 @@
 import type { Session } from "@pipoca/protocol";
 import type { ProjectNotice, RunState, ThreadView } from "./model";
 import type { Member, Project } from "./projects";
+import type { RecentChat } from "./transcript";
 
 const replyLimit = 1500;
+const handoffLimit = 12_000;
 
 export function coordinatorPrompt(
   project: Project,
@@ -148,4 +150,48 @@ export function threadNotice(
       },
     },
   };
+}
+
+// What a coordinator that replaces another knows of the conversation.
+// The newest chat matters most, so older messages go first when it is long.
+export function handoffText(
+  chat: RecentChat,
+  threads: readonly ThreadView[],
+): string {
+  const lines = chat.messages.map(
+    ({ role, text }) =>
+      `${role === "user" ? "User" : "Coordinator"}: ${text.length <= replyLimit ? text : `${text.slice(0, replyLimit)}…`}`,
+  );
+
+  const kept: string[] = [];
+  let size = 0;
+
+  for (const line of lines.toReversed()) {
+    size += line.length;
+    if (size > handoffLimit && kept.length > 0) {
+      break;
+    }
+
+    kept.unshift(line);
+  }
+
+  return [
+    "## Handoff\n\nYou take over this Project from an earlier coordinator, whose context was full or whom the user replaced. Carry on from where it stopped, without greeting or summarising this handoff.",
+    ...(chat.summary === undefined
+      ? []
+      : [`### Summary of the earlier conversation\n\n${chat.summary}`]),
+    ...(kept.length === 0
+      ? []
+      : [`### The latest messages\n\n${kept.join("\n\n")}`]),
+    `### Threads\n\n${
+      threads.length === 0
+        ? "None yet."
+        : threads
+            .map(
+              (thread) =>
+                `- ${thread.title} (${thread.sessionId}): ${thread.runState}, ${thread.workState}`,
+            )
+            .join("\n")
+    }`,
+  ].join("\n\n");
 }

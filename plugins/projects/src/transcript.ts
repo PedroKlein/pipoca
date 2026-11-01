@@ -87,6 +87,56 @@ export function lastReply(transcript: readonly string[]): string | undefined {
   return undefined;
 }
 
+export interface RecentChat {
+  // Pi's summary of what came before, when it compacted the context.
+  readonly summary: string | undefined;
+  readonly messages: readonly {
+    readonly role: string;
+    readonly text: string;
+  }[];
+}
+
+// What a fresh coordinator needs from the one it replaces: Pi's latest
+// compaction summary and the chat since.
+export function recentChat(transcript: readonly string[]): RecentChat {
+  const start = transcript.findLastIndex(
+    (line) => compactionOf(line) !== undefined,
+  );
+
+  return {
+    summary: start === -1 ? undefined : compactionOf(transcript[start] ?? ""),
+    messages: transcript.slice(start + 1).flatMap((line) => {
+      const message = messageText(line);
+
+      return message?.role === "user" || message?.role === "assistant"
+        ? [message]
+        : [];
+    }),
+  };
+}
+
+export function compacted(transcript: readonly string[]): boolean {
+  return transcript.some((line) => compactionOf(line) !== undefined);
+}
+
+function compactionOf(line: string): string | undefined {
+  if (!line.includes('"compaction"')) {
+    return undefined;
+  }
+
+  try {
+    const entry: unknown = JSON.parse(line);
+
+    return isObject(entry) &&
+      entry["type"] === "compaction" &&
+      typeof entry["summary"] === "string"
+      ? entry["summary"]
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // Pi can leave a line cut short by a crash, and not every message it records
 // has content.
 function messageOf(line: string): Message | undefined {
