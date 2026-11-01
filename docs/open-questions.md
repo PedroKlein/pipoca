@@ -135,7 +135,9 @@ These depend on the Kubernetes provider or the public extension SDK, which [visi
 ## Explicitly postponed
 
 - Organization membership and invitation flows.
-- Multiplayer presence and simultaneous steering.
+- Multiplayer presence and simultaneous steering. The direction is Team Sessions owned by a team, on admin-set credentials, with kernel-run sharing and one input queue per Session; they wait on a GitHub App, credentials kept outside the Session, a usage and audit record and team membership ([ADR 0054](adr/0054-team-sessions.md)).
+- How is the Pipoca GitHub App designed: installation, per-Session tokens, author and co-author, approval rules ([ADR 0054](adr/0054-team-sessions.md#what-must-exist-before-team-sessions-are-built))?
+- Can a member use their own login for their own messages in a Team Session, as Claude Tag allows ([ADR 0054](adr/0054-team-sessions.md#team-sessions-and-team-features-belong-to-the-team))?
 - Billing and chargeback.
 - General-purpose durable workflow syntax.
 - Marketplace and third-party extension distribution policy.
