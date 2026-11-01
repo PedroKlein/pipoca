@@ -388,7 +388,7 @@ export function startPlugins(
   }
 
   const loadsToolsets = (session: Session): boolean =>
-    session.owner !== null && toolsetUsers.has(session.owner.plugin);
+    toolsetUsers.has(deps.sessions.powersOf(session) ?? "");
 
   for (const plugin of plugins.filter(({ name }) => enabled.includes(name))) {
     const log: Log = (message, fields) => {
@@ -492,12 +492,13 @@ export function startPlugins(
             },
           ),
           profiles: {
-            provide: (key, { name: _name, ...content }) => {
+            provide: (key, { name: _name, ...content }, options) => {
               const id = `${plugin.name}.${key}`;
 
               staged.profiles.set(id, {
                 plugin: plugin.name,
                 profile: { id, ...content },
+                ...(options?.sharedWith && { sharedWith: options.sharedWith }),
               });
 
               return id;

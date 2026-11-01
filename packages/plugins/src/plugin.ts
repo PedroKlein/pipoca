@@ -251,8 +251,8 @@ export interface ServerPluginContext {
       ownerKey: string,
       options?: { readonly archived?: boolean },
     ) => readonly Session[];
-    // The Session plugins that load in the Sessions this plugin owns, by
-    // name. All of them load until the plugin says.
+    // The Session plugins that load in the Sessions this plugin owns or that
+    // run on its Profiles, by name. All of them load until the plugin says.
     readonly loadOnly: (plugins: readonly string[]) => void;
     // Takes ownership of a Session started before owners existed.
     readonly adopt: (id: string, ownerKey: string) => void;
@@ -299,8 +299,15 @@ export interface ServerPluginContext {
     readonly templates: () => readonly EnvironmentTemplate[];
   };
   readonly profiles: {
-    // Returns the id the plugin starts its Sessions with.
-    readonly provide: (key: string, profile: PluginProfile) => string;
+    // Returns the id the plugin starts its Sessions with. Every Session on
+    // it gets the plugin's toolsets, its own-Sessions parts and only the
+    // parts it loads, whoever owns the Session. Plugins in sharedWith may
+    // start their own Sessions on it too (ADR 0052).
+    readonly provide: (
+      key: string,
+      profile: PluginProfile,
+      options?: { readonly sharedWith?: readonly string[] },
+    ) => string;
     // The MCP servers of the base Profile and the Profiles Sessions start
     // with, as their mcp.json files configure them.
     readonly mcpServers: () => readonly ProfileMcpServer[];

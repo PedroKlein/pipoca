@@ -367,6 +367,63 @@ test("gives an ordinary Session none of the toolsets", async () => {
   expect(transcriptOf(events)).toContain("Tool sessions_list not found");
 });
 
+test("gives another plugin's Session on a toolset plugin's shared Profile its toolsets", async () => {
+  const lead: ServerPlugin = {
+    name: "lead",
+    register: (context) => {
+      context.toolsets.loadInOwnSessions();
+
+      context.profiles.provide(
+        "desk",
+        {
+          name: "Desk",
+          packages: [],
+          agentsMd: "",
+          systemMd: "",
+          appendSystemMd: "",
+          mcpServers: {},
+          settings: {},
+        },
+        { sharedWith: ["crew"] },
+      );
+    },
+  };
+
+  const starter = (name: string): ServerPlugin => ({
+    name,
+    register: (context) => {
+      context.routes.handle((_request, _path, caller) =>
+        Response.json(
+          context.sessions.start(
+            {
+              actor: caller.actor,
+              profile: "lead.desk",
+              workspace: { kind: "folder", path: root },
+              firstMessage: "List the Sessions",
+            },
+            "desk",
+          ),
+        ),
+      );
+    },
+  });
+
+  await server.stop();
+  start([lead, starter("crew"), starter("stranger")]);
+  await environmentReady();
+
+  faux.setResponses([
+    call("sessions_list", {}),
+    fauxAssistantMessage([fauxText("listed")]),
+  ]);
+
+  const session = await json<Session>(api("/api/plugins/crew/start", {}));
+  const events = await follow(session.id, entriesInclude("listed"));
+
+  expect(transcriptOf(events)).not.toContain("Tool sessions_list not found");
+  expect((await api("/api/plugins/stranger/start", {})).ok).toBe(false);
+});
+
 test("shows a Profile's MCP servers by name only", async () => {
   await api("/api/profiles", {
     name: "With MCP",
