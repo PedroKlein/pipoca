@@ -1,6 +1,6 @@
 # 0033: v2 Authentication and Build Order
 
-- Status: accepted, amended 2026-10-25 (meta-sessions become step 5, [ADR 0035](0035-meta-sessions.md); third-party install and in-place plugins become step 6; automation plugins leave v2) and 2026-10-29 (failed password sign-ins count per name and client address)
+- Status: accepted, amended 2026-10-25 (meta-sessions become step 5, [ADR 0035](0035-meta-sessions.md); third-party install and in-place plugins become step 6; automation plugins leave v2) and 2026-10-29 (failed password sign-ins count per name and client address), solo installs sign in through one-time links by [ADR 0053](0053-ways-to-run-pipoca.md)
 - Date: 2026-10-24
 
 ## Context

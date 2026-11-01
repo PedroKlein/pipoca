@@ -18,7 +18,7 @@
 
 ### Blocking the first slice
 
-- Resolved: no auth in v1 behind localhost or an SSH tunnel, and each provider keeps its own Pi model auth ([ADR 0005](adr/0005-v1-access-and-model-credentials.md)). Users log providers in from the web, and the credential stays in the machine's Pi auth ([ADR 0024](adr/0024-provider-login-from-the-web.md)).
+- Resolved: no auth in v1 behind localhost or an SSH tunnel, and each provider keeps its own Pi model auth ([ADR 0005](adr/0005-v1-access-and-model-credentials.md)). A solo install is an explicit setting with one admin, signed in through one-time links that `pipoca up` and `pipoca connect` open ([ADR 0053](adr/0053-ways-to-run-pipoca.md#solo-installs)). Users log providers in from the web, and the credential stays in the machine's Pi auth ([ADR 0024](adr/0024-provider-login-from-the-web.md)).
 - Resolved: a v1 Session only runs on its own provider, so the agent never starts a second attempt while the first is alive, and the server drops messages from old generations ([ADR 0006](adr/0006-provider-protocol.md)).
 
 ### Product and repository boundary
@@ -93,6 +93,8 @@ These depend on the Kubernetes provider or the public extension SDK, which [visi
 
 - When Sessions can move between machines, do they follow Claude Code cloud sessions (resume on fresh compute from the server transcript and a fresh clone), and how does a provider that loses its lease stop its own Sessions? pi-durable resumes mid-turn from its own storage, and OpenHands fences writes with a generation lease ([research](research.md#pi-durable)).
 - What is the default Environment isolation mode for a personal Cell?
+- Resolved: Pipoca is for one person or a team of about 10 to 15; one machine hosts several Environments through a `local` machine source in solo installs, and a team server's runner pods share one namespace behind a NetworkPolicy, with a most-pods limit per person ([ADR 0053](adr/0053-ways-to-run-pipoca.md)).
+- Can the `kubernetes` plugin drive a cluster from outside it, such as a local k3s, with a kubeconfig ([ADR 0053](adr/0053-ways-to-run-pipoca.md#a-local-machine-source))?
 - Resolved for v2: a runner's capacity decides how many Sessions share it, and capacity one on Kubernetes is a pod per Session [ADR 0032](adr/0032-environments-and-runners.md). Can a shared Runtime safely host several full Pi Sessions? In v1 each Session is its own process on a shared machine ([ADR 0017](adr/0017-process-per-session.md)). OpenHands runs a container per conversation behind a proxy in the host server ([research](research.md#openhands)).
 - Where do subagents run when the parent Session has a dedicated pod?
 - What resource and concurrency limits prevent nested work from starving other Sessions?
@@ -118,7 +120,7 @@ These depend on the Kubernetes provider or the public extension SDK, which [visi
 - Resolved for v2: plugins are installed and turned on for the whole installation, and changing them restarts the server; each user's Pi personalization stays in their Profile ([ADR 0022](adr/0022-plugin-model-v2.md#plugins-are-per-installation)).
 - Resolved for v2: third-party web parts run in the page like first-party ones, with no sandboxed iframe ([ADR 0022](adr/0022-plugin-model-v2.md#trust)).
 - Resolved for v2: Pipoca is changed from chat in meta-sessions, which run on a built-in read-only Profile, get toolsets that plugins contribute, ask before destructive calls in words ([ADR 0050](adr/0050-assistant-permission-prompts.md)) and can drive the UI; the same toolsets are served over MCP, and a meta-session can write in-place plugins ([ADR 0035](adr/0035-meta-sessions.md)). The assistant is one Project per person: its coordinator does one-shot actions, and threads build Profiles and plugins in their workspace with all of Pi's tools, install them and check them, with Pipoca's and Pi's docs as files in every Session ([ADR 0052](adr/0052-the-assistant-as-a-project.md)). How a meta-session's powers vary per user is left for v3.
-- Is an integrated browser still wanted, and if so as a preview iframe the agent drives through an injected script, or in a desktop app? The CDP screencast was rejected ([ADR 0022](adr/0022-plugin-model-v2.md#no-browser-plugin-yet)).
+- Is an integrated browser still wanted, and if so as a preview iframe the agent drives through an injected script, or in a desktop app? The CDP screencast was rejected ([ADR 0022](adr/0022-plugin-model-v2.md#no-browser-plugin-yet)). There is no desktop app for now; it comes back for this browser, real folder paths or the keychain ([ADR 0053](adr/0053-ways-to-run-pipoca.md#no-desktop-app-yet)).
 - Which extension types run inside the control plane, Provider Agent, browser, or Pi Session?
 - Resolved: plugins declare settings with defaults in their manifest, values are stored per installation and edited on a Plugins page, and a plugin that fails to start is turned off and reported instead of stopping the server ([ADR 0036](adr/0036-plugin-settings.md)).
 - Resolved for v2: every plugin declares `capabilities` in its manifest, built-in or installed, and the server holds both to them; only built-ins get `auth`. The exact capability names are open. `requires` isn't read yet and arrives with the first plugin that needs it ([ADR 0022](adr/0022-plugin-model-v2.md#a-small-manifest), amended 2026-10-29).
