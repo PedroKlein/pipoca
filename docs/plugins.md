@@ -33,6 +33,8 @@ A plugin is a folder with a `package.json`. The `pipoca` field is its manifest:
 
 Every part is optional. Write them in TypeScript or JavaScript. `version` is optional and shows on the Plugins page. ADR 0022 also names a `requires` field for what a Session part needs on the machine; the server doesn't read it yet, and it arrives with the first plugin that needs it. The server bundles each one with its npm `dependencies`, so there's no build step of your own.
 
+Markdown files in a `docs` folder beside `package.json` reach every Session while the plugin is on, under `plugins/<id>/` in the Session's docs folder, so agents can read how to use it.
+
 ## The server part
 
 The server part runs inside the server's process. Its default export is a `ServerPlugin` from `@pipoca/plugins`, with the plugin's id as its `name` and a `register` function that gets the plugin's context. Check the export with `satisfies`:

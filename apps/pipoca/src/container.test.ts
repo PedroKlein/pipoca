@@ -33,6 +33,7 @@ test("runs a Session in its image as this user, with its paths, binary and varia
       extensionPaths: ["/ext/tool.ts", "npm:pi-goal"],
       trusted: null,
       systemPrompt: null,
+      docsDir: join(root, "docs"),
     },
     variables: { TOKEN: "s3cret" },
   });
@@ -47,6 +48,7 @@ test("runs a Session in its image as this user, with its paths, binary and varia
   expect(run).toContain(bind(join(root, "sessions", "s1")));
   expect(run).toContain(bind(join(root, "logins")));
   expect(run).toContain(`${bind("/ext/tool.ts")},readonly`);
+  expect(run).toContain(`${bind(join(root, "docs"))},readonly`);
 
   expect(run).toContain(
     "type=bind,src=/opt/pipoca-linux,dst=/usr/local/bin/pipoca,readonly",

@@ -27,6 +27,7 @@ import {
   modelLister,
   restoreTranscript,
   type SessionOptions,
+  syncFolder,
   syncProfile,
 } from "@pipoca/sessionhost";
 import {
@@ -38,7 +39,7 @@ import {
   removeWorkspace,
 } from "@pipoca/workspaces";
 import {
-  fetchProfile,
+  fetchFolder,
   fetchTranscript,
   httpControlPlane,
   type UnsupportedVersion,
@@ -310,7 +311,7 @@ async function runAs(
         syncProfile(
           dir,
           profile.hash,
-          async () => fetchProfile(options.server, assignment),
+          async () => fetchFolder(options.server, assignment, "profile"),
           sessionLog,
           async (into, source) =>
             installPackageApart(into, source, {
@@ -332,6 +333,38 @@ async function runAs(
     }
 
     return dir;
+  };
+
+  // Every Session gets the server's docs (ADR 0052). They share one folder,
+  // so its syncs run one at a time.
+  const docsDir = join(options.dataDir, "docs");
+  let docsSync: Promise<unknown> = Promise.resolve();
+
+  const syncDocsOf = async (
+    assignment: SessionStart,
+    sessionLog: Log,
+  ): Promise<string | undefined> => {
+    const { docs } = assignment;
+
+    if (docs === undefined) {
+      return undefined;
+    }
+
+    const synced = docsSync
+      .catch(() => undefined)
+      .then(async () =>
+        syncFolder(
+          docsDir,
+          docs,
+          async () => fetchFolder(options.server, assignment, "docs"),
+          sessionLog,
+        ),
+      );
+
+    docsSync = synced;
+    await synced;
+
+    return docsDir;
   };
 
   const retire = async (
@@ -402,6 +435,7 @@ async function runAs(
       const environment = assignment.environment.variables;
       const gitLogins = hostLogins(assignment.gitLogins ?? [], environment);
       const agentDir = await syncProfileOf(assignment, gitLogins, sessionLog);
+      const docs = await syncDocsOf(assignment, sessionLog);
       const sessionDir = join(options.dataDir, "sessions", sessionId);
       const fresh = assignment.fresh === true;
 
@@ -455,6 +489,7 @@ async function runAs(
       // Written after the restore, which may drop the Session's folder.
       const variables = {
         ...environment,
+        ...(docs !== undefined && { PIPOCA_DOCS: docs }),
         ...gitCredentials(gitLogins, { ...process.env, ...environment }),
         ...(await writeGhConfig(join(sessionDir, "gh"), gitLogins)),
       };
@@ -467,6 +502,7 @@ async function runAs(
         sessionDir,
         extensionPaths: options.extensionPaths,
         systemPrompt: assignment.systemPrompt,
+        ...(docs !== undefined && { docsDir: docs }),
         trusted: assignment.trusted ?? null,
         ...(assignment.model && { model: assignment.model }),
         ...(assignment.thinking && { thinking: assignment.thinking }),

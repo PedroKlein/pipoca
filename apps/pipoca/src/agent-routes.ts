@@ -66,6 +66,16 @@ export function agentRoutes(
         return files ? Response.json(files) : notFound();
       },
     ],
+    // The docs every Session gets as files (ADR 0052).
+    [
+      "GET",
+      /^\/agent\/sessions\/([^/]+)\/docs$/,
+      () => {
+        const docs = sessions.docs();
+
+        return docs ? Response.json(docs) : notFound();
+      },
+    ],
     [
       "GET",
       /^\/agent\/sessions\/([^/]+)\/plugin-parts\/([^/]+)\/([^/]+)$/,

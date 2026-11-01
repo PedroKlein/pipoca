@@ -248,14 +248,16 @@ export async function fetchSessionPart(
   return new Uint8Array(await response.arrayBuffer());
 }
 
-// The files of an assigned Session's Profile (ADR 0041).
-export async function fetchProfile(
+// The files of an assigned Session's Profile (ADR 0041) or of the docs every
+// Session gets (ADR 0052).
+export async function fetchFolder(
   server: string,
   assignment: SessionStart,
+  folder: "profile" | "docs",
 ): Promise<ProfileFiles> {
   const response = await call(
     { server, token: assignment.token },
-    `/agent/sessions/${assignment.sessionId}/profile`,
+    `/agent/sessions/${assignment.sessionId}/${folder}`,
     { signal: AbortSignal.timeout(requestTimeoutMs) },
   );
 

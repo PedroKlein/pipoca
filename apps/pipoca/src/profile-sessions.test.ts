@@ -177,6 +177,19 @@ test("a Session's Pi reads the instructions its Profile holds", async () => {
   expect(request).toContain("Never use tables.");
 });
 
+test("a Session gets Pipoca's and Pi's docs as files, and its Pi knows where", async () => {
+  const request = await firstRequest(await sessionWith({}));
+  const docs = join(root, "laptop", "docs");
+
+  expect(request).toContain(`Its docs are in ${docs}`);
+
+  expect(await Bun.file(join(docs, "pipoca", "plugins.md")).text()).toContain(
+    "# Writing a plugin",
+  );
+
+  expect(await Bun.file(join(docs, "pi", "extensions.md")).exists()).toBe(true);
+});
+
 test("a Session loads the packages its Profile lists", async () => {
   const kit = join(root, "kit");
   await mkdir(join(kit, "extensions"), { recursive: true });

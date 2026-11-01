@@ -1,5 +1,6 @@
 export {
   contentFiles,
+  encoded,
   overBaseExtensions,
   maxProfileBytes,
   ProfileTooBig,

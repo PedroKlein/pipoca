@@ -11,7 +11,7 @@ type Log = (message: string, fields?: Record<string, unknown>) => void;
 // The package sources installed so far, so a start installs only new ones.
 const installedFile = ".pipoca-packages.json";
 
-// The hash of the Profile files this folder holds, and their paths.
+// The hash of the files this folder holds, and their paths.
 const copyFile = ".pipoca-profile.json";
 
 // What folders written before a Profile was a whole folder held.
@@ -24,16 +24,36 @@ const earlierFiles = [
 ];
 
 // Makes a machine's folder for a Profile hold the server's Profile folder
-// (ADR 0041). It downloads the files only when their hash differs from its
-// copy's. Callers keep two syncs of one folder from overlapping. Pi processes
-// of other Sessions may read the folder meanwhile, so packages are installed
-// before settings.json lists them, and every file is replaced whole.
+// (ADR 0041). Pi processes of other Sessions may read the folder meanwhile,
+// so packages are installed before settings.json lists them.
 export async function syncProfile(
   dir: string,
   hash: string,
   download: () => Promise<ProfileFiles>,
   log: Log,
   install: InstallPackage = installPackage,
+): Promise<void> {
+  await syncFolder(dir, hash, download, log, {
+    earlier: earlierFiles,
+    prepare: async (profile) =>
+      installPackages(dir, packagesOf(profile), log, install),
+  });
+}
+
+// Makes a machine's folder hold the server's files, such as a Profile's or
+// the docs (ADR 0052). It downloads them only when their hash differs from
+// its copy's. Callers keep two syncs of one folder from overlapping. Every
+// file is replaced whole, since other processes may read the folder.
+export async function syncFolder(
+  dir: string,
+  hash: string,
+  download: () => Promise<ProfileFiles>,
+  log: Log,
+  options: {
+    // What the folder held before it kept a list of its files.
+    readonly earlier?: readonly string[];
+    readonly prepare?: (files: ProfileFiles) => Promise<void>;
+  } = {},
 ): Promise<void> {
   await mkdir(dir, { recursive: true });
 
@@ -42,22 +62,22 @@ export async function syncProfile(
     return;
   }
 
-  const profile = await download();
+  const folder = await download();
 
-  const files = Object.entries(profile.files).map(
+  const files = Object.entries(folder.files).map(
     ([path, content]) => [safePath(path), content] as const,
   );
 
   const paths = files.map(([path]) => path);
 
-  await installPackages(dir, packagesOf(profile), log, install);
+  await options.prepare?.(folder);
 
   for (const [path, content] of files) {
     await mkdir(dirname(join(dir, path)), { recursive: true });
     await replace(join(dir, path), Buffer.from(content, "base64"));
   }
 
-  const dropped = (copy?.files ?? earlierFiles).filter(
+  const dropped = (copy?.files ?? options.earlier ?? []).filter(
     (path) => !paths.includes(path),
   );
 
@@ -67,10 +87,10 @@ export async function syncProfile(
 
   await replace(
     join(dir, copyFile),
-    JSON.stringify({ hash: profile.hash, files: paths }),
+    JSON.stringify({ hash: folder.hash, files: paths }),
   );
 
-  log("profile files written", { files: paths.length });
+  log("folder files written", { dir, files: paths.length });
 }
 
 export type InstallPackage = (dir: string, source: string) => Promise<void>;

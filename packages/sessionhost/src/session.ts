@@ -51,6 +51,8 @@ export interface SessionOptions extends ModelOptions {
   readonly model?: ModelRef;
   readonly thinking?: ThinkingLevel;
   readonly systemPrompt?: string | null;
+  // Where the server's docs are (ADR 0052).
+  readonly docsDir?: string;
   // The user's answer for the repository's own .pi, or null before anyone
   // was asked (ADR 0031).
   readonly trusted?: boolean | null;
@@ -127,6 +129,10 @@ function builtInExtensions(host?: SessionHost): InlineExtension[] {
   ].map((extension) => ({ ...extension, replaceable: true, builtin: true }));
 }
 
+function docsNote(dir: string): string {
+  return `Pipoca runs this Session. Its docs are in ${dir}: pipoca/ for Pipoca, pi/ for Pi, and plugins/<id>/ for installed plugins. Read the relevant page there before writing a Pipoca or Pi format, such as a Profile, a plugin, a skill or an extension.`;
+}
+
 export async function startSession(
   options: SessionOptions,
   host?: SessionHost,
@@ -142,10 +148,17 @@ export async function startSession(
   chalk.level = 3;
 
   const systemPrompt = options.systemPrompt ?? null;
+  const { docsDir } = options;
 
   const services = await loadServices(cwd, options, {
     projectTrusted: options.trusted ?? !asksForTrust(cwd, options),
     ...(systemPrompt !== null && { appendSystemPrompt: [systemPrompt] }),
+    ...(docsDir !== undefined && {
+      appendSystemPromptOverride: (base: string[]) => [
+        ...base,
+        docsNote(docsDir),
+      ],
+    }),
     extensionFactories: [
       ...builtInExtensions(host),
       ...(host ? [toolFinders(host.tools)] : []),
@@ -271,6 +284,7 @@ async function loadServices(
     readonly credentials?: CredentialStore;
     readonly projectTrusted?: boolean;
     readonly appendSystemPrompt?: string[];
+    readonly appendSystemPromptOverride?: (base: string[]) => string[];
     readonly extensionFactories?: InlineExtension[];
     readonly packages?: readonly string[];
     readonly onError?: (error: ExtensionError) => void;
