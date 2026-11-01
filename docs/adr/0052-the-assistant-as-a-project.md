@@ -38,9 +38,10 @@ Each fix could have been one more tool: a git-host file reader, Profile file too
 
 This applies to every Project's coordinator, the assistant's included, as Claude Code does it.
 
-- When a coordinator's context passes a threshold, Projects archives it and starts a fresh coordinator in its place. The new one starts with a handoff in its first message: a summary of the recent chat, the threads that are open with their states, and the Project's memory index. The person keeps the same Project chat and sees no break, apart from a slim divider row.
-- Start fresh, in the Project's ⋯ menu, does the same swap by hand, for when the coordinator has gone off track.
-- The old coordinator stays readable from the divider, so nothing in its history is lost.
+- When Pi compacts a coordinator's context, Projects archives that coordinator at the end of its turn and starts a fresh one in its place. Compaction is the sign that the context is full, and it works for any model's window.
+- The new coordinator's system prompt carries the handoff: Pi's latest compaction summary, the chat since, the threads with their states, and the Project's memory index. It is in the system prompt because Pi keeps no context message in a Session's file before its first reply. The person keeps the same Project page.
+- Start fresh, in the Project's settings, does the same swap by hand, for when the coordinator has gone off track.
+- The old coordinator stays readable: the settings list each earlier conversation, so nothing in its history is lost.
 - Pi's compaction still runs inside threads and other Sessions. A coordinator lives as long as its Project, and compacting a summary again and again drifts, where a swap starts clean from memory and threads.
 - A memory write carries the revision it read, and the server refuses it when the file changed since. So two threads writing at once can't lose each other's change; the refused one reads again and retries. Before, the last write won.
 
