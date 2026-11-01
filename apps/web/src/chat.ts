@@ -3,6 +3,7 @@ import {
   imageTypes,
   type NoticeTag,
   noticeType,
+  type UiAction,
 } from "@pipoca/protocol";
 
 export type ChatItem = (
@@ -296,6 +297,21 @@ export interface Turn {
   readonly model?: string;
 }
 
+// What a tool call opened, from its result's details (ADR 0052).
+export function openedOf(details: unknown): UiAction | undefined {
+  if (typeof details !== "object" || details === null) {
+    return undefined;
+  }
+
+  const { opened } = details as { opened?: Partial<UiAction> };
+
+  return opened?.kind === "open" &&
+    typeof opened.route === "string" &&
+    typeof opened.label === "string"
+    ? { kind: "open", route: opened.route, label: opened.label }
+    : undefined;
+}
+
 // Groups the items from one user message to the next. Text after the last
 // tool call is the answer; text between tool calls narrates the work.
 export function turns(
@@ -367,7 +383,7 @@ export function turns(
             ...(found && { result: found }),
           };
 
-          if (claimed(item.name)) {
+          if (claimed(item.name) || openedOf(found?.details) !== undefined) {
             cards.push(step);
 
             return [];

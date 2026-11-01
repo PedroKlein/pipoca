@@ -431,6 +431,41 @@ test("takes the tool calls a plugin draws out of the work, with their result det
   ]);
 });
 
+test("draws a card for each tool call that opened something, claimed or not", () => {
+  const opened = { kind: "open", route: "s-1", label: "the new Session" };
+
+  const keyed = [
+    { role: "user", text: "start one" },
+    { role: "tool", id: "a", name: "sessions_list", args: {} },
+    {
+      role: "result",
+      id: "a",
+      name: "sessions_list",
+      text: "[]",
+      failed: false,
+    },
+    { role: "tool", id: "b", name: "sessions_start", args: {} },
+    {
+      role: "result",
+      id: "b",
+      name: "sessions_start",
+      text: "{}",
+      failed: false,
+      details: { opened },
+    },
+  ].map(
+    (item, key) => ({ ...item, key }) as Parameters<typeof turns>[0][number],
+  );
+
+  const [turn] = turns(keyed);
+
+  expect(
+    turn?.work.map((item) => item.kind === "step" && item.step.name),
+  ).toEqual(["sessions_list"]);
+
+  expect(turn?.cards.map(({ name }) => name)).toEqual(["sessions_start"]);
+});
+
 test("keeps a tool result's details", () => {
   expect(
     chatItems(

@@ -631,17 +631,22 @@ export async function runRouteTool(
   }
 
   try {
-    const opened = found.tool.opens?.(parsed);
+    const opens = found.tool.opens?.(parsed);
 
-    if (opened !== undefined && appRoute.test(opened.route)) {
-      open({
-        kind: "open",
-        route:
-          found.plugin === undefined
-            ? opened.route
-            : `plugin/${found.plugin}/${opened.route}`,
-        label: opened.label,
-      });
+    const opened: UiAction | undefined =
+      opens !== undefined && appRoute.test(opens.route)
+        ? {
+            kind: "open",
+            route:
+              found.plugin === undefined
+                ? opens.route
+                : `plugin/${found.plugin}/${opens.route}`,
+            label: opens.label,
+          }
+        : undefined;
+
+    if (opened !== undefined) {
+      open(opened);
     }
 
     return {
@@ -649,6 +654,7 @@ export async function runRouteTool(
         found.tool.result ? found.tool.result(parsed) : parsed,
       ),
       isError: false,
+      ...(opened && { opened }),
     };
   } catch {
     return { text: "Done, with a reply it couldn't show.", isError: false };

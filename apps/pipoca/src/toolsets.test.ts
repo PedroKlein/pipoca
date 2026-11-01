@@ -520,6 +520,18 @@ test("opens what a tool started or asked for in the browsers watching, once", as
   const replayed = await follow(metaSession.id, entriesInclude("all opened"));
 
   expect(uiActions(replayed)).toEqual([]);
+
+  const transcript = transcriptOf(replayed);
+
+  expect(transcript).toContain(
+    JSON.stringify({
+      opened: {
+        kind: "open",
+        route: started?.id ?? "",
+        label: "the new Session",
+      },
+    }),
+  );
 });
 
 test("opens a Session on request without asking, and only routes of the app", async () => {

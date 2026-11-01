@@ -81,7 +81,7 @@ export function serverTools(
 
           return {
             content: [{ type: "text", text: result.text }],
-            details: {},
+            details: result.opened ? { opened: result.opened } : {},
           };
         } finally {
           clearTimeout(timer);
