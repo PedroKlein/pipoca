@@ -32,6 +32,7 @@ Threads here can run on different machines, the laptop and the VM. Anything shar
 - Coordinators and threads are Sessions owned by the plugin ([ADR 0028](0028-projects-around-the-coordinator.md)). They use the same session view, terminals, Changes panel and archive as an independent Session, embedded in the Project page, and stay out of the Session list.
 - Creating a Project creates its coordinator in the default Environment.
 - A Project keeps one coordinator for its whole life. Pi's auto-compaction keeps its context in bounds. Anything that must survive goes in Project memory, and the current threads always come from `list_threads`. A "new coordinator" action can come later. The Project only has to point at a different Session.
+- (Amended 2026-11-01: coordinators are swapped for a fresh one with a handoff instead of compacted, automatically and from Start fresh, and memory writes check the revision they read. See [ADR 0052](0052-the-assistant-as-a-project.md#coordinators-are-swapped-not-compacted).)
 
 ### Talking to a Project
 
