@@ -34,6 +34,16 @@ Each fix could have been one more tool: a git-host file reader, Profile file too
 - The coordinator can read the docs folder (below) with Pi's `read`, `grep`, `find` and `ls`. It has no `bash`, `edit` or `write` and no repositories, since it lives as long as the person and reads every thread's report.
 - A Session the assistant starts for the person's own goal is a hand-off. It doesn't report back. Assistant threads report to the coordinator like Project threads.
 
+### Coordinators are swapped, not compacted
+
+This applies to every Project's coordinator, the assistant's included, as Claude Code does it.
+
+- When a coordinator's context passes a threshold, Projects archives it and starts a fresh coordinator in its place. The new one starts with a handoff in its first message: a summary of the recent chat, the threads that are open with their states, and the Project's memory index. The person keeps the same Project chat and sees no break, apart from a slim divider row.
+- Start fresh, in the Project's ⋯ menu, does the same swap by hand, for when the coordinator has gone off track.
+- The old coordinator stays readable from the divider, so nothing in its history is lost.
+- Pi's compaction still runs inside threads and other Sessions. A coordinator lives as long as its Project, and compacting a summary again and again drifts, where a swap starts clean from memory and threads.
+- A memory write carries the revision it read, and the server refuses it when the file changed since. So two threads writing at once can't lose each other's change; the refused one reads again and retries. Before, the last write won.
+
 ### Threads build in their workspace, then install
 
 - A thread runs on the meta Profile with the Pipoca toolsets and all of Pi's tools, including `bash`, `edit` and `write`, in a workspace of its own (this replaces ADR 0035's rule that turns them off).
@@ -70,7 +80,7 @@ The meta prompt tells the assistant to:
 
 - One request, such as "build a Profile from my dotfiles, then a Project on it", runs in one place: a thread reads the repository, builds the Profile, installs and checks it, and the coordinator then creates the Project on it.
 - Threads hold admin tools and a shell, and they read repositories. Text in a repository could make a thread run commands on the person's runner or start Sessions without a prompt. Runners serve one person ([ADR 0049](0049-personal-environments-and-templates.md)), destructive calls and installs still ask, the person's own Profiles still never load in the assistant, and a thread acts only as its person.
-- The coordinator keeps a shell and repositories out of the one Session that lives forever, and memory is how it knows the person. Its context grows, so it relies on Pi's compaction like any long Session.
+- The coordinator keeps a shell and repositories out of the Session that stays with the person, and memory is how it knows them. Swapping coordinators replaces the "one coordinator plus compaction" choice made when Projects were designed, for every Project.
 - Every Session gets a docs folder, so ordinary Sessions that write plugins or Profiles stop guessing formats too.
 - The tool count goes down: file work goes through Pi's own tools, and two install tools replace four authoring tools.
 - MCP keeps serving the toolsets ([ADR 0035](0035-meta-sessions.md#mcp)). The install tools read from a Session's workspace, so an MCP client can't install from its own folders yet.
