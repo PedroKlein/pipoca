@@ -23,13 +23,16 @@ The kernel already has most of the pieces. Server tools pick their Sessions with
 - A meta-session is a Session whose job is to change Pi Cloud itself. It is a full Pi Session like any other.
 - Every meta-session runs on one built-in, read-only Profile, the meta Profile. Pi Cloud ships its system prompt and skills, and users can't edit it. A user's own Profiles never load in a meta-session, so their extensions, MCP servers and skills stay out of a Session that has admin tools ([ADR 0031](0031-profiles.md) is amended for this). The meta Profile also turns off Pi's `read`, `bash`, `edit` and `write`: a meta-session's workspace is empty, so they could only reach the runner's own machine.
 - (Amended 2026-10-31: the meta Profile loads the extensions and packages of the admin's base Profile, so model providers they add work in meta-sessions. Their tools go through the confirm below like any other tool without read-only hints. See [ADR 0044](0044-base-profile.md).)
+- (Amended 2026-11-01: assistant threads keep Pi's `read`, `bash`, `edit` and `write` in a workspace of their own, and the coordinator keeps `read`, `grep`, `find` and `ls` for the docs folder. See [ADR 0052](0052-the-assistant-as-a-project.md).)
 - Provider logins aren't part of a Profile, so a meta-session uses the machine's logins like any Session.
 - A user can have any number of meta-sessions. They are separate conversations with the same Profile and tools.
+- (Amended 2026-11-01: the assistant is one Project per person, whose threads have all of Pi's tools, build Profiles and plugins in their workspace and install them. See [ADR 0052](0052-the-assistant-as-a-project.md).)
 - A `meta` plugin, on by default, owns them, so they stay out of the Session list. It also provides the home screen and the core toolset.
 
 ### The home screen
 
 - The home screen is a new meta-session's composer: "What do you want to build today?" Earlier meta-sessions are listed beside it.
+- (Amended 2026-11-01: the assistant is one Project per person, whose threads have all of Pi's tools, build Profiles and plugins in their workspace and install them. See [ADR 0052](0052-the-assistant-as-a-project.md).)
 - New session stays one click away, for starting a Session without an agent turn.
 
 ### Plugins contribute meta toolsets
@@ -60,6 +63,7 @@ The kernel already has most of the pieces. Server tools pick their Sessions with
 ### In-place plugins
 
 - A meta-session can write a plugin straight into the installation, the way Pi loads local extensions from its agent folder. It lives in a local plugins folder in the server's data directory, with no repository or release.
+- (Amended 2026-11-01: threads build a plugin in their workspace and install it with an install tool, which replaces `plugins_write_file` and `plugins_build`. See [ADR 0052](0052-the-assistant-as-a-project.md).)
 - This is a third install source next to git and tarballs ([ADR 0022](0022-plugin-model-v2.md#installing-third-party-plugins) is amended). It shares the plugins folder with them: an in-place plugin is a folder with no `.source.json`, where an installed one records the URL and version it came from.
 - The kernel's `plugins` toolset writes it: `plugins_write_file` writes one file, making the plugin when it is new, and `plugins_build` installs its dependencies and bundles its parts to show what is wrong. Neither runs the plugin's code: dependency scripts and Bun macros are off. `plugins_list`, `plugins_files` and `plugins_read_file` read. Writing isn't risky, since nothing written runs until the user turns it on. Building asks, since it reaches the npm registry.
 - Only a plugin that is turned off changes, so turning one on trusts the code it has then. A plugin installed from a URL changes only by updating, and one linked into the folder from elsewhere changes there.
