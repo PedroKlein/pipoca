@@ -23,13 +23,22 @@ const newMetaSession = Type.Object({
   ),
 });
 
+const assistantProfile = {
+  packages: [],
+  agentsMd: "",
+  systemMd: "",
+  appendSystemMd: metaPrompt,
+  mcpServers: {},
+};
+
 const toolCall = Type.Object({
   tool: Type.String(),
   input: Type.Unknown(),
 });
 
 // Meta-sessions change Pipoca itself (ADR 0035). They run on the meta
-// Profile and stay out of the Session list.
+// Profile and stay out of the Session list. So does the person's assistant
+// Project, which runs on it too (ADR 0052).
 export const meta: ServerPlugin = {
   name: "meta",
   register: (context) => {
@@ -40,16 +49,30 @@ export const meta: ServerPlugin = {
 
     context.toolsets.loadInOwnSessions();
 
-    const profile = context.profiles.provide("assistant", {
-      name: "Pipoca assistant",
-      packages: [],
-      agentsMd: "",
-      systemMd: "",
-      appendSystemMd: metaPrompt,
-      mcpServers: {},
-      // Its workspace is empty, and these would reach the runner's machine.
-      settings: { defaultTools: ["-read", "-bash", "-edit", "-write"] },
-    });
+    // The assistant's coordinator reads but changes nothing on the runner,
+    // and its threads build with all of Pi's tools (ADR 0052). Projects runs
+    // both for the person's assistant Project.
+    const profile = context.profiles.provide(
+      "assistant",
+      {
+        ...assistantProfile,
+        name: "Pipoca assistant",
+        settings: {
+          defaultTools: ["-bash", "-edit", "-write", "+grep", "+find", "+ls"],
+        },
+      },
+      { sharedWith: ["projects"] },
+    );
+
+    context.profiles.provide(
+      "builder",
+      {
+        ...assistantProfile,
+        name: "Pipoca assistant thread",
+        settings: { defaultTools: ["+grep", "+find", "+ls"] },
+      },
+      { sharedWith: ["projects"] },
+    );
 
     context.routes.handle(async (request, path, caller) => {
       if (

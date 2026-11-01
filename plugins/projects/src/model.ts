@@ -57,6 +57,8 @@ export interface ProjectView {
   readonly threadModel: string | null;
   readonly coordinatorId: string;
   readonly coordinatorState: RunState;
+  // The person's Pipoca assistant (ADR 0052).
+  readonly assistant: boolean;
   // Earlier coordinators, oldest first.
   readonly formerCoordinators: readonly string[];
   readonly threads: readonly ThreadView[];

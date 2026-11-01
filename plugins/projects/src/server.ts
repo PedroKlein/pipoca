@@ -56,6 +56,14 @@ const newProject = Type.Object({
   model: Type.Optional(Type.String()),
 });
 
+const assistantAsk = Type.Object({
+  text: Type.String(),
+  model: Type.Optional(Type.String()),
+  // The Profiles the assistant's coordinator and threads run on.
+  profile: Type.String({ minLength: 1 }),
+  threadProfile: Type.String({ minLength: 1 }),
+});
+
 const stateChange = Type.Object({ state: Type.Enum(workStates) });
 
 const deliveryMs = 1000;
@@ -400,6 +408,31 @@ async function route(
     return Response.json(summaries(store, context, caller));
   }
 
+  if (resource === "assistant" && id === undefined) {
+    if (request.method === "POST") {
+      return Response.json(
+        view(
+          ask(
+            await readBody(request, assistantAsk),
+            store,
+            context,
+            caller.actor,
+          ),
+          store,
+          context,
+        ),
+      );
+    }
+
+    const found = assistantOf(store, caller.actor);
+
+    if (request.method !== "GET" || found === undefined) {
+      throw new NotFound(`no route ${path.join("/")}`);
+    }
+
+    return Response.json(view(found, store, context));
+  }
+
   const project =
     resource === "projects"
       ? theirs(store.get(id ?? ""), context, caller)
@@ -525,7 +558,7 @@ function create(
     threadModel,
   }: Static<typeof newProject>,
   store: ProjectStore,
-  { sessions, log }: ServerPluginContext,
+  context: ServerPluginContext,
   user: `user:${string}`,
 ): Project {
   if (name.trim() === "") {
@@ -557,6 +590,7 @@ function create(
     threadModel: (threadModel ?? "").trim() || null,
     coordinatorId: "",
     createdAt: new Date().toISOString(),
+    assistant: false,
   };
 
   try {
@@ -565,23 +599,98 @@ function create(
     throw new BadRequest(`thread model: ${(error as Error).message}`);
   }
 
+  return begin(draft, { model, profile: draft.profileId }, store, context);
+}
+
+// The person's assistant, made the first time they ask it something, with
+// the Profiles the assistant plugin gives its coordinator and threads (ADR
+// 0052). Each ask goes to its coordinator.
+function ask(
+  { text, model, profile, threadProfile }: Static<typeof assistantAsk>,
+  store: ProjectStore,
+  context: ServerPluginContext,
+  user: `user:${string}`,
+): Project {
+  if (text.trim() === "") {
+    throw new BadRequest("text must not be empty");
+  }
+
+  const found = assistantOf(store, user);
+
+  if (found === undefined) {
+    return begin(
+      {
+        id: randomUUID(),
+        ownerId: user.slice("user:".length),
+        name: "Assistant",
+        goal: "",
+        instructions: "",
+        repositories: [],
+        environmentId: null,
+        profileId: threadProfile,
+        threadModel: null,
+        coordinatorId: "",
+        createdAt: new Date().toISOString(),
+        assistant: true,
+      },
+      { model, profile, firstMessage: text },
+      store,
+      context,
+    );
+  }
+
+  const sent = context.sessions.send(found.coordinatorId, text, user);
+  if (!sent.ok) {
+    throw new BadRequest(`the assistant can't take it: ${sent.reason}`);
+  }
+
+  return found;
+}
+
+function assistantOf(
+  store: ProjectStore,
+  user: `user:${string}`,
+): Project | undefined {
+  return store
+    .list()
+    .find(
+      (project) =>
+        project.assistant && project.ownerId === user.slice("user:".length),
+    );
+}
+
+function begin(
+  draft: Project,
+  start: {
+    readonly model?: string | undefined;
+    readonly profile: string | null;
+    readonly firstMessage?: string;
+  },
+  store: ProjectStore,
+  { sessions, log }: ServerPluginContext,
+): Project {
   let coordinator;
   try {
-    const ref = modelRef((model ?? "").trim() || undefined);
+    const ref = modelRef((start.model ?? "").trim() || undefined);
 
     coordinator = sessions.start(
       {
         ...(ref && { model: ref }),
-        actor: user,
+        actor: `user:${draft.ownerId}`,
         ...(draft.environmentId !== null && {
           environment: draft.environmentId,
         }),
-        ...(draft.profileId !== null && { profile: draft.profileId }),
+        ...(start.profile !== null && { profile: start.profile }),
         workspace: {
           kind: "repositories",
-          repositories: urls.map((repository) => ({ repository })),
+          repositories: draft.repositories.map((repository) => ({
+            repository,
+          })),
         },
         systemPrompt: coordinatorPrompt(draft, undefined),
+        ...(start.firstMessage !== undefined && {
+          firstMessage: start.firstMessage,
+        }),
       },
       draft.id,
     );
@@ -601,7 +710,11 @@ function create(
     lastActivity: project.createdAt,
   });
 
-  log("project created", { project: project.id, coordinator: coordinator.id });
+  log("project created", {
+    project: project.id,
+    coordinator: coordinator.id,
+    ...(project.assistant && { assistant: true }),
+  });
 
   return project;
 }
@@ -703,7 +816,10 @@ function summaries(
 
   return store
     .list()
-    .filter((project) => theirs(project, context, caller) !== undefined)
+    .filter(
+      (project) =>
+        !project.assistant && theirs(project, context, caller) !== undefined,
+    )
     .map((project) => {
       const threads = store.threads(project.id);
 
@@ -739,6 +855,7 @@ function view(
     threadModel: project.threadModel,
     coordinatorId: project.coordinatorId,
     coordinatorState: runState(sessions.get(project.coordinatorId)),
+    assistant: project.assistant,
     formerCoordinators: store
       .formers(project.id)
       .map(({ sessionId }) => sessionId),

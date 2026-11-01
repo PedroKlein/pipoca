@@ -76,6 +76,7 @@ export function projectTools(
     tool(
       {
         name: "start_thread",
+        annotations: { destructiveHint: false, openWorldHint: true },
         description:
           "Start a thread: a new Pi session with its own checkout of the Project's repositories, which works on one task and reports back.",
         parameters: object(
@@ -118,7 +119,10 @@ export function projectTools(
           (url) => !project.repositories.includes(url),
         );
 
-        if (unknown.length > 0 || repositories.length === 0) {
+        if (
+          unknown.length > 0 ||
+          (repositories.length === 0 && !project.assistant)
+        ) {
           throw new Error(
             `repositories must be some of: ${project.repositories.join(", ")}`,
           );
@@ -182,6 +186,7 @@ export function projectTools(
     tool(
       {
         name: "message_thread",
+        annotations: { destructiveHint: false },
         description:
           "Send a message to a thread. It starts a turn, or waits as a follow-up if the thread is busy.",
         parameters: object(
@@ -216,6 +221,7 @@ export function projectTools(
     tool(
       {
         name: "list_threads",
+        annotations: { readOnlyHint: true },
         description:
           "List the Project's threads with their title, run state, work state, Environment, branch and last activity.",
         parameters: object({}, []),
@@ -239,6 +245,7 @@ export function projectTools(
     tool(
       {
         name: "read_thread",
+        annotations: { readOnlyHint: true },
         description: `Read a thread's messages, newest first, ${String(pageSize)} per page.`,
         parameters: object(
           {
@@ -275,6 +282,7 @@ export function projectTools(
     tool(
       {
         name: "message_coordinator",
+        annotations: { destructiveHint: false },
         description:
           "Send a message to the Project's coordinator. It starts a coordinator turn, so use it for decisions and results, not progress.",
         parameters: object({ text: text("The message") }, ["text"]),
@@ -302,6 +310,7 @@ export function projectTools(
     tool(
       {
         name: "set_status",
+        annotations: { destructiveHint: false },
         description: `Set this thread's work state: ${workStates.join(", ")}.`,
         parameters: object(
           {
@@ -332,6 +341,7 @@ export function projectTools(
     tool(
       {
         name: "memory_list",
+        annotations: { readOnlyHint: true },
         description:
           "List the Project's memory files with their size, last writer and time.",
         parameters: object({}, []),
@@ -353,6 +363,7 @@ export function projectTools(
     tool(
       {
         name: "memory_read",
+        annotations: { readOnlyHint: true },
         description:
           "Read one Project memory file, with the revision memory_write needs to change it.",
         parameters: object({ name: text("File name, like MEMORY.md") }, [
@@ -373,6 +384,7 @@ export function projectTools(
     tool(
       {
         name: "memory_write",
+        annotations: { destructiveHint: false },
         description:
           "Replace one Project memory file (16 KB at most). To change a file that exists, read it first and pass the revision memory_read gave; a write on top of an older revision is refused, so read again and redo your change. MEMORY.md is the index every new Project session gets in its system prompt.",
         parameters: object(

@@ -18,6 +18,9 @@ export interface Project {
   readonly threadModel: string | null;
   readonly coordinatorId: string;
   readonly createdAt: string;
+  // The person's Pipoca assistant, which has no repositories and stays out
+  // of the Project list (ADR 0052).
+  readonly assistant: boolean;
 }
 
 export interface Member {
@@ -58,6 +61,7 @@ interface ProjectRow {
   thread_model: string | null;
   coordinator_id: string;
   created_at: string;
+  assistant: number;
 }
 
 interface MemberRow {
@@ -141,6 +145,12 @@ export function projectStore(
     }
   }
 
+  if (!columns.some(({ name }) => name === "assistant")) {
+    store.exec(
+      "alter table projects_projects add column assistant integer not null default 0",
+    );
+  }
+
   store.exec(`create table if not exists projects_members (
     session_id text primary key,
     project_id text not null,
@@ -196,6 +206,7 @@ export function projectStore(
     threadModel: row.thread_model,
     coordinatorId: row.coordinator_id,
     createdAt: row.created_at,
+    assistant: row.assistant === 1,
   });
 
   const toMember = (row: MemberRow): Member => ({
@@ -254,8 +265,8 @@ export function projectStore(
     create: (project) => {
       store.run(
         `insert into projects_projects
-          (id, owner_id, name, goal, instructions, repositories, environment_id, profile_id, thread_model, coordinator_id, created_at)
-          values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, owner_id, name, goal, instructions, repositories, environment_id, profile_id, thread_model, coordinator_id, created_at, assistant)
+          values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         project.id,
         project.ownerId,
         project.name,
@@ -267,6 +278,7 @@ export function projectStore(
         project.threadModel,
         project.coordinatorId,
         project.createdAt,
+        project.assistant ? 1 : 0,
       );
     },
     list: () =>
