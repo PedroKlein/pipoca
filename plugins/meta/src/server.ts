@@ -7,7 +7,7 @@ import {
   type Static,
   Type,
 } from "@pipoca/plugins";
-import type { Actor, Session } from "@pipoca/protocol";
+import type { Actor, Session, ToolResult } from "@pipoca/protocol";
 import { metaPrompt } from "./prompt";
 
 const newMetaSession = Type.Object({
@@ -30,6 +30,22 @@ const assistantProfile = {
   appendSystemMd: metaPrompt,
   mcpServers: {},
 };
+
+const fileContents = Type.Record(Type.String(), Type.String());
+
+const installation = Type.Union([
+  Type.Object({
+    kind: Type.Literal("profile"),
+    files: fileContents,
+    name: Type.String({ minLength: 1 }),
+    id: Type.Optional(Type.String({ minLength: 1 })),
+  }),
+  Type.Object({
+    kind: Type.Literal("plugin"),
+    plugin: Type.String({ minLength: 1 }),
+    files: fileContents,
+  }),
+]);
 
 const toolCall = Type.Object({
   tool: Type.String(),
@@ -88,6 +104,20 @@ export const meta: ServerPlugin = {
         });
       }
 
+      if (
+        path === "install" &&
+        caller.kind === "session" &&
+        request.method === "POST"
+      ) {
+        const wanted = await readBody(request, installation);
+
+        return Response.json(
+          wanted.kind === "profile"
+            ? await installProfile(context, caller.session, wanted)
+            : await installPlugin(context, caller.session, wanted),
+        );
+      }
+
       if (path !== "sessions" || caller.kind !== "user") {
         throw new NotFound(`no route ${path}`);
       }
@@ -118,6 +148,68 @@ export const meta: ServerPlugin = {
     });
   },
 };
+
+// Installs go through the toolsets the web UI's routes back, so they act as
+// the person, with the same checks.
+async function installProfile(
+  context: ServerPluginContext,
+  session: Session,
+  { files, name, id }: Static<typeof installation> & { kind: "profile" },
+): Promise<ToolResult> {
+  let target = id;
+
+  if (target === undefined) {
+    const created = await context.toolsets.call(session, "profiles_create", {
+      name,
+    });
+
+    if (created.isError) {
+      return created;
+    }
+
+    target = (JSON.parse(created.text) as { id: string }).id;
+  }
+
+  const uploaded = await context.toolsets.call(session, "profiles_upload", {
+    id: target,
+    files,
+  });
+
+  if (uploaded.isError) {
+    return id === undefined
+      ? {
+          ...uploaded,
+          text: `Made the Profile ${target}, but its files weren't written: ${uploaded.text}`,
+        }
+      : uploaded;
+  }
+
+  return {
+    text: `Wrote ${String(Object.keys(files).length)} files into the Profile ${target}.`,
+    isError: false,
+    opened: { kind: "open", route: `profiles/${target}`, label: name },
+  };
+}
+
+async function installPlugin(
+  context: ServerPluginContext,
+  session: Session,
+  { plugin, files }: Static<typeof installation> & { kind: "plugin" },
+): Promise<ToolResult> {
+  for (const [path, content] of Object.entries(files)) {
+    const written = await context.toolsets.call(session, "plugins_write_file", {
+      plugin,
+      path,
+      content,
+    });
+
+    if (written.isError) {
+      return { ...written, text: `${path}: ${written.text}` };
+    }
+  }
+
+  return context.toolsets.call(session, "plugins_build", { plugin });
+}
 
 function start(
   context: ServerPluginContext,
