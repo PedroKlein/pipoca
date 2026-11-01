@@ -183,6 +183,8 @@ export interface SessionsOptions {
 export interface PluginProfile {
   readonly plugin: string;
   readonly profile: ProfileContent & { readonly id: string };
+  // Other plugins whose own Sessions may run on it.
+  readonly sharedWith?: readonly string[];
 }
 
 // The server adds the Profiles, which Sessions don't hold.
@@ -290,7 +292,9 @@ export class Sessions {
       provided === undefined
         ? stored !== undefined &&
           (stored.ownerId === null || stored.ownerId === startedBy)
-        : provided.plugin === ownedBy?.plugin;
+        : ownedBy !== undefined &&
+          (provided.plugin === ownedBy.plugin ||
+            provided.sharedWith?.includes(ownedBy.plugin) === true);
 
     if (!usable) {
       return { ok: false, reason: "unknown_profile" };
@@ -1291,7 +1295,7 @@ export class Sessions {
       installedParts,
     } = this.#sessionPlugins();
 
-    const ownedBy = session.owner?.plugin;
+    const ownedBy = this.powersOf(session);
     const limit = ownedBy === undefined ? undefined : loadOnly?.[ownedBy];
 
     const loaded = plugins.filter(
@@ -1320,6 +1324,14 @@ export class Sessions {
         ),
       ),
     };
+  }
+
+  // The plugin whose toolsets and Session parts the Session gets: the one
+  // whose Profile it runs on, or else the one that owns it (ADR 0052).
+  powersOf(session: Pick<Session, "profileId" | "owner">): string | undefined {
+    return (
+      this.#pluginProfile(session.profileId)?.plugin ?? session.owner?.plugin
+    );
   }
 
   // A Session another one started, such as a Project's thread, acts for
