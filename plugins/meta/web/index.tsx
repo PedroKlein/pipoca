@@ -63,6 +63,7 @@ function titleOf(session: Session): string {
 function Home({ context, onNewSession }: HomeProps): ReactElement {
   // Once the assistant exists, its own chat switches models.
   const assistant = useAssistant(context);
+
   const environments = useLoaded(
     async () => json<Environment[]>(context.request("/api/environments")),
     "environments",

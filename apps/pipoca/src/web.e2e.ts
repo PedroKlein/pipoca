@@ -373,6 +373,7 @@ test("asks the assistant from the home screen with the model picked, then contin
   await page
     .getByRole("link", { name: "Continue with the assistant" })
     .waitFor();
+
   expect(await model.count()).toBe(0);
 }, 30_000);
 
