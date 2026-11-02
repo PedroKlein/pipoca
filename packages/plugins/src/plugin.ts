@@ -34,6 +34,8 @@ export type KernelEvent =
       readonly session: Session;
       readonly previous: Session["status"];
     }
+  // Pi asked a question and waits for a person to answer it.
+  | { readonly type: "SessionWaiting"; readonly session: Session }
   | { readonly type: "TurnStarted"; readonly session: Session }
   | {
       readonly type: "TurnEnded";

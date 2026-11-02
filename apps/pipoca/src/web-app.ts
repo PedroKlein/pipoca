@@ -24,7 +24,61 @@ const manifest = {
   ],
 };
 
+// Shows the notifications a push plugin sends, unless the person is looking
+// at that Session, and opens the Session when one is clicked. It is served
+// from the root so its scope covers the whole app.
+const serviceWorker = `
+const windows = () => self.clients.matchAll({ type: "window", includeUncontrolled: true });
+
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
+
+self.addEventListener("push", (event) => {
+  const notice = event.data ? event.data.json() : {};
+
+  event.waitUntil((async () => {
+    const watching = (await windows()).some(
+      (client) => client.focused && new URL(client.url).hash === "#" + notice.session,
+    );
+
+    if (!watching) {
+      await self.registration.showNotification(notice.title ?? "Pipoca", {
+        body: notice.body,
+        tag: notice.session,
+        data: { session: notice.session, url: notice.url ?? "/" },
+      });
+    }
+  })());
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const { session, url } = event.notification.data ?? {};
+
+  event.waitUntil((async () => {
+    const [open] = await windows();
+
+    if (open === undefined) {
+      await self.clients.openWindow(url ?? "/");
+      return;
+    }
+
+    open.postMessage({ type: "open-session", session });
+    await open.focus();
+  })());
+});
+`;
+
 export function webAppFile(pathname: string): Response | undefined {
+  if (pathname === "/sw.js") {
+    return new Response(serviceWorker, {
+      headers: {
+        "content-type": "text/javascript",
+        "cache-control": "no-cache",
+      },
+    });
+  }
+
   if (pathname === "/manifest.webmanifest") {
     return Response.json(manifest, {
       headers: { "content-type": "application/manifest+json" },

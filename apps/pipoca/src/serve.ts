@@ -5,6 +5,7 @@ import type { ServerWebSocket } from "bun";
 import { gitHosts } from "@pipoca/git-hosts/server";
 import { kubernetesPlugin } from "@pipoca/kubernetes/server";
 import { library } from "@pipoca/library/server";
+import { push } from "@pipoca/push/server";
 import { local, type LocalOptions } from "@pipoca/local/server";
 import { logins as loginsPlugin } from "@pipoca/logins/server";
 import { meta } from "@pipoca/meta/server";
@@ -57,6 +58,7 @@ const serverPlugins: readonly ServerPlugin[] = [
   oidc,
   gitHosts,
   loginsPlugin,
+  push,
 ];
 
 export interface ServeOptions {

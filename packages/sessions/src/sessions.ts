@@ -984,7 +984,12 @@ export class Sessions {
       this.#trackSurface(id, post.generation, event);
 
       if (this.#waiting(session) !== waiting) {
-        this.#emit(id, { type: "session", session: this.#view(session) });
+        const view = this.#view(session);
+        this.#emit(id, { type: "session", session: view });
+
+        if (view.waiting) {
+          this.#events({ type: "SessionWaiting", session: view });
+        }
       }
 
       this.#emit(id, { type: "live", event });

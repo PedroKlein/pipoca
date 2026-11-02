@@ -3072,3 +3072,70 @@ test("opens a page the Session opened in a browser through its preview", async (
   await context.close();
   await app.stop(true);
 });
+
+test("offers push notifications in Settings and shows a pushed notification from the service worker", async () => {
+  await openSettings("Push notifications");
+  await page.getByRole("button", { name: "Turn on for this device" }).waitFor();
+
+  const origin = new URL(server.url).origin;
+
+  const context = await browser.newContext();
+  const [name = "", value = ""] = cookie.split("=");
+  await context.addCookies([{ name, value, url: origin }]);
+  await context.grantPermissions(["notifications"], { origin });
+
+  const tab = await context.newPage();
+  await tab.goto(origin);
+
+  const cdp = await context.newCDPSession(tab);
+
+  const registered = new Promise<string>((resolve) => {
+    cdp.on("ServiceWorker.workerRegistrationUpdated", ({ registrations }) => {
+      const [registration] = registrations.filter(
+        ({ scopeURL, isDeleted }) => scopeURL === `${origin}/` && !isDeleted,
+      );
+
+      if (registration !== undefined) {
+        resolve(registration.registrationId);
+      }
+    });
+  });
+
+  await cdp.send("ServiceWorker.enable");
+
+  const started = context.waitForEvent("serviceworker");
+
+  await tab.evaluate(
+    "navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(() => navigator.serviceWorker.ready).then(() => undefined)",
+  );
+
+  // Headless Chromium keeps no shown notifications, so the worker's calls
+  // are recorded instead.
+  const worker = context.serviceWorkers()[0] ?? (await started);
+
+  await worker.evaluate(
+    "self.shown = []; self.registration.showNotification = (title, options) => { self.shown.push(title + ': ' + options.body); return Promise.resolve(); }",
+  );
+
+  await cdp.send("ServiceWorker.deliverPushMessage", {
+    origin,
+    registrationId: await registered,
+    data: JSON.stringify({
+      title: "Pi needs you",
+      body: "Fix the login page",
+      session: "session-1",
+      url: "/#session-1",
+    }),
+  });
+
+  const shown = async (): Promise<string[]> =>
+    worker.evaluate<string[]>("self.shown");
+
+  while ((await shown()).length === 0) {
+    await tab.waitForTimeout(50);
+  }
+
+  expect(await shown()).toEqual(["Pi needs you: Fix the login page"]);
+
+  await context.close();
+}, 30_000);

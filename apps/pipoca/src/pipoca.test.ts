@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { once } from "node:events";
 import { execFile } from "node:child_process";
 import {
@@ -2421,6 +2421,85 @@ test("marks a session as waiting on a person while one of its prompts is open", 
   });
 
   expect(await waiting()).toBe(false);
+});
+
+test("tells a person's subscribed browser when one of their sessions starts waiting on them", async () => {
+  const pushed: string[] = [];
+  const realFetch = globalThis.fetch;
+
+  const spy = spyOn(globalThis, "fetch").mockImplementation((async (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ) => {
+    const url = input instanceof Request ? input.url : input.toString();
+
+    if (url.startsWith("https://fcm.googleapis.com/")) {
+      pushed.push(new Headers(init?.headers).get("urgency") ?? "");
+
+      return new Response(null, { status: 201 });
+    }
+
+    return realFetch(input, init);
+  }) as typeof fetch);
+
+  try {
+    const session = await createSession("vm");
+
+    await asAgent("vm", "/agent/work", {
+      running: [],
+      folders: [],
+      models: [],
+    });
+
+    const keys = await crypto.subtle.generateKey(
+      { name: "ECDH", namedCurve: "P-256" },
+      true,
+      ["deriveBits"],
+    );
+
+    const subscribed = await fetch(
+      new URL("/api/plugins/push/subscriptions", server.url),
+      {
+        method: "PUT",
+        headers: { cookie: await signedIn() },
+        body: JSON.stringify({
+          endpoint: "https://fcm.googleapis.com/fcm/send/device-1",
+          keys: {
+            p256dh: Buffer.from(
+              await crypto.subtle.exportKey("raw", keys.publicKey),
+            ).toString("base64url"),
+            auth: Buffer.from(
+              crypto.getRandomValues(new Uint8Array(16)),
+            ).toString("base64url"),
+          },
+        }),
+      },
+    );
+
+    await asAgent("vm", `/agent/sessions/${session.id}/live`, {
+      generation: 1,
+      events: [
+        {
+          type: "prompt",
+          prompt: {
+            id: "p1",
+            kind: "confirm",
+            title: "Deploy?",
+            message: "Sure?",
+          },
+        },
+      ],
+    });
+
+    while (pushed.length === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    expect(subscribed.status).toBe(200);
+    expect(pushed).toEqual(["high"]);
+  } finally {
+    spy.mockRestore();
+  }
 });
 
 test("replays the current extension status, widgets and title to a client that connects later", async () => {
