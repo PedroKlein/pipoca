@@ -15,6 +15,11 @@ export interface WorkflowHost {
   readonly steer: (key: string, message: string) => Promise<boolean>;
   // Whether the run was stopped, so the script stops too.
   readonly stopped: () => boolean;
+  // A mission's state, which the script reads and changes as `state`.
+  readonly state?: {
+    readonly initial: unknown;
+    readonly keep: (state: unknown) => void;
+  };
 }
 
 export interface WorkflowResult {
@@ -62,9 +67,19 @@ export async function runWorkflow(
     return work();
   };
 
+  const keepState = (): void => {
+    if (host.state) {
+      const state = vm.global.getProp("state");
+      host.state.keep(vm.dump(state));
+      state.dispose();
+    }
+  };
+
   // A host promise as a guest promise, settled with JSON to keep values plain.
   const promised = (work: () => Promise<unknown>): JSValueHandle => {
     const deferred = vm.newPromise();
+
+    keepState();
 
     work().then(
       (value) => {
@@ -148,6 +163,12 @@ export async function runWorkflow(
     vm.setProp(vm.global, "args", passed);
     passed.dispose();
 
+    if (host.state) {
+      const state = vm.hostToHandle(host.state.initial ?? {});
+      vm.setProp(vm.global, "state", state);
+      state.dispose();
+    }
+
     const promise = guest(() =>
       vm.evalCode(`(async () => {\n${source}\n})()`, "workflow.js"),
     );
@@ -156,6 +177,7 @@ export async function runWorkflow(
 
     const settled = await vm.resolvePromise(promise);
     promise.dispose();
+    keepState();
 
     const output = [...logged];
 

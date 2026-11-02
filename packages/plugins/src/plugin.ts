@@ -403,7 +403,11 @@ export interface Checkout {
 export interface SessionCloud {
   // Replaces the plugin's last value under key for everyone watching the
   // Session, and for anyone who opens it later.
-  readonly publish: (key: string, data: unknown) => void;
+  readonly publish: (
+    key: string,
+    data: unknown,
+    options?: { readonly waiting?: boolean },
+  ) => void;
   readonly askQuestions: AskQuestions;
   readonly askPermission: AskPermission;
   readonly checkouts: readonly Checkout[];

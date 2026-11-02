@@ -52,8 +52,11 @@ interface Seen {
 // One faux model for the parent and its children, as they share the
 // Session's runtime. A child answers with its task's first line; the parent
 // follows its script, then says "ok".
+// A parent's reply, or one made from what the parent's model was given.
+type Reply = AssistantMessage | ((saw: string) => AssistantMessage);
+
 async function hosted(
-  parent: readonly AssistantMessage[],
+  parent: readonly Reply[],
   {
     cwd = root,
     watchdog = [],
@@ -146,7 +149,9 @@ async function hosted(
       ),
     );
 
-    return script.shift() ?? fauxAssistantMessage([fauxText("ok")]);
+    const next = script.shift() ?? fauxAssistantMessage([fauxText("ok")]);
+
+    return typeof next === "function" ? next(parentSaw) : next;
   };
 
   faux.setResponses(Array.from({ length: 50 }, () => answer));
@@ -338,7 +343,7 @@ test("offers its action to the model as a plain string enum", async () => {
     properties: {
       action: {
         type: "string",
-        enum: ["agents", "status", "steer", "stop", "resume"],
+        enum: ["agents", "status", "steer", "stop", "resume", "mission"],
       },
     },
   });
@@ -747,4 +752,107 @@ return a + " then " + b;`,
   });
 
   expect(after.children.map(({ task }) => task)).toEqual(["hang once"]);
+});
+
+function missionsOf(events: readonly LiveEvent[]): {
+  readonly data: readonly {
+    readonly id: string;
+    readonly runIds: readonly string[];
+    readonly state?: unknown;
+    readonly decisions: readonly { readonly answer?: string }[];
+  }[];
+  readonly waiting?: boolean;
+} {
+  const published = events.findLast(
+    (e) =>
+      e.type === "plugin" && e.plugin === "subagents" && e.key === "missions",
+  );
+
+  return published?.type === "plugin"
+    ? {
+        data: published.data as ReturnType<typeof missionsOf>["data"],
+        ...(published.waiting !== undefined && { waiting: published.waiting }),
+      }
+    : { data: [] };
+}
+
+const createdMission = (saw: string): string =>
+  /Created mission (\w+)/.exec(saw)?.[1] ?? "";
+
+test("a mission's decision waits on the person, and their answer comes back to the agent", async () => {
+  const session = await hosted([
+    call({
+      action: "mission",
+      mission: { title: "Ship login", objective: "Login works on Safari" },
+    }),
+    (saw) =>
+      call({
+        agent: "scout",
+        task: "find the login form",
+        missionId: createdMission(saw),
+        wait: true,
+      }),
+    (saw) =>
+      call({
+        action: "mission",
+        missionId: createdMission(saw),
+        mission: {
+          decision: { question: "Use OAuth?", options: ["yes", "no"] },
+        },
+      }),
+  ]);
+
+  session.send("ship login");
+
+  await session.waitFor(() => missionsOf(session.events).waiting === true);
+
+  const [mission] = missionsOf(session.events).data;
+  session.send(`/mission-decide ${mission?.id ?? ""} 1 yes`);
+
+  await session.waitFor(() => session.parentSaw().includes("Answer: yes"));
+  await session.waitFor(() => missionsOf(session.events).waiting !== true);
+  await session.stop();
+
+  expect(missionsOf(session.events).data[0]).toMatchObject({
+    runIds: [expect.any(String) as unknown],
+    decisions: [{ answer: "yes" }],
+  });
+});
+
+test("a workflow started for a mission reads and changes its state, which outlasts a restart", async () => {
+  const before = await hosted([
+    call({
+      action: "mission",
+      mission: { title: "Count", objective: "Count the rounds" },
+    }),
+    (saw) =>
+      fauxAssistantMessage(
+        [
+          fauxText(
+            '```js workflow\nstate.rounds = (state.rounds ?? 0) + 1;\nawait runs.run({ agent: "scout", task: "look" });\nreturn state.rounds;\n```',
+          ),
+          fauxToolCall("subagent", {
+            workflow: "inline",
+            missionId: createdMission(saw),
+            wait: true,
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+  ]);
+
+  before.send("count");
+
+  await before.waitFor(() =>
+    toolResults(before.lines).some((r) => r.includes("Workflow output")),
+  );
+
+  await before.stop();
+
+  const after = await hosted([]);
+
+  await after.waitFor(() => missionsOf(after.events).data.length > 0);
+  await after.stop();
+
+  expect(missionsOf(after.events).data[0]?.state).toEqual({ rounds: 1 });
 });

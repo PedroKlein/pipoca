@@ -48,8 +48,8 @@ Accepted by Pedro on 2026-11-02, with the build order below.
 
 - A mission is an objective that runs work toward it: a title, an objective, the runs started for it, decisions waiting on the person, receipts such as a PR link, and a small JSON `state` its workflows can read and write.
 - A mission belongs to one Session, and its record is kept in that Session's transcript like its runs. In a Project, a thread is a Session, so a thread can hold missions, and the Project page can show a thread's open decisions and receipts next to its work state. A mission is not a second kind of thread. The Project still decides which threads exist.
-- The `subagent` tool gains `mission` actions to create, update and close a mission and to record a decision or a receipt. A run started with `missionId` is attached to that mission.
-- An open decision shows in the fleet panel, and in a thread it shows as one of the thread's "needs you" items.
+- The `subagent` tool gains `mission` actions to create, update and close a mission and to record a decision or a receipt. (As built, this is a single action, `mission`. Without a `missionId` it creates a mission. With one, it changes that mission: a decision, a receipt, or `close` with a summary.) A run started with `missionId` is attached to that mission.
+- An open decision shows in the fleet panel, and in a thread it shows as one of the thread's "needs you" items. (As built, a session part can publish data marked `waiting`, and the server counts it like an open question when it decides that a Session needs its person. The missions data is marked that way while a decision is open, so the Session, and the thread it is, shows "Needs you". The Project page doesn't show a thread's receipts.)
 - Receipts are links only. Watching a PR stays with PR watching ([ADR 0051](0051-pull-request-watching.md)).
 - Goal mode, a token budget that keeps nudging the agent until the mission is done, is left out of the first missions build. A Project coordinator already follows a thread's work state, and goal mode can be added later if that turns out not to be enough.
 

@@ -343,8 +343,18 @@ export async function hostSession(
   const plugins = (options.plugins ?? []).map((plugin) => ({
     plugin,
     cloud: {
-      publish: (key: string, data: unknown) => {
-        live.push({ type: "plugin", plugin: plugin.name, key, data });
+      publish: (
+        key: string,
+        data: unknown,
+        { waiting }: { readonly waiting?: boolean } = {},
+      ) => {
+        live.push({
+          type: "plugin",
+          plugin: plugin.name,
+          key,
+          data,
+          ...(waiting === true && { waiting }),
+        });
       },
       askQuestions: prompts.questions,
       askPermission: prompts.permission,

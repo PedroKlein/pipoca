@@ -4,6 +4,10 @@ import {
   type ChildView,
   finishedKind,
   manages,
+  missionRecordType,
+  missionsKey,
+  type MissionView,
+  openDecisions,
   recordType,
   type Review,
   type RunView,
@@ -15,6 +19,8 @@ import {
 export {
   type ChildView,
   manages,
+  type MissionView,
+  openDecisions,
   type Review,
   type RunView,
   runState,
@@ -79,6 +85,42 @@ export function recordedRun(event: SessionEvent): RunView | undefined {
     };
 
     return entry.type === "custom" && entry.customType === recordType
+      ? entry.data
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Every mission of the Session, as the session part last published them.
+export function publishedMissions(
+  event: SessionEvent,
+): readonly MissionView[] | undefined {
+  return event.type === "live" &&
+    event.event.type === "plugin" &&
+    event.event.plugin === "subagents" &&
+    event.event.key === missionsKey
+    ? (event.event.data as readonly MissionView[])
+    : undefined;
+}
+
+// A mission as the transcript last recorded it.
+export function recordedMission(event: SessionEvent): MissionView | undefined {
+  if (
+    event.type !== "entry" ||
+    !event.entry.includes(`"${missionRecordType}"`)
+  ) {
+    return undefined;
+  }
+
+  try {
+    const entry = JSON.parse(event.entry) as {
+      readonly type?: string;
+      readonly customType?: string;
+      readonly data?: MissionView;
+    };
+
+    return entry.type === "custom" && entry.customType === missionRecordType
       ? entry.data
       : undefined;
   } catch {

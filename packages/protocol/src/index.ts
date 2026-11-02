@@ -738,6 +738,9 @@ export type LiveEvent =
       readonly plugin: string;
       readonly key: string;
       readonly data: unknown;
+      // The data holds something a person must answer, so the Session needs
+      // them like a question does (ADR 0058).
+      readonly waiting?: boolean;
     }
   | {
       readonly type: "queue";

@@ -13,7 +13,7 @@ import {
   type Shape,
   type Workflow,
 } from "./format";
-import { runWorkflow, type WorkflowStep } from "./workflow";
+import { runWorkflow, type WorkflowHost, type WorkflowStep } from "./workflow";
 
 export interface Step {
   readonly agent: Agent;
@@ -28,10 +28,18 @@ export interface Run {
 
 export interface Fleet {
   readonly start: (shape: Shape, steps: readonly Step[]) => Run;
-  readonly startWorkflow: (workflow: Workflow, agents: readonly Agent[]) => Run;
+  readonly startWorkflow: (
+    workflow: Workflow,
+    agents: readonly Agent[],
+    state?: WorkflowHost["state"],
+  ) => Run;
   // Carries on with a run's interrupted children, or undefined when it has
   // none (ADR 0058).
-  readonly resume: (runId: string, agents: readonly Agent[]) => Run | undefined;
+  readonly resume: (
+    runId: string,
+    agents: readonly Agent[],
+    state?: WorkflowHost["state"],
+  ) => Run | undefined;
   // Takes back the runs a restart left, already marked as it left them.
   readonly restore: (runs: readonly RunView[]) => void;
   readonly runs: () => readonly RunView[];
@@ -209,6 +217,7 @@ export function fleet({
     run: Running,
     workflow: Workflow,
     agents: readonly Agent[],
+    state: WorkflowHost["state"],
   ): Promise<void> => {
     const calls = new Map<string, number>();
 
@@ -282,6 +291,7 @@ export function fleet({
         return session !== undefined;
       },
       stopped: () => run.stopped === true || closing,
+      ...(state !== undefined && { state }),
     });
 
     if (closing) {
@@ -298,9 +308,10 @@ export function fleet({
   const drive = async (
     run: Running,
     agents: readonly Agent[] = [],
+    state?: WorkflowHost["state"],
   ): Promise<RunView> => {
     if (run.workflow !== undefined) {
-      await script(run, run.workflow, agents);
+      await script(run, run.workflow, agents, state);
     } else if (run.shape === "chain") {
       let previous: string | undefined;
 
@@ -363,7 +374,11 @@ export function fleet({
     return { id: run.id, ended: drive(run) };
   };
 
-  const startWorkflow = (workflow: Workflow, agents: readonly Agent[]): Run => {
+  const startWorkflow = (
+    workflow: Workflow,
+    agents: readonly Agent[],
+    state?: WorkflowHost["state"],
+  ): Run => {
     const run: Running = {
       id: randomUUID(),
       shape: "workflow",
@@ -376,10 +391,14 @@ export function fleet({
     record(run);
     changed();
 
-    return { id: run.id, ended: drive(run, agents) };
+    return { id: run.id, ended: drive(run, agents, state) };
   };
 
-  const resume = (runId: string, agents: readonly Agent[]): Run | undefined => {
+  const resume = (
+    runId: string,
+    agents: readonly Agent[],
+    missionState?: WorkflowHost["state"],
+  ): Run | undefined => {
     const run = runs.get(runId);
 
     const cutOff = (run?.children ?? []).filter(
@@ -420,7 +439,7 @@ export function fleet({
     record(run);
     changed();
 
-    return { id: run.id, ended: drive(run, agents) };
+    return { id: run.id, ended: drive(run, agents, missionState) };
   };
 
   const restore = (restored: readonly RunView[]): void => {
