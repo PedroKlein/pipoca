@@ -11,7 +11,7 @@ import type {
   AgentSessionEvent,
   ExtensionError,
 } from "@earendil-works/pi-coding-agent";
-import type { SessionPlugin } from "@pipoca/plugins";
+import type { ChildOptions, SessionPlugin } from "@pipoca/plugins";
 import {
   type Command,
   type ImageAttachment,
@@ -38,6 +38,7 @@ import {
   asksForTrust,
   availableModel,
   type SessionOptions,
+  startChild,
   startSession,
   stopSession,
 } from "./session";
@@ -353,6 +354,13 @@ export async function hostSession(
         stream.pluginRequest(plugin.name, path, init),
       log: (message: string, fields?: Readonly<Record<string, unknown>>) => {
         log(message, { plugin: plugin.name, ...fields });
+      },
+      startChild: async (child: ChildOptions) => {
+        if (!started.session) {
+          throw new Error("the Session hasn't started yet");
+        }
+
+        return startChild(started.session, options, child);
       },
     },
   }));

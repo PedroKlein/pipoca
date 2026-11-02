@@ -82,6 +82,7 @@ async function pr(
     checkouts: [checkout],
     settings: {},
     request: unused,
+    startChild: unused,
     log: (message, fields) => {
       said.push(`${message} ${JSON.stringify(fields)}`);
     },

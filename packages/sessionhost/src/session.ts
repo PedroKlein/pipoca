@@ -11,19 +11,22 @@ import {
   createCodemodeExtension,
   createMcpExtension,
   createToolSearchExtension,
+  createAgentSession,
+  DefaultResourceLoader,
   type ExtensionError,
   hasTrustRequiringProjectResources,
   initTheme,
   type InlineExtension,
   type McpExtensionOptions,
   ModelRuntime,
+  resolveCliModel,
   SessionManager,
   type ResourceDiagnostic,
   type Skill,
   SettingsManager,
   type ToolExposure,
 } from "@earendil-works/pi-coding-agent";
-import type { Checkout, SessionLogins } from "@pipoca/plugins";
+import type { Checkout, ChildOptions, SessionLogins } from "@pipoca/plugins";
 import type { ModelRef, ThinkingLevel } from "@pipoca/protocol";
 import chalk from "chalk";
 import { pluginPackages } from "./packages";
@@ -196,6 +199,61 @@ export async function startSession(
   );
 
   refreshModels(services.modelRuntime);
+
+  return session;
+}
+
+// A subagent's session (ADR 0057). It shares the parent's model runtime, so
+// it reaches every model the parent can with the same logins, and keeps its
+// file beside the parent's.
+export async function startChild(
+  parent: AgentSession,
+  { agentDir, sessionDir }: Pick<SessionOptions, "agentDir" | "sessionDir">,
+  child: ChildOptions,
+): Promise<AgentSession> {
+  const cwd = parent.sessionManager.getCwd();
+  const { modelRuntime, settingsManager } = parent;
+
+  const chosen =
+    child.model === undefined
+      ? { model: parent.model }
+      : resolveCliModel({ cliModel: child.model, modelRuntime });
+
+  if ("error" in chosen && chosen.error !== undefined) {
+    throw new Error(chosen.error);
+  }
+
+  const resourceLoader = new DefaultResourceLoader({
+    cwd,
+    agentDir,
+    settingsManager,
+    noExtensions: true,
+    noSkills: true,
+    noPromptTemplates: true,
+    noThemes: true,
+    agentsFilesOverride: withoutHomeContext,
+    ...(child.systemPrompt !== undefined && {
+      appendSystemPrompt: [child.systemPrompt],
+    }),
+  });
+
+  await resourceLoader.reload();
+
+  const { session } = await createAgentSession({
+    cwd,
+    agentDir,
+    modelRuntime,
+    settingsManager,
+    resourceLoader,
+    tools: [...child.tools],
+    ...(chosen.model && { model: chosen.model }),
+    thinkingLevel: child.thinking ?? parent.thinkingLevel,
+    sessionManager: SessionManager.create(cwd, join(sessionDir, "children"), {
+      ...(parent.sessionFile !== undefined && {
+        parentSession: parent.sessionFile,
+      }),
+    }),
+  });
 
   return session;
 }

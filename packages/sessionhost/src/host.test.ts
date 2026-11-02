@@ -4148,3 +4148,69 @@ test("uses a repository trust answer given before without asking", async () => {
     }).toEqual({ trusted, loaded: trusted, asked: false });
   }
 });
+
+test("starts a plugin's child session on the Session's own models", async () => {
+  const { faux, models } = await fauxModels(root);
+
+  faux.setResponses([
+    fauxAssistantMessage([fauxToolCall("delegate", {})], {
+      stopReason: "toolUse",
+    }),
+    fauxAssistantMessage([fauxText("the child's answer")]),
+    fauxAssistantMessage([fauxText("delegated")]),
+  ]);
+
+  const delegating: SessionPlugin = {
+    name: "delegating",
+    tools: (cloud) => [
+      defineTool({
+        name: "delegate",
+        label: "Delegate",
+        description: "Asks a child session",
+        parameters: Type.Object({}),
+        execute: async () => {
+          const child = await cloud.startChild({ tools: ["read"] });
+          await child.prompt("answer");
+
+          const reply = child.messages.findLast(
+            (message) => message.role === "assistant",
+          );
+
+          const text =
+            reply?.role === "assistant"
+              ? reply.content.flatMap((part) =>
+                  part.type === "text" ? [part.text] : [],
+                )
+              : [];
+
+          child.dispose();
+
+          return {
+            content: [{ type: "text", text: `child: ${text.join("")}` }],
+            details: {
+              file: child.sessionFile,
+              tools: child.getActiveToolNames(),
+            },
+          };
+        },
+      }),
+    ],
+  };
+
+  const fake = fakeStream();
+
+  const hosted = await hostSession(
+    sessionOptions(root, { models, plugins: [delegating] }),
+    fake.stream,
+    () => undefined,
+    noTerminal,
+  );
+
+  fake.send({ actor: "user:local", type: "message", text: "go" });
+  await fake.waitFor(() => fake.lines.join().includes("delegated"));
+  await hosted.stop();
+
+  expect(fake.lines.join()).toContain("child: the child's answer");
+  expect(fake.lines.join()).toContain(join(root, "sessions", "children"));
+  expect(fake.lines.join()).toContain('"tools":["read"]');
+});
