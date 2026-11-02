@@ -11,6 +11,7 @@ import {
 } from "@pipoca/plugins/web";
 import { Button, Icon, isComposing, Picker, Slider } from "@pipoca/ui";
 import {
+  memo,
   type ReactElement,
   type RefObject,
   useEffect,
@@ -24,7 +25,7 @@ import type { Feed, Settings, ShownWidget } from "./feed";
 import { modelName, modelRef } from "./names";
 import { usePrimaryId } from "./primary";
 import { PluginBoundary } from "./plugin-boundary";
-import { pluginContext, widgetRenderer } from "./plugins";
+import { enabledPlugins, pluginContext, widgetRenderer } from "./plugins";
 import { PromptCard, type PromptHandlers } from "./prompt-card";
 import { browserCommand } from "./suggest";
 import { useSuggestions } from "./suggestions";
@@ -243,6 +244,8 @@ export function Composer({
 
       <TerminalColumns onColumns={setColumns} />
 
+      <PluginParts session={session} />
+
       <Widgets widgets={feed.widgetsAbove} session={session} />
 
       {!hidden && (
@@ -458,6 +461,24 @@ async function attached(file: File): Promise<Attached> {
     data: url.slice(url.indexOf(",") + 1),
   };
 }
+
+// Kept across renders so plugin parts re-render on their own events, not on
+// every token.
+const PluginParts = memo(function Parts({
+  session,
+}: {
+  readonly session: MountedSession;
+}): ReactElement[] {
+  return enabledPlugins().flatMap(({ name, Composer: Part }) =>
+    Part
+      ? [
+          <PluginBoundary key={name} name={name}>
+            <Part context={pluginContext(name)} session={session} />
+          </PluginBoundary>,
+        ]
+      : [],
+  );
+});
 
 // Extensions' widgets as Pi's TUI draws them, one box for each run of
 // widgets no plugin claims (ADR 0030).

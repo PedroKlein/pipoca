@@ -830,6 +830,65 @@ export default (pi) => {
   return path;
 }
 
+test("leaves out a replaceable plugin's extension when the user's own registers the same tool", async () => {
+  const { faux, models } = await fauxModels(root);
+
+  faux.setResponses([
+    fauxAssistantMessage([fauxToolCall("deploy", {})], {
+      stopReason: "toolUse",
+    }),
+    fauxAssistantMessage([fauxText("deployed")]),
+  ]);
+
+  const builtIn: SessionPlugin = {
+    name: "built-in",
+    replaceable: true,
+    extension: () => (pi: ExtensionAPI) => {
+      pi.registerTool(
+        defineTool({
+          name: "deploy",
+          label: "Deploy",
+          description: "The plugin's deploy",
+          parameters: Type.Object({}),
+          execute: async () =>
+            Promise.resolve({
+              content: [{ type: "text" as const, text: "from the plugin" }],
+              details: {},
+            }),
+        }),
+      );
+    },
+  };
+
+  const logs: string[] = [];
+  const fake = fakeStream();
+
+  const hosted = await hostSession(
+    sessionOptions(root, {
+      extensionPaths: [await confirmTool()],
+      models,
+      plugins: [builtIn],
+    }),
+    fake.stream,
+    (message) => {
+      logs.push(message);
+    },
+    noTerminal,
+  );
+
+  fake.send({ actor: "user:local", type: "message", text: "ship it" });
+  await fake.waitFor(() => fake.events.some((e) => e.type === "prompt"));
+  const prompt = fake.events.find((e) => e.type === "prompt");
+  const id = prompt?.type === "prompt" ? prompt.prompt.id : "";
+  fake.send({ actor: "user:local", type: "answer", id, value: true });
+  await fake.waitFor(() => fake.lines.join().includes("deployed"));
+  await hosted.stop();
+
+  expect(fake.lines.join()).toContain("confirmed: true");
+  expect(fake.lines.join()).not.toContain("from the plugin");
+  expect(logs).not.toContain("extension error");
+});
+
 test("asks the user through prompt events and waits for the answer", async () => {
   const { faux, models } = await fauxModels(root);
 

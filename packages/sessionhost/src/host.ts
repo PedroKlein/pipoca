@@ -403,7 +403,13 @@ export async function hostSession(
       { name: "pi-view", factory: view.extension },
       ...plugins.flatMap(({ plugin, cloud }) =>
         plugin.extension
-          ? [{ name: plugin.name, factory: plugin.extension(cloud) }]
+          ? [
+              {
+                name: plugin.name,
+                factory: plugin.extension(cloud),
+                ...(plugin.replaceable === true && { replaceable: true }),
+              },
+            ]
           : [],
       ),
     ],

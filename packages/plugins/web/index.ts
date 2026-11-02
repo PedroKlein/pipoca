@@ -163,6 +163,8 @@ export interface WebPlugin {
   // A section on the user's Settings page, such as their linked accounts.
   readonly SettingsSection?: ComponentType<{ readonly context: WebContext }>;
   readonly SessionHeader?: ComponentType<SessionPartProps>;
+  // Drawn above a Session's composer, such as the agent's checklist.
+  readonly Composer?: ComponentType<SessionPartProps>;
   // Drawn beside a pull request that a Session opened, on its Changes panel.
   readonly PullRequest?: ComponentType<PullRequestProps>;
   // Tools whose calls the plugin draws instead of a work step, by name.

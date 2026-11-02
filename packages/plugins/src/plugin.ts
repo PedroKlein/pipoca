@@ -418,6 +418,9 @@ export interface SessionPlugin {
   // Loads only in the Sessions the server plugin of the same name owns.
   readonly ownSessionsOnly?: boolean;
   readonly extension?: (cloud: SessionCloud) => ExtensionFactory;
+  // Leaves the extension out when the user's own registers a tool, command or
+  // flag of the same name, like Pi's replaceable built-ins.
+  readonly replaceable?: boolean;
   // Pi packages, such as npm:<name>@<version>, loaded in every Session. Pi
   // installs each on first use. A user's own extension that registers the same
   // tool or command replaces it.

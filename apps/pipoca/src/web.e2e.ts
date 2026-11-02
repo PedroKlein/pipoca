@@ -2925,6 +2925,66 @@ export default (pi) => {
     .waitFor();
 }, 30_000);
 
+test("pins the agent's checklist above the composer while it has open steps", async () => {
+  const folder = join(root, "checklist");
+  await mkdir(folder, { recursive: true });
+
+  const update = (statuses: readonly string[]) =>
+    fauxAssistantMessage(
+      [
+        fauxToolCall("update_checklist", {
+          items: ["Read the code", "Write the fix", "Run the tests"].map(
+            (text, at) => ({ text, status: statuses[at] ?? "pending" }),
+          ),
+        }),
+      ],
+      { stopReason: "toolUse" },
+    );
+
+  faux.setResponses([
+    update(["completed", "in_progress", "pending"]),
+    fauxAssistantMessage([fauxText("Working on the fix")]),
+  ]);
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const box = page.locator("#prompt-text");
+  await box.fill("fix the bug");
+  await box.press("Enter");
+  await page.getByText("Working on the fix").waitFor();
+
+  const list = page.getByRole("region", { name: "Checklist" });
+  const summary = list.getByRole("button", { name: /Write the fix/ });
+
+  await summary.getByText("1 of 3").waitFor();
+
+  expect(await page.locator("#chat").textContent()).not.toContain(
+    "update_checklist",
+  );
+
+  await summary.click();
+  await list.getByText("Run the tests").waitFor();
+
+  await page.reload();
+  await list.getByRole("button", { name: /Write the fix/ }).waitFor();
+
+  faux.setResponses([
+    update(["completed", "completed", "completed"]),
+    fauxAssistantMessage([fauxText("All fixed")]),
+  ]);
+
+  await box.fill("finish it");
+  await box.press("Enter");
+  await page.getByText("All fixed").waitFor();
+  await list.waitFor({ state: "hidden" });
+}, 30_000);
+
 test("signs out and back in with the password", async () => {
   await page.goto(server.url.href);
   await page.getByRole("button", { name: "Account" }).click();

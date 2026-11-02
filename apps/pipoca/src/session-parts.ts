@@ -5,6 +5,8 @@ import askPackage from "@pipoca/ask/package.json";
 import { ask } from "@pipoca/ask/session";
 import changesPackage from "@pipoca/changes/package.json";
 import { changes } from "@pipoca/changes/session";
+import checklistPackage from "@pipoca/checklist/package.json";
+import { checklist } from "@pipoca/checklist/session";
 import gitHostsPackage from "@pipoca/git-hosts/package.json";
 import { gitHosts } from "@pipoca/git-hosts/session";
 import kubernetesPackage from "@pipoca/kubernetes/package.json";
@@ -43,6 +45,7 @@ export const builtInPlugins: readonly PluginManifest[] = [
   libraryPackage,
   modelsPackage,
   subagentsPackage,
+  checklistPackage,
   kubernetesPackage,
   localPackage,
   metaPackage,
@@ -57,6 +60,7 @@ export const sessionPlugins: readonly SessionPlugin[] = [
   librarySession,
   modelsSession,
   subagents,
+  checklist,
   metaSession,
   logins,
   gitHosts,
