@@ -1,0 +1,17 @@
+{{- if and .Values.runnerPods.enabled .Values.runnerPods.refuseIncoming }}
+# Runner pods take no incoming connections, so one person's pods can't reach
+# another's ports. Nothing needs them: runners dial the server, and previews
+# and terminals go over sockets the Session host opens to it (ADR 0053).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-runner-pods
+  labels:
+    {{- include "pipoca.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: pipoca
+  policyTypes:
+    - Ingress
+{{- end }}

@@ -39,6 +39,7 @@ import {
 import { builtInPlugins, sessionPlugins } from "./session-parts";
 import { errorReply } from "./replies";
 import { previewBroker } from "./previews";
+import { webAppFile } from "./web-app";
 import { changeFeed } from "./changes";
 import { createHandler, fromAddress, onBehalfOf } from "./server";
 import type { PreviewData, SocketData, TerminalData } from "./sockets";
@@ -335,8 +336,16 @@ export function serve(options: ServeOptions): {
         return preview;
       }
 
-      if (new URL(request.url).pathname === "/") {
+      const { pathname } = new URL(request.url);
+      if (pathname === "/") {
         return fetch(new URL(webPath, bunServer.url));
+      }
+
+      const appFile =
+        request.method === "GET" ? webAppFile(pathname) : undefined;
+
+      if (appFile !== undefined) {
+        return appFile;
       }
 
       if (!fromThisSite(request, siteHosts)) {

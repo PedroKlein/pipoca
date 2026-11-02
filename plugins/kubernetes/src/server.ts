@@ -11,7 +11,11 @@ import {
   type ServerPluginContext,
   Type,
 } from "@pipoca/plugins";
-import { type Environment, movable } from "@pipoca/protocol";
+import {
+  type Environment,
+  movable,
+  type PluginSettings,
+} from "@pipoca/protocol";
 import {
   type ApiAccess,
   type Cluster,
@@ -509,6 +513,17 @@ async function reconcile(
     }
   }
 
+  const owners = new Map(environments.map(({ id, ownerId }) => [id, ownerId]));
+  const perPerson = maxPodsPerPerson(context.settings.get());
+  const running = new Map<string, number>();
+
+  for (const pod of all) {
+    const owner = owners.get(pod.environmentId);
+    if (owner !== undefined && !finished.has(pod.phase)) {
+      running.set(owner, (running.get(owner) ?? 0) + 1);
+    }
+  }
+
   for (const environment of environments) {
     const environmentId = environment.id;
     const settings = settingsOf(environment);
@@ -519,6 +534,9 @@ async function reconcile(
     const active = all.filter(
       (pod) => pod.environmentId === environmentId && !finished.has(pod.phase),
     );
+
+    const owned = running.get(environment.ownerId) ?? 0;
+    const room = Math.min(settings.maxPods - active.length, perPerson - owned);
 
     for (const pod of active) {
       const online = environment.runners.some(
@@ -532,15 +550,34 @@ async function reconcile(
 
     const waiting = (key: string): boolean => failures.waiting(key, now);
 
-    await scale(context, pods, environment, settings, active, waiting).catch(
-      (error: unknown) => {
-        context.log("kubernetes runner pods not started", {
-          environmentId,
-          error: String(error),
-        });
-      },
-    );
+    const started = await scale(
+      context,
+      pods,
+      environment,
+      settings,
+      active,
+      room,
+      waiting,
+    ).catch((error: unknown) => {
+      context.log("kubernetes runner pods not started", {
+        environmentId,
+        error: String(error),
+      });
+
+      return 0;
+    });
+
+    running.set(environment.ownerId, owned + started);
   }
+}
+
+function maxPodsPerPerson(settings: PluginSettings): number {
+  const most = settings["maxPodsPerPerson"];
+  if (typeof most !== "number") {
+    throw new Error("kubernetes settings have no maxPodsPerPerson");
+  }
+
+  return most;
 }
 
 async function scale(
@@ -549,23 +586,30 @@ async function scale(
   environment: Environment,
   settings: KubernetesSettings,
   active: readonly RunnerPod[],
+  room: number,
   waiting: (key: string) => boolean,
-): Promise<void> {
+): Promise<number> {
   const environmentId = environment.id;
 
   // The agent in a pod runs Sessions as processes; it has no Docker.
   if (environment.isolation !== "process") {
-    return;
+    return 0;
   }
 
   if (settings.workspace === "claim") {
-    await scaleSessions(context, pods, environment, settings, active, waiting);
-
-    return;
+    return scaleSessions(
+      context,
+      pods,
+      environment,
+      settings,
+      active,
+      room,
+      waiting,
+    );
   }
 
   if (waiting(environmentId)) {
-    return;
+    return 0;
   }
 
   const online = new Set(
@@ -587,13 +631,15 @@ async function scale(
     Math.max(0, unplaced - joining * settings.capacity) / settings.capacity,
   );
 
-  const starting = Math.min(wanted, settings.maxPods - active.length);
+  const starting = Math.max(0, Math.min(wanted, room));
 
   for (let i = 0; i < starting; i++) {
     const name = `pi-runner-${randomBytes(4).toString("hex")}`;
     await startPod(context, pods, environment, settings, name);
     context.log("runner pod started", { environmentId, pod: name, unplaced });
   }
+
+  return starting;
 }
 
 // A Session's own pod takes only that Session, and a pod of that name, on the
@@ -604,14 +650,15 @@ async function scaleSessions(
   environment: Environment,
   settings: KubernetesSettings,
   active: readonly RunnerPod[],
+  room: number,
   waiting: (key: string) => boolean,
-): Promise<void> {
+): Promise<number> {
   const running = new Set(active.map(({ name }) => name));
-  let room = settings.maxPods - active.length;
+  let started = 0;
 
   for (const session of context.environments.unplaced(environment.id)) {
     const name = sessionPodName(session.id);
-    if (running.has(name) || room <= 0 || waiting(name)) {
+    if (running.has(name) || started >= room || waiting(name)) {
       continue;
     }
 
@@ -620,7 +667,7 @@ async function scaleSessions(
     );
 
     await startPod(context, pods, environment, settings, name, session.id);
-    room--;
+    started++;
 
     context.log("session pod started", {
       environmentId: environment.id,
@@ -628,6 +675,8 @@ async function scaleSessions(
       pod: name,
     });
   }
+
+  return started;
 }
 
 async function startPod(

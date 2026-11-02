@@ -20,6 +20,16 @@
     "id": "kubernetes",
     "title": "Kubernetes",
     "description": "Starts runner pods for an Environment when the server runs in a cluster.",
+    "settings": {
+      "maxPodsPerPerson": {
+        "type": "number",
+        "title": "Most runner pods per person",
+        "description": "The most runner pods one person's Environments run at once, on top of each template's own limit.",
+        "default": 10,
+        "min": 1,
+        "max": 1000
+      }
+    },
     "capabilities": [
       "sessions",
       "environments",
