@@ -349,6 +349,7 @@
         "@pipoca/plugins": "workspace:*",
         "@pipoca/protocol": "workspace:*",
         "@pipoca/ui": "workspace:*",
+        "quickjs-wasi": "3.6.2",
         "react": "19.3.1",
       },
       "devDependencies": {

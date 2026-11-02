@@ -20,7 +20,9 @@ import { hostSession, type SessionStream } from "./index";
 interface RunView {
   readonly id: string;
   readonly endedAt?: number;
+  readonly output?: string;
   readonly children: readonly {
+    readonly key?: string;
     readonly state: string;
     readonly output?: string;
   }[];
@@ -611,4 +613,138 @@ test("the watchdog stops sending the same high finding after three turns in a ro
   expect(
     watchdogNotices(session.lines).map(({ details }) => details.data.stuck),
   ).toEqual([undefined, undefined, true]);
+});
+
+function workflowCall(
+  script: string,
+  args: Parameters<typeof fauxToolCall>[1],
+): AssistantMessage {
+  return fauxAssistantMessage(
+    [
+      fauxText(`Here it is:\n\n\`\`\`js workflow\n${script}\n\`\`\``),
+      fauxToolCall("subagent", { workflow: "inline", ...args }),
+    ],
+    { stopReason: "toolUse" },
+  );
+}
+
+test("runs an inline workflow that combines runs, and returns what it returns", async () => {
+  const session = await hosted([
+    workflowCall(
+      `const found = await runs.run({ agent: "scout", task: "find " + args.topic });
+const [first, second] = await runs.all([
+  { agent: "reviewer", task: found },
+  { agent: "reviewer", task: "again" },
+]);
+console.log("reviewed");
+return [found, first, second, typeof fetch, typeof require].join("|");`,
+      { args: { topic: "the parser" }, wait: true },
+    ),
+  ]);
+
+  session.send("go");
+  await session.waitFor(() => toolResults(session.lines).length > 0);
+
+  await session.waitFor(
+    () => latestRuns(session.events)[0]?.endedAt !== undefined,
+  );
+
+  await session.stop();
+
+  expect(toolResults(session.lines)[0]).toContain(
+    "reviewed\ndid: find the parser|did: did: find the parser|did: again|undefined|undefined",
+  );
+
+  expect(latestRuns(session.events)[0]).toMatchObject({
+    children: [
+      { key: "scout-1", state: "done" },
+      { key: "reviewer-1", state: "done" },
+      { key: "reviewer-2", state: "done" },
+    ],
+  });
+});
+
+test("runs a workflow saved in the Profile by name", async () => {
+  await mkdir(join(root, "agent", "workflows"), { recursive: true });
+
+  await writeFile(
+    join(root, "agent", "workflows", "twice.js"),
+    `const outputs = [];
+for (const round of [1, 2]) {
+  outputs.push(await runs.run({ key: "round " + round, agent: "worker", task: args.task + " " + round }));
+}
+return outputs.join(", ");`,
+  );
+
+  const session = await hosted([
+    call({ workflow: "twice", args: { task: "polish" }, wait: true }),
+  ]);
+
+  session.send("go");
+  await session.waitFor(() => toolResults(session.lines).length > 0);
+  await session.stop();
+
+  expect(toolResults(session.lines)[0]).toContain(
+    "did: polish 1, did: polish 2",
+  );
+});
+
+test("fails a workflow whose step fails, with the step's key", async () => {
+  const session = await hosted([
+    workflowCall(
+      `await runs.run({ key: "look", agent: "nobody", task: "x" });`,
+      {
+        wait: true,
+      },
+    ),
+  ]);
+
+  session.send("go");
+  await session.waitFor(() => toolResults(session.lines).length > 0);
+  await session.stop();
+
+  expect(toolResults(session.lines)[0]).toContain('No agent named "nobody"');
+});
+
+test("resumes a workflow a restart cut off without running its finished steps again", async () => {
+  const before = await hosted([
+    workflowCall(
+      `const a = await runs.run({ key: "first", agent: "delegate", task: "first" });
+const b = await runs.run({ key: "second", agent: "delegate", task: "hang once" });
+return a + " then " + b;`,
+      {},
+    ),
+  ]);
+
+  before.send("go");
+
+  await before.waitFor(
+    () => latestRuns(before.events)[0]?.children[1]?.state === "running",
+  );
+
+  const id = latestRuns(before.events)[0]?.id ?? "";
+
+  await before.stop();
+
+  const after = await hosted([]);
+
+  await after.waitFor(
+    () => latestRuns(after.events)[0]?.children[1]?.state === "interrupted",
+  );
+
+  after.send(`/subagent-resume ${id}`);
+
+  await after.waitFor(
+    () =>
+      latestRuns(after.events)[0]?.endedAt !== undefined &&
+      latestRuns(after.events)[0]?.children[1]?.state === "done",
+  );
+
+  await after.stop();
+
+  expect(latestRuns(after.events)[0]).toMatchObject({
+    output: "did: first then did: hang once",
+  });
+
+  expect(after.children.map(({ task }) => task)).toEqual(["hang once"]);
 });

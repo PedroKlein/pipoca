@@ -4,7 +4,16 @@ import type {
   AgentSessionEvent,
 } from "@earendil-works/pi-coding-agent";
 import type { Agent } from "./agents";
-import type { Activity, ChildState, ChildView, RunView, Shape } from "./format";
+import {
+  type Activity,
+  type ChildState,
+  type ChildView,
+  cutOffWorkflow,
+  type RunView,
+  type Shape,
+  type Workflow,
+} from "./format";
+import { runWorkflow, type WorkflowStep } from "./workflow";
 
 export interface Step {
   readonly agent: Agent;
@@ -19,6 +28,7 @@ export interface Run {
 
 export interface Fleet {
   readonly start: (shape: Shape, steps: readonly Step[]) => Run;
+  readonly startWorkflow: (workflow: Workflow, agents: readonly Agent[]) => Run;
   // Carries on with a run's interrupted children, or undefined when it has
   // none (ADR 0058).
   readonly resume: (runId: string, agents: readonly Agent[]) => Run | undefined;
@@ -36,6 +46,7 @@ const activityKept = 30;
 const textKept = 2000;
 
 interface Child {
+  readonly key?: string;
   readonly agentName: string;
   agent?: Agent;
   task: string;
@@ -63,6 +74,10 @@ interface Running {
   readonly startedAt: number;
   endedAt?: number;
   readonly children: Child[];
+  readonly workflow?: Workflow;
+  output?: string;
+  error?: string;
+  stopped?: boolean;
 }
 
 // Runs subagents as child sessions, at most `limit` at once in the Session
@@ -188,9 +203,105 @@ export function fleet({
     return child.state;
   };
 
+  // Runs a workflow's script from the start. A step whose key already ended
+  // done gives its output again instead of running again.
+  const script = async (
+    run: Running,
+    workflow: Workflow,
+    agents: readonly Agent[],
+  ): Promise<void> => {
+    const calls = new Map<string, number>();
+
+    const keyOf = ({ key, agent }: WorkflowStep): string => {
+      if (key !== undefined) {
+        return key;
+      }
+
+      const count = (calls.get(agent) ?? 0) + 1;
+      calls.set(agent, count);
+
+      return `${agent}-${String(count)}`;
+    };
+
+    const step = async (asked: WorkflowStep): Promise<string> => {
+      const key = keyOf(asked);
+      let child = run.children.find((c) => c.key === key);
+
+      if (child?.state === "done") {
+        return child.output ?? "";
+      }
+
+      if (child?.state !== "queued") {
+        const agent = agents.find(({ name }) => name === asked.agent);
+        if (!agent) {
+          throw new Error(
+            `No agent named "${asked.agent}". The agents are: ${agents.map(({ name }) => name).join(", ")}.`,
+          );
+        }
+
+        const fresh: Child = {
+          key,
+          agentName: agent.name,
+          agent,
+          task: asked.task,
+          prepared: true,
+          state: "queued",
+          toolCount: 0,
+          activity: [],
+        };
+
+        if (child === undefined) {
+          run.children.push(fresh);
+        } else {
+          run.children.splice(run.children.indexOf(child), 1, fresh);
+        }
+
+        child = fresh;
+        changed();
+      }
+
+      const ended = await runChild(run, child);
+      if (ended !== "done") {
+        throw new Error(
+          `${key} ended ${ended}${child.error === undefined ? "" : `: ${child.error}`}`,
+        );
+      }
+
+      return child.output ?? "";
+    };
+
+    const result = await runWorkflow(workflow.script, workflow.args, {
+      run: step,
+      steer: async (key, message) => {
+        const { session } =
+          run.children.find((c) => c.key === key && c.state === "running") ??
+          {};
+
+        await session?.steer(message);
+
+        return session !== undefined;
+      },
+      stopped: () => run.stopped === true || closing,
+    });
+
+    if (closing) {
+      return;
+    }
+
+    run.output = result.output;
+    if (result.error !== undefined) {
+      run.error = run.stopped === true ? "Stopped." : result.error;
+    }
+  };
+
   // Runs the run's queued children, in order for a chain.
-  const drive = async (run: Running): Promise<RunView> => {
-    if (run.shape === "chain") {
+  const drive = async (
+    run: Running,
+    agents: readonly Agent[] = [],
+  ): Promise<RunView> => {
+    if (run.workflow !== undefined) {
+      await script(run, run.workflow, agents);
+    } else if (run.shape === "chain") {
       let previous: string | undefined;
 
       for (const child of run.children) {
@@ -252,6 +363,22 @@ export function fleet({
     return { id: run.id, ended: drive(run) };
   };
 
+  const startWorkflow = (workflow: Workflow, agents: readonly Agent[]): Run => {
+    const run: Running = {
+      id: randomUUID(),
+      shape: "workflow",
+      startedAt: now(),
+      children: [],
+      workflow,
+    };
+
+    runs.set(run.id, run);
+    record(run);
+    changed();
+
+    return { id: run.id, ended: drive(run, agents) };
+  };
+
   const resume = (runId: string, agents: readonly Agent[]): Run | undefined => {
     const run = runs.get(runId);
 
@@ -259,7 +386,10 @@ export function fleet({
       ({ state }) => state === "interrupted",
     );
 
-    if (run?.endedAt === undefined || cutOff.length === 0) {
+    if (
+      run?.endedAt === undefined ||
+      (cutOff.length === 0 && !cutOffWorkflow(view(run)))
+    ) {
       return undefined;
     }
 
@@ -290,7 +420,7 @@ export function fleet({
     record(run);
     changed();
 
-    return { id: run.id, ended: drive(run) };
+    return { id: run.id, ended: drive(run, agents) };
   };
 
   const restore = (restored: readonly RunView[]): void => {
@@ -300,6 +430,9 @@ export function fleet({
         shape: run.shape,
         startedAt: run.startedAt,
         ...(run.endedAt !== undefined && { endedAt: run.endedAt }),
+        ...(run.workflow !== undefined && { workflow: run.workflow }),
+        ...(run.output !== undefined && { output: run.output }),
+        ...(run.error !== undefined && { error: run.error }),
         children: run.children.map(({ agent, activity, ...child }): Child => ({
           ...child,
           agentName: agent,
@@ -326,6 +459,7 @@ export function fleet({
       return false;
     }
 
+    run.stopped = true;
     stopQueued(run);
 
     const running = run.children.filter(({ state }) => state === "running");
@@ -342,6 +476,7 @@ export function fleet({
 
   return {
     start,
+    startWorkflow,
     resume,
     restore,
     runs: () => [...runs.values()].map(view),
@@ -470,7 +605,11 @@ function view(run: Running): RunView {
     shape: run.shape,
     startedAt: run.startedAt,
     ...(run.endedAt !== undefined && { endedAt: run.endedAt }),
+    ...(run.workflow !== undefined && { workflow: run.workflow }),
+    ...(run.output !== undefined && { output: run.output }),
+    ...(run.error !== undefined && { error: run.error }),
     children: run.children.map((child): ChildView => ({
+      ...(child.key !== undefined && { key: child.key }),
       agent: child.agentName,
       task: child.task,
       state: child.state,
