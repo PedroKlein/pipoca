@@ -33,6 +33,7 @@ import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext, toolRenderer } from "./plugins";
 import { usePrimaryId } from "./primary";
 import { TerminalText } from "./terminal-text";
+import { useVerbosity } from "./verbosity";
 
 export function ChatView({
   feed,
@@ -357,9 +358,23 @@ function WorkBlock({
   );
 
   const did = tally([...steps, ...extra]);
+  const [verbosity] = useVerbosity();
+
+  // Quiet shows only what runs now, so the turn reads as one line.
+  const now = [...extra, ...steps.filter(({ id }) => runningIds.has(id))].at(
+    -1,
+  );
+
+  const current =
+    now === undefined
+      ? undefined
+      : describeTool(now.name, "args" in now ? now.args : undefined);
 
   return (
-    <details open={live} className="group/work">
+    <details
+      open={verbosity === "verbose" || (verbosity === "normal" && live)}
+      className="group/work"
+    >
       <summary className="flex w-fit cursor-pointer list-none items-center gap-1.5 rounded-md px-1 py-1 text-label text-fg-dim select-none hover:text-fg [&::-webkit-details-marker]:hidden">
         <Icon
           name="chevron-right"
@@ -369,6 +384,11 @@ function WorkBlock({
           <span className="flex items-center gap-2 text-working">
             <span className="size-1.5 animate-pulse rounded-full bg-working" />
             Working
+            {verbosity === "quiet" && current !== undefined && (
+              <span className="truncate text-fg-dim">
+                · {current.verb} {current.object}
+              </span>
+            )}
           </span>
         ) : (
           <span className="font-medium text-fg">
@@ -395,6 +415,7 @@ function WorkBlock({
               <StepRow
                 step={item.step}
                 running={runningIds.has(item.step.id)}
+                open={verbosity === "verbose"}
               />
             ) : (
               <WorkNote kind={item.kind} text={item.text} />
@@ -403,7 +424,11 @@ function WorkBlock({
         ))}
         {extra.map(({ id, name }) => (
           <li key={id}>
-            <StepRow step={{ id, name, args: undefined }} running />
+            <StepRow
+              step={{ id, name, args: undefined }}
+              running
+              open={verbosity === "verbose"}
+            />
           </li>
         ))}
       </ol>
@@ -414,9 +439,11 @@ function WorkBlock({
 function StepRow({
   step,
   running,
+  open,
 }: {
   readonly step: Step;
   readonly running: boolean;
+  readonly open: boolean;
 }): ReactElement {
   const { verb, object } = describeTool(step.name, step.args);
 
@@ -437,7 +464,7 @@ function StepRow({
   }
 
   return (
-    <details className="group/step">
+    <details open={open} className="group/step">
       <summary
         className={cn(
           row,
