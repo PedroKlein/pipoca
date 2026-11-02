@@ -27,7 +27,7 @@ jobs:
           path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
 
   linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
