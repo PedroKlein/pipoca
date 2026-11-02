@@ -5,12 +5,21 @@ import {
   finishedKind,
   manages,
   recordType,
+  type Review,
   type RunView,
   runsKey,
   runState,
+  watchdogKind,
 } from "../src/format";
 
-export { type ChildView, manages, type RunView, runState };
+export {
+  type ChildView,
+  manages,
+  type Review,
+  type RunView,
+  runState,
+  watchdogKind,
+};
 
 export type Tone = "running" | "done" | "failed" | "stopped";
 

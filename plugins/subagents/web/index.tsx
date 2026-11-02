@@ -24,6 +24,8 @@ import {
   type Tone,
   toneOf,
   took,
+  type Review,
+  watchdogKind,
 } from "./runs";
 
 // Subagent runs as cards in the chat, and a fleet panel from the header
@@ -32,7 +34,11 @@ export const subagents: WebPlugin = {
   name: "subagents",
   tools: { subagent: SubagentCall },
   SessionHeader: FleetButton,
-  notices: { finished: FinishedNotice, interrupted: InterruptedNotice },
+  notices: {
+    finished: FinishedNotice,
+    interrupted: InterruptedNotice,
+    [watchdogKind]: WatchdogNotice,
+  },
 };
 
 // The latest of every run: as published while the Session runs, and as the
@@ -479,5 +485,52 @@ function InterruptedNotice({ data }: NoticeProps): ReactElement {
         ? "a subagent run"
         : `${String(cutOff.length)} subagent runs`}
     </span>
+  );
+}
+
+// A watchdog review of a turn's changes. Only its high findings reached the
+// agent (ADR 0058).
+function WatchdogNotice({ data }: NoticeProps): ReactElement {
+  const review = data as Review;
+
+  if (review.error !== undefined) {
+    return (
+      <span className="text-label text-fg-dim">
+        The watchdog couldn't review this turn: {review.error}
+      </span>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1 px-2 py-1 text-label">
+      <span className="text-fg-dim">
+        {review.stuck === true
+          ? "The watchdog keeps finding this, so it stopped sending it to the agent"
+          : "The watchdog reviewed this turn's changes"}
+      </span>
+      {review.findings.map((finding, at) => (
+        <details key={at} className="rounded-md border border-line px-2 py-1">
+          <summary className="cursor-pointer">
+            <span
+              className={cn(
+                "mr-2 text-mono-sm uppercase",
+                finding.importance === "high" ? "text-failed" : "text-fg-dim",
+              )}
+            >
+              {finding.importance}
+            </span>
+            {finding.summary}
+          </summary>
+          {finding.evidence !== "" && (
+            <p className="mt-1 whitespace-pre-wrap text-fg-dim">
+              {finding.evidence}
+            </p>
+          )}
+          {finding.action !== "" && (
+            <p className="mt-1 whitespace-pre-wrap">{finding.action}</p>
+          )}
+        </details>
+      ))}
+    </div>
   );
 }

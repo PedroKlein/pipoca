@@ -249,7 +249,10 @@ export async function startChild(
     resourceLoader,
     tools: [...child.tools],
     ...(chosen.model && { model: chosen.model }),
-    thinkingLevel: child.thinking ?? parent.thinkingLevel,
+    thinkingLevel:
+      child.thinking ??
+      ("thinkingLevel" in chosen ? chosen.thinkingLevel : undefined) ??
+      parent.thinkingLevel,
     sessionManager:
       child.continueFrom !== undefined && existsSync(child.continueFrom)
         ? SessionManager.open(child.continueFrom, children)

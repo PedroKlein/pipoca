@@ -72,6 +72,12 @@ export const builtinAgents: readonly Agent[] = [
   },
 ];
 
+export function thinkingLevel(value: unknown): ThinkingLevel | undefined {
+  return typeof value === "string" && thinkingLevels.includes(value)
+    ? (value as ThinkingLevel)
+    : undefined;
+}
+
 export function parseAgent(text: string, fallbackName: string): Agent {
   const { frontmatter, body } = parseFrontmatter(text);
 
@@ -88,7 +94,7 @@ export function parseAgent(text: string, fallbackName: string): Agent {
     .map((tool) => tool.trim())
     .filter((tool) => piTools.includes(tool));
 
-  const thinking = string("thinking");
+  const thinking = thinkingLevel(string("thinking"));
   const model = string("model");
 
   return {
@@ -96,10 +102,7 @@ export function parseAgent(text: string, fallbackName: string): Agent {
     description: string("description") ?? "",
     tools: tools ?? piTools,
     ...(model !== undefined && { model }),
-    ...(thinking !== undefined &&
-      thinkingLevels.includes(thinking) && {
-        thinking: thinking as ThinkingLevel,
-      }),
+    ...(thinking !== undefined && { thinking }),
     prompt: body.trim(),
   };
 }
