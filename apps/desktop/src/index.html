@@ -126,6 +126,22 @@
         color: #fff;
       }
 
+      #update {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 0 0 24px;
+        padding: 12px 16px;
+        border: 1px solid var(--accent);
+        border-radius: 10px;
+        background: var(--panel);
+        color: var(--text);
+      }
+
+      #update span {
+        flex: 1;
+      }
+
       label {
         color: var(--muted);
         font-size: 12px;
@@ -155,6 +171,10 @@
     <main>
       <h1>Pipoca</h1>
       <p>Pick where your Sessions run.</p>
+      <div id="update" role="status" hidden>
+        <span></span>
+        <button type="button" class="primary">Update and restart</button>
+      </div>
       <ul id="connections"></ul>
       <form id="add">
         <input
@@ -173,7 +193,9 @@
       const notes = new Map();
 
       async function render() {
-        const { connections, running, signingIn, home } = await invoke("list");
+        const { connections, running, signingIn, home, update } =
+          await invoke("list");
+        showUpdate(update);
         const list = document.getElementById("connections");
         list.replaceChildren(
           ...connections.map((connection) =>
@@ -272,6 +294,29 @@
         return item;
       }
 
+      let updateFailed = "";
+
+      function showUpdate(version) {
+        const banner = document.getElementById("update");
+        banner.hidden = version === null;
+        banner.querySelector("span").textContent =
+          updateFailed ||
+          `Pipoca ${version} is out. Updating stops what's running here and restarts the app.`;
+      }
+
+      document
+        .querySelector("#update button")
+        .addEventListener("click", ({ target }) => {
+          target.disabled = true;
+          target.textContent = "Updating…";
+          invoke("update").catch((error) => {
+            updateFailed = String(error);
+            target.disabled = false;
+            target.textContent = "Try again";
+            render();
+          });
+        });
+
       function failedTo(connection) {
         return (error) => {
           notes.set(connection.id, { text: String(error), failed: true });
@@ -329,6 +374,8 @@
       });
 
       listen("signing-in", render);
+
+      listen("update", render);
 
       listen("failed", ({ payload }) => {
         notes.set(payload.id, { text: payload.error, failed: true });
