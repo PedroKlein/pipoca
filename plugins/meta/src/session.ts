@@ -7,8 +7,18 @@ import {
 import type { PermissionDetail } from "@pipoca/protocol";
 import { installTools } from "./install";
 
-// tool_search only loads tools, but carries no hints.
-const readers = new Set(["tool_search"]);
+// Pi's own tools carry no hints. They only touch the Session's workspace,
+// which threads work in freely (ADR 0052), and tool_search only loads tools.
+const workspaceTools = new Set([
+  "tool_search",
+  "read",
+  "grep",
+  "find",
+  "ls",
+  "bash",
+  "edit",
+  "write",
+]);
 
 // A meta-session asks the user before a destructive call and runs the rest
 // straight away (ADR 0035). A tool without hints counts as destructive. The
@@ -61,7 +71,7 @@ function destructive(
   const hints = tool?.annotations;
 
   return !(
-    readers.has(name) ||
+    workspaceTools.has(name) ||
     (name === "install_profile" &&
       isObject(input) &&
       input["id"] === undefined) ||
