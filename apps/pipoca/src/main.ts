@@ -17,9 +17,12 @@ import { serve } from "./serve";
 import { pipoca, runSessionProcess } from "./session-process";
 
 const usage = `usage:
+  pipoca up [--port 7420] [--database ~/.pipoca/server.db]
+              [--folder <the current folder>]...
   [PIPOCA_SECRET_KEY=<32 bytes, base64>] \\
   pipoca server [--supervise] [--host 127.0.0.1] [--port 7420] [--url <public URL>]
-                  [--database ~/.pipoca/server.db] [--sso-only] [--trust-proxy] [--solo]
+                  [--database ~/.pipoca/server.db] [--sso-only] [--trust-proxy]
+                  [--solo [--folder <path>]...]
                   [--plugins <folder next to the database>/plugins]
                   [--config-dir <folder next to the database>/config]
                   [--provider <name> [--data-dir ~/.pipoca/server]
@@ -61,7 +64,12 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 }
 
 switch (command) {
+  // A solo server whose runners start on this machine, opened in the browser
+  // signed in (ADR 0053). One already running only opens.
+  case "up":
   case "server": {
+    const up = command === "up";
+
     const { values } = parseArgs({
       args: rest,
       options: {
@@ -97,7 +105,21 @@ switch (command) {
       process.exit(await supervisor.exited);
     }
 
-    await checkFolders(values.folder);
+    const solo = values.solo || up;
+    const socket = linkSocket(values.database);
+
+    if (up) {
+      const running = await signInLink(socket).catch(() => undefined);
+      if (running !== undefined) {
+        openInBrowser(running);
+        break;
+      }
+    }
+
+    const folders =
+      up && values.folder.length === 0 ? [process.cwd()] : values.folder;
+
+    await checkFolders(folders);
 
     // Sessions of the built-in runner inherit the environment.
     const secretKey = process.env["PIPOCA_SECRET_KEY"];
@@ -121,10 +143,11 @@ switch (command) {
       }),
       passwordLogin: !values["sso-only"],
       trustProxy: values["trust-proxy"],
-      ...(values.solo && {
+      ...(solo && {
         solo: {
           name: userInfo().username,
-          socket: linkSocket(values.database),
+          socket,
+          folders: folders.map(absolutePath),
         },
       }),
       ...(secretKey !== undefined && { secretKey: parseSecretKey(secretKey) }),
@@ -153,6 +176,10 @@ switch (command) {
     shutdown.signal.addEventListener("abort", () => {
       void server.stop();
     });
+
+    if (up) {
+      openInBrowser(await signInLink(socket));
+    }
 
     break;
   }
@@ -275,7 +302,7 @@ switch (command) {
     process.stdout.write(`${url}\n`);
 
     if (values.open) {
-      Bun.spawn([process.platform === "darwin" ? "open" : "xdg-open", url]);
+      openInBrowser(url);
     }
 
     break;
@@ -329,6 +356,20 @@ async function signInLink(socket: string): Promise<string> {
   });
 
   return ((await response.json()) as { url: string }).url;
+}
+
+// Prints the link too, for a machine with no browser to open, such as a
+// server reached over SSH.
+function openInBrowser(url: string): void {
+  process.stderr.write(`sign in at ${url}\n`);
+
+  try {
+    Bun.spawn([process.platform === "darwin" ? "open" : "xdg-open", url], {
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+  } catch {
+    // No opener: the printed link is enough.
+  }
 }
 
 // The first label of the host name, in the letters a runner name allows.

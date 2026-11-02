@@ -10,6 +10,7 @@ import { gitHosts } from "@pipoca/git-hosts/session";
 import kubernetesPackage from "@pipoca/kubernetes/package.json";
 import libraryPackage from "@pipoca/library/package.json";
 import { library as librarySession } from "@pipoca/library/session";
+import localPackage from "@pipoca/local/package.json";
 import loginsPackage from "@pipoca/logins/package.json";
 import { logins } from "@pipoca/logins/session";
 import metaPackage from "@pipoca/meta/package.json";
@@ -43,6 +44,7 @@ export const builtInPlugins: readonly PluginManifest[] = [
   modelsPackage,
   subagentsPackage,
   kubernetesPackage,
+  localPackage,
   metaPackage,
   oidcPackage,
   gitHostsPackage,
