@@ -7,7 +7,7 @@
 
 [ADR 0053](0053-ways-to-run-pipoca.md#no-desktop-app-yet) left out a desktop app: `pipoca up`, `pipoca connect`, `pipoca service install` and the installable web UI covered what one would do. Those are built now.
 
-They still assume a terminal. Someone who wants Pipoca running on their own machine has to install a binary, run it from a shell and keep it running. A signed app they download and open is easier for them, and it can do things a browser tab can't: a tray icon, starting at login, a folder picker that returns real paths, native notifications. Plugins could use those too.
+They still assume a terminal. Someone who wants Pipoca running on their own machine has to install a binary, run it from a shell and keep it running. An app they download and open is easier for them, and it can do things a browser tab can't: a tray icon, starting at login, a folder picker that returns real paths, native notifications. Plugins could use those too.
 
 Claude Code is the model. Its desktop app picks where a session runs (local, SSH or cloud) and installs itself on an SSH host when it isn't there. Its phone app is a client for sessions running elsewhere and never runs code ([Claude Code on mobile](https://code.claude.com/docs/en/mobile)).
 
@@ -59,14 +59,15 @@ The app shows each connection's server and runner state in its tray icon and sta
 
 ### Releases
 
-- Builds are signed and notarized for macOS, published as GitHub Releases, and updated with Tauri's updater from a signed manifest there.
+- Builds are published as GitHub Releases and updated with Tauri's updater from a signed manifest there. Only the updater manifest is signed.
+- macOS builds aren't signed with an Apple Developer ID or notarized for now (decided 2026-11-02), so macOS warns the first time the app opens and the guide says how to open it anyway. Signing can come later without changing the app.
 - The CLI binary stays a release asset of its own for servers and people who prefer the terminal.
 
 ## Consequences
 
 - A new user on macOS can download one app and run Sessions on their own machine without a terminal.
-- Pipoca needs an Apple Developer account, a macOS CI runner for releases and an updater signing key kept as a repository secret.
+- Pipoca needs a macOS CI runner for releases and an updater signing key kept as a repository secret. An Apple Developer account comes only with signed builds.
 - The repository gains a small Rust program and its toolchain in CI.
 - The web UI has to keep working in Safari's engine, as the installable web UI already requires.
 - Plugins can use native features only through feature checks, and a remote server's plugins only with the person's consent.
-- The order is: Web Push, the `pipoca://` sign-in handoff, the macOS app with This Mac and SSH connections, copying the binary to an SSH host, Server URL connections, then Linux builds.
+- The order is: Web Push, the macOS app with This Mac and SSH connections, copying the binary to an SSH host, Server URL connections with the `pipoca://` sign-in handoff, then Linux builds. The handoff is built with Server URL connections because nothing else uses it.

@@ -1,0 +1,33 @@
+name: Desktop
+
+on:
+  pull_request:
+    paths:
+      - apps/desktop/**
+      - .github/workflows/desktop.yml
+  push:
+    tags: ["desktop-v*"]
+  workflow_dispatch:
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: cargo fmt --check --manifest-path apps/desktop/src-tauri/Cargo.toml
+      - run: bun run --cwd apps/desktop build -- --bundles app,dmg
+      - run: cargo clippy --release --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Pipoca-macos
+          path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+      - if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg

@@ -2,6 +2,7 @@
   "extends": "./tsconfig.base.json",
   "include": [
     "apps/pipoca/src",
+    "apps/desktop/*.ts",
     "packages/*/src",
     "plugins/*/src",
     "**/*.test.ts",
