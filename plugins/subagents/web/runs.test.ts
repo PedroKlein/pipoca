@@ -3,6 +3,7 @@ import { noticeType } from "@pipoca/protocol";
 import {
   type ChildView,
   finishedRun,
+  manages,
   type RunView,
   separateOutput,
 } from "./runs";
@@ -57,5 +58,13 @@ test("shows an output only when the child didn't already say it", () => {
 
   expect(separateOutput({ ...child, state: "failed", error: "no model" })).toBe(
     "no model",
+  );
+});
+
+test("draws a call that names a task as a run, even with an action filled in", () => {
+  expect(manages({ action: "status", id: "r1" })).toBe(true);
+
+  expect(manages({ action: "status", agent: "scout", task: "look" })).toBe(
+    false,
   );
 });

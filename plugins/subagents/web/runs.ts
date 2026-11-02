@@ -3,12 +3,13 @@ import {
   type ChildState,
   type ChildView,
   finishedKind,
+  manages,
   type RunView,
   runsKey,
   runState,
 } from "../src/format";
 
-export { type ChildView, type RunView, runState };
+export { type ChildView, manages, type RunView, runState };
 
 export type Tone = "running" | "done" | "failed" | "stopped";
 
