@@ -23,3 +23,15 @@ jobs:
         with:
           name: Pipoca-macos
           path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - run: bun install --frozen-lockfile
+      - run: bun run --cwd apps/desktop build -- --bundles deb
+      - run: cargo clippy --release --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings
