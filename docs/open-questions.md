@@ -77,6 +77,7 @@
 - Resolved for v1: the Project library is a writable shared space on the server, where the last write wins, like memory ([vision](vision.md#v1-personal-sessions-and-projects-on-your-own-machines)). Versioned publications may come later.
 - Resolved: a Project's coordinator and threads are Sessions owned by the plugin, hidden from the Session list and shown only inside the Project, whose page is the coordinator's chat with a rail of threads; archiving a Project archives every Session it owns ([ADR 0028](adr/0028-projects-around-the-coordinator.md)).
 - How are overlapping repository or file claims detected before work begins?
+- Resolved: every Session except a Project coordinator keeps a checklist through one `update_checklist` tool that replaces the whole list, kept in the tool's results and pinned above the composer; a shared task list that threads claim is not built ([ADR 0056](adr/0056-session-checklist.md)). Should a Profile be able to turn off a built-in plugin's tools, and should Project thread cards show their thread's checklist?
 
 ### Future compatibility without premature implementation
 
