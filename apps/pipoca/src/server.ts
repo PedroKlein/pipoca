@@ -973,13 +973,16 @@ function authRoutes(auth: Auth, plugins: PluginHost, log: Log): RouteTable {
       "GET",
       /^\/api\/auth\/link\/([\w-]+)$/,
       (request, [token = ""]) => {
-        const user = auth.redeemSignInLink(token);
+        const verifier =
+          new URL(request.url).searchParams.get("verifier") ?? undefined;
+
+        const user = auth.redeemSignInLink(token, verifier);
 
         if (user === undefined) {
           return errorReply(
             403,
             "invalid_token",
-            "This sign-in link was used or is too old. Run pipoca link for a new one.",
+            "This sign-in link was used or is too old. Get a new one with pipoca link, or from the Pipoca app.",
           );
         }
 
@@ -992,6 +995,37 @@ function authRoutes(auth: Auth, plugins: PluginHost, log: Log): RouteTable {
             "set-cookie": auth.startSession(user, request),
           },
         });
+      },
+    ],
+    [
+      "POST",
+      /^\/api\/auth\/app$/,
+      async (request) => {
+        const user = auth.userOf(request);
+        if (user === undefined) {
+          return errorReply(401, "signed_out", "Sign in first.");
+        }
+
+        const challenge = textOf(
+          "challenge",
+          fieldsOf(await readJson(request))["challenge"],
+        );
+
+        if (!/^[\w-]{43}$/.test(challenge)) {
+          return errorReply(
+            400,
+            "invalid_challenge",
+            "This isn't a link from the Pipoca app.",
+          );
+        }
+
+        log("signed the desktop app in", { userId: user.id });
+
+        const link = new URL("pipoca://signed-in");
+        link.searchParams.set("challenge", challenge);
+        link.searchParams.set("link", auth.appSignInLink(user, challenge));
+
+        return Response.json({ link: link.href });
       },
     ],
     [

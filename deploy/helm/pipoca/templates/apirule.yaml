@@ -35,6 +35,13 @@ spec:
     - path: /api/auth/logout
       methods: [POST]
       noAuth: true
+    # The desktop app's sign-in (ADR 0055).
+    - path: /api/auth/app
+      methods: [POST]
+      noAuth: true
+    - path: /api/auth/link/{*}
+      methods: [GET]
+      noAuth: true
     - path: /api/changes
       methods: [GET]
       noAuth: true

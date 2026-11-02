@@ -143,10 +143,10 @@ export class Auth {
   #setupToken: string | undefined;
   readonly #passwordLogin: boolean;
   readonly #now: () => number;
-  // The one user of a solo install (ADR 0053), and its sign-in links by
-  // hash, with when each stops working.
+  // The one user of a solo install (ADR 0053), and the sign-in links by
+  // hash.
   readonly #soloUser: User | undefined;
-  readonly #signInLinks = new Map<string, number>();
+  readonly #signInLinks = new Map<string, SignInLink>();
 
   constructor(
     store: AuthStore,
@@ -210,30 +210,58 @@ export class Auth {
       throw new Error("sign-in links are only for a solo install");
     }
 
+    return this.#newSignInLink({ user: this.#soloUser });
+  }
+
+  // A one-time token that signs the desktop app's window in as a person
+  // signed in in their browser (ADR 0055). It works only with the verifier
+  // whose SHA-256 is the challenge, which the app never lets out, so a
+  // token another app catches on its way to Pipoca's is no use to it.
+  appSignInLink(user: User, challenge: string): string {
+    return this.#newSignInLink({ user, challenge });
+  }
+
+  // Undefined when the token is wrong, used, too old or missing its
+  // verifier.
+  redeemSignInLink(token: string, verifier?: string): User | undefined {
+    const key = hash(token);
+    const link = this.#signInLinks.get(key);
+    this.#signInLinks.delete(key);
+
+    if (link === undefined || link.expires <= Date.now()) {
+      return undefined;
+    }
+
+    if (
+      link.challenge !== undefined &&
+      (verifier === undefined ||
+        !sameText(
+          createHash("sha256").update(verifier).digest("base64url"),
+          link.challenge,
+        ))
+    ) {
+      return undefined;
+    }
+
+    return link.user;
+  }
+
+  #newSignInLink(link: Omit<SignInLink, "expires">): string {
     const now = Date.now();
-    for (const [token, expires] of this.#signInLinks) {
+    for (const [token, { expires }] of this.#signInLinks) {
       if (expires <= now) {
         this.#signInLinks.delete(token);
       }
     }
 
     const token = randomBytes(32).toString("base64url");
-    this.#signInLinks.set(hash(token), now + signInLinkMs);
+
+    this.#signInLinks.set(hash(token), {
+      ...link,
+      expires: now + signInLinkMs,
+    });
 
     return token;
-  }
-
-  // Undefined when the token is wrong, used or too old.
-  redeemSignInLink(token: string): User | undefined {
-    const key = hash(token);
-    const expires = this.#signInLinks.get(key);
-    this.#signInLinks.delete(key);
-
-    if (expires === undefined || expires <= Date.now()) {
-      return undefined;
-    }
-
-    return this.#soloUser;
   }
 
   // Undefined when the token is wrong or already used.
@@ -652,6 +680,12 @@ function checkCredentials({ name, password }: Credentials): void {
 }
 
 // A copied database holds no usable browser session.
+interface SignInLink {
+  readonly user: User;
+  readonly expires: number;
+  readonly challenge?: string;
+}
+
 function hash(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }

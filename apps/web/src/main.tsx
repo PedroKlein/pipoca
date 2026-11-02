@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { App } from "./app";
+import { AppSignIn, pendingAppSignIn } from "./app-sign-in";
 import { loadPlugins, navEntries } from "./plugins";
 import { type Login, SignInPage } from "./sign-in";
 import { applyTheme } from "./theme";
@@ -28,6 +29,7 @@ const status = await fetch("/api/auth")
   .catch(() => undefined);
 
 const setupToken = /^#setup\/(.+)$/.exec(location.hash)?.[1];
+const appChallenge = pendingAppSignIn();
 
 if (status === undefined) {
   root.textContent = "The server can't be reached. Reload to try again.";
@@ -40,6 +42,10 @@ if (status === undefined) {
       passwordLogin={status.passwordLogin}
       solo={status.solo}
     />,
+  );
+} else if (appChallenge !== undefined) {
+  createRoot(root).render(
+    <AppSignIn challenge={appChallenge} user={status.user.name} />,
   );
 } else {
   await loadPlugins().catch(() => undefined);
