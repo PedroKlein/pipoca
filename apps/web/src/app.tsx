@@ -23,6 +23,7 @@ import {
   sessionHref,
 } from "./plugins";
 import { SessionView } from "./session-view";
+import { ChatSettingsPage } from "./chat-settings";
 import { SettingsPage } from "./settings";
 import { isSettingsRoute, SettingsLayout } from "./settings-layout";
 import { Mark } from "./mark";
@@ -135,6 +136,10 @@ export function App({
 
     if (route === "people" && people) {
       return <PeoplePage />;
+    }
+
+    if (route === "settings/chat") {
+      return <ChatSettingsPage />;
     }
 
     const name = /^settings\/(.+)$/.exec(route)?.[1];
