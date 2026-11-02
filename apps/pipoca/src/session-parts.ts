@@ -19,6 +19,7 @@ import modelsPackage from "@pipoca/models/package.json";
 import { models as modelsSession } from "@pipoca/models/session";
 import oidcPackage from "@pipoca/oidc/package.json";
 import projectsPackage from "@pipoca/projects/package.json";
+import pushPackage from "@pipoca/push/package.json";
 import subagentsPackage from "@pipoca/subagents/package.json";
 import { subagents } from "@pipoca/subagents/session";
 import usagePackage from "@pipoca/usage/package.json";
@@ -49,6 +50,7 @@ export const builtInPlugins: readonly PluginManifest[] = [
   oidcPackage,
   gitHostsPackage,
   loginsPackage,
+  pushPackage,
 ].map(({ pipoca }) => pipoca as PluginManifest);
 
 export const sessionPlugins: readonly SessionPlugin[] = [

@@ -143,7 +143,8 @@ export function useMcpTokens(): WatchedList<McpToken> {
   ) as WatchedList<McpToken>;
 }
 
-// Tells the browser when a session stops working, unless it is on screen.
+// Tells the browser when a session stops working, unless it is on screen or
+// the browser gets push notifications for it instead.
 export function useSettledNotices(
   sessions: readonly Session[],
   route: string,
@@ -155,32 +156,73 @@ export function useSettledNotices(
     previous.current = sessions;
 
     if (
+      done.length === 0 ||
       typeof Notification === "undefined" ||
       Notification.permission !== "granted"
     ) {
       return;
     }
 
-    for (const session of done) {
-      if (session.id === route && document.visibilityState === "visible") {
-        continue;
+    void pushed().then((subscribed) => {
+      if (!subscribed) {
+        notify(done, route);
       }
-
-      let notice: Notification;
-
-      // Android Chrome grants permission but throws here: it only allows
-      // notifications from a service worker.
-      try {
-        notice = new Notification(noticeText(session), { tag: session.id });
-      } catch {
-        return;
-      }
-
-      notice.addEventListener("click", () => {
-        window.focus();
-        location.hash = session.id;
-        notice.close();
-      });
-    }
+    });
   }, [sessions, route]);
+
+  // A clicked push notification asks an open window to show its Session.
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) {
+      return;
+    }
+
+    const open = (event: MessageEvent): void => {
+      const data = event.data as { type?: unknown; session?: unknown };
+      if (data.type === "open-session" && typeof data.session === "string") {
+        location.hash = data.session;
+      }
+    };
+
+    navigator.serviceWorker.addEventListener("message", open);
+
+    return () => {
+      navigator.serviceWorker.removeEventListener("message", open);
+    };
+  }, []);
+}
+
+async function pushed(): Promise<boolean> {
+  if (!("serviceWorker" in navigator)) {
+    return false;
+  }
+
+  const registration = await navigator.serviceWorker.getRegistration("/");
+
+  const subscription = await registration?.pushManager.getSubscription();
+
+  return subscription !== undefined && subscription !== null;
+}
+
+function notify(done: readonly Session[], route: string): void {
+  for (const session of done) {
+    if (session.id === route && document.visibilityState === "visible") {
+      continue;
+    }
+
+    let notice: Notification;
+
+    // Android Chrome grants permission but throws here: it only allows
+    // notifications from a service worker.
+    try {
+      notice = new Notification(noticeText(session), { tag: session.id });
+    } catch {
+      return;
+    }
+
+    notice.addEventListener("click", () => {
+      window.focus();
+      location.hash = session.id;
+      notice.close();
+    });
+  }
 }

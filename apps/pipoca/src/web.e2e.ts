@@ -3012,3 +3012,59 @@ test("opens a page the Session opened in a browser through its preview", async (
   await context.close();
   await app.stop(true);
 });
+
+test("offers push notifications in Settings and shows a pushed notification from the service worker", async () => {
+  await openSettings("Push notifications");
+  await page.getByRole("button", { name: "Turn on for this device" }).waitFor();
+
+  const origin = new URL(server.url).origin;
+  await page.context().grantPermissions(["notifications"], { origin });
+
+  const cdp = await page.context().newCDPSession(page);
+
+  const registered = new Promise<string>((resolve) => {
+    cdp.on("ServiceWorker.workerRegistrationUpdated", ({ registrations }) => {
+      const [registration] = registrations.filter(
+        ({ scopeURL, isDeleted }) => scopeURL === `${origin}/` && !isDeleted,
+      );
+
+      if (registration !== undefined) {
+        resolve(registration.registrationId);
+      }
+    });
+  });
+
+  await cdp.send("ServiceWorker.enable");
+
+  await page.evaluate(
+    "navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(() => navigator.serviceWorker.ready).then(() => undefined)",
+  );
+
+  await cdp.send("ServiceWorker.deliverPushMessage", {
+    origin,
+    registrationId: await registered,
+    data: JSON.stringify({
+      title: "Pi needs you",
+      body: "Fix the login page",
+      session: "session-1",
+      url: "/#session-1",
+    }),
+  });
+
+  const shown = async (): Promise<string[]> =>
+    page.evaluate<string[]>(
+      "navigator.serviceWorker.ready.then((r) => r.getNotifications()).then((all) => all.map((n) => n.title + ': ' + n.body))",
+    );
+
+  while ((await shown()).length === 0) {
+    await page.waitForTimeout(50);
+  }
+
+  expect(await shown()).toEqual(["Pi needs you: Fix the login page"]);
+
+  await page.evaluate(
+    "navigator.serviceWorker.ready.then((r) => r.unregister()).then(() => undefined)",
+  );
+
+  await cdp.detach();
+});

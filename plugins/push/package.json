@@ -1,0 +1,28 @@
+{
+  "name": "@pipoca/push",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server": "./src/server.ts",
+    "./web": "./web/index.tsx",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@pipoca/plugins": "workspace:*",
+    "@pipoca/protocol": "workspace:*",
+    "@pipoca/ui": "workspace:*",
+    "react": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0"
+  },
+  "pipoca": {
+    "id": "push",
+    "title": "Push notifications",
+    "description": "Tells your devices when Pi finishes or needs you, even with Pipoca closed.",
+    "capabilities": [
+      "events",
+      "routes"
+    ]
+  }
+}

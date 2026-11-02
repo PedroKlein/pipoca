@@ -2,6 +2,7 @@ import { changes } from "@pipoca/changes/web";
 import { gitHosts } from "@pipoca/git-hosts/web";
 import { kubernetes } from "@pipoca/kubernetes/web";
 import { library } from "@pipoca/library/web";
+import { push } from "@pipoca/push/web";
 import { local } from "@pipoca/local/web";
 import { logins } from "@pipoca/logins/web";
 import { meta } from "@pipoca/meta/web";
@@ -52,6 +53,7 @@ const webPlugins: readonly WebPlugin[] = [
   oidc,
   gitHosts,
   logins,
+  push,
 ];
 
 let enabled: readonly WebPlugin[] = [];
