@@ -219,8 +219,8 @@ export function projectStore(
   });
 
   // A delivery marked delivered is never read back, even when its delete
-  // failed: the delete is tried again before the queue is read, so nothing is
-  // sent twice.
+  // failed: the delete is tried again each time, and the queue skips it
+  // meanwhile, so nothing is sent twice and the rest still goes out.
   const deliveredIds = new Set<number>();
 
   const deleteDelivered = (): void => {
@@ -455,7 +455,11 @@ export function projectStore(
       );
     },
     queued: () => {
-      deleteDelivered();
+      try {
+        deleteDelivered();
+      } catch {
+        // delivered() already reported it, and the ids stay marked.
+      }
 
       return (
         store.all("select * from projects_outbox order by id") as {
@@ -464,12 +468,14 @@ export function projectStore(
           actor: Actor;
           delivery: string;
         }[]
-      ).map((row) => ({
-        id: row.id,
-        sessionId: row.session_id,
-        actor: row.actor,
-        delivery: JSON.parse(row.delivery) as Delivery,
-      }));
+      )
+        .filter((row) => !deliveredIds.has(row.id))
+        .map((row) => ({
+          id: row.id,
+          sessionId: row.session_id,
+          actor: row.actor,
+          delivery: JSON.parse(row.delivery) as Delivery,
+        }));
     },
     delivered: (id) => {
       deliveredIds.add(id);

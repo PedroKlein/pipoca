@@ -292,7 +292,11 @@ test("runs a Project: a coordinator starts a thread, hears about its turns and s
 
   expect(thread).toMatchObject({ title: "Bump version" });
   expect(threadSession.systemPrompt).toContain("- release is v2");
-  expect(threadSession.firstMessage).toBe("bump the version");
+  expect(threadSession.firstMessage).toBeNull();
+
+  expect(await transcript(thread?.sessionId ?? "")).toContain(
+    "bump the version",
+  );
 
   expect(threadSession.model).toEqual({
     provider: faux.getModel().provider,

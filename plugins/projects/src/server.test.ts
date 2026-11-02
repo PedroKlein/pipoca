@@ -47,6 +47,7 @@ function fakeKernel(): {
   readonly context: ServerPluginContext;
   readonly events: EventBus;
   readonly delivered: Delivered[];
+  readonly briefs: string[];
   readonly notices: (PluginNotice | undefined)[];
   readonly transcripts: Map<string, string[]>;
   readonly route: () => PluginRoute;
@@ -63,6 +64,8 @@ function fakeKernel(): {
   const transcripts = new Map<string, string[]>();
   const tools = new Map<string, ServerTool>();
   const delivered: Delivered[] = [];
+  const briefs: string[] = [];
+  const briefed = new Set<string>();
   const notices: (PluginNotice | undefined)[] = [];
   const offline = new Set<string>();
   const refused: string[] = [];
@@ -177,7 +180,17 @@ function fakeKernel(): {
           });
         }
       },
+      // A thread's first send is the coordinator's brief, kept apart so the
+      // deliveries are the ones that follow it.
       send: (id, text, _actor, notice) => {
+        if (notice?.kind === "coordinator_message" && !briefed.has(id)) {
+          briefed.add(id);
+          briefs.push(text);
+
+          return { ok: true };
+        }
+
+        briefed.add(id);
         notices.push(notice);
 
         return deliver("send", id, text);
@@ -217,6 +230,7 @@ function fakeKernel(): {
     context,
     events,
     delivered,
+    briefs,
     notices,
     transcripts,
     route: () => {
@@ -680,6 +694,20 @@ test("quotes a thread's last text reply when its turn ends on a tool call", asyn
   expect(kernel.delivered[0]?.text).toContain("Its last reply: bumped to v2");
 }, 10_000);
 
+test("gives the coordinator only the start of a long thread reply", async () => {
+  const kernel = fakeKernel();
+  projects.register(kernel.context);
+  const { threadId } = await startProject(kernel);
+  const long = `${"a".repeat(300)}the rest stays in the thread`;
+
+  turn(kernel, threadId, [userLine("bump the version"), replyLine(long)]);
+
+  await until(() => kernel.delivered.length > 0);
+
+  expect(kernel.delivered[0]?.text).toContain(`${"a".repeat(300)}…`);
+  expect(kernel.delivered[0]?.text).not.toContain("the rest stays");
+}, 10_000);
+
 test("drops a delivery it can't build, once, so later ones still reach the coordinator", async () => {
   const kernel = fakeKernel();
   projects.register(kernel.context);
@@ -721,6 +749,18 @@ test("drops a delivery it can't build, once, so later ones still reach the coord
 
   expect(failures).toHaveLength(1);
 }, 10_000);
+
+test("sends a thread its brief as the coordinator's message, not as its first user message", async () => {
+  const kernel = fakeKernel();
+  projects.register(kernel.context);
+
+  const { threadId } = await startProject(kernel);
+
+  await until(() => kernel.briefs.length > 0);
+
+  expect(kernel.briefs).toEqual(["bump the version"]);
+  expect(kernel.session(threadId).firstMessage).toBeNull();
+});
 
 test("keeps delivering, and sends nothing twice, while the store can't delete a delivered message", async () => {
   const kernel = fakeKernel();
