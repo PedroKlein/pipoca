@@ -20,11 +20,11 @@ Pi has no checklist. Its `todo.ts` example keeps the list in each tool result's 
 
 ### A built-in `checklist` plugin
 
-- A built-in `checklist` plugin, on by default, gives every Session an `update_checklist` tool (decided 2026-11-02). Projects threads get it like any other Session. The Projects coordinator doesn't, because it hands steps to threads instead of doing them, and its threads' checklists show the progress.
+- A built-in `checklist` plugin, on by default, gives every Session an `update_checklist` tool (decided 2026-11-02). Projects threads get it like any other Session. So does the Projects coordinator for now: leaving it out needs a way to load a plugin in some of a plugin's Sessions and not others, and a coordinator that hands steps to threads rarely calls it (amended 2026-11-02).
 - The tool replaces the whole list, as `TodoWrite` and Claude's project threads do (decided 2026-11-02). Its input is a list of items, each with its text and a status of `pending`, `in_progress` or `completed`. A whole list each time leaves no ids to go stale and nothing to merge. The cost is resending the list, which stays short.
 - The tool's description says when to use it: work with three or more steps, one item in progress at a time, an item done only when it is. There are no reminder messages nudging the agent to use it.
 - The list lives in the tool's result details, as in Pi's `todo.ts`. The latest call on the Session's branch is the list. Reloads, replays and forks show the right one, and the plugin stores nothing.
-- A user's own extension that registers `update_checklist` replaces the built-in one, as with subagents ([ADR 0030](0030-subagents.md)). The plugin is turned off for the whole installation like any other plugin.
+- A user's own extension that registers `update_checklist` replaces the built-in one, as with subagents ([ADR 0030](0030-subagents.md)). A Session part can now mark its extension `replaceable`, as Pi's own built-ins are. The plugin is turned off for the whole installation like any other plugin.
 
 ### On the Session page
 
@@ -39,7 +39,7 @@ Pi has no checklist. Its `todo.ts` example keeps the list in each tool result's 
 
 ## Consequences
 
-- Every Session except a Project coordinator carries one more tool definition, a few hundred tokens.
+- Every Session carries one more tool definition, a few hundred tokens.
 - A weaker model may keep a checklist for asks too small to need one. Nothing stops it beyond the tool's description.
 - The kernel gains the `composer` web slot.
 - Turning the checklist off for one Profile, instead of the whole installation, needs a way for a Profile to turn off a built-in plugin's tools, which doesn't exist yet.
