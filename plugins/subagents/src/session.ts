@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { StringEnum } from "@earendil-works/pi-ai";
 import {
   type ExtensionAPI,
   getAgentDir,
@@ -16,6 +17,7 @@ import { type Agent, loadAgents } from "./agents";
 import { fleet, type Step } from "./fleet";
 import {
   finishedKind,
+  manages,
   type RunView,
   runsKey,
   runState,
@@ -61,18 +63,10 @@ const parameters = Type.Object({
     }),
   ),
   action: Type.Optional(
-    Type.Union(
-      [
-        Type.Literal("agents"),
-        Type.Literal("status"),
-        Type.Literal("steer"),
-        Type.Literal("stop"),
-      ],
-      {
-        description:
-          "agents: list the agents. status, steer or stop: a run by its id, status of every run without one",
-      },
-    ),
+    StringEnum(["agents", "status", "steer", "stop"], {
+      description:
+        "Leave out to start runs. agents: list the agents. status, steer or stop: a run by its id, status of every run without one",
+    }),
   ),
   id: Type.Optional(Type.String({ description: "A run's id" })),
   message: Type.Optional(
@@ -153,7 +147,7 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
     description,
     parameters,
     execute: async (_toolCallId, params) => {
-      if (params.action !== undefined) {
+      if (manages(params)) {
         return text(await manage(params));
       }
 

@@ -58,3 +58,13 @@ export function runState(run: RunView): ChildState {
 
   return "done";
 }
+
+// A call that names a task starts runs, whatever action a model also fills in.
+export function manages(args: object): boolean {
+  return (
+    "action" in args &&
+    !("task" in args) &&
+    !("tasks" in args) &&
+    !("chain" in args)
+  );
+}

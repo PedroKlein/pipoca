@@ -12,6 +12,7 @@ import {
   type ChildView,
   elapsed,
   finishedRun,
+  manages,
   publishedRuns,
   runIdOf,
   running,
@@ -95,7 +96,7 @@ function SubagentCall({ call, session }: ToolCallProps): ReactElement {
   const runId = runIdOf(call.result?.details);
   const run = runId === undefined ? undefined : runs.get(runId);
 
-  if ("action" in (call.args as object)) {
+  if (manages(call.args as object)) {
     return <ManageRow call={call} />;
   }
 

@@ -52,12 +52,14 @@ async function hosted(parent: readonly AssistantMessage[]): Promise<{
   readonly lines: string[];
   readonly events: LiveEvent[];
   readonly children: Seen[];
+  readonly offered: unknown[];
   readonly waitFor: (predicate: () => boolean) => Promise<void>;
   readonly stop: () => Promise<void>;
 }> {
   const faux = fauxProvider();
   const script = [...parent];
   const children: Seen[] = [];
+  const offered: unknown[] = [];
 
   const answer: FauxResponseFactory = async (context, options) => {
     const system = context.messages.flatMap((m) =>
@@ -99,6 +101,14 @@ async function hosted(parent: readonly AssistantMessage[]): Promise<{
         fauxText(`did: ${task.split("\n")[0] ?? ""}`),
       ]);
     }
+
+    offered.push(
+      ...system.flatMap(({ toolsAdded = [] }) =>
+        toolsAdded.flatMap(({ name, parameters }) =>
+          name === "subagent" ? [parameters] : [],
+        ),
+      ),
+    );
 
     return script.shift() ?? fauxAssistantMessage([fauxText("ok")]);
   };
@@ -168,6 +178,7 @@ async function hosted(parent: readonly AssistantMessage[]): Promise<{
     lines,
     events,
     children,
+    offered,
     waitFor: async (predicate) => {
       while (!predicate()) {
         await new Promise((resolve) => setTimeout(resolve, 5));
@@ -241,6 +252,37 @@ test("runs a subagent in the background and brings its output back to the parent
     "ls",
     "bash",
   ]);
+});
+
+test("starts a run when the model also fills in a management action", async () => {
+  const session = await hosted([
+    call({
+      agent: "scout",
+      task: "find the parser",
+      action: "status",
+      wait: true,
+    }),
+  ]);
+
+  session.send("look around");
+  await session.waitFor(() => toolResults(session.lines).length > 0);
+  await session.stop();
+
+  expect(toolResults(session.lines).join()).toContain("did: find the parser");
+});
+
+test("offers its action to the model as a plain string enum", async () => {
+  const session = await hosted([]);
+
+  session.send("hi");
+  await session.waitFor(() => session.offered.length > 0);
+  await session.stop();
+
+  expect(session.offered[0]).toMatchObject({
+    properties: {
+      action: { type: "string", enum: ["agents", "status", "steer", "stop"] },
+    },
+  });
 });
 
 test("waits for parallel runs and returns every output", async () => {
