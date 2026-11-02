@@ -21,6 +21,9 @@ apiRule:
   # Runners outside the cluster, such as a laptop. Runner pods reach the
   # server through its Service.
   exposeAgents: false
+  # Previews of what Sessions serve, at *.<host>, with their own certificate
+  # from Gardener's certificate service and their own gateway.
+  previews: false
 
 # Counts failed sign-ins by the client address that a proxy in front, such as
 # an ingress controller, adds to X-Forwarded-For. Set it only when every

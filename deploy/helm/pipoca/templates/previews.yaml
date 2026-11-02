@@ -1,0 +1,59 @@
+{{- if and .Values.apiRule.enabled .Values.apiRule.previews }}
+{{- $host := printf "*.%s" .Values.apiRule.host }}
+{{- $secret := printf "%s-%s-previews" .Release.Namespace .Release.Name }}
+# Previews live at <port>--<session>.<host> (ADR 0037), a level below the
+# cluster domain that Kyma's own certificate and gateway cover, so they get a
+# wildcard certificate and a gateway of their own. Istio reads the certificate
+# only from its own namespace.
+apiVersion: cert.gardener.cloud/v1alpha1
+kind: Certificate
+metadata:
+  name: {{ $secret }}
+  namespace: istio-system
+  labels:
+    {{- include "pipoca.labels" . | nindent 4 }}
+spec:
+  commonName: {{ $host | quote }}
+  secretName: {{ $secret }}
+---
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: {{ .Release.Name }}-previews
+  labels:
+    {{- include "pipoca.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: istio-ingressgateway
+    istio: ingressgateway
+  servers:
+    - hosts: [{{ $host | quote }}]
+      port:
+        name: https
+        number: 443
+        protocol: HTTPS
+      tls:
+        mode: SIMPLE
+        credentialName: {{ $secret }}
+---
+# A preview is whatever the Session serves, so every path and method passes;
+# the server admits a browser to a preview only with a grant it handed out.
+apiVersion: gateway.kyma-project.io/v2
+kind: APIRule
+metadata:
+  name: {{ .Release.Name }}-previews
+  labels:
+    {{- include "pipoca.labels" . | nindent 4 }}
+spec:
+  hosts:
+    - {{ $host | quote }}
+  gateway: {{ .Release.Namespace }}/{{ .Release.Name }}-previews
+  service:
+    name: {{ .Release.Name }}
+    port: {{ .Values.service.port }}
+  rules:
+    - path: /{**}
+      methods: [GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS]
+      noAuth: true
+      timeout: 3900
+{{- end }}

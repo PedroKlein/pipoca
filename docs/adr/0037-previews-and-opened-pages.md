@@ -38,7 +38,7 @@ On a laptop runner this opens a tab on the laptop, which doesn't help from a pho
 - The Session host sends the request with the `Host`, `Origin` and `Referer` the app would see from its own origin. Plannotator and dev servers refuse other hosts and cross-origin writes, against DNS rebinding. Redirects to the app's own origin become paths.
 - Bun matches routes before `fetch` and on every host, so the web UI moves from the `/` route to an internal path. `/` on Pi Cloud's own host still serves it.
 - A WebSocket, such as a dev server's live reload, gets its own socket the same way and carries frames both ways. The server accepts the browser's first subprotocol right away, since the browser refuses an upgrade that names none of its own.
-- Previews need Pi Cloud opened under a name. Browsers resolve `*.localhost` to the loopback address, which covers a laptop and an SSH tunnel; Chromium was checked. An IP address can't have subdomains, so Open explains that instead. A public host needs a wildcard DNS name, which isn't set up yet.
+- Previews need Pi Cloud opened under a name. Browsers resolve `*.localhost` to the loopback address, which covers a laptop and an SSH tunnel; Chromium was checked. An IP address can't have subdomains, so Open explains that instead. A public host needs a wildcard name and certificate; on Kyma the chart sets them up with `apiRule.previews` (see the guide).
 
 ### Compared with Claude Code
 
