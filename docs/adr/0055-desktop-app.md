@@ -62,7 +62,7 @@ The app shows each connection's server and runner state in its tray icon and sta
 ### Releases
 
 - Builds are published as GitHub Releases and updated with Tauri's updater from `latest.json` on the newest release. Each update file is signed with Pipoca's own key (built 2026-11-02), which needs no Apple account. The app asks before updating, since restarting stops the servers it started.
-- macOS builds aren't signed with an Apple Developer ID or notarized for now (decided 2026-11-02), so macOS warns the first time the app opens and the guide says how to open it anyway. Signing can come later without changing the app.
+- macOS builds aren't signed with an Apple Developer ID or notarized for now (decided 2026-11-02), so macOS calls the downloaded app damaged until its quarantine flag is cleared with `xattr`, which the guide shows (decided 2026-11-02 over clearing it from the Homebrew cask). Signing can come later without changing the app.
 - The CLI binary stays a release asset of its own for servers and people who prefer the terminal.
 
 ## Consequences
