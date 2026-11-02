@@ -1,6 +1,6 @@
 # 0053: Ways to Run Pipoca
 
-- Status: accepted
+- Status: accepted, amended 2026-11-02 (a desktop app, [ADR 0055](0055-desktop-app.md))
 - Date: 2026-11-01
 
 ## Context
@@ -49,6 +49,7 @@ Whether Pipoca should ship as a desktop app was also open ([open-questions.md](.
   - `pipoca service install` runs either one at login, as a launchd or systemd unit.
 - The web UI becomes installable as an app, with a manifest and icons, so it gets its own window and dock icon. A team's URL installs the same way, which covers "point the app at a server and sign in".
 - A desktop app is reconsidered when Pipoca needs what only a native shell gives: a real browser the agent drives, real file paths from a folder picker, or the operating system's keychain.
+- Amended 2026-11-02: once these commands were built, a Tauri app around the binary was decided, for new users who want Pipoca on their own machine without a terminal ([ADR 0055](0055-desktop-app.md)).
 
 ### Walls between people on a team server
 
