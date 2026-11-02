@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type ExtensionAPI,
-  type ExtensionContext,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -90,28 +89,13 @@ const description = `Starts subagents: Pi sessions with their own context that w
 - action "status", "steer" (with message) or "stop" manage a run by its id.`;
 
 function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
-  let ui: ExtensionContext["ui"] | undefined;
   let projectAgents: string | undefined;
   let publishing: ReturnType<typeof setTimeout> | undefined;
 
   const publish = (): void => {
     publishing = undefined;
 
-    const views = runs.runs();
-    cloud.publish(runsKey, views);
-
-    const running = views.filter((run) => run.endedAt === undefined).length;
-
-    ui?.setWidget(
-      "subagents",
-      running === 0
-        ? undefined
-        : [
-            running === 1
-              ? "1 subagent run"
-              : `${String(running)} subagent runs`,
-          ],
-    );
+    cloud.publish(runsKey, runs.runs());
   };
 
   const runs = fleet({
@@ -134,8 +118,6 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
     ]);
 
   pi.on("session_start", (_event, ctx) => {
-    ui = ctx.ui;
-
     projectAgents = ctx.isProjectTrusted()
       ? join(ctx.cwd, ".pi", "agents")
       : undefined;
@@ -178,8 +160,13 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
       const { shape, steps } = await launch(params, await agents());
       const run = runs.start(shape, steps);
 
+      const started: Started = { runId: run.id };
+
       if (params.wait === true) {
-        return text(outputs(await run.ended));
+        return {
+          content: [{ type: "text", text: outputs(await run.ended) }],
+          details: started,
+        };
       }
 
       void run.ended.then((ended) => {
@@ -193,8 +180,6 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
           { triggerTurn: true, deliverAs: "followUp" },
         );
       });
-
-      const started: Started = { runId: run.id };
 
       return {
         content: [
