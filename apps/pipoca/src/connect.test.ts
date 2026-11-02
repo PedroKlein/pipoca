@@ -71,9 +71,7 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-async function listening(server: {
-  readonly stderr: Readable;
-}): Promise<URL> {
+async function listening(server: { readonly stderr: Readable }): Promise<URL> {
   return new Promise((resolve) => {
     createInterface({ input: server.stderr }).on("line", (line) => {
       if (line.includes("server listening")) {
