@@ -22,6 +22,7 @@ const status = await fetch("/api/auth")
         readonly setup: boolean;
         readonly logins: readonly Login[];
         readonly passwordLogin: boolean;
+        readonly solo: boolean;
       },
   )
   .catch(() => undefined);
@@ -37,6 +38,7 @@ if (status === undefined) {
       setupToken={setupToken}
       logins={status.logins}
       passwordLogin={status.passwordLogin}
+      solo={status.solo}
     />,
   );
 } else {
@@ -46,7 +48,7 @@ if (status === undefined) {
     <App
       nav={navEntries()}
       user={status.user.name}
-      admin={status.user.admin}
+      people={status.user.admin && !status.solo}
     />,
   );
 }

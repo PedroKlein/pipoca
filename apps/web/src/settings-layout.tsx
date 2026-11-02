@@ -10,7 +10,7 @@ interface SettingsSection {
 
 // Everything that configures Pipoca sits on one page with sections, opened
 // from the account menu, like Claude Code's settings (ADR 0040).
-function sections(route: string, admin: boolean): readonly SettingsSection[] {
+function sections(route: string, people: boolean): readonly SettingsSection[] {
   return [
     {
       href: "#environments",
@@ -23,7 +23,7 @@ function sections(route: string, admin: boolean): readonly SettingsSection[] {
       current: route.startsWith("profiles"),
     },
     { href: "#plugins", label: "Plugins", current: route === "plugins" },
-    ...(admin
+    ...(people
       ? [{ href: "#people", label: "People", current: route === "people" }]
       : []),
     { href: "#settings", label: "MCP clients", current: route === "settings" },
@@ -47,12 +47,12 @@ export function isSettingsRoute(route: string): boolean {
 
 export function SettingsLayout({
   route,
-  admin,
+  people,
   onMenu,
   children,
 }: {
   readonly route: string;
-  readonly admin: boolean;
+  readonly people: boolean;
   readonly onMenu: () => void;
   readonly children: ReactNode;
 }): ReactElement {
@@ -74,7 +74,7 @@ export function SettingsLayout({
         <h2 className="px-2 pb-2 text-caption font-medium text-fg-dim max-md:hidden">
           Settings
         </h2>
-        {sections(route, admin).map(({ href, label, current }) => (
+        {sections(route, people).map(({ href, label, current }) => (
           <a
             key={href}
             href={href}

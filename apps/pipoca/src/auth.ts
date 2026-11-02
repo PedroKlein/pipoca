@@ -100,6 +100,8 @@ export interface AuthStatus {
   readonly setup: boolean;
   // Off when people sign in only through a plugin, such as OIDC.
   readonly passwordLogin: boolean;
+  // One person's install, signed in through links from `pipoca link`.
+  readonly solo: boolean;
 }
 
 export interface Credentials {
@@ -121,6 +123,7 @@ const runnerTokenDays = 30;
 // poll seldom writes to the database.
 const lastUsedStepMs = 60 * 60_000;
 const minPasswordLength = 8;
+const signInLinkMs = 10 * 60_000;
 const maxNameLength = 64;
 const maxPasswordLength = 1024;
 
@@ -140,15 +143,25 @@ export class Auth {
   #setupToken: string | undefined;
   readonly #passwordLogin: boolean;
   readonly #now: () => number;
+  // The one user of a solo install (ADR 0053), and its sign-in links by
+  // hash, with when each stops working.
+  readonly #soloUser: User | undefined;
+  readonly #signInLinks = new Map<string, number>();
 
   constructor(
     store: AuthStore,
     passwordLogin = true,
     now: () => number = () => Date.now(),
+    soloName?: string,
   ) {
     this.#store = store;
     this.#passwordLogin = passwordLogin;
     this.#now = now;
+
+    if (soloName !== undefined) {
+      this.#soloUser =
+        store.users()[0] ?? this.createUser(soloName, true) ?? undefined;
+    }
 
     this.#setupToken =
       store.userCount() === 0
@@ -186,7 +199,41 @@ export class Auth {
       user: this.userOf(request) ?? null,
       setup: this.#store.userCount() === 0,
       passwordLogin: this.#passwordLogin,
+      solo: this.#soloUser !== undefined,
     };
+  }
+
+  // A one-time token that signs a browser in as a solo install's user, for
+  // `pipoca link`, which only the server's own system user can ask for.
+  signInLink(): string {
+    if (this.#soloUser === undefined) {
+      throw new Error("sign-in links are only for a solo install");
+    }
+
+    const now = Date.now();
+    for (const [token, expires] of this.#signInLinks) {
+      if (expires <= now) {
+        this.#signInLinks.delete(token);
+      }
+    }
+
+    const token = randomBytes(32).toString("base64url");
+    this.#signInLinks.set(hash(token), now + signInLinkMs);
+
+    return token;
+  }
+
+  // Undefined when the token is wrong, used or too old.
+  redeemSignInLink(token: string): User | undefined {
+    const key = hash(token);
+    const expires = this.#signInLinks.get(key);
+    this.#signInLinks.delete(key);
+
+    if (expires === undefined || expires <= Date.now()) {
+      return undefined;
+    }
+
+    return this.#soloUser;
   }
 
   // Undefined when the token is wrong or already used.
@@ -508,6 +555,10 @@ export class Auth {
 
   // A user without a password, or undefined when the name is taken.
   createUser(name: string, admin: boolean): User | undefined {
+    if (this.#soloUser !== undefined) {
+      throw new InvalidCredentials("a solo install has only its own user");
+    }
+
     const trimmed = name.trim();
 
     if (trimmed === "" || trimmed.length > maxNameLength) {

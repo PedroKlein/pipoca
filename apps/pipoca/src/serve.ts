@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ServerWebSocket } from "bun";
@@ -72,6 +72,9 @@ export interface ServeOptions {
   readonly secretKey?: Buffer;
   // False leaves only the setup link and plugin logins, such as OIDC.
   readonly passwordLogin?: boolean;
+  // One person's install (ADR 0053): it has one admin, named here, who signs
+  // in through one-time links that `pipoca link` asks for over this socket.
+  readonly solo?: { readonly name: string; readonly socket: string };
   // Takes a client's address from the X-Forwarded-For entry the proxy in
   // front added. Only behind one, since without it anyone can send that
   // header and pick the address their failed sign-ins count against.
@@ -217,7 +220,13 @@ export function serve(options: ServeOptions): {
   });
 
   const pluginsStop = new AbortController();
-  const auth = new Auth(store.auth, options.passwordLogin, options.now);
+
+  const auth = new Auth(
+    store.auth,
+    options.passwordLogin,
+    options.now,
+    options.solo?.name,
+  );
 
   const userProfiles = new Profiles(profiles, store);
 
@@ -397,6 +406,17 @@ export function serve(options: ServeOptions): {
 
   options.log("server listening", { url: server.url.href });
 
+  const links =
+    options.solo &&
+    signInLinks(
+      options.solo.socket,
+      () =>
+        new URL(
+          `/api/auth/link/${auth.signInLink()}`,
+          options.url ?? server.url,
+        ),
+    );
+
   if (auth.setupToken !== undefined) {
     options.log("open the setup link to create the first user", {
       link: new URL(`/#setup/${auth.setupToken}`, options.url ?? server.url)
@@ -431,12 +451,34 @@ export function serve(options: ServeOptions): {
       agentStop.abort();
       pluginsStop.abort();
       await agent;
+      await links?.stop(true);
       await server.stop(true);
       sessions.close();
       store.close();
       options.log("server stopped");
     },
   };
+}
+
+// The socket is made for the server's own system user only, so only they get
+// a link that signs a browser in.
+function signInLinks(socket: string, link: () => URL): Bun.Server<undefined> {
+  mkdirSync(dirname(socket), { recursive: true, mode: 0o700 });
+  rmSync(socket, { force: true });
+
+  const umask = process.umask(0o077);
+
+  try {
+    return Bun.serve({
+      unix: socket,
+      fetch: (request) =>
+        request.method === "POST" && new URL(request.url).pathname === "/link"
+          ? Response.json({ url: link().href })
+          : new Response(null, { status: 404 }),
+    });
+  } finally {
+    process.umask(umask);
+  }
 }
 
 // A proxy adds the address it saw to the end of the header, after whatever

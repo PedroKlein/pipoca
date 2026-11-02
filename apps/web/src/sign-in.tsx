@@ -20,15 +20,26 @@ export function SignInPage({
   setupToken: linkToken,
   logins,
   passwordLogin,
+  solo,
 }: {
   // No user exists yet.
   readonly setup: boolean;
   readonly setupToken: string | undefined;
   readonly logins: readonly Login[];
   readonly passwordLogin: boolean;
+  readonly solo: boolean;
 }): ReactElement {
   const [error, setError] = useState<string>();
   const setupToken = setup ? linkToken : undefined;
+
+  if (solo) {
+    return (
+      <Welcome
+        title="Sign in from your machine"
+        description="Run pipoca link --open where the server runs. It opens Pipoca here, signed in."
+      />
+    );
+  }
 
   if (setup && setupToken === undefined) {
     return (
