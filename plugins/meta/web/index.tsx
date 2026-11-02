@@ -81,7 +81,7 @@ function Home({ context, onNewSession }: HomeProps): ReactElement {
           picksModel={typeof assistant !== "string"}
         />
       )}
-      <Continue context={context} />
+      <Continue assistant={assistant} />
       <div className="flex justify-center">
         <Button variant="ghost" onClick={onNewSession}>
           <Icon name="plus" />
@@ -317,10 +317,14 @@ function useAssistantLoad(context: WebContext): string | null | undefined {
   ).value;
 }
 
-function Continue({ context }: { readonly context: WebContext }): ReactElement {
-  const assistant = useAssistant(context);
-
-  if (assistant === undefined) {
+// Takes the assistant its page loaded, so the link and the page's model
+// picker never disagree about whether the assistant exists.
+function Continue({
+  assistant,
+}: {
+  readonly assistant: string | null | undefined;
+}): ReactElement {
+  if (typeof assistant !== "string") {
     return <></>;
   }
 
@@ -417,11 +421,12 @@ function Conversations({
   readonly context: WebContext;
 }): ReactElement {
   const sessions = useMetaSessions(context);
+  const assistant = useAssistantLoad(context);
 
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-display font-semibold text-fg-strong">Assistant</h1>
-      <Continue context={context} />
+      <Continue assistant={assistant} />
       {sessions.length === 0 ? (
         <p className="text-fg-dim">
           Conversations with the Pipoca assistant show here.{" "}
