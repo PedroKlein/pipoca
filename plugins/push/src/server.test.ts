@@ -17,24 +17,28 @@ interface Sent {
 }
 
 let sent: Sent[];
-let status: number;
+let gone: Set<string>;
 let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">>;
 
 beforeEach(() => {
   sent = [];
-  status = 201;
+  gone = new Set();
 
   fetchSpy = spyOn(globalThis, "fetch").mockImplementation((async (
     input: string | URL | Request,
     init?: RequestInit,
   ) => {
+    const url = input instanceof Request ? input.url : input.toString();
+
     sent.push({
-      url: input instanceof Request ? input.url : input.toString(),
+      url,
       headers: new Headers(init?.headers),
       body: new Uint8Array(init?.body as Uint8Array),
     });
 
-    return Promise.resolve(new Response(null, { status }));
+    return Promise.resolve(
+      new Response(null, { status: gone.has(url) ? 410 : 201 }),
+    );
   }) as typeof fetch);
 });
 
@@ -45,7 +49,7 @@ afterEach(() => {
 const endpoint = "https://fcm.googleapis.com/fcm/send/device-1";
 
 // A browser's side of a subscription: its keys, to read what it is sent.
-async function browser(): Promise<{
+async function browser(at = endpoint): Promise<{
   readonly subscription: object;
   readonly read: (body: Uint8Array) => Promise<unknown>;
 }> {
@@ -133,7 +137,7 @@ async function browser(): Promise<{
 
   return {
     subscription: {
-      endpoint,
+      endpoint: at,
       keys: {
         p256dh: Buffer.from(own).toString("base64url"),
         auth: Buffer.from(auth).toString("base64url"),
@@ -187,8 +191,14 @@ async function call(
   );
 }
 
-async function settled(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 50));
+// Waits until the push service got this many messages. Each delivery
+// handles the service's answer before the next timer runs.
+async function delivered(count: number): Promise<void> {
+  while (sent.length < count) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function finish(events: Bus, session: Session): void {
@@ -214,7 +224,7 @@ test("sends a subscribed browser a notification it can read when its Session fin
     fakeSession({ startedBy: "owner", title: "Fix the login page" }),
   );
 
-  await settled();
+  await delivered(1);
 
   const [message] = sent;
 
@@ -277,7 +287,7 @@ test("tells the browser urgently when Pi needs an answer", async () => {
     }),
   });
 
-  await settled();
+  await delivered(1);
 
   expect(sent[0]?.headers.get("urgency")).toBe("high");
 
@@ -288,8 +298,9 @@ test("tells the browser urgently when Pi needs an answer", async () => {
 
 test("sends nothing for another person's Session or one a plugin owns", async () => {
   const { route, events } = registered();
+  const device = await browser();
 
-  await call(route, "PUT", "subscriptions", (await browser()).subscription);
+  await call(route, "PUT", "subscriptions", device.subscription);
   finish(events, fakeSession({ startedBy: "someone-else" }));
 
   finish(
@@ -300,30 +311,47 @@ test("sends nothing for another person's Session or one a plugin owns", async ()
     }),
   );
 
-  await settled();
+  finish(events, fakeSession({ startedBy: "owner", title: "mine" }));
+  await delivered(1);
 
-  expect(sent).toEqual([]);
+  expect(sent.length).toBe(1);
+
+  expect(await device.read(sent[0]?.body ?? new Uint8Array())).toMatchObject({
+    body: "mine",
+  });
 });
 
+// A second device that stays subscribed shows when each round was sent.
 test("stops sending to a browser that unsubscribed or whose subscription is gone", async () => {
   const { route, events } = registered();
   const device = await browser();
+  const other = "https://fcm.googleapis.com/fcm/send/device-2";
 
   await call(route, "PUT", "subscriptions", device.subscription);
-  status = 410;
-  finish(events, fakeSession({ startedBy: "owner" }));
-  await settled();
 
-  status = 201;
+  await call(
+    route,
+    "PUT",
+    "subscriptions",
+    (await browser(other)).subscription,
+  );
+
+  gone.add(endpoint);
   finish(events, fakeSession({ startedBy: "owner" }));
-  await settled();
+  await delivered(2);
+
+  gone.clear();
+  finish(events, fakeSession({ startedBy: "owner" }));
+  await delivered(3);
 
   await call(route, "PUT", "subscriptions", device.subscription);
   await call(route, "DELETE", "subscriptions", { endpoint });
   finish(events, fakeSession({ startedBy: "owner" }));
-  await settled();
+  await delivered(4);
 
-  expect(sent.length).toBe(1);
+  expect(sent.map(({ url }) => url).sort()).toEqual(
+    [endpoint, other, other, other].sort(),
+  );
 });
 
 test("refuses an endpoint that isn't a browser's push service", async () => {
