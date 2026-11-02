@@ -1,6 +1,6 @@
 # 0030: Subagents in the chat
 
-- Status: accepted
+- Status: accepted; its pi-subagents parts replaced by [ADR 0057](0057-pipocas-own-subagents.md)
 - Date: 2026-10-24
 
 ## Context
