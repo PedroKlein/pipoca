@@ -14,6 +14,7 @@ import {
   finishedRun,
   manages,
   publishedRuns,
+  recordedRun,
   runIdOf,
   running,
   runState,
@@ -31,7 +32,7 @@ export const subagents: WebPlugin = {
   name: "subagents",
   tools: { subagent: SubagentCall },
   SessionHeader: FleetButton,
-  notices: { finished: FinishedNotice },
+  notices: { finished: FinishedNotice, interrupted: InterruptedNotice },
 };
 
 // The latest of every run: as published while the Session runs, and as the
@@ -43,9 +44,9 @@ function useRuns(session: MountedSession): ReadonlyMap<string, RunView> {
     () =>
       session.events((event) => {
         const published = publishedRuns(event);
-        const finished = finishedRun(event);
+        const kept = recordedRun(event) ?? finishedRun(event);
 
-        if (published === undefined && finished === undefined) {
+        if (published === undefined && kept === undefined) {
           return;
         }
 
@@ -53,13 +54,11 @@ function useRuns(session: MountedSession): ReadonlyMap<string, RunView> {
           const next = new Map(seen);
 
           for (const run of published ?? []) {
-            if (next.get(run.id)?.endedAt === undefined) {
-              next.set(run.id, run);
-            }
+            next.set(run.id, run);
           }
 
-          if (finished) {
-            next.set(finished.id, finished);
+          if (kept) {
+            next.set(kept.id, kept);
           }
 
           return next;
@@ -160,6 +159,21 @@ function Run({
         <Child key={index} child={child} now={now} />
       ))}
       {live && <Controls runId={run.id} session={session} />}
+      {!live && run.children.some(({ state }) => state === "interrupted") && (
+        <div className="flex items-center gap-2 border-t border-line px-3 py-2">
+          <span className="min-w-0 flex-1 text-label text-fg-dim">
+            A restart cut this run off.
+          </span>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              void session.send(`/subagent-resume ${run.id}`);
+            }}
+          >
+            Resume
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -450,6 +464,20 @@ function FinishedNotice({ data }: NoticeProps): ReactElement {
     <span className="text-label text-fg-dim">
       Subagents finished:{" "}
       {run.children.map(({ agent, state }) => `${agent} ${state}`).join(", ")}
+    </span>
+  );
+}
+
+// The message that tells the parent which runs a restart cut off.
+function InterruptedNotice({ data }: NoticeProps): ReactElement {
+  const cutOff = data as readonly RunView[];
+
+  return (
+    <span className="text-label text-fg-dim">
+      A restart cut off{" "}
+      {cutOff.length === 1
+        ? "a subagent run"
+        : `${String(cutOff.length)} subagent runs`}
     </span>
   );
 }

@@ -14,10 +14,13 @@ import {
 } from "@pipoca/plugins";
 import { noticeType } from "@pipoca/protocol";
 import { type Agent, loadAgents } from "./agents";
-import { fleet, type Step } from "./fleet";
+import { fleet, type Run, type Step } from "./fleet";
 import {
   finishedKind,
+  interrupted,
+  interruptedKind,
   manages,
+  recordType,
   type RunView,
   runsKey,
   runState,
@@ -63,9 +66,9 @@ const parameters = Type.Object({
     }),
   ),
   action: Type.Optional(
-    StringEnum(["agents", "status", "steer", "stop"], {
+    StringEnum(["agents", "status", "steer", "stop", "resume"], {
       description:
-        "Leave out to start runs. agents: list the agents. status, steer or stop: a run by its id, status of every run without one",
+        "Leave out to start runs. agents: list the agents. status, steer, stop or resume: a run by its id, status of every run without one. resume carries on with a run's interrupted agents",
     }),
   ),
   id: Type.Optional(Type.String({ description: "A run's id" })),
@@ -80,7 +83,8 @@ const description = `Starts subagents: Pi sessions with their own context that w
 - Runs go to the background: the call returns at once, and their output comes back in a later message. Don't poll or wait for it; do other work or end your turn. wait: true blocks until they end instead.
 - Built-in agents: scout (read-only recon), worker (makes changes), reviewer (read-only review), delegate (all tools, no extra instructions). action "agents" lists them with any the Profile or project adds.
 - A task must say everything the agent needs, since it doesn't see this conversation.
-- action "status", "steer" (with message) or "stop" manage a run by its id.`;
+- action "status", "steer" (with message) or "stop" manage a run by its id.
+- A run cut off when this session restarted shows as interrupted. action "resume" with its id carries on with it.`;
 
 function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
   let projectAgents: string | undefined;
@@ -92,18 +96,54 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
     cloud.publish(runsKey, runs.runs());
   };
 
+  let closing = false;
+
   const runs = fleet({
-    startChild: async (agent) =>
+    startChild: async (agent, continueFrom) =>
       cloud.startChild({
         tools: agent.tools,
         ...(agent.model !== undefined && { model: agent.model }),
         ...(agent.thinking !== undefined && { thinking: agent.thinking }),
         ...(agent.prompt !== "" && { systemPrompt: agent.prompt }),
+        ...(continueFrom !== undefined && { continueFrom }),
       }),
     changed: () => {
       publishing ??= setTimeout(publish, publishMs);
     },
+    recorded: (run) => {
+      pi.appendEntry(recordType, run);
+    },
   });
+
+  // Wakes the parent with the run's outputs when it ends.
+  const report = (run: Run): void => {
+    void run.ended.then((ended) => {
+      if (closing) {
+        return;
+      }
+
+      pi.sendMessage(
+        {
+          customType: noticeType,
+          content: outputs(ended),
+          display: true,
+          details: { plugin: "subagents", kind: finishedKind, data: ended },
+        },
+        { triggerTurn: true, deliverAs: "followUp" },
+      );
+    });
+  };
+
+  const resume = async (id: string): Promise<string> => {
+    const run = runs.resume(id, await agents());
+    if (!run) {
+      return `Run "${id}" has nothing interrupted to resume.`;
+    }
+
+    report(run);
+
+    return `Resumed run ${id} in the background. Its output comes back in a later message when it ends; don't wait or poll for it.`;
+  };
 
   const agents = async (): Promise<readonly Agent[]> =>
     loadAgents([
@@ -115,10 +155,36 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
     projectAgents = ctx.isProjectTrusted()
       ? join(ctx.cwd, ".pi", "agents")
       : undefined;
+
+    const at = Date.now();
+
+    const kept = recordedRuns(ctx.sessionManager.getEntries()).map((run) =>
+      run.endedAt === undefined
+        ? { run: interrupted(run, at), cut: true }
+        : { run, cut: false },
+    );
+
+    const cutOff = kept.flatMap(({ run, cut }) => (cut ? [run] : []));
+
+    runs.restore(kept.map(({ run }) => run));
+
+    for (const run of cutOff) {
+      pi.appendEntry(recordType, run);
+    }
+
+    if (cutOff.length > 0) {
+      pi.sendMessage({
+        customType: noticeType,
+        content: cutOffText(cutOff),
+        display: true,
+        details: { plugin: "subagents", kind: interruptedKind, data: cutOff },
+      });
+    }
   });
 
   pi.on("session_shutdown", () => {
-    runs.stopAll();
+    closing = true;
+    runs.close();
   });
 
   pi.on("resources_discover", async () => ({
@@ -129,6 +195,14 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
     description: "Stop a subagent run: /subagent-stop <run id>",
     handler: async (args) => {
       await runs.stop(args.trim());
+    },
+  });
+
+  pi.registerCommand("subagent-resume", {
+    description:
+      "Carry on with a subagent run a restart cut off: /subagent-resume <run id>",
+    handler: async (args) => {
+      await resume(args.trim());
     },
   });
 
@@ -164,17 +238,7 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
         };
       }
 
-      void run.ended.then((ended) => {
-        pi.sendMessage(
-          {
-            customType: noticeType,
-            content: outputs(ended),
-            display: true,
-            details: { plugin: "subagents", kind: finishedKind, data: ended },
-          },
-          { triggerTurn: true, deliverAs: "followUp" },
-        );
-      });
+      report(run);
 
       return {
         content: [
@@ -204,6 +268,10 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
       return (await runs.steer(id, params.message ?? ""))
         ? "Sent to the run's running agents."
         : `No running agents in run "${id}".`;
+    }
+
+    if (params.action === "resume") {
+      return resume(id);
     }
 
     if (params.action === "stop") {
@@ -268,6 +336,40 @@ function outputs(run: RunView): string {
     ...run.children.map(
       (child, index) =>
         `## ${String(index + 1)}. ${child.agent} (${child.state})\n\n${child.error ?? child.output ?? "(no output)"}`,
+    ),
+  ].join("\n\n");
+}
+
+// The latest record of each run in the transcript, oldest run first.
+function recordedRuns(entries: readonly unknown[]): readonly RunView[] {
+  const latest = new Map<string, RunView>();
+
+  for (const entry of entries) {
+    const { type, customType, data } = entry as {
+      readonly type?: string;
+      readonly customType?: string;
+      readonly data?: RunView;
+    };
+
+    if (type === "custom" && customType === recordType && data !== undefined) {
+      latest.set(data.id, data);
+    }
+  }
+
+  return [...latest.values()];
+}
+
+function cutOffText(cutOff: readonly RunView[]): string {
+  return [
+    `The session restarted, which cut off ${plural(cutOff.length, "subagent run")}. Nothing restarts on its own: resume a run with action "resume" and its id, or leave it.`,
+    ...cutOff.map((run) =>
+      [
+        `## Run ${run.id}`,
+        ...run.children.map(
+          (child) =>
+            `- ${child.agent} (${child.state}): ${child.output ?? child.activity.findLast(({ kind }) => kind === "text")?.text ?? "nothing said yet"}`,
+        ),
+      ].join("\n"),
     ),
   ].join("\n\n");
 }

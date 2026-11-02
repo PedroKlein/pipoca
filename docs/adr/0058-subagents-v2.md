@@ -18,8 +18,8 @@ Accepted by Pedro on 2026-11-02, with the build order below.
 
 ### Runs outlast the Session process
 
-- The server keeps the record of every run, the way it keeps the Session's transcript: its shape, its children, each child's state, task, model, last activity and output. The plugin already publishes this to the web. It now also sends it to its own server part, which stores it per Session. A run then survives the loss of its runner, and the fleet panel can show it from the server alone.
-- When a Session starts and finds runs that never ended, each unfinished child is marked `interrupted`. The parent gets one follow-up message listing them, with the output each one had so far, so the agent can decide what to do. Nothing restarts on its own.
+- The server keeps the record of every run: its shape, its children, each child's state, task, model, last activity, output and session file. The plugin writes the record into the Session's own transcript as a custom entry each time the run or one of its children starts or ends. The server already keeps that transcript, and a Session that loses its runner resumes from it on another one ([ADR 0032](0032-environments-and-runners.md)), so the record survives a restart and the loss of a runner with no new store. The web reads the same entries, so the fleet panel shows a run after a reload. (This replaces a store in a server part of the plugin, as first proposed, since the transcript already does the job.)
+- When a Session's process stops, it leaves its runs' records as they were. When the Session starts and finds runs that never ended, each unfinished child is marked `interrupted`. The parent gets one follow-up message listing them, with the output each one had so far, so the agent can decide what to do. Nothing restarts on its own.
 - A `resume` action restarts an interrupted child. If the child's Pi session file is still on the runner, the child continues from it. If not, it starts again on the same task, with its last output added to the task. For a chain, `resume` picks up at the step that was interrupted.
 - Children keep running in the Session process. Moving them to their own process is still not needed for this.
 
@@ -47,7 +47,7 @@ Accepted by Pedro on 2026-11-02, with the build order below.
 ### Missions
 
 - A mission is an objective that runs work toward it: a title, an objective, the runs started for it, decisions waiting on the person, receipts such as a PR link, and a small JSON `state` its workflows can read and write.
-- A mission belongs to one Session, and the server keeps it with that Session's runs. In a Project, a thread is a Session, so a thread can hold missions, and the Project page can show a thread's open decisions and receipts next to its work state. A mission is not a second kind of thread. The Project still decides which threads exist.
+- A mission belongs to one Session, and its record is kept in that Session's transcript like its runs. In a Project, a thread is a Session, so a thread can hold missions, and the Project page can show a thread's open decisions and receipts next to its work state. A mission is not a second kind of thread. The Project still decides which threads exist.
 - The `subagent` tool gains `mission` actions to create, update and close a mission and to record a decision or a receipt. A run started with `missionId` is attached to that mission.
 - An open decision shows in the fleet panel, and in a thread it shows as one of the thread's "needs you" items.
 - Receipts are links only. Watching a PR stays with PR watching ([ADR 0051](0051-pull-request-watching.md)).
@@ -65,7 +65,7 @@ Each step is its own PR, merged when CI is green, and tried on Kyma.
 ## Consequences
 
 - An upgrade no longer loses runs without a trace. A run that was cut off shows as interrupted and can be resumed.
-- The subagents plugin gains a server part and a small store per Session. The server keeps run records for archived Sessions like their transcripts, and they go when the Session is deleted.
+- Run records live in the Session's transcript, so they are kept, archived and deleted with it. A run adds a few entries to the transcript, one each time it or a child starts or ends.
 - The watchdog costs one extra model call per turn that changes files, only for Profiles that turn it on.
 - Workflows add a script runtime to the plugin. It reuses codemode's sandbox instead of a new one, but the API given to scripts is new code to keep small.
 - Missions overlap with Projects, and the line between them is kept here: a Project decides the threads, and a mission tracks the delegated work inside one of them.

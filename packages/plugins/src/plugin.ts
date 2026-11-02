@@ -429,6 +429,8 @@ export interface ChildOptions {
   readonly thinking?: ThinkingLevel;
   // Added to Pi's system prompt.
   readonly systemPrompt?: string;
+  // A child's session file to carry on from, when it is still there.
+  readonly continueFrom?: string;
 }
 
 export interface SessionPlugin {

@@ -1,7 +1,14 @@
 // What the session part publishes about runs and writes into the transcript,
 // and the web part draws (ADR 0057).
 
-export type ChildState = "queued" | "running" | "done" | "failed" | "stopped";
+export type ChildState =
+  | "queued"
+  | "running"
+  | "done"
+  | "failed"
+  | "stopped"
+  // Cut off when the Session's process stopped, and can be resumed.
+  | "interrupted";
 
 export type Shape = "single" | "parallel" | "chain";
 
@@ -26,6 +33,8 @@ export interface ChildView {
   readonly activity: readonly Activity[];
   readonly output?: string;
   readonly error?: string;
+  // The child's own Pi session file, to carry on from after an interruption.
+  readonly sessionFile?: string;
 }
 
 export interface RunView {
@@ -42,6 +51,13 @@ export const runsKey = "runs";
 // The notice kind that brings a finished run's outputs to the parent.
 export const finishedKind = "finished";
 
+// The notice kind that tells the parent which runs a restart cut off.
+export const interruptedKind = "interrupted";
+
+// The transcript entry that keeps a run as it was at its last change, so the
+// run outlasts the Session's process (ADR 0058).
+export const recordType = "subagents-run";
+
 // A tool result's details for a call that started a run.
 export interface Started {
   readonly runId: string;
@@ -50,7 +66,13 @@ export interface Started {
 export function runState(run: RunView): ChildState {
   const states = run.children.map(({ state }) => state);
 
-  for (const state of ["running", "queued", "failed", "stopped"] as const) {
+  for (const state of [
+    "running",
+    "queued",
+    "failed",
+    "interrupted",
+    "stopped",
+  ] as const) {
     if (states.includes(state)) {
       return state;
     }
@@ -67,4 +89,23 @@ export function manages(args: object): boolean {
     !("tasks" in args) &&
     !("chain" in args)
   );
+}
+
+// A run as a restart left it: what hadn't ended is interrupted.
+export function interrupted(run: RunView, at: number): RunView {
+  return {
+    ...run,
+    endedAt: run.endedAt ?? at,
+    children: run.children.map((child) =>
+      child.state === "running" || child.state === "queued"
+        ? {
+            ...child,
+            state: "interrupted",
+            ...(child.startedAt !== undefined && {
+              endedAt: child.endedAt ?? at,
+            }),
+          }
+        : child,
+    ),
+  };
 }

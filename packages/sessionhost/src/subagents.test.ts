@@ -41,6 +41,8 @@ afterEach(async () => {
 interface Seen {
   readonly system: string;
   readonly task: string;
+  // What it was told last, such as to carry on after a restart.
+  readonly last: string;
   readonly tools: readonly string[];
 }
 
@@ -71,25 +73,34 @@ async function hosted(parent: readonly AssistantMessage[]): Promise<{
     );
 
     if (!tools.includes("subagent")) {
-      const first = context.messages.find((m) => m.role === "user");
+      const said = (
+        message: (typeof context.messages)[number] | undefined,
+      ): string => {
+        if (message?.role !== "user") {
+          return "";
+        }
 
-      const task =
-        typeof first?.content === "string"
-          ? first.content
-          : (first?.content ?? [])
+        return typeof message.content === "string"
+          ? message.content
+          : message.content
               .flatMap((p) => (p.type === "text" ? [p.text] : []))
               .join("");
+      };
+
+      const task = said(context.messages.find((m) => m.role === "user"));
+      const last = said(context.messages.findLast((m) => m.role === "user"));
 
       children.push({
         system: JSON.stringify(
           system.map(({ content, sections }) => [content, sections]),
         ),
         task,
+        last,
         tools,
       });
 
-      // Runs until it is stopped.
-      if (task === "hang") {
+      // Runs until it is stopped, the first time it is told.
+      if (task === "hang" || last === "hang once") {
         return new Promise((resolve) => {
           options?.signal?.addEventListener("abort", () => {
             resolve(fauxAssistantMessage([], { stopReason: "aborted" }));
@@ -299,7 +310,10 @@ test("offers its action to the model as a plain string enum", async () => {
 
   expect(session.offered[0]).toMatchObject({
     properties: {
-      action: { type: "string", enum: ["agents", "status", "steer", "stop"] },
+      action: {
+        type: "string",
+        enum: ["agents", "status", "steer", "stop", "resume"],
+      },
     },
   });
 });
@@ -400,4 +414,42 @@ test("stops a run from its command, as the web's Stop button does", async () => 
   await session.stop();
 
   expect(latestRuns(session.events)[0]?.children[0]?.state).toBe("stopped");
+});
+
+test("marks a run a restart cut off as interrupted, and resumes it from its child's session", async () => {
+  const before = await hosted([call({ agent: "delegate", task: "hang once" })]);
+
+  before.send("start something long");
+
+  await before.waitFor(
+    () => latestRuns(before.events)[0]?.children[0]?.state === "running",
+  );
+
+  const id = latestRuns(before.events)[0]?.id ?? "";
+
+  await before.stop();
+
+  const after = await hosted([]);
+
+  await after.waitFor(
+    () => latestRuns(after.events)[0]?.children[0]?.state === "interrupted",
+  );
+
+  after.send(`/subagent-resume ${id}`);
+
+  await after.waitFor(
+    () => latestRuns(after.events)[0]?.children[0]?.state === "done",
+  );
+
+  await after.stop();
+
+  expect(latestRuns(after.events)[0]).toMatchObject({
+    id,
+    children: [{ state: "done", output: "did: hang once" }],
+  });
+
+  expect(after.children.at(-1)).toMatchObject({
+    task: "hang once",
+    last: expect.stringContaining("Carry on with your task") as unknown,
+  });
 });
