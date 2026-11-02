@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -186,5 +186,47 @@ test("a compiled server sends requests with a Copilot OAuth login", async () => 
   } finally {
     server.kill("SIGTERM");
     proxy.close();
+  }
+}, 30_000);
+
+// pi-subagents starts a compiled host's own binary as Pi's CLI to run a
+// background run, with the run in an extension that never returns.
+test("a compiled binary runs as Pi's CLI when started with Pi's options", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pipoca-pi-cli-"));
+  const marker = join(dir, "ran");
+  const extension = join(dir, "runner.js");
+
+  await writeFile(
+    extension,
+    `import { writeFileSync } from "node:fs";
+export default async function () {
+  writeFileSync(${JSON.stringify(marker)}, "ran");
+  process.exit(0);
+}
+`,
+  );
+
+  try {
+    await run(
+      binary,
+      [
+        "--no-extensions",
+        "--no-skills",
+        "--no-prompt-templates",
+        "--no-session",
+        "--mode",
+        "rpc",
+        "--extension",
+        extension,
+      ],
+      {
+        cwd: dir,
+        env: { ...process.env, PI_CODING_AGENT_DIR: join(dir, "agent") },
+      },
+    );
+
+    expect(await readFile(marker, "utf8")).toBe("ran");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 }, 30_000);

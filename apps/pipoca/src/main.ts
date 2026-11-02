@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { homedir, hostname, userInfo } from "node:os";
 import { parseArgs } from "node:util";
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
+import { main as piMain } from "@earendil-works/pi-coding-agent";
 import { installPackage } from "@pipoca/sessionhost";
 import { runAgent } from "./agent";
 import { JoinRefused } from "./client";
@@ -63,12 +64,18 @@ registerBunOAuthFlows();
 const [command, ...rest] = process.argv.slice(2);
 const shutdown = new AbortController();
 
+// Extensions start a compiled host's own binary as Pi's CLI, as pi-subagents
+// does for a background run. No pipoca command starts with an option.
+const asPi = command?.startsWith("-") === true;
+
 // Stay subscribed: signal-exit, which Pi loads, kills the process outright
-// when it sees no other handler left for the signal.
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, () => {
-    shutdown.abort();
-  });
+// when it sees no other handler left for the signal. Pi's CLI has its own.
+if (!asPi) {
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, () => {
+      shutdown.abort();
+    });
+  }
 }
 
 switch (command) {
@@ -435,6 +442,11 @@ switch (command) {
 
   case undefined:
   default:
+    if (asPi) {
+      await piMain(process.argv.slice(2));
+      break;
+    }
+
     process.stderr.write(`${usage}\n`);
     process.exit(2);
 }
