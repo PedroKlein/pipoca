@@ -23,8 +23,8 @@ pi-subagents is about 98,000 lines in 322 files and releases every day or two. M
 ### Children run in the Session process
 
 - A child is a Pi session created with Pi's SDK inside the Session process, on the Session's own model runtime and logins. It reaches every model the Session can, with no credentials copied and no second process. Token refreshes still go through the server's leases.
-- The session host gives session plugins a way to start such a child: the Session's model runtime, Profile, working directory and permission rules, with the child's tools, model, system prompt and session file chosen by the plugin. The subagents plugin is its first user.
-- A child keeps its own Pi session file next to the Session's, linked to it as its parent. The web reads a child's transcript from there, so it needs no inspect command or polling.
+- The session host gives session plugins a way to start such a child on the Session's model runtime, Profile and working directory, with the child's tools, model, system prompt and session file chosen by the plugin. The subagents plugin is its first user.
+- A child keeps its own Pi session file next to the Session's, linked to it as its parent. The plugin publishes each child's messages and tool calls as they happen, so the web shows them live with no inspect command or polling. The run's end, with each child's output, is written into the Session's transcript, so a replay shows the same card.
 - A child's tools are the agent's tools from Pi's built-in set. Children don't get `subagent`, so they can't start children of their own.
 - At most 4 children run at once in a Session. More wait in a queue.
 - Children stop when the Session process stops: a restart, a stop, or an idle runner pod going away. A stopped child shows as interrupted, as a tool call does. pi-subagents' detached runner outlives a parent restart, and these children don't. In exchange there's nothing to clean up and nothing to hand credentials to.
