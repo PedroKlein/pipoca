@@ -135,26 +135,26 @@ test("connect joins this machine as a runner of a solo server through an SSH tun
         join(root, "connect"),
         "--folder",
         root,
-        "--no-open",
+        "--print-link",
       ],
       {
         env: { ...process.env, PATH: `${bin}:${process.env["PATH"] ?? ""}` },
-        stdio: "ignore",
+        stdio: ["ignore", "ignore", "pipe"],
       },
     );
 
     running.push(connecting);
 
-    const link = spawn(
-      process.execPath,
-      [main, "link", "--database", database],
-      { stdio: ["ignore", "pipe", "ignore"] },
-    );
-
-    const [url] = (await once(
-      createInterface({ input: link.stdout }),
-      "line",
-    )) as [string];
+    // Printed for whatever ran connect, such as the desktop app, and good
+    // through the tunnel.
+    const url = await new Promise<string>((resolve) => {
+      createInterface({ input: connecting.stderr }).on("line", (line) => {
+        const found = /sign in at (\S+)/.exec(line);
+        if (found?.[1] !== undefined) {
+          resolve(found[1]);
+        }
+      });
+    });
 
     const signedIn = await fetch(url, { redirect: "manual" });
     const cookie = signedIn.headers.get("set-cookie")?.split(";")[0] ?? "";
@@ -180,7 +180,13 @@ test("connect joins this machine as a runner of a solo server through an SSH tun
       online: laptop?.online,
       folders: laptop?.folders,
       tunnel: tunnelled.ok,
-    }).toEqual({ online: true, folders: [root], tunnel: true });
+      link: new URL(url).port,
+    }).toEqual({
+      online: true,
+      folders: [root],
+      tunnel: true,
+      link: String(localPort),
+    });
 
     connecting.kill("SIGTERM");
     const [code] = (await once(connecting, "exit")) as [number | null];

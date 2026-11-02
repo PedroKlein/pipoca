@@ -21,7 +21,7 @@ import { installService, uninstallService } from "./service";
 import { pipoca, runSessionProcess } from "./session-process";
 
 const usage = `usage:
-  pipoca up [--port 7420] [--database ~/.pipoca/server.db]
+  pipoca up [--port 7420] [--database ~/.pipoca/server.db] [--print-link]
               [--folder <the current folder>]...
   [PIPOCA_SECRET_KEY=<32 bytes, base64>] \\
   pipoca server [--supervise] [--host 127.0.0.1] [--port 7420] [--url <public URL>]
@@ -37,7 +37,8 @@ const usage = `usage:
                  [--data-dir ~/.pipoca/agent] [--folder <the current folder>]...
                  [--extension <path>]... [--session <id>]
   pipoca link [--database ~/.pipoca/server.db] [--open | --runner <name>]
-  pipoca connect <user@host> [--port 7420] [--local-port 7420] [--no-open]
+  pipoca connect <user@host> [--port 7420] [--local-port 7420]
+                   [--no-open | --print-link]
                    [--remote-pipoca pipoca] [--remote-database <path>]
                    [--name <host name>]
                    [--data-dir ~/.pipoca/connect] [--folder <the current folder>]...
@@ -102,6 +103,7 @@ switch (command) {
         "data-dir": { type: "string", default: join(dataRoot, "server") },
         folder: { type: "string", multiple: true, default: [] },
         extension: { type: "string", multiple: true, default: [] },
+        "print-link": { type: "boolean", default: false },
       },
     });
 
@@ -126,7 +128,7 @@ switch (command) {
     if (up) {
       const running = await signInLink(socket).catch(() => undefined);
       if (running !== undefined) {
-        openInBrowser(running);
+        openInBrowser(running, values["print-link"]);
         break;
       }
     }
@@ -193,7 +195,7 @@ switch (command) {
     });
 
     if (up) {
-      openInBrowser(await signInLink(socket));
+      openInBrowser(await signInLink(socket), values["print-link"]);
     }
 
     break;
@@ -302,6 +304,7 @@ switch (command) {
         "data-dir": { type: "string", default: join(dataRoot, "connect") },
         folder: { type: "string", multiple: true, default: [] },
         "no-open": { type: "boolean", default: false },
+        "print-link": { type: "boolean", default: false },
       },
     });
 
@@ -325,7 +328,7 @@ switch (command) {
       name: values.name,
       folders: folders.map(absolutePath),
       dataDir: absolutePath(values["data-dir"]),
-      open: !values["no-open"],
+      signIn: signInMode(values["print-link"], values["no-open"]),
       log: stderrLog("connect"),
       signal: shutdown.signal,
     }).catch((error: unknown) => {
@@ -525,4 +528,15 @@ function extensionSource(source: string): string {
   return extensionSourcePrefixes.some((prefix) => source.startsWith(prefix))
     ? source
     : absolutePath(source);
+}
+
+function signInMode(
+  print: boolean,
+  noOpen: boolean,
+): "open" | "print" | "none" {
+  if (print) {
+    return "print";
+  }
+
+  return noOpen ? "none" : "open";
 }

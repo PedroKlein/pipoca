@@ -19,7 +19,9 @@ export interface ConnectOptions {
   readonly name: string;
   readonly folders: readonly string[];
   readonly dataDir: string;
-  readonly open: boolean;
+  // Whether to open the browser signed in, only print the sign-in link, or
+  // neither, as a service at login does.
+  readonly signIn: "open" | "print" | "none";
   readonly log: Log;
   readonly signal: AbortSignal;
 }
@@ -44,9 +46,13 @@ export async function connect(options: ConnectOptions): Promise<void> {
 
     const token = await remote(options, ["link", "--runner", options.name]);
 
-    if (options.open) {
+    if (options.signIn !== "none") {
       const link = new URL(await remote(options, ["link"]));
-      openInBrowser(new URL(link.pathname, local).href);
+
+      openInBrowser(
+        new URL(link.pathname, local).href,
+        options.signIn === "print",
+      );
     }
 
     await runAgent({

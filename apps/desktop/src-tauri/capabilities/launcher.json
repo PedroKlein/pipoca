@@ -1,0 +1,7 @@
+{
+  "identifier": "launcher",
+  "description": "The connections page bundled with the app. Pages a server serves get nothing.",
+  "local": true,
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

@@ -1,7 +1,15 @@
 import { expect, test } from "bun:test";
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -116,6 +124,77 @@ test("pipoca up runs a Session on a runner it starts on this machine", async () 
     await rm(root, { recursive: true, force: true });
   }
 }, 60_000);
+
+test("prints the sign-in link for the desktop app without opening a browser", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "pipoca-print-")));
+  const bin = join(root, "bin");
+  const opened = join(root, "opened");
+  await mkdir(bin);
+
+  for (const opener of ["open", "xdg-open"]) {
+    await writeFile(join(bin, opener), `#!/bin/sh\necho "$1" >> ${opened}\n`);
+    await chmod(join(bin, opener), 0o755);
+  }
+
+  const env = { ...process.env, PATH: `${bin}:${process.env["PATH"] ?? ""}` };
+
+  const run = (...args: string[]): ChildProcess =>
+    spawn(
+      process.execPath,
+      [
+        main,
+        "up",
+        "--port",
+        "0",
+        "--database",
+        join(root, "server.db"),
+        ...args,
+      ],
+      { env, stdio: ["ignore", "ignore", "pipe"] },
+    );
+
+  const printed = async (child: ChildProcess): Promise<string> =>
+    new Promise((resolve) => {
+      if (child.stderr === null) {
+        return;
+      }
+
+      createInterface({ input: child.stderr }).on("line", (line) => {
+        const found = /sign in at (\S+)/.exec(line);
+        if (found?.[1] !== undefined) {
+          resolve(found[1]);
+        }
+      });
+    });
+
+  const server = run("--folder", root, "--print-link");
+
+  try {
+    const link = await printed(server);
+    const signedIn = await fetch(link, { redirect: "manual" });
+
+    // A second up without the flag opens its link, so the opener works.
+    const again = run();
+    const reopened = await printed(again);
+    await once(again, "exit");
+
+    // The opener runs on its own and can finish after up exits.
+    const openedLinks = async (): Promise<string> =>
+      readFile(opened, "utf8").catch(() => "");
+
+    while (!(await openedLinks()).includes(reopened)) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+
+    expect({
+      signedIn: signedIn.status,
+      opened: (await openedLinks()).trim(),
+    }).toEqual({ signedIn: 303, opened: reopened });
+  } finally {
+    server.kill("SIGKILL");
+    await rm(root, { recursive: true, force: true });
+  }
+}, 30_000);
 
 test("only opens a new link when a solo server already runs", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "pipoca-up-")));
