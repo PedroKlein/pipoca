@@ -26,6 +26,10 @@ import {
   took,
   type Review,
   watchdogKind,
+  type MissionView,
+  openDecisions,
+  publishedMissions,
+  recordedMission,
 } from "./runs";
 
 // Subagent runs as cards in the chat, and a fleet panel from the header
@@ -38,6 +42,7 @@ export const subagents: WebPlugin = {
     finished: FinishedNotice,
     interrupted: InterruptedNotice,
     [watchdogKind]: WatchdogNotice,
+    decided: DecidedNotice,
   },
 };
 
@@ -74,6 +79,41 @@ function useRuns(session: MountedSession): ReadonlyMap<string, RunView> {
   );
 
   return runs;
+}
+
+// The latest of every mission, as published and as the transcript recorded.
+function useMissions(session: MountedSession): readonly MissionView[] {
+  const [missions, setMissions] = useState<ReadonlyMap<string, MissionView>>(
+    new Map(),
+  );
+
+  useEffect(
+    () =>
+      session.events((event) => {
+        const published = publishedMissions(event);
+        const kept = recordedMission(event);
+
+        if (published === undefined && kept === undefined) {
+          return;
+        }
+
+        setMissions((seen) => {
+          const next = new Map(seen);
+
+          for (const mission of [
+            ...(published ?? []),
+            ...(kept ? [kept] : []),
+          ]) {
+            next.set(mission.id, mission);
+          }
+
+          return next;
+        });
+      }),
+    [session],
+  );
+
+  return [...missions.values()].reverse();
 }
 
 function useNow(ticking: boolean): number {
@@ -397,6 +437,8 @@ function Mark({ tone }: { readonly tone: Tone }): ReactElement {
 function FleetButton({ session }: SessionPartProps): ReactElement | null {
   const [open, setOpen] = useState(false);
   const runs = [...useRuns(session).values()].reverse();
+  const missions = useMissions(session);
+  const asking = openDecisions(missions).length;
   const count = running(runs);
 
   useEffect(() => {
@@ -417,7 +459,7 @@ function FleetButton({ session }: SessionPartProps): ReactElement | null {
     };
   }, [open]);
 
-  if (runs.length === 0) {
+  if (runs.length === 0 && missions.length === 0) {
     return null;
   }
 
@@ -436,6 +478,11 @@ function FleetButton({ session }: SessionPartProps): ReactElement | null {
           <Icon name="git-fork" className="size-3.5" />
         )}
         {count > 0 ? `${String(count)} running` : "Subagents"}
+        {asking > 0 && (
+          <span className="rounded-full bg-waiting px-1.5 text-label text-fg-strong">
+            {asking} to decide
+          </span>
+        )}
       </Button>
       <section
         role="dialog"
@@ -457,6 +504,9 @@ function FleetButton({ session }: SessionPartProps): ReactElement | null {
           </Button>
         </header>
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-4">
+          {missions.map((mission) => (
+            <Mission key={mission.id} mission={mission} session={session} />
+          ))}
           {runs.map((run) => (
             <div
               key={run.id}
@@ -550,4 +600,128 @@ function shapeLabel(run: RunView): string {
   }
 
   return run.shape === "chain" ? "Chain" : "Parallel";
+}
+
+// A mission with its decisions, receipts and runs (ADR 0058).
+function Mission({
+  mission,
+  session,
+}: {
+  readonly mission: MissionView;
+  readonly session: MountedSession;
+}): ReactElement {
+  const closed = mission.closedAt !== undefined;
+
+  return (
+    <section
+      aria-label={`Mission ${mission.title}`}
+      className="flex flex-col gap-2 rounded-lg border border-line bg-elevated px-3 py-2 shadow-xs"
+    >
+      <div className="flex items-center gap-2">
+        <Icon name="pin" className="size-3.5 shrink-0 text-fg-dim" />
+        <h3 className="min-w-0 flex-1 truncate font-medium text-fg-strong">
+          {mission.title}
+        </h3>
+        <span className="shrink-0 text-label text-fg-dim">
+          {closed ? "Closed" : "Open"} ·{" "}
+          {mission.runIds.length === 1
+            ? "1 run"
+            : `${String(mission.runIds.length)} runs`}
+        </span>
+      </div>
+      <p className="text-label whitespace-pre-wrap text-fg-dim">
+        {mission.summary ?? mission.objective}
+      </p>
+      {mission.decisions.map((decision) => (
+        <div key={decision.id} className="flex flex-col gap-1 text-label">
+          <span className="text-fg">{decision.question}</span>
+          {decision.answer === undefined ? (
+            !closed && (
+              <Decide
+                options={decision.options}
+                decide={(answer) => {
+                  void session.send(
+                    `/mission-decide ${mission.id} ${decision.id} ${answer}`,
+                  );
+                }}
+              />
+            )
+          ) : (
+            <span className="text-fg-dim">Decided: {decision.answer}</span>
+          )}
+        </div>
+      ))}
+      {mission.receipts.map(({ label, url }) => (
+        <a
+          key={url}
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="truncate text-label text-fg underline"
+        >
+          {label}
+        </a>
+      ))}
+    </section>
+  );
+}
+
+function Decide({
+  options,
+  decide,
+}: {
+  readonly options: readonly string[];
+  readonly decide: (answer: string) => void;
+}): ReactElement {
+  const [text, setText] = useState("");
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {options.map((option) => (
+        <Button
+          key={option}
+          variant="ghost"
+          onClick={() => {
+            decide(option);
+          }}
+        >
+          {option}
+        </Button>
+      ))}
+      <form
+        className="flex min-w-40 flex-1 gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (text.trim() !== "") {
+            decide(text.trim());
+          }
+        }}
+      >
+        <input
+          aria-label="Your answer"
+          value={text}
+          placeholder={
+            options.length === 0 ? "Your answer" : "Or say something else"
+          }
+          onChange={(event) => {
+            setText(event.target.value);
+          }}
+          className="min-w-0 flex-1 rounded-md border border-line bg-panel px-2 py-1 text-label"
+        />
+      </form>
+    </div>
+  );
+}
+
+// The message that brings the person's decision to the agent.
+function DecidedNotice({ data }: NoticeProps): ReactElement {
+  const { decision } = data as {
+    readonly decision: { readonly question: string; readonly answer?: string };
+  };
+
+  return (
+    <span className="text-label text-fg-dim">
+      You decided: {decision.answer} ({decision.question})
+    </span>
+  );
 }

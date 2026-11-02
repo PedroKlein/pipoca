@@ -1550,6 +1550,7 @@ export class Sessions {
     return this.#openSurfaces(session).some(
       (event) =>
         event.type === "prompt" ||
+        (event.type === "plugin" && event.waiting === true) ||
         (event.type === "pi_view" && event.dialog !== null),
     );
   }

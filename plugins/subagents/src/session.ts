@@ -16,10 +16,15 @@ import { noticeType } from "@pipoca/protocol";
 import { type Agent, loadAgents } from "./agents";
 import { fleet, type Run, type Step } from "./fleet";
 import {
+  decidedKind,
   finishedKind,
   interrupted,
   interruptedKind,
   manages,
+  missionRecordType,
+  missionsKey,
+  type MissionView,
+  openDecisions,
   recordType,
   type RunView,
   runsKey,
@@ -28,6 +33,7 @@ import {
   type Started,
   type Workflow,
 } from "./format";
+import { type MissionChange, missions } from "./missions";
 import { prompts } from "./prompts";
 import { watchdog } from "./watchdog";
 
@@ -79,10 +85,40 @@ const parameters = Type.Object({
       description: "workflow: the args its script reads",
     }),
   ),
-  action: Type.Optional(
-    StringEnum(["agents", "status", "steer", "stop", "resume"], {
+  missionId: Type.Optional(
+    Type.String({
       description:
-        "Leave out to start runs. agents: list the agents. status, steer, stop or resume: a run by its id, status of every run without one. resume carries on with a run's interrupted agents",
+        "Starts the runs for this mission, or names the mission action mission changes",
+    }),
+  ),
+  mission: Type.Optional(
+    Type.Object(
+      {
+        title: Type.Optional(Type.String()),
+        objective: Type.Optional(Type.String()),
+        decision: Type.Optional(
+          Type.Object({
+            question: Type.String(),
+            options: Type.Optional(Type.Array(Type.String())),
+          }),
+        ),
+        receipt: Type.Optional(
+          Type.Object({
+            label: Type.String(),
+            url: Type.String({ description: "A link, such as a pull request" }),
+          }),
+        ),
+        close: Type.Optional(
+          Type.String({ description: "Closes the mission with this summary" }),
+        ),
+      },
+      { description: "action mission: what to set or add" },
+    ),
+  ),
+  action: Type.Optional(
+    StringEnum(["agents", "status", "steer", "stop", "resume", "mission"], {
+      description:
+        "Leave out to start runs. agents: list the agents. status, steer, stop or resume: a run by its id, status of every run and mission without one. resume carries on with a run's interrupted agents. mission: create a mission, or change the one missionId names",
     }),
   ),
   id: Type.Optional(Type.String({ description: "A run's id" })),
@@ -103,7 +139,8 @@ const description = `Starts subagents: Pi sessions with their own context that w
   - await runs.run({ agent, task, key? }): one run's output. It throws when the run doesn't end done.
   - await runs.all([{ agent, task, key? }, ...]): runs at once, their outputs in order.
   - await runs.steer(key, message), args, and console.log.
-  Its return value and logs are its output. A key names a step; when the workflow is resumed after a restart, a step that already ended done gives back its output.`;
+  Its return value and logs are its output. A key names a step; when the workflow is resumed after a restart, a step that already ended done gives back its output.
+- A mission tracks an objective you work toward over many runs, such as a feature that ends in a pull request. action "mission" with mission.title and mission.objective creates one; with missionId it adds a decision (a question for the person, with options), a receipt (a link to what it produced), or closes it with a summary. Start runs with missionId to attach them. A workflow started with missionId reads and changes the mission's JSON state as \`state\`. The person's answer to a decision comes back in a later message; don't wait or poll for it.`;
 
 function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
   let projectAgents: string | undefined;
@@ -114,6 +151,35 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
 
     cloud.publish(runsKey, runs.runs());
   };
+
+  const publishMissions = (): void => {
+    const all = goals.list();
+
+    cloud.publish(missionsKey, all, {
+      waiting: openDecisions(all).length > 0,
+    });
+  };
+
+  const goals = missions({
+    recorded: (mission) => {
+      pi.appendEntry(missionRecordType, mission);
+      publishMissions();
+    },
+  });
+
+  // A mission's state as a workflow of it reads and changes it.
+  const stateOf = (missionId: string | undefined) =>
+    missionId === undefined || goals.get(missionId) === undefined
+      ? undefined
+      : {
+          initial: goals.get(missionId)?.state,
+          keep: (state: unknown) => {
+            goals.keep(missionId, state);
+          },
+        };
+
+  const missionOfRun = (runId: string): string | undefined =>
+    goals.list().find(({ runIds }) => runIds.includes(runId))?.id;
 
   let closing = false;
 
@@ -154,7 +220,7 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
   };
 
   const resume = async (id: string): Promise<string> => {
-    const run = runs.resume(id, await agents());
+    const run = runs.resume(id, await agents(), stateOf(missionOfRun(id)));
     if (!run) {
       return `Run "${id}" has nothing interrupted to resume.`;
     }
@@ -171,8 +237,11 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
       : [join(projectAgents, "..", "workflows")]),
   ];
 
-  const startWorkflow = async (workflow: Workflow): Promise<Run> =>
-    runs.startWorkflow(workflow, await agents());
+  const startWorkflow = async (
+    workflow: Workflow,
+    missionId?: string,
+  ): Promise<Run> =>
+    runs.startWorkflow(workflow, await agents(), stateOf(missionId));
 
   const agents = async (): Promise<readonly Agent[]> =>
     loadAgents([
@@ -185,9 +254,25 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
       ? join(ctx.cwd, ".pi", "agents")
       : undefined;
 
+    goals.restore(
+      latest(
+        ctx.sessionManager.getEntries(),
+        missionRecordType,
+      ) as readonly MissionView[],
+    );
+
+    if (goals.list().length > 0) {
+      publishMissions();
+    }
+
     const at = Date.now();
 
-    const kept = recordedRuns(ctx.sessionManager.getEntries()).map((run) =>
+    const recorded = latest(
+      ctx.sessionManager.getEntries(),
+      recordType,
+    ) as readonly RunView[];
+
+    const kept = recorded.map((run) =>
       run.endedAt === undefined
         ? { run: interrupted(run, at), cut: true }
         : { run, cut: false },
@@ -252,6 +337,37 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
     },
   });
 
+  pi.registerCommand("mission-decide", {
+    description:
+      "Answer a mission's decision: /mission-decide <mission id> <decision id> <answer>",
+    // Pi takes only async handlers, and deciding needs no waiting.
+    // eslint-disable-next-line @typescript-eslint/require-await
+    handler: async (args) => {
+      const [id = "", decisionId = "", ...words] = args.trim().split(/\s+/);
+      const decided = goals.decide(id, decisionId, words.join(" "));
+
+      if (!decided) {
+        return;
+      }
+
+      const { mission, decision } = decided;
+
+      pi.sendMessage(
+        {
+          customType: noticeType,
+          content: `The person decided, for mission ${mission.id} (${mission.title}): ${decision.question}\n\nAnswer: ${decision.answer ?? ""}`,
+          display: true,
+          details: {
+            plugin: "subagents",
+            kind: decidedKind,
+            data: { mission: mission.id, decision },
+          },
+        },
+        { triggerTurn: true, deliverAs: "followUp" },
+      );
+    },
+  });
+
   pi.registerCommand("subagent-steer", {
     description:
       "Tell a running subagent run something: /subagent-steer <run id> <message>",
@@ -272,6 +388,17 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
         return text(await manage(params));
       }
 
+      const { missionId } = params;
+
+      const goal = missionId === undefined ? undefined : goals.get(missionId);
+
+      if (
+        missionId !== undefined &&
+        (goal === undefined || goal.closedAt !== undefined)
+      ) {
+        throw new Error(`No open mission "${missionId}".`);
+      }
+
       let run: Run;
       let size: number;
 
@@ -285,13 +412,17 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
                 params.args,
               );
 
-        run = await startWorkflow(workflow);
+        run = await startWorkflow(workflow, missionId);
         size = 0;
       } else {
         const { shape, steps } = await launch(params, await agents());
 
         run = runs.start(shape, steps);
         size = steps.length;
+      }
+
+      if (missionId !== undefined) {
+        goals.attach(missionId, run.id);
       }
 
       const started: Started = { runId: run.id };
@@ -348,13 +479,41 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
         : `Run "${id}" isn't running.`;
     }
 
+    if (params.action === "mission") {
+      return mission(params.missionId, params.mission ?? {});
+    }
+
     const found = runs
       .runs()
       .filter((run) => params.id === undefined || run.id === id);
 
-    return found.length === 0
-      ? "No subagent runs."
-      : found.map(summary).join("\n\n");
+    const open = goals.list().filter(({ closedAt }) => closedAt === undefined);
+
+    return [
+      ...(params.id === undefined ? open.map(missionSummary) : []),
+      ...(found.length === 0 ? ["No subagent runs."] : found.map(summary)),
+    ].join("\n\n");
+  };
+
+  const mission = (
+    missionId: string | undefined,
+    change: MissionChange,
+  ): string => {
+    if (missionId === undefined) {
+      if (change.title === undefined || change.objective === undefined) {
+        return "A new mission needs mission.title and mission.objective.";
+      }
+
+      const created = goals.create(change.title, change.objective);
+
+      return `Created mission ${created.id}. Start its runs with missionId "${created.id}".`;
+    }
+
+    const changed = goals.update(missionId, change);
+
+    return changed === undefined
+      ? `No open mission "${missionId}".`
+      : missionSummary(changed);
   };
 }
 
@@ -413,23 +572,42 @@ function outputs(run: RunView): string {
   ].join("\n\n");
 }
 
-// The latest record of each run in the transcript, oldest run first.
-function recordedRuns(entries: readonly unknown[]): readonly RunView[] {
-  const latest = new Map<string, RunView>();
+// The latest record of each run or mission in the transcript, oldest first.
+function latest(
+  entries: readonly unknown[],
+  recorded: string,
+): readonly unknown[] {
+  const found = new Map<string, unknown>();
 
   for (const entry of entries) {
     const { type, customType, data } = entry as {
       readonly type?: string;
       readonly customType?: string;
-      readonly data?: RunView;
+      readonly data?: { readonly id: string };
     };
 
-    if (type === "custom" && customType === recordType && data !== undefined) {
-      latest.set(data.id, data);
+    if (type === "custom" && customType === recorded && data !== undefined) {
+      found.set(data.id, data);
     }
   }
 
-  return [...latest.values()];
+  return [...found.values()];
+}
+
+function missionSummary(mission: MissionView): string {
+  return [
+    `Mission ${mission.id}: ${mission.title}${mission.closedAt === undefined ? "" : " (closed)"}`,
+    mission.objective,
+    ...mission.decisions.map(
+      ({ id, question, answer }) =>
+        `- Decision ${id}: ${question} ${answer === undefined ? "(waiting on the person)" : `Answer: ${answer}`}`,
+    ),
+    ...mission.receipts.map(({ label, url }) => `- Receipt: ${label} ${url}`),
+    `Runs: ${mission.runIds.length === 0 ? "none" : mission.runIds.join(", ")}`,
+    ...(mission.state === undefined
+      ? []
+      : [`State: ${JSON.stringify(mission.state)}`]),
+  ].join("\n");
 }
 
 function cutOffText(cutOff: readonly RunView[]): string {

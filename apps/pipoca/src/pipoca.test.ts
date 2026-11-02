@@ -2423,6 +2423,37 @@ test("marks a session as waiting on a person while one of its prompts is open", 
   expect(await waiting()).toBe(false);
 });
 
+test("marks a session as waiting on a person while a plugin's data waits on them", async () => {
+  const session = await createSession("vm");
+  await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] });
+
+  const waiting = async (): Promise<boolean> =>
+    ((await (await api(`/api/sessions/${session.id}`)).json()) as Session)
+      .waiting;
+
+  const published = (open: boolean) => ({
+    type: "plugin",
+    plugin: "subagents",
+    key: "missions",
+    data: [],
+    ...(open && { waiting: true }),
+  });
+
+  await asAgent("vm", `/agent/sessions/${session.id}/live`, {
+    generation: 1,
+    events: [published(true)],
+  });
+
+  expect(await waiting()).toBe(true);
+
+  await asAgent("vm", `/agent/sessions/${session.id}/live`, {
+    generation: 1,
+    events: [published(false)],
+  });
+
+  expect(await waiting()).toBe(false);
+});
+
 test("tells a person's subscribed browser when one of their sessions starts waiting on them", async () => {
   const pushed: string[] = [];
   const realFetch = globalThis.fetch;

@@ -165,3 +165,52 @@ export interface Review {
   readonly stuck?: boolean;
   readonly error?: string;
 }
+
+// A question a mission puts to the person, which the agent waits on.
+export interface Decision {
+  readonly id: string;
+  readonly question: string;
+  readonly options: readonly string[];
+  readonly answer?: string;
+}
+
+// A link to something a mission produced, such as a pull request.
+export interface Receipt {
+  readonly label: string;
+  readonly url: string;
+}
+
+// An objective the agent delegates work toward (ADR 0058).
+export interface MissionView {
+  readonly id: string;
+  readonly title: string;
+  readonly objective: string;
+  readonly createdAt: number;
+  readonly closedAt?: number;
+  // How it ended, as the agent said when it closed it.
+  readonly summary?: string;
+  readonly runIds: readonly string[];
+  readonly decisions: readonly Decision[];
+  readonly receipts: readonly Receipt[];
+  // What its workflows keep between runs, as JSON.
+  readonly state?: unknown;
+}
+
+// The plugin data key that holds every mission of the Session.
+export const missionsKey = "missions";
+
+// The transcript entry that keeps a mission as it was at its last change.
+export const missionRecordType = "subagents-mission";
+
+// The notice kind that brings the person's decision to the agent.
+export const decidedKind = "decided";
+
+export function openDecisions(
+  missions: readonly MissionView[],
+): readonly Decision[] {
+  return missions
+    .filter(({ closedAt }) => closedAt === undefined)
+    .flatMap(({ decisions }) =>
+      decisions.filter(({ answer }) => answer === undefined),
+    );
+}
