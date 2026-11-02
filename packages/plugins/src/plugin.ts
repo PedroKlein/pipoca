@@ -1,5 +1,6 @@
 import type { CredentialStore } from "@earendil-works/pi-ai";
 import type {
+  AgentSession,
   ExtensionFactory,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -18,6 +19,7 @@ import type {
   Question,
   QuestionsAnswer,
   Session,
+  ThinkingLevel,
   ToolNamespace,
   ToolResult,
   ToolSpec,
@@ -413,6 +415,20 @@ export interface SessionCloud {
     message: string,
     fields?: Readonly<Record<string, unknown>>,
   ) => void;
+  // Starts a Pi session in the Session's process, on its model runtime and
+  // logins, such as a subagent's (ADR 0057). It has only the given tools and
+  // no extensions, skills or prompt templates.
+  readonly startChild: (options: ChildOptions) => Promise<AgentSession>;
+}
+
+export interface ChildOptions {
+  readonly tools: readonly string[];
+  // As Pi's --model takes it, such as "anthropic/claude-sonnet-4-5". The
+  // Session's current model when left out.
+  readonly model?: string;
+  readonly thinking?: ThinkingLevel;
+  // Added to Pi's system prompt.
+  readonly systemPrompt?: string;
 }
 
 export interface SessionPlugin {

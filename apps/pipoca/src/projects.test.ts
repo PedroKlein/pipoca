@@ -1128,7 +1128,7 @@ test("runs a Project's threads across two machines and two repositories", async 
       );
     }
 
-    const thread = /work on (?:the )?(\w+)/.exec(
+    const thread = /work on (?:the )?(app|lib|both)\b/.exec(
       JSON.stringify(context.messages),
     )?.[1];
 

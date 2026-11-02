@@ -1,194 +1,75 @@
-// pi-subagents' formats for hosts, version 1 (its docs/observability.md).
+import type { SessionEvent } from "@pipoca/protocol";
+import {
+  type ChildState,
+  type ChildView,
+  finishedKind,
+  type RunView,
+  runsKey,
+  runState,
+} from "../src/format";
 
-export interface RunNode {
-  readonly id: string;
-  readonly kind: string;
-  readonly label: string;
-  readonly state: string;
-  readonly startedAt?: number;
-  readonly endedAt?: number;
-  readonly activity?: {
-    readonly currentTool?: string;
-    readonly toolCount?: number;
-  };
-  readonly agent?: string;
-  readonly model?: string;
-  readonly children?: readonly RunNode[];
-}
-
-export interface Snapshot {
-  readonly kind: "pi-subagents.async-status-snapshot";
-  readonly version: 1;
-  readonly runs: readonly RunNode[];
-}
-
-// A run's line in the completion notice pi-subagents adds to the transcript.
-export interface Finished {
-  readonly runId: string;
-  readonly agent?: string;
-  readonly status: string;
-  readonly durationMs?: number;
-}
-
-export interface InspectReply {
-  readonly kind: "pi-subagents.inspect-reply";
-  readonly version: 1;
-  readonly requestId: string;
-  readonly task?: string;
-  readonly messages?: readonly {
-    readonly role: string;
-    readonly kind: "text" | "toolCall" | "toolResult";
-    readonly text: string;
-    readonly name?: string;
-    readonly isError?: boolean;
-  }[];
-  readonly finalOutput?: string;
-  readonly error?: { readonly code: string; readonly message: string };
-}
+export { type ChildView, type RunView, runState };
 
 export type Tone = "running" | "done" | "failed" | "stopped";
 
-export const snapshotKey = "subagent-async";
-export const inspectKey = "subagent-inspect";
-
-export function snapshotOf(data: unknown): Snapshot | undefined {
-  return isVersion1(data, "pi-subagents.async-status-snapshot")
-    ? (data as Snapshot)
+// Every run of the Session, as the session part last published them.
+export function publishedRuns(
+  event: SessionEvent,
+): readonly RunView[] | undefined {
+  return event.type === "live" &&
+    event.event.type === "plugin" &&
+    event.event.plugin === "subagents" &&
+    event.event.key === runsKey
+    ? (event.event.data as readonly RunView[])
     : undefined;
 }
 
-export function inspectReplyOf(data: unknown): InspectReply | undefined {
-  return isVersion1(data, "pi-subagents.inspect-reply")
-    ? (data as InspectReply)
-    : undefined;
-}
-
-function isVersion1(data: unknown, kind: string): boolean {
-  return (
-    typeof data === "object" &&
-    data !== null &&
-    "kind" in data &&
-    data.kind === kind &&
-    "version" in data &&
-    data.version === 1
-  );
-}
-
-export function finishedRuns(line: string): readonly Finished[] {
-  if (!line.includes('"subagent-notify"')) {
-    return [];
+// A run as the notice that brought its outputs to the parent recorded it.
+export function finishedRun(event: SessionEvent): RunView | undefined {
+  if (event.type !== "entry" || !event.entry.includes(`"${finishedKind}"`)) {
+    return undefined;
   }
 
   let entry: {
     readonly type?: string;
-    readonly customType?: string;
-    readonly details?: { readonly runs?: readonly Finished[] };
+    readonly details?: {
+      readonly plugin?: unknown;
+      readonly kind?: unknown;
+      readonly data?: RunView;
+    };
   };
 
   try {
-    entry = JSON.parse(line) as typeof entry;
+    entry = JSON.parse(event.entry) as typeof entry;
   } catch {
-    return [];
-  }
-
-  return entry.type === "custom_message" &&
-    entry.customType === "subagent-notify"
-    ? (entry.details?.runs ?? [])
-    : [];
-}
-
-export interface Launch {
-  readonly agent: string;
-  readonly task: string;
-}
-
-// A call without an action starts work; one with an action, such as status
-// or stop, manages runs.
-export function launchOf(args: unknown): Launch | undefined {
-  if (typeof args !== "object" || args === null || "action" in args) {
     return undefined;
   }
 
-  const { agent, task, workflow } = args as {
-    readonly agent?: unknown;
-    readonly task?: unknown;
-    readonly workflow?: unknown;
-  };
+  const { details } = entry;
 
-  const named = typeof agent === "string" ? agent : undefined;
-
-  return {
-    agent: named ?? (workflow === undefined ? "subagent" : "workflow"),
-    task: typeof task === "string" ? task : "",
-  };
+  return entry.type === "custom_message" &&
+    details?.plugin === "subagents" &&
+    details.kind === finishedKind
+    ? details.data
+    : undefined;
 }
 
-export function asyncIdOf(details: unknown): string | undefined {
+export function runIdOf(details: unknown): string | undefined {
   if (typeof details !== "object" || details === null) {
     return undefined;
   }
 
-  const { asyncId } = details as { readonly asyncId?: unknown };
+  const { runId } = details as { readonly runId?: unknown };
 
-  return typeof asyncId === "string" ? asyncId : undefined;
+  return typeof runId === "string" ? runId : undefined;
 }
 
-const tones: Readonly<Record<string, Tone>> = {
-  queued: "running",
-  running: "running",
-  paused: "stopped",
-  complete: "done",
-  completed: "done",
-  partial: "failed",
-  failed: "failed",
-  rejected: "failed",
-  stopped: "stopped",
-};
-
-export function toneOf(state: string): Tone {
-  return tones[state] ?? "running";
+export function toneOf(state: ChildState): Tone {
+  return state === "queued" ? "running" : state;
 }
 
-export function stateLabel(state: string): string {
-  switch (state) {
-    case "complete":
-    case "completed":
-      return "Done";
-    case "partial":
-      return "Partly failed";
-    default:
-      return state.charAt(0).toUpperCase() + state.slice(1);
-  }
-}
-
-export function steps(run: RunNode): readonly RunNode[] {
-  return run.children !== undefined && run.children.length > 0
-    ? run.children
-    : [run];
-}
-
-export function toolCount(run: RunNode): number {
-  return steps(run).reduce(
-    (sum, step) => sum + (step.activity?.toolCount ?? 0),
-    0,
-  );
-}
-
-export function currentTool(run: RunNode): string | undefined {
-  return steps(run).find(({ activity }) => activity?.currentTool !== undefined)
-    ?.activity?.currentTool;
-}
-
-export function modelOf(run: RunNode): string | undefined {
-  const models = new Set(steps(run).flatMap(({ model }) => model ?? []));
-
-  return models.size === 1 ? [...models][0] : undefined;
-}
-
-export function runningCount(snapshot: Snapshot | undefined): number {
-  return (snapshot?.runs ?? []).filter(
-    ({ state }) => toneOf(state) === "running",
-  ).length;
+export function stateLabel(state: ChildState): string {
+  return state.charAt(0).toUpperCase() + state.slice(1);
 }
 
 export function elapsed(ms: number): string {
@@ -202,46 +83,28 @@ export function elapsed(ms: number): string {
   return `${String(minutes)}m ${String(seconds % 60).padStart(2, "0")}s`;
 }
 
-export function inspectCommand(
-  requestId: string,
-  asyncId: string,
-  childId: string | undefined,
-): string {
-  return [
-    "/subagents-inspect-rpc",
-    requestId,
-    asyncId,
-    ...(childId === undefined ? [] : [childId]),
-    "--lines 40",
-  ].join(" ");
+// How long a child has run, or ran, at now.
+export function took(child: ChildView, now: number): number | undefined {
+  return child.startedAt === undefined
+    ? undefined
+    : (child.endedAt ?? now) - child.startedAt;
 }
 
-// pi-subagents restarts a run's clock when it leaves the queue; the card keeps
-// counting from the earliest start it saw.
-export function followRun(seen: RunNode | undefined, next: RunNode): RunNode {
-  const starts = [seen?.startedAt, next.startedAt].filter(
-    (at) => at !== undefined,
+export function running(runs: readonly RunView[]): number {
+  return runs.filter((run) => run.endedAt === undefined).length;
+}
+
+// A child's last reply is usually its output, already in its activity.
+export function separateOutput(child: ChildView): string {
+  if (child.error !== undefined) {
+    return child.error;
+  }
+
+  const output = child.output ?? "";
+
+  const said = child.activity.some(
+    ({ kind, text }) => kind === "text" && text === output,
   );
 
-  return starts.length === 0
-    ? next
-    : { ...next, startedAt: Math.min(...starts) };
-}
-
-// The child's own prompt is the task the card already shows, padded with
-// pi-subagents' instructions, and its last reply is usually its output.
-export function transcriptOf(reply: InspectReply): {
-  readonly messages: NonNullable<InspectReply["messages"]>;
-  readonly output: string | undefined;
-} {
-  const messages = (reply.messages ?? []).filter(({ role }) => role !== "user");
-
-  const output = reply.finalOutput?.trim();
-  const repeated = messages.some(({ text }) => text.trim() === output);
-
-  return {
-    messages,
-    output:
-      output === undefined || output === "" || repeated ? undefined : output,
-  };
+  return said ? "" : output;
 }

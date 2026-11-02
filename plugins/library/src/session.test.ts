@@ -44,6 +44,7 @@ async function publisher(
       );
     },
     log: () => undefined,
+    startChild: unused,
   };
 
   const tools = (await library.tools?.(cloud)) ?? [];

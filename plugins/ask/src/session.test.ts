@@ -24,6 +24,7 @@ async function askUser(
     settings: {},
     request: unused,
     log: () => undefined,
+    startChild: unused,
   };
 
   const tools = (await ask.tools?.(cloud)) ?? [];

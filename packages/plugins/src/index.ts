@@ -16,6 +16,7 @@ export type {
   AskPermission,
   AskQuestions,
   Checkout,
+  ChildOptions,
   Explain,
   KernelEvent,
   Login,
