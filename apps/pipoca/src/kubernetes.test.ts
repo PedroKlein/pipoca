@@ -216,9 +216,12 @@ async function call(
 }
 
 // An Environment made from a new pod template.
-async function kubernetesEnvironment(settings: object): Promise<Environment> {
+async function kubernetesEnvironment(
+  settings: object,
+  name = "pods",
+): Promise<Environment> {
   const template = (await (
-    await call("POST", "/api/templates", { name: "pods" })
+    await call("POST", "/api/templates", { name })
   ).json()) as EnvironmentTemplate;
 
   const saved = await call("POST", templatePath(template.id), { settings });
@@ -226,7 +229,7 @@ async function kubernetesEnvironment(settings: object): Promise<Environment> {
 
   const { environment } = (await (
     await call("POST", "/api/environments", {
-      name: "pods",
+      name,
       template: template.id,
     })
   ).json()) as { environment: Environment };
@@ -299,6 +302,30 @@ test("reads an Environment that starts runner pods as on demand, not offline", a
   expect(
     (await environments()).find(({ id }) => id === pods.id)?.onDemand,
   ).toBe(false);
+});
+
+test("starts no more runner pods for one person than the per-person limit, across their Environments", async () => {
+  const saved = await call("PATCH", "/api/plugins/kubernetes", {
+    settings: { maxPodsPerPerson: 3 },
+  });
+
+  expect(saved.status).toBe(200);
+
+  const first = await kubernetesEnvironment({ capacity: 1, maxPods: 2 });
+
+  const second = await kubernetesEnvironment(
+    { capacity: 1, maxPods: 2 },
+    "more-pods",
+  );
+
+  for (const environment of [first, second, first, second]) {
+    await startSession(environment);
+  }
+
+  await eventually(() => api.pods.size === 3);
+  await sleep(200);
+
+  expect(api.pods.size).toBe(3);
 });
 
 test("starts one runner pod per Session no runner can take, up to the most allowed", async () => {

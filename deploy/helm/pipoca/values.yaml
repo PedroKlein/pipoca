@@ -57,6 +57,10 @@ resources: {}
 # service account allowed to manage pods, Secrets and claims here (ADR 0032).
 runnerPods:
   enabled: true
+  # A NetworkPolicy that refuses every incoming connection to runner pods, so
+  # people's pods can't reach each other (ADR 0053). It needs a network
+  # plugin that enforces NetworkPolicy, as Kyma's does.
+  refuseIncoming: true
 
 # More environment for the server, such as PIPOCA_FAUX_REPLY in tests, or
 # a secret a plugin's config names, taken from a Secret with valueFrom.

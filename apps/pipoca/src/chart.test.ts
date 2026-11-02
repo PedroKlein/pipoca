@@ -78,3 +78,29 @@ test("the chart's server restarts inside its container, not through the kubelet"
   expect(server).not.toMatch(/^\s*command:/m);
   expect(deployment).not.toContain("PIPOCA_SUPERVISED");
 });
+
+// One person's runner pod must not reach another's ports (ADR 0053). Runners
+// dial out, so the policy refuses every incoming connection to them, and it
+// must pick out runner pods, never the server's own.
+test("the chart refuses incoming connections to runner pods only", () => {
+  const policy = readFileSync(
+    join(chart, "templates/networkpolicy.yaml"),
+    "utf8",
+  );
+
+  const pods = readFileSync(
+    join(import.meta.dir, "../../../plugins/kubernetes/src/pods.ts"),
+    "utf8",
+  );
+
+  expect(values).toMatch(
+    /^runnerPods:\n(?: {2}.*\n)*? {2}refuseIncoming: true$/m,
+  );
+
+  expect(policy).toContain(
+    "podSelector:\n    matchLabels:\n      app.kubernetes.io/managed-by: pipoca\n  policyTypes:\n    - Ingress\n{{- end }}",
+  );
+
+  expect(pods).toContain('"app.kubernetes.io/managed-by": "pipoca",');
+  expect(deployment).not.toContain("app.kubernetes.io/managed-by: pipoca");
+});
