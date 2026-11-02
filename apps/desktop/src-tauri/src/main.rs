@@ -22,6 +22,7 @@ use tauri::{
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
 mod sign_in;
+mod update;
 
 const AT_LOGIN: &str = "--at-login";
 
@@ -71,6 +72,7 @@ struct Listing {
     running: Vec<String>,
     signing_in: Vec<String>,
     home: String,
+    update: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -82,7 +84,7 @@ struct Stopped {
 }
 
 #[tauri::command]
-fn list(desktop: State<Desktop>) -> Listing {
+fn list(app: AppHandle, desktop: State<Desktop>) -> Listing {
     Listing {
         connections: desktop.connections.lock().unwrap().clone(),
         running: desktop.running.lock().unwrap().keys().cloned().collect(),
@@ -94,6 +96,7 @@ fn list(desktop: State<Desktop>) -> Listing {
             .map(|pending| pending.id.clone())
             .collect(),
         home: home(),
+        update: update::available(&app),
     }
 }
 
@@ -409,27 +412,43 @@ pub(crate) fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
 fn tray_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let desktop = app.state::<Desktop>();
     let connections = desktop.connections.lock().unwrap().clone();
-    let running = desktop.running.lock().unwrap();
+    let labels: Vec<(String, String)> = {
+        let running = desktop.running.lock().unwrap();
+
+        connections
+            .into_iter()
+            .map(|connection| {
+                let label = if running.contains_key(&connection.id) {
+                    format!("● {}", connection.name)
+                } else {
+                    connection.name
+                };
+
+                (format!("open:{}", connection.id), label)
+            })
+            .collect()
+    };
+
+    // Off the main thread, making a menu item waits for the main thread,
+    // so no lock may be held here that the main thread could be waiting for.
     let menu = Menu::new(app)?;
 
-    for connection in connections {
-        let label = if running.contains_key(&connection.id) {
-            format!("● {}", connection.name)
-        } else {
-            connection.name
-        };
-
-        let item = MenuItem::with_id(
-            app,
-            format!("open:{}", connection.id),
-            label,
-            true,
-            None::<&str>,
-        )?;
-        menu.append(&item)?;
+    for (id, label) in labels {
+        menu.append(&MenuItem::with_id(app, id, label, true, None::<&str>)?)?;
     }
 
     menu.append(&PredefinedMenuItem::separator(app)?)?;
+
+    if let Some(version) = update::available(app) {
+        menu.append(&MenuItem::with_id(
+            app,
+            "connections",
+            format!("Update to {version}…"),
+            true,
+            None::<&str>,
+        )?)?;
+    }
+
     menu.append(&MenuItem::with_id(
         app,
         "connections",
@@ -448,7 +467,7 @@ fn tray_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     Ok(menu)
 }
 
-fn refresh_tray(app: &AppHandle) {
+pub(crate) fn refresh_tray(app: &AppHandle) {
     if let (Some(tray), Ok(menu)) = (app.tray_by_id("main"), tray_menu(app)) {
         let _ = tray.set_menu(Some(menu));
     }
@@ -503,6 +522,7 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             Some(vec![AT_LOGIN]),
@@ -520,8 +540,10 @@ fn main() {
                 path: login_path(),
                 signing_in: Mutex::new(HashMap::new()),
             });
+            app.manage(update::Updates::default());
 
             sign_in::listen(app.handle());
+            update::watch(app.handle());
 
             let window = build_window(app.handle())?;
             *app.state::<Desktop>().launcher.lock().unwrap() = window.url().ok();
@@ -560,7 +582,13 @@ fn main() {
                 let _ = window.hide();
             }
         })
-        .invoke_handler(tauri::generate_handler![list, save, open, stop])
+        .invoke_handler(tauri::generate_handler![
+            list,
+            save,
+            open,
+            stop,
+            update::update
+        ])
         .build(tauri::generate_context!())
         .expect("Pipoca could not start");
 

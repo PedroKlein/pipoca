@@ -38,10 +38,18 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
-      - run: bun run --cwd apps/desktop build -- --bundles app,dmg
+      - env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: bun run --cwd apps/desktop build -- --bundles app,dmg --config '{"bundle":{"createUpdaterArtifacts":true}}'
       - env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+        working-directory: apps/desktop/src-tauri/target/release/bundle
+        run: |
+          update="Pipoca_${GITHUB_REF_NAME#v}_aarch64.app.tar.gz"
+          mv macos/Pipoca.app.tar.gz "$update"
+          mv macos/Pipoca.app.tar.gz.sig "$update.sig"
+          gh release upload "$GITHUB_REF_NAME" dmg/*.dmg "$update" "$update.sig"
 
   linux:
     needs: cli
@@ -53,7 +61,32 @@ jobs:
           bun-version: 1.4.2
       - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - run: bun install --frozen-lockfile
-      - run: bun run --cwd apps/desktop build -- --bundles deb,appimage
+      - env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: bun run --cwd apps/desktop build -- --bundles deb,appimage --config '{"bundle":{"createUpdaterArtifacts":true}}'
       - env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" apps/desktop/src-tauri/target/release/bundle/deb/*.deb apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+        working-directory: apps/desktop/src-tauri/target/release/bundle
+        run: gh release upload "$GITHUB_REF_NAME" deb/*.deb deb/*.deb.sig appimage/*.AppImage appimage/*.AppImage.sig
+
+  # The app looks for updates in latest.json on the newest release.
+  updates:
+    needs: [macos, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release download "$GITHUB_REF_NAME" --repo "$REPO" --pattern '*.sig'
+          version="${GITHUB_REF_NAME#v}"
+          base="https://github.com/$REPO/releases/download/$GITHUB_REF_NAME"
+          entry() { jq -n --arg url "$base/$1" --rawfile signature "$1.sig" '{url: $url, signature: $signature}'; }
+          appimage="$(entry "Pipoca_${version}_amd64.AppImage")"
+          jq -n --arg version "$version" \
+            --argjson mac "$(entry "Pipoca_${version}_aarch64.app.tar.gz")" \
+            --argjson appimage "$appimage" \
+            --argjson deb "$(entry "Pipoca_${version}_amd64.deb")" \
+            '{version: $version, pub_date: (now | todate), platforms: {"darwin-aarch64": $mac, "linux-x86_64": $appimage, "linux-x86_64-appimage": $appimage, "linux-x86_64-deb": $deb}}' > latest.json
+          gh release upload "$GITHUB_REF_NAME" --repo "$REPO" latest.json
