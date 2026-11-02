@@ -1,6 +1,6 @@
 # 0058: Subagents v2: runs that outlast a restart, a watchdog, workflows and missions
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-02
 - Builds on [ADR 0057](0057-pipocas-own-subagents.md)
 
@@ -13,6 +13,8 @@ v1 has been live on Kyma since 2026-11-02, and it showed one gap that v2 as plan
 pi-subagents has all three v2 features, built for a terminal on one machine. Its watchdog has boundary, cadence and LSP reviews, child watchdogs, launch rules, a permission arbiter and a clarification channel. Its workflows run JavaScript in a sandbox, with keyed runs, lanes, budgets, gates, host commands, named resources and reuse after a reload. Its missions are JSON files with decisions, receipts, state, goal mode and a global index. Pipoca takes the core of each and leaves the rest out, as ADR 0057 did.
 
 ## Decision
+
+Accepted by Pedro on 2026-11-02, with the build order below.
 
 ### Runs outlast the Session process
 
