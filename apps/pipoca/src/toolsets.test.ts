@@ -744,6 +744,19 @@ test("lets the assistant read files but not run commands or change files", async
   }
 });
 
+test("runs Pi's own tools without asking", async () => {
+  faux.setResponses([
+    call("ls", { path: root }),
+    call("read", { path: join(root, "auth.json") }),
+    fauxAssistantMessage([fauxText("looked around")]),
+  ]);
+
+  const metaSession = await startMeta("What's in there?");
+  const events = await follow(metaSession.id, entriesInclude("looked around"));
+
+  expect(prompts(events)).toEqual([]);
+});
+
 test("keeps the tools that installs use away from the model", async () => {
   await server.stop();
   start(undefined, { root: join(root, "plugins"), plugins: [] });
