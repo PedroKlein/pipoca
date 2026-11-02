@@ -82,7 +82,9 @@ export function projectTools(
         parameters: object(
           {
             title: text("A short name for the thread's task"),
-            message: text("The thread's first message: what to do"),
+            message: text(
+              'Your brief for the thread, addressed to it: the task, what done looks like, and only the facts it needs, such as decisions the user made. Write it as an instruction ("Build…"), never as a report about the user ("User wants…")',
+            ),
             repositories: {
               type: "array",
               items: { type: "string" },
@@ -166,10 +168,17 @@ export function projectTools(
               title,
               projects.readMemory(project.id, "MEMORY.md")?.content,
             ),
-            firstMessage: message,
           },
           project.id,
         );
+
+        // The brief is the coordinator's, so the thread's chat shows it as
+        // such, not as the person's message.
+        projects.enqueue(session.id, actor, {
+          kind: "message",
+          text: message,
+          notice: { kind: "coordinator_message", data: { text: message } },
+        });
 
         projects.addMember({
           sessionId: session.id,

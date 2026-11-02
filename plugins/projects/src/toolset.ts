@@ -6,11 +6,12 @@ const settingsFields = {
   goal: {
     type: "string",
     description:
-      "The outcome the Project works toward, given to its coordinator",
+      "The outcome the Project works toward, in a sentence or two in the user's words. Not the steps to get there, and nothing from the conversation that led to the Project.",
   },
   instructions: {
     type: "string",
-    description: "What the coordinator should know about the Project's goal",
+    description:
+      "Lasting conventions every Session in the Project follows, such as how to test or which branch to target. Only what holds for the Project's whole life: leave out the request's history, tool names, ids, and anything the repositories already say. Usually empty at first.",
   },
   threadModel: {
     type: "string",
