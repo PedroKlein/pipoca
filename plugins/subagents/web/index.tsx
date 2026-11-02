@@ -157,15 +157,22 @@ function Run({
     <div className="flex flex-col">
       {run.shape !== "single" && (
         <div className="border-b border-line px-3 py-1.5 text-label text-fg-dim">
-          {run.shape === "chain" ? "Chain" : "Parallel"} ·{" "}
-          {stateLabel(runState(run))}
+          {shapeLabel(run)} · {stateLabel(runState(run))}
         </div>
       )}
       {run.children.map((child, index) => (
         <Child key={index} child={child} now={now} />
       ))}
       {live && <Controls runId={run.id} session={session} />}
-      {!live && run.children.some(({ state }) => state === "interrupted") && (
+      {!live && (run.output !== undefined || run.error !== undefined) && (
+        <div className="border-t border-line px-3 py-2">
+          <Output
+            text={run.error ?? run.output ?? ""}
+            failed={run.error !== undefined}
+          />
+        </div>
+      )}
+      {!live && runState(run) === "interrupted" && (
         <div className="flex items-center gap-2 border-t border-line px-3 py-2">
           <span className="min-w-0 flex-1 text-label text-fg-dim">
             A restart cut this run off.
@@ -222,7 +229,9 @@ function Child({
       >
         <span className="flex w-full min-w-0 items-center gap-2 text-label">
           <Mark tone={tone} />
-          <span className="shrink-0 font-medium text-fg">{child.agent}</span>
+          <span className="shrink-0 font-medium text-fg">
+            {child.key ?? child.agent}
+          </span>
           <span className="min-w-0 flex-1 truncate text-fg-dim">
             {child.task.split("\n")[0]}
           </span>
@@ -533,4 +542,12 @@ function WatchdogNotice({ data }: NoticeProps): ReactElement {
       ))}
     </div>
   );
+}
+
+function shapeLabel(run: RunView): string {
+  if (run.shape === "workflow") {
+    return `Workflow${run.workflow?.name === undefined ? "" : ` ${run.workflow.name}`}`;
+  }
+
+  return run.shape === "chain" ? "Chain" : "Parallel";
 }

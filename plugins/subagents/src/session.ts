@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
@@ -26,6 +26,7 @@ import {
   runState,
   type Shape,
   type Started,
+  type Workflow,
 } from "./format";
 import { prompts } from "./prompts";
 import { watchdog } from "./watchdog";
@@ -67,6 +68,17 @@ const parameters = Type.Object({
         "Wait for the runs to end instead of running them in the background",
     }),
   ),
+  workflow: Type.Optional(
+    Type.String({
+      description:
+        'A workflow: a saved one by name, or "inline" for the ```js workflow block written in this same reply',
+    }),
+  ),
+  args: Type.Optional(
+    Type.Record(Type.String(), Type.Unknown(), {
+      description: "workflow: the args its script reads",
+    }),
+  ),
   action: Type.Optional(
     StringEnum(["agents", "status", "steer", "stop", "resume"], {
       description:
@@ -86,7 +98,12 @@ const description = `Starts subagents: Pi sessions with their own context that w
 - Built-in agents: scout (read-only recon), worker (makes changes), reviewer (read-only review), delegate (all tools, no extra instructions). action "agents" lists them with any the Profile or project adds.
 - A task must say everything the agent needs, since it doesn't see this conversation.
 - action "status", "steer" (with message) or "stop" manage a run by its id.
-- A run cut off when this session restarted shows as interrupted. action "resume" with its id carries on with it.`;
+- A run cut off when this session restarted shows as interrupted. action "resume" with its id carries on with it.
+- A workflow is a JavaScript script for flows that are more than one chain or batch, such as a review loop. Write it in a \`\`\`js workflow block in your reply and call with workflow: "inline", or run a saved one by name with args. It runs in a sandbox with no files, shell or network, as the body of an async function that sees:
+  - await runs.run({ agent, task, key? }): one run's output. It throws when the run doesn't end done.
+  - await runs.all([{ agent, task, key? }, ...]): runs at once, their outputs in order.
+  - await runs.steer(key, message), args, and console.log.
+  Its return value and logs are its output. A key names a step; when the workflow is resumed after a restart, a step that already ended done gives back its output.`;
 
 function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
   let projectAgents: string | undefined;
@@ -146,6 +163,16 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
 
     return `Resumed run ${id} in the background. Its output comes back in a later message when it ends; don't wait or poll for it.`;
   };
+
+  const workflowFolders = (): readonly string[] => [
+    join(getAgentDir(), "workflows"),
+    ...(projectAgents === undefined
+      ? []
+      : [join(projectAgents, "..", "workflows")]),
+  ];
+
+  const startWorkflow = async (workflow: Workflow): Promise<Run> =>
+    runs.startWorkflow(workflow, await agents());
 
   const agents = async (): Promise<readonly Agent[]> =>
     loadAgents([
@@ -208,6 +235,23 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
     },
   });
 
+  pi.registerCommand("workflow", {
+    description:
+      "Run a saved subagent workflow: /workflow <name> [args as JSON]",
+    handler: async (args) => {
+      const [name = "", ...rest] = args.trim().split(/\s+/);
+      const json = rest.join(" ");
+
+      const workflow = await savedWorkflow(
+        workflowFolders(),
+        name,
+        json === "" ? undefined : (JSON.parse(json) as unknown),
+      );
+
+      report(await startWorkflow(workflow));
+    },
+  });
+
   pi.registerCommand("subagent-steer", {
     description:
       "Tell a running subagent run something: /subagent-steer <run id> <message>",
@@ -223,13 +267,32 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
     description,
     parameters,
     prepareArguments: withoutEmptyFields,
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
       if (manages(params)) {
         return text(await manage(params));
       }
 
-      const { shape, steps } = await launch(params, await agents());
-      const run = runs.start(shape, steps);
+      let run: Run;
+      let size: number;
+
+      if (params.workflow !== undefined) {
+        const workflow =
+          params.workflow === "inline"
+            ? inlineWorkflow(ctx.sessionManager.getBranch(), params.args)
+            : await savedWorkflow(
+                workflowFolders(),
+                params.workflow,
+                params.args,
+              );
+
+        run = await startWorkflow(workflow);
+        size = 0;
+      } else {
+        const { shape, steps } = await launch(params, await agents());
+
+        run = runs.start(shape, steps);
+        size = steps.length;
+      }
 
       const started: Started = { runId: run.id };
 
@@ -246,7 +309,7 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
         content: [
           {
             type: "text",
-            text: `Started run ${run.id} with ${plural(steps.length, "subagent")} in the background. Their output comes back in a later message when the run ends; don't wait or poll for it.`,
+            text: `Started run ${run.id}${size === 0 ? ", a workflow," : ` with ${plural(size, "subagent")}`} in the background. Its output comes back in a later message when the run ends; don't wait or poll for it.`,
           },
         ],
         details: started,
@@ -258,12 +321,15 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
     const id = params.id ?? "";
 
     if (params.action === "agents") {
-      return (await agents())
-        .map(
+      const saved = await workflowNames(workflowFolders());
+
+      return [
+        ...(await agents()).map(
           ({ name, description: about, tools }) =>
             `- ${name}: ${about} (tools: ${tools.join(", ")})`,
-        )
-        .join("\n");
+        ),
+        ...(saved.length === 0 ? [] : [`Saved workflows: ${saved.join(", ")}`]),
+      ].join("\n");
     }
 
     if (params.action === "steer") {
@@ -335,6 +401,11 @@ async function launch(
 function outputs(run: RunView): string {
   return [
     `Subagent run ${run.id} ended: ${runState(run)}.`,
+    ...(run.workflow === undefined
+      ? []
+      : [
+          `## Workflow output\n\n${run.error === undefined ? "" : `Failed: ${run.error}\n\n`}${run.output ?? "(no output)"}`,
+        ]),
     ...run.children.map(
       (child, index) =>
         `## ${String(index + 1)}. ${child.agent} (${child.state})\n\n${child.error ?? child.output ?? "(no output)"}`,
@@ -428,5 +499,77 @@ function withoutEmptyFields(args: unknown): Static<typeof parameters> {
 
   return Object.fromEntries(
     Object.entries(args).filter(([, value]) => value !== "" && value !== null),
+  );
+}
+
+const inlineBlock = /```js workflow\n([\s\S]*?)```/;
+
+// The ```js workflow block of the reply that called the tool.
+function inlineWorkflow(
+  branch: readonly { readonly type: string; readonly message?: unknown }[],
+  args: unknown,
+): Workflow {
+  const reply = branch.findLast(
+    ({ type, message }) =>
+      type === "message" &&
+      (message as { readonly role?: string } | undefined)?.role === "assistant",
+  )?.message as
+    | { readonly content?: readonly { type: string; text?: string }[] }
+    | undefined;
+
+  const said = (reply?.content ?? [])
+    .flatMap(({ type, text: part }) =>
+      type === "text" && part !== undefined ? [part] : [],
+    )
+    .join("\n");
+
+  const script = inlineBlock.exec(said)?.[1];
+  if (script === undefined) {
+    throw new Error(
+      'workflow "inline" needs a ```js workflow block in the same reply.',
+    );
+  }
+
+  return { script, ...(args !== undefined && { args }) };
+}
+
+// Later folders win, as for agents.
+async function workflowNames(
+  folders: readonly string[],
+): Promise<readonly string[]> {
+  const names = new Set<string>();
+
+  for (const folder of folders) {
+    for (const file of await readdir(folder).catch(() => [])) {
+      if (file.endsWith(".js")) {
+        names.add(file.slice(0, -".js".length));
+      }
+    }
+  }
+
+  return [...names].sort();
+}
+
+async function savedWorkflow(
+  folders: readonly string[],
+  name: string,
+  args: unknown,
+): Promise<Workflow> {
+  const folderless = /^[\w-][\w.-]*$/.test(name);
+
+  for (const folder of folderless ? [...folders].reverse() : []) {
+    const script = await readFile(join(folder, `${name}.js`), "utf8").catch(
+      () => undefined,
+    );
+
+    if (script !== undefined) {
+      return { name, script, ...(args !== undefined && { args }) };
+    }
+  }
+
+  const known = await workflowNames(folders);
+
+  throw new Error(
+    `No workflow named "${name}". ${known.length === 0 ? "There are no saved workflows." : `The saved workflows are: ${known.join(", ")}.`}`,
   );
 }
