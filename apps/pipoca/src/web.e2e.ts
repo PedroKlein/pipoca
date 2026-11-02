@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -3139,3 +3140,39 @@ test("offers push notifications in Settings and shows a pushed notification from
 
   await context.close();
 }, 30_000);
+
+test("signs in in the browser for the desktop app and hands it a link only it can use", async () => {
+  const verifier = randomBytes(32).toString("base64url");
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  const context = await browser.newContext();
+  const tab = await context.newPage();
+  tab.setDefaultTimeout(10_000);
+
+  await tab.goto(new URL(`/#app/${challenge}`, server.url).href);
+  await tab.getByLabel("Name").fill("pedro");
+  await tab.getByLabel("Password").fill("correct horse");
+  await tab.getByRole("button", { name: "Sign in" }).click();
+
+  await tab
+    .getByRole("heading", { name: "Sign in to the Pipoca app" })
+    .waitFor();
+
+  const handed = tab.waitForResponse("**/api/auth/app");
+  await tab.getByRole("button", { name: "Open Pipoca" }).click();
+  const { link } = (await (await handed).json()) as { link: string };
+  const token = new URL(link).searchParams.get("link") ?? "";
+
+  await tab.getByRole("heading", { name: "Pipoca is open" }).waitFor();
+
+  const app = new URL(`/api/auth/link/${token}`, server.url);
+  app.searchParams.set("verifier", verifier);
+  const signedIn = await fetch(app, { redirect: "manual" });
+
+  await tab.goto(server.url.href);
+  await tab.getByRole("button", { name: "New session" }).waitFor();
+
+  expect(link.startsWith("pipoca://signed-in?")).toBe(true);
+  expect(signedIn.status).toBe(303);
+
+  await context.close();
+});

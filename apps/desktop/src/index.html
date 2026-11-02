@@ -33,6 +33,10 @@
         }
       }
 
+      [hidden] {
+        display: none !important;
+      }
+
       body {
         margin: 0;
         background: var(--bg);
@@ -155,30 +159,36 @@
       <form id="add">
         <input
           type="text"
-          name="host"
-          placeholder="user@host"
-          aria-label="SSH host"
+          name="place"
+          placeholder="user@host or https://pipoca.example.com"
+          aria-label="SSH host or server URL"
           required
         />
-        <button type="submit">Add SSH machine</button>
+        <button type="submit">Add</button>
       </form>
     </main>
     <script>
       const { invoke } = window.__TAURI__.core;
       const { listen } = window.__TAURI__.event;
-      const failures = new Map();
+      const notes = new Map();
 
       async function render() {
-        const { connections, running, home } = await invoke("list");
+        const { connections, running, signingIn, home } = await invoke("list");
         const list = document.getElementById("connections");
         list.replaceChildren(
           ...connections.map((connection) =>
-            row(connection, connections, running.includes(connection.id), home),
+            row(
+              connection,
+              connections,
+              running.includes(connection.id),
+              signingIn.includes(connection.id),
+              home,
+            ),
           ),
         );
       }
 
-      function row(connection, connections, on, home) {
+      function row(connection, connections, on, signingIn, home) {
         const item = document.createElement("li");
         const dot = document.createElement("span");
         dot.className = on ? "dot on" : "dot";
@@ -193,19 +203,25 @@
         detail.textContent =
           connection.kind === "ssh"
             ? connection.host
-            : (connection.folders.length > 0
-                ? connection.folders
-                : [home]
-              ).join(", ");
+            : connection.kind === "server"
+              ? connection.url
+              : (connection.folders.length > 0
+                  ? connection.folders
+                  : [home]
+                ).join(", ");
         name.append(detail);
 
-        const failure = failures.get(connection.id);
-        if (failure !== undefined) {
-          const failed = document.createElement("div");
-          failed.className = "failed";
-          failed.setAttribute("role", "alert");
-          failed.textContent = failure;
-          name.append(failed);
+        const note =
+          notes.get(connection.id) ??
+          (signingIn
+            ? { text: "Finish signing in in your browser.", failed: false }
+            : undefined);
+        if (note !== undefined) {
+          const shown = document.createElement("div");
+          shown.className = note.failed ? "failed" : "detail";
+          shown.setAttribute("role", note.failed ? "alert" : "status");
+          shown.textContent = note.text;
+          name.append(shown);
         }
 
         const atLogin = document.createElement("label");
@@ -221,11 +237,14 @@
         );
         atLogin.append(box, "Start at login");
 
+        // A server connection runs nothing here to start.
+        atLogin.hidden = connection.kind === "server";
+
         const open = document.createElement("button");
         open.className = "primary";
         open.textContent = "Open";
         open.addEventListener("click", () => {
-          failures.delete(connection.id);
+          notes.delete(connection.id);
           invoke("open", { id: connection.id }).then(
             render,
             failedTo(connection),
@@ -241,7 +260,7 @@
             invoke("stop", { id: connection.id }).then(render),
           );
           item.append(stop);
-        } else if (connection.kind === "ssh") {
+        } else if (connection.kind !== "thisMac") {
           const remove = document.createElement("button");
           remove.textContent = "Remove";
           remove.addEventListener("click", () =>
@@ -255,7 +274,7 @@
 
       function failedTo(connection) {
         return (error) => {
-          failures.set(connection.id, String(error));
+          notes.set(connection.id, { text: String(error), failed: true });
           render();
         };
       }
@@ -269,7 +288,7 @@
         .getElementById("add")
         .addEventListener("submit", async (event) => {
           event.preventDefault();
-          const host = event.target.host.value.trim();
+          const place = event.target.place.value.trim();
           const { connections } = await invoke("list");
           const ports = connections
             .filter((c) => c.kind === "ssh")
@@ -277,26 +296,42 @@
 
           // This Mac serves on 7420, so each machine tunnels to its own port.
           const localPort = Math.max(7420, ...ports) + 1;
+          const id = crypto.randomUUID();
 
           await save([
             ...connections,
-            {
-              id: crypto.randomUUID(),
-              name: host,
-              kind: "ssh",
-              host,
-              localPort,
-              atLogin: false,
-            },
+            /^https?:\/\//.test(place)
+              ? {
+                  id,
+                  name: new URL(place).host,
+                  kind: "server",
+                  url: new URL("/", place).href,
+                  atLogin: false,
+                }
+              : {
+                  id,
+                  name: place,
+                  kind: "ssh",
+                  host: place,
+                  localPort,
+                  atLogin: false,
+                },
           ]);
           event.target.reset();
         });
 
       listen("stopped", ({ payload }) => {
-        failures.set(
-          payload.id,
-          `${payload.error}\nThe whole log is in ${payload.log}`,
-        );
+        notes.set(payload.id, {
+          text: `${payload.error}\nThe whole log is in ${payload.log}`,
+          failed: true,
+        });
+        render();
+      });
+
+      listen("signing-in", render);
+
+      listen("failed", ({ payload }) => {
+        notes.set(payload.id, { text: payload.error, failed: true });
         render();
       });
 

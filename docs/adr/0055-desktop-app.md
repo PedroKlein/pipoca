@@ -38,7 +38,9 @@ The app shows each connection's server and runner state in its tray icon and sta
 ### Signing in to a team server
 
 - Some identity providers refuse to sign in inside an embedded webview, so the app signs in through the system browser.
-- After OIDC, the server can send the browser to a `pipoca://` link that carries a one-time sign-in link, the kind solo installs already use ([ADR 0053](0053-ways-to-run-pipoca.md#solo-installs)). The app follows it in its window and gets its own session cookie, kept in the operating system's keychain.
+- After OIDC, the server can send the browser to a `pipoca://` link that carries a one-time sign-in link, the kind solo installs already use ([ADR 0053](0053-ways-to-run-pipoca.md#solo-installs)). The app follows it in its window and gets its own session cookie, kept in the window's own cookie store like any browser's.
+- As built (2026-11-02): the server's sign-in page, inside the app, offers "Sign in with your browser". The app opens `#app/<challenge>` in the browser, where the person signs in and confirms. The link works only with the verifier whose SHA-256 is the challenge, which never leaves the app, so another app that registers `pipoca://` and catches the link can't use it. The confirmation stops a page from signing someone's app in as them without asking.
+- The app tells a server's pages it is there by setting `window.pipocaDesktop` in its window. Pages ask it for things by going to a `pipoca://` address, which the window doesn't load. That is how native features for plugins will be offered too.
 
 ### What the app gives plugins
 

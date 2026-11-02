@@ -16,9 +16,12 @@ use serde::{Deserialize, Serialize};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, Manager, RunEvent, State, Url, WebviewWindow, WindowEvent, Wry,
+    AppHandle, Emitter, Manager, RunEvent, State, Url, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder, WindowEvent, Wry,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
+
+mod sign_in;
 
 const AT_LOGIN: &str = "--at-login";
 
@@ -42,6 +45,7 @@ struct Connection {
 enum Place {
     ThisMac { folders: Vec<String> },
     Ssh { host: String, local_port: u16 },
+    Server { url: Url },
 }
 
 // A connection whose server was already running has no child of the app's.
@@ -57,12 +61,15 @@ struct Desktop {
     running: Mutex<HashMap<String, Running>>,
     launcher: Mutex<Option<Url>>,
     path: Option<String>,
+    signing_in: Mutex<HashMap<String, sign_in::Pending>>,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct Listing {
     connections: Vec<Connection>,
     running: Vec<String>,
+    signing_in: Vec<String>,
     home: String,
 }
 
@@ -79,6 +86,13 @@ fn list(desktop: State<Desktop>) -> Listing {
     Listing {
         connections: desktop.connections.lock().unwrap().clone(),
         running: desktop.running.lock().unwrap().keys().cloned().collect(),
+        signing_in: desktop
+            .signing_in
+            .lock()
+            .unwrap()
+            .values()
+            .map(|pending| pending.id.clone())
+            .collect(),
         home: home(),
     }
 }
@@ -149,7 +163,16 @@ fn start(app: &AppHandle, id: &str, show: bool) -> Result<(), String> {
         .cloned()
         .ok_or("no such connection")?;
 
-    let (child, log) = spawn(&desktop, &connection).map_err(|e| e.to_string())?;
+    let Some(args) = arguments(&connection.place) else {
+        // Its sign-in page asks the app to sign in through the browser.
+        if let (true, Place::Server { url }) = (show, connection.place) {
+            navigate(app, url);
+        }
+
+        return Ok(());
+    };
+
+    let (child, log) = spawn(&desktop, &connection.id, args).map_err(|e| e.to_string())?;
 
     desktop.running.lock().unwrap().insert(
         connection.id.clone(),
@@ -174,11 +197,12 @@ fn start(app: &AppHandle, id: &str, show: bool) -> Result<(), String> {
 // out of a Ctrl-C meant for the app.
 fn spawn(
     desktop: &Desktop,
-    connection: &Connection,
+    id: &str,
+    args: Vec<String>,
 ) -> std::io::Result<(std::process::Child, File)> {
     fs::create_dir_all(&desktop.logs)?;
 
-    let path = log_path(desktop, &connection.id);
+    let path = log_path(desktop, id);
     let log = OpenOptions::new().create(true).append(true).open(&path)?;
 
     // Every writer appends, so a server still running from before keeps
@@ -193,7 +217,7 @@ fn spawn(
     let mut command = Command::new(pipoca);
 
     command
-        .args(arguments(&connection.place))
+        .args(args)
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
         .stderr(log)
@@ -302,8 +326,9 @@ fn signed_in_at(app: &AppHandle, id: &str, link: &Url, show: bool) {
     }
 }
 
-fn arguments(place: &Place) -> Vec<String> {
-    match place {
+// A server connection runs nothing on this machine.
+fn arguments(place: &Place) -> Option<Vec<String>> {
+    Some(match place {
         Place::ThisMac { folders } => {
             let mut args = vec!["up".to_owned(), "--print-link".to_owned()];
             let folders = if folders.is_empty() {
@@ -325,7 +350,8 @@ fn arguments(place: &Place) -> Vec<String> {
             "--local-port".to_owned(),
             local_port.to_string(),
         ],
-    }
+        Place::Server { .. } => return None,
+    })
 }
 
 // Pipoca stops its Sessions and runner on SIGTERM.
@@ -333,7 +359,7 @@ fn terminate(pid: u32) {
     let _ = Command::new("kill").arg(pid.to_string()).status();
 }
 
-fn navigate(app: &AppHandle, url: Url) {
+pub(crate) fn navigate(app: &AppHandle, url: Url) {
     if let Some(window) = main_window(app) {
         let _ = window.navigate(url);
         let _ = window.show();
@@ -341,7 +367,7 @@ fn navigate(app: &AppHandle, url: Url) {
     }
 }
 
-fn show_launcher(app: &AppHandle) {
+pub(crate) fn show_launcher(app: &AppHandle) {
     let launcher = app.state::<Desktop>().launcher.lock().unwrap().clone();
 
     if let Some(url) = launcher {
@@ -349,7 +375,34 @@ fn show_launcher(app: &AppHandle) {
     }
 }
 
-fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
+// Pages a server serves find window.pipocaDesktop and can ask the app for
+// what a browser can't do, which today is signing in through the person's
+// browser (ADR 0055). They ask by going to a pipoca:// address, which the
+// window never loads.
+fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+    let handle = app.clone();
+
+    WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+        .title("Pipoca")
+        .inner_size(1200.0, 800.0)
+        .min_inner_size(480.0, 400.0)
+        .visible(false)
+        .initialization_script("window.pipocaDesktop = { signIn: true };")
+        .on_navigation(move |url| {
+            if url.scheme() != "pipoca" {
+                return true;
+            }
+
+            let handle = handle.clone();
+            let url = url.clone();
+            thread::spawn(move || sign_in::asked(&handle, &url));
+
+            false
+        })
+        .build()
+}
+
+pub(crate) fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window("main")
 }
 
@@ -449,6 +502,7 @@ fn main() {
                 let _ = window.set_focus();
             }
         }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             Some(vec![AT_LOGIN]),
@@ -464,9 +518,12 @@ fn main() {
                 running: Mutex::new(HashMap::new()),
                 launcher: Mutex::new(None),
                 path: login_path(),
+                signing_in: Mutex::new(HashMap::new()),
             });
 
-            let window = main_window(app.handle()).ok_or("no main window")?;
+            sign_in::listen(app.handle());
+
+            let window = build_window(app.handle())?;
             *app.state::<Desktop>().launcher.lock().unwrap() = window.url().ok();
 
             TrayIconBuilder::with_id("main")

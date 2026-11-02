@@ -14,6 +14,10 @@ export interface Login {
   readonly path: string;
 }
 
+// The desktop app's window signs in through the person's browser, since
+// some identity providers refuse an embedded one (ADR 0055).
+const inDesktopApp = "pipocaDesktop" in window;
+
 // The first user comes from the one-time link in the server's log (ADR 0034).
 export function SignInPage({
   setup,
@@ -82,7 +86,21 @@ export function SignInPage({
         description: "This user becomes the server's first admin.",
       })}
     >
-      {setupToken === undefined && logins.length > 0 && (
+      {setupToken === undefined && inDesktopApp && (
+        <div className="mb-4 flex flex-col gap-2">
+          <Button
+            variant="primary"
+            onClick={() => {
+              location.assign(
+                `pipoca://sign-in?server=${encodeURIComponent(location.origin)}`,
+              );
+            }}
+          >
+            Sign in with your browser
+          </Button>
+        </div>
+      )}
+      {setupToken === undefined && !inDesktopApp && logins.length > 0 && (
         <div className="mb-4 flex flex-col gap-2">
           {logins.map(({ label, path }) => (
             <Button
@@ -141,7 +159,7 @@ export function SignInPage({
   );
 }
 
-function Welcome({
+export function Welcome({
   title,
   description,
   children,
