@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { homedir, hostname } from "node:os";
+import { homedir, hostname, userInfo } from "node:os";
 import { parseArgs } from "node:util";
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { installPackage } from "@pipoca/sessionhost";
@@ -19,7 +19,7 @@ import { pipoca, runSessionProcess } from "./session-process";
 const usage = `usage:
   [PIPOCA_SECRET_KEY=<32 bytes, base64>] \\
   pipoca server [--supervise] [--host 127.0.0.1] [--port 7420] [--url <public URL>]
-                  [--database ~/.pipoca/server.db] [--sso-only] [--trust-proxy]
+                  [--database ~/.pipoca/server.db] [--sso-only] [--trust-proxy] [--solo]
                   [--plugins <folder next to the database>/plugins]
                   [--config-dir <folder next to the database>/config]
                   [--provider <name> [--data-dir ~/.pipoca/server]
@@ -28,7 +28,8 @@ const usage = `usage:
   pipoca agent [--name <host name>] [--capacity <n>] [--exit-when-idle <seconds>]
                  [--server http://127.0.0.1:7420] [--session-binary <path>]
                  [--data-dir ~/.pipoca/agent] [--folder <the current folder>]...
-                 [--extension <path>]... [--session <id>]`;
+                 [--extension <path>]... [--session <id>]
+  pipoca link [--database ~/.pipoca/server.db] [--open]`;
 
 const dataRoot = dataFolder();
 
@@ -71,6 +72,7 @@ switch (command) {
         database: { type: "string", default: join(dataRoot, "server.db") },
         "sso-only": { type: "boolean", default: false },
         "trust-proxy": { type: "boolean", default: false },
+        solo: { type: "boolean", default: false },
         "config-dir": { type: "string" },
         plugins: { type: "string" },
         provider: { type: "string" },
@@ -119,6 +121,12 @@ switch (command) {
       }),
       passwordLogin: !values["sso-only"],
       trustProxy: values["trust-proxy"],
+      ...(values.solo && {
+        solo: {
+          name: userInfo().username,
+          socket: linkSocket(values.database),
+        },
+      }),
       ...(secretKey !== undefined && { secretKey: parseSecretKey(secretKey) }),
       ...(values.provider !== undefined && {
         agent: {
@@ -243,6 +251,36 @@ switch (command) {
     await runSessionProcess();
     break;
 
+  // A solo server signs its person in through a one-time link that only the
+  // server's own system user can ask for (ADR 0053).
+  case "link": {
+    const { values } = parseArgs({
+      args: rest,
+      options: {
+        database: { type: "string", default: join(dataRoot, "server.db") },
+        open: { type: "boolean", default: false },
+      },
+    });
+
+    const url = await signInLink(linkSocket(values.database)).catch(
+      (error: unknown) => {
+        process.stderr.write(
+          `no solo server answers on this machine: ${String(error)}\n`,
+        );
+
+        process.exit(1);
+      },
+    );
+
+    process.stdout.write(`${url}\n`);
+
+    if (values.open) {
+      Bun.spawn([process.platform === "darwin" ? "open" : "xdg-open", url]);
+    }
+
+    break;
+  }
+
   // The agent runs this to install a Profile's package with the git logins of
   // the Session's owner, which only this process's environment holds.
   case "install-package": {
@@ -278,6 +316,19 @@ switch (command) {
   default:
     process.stderr.write(`${usage}\n`);
     process.exit(2);
+}
+
+function linkSocket(database: string): string {
+  return join(dirname(absolutePath(database)), "run", "pipoca.sock");
+}
+
+async function signInLink(socket: string): Promise<string> {
+  const response = await fetch("http://localhost/link", {
+    method: "POST",
+    unix: socket,
+  });
+
+  return ((await response.json()) as { url: string }).url;
 }
 
 // The first label of the host name, in the letters a runner name allows.

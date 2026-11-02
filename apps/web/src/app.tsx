@@ -32,11 +32,12 @@ import { Sidebar } from "./sidebar";
 export function App({
   nav,
   user,
-  admin,
+  people,
 }: {
   readonly nav: readonly NavEntry[];
   readonly user: string;
-  readonly admin: boolean;
+  // An admin of a server several people use sees the People page.
+  readonly people: boolean;
 }): ReactElement {
   const route = useHash();
   const [showArchived, setShowArchived] = useState(false);
@@ -132,7 +133,7 @@ export function App({
       return <PluginsPage />;
     }
 
-    if (route === "people" && admin) {
+    if (route === "people" && people) {
       return <PeoplePage />;
     }
 
@@ -175,7 +176,7 @@ export function App({
 
     if (isSettingsRoute(route)) {
       return (
-        <SettingsLayout route={route} admin={admin} onMenu={openDrawer}>
+        <SettingsLayout route={route} people={people} onMenu={openDrawer}>
           {settingsContent()}
         </SettingsLayout>
       );

@@ -970,6 +970,31 @@ function authRoutes(auth: Auth, plugins: PluginHost, log: Log): RouteTable {
       },
     ],
     [
+      "GET",
+      /^\/api\/auth\/link\/([\w-]+)$/,
+      (request, [token = ""]) => {
+        const user = auth.redeemSignInLink(token);
+
+        if (user === undefined) {
+          return errorReply(
+            403,
+            "invalid_token",
+            "This sign-in link was used or is too old. Run pipoca link for a new one.",
+          );
+        }
+
+        log("signed in with a link", { userId: user.id });
+
+        return new Response(null, {
+          status: 303,
+          headers: {
+            location: "/",
+            "set-cookie": auth.startSession(user, request),
+          },
+        });
+      },
+    ],
+    [
       "POST",
       /^\/api\/auth\/login$/,
       async (request) => {
