@@ -10,6 +10,7 @@ import { runAgent } from "./agent";
 import { JoinRefused } from "./client";
 import { dataFolder } from "./data-folder";
 import { fauxModels } from "./faux";
+import { help, overview, version } from "./help";
 import { installedPlugins } from "./installed";
 import { restartExitCode, supervise, supervised } from "./restart";
 import { stderrLog } from "./log";
@@ -19,30 +20,6 @@ import { connect } from "./connect";
 import { serve } from "./serve";
 import { installService, uninstallService } from "./service";
 import { pipoca, runSessionProcess } from "./session-process";
-
-const usage = `usage:
-  pipoca up [--port 7420] [--database ~/.pipoca/server.db] [--print-link]
-              [--folder <the current folder>]...
-  [PIPOCA_SECRET_KEY=<32 bytes, base64>] \\
-  pipoca server [--supervise] [--host 127.0.0.1] [--port 7420] [--url <public URL>]
-                  [--database ~/.pipoca/server.db] [--sso-only] [--trust-proxy]
-                  [--solo [--folder <path>]...]
-                  [--plugins <folder next to the database>/plugins]
-                  [--config-dir <folder next to the database>/config]
-                  [--provider <name> [--data-dir ~/.pipoca/server]
-                  [--folder <path>]... [--extension <path>]...]
-  PIPOCA_KEY=<Environment key> | PIPOCA_TOKEN=<runner token> \\
-  pipoca agent [--name <host name>] [--capacity <n>] [--exit-when-idle <seconds>]
-                 [--server http://127.0.0.1:7420] [--session-binary <path>]
-                 [--data-dir ~/.pipoca/agent] [--folder <the current folder>]...
-                 [--extension <path>]... [--session <id>]
-  pipoca link [--database ~/.pipoca/server.db] [--open | --runner <name>]
-  pipoca connect <user@host> [--port 7420] [--local-port 7420]
-                   [--no-open | --print-link]
-                   [--remote-pipoca pipoca] [--remote-database <path>]
-                   [--name <host name>]
-                   [--data-dir ~/.pipoca/connect] [--folder <the current folder>]...
-  pipoca service install <up or connect, with their options> | uninstall`;
 
 const dataRoot = dataFolder();
 
@@ -63,6 +40,29 @@ const extensionSourcePrefixes = [
 registerBunOAuthFlows();
 
 const [command, ...rest] = process.argv.slice(2);
+const helpFlags = ["-h", "--help"];
+
+if (rest.length === 0 && command === "--version") {
+  process.stdout.write(`${version}\n`);
+  process.exit(0);
+}
+
+if (rest.length === 0 && helpFlags.includes(command ?? "")) {
+  showHelp(undefined);
+}
+
+if (command === "help") {
+  showHelp(rest[0]);
+}
+
+// Pi's own options pass through untouched, --help among them.
+if (
+  command?.startsWith("-") === false &&
+  rest.some((arg) => helpFlags.includes(arg))
+) {
+  showHelp(command);
+}
+
 const shutdown = new AbortController();
 
 // Extensions start a compiled host's own binary as Pi's CLI, as pi-subagents
@@ -252,7 +252,7 @@ switch (command) {
       (idleSeconds !== undefined &&
         !(Number.isSafeInteger(idleSeconds) && idleSeconds > 0))
     ) {
-      process.stderr.write(`${usage}\n`);
+      process.stderr.write(`${help(command) ?? overview()}\n`);
       process.exit(2);
     }
 
@@ -310,7 +310,7 @@ switch (command) {
 
     const [host] = positionals;
     if (host === undefined || positionals.length > 1) {
-      process.stderr.write(`${usage}\n`);
+      process.stderr.write(`${help(command) ?? overview()}\n`);
       process.exit(2);
     }
 
@@ -351,7 +351,7 @@ switch (command) {
     }
 
     if (action !== "install" || (what !== "up" && what !== "connect")) {
-      process.stderr.write(`${usage}\n`);
+      process.stderr.write(`${help(command) ?? overview()}\n`);
       process.exit(2);
     }
 
@@ -450,8 +450,30 @@ switch (command) {
       break;
     }
 
-    process.stderr.write(`${usage}\n`);
+    process.stderr.write(
+      command === undefined
+        ? `${overview()}\n`
+        : `pipoca: unknown command ${command}\n\n${overview()}\n`,
+    );
+
     process.exit(2);
+}
+
+// A topic that isn't a command is a mistake like any unknown command.
+function showHelp(topic: string | undefined): never {
+  if (topic === undefined) {
+    process.stdout.write(`${overview()}\n`);
+    process.exit(0);
+  }
+
+  const text = help(topic);
+  if (text === undefined) {
+    process.stderr.write(`pipoca: unknown command ${topic}\n\n${overview()}\n`);
+    process.exit(2);
+  }
+
+  process.stdout.write(`${text}\n`);
+  process.exit(0);
 }
 
 function linkSocket(database: string): string {

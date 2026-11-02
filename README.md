@@ -113,7 +113,7 @@ brew install pedroklein/pipoca/pipoca
 cd ~/code && pipoca up
 ```
 
-The Mac app is `brew install --cask pedroklein/pipoca/pipoca-app`. Each [release](https://github.com/PedroKlein/pipoca/releases) also has the binaries, the disk image and Linux packages.
+`pipoca --help` lists the commands, and `pipoca <command> --help` explains one. The Mac app is `brew install --cask pedroklein/pipoca/pipoca-app`. Each [release](https://github.com/PedroKlein/pipoca/releases) also has the binaries, the disk image and Linux packages.
 
 To build from source, you need [Bun](https://bun.sh) and at least one model you can log in to from Pi.
 
