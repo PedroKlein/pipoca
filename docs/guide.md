@@ -14,6 +14,16 @@ cd ~/code && ~/pipoca/apps/pipoca/dist/pipoca up
 
 `pipoca up` starts a solo server, one person's install ([ADR 0053](adr/0053-ways-to-run-pipoca.md)), and opens the browser signed in. It makes an Environment named This machine whose runner the server starts when a Session needs one and stops after five idle minutes, so there is no agent to start by hand. Its Sessions work in the folder you ran `up` in, or in the folders you pass with `--folder`. Run `pipoca up` again for a new sign-in link, or `pipoca link` to print one, say for your phone. The link works once, within ten minutes, and only your own system user can get one, through a socket next to the database. Any Environment can run here: its This machine section turns it on, with how many Sessions run at once and which folders they work in. A solo install has no other users, no People page and no setup link; `pipoca server --solo` is the same without opening the browser.
 
+To keep your server on an always-on machine, such as a VM, run `pipoca up` (or `pipoca server --solo`) there and connect from your laptop:
+
+```sh
+cd ~/code && pipoca connect me@my-vm
+```
+
+`pipoca connect` holds an SSH tunnel from `127.0.0.1:7420` on your laptop to the server's port on the VM, starting `ssh` again whenever it drops, and opens the browser signed in through it. It also runs your laptop as a runner through the tunnel, in an Environment named after it, sharing the folder you ran it in or the ones you pass with `--folder`. It signs in by running `pipoca link` on the VM over SSH, so it needs nothing but your SSH access; pass `--remote-pipoca <path>` when `pipoca` isn't on the PATH a plain `ssh me@my-vm pipoca` gets, and `--port` and `--local-port` for other ports.
+
+`pipoca service install up` or `pipoca service install connect me@my-vm`, with the same options, runs either one at every login and again if it fails: a launchd agent on macOS (`~/Library/LaunchAgents/dev.pipoca.plist`, logging to `~/Library/Logs/pipoca.log`) and a systemd user unit elsewhere (`~/.config/systemd/user/pipoca.service`). A service opens no browser, so use `pipoca link --open` to sign in. It keeps the PATH you installed it from, so it finds docker and ssh. `pipoca service uninstall` removes it.
+
 The rest of this section sets up a server that more people sign in to:
 
 ```sh
@@ -70,7 +80,11 @@ Options:
 [PIPOCA_SECRET_KEY=<32 bytes, base64>] \
 pipoca up [--port 7420] [--database ~/.pipoca/server.db]
           [--folder <the current folder>]...
-pipoca link [--database ~/.pipoca/server.db] [--open]
+pipoca link [--database ~/.pipoca/server.db] [--open | --runner <name>]
+pipoca connect <user@host> [--port 7420] [--local-port 7420] [--no-open]
+               [--remote-pipoca pipoca] [--name <host name>]
+               [--data-dir ~/.pipoca/connect] [--folder <the current folder>]...
+pipoca service install <up or connect, with their options> | uninstall
 pipoca server [--supervise] [--host 127.0.0.1] [--port 7420] [--url <public URL>]
                 [--database ~/.pipoca/server.db] [--plugins ~/.pipoca/plugins]
                 [--trust-proxy] [--solo [--folder <path>]...]

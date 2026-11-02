@@ -13,7 +13,10 @@ import { installedPlugins } from "./installed";
 import { restartExitCode, supervise, supervised } from "./restart";
 import { stderrLog } from "./log";
 import { parseSecretKey } from "./secret-box";
+import { openInBrowser } from "./browser";
+import { connect } from "./connect";
 import { serve } from "./serve";
+import { installService, uninstallService } from "./service";
 import { pipoca, runSessionProcess } from "./session-process";
 
 const usage = `usage:
@@ -32,7 +35,11 @@ const usage = `usage:
                  [--server http://127.0.0.1:7420] [--session-binary <path>]
                  [--data-dir ~/.pipoca/agent] [--folder <the current folder>]...
                  [--extension <path>]... [--session <id>]
-  pipoca link [--database ~/.pipoca/server.db] [--open]`;
+  pipoca link [--database ~/.pipoca/server.db] [--open | --runner <name>]
+  pipoca connect <user@host> [--port 7420] [--local-port 7420] [--no-open]
+                   [--remote-pipoca pipoca] [--name <host name>]
+                   [--data-dir ~/.pipoca/connect] [--folder <the current folder>]...
+  pipoca service install <up or connect, with their options> | uninstall`;
 
 const dataRoot = dataFolder();
 
@@ -274,6 +281,78 @@ switch (command) {
     break;
   }
 
+  case "connect": {
+    const { values, positionals } = parseArgs({
+      args: rest,
+      allowPositionals: true,
+      options: {
+        port: { type: "string", default: "7420" },
+        "local-port": { type: "string", default: "7420" },
+        "remote-pipoca": { type: "string", default: "pipoca" },
+        name: { type: "string", default: hostName() },
+        "data-dir": { type: "string", default: join(dataRoot, "connect") },
+        folder: { type: "string", multiple: true, default: [] },
+        "no-open": { type: "boolean", default: false },
+      },
+    });
+
+    const [host] = positionals;
+    if (host === undefined || positionals.length > 1) {
+      process.stderr.write(`${usage}\n`);
+      process.exit(2);
+    }
+
+    const folders = values.folder.length > 0 ? values.folder : [process.cwd()];
+    await checkFolders(folders);
+
+    await connect({
+      host,
+      remotePort: Number(values.port),
+      localPort: Number(values["local-port"]),
+      remoteCommand: values["remote-pipoca"],
+      name: values.name,
+      folders: folders.map(absolutePath),
+      dataDir: absolutePath(values["data-dir"]),
+      open: !values["no-open"],
+      log: stderrLog("connect"),
+      signal: shutdown.signal,
+    }).catch((error: unknown) => {
+      process.stderr.write(`${String(error)}\n`);
+      process.exit(1);
+    });
+
+    break;
+  }
+
+  // Runs `pipoca up` or `pipoca connect` at every login. A service opens no
+  // browser: `up` runs as the solo server it starts, and `connect` with
+  // --no-open. Folders resolve against where it was installed from.
+  case "service": {
+    const [action, what, ...options] = rest;
+
+    if (action === "uninstall") {
+      process.stdout.write(`removed ${await uninstallService()}\n`);
+      break;
+    }
+
+    if (action !== "install" || (what !== "up" && what !== "connect")) {
+      process.stderr.write(`${usage}\n`);
+      process.exit(2);
+    }
+
+    const folders = options.includes("--folder")
+      ? []
+      : ["--folder", process.cwd()];
+
+    const unit =
+      what === "up"
+        ? [...pipoca, "server", "--solo", ...folders, ...options]
+        : [...pipoca, "connect", "--no-open", ...folders, ...options];
+
+    process.stdout.write(`installed ${await installService(unit)}\n`);
+    break;
+  }
+
   case "session":
     await runSessionProcess();
     break;
@@ -286,18 +365,28 @@ switch (command) {
       options: {
         database: { type: "string", default: join(dataRoot, "server.db") },
         open: { type: "boolean", default: false },
+        runner: { type: "string" },
       },
     });
 
-    const url = await signInLink(linkSocket(values.database)).catch(
-      (error: unknown) => {
-        process.stderr.write(
-          `no solo server answers on this machine: ${String(error)}\n`,
-        );
+    const socket = linkSocket(values.database);
 
-        process.exit(1);
-      },
-    );
+    // `pipoca connect` asks for this over SSH, to join its machine.
+    if (values.runner !== undefined) {
+      process.stdout.write(
+        `${await askSocket(socket, "runner", values.runner)}\n`,
+      );
+
+      break;
+    }
+
+    const url = await signInLink(socket).catch((error: unknown) => {
+      process.stderr.write(
+        `no solo server answers on this machine: ${String(error)}\n`,
+      );
+
+      process.exit(1);
+    });
 
     process.stdout.write(`${url}\n`);
 
@@ -350,26 +439,26 @@ function linkSocket(database: string): string {
 }
 
 async function signInLink(socket: string): Promise<string> {
-  const response = await fetch("http://localhost/link", {
-    method: "POST",
-    unix: socket,
-  });
-
-  return ((await response.json()) as { url: string }).url;
+  return askSocket(socket, "link");
 }
 
-// Prints the link too, for a machine with no browser to open, such as a
-// server reached over SSH.
-function openInBrowser(url: string): void {
-  process.stderr.write(`sign in at ${url}\n`);
+async function askSocket(
+  socket: string,
+  what: "link" | "runner",
+  name = "",
+): Promise<string> {
+  const response = await fetch(
+    `http://localhost/${what}?name=${encodeURIComponent(name)}`,
+    { method: "POST", unix: socket },
+  );
 
-  try {
-    Bun.spawn([process.platform === "darwin" ? "open" : "xdg-open", url], {
-      stdio: ["ignore", "ignore", "ignore"],
-    });
-  } catch {
-    // No opener: the printed link is enough.
+  if (!response.ok) {
+    throw new Error(`the server refused: ${String(response.status)}`);
   }
+
+  const answer = (await response.json()) as { url?: string; token?: string };
+
+  return answer.url ?? answer.token ?? "";
 }
 
 // The first label of the host name, in the letters a runner name allows.
