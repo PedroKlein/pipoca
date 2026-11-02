@@ -9,6 +9,14 @@ You need [Bun](https://bun.sh) and a working Pi setup with at least one model yo
 ```sh
 bun install
 bun run build
+cd ~/code && ~/pipoca/apps/pipoca/dist/pipoca up
+```
+
+`pipoca up` starts a solo server, one person's install ([ADR 0053](adr/0053-ways-to-run-pipoca.md)), and opens the browser signed in. It makes an Environment named This machine whose runner the server starts when a Session needs one and stops after five idle minutes, so there is no agent to start by hand. Its Sessions work in the folder you ran `up` in, or in the folders you pass with `--folder`. Run `pipoca up` again for a new sign-in link, or `pipoca link` to print one, say for your phone. The link works once, within ten minutes, and only your own system user can get one, through a socket next to the database. Any Environment can run here: its This machine section turns it on, with how many Sessions run at once and which folders they work in. A solo install has no other users, no People page and no setup link; `pipoca server --solo` is the same without opening the browser.
+
+The rest of this section sets up a server that more people sign in to:
+
+```sh
 apps/pipoca/dist/pipoca server
 ```
 
@@ -60,9 +68,12 @@ Options:
 
 ```text
 [PIPOCA_SECRET_KEY=<32 bytes, base64>] \
+pipoca up [--port 7420] [--database ~/.pipoca/server.db]
+          [--folder <the current folder>]...
+pipoca link [--database ~/.pipoca/server.db] [--open]
 pipoca server [--supervise] [--host 127.0.0.1] [--port 7420] [--url <public URL>]
                 [--database ~/.pipoca/server.db] [--plugins ~/.pipoca/plugins]
-                [--trust-proxy]
+                [--trust-proxy] [--solo [--folder <path>]...]
                 [--provider <name> [--data-dir ~/.pipoca/server]
                 [--folder <path>]... [--extension <path>]...]
 PIPOCA_KEY=<Environment key> | PIPOCA_TOKEN=<runner token> \
