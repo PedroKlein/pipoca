@@ -3018,9 +3018,19 @@ test("offers push notifications in Settings and shows a pushed notification from
   await page.getByRole("button", { name: "Turn on for this device" }).waitFor();
 
   const origin = new URL(server.url).origin;
-  await page.context().grantPermissions(["notifications"], { origin });
 
-  const cdp = await page.context().newCDPSession(page);
+  // The headless shell the other tests use shows no notifications, so this
+  // part runs in Chromium itself.
+  const full = await chromium.launch({ channel: "chromium" });
+  const context = await full.newContext();
+  const [name = "", value = ""] = cookie.split("=");
+  await context.addCookies([{ name, value, url: origin }]);
+  await context.grantPermissions(["notifications"], { origin });
+
+  const tab = await context.newPage();
+  await tab.goto(origin);
+
+  const cdp = await context.newCDPSession(tab);
 
   const registered = new Promise<string>((resolve) => {
     cdp.on("ServiceWorker.workerRegistrationUpdated", ({ registrations }) => {
@@ -3036,7 +3046,7 @@ test("offers push notifications in Settings and shows a pushed notification from
 
   await cdp.send("ServiceWorker.enable");
 
-  await page.evaluate(
+  await tab.evaluate(
     "navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(() => navigator.serviceWorker.ready).then(() => undefined)",
   );
 
@@ -3052,19 +3062,15 @@ test("offers push notifications in Settings and shows a pushed notification from
   });
 
   const shown = async (): Promise<string[]> =>
-    page.evaluate<string[]>(
+    tab.evaluate<string[]>(
       "navigator.serviceWorker.ready.then((r) => r.getNotifications()).then((all) => all.map((n) => n.title + ': ' + n.body))",
     );
 
   while ((await shown()).length === 0) {
-    await page.waitForTimeout(50);
+    await tab.waitForTimeout(50);
   }
 
   expect(await shown()).toEqual(["Pi needs you: Fix the login page"]);
 
-  await page.evaluate(
-    "navigator.serviceWorker.ready.then((r) => r.unregister()).then(() => undefined)",
-  );
-
-  await cdp.detach();
-});
+  await full.close();
+}, 30_000);
