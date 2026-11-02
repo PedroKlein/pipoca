@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { Log } from "@pipoca/providers";
+import { version } from "../package.json";
 import { runAgent } from "./agent";
 import { openInBrowser } from "./browser";
 
@@ -32,7 +33,12 @@ const longestWaitMs = 30_000;
 // as a runner through it, and opens the browser signed in (ADR 0053). Only
 // the server's own system user gets a link or a runner token, through its
 // socket, so SSH as that user is all the sign-in it needs.
-export async function connect(options: ConnectOptions): Promise<void> {
+export async function connect(given: ConnectOptions): Promise<void> {
+  const options = {
+    ...given,
+    remoteCommand: await installedPipoca(given),
+  };
+
   const local = `http://127.0.0.1:${String(options.localPort)}`;
   const tunnelStop = new AbortController();
 
@@ -133,6 +139,98 @@ async function holdTunnel(
 
     waitMs = Math.min(waitMs * 2, longestWaitMs);
   }
+}
+
+// Where releases are downloaded from: GitHub, unless PIPOCA_RELEASES names a
+// mirror.
+const releases =
+  process.env["PIPOCA_RELEASES"] ??
+  "https://github.com/PedroKlein/pipoca/releases/download";
+
+const platforms: Record<string, string> = {
+  "Linux x86_64": "linux-x64",
+  "Linux aarch64": "linux-arm64",
+  "Linux arm64": "linux-arm64",
+  "Darwin arm64": "darwin-arm64",
+  "Darwin x86_64": "darwin-x64",
+};
+
+// The pipoca to run on the host. A host without one gets this version's
+// release for its system in ~/.pipoca/bin and runs `up` there as a service,
+// as Claude Code installs itself on an SSH host (ADR 0055).
+async function installedPipoca(options: ConnectOptions): Promise<string> {
+  const found = await remoteScript(
+    options,
+    `if command -v "$1" >/dev/null 2>&1; then command -v "$1"
+elif [ -x "$HOME/.pipoca/bin/pipoca" ]; then echo "$HOME/.pipoca/bin/pipoca"
+else echo "missing $(uname -s) $(uname -m)"; fi`,
+    [options.remoteCommand],
+  );
+
+  if (!found.startsWith("missing ")) {
+    return found;
+  }
+
+  const system = found.slice("missing ".length);
+  const platform = platforms[system];
+  if (platform === undefined) {
+    throw new Error(
+      `${options.host} runs ${system}, which has no pipoca release`,
+    );
+  }
+
+  const url = `${releases}/v${version}/pipoca-${platform}`;
+  options.log("installing pipoca", { host: options.host, url });
+
+  const database =
+    options.remoteDatabase === undefined
+      ? []
+      : ["--database", options.remoteDatabase];
+
+  const installed = await remoteScript(
+    options,
+    `set -e
+bin="$HOME/.pipoca/bin"
+mkdir -p "$bin"
+curl -fsSL "$1" -o "$bin/pipoca.download"
+chmod +x "$bin/pipoca.download"
+mv "$bin/pipoca.download" "$bin/pipoca"
+shift
+"$bin/pipoca" service install up "$@" >&2
+echo "$bin/pipoca"`,
+    [url, "--port", String(options.remotePort), ...database],
+  );
+
+  options.log("installed pipoca", { host: options.host, path: installed });
+
+  return installed;
+}
+
+// Runs a shell script on the host, sent on stdin so no shell quoting
+// between here and there can change it, and returns its last line.
+async function remoteScript(
+  options: ConnectOptions,
+  script: string,
+  args: readonly string[],
+): Promise<string> {
+  const run = Bun.spawn(["ssh", options.host, "sh", "-s", "--", ...args], {
+    stdin: new Blob([script]),
+    stdout: "pipe",
+    stderr: "inherit",
+  });
+
+  const [out, code] = await Promise.all([
+    new Response(run.stdout).text(),
+    run.exited,
+  ]);
+
+  if (code !== 0) {
+    throw new Error(
+      `a script failed on ${options.host} with code ${String(code)}`,
+    );
+  }
+
+  return out.trim().split("\n").at(-1) ?? "";
 }
 
 async function remote(
