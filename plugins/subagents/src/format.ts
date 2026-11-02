@@ -109,3 +109,25 @@ export function interrupted(run: RunView, at: number): RunView {
     ),
   };
 }
+
+export type Importance = "low" | "medium" | "high";
+
+// What the watchdog found wrong with a turn's changes (ADR 0058).
+export interface Finding {
+  readonly importance: Importance;
+  readonly summary: string;
+  readonly evidence: string;
+  readonly action: string;
+}
+
+// The notice kind that shows a watchdog review. Only its high findings reach
+// the model, and none once they are stuck.
+export const watchdogKind = "watchdog";
+
+export interface Review {
+  readonly findings: readonly Finding[];
+  // The same high findings came back too many times in a row, so they were
+  // not sent again.
+  readonly stuck?: boolean;
+  readonly error?: string;
+}

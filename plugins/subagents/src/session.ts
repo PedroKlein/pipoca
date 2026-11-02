@@ -28,6 +28,7 @@ import {
   type Started,
 } from "./format";
 import { prompts } from "./prompts";
+import { watchdog } from "./watchdog";
 
 // Subagents as child sessions in the Session's process, on its model runtime
 // and logins (ADR 0057).
@@ -35,6 +36,7 @@ export const subagents: SessionPlugin = {
   name: "subagents",
   extension: (cloud) => (pi) => {
     extension(cloud, pi);
+    watchdog(cloud, pi);
   },
 };
 
