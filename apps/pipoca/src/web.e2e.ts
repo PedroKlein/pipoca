@@ -1737,6 +1737,53 @@ test("shows a turn as working between steps until Pi finishes it", async () => {
   await work.getByText(/^Worked for/).waitFor();
 }, 30_000);
 
+test("folds a working turn to one line, and opens every step when the chat is set to Verbose", async () => {
+  const { promise: answered, resolve: answer } =
+    Promise.withResolvers<undefined>();
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [fauxToolCall("bash", { command: "echo from-the-step" })],
+      { stopReason: "toolUse" },
+    ),
+    async () => {
+      await answered;
+
+      return fauxAssistantMessage([fauxText("all done")]);
+    },
+  ]);
+
+  await page.goto(server.url.href);
+
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, root);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+  const sessionUrl = page.url();
+
+  await page.locator("#prompt-text").fill("check");
+  await page.locator("#prompt-text").press("Enter");
+
+  const work = page.locator('#chat li[data-role="work"]');
+  await work.getByText("ran 1 command").waitFor();
+
+  expect(await work.locator("details[open]").count()).toBe(0);
+
+  answer(undefined);
+  await work.getByText(/^Worked for/).waitFor();
+
+  await openSettings("Chat");
+  await page.getByLabel("Tool activity").selectOption("verbose");
+  await page.goto(sessionUrl);
+
+  await work.getByText("from-the-step").first().waitFor();
+
+  await openSettings("Chat");
+  await page.getByLabel("Tool activity").selectOption("quiet");
+}, 30_000);
+
 test("creates a Project and shares a file through its library", async () => {
   const repository = join(root, "site");
   execFileSync("git", ["init", "--quiet", "--initial-branch=main", repository]);

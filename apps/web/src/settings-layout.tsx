@@ -26,6 +26,11 @@ function sections(route: string, people: boolean): readonly SettingsSection[] {
     ...(people
       ? [{ href: "#people", label: "People", current: route === "people" }]
       : []),
+    {
+      href: "#settings/chat",
+      label: "Chat",
+      current: route === "settings/chat",
+    },
     { href: "#settings", label: "MCP clients", current: route === "settings" },
     ...enabledPlugins().flatMap(({ name, SettingsSection }) =>
       SettingsSection
