@@ -439,14 +439,19 @@ export function serve(options: ServeOptions): {
 
   const links =
     options.solo &&
-    signInLinks(
-      options.solo.socket,
-      () =>
+    soloSocket(options.solo.socket, {
+      link: () =>
         new URL(
           `/api/auth/link/${auth.signInLink()}`,
           options.url ?? server.url,
         ),
-    );
+      runner: (name) => {
+        const [owner] = store.auth.users();
+        store.ensureEnvironment(name, owner?.id);
+
+        return auth.runnerToken(name, name);
+      },
+    });
 
   if (auth.setupToken !== undefined) {
     options.log("open the setup link to create the first user", {
@@ -492,8 +497,15 @@ export function serve(options: ServeOptions): {
 }
 
 // The socket is made for the server's own system user only, so only they get
-// a link that signs a browser in.
-function signInLinks(socket: string, link: () => URL): Bun.Server<undefined> {
+// a link that signs a browser in, or a token that joins a machine of theirs
+// as the runner of its own Environment, as `pipoca connect` does.
+function soloSocket(
+  socket: string,
+  answers: {
+    readonly link: () => URL;
+    readonly runner: (name: string) => string;
+  },
+): Bun.Server<undefined> {
   mkdirSync(dirname(socket), { recursive: true, mode: 0o700 });
   rmSync(socket, { force: true });
 
@@ -502,10 +514,24 @@ function signInLinks(socket: string, link: () => URL): Bun.Server<undefined> {
   try {
     return Bun.serve({
       unix: socket,
-      fetch: (request) =>
-        request.method === "POST" && new URL(request.url).pathname === "/link"
-          ? Response.json({ url: link().href })
-          : new Response(null, { status: 404 }),
+      fetch: (request) => {
+        const url = new URL(request.url);
+        const name = url.searchParams.get("name") ?? "";
+
+        if (request.method !== "POST") {
+          return new Response(null, { status: 404 });
+        }
+
+        if (url.pathname === "/link") {
+          return Response.json({ url: answers.link().href });
+        }
+
+        if (url.pathname === "/runner" && /^[\w.-]{1,64}$/.test(name)) {
+          return Response.json({ token: answers.runner(name) });
+        }
+
+        return new Response(null, { status: 404 });
+      },
     });
   } finally {
     process.umask(umask);
