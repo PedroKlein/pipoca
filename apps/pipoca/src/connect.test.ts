@@ -18,6 +18,7 @@ import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { Environment } from "@pipoca/protocol";
+import { version } from "../package.json";
 
 const main = join(import.meta.dirname, "main.ts");
 
@@ -61,7 +62,7 @@ if (args.includes("-N")) {
   });
 } else {
   const [, ...command] = args;
-  const run = Bun.spawn(command, { stdio: ["ignore", "inherit", "inherit"] });
+  const run = Bun.spawn(command, { stdio: ["inherit", "inherit", "inherit"] });
   process.exit(await run.exited);
 }
 `;
@@ -195,6 +196,116 @@ test("connect joins this machine as a runner of a solo server through an SSH tun
   } finally {
     for (const each of running) {
       each.kill("SIGKILL");
+    }
+
+    await rm(root, { recursive: true, force: true });
+  }
+}, 60_000);
+
+// A host with no pipoca gets this version's release and runs it as a
+// service (ADR 0055). The stand-in release starts the server the service
+// would.
+test("connect installs pipoca from its release on a host without one, starts it and signs in", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "pipoca-install-")));
+  const bin = join(root, "bin");
+  const home = join(root, "home");
+  const database = join(root, "remote", "server.db");
+  await mkdir(bin);
+  await mkdir(home);
+  await executable(join(bin, "ssh"), fakeSsh);
+
+  const release = `#!/bin/sh
+if [ "$1" = service ]; then
+  shift 3
+  ${process.execPath} ${main} server --solo "$@" >/dev/null 2>&1 &
+  echo $! > ${join(root, "server.pid")}
+  exit 0
+fi
+exec ${process.execPath} ${main} "$@"
+`;
+
+  const downloads: string[] = [];
+
+  const releases = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: (request) => {
+      downloads.push(new URL(request.url).pathname);
+
+      return new Response(release);
+    },
+  });
+
+  const remotePort = await freePort();
+  const localPort = await freePort();
+
+  const connecting = spawn(
+    process.execPath,
+    [
+      main,
+      "connect",
+      "me@vm",
+      "--port",
+      String(remotePort),
+      "--local-port",
+      String(localPort),
+      "--remote-pipoca",
+      "pipoca-that-is-not-installed",
+      "--remote-database",
+      database,
+      "--name",
+      "laptop",
+      "--data-dir",
+      join(root, "connect"),
+      "--folder",
+      root,
+      "--print-link",
+    ],
+    {
+      env: {
+        ...process.env,
+        HOME: home,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+        PIPOCA_RELEASES: releases.url.href.replace(/\/$/, ""),
+      },
+      stdio: ["ignore", "ignore", "pipe"],
+    },
+  );
+
+  try {
+    const url = await new Promise<string>((resolve) => {
+      createInterface({ input: connecting.stderr }).on("line", (line) => {
+        const found = /sign in at (\S+)/.exec(line);
+        if (found?.[1] !== undefined) {
+          resolve(found[1]);
+        }
+      });
+    });
+
+    const signedIn = await fetch(url, { redirect: "manual" });
+    const installed = await stat(join(home, ".pipoca", "bin", "pipoca"));
+
+    const platform = `${process.platform}-${process.arch}`;
+
+    expect({
+      downloads,
+      signedIn: signedIn.status,
+      executable: (installed.mode & 0o100) !== 0,
+    }).toEqual({
+      downloads: [`/v${version}/pipoca-${platform}`],
+      signedIn: 303,
+      executable: true,
+    });
+  } finally {
+    connecting.kill("SIGKILL");
+    await releases.stop(true);
+
+    const pid = await readFile(join(root, "server.pid"), "utf8").catch(
+      () => "",
+    );
+
+    if (pid !== "") {
+      process.kill(Number(pid), "SIGKILL");
     }
 
     await rm(root, { recursive: true, force: true });

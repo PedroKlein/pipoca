@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      # `pipoca connect` downloads the release named after its own version.
+      - name: The tag matches the version pipoca reports
+        run: test "$GITHUB_REF_NAME" = "v$(jq -r .version apps/pipoca/package.json)"
+      - name: Build pipoca for each system
+        working-directory: apps/pipoca
+        run: |
+          for platform in linux-x64 linux-arm64 darwin-arm64 darwin-x64; do
+            bun src/build.ts --target "bun-$platform" --outfile "dist/pipoca-$platform"
+          done
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes apps/pipoca/dist/pipoca-*
+
+  macos:
+    needs: cli
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run --cwd apps/desktop build -- --bundles app,dmg
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
