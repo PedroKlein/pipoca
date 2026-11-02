@@ -90,3 +90,37 @@ jobs:
             --argjson deb "$(entry "Pipoca_${version}_amd64.deb")" \
             '{version: $version, pub_date: (now | todate), platforms: {"darwin-aarch64": $mac, "linux-x86_64": $appimage, "linux-x86_64-appimage": $appimage, "linux-x86_64-deb": $deb}}' > latest.json
           gh release upload "$GITHUB_REF_NAME" --repo "$REPO" latest.json
+
+  # The tap is updated after the files it points to are on the release.
+  homebrew:
+    needs: [cli, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: PedroKlein/homebrew-pipoca
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          sed -i "s/^  version \".*\"/  version \"$version\"/" Formula/pipoca.rb Casks/pipoca-app.rb
+          gh api "repos/$REPO/releases/tags/$GITHUB_REF_NAME" --jq '.assets[] | "\(.name) \(.digest)"' |
+            while read -r name digest; do
+              sum="${digest#sha256:}"
+              case "$name" in
+                pipoca-*)
+                  awk -v name="/$name\"" -v sum="$sum" '
+                    index($0, name) { found = 1 }
+                    found && /sha256 "/ { sub(/sha256 ".*"/, "sha256 \"" sum "\""); found = 0 }
+                    { print }' Formula/pipoca.rb > formula.rb
+                  mv formula.rb Formula/pipoca.rb
+                  ;;
+                *.dmg) sed -i "s/^  sha256 \".*\"/  sha256 \"$sum\"/" Casks/pipoca-app.rb ;;
+              esac
+            done
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "pipoca $version"
+          git push
