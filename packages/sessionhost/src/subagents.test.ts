@@ -271,6 +271,25 @@ test("starts a run when the model also fills in a management action", async () =
   expect(toolResults(session.lines).join()).toContain("did: find the parser");
 });
 
+test("starts a run when the model sends the fields it doesn't use as empty", async () => {
+  const session = await hosted([
+    call({
+      agent: "scout",
+      task: "find the parser",
+      action: "",
+      id: "",
+      message: "",
+      wait: true,
+    }),
+  ]);
+
+  session.send("look around");
+  await session.waitFor(() => toolResults(session.lines).length > 0);
+  await session.stop();
+
+  expect(toolResults(session.lines).join()).toContain("did: find the parser");
+});
+
 test("offers its action to the model as a plain string enum", async () => {
   const session = await hosted([]);
 
