@@ -9,6 +9,7 @@
     "@pipoca/changes": "workspace:*",
     "@pipoca/git-hosts": "workspace:*",
     "@pipoca/kubernetes": "workspace:*",
+    "@pipoca/local": "workspace:*",
     "@pipoca/library": "workspace:*",
     "@pipoca/logins": "workspace:*",
     "@pipoca/meta": "workspace:*",

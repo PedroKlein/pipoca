@@ -1,0 +1,28 @@
+{
+  "name": "@pipoca/local",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server": "./src/server.ts",
+    "./web": "./web/index.tsx",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@pipoca/plugins": "workspace:*",
+    "@pipoca/protocol": "workspace:*",
+    "@pipoca/ui": "workspace:*",
+    "react": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0"
+  },
+  "pipoca": {
+    "id": "local",
+    "title": "This machine",
+    "description": "Starts runners on the server's own machine for an Environment's Sessions, in a solo install.",
+    "capabilities": [
+      "environments",
+      "routes"
+    ]
+  }
+}

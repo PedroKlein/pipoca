@@ -5,6 +5,7 @@ import type { ServerWebSocket } from "bun";
 import { gitHosts } from "@pipoca/git-hosts/server";
 import { kubernetesPlugin } from "@pipoca/kubernetes/server";
 import { library } from "@pipoca/library/server";
+import { local, type LocalOptions } from "@pipoca/local/server";
 import { logins as loginsPlugin } from "@pipoca/logins/server";
 import { meta } from "@pipoca/meta/server";
 import { models } from "@pipoca/models/server";
@@ -43,6 +44,7 @@ import { webAppFile } from "./web-app";
 import { changeFeed } from "./changes";
 import { createHandler, fromAddress, onBehalfOf } from "./server";
 import type { PreviewData, SocketData, TerminalData } from "./sockets";
+import { pipoca } from "./session-process";
 import { openStore } from "./store";
 import { terminalBroker } from "./terminals";
 
@@ -74,7 +76,13 @@ export interface ServeOptions {
   readonly passwordLogin?: boolean;
   // One person's install (ADR 0053): it has one admin, named here, who signs
   // in through one-time links that `pipoca link` asks for over this socket.
-  readonly solo?: { readonly name: string; readonly socket: string };
+  // Its server starts runners on its own machine, and makes an Environment
+  // whose runner shares these folders while it has none.
+  readonly solo?: {
+    readonly name: string;
+    readonly socket: string;
+    readonly folders?: readonly string[];
+  };
   // Takes a client's address from the X-Forwarded-For entry the proxy in
   // front added. Only behind one, since without it anyone can send that
   // header and pick the address their failed sign-ins count against.
@@ -142,12 +150,31 @@ export function serve(options: ServeOptions): {
   );
 
   const store = openStore(options.database, options.secretKey, profiles);
-  const disabled = options.disabledPlugins ?? [];
+
+  // A team server's machine holds everyone's data and the sealing key, so
+  // only a solo install runs runners on it, and a solo install signs in no
+  // one else (ADR 0053).
+  const disabled = [
+    ...(options.disabledPlugins ?? []),
+    ...(options.solo === undefined ? ["local"] : ["oidc"]),
+  ];
+
   const folder = options.installed;
   const installed = folder?.plugins ?? [];
+  let seed: LocalOptions["seed"];
+
+  const thisMachine = local(() => ({
+    command: pipoca,
+    server: () => server.url.href,
+    dataDir:
+      options.database === ":memory:"
+        ? mkdtempSync(join(tmpdir(), "pipoca-local-"))
+        : join(dirname(options.database), "local"),
+    ...(seed !== undefined && { seed }),
+  }));
 
   const plugins = [
-    ...(options.plugins ?? serverPlugins),
+    ...(options.plugins ?? [...serverPlugins, thisMachine]),
     ...installed.flatMap(({ server }) => (server ? [server] : [])),
   ];
 
@@ -227,6 +254,10 @@ export function serve(options: ServeOptions): {
     options.now,
     options.solo?.name,
   );
+
+  if (options.solo !== undefined && store.environments().length === 0) {
+    seed = thisMachineEnvironment(store, options.solo.folders ?? []);
+  }
 
   const userProfiles = new Profiles(profiles, store);
 
@@ -542,4 +573,27 @@ function fromThisSite(request: Request, hosts: ReadonlySet<string>): boolean {
     hosts.has(new URL(`http://${host}`).hostname) &&
     (origin === null || (URL.canParse(origin) && new URL(origin).host === host))
   );
+}
+
+// The Environment a new solo install starts with, its runner on this machine.
+function thisMachineEnvironment(
+  store: ReturnType<typeof openStore>,
+  folders: readonly string[],
+): LocalOptions["seed"] {
+  const provider = "this-machine";
+  const [owner] = store.auth.users();
+
+  store.ensureEnvironment(provider, owner?.id);
+
+  const created = store
+    .environments()
+    .find((environment) => environment.provider === provider);
+
+  if (created === undefined) {
+    return undefined;
+  }
+
+  store.updateEnvironment({ ...created, name: "This machine" });
+
+  return { environmentId: created.id, folders };
 }
