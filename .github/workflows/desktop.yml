@@ -18,6 +18,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: cargo fmt --check --manifest-path apps/desktop/src-tauri/Cargo.toml
       - run: bun run --cwd apps/desktop build -- --bundles app,dmg
+      # Apple silicon calls an app with no signature at all damaged.
+      - run: codesign --verify --deep --strict --verbose=2 apps/desktop/src-tauri/target/release/bundle/macos/Pipoca.app
       - run: cargo clippy --release --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings
       - uses: actions/upload-artifact@v4
         with:
