@@ -37,7 +37,8 @@ const usage = `usage:
                  [--extension <path>]... [--session <id>]
   pipoca link [--database ~/.pipoca/server.db] [--open | --runner <name>]
   pipoca connect <user@host> [--port 7420] [--local-port 7420] [--no-open]
-                   [--remote-pipoca pipoca] [--name <host name>]
+                   [--remote-pipoca pipoca] [--remote-database <path>]
+                   [--name <host name>]
                    [--data-dir ~/.pipoca/connect] [--folder <the current folder>]...
   pipoca service install <up or connect, with their options> | uninstall`;
 
@@ -289,6 +290,7 @@ switch (command) {
         port: { type: "string", default: "7420" },
         "local-port": { type: "string", default: "7420" },
         "remote-pipoca": { type: "string", default: "pipoca" },
+        "remote-database": { type: "string" },
         name: { type: "string", default: hostName() },
         "data-dir": { type: "string", default: join(dataRoot, "connect") },
         folder: { type: "string", multiple: true, default: [] },
@@ -310,6 +312,9 @@ switch (command) {
       remotePort: Number(values.port),
       localPort: Number(values["local-port"]),
       remoteCommand: values["remote-pipoca"],
+      ...(values["remote-database"] !== undefined && {
+        remoteDatabase: values["remote-database"],
+      }),
       name: values.name,
       folders: folders.map(absolutePath),
       dataDir: absolutePath(values["data-dir"]),

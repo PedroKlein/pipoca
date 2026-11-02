@@ -12,6 +12,9 @@ export interface ConnectOptions {
   // The pipoca binary on the remote machine, for when it isn't on the PATH
   // a non-interactive SSH shell gets.
   readonly remoteCommand: string;
+  // The remote server's database, when it isn't the default, which says
+  // where its socket is.
+  readonly remoteDatabase?: string;
   // This machine's runner name and its Environment's on the server.
   readonly name: string;
   readonly folders: readonly string[];
@@ -81,6 +84,12 @@ async function holdTunnel(
         "-N",
         "-o",
         "ExitOnForwardFailure=yes",
+        // A ControlMaster from ~/.ssh/config would take the forward and let
+        // this ssh exit, leaving a tunnel it can't watch or restart.
+        "-o",
+        "ControlMaster=no",
+        "-o",
+        "ControlPath=none",
         "-o",
         "ServerAliveInterval=15",
         "-o",
@@ -124,9 +133,17 @@ async function remote(
   options: ConnectOptions,
   args: readonly string[],
 ): Promise<string> {
-  const run = Bun.spawn(["ssh", options.host, options.remoteCommand, ...args], {
-    stdio: ["ignore", "pipe", "inherit"],
-  });
+  const database =
+    options.remoteDatabase === undefined
+      ? []
+      : ["--database", options.remoteDatabase];
+
+  const run = Bun.spawn(
+    ["ssh", options.host, options.remoteCommand, ...args, ...database],
+    {
+      stdio: ["ignore", "pipe", "inherit"],
+    },
+  );
 
   const [out, code] = await Promise.all([
     new Response(run.stdout).text(),

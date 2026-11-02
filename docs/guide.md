@@ -20,7 +20,7 @@ To keep your server on an always-on machine, such as a VM, run `pipoca up` (or `
 cd ~/code && pipoca connect me@my-vm
 ```
 
-`pipoca connect` holds an SSH tunnel from `127.0.0.1:7420` on your laptop to the server's port on the VM, starting `ssh` again whenever it drops, and opens the browser signed in through it. It also runs your laptop as a runner through the tunnel, in an Environment named after it, sharing the folder you ran it in or the ones you pass with `--folder`. It signs in by running `pipoca link` on the VM over SSH, so it needs nothing but your SSH access; pass `--remote-pipoca <path>` when `pipoca` isn't on the PATH a plain `ssh me@my-vm pipoca` gets, and `--port` and `--local-port` for other ports.
+`pipoca connect` holds an SSH tunnel from `127.0.0.1:7420` on your laptop to the server's port on the VM, starting `ssh` again whenever it drops, and opens the browser signed in through it. It also runs your laptop as a runner through the tunnel, in an Environment named after it, sharing the folder you ran it in or the ones you pass with `--folder`. It signs in by running `pipoca link` on the VM over SSH, so it needs nothing but your SSH access; pass `--remote-pipoca <path>` when `pipoca` isn't on the PATH a plain `ssh me@my-vm pipoca` gets, `--remote-database` when the server there runs with `--database`, and `--port` and `--local-port` for other ports. The tunnel never shares a `ControlMaster` connection from your SSH config, so `connect` can tell when it drops.
 
 `pipoca service install up` or `pipoca service install connect me@my-vm`, with the same options, runs either one at every login and again if it fails: a launchd agent on macOS (`~/Library/LaunchAgents/dev.pipoca.plist`, logging to `~/Library/Logs/pipoca.log`) and a systemd user unit elsewhere (`~/.config/systemd/user/pipoca.service`). A service opens no browser, so use `pipoca link --open` to sign in. It keeps the PATH you installed it from, so it finds docker and ssh. `pipoca service uninstall` removes it.
 
@@ -82,7 +82,8 @@ pipoca up [--port 7420] [--database ~/.pipoca/server.db]
           [--folder <the current folder>]...
 pipoca link [--database ~/.pipoca/server.db] [--open | --runner <name>]
 pipoca connect <user@host> [--port 7420] [--local-port 7420] [--no-open]
-               [--remote-pipoca pipoca] [--name <host name>]
+               [--remote-pipoca pipoca] [--remote-database <path>]
+               [--name <host name>]
                [--data-dir ~/.pipoca/connect] [--folder <the current folder>]...
 pipoca service install <up or connect, with their options> | uninstall
 pipoca server [--supervise] [--host 127.0.0.1] [--port 7420] [--url <public URL>]

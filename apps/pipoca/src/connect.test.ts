@@ -22,9 +22,14 @@ import type { Environment } from "@pipoca/protocol";
 const main = join(import.meta.dirname, "main.ts");
 
 // Stands in for ssh on one machine: -N -L forwards the port, anything else
-// runs the remote command here.
+// runs the remote command here. Like a host with ControlMaster in its
+// ~/.ssh/config, a tunnel that may share a connection hands its forward to
+// the master and exits at once.
 const fakeSsh = `#!${process.execPath}
 const args = process.argv.slice(2);
+if (args.includes("-N") && !args.includes("ControlPath=none")) {
+  process.exit(0);
+}
 if (args.includes("-N")) {
   const forward = args[args.indexOf("-L") + 1];
   const [, local, , remote] = forward.split(":");
@@ -95,7 +100,7 @@ test("connect joins this machine as a runner of a solo server through an SSH tun
 
   await executable(
     join(root, "remote-pipoca"),
-    `#!/bin/sh\nexec ${process.execPath} ${main} "$@" --database ${database}\n`,
+    `#!/bin/sh\nexec ${process.execPath} ${main} "$@"\n`,
   );
 
   const server = spawn(
@@ -122,6 +127,8 @@ test("connect joins this machine as a runner of a solo server through an SSH tun
         String(localPort),
         "--remote-pipoca",
         join(root, "remote-pipoca"),
+        "--remote-database",
+        database,
         "--name",
         "laptop",
         "--data-dir",
