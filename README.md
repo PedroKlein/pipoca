@@ -106,7 +106,16 @@ Several machines can join one Environment as a pool. A session working in a clon
 
 ## Quick start
 
-You need [Bun](https://bun.sh) and at least one model you can log in to from Pi.
+With [Homebrew](https://brew.sh) on macOS or Linux, install `pipoca` and run it in the folder with your code:
+
+```sh
+brew install pedroklein/pipoca/pipoca
+cd ~/code && pipoca up
+```
+
+The Mac app is `brew install --cask pedroklein/pipoca/pipoca-app`. Each [release](https://github.com/PedroKlein/pipoca/releases) also has the binaries, the disk image and Linux packages.
+
+To build from source, you need [Bun](https://bun.sh) and at least one model you can log in to from Pi.
 
 ```sh
 git clone https://github.com/PedroKlein/pipoca && cd pipoca
