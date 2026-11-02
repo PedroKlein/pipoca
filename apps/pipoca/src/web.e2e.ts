@@ -3019,10 +3019,7 @@ test("offers push notifications in Settings and shows a pushed notification from
 
   const origin = new URL(server.url).origin;
 
-  // The headless shell the other tests use shows no notifications, so this
-  // part runs in Chromium itself.
-  const full = await chromium.launch({ channel: "chromium" });
-  const context = await full.newContext();
+  const context = await browser.newContext();
   const [name = "", value = ""] = cookie.split("=");
   await context.addCookies([{ name, value, url: origin }]);
   await context.grantPermissions(["notifications"], { origin });
@@ -3046,8 +3043,18 @@ test("offers push notifications in Settings and shows a pushed notification from
 
   await cdp.send("ServiceWorker.enable");
 
+  const started = context.waitForEvent("serviceworker");
+
   await tab.evaluate(
     "navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(() => navigator.serviceWorker.ready).then(() => undefined)",
+  );
+
+  // Headless Chromium keeps no shown notifications, so the worker's calls
+  // are recorded instead.
+  const worker = context.serviceWorkers()[0] ?? (await started);
+
+  await worker.evaluate(
+    "self.shown = []; self.registration.showNotification = (title, options) => { self.shown.push(title + ': ' + options.body); return Promise.resolve(); }",
   );
 
   await cdp.send("ServiceWorker.deliverPushMessage", {
@@ -3062,9 +3069,7 @@ test("offers push notifications in Settings and shows a pushed notification from
   });
 
   const shown = async (): Promise<string[]> =>
-    tab.evaluate<string[]>(
-      "navigator.serviceWorker.ready.then((r) => r.getNotifications()).then((all) => all.map((n) => n.title + ': ' + n.body))",
-    );
+    worker.evaluate<string[]>("self.shown");
 
   while ((await shown()).length === 0) {
     await tab.waitForTimeout(50);
@@ -3072,5 +3077,5 @@ test("offers push notifications in Settings and shows a pushed notification from
 
   expect(await shown()).toEqual(["Pi needs you: Fix the login page"]);
 
-  await full.close();
+  await context.close();
 }, 30_000);
