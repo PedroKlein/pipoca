@@ -146,6 +146,7 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
     label: "Subagent",
     description,
     parameters,
+    prepareArguments: withoutEmptyFields,
     execute: async (_toolCallId, params) => {
       if (manages(params)) {
         return text(await manage(params));
@@ -313,4 +314,15 @@ async function promptFolder(): Promise<string> {
   })();
 
   return written;
+}
+
+// Some models fill every field, sending the ones they don't use as "" or null.
+function withoutEmptyFields(args: unknown): Static<typeof parameters> {
+  if (typeof args !== "object" || args === null) {
+    return args as Static<typeof parameters>;
+  }
+
+  return Object.fromEntries(
+    Object.entries(args).filter(([, value]) => value !== "" && value !== null),
+  );
 }
