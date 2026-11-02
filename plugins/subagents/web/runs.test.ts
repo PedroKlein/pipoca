@@ -4,6 +4,7 @@ import {
   type ChildView,
   finishedRun,
   manages,
+  recordedRun,
   type RunView,
   separateOutput,
 } from "./runs";
@@ -67,4 +68,21 @@ test("draws a call that names a task as a run, even with an action filled in", (
   expect(manages({ action: "status", agent: "scout", task: "look" })).toBe(
     false,
   );
+});
+
+test("reads a run from the record the transcript keeps of it", () => {
+  const entry = JSON.stringify({
+    type: "custom",
+    customType: "subagents-run",
+    data: run,
+  });
+
+  expect(recordedRun({ type: "entry", entry } as never)).toEqual(run);
+
+  expect(
+    recordedRun({
+      type: "entry",
+      entry: JSON.stringify({ type: "custom", customType: "other", data: run }),
+    } as never),
+  ).toBeUndefined();
 });

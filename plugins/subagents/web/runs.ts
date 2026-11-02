@@ -4,6 +4,7 @@ import {
   type ChildView,
   finishedKind,
   manages,
+  recordType,
   type RunView,
   runsKey,
   runState,
@@ -55,6 +56,27 @@ export function finishedRun(event: SessionEvent): RunView | undefined {
     : undefined;
 }
 
+// A run as the transcript last recorded it (ADR 0058).
+export function recordedRun(event: SessionEvent): RunView | undefined {
+  if (event.type !== "entry" || !event.entry.includes(`"${recordType}"`)) {
+    return undefined;
+  }
+
+  try {
+    const entry = JSON.parse(event.entry) as {
+      readonly type?: string;
+      readonly customType?: string;
+      readonly data?: RunView;
+    };
+
+    return entry.type === "custom" && entry.customType === recordType
+      ? entry.data
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function runIdOf(details: unknown): string | undefined {
   if (typeof details !== "object" || details === null) {
     return undefined;
@@ -66,7 +88,11 @@ export function runIdOf(details: unknown): string | undefined {
 }
 
 export function toneOf(state: ChildState): Tone {
-  return state === "queued" ? "running" : state;
+  if (state === "queued") {
+    return "running";
+  }
+
+  return state === "interrupted" ? "stopped" : state;
 }
 
 export function stateLabel(state: ChildState): string {

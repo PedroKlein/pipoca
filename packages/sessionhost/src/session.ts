@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, sep } from "node:path";
@@ -212,6 +213,7 @@ export async function startChild(
   child: ChildOptions,
 ): Promise<AgentSession> {
   const cwd = parent.sessionManager.getCwd();
+  const children = join(sessionDir, "children");
   const { modelRuntime, settingsManager } = parent;
 
   const chosen =
@@ -248,11 +250,14 @@ export async function startChild(
     tools: [...child.tools],
     ...(chosen.model && { model: chosen.model }),
     thinkingLevel: child.thinking ?? parent.thinkingLevel,
-    sessionManager: SessionManager.create(cwd, join(sessionDir, "children"), {
-      ...(parent.sessionFile !== undefined && {
-        parentSession: parent.sessionFile,
-      }),
-    }),
+    sessionManager:
+      child.continueFrom !== undefined && existsSync(child.continueFrom)
+        ? SessionManager.open(child.continueFrom, children)
+        : SessionManager.create(cwd, children, {
+            ...(parent.sessionFile !== undefined && {
+              parentSession: parent.sessionFile,
+            }),
+          }),
   });
 
   return session;

@@ -19,18 +19,32 @@ export interface Run {
 
 export interface Fleet {
   readonly start: (shape: Shape, steps: readonly Step[]) => Run;
+  // Carries on with a run's interrupted children, or undefined when it has
+  // none (ADR 0058).
+  readonly resume: (runId: string, agents: readonly Agent[]) => Run | undefined;
+  // Takes back the runs a restart left, already marked as it left them.
+  readonly restore: (runs: readonly RunView[]) => void;
   readonly runs: () => readonly RunView[];
   readonly steer: (runId: string, text: string) => Promise<boolean>;
   readonly stop: (runId: string) => Promise<boolean>;
-  readonly stopAll: () => void;
+  // Leaves every run as it is, without recording more of it, so the next
+  // start of the Session finds what was cut off.
+  readonly close: () => void;
 }
 
 const activityKept = 30;
 const textKept = 2000;
 
 interface Child {
-  readonly step: Step;
+  readonly agentName: string;
+  agent?: Agent;
   task: string;
+  // Whether the task already has what it needs, such as a chain's previous
+  // output.
+  prepared: boolean;
+  // Set while a resumed child carries on from its session file.
+  continueFrom?: string;
+  sessionFile?: string;
   state: ChildState;
   model?: string;
   startedAt?: number;
@@ -56,11 +70,17 @@ interface Running {
 export function fleet({
   startChild,
   changed,
+  recorded,
   limit = 4,
   now = Date.now,
 }: {
-  readonly startChild: (agent: Agent) => Promise<AgentSession>;
+  readonly startChild: (
+    agent: Agent,
+    continueFrom?: string,
+  ) => Promise<AgentSession>;
   readonly changed: () => void;
+  // Called when a run or one of its children starts or ends, to keep it.
+  readonly recorded: (run: RunView) => void;
   readonly limit?: number;
   readonly now?: () => number;
 }): Fleet {
@@ -89,8 +109,16 @@ export function fleet({
     }
   };
 
+  let closing = false;
+
+  const record = (run: Running): void => {
+    if (!closing) {
+      recorded(view(run));
+    }
+  };
+
   // What the child ended as.
-  const runChild = async (child: Child): Promise<ChildState> => {
+  const runChild = async (run: Running, child: Child): Promise<ChildState> => {
     await slot();
 
     try {
@@ -98,15 +126,31 @@ export function fleet({
         return child.state;
       }
 
+      if (child.agent === undefined) {
+        child.state = "failed";
+        child.error = `The agent ${child.agentName} no longer exists.`;
+
+        return child.state;
+      }
+
       child.state = "running";
       child.startedAt = now();
       changed();
 
-      const session = await startChild(child.step.agent);
+      const session = await startChild(child.agent, child.continueFrom);
+      const carriesOn = session.messages.length > 0;
+
+      delete child.continueFrom;
       child.session = session;
+      if (session.sessionFile !== undefined) {
+        child.sessionFile = session.sessionFile;
+      }
+
       if (session.model) {
         child.model = `${session.model.provider}/${session.model.id}`;
       }
+
+      record(run);
 
       const unsubscribe = session.subscribe((event) => {
         follow(child, event);
@@ -116,7 +160,7 @@ export function fleet({
       try {
         // A stop that came while the session was starting.
         if (!stopped(child)) {
-          await session.prompt(child.task);
+          await session.prompt(carriesOn ? carryOn : child.task);
         }
       } finally {
         unsubscribe();
@@ -137,10 +181,52 @@ export function fleet({
       }
 
       release();
+      record(run);
       changed();
     }
 
     return child.state;
+  };
+
+  // Runs the run's queued children, in order for a chain.
+  const drive = async (run: Running): Promise<RunView> => {
+    if (run.shape === "chain") {
+      let previous: string | undefined;
+
+      for (const child of run.children) {
+        if (child.state === "done") {
+          previous = child.output ?? "";
+          continue;
+        }
+
+        if (child.state !== "queued") {
+          continue;
+        }
+
+        if (!child.prepared && previous !== undefined) {
+          child.task = `${child.task}\n\nThe previous step's output:\n\n${previous}`;
+        }
+
+        child.prepared = true;
+
+        if ((await runChild(run, child)) !== "done") {
+          stopQueued(run);
+          break;
+        }
+
+        previous = child.output ?? "";
+      }
+    } else {
+      await Promise.all(
+        run.children.map(async (child) => runChild(run, child)),
+      );
+    }
+
+    run.endedAt = now();
+    record(run);
+    changed();
+
+    return view(run);
   };
 
   const start = (shape: Shape, steps: readonly Step[]): Run => {
@@ -149,8 +235,10 @@ export function fleet({
       shape,
       startedAt: now(),
       children: steps.map((step) => ({
-        step,
+        agentName: step.agent.name,
+        agent: step.agent,
         task: step.task,
+        prepared: shape !== "chain",
         state: "queued",
         toolCount: 0,
         activity: [],
@@ -158,39 +246,70 @@ export function fleet({
     };
 
     runs.set(run.id, run);
+    record(run);
     changed();
 
-    const ended = (async () => {
-      if (shape === "chain") {
-        let previous: string | undefined;
+    return { id: run.id, ended: drive(run) };
+  };
 
-        for (const child of run.children) {
-          if (child.state !== "queued") {
-            continue;
-          }
+  const resume = (runId: string, agents: readonly Agent[]): Run | undefined => {
+    const run = runs.get(runId);
 
-          if (previous !== undefined) {
-            child.task = `${child.step.task}\n\nThe previous step's output:\n\n${previous}`;
-          }
+    const cutOff = (run?.children ?? []).filter(
+      ({ state }) => state === "interrupted",
+    );
 
-          if ((await runChild(child)) !== "done") {
-            stopQueued(run);
-            break;
-          }
+    if (run?.endedAt === undefined || cutOff.length === 0) {
+      return undefined;
+    }
 
-          previous = child.output ?? "";
-        }
+    for (const child of cutOff) {
+      const agent = agents.find(({ name }) => name === child.agentName);
+      const said = child.activity.findLast(({ kind }) => kind === "text");
+
+      child.state = "queued";
+      if (agent) {
+        child.agent = agent;
       } else {
-        await Promise.all(run.children.map(runChild));
+        delete child.agent;
       }
 
-      run.endedAt = now();
-      changed();
+      if (child.sessionFile !== undefined) {
+        child.continueFrom = child.sessionFile;
+      }
 
-      return view(run);
-    })();
+      if (said !== undefined) {
+        child.task = `${child.task}\n\nAn earlier attempt at this was cut off. What it had said so far:\n\n${said.text}`;
+      }
 
-    return { id: run.id, ended };
+      delete child.endedAt;
+      delete child.error;
+    }
+
+    delete run.endedAt;
+    record(run);
+    changed();
+
+    return { id: run.id, ended: drive(run) };
+  };
+
+  const restore = (restored: readonly RunView[]): void => {
+    for (const run of restored) {
+      runs.set(run.id, {
+        id: run.id,
+        shape: run.shape,
+        startedAt: run.startedAt,
+        ...(run.endedAt !== undefined && { endedAt: run.endedAt }),
+        children: run.children.map(({ agent, activity, ...child }): Child => ({
+          ...child,
+          agentName: agent,
+          prepared: child.startedAt !== undefined || run.shape !== "chain",
+          activity: [...activity],
+        })),
+      });
+    }
+
+    changed();
   };
 
   const stopQueued = (run: Running): void => {
@@ -223,6 +342,8 @@ export function fleet({
 
   return {
     start,
+    resume,
+    restore,
     runs: () => [...runs.values()].map(view),
     // Reaches every child of the run that is running now.
     steer: async (runId, text) => {
@@ -237,13 +358,21 @@ export function fleet({
       return running.length > 0;
     },
     stop,
-    stopAll: () => {
-      for (const id of runs.keys()) {
-        void stop(id);
+    close: () => {
+      closing = true;
+
+      for (const run of runs.values()) {
+        for (const { session } of run.children) {
+          void session?.abort();
+        }
       }
     },
   };
 }
+
+// What a resumed child is told when its session carries on from its file.
+const carryOn =
+  "You were cut off when the session you run in restarted. Carry on with your task from where you left off.";
 
 // Read through a call: a stop changes the state while a child awaits.
 function stopped(child: Child): boolean {
@@ -342,7 +471,7 @@ function view(run: Running): RunView {
     startedAt: run.startedAt,
     ...(run.endedAt !== undefined && { endedAt: run.endedAt }),
     children: run.children.map((child): ChildView => ({
-      agent: child.step.agent.name,
+      agent: child.agentName,
       task: child.task,
       state: child.state,
       ...(child.model !== undefined && { model: child.model }),
@@ -353,6 +482,9 @@ function view(run: Running): RunView {
       activity: [...child.activity],
       ...(child.output !== undefined && { output: child.output }),
       ...(child.error !== undefined && { error: child.error }),
+      ...(child.sessionFile !== undefined && {
+        sessionFile: child.sessionFile,
+      }),
     })),
   };
 }
