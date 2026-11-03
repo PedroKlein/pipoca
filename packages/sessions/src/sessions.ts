@@ -44,6 +44,7 @@ export type StoredEnvironment = Omit<
   Environment,
   | "online"
   | "onDemand"
+  | "runnersFrom"
   | "runners"
   | "folders"
   | "models"
@@ -171,10 +172,10 @@ export interface SessionsOptions {
   // settings.
   readonly sessionPlugins?: () => SessionPlugins;
   readonly offeredModels?: ModelOffer;
-  // Whether a plugin starts runners for the Environment on demand.
+  // The plugin that starts runners for the Environment on demand, if any.
   readonly startsRunners?: (
     environment: Pick<Environment, "id" | "templateId">,
-  ) => boolean;
+  ) => string | undefined;
   // A Profile a plugin provides, which only the plugin's own Sessions run on.
   readonly pluginProfile?: (id: string) => PluginProfile | undefined;
   // The git hosts a user connected (ADR 0043).
@@ -222,7 +223,7 @@ export class Sessions {
   readonly #offeredModels: ModelOffer;
   readonly #startsRunners: (
     environment: Pick<Environment, "id" | "templateId">,
-  ) => boolean;
+  ) => string | undefined;
   readonly #pluginProfile: (id: string) => PluginProfile | undefined;
   readonly #gitLogins: NonNullable<SessionsOptions["gitLogins"]>;
   readonly #templates: () => readonly EnvironmentTemplate[];
@@ -263,7 +264,7 @@ export class Sessions {
     this.#docs = options.docs;
 
     this.#offeredModels = options.offeredModels ?? (() => ({ models: [] }));
-    this.#startsRunners = options.startsRunners ?? (() => false);
+    this.#startsRunners = options.startsRunners ?? (() => undefined);
     this.#pluginProfile = options.pluginProfile ?? (() => undefined);
     this.#gitLogins = options.gitLogins ?? (() => []);
     this.#templates = options.templates ?? (() => []);
@@ -708,7 +709,7 @@ export class Sessions {
         ...this.#templated(environment),
         secrets: Object.keys(environment.secrets),
         online: runners.some(({ online }) => online),
-        onDemand: this.#startsRunners(environment),
+        ...runnersFrom(this.#startsRunners(environment)),
         runners: runners.map(({ name, online, capacity }) => ({
           name,
           online,
@@ -1761,4 +1762,10 @@ function forkedWorkspace({
         ...(start.startPoint !== undefined && { startPoint: start.startPoint }),
       }
     : { kind: "clone", repository: workspace.repository, ...start };
+}
+
+function runnersFrom(
+  plugin: string | undefined,
+): Pick<Environment, "onDemand" | "runnersFrom"> {
+  return { onDemand: plugin !== undefined, runnersFrom: plugin ?? null };
 }

@@ -235,6 +235,13 @@ async function openSettings(section: string): Promise<void> {
     .click();
 }
 
+async function openEnvironment(name: string): Promise<void> {
+  await page
+    .getByRole("list", { name: "Your Environments" })
+    .getByRole("link", { name: new RegExp(`^${name}`) })
+    .click();
+}
+
 // A folder with its own .pi asks before loading it (ADR 0031).
 async function trustRepository(): Promise<void> {
   await page
@@ -688,8 +695,9 @@ test("makes an Environment and shows its key once", async () => {
   await page.goto(server.url.href);
   await openSettings("Environments");
 
-  await page.getByLabel("New Environment name").fill("builders");
   await page.getByRole("button", { name: "New Environment" }).click();
+  await page.getByLabel("New Environment name").fill("builders");
+  await page.getByRole("button", { name: "Create" }).click();
 
   const command = page.getByLabel("Join command");
   await command.filter({ hasText: "PIPOCA_KEY=pck_" }).waitFor();
@@ -703,7 +711,8 @@ test("makes an Environment and shows its key once", async () => {
 
   expect(await command.count()).toBe(0);
 
-  await page.getByRole("link", { name: /^e2e/ }).click();
+  await openSettings("Environments");
+  await openEnvironment("e2e");
 
   await page
     .getByRole("list", { name: "Folders" })
@@ -1140,6 +1149,7 @@ test("says why an MCP token wasn't revoked", async () => {
 test("edits an Environment's variables and secrets without showing secret values", async () => {
   await page.goto(server.url.href);
   await openSettings("Environments");
+  await openEnvironment("e2e");
 
   const editor = page.locator("#environments-page form");
 
@@ -1356,6 +1366,7 @@ test("shows why an Environment's last runner pod failed", async () => {
 
   await page.goto(server.url.href);
   await openSettings("Environments");
+  await openEnvironment("e2e");
 
   const failure = page
     .getByLabel("Kubernetes", { exact: true })
