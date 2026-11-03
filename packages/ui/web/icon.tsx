@@ -17,6 +17,7 @@ const paths = {
   "chevron-down": ["m6 9 6 6 6-6"],
   "chevron-left": ["m15 18-6-6 6-6"],
   "chevron-right": ["m9 18 6-6-6-6"],
+  cloud: ["M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"],
   clock: ["M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z", "M12 6v6l4 2"],
   chat: ["M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"],
   "external-link": [

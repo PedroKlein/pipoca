@@ -24,6 +24,7 @@ export function Templates({
   readonly onChange: () => void;
 }): ReactElement {
   const [error, setError] = useState<string>();
+  const [adding, setAdding] = useState(false);
 
   const create = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -33,6 +34,7 @@ export function Templates({
       .then(() => {
         setError(undefined);
         form.reset();
+        setAdding(false);
         onChange();
       })
       .catch((reason: unknown) => {
@@ -41,38 +43,51 @@ export function Templates({
   };
 
   return (
-    <Section title="Templates">
-      <p className="text-ui text-fg-dim">
-        Admins share a setup script, isolation, image and variables here.
-        Everyone can make an Environment from a template, with their own secrets
-        and runners.
-      </p>
-      {templates.map((template) => (
-        <TemplateEditor
-          key={template.id}
-          template={template}
-          onChange={onChange}
-        />
-      ))}
-      <form
-        onSubmit={create}
-        aria-label="New template"
-        className="flex flex-wrap items-center gap-2"
-      >
-        <input
-          name="name"
-          required
-          aria-label="New template name"
-          placeholder="Cluster pods"
-          className={cn(fieldClass, "w-48")}
-        />
-        <Button type="submit">New template</Button>
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
-      </form>
+    <Section
+      title="Templates"
+      description="Ready-made Environments everyone on the server can use"
+      actions={
+        <Button
+          onClick={() => {
+            setAdding(!adding);
+          }}
+        >
+          New template
+        </Button>
+      }
+    >
+      {adding && (
+        <form
+          onSubmit={create}
+          aria-label="New template"
+          className="flex flex-wrap items-center gap-2"
+        >
+          <input
+            name="name"
+            required
+            aria-label="New template name"
+            placeholder="Cluster pods"
+            className={cn(fieldClass, "w-48")}
+          />
+          <Button type="submit">Create</Button>
+          {error !== undefined && (
+            <p role="alert" className="text-caption text-failed">
+              {error}
+            </p>
+          )}
+        </form>
+      )}
+      {templates.length > 0 && (
+        <div className="divide-y divide-line overflow-hidden rounded-lg border border-line bg-elevated shadow-xs">
+          {templates.map((template) => (
+            <TemplateEditor
+              key={template.id}
+              template={template}
+              onChange={onChange}
+            />
+          ))}
+        </div>
+      )}
     </Section>
   );
 }
@@ -151,9 +166,12 @@ function TemplateEditor({
   };
 
   return (
-    <details className="rounded-lg border border-line bg-elevated shadow-xs">
-      <summary className="cursor-pointer px-5 py-3 text-ui font-medium text-fg-strong">
-        {template.name}
+    <details>
+      <summary className="flex cursor-pointer list-none flex-col gap-0.5 px-4 py-3 hover:bg-hover">
+        <span className="text-ui font-medium text-fg-strong">
+          {template.name}
+        </span>
+        <span className="text-label text-fg-dim">{summaryOf(template)}</span>
       </summary>
       <form
         onSubmit={save}
@@ -228,4 +246,19 @@ function TemplateEditor({
       </div>
     </details>
   );
+}
+
+function summaryOf(template: EnvironmentTemplate): string {
+  const variables = Object.keys(template.variables).length;
+
+  return [
+    template.isolation === "container"
+      ? (template.image ?? "the default image")
+      : "on the machine",
+    template.setupScript.trim() !== "" && "a setup script",
+    variables > 0 &&
+      `${String(variables)} shared variable${variables === 1 ? "" : "s"}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }

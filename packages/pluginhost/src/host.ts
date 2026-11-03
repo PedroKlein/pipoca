@@ -124,7 +124,8 @@ export interface PluginHost {
     actor: UserActor,
   ) => Promise<ToolResult>;
   readonly offeredModels: ModelOffer;
-  readonly startsRunners: (environment: RunnerSource) => boolean;
+  // The plugin that starts runners for the Environment on demand, if any.
+  readonly startsRunners: (environment: RunnerSource) => string | undefined;
   readonly gitLogins: GitLoginsOf;
   readonly route: (
     request: Request,
@@ -216,7 +217,11 @@ export function startPlugins(
   const logins: { plugin: string; offered: () => readonly Login[] }[] = [];
   const offers: ModelOffer[] = [];
   const gitLogins: GitLoginsOf[] = [];
-  const starters: ((environment: RunnerSource) => boolean)[] = [];
+
+  const starters: {
+    readonly plugin: string;
+    readonly starts: (environment: RunnerSource) => boolean;
+  }[] = [];
 
   const failures = new Map<string, string>(
     deps.installed?.plugins.flatMap(({ manifest: { id }, error }) =>
@@ -417,7 +422,7 @@ export function startPlugins(
       logins: [] as (() => readonly Login[])[],
       offers: [] as ModelOffer[],
       gitLogins: [] as GitLoginsOf[],
-      starters: [] as ((environment: RunnerSource) => boolean)[],
+      starters: [] as (typeof starters)[number][],
       profiles: new Map<string, PluginProfile>(),
       loadOnly: undefined as readonly string[] | undefined,
       unsubscribes: [] as (() => void)[],
@@ -527,7 +532,7 @@ export function startPlugins(
             deps.sessions,
             deps.runners,
             (starts) => {
-              staged.starters.push(starts);
+              staged.starters.push({ plugin: plugin.name, starts });
             },
           ),
           profiles: {
@@ -972,7 +977,7 @@ export function startPlugins(
       };
     },
     startsRunners: (environment) =>
-      starters.some((starts) => starts(environment)),
+      starters.find(({ starts }) => starts(environment))?.plugin,
     gitLogins: (userId, session) =>
       gitLogins.flatMap((loginsOf) => loginsOf(userId, session)),
     route: async (request, name, path, caller) =>

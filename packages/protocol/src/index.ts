@@ -37,6 +37,20 @@ export function availability(
   return environment.onDemand ? "Starts runners on demand" : "Offline";
 }
 
+// What an Environment is (ADR 0063): machines someone connects, a Docker
+// image on such a machine, or pods on Kubernetes.
+export type EnvironmentKind = "machine" | "docker" | "kubernetes";
+
+export function kindOf(
+  environment: Pick<Environment, "runnersFrom" | "isolation">,
+): EnvironmentKind {
+  if (environment.runnersFrom === "kubernetes") {
+    return "kubernetes";
+  }
+
+  return environment.isolation === "container" ? "docker" : "machine";
+}
+
 export function movable(workspace: Workspace): boolean {
   return workspace.kind === "clone" || workspace.kind === "repositories";
 }
@@ -1111,6 +1125,8 @@ export interface Environment {
   // A plugin starts runners for it when a Session needs one, such as
   // Kubernetes pods, so it takes Sessions with no runner online (ADR 0040).
   readonly onDemand: boolean;
+  // The plugin that starts its runners, such as kubernetes for pods.
+  readonly runnersFrom: string | null;
   readonly runners: readonly Runner[];
   readonly folders: readonly string[];
   // The models logged in on its online runners, and every model any of its
