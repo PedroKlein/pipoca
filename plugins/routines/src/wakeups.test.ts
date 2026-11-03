@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, expect, jest, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   eventBus,
   type PluginNotice,
@@ -74,6 +77,11 @@ function start(
       },
       signal: stop.signal,
       store,
+      config: {
+        get: () => undefined,
+        set: () => undefined,
+        dir: mkdtempSync(join(tmpdir(), "routines-")),
+      },
     }),
   );
 
