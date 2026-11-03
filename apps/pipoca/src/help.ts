@@ -61,7 +61,7 @@ started as a service. The tunnel comes back whenever it drops.`,
       ["--name <name>", "this machine's name there (default: its host name)"],
       [
         "--data-dir <path>",
-        "where this machine keeps its Sessions (default: ~/.pipoca/connect)",
+        "where this machine keeps its Sessions (default: ~/.pipoca/servers/<host>)",
       ],
     ],
     examples: ["cd ~/code && pipoca connect me@my-vm"],
@@ -159,7 +159,7 @@ the Environments page shows, and runs that Environment's Sessions here.`,
       ["--exit-when-idle <seconds>", "stop after this long with no Session"],
       [
         "--data-dir <path>",
-        "where Sessions are kept (default: ~/.pipoca/agent)",
+        "where Sessions are kept (default: ~/.pipoca/agent for this machine's own server, ~/.pipoca/servers/<host> for another)",
       ],
       [
         "--extension <path>",

@@ -92,7 +92,7 @@ pipoca link [--database ~/.pipoca/server.db] [--open | --runner <name>]
 pipoca connect <user@host> [--port 7420] [--local-port 7420] [--no-open]
                [--remote-pipoca pipoca] [--remote-database <path>]
                [--name <host name>]
-               [--data-dir ~/.pipoca/connect] [--folder <the current folder>]...
+               [--data-dir ~/.pipoca/servers/<host>] [--folder <the current folder>]...
 pipoca service install <up or connect, with their options> | uninstall
 pipoca server [--supervise] [--host 127.0.0.1] [--port 7420] [--url <public URL>]
                 [--database ~/.pipoca/server.db] [--plugins ~/.pipoca/plugins]
@@ -101,7 +101,7 @@ pipoca server [--supervise] [--host 127.0.0.1] [--port 7420] [--url <public URL>
                 [--folder <path>]... [--extension <path>]...]
 PIPOCA_KEY=<Environment key> | PIPOCA_TOKEN=<runner token> \
 pipoca agent --name <runner> [--capacity <n>] [--exit-when-idle <seconds>]
-               [--server http://127.0.0.1:7420] [--data-dir ~/.pipoca/agent]
+               [--server http://127.0.0.1:7420] [--data-dir <see below>]
                [--session-binary <path>] [--folder <path>]...
                [--extension <path>]...
 ```
@@ -126,7 +126,7 @@ The `email` plugin turns mail into routine triggers and lets sessions send mail 
 
 ### Keys and tokens
 
-An agent joins the pool of the Environment whose key it holds, under its `--name`, and gets a token of its own for everything else ([ADR 0033](adr/0033-v2-authentication-and-order.md)). Each session it starts gets a token too, which reaches only that session. Replace key on the Environments page lets go of every agent that joined with the old key; start them again with the new one. The agent reads the key from `PIPOCA_KEY` and removes it from what its sessions inherit. A name belongs to one runner in an Environment ([ADR 0032](adr/0032-environments-and-runners.md)). While a runner of that name is online there, the agent prints `a runner named <name> is online here` and exits with code 1; give it another `--name`, or stop the other one and wait until the Environments page shows it offline, about 30 seconds after its last poll. An agent that joins under the name of an offline runner takes it over, and the old runner's token stops working. The agent keeps its token in `runner.json` in its `--data-dir`, readable only by its user, so a restart against the same `--server` with the same key comes back as the same runner without joining. It joins again when that token is gone or refused. A runner token that no agent has polled with for 30 days stops working, so an agent started with the key just joins again, and one started with `PIPOCA_TOKEN` alone needs a new token. A runner that a plugin starts, such as a Kubernetes pod, gets a token in `PIPOCA_TOKEN` instead, and `--exit-when-idle <seconds>` stops it once it has run no session for that long. Tests of the built binary set `PIPOCA_FAUX_REPLY` so every turn answers with that text and no model provider is needed.
+A machine keeps each server's data apart ([ADR 0063](adr/0063-settings-and-first-run-setup.md#one-data-folder-per-server-on-a-machine)). An agent for the machine's own server keeps its Sessions, Profiles and workspaces in `~/.pipoca/agent`, and one for another server in `~/.pipoca/servers/<host>`, as does `pipoca connect` for the host it connects to. A runner that already ran in `~/.pipoca/agent` or `~/.pipoca/connect` for that server stays there, since its worktrees hold absolute paths into it. An agent joins the pool of the Environment whose key it holds, under its `--name`, and gets a token of its own for everything else ([ADR 0033](adr/0033-v2-authentication-and-order.md)). Each session it starts gets a token too, which reaches only that session. Replace key on the Environments page lets go of every agent that joined with the old key; start them again with the new one. The agent reads the key from `PIPOCA_KEY` and removes it from what its sessions inherit. A name belongs to one runner in an Environment ([ADR 0032](adr/0032-environments-and-runners.md)). While a runner of that name is online there, the agent prints `a runner named <name> is online here` and exits with code 1; give it another `--name`, or stop the other one and wait until the Environments page shows it offline, about 30 seconds after its last poll. An agent that joins under the name of an offline runner takes it over, and the old runner's token stops working. The agent keeps its token in `runner.json` in its `--data-dir`, readable only by its user, so a restart against the same `--server` with the same key comes back as the same runner without joining. It joins again when that token is gone or refused. A runner token that no agent has polled with for 30 days stops working, so an agent started with the key just joins again, and one started with `PIPOCA_TOKEN` alone needs a new token. A runner that a plugin starts, such as a Kubernetes pod, gets a token in `PIPOCA_TOKEN` instead, and `--exit-when-idle <seconds>` stops it once it has run no session for that long. Tests of the built binary set `PIPOCA_FAUX_REPLY` so every turn answers with that text and no model provider is needed.
 
 ### Environment setup and secrets
 
