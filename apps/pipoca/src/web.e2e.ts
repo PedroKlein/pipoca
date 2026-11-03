@@ -1737,10 +1737,31 @@ test("lists a Session's pending wake-ups above the composer and cancels one", as
   await wakeUps.waitFor({ state: "detached" });
 }, 30_000);
 
-test("writes a routine, runs it by hand and opens its run", async () => {
-  faux.setResponses([fauxAssistantMessage([fauxText("three new issues")])]);
+test("writes a routine from a starter, runs it by hand and opens its run", async () => {
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("end_run", {
+          result: "done",
+          summary: "three new issues",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("three new issues")]),
+  ]);
 
   await page.goto(`${server.url.href}#plugin/routines/new`);
+  await page.getByRole("button", { name: "Issue to pull request" }).click();
+
+  expect(await page.getByLabel("Name").inputValue()).toBe(
+    "issue-to-pull-request",
+  );
+
+  expect(await page.getByLabel("Routine JSON").inputValue()).toContain(
+    '"event": "git-hosts.issue"',
+  );
+
   await page.getByLabel("Name").fill("daily-issues");
 
   await page.getByLabel("Routine JSON").fill(
@@ -1762,6 +1783,7 @@ test("writes a routine, runs it by hand and opens its run", async () => {
 
   const run = page.getByRole("link", { name: /by hand/ });
   await run.getByText("Done").waitFor();
+  await run.getByText("three new issues").waitFor();
   await run.click();
 
   await page

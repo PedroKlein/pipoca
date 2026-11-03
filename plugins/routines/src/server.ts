@@ -17,22 +17,49 @@ export const routines: ServerPlugin = {
     const engine = routinesEngine(context);
 
     context.tools.register({
-      name: "report_nothing",
+      name: "end_run",
       description:
-        "This routine run found nothing to do: call it instead of writing a result, then end your turn. The run is recorded as nothing and nobody is told.",
+        "Ends this routine run: done when you finished the task, nothing when there was nothing to do this time, blocked when you can't go on without a person. The summary is the one line the person sees for the run. Call it once, then end your turn.",
       parameters: {
         type: "object",
-        properties: {},
+        properties: {
+          result: { type: "string", enum: ["done", "nothing", "blocked"] },
+          summary: {
+            type: "string",
+            description:
+              "One line: what you did, or why there was nothing to do, or what you need from the person.",
+          },
+        },
+        required: ["result", "summary"],
         additionalProperties: false,
       },
       exposure: "direct",
       annotations: { readOnlyHint: false, destructiveHint: false },
       appliesTo: (session) => session.owner?.plugin === "routines",
-      run: async (_input, { session }) => {
+      run: async (input, { session }) => {
         await Promise.resolve();
 
+        const { result, summary } = input as {
+          result?: unknown;
+          summary?: unknown;
+        };
+
+        if (
+          (result !== "done" && result !== "nothing" && result !== "blocked") ||
+          typeof summary !== "string" ||
+          summary.trim() === ""
+        ) {
+          return {
+            text: "give result (done, nothing or blocked) and a one-line summary",
+            isError: true,
+          };
+        }
+
         try {
-          return { text: engine.reportNothing(session), isError: false };
+          return {
+            text: engine.endRun(session, result, summary.trim()),
+            isError: false,
+          };
         } catch (error) {
           return {
             text: error instanceof Error ? error.message : String(error),

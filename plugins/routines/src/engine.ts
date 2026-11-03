@@ -20,7 +20,13 @@ import {
   type ServerPluginContext,
 } from "@pipoca/plugins";
 import type { Session } from "@pipoca/protocol";
-import type { RoutineDetail, RoutineView, Run, RunOutcome } from "./model";
+import type {
+  RoutineDetail,
+  RoutineView,
+  Run,
+  RunOutcome,
+  RunResult,
+} from "./model";
 import {
   eventsText,
   isFor,
@@ -102,8 +108,12 @@ export interface Routines {
   readonly remove: (userId: string, name: string) => void;
   readonly runNow: (userId: string, name: string) => Run;
   readonly pause: (userId: string, name: string, paused: boolean) => void;
-  // The routine's run a Session belongs to, for the report_nothing tool.
-  readonly reportNothing: (session: Session) => string;
+  // Ends the run a Session belongs to, as its agent says (ADR 0061).
+  readonly endRun: (
+    session: Session,
+    result: RunResult,
+    summary: string,
+  ) => string;
   // A webhook's delivery, checked against its hook's secret.
   readonly hook: (
     id: string,
@@ -494,6 +504,9 @@ export function routinesEngine(
     run: Pick<RunRow, "id" | "user_id" | "name">,
     outcome: RunOutcome,
     reason: string | null = null,
+    // An agent that says it is blocked did its job. Only runs that failed
+    // or couldn't start count towards pausing the routine.
+    failure = outcome === "failed" || outcome === "blocked",
   ): void => {
     store.run(
       "update routines_runs set outcome = ?, reason = ?, ended_at = ? where id = ?",
@@ -505,7 +518,7 @@ export function routinesEngine(
 
     log("routine run ended", { id: run.id, name: run.name, outcome, reason });
 
-    if (outcome === "failed" || outcome === "blocked") {
+    if (failure) {
       store.run(
         "update routines_state set failures = failures + 1 where user_id = ? and name = ?",
         run.user_id,
@@ -798,7 +811,7 @@ export function routinesEngine(
         : undefined;
 
     if (run !== undefined) {
-      end(run, "ok");
+      end(run, "stopped", "the turn ended without end_run");
     }
   });
 
@@ -988,16 +1001,22 @@ export function routinesEngine(
 
       return "accepted";
     },
-    reportNothing: (session) => {
+    endRun: (session, result, summary) => {
       const run = runOfSession(session.id);
 
       if (run === undefined) {
         throw new Error("this Session isn't a routine run that is going");
       }
 
-      end(run, "nothing");
+      const outcomes = {
+        done: "ok",
+        nothing: "nothing",
+        blocked: "blocked",
+      } as const;
 
-      return "Noted: nothing to do this time. End your turn.";
+      end(run, outcomes[result], summary, false);
+
+      return "Noted. End your turn.";
     },
   };
 }
@@ -1019,6 +1038,6 @@ function runPrompt(title: string): string {
   return [
     `You are running the routine "${title}" on its own; nobody is watching this Session as it works.`,
     "Do the task in the first message. Your final reply is the result the person reads later, not a plan or a question.",
-    "When there is nothing to do this time, call report_nothing and end your turn.",
+    "When you finish, call end_run with done and a one-line summary. When there is nothing to do this time, call it with nothing. When you can't go on without a person, such as a question only they can answer, call it with blocked and say why. Then end your turn.",
   ].join(" ");
 }

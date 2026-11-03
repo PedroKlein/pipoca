@@ -150,7 +150,7 @@ function start({
     bus.publish({ type: "TurnEnded", session });
   };
 
-  const reportNothing = tools.find(({ name }) => name === "report_nothing");
+  const endRun = tools.find(({ name }) => name === "end_run");
 
   const deliver = async (path: string, body: string, signature?: string) =>
     hooks?.(
@@ -171,7 +171,7 @@ function start({
     turnEnded,
     bus,
     stop,
-    reportNothing,
+    endRun,
     deliver,
   };
 }
@@ -186,7 +186,7 @@ const runsOf = async (
 ): Promise<readonly Run[]> =>
   ((await it.request(`routines/${name}`)).body as RoutineDetail).runs;
 
-test("a scheduled routine starts its own Session at its time and ends ok with the turn", async () => {
+test("a scheduled routine starts its own Session at its time, and a turn that ends without end_run stops it", async () => {
   const it = start();
 
   expect((await it.request("routines/daily", "PUT", daily)).status).toBe(200);
@@ -209,7 +209,7 @@ test("a scheduled routine starts its own Session at its time and ends ok with th
     firstMessage: "Summarise yesterday's new issues.",
   });
 
-  expect(run?.request.systemPrompt).toContain("report_nothing");
+  expect(run?.request.systemPrompt).toContain("end_run");
 
   expect((await runsOf(it))[0]).toMatchObject({
     outcome: "running",
@@ -218,7 +218,11 @@ test("a scheduled routine starts its own Session at its time and ends ok with th
   });
 
   it.turnEnded(run?.session ?? fakeSession());
-  expect((await runsOf(it))[0]?.outcome).toBe("ok");
+
+  expect((await runsOf(it))[0]).toMatchObject({
+    outcome: "stopped",
+    reason: "the turn ended without end_run",
+  });
 
   const [listed] = (await it.request("routines")).body as RoutineView[];
 
@@ -230,26 +234,60 @@ test("a scheduled routine starts its own Session at its time and ends ok with th
   });
 });
 
-test("a run with nothing to do ends as nothing", async () => {
+test("a run ends as its agent says: done, nothing to do, or blocked without pausing the routine", async () => {
   const it = start();
   await it.request("routines/daily", "PUT", daily);
 
-  const run = (await it.request("routines/daily/run", "POST")).body as Run;
-  expect(run.cause).toBe("by hand");
+  const end = async (input: unknown, index: number) => {
+    await it.request("routines/daily/run", "POST");
 
-  const session = it.started[0]?.session ?? fakeSession();
+    const session = it.started[index]?.session ?? fakeSession();
 
-  const result = await it.reportNothing?.run(
-    {},
-    { session, actor: `session:${session.id}` },
+    const result = await it.endRun?.run(input, {
+      session,
+      actor: `session:${session.id}`,
+    });
+
+    it.turnEnded(session);
+
+    return result;
+  };
+
+  expect(
+    (await end({ result: "done", summary: "Opened #12." }, 0))?.isError,
+  ).toBe(false);
+
+  await end({ result: "nothing", summary: "No new issues." }, 1);
+
+  for (let index = 2; index < 6; index++) {
+    await end({ result: "blocked", summary: "Which repository?" }, index);
+  }
+
+  expect((await end({ result: "maybe", summary: "" }, 6))?.isError).toBe(true);
+
+  const runs = await runsOf(it);
+
+  expect(
+    runs.slice(0, 6).map(({ outcome, reason }) => [outcome, reason]),
+  ).toEqual([
+    ["stopped", "the turn ended without end_run"],
+    ["blocked", "Which repository?"],
+    ["blocked", "Which repository?"],
+    ["blocked", "Which repository?"],
+    ["blocked", "Which repository?"],
+    ["nothing", "No new issues."],
+  ]);
+
+  expect(runs[6]).toMatchObject({ outcome: "ok", reason: "Opened #12." });
+
+  const [listed] = (await it.request("routines")).body as RoutineView[];
+
+  expect(listed?.paused).toBeNull();
+  expect(it.endRun?.appliesTo(fakeSession())).toBe(false);
+
+  expect(it.endRun?.appliesTo(it.started[0]?.session ?? fakeSession())).toBe(
+    true,
   );
-
-  expect(result?.isError).toBe(false);
-  it.turnEnded(session);
-
-  expect((await runsOf(it))[0]?.outcome).toBe("nothing");
-  expect(it.reportNothing?.appliesTo(fakeSession())).toBe(false);
-  expect(it.reportNothing?.appliesTo(session)).toBe(true);
 });
 
 test("skips a firing while the last run is still going, or queues one", async () => {

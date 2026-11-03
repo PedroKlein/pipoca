@@ -26,6 +26,7 @@ import type {
   RunOutcome,
   WakeUp,
 } from "../src/model";
+import { starters } from "./starters";
 
 const watched = { topics: ["routines.routines"] };
 
@@ -110,15 +111,9 @@ function RoutineList({
   );
 }
 
-const template = `{
-  "title": "Summarise new issues",
-  "triggers": [{ "cron": "0 8 * * 1-5", "timeZone": "${Intl.DateTimeFormat().resolvedOptions().timeZone}" }],
-  "run": {
-    "prompt": "Summarise the issues opened since yesterday.",
-    "workspace": { "kind": "clone", "repository": "https://github.com/owner/name" }
-  }
+function startText(index: number): string {
+  return `${JSON.stringify(starters[index]?.routine ?? {}, null, 2)}\n`;
 }
-`;
 
 function RoutinePage({
   context,
@@ -217,7 +212,7 @@ function RoutinePage({
         <Editor
           context={context}
           name={creating ? undefined : name}
-          text={routine?.file ?? template}
+          text={routine?.file ?? startText(0)}
           onSaved={(saved) => {
             setEditing(false);
 
@@ -332,6 +327,23 @@ function Editor({
       }}
       className="mt-4 flex flex-col gap-2"
     >
+      {name === undefined && (
+        <div className="flex flex-wrap items-center gap-2 text-ui">
+          <span className="text-fg-dim">Start from</span>
+          {starters.map((starter, index) => (
+            <Button
+              key={starter.name}
+              variant="ghost"
+              onClick={() => {
+                setText(startText(index));
+                setNewName(starter.name);
+              }}
+            >
+              {starter.label}
+            </Button>
+          ))}
+        </div>
+      )}
       {name === undefined && (
         <input
           aria-label="Name"
@@ -490,6 +502,7 @@ const outcomes: Readonly<
   queued: { state: "waiting", label: "Queued" },
   ok: { state: "done", label: "Done" },
   nothing: { state: "offline", label: "Nothing to do" },
+  stopped: { state: "offline", label: "Stopped" },
   failed: { state: "failed", label: "Failed" },
   skipped: { state: "offline", label: "Skipped" },
   blocked: { state: "failed", label: "Blocked" },
