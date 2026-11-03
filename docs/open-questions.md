@@ -136,8 +136,11 @@ These depend on the Kubernetes provider or the public extension SDK, which [visi
 
 ## Explicitly postponed
 
-- Organization membership and invitation flows.
-- Multiplayer presence and simultaneous steering. The direction is Team Sessions owned by a team, on admin-set credentials, with kernel-run sharing and one input queue per Session; they wait on a GitHub App, credentials kept outside the Session, a usage and audit record and team membership ([ADR 0054](adr/0054-team-sessions.md)).
+- Resolved: a server is one team, its users are whoever the sign-in provider or an admin lets in, and the roles are admins and users. Team work is open to every user unless its starter limits it, anyone can start it, and it runs on team Profiles and team Environments that admins manage ([ADR 0064](adr/0064-one-team-per-server.md)).
+- How are the team's model keys and other credentials kept out of team runners, given that every user can steer a team Session ([ADR 0054](adr/0054-team-sessions.md#what-must-exist-before-team-sessions-are-built))?
+- What does the team's own view look like, and how does a person move between it and their own work ([ADR 0064](adr/0064-one-team-per-server.md#the-team-gets-its-own-view))?
+- What do team budgets, per-person caps and the usage and audit record look like?
+- Multiplayer presence and simultaneous steering. The direction is Team Sessions owned by a team, on admin-set credentials, with kernel-run sharing and one input queue per Session; they wait on a GitHub App, credentials kept outside the Session, a usage and audit record and team membership ([ADR 0054](adr/0054-team-sessions.md)). Membership and roles are settled by [ADR 0064](adr/0064-one-team-per-server.md).
 - Resolved: GitHub Apps are technical users an admin registers, several per host, created with GitHub's manifest flow, with installation tokens per Session and the bot as author ([ADR 0060](adr/0060-technical-users-and-github-apps.md)). A software factory is routines that start one Session per issue or pull request and pick a workflow by kind of work ([ADR 0061](adr/0061-software-factory.md)); Slack and email are plugins that add triggers and replies ([ADR 0062](adr/0062-slack-and-email.md)). Team routines wait for team features.
 - Can a member use their own login for their own messages in a Team Session, as Claude Tag allows ([ADR 0054](adr/0054-team-sessions.md#team-sessions-and-team-features-belong-to-the-team))?
 - Billing and chargeback.

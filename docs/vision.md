@@ -64,7 +64,7 @@ v3 turns one person's Pipoca into a place where a team works. v2 already prepare
 - Multiplayer Projects: shared Sessions, presence, handoffs and approvals.
 - Usage policy, quotas and audit trails.
 
-The scope of v3 is designed once v2 is under way.
+The scope of v3 is designed once v2 is under way. A server is one team ([ADR 0064](adr/0064-one-team-per-server.md)), and Team Sessions follow [ADR 0054](adr/0054-team-sessions.md).
 
 ### Later
 
