@@ -68,7 +68,7 @@ The scope of v3 is designed once v2 is under way.
 
 ### Later
 
-Automation plugins such as Jobs, AI workflows and software factories ([ADR 0033](adr/0033-v2-authentication-and-order.md#build-order)). Enforced network policy, brokered secrets and hardened runtimes ([ADR 0034](adr/0034-v2-deployment-and-credentials.md#v2-scope)). And everything else under "Expected evolution" below.
+Automation plugins: routines and wake-ups ([ADR 0059](adr/0059-routines-and-wake-ups.md)), technical users and GitHub Apps ([ADR 0060](adr/0060-technical-users-and-github-apps.md)), the software factory ([ADR 0061](adr/0061-software-factory.md)), and Slack and email ([ADR 0062](adr/0062-slack-and-email.md)), built in that order. Enforced network policy, brokered secrets and hardened runtimes ([ADR 0034](adr/0034-v2-deployment-and-credentials.md#v2-scope)). And everything else under "Expected evolution" below.
 
 ## Product model
 

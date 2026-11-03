@@ -82,7 +82,7 @@
 ### Future compatibility without premature implementation
 
 - Resolved: every Session, Environment and plugin record has an `ownerId`, and every command records its `actor` (`user:<id>`, `session:<id>` or `plugin:<name>`) ([ADR 0015](adr/0015-plugins.md#actors-and-owners)).
-- What common RunRequest can later serve humans, schedules, webhooks, Projects, and automation flows? OpenHands keeps triggers in a separate service that creates conversations through the public API ([research](research.md#openhands)).
+- Resolved: schedules, events and webhooks start work through a `routines` plugin that uses the same start request as people and Projects, and Sessions can schedule their own wake-ups ([ADR 0059](adr/0059-routines-and-wake-ups.md)). Where should scripts that decide whether to wake the model run, and does a graph editor in the style of n8n grow out of routines?
 - Which domain events should exist from the beginning?
 - How should personal Cells later federate into a Team Hub without merging their local trust boundaries?
 
@@ -138,7 +138,7 @@ These depend on the Kubernetes provider or the public extension SDK, which [visi
 
 - Organization membership and invitation flows.
 - Multiplayer presence and simultaneous steering. The direction is Team Sessions owned by a team, on admin-set credentials, with kernel-run sharing and one input queue per Session; they wait on a GitHub App, credentials kept outside the Session, a usage and audit record and team membership ([ADR 0054](adr/0054-team-sessions.md)).
-- How is the Pipoca GitHub App designed: installation, per-Session tokens, author and co-author, approval rules ([ADR 0054](adr/0054-team-sessions.md#what-must-exist-before-team-sessions-are-built))?
+- Resolved: GitHub Apps are technical users an admin registers, several per host, created with GitHub's manifest flow, with installation tokens per Session and the bot as author ([ADR 0060](adr/0060-technical-users-and-github-apps.md)). A software factory is routines that start one Session per issue or pull request and pick a workflow by kind of work ([ADR 0061](adr/0061-software-factory.md)); Slack and email are plugins that add triggers and replies ([ADR 0062](adr/0062-slack-and-email.md)). Team routines wait for team features.
 - Can a member use their own login for their own messages in a Team Session, as Claude Tag allows ([ADR 0054](adr/0054-team-sessions.md#team-sessions-and-team-features-belong-to-the-team))?
 - Billing and chargeback.
 - General-purpose durable workflow syntax.
