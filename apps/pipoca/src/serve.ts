@@ -13,6 +13,7 @@ import { models } from "@pipoca/models/server";
 import { oidc } from "@pipoca/oidc/server";
 import { projects } from "@pipoca/projects/server";
 import { routines } from "@pipoca/routines/server";
+import { slack } from "@pipoca/slack/server";
 import { kernelToolsets, startPlugins } from "@pipoca/pluginhost";
 import { eventBus, type ServerPlugin } from "@pipoca/plugins";
 import type { PluginManifest } from "@pipoca/protocol";
@@ -61,6 +62,7 @@ const serverPlugins: readonly ServerPlugin[] = [
   loginsPlugin,
   push,
   routines,
+  slack,
 ];
 
 export interface ServeOptions {

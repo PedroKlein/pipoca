@@ -21,6 +21,7 @@
     "@pipoca/protocol": "workspace:*",
     "@pipoca/push": "workspace:*",
     "@pipoca/routines": "workspace:*",
+    "@pipoca/slack": "workspace:*",
     "@pipoca/subagents": "workspace:*",
     "@pipoca/ui": "workspace:*",
     "@pipoca/usage": "workspace:*",
