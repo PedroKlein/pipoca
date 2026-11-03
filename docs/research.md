@@ -175,6 +175,19 @@ None of these puts a planning agent between an event and the run it starts.
 - [Backstage](https://backstage.io/docs/integrations/github/github-apps) lists several Apps per host, each with `allowedInstallationOwners`, and allows one per organization because it picks an App by organization.
 - GitHub's terms allow [one free machine account per person](https://conductatlas.com/platform/github/github-terms-of-service/machine-account-limited-to-one-per-user/).
 
+### Multiplayer sessions
+
+Read 2026-11-03 (product docs and papers).
+
+- **[Claude Tag](https://claude.com/docs/claude-tag/users/when-claude-responds.md).** A mention starts a session, and every reply in its thread reaches it. At a channel's top level the model decides whether to answer, and "nothing" is the usual outcome. `!mute` silences a thread, and a thread can be set to answer only when mentioned ([commands](https://claude.com/docs/claude-tag/users/commands.md)).
+- **[Devin in Slack](https://docs.devin.ai/integrations/slack.md).** Thread replies reach the session. `!aside` on a message hides it from Devin, the only per-message exclusion found.
+- **ChatGPT group chats.** The model decided when to answer, and a mention forced a reply ([OpenAI](https://openai.com/index/group-chats-in-chatgpt/)). OpenAI is retiring the feature ([notice](https://help-lb.openai.com/en/articles/12703475-retiring-group-chats-in-chatgpt)).
+- **[llmcord](https://raw.githubusercontent.com/jakobdylanc/llmcord/main/README.md) and Open WebUI.** A mention triggers the bot, which reads the last 25 to 50 messages.
+- **[Amp](https://ampcode.com/docs/collaborate/multiplayer).** Members of a shared thread can talk to each other in it, and a long thread is handed off to a new one.
+- **Addressee detection.** GPT-4o found who a message was addressed to at 80.9% against an 80.6% chance baseline in three-person conversations ([Inoue et al.](https://arxiv.org/html/2501.16643v2)).
+
+No product has votes: the agent asks, and the first answer wins with the answerer's name.
+
 ## Research conclusion
 
 No reviewed project combines Pi-native Session fidelity, Claude-style Projects and Threads, portable Environments, strong Kubernetes execution, and future collaboration. PI WEB is the closest reference; Pipoca owns its own control plane and UI rather than building on it ([ADR 0001](adr/0001-own-the-control-plane-and-ui.md)).
