@@ -29,7 +29,11 @@ Some of it already exists. Single sign-on decides who becomes a user and who is 
 - Team Sessions run on team Profiles: Profiles the team owns, that build on the base, and that admins manage (decided 2026-11-03). The starter picks one. A user's My defaults, personal Profiles and personal logins never load in team work.
 - A team Profile uses only logins on the base or on team Profiles.
 - The team has its own Environments, managed by admins (decided 2026-11-03). Their runners host only team Sessions, and personal runners only personal ones, so one person's credentials still never share a machine with anyone else's ([ADR 0049](0049-personal-environments-and-templates.md)).
-- These are different from what admins share today. A Profile on offer ([ADR 0063](0063-settings-and-first-run-setup.md#joining-a-team)) and an Environment template ([ADR 0049](0049-personal-environments-and-templates.md)) are copied into something a person owns. A team Profile and a team Environment stay the team's: users use them and can't change them. The Profiles and Environments pages show a Team section next to the person's own.
+- These are different from what admins share today. A Profile on offer ([ADR 0063](0063-settings-and-first-run-setup.md#joining-a-team)) and an Environment template ([ADR 0049](0049-personal-environments-and-templates.md)) are copied into something a person owns. A team Profile and a team Environment stay the team's: users use them and can't change them.
+
+### The team gets its own view
+
+- Team work has a view of its own, apart from a person's own Sessions, Projects and Settings (decided 2026-11-03). What it looks like is decided from mockups of a few directions before anything is built.
 
 ## Consequences
 
@@ -38,4 +42,5 @@ Some of it already exists. Single sign-on decides who becomes a user and who is 
 - Anyone on the team can read team work unless its starter limits it, so sensitive work belongs in personal Sessions or a limited team Session.
 - A team runner holds team credentials and every user can steer the Sessions on it, which makes keeping credentials outside the Session the next thing to design.
 - Admins look after a second set of Profiles and Environments, the team's, next to the base, the Profiles on offer and the templates.
+- Team screens can't simply reuse the personal pages with a Team section added, so they cost more to design and build.
 - Two teams on one cluster run two servers, each with its own database, sign-in and admins.
