@@ -64,6 +64,7 @@ Mockups of every Settings page, a first-run setup, a team member's setup and the
 ### Environment kinds
 
 - An Environment is a machine someone connects, a Docker image on such a machine, or pods on Kubernetes. The Environments page says which kind each one is.
+- A Docker Environment runs one container from its image, and a pool of Sessions shares it. A Kubernetes Environment runs a pod per person, as [ADR 0049](0049-personal-environments-and-templates.md) does today.
 - Setup scripts and images belong to the container kinds. On a connected machine, Sessions use what's installed there.
 - A Kubernetes Environment has no machines to connect. It shows its image, size, idle timeout and running pods.
 - Git and `gh` sign in to every host the Session's owner has connected, as they do today, so an Environment doesn't need a `GH_TOKEN` variable for that.
