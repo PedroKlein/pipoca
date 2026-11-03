@@ -31,6 +31,7 @@
     "@pipoca/protocol": "workspace:*",
     "@pipoca/providers": "workspace:*",
     "@pipoca/push": "workspace:*",
+    "@pipoca/routines": "workspace:*",
     "@pipoca/sessionhost": "workspace:*",
     "@pipoca/sessions": "workspace:*",
     "@pipoca/subagents": "workspace:*",
