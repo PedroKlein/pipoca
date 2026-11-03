@@ -1,10 +1,10 @@
 import { json, useLoaded } from "@pipoca/plugins/web";
 import type {
-  ListedProfile,
+  ManifestEntry,
   PiPackage,
   Profile,
   ProfileContent,
-  ProfileSource,
+  RepositorySource,
 } from "@pipoca/protocol";
 import {
   Badge,
@@ -670,7 +670,7 @@ function Synced({
   onChange,
 }: {
   readonly profile: Profile;
-  readonly source: ProfileSource;
+  readonly source: RepositorySource;
   readonly onChange: () => void;
 }): ReactElement {
   const [error, setError] = useState<string>();
@@ -747,7 +747,7 @@ function Import({ onChange }: { readonly onChange: () => void }): ReactElement {
 
   const [listed, setListed] = useState<{
     readonly url: string;
-    readonly profiles: readonly ListedProfile[];
+    readonly profiles: readonly ManifestEntry[];
   }>();
 
   const imported = (action: () => Promise<Profile | undefined>): void => {
@@ -841,7 +841,7 @@ function Import({ onChange }: { readonly onChange: () => void }): ReactElement {
 
             imported(async () => {
               const { profiles } = await json<{
-                readonly profiles: readonly ListedProfile[];
+                readonly profiles: readonly ManifestEntry[];
               }>(api("/api/profiles/listed", { url: repository }));
 
               if (profiles.length > 0) {

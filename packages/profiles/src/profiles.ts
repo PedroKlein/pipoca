@@ -1,11 +1,11 @@
 import { lstat, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import {
-  type ListedProfile,
+  type ManifestEntry,
   type PiPackage,
   type Profile,
   type ProfileContent,
-  type ProfileSource,
+  type RepositorySource,
   emptyProfile,
   profilePath,
 } from "@pipoca/protocol";
@@ -19,12 +19,7 @@ import {
   type StoredProfile,
 } from "./folders";
 import { InvalidProfile } from "./invalid";
-import {
-  folderFiles,
-  listedProfiles,
-  manifestFile,
-  withClone,
-} from "./repository";
+import { folderFiles, listedIn, manifestFile, withClone } from "./repository";
 
 export interface ProfileStore {
   readonly defaultProfileId: (ownerId: string) => string;
@@ -395,8 +390,8 @@ export class Profiles {
   }
 
   // The Profiles a repository's pipoca.json lists (ADR 0063).
-  async listed(url: string): Promise<readonly ListedProfile[]> {
-    return withClone(url, ({ dir }) => listedProfiles(dir));
+  async listed(url: string): Promise<readonly ManifestEntry[]> {
+    return withClone(url, ({ dir }) => listedIn(dir, "profiles"));
   }
 
   // Each picked folder becomes a Profile of the importer's that follows the
@@ -407,7 +402,7 @@ export class Profiles {
     paths: readonly string[],
   ): Promise<readonly Profile[]> {
     return withClone(url, ({ dir, commit }) => {
-      const listed = listedProfiles(dir);
+      const listed = listedIn(dir, "profiles");
 
       const picked = paths.map((path) => {
         const found = listed.find((each) => each.path === path);
@@ -535,7 +530,7 @@ export class Profiles {
     userId: string,
     name: string,
     files: ReadonlyMap<string, Buffer>,
-    source?: ProfileSource,
+    source?: RepositorySource,
   ): Profile {
     const created = this.create(userId, { name }, false);
     if (!created.ok) {

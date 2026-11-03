@@ -109,6 +109,7 @@ test("only admins change templates, and everyone reads them", async () => {
     id: "cluster-pods",
     isolation: "process",
     image: null,
+    source: null,
     ...pods,
   });
 
@@ -242,6 +243,7 @@ test("reads templates an admin wrote into pipoca.json", async () => {
       isolation: "container",
       image: "debian:12",
       setupScript: "",
+      source: null,
       variables: {},
     },
   ]);

@@ -147,6 +147,8 @@ A repository can share Profiles with a `pipoca.json` at its root that lists them
 
 Import a Profile from that repository's https or ssh URL on the Profiles page, pick the ones to bring, and each becomes a Profile of yours that follows its folder. The server checks the repository every 15 minutes, and Sync now on the Profile's page checks at once. A synced Profile can't be edited, since the next change in the repository would replace the edit. Make a copy gives you one of your own that stops following it, or make a Profile that builds on the synced one. A repository without `pipoca.json` imports as one Profile from its root folder, as before.
 
+The same file can list Environment templates under `"templates"`, each a JSON file in the repository with the template's `isolation`, `image`, `setupScript` and `variables`, never secrets. On the Environments page, an admin uses From a repository under Templates to bring the ones they pick. They follow the repository the same way and change only there.
+
 ### Templates
 
 Admins can share an Environment's settings as a template ([ADR 0049](adr/0049-personal-environments-and-templates.md)): a setup script, isolation, image and variables, but never secrets or runners. Make one under Templates on the Environments page, or list them under `templates` in the config folder's `pipoca.json`, for example from the chart's `config` value:

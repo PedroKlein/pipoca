@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, normalize, sep } from "node:path";
 import { promisify } from "node:util";
-import type { ListedProfile } from "@pipoca/protocol";
+import type { ManifestEntry } from "@pipoca/protocol";
 import { isRecord } from "./folders";
 import { folderEntries } from "./files";
 import { InvalidProfile } from "./invalid";
@@ -67,9 +67,12 @@ export async function withClone<T>(
   }
 }
 
-// The Profiles a clone's pipoca.json lists, or none without one. Throws
-// InvalidProfile for a manifest that isn't valid.
-export function listedProfiles(dir: string): readonly ListedProfile[] {
+// What a clone's pipoca.json lists of one kind, or nothing without one.
+// Throws InvalidProfile for a manifest that isn't valid.
+export function listedIn(
+  dir: string,
+  kind: "profiles" | "templates",
+): readonly ManifestEntry[] {
   const file = join(dir, manifestFile);
   const info = lstatSync(file, { throwIfNoEntry: false });
 
@@ -88,17 +91,17 @@ export function listedProfiles(dir: string): readonly ListedProfile[] {
     throw new InvalidProfile(`${manifestFile} is not JSON`);
   }
 
-  const profiles = isRecord(manifest) ? manifest["profiles"] : undefined;
+  const entries = isRecord(manifest) ? manifest[kind] : undefined;
 
-  if (profiles === undefined) {
+  if (entries === undefined) {
     return [];
   }
 
-  if (!Array.isArray(profiles)) {
-    throw new InvalidProfile(`profiles in ${manifestFile} must be a list`);
+  if (!Array.isArray(entries)) {
+    throw new InvalidProfile(`${kind} in ${manifestFile} must be a list`);
   }
 
-  return profiles.map((entry: unknown) => {
+  return entries.map((entry: unknown) => {
     if (
       !isRecord(entry) ||
       typeof entry["name"] !== "string" ||
@@ -106,7 +109,7 @@ export function listedProfiles(dir: string): readonly ListedProfile[] {
       typeof entry["path"] !== "string"
     ) {
       throw new InvalidProfile(
-        `each Profile in ${manifestFile} needs a name and a path`,
+        `each entry of ${kind} in ${manifestFile} needs a name and a path`,
       );
     }
 
@@ -136,6 +139,23 @@ export function folderFiles(
       readFileSync(join(folder, file)),
     ]),
   );
+}
+
+// A small file in the clone, which must stay inside it.
+export function repositoryFile(dir: string, path: string): string {
+  const root = realpathSync(dir);
+  const file = join(root, folderPath(path));
+  const info = lstatSync(file, { throwIfNoEntry: false });
+
+  if (
+    info?.isFile() !== true ||
+    info.size > maxManifestBytes ||
+    !realpathSync(file).startsWith(root + sep)
+  ) {
+    throw new InvalidProfile(`${path} is not a small file in the repository`);
+  }
+
+  return readFileSync(file, "utf8");
 }
 
 function folderPath(path: string): string {
