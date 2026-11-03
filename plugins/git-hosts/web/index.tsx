@@ -23,6 +23,7 @@ import type {
   HostView,
   Preferences,
   PullWatch,
+  TechnicalUserView,
 } from "../src/model";
 
 export const gitHosts: WebPlugin = {
@@ -75,6 +76,12 @@ function SettingsSection({
       </ul>
       <PullRequestChoices context={context} />
       {value.admin && <Hosts context={context} onChange={reload} />}
+      {value.admin && (
+        <TechnicalUsers
+          context={context}
+          hosts={value.hosts.map(({ host }) => host)}
+        />
+      )}
     </Section>
   );
 }
@@ -618,4 +625,253 @@ function secretLabel(host: HostView | undefined): string {
   return host?.hasClientSecret === true
     ? "Client secret (set; leave empty to keep it)"
     : "OAuth app client secret";
+}
+
+// Bot identities that routines and the factory act as instead of a person
+// (ADR 0060).
+function TechnicalUsers({
+  context,
+  hosts,
+}: {
+  readonly context: WebContext;
+  readonly hosts: readonly string[];
+}): ReactElement {
+  const { value, reload } = useLoaded(
+    async () =>
+      json<readonly TechnicalUserView[]>(context.request("technical-users")),
+    "technical-users",
+  );
+
+  const [adding, setAdding] = useState<"app" | "token">();
+  const [error, setError] = useState<string>();
+
+  const text = (form: FormData, name: string): string => {
+    const field = form.get(name);
+
+    return typeof field === "string" ? field.trim() : "";
+  };
+
+  const createApp = (event: SubmitEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+
+    const params = new URLSearchParams({
+      host: text(form, "host"),
+      name: text(form, "name"),
+      organization: text(form, "organization"),
+    });
+
+    location.assign(
+      `/api/plugins/git-hosts/technical-users/new-app?${params.toString()}`,
+    );
+  };
+
+  const addMachineUser = (event: SubmitEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+
+    json(
+      context.request("technical-users", {
+        method: "POST",
+        body: JSON.stringify({
+          host: text(form, "host"),
+          name: text(form, "name"),
+          token: text(form, "token"),
+        }),
+      }),
+    ).then(
+      () => {
+        setAdding(undefined);
+        setError(undefined);
+        reload();
+      },
+      (reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      },
+    );
+  };
+
+  const remove = (user: TechnicalUserView): void => {
+    if (!confirm(`Routines acting as ${user.name} will stop.`)) {
+      return;
+    }
+
+    void json(
+      context.request(`technical-users/${encodeURIComponent(user.name)}`, {
+        method: "DELETE",
+      }),
+    ).then(reload, reload);
+  };
+
+  const hostField = (
+    <Field label="Host">
+      <select name="host" className={fieldClass}>
+        {hosts.map((host) => (
+          <option key={host} value={host}>
+            {host}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+
+  return (
+    <div className="flex flex-col gap-2 text-ui">
+      <h3 className="text-label font-medium text-fg-strong">Technical users</h3>
+      <p className="text-fg-dim">
+        Bots that routines can act as instead of a person, so their pull
+        requests and comments aren't yours. A GitHub App is best: its keys stay
+        on this server.
+      </p>
+      <ul
+        aria-label="Technical users"
+        className="flex flex-col gap-1 rounded-lg border border-line bg-elevated shadow-xs p-3"
+      >
+        {value?.length === 0 && (
+          <li className="text-fg-dim">No technical users yet.</li>
+        )}
+        {value?.map((user) => (
+          <li key={user.name} className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <span className="flex-1 truncate text-fg">
+                {user.name}
+                <span className="text-fg-dim">
+                  {" "}
+                  · {user.kind === "app"
+                    ? "GitHub App"
+                    : "machine user"} on {user.host} · {user.login}
+                </span>
+              </span>
+              {user.installUrl !== null && (
+                <a
+                  href={user.installUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-accent hover:underline"
+                >
+                  Install
+                </a>
+              )}
+              <Button
+                aria-label={`Remove ${user.name}`}
+                onClick={() => {
+                  remove(user);
+                }}
+              >
+                Remove
+              </Button>
+            </div>
+            {user.installedOn !== null && (
+              <p className="text-caption text-fg-dim">
+                {user.installedOn.length === 0
+                  ? "Not installed yet."
+                  : `Installed on ${user.installedOn.join(", ")}.`}
+              </p>
+            )}
+            {user.error !== null && (
+              <p className="text-caption text-failed">{user.error}</p>
+            )}
+          </li>
+        ))}
+      </ul>
+      {adding === undefined && (
+        <div className="flex gap-2">
+          <Button
+            onClick={() => {
+              setAdding("app");
+            }}
+          >
+            Create a GitHub App
+          </Button>
+          <Button
+            onClick={() => {
+              setAdding("token");
+            }}
+          >
+            Add a machine user
+          </Button>
+        </div>
+      )}
+      {adding === "app" && (
+        <form
+          onSubmit={createApp}
+          aria-label="New GitHub App"
+          className="grid gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 md:grid-cols-2"
+        >
+          {hostField}
+          <Field label="App name">
+            <input
+              name="name"
+              required
+              placeholder="Acme Pipoca bot"
+              className={fieldClass}
+            />
+          </Field>
+          <Field label="Organization that owns it (optional)">
+            <input name="organization" className={fieldClass} />
+          </Field>
+          <p className="text-label text-fg-dim md:col-span-2">
+            The host asks you to confirm the App, then sends you back here.
+            Install it on the accounts it should work in after that.
+          </p>
+          <div className="flex gap-2 md:col-span-2">
+            <Button variant="primary" type="submit">
+              Continue on the host
+            </Button>
+            <Button
+              onClick={() => {
+                setAdding(undefined);
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </form>
+      )}
+      {adding === "token" && (
+        <form
+          onSubmit={addMachineUser}
+          aria-label="New machine user"
+          className="grid gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 md:grid-cols-2"
+        >
+          {hostField}
+          <Field label="Name">
+            <input
+              name="name"
+              required
+              placeholder="ci-bot"
+              className={fieldClass}
+            />
+          </Field>
+          <Field label="The account's personal access token">
+            <input
+              name="token"
+              type="password"
+              autoComplete="off"
+              required
+              className={fieldClass}
+            />
+          </Field>
+          <div className="flex flex-wrap items-center gap-2 md:col-span-2">
+            <Button variant="primary" type="submit">
+              Add
+            </Button>
+            <Button
+              onClick={() => {
+                setAdding(undefined);
+                setError(undefined);
+              }}
+            >
+              Cancel
+            </Button>
+            {error !== undefined && (
+              <p role="alert" className="text-caption text-failed">
+                {error}
+              </p>
+            )}
+          </div>
+        </form>
+      )}
+    </div>
+  );
 }

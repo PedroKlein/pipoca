@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { createVerify, generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -38,6 +39,39 @@ let pull: {
 
 const pullUrl = `https://${enterprise}/I572543/dotfiles/pull/7`;
 
+// The key the host hands out for the App it creates from a manifest.
+const appKey = generateKeyPairSync("rsa", {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: "spki", format: "pem" },
+  privateKeyEncoding: { type: "pkcs1", format: "pem" },
+});
+
+// Whether a JWT is the App's, signed with its key.
+function signedByApp(authorization: string | null): boolean {
+  const [header, payload, signature] = (authorization ?? "")
+    .replace(/^Bearer /, "")
+    .split(".");
+
+  if (
+    header === undefined ||
+    payload === undefined ||
+    signature === undefined
+  ) {
+    return false;
+  }
+
+  const { iss } = JSON.parse(Buffer.from(payload, "base64url").toString()) as {
+    iss?: unknown;
+  };
+
+  return (
+    iss === "42" &&
+    createVerify("RSA-SHA256")
+      .update(`${header}.${payload}`)
+      .verify(appKey.publicKey, Buffer.from(signature, "base64url"))
+  );
+}
+
 beforeEach(() => {
   logs = [];
   streams = [];
@@ -55,6 +89,28 @@ beforeEach(() => {
     port: 0,
     fetch: async (request) => {
       const url = new URL(request.url);
+
+      if (
+        url.pathname === "/api/v3/app-manifests/m4nifest/conversions" &&
+        request.method === "POST"
+      ) {
+        return Response.json(
+          {
+            id: 42,
+            slug: "pipoca-bot",
+            html_url: `https://${enterprise}/github-apps/pipoca-bot`,
+            pem: appKey.privateKey,
+            webhook_secret: "hook-secret",
+          },
+          { status: 201 },
+        );
+      }
+
+      if (url.pathname === "/api/v3/app/installations") {
+        return signedByApp(request.headers.get("authorization"))
+          ? Response.json([{ id: 7, account: { login: "I572543" } }])
+          : Response.json({ message: "Bad JWT" }, { status: 401 });
+      }
 
       if (request.headers.get("authorization") !== `Bearer ${goodToken}`) {
         return Response.json({ message: "Bad credentials" }, { status: 401 });
@@ -722,3 +778,95 @@ test("merges a watched pull request the way its repository allows, and stops wat
   expect(pull.mergedWith).toBe("squash");
   expect(await watched(session.id)).toEqual([]);
 }, 15_000);
+
+test("creates a GitHub App from a manifest as a technical user, with its key sealed", async () => {
+  const started = await api(
+    "GET",
+    `/api/plugins/git-hosts/technical-users/new-app?host=${enterprise}&name=Pipoca%20bot&organization=I572543`,
+  );
+
+  const form = await started.text();
+  const action = /action="([^"]+)"/.exec(form)?.[1] ?? "";
+  const target = new URL(action.replaceAll("&#38;", "&"));
+  const state = target.searchParams.get("state") ?? "";
+
+  const manifest = JSON.parse(
+    (/name="manifest" value="([^"]+)"/.exec(form)?.[1] ?? "").replace(
+      /&#(\d+);/g,
+      (_, code: string) => String.fromCharCode(Number(code)),
+    ),
+  ) as Record<string, unknown>;
+
+  expect(target.origin + target.pathname).toBe(
+    `https://${enterprise}/organizations/I572543/settings/apps/new`,
+  );
+
+  expect(manifest).toMatchObject({
+    name: "Pipoca bot",
+    redirect_url: new URL("/api/plugins/git-hosts/app-created", server.url)
+      .href,
+    public: false,
+  });
+
+  const browser = (started.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+  const callback = `/api/plugins/git-hosts/app-created?code=m4nifest&state=${state}`;
+
+  expect((await fetch(new URL(callback, server.url))).status).toBe(400);
+
+  const created = await fetch(new URL(callback, server.url), {
+    headers: { cookie: browser },
+  });
+
+  expect(created.status).toBe(200);
+
+  expect(
+    await (await api("GET", "/api/plugins/git-hosts/technical-users")).json(),
+  ).toEqual([
+    {
+      name: "pipoca-bot",
+      host: enterprise,
+      kind: "app",
+      login: "pipoca-bot[bot]",
+      installUrl: `https://${enterprise}/github-apps/pipoca-bot/installations/new`,
+      installedOn: ["I572543"],
+      error: null,
+    },
+  ]);
+
+  const file = readFileSync(join(configDir, "pipoca.json"), "utf8");
+
+  expect(file).toContain('"pipoca-bot"');
+  expect(file).not.toContain("PRIVATE KEY");
+  expect(file).not.toContain("hook-secret");
+});
+
+test("adds a machine user by a token its host accepts, and removes it", async () => {
+  const add = async (token: string): Promise<Response> =>
+    api("POST", "/api/plugins/git-hosts/technical-users", {
+      name: "ci-bot",
+      host: enterprise,
+      token,
+    });
+
+  expect((await add("ghp_bad")).status).toBe(400);
+
+  expect(await (await add(goodToken)).json()).toEqual({
+    name: "ci-bot",
+    login: "pedro-sap",
+  });
+
+  expect((await add(goodToken)).status).toBe(400);
+
+  expect(readFileSync(join(configDir, "pipoca.json"), "utf8")).not.toContain(
+    goodToken,
+  );
+
+  expect(
+    (await api("DELETE", "/api/plugins/git-hosts/technical-users/ci-bot"))
+      .status,
+  ).toBe(200);
+
+  expect(
+    await (await api("GET", "/api/plugins/git-hosts/technical-users")).json(),
+  ).toEqual([]);
+});
