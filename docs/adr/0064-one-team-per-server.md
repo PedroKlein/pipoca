@@ -33,7 +33,7 @@ Some of it already exists. Single sign-on decides who becomes a user and who is 
 
 ### The team gets its own view
 
-- Team work has a view of its own, apart from a person's own Sessions, Projects and Settings (decided 2026-11-03). What it looks like is decided from mockups of a few directions before anything is built.
+- Team work has a view of its own, apart from a person's own Sessions, Projects and Settings (decided 2026-11-03). What it looks like is decided from mockups of a few directions before anything is built. Decided in [ADR 0065](0065-team-hub-and-team-conversations.md#the-team-hub): a separate team hub.
 
 ## Consequences
 
