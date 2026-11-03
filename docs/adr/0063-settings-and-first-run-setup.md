@@ -35,6 +35,7 @@ Mockups of every Settings page, a first-run setup, a team member's setup and the
 
 - A new server greets its first person with a full-screen setup: their account, where Pi works, a model provider, their code hosts and their Profile (decided 2026-11-03). Code hosts and Profile can be skipped.
 - Any step that was skipped stays on the home screen as a small reminder until it's done. This replaces the first-run checklist of [ADR 0040](0040-fewer-forms.md).
+- People who used a server before this change don't see the wizard. Only the steps they never did show up as reminders (decided 2026-11-03).
 - **Where Pi works** takes more than one answer: this computer, Docker on it, another machine or a Kubernetes cluster. Each becomes an Environment. A folder given for this computer means any folder inside it.
 - **A model provider** includes custom providers, and every sign-in happens in the setup, with no Session needed.
 - **Bringing an existing setup** lists what it found in `~/.pi/agent` or a repository, item by item, so the person can leave out any skill, package or MCP server before importing.
@@ -50,6 +51,7 @@ Mockups of every Settings page, a first-run setup, a team member's setup and the
 
 - Profiles layer in this order: the server's base Profile, then **My defaults**, then the Profile (decided 2026-11-03).
 - The base Profile stays the admin's ([ADR 0044](0044-base-profile.md)). My defaults is one per person, edited by that person, and sits under every Profile of theirs.
+- My defaults is a Pi agent folder at `<config-dir>/people/<user>/defaults/`. Like the base, it's outside `profiles/`, so nobody picks it for a Session (decided 2026-11-03).
 - A Profile can build on another Profile and gets everything from it. The layers merge by the rules of [ADR 0044](0044-base-profile.md), with the nearer layer winning.
 - Provider extensions are usually put in the base or in My defaults, so every model picker lists their providers.
 - A Profile has a system prompt section, for `SYSTEM.md` or `APPEND_SYSTEM.md`.
@@ -58,6 +60,7 @@ Mockups of every Settings page, a first-run setup, a team member's setup and the
 
 - Model provider logins and MCP logins belong to a Profile layer, not only to the person (decided 2026-11-03). This changes where [ADR 0045](0045-server-kept-logins.md) keeps them. The server keeps them, and they reach runners the same way.
 - A Profile inherits each login from the layer below it, or signs in with its own account. A Work Profile and a Personal Profile can use different accounts with the same provider.
+- An admin can put an API key on the base Profile, such as a team's service key, and everyone inherits it unless they sign in themselves. Subscription sign-ins stay personal and never go on the base (decided 2026-11-03).
 - Accounts lists each login with the layer it comes from and the Profiles that override it. A Profile's page has the same switch, Inherit or Own login, for each provider and MCP server.
 - The model a new Session starts with comes from its Profile, since the Profile decides which providers exist.
 
@@ -79,6 +82,8 @@ Mockups of every Settings page, a first-run setup, a team member's setup and the
 - Importing such a repository shows what the manifest lists, and the person picks what to bring. What they pick stays in sync when the repository changes.
 
 ## Consequences
+
+- The build starts with the new Settings page around today's sections, then the setup wizard, then Profile layers and logins.
 
 - Settings gets simpler for people who aren't admins: four of their pages, plus the Workspace pages.
 - Every guided flow is more UI to build and test than the form it replaces, and each still has to round-trip through its config file.
