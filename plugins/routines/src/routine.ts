@@ -32,6 +32,7 @@ const trigger = Type.Union([
     { additionalProperties: false },
   ),
   Type.Object({ at: Type.String() }, { additionalProperties: false }),
+  Type.Object({ webhook: Type.Literal(true) }, { additionalProperties: false }),
   Type.Object(
     {
       event: Type.String({ pattern: "^[a-z0-9-]+\\.[a-z0-9_]+$" }),

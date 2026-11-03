@@ -1,6 +1,14 @@
-import { NotFound, readJson, type ServerPlugin } from "@pipoca/plugins";
+import {
+  HttpError,
+  NotFound,
+  readJson,
+  type RouteCaller,
+  type ServerPlugin,
+} from "@pipoca/plugins";
 import { routinesEngine } from "./engine";
 import { wakeUps } from "./wakeups";
+
+const maxHookBody = 1024 * 1024;
 
 export const routines: ServerPlugin = {
   name: "routines",
@@ -34,12 +42,47 @@ export const routines: ServerPlugin = {
       },
     });
 
-    context.routes.handle(async (request, path, caller) => {
-      if (caller.kind !== "user") {
-        throw new NotFound(`no route ${path}`);
+    context.auth.handlePublic(async (request, path) => {
+      const [route, id, extra] = path.split("/");
+
+      if (
+        route !== "hooks" ||
+        id === undefined ||
+        extra !== undefined ||
+        request.method !== "POST"
+      ) {
+        return undefined;
       }
 
-      const userId = caller.actor.slice("user:".length);
+      const body = await request.text();
+
+      if (body.length > maxHookBody) {
+        return refusal(413, "too_large", "a webhook's body is at most 1 MB");
+      }
+
+      const outcome = engine.hook(
+        id,
+        body,
+        request.headers.get("x-pipoca-signature") ??
+          request.headers.get("x-hub-signature-256"),
+      );
+
+      switch (outcome) {
+        case "accepted":
+          return Response.json({ ok: true }, { status: 202 });
+        case "unknown":
+          return refusal(404, "not_found", "no such webhook");
+        case "unsigned":
+          return refusal(
+            401,
+            "unauthorized",
+            "sign the body with the routine's secret, as sha256=<HMAC-SHA256 in hex> in X-Pipoca-Signature",
+          );
+      }
+    });
+
+    context.routes.handle(async (request, path, caller) => {
+      const userId = personOf(caller);
       const [route, id, action] = path.split("/");
       const method = request.method;
 
@@ -69,8 +112,17 @@ export const routines: ServerPlugin = {
 
       if (id !== undefined && action === undefined) {
         switch (method) {
-          case "GET":
-            return Response.json(engine.get(userId, id));
+          case "GET": {
+            const { webhook, ...detail } = engine.get(userId, id);
+
+            // An agent learns where the webhook is, never its secret.
+            return Response.json(
+              caller.kind === "user" || webhook === undefined
+                ? { ...detail, ...(webhook && { webhook }) }
+                : { ...detail, webhook: { path: webhook.path } },
+            );
+          }
+
           case "PUT":
             engine.save(userId, id, await readJson(request));
 
@@ -100,3 +152,25 @@ export const routines: ServerPlugin = {
     });
   },
 };
+
+// A Session acts for the person who started it, except a routine's own run,
+// so routines can't make routines (ADR 0059).
+function personOf(caller: RouteCaller): string {
+  if (caller.kind === "user") {
+    return caller.actor.slice("user:".length);
+  }
+
+  if (caller.session.owner?.plugin === "routines") {
+    throw new HttpError(403, "a routine's run can't change routines");
+  }
+
+  if (caller.session.startedBy === null) {
+    throw new HttpError(403, "only a Session a person started can do this");
+  }
+
+  return caller.session.startedBy;
+}
+
+function refusal(status: number, error: string, message: string): Response {
+  return Response.json({ error, message }, { status });
+}

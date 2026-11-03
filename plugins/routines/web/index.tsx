@@ -212,6 +212,7 @@ function RoutinePage({
       {failure !== undefined && (
         <p className="mt-3 text-ui text-failed">{failure}</p>
       )}
+      {routine?.webhook !== undefined && <Webhook {...routine.webhook} />}
       {editing && (creating || routine !== undefined) && (
         <Editor
           context={context}
@@ -241,6 +242,43 @@ function RoutinePage({
         </Section>
       )}
     </>
+  );
+}
+
+function Webhook({
+  path,
+  secret,
+}: {
+  readonly path: string;
+  readonly secret: string;
+}): ReactElement {
+  const [shown, setShown] = useState(false);
+
+  return (
+    <Section title="Webhook">
+      <p className="text-ui text-fg-dim">
+        POST JSON here, signed with the secret as{" "}
+        <code>sha256=&lt;HMAC-SHA256 of the body in hex&gt;</code> in{" "}
+        <code>X-Pipoca-Signature</code> or <code>X-Hub-Signature-256</code>, as
+        GitHub signs webhooks.
+      </p>
+      <code className="break-all text-label text-fg">
+        {new URL(path, location.origin).href}
+      </code>
+      <div className="flex min-w-0 items-center gap-2">
+        <code className="min-w-0 truncate text-label text-fg">
+          {shown ? secret : "•".repeat(24)}
+        </code>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            setShown(!shown);
+          }}
+        >
+          {shown ? "Hide secret" : "Show secret"}
+        </Button>
+      </div>
+    </Section>
   );
 }
 

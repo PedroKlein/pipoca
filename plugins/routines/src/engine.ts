@@ -1,4 +1,9 @@
-import { createHash } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -74,6 +79,13 @@ interface RunRow {
   readonly events: string | null;
 }
 
+interface HookRow {
+  readonly id: string;
+  readonly user_id: string;
+  readonly name: string;
+  readonly secret: string;
+}
+
 interface PendingRow {
   readonly user_id: string;
   readonly name: string;
@@ -92,6 +104,12 @@ export interface Routines {
   readonly pause: (userId: string, name: string, paused: boolean) => void;
   // The routine's run a Session belongs to, for the report_nothing tool.
   readonly reportNothing: (session: Session) => string;
+  // A webhook's delivery, checked against its hook's secret.
+  readonly hook: (
+    id: string,
+    body: string,
+    signature: string | null,
+  ) => "accepted" | "unknown" | "unsigned";
 }
 
 export const ownerPrefix = (userId: string, name: string): string =>
@@ -138,6 +156,10 @@ export function routinesEngine(
   if (!columns.includes("events")) {
     store.exec("alter table routines_runs add column events text");
   }
+
+  store.exec(
+    "create table if not exists routines_hooks (id text primary key, user_id text not null, name text not null, secret text not null, unique (user_id, name))",
+  );
 
   store.exec(
     "create table if not exists routines_pending (user_id text not null, name text not null, key text not null, events text not null, first_at integer not null, last_at integer not null, primary key (user_id, name, key))",
@@ -283,6 +305,7 @@ export function routinesEngine(
       }
     }
 
+    keepHooks();
     changes.publish("routines");
     arm();
   };
@@ -296,51 +319,93 @@ export function routinesEngine(
           matches(event, trigger.filter),
       );
 
-      if (
-        each.routine === undefined ||
-        triggered !== true ||
-        !isFor(event, each.userId) ||
-        (stateOf(each.userId, each.name)?.paused ?? null) !== null
-      ) {
-        continue;
+      if (triggered === true && isFor(event, each.userId)) {
+        wait(each, event);
       }
-
-      const eventKey = keyOf(event, each.routine.key);
-
-      const [pending] = store.all(
-        "select * from routines_pending where user_id = ? and name = ? and key = ?",
-        each.userId,
-        each.name,
-        eventKey,
-      ) as PendingRow[];
-
-      const events = [
-        ...(pending === undefined
-          ? []
-          : (JSON.parse(pending.events) as Event[])),
-        event,
-      ].slice(-maxBatch);
-
-      store.run(
-        "insert into routines_pending (user_id, name, key, events, first_at, last_at) values (?, ?, ?, ?, ?, ?) on conflict (user_id, name, key) do update set events = excluded.events, last_at = excluded.last_at",
-        each.userId,
-        each.name,
-        eventKey,
-        JSON.stringify(events),
-        Date.now(),
-        Date.now(),
-      );
-
-      log("routine heard an event", {
-        userId: each.userId,
-        name: each.name,
-        type: event.type,
-        key: eventKey,
-        waiting: events.length,
-      });
     }
 
     arm();
+  };
+
+  // Keeps the event with others of its key until the quiet window ends.
+  const wait = (each: Loaded, event: Event): void => {
+    if (
+      each.routine === undefined ||
+      (stateOf(each.userId, each.name)?.paused ?? null) !== null
+    ) {
+      return;
+    }
+
+    const eventKey = keyOf(event, each.routine.key);
+
+    const [pending] = store.all(
+      "select * from routines_pending where user_id = ? and name = ? and key = ?",
+      each.userId,
+      each.name,
+      eventKey,
+    ) as PendingRow[];
+
+    const events = [
+      ...(pending === undefined ? [] : (JSON.parse(pending.events) as Event[])),
+      event,
+    ].slice(-maxBatch);
+
+    store.run(
+      "insert into routines_pending (user_id, name, key, events, first_at, last_at) values (?, ?, ?, ?, ?, ?) on conflict (user_id, name, key) do update set events = excluded.events, last_at = excluded.last_at",
+      each.userId,
+      each.name,
+      eventKey,
+      JSON.stringify(events),
+      Date.now(),
+      Date.now(),
+    );
+
+    log("routine heard an event", {
+      userId: each.userId,
+      name: each.name,
+      type: event.type,
+      key: eventKey,
+      waiting: events.length,
+    });
+  };
+
+  const hookOf = (userId: string, name: string): HookRow | undefined =>
+    (
+      store.all(
+        "select * from routines_hooks where user_id = ? and name = ?",
+        userId,
+        name,
+      ) as HookRow[]
+    )[0];
+
+  // Every routine with a webhook trigger has a hook with a secret of its own.
+  const keepHooks = (): void => {
+    for (const each of loaded.values()) {
+      const wanted =
+        each.routine?.triggers.some((trigger) => "webhook" in trigger) === true;
+
+      const hook = hookOf(each.userId, each.name);
+
+      if (wanted && hook === undefined) {
+        const id = randomBytes(18).toString("base64url");
+
+        store.run(
+          "insert into routines_hooks (id, user_id, name, secret) values (?, ?, ?, ?)",
+          id,
+          each.userId,
+          each.name,
+          store.seal(randomBytes(32).toString("hex"), id),
+        );
+      } else if (!wanted && hook !== undefined) {
+        store.run("delete from routines_hooks where id = ?", hook.id);
+      }
+    }
+
+    for (const hook of store.all("select * from routines_hooks") as HookRow[]) {
+      if (!loaded.has(key(hook.user_id, hook.name))) {
+        store.run("delete from routines_hooks where id = ?", hook.id);
+      }
+    }
   };
 
   const pendingDue = (row: PendingRow): number =>
@@ -757,6 +822,22 @@ export function routinesEngine(
     return found;
   };
 
+  const webhookOf = (
+    userId: string,
+    name: string,
+  ): Pick<RoutineDetail, "webhook"> => {
+    const hook = hookOf(userId, name);
+
+    return hook === undefined
+      ? {}
+      : {
+          webhook: {
+            path: `/api/plugins/routines/hooks/${hook.id}`,
+            secret: store.open(hook.secret, hook.id),
+          },
+        };
+  };
+
   const viewOf = (each: Loaded): RoutineView => {
     const state = stateOf(each.userId, each.name);
     const [last] = runsOf("user_id = ? and name = ?", each.userId, each.name);
@@ -802,6 +883,7 @@ export function routinesEngine(
       return {
         ...viewOf(each),
         file: readFileSync(fileOf(userId, name), "utf8"),
+        ...webhookOf(userId, name),
         runs: runsOf("user_id = ? and name = ?", userId, name).map(runView),
       };
     },
@@ -855,6 +937,55 @@ export function routinesEngine(
 
       changes.publish("routines");
       arm();
+    },
+    hook: (id, body, signature) => {
+      const [hook] = store.all(
+        "select * from routines_hooks where id = ?",
+        id,
+      ) as HookRow[];
+
+      const each =
+        hook === undefined
+          ? undefined
+          : loaded.get(key(hook.user_id, hook.name));
+
+      if (hook === undefined || each === undefined) {
+        return "unknown";
+      }
+
+      const expected = Buffer.from(
+        `sha256=${createHmac("sha256", store.open(hook.secret, hook.id)).update(body).digest("hex")}`,
+      );
+
+      const given = Buffer.from(signature ?? "");
+
+      if (
+        given.length !== expected.length ||
+        !timingSafeEqual(given, expected)
+      ) {
+        return "unsigned";
+      }
+
+      let fields: unknown;
+
+      try {
+        fields = JSON.parse(body);
+      } catch {
+        fields = { body };
+      }
+
+      wait(each, {
+        ...(typeof fields === "object" &&
+        fields !== null &&
+        !Array.isArray(fields)
+          ? fields
+          : { body: fields }),
+        type: "routines.webhook",
+      });
+
+      arm();
+
+      return "accepted";
     },
     reportNothing: (session) => {
       const run = runOfSession(session.id);

@@ -23,6 +23,7 @@ import oidcPackage from "@pipoca/oidc/package.json";
 import projectsPackage from "@pipoca/projects/package.json";
 import pushPackage from "@pipoca/push/package.json";
 import routinesPackage from "@pipoca/routines/package.json";
+import { routines } from "@pipoca/routines/session";
 import subagentsPackage from "@pipoca/subagents/package.json";
 import { subagents } from "@pipoca/subagents/session";
 import usagePackage from "@pipoca/usage/package.json";
@@ -65,6 +66,7 @@ export const sessionPlugins: readonly SessionPlugin[] = [
   modelsSession,
   subagents,
   checklist,
+  routines,
   metaSession,
   logins,
   gitHosts,

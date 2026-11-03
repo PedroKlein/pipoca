@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, jest, test } from "bun:test";
+import { createHmac } from "node:crypto";
 import {
   mkdirSync,
   mkdtempSync,
@@ -12,6 +13,7 @@ import {
   eventBus,
   type PluginRoute,
   type PluginStore,
+  type PublicRoute,
   type SendOutcome,
   type ServerTool,
   type StartRequest,
@@ -69,6 +71,7 @@ function start({
 
   const stop = new AbortController();
   let route: PluginRoute | undefined;
+  let hooks: PublicRoute | undefined;
 
   plugin.register(
     fakeContext({
@@ -81,6 +84,12 @@ function start({
       routes: {
         handle: (handler) => {
           route = served(handler);
+        },
+      },
+      auth: {
+        ...fakeContext().auth,
+        handlePublic: (handler) => {
+          hooks = handler;
         },
       },
       sessions: {
@@ -143,7 +152,28 @@ function start({
 
   const reportNothing = tools.find(({ name }) => name === "report_nothing");
 
-  return { started, sent, request, turnEnded, bus, stop, reportNothing };
+  const deliver = async (path: string, body: string, signature?: string) =>
+    hooks?.(
+      new Request(`http://pipoca/api/plugins/routines/${path}`, {
+        method: "POST",
+        body,
+        ...(signature !== undefined && {
+          headers: { "x-hub-signature-256": signature },
+        }),
+      }),
+      path,
+    );
+
+  return {
+    started,
+    sent,
+    request,
+    turnEnded,
+    bus,
+    stop,
+    reportNothing,
+    deliver,
+  };
 }
 
 const minutes = (count: number) => {
@@ -484,4 +514,47 @@ test("waiting events survive a restart", async () => {
   jest.advanceTimersByTime(30_000);
 
   expect(after.started[0]?.request.firstMessage).toContain('"body": "kept"');
+});
+
+test("a webhook signed with the routine's secret starts a run with its body", async () => {
+  const it = start();
+
+  await it.request("routines/deploys", "PUT", {
+    ...daily,
+    triggers: [{ webhook: true }],
+    key: ["service"],
+  });
+
+  const { webhook } = (await it.request("routines/deploys"))
+    .body as RoutineDetail;
+
+  const path = webhook?.path.replace("/api/plugins/routines/", "") ?? "";
+  const body = JSON.stringify({ service: "api", status: "failed" });
+
+  const sign = (secret: string) =>
+    `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
+
+  expect((await it.deliver(path, body))?.status).toBe(401);
+  expect((await it.deliver(path, body, sign("guess")))?.status).toBe(401);
+  expect((await it.deliver("hooks/nope", body, sign("x")))?.status).toBe(404);
+  expect(await it.deliver("routines", body)).toBeUndefined();
+
+  expect(
+    (await it.deliver(path, body, sign(webhook?.secret ?? "")))?.status,
+  ).toBe(202);
+
+  jest.advanceTimersByTime(30_000);
+
+  expect(it.started[0]?.request.firstMessage).toContain('"service": "api"');
+  expect((await runsOf(it, "deploys"))[0]?.cause).toBe("event");
+
+  await it.request("routines/deploys", "PUT", daily);
+
+  expect(
+    ((await it.request("routines/deploys")).body as RoutineDetail).webhook,
+  ).toBeUndefined();
+
+  expect(
+    (await it.deliver(path, body, sign(webhook?.secret ?? "")))?.status,
+  ).toBe(404);
 });
