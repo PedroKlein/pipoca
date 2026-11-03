@@ -24,6 +24,8 @@ import {
   upload,
 } from "./profile-files";
 import { settingsPageClass } from "./page-class";
+import { PluginBoundary } from "./plugin-boundary";
+import { enabledPlugins, pluginContext } from "./plugins";
 
 // A package is a source such as npm:name, or a JSON object with Pi's
 // filters.
@@ -115,16 +117,19 @@ export function ProfilesPage({
           hash={profile.id}
           tab={tab}
           overview={
-            <Editor
-              key={`${profile.id}:${JSON.stringify(profile.packages)}:${profile.buildsOn ?? ""}`}
-              profile={profile}
-              profiles={profiles}
-              saved={savedId === profile.id}
-              onSaved={() => {
-                setSavedId(profile.id);
-              }}
-              onChange={onChange}
-            />
+            <>
+              <Editor
+                key={`${profile.id}:${JSON.stringify(profile.packages)}:${profile.buildsOn ?? ""}`}
+                profile={profile}
+                profiles={profiles}
+                saved={savedId === profile.id}
+                onSaved={() => {
+                  setSavedId(profile.id);
+                }}
+                onChange={onChange}
+              />
+              <ProfileParts profileId={profile.id} />
+            </>
           }
         />
       )}
@@ -142,6 +147,29 @@ export function ProfilesPage({
       )}
       {selected === "" && <Import onChange={onChange} />}
     </div>
+  );
+}
+
+// What plugins add to a Profile's page, such as its own logins (ADR 0063).
+function ProfileParts({
+  profileId,
+}: {
+  readonly profileId: string;
+}): ReactElement {
+  return (
+    <>
+      {enabledPlugins().map(({ name, settingsParts }) => {
+        const Part = settingsParts?.Profile;
+
+        return (
+          Part && (
+            <PluginBoundary key={name} name={name}>
+              <Part context={pluginContext(name)} profileId={profileId} />
+            </PluginBoundary>
+          )
+        );
+      })}
+    </>
   );
 }
 

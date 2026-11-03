@@ -14,15 +14,31 @@ import {
   Section,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
+import type { Profile } from "@pipoca/protocol";
 import type { Account } from "../src/model";
 import { ConnectForm, ConnectionCard } from "./connect";
+import { layerName } from "./layers";
+import { ProfileLogins } from "./profile";
 import { modelStep } from "./setup";
 
 export const logins: WebPlugin = {
   name: "logins",
-  settingsParts: { Accounts },
+  settingsParts: { Accounts, Profile: ProfileLogins },
   setupStep: modelStep,
 };
+
+function layerPlace(
+  layer: Account["logins"][number]["layer"],
+  profiles: readonly Profile[],
+): string {
+  if (layer === "base") {
+    return "from the Server base, for everyone";
+  }
+
+  return layer === "defaults"
+    ? "in every Profile"
+    : `only in ${layerName(layer, profiles)}`;
+}
 
 const typeLabels = {
   oauth: "Signed in with your account",
@@ -40,6 +56,12 @@ function Accounts({
     { topics: ["logins.logins"] },
   );
 
+  const { value: profiles = [] } = useLoaded(
+    async () => json<readonly Profile[]>(context.request("/api/profiles")),
+    "profiles",
+    { topics: ["profiles"] },
+  );
+
   const [choosing, setChoosing] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -49,7 +71,11 @@ function Accounts({
 
   // The servers of the person's Profiles, and any other they signed in to
   // from a Session.
-  const stored = new Set(value.mcp.map(({ server }) => server));
+  const stored = new Set(
+    value.mcp
+      .filter(({ layer }) => layer === "defaults")
+      .map(({ server }) => server),
+  );
 
   const mcpServers = [
     ...new Set([...value.servers.map(({ key }) => key), ...stored]),
@@ -96,6 +122,7 @@ function Accounts({
           <ConnectForm
             context={context}
             send={send}
+            admin={value.admin}
             onClose={() => {
               setChoosing(false);
             }}
@@ -115,7 +142,7 @@ function Accounts({
           )}
           {value.logins.map((login) => (
             <Row
-              key={login.provider}
+              key={`${login.provider} ${login.layer}`}
               initials={initialsOf(login.provider)}
               title={
                 <>
@@ -125,22 +152,24 @@ function Accounts({
                   </Badge>
                 </>
               }
-              description={typeLabels[login.type]}
+              description={`${typeLabels[login.type]}, ${layerPlace(login.layer, profiles)}`}
             >
-              <Button
-                variant="ghost"
-                aria-label={`Log out of ${login.provider}`}
-                onClick={() => {
-                  void json(
-                    context.request(
-                      `credentials/${encodeURIComponent(login.provider)}`,
-                      { method: "DELETE" },
-                    ),
-                  ).then(reload, reload);
-                }}
-              >
-                Log out
-              </Button>
+              {(login.layer !== "base" || value.admin) && (
+                <Button
+                  variant="ghost"
+                  aria-label={`Log out of ${login.provider} in ${layerName(login.layer, profiles)}`}
+                  onClick={() => {
+                    void json(
+                      context.request(
+                        `credentials/${encodeURIComponent(login.provider)}?layer=${login.layer}`,
+                        { method: "DELETE" },
+                      ),
+                    ).then(reload, reload);
+                  }}
+                >
+                  Log out
+                </Button>
+              )}
             </Row>
           ))}
         </Rows>
