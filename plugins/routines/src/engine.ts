@@ -45,6 +45,9 @@ const keptRuns = 200;
 // Events with the same key within the quiet window go as one; a busy key
 // still gets through when the window has been open this long (ADR 0059).
 const quietMs = 30_000;
+
+// Keyed runs that go at once, unless the routine says otherwise.
+const defaultMaxRunning = 3;
 const longestQuietMs = 5 * 60_000;
 const maxBatch = 20;
 
@@ -550,18 +553,31 @@ export function routinesEngine(
 
     changes.publish("routines");
 
-    const [queued] = runsOf(
+    const queued = runsOf(
       "user_id = ? and name = ? and outcome = 'queued'",
       run.user_id,
       run.name,
-    );
+    ).at(-1);
 
-    if (queued !== undefined && !busy(run.user_id, run.name)) {
+    if (
+      queued !== undefined &&
+      (queued.key === ""
+        ? !busy(run.user_id, run.name)
+        : hasRoom(run.user_id, run.name))
+    ) {
       deliver(queued);
     }
 
     arm();
   };
+
+  const running = (userId: string, name: string): number =>
+    runsOf("user_id = ? and name = ? and outcome = 'running'", userId, name)
+      .length;
+
+  const hasRoom = (userId: string, name: string): boolean =>
+    running(userId, name) <
+    (loaded.get(key(userId, name))?.routine?.maxRunning ?? defaultMaxRunning);
 
   const busy = (userId: string, name: string): boolean =>
     runsOf("user_id = ? and name = ? and outcome = 'running'", userId, name)
@@ -696,6 +712,13 @@ export function routinesEngine(
       return row;
     }
 
+    if (runKey !== "" && !hasRoom(userId, name)) {
+      const row = record(userId, name, cause, "queued", null, runKey, events);
+      changes.publish("routines");
+
+      return row;
+    }
+
     const row = record(userId, name, cause, "running", null, runKey, events);
     deliver(row);
 
@@ -716,6 +739,27 @@ export function routinesEngine(
     const events = JSON.parse(pending.events) as Event[];
 
     if (routine === undefined) {
+      return;
+    }
+
+    const [waiting] = runsOf(
+      "user_id = ? and name = ? and key = ? and outcome = 'queued'",
+      pending.user_id,
+      pending.name,
+      pending.key,
+    );
+
+    if (waiting !== undefined) {
+      store.run(
+        "update routines_runs set events = ? where id = ?",
+        JSON.stringify(
+          [...(JSON.parse(waiting.events ?? "[]") as Event[]), ...events].slice(
+            -maxBatch,
+          ),
+        ),
+        waiting.id,
+      );
+
       return;
     }
 

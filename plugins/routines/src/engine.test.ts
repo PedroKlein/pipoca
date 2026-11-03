@@ -525,6 +525,31 @@ test("events for a key that has a Session go to it as a message, and other keys 
   expect(it.started[1]?.request.firstMessage).toContain("another pull");
 });
 
+test("keys beyond the routine's runs at once wait their turn, and gather their events meanwhile", async () => {
+  const it = start();
+
+  await it.request("routines/pulls", "PUT", { ...onPulls, maxRunning: 2 });
+
+  for (const number of [1, 2, 3]) {
+    it.bus.publish(pull({ number, body: `pull ${String(number)}` }));
+  }
+
+  jest.advanceTimersByTime(30_000);
+  expect(it.started).toHaveLength(2);
+
+  it.bus.publish(pull({ number: 3, body: "more on 3" }));
+  jest.advanceTimersByTime(30_000);
+  expect(it.started).toHaveLength(2);
+  expect((await runsOf(it, "pulls"))[0]?.outcome).toBe("queued");
+
+  it.turnEnded(it.started[0]?.session ?? fakeSession());
+  expect(it.started).toHaveLength(3);
+
+  const message = it.started[2]?.request.firstMessage ?? "";
+  expect(message).toContain('"body": "pull 3"');
+  expect(message).toContain('"body": "more on 3"');
+});
+
 test("a key that keeps getting events still gets through after five minutes", async () => {
   const it = start();
 

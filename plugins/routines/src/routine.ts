@@ -74,6 +74,8 @@ export const routineSchema = Type.Object(
     // Event fields that name what the work is about, such as a repository
     // and a pull request: an event whose key has a Session goes to it.
     key: Type.Optional(Type.Array(Type.String(), { minItems: 1, maxItems: 5 })),
+    // How many keyed runs go at once. The others wait their turn (ADR 0061).
+    maxRunning: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
   },
   { additionalProperties: false },
 );
