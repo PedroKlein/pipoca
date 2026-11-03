@@ -28,10 +28,16 @@ type ChildMessage =
 
 const stopTimeoutMs = 10_000;
 
-// A compiled binary is its own entry point. From source, Bun runs main.ts.
+// A compiled binary is its own entry point. From source, Bun runs main.ts
+// with the repository's bunfig.toml, which builds the web UI's styles and
+// which Bun only finds by itself in the folder it starts in.
 export const pipoca = import.meta.dirname.startsWith("/$bunfs")
   ? [process.execPath]
-  : [process.execPath, join(import.meta.dirname, "main.ts")];
+  : [
+      process.execPath,
+      `--config=${join(import.meta.dirname, "..", "..", "..", "bunfig.toml")}`,
+      join(import.meta.dirname, "main.ts"),
+    ];
 
 const sessionCommand = [...pipoca, "session"];
 

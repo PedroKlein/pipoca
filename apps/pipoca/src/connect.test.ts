@@ -21,6 +21,7 @@ import type { Environment } from "@pipoca/protocol";
 import { version } from "../package.json";
 
 const main = join(import.meta.dirname, "main.ts");
+const bunfig = join(import.meta.dirname, "..", "..", "..", "bunfig.toml");
 
 // Stands in for ssh on one machine: -N -L forwards the port, anything else
 // runs the remote command here. Like a host with ControlMaster in its
@@ -359,7 +360,7 @@ test("service install runs up at login as a solo server with systemd, and uninst
         () => true,
       ),
     }).toEqual({
-      execStart: `ExecStart=${process.execPath} ${main} server --solo --folder ${root} --port 7421`,
+      execStart: `ExecStart=${process.execPath} --config=${bunfig} ${main} server --solo --folder ${root} --port 7421`,
       calls: [
         "--user disable --now pipoca.service",
         "--user daemon-reload",
