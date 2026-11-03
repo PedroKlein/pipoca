@@ -15,6 +15,7 @@ import {
   type Profile,
   type ProfileContent,
   type ProfileFiles,
+  type ProfileSource,
   emptyProfile,
   profilePath,
 } from "@pipoca/protocol";
@@ -50,6 +51,8 @@ interface Meta {
   readonly owner?: string;
   // The Profile this one builds on (ADR 0063).
   readonly buildsOn?: string;
+  // The repository folder the Profile follows (ADR 0063).
+  readonly source?: ProfileSource;
   readonly createdAt: string;
 }
 
@@ -118,6 +121,7 @@ export class ProfileFolders {
             name: nameOf(id),
             ownerId: null,
             buildsOn: null,
+            source: null,
             createdAt: new Date(0).toISOString(),
             packages: [],
             agentsMd: "",
@@ -141,6 +145,7 @@ export class ProfileFolders {
           : nameOf(id),
       ownerId: typeof meta["owner"] === "string" ? meta["owner"] : null,
       buildsOn: typeof meta["buildsOn"] === "string" ? meta["buildsOn"] : null,
+      source: sourceOf(meta["source"]),
       createdAt:
         typeof meta["createdAt"] === "string"
           ? meta["createdAt"]
@@ -274,6 +279,27 @@ export class ProfileFolders {
     }
   }
 
+  // Makes the folder hold exactly these files, besides profile.json.
+  // Throws ProfileTooBig before changing anything.
+  replaceFiles(id: string, files: ReadonlyMap<string, Buffer>): void {
+    const size = [...files.values()].reduce(
+      (total, content) => total + content.length,
+      0,
+    );
+
+    if (size > maxProfileBytes) {
+      throw tooBig(this.read(id)?.name ?? id);
+    }
+
+    for (const { path } of this.entries(id)) {
+      if (!files.has(path)) {
+        rmSync(join(this.#root, id, path));
+      }
+    }
+
+    this.writeFiles(id, files);
+  }
+
   deleteFile(id: string, path: string): boolean {
     if (this.file(id, path) === undefined) {
       return false;
@@ -315,8 +341,12 @@ export class ProfileFolders {
   // what people put there by hand stays.
   write(
     id: string,
-    meta: Omit<StoredProfile, "id" | "buildsOn" | keyof ProfileContent> & {
+    meta: Omit<
+      StoredProfile,
+      "id" | "buildsOn" | "source" | keyof ProfileContent
+    > & {
       readonly buildsOn?: string | null;
+      readonly source?: ProfileSource | null;
     },
     content: Partial<ProfileContent>,
   ): void {
@@ -329,6 +359,7 @@ export class ProfileFolders {
         name: meta.name,
         ...(meta.ownerId !== null && { owner: meta.ownerId }),
         ...(typeof meta.buildsOn === "string" && { buildsOn: meta.buildsOn }),
+        ...(meta.source && { source: meta.source }),
         createdAt: meta.createdAt,
       } satisfies Meta),
     );
@@ -521,4 +552,13 @@ function replace(path: string, content: string | Buffer): void {
   const temporary = `${path}.${String(process.pid)}.tmp`;
   writeFileSync(temporary, content);
   renameSync(temporary, path);
+}
+
+function sourceOf(value: unknown): ProfileSource | null {
+  return isRecord(value) &&
+    typeof value["url"] === "string" &&
+    typeof value["path"] === "string" &&
+    typeof value["commit"] === "string"
+    ? { url: value["url"], path: value["path"], commit: value["commit"] }
+    : null;
 }

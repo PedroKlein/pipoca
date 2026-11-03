@@ -134,6 +134,19 @@ An Environment can have a setup script, variables and secrets (`PATCH /api/envir
 
 Model provider and MCP server logins belong to each person and live on the server, sealed with the same key ([ADR 0045](adr/0045-server-kept-logins.md)). `/login` and `/mcp login` in any Session save the login there, and every Session that person starts uses it, on any runner, so a Kubernetes pod that exits keeps nothing. Runners read and write a login through the server, which lets one runner at a time refresh it, since providers rotate refresh tokens. An MCP sign-in opens on your device; when the server sends you back to an address on the runner, paste the address your browser lands on. Settings lists your logins under Accounts, where you can log out of one or connect one of Pi's own model providers without a Session: the server runs Pi's sign-in, the sign-in page opens on your device, and for providers that send you to an address on your own machine you paste the address your browser lands on. Providers that extensions add take `/login` in a Session. The same page lists the MCP servers of the base Profile and your Profiles that sign in with OAuth, each with Sign in: the sign-in page sends your browser back to Pipoca at `<url>/api/plugins/logins/callback`, or, for a client registered with a loopback `callbackUrl`, you paste the address you land on. Servers with a `clientSecret` or `clientRegistration: "cimd"` take `/mcp login` in a Session. Logins belong to a Profile layer ([ADR 0063](adr/0063-settings-and-first-run-setup.md#logins-on-profile-layers)). One you add on Accounts or with `/login` goes in your My defaults, so every Profile of yours inherits it. On a Profile's page, Logins switches each provider and MCP server between Inherit and Own login, which signs in with another account just for that Profile and the Profiles that build on it. A Session uses the nearest layer's login: its Profile's, then the Profiles it builds on, then My defaults, then the server base. An admin can add an API key to the server base for everyone, such as a team's service key, but never a subscription sign-in. A Session that refreshes a login from the base keeps its own copy in your My defaults. Accounts shows the layer each login comes from. With the `logins` plugin off, each runner keeps its own logins in its data folder as before.
 
+A repository can share Profiles with a `pipoca.json` at its root that lists them, each a folder of the repository laid out like `~/.pi/agent` ([ADR 0063](adr/0063-settings-and-first-run-setup.md#repositories-carry-a-manifest)):
+
+```json
+{
+  "profiles": [
+    { "name": "Team review", "path": "profiles/review" },
+    { "name": "Team docs", "path": "profiles/docs" }
+  ]
+}
+```
+
+Import a Profile from that repository's https or ssh URL on the Profiles page, pick the ones to bring, and each becomes a Profile of yours that follows its folder. The server checks the repository every 15 minutes, and Sync now on the Profile's page checks at once. A synced Profile can't be edited, since the next change in the repository would replace the edit. Make a copy gives you one of your own that stops following it, or make a Profile that builds on the synced one. A repository without `pipoca.json` imports as one Profile from its root folder, as before.
+
 ### Templates
 
 Admins can share an Environment's settings as a template ([ADR 0049](adr/0049-personal-environments-and-templates.md)): a setup script, isolation, image and variables, but never secrets or runners. Make one under Templates on the Environments page, or list them under `templates` in the config folder's `pipoca.json`, for example from the chart's `config` value:

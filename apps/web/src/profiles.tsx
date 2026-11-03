@@ -1,5 +1,11 @@
 import { json, useLoaded } from "@pipoca/plugins/web";
-import type { PiPackage, Profile, ProfileContent } from "@pipoca/protocol";
+import type {
+  ListedProfile,
+  PiPackage,
+  Profile,
+  ProfileContent,
+  ProfileSource,
+} from "@pipoca/protocol";
 import {
   Badge,
   Button,
@@ -87,6 +93,7 @@ export function ProfilesPage({
             {each.name}
             {each.isDefault && <Badge state="done">Default</Badge>}
             {each.ownerId === null && <Badge state="offline">Shared</Badge>}
+            {each.source && <Badge state="offline">Synced</Badge>}
           </a>
         ))}
         {(Object.keys(layerHashes) as Layer[]).map((each) => (
@@ -118,6 +125,13 @@ export function ProfilesPage({
           tab={tab}
           overview={
             <>
+              {profile.source && (
+                <Synced
+                  profile={profile}
+                  source={profile.source}
+                  onChange={onChange}
+                />
+              )}
               <Editor
                 key={`${profile.id}:${JSON.stringify(profile.packages)}:${profile.buildsOn ?? ""}`}
                 profile={profile}
@@ -284,9 +298,11 @@ function Editor({
           onChange={setPackages}
         />
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="primary" type="submit">
-            {profile ? "Save" : "Create Profile"}
-          </Button>
+          {!profile?.source && (
+            <Button variant="primary" type="submit">
+              {profile ? "Save" : "Create Profile"}
+            </Button>
+          )}
           {profile && !profile.isDefault && (
             <Button
               onClick={() => {
@@ -646,15 +662,103 @@ function LayerForm({
   );
 }
 
+// A Profile that follows a folder in a repository (ADR 0063). It changes only
+// when the repository does, so editing starts from a copy.
+function Synced({
+  profile,
+  source,
+  onChange,
+}: {
+  readonly profile: Profile;
+  readonly source: ProfileSource;
+  readonly onChange: () => void;
+}): ReactElement {
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+
+  const act = (action: () => Promise<void>): void => {
+    setBusy(true);
+
+    action().then(
+      () => {
+        setBusy(false);
+        setError(undefined);
+        onChange();
+      },
+      (reason: unknown) => {
+        setBusy(false);
+        setError(messageOf(reason));
+      },
+    );
+  };
+
+  return (
+    <div
+      aria-label="Synced from a repository"
+      className="mt-6 flex flex-col gap-3 rounded-lg bg-hover p-4 text-label text-fg"
+    >
+      <p className="flex gap-2.5">
+        <Icon name="lock" className="mt-0.5 size-4 shrink-0 text-fg-dim" />
+        <span>
+          Follows <span className="font-mono">{source.path}</span> in{" "}
+          <span className="font-mono break-all">{source.url}</span> at{" "}
+          <span className="font-mono">{source.commit.slice(0, 7)}</span>. It
+          changes when the repository does, so make a copy to edit it, or build
+          a Profile of your own on it.
+        </span>
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          disabled={busy}
+          onClick={() => {
+            act(async () => {
+              await api(`/api/profiles/${profile.id}/sync`, {});
+            });
+          }}
+        >
+          Sync now
+        </Button>
+        <Button
+          disabled={busy}
+          onClick={() => {
+            act(async () => {
+              const copy = await json<Profile>(
+                api(`/api/profiles/${profile.id}/copy`, {}),
+              );
+
+              location.hash = `profiles/${copy.id}`;
+            });
+          }}
+        >
+          Make a copy
+        </Button>
+        {error !== undefined && (
+          <span role="alert" className="text-caption text-failed">
+            {error}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Import({ onChange }: { readonly onChange: () => void }): ReactElement {
   const [error, setError] = useState<string>();
 
-  const imported = (action: () => Promise<Profile>): void => {
+  const [listed, setListed] = useState<{
+    readonly url: string;
+    readonly profiles: readonly ListedProfile[];
+  }>();
+
+  const imported = (action: () => Promise<Profile | undefined>): void => {
     action().then(
       (profile) => {
         setError(undefined);
-        onChange();
-        location.hash = `profiles/${profile.id}`;
+
+        if (profile) {
+          onChange();
+          location.hash = `profiles/${profile.id}`;
+        }
       },
       (reason: unknown) => {
         setError(messageOf(reason));
@@ -733,13 +837,23 @@ function Import({ onChange }: { readonly onChange: () => void }): ReactElement {
             event.preventDefault();
             const url = new FormData(event.currentTarget).get("url");
 
-            imported(async () =>
-              json<Profile>(
-                api("/api/profiles/import", {
-                  url: typeof url === "string" ? url.trim() : "",
-                }),
-              ),
-            );
+            const repository = typeof url === "string" ? url.trim() : "";
+
+            imported(async () => {
+              const { profiles } = await json<{
+                readonly profiles: readonly ListedProfile[];
+              }>(api("/api/profiles/listed", { url: repository }));
+
+              if (profiles.length > 0) {
+                setListed({ url: repository, profiles });
+
+                return undefined;
+              }
+
+              return json<Profile>(
+                api("/api/profiles/import", { url: repository }),
+              );
+            });
           }}
           className="flex flex-col gap-1.5"
         >
@@ -755,6 +869,55 @@ function Import({ onChange }: { readonly onChange: () => void }): ReactElement {
             </span>
           </Field>
         </form>
+        {listed && (
+          <form
+            aria-label="Profiles in the repository"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const paths = new FormData(event.currentTarget).getAll("path");
+
+              imported(async () => {
+                const { profiles } = await json<{
+                  readonly profiles: readonly Profile[];
+                }>(api("/api/profiles/import", { url: listed.url, paths }));
+
+                setListed(undefined);
+
+                const [first] = profiles;
+                if (!first) {
+                  throw new Error("Pick at least one Profile.");
+                }
+
+                return first;
+              });
+            }}
+            className="flex flex-col gap-2"
+          >
+            <span className="text-label text-fg-dim">
+              Its pipoca.json lists these. Each one you bring follows the
+              repository from then on.
+            </span>
+            {listed.profiles.map(({ name, path }) => (
+              <label key={path} className="flex items-center gap-2 text-ui">
+                <input
+                  type="checkbox"
+                  name="path"
+                  value={path}
+                  defaultChecked
+                />
+                {name}
+                <span className="font-mono text-mono-sm text-fg-dim">
+                  {path}
+                </span>
+              </label>
+            ))}
+            <span>
+              <Button variant="primary" type="submit">
+                Bring them
+              </Button>
+            </span>
+          </form>
+        )}
         <p role="alert" className="text-caption text-failed">
           {error}
         </p>

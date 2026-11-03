@@ -144,6 +144,7 @@ test("starts with one empty default Profile, shared by everyone", async () => {
       name: "Default",
       ownerId: null,
       buildsOn: null,
+      source: null,
       createdAt: expect.any(String) as string,
       isDefault: true,
       packages: [],
