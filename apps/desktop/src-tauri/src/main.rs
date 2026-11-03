@@ -149,9 +149,27 @@ fn stop(app: AppHandle, id: String) {
 fn start(app: &AppHandle, id: &str, show: bool) -> Result<(), String> {
     let desktop = app.state::<Desktop>();
 
-    if let Some(running) = desktop.running.lock().unwrap().get(id) {
-        if let (true, Some(origin)) = (show, &running.origin) {
-            navigate(app, origin.clone());
+    let started = {
+        let mut running = desktop.running.lock().unwrap();
+
+        match running.get(id) {
+            Some(Running {
+                pid: Some(_),
+                origin,
+            }) => Some(origin.clone()),
+            // A server it handed over to may have stopped since, so it asks
+            // `pipoca up` again, which signs in to whichever one runs now.
+            Some(Running { pid: None, .. }) => {
+                running.remove(id);
+                None
+            }
+            None => None,
+        }
+    };
+
+    if let Some(origin) = started {
+        if let (true, Some(origin)) = (show, origin) {
+            navigate(app, origin);
         }
 
         return Ok(());
