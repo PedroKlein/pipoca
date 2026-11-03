@@ -47,6 +47,7 @@ import {
   joinRequest,
   lineAfter,
   listOf,
+  setupChangeOf,
   textOf,
 } from "./requests";
 import { sseResponse } from "./sse";
@@ -480,6 +481,26 @@ export function createHandler(
                 "cache-control": "private, max-age=31536000, immutable",
               },
             });
+      },
+    ],
+    [
+      "GET",
+      /^\/api\/setup$/,
+      (_request, _params, actor) => Response.json(auth.setup(userIdOf(actor))),
+    ],
+    [
+      "POST",
+      /^\/api\/setup$/,
+      async (request, _params, actor) => {
+        const change = setupChangeOf(await readJson(request));
+
+        if ("finished" in change) {
+          auth.finishSetup(userIdOf(actor));
+        } else {
+          auth.dismissSetupStep(userIdOf(actor), change.dismiss);
+        }
+
+        return new Response(null, { status: 204 });
       },
     ],
     [

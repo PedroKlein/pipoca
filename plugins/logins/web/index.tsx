@@ -16,10 +16,12 @@ import {
 import { type ReactElement, useState } from "react";
 import type { Account } from "../src/model";
 import { ConnectForm, ConnectionCard } from "./connect";
+import { modelStep } from "./setup";
 
 export const logins: WebPlugin = {
   name: "logins",
   settingsParts: { Accounts },
+  setupStep: modelStep,
 };
 
 const typeLabels = {

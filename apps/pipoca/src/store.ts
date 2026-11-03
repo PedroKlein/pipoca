@@ -7,6 +7,7 @@ import type {
   ProfileContent,
   SessionOwner,
   SessionStatus,
+  SetupState,
   ThinkingLevel,
   Workspace,
   WorkspaceRemoval,
@@ -121,7 +122,8 @@ create table if not exists users (
   password_hash text not null,
   created_at text not null,
   admin integer not null default 0,
-  pinned_pages text
+  pinned_pages text,
+  setup text
 );
 create table if not exists agent_tokens (
   token_hash text primary key,
@@ -213,6 +215,15 @@ function migrate(db: DatabaseSync): void {
 
   if (!userColumns.some(({ name }) => name === "pinned_pages")) {
     db.exec("alter table users add column pinned_pages text");
+  }
+
+  // People from before the setup wizard skip it, and only the steps they
+  // never did show up as reminders (ADR 0063).
+  if (!userColumns.some(({ name }) => name === "setup")) {
+    db.exec(`
+      alter table users add column setup text;
+      update users set setup = '{"finished":true,"dismissed":[]}';
+    `);
   }
 
   // A join key from before keys had a person makes the first user's
@@ -1047,6 +1058,9 @@ function authStore(db: DatabaseSync): AuthStore {
     "update users set pinned_pages = ? where id = ?",
   );
 
+  const selectSetup = db.prepare("select setup from users where id = ?");
+  const updateSetup = db.prepare("update users set setup = ? where id = ?");
+
   const selectMcpTokens = db.prepare(
     "select id, name, created_at from mcp_tokens where user_id = ? order by created_at",
   );
@@ -1192,6 +1206,17 @@ function authStore(db: DatabaseSync): AuthStore {
       return row?.pinned_pages === undefined || row.pinned_pages === null
         ? null
         : (JSON.parse(row.pinned_pages) as string[]);
+    },
+    setup: (userId) => {
+      const row = selectSetup.get(userId) as
+        { setup: string | null } | undefined;
+
+      return row?.setup === undefined || row.setup === null
+        ? { finished: false, dismissed: [] }
+        : (JSON.parse(row.setup) as SetupState);
+    },
+    setSetup: (userId, state) => {
+      updateSetup.run(JSON.stringify(state), userId);
     },
     setPinnedPages: (userId, pages) => {
       updatePinnedPages.run(

@@ -1,4 +1,5 @@
 import { Button, cn, Icon } from "@pipoca/ui";
+import type { SetupState } from "@pipoca/protocol";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import {
   useEnvironments,
@@ -10,7 +11,6 @@ import {
 import { ShellMenu } from "./embedded-session";
 import { NewSessionDialog } from "./new-session";
 import { PluginBoundary } from "./plugin-boundary";
-import { FirstRun } from "./first-run";
 import {
   enabledPlugins,
   type NavEntry,
@@ -22,6 +22,7 @@ import {
 import { SessionView } from "./session-view";
 import { isSettingsRoute, SettingsLayout } from "./settings-layout";
 import { Mark } from "./mark";
+import { SetupReminders, SetupWizard } from "./setup";
 import { Sidebar } from "./sidebar";
 
 export function App({
@@ -29,14 +30,17 @@ export function App({
   user,
   admin,
   people,
+  setup: initialSetup,
 }: {
   readonly nav: readonly NavEntry[];
   readonly user: string;
   readonly admin: boolean;
   // An admin of a server several people use sees the People page.
   readonly people: boolean;
+  readonly setup: SetupState;
 }): ReactElement {
   const route = useHash();
+  const [setup, setSetup] = useState(initialSetup);
   const [showArchived, setShowArchived] = useState(false);
   const [creating, setCreating] = useState(false);
   const [drawer, setDrawer] = useState(false);
@@ -131,9 +135,12 @@ export function App({
           <div className="p-2 md:hidden">
             <MenuButton onMenu={openDrawer} />
           </div>
-          {environments.loaded && (
-            <FirstRun environments={environments.value} />
-          )}
+          <SetupReminders
+            setup={setup}
+            onDismiss={(step) => {
+              setSetup({ ...setup, dismissed: [...setup.dismissed, step] });
+            }}
+          />
           {home?.Home ? (
             <PluginBoundary name={home.name}>
               <home.Home
@@ -158,6 +165,23 @@ export function App({
       />
     );
   };
+
+  const reminded = /^get-started\/(.+)$/.exec(route)?.[1];
+
+  if (!setup.finished || reminded !== undefined) {
+    return (
+      <SetupWizard
+        key={reminded}
+        user={user}
+        admin={admin}
+        start={reminded}
+        onFinish={() => {
+          setSetup({ ...setup, finished: true });
+          location.hash = "";
+        }}
+      />
+    );
+  }
 
   // Settings is a page of its own, with its own menu in place of the
   // sidebar (ADR 0063).

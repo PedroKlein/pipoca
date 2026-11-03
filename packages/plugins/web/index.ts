@@ -77,6 +77,25 @@ export interface HomeProps {
   readonly onNewSession: () => void;
 }
 
+// A step of the first-run setup that a plugin owns, such as connecting a
+// model (ADR 0063). done says whether the person already did it, and reloads
+// when one of its topics changes. A step that isn't done stays on home as a
+// reminder.
+export interface SetupStep {
+  // A few words in the list of steps, such as "A model".
+  readonly title: string;
+  readonly summary: string;
+  // The step's page, such as "Connect a model".
+  readonly heading: string;
+  readonly description: string;
+  readonly optional?: boolean;
+  // Gives the step's page more room, such as for a grid of providers.
+  readonly wide?: boolean;
+  readonly done: (context: WebContext) => Promise<boolean>;
+  readonly topics?: readonly string[];
+  readonly Step: ComponentType<{ readonly context: WebContext }>;
+}
+
 export interface NavItemsProps {
   readonly context: WebContext;
   // The open path inside the plugin's page, undefined when it isn't open.
@@ -167,6 +186,7 @@ export interface WebPlugin {
   // page, and "server" shows it to admins only (ADR 0063).
   readonly SettingsSection?: ComponentType<{ readonly context: WebContext }>;
   readonly settingsGroup?: SettingsGroup;
+  readonly setupStep?: SetupStep;
   // What the plugin adds to Settings' own pages, such as the person's logins
   // on Accounts.
   readonly settingsParts?: {
