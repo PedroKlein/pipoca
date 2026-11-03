@@ -32,6 +32,7 @@
     "@pipoca/providers": "workspace:*",
     "@pipoca/push": "workspace:*",
     "@pipoca/routines": "workspace:*",
+    "@pipoca/slack": "workspace:*",
     "@pipoca/sessionhost": "workspace:*",
     "@pipoca/sessions": "workspace:*",
     "@pipoca/subagents": "workspace:*",

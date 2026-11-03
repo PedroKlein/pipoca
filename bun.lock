@@ -52,6 +52,7 @@
         "@pipoca/routines": "workspace:*",
         "@pipoca/sessionhost": "workspace:*",
         "@pipoca/sessions": "workspace:*",
+        "@pipoca/slack": "workspace:*",
         "@pipoca/subagents": "workspace:*",
         "@pipoca/usage": "workspace:*",
         "@pipoca/web": "workspace:*",
@@ -81,6 +82,7 @@
         "@pipoca/protocol": "workspace:*",
         "@pipoca/push": "workspace:*",
         "@pipoca/routines": "workspace:*",
+        "@pipoca/slack": "workspace:*",
         "@pipoca/subagents": "workspace:*",
         "@pipoca/ui": "workspace:*",
         "@pipoca/usage": "workspace:*",
@@ -358,6 +360,18 @@
         "@types/react": "19.3.0",
       },
     },
+    "plugins/slack": {
+      "name": "@pipoca/slack",
+      "dependencies": {
+        "@pipoca/plugins": "workspace:*",
+        "@pipoca/protocol": "workspace:*",
+        "@pipoca/ui": "workspace:*",
+        "react": "19.3.1",
+      },
+      "devDependencies": {
+        "@types/react": "19.3.0",
+      },
+    },
     "plugins/subagents": {
       "name": "@pipoca/subagents",
       "dependencies": {
@@ -593,6 +607,8 @@
     "@pipoca/sessionhost": ["@pipoca/sessionhost@workspace:packages/sessionhost"],
 
     "@pipoca/sessions": ["@pipoca/sessions@workspace:packages/sessions"],
+
+    "@pipoca/slack": ["@pipoca/slack@workspace:plugins/slack"],
 
     "@pipoca/subagents": ["@pipoca/subagents@workspace:plugins/subagents"],
 

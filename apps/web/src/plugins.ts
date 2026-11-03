@@ -25,6 +25,7 @@ import type {
 } from "@pipoca/protocol";
 import { projects } from "@pipoca/projects/web";
 import { routines } from "@pipoca/routines/web";
+import { slack } from "@pipoca/slack/web";
 import { subagents } from "@pipoca/subagents/web";
 import { usage } from "@pipoca/usage/web";
 import * as plugins from "@pipoca/plugins/web";
@@ -52,6 +53,7 @@ const webPlugins: readonly WebPlugin[] = [
   subagents,
   checklist,
   routines,
+  slack,
   kubernetes,
   local,
   oidc,
