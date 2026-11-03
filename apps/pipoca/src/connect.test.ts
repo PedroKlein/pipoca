@@ -372,3 +372,34 @@ test("service install runs up at login as a solo server with systemd, and uninst
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("service uninstall says so when no service is installed", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "pipoca-service-")));
+  const bin = join(root, "bin");
+  await mkdir(bin);
+  await executable(join(bin, "systemctl"), "#!/bin/sh\n");
+  await executable(join(bin, "launchctl"), "#!/bin/sh\n");
+
+  try {
+    const child = spawn(process.execPath, [main, "service", "uninstall"], {
+      env: {
+        ...process.env,
+        HOME: root,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+      },
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+
+    let output = "";
+    child.stdout.on("data", (chunk: Buffer) => (output += String(chunk)));
+
+    const [code] = (await once(child, "exit")) as [number | null];
+
+    expect({ code, output }).toEqual({
+      code: 0,
+      output: "no service installed\n",
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
