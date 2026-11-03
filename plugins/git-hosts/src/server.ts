@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import {
   BadRequest,
   HttpError,
@@ -17,7 +17,10 @@ import {
   redeem,
   repositoriesOf,
 } from "./github";
+import { hash, originOf, page, redirect, secure } from "./pages";
 import { pullRequests } from "./pull-requests";
+import { technicalUserRoutes } from "./technical-user-routes";
+import { technicalUsers } from "./technical-users";
 import { type HostSearch, repositoriesTool } from "./tool";
 import {
   type HostConfig,
@@ -175,7 +178,12 @@ export const gitHosts: ServerPlugin = {
       return new Response(null, {
         status: 302,
         headers: {
-          location: authorizationUrl(host, oauth, redirectUri(request), state),
+          location: authorizationUrl(
+            host,
+            oauth,
+            `${originOf(request)}/api/plugins/git-hosts/callback`,
+            state,
+          ),
           // Lax, since the host's redirect back is a cross-site navigation,
           // which leaves Strict cookies out.
           "set-cookie": new Bun.Cookie(browserCookie, browser, {
@@ -224,7 +232,7 @@ export const gitHosts: ServerPlugin = {
         const token = await redeem(
           host,
           host.oauth,
-          redirectUri(request),
+          `${originOf(request)}/api/plugins/git-hosts/callback`,
           params.get("code") ?? "",
         );
 
@@ -284,11 +292,26 @@ export const gitHosts: ServerPlugin = {
       throw new NotFound(`no route ${path.join("/")}`);
     };
 
-    context.auth.handlePublic(async (request, path) =>
-      request.method === "GET" && path === "callback"
-        ? callback(request)
-        : undefined,
+    const technical = technicalUserRoutes(
+      context,
+      hosts,
+      technicalUsers(context.config, context.store, context.log),
     );
+
+    context.auth.handlePublic(async (request, path) => {
+      if (request.method !== "GET") {
+        return undefined;
+      }
+
+      switch (path) {
+        case "callback":
+          return callback(request);
+        case "app-created":
+          return technical.created(request);
+        default:
+          return undefined;
+      }
+    });
 
     const pulls = pullRequests(context, hosts, (userId) =>
       connections
@@ -315,7 +338,7 @@ export const gitHosts: ServerPlugin = {
 
       const [route, name] = parts;
 
-      if (route === "hosts") {
+      if (route === "hosts" || route === "technical-users") {
         if (!user.admin) {
           throw new HttpError(
             403,
@@ -324,7 +347,9 @@ export const gitHosts: ServerPlugin = {
           );
         }
 
-        return await manage(request, parts);
+        return route === "hosts"
+          ? await manage(request, parts)
+          : await technical.manage(request, parts);
       }
 
       if (route === "account" && request.method === "GET") {
@@ -466,58 +491,4 @@ function connectionStore(store: PluginStore): ConnectionStore {
       );
     },
   };
-}
-
-// The Host header already passed the server's own site check.
-function redirectUri(request: Request): string {
-  const host = request.headers.get("host") ?? new URL(request.url).host;
-
-  return `${secure(request) ? "https" : "http"}://${host}/api/plugins/git-hosts/callback`;
-}
-
-// HTTPS usually ends in a gateway in front of the server (ADR 0034).
-function secure(request: Request): boolean {
-  return (
-    new URL(request.url).protocol === "https:" ||
-    request.headers.get("x-forwarded-proto") === "https"
-  );
-}
-
-// A page that moves on by itself instead of a 302: the browser came here from
-// the host's site, and would leave the Strict session cookie off a redirect
-// it follows straight away.
-function redirect(to: string): Response {
-  return new Response(
-    `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${to}"><title>Pipoca</title><a href="${to}">Continue</a>`,
-    {
-      headers: {
-        "content-type": "text/html; charset=utf-8",
-        "cache-control": "no-store",
-      },
-    },
-  );
-}
-
-function page(message: string, status: number): Response {
-  return new Response(
-    `<!doctype html><meta charset="utf-8"><title>Pipoca</title><p>${escaped(message)}</p><p><a href="/#settings/git-hosts">Back to Pipoca</a></p>`,
-    {
-      status,
-      headers: {
-        "content-type": "text/html; charset=utf-8",
-        "cache-control": "no-store",
-      },
-    },
-  );
-}
-
-function escaped(text: string): string {
-  return text.replace(
-    /[&<>"']/g,
-    (character) => `&#${String(character.charCodeAt(0))};`,
-  );
-}
-
-function hash(text: string): string {
-  return createHash("sha256").update(text).digest("hex");
 }

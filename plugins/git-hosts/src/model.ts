@@ -55,3 +55,18 @@ export interface Preferences {
   readonly autoFix: boolean;
   readonly reply: boolean;
 }
+
+// A technical user as Settings shows it to admins (ADR 0060).
+export interface TechnicalUserView {
+  readonly name: string;
+  readonly host: string;
+  readonly kind: "app" | "token";
+  // Who its commits and comments show as.
+  readonly login: string;
+  // Where an admin installs the App on more accounts.
+  readonly installUrl: string | null;
+  // The accounts the App is installed on, or null for a machine user.
+  readonly installedOn: readonly string[] | null;
+  // Why the host couldn't say where the App is installed.
+  readonly error: string | null;
+}
