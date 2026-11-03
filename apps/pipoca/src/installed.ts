@@ -555,6 +555,16 @@ const pluginPackage = Type.Object({
     ),
     ownSessionsOnly: Type.Optional(Type.Boolean()),
     settings: Type.Optional(Type.Unknown()),
+    events: Type.Optional(
+      Type.Record(
+        Type.String({ pattern: "^[a-z][a-z0-9_]*$" }),
+        Type.Object({
+          title: Type.String(),
+          description: Type.Optional(Type.String()),
+          fields: Type.Record(Type.String(), Type.Unknown()),
+        }),
+      ),
+    ),
   }),
 });
 
@@ -568,7 +578,7 @@ function manifestOf(packageJson: unknown, folder: string): PluginManifest {
     );
   }
 
-  const { id, title, description, version, engine, parts, settings } =
+  const { id, title, description, version, engine, parts, settings, events } =
     packageJson.pipoca;
 
   if (id !== folder) {
@@ -597,6 +607,7 @@ function manifestOf(packageJson: unknown, folder: string): PluginManifest {
       ...(parts?.session !== undefined && { session: parts.session }),
     },
     ...(settings !== undefined && { settings: settingSpecs(settings) }),
+    ...(events !== undefined && { events }),
   };
 }
 

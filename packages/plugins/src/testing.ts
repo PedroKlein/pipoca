@@ -46,9 +46,12 @@ export function fakeContext(
       asks: notFaked("toolsets.asks"),
       call: notFaked("toolsets.call"),
     },
-    events: eventBus((_type, error) => {
-      throw error;
-    }),
+    events: {
+      ...eventBus((_type, error) => {
+        throw error;
+      }),
+      declared: () => [],
+    },
     changes: { publish: () => undefined },
     sessions: {
       start: notFaked("sessions.start"),

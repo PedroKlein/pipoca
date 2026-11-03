@@ -77,7 +77,7 @@ function start({
           tools.push(tool);
         },
       },
-      events: bus,
+      events: { ...bus, declared: () => [] },
       routes: {
         handle: (handler) => {
           route = served(handler);
@@ -107,6 +107,7 @@ function start({
 
           return outcome;
         },
+        get: (id) => started.find(({ session }) => session.id === id)?.session,
       },
       environments: {
         ...fakeContext().environments,
@@ -381,4 +382,106 @@ test("refuses a routine that doesn't fit and keeps each person's routines apart"
 
   expect((await it.request("routines/daily", "DELETE")).status).toBe(200);
   expect((await it.request("routines")).body).toEqual([]);
+});
+
+const onPulls = {
+  title: "Fix review comments",
+  triggers: [
+    {
+      event: "hosts.pull_request",
+      filter: { action: ["review", "comment"], labels: "pipoca" },
+    },
+  ],
+  key: ["repository", "number"],
+  run: {
+    prompt: "Address what the reviewers asked.",
+    workspace: { kind: "clone", repository: "https://github.com/o/r" },
+  },
+};
+
+const pull = (fields: Record<string, unknown>) => ({
+  type: "hosts.pull_request" as const,
+  userId: "owner",
+  repository: "o/r",
+  number: 7,
+  action: "review",
+  labels: ["pipoca"],
+  ...fields,
+});
+
+test("an event that matches a routine's filter starts a run with the events, after a quiet window", async () => {
+  const it = start();
+
+  await it.request("routines/pulls", "PUT", onPulls);
+  jest.advanceTimersByTime(30_000);
+
+  it.bus.publish(pull({ action: "opened" }));
+  it.bus.publish(pull({ labels: ["other"] }));
+  it.bus.publish(pull({ userId: "someone-else" }));
+  it.bus.publish(pull({ body: "first" }));
+  jest.advanceTimersByTime(20_000);
+  it.bus.publish(pull({ action: "comment", body: "second" }));
+
+  jest.advanceTimersByTime(29_000);
+  expect(it.started).toEqual([]);
+
+  jest.advanceTimersByTime(1_000);
+  expect(it.started).toHaveLength(1);
+
+  const message = it.started[0]?.request.firstMessage ?? "";
+  expect(message).toStartWith("Address what the reviewers asked.");
+  expect(message).toContain('"body": "first"');
+  expect(message).toContain('"body": "second"');
+  expect(message).not.toContain("someone-else");
+  expect((await runsOf(it, "pulls"))[0]?.cause).toBe("event");
+});
+
+test("events for a key that has a Session go to it as a message, and other keys start their own", async () => {
+  const it = start();
+
+  await it.request("routines/pulls", "PUT", onPulls);
+  it.bus.publish(pull({ body: "first" }));
+  jest.advanceTimersByTime(30_000);
+  expect(it.started).toHaveLength(1);
+
+  it.turnEnded(it.started[0]?.session ?? fakeSession());
+
+  it.bus.publish(pull({ body: "again" }));
+  it.bus.publish(pull({ number: 8, body: "another pull" }));
+  jest.advanceTimersByTime(30_000);
+
+  expect(it.sent).toHaveLength(1);
+  expect(it.sent[0]?.id).toBe("run-1");
+  expect(it.sent[0]?.text).toContain('"body": "again"');
+  expect(it.started).toHaveLength(2);
+  expect(it.started[1]?.request.firstMessage).toContain("another pull");
+});
+
+test("a key that keeps getting events still gets through after five minutes", async () => {
+  const it = start();
+
+  await it.request("routines/pulls", "PUT", onPulls);
+
+  for (let at = 0; at < 20; at++) {
+    it.bus.publish(pull({ body: `event ${String(at)}` }));
+    jest.advanceTimersByTime(20_000);
+  }
+
+  expect(it.started).toHaveLength(1);
+  expect(it.started[0]?.request.firstMessage).toContain("event 14");
+  expect(it.started[0]?.request.firstMessage).not.toContain("event 15");
+});
+
+test("waiting events survive a restart", async () => {
+  const store = memoryStore();
+  const before = start({ store });
+
+  await before.request("routines/pulls", "PUT", onPulls);
+  before.bus.publish(pull({ body: "kept" }));
+  before.stop.abort();
+
+  const after = start({ store });
+  jest.advanceTimersByTime(30_000);
+
+  expect(after.started[0]?.request.firstMessage).toContain('"body": "kept"');
 });

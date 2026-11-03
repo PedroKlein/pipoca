@@ -32,6 +32,13 @@ const trigger = Type.Union([
     { additionalProperties: false },
   ),
   Type.Object({ at: Type.String() }, { additionalProperties: false }),
+  Type.Object(
+    {
+      event: Type.String({ pattern: "^[a-z0-9-]+\\.[a-z0-9_]+$" }),
+      filter: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+    },
+    { additionalProperties: false },
+  ),
 ]);
 
 const run = Type.Union([
@@ -60,6 +67,9 @@ export const routineSchema = Type.Object(
     overlap: Type.Optional(
       Type.Union([Type.Literal("skip"), Type.Literal("queue")]),
     ),
+    // Event fields that name what the work is about, such as a repository
+    // and a pull request: an event whose key has a Session goes to it.
+    key: Type.Optional(Type.Array(Type.String(), { minItems: 1, maxItems: 5 })),
   },
   { additionalProperties: false },
 );
@@ -83,7 +93,7 @@ export function routineOf(value: unknown): Routine {
   for (const each of value.triggers) {
     if ("cron" in each) {
       cronSchedule(each.cron, each.timeZone);
-    } else if (!isZonedTime(each.at)) {
+    } else if ("at" in each && !isZonedTime(each.at)) {
       throw new Error(`${each.at} must be an ISO 8601 time with a time zone`);
     }
   }
@@ -101,6 +111,10 @@ export function nextFiring(each: Trigger, after: number): number | undefined {
     return cronSchedule(each.cron, each.timeZone).next(after);
   }
 
+  if (!("at" in each)) {
+    return undefined;
+  }
+
   const at = Date.parse(each.at);
 
   return at > after ? at : undefined;
@@ -108,4 +122,71 @@ export function nextFiring(each: Trigger, after: number): number | undefined {
 
 export function isZonedTime(text: string): boolean {
   return !Number.isNaN(Date.parse(text)) && /(Z|[+-]\d\d:?\d\d)$/i.test(text);
+}
+
+interface Event {
+  readonly type: string;
+  readonly [field: string]: unknown;
+}
+
+// Whether a person may see the event: a plugin names whose it is with
+// userId, or userIds when several people's.
+export function isFor(event: Event, userId: string): boolean {
+  return (
+    event["userId"] === userId ||
+    (Array.isArray(event["userIds"]) && event["userIds"].includes(userId))
+  );
+}
+
+// Each filter field, a dotted path, must equal its value or be one of a list
+// of values. A field that is a list, such as labels, needs to hold it.
+export function matches(
+  event: Event,
+  filter: Readonly<Record<string, unknown>> = {},
+): boolean {
+  return Object.entries(filter).every(([path, wanted]) => {
+    const value = fieldOf(event, path);
+    const allowed = Array.isArray(wanted) ? wanted : [wanted];
+
+    return Array.isArray(value)
+      ? value.some((each) => allowed.includes(each))
+      : allowed.includes(value);
+  });
+}
+
+export function keyOf(event: Event, paths: readonly string[] = []): string {
+  return paths
+    .map((path) => {
+      const value = fieldOf(event, path);
+
+      return typeof value === "string" || typeof value === "number"
+        ? String(value)
+        : JSON.stringify(value ?? "");
+    })
+    .join("/");
+}
+
+function fieldOf(event: Event, path: string): unknown {
+  let value: unknown = event;
+
+  for (const part of path.split(".")) {
+    value =
+      typeof value === "object" && value !== null
+        ? (value as Record<string, unknown>)[part]
+        : undefined;
+  }
+
+  return value;
+}
+
+const maxEventLength = 4000;
+
+export function eventsText(events: readonly Event[]): string {
+  return events
+    .map((event) => {
+      const json = JSON.stringify(event, null, 2);
+
+      return `Event ${event.type}:\n\`\`\`json\n${json.length > maxEventLength ? `${json.slice(0, maxEventLength)}\n…` : json}\n\`\`\``;
+    })
+    .join("\n\n");
 }

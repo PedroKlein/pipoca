@@ -497,6 +497,17 @@ export function startPlugins(
 
               return unsubscribe;
             },
+            declared: () =>
+              enabled
+                .filter((name) => !failures.has(name))
+                .flatMap((name) =>
+                  Object.entries(manifest(name)?.events ?? {}).map(
+                    ([event, spec]) => ({
+                      ...spec,
+                      type: `${name}.${event}` as const,
+                    }),
+                  ),
+                ),
           },
           changes: {
             publish: (name) => {

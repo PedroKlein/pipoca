@@ -22,6 +22,7 @@ import {
 import {
   capabilities,
   type Environment,
+  type PluginManifest,
   type Session,
   type SessionEvent,
 } from "@pipoca/protocol";
@@ -51,6 +52,7 @@ afterEach(async () => {
 async function start(
   plugins: readonly ServerPlugin[],
   disabledPlugins: readonly string[] = [],
+  events: Readonly<Record<string, PluginManifest["events"]>> = {},
 ): Promise<void> {
   runtime = await ModelRuntime.create({
     authPath: join(root, "auth.json"),
@@ -78,6 +80,7 @@ async function start(
       title: name,
       description: "",
       capabilities,
+      ...(events[name] !== undefined && { events: events[name] }),
     })),
     disabledPlugins,
     log: (message, fields) => {
@@ -747,6 +750,35 @@ test("tells a plugin how many transcript lines a turn ended with", async () => {
 
   expect(ended).toEqual([sessions?.transcriptLength(session.id)]);
   expect(sessions?.transcript(session.id).at(-1)).toContain('"all done"');
+});
+
+test("tells a plugin the events that enabled plugins declare", async () => {
+  let declared: ServerPluginContext["events"]["declared"] | undefined;
+
+  const pull = {
+    title: "A pull request changed",
+    fields: { type: "object", properties: { url: { type: "string" } } },
+  };
+
+  await start(
+    [
+      {
+        name: "listener",
+        register: ({ events }) => {
+          declared = events.declared;
+        },
+      },
+      { name: "hosts", register: () => undefined },
+      { name: "off", register: () => undefined },
+    ],
+    ["off"],
+    {
+      hosts: { pull_request: pull },
+      off: { ignored: { title: "Never", fields: {} } },
+    },
+  );
+
+  expect(declared?.()).toEqual([{ type: "hosts.pull_request", ...pull }]);
 });
 
 test("leaves out plugins that are turned off", async () => {

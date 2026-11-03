@@ -320,6 +320,21 @@ export interface PluginManifest {
   // An installed plugin's Session part loads only in the Sessions its server
   // part owns. A built-in says so on its Session part instead.
   readonly ownSessionsOnly?: boolean;
+  // The events the plugin publishes, by name without the plugin's prefix,
+  // such as routines' triggers offer (ADR 0059).
+  readonly events?: Readonly<Record<string, EventSpec>>;
+}
+
+export interface EventSpec {
+  readonly title: string;
+  readonly description?: string;
+  // A JSON Schema of the event's fields.
+  readonly fields: Readonly<Record<string, unknown>>;
+}
+
+// A plugin event an enabled plugin declares, by its full type.
+export interface DeclaredEvent extends EventSpec {
+  readonly type: `${string}.${string}`;
 }
 
 // A plugin as the Plugins page shows it. A failed plugin's server part threw

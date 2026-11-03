@@ -16,12 +16,31 @@ import {
 } from "@pipoca/plugins";
 import type { Session } from "@pipoca/protocol";
 import type { RoutineDetail, RoutineView, Run, RunOutcome } from "./model";
-import { namePattern, nextFiring, type Routine, routineOf } from "./routine";
+import {
+  eventsText,
+  isFor,
+  keyOf,
+  matches,
+  namePattern,
+  nextFiring,
+  type Routine,
+  routineOf,
+} from "./routine";
 
 const failuresToPause = 3;
 const startGraceMs = 30_000;
 const maxTimerMs = 60 * 60_000;
 const keptRuns = 200;
+// Events with the same key within the quiet window go as one; a busy key
+// still gets through when the window has been open this long (ADR 0059).
+const quietMs = 30_000;
+const longestQuietMs = 5 * 60_000;
+const maxBatch = 20;
+
+interface Event {
+  readonly type: `${string}.${string}`;
+  readonly [field: string]: unknown;
+}
 
 interface Loaded {
   readonly userId: string;
@@ -50,6 +69,18 @@ interface RunRow {
   readonly outcome: RunOutcome;
   readonly reason: string | null;
   readonly ended_at: number | null;
+  readonly key: string;
+  // The events the run was started or sent with, as JSON.
+  readonly events: string | null;
+}
+
+interface PendingRow {
+  readonly user_id: string;
+  readonly name: string;
+  readonly key: string;
+  readonly events: string;
+  readonly first_at: number;
+  readonly last_at: number;
 }
 
 export interface Routines {
@@ -94,7 +125,26 @@ export function routinesEngine(
     "create table if not exists routines_runs (id text primary key, user_id text not null, name text not null, fired_at integer not null, cause text not null, session_id text, outcome text not null, reason text, ended_at integer)",
   );
 
+  const columns = (
+    store.all("pragma table_info(routines_runs)") as { name: string }[]
+  ).map(({ name }) => name);
+
+  if (!columns.includes("key")) {
+    store.exec(
+      "alter table routines_runs add column key text not null default ''",
+    );
+  }
+
+  if (!columns.includes("events")) {
+    store.exec("alter table routines_runs add column events text");
+  }
+
+  store.exec(
+    "create table if not exists routines_pending (user_id text not null, name text not null, key text not null, events text not null, first_at integer not null, last_at integer not null, primary key (user_id, name, key))",
+  );
+
   const key = (userId: string, name: string) => ownerPrefix(userId, name);
+  const listening = new Map<string, () => void>();
 
   const fileOf = (userId: string, name: string) =>
     join(config.dir, userId, `${name}.json`);
@@ -206,9 +256,95 @@ export function routinesEngine(
       }
     }
 
+    const types = new Set(
+      [...loaded.values()].flatMap(
+        ({ routine }) =>
+          routine?.triggers.flatMap((each) =>
+            "event" in each ? [each.event] : [],
+          ) ?? [],
+      ),
+    );
+
+    for (const [type, stop] of listening) {
+      if (!types.has(type)) {
+        stop();
+        listening.delete(type);
+      }
+    }
+
+    for (const type of types) {
+      if (!listening.has(type)) {
+        listening.set(
+          type,
+          context.events.subscribe(type as Event["type"], (event) => {
+            heard(event);
+          }),
+        );
+      }
+    }
+
     changes.publish("routines");
     arm();
   };
+
+  const heard = (event: Event): void => {
+    for (const each of loaded.values()) {
+      const triggered = each.routine?.triggers.some(
+        (trigger) =>
+          "event" in trigger &&
+          trigger.event === event.type &&
+          matches(event, trigger.filter),
+      );
+
+      if (
+        each.routine === undefined ||
+        triggered !== true ||
+        !isFor(event, each.userId) ||
+        (stateOf(each.userId, each.name)?.paused ?? null) !== null
+      ) {
+        continue;
+      }
+
+      const eventKey = keyOf(event, each.routine.key);
+
+      const [pending] = store.all(
+        "select * from routines_pending where user_id = ? and name = ? and key = ?",
+        each.userId,
+        each.name,
+        eventKey,
+      ) as PendingRow[];
+
+      const events = [
+        ...(pending === undefined
+          ? []
+          : (JSON.parse(pending.events) as Event[])),
+        event,
+      ].slice(-maxBatch);
+
+      store.run(
+        "insert into routines_pending (user_id, name, key, events, first_at, last_at) values (?, ?, ?, ?, ?, ?) on conflict (user_id, name, key) do update set events = excluded.events, last_at = excluded.last_at",
+        each.userId,
+        each.name,
+        eventKey,
+        JSON.stringify(events),
+        Date.now(),
+        Date.now(),
+      );
+
+      log("routine heard an event", {
+        userId: each.userId,
+        name: each.name,
+        type: event.type,
+        key: eventKey,
+        waiting: events.length,
+      });
+    }
+
+    arm();
+  };
+
+  const pendingDue = (row: PendingRow): number =>
+    Math.min(row.last_at + quietMs, row.first_at + longestQuietMs);
 
   const arm = (): void => {
     clearTimeout(timer);
@@ -217,11 +353,20 @@ export function routinesEngine(
       "select next_at from routines_state where next_at is not null and paused is null order by next_at limit 1",
     ) as { next_at: number }[];
 
-    if (next === undefined || context.signal.aborted) {
+    const pending = (
+      store.all("select * from routines_pending") as PendingRow[]
+    ).map(pendingDue);
+
+    const soonest = Math.min(
+      ...pending,
+      ...(next === undefined ? [] : [next.next_at]),
+    );
+
+    if (soonest === Infinity || context.signal.aborted) {
       return;
     }
 
-    const at = Math.max(next.next_at, startedAt + startGraceMs);
+    const at = Math.max(soonest, startedAt + startGraceMs);
 
     timer = setTimeout(
       fire,
@@ -235,6 +380,8 @@ export function routinesEngine(
     cause: string,
     outcome: RunOutcome,
     reason: string | null = null,
+    runKey = "",
+    events: readonly Event[] = [],
   ): RunRow => {
     const row: RunRow = {
       id: crypto.randomUUID(),
@@ -247,10 +394,12 @@ export function routinesEngine(
       reason,
       ended_at:
         outcome === "running" || outcome === "queued" ? null : Date.now(),
+      key: runKey,
+      events: events.length === 0 ? null : JSON.stringify(events),
     };
 
     store.run(
-      "insert into routines_runs (id, user_id, name, fired_at, cause, session_id, outcome, reason, ended_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "insert into routines_runs (id, user_id, name, fired_at, cause, session_id, outcome, reason, ended_at, key, events) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       row.id,
       userId,
       name,
@@ -260,6 +409,8 @@ export function routinesEngine(
       outcome,
       reason,
       row.ended_at,
+      runKey,
+      row.events,
     );
 
     store.run(
@@ -354,10 +505,15 @@ export function routinesEngine(
 
     const target = routine.run;
 
+    const events =
+      run.events === null
+        ? ""
+        : `\n\n${eventsText(JSON.parse(run.events) as Event[])}`;
+
     if ("session" in target) {
       const sent = sessions.send(
         target.session,
-        target.prompt,
+        `${target.prompt}${events}`,
         "plugin:routines",
         { kind: "routine", data: { title: routine.title } },
       );
@@ -402,7 +558,7 @@ export function routinesEngine(
               model: { provider, id: model.join("/") },
             }),
           systemPrompt: runPrompt(routine.title),
-          firstMessage: target.prompt,
+          firstMessage: `${target.prompt}${events}`,
         },
         key(run.user_id, run.name),
       );
@@ -429,23 +585,31 @@ export function routinesEngine(
     }
   };
 
-  const trigger = (userId: string, name: string, cause: string): RunRow => {
+  const trigger = (
+    userId: string,
+    name: string,
+    cause: string,
+    runKey = "",
+    events: readonly Event[] = [],
+  ): RunRow => {
     const routine = loaded.get(key(userId, name))?.routine;
 
-    if (routine !== undefined && busy(userId, name)) {
+    if (routine !== undefined && runKey === "" && busy(userId, name)) {
       const queued =
         (routine.overlap ?? "skip") === "queue" &&
         runsOf("user_id = ? and name = ? and outcome = 'queued'", userId, name)
           .length === 0;
 
       const row = queued
-        ? record(userId, name, cause, "queued")
+        ? record(userId, name, cause, "queued", null, runKey, events)
         : record(
             userId,
             name,
             cause,
             "skipped",
             "the last run was still going",
+            runKey,
+            events,
           );
 
       changes.publish("routines");
@@ -453,13 +617,88 @@ export function routinesEngine(
       return row;
     }
 
-    const row = record(userId, name, cause, "running");
+    const row = record(userId, name, cause, "running", null, runKey, events);
     deliver(row);
 
     return row;
   };
 
+  // A key whose last run has a Session that is still there gets the events
+  // as a message, instead of a run of its own.
+  const flush = (pending: PendingRow): void => {
+    store.run(
+      "delete from routines_pending where user_id = ? and name = ? and key = ?",
+      pending.user_id,
+      pending.name,
+      pending.key,
+    );
+
+    const routine = loaded.get(key(pending.user_id, pending.name))?.routine;
+    const events = JSON.parse(pending.events) as Event[];
+
+    if (routine === undefined) {
+      return;
+    }
+
+    const [last] =
+      pending.key === "" || "session" in routine.run
+        ? []
+        : runsOf(
+            "user_id = ? and name = ? and key = ? and session_id is not null",
+            pending.user_id,
+            pending.name,
+            pending.key,
+          );
+
+    const session =
+      last === undefined || last.session_id === null
+        ? undefined
+        : sessions.get(last.session_id);
+
+    if (session?.archivedAt !== null) {
+      trigger(pending.user_id, pending.name, "event", pending.key, events);
+
+      return;
+    }
+
+    const sent = sessions.send(
+      session.id,
+      eventsText(events),
+      "plugin:routines",
+      {
+        kind: "routine_events",
+        data: { title: routine.title, count: events.length },
+      },
+    );
+
+    const row = record(
+      pending.user_id,
+      pending.name,
+      "event",
+      sent.ok ? "ok" : "blocked",
+      sent.ok ? "sent to the key's Session" : `the Session is ${sent.reason}`,
+      pending.key,
+      events,
+    );
+
+    store.run(
+      "update routines_runs set session_id = ? where id = ?",
+      session.id,
+      row.id,
+    );
+
+    changes.publish("routines");
+  };
+
   function fire(): void {
+    for (const pending of store.all(
+      "select * from routines_pending",
+    ) as PendingRow[]) {
+      if (pendingDue(pending) <= Date.now()) {
+        flush(pending);
+      }
+    }
+
     const due = store.all(
       "select * from routines_state where next_at is not null and next_at <= ? and paused is null",
       Date.now(),

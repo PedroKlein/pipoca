@@ -58,7 +58,7 @@ function start(
           tools.push(tool);
         },
       },
-      events: bus,
+      events: { ...bus, declared: () => [] },
       routes: {
         handle: (handler) => {
           route = served(handler);
