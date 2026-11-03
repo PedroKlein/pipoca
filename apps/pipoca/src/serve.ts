@@ -67,6 +67,7 @@ const serverPlugins: readonly ServerPlugin[] = [
   email,
 ];
 
+const profileSyncMs = 15 * 60_000;
 export interface ServeOptions {
   // 127.0.0.1 unless a proxy or other machines reach the server directly.
   readonly hostname?: string;
@@ -269,6 +270,11 @@ export function serve(options: ServeOptions): {
   }
 
   const userProfiles = new Profiles(profiles, store);
+
+  // Profiles that follow a repository keep up with it (ADR 0063).
+  const syncing = setInterval(() => {
+    void userProfiles.sync(options.log);
+  }, profileSyncMs);
 
   const pluginHost = startPlugins(plugins, enabled, {
     manifests: known,
@@ -494,6 +500,7 @@ export function serve(options: ServeOptions): {
   return {
     url: server.url,
     stop: async () => {
+      clearInterval(syncing);
       agentStop.abort();
       pluginsStop.abort();
       await agent;

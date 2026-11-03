@@ -1,7 +1,14 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -131,6 +138,7 @@ export default { name: "greeter", nav: { label: "Greeter", Page } };
   server = serve({
     port: 0,
     database: ":memory:",
+    configDir: join(root, "config"),
     sessions: { pollWaitMs: 100, offlineAfterMs: 1000 },
     agent: {
       provider: "e2e",
@@ -1379,6 +1387,44 @@ test("shows why an Environment's last runner pod failed", async () => {
   );
 
   await page.unroute("**/api/plugins/kubernetes/environments/*");
+});
+
+test("keeps a Profile that follows a repository read-only until it is copied", async () => {
+  const profile = (await (
+    await fetch(new URL("/api/profiles", server.url), {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ name: "Team kit", agentsMd: "Be careful." }),
+    })
+  ).json()) as { readonly id: string };
+
+  const meta = join(root, "config", "profiles", profile.id, "profile.json");
+
+  await writeFile(
+    meta,
+    JSON.stringify({
+      ...(JSON.parse(await readFile(meta, "utf8")) as object),
+      source: {
+        url: "https://example.com/team/kit.git",
+        path: "profiles/kit",
+        commit: "0123456789abcdef",
+      },
+    }),
+  );
+
+  await page.goto(`${server.url.href}#profiles/${profile.id}`);
+
+  const synced = page.getByLabel("Synced from a repository");
+  await synced.getByText("0123456").waitFor();
+
+  expect(await page.getByRole("button", { name: "Save" }).count()).toBe(0);
+
+  await synced.getByRole("button", { name: "Make a copy" }).click();
+
+  await page.getByRole("heading", { name: "Team kit copy" }).waitFor();
+
+  expect(await page.getByLabel("Synced from a repository").count()).toBe(0);
+  expect(await page.getByRole("button", { name: "Save" }).count()).toBe(1);
 });
 
 test("lists a Profile's packages as chips and edits its folder's files", async () => {

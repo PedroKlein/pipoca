@@ -10,6 +10,10 @@ const profileRejections = {
   default: [409, "The default Profile can't be removed."],
   in_use: [409, "Sessions still use this Profile."],
   admin_only: [403, "Only admins change shared Profiles."],
+  synced: [
+    409,
+    "This Profile follows its repository. Make a copy to change it.",
+  ],
 } as const;
 
 const layers = [
@@ -28,6 +32,7 @@ export function profileRoutes(
       | Profiles["update"]
       | Profiles["updateLayer"]
       | Profiles["remove"]
+      | Profiles["copy"]
     >,
     status: number,
   ): Response =>
@@ -194,10 +199,32 @@ export function profileRoutes(
 
         const body = await readJson(request);
 
-        const { url } = (body ?? {}) as Record<string, unknown>;
+        const { url, paths } = (body ?? {}) as Record<string, unknown>;
 
         if (url !== undefined && typeof url !== "string") {
           throw new BadRequest("url must be a string");
+        }
+
+        if (paths !== undefined) {
+          if (
+            url === undefined ||
+            !Array.isArray(paths) ||
+            !paths.every((path) => typeof path === "string")
+          ) {
+            throw new BadRequest("paths must be a list with a url");
+          }
+
+          const imported = await profiles.importListed(
+            userIdOf(actor),
+            url,
+            paths,
+          );
+
+          log("profiles imported", {
+            profileIds: imported.map(({ id }) => id),
+          });
+
+          return Response.json({ profiles: imported }, { status: 201 });
         }
 
         const profile =
@@ -247,6 +274,39 @@ export function profileRoutes(
         }
 
         return replied(removed, 204);
+      },
+    ],
+    // What a repository's pipoca.json lists, to pick from (ADR 0063).
+    [
+      "POST",
+      /^\/api\/profiles\/listed$/,
+      async (request) => {
+        const { url } = fieldsOf(await readJson(request));
+
+        if (typeof url !== "string") {
+          throw new BadRequest("url must be a string");
+        }
+
+        return Response.json({ profiles: await profiles.listed(url) });
+      },
+    ],
+    [
+      "POST",
+      /^\/api\/profiles\/([^/]+)\/sync$/,
+      async (_request, [id = ""], actor) =>
+        replied(await profiles.syncOne(log, userIdOf(actor), id), 200),
+    ],
+    [
+      "POST",
+      /^\/api\/profiles\/([^/]+)\/copy$/,
+      (_request, [id = ""], actor) => {
+        const copied = profiles.copy(userIdOf(actor), id);
+
+        if (copied.ok) {
+          log("profile copied", { profileId: copied.value.id, from: id });
+        }
+
+        return replied(copied, 201);
       },
     ],
     [

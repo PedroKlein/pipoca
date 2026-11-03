@@ -175,9 +175,25 @@ export interface Profile extends ProfileContent {
   readonly ownerId: string | null;
   // The Profile this one builds on, which it gets everything from (ADR 0063).
   readonly buildsOn: string | null;
+  // The repository folder a synced Profile follows. Null for one people edit.
+  readonly source: ProfileSource | null;
   readonly createdAt: string;
   // New Sessions use the default Profile when nothing else names one.
   readonly isDefault: boolean;
+}
+
+// A folder a repository's pipoca.json lists, at the commit last synced
+// (ADR 0063).
+export interface ProfileSource {
+  readonly url: string;
+  readonly path: string;
+  readonly commit: string;
+}
+
+// What a repository's pipoca.json lists that can be imported.
+export interface ListedProfile {
+  readonly name: string;
+  readonly path: string;
 }
 
 // The file a Profile is exported to and imported from.

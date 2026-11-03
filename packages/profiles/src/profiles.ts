@@ -1,26 +1,30 @@
-import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { lstat, mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { lstat, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { promisify } from "node:util";
 import {
+  type ListedProfile,
   type PiPackage,
   type Profile,
   type ProfileContent,
+  type ProfileSource,
   emptyProfile,
   profilePath,
 } from "@pipoca/protocol";
 import {
   defaultProfileId,
   isRecord,
+  type Log,
   maxBuildsOn,
   type ProfileFolders,
   type ProfileLayer,
   type StoredProfile,
 } from "./folders";
-import { folderEntries } from "./files";
 import { InvalidProfile } from "./invalid";
+import {
+  folderFiles,
+  listedProfiles,
+  manifestFile,
+  withClone,
+} from "./repository";
 
 export interface ProfileStore {
   readonly defaultProfileId: (ownerId: string) => string;
@@ -31,7 +35,7 @@ export interface ProfileStore {
 
 export type Layer = "base" | "defaults";
 
-type Rejection = "not_found" | "default" | "in_use" | "admin_only";
+type Rejection = "not_found" | "default" | "in_use" | "admin_only" | "synced";
 
 export interface ProfileEntry {
   readonly path: string;
@@ -44,9 +48,7 @@ type Result<T> =
 
 // The file a repository shares a Profile in, at its root.
 const exportFile = "pipoca-profile.json";
-const gitTimeoutMs = 60_000;
 const maxExportBytes = 1024 * 1024;
-const run = promisify(execFile);
 
 // Each user sees their own Profiles and the shared ones, which only admins
 // change, and picks their own default (ADR 0041).
@@ -103,6 +105,7 @@ export class Profiles {
       name,
       ownerId,
       buildsOn: this.#buildsOn(id, ownerId, fields["buildsOn"]),
+      source: null,
       createdAt: new Date().toISOString(),
       ...content,
     };
@@ -122,6 +125,10 @@ export class Profiles {
     const profile = this.#visible(userId, id);
     if (!profile) {
       return { ok: false, reason: "not_found" };
+    }
+
+    if (profile.source) {
+      return { ok: false, reason: "synced" };
     }
 
     if (profile.ownerId === null && !admin) {
@@ -369,70 +376,166 @@ export class Profiles {
     return created.value;
   }
 
-  // The server clones with its own git setup, so only remote https and ssh
-  // URLs are taken, with no stored credentials, and the file must be a small
-  // regular file.
+  // A repository with a Profile folder at its root, or an older one with a
+  // pipoca-profile.json, becomes a Profile the importer owns.
   async importFromGit(userId: string, url: string): Promise<Profile> {
-    if (!/^(https:\/\/|ssh:\/\/)[^\s]+$/.test(url)) {
-      throw new InvalidProfile("url must be an https:// or ssh:// git URL");
-    }
-
-    const dir = await mkdtemp(join(tmpdir(), "pipoca-profile-"));
-    try {
-      await run(
-        "git",
-        [
-          "-c",
-          "protocol.allow=never",
-          "-c",
-          "protocol.https.allow=always",
-          "-c",
-          "protocol.ssh.allow=always",
-          "-c",
-          "credential.helper=",
-          "clone",
-          "--depth",
-          "1",
-          "--",
-          url,
-          dir,
-        ],
-        {
-          timeout: gitTimeoutMs,
-          env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-        },
-      ).catch(() => {
-        throw new InvalidProfile(`could not clone ${url}`);
-      });
-
-      // Repositories made before Profiles were folders hold one file.
+    return withClone(url, async ({ dir }) => {
       const file = join(dir, exportFile);
       const info = await lstat(file).catch(() => undefined);
       if (info?.isFile() === true && info.size <= maxExportBytes) {
         return this.import(userId, parsedJson(await readFile(file, "utf8")));
       }
 
-      const files = new Map(
-        folderEntries(dir).map(({ path }) => [
-          path,
-          readFileSync(join(dir, path)),
-        ]),
-      );
-
       return this.#createWith(
         userId,
         basename(url).replace(/\.git$/, ""),
-        files,
+        folderFiles(dir, "."),
       );
-    } finally {
-      await rm(dir, { recursive: true, force: true });
+    });
+  }
+
+  // The Profiles a repository's pipoca.json lists (ADR 0063).
+  async listed(url: string): Promise<readonly ListedProfile[]> {
+    return withClone(url, ({ dir }) => listedProfiles(dir));
+  }
+
+  // Each picked folder becomes a Profile of the importer's that follows the
+  // repository and can't be edited.
+  async importListed(
+    userId: string,
+    url: string,
+    paths: readonly string[],
+  ): Promise<readonly Profile[]> {
+    return withClone(url, ({ dir, commit }) => {
+      const listed = listedProfiles(dir);
+
+      const picked = paths.map((path) => {
+        const found = listed.find((each) => each.path === path);
+        if (!found) {
+          throw new InvalidProfile(`${manifestFile} doesn't list ${path}`);
+        }
+
+        return found;
+      });
+
+      return picked.map(({ name, path }) =>
+        this.#createWith(userId, name, folderFiles(dir, path), {
+          url,
+          path,
+          commit,
+        }),
+      );
+    });
+  }
+
+  // Brings every synced Profile, or those from one repository, up to the
+  // repository's latest commit.
+  async sync(log: Log, url?: string): Promise<void> {
+    const synced = this.#folders
+      .ids()
+      .flatMap((id) => this.#folders.read(id) ?? [])
+      .filter(
+        ({ source }) =>
+          source !== null && (url === undefined || source.url === url),
+      );
+
+    const urls = [...new Set(synced.map(({ source }) => source?.url ?? ""))];
+    let changed = 0;
+    let failed = 0;
+
+    if (synced.length === 0) {
+      return;
     }
+
+    log("profiles syncing", {
+      profiles: synced.length,
+      repositories: urls.length,
+    });
+
+    for (const each of urls) {
+      await withClone(each, ({ dir, commit }) => {
+        for (const profile of synced) {
+          const { source } = profile;
+          if (source?.url !== each || source.commit === commit) {
+            continue;
+          }
+
+          try {
+            this.#folders.replaceFiles(
+              profile.id,
+              folderFiles(dir, source.path),
+            );
+
+            this.#folders.write(
+              profile.id,
+              { ...profile, source: { ...source, commit } },
+              {},
+            );
+
+            changed++;
+            log("profile synced", { profileId: profile.id, commit });
+          } catch (error) {
+            failed++;
+
+            log("profile sync failed", {
+              profileId: profile.id,
+              error: String(error),
+            });
+          }
+        }
+      }).catch((error: unknown) => {
+        failed++;
+        log("profile sync failed", { url: each, error: String(error) });
+      });
+    }
+
+    log("profiles synced", { checked: synced.length, changed, failed });
+  }
+
+  async syncOne(
+    log: Log,
+    userId: string,
+    id: string,
+  ): Promise<Result<Profile>> {
+    const profile = this.#visible(userId, id);
+    if (!profile?.source) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    await this.sync(log, profile.source.url);
+
+    return {
+      ok: true,
+      value: this.#view(userId, this.#folders.read(id) ?? profile),
+    };
+  }
+
+  // A Profile of the person's own with the same files, which they can edit.
+  copy(userId: string, id: string): Result<Profile> {
+    const profile = this.#visible(userId, id);
+    if (!profile) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    const files = new Map(
+      this.#folders.entries(id).flatMap(({ path }) => {
+        const content = this.#folders.file(id, path);
+
+        return content ? [[path, content] as const] : [];
+      }),
+    );
+
+    return {
+      ok: true,
+      value: this.#createWith(userId, `${profile.name} copy`, files),
+    };
   }
 
   #createWith(
     userId: string,
     name: string,
     files: ReadonlyMap<string, Buffer>,
+    source?: ProfileSource,
   ): Profile {
     const created = this.create(userId, { name }, false);
     if (!created.ok) {
@@ -441,6 +544,10 @@ export class Profiles {
 
     try {
       this.#folders.writeFiles(created.value.id, files);
+
+      if (source) {
+        this.#folders.write(created.value.id, { ...created.value, source }, {});
+      }
     } catch (error) {
       this.#folders.remove(created.value.id);
       throw error;
@@ -460,6 +567,10 @@ export class Profiles {
     const profile = this.#visible(userId, id);
     if (!profile) {
       return { ok: false, reason: "not_found" };
+    }
+
+    if (profile.source) {
+      return { ok: false, reason: "synced" };
     }
 
     return profile.ownerId === null && !admin
