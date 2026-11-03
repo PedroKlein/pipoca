@@ -145,7 +145,7 @@ export default {
 
 `Page` gets `{ context, path }`, where `path` is the rest of the address after the plugin's page. `context.request(path, init)` is `fetch` for the plugin's own routes: `context.request("greeting")` asks `/api/plugins/greeter/greeting`, and `context.request("items", { method: "PUT", body })` sends any method and body. A path that starts with `/`, such as `/api/environments`, goes to the server's own API instead. `context.settings` holds the plugin's settings. `nav` can also list links under the entry with `Items`, and say with `fills` which paths fill the window.
 
-The other slots are `SessionPanel`, `SessionHeader`, `EnvironmentSection`, `SettingsSection`, `Home`, `tools` and `widgets` for drawing tool calls and extension widgets, `notices`, `links`, `sessionPath` for where a Session the plugin owns opens, and `repositories` for the repositories New Session offers.
+The other slots are `SessionPanel`, `SessionHeader`, `EnvironmentSection`, `SettingsSection` (a page in Settings, listed under the `settingsGroup` it names: `you`, `workspace`, `server` for admins, or `integrations` for a tab of the Integrations page), `settingsParts` (`General` and `Accounts` parts of those Settings pages), `Home`, `tools` and `widgets` for drawing tool calls and extension widgets, `notices`, `links`, `sessionPath` for where a Session the plugin owns opens, and `repositories` for the repositories New Session offers.
 
 `useLoaded(load, key, { topics })` from `@pipoca/plugins/web` loads data and loads it again when one of the topics changes, such as `sessions`, `profiles`, `environments`, `plugins` or your own `<id>.<name>`. Pass `everyMs` instead for data that changes outside Pipoca.
 

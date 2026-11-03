@@ -9,7 +9,9 @@ export function PageTitle({
 }): ReactElement {
   return (
     <header className="mb-6 flex flex-col gap-2">
-      <h1 className="text-display font-semibold text-fg-strong">{children}</h1>
+      <h1 className="text-display font-medium tracking-tight text-fg-strong">
+        {children}
+      </h1>
       {description !== undefined && (
         <p className="max-w-chat text-ui text-fg-dim">{description}</p>
       )}
@@ -19,14 +21,28 @@ export function PageTitle({
 
 export function Section({
   title,
+  description,
+  actions,
   children,
 }: {
   readonly title: ReactNode;
+  // A few words beside the title.
+  readonly description?: ReactNode;
+  // Buttons at the end of the title's line, such as Add.
+  readonly actions?: ReactNode;
   readonly children: ReactNode;
 }): ReactElement {
   return (
-    <section className="mt-8 flex flex-col gap-3">
-      <h2 className="text-title font-semibold text-fg-strong">{title}</h2>
+    <section className="mt-8 flex flex-col gap-2.5">
+      <div className="flex min-h-8 flex-wrap items-center gap-x-2.5 gap-y-1">
+        <h2 className="text-prose font-semibold text-fg-strong">{title}</h2>
+        {description !== undefined && (
+          <span className="text-label text-fg-dim">{description}</span>
+        )}
+        {actions !== undefined && (
+          <div className="ml-auto flex gap-2">{actions}</div>
+        )}
+      </div>
       {children}
     </section>
   );

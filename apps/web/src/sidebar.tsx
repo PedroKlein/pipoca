@@ -14,7 +14,6 @@ import {
   workspaceName,
 } from "./names";
 import { PluginBoundary } from "./plugin-boundary";
-import { isSettingsRoute } from "./settings-layout";
 import {
   enabledPlugins,
   type NavEntry,
@@ -153,7 +152,7 @@ export function Sidebar({
 
       <NotifyButton />
       <EnvironmentStatus environments={environments} />
-      <AccountMenu user={user} current={isSettingsRoute(route)} />
+      <AccountMenu user={user} />
     </nav>
   );
 }
@@ -274,13 +273,7 @@ function NotifyButton(): ReactElement | null {
 
 // Settings and signing out, behind the user's name like Claude Code's account
 // menu (ADR 0040).
-function AccountMenu({
-  user,
-  current,
-}: {
-  readonly user: string;
-  readonly current: boolean;
-}): ReactElement {
+function AccountMenu({ user }: { readonly user: string }): ReactElement {
   const [open, setOpen] = useState(false);
 
   return (
@@ -333,11 +326,10 @@ function AccountMenu({
         aria-label="Account"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-current={current ? "page" : undefined}
         onClick={() => {
           setOpen(!open);
         }}
-        className="w-full justify-start text-label aria-[current=page]:bg-hover"
+        className="w-full justify-start text-label"
       >
         <span
           aria-hidden="true"

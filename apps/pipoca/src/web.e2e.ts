@@ -200,6 +200,14 @@ async function pickWorkspace(
 
 // Opens a section of the Settings page from the account menu.
 async function openSettings(section: string): Promise<void> {
+  const back = page
+    .getByRole("navigation", { name: "Settings" })
+    .getByRole("link", { name: "Back to Pipoca" });
+
+  if (await back.isVisible()) {
+    await back.click();
+  }
+
   await page.getByRole("button", { name: "Account" }).click();
   await page.getByRole("menuitem", { name: "Settings" }).click();
 
@@ -817,6 +825,8 @@ test("shows an installed plugin's page with the app's React and components", asy
       .isDisabled(),
   ).toBe(true);
 
+  await page.getByRole("link", { name: "Back to Pipoca" }).click();
+
   // A newly installed plugin's page starts under More (ADR 0040).
   await page
     .locator("#plugin-nav")
@@ -897,9 +907,9 @@ test("puts a pin back when the server doesn't save it", async () => {
 
 test("connects a model provider from Settings by answering its prompts", async () => {
   await page.goto(server.url.href);
-  await openSettings("Logins");
+  await openSettings("Accounts");
 
-  await page.getByRole("button", { name: "Connect a provider" }).click();
+  await page.getByRole("button", { name: "Add provider" }).click();
 
   const form = page.getByRole("form", { name: "Connect a model provider" });
   await form.getByLabel("Provider").selectOption({ label: "Mistral" });
@@ -986,7 +996,7 @@ test("signs in to an MCP server of the base Profile from Settings and comes back
     await base({ linear: { url: `${linear.url.origin}/mcp` } });
 
     await page.goto(server.url.href);
-    await openSettings("Logins");
+    await openSettings("Accounts");
     await page.getByRole("button", { name: "Sign in to linear" }).click();
 
     const card = page.getByRole("region", { name: "Connecting linear" });
@@ -1007,7 +1017,7 @@ test("signs in to an MCP server of the base Profile from Settings and comes back
 
 test("makes an MCP token that works once shown, and revokes it", async () => {
   await page.goto(server.url.href);
-  await openSettings("MCP clients");
+  await openSettings("Access tokens");
 
   await page.getByLabel("Client name").fill("My laptop");
   await page.getByRole("button", { name: "New token" }).click();
@@ -1043,7 +1053,7 @@ test("makes an MCP token that works once shown, and revokes it", async () => {
 
 test("says why an MCP token wasn't revoked", async () => {
   await page.goto(server.url.href);
-  await openSettings("MCP clients");
+  await openSettings("Access tokens");
 
   await page.getByLabel("Client name").fill("Old laptop");
   await page.getByRole("button", { name: "New token" }).click();
@@ -1418,6 +1428,7 @@ test("makes a Profile and starts a session that follows its instructions", async
     .and(page.locator(":disabled"))
     .waitFor();
 
+  await page.getByRole("link", { name: "Back to Pipoca" }).click();
   await page.getByRole("button", { name: "New session" }).click();
   const form = page.locator("form#create");
 
@@ -1867,14 +1878,23 @@ test("folds a working turn to one line, and opens every step when the chat is se
   answer(undefined);
   await work.getByText(/^Worked for/).waitFor();
 
-  await openSettings("Chat");
-  await page.getByLabel("Tool activity").selectOption("verbose");
+  await openSettings("General");
+
+  await page
+    .getByRole("group", { name: "Tool activity" })
+    .getByRole("button", { name: "Verbose" })
+    .click();
+
   await page.goto(sessionUrl);
 
   await work.getByText("from-the-step").first().waitFor();
 
-  await openSettings("Chat");
-  await page.getByLabel("Tool activity").selectOption("quiet");
+  await openSettings("General");
+
+  await page
+    .getByRole("group", { name: "Tool activity" })
+    .getByRole("button", { name: "Quiet" })
+    .click();
 }, 30_000);
 
 test("creates a Project and shares a file through its library", async () => {
@@ -3130,8 +3150,28 @@ test("opens a page the Session opened in a browser through its preview", async (
   await app.stop(true);
 });
 
+test("opens Settings as its own page, grouped by who each page is for", async () => {
+  await page.goto(server.url.href);
+  await openSettings("General");
+
+  expect(await page.locator("#plugin-nav").count()).toBe(0);
+
+  const menu = page.getByRole("navigation", { name: "Settings" });
+
+  expect(
+    await menu.getByRole("heading", { level: 3 }).allTextContents(),
+  ).toEqual(["You", "Workspace", "Server, for admins"]);
+
+  await menu.getByRole("link", { name: "Integrations" }).click();
+  await page.getByRole("tab", { name: "Email" }).click();
+  await page.getByRole("tab", { name: "Email", selected: true }).waitFor();
+
+  await menu.getByRole("link", { name: "Back to Pipoca" }).click();
+  await page.locator("#plugin-nav").waitFor();
+});
+
 test("offers push notifications in Settings and shows a pushed notification from the service worker", async () => {
-  await openSettings("Push notifications");
+  await openSettings("Notifications");
   await page.getByRole("button", { name: "Turn on for this device" }).waitFor();
 
   const origin = new URL(server.url).origin;

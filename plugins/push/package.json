@@ -18,7 +18,7 @@
   },
   "pipoca": {
     "id": "push",
-    "title": "Push notifications",
+    "title": "Notifications",
     "description": "Tells your devices when Pi finishes or needs you, even with Pipoca closed.",
     "capabilities": [
       "events",

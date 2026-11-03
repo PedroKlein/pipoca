@@ -4,19 +4,30 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, Section } from "@pipoca/ui";
+import {
+  Badge,
+  Button,
+  Icon,
+  initialsOf,
+  Row,
+  Rows,
+  Section,
+} from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import type { Account } from "../src/model";
 import { ConnectForm, ConnectionCard } from "./connect";
 
 export const logins: WebPlugin = {
   name: "logins",
-  SettingsSection,
+  settingsParts: { Accounts },
 };
 
-const typeLabels = { oauth: "account", api_key: "API key" } as const;
+const typeLabels = {
+  oauth: "Signed in with your account",
+  api_key: "API key",
+} as const;
 
-function SettingsSection({
+function Accounts({
   context,
 }: {
   readonly context: WebContext;
@@ -59,122 +70,137 @@ function SettingsSection({
   };
 
   return (
-    <Section title="Logins">
-      <p className="text-ui text-fg-dim">
-        Your Sessions use these logins on every runner. Connect a model provider
-        here or with /login in any Session, and an MCP server with /mcp login.
-      </p>
-      {value.connection !== undefined && (
-        <ConnectionCard connection={value.connection} send={send} />
-      )}
-      {value.connection === undefined && choosing && (
-        <ConnectForm
-          context={context}
-          send={send}
-          onClose={() => {
-            setChoosing(false);
-          }}
-        />
-      )}
-      {value.connection === undefined && !choosing && (
-        <div>
-          <Button
-            variant="primary"
-            onClick={() => {
-              setChoosing(true);
-            }}
-          >
-            Connect a provider
-          </Button>
-        </div>
-      )}
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
-      <ul
-        aria-label="Your model logins"
-        className="flex flex-col gap-2 rounded-lg border border-line bg-elevated shadow-xs p-3 text-ui"
-      >
-        {value.logins.length === 0 && (
-          <li className="text-fg-dim">
-            You haven't logged in to any model provider yet.
-          </li>
-        )}
-        {value.logins.map((login) => (
-          <li key={login.provider} className="flex items-center gap-2">
-            <span className="flex-1 truncate text-fg">
-              {login.provider}
-              <span className="text-fg-dim">
-                {` · ${typeLabels[login.type]}`}
-              </span>
-            </span>
+    <>
+      <Section
+        title="Providers"
+        actions={
+          value.connection === undefined &&
+          !choosing && (
             <Button
-              aria-label={`Log out of ${login.provider}`}
               onClick={() => {
-                void json(
-                  context.request(
-                    `credentials/${encodeURIComponent(login.provider)}`,
-                    { method: "DELETE" },
-                  ),
-                ).then(reload, reload);
+                setChoosing(true);
               }}
             >
-              Log out
+              <Icon name="plus" />
+              Add provider
             </Button>
-          </li>
-        ))}
-      </ul>
-      <ul
-        aria-label="Your MCP logins"
-        className="flex flex-col gap-2 rounded-lg border border-line bg-elevated shadow-xs p-3 text-ui"
+          )
+        }
       >
-        {mcpServers.length === 0 && (
-          <li className="text-fg-dim">
-            None of your Profiles has an MCP server that signs in.
-          </li>
+        {value.connection !== undefined && (
+          <ConnectionCard connection={value.connection} send={send} />
         )}
-        {mcpServers.map(({ key, signedIn }) => {
-          const [name = key, address = ""] = key.split(" ");
+        {value.connection === undefined && choosing && (
+          <ConnectForm
+            context={context}
+            send={send}
+            onClose={() => {
+              setChoosing(false);
+            }}
+          />
+        )}
+        {error !== undefined && (
+          <p role="alert" className="text-caption text-failed">
+            {error}
+          </p>
+        )}
+        <Rows label="Your model logins">
+          {value.logins.length === 0 && (
+            <Row
+              title="No model provider yet"
+              description="Add one here, or use /login in any Session."
+            />
+          )}
+          {value.logins.map((login) => (
+            <Row
+              key={login.provider}
+              initials={initialsOf(login.provider)}
+              title={
+                <>
+                  {login.provider}
+                  <Badge state="done">
+                    {login.type === "oauth" ? "Signed in" : "Key saved"}
+                  </Badge>
+                </>
+              }
+              description={typeLabels[login.type]}
+            >
+              <Button
+                variant="ghost"
+                aria-label={`Log out of ${login.provider}`}
+                onClick={() => {
+                  void json(
+                    context.request(
+                      `credentials/${encodeURIComponent(login.provider)}`,
+                      { method: "DELETE" },
+                    ),
+                  ).then(reload, reload);
+                }}
+              >
+                Log out
+              </Button>
+            </Row>
+          ))}
+        </Rows>
+      </Section>
+      <Section
+        title="Tools"
+        description="MCP servers in your Profiles that sign in"
+      >
+        <Rows label="Your MCP logins">
+          {mcpServers.length === 0 && (
+            <Row
+              title="No MCP server signs in"
+              description="None of your Profiles has an MCP server that needs a login."
+            />
+          )}
+          {mcpServers.map(({ key, signedIn }) => {
+            const [name = key, address = ""] = key.split(" ");
 
-          return (
-            <li key={key} className="flex items-center gap-2">
-              <span className="flex-1 truncate text-fg">
-                {name}
-                <span className="text-fg-dim">
-                  {` · ${address}${signedIn ? "" : " · not signed in"}`}
-                </span>
-              </span>
-              {signedIn ? (
-                <Button
-                  aria-label={`Log out of ${name}`}
-                  onClick={() => {
-                    send(`mcp/${encodeURIComponent(key)}`, {
-                      method: "DELETE",
-                    });
-                  }}
-                >
-                  Log out
-                </Button>
-              ) : (
-                <Button
-                  aria-label={`Sign in to ${name}`}
-                  disabled={value.connection?.state === "running"}
-                  onClick={() => {
-                    send("connect-mcp", {
-                      method: "POST",
-                      body: JSON.stringify({ server: key }),
-                    });
-                  }}
-                >
-                  Sign in
-                </Button>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </Section>
+            return (
+              <Row
+                key={key}
+                initials={initialsOf(name)}
+                title={
+                  <>
+                    {name}
+                    {signedIn && <Badge state="done">Signed in</Badge>}
+                  </>
+                }
+                description={address}
+              >
+                {signedIn ? (
+                  <Button
+                    variant="ghost"
+                    aria-label={`Log out of ${name}`}
+                    onClick={() => {
+                      send(`mcp/${encodeURIComponent(key)}`, {
+                        method: "DELETE",
+                      });
+                    }}
+                  >
+                    Sign out
+                  </Button>
+                ) : (
+                  <Button
+                    variant="primary"
+                    aria-label={`Sign in to ${name}`}
+                    disabled={value.connection?.state === "running"}
+                    onClick={() => {
+                      send("connect-mcp", {
+                        method: "POST",
+                        body: JSON.stringify({ server: key }),
+                      });
+                    }}
+                  >
+                    Sign in
+                  </Button>
+                )}
+              </Row>
+            );
+          })}
+        </Rows>
+      </Section>
+    </>
   );
 }

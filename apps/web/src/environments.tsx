@@ -21,6 +21,7 @@ import { useTemplates } from "./hooks";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext } from "./plugins";
 import { Templates } from "./templates";
+import { settingsPageClass } from "./page-class";
 
 export function EnvironmentsPage({
   environments,
@@ -43,10 +44,7 @@ export function EnvironmentsPage({
   }>();
 
   return (
-    <div
-      id="environments-page"
-      className="mx-auto flex w-full max-w-form flex-col px-4 py-10 md:px-10"
-    >
+    <div id="environments-page" className={settingsPageClass}>
       <PageTitle description="An Environment is where your Sessions run: a pool of runners, the machines whose agents joined it, with a setup script, variables and secrets for every Session. It is yours alone, and one made from a template runs as the template says. Edits reach a Session the next time it starts.">
         Environments
       </PageTitle>

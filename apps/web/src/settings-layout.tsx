@@ -1,49 +1,85 @@
-import { Button, Icon } from "@pipoca/ui";
+import type { SettingsGroup } from "@pipoca/plugins/web";
+import type { Environment, Profile } from "@pipoca/protocol";
+import { cn, Icon, PageTitle } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
-import { enabledPlugins, pluginTitle } from "./plugins";
+import { AccountsPage } from "./accounts";
+import { EnvironmentsPage } from "./environments";
+import { GeneralPage } from "./general";
+import { settingsPageClass } from "./page-class";
+import { PeoplePage } from "./people";
+import { PluginBoundary } from "./plugin-boundary";
+import { enabledPlugins, pluginContext, pluginTitle } from "./plugins";
+import { PluginsPage } from "./plugins-page";
+import { ProfilesPage } from "./profiles";
+import { SettingsPage } from "./settings";
 
-interface SettingsSection {
-  readonly href: string;
+interface Entry {
+  readonly path: string;
   readonly label: string;
-  readonly current: boolean;
 }
 
-// Everything that configures Pipoca sits on one page with sections, opened
-// from the account menu, like Claude Code's settings (ADR 0040).
-function sections(route: string, people: boolean): readonly SettingsSection[] {
+interface Group {
+  readonly label: string;
+  readonly entries: readonly Entry[];
+}
+
+function pluginPages(group: SettingsGroup): readonly Entry[] {
+  return enabledPlugins().flatMap(({ name, SettingsSection, settingsGroup }) =>
+    SettingsSection && (settingsGroup ?? "you") === group
+      ? [{ path: `settings/${name}`, label: pluginTitle(name) }]
+      : [],
+  );
+}
+
+const integrationsPath = "settings/integrations";
+
+// Settings is grouped by who it is for, and only admins see the server's
+// pages (ADR 0063).
+function groups(admin: boolean, people: boolean): readonly Group[] {
+  const integrations = pluginPages("integrations");
+
   return [
     {
-      href: "#environments",
-      label: "Environments",
-      current: route.startsWith("environments"),
+      label: "You",
+      entries: [
+        { path: "settings/general", label: "General" },
+        { path: "settings/accounts", label: "Accounts" },
+        ...pluginPages("you"),
+        { path: "settings/tokens", label: "Access tokens" },
+      ],
     },
     {
-      href: "#profiles",
-      label: "Profiles",
-      current: route.startsWith("profiles"),
+      label: "Workspace",
+      entries: [
+        { path: "environments", label: "Environments" },
+        { path: "profiles", label: "Profiles" },
+        ...pluginPages("workspace"),
+      ],
     },
-    { href: "#plugins", label: "Plugins", current: route === "plugins" },
-    ...(people
-      ? [{ href: "#people", label: "People", current: route === "people" }]
+    ...(admin
+      ? [
+          {
+            label: "Server, for admins",
+            entries: [
+              ...(people ? [{ path: "people", label: "People" }] : []),
+              ...pluginPages("server"),
+              ...(integrations.length > 0
+                ? [{ path: integrationsPath, label: "Integrations" }]
+                : []),
+              { path: "plugins", label: "Plugins" },
+            ],
+          },
+        ]
       : []),
-    {
-      href: "#settings/chat",
-      label: "Chat",
-      current: route === "settings/chat",
-    },
-    { href: "#settings", label: "MCP clients", current: route === "settings" },
-    ...enabledPlugins().flatMap(({ name, SettingsSection }) =>
-      SettingsSection
-        ? [
-            {
-              href: `#settings/${name}`,
-              label: pluginTitle(name),
-              current: route === `settings/${name}`,
-            },
-          ]
-        : [],
-    ),
   ];
+}
+
+function opens(route: string, path: string): boolean {
+  return (
+    route === path ||
+    route.startsWith(`${path}/`) ||
+    (route === "settings" && path === "settings/general")
+  );
 }
 
 export function isSettingsRoute(route: string): boolean {
@@ -52,45 +88,243 @@ export function isSettingsRoute(route: string): boolean {
 
 export function SettingsLayout({
   route,
+  user,
+  admin,
   people,
-  onMenu,
-  children,
+  environments,
+  profiles,
+  onEnvironmentsChange,
+  onProfilesChange,
 }: {
   readonly route: string;
+  readonly user: string;
+  readonly admin: boolean;
   readonly people: boolean;
-  readonly onMenu: () => void;
-  readonly children: ReactNode;
+  readonly environments: readonly Environment[];
+  readonly profiles: readonly Profile[];
+  readonly onEnvironmentsChange: () => void;
+  readonly onProfilesChange: () => void;
 }): ReactElement {
+  const menu = groups(admin, people);
+
+  const page = (): ReactNode => {
+    const profilesRoute = /^profiles\/?(.*)$/.exec(route);
+    if (profilesRoute) {
+      return (
+        <ProfilesPage
+          profiles={profiles}
+          selected={profilesRoute[1] ?? ""}
+          onChange={onProfilesChange}
+        />
+      );
+    }
+
+    const environmentsRoute = /^environments\/?(.*)$/.exec(route);
+    if (environmentsRoute) {
+      return (
+        <EnvironmentsPage
+          environments={environments}
+          selected={environmentsRoute[1] ?? ""}
+          onChange={onEnvironmentsChange}
+        />
+      );
+    }
+
+    if (route === "plugins") {
+      return <PluginsPage />;
+    }
+
+    if (route === "people" && people) {
+      return <PeoplePage />;
+    }
+
+    if (route === "settings/accounts") {
+      return <AccountsPage />;
+    }
+
+    if (route === "settings/tokens") {
+      return <SettingsPage />;
+    }
+
+    if (opens(route, integrationsPath)) {
+      return <IntegrationsPage route={route} />;
+    }
+
+    const name = /^settings\/(.+)$/.exec(route)?.[1];
+
+    const Section = enabledPlugins().find(
+      (plugin) => plugin.name === name,
+    )?.SettingsSection;
+
+    if (name !== undefined && Section) {
+      return (
+        <div className={settingsPageClass}>
+          <PluginBoundary name={name}>
+            <Section context={pluginContext(name)} />
+          </PluginBoundary>
+        </div>
+      );
+    }
+
+    return <GeneralPage user={user} admin={admin} />;
+  };
+
   return (
     <div className="flex min-h-0 flex-1 max-md:flex-col">
       <nav
         aria-label="Settings"
-        className="flex shrink-0 gap-0.5 border-line max-md:items-center max-md:overflow-x-auto max-md:border-b max-md:px-2 max-md:py-1.5 md:w-52 md:flex-col md:border-r md:px-2 md:py-6"
+        className="flex w-62 shrink-0 flex-col gap-px overflow-y-auto border-r border-line bg-panel px-3 pt-4 pb-6 max-md:hidden"
       >
-        <Button
-          variant="ghost"
-          iconOnly
-          aria-label="Open sessions"
-          onClick={onMenu}
-          className="shrink-0 md:hidden"
+        <a
+          href="#"
+          className="mb-2.5 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-label text-fg-dim hover:bg-hover"
         >
-          <Icon name="menu" />
-        </Button>
-        <h2 className="px-2 pb-2 text-caption font-medium text-fg-dim max-md:hidden">
+          <Icon name="chevron-left" />
+          Back to Pipoca
+        </a>
+        <h2 className="px-2.5 pt-0.5 pb-1.5 font-serif text-wordmark font-light text-fg-strong">
           Settings
         </h2>
-        {sections(route, people).map(({ href, label, current }) => (
-          <a
-            key={href}
-            href={href}
-            aria-current={current ? "page" : undefined}
-            className="shrink-0 rounded-md px-2 py-1.5 text-ui whitespace-nowrap text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:font-medium aria-[current=page]:text-fg-strong"
-          >
-            {label}
-          </a>
+        {menu.map((group) => (
+          <div key={group.label} className="flex flex-col gap-px">
+            <h3 className="px-2.5 pt-4 pb-1 text-caption text-fg-dim">
+              {group.label}
+            </h3>
+            {group.entries.map(({ path, label }) => (
+              <a
+                key={path}
+                href={`#${path}`}
+                aria-current={opens(route, path) ? "page" : undefined}
+                className="rounded-md px-2.5 py-1.5 text-ui text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:font-medium aria-[current=page]:text-fg-strong"
+              >
+                {label}
+              </a>
+            ))}
+          </div>
         ))}
       </nav>
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">{children}</div>
+      {route === "settings" && <PhoneMenu groups={menu} user={user} />}
+      <div
+        className={cn(
+          "min-h-0 min-w-0 flex-1 overflow-y-auto",
+          route === "settings" && "max-md:hidden",
+        )}
+      >
+        <a
+          href="#settings"
+          aria-label="Back to Settings"
+          className="m-2 inline-flex size-touch items-center justify-center rounded-md text-fg hover:bg-hover md:hidden"
+        >
+          <Icon name="chevron-left" />
+        </a>
+        {page()}
+      </div>
+    </div>
+  );
+}
+
+// On a phone the menu is a page of its own that opens each page.
+function PhoneMenu({
+  groups: menu,
+  user,
+}: {
+  readonly groups: readonly Group[];
+  readonly user: string;
+}): ReactElement {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-6 md:hidden">
+      <header className="flex items-center gap-2 pt-3.5 pb-1.5">
+        <a
+          href="#"
+          aria-label="Back to Pipoca"
+          className="-ml-3 inline-flex size-touch items-center justify-center rounded-md text-fg hover:bg-hover"
+        >
+          <Icon name="chevron-left" />
+        </a>
+        <h1 className="font-serif text-display font-light text-fg-strong">
+          Settings
+        </h1>
+      </header>
+      <a
+        href="#settings/general"
+        className="mt-1 flex items-center gap-3 rounded-lg border border-line bg-elevated p-3.5 shadow-xs"
+      >
+        <span
+          aria-hidden="true"
+          className="grid size-10 place-items-center rounded-full bg-hover text-ui font-semibold text-fg-strong"
+        >
+          {user.slice(0, 1).toUpperCase()}
+        </span>
+        <span className="flex-1 text-ui font-medium text-fg-strong">
+          {user}
+        </span>
+        <Icon name="chevron-right" className="text-fg-dim" />
+      </a>
+      {menu.map((group) => (
+        <section key={group.label} className="flex flex-col">
+          <h2 className="px-1 pt-3 pb-1 text-caption text-fg-dim">
+            {group.label}
+          </h2>
+          <ul className="flex flex-col rounded-lg border border-line bg-elevated shadow-xs">
+            {group.entries.map(({ path, label }) => (
+              <li key={path} className="border-t border-line first:border-t-0">
+                <a
+                  href={`#${path}`}
+                  className="flex min-h-12 items-center gap-3 px-4 text-ui font-medium text-fg-strong"
+                >
+                  <span className="flex-1">{label}</span>
+                  <Icon name="chevron-right" className="text-fg-dim" />
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+// Plugins that start routines from outside, such as Slack and Email, share
+// one page with a tab each (ADR 0063).
+function IntegrationsPage({ route }: { readonly route: string }): ReactElement {
+  const tabs = enabledPlugins().filter(
+    ({ SettingsSection, settingsGroup }) =>
+      SettingsSection !== undefined && settingsGroup === "integrations",
+  );
+
+  const chosen = route.slice(integrationsPath.length + 1);
+  const open = tabs.find(({ name }) => name === chosen) ?? tabs[0];
+  const Section = open?.SettingsSection;
+
+  return (
+    <div className={settingsPageClass}>
+      <PageTitle description="Services that start your routines from outside Pipoca and that Sessions can answer through.">
+        Integrations
+      </PageTitle>
+      <div
+        role="tablist"
+        aria-label="Integrations"
+        className="mb-2 flex gap-1 border-b border-line"
+      >
+        {tabs.map(({ name }) => (
+          <a
+            key={name}
+            role="tab"
+            href={`#${integrationsPath}/${name}`}
+            aria-selected={name === open?.name}
+            className="-mb-px border-b-2 border-transparent px-3 py-2 text-ui text-fg-dim hover:text-fg aria-selected:border-fg-strong aria-selected:font-medium aria-selected:text-fg-strong"
+          >
+            {pluginTitle(name)}
+          </a>
+        ))}
+      </div>
+      {open && Section && (
+        <div role="tabpanel">
+          <PluginBoundary name={open.name}>
+            <Section context={pluginContext(open.name)} />
+          </PluginBoundary>
+        </div>
+      )}
     </div>
   );
 }

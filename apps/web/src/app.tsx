@@ -10,10 +10,7 @@ import {
 import { ShellMenu } from "./embedded-session";
 import { NewSessionDialog } from "./new-session";
 import { PluginBoundary } from "./plugin-boundary";
-import { EnvironmentsPage } from "./environments";
 import { FirstRun } from "./first-run";
-import { PluginsPage } from "./plugins-page";
-import { ProfilesPage } from "./profiles";
 import {
   enabledPlugins,
   type NavEntry,
@@ -23,20 +20,19 @@ import {
   sessionHref,
 } from "./plugins";
 import { SessionView } from "./session-view";
-import { ChatSettingsPage } from "./chat-settings";
-import { SettingsPage } from "./settings";
 import { isSettingsRoute, SettingsLayout } from "./settings-layout";
 import { Mark } from "./mark";
-import { PeoplePage } from "./people";
 import { Sidebar } from "./sidebar";
 
 export function App({
   nav,
   user,
+  admin,
   people,
 }: {
   readonly nav: readonly NavEntry[];
   readonly user: string;
+  readonly admin: boolean;
   // An admin of a server several people use sees the People page.
   readonly people: boolean;
 }): ReactElement {
@@ -107,62 +103,6 @@ export function App({
     setDrawer(true);
   };
 
-  const settingsContent = (): ReactElement => {
-    const profilesRoute = /^profiles\/?(.*)$/.exec(route);
-    if (profilesRoute) {
-      return (
-        <ProfilesPage
-          profiles={profiles.value}
-          selected={profilesRoute[1] ?? ""}
-          onChange={profiles.reload}
-        />
-      );
-    }
-
-    const environmentsRoute = /^environments\/?(.*)$/.exec(route);
-    if (environmentsRoute) {
-      return (
-        <EnvironmentsPage
-          environments={environments.value}
-          selected={environmentsRoute[1] ?? ""}
-          onChange={environments.reload}
-        />
-      );
-    }
-
-    if (route === "plugins") {
-      return <PluginsPage />;
-    }
-
-    if (route === "people" && people) {
-      return <PeoplePage />;
-    }
-
-    if (route === "settings/chat") {
-      return <ChatSettingsPage />;
-    }
-
-    const name = /^settings\/(.+)$/.exec(route)?.[1];
-
-    const Section =
-      name === undefined
-        ? undefined
-        : enabledPlugins().find((plugin) => plugin.name === name)
-            ?.SettingsSection;
-
-    if (name !== undefined && Section) {
-      return (
-        <div className="mx-auto flex w-full max-w-form flex-col px-4 py-10 md:px-10">
-          <PluginBoundary name={name}>
-            <Section context={pluginContext(name)} />
-          </PluginBoundary>
-        </div>
-      );
-    }
-
-    return <SettingsPage />;
-  };
-
   const content = (): ReactElement => {
     if (page !== undefined) {
       return (
@@ -177,14 +117,6 @@ export function App({
 
     if (moved !== undefined && moved !== `#${route}`) {
       return <div className="flex-1" />;
-    }
-
-    if (isSettingsRoute(route)) {
-      return (
-        <SettingsLayout route={route} people={people} onMenu={openDrawer}>
-          {settingsContent()}
-        </SettingsLayout>
-      );
     }
 
     if (route === "") {
@@ -226,6 +158,25 @@ export function App({
       />
     );
   };
+
+  // Settings is a page of its own, with its own menu in place of the
+  // sidebar (ADR 0063).
+  if (page === undefined && isSettingsRoute(route)) {
+    return (
+      <div className="flex h-dvh overflow-hidden bg-bg font-sans text-ui text-fg">
+        <SettingsLayout
+          route={route}
+          user={user}
+          admin={admin}
+          people={people}
+          environments={environments.value}
+          profiles={profiles.value}
+          onEnvironmentsChange={environments.reload}
+          onProfilesChange={profiles.reload}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-dvh overflow-hidden bg-bg font-sans text-ui text-fg">

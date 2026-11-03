@@ -121,7 +121,7 @@ function secure(request: Request): boolean {
 
 function page(message: string, status: number): Response {
   return new Response(
-    `<!doctype html><meta charset="utf-8"><title>Pipoca</title><p>${escaped(message)}</p><p><a href="/#settings/logins">Back to Pipoca</a></p>`,
+    `<!doctype html><meta charset="utf-8"><title>Pipoca</title><p>${escaped(message)}</p><p><a href="/#settings/accounts">Back to Pipoca</a></p>`,
     { status, headers: { "content-type": "text/html; charset=utf-8" } },
   );
 }

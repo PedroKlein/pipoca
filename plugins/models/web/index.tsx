@@ -35,6 +35,7 @@ const schedules = ["", "utc-hourly", "utc-midnight", "utc-monthly-1st"];
 export const models: WebPlugin = {
   name: "models",
   SettingsSection: Page,
+  settingsGroup: "workspace",
 };
 
 function Page({ context }: { readonly context: WebContext }): ReactElement {

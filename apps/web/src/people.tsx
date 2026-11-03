@@ -9,6 +9,7 @@ import {
   useEveryonesSessions,
   usePeople,
 } from "./hooks";
+import { settingsPageClass } from "./page-class";
 
 const busy = new Set(["queued", "starting", "running"]);
 
@@ -39,7 +40,7 @@ export function PeoplePage(): ReactElement {
     null;
 
   return (
-    <div className="mx-auto flex w-full max-w-form flex-col px-4 py-10 md:px-10">
+    <div className={settingsPageClass}>
       <PageTitle description="Everyone's Environments and running Sessions, as admins see them: names and states, never transcripts, files or variable values. Admins can stop or archive a Session, and delete an Environment once its Sessions are archived.">
         People
       </PageTitle>

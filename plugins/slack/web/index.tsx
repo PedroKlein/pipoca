@@ -5,7 +5,7 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, Field, fieldClass, Section } from "@pipoca/ui";
+import { Button, Field, fieldClass } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type { Account, BotView } from "../src/model";
 
@@ -43,6 +43,7 @@ const manifest = {
 export const slack: WebPlugin = {
   name: "slack",
   SettingsSection,
+  settingsGroup: "integrations",
   notices: { slack_reply: SlackReply },
 };
 
@@ -60,11 +61,7 @@ function SettingsSection({
     return null;
   }
 
-  return (
-    <Section title="Slack">
-      <Bots context={context} />
-    </Section>
-  );
+  return <Bots context={context} />;
 }
 
 function Bots({ context }: { readonly context: WebContext }): ReactElement {
