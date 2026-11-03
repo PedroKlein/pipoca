@@ -12,6 +12,7 @@ import { meta } from "@pipoca/meta/server";
 import { models } from "@pipoca/models/server";
 import { oidc } from "@pipoca/oidc/server";
 import { projects } from "@pipoca/projects/server";
+import { email } from "@pipoca/email/server";
 import { routines } from "@pipoca/routines/server";
 import { slack } from "@pipoca/slack/server";
 import { kernelToolsets, startPlugins } from "@pipoca/pluginhost";
@@ -63,6 +64,7 @@ const serverPlugins: readonly ServerPlugin[] = [
   push,
   routines,
   slack,
+  email,
 ];
 
 export interface ServeOptions {
