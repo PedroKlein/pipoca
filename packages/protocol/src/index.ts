@@ -1072,6 +1072,9 @@ export interface Session {
   // The user who started the Session, or the one who started the Session
   // that started it. Its runner signs git in as them (ADR 0043).
   readonly startedBy: string | null;
+  // The technical user its git acts as instead of startedBy, such as a
+  // GitHub App a routine runs as (ADR 0060).
+  readonly actsAs: string | null;
   readonly online: boolean;
   // Pi asked a question and waits for a person to answer it (ADR 0025).
   readonly waiting: boolean;

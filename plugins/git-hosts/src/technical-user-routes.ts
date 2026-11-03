@@ -24,6 +24,7 @@ const browserCookie = "pipoca-git-hosts-app";
 
 interface Pending {
   readonly host: string;
+  readonly userId: string;
   readonly hook: string;
   readonly browser: string;
   readonly expires: number;
@@ -41,10 +42,12 @@ export function technicalUserRoutes(
   context: ServerPluginContext,
   hosts: HostStore,
   users: TechnicalUsers,
+  added: () => void,
 ): {
   readonly manage: (
     request: Request,
     path: readonly string[],
+    userId: string,
   ) => Promise<Response>;
   readonly created: (request: Request) => Promise<Response>;
 } {
@@ -96,7 +99,7 @@ export function technicalUserRoutes(
 
   // Sends the browser to the host with the App's manifest in a form, as the
   // manifest flow asks.
-  const newApp = (request: Request): Response => {
+  const newApp = (request: Request, userId: string): Response => {
     const params = new URL(request.url).searchParams;
     const host = hosts.get(params.get("host") ?? "");
     const name = params.get("name")?.trim() ?? "";
@@ -127,6 +130,7 @@ export function technicalUserRoutes(
 
     pending.set(state, {
       host: host.host,
+      userId,
       hook,
       browser: hash(browser),
       expires: now + attemptMs,
@@ -191,8 +195,11 @@ export function technicalUserRoutes(
       users.add({
         name: app.slug,
         host: host.host,
+        users: [attempt.userId],
         app: { ...app, hook: attempt.hook },
       });
+
+      added();
 
       context.log("technical user added", {
         name: app.slug,
@@ -218,6 +225,7 @@ export function technicalUserRoutes(
   const manage = async (
     request: Request,
     path: readonly string[],
+    userId: string,
   ): Promise<Response> => {
     const [, name] = path;
 
@@ -226,7 +234,7 @@ export function technicalUserRoutes(
     }
 
     if (name === "new-app" && request.method === "GET") {
-      return newApp(request);
+      return newApp(request, userId);
     }
 
     if (name === undefined && request.method === "POST") {
@@ -245,7 +253,13 @@ export function technicalUserRoutes(
           : failure;
       });
 
-      users.add({ name: input.name.trim(), host: host.host, login, token });
+      users.add({
+        name: input.name.trim(),
+        host: host.host,
+        users: [userId],
+        login,
+        token,
+      });
 
       context.log("technical user added", {
         name: input.name.trim(),

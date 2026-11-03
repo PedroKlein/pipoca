@@ -66,7 +66,12 @@ export interface PluginEvent {
   readonly [field: string]: unknown;
 }
 
-export type StartRequest = CreateSession & { readonly actor: Actor };
+export type StartRequest = CreateSession & {
+  readonly actor: Actor;
+  // A technical user's name, which only plugins start Sessions as
+  // (ADR 0060).
+  readonly actsAs?: string;
+};
 
 export interface ToolCaller {
   readonly session: Session;
@@ -351,9 +356,13 @@ export interface ServerPluginContext {
       request: Request,
     ) => string | undefined;
     // The git hosts a user connected, which the runner signs in to for the
-    // user's Sessions (ADR 0043).
+    // user's Sessions (ADR 0043), or the technical user a Session acts as
+    // (ADR 0060).
     readonly gitLogins: (
-      logins: (userId: string) => readonly GitLogin[],
+      logins: (
+        userId: string,
+        session: Pick<Session, "actsAs" | "workspace">,
+      ) => readonly GitLogin[],
     ) => void;
   };
   readonly models: { readonly offer: (offer: ModelOffer) => void };

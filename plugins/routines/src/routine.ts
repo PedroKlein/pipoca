@@ -50,6 +50,9 @@ const run = Type.Union([
       environment: Type.Optional(Type.String()),
       profile: Type.Optional(Type.String()),
       model: Type.Optional(Type.String()),
+      // A technical user the run's git acts as instead of the person
+      // (ADR 0060).
+      as: Type.Optional(Type.String({ minLength: 1 })),
     },
     { additionalProperties: false },
   ),

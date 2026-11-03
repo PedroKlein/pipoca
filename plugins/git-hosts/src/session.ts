@@ -44,7 +44,16 @@ export const gitHosts: SessionPlugin = {
       });
     };
 
-    pi.on("session_start", check);
+    pi.on("session_start", () => {
+      check();
+
+      signAsTechnicalUser(cloud).catch((failure: unknown) => {
+        cloud.log("could not set the technical user's git identity", {
+          error: String(failure),
+        });
+      });
+    });
+
     pi.on("agent_settled", check);
   },
 };
@@ -71,4 +80,29 @@ async function recordedPullRequests({
   );
 
   return found.flat();
+}
+
+// A Session acting as a technical user commits as it (ADR 0060).
+async function signAsTechnicalUser(cloud: SessionCloud): Promise<void> {
+  const response = await cloud.request("identity");
+
+  if (!response.ok) {
+    return;
+  }
+
+  const identity = (await response.json()) as {
+    name: string;
+    email: string;
+  } | null;
+
+  if (identity === null) {
+    return;
+  }
+
+  await Promise.all(
+    cloud.checkouts.map(async ({ path }) => {
+      await run("git", ["-C", path, "config", "user.name", identity.name]);
+      await run("git", ["-C", path, "config", "user.email", identity.email]);
+    }),
+  );
 }

@@ -48,6 +48,11 @@ import {
 
 export type UserActor = `user:${string}`;
 
+type GitLoginsOf = (
+  userId: string,
+  session: Pick<Session, "actsAs" | "workspace">,
+) => readonly GitLogin[];
+
 export function userIdOf(actor: UserActor): string {
   return actor.slice("user:".length);
 }
@@ -120,7 +125,7 @@ export interface PluginHost {
   ) => Promise<ToolResult>;
   readonly offeredModels: ModelOffer;
   readonly startsRunners: (environment: RunnerSource) => boolean;
-  readonly gitLogins: (userId: string) => readonly GitLogin[];
+  readonly gitLogins: GitLoginsOf;
   readonly route: (
     request: Request,
     name: string,
@@ -209,7 +214,7 @@ export function startPlugins(
   const publicRoutes = new Map<string, PublicRoute>();
   const logins: { plugin: string; offered: () => readonly Login[] }[] = [];
   const offers: ModelOffer[] = [];
-  const gitLogins: ((userId: string) => readonly GitLogin[])[] = [];
+  const gitLogins: GitLoginsOf[] = [];
   const starters: ((environment: RunnerSource) => boolean)[] = [];
 
   const failures = new Map<string, string>(
@@ -410,7 +415,7 @@ export function startPlugins(
       publicRoute: undefined as PublicRoute | undefined,
       logins: [] as (() => readonly Login[])[],
       offers: [] as ModelOffer[],
-      gitLogins: [] as ((userId: string) => readonly GitLogin[])[],
+      gitLogins: [] as GitLoginsOf[],
       starters: [] as ((environment: RunnerSource) => boolean)[],
       profiles: new Map<string, PluginProfile>(),
       loadOnly: undefined as readonly string[] | undefined,
@@ -966,7 +971,8 @@ export function startPlugins(
     },
     startsRunners: (environment) =>
       starters.some((starts) => starts(environment)),
-    gitLogins: (userId) => gitLogins.flatMap((loginsOf) => loginsOf(userId)),
+    gitLogins: (userId, session) =>
+      gitLogins.flatMap((loginsOf) => loginsOf(userId, session)),
     route: async (request, name, path, caller) =>
       routes.get(name)?.(request, path, caller),
     publicRoute: async (request, name, path) =>

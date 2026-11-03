@@ -51,6 +51,7 @@ interface SessionRow {
   workspace_removal: WorkspaceRemoval | null;
   workspace_kept_reason: string | null;
   started_by: string | null;
+  acts_as: string | null;
 }
 
 interface ProfileRow {
@@ -179,7 +180,8 @@ create table if not exists sessions (
   archived_at text,
   workspace_removal text,
   workspace_kept_reason text,
-  started_by text
+  started_by text,
+  acts_as text
 );
 create table if not exists transcript (
   session_id text not null references sessions (id),
@@ -296,6 +298,7 @@ function migrate(db: DatabaseSync): void {
     "owner_plugin",
     "owner_key",
     "started_by",
+    "acts_as",
   ]) {
     if (sessionsTableExists && !hasColumn(column)) {
       db.exec(`alter table sessions add column ${column} text`);
@@ -614,10 +617,11 @@ export function openStore(
     workspaceRemoval: row.workspace_removal,
     workspaceKeptReason: row.workspace_kept_reason,
     startedBy: row.started_by,
+    actsAs: row.acts_as,
   });
 
   const insertSession = db.prepare(
-    "insert into sessions (id, environment_id, owner_id, owner_plugin, owner_key, runner, profile_id, workspace, model, system_prompt, first_message, thinking, title, status, generation, created_at, interrupted_at, error, archived_at, workspace_removal, workspace_kept_reason, started_by) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "insert into sessions (id, environment_id, owner_id, owner_plugin, owner_key, runner, profile_id, workspace, model, system_prompt, first_message, thinking, title, status, generation, created_at, interrupted_at, error, archived_at, workspace_removal, workspace_kept_reason, started_by, acts_as) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   );
 
   const updateSession = db.prepare(
@@ -779,6 +783,7 @@ export function openStore(
         s.workspaceRemoval,
         s.workspaceKeptReason,
         s.startedBy,
+        s.actsAs,
       );
     },
     update: (s) => {

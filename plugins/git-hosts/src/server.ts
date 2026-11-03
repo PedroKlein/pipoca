@@ -19,6 +19,7 @@ import {
 } from "./github";
 import { hash, originOf, page, redirect, secure } from "./pages";
 import { pullRequests } from "./pull-requests";
+import { acting } from "./acting";
 import { technicalUserRoutes } from "./technical-user-routes";
 import { technicalUsers } from "./technical-users";
 import { type HostSearch, repositoriesTool } from "./tool";
@@ -59,12 +60,19 @@ export const gitHosts: ServerPlugin = {
     const connections = connectionStore(context.store);
     const pending = new Map<string, Pending>();
 
-    context.auth.gitLogins((userId) =>
-      connections
+    const bots = technicalUsers(context.config, context.store, context.log);
+    const actingAs = acting(context, hosts, bots);
+
+    context.auth.gitLogins((userId, session) => {
+      const own = connections
         .accounts(userId)
         .filter(({ host }) => hosts.get(host) !== undefined)
-        .map(({ host, token }) => ({ host, token })),
-    );
+        .map(({ host, token }) => ({ host, token }));
+
+      return session.actsAs === null
+        ? own
+        : actingAs.logins(userId, session, own);
+    });
 
     const connect = async (
       userId: string,
@@ -292,11 +300,9 @@ export const gitHosts: ServerPlugin = {
       throw new NotFound(`no route ${path.join("/")}`);
     };
 
-    const technical = technicalUserRoutes(
-      context,
-      hosts,
-      technicalUsers(context.config, context.store, context.log),
-    );
+    const technical = technicalUserRoutes(context, hosts, bots, () => {
+      void actingAs.refresh();
+    });
 
     context.auth.handlePublic(async (request, path) => {
       if (request.method !== "GET") {
@@ -328,6 +334,16 @@ export const gitHosts: ServerPlugin = {
       }
 
       if (caller.kind !== "user") {
+        const { actsAs } = caller.session;
+
+        if (parts[0] === "identity" && request.method === "GET") {
+          return Response.json(
+            actsAs === null
+              ? null
+              : ((await actingAs.identity(actsAs)) ?? null),
+          );
+        }
+
         throw new NotFound(`no route ${path}`);
       }
 
@@ -349,7 +365,7 @@ export const gitHosts: ServerPlugin = {
 
         return route === "hosts"
           ? await manage(request, parts)
-          : await technical.manage(request, parts);
+          : await technical.manage(request, parts, user.id);
       }
 
       if (route === "account" && request.method === "GET") {

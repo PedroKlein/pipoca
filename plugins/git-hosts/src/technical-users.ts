@@ -14,6 +14,8 @@ export type TechnicalUser = AppUser | TokenUser;
 interface Common {
   readonly name: string;
   readonly host: string;
+  // The people who may have their Sessions act as it, by user id.
+  readonly users: readonly string[];
 }
 
 export interface AppUser extends Common {
@@ -111,6 +113,7 @@ export function technicalUsers(
           ? {
               name: user.name,
               host: user.host,
+              users: user.users,
               app: {
                 id: user.app.id,
                 slug: user.app.slug,
@@ -125,6 +128,7 @@ export function technicalUsers(
           : {
               name: user.name,
               host: user.host,
+              users: user.users,
               login: user.login,
               token: seal(user.token),
             },
@@ -155,12 +159,20 @@ function userOf(
 
   const name = text(item["name"], "name");
   const host = text(item["host"], "host");
-  const { app } = item;
+  const { app, users = [] } = item;
+
+  if (
+    !Array.isArray(users) ||
+    !users.every((each): each is string => typeof each === "string")
+  ) {
+    throw new BadRequest("users must be a list of user ids");
+  }
 
   if (app === undefined) {
     return {
       name,
       host,
+      users,
       login: text(item["login"], "login"),
       token: open(text(item["token"], "token"), name),
     };
@@ -175,6 +187,7 @@ function userOf(
   return {
     name,
     host,
+    users,
     app: {
       id: app["id"],
       slug: text(app["slug"], "app.slug"),
@@ -335,4 +348,40 @@ function appJwt(id: number, privateKey: string): string {
   const signature = createSign("RSA-SHA256").update(unsigned).sign(privateKey);
 
   return `${unsigned}.${signature.toString("base64url")}`;
+}
+
+// A token for one installation of the App, which GitHub lets live an hour.
+export async function installationToken(
+  host: HostConfig,
+  app: AppUser["app"],
+  installation: number,
+): Promise<{ readonly token: string; readonly expiresAt: number }> {
+  const response = await reach(
+    host,
+    `${host.api}/app/installations/${String(installation)}/access_tokens`,
+    {
+      method: "POST",
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Bearer ${appJwt(app.id, app.privateKey)}`,
+      },
+    },
+  );
+
+  const answer = (await response.json().catch(() => ({}))) as {
+    token?: unknown;
+    expires_at?: unknown;
+  };
+
+  if (
+    !response.ok ||
+    typeof answer.token !== "string" ||
+    typeof answer.expires_at !== "string"
+  ) {
+    throw new HostRefused(
+      `${host.host} answered ${String(response.status)} when asked for an installation token`,
+    );
+  }
+
+  return { token: answer.token, expiresAt: Date.parse(answer.expires_at) };
 }

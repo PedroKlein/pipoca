@@ -239,7 +239,7 @@ export function serve(options: ServeOptions): {
       pluginHost.offeredModels(environmentId, userId),
     startsRunners: (environment) => pluginHost.startsRunners(environment),
     pluginProfile: (id) => pluginHost.profile(id),
-    gitLogins: (userId) => pluginHost.gitLogins(userId),
+    gitLogins: (userId, session) => pluginHost.gitLogins(userId, session),
     templates: () => templates.list(),
     docs: sessionDocs(
       folder === undefined
