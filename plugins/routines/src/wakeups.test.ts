@@ -64,6 +64,7 @@ function start(
           route = served(handler);
         },
       },
+      auth: { ...fakeContext().auth, handlePublic: () => undefined },
       sessions: {
         ...fakeContext().sessions,
         send: (id, text, _actor, notice) => {
