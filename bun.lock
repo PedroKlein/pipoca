@@ -25,7 +25,7 @@
     },
     "apps/pipoca": {
       "name": "@pipoca/pipoca",
-      "version": "0.1.0",
+      "version": "0.1.2",
       "bin": {
         "pipoca": "./src/main.ts",
       },
@@ -49,6 +49,7 @@
         "@pipoca/protocol": "workspace:*",
         "@pipoca/providers": "workspace:*",
         "@pipoca/push": "workspace:*",
+        "@pipoca/routines": "workspace:*",
         "@pipoca/sessionhost": "workspace:*",
         "@pipoca/sessions": "workspace:*",
         "@pipoca/subagents": "workspace:*",
@@ -79,6 +80,7 @@
         "@pipoca/projects": "workspace:*",
         "@pipoca/protocol": "workspace:*",
         "@pipoca/push": "workspace:*",
+        "@pipoca/routines": "workspace:*",
         "@pipoca/subagents": "workspace:*",
         "@pipoca/ui": "workspace:*",
         "@pipoca/usage": "workspace:*",
@@ -341,6 +343,18 @@
         "@types/react": "19.3.0",
       },
     },
+    "plugins/routines": {
+      "name": "@pipoca/routines",
+      "dependencies": {
+        "@pipoca/plugins": "workspace:*",
+        "@pipoca/protocol": "workspace:*",
+        "@pipoca/ui": "workspace:*",
+        "react": "19.3.1",
+      },
+      "devDependencies": {
+        "@types/react": "19.3.0",
+      },
+    },
     "plugins/subagents": {
       "name": "@pipoca/subagents",
       "dependencies": {
@@ -570,6 +584,8 @@
     "@pipoca/providers": ["@pipoca/providers@workspace:packages/providers"],
 
     "@pipoca/push": ["@pipoca/push@workspace:plugins/push"],
+
+    "@pipoca/routines": ["@pipoca/routines@workspace:plugins/routines"],
 
     "@pipoca/sessionhost": ["@pipoca/sessionhost@workspace:packages/sessionhost"],
 

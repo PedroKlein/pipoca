@@ -20,6 +20,7 @@
     "@pipoca/projects": "workspace:*",
     "@pipoca/protocol": "workspace:*",
     "@pipoca/push": "workspace:*",
+    "@pipoca/routines": "workspace:*",
     "@pipoca/subagents": "workspace:*",
     "@pipoca/ui": "workspace:*",
     "@pipoca/usage": "workspace:*",

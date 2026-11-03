@@ -1700,6 +1700,43 @@ test("shows the session's changes and usage from their plugins", async () => {
     .waitFor();
 }, 30_000);
 
+test("lists a Session's pending wake-ups above the composer and cancels one", async () => {
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("schedule_wakeup", {
+          delay_minutes: 30,
+          reason: "Check CI on #552",
+          message: "See whether CI passed.",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("I'll check back")]),
+  ]);
+
+  await page.goto(server.url.href);
+
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, root);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  await page.locator("#prompt-text").fill("check CI later");
+  await page.locator("#prompt-text").press("Enter");
+
+  const wakeUps = page.getByRole("list", { name: "Wake-ups" });
+  await wakeUps.getByText("Check CI on #552").waitFor();
+
+  await wakeUps
+    .getByRole("button", { name: "Cancel wake-up: Check CI on #552" })
+    .click();
+
+  await wakeUps.waitFor({ state: "detached" });
+}, 30_000);
+
 test("shows a turn as working between steps until Pi finishes it", async () => {
   const { promise: answered, resolve: answer } =
     Promise.withResolvers<undefined>();

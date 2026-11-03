@@ -12,6 +12,7 @@ import { meta } from "@pipoca/meta/server";
 import { models } from "@pipoca/models/server";
 import { oidc } from "@pipoca/oidc/server";
 import { projects } from "@pipoca/projects/server";
+import { routines } from "@pipoca/routines/server";
 import { kernelToolsets, startPlugins } from "@pipoca/pluginhost";
 import { eventBus, type ServerPlugin } from "@pipoca/plugins";
 import type { PluginManifest } from "@pipoca/protocol";
@@ -59,6 +60,7 @@ const serverPlugins: readonly ServerPlugin[] = [
   gitHosts,
   loginsPlugin,
   push,
+  routines,
 ];
 
 export interface ServeOptions {
