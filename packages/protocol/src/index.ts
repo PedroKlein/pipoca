@@ -176,22 +176,22 @@ export interface Profile extends ProfileContent {
   // The Profile this one builds on, which it gets everything from (ADR 0063).
   readonly buildsOn: string | null;
   // The repository folder a synced Profile follows. Null for one people edit.
-  readonly source: ProfileSource | null;
+  readonly source: RepositorySource | null;
   readonly createdAt: string;
   // New Sessions use the default Profile when nothing else names one.
   readonly isDefault: boolean;
 }
 
-// A folder a repository's pipoca.json lists, at the commit last synced
-// (ADR 0063).
-export interface ProfileSource {
+// A folder or file a repository's pipoca.json lists, at the commit last
+// synced (ADR 0063).
+export interface RepositorySource {
   readonly url: string;
   readonly path: string;
   readonly commit: string;
 }
 
-// What a repository's pipoca.json lists that can be imported.
-export interface ListedProfile {
+// What a repository's pipoca.json lists that can be imported (ADR 0063).
+export interface ManifestEntry {
   readonly name: string;
   readonly path: string;
 }
@@ -1173,6 +1173,8 @@ export interface EnvironmentTemplate {
   readonly image: string | null;
   readonly setupScript: string;
   readonly variables: Readonly<Record<string, string>>;
+  // The repository file a synced template follows (ADR 0063).
+  readonly source: RepositorySource | null;
 }
 
 export interface CreateEnvironment {

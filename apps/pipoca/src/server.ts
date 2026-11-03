@@ -732,6 +732,57 @@ export function createHandler(
       }),
     ],
     [
+      "POST",
+      /^\/api\/templates\/listed$/,
+      templateChange(async (request, _params, made) => {
+        const { url } = fieldsOf(await readJson(request));
+        if (typeof url !== "string") {
+          throw new BadRequest("url must be a string");
+        }
+
+        return Response.json({ templates: await made.listed(url) });
+      }),
+    ],
+    [
+      "POST",
+      /^\/api\/templates\/import$/,
+      templateChange(async (request, _params, made) => {
+        const { url, paths } = fieldsOf(await readJson(request));
+        if (
+          typeof url !== "string" ||
+          !Array.isArray(paths) ||
+          !paths.every((path) => typeof path === "string")
+        ) {
+          throw new BadRequest("url must be a string and paths a list");
+        }
+
+        const imported = await made.importListed(url, paths);
+
+        log("templates imported", {
+          templateIds: imported.map(({ id }) => id),
+        });
+
+        return Response.json({ templates: imported }, { status: 201 });
+      }),
+    ],
+    [
+      "POST",
+      /^\/api\/templates\/([^/]+)\/sync$/,
+      templateChange(async (_request, [id = ""], made) => {
+        const template = made.list().find((each) => each.id === id);
+        const source = template?.source;
+        if (!template || !source) {
+          return notFound();
+        }
+
+        await made.sync(source.url);
+
+        return Response.json(
+          made.list().find((each) => each.id === id) ?? template,
+        );
+      }),
+    ],
+    [
       "PATCH",
       /^\/api\/templates\/([^/]+)$/,
       templateChange(async (request, [id = ""], made) => {

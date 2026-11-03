@@ -15,7 +15,7 @@ import {
   type Profile,
   type ProfileContent,
   type ProfileFiles,
-  type ProfileSource,
+  type RepositorySource,
   emptyProfile,
   profilePath,
 } from "@pipoca/protocol";
@@ -52,7 +52,7 @@ interface Meta {
   // The Profile this one builds on (ADR 0063).
   readonly buildsOn?: string;
   // The repository folder the Profile follows (ADR 0063).
-  readonly source?: ProfileSource;
+  readonly source?: RepositorySource;
   readonly createdAt: string;
 }
 
@@ -346,7 +346,7 @@ export class ProfileFolders {
       "id" | "buildsOn" | "source" | keyof ProfileContent
     > & {
       readonly buildsOn?: string | null;
-      readonly source?: ProfileSource | null;
+      readonly source?: RepositorySource | null;
     },
     content: Partial<ProfileContent>,
   ): void {
@@ -554,7 +554,7 @@ function replace(path: string, content: string | Buffer): void {
   renameSync(temporary, path);
 }
 
-function sourceOf(value: unknown): ProfileSource | null {
+function sourceOf(value: unknown): RepositorySource | null {
   return isRecord(value) &&
     typeof value["url"] === "string" &&
     typeof value["path"] === "string" &&

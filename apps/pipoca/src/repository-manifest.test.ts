@@ -11,7 +11,11 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { ListedProfile, Profile } from "@pipoca/protocol";
+import type {
+  EnvironmentTemplate,
+  ManifestEntry,
+  Profile,
+} from "@pipoca/protocol";
 import { serve } from "./serve";
 import { firstUser } from "./testdata/sign-in";
 
@@ -96,7 +100,7 @@ test("imports the Profiles a repository's pipoca.json lists and follows the repo
     "profiles/docs/AGENTS.md": "Write docs.",
   });
 
-  const listed = await json<{ readonly profiles: ListedProfile[] }>(
+  const listed = await json<{ readonly profiles: ManifestEntry[] }>(
     api("/api/profiles/listed", { body: { url } }),
   );
 
@@ -193,6 +197,93 @@ test("refuses a folder the manifest doesn't list or that leaves the repository",
   });
 
   expect(unlisted.status).toBe(400);
+});
+
+test("imports the templates a repository's pipoca.json lists and follows the repository", async () => {
+  const url = await repository(
+    {
+      "pipoca.json": JSON.stringify({
+        templates: [{ name: "Go services", path: "environments/go.json" }],
+      }),
+      "environments/go.json": JSON.stringify({
+        isolation: "container",
+        image: "golang:1.25",
+        setupScript: "go install golang.org/x/tools/gopls@latest",
+        variables: { CGO_ENABLED: "0" },
+      }),
+    },
+    "platform",
+  );
+
+  const listed = await json<{ readonly templates: ManifestEntry[] }>(
+    api("/api/templates/listed", { body: { url } }),
+  );
+
+  expect(listed.templates).toEqual([
+    { name: "Go services", path: "environments/go.json" },
+  ]);
+
+  const imported = await json<{ readonly templates: EnvironmentTemplate[] }>(
+    api("/api/templates/import", {
+      body: { url, paths: ["environments/go.json"] },
+    }),
+  );
+
+  const [go] = imported.templates;
+
+  expect(go).toMatchObject({
+    id: "go-services",
+    name: "Go services",
+    isolation: "container",
+    image: "golang:1.25",
+    variables: { CGO_ENABLED: "0" },
+    source: { url, path: "environments/go.json" },
+  });
+
+  const edited = await api("/api/templates/go-services", {
+    method: "PATCH",
+    body: { image: "golang:1.26" },
+  });
+
+  expect(edited.status).toBe(409);
+
+  await change(url, {
+    "environments/go.json": JSON.stringify({
+      isolation: "container",
+      image: "golang:1.26",
+    }),
+  });
+
+  const synced = await json<EnvironmentTemplate>(
+    api("/api/templates/go-services/sync", { body: {} }),
+  );
+
+  expect([synced.image, synced.variables, synced.setupScript]).toEqual([
+    "golang:1.26",
+    {},
+    "",
+  ]);
+
+  expect(synced.source?.commit).not.toBe(go?.source?.commit);
+});
+
+test("refuses a template file that holds secrets", async () => {
+  const url = await repository(
+    {
+      "pipoca.json": JSON.stringify({
+        templates: [{ name: "Leaky", path: "leaky.json" }],
+      }),
+      "leaky.json": JSON.stringify({ secrets: { TOKEN: "s3cret" } }),
+    },
+    "leaky",
+  );
+
+  const imported = await api("/api/templates/import", {
+    body: { url, paths: ["leaky.json"] },
+  });
+
+  expect(imported.status).toBe(400);
+  expect(await json<EnvironmentTemplate[]>(api("/api/templates"))).toEqual([]);
 });
 
 async function repository(
