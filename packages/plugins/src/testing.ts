@@ -77,6 +77,7 @@ export function fakeContext(
     profiles: {
       provide: notFaked("profiles.provide"),
       mcpServers: () => [],
+      buildsOn: () => [],
     },
     routes: { handle: notFaked("routes.handle") },
     auth: {

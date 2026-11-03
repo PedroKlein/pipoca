@@ -10,16 +10,24 @@ export interface Stored {
   readonly updatedAt: string;
 }
 
+// The Profile layer a login belongs to (ADR 0063): the server's base, the
+// person's My defaults, or one of their Profiles as profile:<id>.
+export type LoginLayer = "base" | "defaults" | `profile:${string}`;
+
 export interface Account {
+  // Admins also keep the server base's API keys.
+  readonly admin: boolean;
   readonly logins: readonly {
     readonly provider: string;
     readonly type: Credential["type"];
     readonly updatedAt: string;
+    readonly layer: LoginLayer;
   }[];
   // Keyed as Pi keys them: the server's name, a space and its address.
   readonly mcp: readonly {
     readonly server: string;
     readonly updatedAt: string;
+    readonly layer: LoginLayer;
   }[];
   // The MCP servers of the person's Profiles that Settings signs them in to.
   readonly servers: readonly {

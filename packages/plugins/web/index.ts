@@ -192,6 +192,11 @@ export interface WebPlugin {
   readonly settingsParts?: {
     readonly General?: ComponentType<{ readonly context: WebContext }>;
     readonly Accounts?: ComponentType<{ readonly context: WebContext }>;
+    // On a Profile's page, such as which logins it keeps of its own.
+    readonly Profile?: ComponentType<{
+      readonly context: WebContext;
+      readonly profileId: string;
+    }>;
   };
   readonly SessionHeader?: ComponentType<SessionPartProps>;
   // Drawn above a Session's composer, such as the agent's checklist.

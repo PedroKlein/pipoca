@@ -15,7 +15,10 @@ import {
 import type { Account, Connectable } from "./model";
 import { logins } from "./server";
 
-function registered(mcpServers: readonly ProfileMcpServer[] = []): {
+function registered(
+  mcpServers: readonly ProfileMcpServer[] = [],
+  buildsOn: (id: string) => readonly string[] = () => [],
+): {
   readonly route: PluginRoute;
   readonly offer: ModelOffer;
   readonly callback: (request: Request) => Promise<Response | undefined>;
@@ -33,7 +36,7 @@ function registered(mcpServers: readonly ProfileMcpServer[] = []): {
           publicRoutes.push(route);
         },
       },
-      profiles: { ...faked.profiles, mcpServers: () => mcpServers },
+      profiles: { ...faked.profiles, mcpServers: () => mcpServers, buildsOn },
       routes: {
         handle: (route) => {
           routes.push(route);
@@ -65,9 +68,9 @@ function registered(mcpServers: readonly ProfileMcpServer[] = []): {
   };
 }
 
-const runnerOf = (userId: string): RouteCaller => ({
+const runnerOf = (userId: string, profileId = "profile-1"): RouteCaller => ({
   kind: "session",
-  session: fakeSession({ startedBy: userId }),
+  session: fakeSession({ startedBy: userId, profileId }),
   actor: "session:session-1",
 });
 
@@ -123,7 +126,12 @@ test("a person sees their own logins and can log out of one", async () => {
     fakeUser({ id: "ana" }),
   );
 
-  expect(await removed.json()).toEqual({ logins: [], mcp: [], servers: [] });
+  expect(await removed.json()).toEqual({
+    admin: false,
+    logins: [],
+    mcp: [],
+    servers: [],
+  });
 
   const other = await call(route, fakeUser({ id: "bo" }), "account");
 
@@ -153,7 +161,12 @@ test("a person logs out of an MCP server by its name and address", async () => {
     fakeUser({ id: "ana" }),
   );
 
-  expect(await removed.json()).toEqual({ logins: [], mcp: [], servers: [] });
+  expect(await removed.json()).toEqual({
+    admin: false,
+    logins: [],
+    mcp: [],
+    servers: [],
+  });
 });
 
 test("a person saves a login, such as an API key, that their Sessions read", async () => {
@@ -176,6 +189,135 @@ test("a person saves a login, such as an API key, that their Sessions read", asy
 
   expect(await read.json()).toEqual({
     openai: { type: "api_key", key: "sk" },
+  });
+});
+
+test("a Session reads the nearest layer's login: its Profile's, the one it builds on, My defaults, then the base", async () => {
+  const { route } = registered([], (id) => (id === "deep" ? ["research"] : []));
+  const admin = fakeUser({ id: "admin", admin: true });
+  const ana = fakeUser({ id: "ana" });
+
+  const put = async (
+    caller: RouteCaller,
+    provider: string,
+    key: string,
+    layer?: string,
+  ): Promise<number> =>
+    (
+      await call(route, caller, "save", {
+        provider,
+        credential: { type: "api_key", key },
+        ...(layer !== undefined && { layer }),
+      })
+    ).status;
+
+  expect(await put(admin, "openai", "team", "base")).toBe(200);
+  expect(await put(ana, "anthropic", "mine")).toBe(200);
+  expect(await put(ana, "anthropic", "research", "profile:research")).toBe(200);
+
+  const values = async (profileId: string): Promise<unknown> =>
+    (
+      await route(
+        new Request("http://logins/credentials?values"),
+        "credentials",
+        runnerOf("ana", profileId),
+      )
+    ).json();
+
+  expect(await values("deep")).toEqual({
+    anthropic: { type: "api_key", key: "research" },
+    openai: { type: "api_key", key: "team" },
+  });
+
+  expect(await values("other")).toEqual({
+    anthropic: { type: "api_key", key: "mine" },
+    openai: { type: "api_key", key: "team" },
+  });
+
+  expect(await (await call(route, ana, "account")).json()).toMatchObject({
+    logins: [
+      { provider: "anthropic", layer: "defaults" },
+      { provider: "anthropic", layer: "profile:research" },
+      { provider: "openai", layer: "base" },
+    ],
+  });
+
+  const inherit = await route(
+    new Request("http://logins/credentials/anthropic?layer=profile:research", {
+      method: "DELETE",
+    }),
+    "credentials/anthropic",
+    ana,
+  );
+
+  expect(inherit.status).toBe(200);
+
+  expect(await values("deep")).toMatchObject({
+    anthropic: { type: "api_key", key: "mine" },
+  });
+});
+
+test("only admins put a login on the base, and only an API key", async () => {
+  const { route } = registered();
+
+  const put = async (caller: RouteCaller, credential: unknown) =>
+    (
+      await call(route, caller, "save", {
+        provider: "anthropic",
+        credential,
+        layer: "base",
+      })
+    ).status;
+
+  expect(
+    await put(fakeUser({ id: "ana" }), { type: "api_key", key: "sk" }),
+  ).toBe(403);
+
+  expect(
+    await put(fakeUser({ id: "admin", admin: true }), {
+      type: "oauth",
+      access: "a",
+      refresh: "r",
+      expires: 0,
+    }),
+  ).toBe(403);
+});
+
+test("a Session that refreshes a login from the base keeps its own copy in My defaults", async () => {
+  const { route } = registered();
+
+  await call(route, fakeUser({ id: "admin", admin: true }), "save", {
+    provider: "openai",
+    credential: { type: "api_key", key: "team" },
+    layer: "base",
+  });
+
+  const { lease, value } = (await (
+    await call(route, runnerOf("ana"), "credentials/openai/lock", {})
+  ).json()) as { lease: string; value: unknown };
+
+  expect(value).toEqual({ type: "api_key", key: "team" });
+
+  await call(route, runnerOf("ana"), "credentials/openai/release", {
+    lease,
+    value: { type: "api_key", key: "rotated" },
+  });
+
+  const read = async (userId: string): Promise<unknown> =>
+    (
+      await route(
+        new Request("http://logins/credentials?values"),
+        "credentials",
+        runnerOf(userId),
+      )
+    ).json();
+
+  expect(await read("ana")).toEqual({
+    openai: { type: "api_key", key: "rotated" },
+  });
+
+  expect(await read("bo")).toEqual({
+    openai: { type: "api_key", key: "team" },
   });
 });
 
@@ -323,7 +465,13 @@ test("a person connects a provider from Settings by answering Pi's prompts", asy
   });
 
   const other = await call(route, fakeUser({ id: "bo" }), "account");
-  expect(await other.json()).toEqual({ logins: [], mcp: [], servers: [] });
+
+  expect(await other.json()).toEqual({
+    admin: false,
+    logins: [],
+    mcp: [],
+    servers: [],
+  });
 });
 
 test("a person dismisses a sign-in and it stops asking", async () => {
@@ -347,7 +495,12 @@ test("a person dismisses a sign-in and it stops asking", async () => {
     fakeUser({ id: "ana" }),
   );
 
-  expect(await dismissed.json()).toEqual({ logins: [], mcp: [], servers: [] });
+  expect(await dismissed.json()).toEqual({
+    admin: false,
+    logins: [],
+    mcp: [],
+    servers: [],
+  });
 
   const late = await call(route, fakeUser({ id: "ana" }), "connection/answer", {
     prompt: asked.connection?.prompt?.id,

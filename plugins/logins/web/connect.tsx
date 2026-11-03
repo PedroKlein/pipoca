@@ -6,21 +6,31 @@ import type { Connectable, Connection, ConnectionPrompt } from "../src/model";
 type Send = (path: string, init: RequestInit) => void;
 
 // Picks a provider and a way in, and asks the server to sign the person in.
+// With a provider it signs in to that one, and with a layer it keeps the
+// login there, such as one Profile's own (ADR 0063). An admin may instead
+// keep an API key on the server base, for everyone.
 export function ConnectForm({
   context,
   send,
   onClose,
+  provider: fixed,
+  layer,
+  admin = false,
 }: {
   readonly context: WebContext;
   readonly send: Send;
   readonly onClose: () => void;
+  readonly provider?: string;
+  readonly layer?: string;
+  readonly admin?: boolean;
 }): ReactElement | null {
   const { value: providers } = useLoaded(
     async () => json<readonly Connectable[]>(context.request("providers")),
     "providers",
   );
 
-  const [providerId, setProviderId] = useState<string>();
+  const [providerId, setProviderId] = useState(fixed);
+  const [chosenLayer, setChosenLayer] = useState(layer ?? "defaults");
 
   if (providers === undefined) {
     return null;
@@ -28,6 +38,11 @@ export function ConnectForm({
 
   const provider =
     providers.find(({ id }) => id === providerId) ?? providers[0];
+
+  const methods =
+    provider?.methods.filter(
+      ({ type }) => chosenLayer !== "base" || type === "api_key",
+    ) ?? [];
 
   const connect = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -37,33 +52,49 @@ export function ConnectForm({
       body: JSON.stringify({
         provider: provider?.id,
         type: new FormData(event.currentTarget).get("type"),
+        layer: chosenLayer,
       }),
     });
   };
 
   return (
     <form
-      aria-label="Connect a model provider"
+      aria-label={`Connect ${fixed === undefined ? "a model provider" : (provider?.name ?? fixed)}`}
       onSubmit={connect}
       className="flex flex-col gap-3 rounded-lg border border-line bg-elevated shadow-xs p-3"
     >
-      <Field label="Provider">
-        <Select
-          value={provider?.id}
-          onChange={(event) => {
-            setProviderId(event.target.value);
-          }}
-        >
-          {providers.map(({ id, name }) => (
-            <option key={id} value={id}>
-              {name}
-            </option>
-          ))}
-        </Select>
-      </Field>
+      {fixed === undefined && (
+        <Field label="Provider">
+          <Select
+            value={provider?.id}
+            onChange={(event) => {
+              setProviderId(event.target.value);
+            }}
+          >
+            {providers.map(({ id, name }) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
+      {admin && layer === undefined && (
+        <Field label="For">
+          <Select
+            value={chosenLayer}
+            onChange={(event) => {
+              setChosenLayer(event.target.value);
+            }}
+          >
+            <option value="defaults">Me, in every Profile</option>
+            <option value="base">Everyone, on the server base</option>
+          </Select>
+        </Field>
+      )}
       <Field label="Log in with">
-        <Select key={provider?.id} name="type">
-          {provider?.methods.map(({ type, label }) => (
+        <Select key={`${provider?.id ?? ""}:${chosenLayer}`} name="type">
+          {methods.map(({ type, label }) => (
             <option key={type} value={type}>
               {label}
             </option>
@@ -71,7 +102,7 @@ export function ConnectForm({
         </Select>
       </Field>
       <div className="flex gap-2">
-        <Button variant="primary" type="submit">
+        <Button variant="primary" type="submit" disabled={methods.length === 0}>
           Connect
         </Button>
         <Button onClick={onClose}>Cancel</Button>

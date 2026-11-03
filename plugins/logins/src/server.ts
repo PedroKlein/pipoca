@@ -31,15 +31,31 @@ import {
   type Connectable,
   credentialOf,
   type Lease,
+  type LoginLayer,
   mcpStateOf,
   type Stored,
 } from "./model";
 
 const text = Type.String({ minLength: 1 });
 
-const savedLogin = Type.Object({ provider: text, credential: Type.Unknown() });
-const modelConnect = Type.Object({ provider: text, type: Type.String() });
-const mcpConnect = Type.Object({ server: text });
+const layer = Type.Optional(Type.String());
+
+const savedLogin = Type.Object({
+  provider: text,
+  credential: Type.Unknown(),
+  layer,
+});
+
+const modelConnect = Type.Object({
+  provider: text,
+  type: Type.String(),
+  layer,
+});
+
+const mcpConnect = Type.Object({ server: text, layer });
+
+// The rows of the server's base are kept under this, which no user id is.
+const baseOwner = "*base";
 const promptAnswer = Type.Object({ prompt: text, answer: text });
 
 // A value of null removes the login, and none keeps it.
@@ -120,7 +136,7 @@ export const logins: ServerPlugin = {
         return { models: [] };
       }
 
-      const providers = new Set(models.list(userId).map(({ key }) => key));
+      const providers = new Set(models.mine(userId).map(({ key }) => key));
 
       return {
         models: catalog.filter(({ provider }) => providers.has(provider)),
@@ -141,15 +157,18 @@ export const logins: ServerPlugin = {
 
     const servers = () => signableServers(context.profiles.mcpServers());
 
-    const account = (userId: string): Account => ({
-      logins: models.list(userId).map(({ key, type, updatedAt }) => ({
+    const account = (userId: string, admin: boolean): Account => ({
+      admin,
+      logins: models.mine(userId).map(({ key, type, updatedAt, owner }) => ({
         provider: key,
         type: type as Credential["type"],
         updatedAt,
+        layer: layerOf(userId, owner),
       })),
-      mcp: mcp.list(userId).map(({ key, updatedAt }) => ({
+      mcp: mcp.mine(userId).map(({ key, updatedAt, owner }) => ({
         server: key,
         updatedAt,
+        layer: layerOf(userId, owner),
       })),
       servers: servers().map(({ key, name, url }) => ({
         key,
@@ -169,27 +188,57 @@ export const logins: ServerPlugin = {
           throw new NotFound(`no route ${path}`);
         }
 
-        return await kind.sessionRoute(request, userId, key, action);
+        const { profileId } = caller.session;
+
+        const owners = [
+          ...[profileId, ...context.profiles.buildsOn(profileId)].map((id) =>
+            profileOwner(userId, id),
+          ),
+          userId,
+          baseOwner,
+        ];
+
+        return await kind.sessionRoute(request, owners, key, action);
       }
 
+      // Only admins put a login on the base, and only an API key: a
+      // subscription stays its person's (ADR 0063).
+      const ownerFor = (
+        wanted: string | undefined,
+        apiKey: boolean,
+      ): string => {
+        const owner = ownerOf(userId, wanted);
+
+        if (owner === baseOwner && !(caller.admin && apiKey)) {
+          throw new HttpError(
+            403,
+            "only admins put a login on the server base, and only an API key",
+            "admin_only",
+          );
+        }
+
+        return owner;
+      };
+
       if (route === "account" && request.method === "GET") {
-        return Response.json(account(userId));
+        return Response.json(account(userId, caller.admin));
       }
 
       if (route === "save" && request.method === "POST") {
-        const { provider, credential } = await readBody(request, savedLogin);
+        const body = await readBody(request, savedLogin);
+        const credential = models.validated(body.credential);
 
         const saved = await models.write(
-          userId,
-          provider,
-          models.validated(credential),
+          ownerFor(body.layer, credential.type === "api_key"),
+          body.provider,
+          credential,
         );
 
         if (!saved) {
           throw busy();
         }
 
-        return Response.json(account(userId));
+        return Response.json(account(userId, caller.admin));
       }
 
       if (route === "providers" && request.method === "GET") {
@@ -197,7 +246,11 @@ export const logins: ServerPlugin = {
       }
 
       if (route === "connect" && request.method === "POST") {
-        const { provider, type } = await readBody(request, modelConnect);
+        const {
+          provider,
+          type,
+          layer: wanted,
+        } = await readBody(request, modelConnect);
 
         const offered = connectable.find(({ id }) => id === provider);
 
@@ -209,22 +262,28 @@ export const logins: ServerPlugin = {
           userId,
           { key: provider, name: offered.name },
           modelSignIn(
-            credentialsOf(models, userId),
+            credentialsOf(models, ownerFor(wanted, type === "api_key")),
             provider,
             type as AuthType,
           ),
         );
 
-        return Response.json(account(userId));
+        return Response.json(account(userId, caller.admin));
       }
 
       if (route === "connect-mcp" && request.method === "POST") {
-        const { server: wanted } = await readBody(request, mcpConnect);
+        const { server: wanted, layer: on } = await readBody(
+          request,
+          mcpConnect,
+        );
+
         const server = servers().find(({ key: each }) => each === wanted);
 
         if (server === undefined) {
           throw new BadRequest(`no MCP server ${wanted} to sign in to`);
         }
+
+        const owner = ownerFor(on, false);
 
         const browser = returns.browser(request);
 
@@ -233,13 +292,13 @@ export const logins: ServerPlugin = {
           { key: server.key, name: server.name },
           mcpSignIn(
             server,
-            mcpStateOfUser(mcp, userId, server.key),
+            mcpStateOfUser(mcp, owner, server.key),
             callbackUrl(request),
             returns.wait(browser.id),
           ),
         );
 
-        return Response.json(account(userId), {
+        return Response.json(account(userId, caller.admin), {
           headers: { "set-cookie": browser.cookie },
         });
       }
@@ -260,23 +319,29 @@ export const logins: ServerPlugin = {
           );
         }
 
-        return Response.json(account(userId));
+        return Response.json(account(userId, caller.admin));
       }
 
       if (route === "connection" && request.method === "DELETE") {
         signIns.dismiss(userId);
 
-        return Response.json(account(userId));
+        return Response.json(account(userId, caller.admin));
       }
 
       if (kind !== undefined && key !== "" && request.method === "DELETE") {
-        const removed = await kind.write(userId, decodeURIComponent(key), null);
+        const wanted = new URL(request.url).searchParams.get("layer");
+
+        const removed = await kind.write(
+          ownerFor(wanted ?? undefined, kind === models),
+          decodeURIComponent(key),
+          null,
+        );
 
         if (!removed) {
           throw busy();
         }
 
-        return Response.json(account(userId));
+        return Response.json(account(userId, caller.admin));
       }
 
       throw new NotFound(`no route ${path}`);
@@ -331,6 +396,40 @@ function mcpStateOfUser(
   };
 }
 
+// Rows are kept per owner: the base, the person for their My defaults, or
+// the person and one of their Profiles.
+function profileOwner(userId: string, profileId: string): string {
+  return `${userId}:${profileId}`;
+}
+
+function ownerOf(userId: string, wanted: string | undefined): string {
+  if (wanted === undefined || wanted === "defaults") {
+    return userId;
+  }
+
+  if (wanted === "base") {
+    return baseOwner;
+  }
+
+  const profileId = /^profile:([a-z0-9][a-z0-9._-]{0,63})$/.exec(wanted)?.[1];
+
+  if (profileId === undefined) {
+    throw new BadRequest(`no login layer ${wanted}`);
+  }
+
+  return profileOwner(userId, profileId);
+}
+
+function layerOf(userId: string, owner: string): LoginLayer {
+  if (owner === baseOwner) {
+    return "base";
+  }
+
+  return owner === userId
+    ? "defaults"
+    : `profile:${owner.slice(userId.length + 1)}`;
+}
+
 // Another Session of the person's holds the login, so the caller asks again.
 function busy(): HttpError {
   return new HttpError(409, "another Session is changing this login", "busy");
@@ -355,7 +454,10 @@ interface KindSpec<T> {
 
 interface LoginKind<T> {
   readonly name: string;
-  readonly list: (userId: string) => readonly Stored[];
+  readonly list: (owner: string) => readonly Stored[];
+  // The person's logins on every layer: the base, their My defaults and
+  // their Profiles'.
+  readonly mine: (userId: string) => readonly Owned[];
   readonly get: (userId: string, key: string) => T | undefined;
   readonly validated: (value: unknown) => T;
   // Reads and writes the login under its lease. fn returns the new login,
@@ -374,13 +476,18 @@ interface LoginKind<T> {
     value: T | null,
   ) => Promise<boolean>;
   // What a Session asks for: every login's key, every value, or a lease on
-  // one to read, refresh and write back.
+  // one to read, refresh and write back. Owners are its layers, nearest
+  // first, ending with the person's My defaults and the base.
   readonly sessionRoute: (
     request: Request,
-    userId: string,
+    owners: readonly string[],
     key: string | undefined,
     action: string | undefined,
   ) => Promise<Response>;
+}
+
+interface Owned extends Stored {
+  readonly owner: string;
 }
 
 function loginKind<T>(
@@ -423,15 +530,32 @@ function loginKind<T>(
     context.changes.publish("logins");
   };
 
-  const lease = async (userId: string, key: string): Promise<Response> => {
-    const given = await leases.acquire(leaseKey(userId, key));
+  // A Session reads the nearest layer's login, and writes back to it, or to
+  // the person's My defaults for one it reads from the base or doesn't have.
+  const placed = (
+    owners: readonly string[],
+    key: string,
+  ): { readonly from: string | undefined; readonly to: string } => {
+    const from = owners.find((owner) => rows.get(owner, key) !== undefined);
+    const mine = owners.at(-2) ?? "";
+
+    return { from, to: from === undefined || from === baseOwner ? mine : from };
+  };
+
+  const lease = async (
+    owners: readonly string[],
+    key: string,
+  ): Promise<Response> => {
+    const { from, to } = placed(owners, key);
+
+    const given = await leases.acquire(leaseKey(to, key));
     if (given === undefined) {
       throw busy();
     }
 
     const body: Lease<T> = {
       lease: given,
-      value: rows.get(userId, key) ?? null,
+      value: (from === undefined ? undefined : rows.get(from, key)) ?? null,
     };
 
     return Response.json(body);
@@ -439,7 +563,7 @@ function loginKind<T>(
 
   const release = async (
     request: Request,
-    userId: string,
+    owners: readonly string[],
     key: string,
   ): Promise<Response> => {
     const { lease: given, value } = await readBody(request, leaseRelease);
@@ -447,9 +571,11 @@ function loginKind<T>(
     const next =
       value === undefined || value === null ? value : validated(value);
 
+    const { to } = placed(owners, key);
+
     // A lapsed lease may have let another runner write since, so its write
     // would undo theirs.
-    const held = leaseKey(userId, key);
+    const held = leaseKey(to, key);
     if (next !== undefined && !leases.holds(held, given)) {
       throw new HttpError(
         409,
@@ -459,7 +585,7 @@ function loginKind<T>(
     }
 
     if (next !== undefined) {
-      store(userId, key, next);
+      store(to, key, next);
     }
 
     leases.release(held, given);
@@ -491,6 +617,7 @@ function loginKind<T>(
   return {
     name: spec.name,
     list: rows.list,
+    mine: rows.mine,
     get: rows.get,
     validated,
     modify,
@@ -507,29 +634,39 @@ function loginKind<T>(
         throw error;
       }
     },
-    sessionRoute: async (request, userId, rawKey, action) => {
+    sessionRoute: async (request, owners, rawKey, action) => {
       if (rawKey === undefined || rawKey === "") {
+        const nearest = new Map<string, { owner: string; type: string }>();
+
+        for (const owner of owners) {
+          for (const { key, type } of rows.list(owner)) {
+            if (!nearest.has(key)) {
+              nearest.set(key, { owner, type });
+            }
+          }
+        }
+
         return Response.json(
           new URL(request.url).searchParams.has("values")
             ? Object.fromEntries(
-                rows.list(userId).flatMap(({ key }) => {
-                  const value = rows.get(userId, key);
+                [...nearest].flatMap(([key, { owner }]) => {
+                  const value = rows.get(owner, key);
 
                   return value === undefined ? [] : [[key, value]];
                 }),
               )
-            : rows.list(userId).map(({ key, type }) => ({ key, type })),
+            : [...nearest].map(([key, { type }]) => ({ key, type })),
         );
       }
 
       const key = decodeURIComponent(rawKey);
 
       if (action === "lock" && request.method === "POST") {
-        return lease(userId, key);
+        return lease(owners, key);
       }
 
       if (action === "release" && request.method === "POST") {
-        return release(request, userId, key);
+        return release(request, owners, key);
       }
 
       throw new NotFound(`no route ${spec.name}/${rawKey}`);
@@ -539,6 +676,7 @@ function loginKind<T>(
 
 interface SealedRows<T> {
   readonly list: (userId: string) => readonly Stored[];
+  readonly mine: (userId: string) => readonly Owned[];
   readonly get: (userId: string, key: string) => T | undefined;
   readonly save: (userId: string, key: string, value: T) => void;
   readonly remove: (userId: string, key: string) => void;
@@ -571,6 +709,25 @@ function sealedRows<T>(
           userId,
         ) as { key: string; type: string; updated_at: string }[]
       ).map(({ key, type, updated_at }) => ({
+        key,
+        type,
+        updatedAt: updated_at,
+      })),
+    mine: (userId) =>
+      (
+        store.all(
+          `select user_id, ${column} as key, type, updated_at from "${table}" where user_id in (?, ?) or user_id like ? order by ${column}, user_id`,
+          userId,
+          baseOwner,
+          `${userId}:%`,
+        ) as {
+          user_id: string;
+          key: string;
+          type: string;
+          updated_at: string;
+        }[]
+      ).map(({ user_id, key, type, updated_at }) => ({
+        owner: user_id,
         key,
         type,
         updatedAt: updated_at,

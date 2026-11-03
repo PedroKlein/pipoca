@@ -931,7 +931,65 @@ test("connects a model provider from Settings by answering its prompts", async (
 
   await card.getByRole("button", { name: "Close" }).click();
   await card.waitFor({ state: "detached" });
-  await page.getByRole("button", { name: "Log out of mistral" }).click();
+
+  await page
+    .getByRole("button", { name: "Log out of mistral in My defaults" })
+    .click();
+});
+
+test("gives a Profile its own login, then lets it inherit again", async () => {
+  await page.goto(server.url.href);
+  await openSettings("Accounts");
+
+  const connect = async (form: Locator): Promise<void> => {
+    await form.getByLabel("Log in with").selectOption({ label: "API key" });
+    await form.getByRole("button", { name: "Connect" }).click();
+
+    const card = page.getByRole("region", { name: "Connecting Mistral" });
+    await card.locator('input[type="password"]').fill("sk-mistral");
+    await card.getByRole("button", { name: "Continue" }).click();
+    await card.getByText("Connected to Mistral.").waitFor();
+    await card.getByRole("button", { name: "Close" }).click();
+  };
+
+  await page.getByRole("button", { name: "Add provider" }).click();
+
+  const add = page.getByRole("form", { name: "Connect a model provider" });
+  await add.getByLabel("Provider").selectOption({ label: "Mistral" });
+  await connect(add);
+
+  await page.getByRole("link", { name: "Profiles" }).click();
+  await page.getByRole("link", { name: "New Profile" }).click();
+
+  const editor = page.locator("#profiles-page form").first();
+  await editor.getByLabel("Name").fill("Work");
+  await editor.getByRole("button", { name: "Create Profile" }).click();
+
+  const logins = page.getByRole("list", { name: "This Profile's logins" });
+  await logins.getByText("From My defaults").waitFor();
+
+  await logins
+    .getByRole("group", { name: "mistral login" })
+    .getByRole("button", { name: "Own login" })
+    .click();
+
+  await connect(page.getByRole("form", { name: "Connect Mistral" }));
+  await logins.getByText("Its own login").waitFor();
+
+  await logins
+    .getByRole("group", { name: "mistral login" })
+    .getByRole("button", { name: "Inherit" })
+    .click();
+
+  await logins.getByText("From My defaults").waitFor();
+
+  page.once("dialog", async (dialog) => dialog.accept());
+  await editor.getByRole("button", { name: "Delete" }).click();
+  await page.getByRole("link", { name: "Accounts" }).click();
+
+  await page
+    .getByRole("button", { name: "Log out of mistral in My defaults" })
+    .click();
 });
 
 test("signs in to an MCP server of the base Profile from Settings and comes back to Pipoca", async () => {

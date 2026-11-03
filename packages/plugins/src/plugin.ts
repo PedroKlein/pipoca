@@ -333,6 +333,8 @@ export interface ServerPluginContext {
     // The MCP servers of the base Profile and the Profiles Sessions start
     // with, as their mcp.json files configure them.
     readonly mcpServers: () => readonly ProfileMcpServer[];
+    // The Profiles a Profile builds on, nearest first (ADR 0063).
+    readonly buildsOn: (id: string) => readonly string[];
   };
   readonly routes: { readonly handle: (route: PluginRoute) => void };
   // For a built-in plugin that signs people in without a password, such as

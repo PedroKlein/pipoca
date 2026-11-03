@@ -203,6 +203,7 @@ export function startPlugins(
     // The Session parts built into the binary, besides installed ones.
     readonly sessionParts: readonly SessionPlugin[];
     readonly mcpServers?: ServerPluginContext["profiles"]["mcpServers"];
+    readonly buildsOn?: ServerPluginContext["profiles"]["buildsOn"];
     readonly signal: AbortSignal;
     readonly log: Log;
   },
@@ -542,6 +543,7 @@ export function startPlugins(
               return id;
             },
             mcpServers: deps.mcpServers ?? (() => []),
+            buildsOn: deps.buildsOn ?? (() => []),
           },
           routes: {
             handle: (route) => {
