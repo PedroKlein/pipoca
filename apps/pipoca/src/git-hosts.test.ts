@@ -29,6 +29,9 @@ let host: ReturnType<typeof Bun.serve>;
 let streams: AsyncGenerator[];
 
 // The pull request the host knows, which tests change between polls.
+// How many installation tokens the host gave out.
+let minted: number;
+
 let pull: {
   checks: "pending" | "failure" | "success";
   mergeable: boolean;
@@ -74,6 +77,7 @@ function signedByApp(authorization: string | null): boolean {
 
 beforeEach(() => {
   logs = [];
+  minted = 0;
   streams = [];
 
   pull = {
@@ -104,6 +108,24 @@ beforeEach(() => {
           },
           { status: 201 },
         );
+      }
+
+      if (url.pathname === "/api/v3/app/installations/7/access_tokens") {
+        minted += 1;
+
+        return signedByApp(request.headers.get("authorization"))
+          ? Response.json(
+              {
+                token: "ghs_installation",
+                expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+              },
+              { status: 201 },
+            )
+          : Response.json({ message: "Bad JWT" }, { status: 401 });
+      }
+
+      if (url.pathname === "/api/v3/users/pipoca-bot%5Bbot%5D") {
+        return Response.json({ id: 99, login: "pipoca-bot[bot]" });
       }
 
       if (url.pathname === "/api/v3/app/installations") {
@@ -779,7 +801,12 @@ test("merges a watched pull request the way its repository allows, and stops wat
   expect(await watched(session.id)).toEqual([]);
 }, 15_000);
 
-test("creates a GitHub App from a manifest as a technical user, with its key sealed", async () => {
+// Starts the manifest flow for the Pipoca bot App, as Settings does.
+async function startApp(): Promise<{
+  readonly state: string;
+  readonly manifest: Record<string, unknown>;
+  readonly browser: string;
+}> {
   const started = await api(
     "GET",
     `/api/plugins/git-hosts/technical-users/new-app?host=${enterprise}&name=Pipoca%20bot&organization=I572543`,
@@ -801,15 +828,34 @@ test("creates a GitHub App from a manifest as a technical user, with its key sea
     `https://${enterprise}/organizations/I572543/settings/apps/new`,
   );
 
+  const browser = (started.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+
+  return { state, manifest, browser };
+}
+
+// Creates the Pipoca bot App and installs it on I572543.
+async function createApp(): Promise<void> {
+  const { state, browser } = await startApp();
+
+  await fetch(
+    new URL(
+      `/api/plugins/git-hosts/app-created?code=m4nifest&state=${state}`,
+      server.url,
+    ),
+    { headers: { cookie: browser } },
+  );
+}
+
+test("creates a GitHub App from a manifest as a technical user, with its key sealed", async () => {
+  const { state, manifest, browser } = await startApp();
+  const callback = `/api/plugins/git-hosts/app-created?code=m4nifest&state=${state}`;
+
   expect(manifest).toMatchObject({
     name: "Pipoca bot",
     redirect_url: new URL("/api/plugins/git-hosts/app-created", server.url)
       .href,
     public: false,
   });
-
-  const browser = (started.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
-  const callback = `/api/plugins/git-hosts/app-created?code=m4nifest&state=${state}`;
 
   expect((await fetch(new URL(callback, server.url))).status).toBe(400);
 
@@ -869,4 +915,103 @@ test("adds a machine user by a token its host accepts, and removes it", async ()
   expect(
     await (await api("GET", "/api/plugins/git-hosts/technical-users")).json(),
   ).toEqual([]);
+});
+
+test("signs a routine's run in as the GitHub App it acts as, and commits as its bot", async () => {
+  await api("POST", "/api/plugins/git-hosts/connect", {
+    host: enterprise,
+    token: goodToken,
+  });
+
+  const token = await runnerToken();
+
+  await createApp();
+
+  // The App's installation token is minted in the background.
+  for (let tries = 0; tries < 100 && minted === 0; tries++) {
+    await Bun.sleep(20);
+  }
+
+  expect(
+    (
+      await api("PUT", "/api/plugins/routines/routines/tidy", {
+        title: "Tidy the dotfiles",
+        triggers: [{ webhook: true }],
+        run: {
+          prompt: "Tidy them.",
+          workspace: {
+            kind: "clone",
+            repository: `https://${enterprise}/I572543/dotfiles.git`,
+          },
+          as: "pipoca-bot",
+        },
+      })
+    ).status,
+  ).toBe(200);
+
+  await api("POST", "/api/plugins/routines/routines/tidy/run");
+
+  const started = await polled(token);
+
+  expect(started?.gitLogins).toEqual([
+    { host: enterprise, token: "ghs_installation" },
+  ]);
+
+  const identity = await fetch(
+    new URL(
+      `/agent/sessions/${started?.sessionId ?? ""}/plugins/git-hosts/identity?generation=${String(started?.generation ?? 0)}`,
+      server.url,
+    ),
+    {
+      headers: {
+        [versionHeader]: String(protocolVersion),
+        authorization: `Bearer ${token}`,
+      },
+    },
+  );
+
+  expect(await identity.json()).toEqual({
+    name: "pipoca-bot[bot]",
+    email: `99+pipoca-bot[bot]@users.noreply.${enterprise}`,
+  });
+});
+
+test("gives no git login to a Session acting as a technical user its person may not use", async () => {
+  await api("POST", "/api/plugins/git-hosts/connect", {
+    host: enterprise,
+    token: goodToken,
+  });
+
+  writeFileSync(
+    join(configDir, "pipoca.json"),
+    JSON.stringify({
+      "git-hosts": {
+        ...(
+          JSON.parse(readFileSync(join(configDir, "pipoca.json"), "utf8")) as {
+            "git-hosts": object;
+          }
+        )["git-hosts"],
+        technicalUsers: [],
+      },
+    }),
+  );
+
+  const token = await runnerToken();
+
+  await api("PUT", "/api/plugins/routines/routines/tidy", {
+    title: "Tidy the dotfiles",
+    triggers: [{ webhook: true }],
+    run: {
+      prompt: "Tidy them.",
+      workspace: { kind: "folder", path: "/srv/a" },
+      as: "someone-elses-bot",
+    },
+  });
+
+  await api("POST", "/api/plugins/routines/routines/tidy/run");
+
+  const started = await polled(token);
+
+  expect(started?.sessionId).toBeString();
+  expect(started?.gitLogins).toBeUndefined();
 });

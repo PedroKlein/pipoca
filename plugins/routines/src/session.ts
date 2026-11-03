@@ -24,7 +24,7 @@ const Params = Type.Object({
   routine: Type.Optional(
     Type.Unknown({
       description:
-        'For create and update, the whole routine: { "title", "triggers": [{ "cron": "0 8 * * 1-5", "timeZone": "Europe/Berlin" } | { "at": ISO time with zone } | { "event": "<plugin>.<name>", "filter": { field: value } }], "run": { "prompt", "workspace": { "kind": "clone", "repository": url } | { "kind": "folder", "path" }, "environment"?, "profile"?, "model"?: "provider/id" } or { "prompt", "session": id }, "overlap"?: "skip" | "queue", "key"?: [event fields] }',
+        'For create and update, the whole routine: { "title", "triggers": [{ "cron": "0 8 * * 1-5", "timeZone": "Europe/Berlin" } | { "at": ISO time with zone } | { "event": "<plugin>.<name>", "filter": { field: value } }], "run": { "prompt", "workspace": { "kind": "clone", "repository": url } | { "kind": "folder", "path" }, "environment"?, "profile"?, "model"?: "provider/id", "as"?: technical user name to act as on git instead of the user } or { "prompt", "session": id }, "overlap"?: "skip" | "queue", "key"?: [event fields] }',
     }),
   ),
   summary: Type.Optional(

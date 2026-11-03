@@ -122,6 +122,7 @@ export function fakeSession(fields: Partial<Session> = {}): Session {
     workspaceRemoval: null,
     workspaceKeptReason: null,
     startedBy: null,
+    actsAs: null,
     online: true,
     waiting: false,
     ...fields,

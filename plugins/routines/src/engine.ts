@@ -618,6 +618,7 @@ export function routinesEngine(
             environment: target.environment,
           }),
           ...(target.profile !== undefined && { profile: target.profile }),
+          ...(target.as !== undefined && { actsAs: target.as }),
           ...(provider !== undefined &&
             model.length > 0 && {
               model: { provider, id: model.join("/") },

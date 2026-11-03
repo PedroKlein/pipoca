@@ -173,7 +173,10 @@ export interface SessionsOptions {
   // A Profile a plugin provides, which only the plugin's own Sessions run on.
   readonly pluginProfile?: (id: string) => PluginProfile | undefined;
   // The git hosts a user connected (ADR 0043).
-  readonly gitLogins?: (userId: string) => readonly GitLogin[];
+  readonly gitLogins?: (
+    userId: string,
+    session: Pick<Session, "actsAs" | "workspace">,
+  ) => readonly GitLogin[];
   // The admins' Environment templates (ADR 0049).
   readonly templates?: () => readonly EnvironmentTemplate[];
   // The docs every Session gets as files (ADR 0052).
@@ -216,7 +219,7 @@ export class Sessions {
     environment: Pick<Environment, "id" | "templateId">,
   ) => boolean;
   readonly #pluginProfile: (id: string) => PluginProfile | undefined;
-  readonly #gitLogins: (userId: string) => readonly GitLogin[];
+  readonly #gitLogins: NonNullable<SessionsOptions["gitLogins"]>;
   readonly #templates: () => readonly EnvironmentTemplate[];
   readonly #docs: ProfileFiles | undefined;
   readonly #watchers = new Map<string, Set<Listener<SessionEvent>>>();
@@ -329,6 +332,7 @@ export class Sessions {
       workspaceRemoval: null,
       workspaceKeptReason: null,
       startedBy,
+      actsAs: request.actsAs ?? null,
     };
 
     this.#store.insert(session);
@@ -1277,7 +1281,7 @@ export class Sessions {
           firstMessage: session.firstMessage,
           ...this.#pluginsOf(session),
           environment: this.#sessionEnvironment(session.environmentId),
-          ...this.#gitLoginsOf(session.startedBy),
+          ...this.#gitLoginsOf(session),
           // What this runner kept from an earlier run is older than what the
           // other runner pushed and uploaded since.
           ...(next.runner !== null &&
@@ -1354,8 +1358,11 @@ export class Sessions {
     }
   }
 
-  #gitLoginsOf(userId: string | null): Pick<Assignment, "gitLogins"> {
-    const logins = userId === null ? [] : this.#gitLogins(userId);
+  #gitLoginsOf(session: StoredSession): Pick<Assignment, "gitLogins"> {
+    const logins =
+      session.startedBy === null
+        ? []
+        : this.#gitLogins(session.startedBy, session);
 
     return logins.length > 0 ? { gitLogins: logins } : {};
   }
