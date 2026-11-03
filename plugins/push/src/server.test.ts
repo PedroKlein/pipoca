@@ -157,7 +157,7 @@ function registered(): { readonly route: PluginRoute; readonly events: Bus } {
   });
 
   const context = fakeContext({
-    events,
+    events: { ...events, declared: () => [] },
     routes: {
       handle: (route) => {
         routes.push(route);

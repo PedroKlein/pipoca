@@ -55,6 +55,10 @@ export const routines: ServerPlugin = {
         return Response.json({ ok: true });
       }
 
+      if (route === "events" && method === "GET") {
+        return Response.json(context.events.declared());
+      }
+
       if (route !== "routines") {
         throw new NotFound(`no route ${path}`);
       }

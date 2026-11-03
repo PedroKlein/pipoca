@@ -17,6 +17,7 @@ import {
   PageTitle,
   Section,
 } from "@pipoca/ui";
+import type { DeclaredEvent } from "@pipoca/protocol";
 import { type ReactElement, useState } from "react";
 import type {
   RoutineDetail,
@@ -317,6 +318,7 @@ function Editor({
       {failure !== undefined && (
         <p className="text-ui text-failed">{failure}</p>
       )}
+      <DeclaredEvents context={context} />
       <div>
         <Button type="submit" variant="primary">
           Save
@@ -324,6 +326,50 @@ function Editor({
       </div>
     </form>
   );
+}
+
+// What an event trigger can name, with the fields its filter and key read.
+function DeclaredEvents({
+  context,
+}: {
+  readonly context: WebContext;
+}): ReactElement | null {
+  const events = useLoaded(
+    async () => json<DeclaredEvent[]>(context.request("events")),
+    "events",
+  ).value;
+
+  if (events === undefined || events.length === 0) {
+    return null;
+  }
+
+  return (
+    <details className="text-label text-fg-dim">
+      <summary className="cursor-pointer">
+        Events a trigger can name, as{" "}
+        {'{ "event": type, "filter": { field: value } }'}
+      </summary>
+      <ul className="mt-2 flex flex-col gap-2">
+        {events.map((event) => (
+          <li key={event.type}>
+            <code className="text-fg">{event.type}</code>: {event.title}
+            {event.description !== undefined && ` ${event.description}`}
+            <span className="block">
+              Fields: {fieldNames(event.fields).join(", ")}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+function fieldNames(schema: Readonly<Record<string, unknown>>): string[] {
+  const properties = schema["properties"];
+
+  return typeof properties === "object" && properties !== null
+    ? Object.keys(properties)
+    : [];
 }
 
 function RunRow({

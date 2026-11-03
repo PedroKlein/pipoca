@@ -101,7 +101,7 @@ function fakeKernel(): {
         tools.set(tool.name, tool);
       },
     },
-    events,
+    events: { ...events, declared: () => [] },
     sessions: {
       loadOnly: () => undefined,
       start: (request, ownerKey) => {

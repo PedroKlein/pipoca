@@ -8,6 +8,7 @@ import type { EventBus } from "./events";
 import type {
   Actor,
   CreateSession,
+  DeclaredEvent,
   Environment,
   EnvironmentTemplate,
   GitLogin,
@@ -251,6 +252,8 @@ export interface ServerPluginContext {
   readonly events: {
     readonly publish: (event: PluginEvent) => void;
     readonly subscribe: EventBus["subscribe"];
+    // The events enabled plugins say they publish (ADR 0059).
+    readonly declared: () => readonly DeclaredEvent[];
   };
   // Tells open pages that something of the plugin's changed. They hear it as
   // the topic "<plugin>.<name>" and fetch again (ADR 0038).
