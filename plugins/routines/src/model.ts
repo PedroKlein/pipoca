@@ -7,7 +7,18 @@ export interface WakeUp {
 }
 
 export type RunOutcome =
-  "running" | "queued" | "ok" | "nothing" | "failed" | "skipped" | "blocked";
+  | "running"
+  | "queued"
+  | "ok"
+  | "nothing"
+  | "failed"
+  | "skipped"
+  | "blocked"
+  // The run's turn ended without it saying it finished (ADR 0061).
+  | "stopped";
+
+// How a run's agent ends it.
+export type RunResult = "done" | "nothing" | "blocked";
 
 export interface Run {
   readonly id: string;
