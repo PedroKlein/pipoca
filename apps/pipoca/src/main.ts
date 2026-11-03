@@ -346,7 +346,14 @@ switch (command) {
     const [action, what, ...options] = rest;
 
     if (action === "uninstall") {
-      process.stdout.write(`removed ${await uninstallService()}\n`);
+      const removed = await uninstallService();
+
+      process.stdout.write(
+        removed === undefined
+          ? "no service installed\n"
+          : `removed ${removed}\n`,
+      );
+
       break;
     }
 

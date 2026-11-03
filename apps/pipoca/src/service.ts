@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
@@ -54,11 +55,16 @@ export async function installService(
   return path;
 }
 
-export async function uninstallService(): Promise<string> {
+// Undefined when there was no unit to remove.
+export async function uninstallService(): Promise<string | undefined> {
   const { path, stop } = manager();
 
+  if (!existsSync(path)) {
+    return undefined;
+  }
+
   await runAll(stop, false);
-  await rm(path, { force: true });
+  await rm(path);
 
   return path;
 }
