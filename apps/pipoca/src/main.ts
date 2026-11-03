@@ -8,7 +8,7 @@ import { main as piMain } from "@earendil-works/pi-coding-agent";
 import { installPackage } from "@pipoca/sessionhost";
 import { runAgent } from "./agent";
 import { JoinRefused } from "./client";
-import { dataFolder } from "./data-folder";
+import { connectFolder, dataFolder, runnerFolder } from "./data-folder";
 import { fauxModels } from "./faux";
 import { help, overview, version } from "./help";
 import { installedPlugins } from "./installed";
@@ -211,7 +211,7 @@ switch (command) {
         session: { type: "string" },
         "session-binary": { type: "string" },
         server: { type: "string", default: "http://127.0.0.1:7420" },
-        "data-dir": { type: "string", default: join(dataRoot, "agent") },
+        "data-dir": { type: "string" },
         folder: { type: "string", multiple: true, default: [] },
         extension: { type: "string", multiple: true, default: [] },
       },
@@ -258,7 +258,10 @@ switch (command) {
 
     await checkFolders(folders);
 
-    const dataDir = absolutePath(values["data-dir"]);
+    const dataDir = absolutePath(
+      values["data-dir"] ?? runnerFolder(dataRoot, values.server),
+    );
+
     const fauxReply = process.env["PIPOCA_FAUX_REPLY"];
 
     await runAgent({
@@ -301,7 +304,7 @@ switch (command) {
         "remote-pipoca": { type: "string", default: "pipoca" },
         "remote-database": { type: "string" },
         name: { type: "string", default: hostName() },
-        "data-dir": { type: "string", default: join(dataRoot, "connect") },
+        "data-dir": { type: "string" },
         folder: { type: "string", multiple: true, default: [] },
         "no-open": { type: "boolean", default: false },
         "print-link": { type: "boolean", default: false },
@@ -327,7 +330,9 @@ switch (command) {
       }),
       name: values.name,
       folders: folders.map(absolutePath),
-      dataDir: absolutePath(values["data-dir"]),
+      dataDir: absolutePath(
+        values["data-dir"] ?? connectFolder(dataRoot, host),
+      ),
       signIn: signInMode(values["print-link"], values["no-open"]),
       log: stderrLog("connect"),
       signal: shutdown.signal,
