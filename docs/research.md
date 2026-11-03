@@ -156,6 +156,25 @@ Parts worth reusing:
 
 Several open-source systems create one Job or pod for a bounded Claude task. They are useful for operator, RBAC, and workspace patterns, but their batch lifecycle does not directly solve durable interactive Pi Sessions.
 
+## Automations and software factories
+
+Read 2026-10-24 (Hermes Agent at `4dcef215`, OpenClaw at `779fe239`) and 2026-11-02 (product docs).
+
+- **Hermes Agent and OpenClaw.** Scheduled work is a job record plus a run record, and each run is a fresh session with an unattended contract: the final reply is the result, and a "nothing to do" reply stays quiet. Both advance the next firing before dispatching it, collapse missed firings into one catch-up run, alert once per error signature, and pause a job that keeps failing. Webhooks fire jobs, with HMAC, coalescing by a key and a delivery-id cache. OpenClaw built a server-side task-flow engine in 2026.3 and removed it in 2026.9.7, turning special-purpose runners into ordinary jobs. Both later added a board of cards with dependencies, worked by agent workers.
+- **[Cursor automations](https://cursor.com/docs/cloud-agent/automations).** A trigger (schedule, GitHub, GitLab, Bitbucket, Slack, Linear, Sentry, PagerDuty or webhook), a prompt, tools and a repository. Each firing is one cloud agent run. "Run as" is the creator or a service account, and only admins pick a service account. Each automation keeps a memory file. Access is private, view or edit.
+- **[Factory automations](https://docs.factory.com/automations/custom.md).** Schedule, GitHub, Slack and webhook triggers, each firing one session. Starters such as "Ticket to PR", "Code Health" and "Review Comment Fixer". Runs act as the person or a service account. Five failed runs pause an automation, and webhook runs are capped at 10 an hour with identical bodies ignored for 10 minutes.
+- **[Devin with Linear](https://docs.devin.ai/integrations/linear.md).** A ticket starts a session when assigned, labelled `@skills:<name>`, mentioned, or matched by a trigger on team, label and status. A trigger fires only when a ticket newly matches. The skill chosen by the label decides how the work is done.
+- **[Copilot coding agent](https://github.blog/changelog/2026-03-06-github-copilot-coding-agent-for-jira-is-now-in-public-preview/).** Assigning an issue, in GitHub or Jira, starts one agent run that opens a draft pull request through its GitHub App.
+- **[GitHub Agentic Workflows](https://github.github.com/gh-aw/index.html).** A Markdown file with triggers in frontmatter and a prompt as its body, compiled to an Actions workflow. The agent is read-only; the writes it declares ("safe outputs") are applied by a separate job after a scan. Credit caps per run and per day.
+
+None of these puts a planning agent between an event and the run it starts.
+
+### Bot identities on GitHub
+
+- A GitHub App can be created from a [manifest](https://docs.github.com/en/developers/apps/creating-a-github-app-from-a-manifest/): the server posts a form to GitHub, GitHub redirects back with a code, and the code is exchanged for the App's id, private key and webhook secret. [RunsOn](https://runs-on.com/blog/self-serve-github-app-registration-with-manifests/) uses this so each customer has a private App of their own in two clicks.
+- [Backstage](https://backstage.io/docs/integrations/github/github-apps) lists several Apps per host, each with `allowedInstallationOwners`, and allows one per organization because it picks an App by organization.
+- GitHub's terms allow [one free machine account per person](https://conductatlas.com/platform/github/github-terms-of-service/machine-account-limited-to-one-per-user/).
+
 ## Research conclusion
 
 No reviewed project combines Pi-native Session fidelity, Claude-style Projects and Threads, portable Environments, strong Kubernetes execution, and future collaboration. PI WEB is the closest reference; Pipoca owns its own control plane and UI rather than building on it ([ADR 0001](adr/0001-own-the-control-plane-and-ui.md)).
