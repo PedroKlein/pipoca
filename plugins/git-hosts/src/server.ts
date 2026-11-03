@@ -22,6 +22,7 @@ import { pullRequests } from "./pull-requests";
 import { acting } from "./acting";
 import { technicalUserRoutes } from "./technical-user-routes";
 import { technicalUsers } from "./technical-users";
+import { eventOf, signedWith } from "./webhooks";
 import { type HostSearch, repositoriesTool } from "./tool";
 import {
   type HostConfig,
@@ -31,6 +32,9 @@ import {
   viewOf,
 } from "./hosts";
 import type { Account, Connection } from "./model";
+
+// GitHub sends at most 25 MB, but the events taken from a webhook are small.
+const maxHookBody = 5 * 1024 * 1024;
 
 // A browser has this long to come back from the host.
 const attemptMs = 10 * 60_000;
@@ -300,11 +304,78 @@ export const gitHosts: ServerPlugin = {
       throw new NotFound(`no route ${path.join("/")}`);
     };
 
+    // An App's events, from the host (ADR 0060). Each goes to the people who
+    // may use the App, as their routines' triggers.
+    const hooked = async (
+      request: Request,
+      hook: string,
+    ): Promise<Response> => {
+      const app = bots
+        .list()
+        .find((user) => "app" in user && user.app.hook === hook);
+
+      if (app === undefined || !("app" in app)) {
+        return Response.json({ error: "not_found" }, { status: 404 });
+      }
+
+      const body = await request.text();
+
+      if (body.length > maxHookBody) {
+        return Response.json({ error: "too_large" }, { status: 413 });
+      }
+
+      if (
+        app.app.webhookSecret === undefined ||
+        !signedWith(
+          app.app.webhookSecret,
+          body,
+          request.headers.get("x-hub-signature-256"),
+        )
+      ) {
+        return Response.json({ error: "unauthorized" }, { status: 401 });
+      }
+
+      let payload: unknown;
+
+      try {
+        payload = JSON.parse(body);
+      } catch {
+        return Response.json({ error: "bad_request" }, { status: 400 });
+      }
+
+      const event = eventOf(
+        app.host,
+        request.headers.get("x-github-event") ?? "",
+        payload,
+      );
+
+      if (event !== undefined) {
+        context.events.publish({
+          ...event,
+          technicalUser: app.name,
+          userIds: app.users,
+        });
+      }
+
+      return Response.json({ ok: true }, { status: 202 });
+    };
+
     const technical = technicalUserRoutes(context, hosts, bots, () => {
       void actingAs.refresh();
     });
 
     context.auth.handlePublic(async (request, path) => {
+      const [route, hook, extra] = path.split("/");
+
+      if (
+        route === "hooks" &&
+        hook !== undefined &&
+        extra === undefined &&
+        request.method === "POST"
+      ) {
+        return hooked(request, hook);
+      }
+
       if (request.method !== "GET") {
         return undefined;
       }
