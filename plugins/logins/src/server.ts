@@ -131,7 +131,7 @@ export const logins: ServerPlugin = {
         context.log("models not listed", { error: String(error) });
       });
 
-    context.models.offer((_environmentId, userId) => {
+    context.models.offer((_environment, userId) => {
       if (userId === undefined) {
         return { models: [] };
       }

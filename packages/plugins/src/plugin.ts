@@ -212,7 +212,7 @@ export interface OfferedModels {
 // The user is the one who looks at the models, when there is one, such as
 // models their own logins reach.
 export type ModelOffer = (
-  environmentId: string,
+  environment: RunnerSource,
   userId?: string,
 ) => OfferedModels;
 

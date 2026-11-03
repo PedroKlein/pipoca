@@ -323,8 +323,7 @@ export class Sessions {
         request.workspace.kind === "folder"
           ? request.workspace
           : { ...request.workspace, branch: `pipoca/${id.slice(0, 8)}` },
-      model:
-        request.model ?? this.#offeredModels(environment.id).default ?? null,
+      model: request.model ?? this.#offeredModels(environment).default ?? null,
       thinking: request.thinking ?? null,
       systemPrompt: request.systemPrompt ?? null,
       firstMessage: request.firstMessage ?? null,
@@ -702,7 +701,7 @@ export class Sessions {
   environments(userId?: string): readonly Environment[] {
     return this.#store.environments().map((environment) => {
       const runners = this.#polls.runners(environment.provider);
-      const offered = this.#offeredModels(environment.id, userId).models;
+      const offered = this.#offeredModels(environment, userId).models;
 
       return {
         ...environment,

@@ -967,8 +967,8 @@ export function startPlugins(
             () => undefined,
           ).catch((error: unknown) => ({ text: String(error), isError: true }));
     },
-    offeredModels: (environmentId, userId) => {
-      const offered = offers.map((offer) => offer(environmentId, userId));
+    offeredModels: (environment, userId) => {
+      const offered = offers.map((offer) => offer(environment, userId));
       const fallback = offered.find((each) => each.default)?.default;
 
       return {

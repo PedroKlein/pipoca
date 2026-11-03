@@ -1173,6 +1173,9 @@ export interface EnvironmentTemplate {
   readonly image: string | null;
   readonly setupScript: string;
   readonly variables: Readonly<Record<string, string>>;
+  // Model aliases for Environments made from it that have none of their
+  // own, which the models plugin reads (ADR 0063).
+  readonly aliases: Readonly<Record<string, unknown>> | null;
   // The repository file a synced template follows (ADR 0063).
   readonly source: RepositorySource | null;
 }

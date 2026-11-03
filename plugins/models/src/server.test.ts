@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { getEventListeners } from "node:events";
 import type { PluginRoute, RouteCaller } from "@pipoca/plugins";
+import type { Environment, EnvironmentTemplate } from "@pipoca/protocol";
 import {
   fakeContext,
   fakeSession,
@@ -167,4 +168,49 @@ test("a config wait after the server stopped answers 503 so the Session backs of
 
   expect(response.status).toBe(503);
   expect(getEventListeners(server.signal, "abort")).toHaveLength(0);
+});
+
+test("an Environment without aliases of its own takes its template's", async () => {
+  const routes: PluginRoute[] = [];
+  const base = fakeContext();
+  const team = { models: { fast: ["team/llama"] }, defaultAlias: "fast" };
+
+  models.register(
+    fakeContext({
+      routes: {
+        handle: (route) => {
+          routes.push(served(route));
+        },
+      },
+      models: { offer: () => undefined },
+      environments: {
+        ...base.environments,
+        list: () => [{ id: environmentId, templateId: "team" } as Environment],
+        templates: () => [
+          { id: "team", aliases: team } as unknown as EnvironmentTemplate,
+        ],
+      },
+    }),
+  );
+
+  const [route] = routes;
+  if (route === undefined) {
+    throw new Error("models registered no route");
+  }
+
+  const config = async (): Promise<unknown> => {
+    const response = await route(
+      new Request("http://models/config"),
+      "config",
+      caller,
+    );
+
+    return ((await response.json()) as { aliases: unknown }).aliases;
+  };
+
+  expect(await config()).toEqual(team);
+
+  await saveAliases(route, JSON.stringify({ aliases }));
+
+  expect(await config()).toEqual(aliases);
 });

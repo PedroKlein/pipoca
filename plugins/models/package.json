@@ -25,7 +25,8 @@
     "description": "Model aliases per Environment, with fallbacks when a model fails.",
     "capabilities": [
       "routes",
-      "models"
+      "models",
+      "environments"
     ]
   }
 }
