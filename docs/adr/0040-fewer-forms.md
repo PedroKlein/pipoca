@@ -1,6 +1,6 @@
 # 0040: Fewer Forms
 
-- Status: accepted
+- Status: accepted, first-run checklist and Settings layout amended by [ADR 0063](0063-settings-and-first-run-setup.md) (a setup wizard, with the checklist only for skipped steps; Settings grouped by who it is for)
 - Date: 2026-10-26
 
 ## Context

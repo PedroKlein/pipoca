@@ -1,6 +1,6 @@
 # 0044: Base Profile
 
-- Status: accepted, amended 2026-10-29 (per-person model and MCP logins on the server, [ADR 0045](0045-server-kept-logins.md))
+- Status: accepted, amended 2026-10-29 (per-person model and MCP logins on the server, [ADR 0045](0045-server-kept-logins.md)), and by [ADR 0063](0063-settings-and-first-run-setup.md) (My defaults per person between the base and each Profile; Profiles can build on Profiles)
 - Date: 2026-10-28
 
 ## Context
