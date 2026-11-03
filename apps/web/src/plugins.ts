@@ -24,6 +24,7 @@ import type {
   Session,
 } from "@pipoca/protocol";
 import { projects } from "@pipoca/projects/web";
+import { email } from "@pipoca/email/web";
 import { routines } from "@pipoca/routines/web";
 import { slack } from "@pipoca/slack/web";
 import { subagents } from "@pipoca/subagents/web";
@@ -54,6 +55,7 @@ const webPlugins: readonly WebPlugin[] = [
   checklist,
   routines,
   slack,
+  email,
   kubernetes,
   local,
   oidc,

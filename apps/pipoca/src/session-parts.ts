@@ -25,6 +25,7 @@ import pushPackage from "@pipoca/push/package.json";
 import routinesPackage from "@pipoca/routines/package.json";
 import { routines } from "@pipoca/routines/session";
 import slackPackage from "@pipoca/slack/package.json";
+import emailPackage from "@pipoca/email/package.json";
 import subagentsPackage from "@pipoca/subagents/package.json";
 import { subagents } from "@pipoca/subagents/session";
 import usagePackage from "@pipoca/usage/package.json";
@@ -59,6 +60,7 @@ export const builtInPlugins: readonly PluginManifest[] = [
   loginsPackage,
   pushPackage,
   slackPackage,
+  emailPackage,
 ].map(({ pipoca }) => pipoca as PluginManifest);
 
 export const sessionPlugins: readonly SessionPlugin[] = [

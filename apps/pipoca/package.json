@@ -31,6 +31,7 @@
     "@pipoca/protocol": "workspace:*",
     "@pipoca/providers": "workspace:*",
     "@pipoca/push": "workspace:*",
+    "@pipoca/email": "workspace:*",
     "@pipoca/routines": "workspace:*",
     "@pipoca/slack": "workspace:*",
     "@pipoca/sessionhost": "workspace:*",
@@ -43,6 +44,8 @@
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "1.3.0",
-    "playwright-core": "1.64.0"
+    "@types/smtp-server": "3.5.13",
+    "playwright-core": "1.64.0",
+    "smtp-server": "3.20.2"
   }
 }
