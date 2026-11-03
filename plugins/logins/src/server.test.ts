@@ -357,23 +357,24 @@ test("a login that isn't one is refused", async () => {
 });
 
 test("a person is offered Pi's models of the providers they logged in to", async () => {
+  const environment = { id: "environment-1", templateId: null };
   const { route, offer } = registered();
   await save(route, "ana", "anthropic");
 
   // Pi's catalog loads in the background.
   for (let tries = 0; tries < 100; tries++) {
-    if (offer("environment-1", "ana").models.length > 0) {
+    if (offer(environment, "ana").models.length > 0) {
       break;
     }
 
     await Bun.sleep(20);
   }
 
-  const offered = offer("environment-1", "ana").models;
+  const offered = offer(environment, "ana").models;
   expect(offered.length).toBeGreaterThan(0);
   expect(offered.every(({ provider }) => provider === "anthropic")).toBe(true);
-  expect(offer("environment-1", "bo").models).toEqual([]);
-  expect(offer("environment-1").models).toEqual([]);
+  expect(offer(environment, "bo").models).toEqual([]);
+  expect(offer(environment).models).toEqual([]);
 });
 
 async function connectable(route: PluginRoute): Promise<void> {

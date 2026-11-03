@@ -51,8 +51,49 @@ export const models: ServerPlugin = {
     const store = modelsStore(context.store);
     const versions = changes(context.signal);
 
-    context.models.offer((environmentId) =>
-      offered(store.get(environmentId).aliases),
+    // An Environment without aliases of its own takes its template's
+    // (ADR 0063).
+    const templateAliases = (templateId: string | null): AliasConfig | null => {
+      const aliases = context.environments
+        .templates()
+        .find(({ id }) => id === templateId)?.aliases;
+
+      if (!aliases) {
+        return null;
+      }
+
+      const config = storedAliases(aliases);
+
+      const problem =
+        typeof config.models === "object"
+          ? aliasProblem(config)
+          : "aliases need models";
+
+      if (problem !== undefined) {
+        context.log("template aliases unreadable", { templateId, problem });
+
+        return null;
+      }
+
+      return config;
+    };
+
+    // The template is looked up only when it can matter, since listing
+    // Environments asks for this offer.
+    const effective = (
+      environmentId: string,
+      templateId: () => string | null,
+    ): EnvironmentModels => {
+      const saved = store.get(environmentId);
+
+      return saved.aliases === null &&
+        context.environments.templates().some(({ aliases }) => aliases)
+        ? { ...saved, aliases: templateAliases(templateId()) }
+        : saved;
+    };
+
+    context.models.offer(({ id, templateId }) =>
+      offered(effective(id, () => templateId).aliases),
     );
 
     context.routes.handle(async (request, path, caller) => {
@@ -79,7 +120,13 @@ export const models: ServerPlugin = {
 
           const config = {
             version: versions.of(environmentId),
-            ...store.get(environmentId),
+            ...effective(
+              environmentId,
+              () =>
+                context.environments
+                  .list()
+                  .find(({ id }) => id === environmentId)?.templateId ?? null,
+            ),
           } satisfies SessionConfig;
 
           return Response.json(config);

@@ -109,6 +109,7 @@ test("only admins change templates, and everyone reads them", async () => {
     id: "cluster-pods",
     isolation: "process",
     image: null,
+    aliases: null,
     source: null,
     ...pods,
   });
@@ -243,8 +244,42 @@ test("reads templates an admin wrote into pipoca.json", async () => {
       isolation: "container",
       image: "debian:12",
       setupScript: "",
+      aliases: null,
       source: null,
       variables: {},
     },
   ]);
+});
+
+test("offers a template's model aliases on Environments made from it", async () => {
+  await mkdir(join(root, "config"), { recursive: true });
+
+  await writeFile(
+    join(root, "config", "pipoca.json"),
+    JSON.stringify({
+      templates: [
+        {
+          id: "team",
+          name: "Team",
+          aliases: {
+            models: { fast: ["openai/gpt-5-mini"] },
+            defaultAlias: "fast",
+          },
+        },
+      ],
+    }),
+  );
+
+  start();
+  const anas = await ana();
+
+  await json(
+    api("/api/environments", anas, { name: "mine", template: "team" }),
+  );
+
+  const [environment] = await json<Environment[]>(
+    api("/api/environments", anas),
+  );
+
+  expect(environment?.models.map(({ id }) => id)).toContain("fast");
 });

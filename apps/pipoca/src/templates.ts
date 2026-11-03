@@ -147,6 +147,7 @@ export function environmentTemplates(
         image: fields.image ?? null,
         setupScript: fields.setupScript ?? "",
         variables: fields.variables ?? {},
+        aliases: null,
         source: null,
       };
 
@@ -228,7 +229,8 @@ function fromFile(
       : error;
   }
 
-  const fields = settingsOf({ ...(value as object), name });
+  const { aliases, ...settings } = (value ?? {}) as Record<string, unknown>;
+  const fields = settingsOf({ ...settings, name });
 
   return {
     name,
@@ -236,6 +238,7 @@ function fromFile(
     image: fields.image ?? null,
     setupScript: fields.setupScript ?? "",
     variables: fields.variables ?? {},
+    aliases: aliasesOf(aliases),
     source,
   };
 }
@@ -251,7 +254,12 @@ function settingsOf(body: unknown): Partial<Omit<EnvironmentTemplate, "id">> {
 }
 
 function templateOf(entry: unknown): EnvironmentTemplate {
-  const { id, source } = (entry ?? {}) as { id?: unknown; source?: unknown };
+  const { id, source, aliases } = (entry ?? {}) as {
+    id?: unknown;
+    source?: unknown;
+    aliases?: unknown;
+  };
+
   if (typeof id !== "string" || id === "") {
     throw new Error("a template needs an id");
   }
@@ -265,8 +273,22 @@ function templateOf(entry: unknown): EnvironmentTemplate {
     image: fields.image ?? null,
     setupScript: fields.setupScript ?? "",
     variables: fields.variables ?? {},
+    aliases: aliasesOf(aliases),
     source: sourceOf(source),
   };
+}
+
+// The models plugin checks the aliases themselves.
+function aliasesOf(value: unknown): Readonly<Record<string, unknown>> | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new BadRequest("aliases must be an object");
+  }
+
+  return value as Readonly<Record<string, unknown>>;
 }
 
 function sourceOf(value: unknown): RepositorySource | null {
