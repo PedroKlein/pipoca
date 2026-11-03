@@ -14,7 +14,9 @@ import {
 import {
   defaultProfileId,
   isRecord,
+  maxBuildsOn,
   type ProfileFolders,
+  type ProfileLayer,
   type StoredProfile,
 } from "./folders";
 import { folderEntries } from "./files";
@@ -26,6 +28,8 @@ export interface ProfileStore {
   // Unarchived Sessions that run with the Profile.
   readonly profileInUse: (id: string) => boolean;
 }
+
+export type Layer = "base" | "defaults";
 
 type Rejection = "not_found" | "default" | "in_use" | "admin_only";
 
@@ -91,10 +95,14 @@ export class Profiles {
       return { ok: false, reason: "admin_only" };
     }
 
+    const id = this.#folders.freeId(name);
+    const ownerId = fields["shared"] === true ? null : userId;
+
     const profile: StoredProfile = {
-      id: this.#folders.freeId(name),
+      id,
       name,
-      ownerId: fields["shared"] === true ? null : userId,
+      ownerId,
+      buildsOn: this.#buildsOn(id, ownerId, fields["buildsOn"]),
       createdAt: new Date().toISOString(),
       ...content,
     };
@@ -126,6 +134,9 @@ export class Profiles {
     const updated: StoredProfile = {
       ...profile,
       ...(fields["name"] !== undefined && { name: nameOf(fields["name"]) }),
+      ...("buildsOn" in fields && {
+        buildsOn: this.#buildsOn(id, profile.ownerId, fields["buildsOn"]),
+      }),
       ...content,
     };
 
@@ -234,36 +245,42 @@ export class Profiles {
       : { ok: false, reason: "not_found" };
   }
 
-  // The admin's base Profile, which every Profile layers over (ADR 0044).
-  base(): ProfileContent {
-    return this.#folders.base?.read() ?? emptyProfile;
+  // A layer under every Profile: the admin's base (ADR 0044), or the
+  // person's own My defaults (ADR 0063).
+  layer(userId: string, which: Layer): ProfileContent {
+    return this.#layer(userId, which)?.read() ?? emptyProfile;
   }
 
-  // The MCP servers that Sessions may connect to: the base Profile's and
-  // every user's Profiles', as their mcp.json files configure them.
+  // The MCP servers that Sessions may connect to, as the mcp.json files of
+  // the base, everyone's My defaults and every Profile configure them.
   mcpServers(): readonly { readonly name: string; readonly config: unknown }[] {
     const profiles = this.ids().flatMap((id) => this.#folders.read(id) ?? []);
 
-    return [this.base(), ...profiles].flatMap(({ mcpServers }) =>
+    const layers = [this.#folders.base, ...this.#folders.everyonesDefaults()]
+      .filter((layer) => layer !== undefined)
+      .map((layer) => layer.read());
+
+    return [...layers, ...profiles].flatMap(({ mcpServers }) =>
       Object.entries(mcpServers).map(([name, config]) => ({ name, config })),
     );
   }
 
   // Throws InvalidProfile when the body isn't Profile content.
-  updateBase(body: unknown, admin: boolean): Result<ProfileContent> {
-    const base = this.#folders.base;
-    if (!base) {
-      return { ok: false, reason: "not_found" };
-    }
-
-    if (!admin) {
-      return { ok: false, reason: "admin_only" };
+  updateLayer(
+    userId: string,
+    which: Layer,
+    body: unknown,
+    admin: boolean,
+  ): Result<ProfileContent> {
+    const layer = this.#writable(userId, which, admin);
+    if (!layer.ok) {
+      return layer;
     }
 
     const fields = fieldsOf(body);
-    const content = contentOf({ ...base.read(), ...fields });
+    const content = contentOf({ ...layer.value.read(), ...fields });
 
-    base.write(
+    layer.value.write(
       Object.fromEntries(
         Object.entries(content).filter(([key]) => key in fields),
       ),
@@ -272,39 +289,43 @@ export class Profiles {
     return { ok: true, value: content };
   }
 
-  baseFiles(): readonly ProfileEntry[] {
-    return this.#folders.base?.entries() ?? [];
+  layerFiles(userId: string, which: Layer): readonly ProfileEntry[] {
+    return this.#layer(userId, which)?.entries() ?? [];
   }
 
-  baseFile(path: string): Buffer | undefined {
-    return this.#folders.base?.file(path);
+  layerFile(userId: string, which: Layer, path: string): Buffer | undefined {
+    return this.#layer(userId, which)?.file(path);
   }
 
   // Throws InvalidProfile for a path a Profile can't hold, and ProfileTooBig.
-  writeBaseFiles(
+  writeLayerFiles(
+    userId: string,
+    which: Layer,
     files: ReadonlyMap<string, Buffer>,
     admin: boolean,
   ): Result<undefined> {
-    const base = this.#folders.base;
-    if (!base) {
-      return { ok: false, reason: "not_found" };
+    const layer = this.#writable(userId, which, admin);
+    if (!layer.ok) {
+      return layer;
     }
 
-    if (!admin) {
-      return { ok: false, reason: "admin_only" };
-    }
-
-    base.writeFiles(files);
+    layer.value.writeFiles(files);
 
     return { ok: true, value: undefined };
   }
 
-  deleteBaseFile(path: string, admin: boolean): Result<undefined> {
-    if (!admin) {
-      return { ok: false, reason: "admin_only" };
+  deleteLayerFile(
+    userId: string,
+    which: Layer,
+    path: string,
+    admin: boolean,
+  ): Result<undefined> {
+    const layer = this.#writable(userId, which, admin);
+    if (!layer.ok) {
+      return layer;
     }
 
-    return this.#folders.base?.deleteFile(path) === true
+    return layer.value.deleteFile(path)
       ? { ok: true, value: undefined }
       : { ok: false, reason: "not_found" };
   }
@@ -444,6 +465,62 @@ export class Profiles {
     return profile.ownerId === null && !admin
       ? { ok: false, reason: "admin_only" }
       : undefined;
+  }
+
+  // A Profile builds on one its owner can see, and a shared Profile only on
+  // a shared one, so nobody gets someone else's files. Throws InvalidProfile.
+  #buildsOn(id: string, ownerId: string | null, value: unknown): string | null {
+    if (value === undefined || value === null || value === "") {
+      return null;
+    }
+
+    const under =
+      typeof value === "string" ? this.#folders.read(value) : undefined;
+
+    if (
+      under === undefined ||
+      (under.ownerId !== null && under.ownerId !== ownerId)
+    ) {
+      throw new InvalidProfile(
+        "a Profile can only build on a Profile you can use",
+      );
+    }
+
+    const chain = [under.id, ...this.#folders.buildsOn(under.id)];
+
+    if (chain.includes(id)) {
+      throw new InvalidProfile(`${under.name} already builds on this Profile`);
+    }
+
+    if (chain.length > maxBuildsOn) {
+      throw new InvalidProfile(
+        `a Profile can build on at most ${String(maxBuildsOn)} others`,
+      );
+    }
+
+    return under.id;
+  }
+
+  #layer(userId: string, which: Layer): ProfileLayer | undefined {
+    return which === "base"
+      ? this.#folders.base
+      : this.#folders.defaults(userId);
+  }
+
+  // Only admins change the base; everyone changes their own My defaults.
+  #writable(
+    userId: string,
+    which: Layer,
+    admin: boolean,
+  ): Result<ProfileLayer> {
+    const layer = this.#layer(userId, which);
+    if (!layer) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    return which === "base" && !admin
+      ? { ok: false, reason: "admin_only" }
+      : { ok: true, value: layer };
   }
 
   #visible(userId: string, id: string): StoredProfile | undefined {

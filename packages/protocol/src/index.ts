@@ -159,6 +159,8 @@ export interface Profile extends ProfileContent {
   readonly name: string;
   // Null for a Profile shared with every user, which only admins change.
   readonly ownerId: string | null;
+  // The Profile this one builds on, which it gets everything from (ADR 0063).
+  readonly buildsOn: string | null;
   readonly createdAt: string;
   // New Sessions use the default Profile when nothing else names one.
   readonly isDefault: boolean;

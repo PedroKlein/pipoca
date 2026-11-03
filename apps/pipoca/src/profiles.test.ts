@@ -143,6 +143,7 @@ test("starts with one empty default Profile, shared by everyone", async () => {
       id: "default",
       name: "Default",
       ownerId: null,
+      buildsOn: null,
       createdAt: expect.any(String) as string,
       isDefault: true,
       packages: [],
@@ -785,6 +786,47 @@ test("fails a Session whose Profile is too big for runners", async () => {
   );
 });
 
+// What the runner downloads for a new Session with the Profile.
+async function runnerFilesOf(
+  environment: string,
+  profile: string,
+): Promise<{ hash: string; files: Record<string, string> }> {
+  const session = await json<Session>(
+    api("/api/sessions", {
+      body: {
+        environment,
+        workspace: { kind: "folder", path: root },
+        profile,
+      },
+    }),
+  );
+
+  const assigned = (await poll()).start.find(
+    ({ sessionId }) => sessionId === session.id,
+  );
+
+  const files = await json<ProfileFiles>(
+    fetch(new URL(`/agent/sessions/${session.id}/profile`, server.url), {
+      headers: {
+        "pipoca-protocol": "4",
+        authorization: `Bearer ${await runners.token("vm")}`,
+      },
+    }),
+  );
+
+  expect(files.hash).toBe(assigned?.profile.hash ?? "");
+
+  return {
+    hash: files.hash,
+    files: Object.fromEntries(
+      Object.entries(files.files).map(([path, encoded]) => [
+        path,
+        Buffer.from(encoded, "base64").toString("utf8"),
+      ]),
+    ),
+  };
+}
+
 test("layers the admin's base Profile under every Profile runners get", async () => {
   const environment = await vmEnvironment();
 
@@ -839,44 +881,8 @@ test("layers the admin's base Profile under every Profile runners get", async ()
     "# My review",
   );
 
-  const filesOf = async (
-    profile: string,
-  ): Promise<{ hash: string; files: Record<string, string> }> => {
-    const session = await json<Session>(
-      api("/api/sessions", {
-        body: {
-          environment,
-          workspace: { kind: "folder", path: root },
-          profile,
-        },
-      }),
-    );
-
-    const assigned = (await poll()).start.find(
-      ({ sessionId }) => sessionId === session.id,
-    );
-
-    const files = await json<ProfileFiles>(
-      fetch(new URL(`/agent/sessions/${session.id}/profile`, server.url), {
-        headers: {
-          "pipoca-protocol": "4",
-          authorization: `Bearer ${await runners.token("vm")}`,
-        },
-      }),
-    );
-
-    expect(files.hash).toBe(assigned?.profile.hash ?? "");
-
-    return {
-      hash: files.hash,
-      files: Object.fromEntries(
-        Object.entries(files.files).map(([path, encoded]) => [
-          path,
-          Buffer.from(encoded, "base64").toString("utf8"),
-        ]),
-      ),
-    };
-  };
+  const filesOf = async (profile: string) =>
+    runnerFilesOf(environment, profile);
 
   const work = await filesOf("work");
 
@@ -1009,6 +1015,105 @@ test("only admins change the base Profile", async () => {
   expect(
     (await api("/api/base", { method: "PUT", body: { agentsMd: "x" } })).status,
   ).toBe(403);
+
+  expect(
+    (await api("/api/defaults", { method: "PUT", body: { agentsMd: "x" } }))
+      .status,
+  ).toBe(200);
+});
+
+test("layers My defaults and the Profiles a Profile builds on, the nearest winning", async () => {
+  const environment = await vmEnvironment();
+
+  const put = async (layer: string, path: string, text: string) =>
+    (
+      await fetch(new URL(`/api/${layer}/files/${path}`, server.url), {
+        method: "PUT",
+        headers: { cookie: await signedIn() },
+        body: text,
+      })
+    ).status;
+
+  expect(await put("base", "AGENTS.md", "Team.")).toBe(204);
+  expect(await put("defaults", "AGENTS.md", "Mine.")).toBe(204);
+  expect(await put("defaults", "SYSTEM.md", "Be Pi.")).toBe(204);
+  expect(await put("defaults", "skills%2Fgo%2FSKILL.md", "# Go")).toBe(204);
+
+  const research = await json<Profile>(
+    api("/api/profiles", { body: { name: "Research", agentsMd: "Read." } }),
+  );
+
+  const deep = await json<Profile>(
+    api("/api/profiles", {
+      body: {
+        name: "Deep",
+        agentsMd: "Dig.",
+        systemMd: "Be thorough.",
+        buildsOn: research.id,
+      },
+    }),
+  );
+
+  expect(deep.buildsOn).toBe("research");
+
+  expect((await runnerFilesOf(environment, deep.id)).files).toEqual({
+    "AGENTS.md": "Team.\n\nMine.\n\nRead.\n\nDig.",
+    "SYSTEM.md": "Be thorough.",
+    "skills/go/SKILL.md": "# Go",
+  });
+
+  expect(await json<unknown>(api("/api/defaults/files"))).toEqual([
+    { path: "AGENTS.md", size: 5 },
+    { path: "SYSTEM.md", size: 6 },
+    { path: "skills/go/SKILL.md", size: 4 },
+  ]);
+
+  const before = await runnerFilesOf(environment, deep.id);
+  expect(await put("defaults", "AGENTS.md", "Mine, edited.")).toBe(204);
+
+  expect((await runnerFilesOf(environment, deep.id)).hash).not.toBe(
+    before.hash,
+  );
+});
+
+test("refuses a Profile that would build on itself or on someone else's", async () => {
+  const a = await json<Profile>(api("/api/profiles", { body: { name: "A" } }));
+
+  const b = await json<Profile>(
+    api("/api/profiles", { body: { name: "B", buildsOn: a.id } }),
+  );
+
+  expect(
+    (
+      await api(`/api/profiles/${a.id}`, {
+        method: "PUT",
+        body: { buildsOn: b.id },
+      })
+    ).status,
+  ).toBe(400);
+
+  expect(
+    (
+      await api(`/api/profiles/${a.id}`, {
+        method: "PUT",
+        body: { buildsOn: a.id },
+      })
+    ).status,
+  ).toBe(400);
+
+  expect(
+    (
+      await api("/api/profiles", {
+        body: { name: "Team", shared: true, buildsOn: a.id },
+      })
+    ).status,
+  ).toBe(400);
+
+  expect(
+    await json<Profile>(
+      api(`/api/profiles/${b.id}`, { method: "PUT", body: { buildsOn: null } }),
+    ),
+  ).toMatchObject({ buildsOn: null });
 });
 
 test("offers the models extension providers registered on runners, after a restart", async () => {

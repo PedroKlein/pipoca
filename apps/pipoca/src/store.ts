@@ -919,8 +919,8 @@ export function openStore(
       selectAnySession.get();
     },
     profile: (id) => profiles?.read(id),
-    profileFiles: (id) => profiles?.files(id),
-    baseProfileFiles: () => profiles?.base?.files(),
+    profileFiles: (id, personId) => profiles?.files(id, personId ?? undefined),
+    baseProfileFiles: (personId) => profiles?.layers(personId ?? undefined),
     defaultProfileId: (ownerId) => defaultProfileId(db, ownerId),
     setDefaultProfile: (ownerId, id) => {
       upsertDefault.run(ownerId, id);

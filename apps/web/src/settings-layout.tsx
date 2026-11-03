@@ -113,6 +113,7 @@ export function SettingsLayout({
       return (
         <ProfilesPage
           profiles={profiles}
+          admin={admin}
           selected={profilesRoute[1] ?? ""}
           onChange={onProfilesChange}
         />

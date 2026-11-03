@@ -12,4 +12,4 @@ export {
   type StoredProfile,
 } from "./folders";
 export { InvalidProfile } from "./invalid";
-export { type ProfileStore, Profiles } from "./profiles";
+export { type Layer, type ProfileStore, Profiles } from "./profiles";

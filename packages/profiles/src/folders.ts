@@ -41,10 +41,15 @@ const metaFile = "profile.json";
 
 const ids = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
+// How many Profiles a Profile may build on, one on top of the next.
+export const maxBuildsOn = 4;
+
 interface Meta {
   readonly name: string;
   // No owner means the Profile is shared with every user.
   readonly owner?: string;
+  // The Profile this one builds on (ADR 0063).
+  readonly buildsOn?: string;
   readonly createdAt: string;
 }
 
@@ -54,20 +59,40 @@ interface Meta {
 export class ProfileFolders {
   readonly #root: string;
   readonly #log: Log;
-  readonly #base: BaseProfile | undefined;
+  readonly #base: ProfileLayer | undefined;
+  readonly #people: string | undefined;
 
-  // The admin's base Profile, which every Profile layers over (ADR 0044),
-  // lives in its own folder outside root, so nobody picks it.
-  constructor(root: string, log: Log, baseDir?: string) {
+  // The admin's base Profile (ADR 0044) and each person's My defaults
+  // (ADR 0063) live outside root, so nobody picks them for a Session.
+  constructor(root: string, log: Log, baseDir?: string, peopleDir?: string) {
     this.#root = root;
     this.#log = log;
+    this.#people = peopleDir;
 
     this.#base =
-      baseDir === undefined ? undefined : new BaseProfile(baseDir, log);
+      baseDir === undefined ? undefined : new ProfileLayer(baseDir, log);
   }
 
-  get base(): BaseProfile | undefined {
+  get base(): ProfileLayer | undefined {
     return this.#base;
+  }
+
+  // The person's My defaults, under every Profile of theirs.
+  defaults(ownerId: string): ProfileLayer | undefined {
+    return this.#people === undefined || !ids.test(ownerId)
+      ? undefined
+      : new ProfileLayer(join(this.#people, ownerId, "defaults"), this.#log);
+  }
+
+  // Everyone's My defaults that exist.
+  everyonesDefaults(): readonly ProfileLayer[] {
+    const people = this.#people;
+
+    return people === undefined
+      ? []
+      : entries(people).flatMap((entry) =>
+          entry.isDirectory() ? (this.defaults(entry.name) ?? []) : [],
+        );
   }
 
   ids(): readonly string[] {
@@ -92,6 +117,7 @@ export class ProfileFolders {
             id,
             name: nameOf(id),
             ownerId: null,
+            buildsOn: null,
             createdAt: new Date(0).toISOString(),
             packages: [],
             agentsMd: "",
@@ -114,6 +140,7 @@ export class ProfileFolders {
           ? meta["name"]
           : nameOf(id),
       ownerId: typeof meta["owner"] === "string" ? meta["owner"] : null,
+      buildsOn: typeof meta["buildsOn"] === "string" ? meta["buildsOn"] : null,
       createdAt:
         typeof meta["createdAt"] === "string"
           ? meta["createdAt"]
@@ -127,13 +154,52 @@ export class ProfileFolders {
     };
   }
 
-  // What runners download: the folder's files, or none for a default Profile
-  // nobody edited. Throws ProfileTooBig for a folder runners shouldn't get.
-  files(id: string): ProfileFiles | undefined {
+  // What runners download for a Session of the owner's: the base, their My
+  // defaults, the Profiles this one builds on and its own files, the nearer
+  // layer winning. Throws ProfileTooBig for a folder runners shouldn't get.
+  files(id: string, ownerId?: string): ProfileFiles | undefined {
     const own = this.ownFiles(id);
-    const base = this.#base?.files();
+    if (!own) {
+      return undefined;
+    }
 
-    return own && base ? layered(base, own) : own;
+    const below = this.buildsOn(id).flatMap(
+      (under) => this.ownFiles(under) ?? [],
+    );
+
+    return stacked([this.layers(ownerId), ...below.reverse(), own]);
+  }
+
+  // The base and the owner's My defaults, which sit under every Profile.
+  layers(ownerId?: string): ProfileFiles | undefined {
+    return stacked([
+      this.#base?.files(),
+      ownerId === undefined ? undefined : this.defaults(ownerId)?.files(),
+    ]);
+  }
+
+  // The Profiles under this one, nearest first. A missing Profile, a loop or
+  // more than maxBuildsOn ends the walk there.
+  buildsOn(id: string): readonly string[] {
+    const found: string[] = [];
+    let next = this.read(id)?.buildsOn;
+
+    while (
+      typeof next === "string" &&
+      next !== id &&
+      !found.includes(next) &&
+      found.length < maxBuildsOn
+    ) {
+      const under = this.read(next);
+      if (!under) {
+        break;
+      }
+
+      found.push(next);
+      next = under.buildsOn;
+    }
+
+    return found;
   }
 
   // The folder's files without the base Profile, as an export holds them.
@@ -249,7 +315,9 @@ export class ProfileFolders {
   // what people put there by hand stays.
   write(
     id: string,
-    meta: Omit<StoredProfile, "id" | keyof ProfileContent>,
+    meta: Omit<StoredProfile, "id" | "buildsOn" | keyof ProfileContent> & {
+      readonly buildsOn?: string | null;
+    },
     content: Partial<ProfileContent>,
   ): void {
     const dir = join(this.#root, id);
@@ -260,6 +328,7 @@ export class ProfileFolders {
       json({
         name: meta.name,
         ...(meta.ownerId !== null && { owner: meta.ownerId }),
+        ...(typeof meta.buildsOn === "string" && { buildsOn: meta.buildsOn }),
         createdAt: meta.createdAt,
       } satisfies Meta),
     );
@@ -339,9 +408,10 @@ export class ProfileFolders {
   }
 }
 
-// The admin's base Profile: a Pi agent folder like a Profile's, with no
-// owner or name of its own, that starts empty.
-export class BaseProfile {
+// A layer under Profiles, the admin's base or a person's My defaults: a Pi
+// agent folder like a Profile's, with no owner or name of its own, that
+// starts empty.
+export class ProfileLayer {
   readonly #dir: string;
   readonly #folder: ProfileFolders;
   readonly #id: string;
@@ -397,6 +467,18 @@ export class BaseProfile {
   deleteFile(path: string): boolean {
     return this.#folder.deleteFile(this.#id, path);
   }
+}
+
+// Layers from the bottom up, or undefined when there are none.
+function stacked(
+  layers: readonly (ProfileFiles | undefined)[],
+): ProfileFiles | undefined {
+  return layers
+    .filter((layer) => layer !== undefined)
+    .reduce<ProfileFiles | undefined>(
+      (under, over) => (under ? layered(under, over) : over),
+      undefined,
+    );
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

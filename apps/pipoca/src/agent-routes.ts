@@ -61,7 +61,10 @@ export function agentRoutes(
       /^\/agent\/sessions\/([^/]+)\/profile$/,
       (_request, [id = ""]) => {
         const session = sessions.get(id);
-        const files = session && sessions.profileFiles(session.profileId);
+
+        const files =
+          session &&
+          sessions.profileFiles(session.profileId, session.startedBy);
 
         return files ? Response.json(files) : notFound();
       },
