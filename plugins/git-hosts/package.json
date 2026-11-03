@@ -34,7 +34,321 @@
     "capabilities": [
       "routes",
       "tools",
+      "events",
       "sessions"
-    ]
+    ],
+    "events": {
+      "issue": {
+        "title": "Issue",
+        "description": "An issue was opened, labelled, edited or closed in a repository a GitHub App is installed on.",
+        "fields": {
+          "type": "object",
+          "properties": {
+            "host": {
+              "type": "string",
+              "description": "The git host, such as github.com"
+            },
+            "repository": {
+              "type": "string",
+              "description": "owner/name"
+            },
+            "action": {
+              "type": "string",
+              "description": "What happened, such as opened, labeled or closed"
+            },
+            "sender": {
+              "type": "string",
+              "description": "Who caused it"
+            },
+            "technicalUser": {
+              "type": "string",
+              "description": "The GitHub App whose webhook sent it"
+            },
+            "author": {
+              "type": "string"
+            },
+            "member": {
+              "type": "boolean",
+              "description": "Whether the author is an owner, member or collaborator of the repository"
+            },
+            "number": {
+              "type": "number"
+            },
+            "title": {
+              "type": "string"
+            },
+            "body": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "labels": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "label": {
+              "type": "string",
+              "description": "The label added or removed"
+            }
+          }
+        }
+      },
+      "comment": {
+        "title": "Comment",
+        "description": "Someone commented on an issue or pull request.",
+        "fields": {
+          "type": "object",
+          "properties": {
+            "host": {
+              "type": "string",
+              "description": "The git host, such as github.com"
+            },
+            "repository": {
+              "type": "string",
+              "description": "owner/name"
+            },
+            "action": {
+              "type": "string",
+              "description": "What happened, such as opened, labeled or closed"
+            },
+            "sender": {
+              "type": "string",
+              "description": "Who caused it"
+            },
+            "technicalUser": {
+              "type": "string",
+              "description": "The GitHub App whose webhook sent it"
+            },
+            "author": {
+              "type": "string"
+            },
+            "member": {
+              "type": "boolean",
+              "description": "Whether the author is an owner, member or collaborator of the repository"
+            },
+            "number": {
+              "type": "number"
+            },
+            "pullRequest": {
+              "type": "boolean"
+            },
+            "body": {
+              "type": "string"
+            },
+            "command": {
+              "type": "string",
+              "description": "The comment's leading /command, such as /pipoca"
+            },
+            "url": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "pull_request": {
+        "title": "Pull request",
+        "description": "A pull request was opened, labelled, updated, closed or merged.",
+        "fields": {
+          "type": "object",
+          "properties": {
+            "host": {
+              "type": "string",
+              "description": "The git host, such as github.com"
+            },
+            "repository": {
+              "type": "string",
+              "description": "owner/name"
+            },
+            "action": {
+              "type": "string",
+              "description": "What happened, such as opened, labeled or closed"
+            },
+            "sender": {
+              "type": "string",
+              "description": "Who caused it"
+            },
+            "technicalUser": {
+              "type": "string",
+              "description": "The GitHub App whose webhook sent it"
+            },
+            "author": {
+              "type": "string"
+            },
+            "member": {
+              "type": "boolean",
+              "description": "Whether the author is an owner, member or collaborator of the repository"
+            },
+            "number": {
+              "type": "number"
+            },
+            "title": {
+              "type": "string"
+            },
+            "body": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "branch": {
+              "type": "string"
+            },
+            "base": {
+              "type": "string"
+            },
+            "merged": {
+              "type": "boolean"
+            },
+            "labels": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "label": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "review": {
+        "title": "Review",
+        "description": "Someone reviewed a pull request.",
+        "fields": {
+          "type": "object",
+          "properties": {
+            "host": {
+              "type": "string",
+              "description": "The git host, such as github.com"
+            },
+            "repository": {
+              "type": "string",
+              "description": "owner/name"
+            },
+            "action": {
+              "type": "string",
+              "description": "What happened, such as opened, labeled or closed"
+            },
+            "sender": {
+              "type": "string",
+              "description": "Who caused it"
+            },
+            "technicalUser": {
+              "type": "string",
+              "description": "The GitHub App whose webhook sent it"
+            },
+            "author": {
+              "type": "string"
+            },
+            "member": {
+              "type": "boolean",
+              "description": "Whether the author is an owner, member or collaborator of the repository"
+            },
+            "number": {
+              "type": "number"
+            },
+            "state": {
+              "type": "string",
+              "description": "approved, changes_requested or commented"
+            },
+            "body": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "check": {
+        "title": "Check run",
+        "description": "A check run started or finished.",
+        "fields": {
+          "type": "object",
+          "properties": {
+            "host": {
+              "type": "string",
+              "description": "The git host, such as github.com"
+            },
+            "repository": {
+              "type": "string",
+              "description": "owner/name"
+            },
+            "action": {
+              "type": "string",
+              "description": "What happened, such as opened, labeled or closed"
+            },
+            "sender": {
+              "type": "string",
+              "description": "Who caused it"
+            },
+            "technicalUser": {
+              "type": "string",
+              "description": "The GitHub App whose webhook sent it"
+            },
+            "name": {
+              "type": "string"
+            },
+            "conclusion": {
+              "type": "string",
+              "description": "success, failure and so on, empty while it runs"
+            },
+            "branch": {
+              "type": "string"
+            },
+            "sha": {
+              "type": "string"
+            },
+            "numbers": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            "url": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "push": {
+        "title": "Push",
+        "description": "Commits were pushed to a branch.",
+        "fields": {
+          "type": "object",
+          "properties": {
+            "host": {
+              "type": "string",
+              "description": "The git host, such as github.com"
+            },
+            "repository": {
+              "type": "string",
+              "description": "owner/name"
+            },
+            "action": {
+              "type": "string",
+              "description": "What happened, such as opened, labeled or closed"
+            },
+            "sender": {
+              "type": "string",
+              "description": "Who caused it"
+            },
+            "technicalUser": {
+              "type": "string",
+              "description": "The GitHub App whose webhook sent it"
+            },
+            "branch": {
+              "type": "string"
+            },
+            "sha": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
   }
 }

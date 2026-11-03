@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { createVerify, generateKeyPairSync } from "node:crypto";
+import { createHmac, createVerify, generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1014,4 +1014,78 @@ test("gives no git login to a Session acting as a technical user its person may 
 
   expect(started?.sessionId).toBeString();
   expect(started?.gitLogins).toBeUndefined();
+});
+
+test("turns a GitHub App's signed webhooks into events for the routines of the people who may use it", async () => {
+  await createApp();
+
+  const { technicalUsers } = (
+    JSON.parse(readFileSync(join(configDir, "pipoca.json"), "utf8")) as {
+      "git-hosts": { technicalUsers: { app: { hook: string } }[] };
+    }
+  )["git-hosts"];
+
+  const hook = technicalUsers[0]?.app.hook ?? "";
+
+  await api("PUT", "/api/plugins/routines/routines/fix-issues", {
+    title: "Fix labelled issues",
+    triggers: [
+      { event: "git-hosts.issue", filter: { label: "pipoca", member: true } },
+    ],
+    run: {
+      prompt: "Fix the issue.",
+      workspace: { kind: "folder", path: "/srv/a" },
+      as: "pipoca-bot",
+    },
+    key: ["repository", "number"],
+  });
+
+  const deliver = async (
+    association: string,
+    secret = "hook-secret",
+  ): Promise<number> => {
+    const body = JSON.stringify({
+      action: "labeled",
+      label: { name: "pipoca" },
+      repository: { full_name: "I572543/dotfiles" },
+      sender: { login: "pedro-sap" },
+      issue: {
+        number: 7,
+        title: "zshrc is slow",
+        body: "It takes 2 s to start.",
+        html_url: `https://${enterprise}/I572543/dotfiles/issues/7`,
+        user: { login: "pedro-sap" },
+        author_association: association,
+        labels: [{ name: "pipoca" }],
+      },
+    });
+
+    return (
+      await fetch(new URL(`/api/plugins/git-hosts/hooks/${hook}`, server.url), {
+        method: "POST",
+        headers: {
+          "x-github-event": "issues",
+          "x-hub-signature-256": `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`,
+        },
+        body,
+      })
+    ).status;
+  };
+
+  const heard = (): readonly string[] =>
+    logs.filter((line) => line.startsWith("routine heard an event"));
+
+  expect(await deliver("OWNER", "not-the-secret")).toBe(401);
+  expect(await deliver("NONE")).toBe(202);
+  expect(heard()).toEqual([]);
+
+  expect(await deliver("OWNER")).toBe(202);
+  expect(heard()).toHaveLength(1);
+  expect(heard()[0]).toContain('"key":"I572543/dotfiles/7"');
+
+  const declared = (await (
+    await api("GET", "/api/plugins/routines/events")
+  ).json()) as { type: string }[];
+
+  expect(declared.map(({ type }) => type)).toContain("git-hosts.issue");
 });
