@@ -1737,6 +1737,38 @@ test("lists a Session's pending wake-ups above the composer and cancels one", as
   await wakeUps.waitFor({ state: "detached" });
 }, 30_000);
 
+test("writes a routine, runs it by hand and opens its run", async () => {
+  faux.setResponses([fauxAssistantMessage([fauxText("three new issues")])]);
+
+  await page.goto(`${server.url.href}#plugin/routines/new`);
+  await page.getByLabel("Name").fill("daily-issues");
+
+  await page.getByLabel("Routine JSON").fill(
+    JSON.stringify({
+      title: "Summarise new issues",
+      triggers: [{ cron: "0 8 * * 1-5", timeZone: "Europe/Berlin" }],
+      run: {
+        prompt: "Summarise the new issues.",
+        workspace: { kind: "folder", path: root },
+      },
+    }),
+  );
+
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByRole("heading", { name: "Summarise new issues" }).waitFor();
+  await page.getByText(/^Next run /).waitFor();
+
+  await page.getByRole("button", { name: "Run now" }).click();
+
+  const run = page.getByRole("link", { name: /by hand/ });
+  await run.getByText("Done").waitFor();
+  await run.click();
+
+  await page
+    .locator('#chat li[data-role="assistant"]', { hasText: "three new issues" })
+    .waitFor();
+}, 30_000);
+
 test("shows a turn as working between steps until Pi finishes it", async () => {
   const { promise: answered, resolve: answer } =
     Promise.withResolvers<undefined>();
