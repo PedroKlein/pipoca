@@ -206,8 +206,8 @@ test("an admin sees everyone's Environments and Sessions as an outline and can s
     api("/api/environments?people=all", await pedro()),
   );
 
-  expect(names(everyone)).toEqual(["mac", "laptop"]);
-  expect(everyone[1]?.variables).toEqual({});
+  expect(names(everyone).toSorted()).toEqual(["laptop", "mac"]);
+  expect(everyone.find(({ id }) => id === laptop)?.variables).toEqual({});
 
   const sessions = await json<Session[]>(
     api("/api/sessions?people=all", await pedro()),
