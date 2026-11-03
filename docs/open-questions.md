@@ -12,7 +12,7 @@
 - Sessions bind to versioned Profiles and Environments.
 - Pi personalization must remain available in hosted sessions.
 - The platform should be extensible enough for later automations and collaboration.
-- Setup, new Sessions, new Projects and Settings ask for as little as Claude Code does: one composer with remembered pickers, one Settings page, a first-run checklist ([ADR 0040](adr/0040-fewer-forms.md)).
+- Setup, new Sessions, new Projects and Settings ask for as little as Claude Code does: one composer with remembered pickers, one Settings page grouped by who it is for, and a first-run setup wizard ([ADR 0040](adr/0040-fewer-forms.md), [ADR 0063](adr/0063-settings-and-first-run-setup.md)).
 
 ## Decisions needed before an implementation plan
 
