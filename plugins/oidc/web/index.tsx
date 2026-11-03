@@ -4,13 +4,24 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, Field, fieldClass, Section } from "@pipoca/ui";
+import {
+  Button,
+  Field,
+  fieldClass,
+  initialsOf,
+  PageTitle,
+  Row,
+  Rows,
+  Section,
+} from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type { Account, ProviderInput, ProviderView } from "../src/model";
 
 export const oidc: WebPlugin = {
   name: "oidc",
   SettingsSection,
+  settingsGroup: "server",
+  settingsParts: { Accounts },
 };
 
 function SettingsSection({
@@ -23,64 +34,86 @@ function SettingsSection({
     "account",
   );
 
-  if (value === undefined || (!value.admin && value.providers.length === 0)) {
+  if (value?.admin !== true) {
     return null;
   }
 
   return (
-    <Section title="Single sign-on">
-      {value.providers.length > 0 && (
-        <ul
-          aria-label="Your sign-ins"
-          className="flex flex-col gap-1 rounded-lg border border-line bg-elevated shadow-xs p-3 text-ui"
-        >
-          {value.providers.map((provider) => {
-            const linked = value.identities.find(
-              ({ issuer }) => issuer === provider.issuer,
-            );
+    <>
+      <PageTitle description="How people get into this server, and who may join.">
+        Sign-in
+      </PageTitle>
+      <Providers context={context} onChange={reload} />
+    </>
+  );
+}
 
-            return (
-              <li key={provider.id} className="flex items-center gap-2">
-                <span className="flex-1 truncate text-fg">
-                  {provider.label}
-                  <span className="text-fg-dim">
-                    {linked === undefined
-                      ? " · not linked"
-                      : ` · you sign in as ${linked.email ?? "your linked account"}`}
-                  </span>
-                </span>
-                {linked === undefined ? (
+// The providers the person can sign in with, and which of them their user
+// is linked to.
+function Accounts({
+  context,
+}: {
+  readonly context: WebContext;
+}): ReactElement | null {
+  const { value, reload } = useLoaded(
+    async () => json<Account>(context.request("account")),
+    "account",
+  );
+
+  if (value === undefined || value.providers.length === 0) {
+    return null;
+  }
+
+  return (
+    <Section title="Sign-in">
+      <Rows label="Your sign-ins">
+        {value.providers.map((provider) => {
+          const linked = value.identities.find(
+            ({ issuer }) => issuer === provider.issuer,
+          );
+
+          return (
+            <Row
+              key={provider.id}
+              initials={initialsOf(provider.label)}
+              title={provider.label}
+              description={
+                linked === undefined
+                  ? "Not linked"
+                  : `You sign in as ${linked.email ?? "your linked account"}`
+              }
+            >
+              {linked === undefined ? (
+                <Button
+                  onClick={() => {
+                    location.assign(
+                      `/api/plugins/oidc/link/${encodeURIComponent(provider.id)}`,
+                    );
+                  }}
+                >
+                  Link account
+                </Button>
+              ) : (
+                !linked.created && (
                   <Button
+                    variant="ghost"
                     onClick={() => {
-                      location.assign(
-                        `/api/plugins/oidc/link/${encodeURIComponent(provider.id)}`,
-                      );
+                      void json(
+                        context.request(
+                          `identities/${encodeURIComponent(linked.issuer)}`,
+                          { method: "DELETE" },
+                        ),
+                      ).then(reload, reload);
                     }}
                   >
-                    Link account
+                    Unlink
                   </Button>
-                ) : (
-                  !linked.created && (
-                    <Button
-                      onClick={() => {
-                        void json(
-                          context.request(
-                            `identities/${encodeURIComponent(linked.issuer)}`,
-                            { method: "DELETE" },
-                          ),
-                        ).then(reload, reload);
-                      }}
-                    >
-                      Unlink
-                    </Button>
-                  )
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {value.admin && <Providers context={context} onChange={reload} />}
+                )
+              )}
+            </Row>
+          );
+        })}
+      </Rows>
     </Section>
   );
 }

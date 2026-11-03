@@ -5,13 +5,14 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, Field, fieldClass, Section } from "@pipoca/ui";
+import { Button, Field, fieldClass } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type { Account, MailboxView } from "../src/model";
 
 export const email: WebPlugin = {
   name: "email",
   SettingsSection,
+  settingsGroup: "integrations",
   notices: { email_reply: EmailReply },
 };
 
@@ -29,11 +30,7 @@ function SettingsSection({
     return null;
   }
 
-  return (
-    <Section title="Email">
-      <Mailboxes context={context} />
-    </Section>
-  );
+  return <Mailboxes context={context} />;
 }
 
 function Mailboxes({

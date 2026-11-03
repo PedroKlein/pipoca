@@ -9,6 +9,7 @@ export { type KeyValue, KeyValues } from "./key-values";
 export { ListInput } from "./list-input";
 export { PageTitle, Section } from "./page";
 export { Picker, type PickerOption } from "./picker";
+export { initialsOf, Row, Rows, Segmented } from "./rows";
 export { Select } from "./select";
 export { Slider } from "./slider";
 export { Switch } from "./switch";

@@ -4,7 +4,7 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, Section } from "@pipoca/ui";
+import { Button, PageTitle, Row, Rows } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 
 export const push: WebPlugin = {
@@ -91,37 +91,44 @@ function SettingsSection({
   };
 
   return (
-    <Section title="Push notifications">
-      <p className="text-ui text-fg-dim">
-        {current
-          ? "This device gets a notification when Pi finishes or needs you, even with Pipoca closed."
-          : "Get a notification on this device when Pi finishes or needs you, even with Pipoca closed. On an iPhone, add Pipoca to the Home Screen first."}
-      </p>
-      <div>
-        {current ? (
-          <Button
-            onClick={() => {
-              run(async () => turnOff(current));
-            }}
-          >
-            Turn off on this device
-          </Button>
-        ) : (
-          <Button
-            disabled={key === undefined || current === undefined}
-            onClick={() => {
-              run(turnOn);
-            }}
-          >
-            Turn on for this device
-          </Button>
-        )}
-      </div>
+    <>
+      <PageTitle description="Where Pipoca tells you that Pi finished or needs you, even with Pipoca closed.">
+        Notifications
+      </PageTitle>
+      <Rows>
+        <Row
+          title="This device"
+          description={
+            current
+              ? "Gets a notification when Pi finishes or needs you."
+              : "On an iPhone, add Pipoca to the Home Screen first."
+          }
+        >
+          {current ? (
+            <Button
+              onClick={() => {
+                run(async () => turnOff(current));
+              }}
+            >
+              Turn off on this device
+            </Button>
+          ) : (
+            <Button
+              disabled={key === undefined || current === undefined}
+              onClick={() => {
+                run(turnOn);
+              }}
+            >
+              Turn on for this device
+            </Button>
+          )}
+        </Row>
+      </Rows>
       {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
+        <p role="alert" className="mt-2 text-caption text-failed">
           {error}
         </p>
       )}
-    </Section>
+    </>
   );
 }

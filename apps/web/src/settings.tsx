@@ -2,6 +2,7 @@ import { Button, cn, fieldClass, PageTitle } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import { api, send } from "./api";
 import { useMcpTokens } from "./hooks";
+import { settingsPageClass } from "./page-class";
 
 export function SettingsPage(): ReactElement {
   const { value: tokens, reload } = useMcpTokens();
@@ -32,12 +33,9 @@ export function SettingsPage(): ReactElement {
   };
 
   return (
-    <div
-      id="settings-page"
-      className="mx-auto flex w-full max-w-form flex-col px-4 py-10 md:px-10"
-    >
+    <div id="settings-page" className={settingsPageClass}>
       <PageTitle description="An MCP client, such as Pi or Claude Code on your laptop, can use the assistant's tools to manage Sessions, Environments, Profiles and Projects as you. It asks for a token, and you can revoke one at any time.">
-        MCP clients
+        Access tokens
       </PageTitle>
       <div className="flex flex-col gap-3">
         <NewToken

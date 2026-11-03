@@ -31,6 +31,8 @@ export interface EmbeddedSessionProps {
   readonly actions?: ReactNode;
 }
 
+export type SettingsGroup = "you" | "workspace" | "server" | "integrations";
+
 export interface WebContext {
   // A fetch of the plugin's own routes under /api/plugins/<name>/, or of the
   // server's, such as /api/sessions, for a path that starts with /.
@@ -160,8 +162,17 @@ export interface WebPlugin {
   // A section in an Environment template, such as where the runners of
   // Environments made from it come from (ADR 0049).
   readonly TemplateSection?: ComponentType<TemplateSectionProps>;
-  // A section on the user's Settings page, such as their linked accounts.
+  // The plugin's own page in Settings, listed in settingsGroup ("you" unless
+  // it says otherwise). "integrations" makes it a tab of the Integrations
+  // page, and "server" shows it to admins only (ADR 0063).
   readonly SettingsSection?: ComponentType<{ readonly context: WebContext }>;
+  readonly settingsGroup?: SettingsGroup;
+  // What the plugin adds to Settings' own pages, such as the person's logins
+  // on Accounts.
+  readonly settingsParts?: {
+    readonly General?: ComponentType<{ readonly context: WebContext }>;
+    readonly Accounts?: ComponentType<{ readonly context: WebContext }>;
+  };
   readonly SessionHeader?: ComponentType<SessionPartProps>;
   // Drawn above a Session's composer, such as the agent's checklist.
   readonly Composer?: ComponentType<SessionPartProps>;

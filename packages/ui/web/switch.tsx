@@ -5,10 +5,13 @@ import { cn } from "./cn";
 export function Switch({
   label,
   checked,
+  labelHidden = false,
   disabled = false,
   onChange,
 }: {
   readonly label: string;
+  // Hides the label where the switch's row already names it.
+  readonly labelHidden?: boolean;
   readonly checked: boolean;
   readonly disabled?: boolean;
   readonly onChange: (checked: boolean) => void;
@@ -35,7 +38,7 @@ export function Switch({
           )}
         />
       </button>
-      {label}
+      <span className={cn(labelHidden && "sr-only")}>{label}</span>
     </label>
   );
 }

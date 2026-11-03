@@ -15,6 +15,7 @@ import { api, send } from "./api";
 import { usePlugins } from "./hooks";
 import { settingsOf } from "./plugin-settings";
 import { webPartError } from "./plugins";
+import { settingsPageClass } from "./page-class";
 
 const states = {
   on: { badge: "done", label: "On" },
@@ -26,10 +27,7 @@ export function PluginsPage(): ReactElement {
   const { value: plugins, reload } = usePlugins();
 
   return (
-    <div
-      id="plugins-page"
-      className="mx-auto flex w-full max-w-form flex-col px-4 py-10 md:px-10"
-    >
+    <div id="plugins-page" className={settingsPageClass}>
       <PageTitle description="Plugins add features to Pipoca, for everyone on this server. The server uses new settings at once, open pages after a reload, and Sessions the next time they start.">
         Plugins
       </PageTitle>

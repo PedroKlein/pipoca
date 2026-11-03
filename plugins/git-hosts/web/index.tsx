@@ -12,7 +12,11 @@ import {
   Field,
   fieldClass,
   Icon,
+  initialsOf,
+  PageTitle,
   Picker,
+  Row,
+  Rows,
   Section,
   Switch,
 } from "@pipoca/ui";
@@ -29,13 +33,45 @@ import type {
 export const gitHosts: WebPlugin = {
   name: "git-hosts",
   SettingsSection,
+  settingsGroup: "server",
+  settingsParts: { General: PullRequestChoices, Accounts },
   PullRequest,
   notices: { pull_request: PullRequestNotice },
   repositories: async (context, query) =>
     json(context.request(`repositories?q=${encodeURIComponent(query)}`)),
 };
 
+// Admins pick the hosts people can connect and the bots routines act as
+// (ADR 0063).
 function SettingsSection({
+  context,
+}: {
+  readonly context: WebContext;
+}): ReactElement | null {
+  const { value, reload } = useLoaded(
+    async () => json<Account>(context.request("account")),
+    "account",
+  );
+
+  if (value?.admin !== true) {
+    return null;
+  }
+
+  return (
+    <>
+      <PageTitle description="The hosts people can connect and the bots routines act as. Everyone connects their own account in Accounts.">
+        Git hosts
+      </PageTitle>
+      <Hosts context={context} onChange={reload} />
+      <TechnicalUsers
+        context={context}
+        hosts={value.hosts.map(({ host }) => host)}
+      />
+    </>
+  );
+}
+
+function Accounts({
   context,
 }: {
   readonly context: WebContext;
@@ -50,17 +86,13 @@ function SettingsSection({
   }
 
   return (
-    <Section title="Git hosts">
-      <p className="text-ui text-fg-dim">
-        Your Sessions clone, push, use gh and install Profile packages as the
-        accounts you connect here.
-      </p>
-      <ul
-        aria-label="Your git hosts"
-        className="flex flex-col gap-2 rounded-lg border border-line bg-elevated shadow-xs p-3 text-ui"
-      >
+    <Section title="Code">
+      <Rows label="Your git hosts">
         {value.hosts.length === 0 && (
-          <li className="text-fg-dim">No hosts are listed yet.</li>
+          <Row
+            title="No hosts yet"
+            description="An admin adds the hosts people can connect."
+          />
         )}
         {value.hosts.map((host) => (
           <HostRow
@@ -73,15 +105,7 @@ function SettingsSection({
             onChange={reload}
           />
         ))}
-      </ul>
-      <PullRequestChoices context={context} />
-      {value.admin && <Hosts context={context} onChange={reload} />}
-      {value.admin && (
-        <TechnicalUsers
-          context={context}
-          hosts={value.hosts.map(({ host }) => host)}
-        />
-      )}
+      </Rows>
     </Section>
   );
 }
@@ -119,33 +143,41 @@ function PullRequestChoices({
   };
 
   return (
-    <div className="flex flex-col gap-2">
-      <h3 className="text-label font-medium text-fg-strong">Pull requests</h3>
-      <Switch
-        label="Auto-fix the pull requests my Sessions open"
-        checked={value.autoFix}
-        onChange={(autoFix) => {
-          save({ autoFix });
-        }}
-      />
-      <Switch
-        label="Let Sessions reply on review threads as me"
-        checked={value.reply}
-        onChange={(reply) => {
-          save({ reply });
-        }}
-      />
-      <p className="text-label text-fg-dim">
-        With auto-fix on, a Session hears when its pull request's checks fail,
-        someone reviews it or it conflicts, and pushes fixes. Replies end with
-        “via Pipoca”.
-      </p>
+    <Section title="Pull requests">
+      <Rows>
+        <Row
+          title="Fix my pull requests"
+          description="When checks fail, a review comes in or it conflicts, the Session that opened it pushes a fix."
+        >
+          <Switch
+            label="Auto-fix the pull requests my Sessions open"
+            labelHidden
+            checked={value.autoFix}
+            onChange={(autoFix) => {
+              save({ autoFix });
+            }}
+          />
+        </Row>
+        <Row
+          title="Reply on review threads as me"
+          description="Replies end with “via Pipoca”."
+        >
+          <Switch
+            label="Let Sessions reply on review threads as me"
+            labelHidden
+            checked={value.reply}
+            onChange={(reply) => {
+              save({ reply });
+            }}
+          />
+        </Row>
+      </Rows>
       {error !== undefined && (
         <p role="alert" className="text-label text-failed">
           {error}
         </p>
       )}
-    </div>
+    </Section>
   );
 }
 
@@ -331,60 +363,63 @@ function HostRow({
   };
 
   return (
-    <li className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <span className="flex-1 truncate text-fg">
+    <Row
+      initials={initialsOf(host.label)}
+      title={
+        <>
           {host.label}
-          <span className="text-fg-dim">
-            {host.label === host.host ? "" : ` · ${host.host}`}
-            {login === undefined ? " · not connected" : ` · you are ${login}`}
-          </span>
-        </span>
-        {login === undefined ? (
-          <>
-            {host.oauth && (
-              <Button
-                variant="primary"
-                onClick={() => {
-                  location.assign(
-                    `/api/plugins/git-hosts/sign-in/${encodeURIComponent(host.host)}`,
-                  );
-                }}
-              >
-                Connect
-              </Button>
-            )}
-            {!pasting && (
-              <Button
-                onClick={() => {
-                  setPasting(true);
-                }}
-              >
-                Use a token
-              </Button>
-            )}
-          </>
-        ) : (
-          <Button
-            aria-label={`Disconnect ${host.label}`}
-            onClick={() => {
-              void json(
-                context.request(
-                  `connections/${encodeURIComponent(host.host)}`,
-                  { method: "DELETE" },
-                ),
-              ).then(onChange, onChange);
-            }}
-          >
-            Disconnect
-          </Button>
-        )}
-      </div>
+          {login !== undefined && <Badge state="done">Connected</Badge>}
+        </>
+      }
+      description={[
+        ...(login === undefined ? [] : [`@${login}`]),
+        ...(host.label === host.host ? [] : [host.host]),
+      ].join(" · ")}
+    >
+      {login === undefined ? (
+        <div className="flex gap-2">
+          {!pasting && (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setPasting(true);
+              }}
+            >
+              Use a token
+            </Button>
+          )}
+          {host.oauth && (
+            <Button
+              onClick={() => {
+                location.assign(
+                  `/api/plugins/git-hosts/sign-in/${encodeURIComponent(host.host)}`,
+                );
+              }}
+            >
+              Connect
+            </Button>
+          )}
+        </div>
+      ) : (
+        <Button
+          variant="ghost"
+          aria-label={`Disconnect ${host.label}`}
+          onClick={() => {
+            void json(
+              context.request(`connections/${encodeURIComponent(host.host)}`, {
+                method: "DELETE",
+              }),
+            ).then(onChange, onChange);
+          }}
+        >
+          Disconnect
+        </Button>
+      )}
       {pasting && login === undefined && (
         <form
           onSubmit={connect}
           aria-label={`Connect ${host.label} with a token`}
-          className="flex flex-wrap items-center gap-2"
+          className="flex basis-full flex-wrap items-center gap-2"
         >
           <input
             name="token"
@@ -411,7 +446,7 @@ function HostRow({
           )}
         </form>
       )}
-    </li>
+    </Row>
   );
 }
 

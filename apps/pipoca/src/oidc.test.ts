@@ -720,7 +720,7 @@ test("lets a password user link their account and sign in with it", async () => 
     { start: `/api/plugins/oidc/link/${providerId}`, cookie: await pedro() },
   );
 
-  expect(await linked.response.text()).toContain("url=/#settings/oidc");
+  expect(await linked.response.text()).toContain("url=/#settings/accounts");
 
   const { cookie } = await signIn({ ...ana, email: "pedro@example.com" });
 

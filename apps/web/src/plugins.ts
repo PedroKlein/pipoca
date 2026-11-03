@@ -58,9 +58,9 @@ const webPlugins: readonly WebPlugin[] = [
   email,
   kubernetes,
   local,
+  logins,
   oidc,
   gitHosts,
-  logins,
   push,
 ];
 

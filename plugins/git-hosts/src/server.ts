@@ -262,7 +262,7 @@ export const gitHosts: ServerPlugin = {
         return page(failure.message, 502);
       }
 
-      return redirect("/#settings/git-hosts");
+      return redirect("/#settings/accounts");
     };
 
     // Admins add, change and remove hosts.

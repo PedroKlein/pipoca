@@ -3,9 +3,9 @@ import { type ReactElement, useEffect, useState } from "react";
 
 const choices = ["system", "light", "dark"] as const;
 
-type Choice = (typeof choices)[number];
+type ThemeChoice = (typeof choices)[number];
 
-const icons: Readonly<Record<Choice, IconName>> = {
+const icons: Readonly<Record<ThemeChoice, IconName>> = {
   system: "monitor",
   light: "sun",
   dark: "moon",
@@ -16,7 +16,7 @@ const storageKey = "pipoca.theme";
 const prefersLight = (): MediaQueryList =>
   matchMedia("(prefers-color-scheme: light)");
 
-function stored(): Choice {
+function stored(): ThemeChoice {
   try {
     const value = localStorage.getItem(storageKey);
 
@@ -27,14 +27,18 @@ function stored(): Choice {
 }
 
 // Sets data-theme on the page, so every token follows the choice.
-export function applyTheme(choice: Choice = stored()): void {
+export function applyTheme(choice: ThemeChoice = stored()): void {
   const system = prefersLight().matches ? "light" : "dark";
 
   document.documentElement.dataset["theme"] =
     choice === "system" ? system : choice;
 }
 
-export function ThemeSwitch(): ReactElement {
+// The page's theme, chosen per browser.
+export function useTheme(): readonly [
+  ThemeChoice,
+  (choice: ThemeChoice) => void,
+] {
   const [choice, setChoice] = useState(stored);
 
   useEffect(() => {
@@ -57,6 +61,21 @@ export function ThemeSwitch(): ReactElement {
     };
   }, [choice]);
 
+  const choose = (next: ThemeChoice): void => {
+    try {
+      localStorage.setItem(storageKey, next);
+    } catch {
+      // The choice still applies until the page reloads.
+    }
+
+    setChoice(next);
+  };
+
+  return [choice, choose];
+}
+
+export function ThemeSwitch(): ReactElement {
+  const [choice, choose] = useTheme();
   const next = choices[(choices.indexOf(choice) + 1) % choices.length];
 
   return (
@@ -65,15 +84,7 @@ export function ThemeSwitch(): ReactElement {
       title={`Theme: ${choice}`}
       aria-label={`Theme: ${choice}. Switch to ${next ?? "system"}`}
       onClick={() => {
-        const picked = next ?? "system";
-
-        try {
-          localStorage.setItem(storageKey, picked);
-        } catch {
-          // The choice still applies until the page reloads.
-        }
-
-        setChoice(picked);
+        choose(next ?? "system");
       }}
       className="flex size-6 cursor-pointer items-center justify-center rounded-md text-fg-dim hover:bg-hover hover:text-fg"
     >

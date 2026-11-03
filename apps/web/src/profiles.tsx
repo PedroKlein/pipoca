@@ -22,6 +22,7 @@ import {
   type OneFile,
   upload,
 } from "./profile-files";
+import { settingsPageClass } from "./page-class";
 
 // A package is a source such as npm:name, or a JSON object with Pi's
 // filters.
@@ -51,10 +52,7 @@ export function ProfilesPage({
   const [savedId, setSavedId] = useState<string>();
 
   return (
-    <div
-      id="profiles-page"
-      className="mx-auto flex w-full max-w-form flex-col px-4 py-10 md:px-10"
-    >
+    <div id="profiles-page" className={settingsPageClass}>
       <PageTitle description="A Profile is a Pi agent folder, like your ~/.pi/agent: packages, instructions, skills, prompts, MCP servers and settings. Every Session runs with one, on any machine. Logins stay on each machine. Edits reach a Session the next time it starts.">
         Profiles
       </PageTitle>

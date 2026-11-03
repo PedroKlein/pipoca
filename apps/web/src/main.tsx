@@ -54,6 +54,7 @@ if (status === undefined) {
     <App
       nav={navEntries()}
       user={status.user.name}
+      admin={status.user.admin}
       people={status.user.admin && !status.solo}
     />,
   );
