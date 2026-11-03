@@ -340,6 +340,13 @@ export interface DeclaredEvent extends EventSpec {
 // A plugin as the Plugins page shows it. A failed plugin's server part threw
 // while it loaded or registered, so the plugin is off until the server
 // restarts. turnedOn is whether it will be on after the next restart.
+// Where a person is in the first-run setup (ADR 0063). Steps they dismissed
+// stop showing as reminders on home.
+export interface SetupState {
+  readonly finished: boolean;
+  readonly dismissed: readonly string[];
+}
+
 export interface PluginInfo extends PluginManifest {
   readonly source: "built-in" | "installed";
   readonly state: "on" | "off" | "failed";

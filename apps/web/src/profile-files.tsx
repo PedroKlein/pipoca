@@ -44,7 +44,7 @@ function sizeText(bytes: number): string {
     : `${(bytes / 1024).toFixed(1)} KB`;
 }
 
-function base64(bytes: Uint8Array): string {
+export function base64(bytes: Uint8Array): string {
   let text = "";
   for (let at = 0; at < bytes.length; at += 0x8000) {
     text += String.fromCharCode(...bytes.subarray(at, at + 0x8000));

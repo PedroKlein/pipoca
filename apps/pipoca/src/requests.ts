@@ -752,3 +752,20 @@ export function lineAfter(lastEventId: string | null): number {
     ? line + 1
     : 0;
 }
+
+export type SetupChange =
+  { readonly finished: true } | { readonly dismiss: string };
+
+export function setupChangeOf(value: unknown): SetupChange {
+  const { finished, dismiss } = fieldsOf(value);
+
+  if (finished === true) {
+    return { finished };
+  }
+
+  if (typeof dismiss === "string" && dismiss !== "") {
+    return { dismiss };
+  }
+
+  throw new BadRequest("send finished: true or the dismiss step's name");
+}

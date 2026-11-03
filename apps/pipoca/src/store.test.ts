@@ -178,6 +178,31 @@ test("keeps a join key from before keys had a person for the first user", () => 
   expect(owner).toBe("local");
 });
 
+test("counts people from before the setup wizard as having finished it", () => {
+  const path = join(root, "server.db");
+  const old = new DatabaseSync(path);
+
+  old.exec(`
+    create table users (
+      id text primary key,
+      name text not null unique,
+      password_hash text not null,
+      created_at text not null,
+      admin integer not null default 0,
+      pinned_pages text
+    );
+    insert into users values ('u1', 'ada', 'h', '2026-10-01T00:00:00.000Z', 1, null);
+  `);
+
+  old.close();
+
+  const store = openStore(path);
+  const state = store.auth.setup("u1");
+  store.close();
+
+  expect(state).toEqual({ finished: true, dismissed: [] });
+});
+
 test("lists the Sessions one owner holds and keeps an owner once given", () => {
   const store = openStore(":memory:");
   defaultProfile = store.defaultProfileId("local");

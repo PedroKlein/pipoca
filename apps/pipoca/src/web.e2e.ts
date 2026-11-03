@@ -153,15 +153,33 @@ export default { name: "greeter", nav: { label: "Greeter", Page } };
   page.setDefaultTimeout(10_000);
 
   await page.goto(new URL(`/#setup/${setupTokenOf(logs)}`, server.url).href);
-  await page.getByRole("heading", { name: "Create the first user" }).waitFor();
-  await page.getByLabel("Name").fill("pedro");
+  await page.getByRole("heading", { name: "Welcome to Pipoca" }).waitFor();
+  await page.getByLabel("Username").fill("pedro");
   await page.getByLabel("Password").fill("correct horse");
-  await page.getByRole("button", { name: "Create user" }).click();
+
+  await page
+    .getByRole("button", { name: "Create account and continue" })
+    .click();
+
+  // The e2e runner is online with its own model, so those steps are done;
+  // GitHub is listed but not connected, so code is skipped (ADR 0063).
+  for (const heading of ["Where should Pi work?", "Connect a model"]) {
+    await page.getByRole("heading", { name: heading }).waitFor();
+    await page.getByRole("button", { name: "Continue" }).click();
+  }
+
+  for (const heading of ["Connect your code", "Make Pi yours"]) {
+    await page.getByRole("heading", { name: heading }).waitFor();
+    await page.getByRole("button", { name: "Skip for now" }).click();
+  }
+
+  await page.getByRole("heading", { name: "You're set, pedro" }).waitFor();
+  await page.getByRole("button", { name: "Start building" }).click();
   await page.getByRole("button", { name: "New session" }).waitFor();
 
   const [session] = await page.context().cookies();
   cookie = `${session?.name ?? ""}=${session?.value ?? ""}`;
-});
+}, 30_000);
 
 // Picks the e2e Environment and the folder in the New session composer.
 // A folder is shared unless share is false, which makes a worktree of it.
@@ -614,9 +632,8 @@ test("starts a session with the task from the New session form", async () => {
     .waitFor();
 }, 30_000);
 
-test("walks a new server through connecting a machine and logging in to a model", async () => {
+test("keeps a setup step on home until it's done, and opens it from there", async () => {
   let phase: "none" | "no models" = "none";
-  const asked: unknown[] = [];
 
   await page.route("**/api/environments", async (route) => {
     const real = (await (await route.fetch()).json()) as Environment[];
@@ -629,27 +646,15 @@ test("walks a new server through connecting a machine and logging in to a model"
     });
   });
 
-  await page.route("**/api/sessions", async (route) => {
-    if (route.request().method() !== "POST") {
-      await route.fallback();
-
-      return;
-    }
-
-    asked.push(route.request().postDataJSON());
-
-    await route.fulfill({
-      status: 400,
-      json: { error: "bad_request", message: "not this time" },
-    });
-  });
-
   await page.goto(server.url.href);
-  const steps = page.getByRole("region", { name: "Get started" });
+  const reminders = page.getByRole("region", { name: "Finish setting up" });
 
-  await steps.getByRole("button", { name: "Show the command" }).click();
+  await reminders.getByText("Where should Pi work?").waitFor();
+  await reminders.getByRole("link", { name: "Set up" }).first().click();
+  await page.getByRole("heading", { name: "Where should Pi work?" }).waitFor();
+  await page.getByRole("button", { name: "Show the command" }).click();
 
-  const command = steps.getByLabel("Join command");
+  const command = page.getByLabel("Join command");
   await command.filter({ hasText: "PIPOCA_KEY=pck_" }).waitFor();
 
   expect(await command.textContent()).toEndWith(
@@ -657,30 +662,27 @@ test("walks a new server through connecting a machine and logging in to a model"
   );
 
   phase = "no models";
-  await page.reload();
+  await page.goto(server.url.href);
+  await reminders.getByText("Connect a model").waitFor();
 
-  await steps
-    .getByRole("heading", { name: "Connect a machine (done)" })
-    .waitFor();
+  expect(await reminders.getByText("Where should Pi work?").count()).toBe(0);
 
-  await steps.getByRole("button", { name: "Log in" }).click();
-  await steps.getByRole("alert").filter({ hasText: "not this time" }).waitFor();
-
-  expect(asked).toMatchObject([
-    { workspace: { kind: "folder" }, firstMessage: "/login" },
-  ]);
-
-  await page.unroute("**/api/sessions");
   await page.unroute("**/api/environments");
   await page.reload();
+  await reminders.getByText("Make Pi yours").waitFor();
 
-  await page
-    .getByRole("navigation", { name: "Pipoca" })
-    .getByText(/^e2e\b.* online$/)
-    .waitFor();
+  expect(await reminders.getByText("Connect a model").count()).toBe(0);
 
-  expect(await steps.count()).toBe(0);
-});
+  for (const heading of ["Connect your code", "Make Pi yours"]) {
+    await reminders.getByRole("button", { name: `Dismiss ${heading}` }).click();
+  }
+
+  await reminders.waitFor({ state: "hidden" });
+  await page.reload();
+  await page.getByRole("button", { name: "New session" }).waitFor();
+
+  expect(await reminders.isVisible()).toBe(false);
+}, 20_000);
 
 test("makes an Environment and shows its key once", async () => {
   await page.goto(server.url.href);

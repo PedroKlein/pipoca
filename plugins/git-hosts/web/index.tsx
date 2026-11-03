@@ -35,6 +35,20 @@ export const gitHosts: WebPlugin = {
   SettingsSection,
   settingsGroup: "server",
   settingsParts: { General: PullRequestChoices, Accounts },
+  setupStep: {
+    title: "Your code",
+    summary: "GitHub or another git host",
+    heading: "Connect your code",
+    description:
+      "Sessions clone, push and open pull requests as you. Connect the hosts where your repositories live.",
+    optional: true,
+    done: async (context) => {
+      const account = await json<Account>(context.request("account"));
+
+      return account.hosts.length === 0 || account.connections.length > 0;
+    },
+    Step: CodeStep,
+  },
   PullRequest,
   notices: { pull_request: PullRequestNotice },
   repositories: async (context, query) =>
@@ -107,6 +121,15 @@ function Accounts({
         ))}
       </Rows>
     </Section>
+  );
+}
+
+function CodeStep({ context }: { readonly context: WebContext }): ReactElement {
+  return (
+    <div className="-mt-8 flex flex-col">
+      <Accounts context={context} />
+      <PullRequestChoices context={context} />
+    </div>
   );
 }
 

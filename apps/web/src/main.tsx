@@ -1,3 +1,4 @@
+import type { SetupState } from "@pipoca/protocol";
 import { createRoot } from "react-dom/client";
 import { App } from "./app";
 import { AppSignIn, pendingAppSignIn } from "./app-sign-in";
@@ -50,11 +51,16 @@ if (status === undefined) {
 } else {
   await loadPlugins().catch(() => undefined);
 
+  const setup = await fetch("/api/setup")
+    .then(async (response) => (await response.json()) as SetupState)
+    .catch(() => ({ finished: true, dismissed: [] }));
+
   createRoot(root).render(
     <App
       nav={navEntries()}
       user={status.user.name}
       admin={status.user.admin}
+      setup={setup}
       people={status.user.admin && !status.solo}
     />,
   );

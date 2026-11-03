@@ -1,4 +1,4 @@
-import type { Joined } from "@pipoca/protocol";
+import type { Joined, SetupState } from "@pipoca/protocol";
 import {
   createHash,
   randomBytes,
@@ -72,6 +72,8 @@ export interface AuthStore {
     userId: string,
     pages: readonly string[] | null,
   ) => void;
+  readonly setup: (userId: string) => SetupState;
+  readonly setSetup: (userId: string, state: SetupState) => void;
 }
 
 // A token an MCP client such as Claude Code uses to act as its user
@@ -561,6 +563,25 @@ export class Auth {
 
   pinPages(userId: string, pages: readonly string[] | null): void {
     this.#store.setPinnedPages(userId, pages);
+  }
+
+  setup(userId: string): SetupState {
+    return this.#store.setup(userId);
+  }
+
+  finishSetup(userId: string): void {
+    this.#store.setSetup(userId, { ...this.setup(userId), finished: true });
+  }
+
+  dismissSetupStep(userId: string, step: string): void {
+    const state = this.setup(userId);
+
+    if (!state.dismissed.includes(step)) {
+      this.#store.setSetup(userId, {
+        ...state,
+        dismissed: [...state.dismissed, step],
+      });
+    }
   }
 
   mcpUserOf(request: Request): User | undefined {
