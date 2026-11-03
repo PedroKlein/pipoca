@@ -155,6 +155,7 @@ export function serve(options: ServeOptions): {
     join(configDir, "profiles"),
     options.log,
     join(configDir, "base"),
+    join(configDir, "people"),
   );
 
   const store = openStore(options.database, options.secretKey, profiles);

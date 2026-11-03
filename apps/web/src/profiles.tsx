@@ -10,6 +10,7 @@ import {
   Icon,
   ListInput,
   PageTitle,
+  Picker,
   Section,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
@@ -34,58 +35,80 @@ function packageOf(text: string): unknown {
   return text.startsWith("{") ? JSON.parse(text) : text;
 }
 
-// Not a Profile id, so no Profile's page can take it.
-const baseHash = ":base";
+// Not Profile ids, so no Profile's page can take them.
+const layerHashes = { base: ":base", defaults: ":defaults" } as const;
+
+type Layer = keyof typeof layerHashes;
+
+const layerNames: Readonly<Record<Layer, string>> = {
+  base: "Server base",
+  defaults: "My defaults",
+};
+
+const chipClass =
+  "flex h-8 items-center gap-1.5 rounded-full border border-line bg-elevated px-3 text-ui text-fg hover:bg-hover aria-[current=page]:border-fg-strong aria-[current=page]:bg-fg-strong aria-[current=page]:text-bg";
 
 export function ProfilesPage({
   profiles,
+  admin,
   selected,
   onChange,
 }: {
   readonly profiles: readonly Profile[];
+  readonly admin: boolean;
   readonly selected: string;
   readonly onChange: () => void;
 }): ReactElement {
   const [id = "", tab = "overview"] = selected.split("/");
   const profile = profiles.find((each) => each.id === id);
+
+  const layer = (Object.keys(layerHashes) as Layer[]).find(
+    (each) => layerHashes[each] === id,
+  );
+
   // The editor starts again when its files change, so it doesn't keep this.
   const [savedId, setSavedId] = useState<string>();
 
   return (
     <div id="profiles-page" className={settingsPageClass}>
-      <PageTitle description="A Profile is a Pi agent folder, like your ~/.pi/agent: packages, instructions, skills, prompts, MCP servers and settings. Every Session runs with one, on any machine. Logins stay on each machine. Edits reach a Session the next time it starts.">
+      <PageTitle description="How Pi behaves in a Session: what it knows, the skills and tools it has. A Profile is a Pi agent folder, like your ~/.pi/agent. Every Profile sits on the Server base and your My defaults. Edits reach a Session the next time it starts.">
         Profiles
       </PageTitle>
-      <div className="flex flex-wrap gap-2">
+      <nav aria-label="Profiles" className="flex flex-wrap gap-2">
         {profiles.map((each) => (
           <a
             key={each.id}
             href={`#profiles/${each.id}`}
             aria-current={each.id === id ? "page" : undefined}
-            className="flex items-center gap-2 rounded-md border border-line bg-panel px-3 py-1.5 text-ui text-fg hover:bg-hover aria-[current=page]:border-accent aria-[current=page]:text-fg-strong"
+            className={chipClass}
           >
             {each.name}
             {each.isDefault && <Badge state="done">Default</Badge>}
             {each.ownerId === null && <Badge state="offline">Shared</Badge>}
           </a>
         ))}
-        <a
-          href={`#profiles/${baseHash}`}
-          aria-current={id === baseHash ? "page" : undefined}
-          className="flex items-center gap-2 rounded-md border border-line bg-panel px-3 py-1.5 text-ui text-fg hover:bg-hover aria-[current=page]:border-accent aria-[current=page]:text-fg-strong"
-        >
-          Base
-          <Badge state="offline">Under every Profile</Badge>
-        </a>
+        {(Object.keys(layerHashes) as Layer[]).map((each) => (
+          <a
+            key={each}
+            href={`#profiles/${layerHashes[each]}`}
+            aria-current={id === layerHashes[each] ? "page" : undefined}
+            className={chipClass}
+          >
+            {each === "base" && !admin && (
+              <Icon name="lock" className="size-3.5" />
+            )}
+            {layerNames[each]}
+          </a>
+        ))}
         <a
           href="#profiles/new"
           aria-current={selected === "new" ? "page" : undefined}
-          className="flex items-center gap-1 rounded-md border border-dashed border-line px-3 py-1.5 text-ui text-fg-dim hover:bg-hover aria-[current=page]:border-accent"
+          className={cn(chipClass, "border-dashed text-fg-dim")}
         >
           <Icon name="plus" className="size-4" />
           New Profile
         </a>
-      </div>
+      </nav>
       {profile && (
         <ProfileTabs
           url={`/api/profiles/${profile.id}/files`}
@@ -93,8 +116,9 @@ export function ProfilesPage({
           tab={tab}
           overview={
             <Editor
-              key={`${profile.id}:${JSON.stringify(profile.packages)}`}
+              key={`${profile.id}:${JSON.stringify(profile.packages)}:${profile.buildsOn ?? ""}`}
               profile={profile}
+              profiles={profiles}
               saved={savedId === profile.id}
               onSaved={() => {
                 setSavedId(profile.id);
@@ -104,15 +128,18 @@ export function ProfilesPage({
           }
         />
       )}
-      {id === baseHash && (
+      {layer && (
         <ProfileTabs
-          url="/api/base/files"
-          hash={baseHash}
+          key={layer}
+          url={`/api/${layer}/files`}
+          hash={layerHashes[layer]}
           tab={tab}
-          overview={<BaseEditor />}
+          overview={<LayerEditor layer={layer} />}
         />
       )}
-      {selected === "new" && <Editor key="new" onChange={onChange} />}
+      {selected === "new" && (
+        <Editor key="new" profiles={profiles} onChange={onChange} />
+      )}
       {selected === "" && <Import onChange={onChange} />}
     </div>
   );
@@ -120,11 +147,13 @@ export function ProfilesPage({
 
 function Editor({
   profile,
+  profiles,
   saved = false,
   onSaved,
   onChange,
 }: {
   readonly profile?: Profile;
+  readonly profiles: readonly Profile[];
   readonly saved?: boolean;
   readonly onSaved?: () => void;
   readonly onChange: () => void;
@@ -134,6 +163,8 @@ function Editor({
   const [packages, setPackages] = useState<readonly string[]>(() =>
     (profile?.packages ?? []).map(packageText),
   );
+
+  const [buildsOn, setBuildsOn] = useState(profile?.buildsOn ?? null);
 
   const run = (action: () => Promise<void>): void => {
     action().then(
@@ -161,6 +192,7 @@ function Editor({
       const body = {
         name: text("name"),
         packages: packages.map(packageOf),
+        buildsOn,
       };
 
       if (profile) {
@@ -211,6 +243,12 @@ function Editor({
             Shared with everyone. Only admins can change it.
           </label>
         )}
+        <BuildsOn
+          profile={profile}
+          profiles={profiles}
+          value={buildsOn}
+          onChange={setBuildsOn}
+        />
         <ListInput
           label="Pi packages"
           values={packages}
@@ -436,20 +474,80 @@ function ProfileTabs({
   );
 }
 
-function BaseEditor(): ReactElement | null {
-  const { value: base, reload } = useLoaded(
-    async () => json<ProfileContent>(fetch("/api/base")),
-    "base",
+// What a Profile builds on, from the bottom: the base, the person's My
+// defaults and, if they pick one, another Profile (ADR 0063).
+function BuildsOn({
+  profile,
+  profiles,
+  value,
+  onChange,
+}: {
+  readonly profile: Profile | undefined;
+  readonly profiles: readonly Profile[];
+  readonly value: string | null;
+  readonly onChange: (id: string | null) => void;
+}): ReactElement {
+  const shared = profile?.ownerId === null;
+
+  const options = profiles.filter(
+    ({ id, ownerId }) => id !== profile?.id && (!shared || ownerId === null),
+  );
+
+  const step = <Icon name="chevron-right" className="size-3.5 text-fg-dim" />;
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-ui">
+      <span className="mr-1 text-fg-dim">Builds on</span>
+      <a href={`#profiles/${layerHashes.base}`} className={chipClass}>
+        {layerNames.base}
+      </a>
+      {step}
+      <a href={`#profiles/${layerHashes.defaults}`} className={chipClass}>
+        {layerNames.defaults}
+      </a>
+      {step}
+      <Picker
+        label="Builds on"
+        options={[
+          { value: "", label: "Nothing else" },
+          ...options.map(({ id, name }) => ({ value: id, label: name })),
+        ]}
+        selected={[value ?? ""]}
+        onChange={([id]) => {
+          onChange(id === undefined || id === "" ? null : id);
+        }}
+      >
+        {profiles.find(({ id }) => id === value)?.name ?? "Nothing else"}
+      </Picker>
+    </div>
+  );
+}
+
+const layerAbout: Readonly<Record<Layer, string>> = {
+  base: "Every Session on this server loads this under its own Profile, with the Profile's entries winning. Put provider extensions here so every Session can use their models. Only admins change it.",
+  defaults:
+    "Yours, under every Profile of yours and over the Server base. Put what you want in every Session here, such as your instructions and the providers you use.",
+};
+
+function LayerEditor({
+  layer,
+}: {
+  readonly layer: Layer;
+}): ReactElement | null {
+  const { value: content, reload } = useLoaded(
+    async () => json<ProfileContent>(fetch(`/api/${layer}`)),
+    layer,
     { topics: ["profiles"] },
   );
 
-  // The form starts again when the base changes, so it doesn't keep this.
+  // The form starts again when the layer changes, so it doesn't keep this.
   const [saved, setSaved] = useState(false);
 
-  return base ? (
-    <BaseForm
-      key={JSON.stringify(base.packages)}
-      base={base}
+  return content ? (
+    <LayerForm
+      key={JSON.stringify(content.packages)}
+      layer={layer}
+      content={content}
       saved={saved}
       onSaved={() => {
         setSaved(true);
@@ -459,17 +557,19 @@ function BaseEditor(): ReactElement | null {
   ) : null;
 }
 
-function BaseForm({
-  base,
+function LayerForm({
+  layer,
+  content,
   saved,
   onSaved,
 }: {
-  readonly base: ProfileContent;
+  readonly layer: Layer;
+  readonly content: ProfileContent;
   readonly saved: boolean;
   readonly onSaved: () => void;
 }): ReactElement {
   const [packages, setPackages] = useState<readonly string[]>(() =>
-    base.packages.map(packageText),
+    content.packages.map(packageText),
   );
 
   const [error, setError] = useState<string>();
@@ -477,7 +577,7 @@ function BaseForm({
   const submit = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
 
-    send("/api/base", "PUT", { packages: packages.map(packageOf) }).then(
+    send(`/api/${layer}`, "PUT", { packages: packages.map(packageOf) }).then(
       () => {
         setError(undefined);
         onSaved();
@@ -489,16 +589,12 @@ function BaseForm({
   };
 
   return (
-    <Section title="Overview">
+    <Section title={layerNames[layer]}>
       <form
         onSubmit={submit}
         className="flex flex-col gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5"
       >
-        <p className="text-caption text-fg-dim">
-          Every Session loads this under its own Profile, with the
-          Profile&apos;s entries winning. Put provider extensions here so every
-          Session can use their models. Only admins change it.
-        </p>
+        <p className="text-caption text-fg-dim">{layerAbout[layer]}</p>
         <ListInput
           label="Pi packages"
           values={packages}

@@ -1,5 +1,5 @@
 import { BadRequest, fieldsOf, readJson } from "@pipoca/plugins";
-import type { Profiles } from "@pipoca/profiles";
+import type { Layer, Profiles } from "@pipoca/profiles";
 import type { Log } from "@pipoca/providers";
 import { userIdOf } from "@pipoca/pluginhost";
 import { errorReply, notFound, reply } from "./replies";
@@ -12,6 +12,11 @@ const profileRejections = {
   admin_only: [403, "Only admins change shared Profiles."],
 } as const;
 
+const layers = [
+  ["base", "base profile"],
+  ["defaults", "my defaults"],
+] as const;
+
 // Shared Profiles are changed only by admins (ADR 0041).
 export function profileRoutes(
   profiles: Profiles,
@@ -21,7 +26,7 @@ export function profileRoutes(
     result: ReturnType<
       | Profiles["create"]
       | Profiles["update"]
-      | Profiles["updateBase"]
+      | Profiles["updateLayer"]
       | Profiles["remove"]
     >,
     status: number,
@@ -33,6 +38,115 @@ export function profileRoutes(
           result.reason,
           profileRejections[result.reason][1],
         );
+
+  const layerRoutes = (
+    which: Layer,
+    name: string,
+  ): readonly (readonly [string, RegExp, BrowserRoute])[] => {
+    const at = (rest = "") => new RegExp(`^/api/${which}${rest}$`);
+
+    return [
+      [
+        "GET",
+        at(),
+        (_request, _params, actor) =>
+          Response.json(profiles.layer(userIdOf(actor), which)),
+      ],
+      [
+        "PUT",
+        at(),
+        async (request, _params, actor, admin) => {
+          const updated = profiles.updateLayer(
+            userIdOf(actor),
+            which,
+            await readJson(request),
+            admin,
+          );
+
+          if (updated.ok) {
+            log(`${name} updated`);
+          }
+
+          return replied(updated, 200);
+        },
+      ],
+      [
+        "GET",
+        at("/files"),
+        (_request, _params, actor) =>
+          Response.json(profiles.layerFiles(userIdOf(actor), which)),
+      ],
+      [
+        "POST",
+        at("/files"),
+        async (request, _params, actor, admin) => {
+          const files = uploadedFiles(await readJson(request));
+
+          const written = profiles.writeLayerFiles(
+            userIdOf(actor),
+            which,
+            files,
+            admin,
+          );
+
+          if (written.ok) {
+            log(`${name} files uploaded`, { files: files.size });
+          }
+
+          return replied(written, 204);
+        },
+      ],
+      [
+        "GET",
+        at("/files/(.+)"),
+        (_request, [file = ""], actor) => {
+          const content = profiles.layerFile(
+            userIdOf(actor),
+            which,
+            filePath(file),
+          );
+
+          return content ? new Response(content) : notFound();
+        },
+      ],
+      [
+        "PUT",
+        at("/files/(.+)"),
+        async (request, [file = ""], actor, admin) => {
+          const written = profiles.writeLayerFiles(
+            userIdOf(actor),
+            which,
+            new Map([[filePath(file), Buffer.from(await request.bytes())]]),
+            admin,
+          );
+
+          if (written.ok) {
+            log(`${name} file written`);
+          }
+
+          return replied(written, 204);
+        },
+      ],
+      [
+        "DELETE",
+        at("/files/(.+)"),
+        (_request, [file = ""], actor, admin) => {
+          const removed = profiles.deleteLayerFile(
+            userIdOf(actor),
+            which,
+            filePath(file),
+            admin,
+          );
+
+          if (removed.ok) {
+            log(`${name} file deleted`);
+          }
+
+          return replied(removed, 204);
+        },
+      ],
+    ];
+  };
 
   return [
     [
@@ -158,73 +272,9 @@ export function profileRoutes(
         });
       },
     ],
-    // The admin's base Profile (ADR 0044).
-    ["GET", /^\/api\/base$/, () => Response.json(profiles.base())],
-    [
-      "PUT",
-      /^\/api\/base$/,
-      async (request, _params, _actor, admin) => {
-        const updated = profiles.updateBase(await readJson(request), admin);
-
-        if (updated.ok) {
-          log("base profile updated");
-        }
-
-        return replied(updated, 200);
-      },
-    ],
-    ["GET", /^\/api\/base\/files$/, () => Response.json(profiles.baseFiles())],
-    [
-      "POST",
-      /^\/api\/base\/files$/,
-      async (request, _params, _actor, admin) => {
-        const files = uploadedFiles(await readJson(request));
-        const written = profiles.writeBaseFiles(files, admin);
-        if (written.ok) {
-          log("base profile files uploaded", { files: files.size });
-        }
-
-        return replied(written, 204);
-      },
-    ],
-    [
-      "GET",
-      /^\/api\/base\/files\/(.+)$/,
-      (_request, [path = ""]) => {
-        const file = profiles.baseFile(filePath(path));
-
-        return file ? new Response(file) : notFound();
-      },
-    ],
-    [
-      "PUT",
-      /^\/api\/base\/files\/(.+)$/,
-      async (request, [path = ""], _actor, admin) => {
-        const written = profiles.writeBaseFiles(
-          new Map([[filePath(path), Buffer.from(await request.bytes())]]),
-          admin,
-        );
-
-        if (written.ok) {
-          log("base profile file written");
-        }
-
-        return replied(written, 204);
-      },
-    ],
-    [
-      "DELETE",
-      /^\/api\/base\/files\/(.+)$/,
-      (_request, [path = ""], _actor, admin) => {
-        const removed = profiles.deleteBaseFile(filePath(path), admin);
-
-        if (removed.ok) {
-          log("base profile file deleted");
-        }
-
-        return replied(removed, 204);
-      },
-    ],
+    // The admin's base Profile (ADR 0044) and each person's My defaults
+    // (ADR 0063), the layers under every Profile.
+    ...layers.flatMap(([which, name]) => layerRoutes(which, name)),
     // A Profile's folder, file by file (ADR 0041).
     [
       "GET",

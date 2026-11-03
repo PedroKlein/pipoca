@@ -62,9 +62,14 @@ export interface SessionStore {
       })
     | undefined;
   // Throws ProfileTooBig for a Profile runners shouldn't download.
-  profileFiles: (id: string) => ProfileFiles | undefined;
-  // The admin's base Profile (ADR 0044), if there is one.
-  baseProfileFiles: () => ProfileFiles | undefined;
+  // For a Session the person started, over the layers below (ADR 0063).
+  profileFiles: (
+    id: string,
+    personId: string | null,
+  ) => ProfileFiles | undefined;
+  // The admin's base Profile (ADR 0044) and the person's My defaults, if
+  // there are any.
+  baseProfileFiles: (personId: string | null) => ProfileFiles | undefined;
   defaultProfileId: (ownerId: string) => string;
   repositoryTrust: (ownerId: string, repository: string) => boolean | null;
   setRepositoryTrust: (
@@ -1237,7 +1242,7 @@ export class Sessions {
       .flatMap((next) => {
         let profile: ProfileFiles | undefined;
         try {
-          profile = this.profileFiles(next.profileId);
+          profile = this.profileFiles(next.profileId, next.startedBy);
         } catch (error) {
           this.#update({
             ...next,
@@ -1372,14 +1377,14 @@ export class Sessions {
     return this.#docs;
   }
 
-  profileFiles(id: string): ProfileFiles | undefined {
+  profileFiles(id: string, personId: string | null): ProfileFiles | undefined {
     const provided = this.#pluginProfile(id);
     if (!provided) {
-      return this.#store.profileFiles(id);
+      return this.#store.profileFiles(id, personId);
     }
 
     const own = contentFiles(provided.profile);
-    const base = this.#store.baseProfileFiles();
+    const base = this.#store.baseProfileFiles(personId);
 
     return base ? overBaseExtensions(base, own) : own;
   }

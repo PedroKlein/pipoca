@@ -1373,6 +1373,48 @@ test("lists a Profile's packages as chips and edits its folder's files", async (
     .waitFor({ state: "detached" });
 });
 
+test("builds a Profile on another, over My defaults", async () => {
+  await page.goto(server.url.href);
+  await openSettings("Profiles");
+
+  const profiles = page.getByRole("navigation", { name: "Profiles" });
+  await profiles.getByRole("link", { name: "My defaults" }).click();
+
+  const editor = page.locator("#profiles-page form").first();
+  const add = editor.getByLabel("Add to Pi packages");
+
+  await add.fill("npm:my-provider");
+  await add.press("Enter");
+  await editor.getByRole("button", { name: "Save" }).click();
+  await editor.getByText("Saved").waitFor();
+  await page.reload();
+  await editor.getByText("npm:my-provider").waitFor();
+
+  // A package nobody can install would stop every later Session.
+  await editor.getByRole("button", { name: "Remove npm:my-provider" }).click();
+  await editor.getByRole("button", { name: "Save" }).click();
+  await editor.getByText("Saved").waitFor();
+
+  await page.getByRole("link", { name: "New Profile" }).click();
+  await editor.getByLabel("Name").fill("Deep");
+  await editor.getByRole("button", { name: "Builds on" }).click();
+  await page.getByRole("option", { name: "Default" }).click();
+  await editor.getByRole("button", { name: "Create Profile" }).click();
+  await profiles.getByRole("link", { name: "Deep" }).waitFor();
+  await page.reload();
+
+  expect(
+    await editor.getByRole("button", { name: "Builds on" }).textContent(),
+  ).toContain("Default");
+
+  page.once("dialog", async (dialog) => dialog.accept());
+  await editor.getByRole("button", { name: "Delete" }).click();
+
+  await profiles
+    .getByRole("link", { name: "Deep" })
+    .waitFor({ state: "detached" });
+});
+
 test("imports a Profile from a picked folder with its files", async () => {
   const folder = join(root, "agent-folder");
 

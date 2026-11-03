@@ -590,13 +590,13 @@ test("fails only the Session whose Profile can't be read when a runner claims wo
   const sessions = new Sessions(
     {
       ...store,
-      profileFiles: (id) => {
+      profileFiles: (id, personId) => {
         reads++;
         if (reads === 1) {
           throw new Error("EIO: i/o error, read");
         }
 
-        return store.profileFiles(id);
+        return store.profileFiles(id, personId);
       },
     },
     { pollWaitMs: 0 },
