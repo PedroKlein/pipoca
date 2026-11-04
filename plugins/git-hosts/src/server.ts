@@ -15,6 +15,7 @@ import {
   HostRefused,
   loginOf,
   redeem,
+  installationRepositoriesOf,
   repositoriesOf,
 } from "./github";
 import { hash, originOf, page, redirect, secure } from "./pages";
@@ -141,6 +142,50 @@ export const gitHosts: ServerPlugin = {
       (await search(userId, query)).flatMap(({ host, repositories: found }) =>
         found.map(({ url, name }) => ({ url, name, group: host.label })),
       );
+
+    // Team work reaches only what the team's bots reach (ADR 0060).
+    const teamRepositories = async (
+      query: string,
+    ): Promise<readonly RepositoryChoice[]> =>
+      (
+        await Promise.all(
+          actingAs.teamReach().flatMap(({ host: name, kind, token }) => {
+            const host = hosts.get(name);
+
+            if (host === undefined) {
+              return [];
+            }
+
+            const listed =
+              kind === "app"
+                ? installationRepositoriesOf(host, token, query)
+                : repositoriesOf(host, token, query);
+
+            return [
+              listed.then(
+                (found) =>
+                  found.map(({ url, name: repository }) => ({
+                    url,
+                    name: repository,
+                    group: host.label,
+                  })),
+                (failure: unknown) => {
+                  if (!(failure instanceof HostRefused)) {
+                    throw failure;
+                  }
+
+                  context.log("team repository search failed", {
+                    host: name,
+                    error: failure.message,
+                  });
+
+                  return [];
+                },
+              ),
+            ];
+          }),
+        )
+      ).flat();
 
     context.tools.register(
       repositoriesTool({
@@ -464,11 +509,13 @@ export const gitHosts: ServerPlugin = {
       }
 
       if (route === "repositories" && request.method === "GET") {
+        const { searchParams } = new URL(request.url);
+        const query = searchParams.get("q")?.trim() ?? "";
+
         return Response.json(
-          await repositories(
-            user.id,
-            new URL(request.url).searchParams.get("q")?.trim() ?? "",
-          ),
+          searchParams.has("team")
+            ? await teamRepositories(query)
+            : await repositories(user.id, query),
         );
       }
 

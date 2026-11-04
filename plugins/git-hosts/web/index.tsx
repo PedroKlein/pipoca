@@ -56,8 +56,12 @@ export const gitHosts: WebPlugin = {
   },
   PullRequest,
   notices: { pull_request: PullRequestNotice },
-  repositories: async (context, query) =>
-    json(context.request(`repositories?q=${encodeURIComponent(query)}`)),
+  repositories: async (context, query, team) =>
+    json(
+      context.request(
+        `repositories?q=${encodeURIComponent(query)}${team ? "&team" : ""}`,
+      ),
+    ),
 };
 
 // Admins pick the hosts people can connect and the bots routines act as

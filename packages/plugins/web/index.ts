@@ -238,10 +238,12 @@ export interface WebPlugin {
   // Extension widgets the plugin draws in their place, by widget key.
   readonly widgets?: Readonly<Record<string, ComponentType<WidgetProps>>>;
   // Repositories New Session offers for what the person typed, such as the
-  // ones on the git hosts they connected (ADR 0043).
+  // ones on the git hosts they connected (ADR 0043), or for team work the
+  // ones the team's bots reach.
   readonly repositories?: (
     context: WebContext,
     query: string,
+    team: boolean,
   ) => Promise<readonly RepositoryChoice[]>;
 }
 
