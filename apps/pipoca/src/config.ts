@@ -80,16 +80,87 @@ export function configFolder(
       const next =
         value === undefined ? others : { ...others, [plugin]: value };
 
-      // A rename replaces the file whole, so a crash never leaves half of it.
-      mkdirSync(dir, { recursive: true });
-      const written = `${file}.${String(process.pid)}.tmp`;
-      writeFileSync(written, `${JSON.stringify(next, null, 2)}\n`);
-      renameSync(written, file);
+      replace(dir, file, `${JSON.stringify(next, null, 2)}\n`);
 
       values = next;
       version = versionOf(file);
     },
   });
+}
+
+// The whole file as text, for admins who edit it in Settings (ADR 0063).
+export interface ConfigFile {
+  readonly path: string;
+  readonly read: () => {
+    readonly text: string;
+    readonly version: string | null;
+  };
+  // Why the text wasn't written, or undefined once it was. The version is
+  // the one read, so an edit never overwrites a change made since.
+  readonly write: (
+    text: string,
+    version: string | null,
+  ) => ConfigRefusal | undefined;
+}
+
+export interface ConfigRefusal {
+  readonly changed: boolean;
+  readonly reason: string;
+}
+
+export function configFile(dir: string): ConfigFile {
+  const file = join(dir, "pipoca.json");
+
+  return {
+    path: file,
+    read: () => {
+      const version = versionOf(file) ?? null;
+
+      return {
+        text: version === null ? "{}\n" : readFileSync(file, "utf8"),
+        version,
+      };
+    },
+    write: (text, version) => {
+      if ((versionOf(file) ?? null) !== version) {
+        return {
+          changed: true,
+          reason:
+            "the file changed since you opened it; reload to see the change",
+        };
+      }
+
+      let value: unknown;
+
+      try {
+        value = JSON.parse(text);
+      } catch (error) {
+        return {
+          changed: false,
+          reason: error instanceof Error ? error.message : String(error),
+        };
+      }
+
+      if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return {
+          changed: false,
+          reason: "it must hold an object with a key per plugin",
+        };
+      }
+
+      replace(dir, file, text.endsWith("\n") ? text : `${text}\n`);
+
+      return undefined;
+    },
+  };
+}
+
+// A rename replaces the file whole, so a crash never leaves half of it.
+function replace(dir: string, file: string, text: string): void {
+  mkdirSync(dir, { recursive: true });
+  const written = `${file}.${String(process.pid)}.tmp`;
+  writeFileSync(written, text);
+  renameSync(written, file);
 }
 
 function versionOf(file: string): string | undefined {

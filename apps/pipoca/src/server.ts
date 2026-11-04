@@ -53,6 +53,7 @@ import {
   textOf,
 } from "./requests";
 import { sseResponse } from "./sse";
+import type { ConfigFile } from "./config";
 import type { Templates } from "./templates";
 
 type Route = (
@@ -109,6 +110,7 @@ export function createHandler(
   log: Log,
   restart?: ServerRestart,
   templates?: Templates,
+  config?: ConfigFile,
 ): (request: Request) => Promise<Response> {
   const agent = (route: AgentRoute): Route => {
     return async (request, params) => {
@@ -804,6 +806,56 @@ export function createHandler(
         return auth.revokeInvite(id)
           ? new Response(null, { status: 204 })
           : notFound();
+      },
+    ],
+    [
+      "GET",
+      /^\/api\/config$/,
+      (_request, _params, _actor, isAdmin) => {
+        if (!isAdmin) {
+          return errorReply(403, "admin_only", "Only admins edit the config.");
+        }
+
+        return config === undefined
+          ? notFound()
+          : Response.json({ path: config.path, ...config.read() });
+      },
+    ],
+    [
+      "PUT",
+      /^\/api\/config$/,
+      async (request, _params, _actor, isAdmin) => {
+        if (!isAdmin) {
+          return errorReply(403, "admin_only", "Only admins edit the config.");
+        }
+
+        if (config === undefined) {
+          return notFound();
+        }
+
+        const fields = fieldsOf(await readJson(request));
+        const { text, version } = fields;
+
+        if (
+          typeof text !== "string" ||
+          (version !== null && typeof version !== "string")
+        ) {
+          return errorReply(400, "invalid_config", "Send text and version.");
+        }
+
+        const rejected = config.write(text, version);
+
+        if (rejected !== undefined) {
+          return errorReply(
+            rejected.changed ? 409 : 400,
+            rejected.changed ? "config_changed" : "invalid_config",
+            rejected.reason,
+          );
+        }
+
+        log("config file edited", { path: config.path });
+
+        return Response.json({ path: config.path, ...config.read() });
       },
     ],
     [

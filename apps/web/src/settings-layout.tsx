@@ -9,6 +9,7 @@ import { settingsPageClass } from "./page-class";
 import { PeoplePage } from "./people";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext, pluginTitle } from "./plugins";
+import { ConfigurationPage } from "./configuration";
 import { PluginsPage } from "./plugins-page";
 import { ProfilesPage } from "./profiles";
 import { SettingsPage } from "./settings";
@@ -67,6 +68,7 @@ function groups(admin: boolean, people: boolean): readonly Group[] {
                 ? [{ path: integrationsPath, label: "Integrations" }]
                 : []),
               { path: "plugins", label: "Plugins" },
+              { path: "settings/configuration", label: "Configuration" },
             ],
           },
         ]
@@ -141,6 +143,10 @@ export function SettingsLayout({
 
     if (route === "settings/accounts") {
       return <AccountsPage />;
+    }
+
+    if (route === "settings/configuration" && admin) {
+      return <ConfigurationPage />;
     }
 
     if (route === "settings/tokens") {
