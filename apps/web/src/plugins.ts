@@ -1,3 +1,4 @@
+import { ask } from "@pipoca/ask/web";
 import { changes } from "@pipoca/changes/web";
 import { checklist } from "@pipoca/checklist/web";
 import { gitHosts } from "@pipoca/git-hosts/web";
@@ -53,6 +54,7 @@ const webPlugins: readonly WebPlugin[] = [
   models,
   subagents,
   checklist,
+  ask,
   routines,
   slack,
   email,

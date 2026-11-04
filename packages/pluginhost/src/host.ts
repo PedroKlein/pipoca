@@ -1083,6 +1083,8 @@ function pluginSessions(
       ),
     transcript: (id) => sessions.transcript(id),
     transcriptLength: (id) => sessions.transcriptLength(id),
+    sees: (id, person) => sessions.sees(id, person),
+    voted: (id, opener, text) => sessions.voted(id, { opener, text }),
   };
 }
 

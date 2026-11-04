@@ -7,6 +7,7 @@
   },
   "dependencies": {
     "@pipoca/changes": "workspace:*",
+    "@pipoca/ask": "workspace:*",
     "@pipoca/checklist": "workspace:*",
     "@pipoca/git-hosts": "workspace:*",
     "@pipoca/kubernetes": "workspace:*",

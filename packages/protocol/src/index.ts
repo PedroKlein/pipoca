@@ -1307,8 +1307,9 @@ export interface Quote {
 // transcript doesn't keep: a message to Pi, a stop, a message to the team
 // that Pi reads only when next asked, or one off the record that Pi never
 // reads.
+// A vote's result is told by whoever opened it, a person's id or "pi".
 export interface Voice {
-  readonly kind: "message" | "stop" | "team" | "aside";
+  readonly kind: "message" | "stop" | "team" | "aside" | "vote";
   readonly person: string;
   readonly at: string;
   readonly text?: string;

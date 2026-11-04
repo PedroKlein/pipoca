@@ -580,6 +580,36 @@ export class Sessions {
     return { ok: true, value: undefined };
   }
 
+  // A closed vote's result, which Pi reads with what the team said since its
+  // last turn (ADR 0065).
+  voted(
+    id: string,
+    { opener, text }: { readonly opener: string; readonly text: string },
+  ): Result<undefined, "not_found" | "archived" | "not_team"> {
+    const session = this.#store.get(id);
+
+    if (session === undefined) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    if (session.archivedAt !== null) {
+      return { ok: false, reason: "archived" };
+    }
+
+    if (!this.#team(session)) {
+      return { ok: false, reason: "not_team" };
+    }
+
+    this.#addVoice(session.id, {
+      kind: "vote",
+      person: opener,
+      at: new Date().toISOString(),
+      text,
+    });
+
+    return { ok: true, value: undefined };
+  }
+
   // Several people steer a team Session, so it keeps who said what.
   #voice(session: StoredSession, command: Command, quote?: Quote): void {
     const person = personOf(command.actor);
@@ -645,7 +675,9 @@ export class Sessions {
     const voices = this.#store.voices(session.id);
     const since = voices.findLastIndex(({ kind }) => kind === "message");
 
-    const said = voices.slice(since + 1).filter(({ kind }) => kind === "team");
+    const said = voices
+      .slice(since + 1)
+      .filter(({ kind }) => kind === "team" || kind === "vote");
 
     const left = said.length - teamMessagesRead;
 
@@ -660,7 +692,7 @@ export class Sessions {
         .slice(-teamMessagesRead)
         .map(
           (voice) =>
-            `${this.#said(voice.person, voice.quote)}: ${clipped(voice.text ?? "", teamMessageLength)}`,
+            `${voice.kind === "vote" ? "A vote closed" : this.#said(voice.person, voice.quote)}: ${clipped(voice.text ?? "", teamMessageLength)}`,
         ),
       ...(said.length === 0 ? [] : [""]),
       `${this.#said(person, quote)} sends the next message.`,
