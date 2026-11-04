@@ -47,11 +47,26 @@ export function ConnectForm({
   const connect = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
 
+    const form = new FormData(event.currentTarget);
+
+    if (provider?.paste === true) {
+      send("save", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: provider.id,
+          credential: { type: "api_key", key: form.get("key") },
+          layer: chosenLayer,
+        }),
+      });
+
+      return;
+    }
+
     send("connect", {
       method: "POST",
       body: JSON.stringify({
         provider: provider?.id,
-        type: new FormData(event.currentTarget).get("type"),
+        type: form.get("type"),
         layer: chosenLayer,
       }),
     });
@@ -92,15 +107,28 @@ export function ConnectForm({
           </Select>
         </Field>
       )}
-      <Field label="Log in with">
-        <Select key={`${provider?.id ?? ""}:${chosenLayer}`} name="type">
-          {methods.map(({ type, label }) => (
-            <option key={type} value={type}>
-              {label}
-            </option>
-          ))}
-        </Select>
-      </Field>
+      {provider?.paste === true ? (
+        <Field label="Key">
+          <textarea
+            name="key"
+            required
+            rows={4}
+            autoComplete="off"
+            spellCheck={false}
+            className={`${fieldClass} font-mono`}
+          />
+        </Field>
+      ) : (
+        <Field label="Log in with">
+          <Select key={`${provider?.id ?? ""}:${chosenLayer}`} name="type">
+            {methods.map(({ type, label }) => (
+              <option key={type} value={type}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
       <div className="flex gap-2">
         <Button variant="primary" type="submit" disabled={methods.length === 0}>
           Connect
