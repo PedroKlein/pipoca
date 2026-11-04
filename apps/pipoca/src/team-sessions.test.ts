@@ -84,16 +84,17 @@ async function json<T>(response: Promise<Response>): Promise<T> {
   return (await (await response).json()) as T;
 }
 
-// Signs in a second user, who isn't an admin, and returns their cookie.
-async function ana(): Promise<string> {
+// Signs in a user who isn't an admin and returns their cookie.
+async function member(name: string, id = randomUUID()): Promise<string> {
   await pedro();
 
   const db = new DatabaseSync(join(root, "server.db"));
 
   db.prepare(
-    "insert into users (id, name, password_hash, created_at, admin) values (?, 'ana', ?, ?, 0)",
+    "insert into users (id, name, password_hash, created_at, admin) values (?, ?, ?, ?, 0)",
   ).run(
-    randomUUID(),
+    id,
+    name,
     await Bun.password.hash("battery staple"),
     new Date().toISOString(),
   );
@@ -103,10 +104,14 @@ async function ana(): Promise<string> {
   const response = await fetch(new URL("/api/auth/login", server.url), {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: "ana", password: "battery staple" }),
+    body: JSON.stringify({ name, password: "battery staple" }),
   });
 
   return response.headers.get("set-cookie")?.split(";")[0] ?? "";
+}
+
+async function ana(): Promise<string> {
+  return member("ana");
 }
 
 // The team's Environment and Profile, which an admin makes, and the token
@@ -401,4 +406,73 @@ test("only an admin lays out the team hub, and everyone reads the layout", async
   ]);
 
   expect(await json<unknown>(api("/api/hub", anas))).toEqual(layout);
+});
+
+test("whoever started team work makes it view-only or limits it to named people", async () => {
+  const anas = await ana();
+  const bo = randomUUID();
+  const bos = await member("bo", bo);
+  const cys = await member("cy");
+  const team = await teamSetup();
+
+  const session = await json<Session>(
+    api("/api/sessions", anas, {
+      team: true,
+      environment: team.environment,
+      profile: team.profile,
+      workspace: workspace(),
+    }),
+  );
+
+  expect(session.access).toEqual({ kind: "team" });
+
+  const teammates = await json<{ id: string; name: string }[]>(
+    api("/api/teammates", bos),
+  );
+
+  expect(teammates.map(({ name }) => name).toSorted()).toEqual(
+    ["ana", "bo", "cy", "pedro"].toSorted(),
+  );
+
+  const steer = async (cookie: string): Promise<number> =>
+    (
+      await api(`/api/sessions/${session.id}/commands`, cookie, {
+        type: "abort",
+      })
+    ).status;
+
+  const limit = async (cookie: string, access: unknown): Promise<Response> =>
+    api(`/api/sessions/${session.id}/access`, cookie, access, "PUT");
+
+  const listed = async (cookie: string): Promise<readonly string[]> =>
+    (await json<Session[]>(api("/api/sessions?owner=team", cookie))).map(
+      ({ id }) => id,
+    );
+
+  expect(await steer(bos)).not.toBe(404);
+  expect((await limit(bos, { kind: "view" })).status).toBe(403);
+
+  const viewOnly = await limit(anas, { kind: "view" });
+
+  expect(viewOnly.status).toBe(200);
+  expect(((await viewOnly.json()) as Session).access).toEqual({ kind: "view" });
+  expect(await steer(bos)).toBe(403);
+  expect(await steer(anas)).not.toBe(403);
+  expect((await api(`/api/sessions/${session.id}`, bos)).status).toBe(200);
+  expect(await listed(bos)).toEqual([session.id]);
+
+  expect(
+    (await limit(anas, { kind: "named", people: ["nobody"] })).status,
+  ).toBe(400);
+
+  expect((await limit(anas, { kind: "named", people: [bo] })).status).toBe(200);
+
+  expect(await steer(bos)).not.toBe(403);
+  expect(await steer(cys)).toBe(404);
+  expect((await api(`/api/sessions/${session.id}`, cys)).status).toBe(404);
+  expect(await listed(cys)).toEqual([]);
+  expect(await listed(await pedro())).toEqual([session.id]);
+
+  expect((await limit(await pedro(), { kind: "team" })).status).toBe(200);
+  expect(await listed(cys)).toEqual([session.id]);
 });

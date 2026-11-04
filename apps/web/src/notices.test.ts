@@ -27,6 +27,7 @@ const session = (change: Partial<Session>): Session => ({
   startedBy: null,
   actsAs: null,
   ownedBy: "person:local",
+  access: { kind: "team" },
   online: true,
   waiting: false,
   ...change,

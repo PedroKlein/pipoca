@@ -5,6 +5,7 @@ import {
   type PluginInfo,
   type Session,
   type SessionEvent,
+  type Teammate,
   protocolVersion,
   type EnvironmentKey,
   versionHeader,
@@ -39,7 +40,7 @@ import { type Changes, changedBy } from "./changes";
 import { mcpHandler } from "./mcp";
 import { type AgentRoute, agentRoutes } from "./agent-routes";
 import { profileRoutes } from "./profile-routes";
-import { errorReply, notFound, reply } from "./replies";
+import { errorReply, notFound, rejected, reply } from "./replies";
 import {
   browserCommand,
   createEnvironment,
@@ -49,6 +50,7 @@ import {
   joinRequest,
   lineAfter,
   listOf,
+  sessionAccess,
   setupChangeOf,
   textOf,
 } from "./requests";
@@ -227,21 +229,29 @@ export function createHandler(
         : await route(request, params, templates);
     };
 
-  // A person reaches only their own Sessions. An admin also reaches
-  // everyone's outline, and stops, archives or deletes them (ADR 0049).
+  // A person reaches only their own Sessions and the team's they may see.
+  // An admin also reaches everyone's outline, and stops, archives or deletes
+  // them (ADR 0049).
   const own =
     (route: BrowserRoute): BrowserRoute =>
     async (request, params, actor, isAdmin) =>
-      sessions.belongsTo(params[0] ?? "", userIdOf(actor))
+      sessions.sees(params[0] ?? "", userIdOf(actor))
         ? await route(request, params, actor, isAdmin)
         : notFound();
 
-  const ownOrAdmin =
+  const steer =
     (route: BrowserRoute): BrowserRoute =>
-    async (request, params, actor, isAdmin) =>
-      isAdmin
-        ? await route(request, params, actor, isAdmin)
-        : await own(route)(request, params, actor, isAdmin);
+    async (request, params, actor, isAdmin) => {
+      const id = params[0] ?? "";
+
+      if (isAdmin || sessions.belongsTo(id, userIdOf(actor))) {
+        return await route(request, params, actor, isAdmin);
+      }
+
+      return sessions.sees(id, userIdOf(actor))
+        ? rejected("view_only")
+        : notFound();
+    };
 
   const sessionAction =
     (
@@ -753,6 +763,14 @@ export function createHandler(
     ],
     [
       "GET",
+      /^\/api\/teammates$/,
+      () =>
+        Response.json(
+          auth.users().map(({ id, name }): Teammate => ({ id, name })),
+        ),
+    ],
+    [
+      "GET",
       /^\/api\/invites$/,
       (_request, _params, _actor, isAdmin) =>
         isAdmin
@@ -847,13 +865,13 @@ export function createHandler(
           return errorReply(400, "invalid_config", "Send text and version.");
         }
 
-        const rejected = config.write(text, version);
+        const failure = config.write(text, version);
 
-        if (rejected !== undefined) {
+        if (failure !== undefined) {
           return errorReply(
-            rejected.changed ? 409 : 400,
-            rejected.changed ? "config_changed" : "invalid_config",
-            rejected.reason,
+            failure.changed ? 409 : 400,
+            failure.changed ? "config_changed" : "invalid_config",
+            failure.reason,
           );
         }
 
@@ -1028,7 +1046,13 @@ export function createHandler(
         const archived = query.get("archived") === "true";
 
         if (query.get("owner") === "team") {
-          return Response.json(sessions.list({ archived, team: true }));
+          return Response.json(
+            sessions.list({
+              archived,
+              team: true,
+              ...(!isAdmin && { person: userIdOf(actor) }),
+            }),
+          );
         }
 
         const all = sessions.list({
@@ -1095,18 +1119,15 @@ export function createHandler(
     [
       "GET",
       /^\/api\/sessions\/([^/]+)$/,
-      ownOrAdmin((_request, [id = ""], actor) => {
+      (_request, [id = ""], actor, isAdmin) => {
         const session = sessions.get(id);
-        if (session === undefined) {
+        const sees = sessions.sees(id, userIdOf(actor));
+        if (session === undefined || !(sees || isAdmin)) {
           return notFound();
         }
 
-        return Response.json(
-          sessions.belongsTo(id, userIdOf(actor))
-            ? session
-            : sessionOutline(session),
-        );
-      }),
+        return Response.json(sees ? session : sessionOutline(session));
+      },
     ],
     [
       "GET",
@@ -1140,7 +1161,7 @@ export function createHandler(
     [
       "POST",
       /^\/api\/sessions\/([^/]+)\/archive$/,
-      ownOrAdmin(
+      steer(
         sessionAction("session archived", (id, actor) =>
           sessions.archive(id, actor),
         ),
@@ -1149,7 +1170,7 @@ export function createHandler(
     [
       "POST",
       /^\/api\/sessions\/([^/]+)\/unarchive$/,
-      ownOrAdmin(
+      steer(
         sessionAction("session unarchived", (id, actor) =>
           sessions.unarchive(id, actor),
         ),
@@ -1158,23 +1179,53 @@ export function createHandler(
     [
       "POST",
       /^\/api\/sessions\/([^/]+)\/remove-workspace$/,
-      ownOrAdmin(
+      steer(
         sessionAction("workspace removal forced", (id) =>
           sessions.forceRemoval(id),
         ),
       ),
     ],
     [
+      "PUT",
+      /^\/api\/sessions\/([^/]+)\/access$/,
+      async (request, [id = ""], actor, isAdmin) => {
+        const access = sessionAccess(await readJson(request));
+
+        const users = new Set(auth.users().map((user) => user.id));
+        if (
+          access.kind === "named" &&
+          !access.people.every((person) => users.has(person))
+        ) {
+          throw new BadRequest("people must be users of this server");
+        }
+
+        const limited = sessions.limit(id, access, {
+          person: userIdOf(actor),
+          admin: isAdmin,
+        });
+
+        if (limited.ok) {
+          log("session access changed", { sessionId: id, access: access.kind });
+        }
+
+        return reply(limited, 200);
+      },
+    ],
+    [
       "POST",
       /^\/api\/sessions\/([^/]+)\/commands$/,
       async (request, [id = ""], actor, isAdmin) => {
         const command = browserCommand(await readJson(request), actor);
+        const person = userIdOf(actor);
 
-        const allowed =
-          sessions.belongsTo(id, userIdOf(actor)) ||
-          (isAdmin && command.type === "abort");
+        if (
+          sessions.belongsTo(id, person) ||
+          (isAdmin && command.type === "abort")
+        ) {
+          return reply(sessions.send(id, command), 202);
+        }
 
-        return allowed ? reply(sessions.send(id, command), 202) : notFound();
+        return sessions.sees(id, person) ? rejected("view_only") : notFound();
       },
     ],
   ];
