@@ -943,8 +943,14 @@ export function createHandler(
       (request, _params, actor, isAdmin) => {
         const query = new URL(request.url).searchParams;
 
+        const archived = query.get("archived") === "true";
+
+        if (query.get("owner") === "team") {
+          return Response.json(sessions.list({ archived, team: true }));
+        }
+
         const all = sessions.list({
-          archived: query.get("archived") === "true",
+          archived,
           ...(!(isAdmin && peopleAll(request)) && {
             person: userIdOf(actor),
           }),

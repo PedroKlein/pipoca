@@ -26,7 +26,7 @@ import {
   type Page,
   type Route,
 } from "playwright-core";
-import type { Environment } from "@pipoca/protocol";
+import type { Environment, Profile } from "@pipoca/protocol";
 import { installedPlugins } from "./installed";
 import { serve } from "./serve";
 import { setupTokenOf } from "./testdata/sign-in";
@@ -3627,4 +3627,61 @@ test("signs in in the browser for the desktop app and hands it a link only it ca
   expect(signedIn.status).toBe(303);
 
   await context.close();
+});
+
+test("opens the team hub from the sidebar and lists team work anyone can pick up", async () => {
+  const post = async (path: string, body: unknown): Promise<unknown> =>
+    (
+      await fetch(new URL(path, server.url), {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify(body),
+      })
+    ).json();
+
+  const { environment } = (await post("/api/environments", {
+    name: "team-pods",
+    team: true,
+  })) as { environment: Environment };
+
+  const profile = (await post("/api/profiles", {
+    name: "Team work",
+    team: true,
+  })) as Profile;
+
+  const folder = join(root, "release-notes");
+
+  await mkdir(folder, { recursive: true });
+
+  await post("/api/sessions", {
+    team: true,
+    environment: environment.id,
+    profile: profile.id,
+    workspace: { kind: "folder", path: folder },
+  });
+
+  await page.goto(server.url.href);
+  await page.getByRole("link", { name: "Team", exact: true }).click();
+
+  const running = page.locator("section").filter({ hasText: "Running now" });
+
+  await running.getByRole("link", { name: "release-notes" }).waitFor();
+
+  await page
+    .getByRole("navigation", { name: "Team" })
+    .getByRole("link", { name: "Sessions" })
+    .click();
+
+  await page.getByRole("heading", { name: "Sessions" }).waitFor();
+  await page.getByRole("link", { name: "release-notes" }).click();
+
+  expect(new URL(page.url()).hash).not.toContain("team");
+
+  await page.goto(server.url.href);
+
+  const own = page.locator("#sessions");
+
+  await own.waitFor();
+
+  expect(await own.getByText("release-notes").count()).toBe(0);
 });

@@ -208,7 +208,7 @@ test("a team Session starts only in a team Environment, on a team Profile", asyn
   expect(refused.map(({ status }) => status)).toEqual([400, 400]);
 });
 
-test("every user can open team work, and it stays out of their own list", async () => {
+test("every user can open and list team work, and it stays out of their own list", async () => {
   const anas = await ana();
   const team = await teamSetup();
 
@@ -230,7 +230,18 @@ test("every user can open team work, and it stays out of their own list", async 
 
   const own = await json<Session[]>(api("/api/sessions", anas));
 
+  const teams = await Promise.all(
+    [anas, await pedro()].map(async (cookie) =>
+      json<Session[]>(api("/api/sessions?owner=team", cookie)),
+    ),
+  );
+
   expect(own.map(({ id }) => id)).not.toContain(session.id);
+
+  expect(teams.map((listed) => listed.map(({ id }) => id))).toEqual([
+    [session.id],
+    [session.id],
+  ]);
 });
 
 test("a team Session's runner gets the team Profile on the base, never anyone's My defaults", async () => {

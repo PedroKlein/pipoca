@@ -84,6 +84,14 @@ export function useSessions(archived: boolean): WatchedList<Session> {
   ) as WatchedList<Session>;
 }
 
+// Every user sees the team's Sessions (ADR 0064).
+export function useTeamSessions(): WatchedList<Session> {
+  return useWatchedList(
+    "/api/sessions?owner=team",
+    "sessions",
+  ) as WatchedList<Session>;
+}
+
 export function useProfiles(): WatchedList<Profile> {
   return useWatchedList("/api/profiles", "profiles") as WatchedList<Profile>;
 }

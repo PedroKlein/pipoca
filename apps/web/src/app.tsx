@@ -24,12 +24,14 @@ import { isSettingsRoute, SettingsLayout } from "./settings-layout";
 import { Mark } from "./mark";
 import { SetupReminders, SetupWizard } from "./setup";
 import { Sidebar } from "./sidebar";
+import { isTeamRoute, TeamHub } from "./team-hub";
 
 export function App({
   nav,
   user,
   admin,
   people,
+  team,
   setup: initialSetup,
 }: {
   readonly nav: readonly NavEntry[];
@@ -37,6 +39,8 @@ export function App({
   readonly admin: boolean;
   // An admin of a server several people use sees the People page.
   readonly people: boolean;
+  // A server several people use has a team, with its own hub (ADR 0064).
+  readonly team: boolean;
   readonly setup: SetupState;
 }): ReactElement {
   const route = useHash();
@@ -201,6 +205,14 @@ export function App({
     );
   }
 
+  if (page === undefined && team && isTeamRoute(route)) {
+    return (
+      <div className="flex h-dvh overflow-hidden bg-bg font-sans text-ui text-fg">
+        <TeamHub route={route} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-dvh overflow-hidden bg-bg font-sans text-ui text-fg">
       <div
@@ -236,6 +248,7 @@ export function App({
           showArchived={showArchived}
           onShowArchived={setShowArchived}
           user={user}
+          team={team}
           onNewSession={() => {
             setCreating(true);
           }}

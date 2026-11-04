@@ -66,6 +66,7 @@ if (status === undefined) {
       admin={status.user.admin}
       setup={setup}
       people={status.user.admin && !status.solo}
+      team={!status.solo}
     />,
   );
 }

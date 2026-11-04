@@ -448,21 +448,25 @@ export class Sessions {
     };
   }
 
+  // With team, only the team's Sessions, which every user may see.
   list({
     archived = false,
     owner: ownedBy,
     person,
+    team = false,
   }: {
     readonly archived?: boolean;
     readonly owner?: SessionOwner;
     readonly person?: string;
+    readonly team?: boolean;
   } = {}): readonly Session[] {
     return this.#store
       .list({ includeArchived: archived, ...(ownedBy && { owner: ownedBy }) })
-      .filter(
-        (session) =>
-          person === undefined ||
-          (!this.#team(session) && this.#person(session) === person),
+      .filter((session) =>
+        team
+          ? this.#team(session)
+          : person === undefined ||
+            (!this.#team(session) && this.#person(session) === person),
       )
       .map((session) => this.#view(session));
   }
