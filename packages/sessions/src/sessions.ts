@@ -1761,12 +1761,15 @@ export class Sessions {
   }
 
   #gitLoginsOf(session: StoredSession): Pick<Assignment, "gitLogins"> {
-    // Team work signs git in only as a technical user, never as a person.
+    // Team work signs git in only as a technical user that admins let the
+    // team use, never as a person (ADR 0067).
+    const team = this.#team(session);
+    const person = team ? teamOwner : session.startedBy;
+
     const logins =
-      session.startedBy === null ||
-      (this.#team(session) && session.actsAs === null)
+      person === null || (team && session.actsAs === null)
         ? []
-        : this.#gitLogins(session.startedBy, session);
+        : this.#gitLogins(person, session);
 
     return logins.length > 0 ? { gitLogins: logins } : {};
   }

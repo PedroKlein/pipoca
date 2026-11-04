@@ -5,7 +5,7 @@ import {
   type RouteCaller,
   type ServerPlugin,
 } from "@pipoca/plugins";
-import { routinesEngine } from "./engine";
+import { routinesEngine, teamRoutines } from "./engine";
 import { wakeUps } from "./wakeups";
 
 const maxHookBody = 1024 * 1024;
@@ -109,18 +109,22 @@ export const routines: ServerPlugin = {
     });
 
     context.routes.handle(async (request, path, caller) => {
-      const userId = personOf(caller);
+      const person = personOf(caller);
       const [route, id, action] = path.split("/");
       const method = request.method;
+
+      // Anyone on the team makes and changes the team's routines, as anyone
+      // starts team work (ADR 0067).
+      const userId = route === "team-routines" ? teamRoutines : person;
 
       if (route === "wakeups" && id === undefined && method === "GET") {
         const session = new URL(request.url).searchParams.get("session") ?? "";
 
-        return Response.json(wakeups.pending(userId, session));
+        return Response.json(wakeups.pending(person, session));
       }
 
       if (route === "wakeups" && id !== undefined && method === "DELETE") {
-        wakeups.cancel(userId, id);
+        wakeups.cancel(person, id);
 
         return Response.json({ ok: true });
       }
@@ -129,7 +133,7 @@ export const routines: ServerPlugin = {
         return Response.json(context.events.declared());
       }
 
-      if (route !== "routines") {
+      if (route !== "routines" && route !== "team-routines") {
         throw new NotFound(`no route ${path}`);
       }
 

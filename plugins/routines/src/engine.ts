@@ -128,6 +128,10 @@ export interface Routines {
 export const ownerPrefix = (userId: string, name: string): string =>
   `${userId}:${name}`;
 
+// The routines anyone on the team made for the team, kept apart from each
+// person's own (ADR 0067). Their runs are team work started by no one.
+export const teamRoutines = "team";
+
 // Fires every person's routines from their JSON files and records each
 // firing as a run (ADR 0059). One timer is armed for the earliest firing.
 export function routinesEngine(
@@ -604,6 +608,12 @@ export function routinesEngine(
         ? ""
         : `\n\n${eventsText(JSON.parse(run.events) as Event[])}`;
 
+    if ("session" in target && run.user_id === teamRoutines) {
+      end(run, "blocked", "a team routine starts a Session of its own");
+
+      return;
+    }
+
     if ("session" in target) {
       const sent = sessions.send(
         target.session,
@@ -641,7 +651,9 @@ export function routinesEngine(
     try {
       const session = sessions.start(
         {
-          actor: `user:${run.user_id}`,
+          ...(run.user_id === teamRoutines
+            ? { actor: "plugin:routines", team: true }
+            : { actor: `user:${run.user_id}` }),
           workspace: target.workspace,
           ...(target.environment !== undefined && {
             environment: target.environment,
@@ -952,11 +964,19 @@ export function routinesEngine(
         );
       }
 
+      let routine;
+
       try {
-        routineOf(value);
+        routine = routineOf(value);
       } catch (error) {
         throw new BadRequest(
           error instanceof Error ? error.message : String(error),
+        );
+      }
+
+      if (userId === teamRoutines && "session" in routine.run) {
+        throw new BadRequest(
+          "a team routine starts a Session of its own each time",
         );
       }
 
