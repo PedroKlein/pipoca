@@ -838,6 +838,35 @@ test("edits pipoca.json on the Configuration page, and Settings follows it", asy
   await file.getByText("Edited").waitFor({ state: "detached" });
 });
 
+test("opens a shared Profile's file from the Configuration tree and saves it", async () => {
+  const folder = join(root, "config", "profiles", "tree");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "AGENTS.md"), "Be brief.\n");
+
+  await page.goto(server.url.href);
+  await openSettings("Configuration");
+
+  const tree = page.getByRole("navigation", { name: "Config files" });
+  await tree.getByRole("button", { name: "profiles/" }).click();
+  await tree.getByRole("button", { name: "tree/" }).click();
+  await tree.getByRole("button", { name: "AGENTS.md" }).click();
+
+  const file = page.getByRole("region", { name: "profiles/tree/AGENTS.md" });
+  const contents = file.getByLabel("profiles/tree/AGENTS.md contents");
+
+  await page.waitForFunction(
+    'document.querySelector(\'[aria-label="profiles/tree/AGENTS.md contents"]\')?.value === "Be brief.\\n"',
+  );
+
+  await contents.fill("Be very brief.");
+  await file.getByRole("button", { name: "Save" }).click();
+  await file.getByText("Edited").waitFor({ state: "detached" });
+
+  expect(await readFile(join(folder, "AGENTS.md"), "utf8")).toBe(
+    "Be very brief.\n",
+  );
+});
+
 test("turns an installed plugin on for the next start", async () => {
   await page.goto(server.url.href);
   await openSettings("Plugins");

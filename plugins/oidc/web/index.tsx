@@ -62,18 +62,48 @@ function SettingsSection({
       <PageTitle description="How people get into this server, and who may join.">
         Sign-in
       </PageTitle>
+      {value.lockedIn !== null && <LockedNotice file={value.lockedIn} />}
       <Providers
         context={context}
         providers={providers.value}
+        locked={value.lockedIn !== null}
         onChange={changed}
       />
       <Rules
         context={context}
         account={value}
         providers={providers.value}
+        locked={value.lockedIn !== null}
         onChange={changed}
       />
     </>
+  );
+}
+
+function LockedNotice({ file }: { readonly file: string }): ReactElement {
+  return (
+    <aside
+      aria-label="Set in a config file"
+      className="mt-6 flex items-start gap-3 rounded-lg bg-hover px-4 py-3"
+    >
+      <Icon name="lock" />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-ui font-medium text-fg-strong">
+          Some of this is set in the server&apos;s config file
+        </span>
+        <span className="text-label text-fg-muted">
+          <code className="font-mono">{file}</code> sets oidc, so its providers
+          and who can join are read-only here.
+        </span>
+      </span>
+      <Button
+        onClick={() => {
+          location.hash = "#settings/configuration";
+        }}
+      >
+        View file
+      </Button>
+    </aside>
   );
 }
 
@@ -194,10 +224,12 @@ const presets: readonly Preset[] = [
 function Providers({
   context,
   providers,
+  locked,
   onChange,
 }: {
   readonly context: WebContext;
   readonly providers: readonly ProviderView[] | undefined;
+  readonly locked: boolean;
   readonly onChange: () => void;
 }): ReactElement {
   const [editing, setEditing] = useState<ProviderView | Preset>();
@@ -231,6 +263,7 @@ function Providers({
               key={provider.id}
               context={context}
               provider={provider}
+              locked={locked}
               onEdit={() => {
                 setEditing(provider);
               }}
@@ -266,27 +299,29 @@ function Providers({
           }}
         />
       )}
-      <ul
-        aria-label="Add a provider"
-        className="grid grid-cols-2 gap-2.5 md:grid-cols-4"
-      >
-        {presets.map((preset) => (
-          <li key={preset.name}>
-            <button
-              type="button"
-              onClick={() => {
-                setEditing(preset);
-              }}
-              className="flex h-full w-full cursor-pointer flex-col items-start gap-1 rounded-lg border border-line bg-elevated px-4 py-3.5 text-left shadow-xs hover:border-line-strong"
-            >
-              <span className="text-ui font-medium text-fg-strong">
-                {preset.name}
-              </span>
-              <span className="text-label text-fg-dim">{preset.hint}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
+      {!locked && (
+        <ul
+          aria-label="Add a provider"
+          className="grid grid-cols-2 gap-2.5 md:grid-cols-4"
+        >
+          {presets.map((preset) => (
+            <li key={preset.name}>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditing(preset);
+                }}
+                className="flex h-full w-full cursor-pointer flex-col items-start gap-1 rounded-lg border border-line bg-elevated px-4 py-3.5 text-left shadow-xs hover:border-line-strong"
+              >
+                <span className="text-ui font-medium text-fg-strong">
+                  {preset.name}
+                </span>
+                <span className="text-label text-fg-dim">{preset.hint}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </Section>
   );
 }
@@ -294,10 +329,12 @@ function Providers({
 function ProviderRow({
   context,
   provider,
+  locked,
   onEdit,
 }: {
   readonly context: WebContext;
   readonly provider: ProviderView;
+  readonly locked: boolean;
   readonly onEdit: () => void;
 }): ReactElement {
   const [test, setTest] = useState<ProviderTest | "testing">();
@@ -324,6 +361,11 @@ function ProviderRow({
         <>
           {provider.label}
           {badge()}
+          {locked && (
+            <span className="inline-flex h-5 items-center rounded-full bg-hover px-2 text-caption font-medium text-fg-muted">
+              Config file
+            </span>
+          )}
         </>
       }
       description={
@@ -361,13 +403,15 @@ function ProviderRow({
       >
         Test
       </Button>
-      <Button
-        variant="ghost"
-        aria-label={`Edit ${provider.label}`}
-        onClick={onEdit}
-      >
-        Edit
-      </Button>
+      {!locked && (
+        <Button
+          variant="ghost"
+          aria-label={`Edit ${provider.label}`}
+          onClick={onEdit}
+        >
+          Edit
+        </Button>
+      )}
     </Row>
   );
 }
@@ -376,11 +420,13 @@ function Rules({
   context,
   account,
   providers,
+  locked,
   onChange,
 }: {
   readonly context: WebContext;
   readonly account: Account;
   readonly providers: readonly ProviderView[] | undefined;
+  readonly locked: boolean;
   readonly onChange: () => void;
 }): ReactElement {
   const [error, setError] = useState<string>();
@@ -476,7 +522,7 @@ function Rules({
             </>
           }
         >
-          {only !== undefined && domain !== undefined && (
+          {!locked && only !== undefined && domain !== undefined && (
             <Segmented
               label="Who can join"
               value={only.allowedDomains.length > 0 ? "domain" : "invited"}

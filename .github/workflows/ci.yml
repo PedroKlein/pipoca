@@ -35,6 +35,11 @@ jobs:
           cluster_name: pipoca
       # Releases installed before a values block existed upgrade with --reuse-values.
       - run: helm template pipoca deploy/helm/pipoca --set oidc=null > /dev/null
+      - name: A locked config mounts read-only and reaches the server
+        run: |
+          out=$(helm template pipoca deploy/helm/pipoca --set-json 'lockedConfig={"oidc":{"providers":[]}}')
+          grep -q -- "--locked-config" <<<"$out"
+          grep -q "pipoca-locked-config" <<<"$out"
       - name: The APIRule keeps runners and MCP out unless asked
         run: |
           rule() { helm template pipoca deploy/helm/pipoca --set apiRule.enabled=true --set apiRule.host=pi.example.com "$@" --show-only templates/apirule.yaml; }

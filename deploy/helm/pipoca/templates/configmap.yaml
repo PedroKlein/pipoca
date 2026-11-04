@@ -9,3 +9,15 @@ data:
   pipoca.json: |
     {{- toPrettyJson . | nindent 4 }}
 {{- end }}
+{{- with .Values.lockedConfig }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $.Release.Name }}-locked-config
+  labels:
+    {{- include "pipoca.labels" $ | nindent 4 }}
+data:
+  pipoca.json: |
+    {{- toPrettyJson . | nindent 4 }}
+{{- end }}

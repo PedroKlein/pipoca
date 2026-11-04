@@ -58,7 +58,7 @@ import {
 } from "./requests";
 import { presences } from "./presence";
 import { sseResponse } from "./sse";
-import type { ConfigFile } from "./config";
+import type { ConfigFiles } from "./config";
 import type { Templates } from "./templates";
 import { type Hub, layoutOf } from "./hub";
 
@@ -116,7 +116,7 @@ export function createHandler(
   log: Log,
   restart?: ServerRestart,
   templates?: Templates,
-  config?: ConfigFile,
+  config?: ConfigFiles,
   hub?: Hub,
 ): (request: Request) => Promise<Response> {
   const present = presences();
@@ -845,12 +845,26 @@ export function createHandler(
 
         return config === undefined
           ? notFound()
-          : Response.json({ path: config.path, ...config.read() });
+          : Response.json({ root: config.root, files: config.list() });
+      },
+    ],
+    [
+      "GET",
+      /^\/api\/config\/file$/,
+      (request, _params, _actor, isAdmin) => {
+        if (!isAdmin) {
+          return errorReply(403, "admin_only", "Only admins edit the config.");
+        }
+
+        const name = new URL(request.url).searchParams.get("name") ?? "";
+        const file = config?.read(name);
+
+        return file === undefined ? notFound() : Response.json(file);
       },
     ],
     [
       "PUT",
-      /^\/api\/config$/,
+      /^\/api\/config\/file$/,
       async (request, _params, _actor, isAdmin) => {
         if (!isAdmin) {
           return errorReply(403, "admin_only", "Only admins edit the config.");
@@ -860,17 +874,21 @@ export function createHandler(
           return notFound();
         }
 
-        const fields = fieldsOf(await readJson(request));
-        const { text, version } = fields;
+        const { name, text, version } = fieldsOf(await readJson(request));
 
         if (
+          typeof name !== "string" ||
           typeof text !== "string" ||
           (version !== null && typeof version !== "string")
         ) {
-          return errorReply(400, "invalid_config", "Send text and version.");
+          return errorReply(
+            400,
+            "invalid_config",
+            "Send name, text and version.",
+          );
         }
 
-        const failure = config.write(text, version);
+        const failure = config.write(name, text, version);
 
         if (failure !== undefined) {
           return errorReply(
@@ -880,9 +898,9 @@ export function createHandler(
           );
         }
 
-        log("config file edited", { path: config.path });
+        log("config file edited", { name });
 
-        return Response.json({ path: config.path, ...config.read() });
+        return Response.json(config.read(name));
       },
     ],
     [

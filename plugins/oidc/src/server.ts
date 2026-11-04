@@ -444,6 +444,7 @@ export const oidc: ServerPlugin = {
     const account = (user: User): Account => ({
       admin: user.admin,
       passwordLogin: context.auth.passwordLogin(),
+      lockedIn: context.config.lockedIn() ?? null,
       providers: providers
         .list()
         .map(({ id, label, issuer }) => ({ id, label, issuer })),

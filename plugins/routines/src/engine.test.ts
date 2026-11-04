@@ -122,7 +122,12 @@ function start({
         ...fakeContext().environments,
         list: () => [],
       },
-      config: { get: () => undefined, set: () => undefined, dir },
+      config: {
+        get: () => undefined,
+        set: () => undefined,
+        lockedIn: () => undefined,
+        dir,
+      },
       store,
       signal: stop.signal,
     }),

@@ -25,7 +25,7 @@ import { Sessions, type SessionsOptions } from "@pipoca/sessions";
 import web from "@pipoca/web/index.html";
 import { type AgentOptions, runAgent } from "./agent";
 import { Auth } from "./auth";
-import { configFile, configFolder } from "./config";
+import { configFiles, configFolder } from "./config";
 import { sessionDocs } from "./docs";
 import { hubLayout } from "./hub";
 import { environmentTemplates } from "./templates";
@@ -82,6 +82,9 @@ export interface ServeOptions {
   // Holds pipoca.json and the plugins' own config files (ADR 0039); a
   // config folder next to the database when unset.
   readonly configDir?: string;
+  // A pipoca.json whose plugin keys win and stay read-only in Settings, such
+  // as the one the Helm chart mounts (ADR 0063).
+  readonly lockedConfig?: string;
   // Encrypts Environment secrets; a file next to the database when unset.
   readonly secretKey?: Buffer;
   // False leaves only the setup link and plugin logins, such as OIDC.
@@ -153,7 +156,7 @@ export function serve(options: ServeOptions): {
       ? mkdtempSync(join(tmpdir(), "pipoca-config-"))
       : join(dirname(options.database), "config"));
 
-  const config = configFolder(configDir, options.log);
+  const config = configFolder(configDir, options.log, options.lockedConfig);
 
   const profiles = new ProfileFolders(
     join(configDir, "profiles"),
@@ -358,7 +361,7 @@ export function serve(options: ServeOptions): {
       now: options.restart,
     },
     templates,
-    configFile(configDir),
+    configFiles(configDir, options.lockedConfig),
     hubLayout(config("hub")),
   );
 

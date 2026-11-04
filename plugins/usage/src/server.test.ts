@@ -35,6 +35,7 @@ function registered(
       config: {
         get: () => ({ prices, budgets }),
         set: () => undefined,
+        lockedIn: () => undefined,
         dir: "",
       },
       routes: {

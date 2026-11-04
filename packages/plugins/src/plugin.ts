@@ -215,6 +215,9 @@ export interface PluginConfig {
   readonly set: (value: unknown) => void;
   // A folder of the plugin's own, which may not exist yet.
   readonly dir: string;
+  // The file that fixes the plugin's key, such as one Helm writes, while set
+  // throws (ADR 0063).
+  readonly lockedIn: () => string | undefined;
 }
 
 export interface ProfileMcpServer {

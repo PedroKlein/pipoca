@@ -809,6 +809,7 @@ test("lets a password user link their account and sign in with it", async () => 
   expect(await account.json()).toEqual({
     admin: true,
     passwordLogin: true,
+    lockedIn: null,
     providers: [
       { id: providerId, label: "Sign in with IAS", issuer: provider.issuer },
     ],

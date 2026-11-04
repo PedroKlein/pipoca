@@ -48,6 +48,7 @@ test("reports unhealthy when the database can't be read, keeping why in the log"
       config: (name) => ({
         get: () => undefined,
         set: () => undefined,
+        lockedIn: () => undefined,
         dir: name,
       }),
       toolsets: [],
@@ -135,6 +136,7 @@ function startServer(
       config: (name) => ({
         get: () => undefined,
         set: () => undefined,
+        lockedIn: () => undefined,
         dir: name,
       }),
       toolsets: [],
@@ -515,6 +517,7 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
         config: (name) => ({
           get: () => undefined,
           set: () => undefined,
+          lockedIn: () => undefined,
           dir: name,
         }),
         toolsets: [],

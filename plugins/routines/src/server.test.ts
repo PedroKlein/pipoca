@@ -20,6 +20,7 @@ test("a team Session can't make routines, which would run as its starter", async
       config: {
         get: () => undefined,
         set: () => undefined,
+        lockedIn: () => undefined,
         dir: await mkdtemp(join(tmpdir(), "routines-")),
       },
       tools: { register: () => undefined },
