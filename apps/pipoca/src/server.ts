@@ -608,8 +608,10 @@ export function createHandler(
             sessions
               .environments(person)
               .filter(({ ownerId }) => ownerId === teamOwner)
+              // Anyone can start team work, so they see its folders and
+              // models; only its variables stay with admins.
               .map((environment) =>
-                isAdmin ? environment : environmentOutline(environment),
+                isAdmin ? environment : { ...environment, variables: {} },
               ),
           );
         }

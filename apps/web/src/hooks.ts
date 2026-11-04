@@ -94,6 +94,21 @@ export function useTeamSessions(): WatchedList<Session> {
   ) as WatchedList<Session>;
 }
 
+// The team's Environments and Profiles, which any user starts team work on.
+export function useTeamEnvironments(): WatchedList<Environment> {
+  return useWatchedList(
+    "/api/environments?owner=team",
+    "environments",
+  ) as WatchedList<Environment>;
+}
+
+export function useTeamProfiles(): WatchedList<Profile> {
+  return useWatchedList(
+    "/api/profiles?owner=team",
+    "profiles",
+  ) as WatchedList<Profile>;
+}
+
 // The team hub's pages, or null while it shows every panel on Home.
 export function useHubLayout(): {
   readonly pages: readonly HubPage[] | null;
