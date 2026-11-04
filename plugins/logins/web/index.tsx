@@ -20,11 +20,21 @@ import { ConnectForm, ConnectionCard } from "./connect";
 import { layerName } from "./layers";
 import { ProfileLogins } from "./profile";
 import { modelStep } from "./setup";
+import { TeamCredentials } from "./team";
 
 export const logins: WebPlugin = {
   name: "logins",
   settingsParts: { Accounts, Profile: ProfileLogins },
   setupStep: modelStep,
+  hub: {
+    setup: {
+      credentials: {
+        label: "Credentials",
+        group: "runs-on",
+        Page: TeamCredentials,
+      },
+    },
+  },
 };
 
 function layerPlace(

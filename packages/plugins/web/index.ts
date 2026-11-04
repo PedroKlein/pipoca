@@ -171,6 +171,12 @@ export interface HubScreen {
   readonly Page: ComponentType<{ readonly context: WebContext }>;
 }
 
+// A screen of Team setup, which only admins open, listed with what team work
+// runs on or with its rules.
+export interface SetupScreen extends HubScreen {
+  readonly group: "runs-on" | "rules";
+}
+
 // Each slot is a React component rendered by the web app (ADR 0015).
 export interface WebPlugin {
   readonly name: string;
@@ -187,6 +193,7 @@ export interface WebPlugin {
   readonly hub?: {
     readonly panels?: Readonly<Record<string, HubPanel>>;
     readonly pages?: Readonly<Record<string, HubScreen>>;
+    readonly setup?: Readonly<Record<string, SetupScreen>>;
   };
   // The first enabled plugin with a home screen draws the app's root.
   readonly Home?: ComponentType<HomeProps>;

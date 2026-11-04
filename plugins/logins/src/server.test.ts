@@ -1065,3 +1065,31 @@ test("the proxy reads OpenAI's and Google's token reports too", async () => {
     google.map(({ model, input, output }) => [model, input, output]),
   ).toEqual([["gemini-2.5-flash", 13, 9]]);
 });
+
+test("an admin sees which of the team's keys reach models only through the server", async () => {
+  const { route } = registered();
+  const admin = fakeUser({ id: "admin", admin: true });
+
+  for (const provider of ["anthropic", "my-extension"]) {
+    await call(route, admin, "save", {
+      provider,
+      credential: { type: "api_key", key: "sk-team" },
+      layer: "base",
+    });
+  }
+
+  expect((await call(route, fakeUser({ id: "ana" }), "team-keys")).status).toBe(
+    403,
+  );
+
+  await proxyReady(route, {
+    kind: "session",
+    session: fakeSession({ id: "team-1", ownedBy: "team" }),
+    actor: "session:team-1",
+  });
+
+  expect(await (await call(route, admin, "team-keys")).json()).toEqual([
+    { provider: "anthropic", proxied: true },
+    { provider: "my-extension", proxied: false },
+  ]);
+});

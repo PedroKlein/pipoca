@@ -4039,3 +4039,70 @@ test("shows plugin panels on the team hub and lets an admin lay out a page of th
 
   expect(await nav.getByRole("link", { name: "Costs" }).count()).toBe(0);
 });
+
+test("an admin sets up team work from Team setup: its Profiles, Environments, credentials, budgets and audit log", async () => {
+  await page.goto(new URL("/#team", server.url).href);
+
+  await page
+    .getByRole("navigation", { name: "Team" })
+    .getByRole("link", { name: "Team setup" })
+    .click();
+
+  const nav = page.getByRole("navigation", { name: "Team setup" });
+
+  await page.getByRole("heading", { name: "Team Profiles" }).waitFor();
+  await page.getByRole("link", { name: "New team Profile" }).click();
+  await page.getByLabel("Name").fill("Backend");
+  await page.getByRole("button", { name: "Create Profile" }).click();
+
+  await page.getByRole("link", { name: "Open as files" }).waitFor();
+  expect(new URL(page.url()).hash).toMatch(/^#team\/setup\/profiles\/.+/);
+
+  expect(
+    await page
+      .getByRole("navigation", { name: "Profiles" })
+      .getByRole("link", { name: "My defaults" })
+      .count(),
+  ).toBe(0);
+
+  const teamProfiles = (await (
+    await page.request.get(new URL("/api/profiles?owner=team", server.url).href)
+  ).json()) as Profile[];
+
+  expect(teamProfiles.map(({ name }) => name)).toContain("Backend");
+
+  await nav.getByRole("link", { name: /^Environments/ }).click();
+  await page.getByRole("heading", { name: "Team Environments" }).waitFor();
+  await page.getByRole("button", { name: "New Environment" }).click();
+  await page.getByLabel("New Environment name").fill("team-machines");
+  await page.getByRole("button", { name: "Create" }).click();
+
+  await page.getByRole("link", { name: "Team Environments" }).waitFor();
+
+  expect(new URL(page.url()).hash).toMatch(/^#team\/setup\/environments\/.+/);
+
+  await nav.getByRole("link", { name: "Credentials" }).click();
+  await page.getByRole("heading", { name: "Credentials" }).waitFor();
+  await page.getByText("No team key yet.").waitFor();
+
+  await nav.getByRole("link", { name: "Budgets" }).click();
+  await page.getByLabel("Team budget").fill("200");
+  await page.getByLabel("Each person's cap").fill("40");
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByRole("status").getByText("Saved").waitFor();
+
+  const totals = (await (
+    await page.request.get(
+      new URL("/api/plugins/usage/totals", server.url).href,
+    )
+  ).json()) as { budgets: unknown };
+
+  expect(totals.budgets).toEqual({ team: 200, person: 40 });
+
+  await nav.getByRole("link", { name: "Audit log" }).click();
+  await page.getByRole("heading", { name: "Audit log" }).waitFor();
+  await page.getByRole("link", { name: "Download CSV" }).waitFor();
+
+  await nav.getByRole("link", { name: "Team home" }).click();
+  await page.getByRole("heading", { name: "Team home" }).waitFor();
+});

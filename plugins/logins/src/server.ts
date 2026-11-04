@@ -11,6 +11,7 @@ import {
   NotFound,
   type PluginStore,
   readBody,
+  requireAdmin,
   type RouteCaller,
   type ServerPlugin,
   type ServerPluginContext,
@@ -331,6 +332,19 @@ export const logins: ServerPlugin = {
 
         return owner;
       };
+
+      // Which of the team's keys team work reaches only through the proxy,
+      // so their runners never hold them (ADR 0066).
+      if (route === "team-keys" && request.method === "GET") {
+        requireAdmin(caller, "Only admins see the team's keys.");
+
+        return Response.json(
+          models.list(baseOwner).map(({ key: provider, type }) => ({
+            provider,
+            proxied: type === "api_key" && proxied.has(provider),
+          })),
+        );
+      }
 
       if (route === "account" && request.method === "GET") {
         return Response.json(account(userId, caller.admin));

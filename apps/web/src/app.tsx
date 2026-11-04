@@ -25,6 +25,7 @@ import { Mark } from "./mark";
 import { SetupReminders, SetupWizard } from "./setup";
 import { Sidebar } from "./sidebar";
 import { isTeamRoute, TeamHub } from "./team-hub";
+import { isTeamSetupRoute, TeamSetup } from "./team-setup";
 
 export function App({
   nav,
@@ -208,7 +209,11 @@ export function App({
   if (page === undefined && team && isTeamRoute(route)) {
     return (
       <div className="flex h-dvh overflow-hidden bg-bg font-sans text-ui text-fg">
-        <TeamHub route={route} admin={admin} />
+        {admin && isTeamSetupRoute(route) ? (
+          <TeamSetup route={route} people={people} />
+        ) : (
+          <TeamHub route={route} admin={admin} />
+        )}
       </div>
     );
   }

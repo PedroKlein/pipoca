@@ -41,6 +41,12 @@ const systemPromptNotes: Readonly<Record<SystemPrompt, string>> = {
     "Replacing it drops Pi's built-in guidance for tools; most Profiles only add to it.",
 };
 
+// Where Profiles open: the team's in Team setup, which never load anyone's
+// My defaults (ADR 0064).
+export function profilesPath(team: boolean): string {
+  return team ? "team/setup/profiles" : "profiles";
+}
+
 // A Profile at a glance, as the mockups lay it out (ADR 0063). Each card
 // opens its tab to edit the files behind it.
 export function ProfileOverview({
@@ -57,14 +63,18 @@ export function ProfileOverview({
   readonly children?: ReactNode;
 }): ReactElement {
   const url = `/api/profiles/${profile.id}/files`;
-  const tab = (name: string): string => `#profiles/${profile.id}/${name}`;
+
+  const tab = (name: string): string =>
+    `#${profilesPath(profile.ownerId === "team")}/${profile.id}/${name}`;
 
   const below: readonly Below[] = [
     ...chainOf(profile, profiles).map(({ id, name }) => ({
       name,
       url: `/api/profiles/${id}/files`,
     })),
-    { name: "My defaults", url: "/api/defaults/files" },
+    ...(profile.ownerId === "team"
+      ? []
+      : [{ name: "My defaults", url: "/api/defaults/files" }]),
     { name: "Server base", url: "/api/base/files" },
   ];
 
