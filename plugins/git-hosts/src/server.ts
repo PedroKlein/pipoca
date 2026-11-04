@@ -20,6 +20,7 @@ import {
 import { hash, originOf, page, redirect, secure } from "./pages";
 import { pullRequests } from "./pull-requests";
 import { acting } from "./acting";
+import { commitAsBody, commitAsStore } from "./commit-as";
 import { technicalUserRoutes } from "./technical-user-routes";
 import { technicalUsers } from "./technical-users";
 import { eventOf, signedWith } from "./webhooks";
@@ -62,6 +63,7 @@ export const gitHosts: ServerPlugin = {
     );
 
     const connections = connectionStore(context.store);
+    const commitAs = commitAsStore(context.store);
     const pending = new Map<string, Pending>();
 
     const bots = technicalUsers(context.config, context.store, context.log);
@@ -408,10 +410,14 @@ export const gitHosts: ServerPlugin = {
         const { actsAs } = caller.session;
 
         if (parts[0] === "identity" && request.method === "GET") {
+          const { startedBy } = caller.session;
+
+          if (actsAs !== null) {
+            return Response.json((await actingAs.identity(actsAs)) ?? null);
+          }
+
           return Response.json(
-            actsAs === null
-              ? null
-              : ((await actingAs.identity(actsAs)) ?? null),
+            startedBy === null ? null : commitAs.of(startedBy),
           );
         }
 
@@ -437,6 +443,14 @@ export const gitHosts: ServerPlugin = {
         return route === "hosts"
           ? await manage(request, parts)
           : await technical.manage(request, parts, user.id);
+      }
+
+      if (route === "commit-as") {
+        if (request.method === "POST") {
+          commitAs.choose(user.id, await readBody(request, commitAsBody));
+        }
+
+        return Response.json(commitAs.of(user.id));
       }
 
       if (route === "account" && request.method === "GET") {

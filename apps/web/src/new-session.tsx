@@ -17,6 +17,7 @@ import {
 } from "@pipoca/ui";
 import {
   type ReactElement,
+  type ReactNode,
   type SubmitEvent,
   useEffect,
   useEffectEvent,
@@ -149,6 +150,70 @@ export function NewSessionDialog({
   readonly onClose: () => void;
 }): ReactElement {
   const dialog = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    if (open) {
+      dialog.current?.showModal();
+      dialog.current?.querySelector("textarea")?.focus();
+    } else {
+      dialog.current?.close();
+    }
+  }, [open]);
+
+  return (
+    <dialog
+      ref={dialog}
+      onClose={onClose}
+      aria-labelledby="new-session-title"
+      className="m-auto w-[min(680px,calc(100vw-32px))] overflow-visible rounded-xl border border-line bg-elevated p-0 text-fg shadow-pop backdrop:bg-black/30 backdrop:backdrop-blur-[2px] open:animate-pop-in max-sm:mb-0 max-sm:w-full max-sm:rounded-b-none"
+    >
+      {open && (
+        <NewSessionForm
+          environments={environments}
+          profiles={profiles}
+          sessions={sessions}
+          placeholder="What should Pi do? Leave it empty to start idle."
+          onStarted={onClose}
+        >
+          <header className="flex items-center gap-2 pt-3 pr-3 pb-1 pl-5">
+            <h2
+              id="new-session-title"
+              className="flex-1 text-ui font-semibold text-fg-strong"
+            >
+              New session
+            </h2>
+            <Button
+              variant="ghost"
+              iconOnly
+              aria-label="Close"
+              onClick={onClose}
+            >
+              <Icon name="x" />
+            </Button>
+          </header>
+        </NewSessionForm>
+      )}
+    </dialog>
+  );
+}
+
+// The composer that starts a Session: what Pi should do, where, and with
+// which model and Profile.
+export function NewSessionForm({
+  environments,
+  profiles,
+  sessions,
+  placeholder,
+  onStarted,
+  children,
+}: {
+  readonly environments: readonly Environment[];
+  readonly profiles: readonly Profile[];
+  readonly sessions: readonly Session[];
+  readonly placeholder: string;
+  readonly onStarted: () => void;
+  readonly children?: ReactNode;
+}): ReactElement {
   const message = useRef<HTMLTextAreaElement>(null);
   const [choices, setChoices] = useState(remembered);
   const [text, setText] = useState("");
@@ -183,14 +248,8 @@ export function NewSessionDialog({
   });
 
   useEffect(() => {
-    if (open) {
-      dialog.current?.showModal();
-      message.current?.focus();
-      opened();
-    } else {
-      dialog.current?.close();
-    }
-  }, [open]);
+    opened();
+  }, []);
 
   const choose = (change: Partial<Choices>): void => {
     setChoices((current) => ({ ...current, ...change }));
@@ -277,7 +336,7 @@ export function NewSessionDialog({
         setError(undefined);
         setText("");
         setStartPoint("");
-        onClose();
+        onStarted();
         location.hash = ((await response.json()) as Session).id;
       })
       .catch((reason: unknown) => {
@@ -289,200 +348,183 @@ export function NewSessionDialog({
   };
 
   return (
-    <dialog
-      ref={dialog}
-      onClose={onClose}
-      aria-labelledby="new-session-title"
-      className="m-auto w-[min(680px,calc(100vw-32px))] overflow-visible rounded-xl border border-line bg-elevated p-0 text-fg shadow-pop backdrop:bg-black/30 backdrop:backdrop-blur-[2px] open:animate-pop-in max-sm:mb-0 max-sm:w-full max-sm:rounded-b-none"
-    >
-      <form id="create" onSubmit={submit} className="flex flex-col">
-        <header className="flex items-center gap-2 pt-3 pr-3 pb-1 pl-5">
-          <h2
-            id="new-session-title"
-            className="flex-1 text-ui font-semibold text-fg-strong"
-          >
-            New session
-          </h2>
-          <Button variant="ghost" iconOnly aria-label="Close" onClick={onClose}>
-            <Icon name="x" />
-          </Button>
-        </header>
+    <form id="create" onSubmit={submit} className="flex flex-col">
+      {children}
 
-        <label htmlFor="first-message" className="sr-only">
-          What should Pi do?
-        </label>
-        <textarea
-          ref={message}
-          id="first-message"
-          rows={4}
-          value={text}
-          placeholder="What should Pi do? Leave it empty to start idle."
-          onChange={(event) => {
-            setText(event.target.value);
-          }}
-          onKeyDown={(event) => {
-            const forced = event.metaKey || event.ctrlKey;
+      <label htmlFor="first-message" className="sr-only">
+        What should Pi do?
+      </label>
+      <textarea
+        ref={message}
+        id="first-message"
+        rows={4}
+        value={text}
+        placeholder={placeholder}
+        onChange={(event) => {
+          setText(event.target.value);
+        }}
+        onKeyDown={(event) => {
+          const forced = event.metaKey || event.ctrlKey;
 
-            if (
-              isComposing(event) ||
-              event.key !== "Enter" ||
-              event.shiftKey ||
-              (!forced && matchMedia("(pointer: coarse)").matches)
-            ) {
-              return;
-            }
+          if (
+            isComposing(event) ||
+            event.key !== "Enter" ||
+            event.shiftKey ||
+            (!forced && matchMedia("(pointer: coarse)").matches)
+          ) {
+            return;
+          }
 
-            event.preventDefault();
-            submit();
-          }}
-          className="max-h-80 min-h-24 resize-none field-sizing-content bg-transparent px-5 py-2 text-prose text-fg placeholder:text-fg-dim focus:outline-none"
-        />
+          event.preventDefault();
+          submit();
+        }}
+        className="max-h-80 min-h-24 resize-none field-sizing-content bg-transparent px-5 py-2 text-prose text-fg placeholder:text-fg-dim focus:outline-none"
+      />
 
-        <div className="flex flex-wrap items-center gap-1.5 px-4 pb-3">
-          <Picker
-            label="Folder or repository"
-            options={offered}
-            selected={choices.where}
-            multiple
-            onSearch={search}
-            placeholder="Search, or paste a path or repository URL"
-            create={(query) => ({
-              value: query,
-              label: `Use ${query}`,
-              detail: isRepository(query) ? "clone" : "folder",
-            })}
-            footer={
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={choices.share}
-                  onChange={(event) => {
-                    choose({ share: event.target.checked });
-                  }}
-                />
-                Share the folder instead of a worktree of it
-              </label>
-            }
-            onChange={(where) => {
-              choose({ where });
-            }}
-          >
-            {choices.where.length === 0 ? (
-              <span className="text-fg-dim">Pick a folder or repository</span>
-            ) : (
-              choices.where.map(lastSegment).join(", ")
-            )}
-          </Picker>
-
-          {!sharing && (
-            <Picker
-              label="Start from"
-              options={[{ value: "", label: "Current branch" }]}
-              selected={[startPoint]}
-              placeholder="Branch, tag or commit"
-              create={(query) => ({ value: query, label: query })}
-              onChange={([value]) => {
-                setStartPoint(value ?? "");
-              }}
-            >
-              <span className="text-fg-dim">from </span>
-              {startPoint === "" ? "current branch" : startPoint}
-            </Picker>
-          )}
-
-          {environments.length > 1 && (
-            <Picker
-              label="Environment"
-              options={environments.map((environment) => ({
-                value: environment.id,
-                label: environment.name,
-                detail: availability(environment).toLowerCase(),
-              }))}
-              selected={chosen ? [chosen.id] : []}
-              onChange={([environment]) => {
-                choose({ environment: environment ?? "", model: "" });
-              }}
-            >
-              <span className="text-fg-dim">on </span>
-              {chosen?.name}
-            </Picker>
-          )}
-
-          <Picker
-            label="Model"
-            options={[
-              { value: "", label: "Environment default" },
-              ...modelChoices,
-            ]}
-            {...(openGroups && { openGroups })}
-            selected={[choices.model]}
-            placeholder="Search models"
-            create={(query) =>
-              modelRef(query) === undefined
-                ? undefined
-                : { value: query, label: `Use ${query}` }
-            }
-            footer={
-              <Slider
-                label="Reasoning"
-                stops={(["", ...thinkingLevels] as const).map((level) => ({
-                  value: level,
-                  label: level === "" ? "default" : level,
-                }))}
-                value={choices.thinking}
-                onChange={(level) => {
-                  choose({ thinking: level });
+      <div className="flex flex-wrap items-center gap-1.5 px-4 pb-3">
+        <Picker
+          label="Folder or repository"
+          options={offered}
+          selected={choices.where}
+          multiple
+          onSearch={search}
+          placeholder="Search, or paste a path or repository URL"
+          create={(query) => ({
+            value: query,
+            label: `Use ${query}`,
+            detail: isRepository(query) ? "clone" : "folder",
+          })}
+          footer={
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                checked={choices.share}
+                onChange={(event) => {
+                  choose({ share: event.target.checked });
                 }}
               />
-            }
-            onChange={([model]) => {
-              if (model !== undefined && model !== "") {
-                rememberModel(model);
-              }
+              Share the folder instead of a worktree of it
+            </label>
+          }
+          onChange={(where) => {
+            choose({ where });
+          }}
+        >
+          {choices.where.length === 0 ? (
+            <span className="text-fg-dim">Pick a folder or repository</span>
+          ) : (
+            choices.where.map(lastSegment).join(", ")
+          )}
+        </Picker>
 
-              choose({ model: model ?? "" });
+        {!sharing && (
+          <Picker
+            label="Start from"
+            options={[{ value: "", label: "Current branch" }]}
+            selected={[startPoint]}
+            placeholder="Branch, tag or commit"
+            create={(query) => ({ value: query, label: query })}
+            onChange={([value]) => {
+              setStartPoint(value ?? "");
             }}
           >
-            {choices.model === "" ? "Default model" : choices.model}
-            {choices.thinking !== "" && ` · ${choices.thinking}`}
+            <span className="text-fg-dim">from </span>
+            {startPoint === "" ? "current branch" : startPoint}
           </Picker>
-
-          {profiles.length > 1 && (
-            <Picker
-              label="Profile"
-              options={profiles.map(({ id, name, isDefault }) => ({
-                value: id,
-                label: name,
-                ...(isDefault && { detail: "default" }),
-              }))}
-              selected={profile ? [profile.id] : []}
-              onChange={([id]) => {
-                choose({ profile: id ?? "" });
-              }}
-            >
-              {profile?.name}
-            </Picker>
-          )}
-
-          <Button
-            variant="primary"
-            type="submit"
-            disabled={submitting}
-            className="ml-auto"
-          >
-            Start session
-          </Button>
-        </div>
-
-        {error !== undefined && (
-          <p
-            role="alert"
-            className="border-t border-line px-5 py-2 text-caption text-failed"
-          >
-            {error}
-          </p>
         )}
-      </form>
-    </dialog>
+
+        {environments.length > 1 && (
+          <Picker
+            label="Environment"
+            options={environments.map((environment) => ({
+              value: environment.id,
+              label: environment.name,
+              detail: availability(environment).toLowerCase(),
+            }))}
+            selected={chosen ? [chosen.id] : []}
+            onChange={([environment]) => {
+              choose({ environment: environment ?? "", model: "" });
+            }}
+          >
+            <span className="text-fg-dim">on </span>
+            {chosen?.name}
+          </Picker>
+        )}
+
+        <Picker
+          label="Model"
+          options={[
+            { value: "", label: "Environment default" },
+            ...modelChoices,
+          ]}
+          {...(openGroups && { openGroups })}
+          selected={[choices.model]}
+          placeholder="Search models"
+          create={(query) =>
+            modelRef(query) === undefined
+              ? undefined
+              : { value: query, label: `Use ${query}` }
+          }
+          footer={
+            <Slider
+              label="Reasoning"
+              stops={(["", ...thinkingLevels] as const).map((level) => ({
+                value: level,
+                label: level === "" ? "default" : level,
+              }))}
+              value={choices.thinking}
+              onChange={(level) => {
+                choose({ thinking: level });
+              }}
+            />
+          }
+          onChange={([model]) => {
+            if (model !== undefined && model !== "") {
+              rememberModel(model);
+            }
+
+            choose({ model: model ?? "" });
+          }}
+        >
+          {choices.model === "" ? "Default model" : choices.model}
+          {choices.thinking !== "" && ` · ${choices.thinking}`}
+        </Picker>
+
+        {profiles.length > 1 && (
+          <Picker
+            label="Profile"
+            options={profiles.map(({ id, name, isDefault }) => ({
+              value: id,
+              label: name,
+              ...(isDefault && { detail: "default" }),
+            }))}
+            selected={profile ? [profile.id] : []}
+            onChange={([id]) => {
+              choose({ profile: id ?? "" });
+            }}
+          >
+            {profile?.name}
+          </Picker>
+        )}
+
+        <Button
+          variant="primary"
+          type="submit"
+          disabled={submitting}
+          className="ml-auto"
+        >
+          Start session
+        </Button>
+      </div>
+
+      {error !== undefined && (
+        <p
+          role="alert"
+          className="border-t border-line px-5 py-2 text-caption text-failed"
+        >
+          {error}
+        </p>
+      )}
+    </form>
   );
 }

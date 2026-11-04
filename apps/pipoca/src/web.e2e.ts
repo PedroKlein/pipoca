@@ -182,7 +182,8 @@ export default { name: "greeter", nav: { label: "Greeter", Page } };
   }
 
   await page.getByRole("heading", { name: "You're set, pedro" }).waitFor();
-  await page.getByRole("button", { name: "Start building" }).click();
+  await page.getByPlaceholder("What do you want to build first?").waitFor();
+  await page.getByRole("button", { name: "Done" }).click();
   await page.getByRole("button", { name: "New session" }).waitFor();
 
   const [session] = await page.context().cookies();
