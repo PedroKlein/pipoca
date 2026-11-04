@@ -25,7 +25,7 @@ import { Sessions, type SessionsOptions } from "@pipoca/sessions";
 import web from "@pipoca/web/index.html";
 import { type AgentOptions, runAgent } from "./agent";
 import { Auth } from "./auth";
-import { configFolder } from "./config";
+import { configFile, configFolder } from "./config";
 import { sessionDocs } from "./docs";
 import { environmentTemplates } from "./templates";
 import {
@@ -356,6 +356,7 @@ export function serve(options: ServeOptions): {
       now: options.restart,
     },
     templates,
+    configFile(configDir),
   );
 
   const terminals = terminalBroker(sessions, auth, options.log);

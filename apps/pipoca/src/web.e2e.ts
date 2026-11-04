@@ -800,6 +800,44 @@ test("names an alias and orders its fallbacks on the Models page", async () => {
   await alias.waitFor({ state: "detached" });
 });
 
+test("edits pipoca.json on the Configuration page, and Settings follows it", async () => {
+  await page.goto(server.url.href);
+  await openSettings("Configuration");
+
+  const file = page.getByRole("region", { name: "pipoca.json" });
+  const contents = file.getByLabel("pipoca.json contents");
+  await file.getByText("Valid", { exact: true }).waitFor();
+
+  const before = await contents.inputValue();
+
+  await contents.fill("{ nope");
+  await file.getByText("Not valid JSON").waitFor();
+
+  expect(await file.getByRole("button", { name: "Save" }).isDisabled()).toBe(
+    true,
+  );
+
+  const edited = JSON.parse(before) as Record<string, unknown>;
+
+  await contents.fill(
+    JSON.stringify({
+      ...edited,
+      "git-hosts": { hosts: [{ host: "git.example.org", label: "Forge" }] },
+    }),
+  );
+
+  await file.getByRole("button", { name: "Save" }).click();
+  await file.getByText("Edited").waitFor({ state: "detached" });
+
+  await openSettings("Git hosts");
+  await page.getByRole("list", { name: "Hosts" }).getByText("Forge").waitFor();
+
+  await openSettings("Configuration");
+  await contents.fill(before);
+  await file.getByRole("button", { name: "Save" }).click();
+  await file.getByText("Edited").waitFor({ state: "detached" });
+});
+
 test("turns an installed plugin on for the next start", async () => {
   await page.goto(server.url.href);
   await openSettings("Plugins");
