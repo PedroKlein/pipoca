@@ -327,6 +327,20 @@ export interface ServerPluginContext {
     ) => SendOutcome;
     readonly transcript: (id: string) => readonly string[];
     readonly transcriptLength: (id: string) => number;
+    // Whether the person may open the Session, if only to watch it.
+    readonly sees: (id: string, person: string) => boolean;
+    // Tells a team Session a vote's result, which Pi reads on its next turn
+    // (ADR 0065). opener is the person who opened the vote, or "pi".
+    readonly voted: (
+      id: string,
+      opener: string,
+      text: string,
+    ) =>
+      | { readonly ok: true }
+      | {
+          readonly ok: false;
+          readonly reason: "not_found" | "archived" | "not_team";
+        };
   };
   // For a plugin that brings machines to a pool, such as Kubernetes pods
   // (ADR 0032).

@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ServerWebSocket } from "bun";
+import { askServer } from "@pipoca/ask/server";
 import { gitHosts } from "@pipoca/git-hosts/server";
 import { kubernetesPlugin } from "@pipoca/kubernetes/server";
 import { library } from "@pipoca/library/server";
@@ -55,6 +56,7 @@ import { openStore } from "./store";
 import { terminalBroker } from "./terminals";
 
 const serverPlugins: readonly ServerPlugin[] = [
+  askServer,
   projects,
   library,
   models,

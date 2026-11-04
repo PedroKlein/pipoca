@@ -3852,6 +3852,29 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
   await aside.getByText("Hidden from Pi, visible to the team").waitFor();
   await aside.getByText("Ship it today?").waitFor();
 
+  await page.locator("header").getByRole("button", { name: "Vote" }).click();
+
+  const opening = page.getByRole("dialog", { name: "Open a vote" });
+
+  await opening.getByLabel("Question").fill("Ship it today?");
+
+  const options = opening.getByPlaceholder("Type an option and press Enter");
+
+  await options.fill("Ship");
+  await options.press("Enter");
+  await options.fill("Wait");
+  await options.press("Enter");
+  await opening.getByRole("button", { name: "Open vote" }).click();
+  await opening.waitFor({ state: "hidden" });
+
+  const vote = page.getByRole("region", { name: "Vote: Ship it today?" });
+
+  await vote.getByRole("button", { name: /Ship/ }).click();
+  await vote.getByText("1 voted").waitFor();
+  await vote.getByRole("button", { name: "Close vote" }).click();
+  await vote.waitFor({ state: "hidden" });
+  await page.getByText(/Vote closed\. "Ship it today\?": Ship 1/).waitFor();
+
   await page.goto(new URL("/#team/sessions", server.url).href);
   await page.getByRole("link", { name: "team-docs" }).waitFor();
 });

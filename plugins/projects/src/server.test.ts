@@ -102,6 +102,7 @@ function fakeKernel(): {
     },
     events: { ...events, declared: () => [] },
     sessions: {
+      ...fakeContext().sessions,
       loadOnly: () => undefined,
       start: (request, ownerKey) => {
         const id = `session-${String(sessions.size + 1)}`;

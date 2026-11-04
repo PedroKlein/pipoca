@@ -64,6 +64,8 @@ export function fakeContext(
       notify: notFaked("sessions.notify"),
       transcript: notFaked("sessions.transcript"),
       transcriptLength: notFaked("sessions.transcriptLength"),
+      sees: notFaked("sessions.sees"),
+      voted: notFaked("sessions.voted"),
     },
     environments: {
       list: notFaked("environments.list"),
