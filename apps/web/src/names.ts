@@ -1,4 +1,5 @@
 import type { ModelRef, Session, Workspace } from "@pipoca/protocol";
+export { ago } from "@pipoca/plugins/web";
 
 const removalText = {
   pending: "removing workspace",
@@ -107,19 +108,4 @@ export function shortName(workspace: Workspace): string {
       return rest.length === 0 ? name : `${name} +${String(rest.length)}`;
     }
   }
-}
-
-const units = [
-  ["d", 86_400_000],
-  ["h", 3_600_000],
-  ["m", 60_000],
-] as const;
-
-export function ago(time: string, now: number): string {
-  const elapsed = now - Date.parse(time);
-  const unit = units.find(([, ms]) => elapsed >= ms);
-
-  return unit
-    ? `${String(Math.floor(elapsed / unit[1]))}${unit[0]} ago`
-    : "just now";
 }

@@ -47,6 +47,9 @@ interface Budgets {
 
 const shownCalls = 500;
 
+const activityRead = 100;
+const activityShown = 20;
+
 const warnedShares = [80, 100] as const;
 
 const callColumns = [
@@ -85,6 +88,8 @@ export const usage: ServerPlugin = {
     context.events.subscribe("SessionArchived", record);
     context.events.subscribe("SessionUnarchived", record);
     context.events.subscribe("StopAsked", record);
+    context.events.subscribe("SessionMoved", record);
+    context.events.subscribe("AccessChanged", record);
 
     const priceOf = (provider: string, model: string | null) => {
       const prices = objectAt(context.config.get(), "prices");
@@ -210,6 +215,28 @@ export const usage: ServerPlugin = {
         return exported
           ? csvResponse(csv(rows, auditColumns), "audit")
           : Response.json(rows);
+      }
+
+      // What people did to the team work the caller can see, for the hub.
+      if (path === "activity") {
+        const person = personOf(caller);
+        const actions = audit.actions(activityRead);
+
+        const moved = new Set(
+          actions
+            .filter(({ action }) => action === "moved to the team")
+            .map(({ sessionId }) => sessionId),
+        );
+
+        return Response.json(
+          actions
+            .filter(
+              ({ action, sessionId }) =>
+                !(action === "started" && moved.has(sessionId)) &&
+                context.sessions.sees(sessionId, person),
+            )
+            .slice(0, activityShown),
+        );
       }
 
       if (path === "totals") {

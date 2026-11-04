@@ -34,6 +34,11 @@ function registered(
   usage.register(
     fakeContext({
       events: { ...events, declared: () => [] },
+      // Team work limited to named people that leaves Ana out.
+      sessions: {
+        ...fakeContext().sessions,
+        sees: (id, person) => !(id === "limited" && person === "ana"),
+      },
       config: {
         get: () => config,
         set: (value) => {
@@ -248,4 +253,57 @@ test("only an admin sets the team's monthly budget and each person's cap, and an
   });
 
   expect((await put({ team: -1, person: null }, true)).status).toBe(400);
+});
+
+test("shows everyone what people did lately to the team work they can see", async () => {
+  const { route, called, events } = registered();
+  const team = fakeSession({ id: "t1", ownedBy: "team", title: "Release" });
+
+  const moved = fakeSession({
+    id: "t2",
+    ownedBy: "team",
+    title: "Handbook",
+    access: { kind: "view" },
+  });
+
+  const limited = fakeSession({
+    id: "limited",
+    ownedBy: "team",
+    title: "Budget",
+  });
+
+  events.publish({ type: "SessionCreated", session: team, actor: "user:ana" });
+  called({ sessionId: "t1", person: "ana", input: 1, output: 1 });
+  events.publish({ type: "StopAsked", session: team, actor: "user:bo" });
+  events.publish({ type: "SessionCreated", session: moved, actor: "user:bo" });
+
+  events.publish({
+    type: "SessionMoved",
+    session: moved,
+    from: "own",
+    actor: "user:bo",
+  });
+
+  events.publish({ type: "AccessChanged", session: moved, actor: "user:bo" });
+
+  events.publish({
+    type: "SessionCreated",
+    session: limited,
+    actor: "user:bo",
+  });
+
+  const seen = (await get(route, "activity")) as {
+    actor: string;
+    action: string;
+    detail: string;
+  }[];
+
+  expect(
+    seen.map(({ actor, action, detail }) => `${actor} ${action} ${detail}`),
+  ).toEqual([
+    "user:bo made view only Handbook",
+    "user:bo moved to the team Handbook",
+    "user:bo stopped Release",
+    "user:ana started Release",
+  ]);
 });

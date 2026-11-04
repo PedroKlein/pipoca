@@ -4322,6 +4322,63 @@ test("offers a fork once the team said more than Pi reads", async () => {
   expect(forked.ownedBy).toBe("team");
 });
 
+test("shows on the hub's Home who limited team work", async () => {
+  await page.goto(server.url.href);
+
+  const signedIn = (await page.context().cookies()).find(
+    ({ name }) => name === "pipoca-session",
+  );
+
+  const current = `${signedIn?.name ?? ""}=${signedIn?.value ?? ""}`;
+
+  const call = async (
+    path: string,
+    body: unknown,
+    method = "POST",
+  ): Promise<unknown> =>
+    (
+      await fetch(new URL(path, server.url), {
+        method,
+        headers: { "content-type": "application/json", cookie: current },
+        body: JSON.stringify(body),
+      })
+    ).json();
+
+  const { environment } = (await call("/api/environments", {
+    name: "activity-pods",
+    team: true,
+  })) as { environment: Environment };
+
+  const profile = (await call("/api/profiles", {
+    name: "Activity",
+    team: true,
+  })) as Profile;
+
+  const folder = join(root, "quiet-work");
+
+  await mkdir(folder, { recursive: true });
+
+  const session = (await call("/api/sessions", {
+    team: true,
+    environment: environment.id,
+    profile: profile.id,
+    workspace: { kind: "folder", path: folder },
+  })) as Session;
+
+  await call(`/api/sessions/${session.id}/access`, { kind: "view" }, "PUT");
+
+  // Home shows every panel until an admin lays it out.
+  await call("/api/hub", { pages: null }, "PUT");
+  await page.goto(new URL("/#team", server.url).href);
+
+  await page
+    .getByRole("region", { name: "Activity" })
+    .getByRole("listitem")
+    .filter({ hasText: "made view only" })
+    .first()
+    .waitFor();
+});
+
 test("drops a plugin's parts from open team work once an admin keeps it out", async () => {
   await page.goto(server.url.href);
 

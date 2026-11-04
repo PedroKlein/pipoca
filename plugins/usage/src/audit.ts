@@ -1,5 +1,5 @@
 import type { KernelEvent, PluginStore } from "@pipoca/plugins";
-import type { Actor, Session } from "@pipoca/protocol";
+import type { Actor, Session, SessionAccess } from "@pipoca/protocol";
 
 // One kernel action on team work, or one use of the team's key (ADR 0066).
 export interface AuditEntry {
@@ -17,12 +17,19 @@ export interface AuditLog {
     actor: Actor | undefined,
     limit: number | undefined,
   ) => readonly AuditEntry[];
+  // Newest first, what people did to team work.
+  readonly actions: (limit: number) => readonly AuditEntry[];
 }
 
 export function auditLog(store: PluginStore): AuditLog {
   store.exec(
     "create table if not exists usage_audit (id integer primary key, at text not null, actor text, session_id text not null, action text not null, detail text)",
   );
+
+  const rows = (found: unknown[]): readonly AuditEntry[] =>
+    (found as (Omit<AuditEntry, "sessionId"> & { session_id: string })[]).map(
+      ({ session_id: sessionId, ...row }) => ({ ...row, sessionId }),
+    );
 
   return {
     add: ({ actor, sessionId, action, detail }) => {
@@ -36,8 +43,8 @@ export function auditLog(store: PluginStore): AuditLog {
       );
     },
     entries: (actor, limit = -1) =>
-      (
-        (actor === undefined
+      rows(
+        actor === undefined
           ? store.all(
               "select at, actor, session_id, action, detail from usage_audit order by id desc limit ?",
               limit,
@@ -46,8 +53,15 @@ export function auditLog(store: PluginStore): AuditLog {
               "select at, actor, session_id, action, detail from usage_audit where actor = ? order by id desc limit ?",
               actor,
               limit,
-            )) as (Omit<AuditEntry, "sessionId"> & { session_id: string })[]
-      ).map(({ session_id: sessionId, ...row }) => ({ ...row, sessionId })),
+            ),
+      ),
+    actions: (limit) =>
+      rows(
+        store.all(
+          "select at, actor, session_id, action, detail from usage_audit where actor like 'user:%' order by id desc limit ?",
+          limit,
+        ),
+      ),
   };
 }
 
@@ -55,16 +69,37 @@ type Audited = Extract<
   KernelEvent,
   {
     type:
-      "SessionCreated" | "SessionArchived" | "SessionUnarchived" | "StopAsked";
+      | "SessionCreated"
+      | "SessionMoved"
+      | "SessionArchived"
+      | "SessionUnarchived"
+      | "StopAsked"
+      | "AccessChanged";
   }
 >;
 
-const actions: Readonly<Record<Audited["type"], string>> = {
-  SessionCreated: "started",
-  SessionArchived: "archived",
-  SessionUnarchived: "unarchived",
-  StopAsked: "stopped",
+const accessActions: Readonly<Record<SessionAccess["kind"], string>> = {
+  team: "opened to the team",
+  view: "made view only",
+  named: "limited to named people",
 };
+
+function actionOf(event: Audited): string {
+  switch (event.type) {
+    case "SessionCreated":
+      return "started";
+    case "SessionMoved":
+      return "moved to the team";
+    case "SessionArchived":
+      return "archived";
+    case "SessionUnarchived":
+      return "unarchived";
+    case "StopAsked":
+      return "stopped";
+    case "AccessChanged":
+      return accessActions[event.session.access.kind];
+  }
+}
 
 // The entry a kernel event on a team Session makes, if any.
 export function auditedAction(
@@ -79,7 +114,7 @@ export function auditedAction(
   return {
     actor: event.actor ?? null,
     sessionId: session.id,
-    action: actions[event.type],
+    action: actionOf(event),
     detail: session.title,
   };
 }
