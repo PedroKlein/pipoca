@@ -793,6 +793,12 @@ test("names an alias and orders its fallbacks on the Models page", async () => {
     .getByText("two", { exact: true })
     .waitFor();
 
+  await alias
+    .getByLabel("Reasoning of faux/one")
+    .selectOption({ label: "High reasoning" });
+
+  await alias.getByRole("listitem", { name: "faux/one:high" }).waitFor();
+
   await alias.getByRole("button", { name: "Make default" }).click();
   await alias.getByText("Default for new Sessions").waitFor();
 

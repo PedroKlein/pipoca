@@ -30,8 +30,10 @@ import {
   type EnvironmentModels,
   type Health,
   modelRef,
+  modelValue,
   noHealth,
   type ProviderSettings,
+  thinkingLevels,
 } from "../src/model";
 
 const schedules = ["", "utc-hourly", "utc-midnight", "utc-monthly-1st"];
@@ -498,6 +500,34 @@ function AliasCard({
                   {ref?.provider ?? "not a provider/model"}
                 </span>
               </span>
+              {ref && (
+                <Select
+                  aria-label={`Reasoning of ${value}`}
+                  value={ref.thinking ?? ""}
+                  onChange={(event) => {
+                    const level = thinkingLevels.find(
+                      (each) => each === event.target.value,
+                    );
+
+                    const next = modelValue({
+                      provider: ref.provider,
+                      id: ref.id,
+                      ...(level && { thinking: level }),
+                    });
+
+                    onChange(
+                      tried.map((other, at) => (at === index ? next : other)),
+                    );
+                  }}
+                >
+                  <option value="">Session&apos;s reasoning</option>
+                  {thinkingLevels.map((level) => (
+                    <option key={level} value={level}>
+                      {reasoningLabel(level)}
+                    </option>
+                  ))}
+                </Select>
+              )}
               {down === undefined ? (
                 <Badge state="done">Ready</Badge>
               ) : (
@@ -564,6 +594,16 @@ function AliasCard({
       </form>
     </section>
   );
+}
+
+function reasoningLabel(level: string): string {
+  if (level === "off") {
+    return "No reasoning";
+  }
+
+  const name = level === "xhigh" ? "Extra high" : level;
+
+  return `${name.charAt(0).toUpperCase()}${name.slice(1)} reasoning`;
 }
 
 function minutesLeft(until: string, now: Date): number {

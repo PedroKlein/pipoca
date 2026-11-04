@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { healthFrom, storedAliases } from "./model";
+import { healthFrom, modelRef, modelValue, storedAliases } from "./model";
 
 test("keeps only the until, reason and a well-formed quota of reported health", () => {
   const capped = { until: "2026-10-22T00:00:00Z", reason: "402" };
@@ -52,4 +52,20 @@ test("reads a config saved as backends and tiers as the same aliases with their 
     },
     defaultAlias: "medium-2",
   });
+});
+
+test("reads a trailing reasoning level, and leaves other colons in the id", () => {
+  expect(
+    ["openai/gpt-5:high", "ollama/qwen3:8b", "bedrock/claude-v2:1:max"].map(
+      modelRef,
+    ),
+  ).toEqual([
+    { provider: "openai", id: "gpt-5", thinking: "high" },
+    { provider: "ollama", id: "qwen3:8b" },
+    { provider: "bedrock", id: "claude-v2:1", thinking: "max" },
+  ]);
+
+  expect(modelValue({ provider: "openai", id: "gpt-5", thinking: "low" })).toBe(
+    "openai/gpt-5:low",
+  );
 });

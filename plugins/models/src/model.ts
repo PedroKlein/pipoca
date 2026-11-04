@@ -45,9 +45,23 @@ export interface SessionConfig {
   readonly health: Health;
 }
 
+export const thinkingLevels = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+
+export type ThinkingLevel = (typeof thinkingLevels)[number];
+
 export interface ModelRef {
   readonly provider: string;
   readonly id: string;
+  // The reasoning this model of an alias runs at, whatever the Session picked.
+  readonly thinking?: ThinkingLevel;
 }
 
 export const noHealth: Health = { version: 1, unhealthyUntil: {} };
@@ -66,14 +80,33 @@ const isQuota = (value: unknown): value is NonNullable<Unhealthy["quota"]> =>
   typeof value["cap"] === "number" &&
   typeof value["currency"] === "string";
 
-// Pi provider names have no slash, but some model ids do.
+// Pi provider names have no slash, but some model ids do. A trailing
+// `:<level>` sets the model's reasoning, as Pi's own --model takes it; ids
+// may hold colons too, so only a known level counts.
 export function modelRef(value: string): ModelRef | undefined {
   const slash = value.indexOf("/");
   if (slash <= 0 || slash === value.length - 1) {
     return undefined;
   }
 
-  return { provider: value.slice(0, slash), id: value.slice(slash + 1) };
+  const provider = value.slice(0, slash);
+  const rest = value.slice(slash + 1);
+  const colon = rest.lastIndexOf(":");
+  const level = rest.slice(colon + 1);
+
+  return colon > 0 && isThinkingLevel(level)
+    ? { provider, id: rest.slice(0, colon), thinking: level }
+    : { provider, id: rest };
+}
+
+export function modelValue({ provider, id, thinking }: ModelRef): string {
+  return thinking === undefined
+    ? `${provider}/${id}`
+    : `${provider}/${id}:${thinking}`;
+}
+
+function isThinkingLevel(value: string): value is ThinkingLevel {
+  return (thinkingLevels as readonly string[]).includes(value);
 }
 
 // The shape a gateway needs to start. Sessions report anything finer, such as

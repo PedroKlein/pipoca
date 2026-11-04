@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { candidates, failure } from "./gateway";
-import type { AliasConfig } from "./model";
+import { type AliasConfig, noHealth } from "./model";
 
 const config: AliasConfig = {
   models: {
@@ -86,4 +86,26 @@ test("skips a model the provider no longer has for a day", () => {
     key: "google/gemini-flash",
     entry: { until: "2026-10-22T20:30:00.000Z", reason: message },
   });
+});
+
+test("a model's own reasoning rides along, and its health is the model's", () => {
+  const reasoning: AliasConfig = {
+    models: { smart: ["google/gemini-flash:high", "ollama/qwen3:8b"] },
+  };
+
+  const health = {
+    version: 1,
+    unhealthyUntil: {
+      "ollama/qwen3:8b": { until: "2026-10-21T20:31:00Z", reason: "503" },
+    },
+  } as const;
+
+  expect(candidates(reasoning, noHealth, "smart", now)).toEqual([
+    { ...gemini, thinking: "high" },
+    { provider: "ollama", id: "qwen3:8b" },
+  ]);
+
+  expect(candidates(reasoning, health, "smart", now)).toEqual([
+    { ...gemini, thinking: "high" },
+  ]);
 });
