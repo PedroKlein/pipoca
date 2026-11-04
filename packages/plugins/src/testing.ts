@@ -87,6 +87,7 @@ export function fakeContext(
       setAdmin: notFaked("auth.setAdmin"),
       invited: notFaked("auth.invited"),
       acceptInvite: notFaked("auth.acceptInvite"),
+      passwordLogin: notFaked("auth.passwordLogin"),
       startSession: notFaked("auth.startSession"),
       gitLogins: notFaked("auth.gitLogins"),
     },

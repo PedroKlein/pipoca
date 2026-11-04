@@ -214,15 +214,15 @@ export function providerStore(
 }
 
 // The web never gets a client secret back, only whether one is set.
-export function viewOf({
-  clientSecret,
-  clientSecretEnv,
-  ...provider
-}: ProviderConfig): ProviderView {
+export function viewOf(
+  { clientSecret, clientSecretEnv, ...provider }: ProviderConfig,
+  signedInThisWeek: number,
+): ProviderView {
   return {
     ...provider,
     hasClientSecret: clientSecret !== undefined,
     clientSecretEnv: clientSecretEnv ?? null,
+    signedInThisWeek,
   };
 }
 

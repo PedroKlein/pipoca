@@ -7,7 +7,12 @@ import {
   type ServerPlugin,
   type User,
 } from "@pipoca/plugins";
-import type { Account, LinkedIdentity } from "./model";
+import type {
+  Account,
+  LinkedIdentity,
+  ProviderTest,
+  ProviderView,
+} from "./model";
 import {
   type Attempt,
   type Client,
@@ -28,6 +33,7 @@ import {
 
 // A browser has this long to come back from the provider.
 const attemptMs = 10 * 60_000;
+const weekMs = 7 * 24 * 60 * 60_000;
 const browserCookie = "pipoca-oidc";
 
 interface Pending extends Attempt {
@@ -291,6 +297,7 @@ export const oidc: ServerPlugin = {
         return page("This account's user no longer exists.", 403);
       }
 
+      identities.signedIn(identity);
       context.log("signed in", { ...fields, userId });
 
       return redirect("/", cookie);
@@ -301,10 +308,41 @@ export const oidc: ServerPlugin = {
       request: Request,
       path: readonly string[],
     ): Promise<Response> => {
-      const [, id] = path;
+      const [, id, action] = path;
+
+      const view = (config: ProviderConfig): ProviderView =>
+        viewOf(
+          config,
+          identities.signedInSince(
+            config.issuer,
+            new Date(Date.now() - weekMs).toISOString(),
+          ),
+        );
 
       if (id === undefined && request.method === "GET") {
-        return Response.json(providers.list().map(viewOf));
+        return Response.json(providers.list().map(view));
+      }
+
+      if (action === "test" && request.method === "POST") {
+        const config = providers.get(id ?? "");
+        if (config === undefined) {
+          throw new NotFound(`no provider ${id ?? ""}`);
+        }
+
+        const test = await discover(config.issuer).then(
+          (): ProviderTest => ({ ok: true, error: null }),
+          (failure: unknown): ProviderTest => {
+            if (!(failure instanceof LoginFailed)) {
+              throw failure;
+            }
+
+            return { ok: false, error: failure.message };
+          },
+        );
+
+        context.log("provider tested", { provider: config.id, ok: test.ok });
+
+        return Response.json(test);
       }
 
       if (id === undefined && request.method === "POST") {
@@ -314,7 +352,7 @@ export const oidc: ServerPlugin = {
 
         context.log("provider added", { provider: created.id });
 
-        return Response.json(viewOf(created), { status: 201 });
+        return Response.json(view(created), { status: 201 });
       }
 
       if (id !== undefined && request.method === "DELETE") {
@@ -335,7 +373,7 @@ export const oidc: ServerPlugin = {
           throw new NotFound(`no provider ${id}`);
         }
 
-        return Response.json(viewOf(updated));
+        return Response.json(view(updated));
       }
 
       throw new NotFound(`no route ${path.join("/")}`);
@@ -405,6 +443,7 @@ export const oidc: ServerPlugin = {
 
     const account = (user: User): Account => ({
       admin: user.admin,
+      passwordLogin: context.auth.passwordLogin(),
       providers: providers
         .list()
         .map(({ id, label, issuer }) => ({ id, label, issuer })),
@@ -518,6 +557,9 @@ interface IdentityStore {
     invited: boolean,
   ) => void;
   readonly of: (userId: string) => readonly LinkedIdentity[];
+  readonly signedIn: (identity: Identity) => void;
+  // How many people signed in with the issuer since the time.
+  readonly signedInSince: (issuer: string, since: string) => number;
   readonly unlink: (userId: string, issuer: string) => void;
 }
 
@@ -543,6 +585,10 @@ function identityStore(store: PluginStore): IdentityStore {
     store.exec(
       "alter table oidc_identities add column invited integer not null default 0",
     );
+  }
+
+  if (!columns.some(({ name }) => name === "signed_in_at")) {
+    store.exec("alter table oidc_identities add column signed_in_at text");
   }
 
   return {
@@ -590,6 +636,23 @@ function identityStore(store: PluginStore): IdentityStore {
         linkedAt: row.linked_at,
         created: row.created === 1,
       })),
+    signedIn: ({ issuer, subject }) => {
+      store.run(
+        "update oidc_identities set signed_in_at = ? where issuer = ? and subject = ?",
+        new Date().toISOString(),
+        issuer,
+        subject,
+      );
+    },
+    signedInSince: (issuer, since) => {
+      const [row] = store.all(
+        "select count(distinct user_id) as people from oidc_identities where issuer = ? and signed_in_at >= ?",
+        issuer,
+        since,
+      ) as { people: number }[];
+
+      return row?.people ?? 0;
+    },
     unlink: (userId, issuer) => {
       store.run(
         "delete from oidc_identities where user_id = ? and issuer = ? and created = 0",

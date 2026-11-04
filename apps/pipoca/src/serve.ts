@@ -303,6 +303,7 @@ export function serve(options: ServeOptions): {
       acceptInvite: (id) => {
         auth.acceptInvite(id);
       },
+      passwordLogin: () => auth.passwordLogin,
       startSession: (userId, request) => {
         const user = auth.userById(userId);
 

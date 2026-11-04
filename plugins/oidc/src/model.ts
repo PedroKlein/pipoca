@@ -28,10 +28,20 @@ export interface ProviderView extends Omit<ProviderInput, "clientSecret"> {
   // The environment variable the secret comes from, when the config file
   // names one instead of holding it sealed (ADR 0039).
   readonly clientSecretEnv: string | null;
+  // How many people signed in with it in the last seven days.
+  readonly signedInThisWeek: number;
+}
+
+// Whether the server could reach the provider and read its setup.
+export interface ProviderTest {
+  readonly ok: boolean;
+  readonly error: string | null;
 }
 
 export interface Account {
   readonly admin: boolean;
+  // Whether people may also sign in with a password.
+  readonly passwordLogin: boolean;
   // The providers, for linking an account.
   readonly providers: readonly {
     readonly id: string;

@@ -358,6 +358,9 @@ export interface ServerPluginContext {
     ) => { readonly id: string; readonly admin: boolean } | undefined;
     // Uses the invite up, for someone who just joined with it.
     readonly acceptInvite: (id: string) => void;
+    // Whether people may sign in with a password, which the server decides
+    // when it starts.
+    readonly passwordLogin: () => boolean;
     // The Set-Cookie value of a new browser session for the user, or
     // undefined when no user has the id.
     readonly startSession: (

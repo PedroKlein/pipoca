@@ -5,6 +5,7 @@ import {
   type WebPlugin,
 } from "@pipoca/plugins/web";
 import {
+  Badge,
   Button,
   Field,
   fieldClass,
@@ -14,9 +15,16 @@ import {
   Row,
   Rows,
   Section,
+  Segmented,
+  Switch,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import type { Account, ProviderInput, ProviderView } from "../src/model";
+import type {
+  Account,
+  ProviderInput,
+  ProviderTest,
+  ProviderView,
+} from "../src/model";
 
 export const oidc: WebPlugin = {
   name: "oidc",
@@ -35,16 +43,36 @@ function SettingsSection({
     "account",
   );
 
+  const providers = useLoaded(
+    async () => json<readonly ProviderView[]>(context.request("providers")),
+    "providers",
+  );
+
   if (value?.admin !== true) {
     return null;
   }
+
+  const changed = (): void => {
+    providers.reload();
+    reload();
+  };
 
   return (
     <>
       <PageTitle description="How people get into this server, and who may join.">
         Sign-in
       </PageTitle>
-      <Providers context={context} onChange={reload} />
+      <Providers
+        context={context}
+        providers={providers.value}
+        onChange={changed}
+      />
+      <Rules
+        context={context}
+        account={value}
+        providers={providers.value}
+        onChange={changed}
+      />
     </>
   );
 }
@@ -119,23 +147,63 @@ function Accounts({
   );
 }
 
+interface Preset {
+  readonly name: string;
+  readonly hint: string;
+  readonly label: string;
+  readonly issuer: string;
+  readonly issuerHint: string;
+  readonly groupsClaim: string;
+}
+
+const presets: readonly Preset[] = [
+  {
+    name: "Okta",
+    hint: "Preset",
+    label: "Okta",
+    issuer: "",
+    issuerHint: "https://your-org.okta.com",
+    groupsClaim: "groups",
+  },
+  {
+    name: "Microsoft Entra",
+    hint: "Preset",
+    label: "Microsoft",
+    issuer: "",
+    issuerHint: "https://login.microsoftonline.com/<tenant id>/v2.0",
+    groupsClaim: "groups",
+  },
+  {
+    name: "Google Workspace",
+    hint: "Preset",
+    label: "Google",
+    issuer: "https://accounts.google.com",
+    issuerHint: "https://accounts.google.com",
+    groupsClaim: "",
+  },
+  {
+    name: "Any OpenID provider",
+    hint: "Issuer URL and client",
+    label: "",
+    issuer: "",
+    issuerHint: "https://tenant.accounts.ondemand.com",
+    groupsClaim: "groups",
+  },
+];
+
 function Providers({
   context,
+  providers,
   onChange,
 }: {
   readonly context: WebContext;
+  readonly providers: readonly ProviderView[] | undefined;
   readonly onChange: () => void;
 }): ReactElement {
-  const { value, reload } = useLoaded(
-    async () => json<readonly ProviderView[]>(context.request("providers")),
-    "providers",
-  );
-
-  const [editing, setEditing] = useState<ProviderView | "new">();
+  const [editing, setEditing] = useState<ProviderView | Preset>();
 
   const changed = (): void => {
     setEditing(undefined);
-    reload();
     onChange();
   };
 
@@ -151,117 +219,307 @@ function Providers({
     ).then(changed, changed);
   };
 
+  const existing =
+    editing !== undefined && "id" in editing ? editing : undefined;
+
   return (
-    <Section
-      title="Providers"
-      description="Single sign-on people can use to get in"
-      actions={
-        editing === undefined && (
-          <Button
-            onClick={() => {
-              setEditing("new");
-            }}
-          >
-            <Icon name="plus" />
-            Add provider
-          </Button>
-        )
-      }
-    >
+    <Section title="Company sign-in">
+      {providers !== undefined && providers.length > 0 && (
+        <Rows label="Providers">
+          {providers.map((provider) => (
+            <ProviderRow
+              key={provider.id}
+              context={context}
+              provider={provider}
+              onEdit={() => {
+                setEditing(provider);
+              }}
+            />
+          ))}
+        </Rows>
+      )}
       {editing !== undefined && (
         <ProviderForm
-          key={editing === "new" ? "new" : editing.id}
-          provider={editing === "new" ? undefined : editing}
+          key={existing?.id ?? (editing as Preset).name}
+          provider={existing}
+          preset={existing === undefined ? (editing as Preset) : undefined}
           save={async (input) => {
             await json(
               context.request(
-                editing === "new"
+                existing === undefined
                   ? "providers"
-                  : `providers/${encodeURIComponent(editing.id)}`,
+                  : `providers/${encodeURIComponent(existing.id)}`,
                 { method: "POST", body: JSON.stringify(input) },
               ),
             );
 
             changed();
           }}
+          remove={
+            existing &&
+            (() => {
+              remove(existing);
+            })
+          }
           cancel={() => {
             setEditing(undefined);
           }}
         />
       )}
-      <Rows label="Providers">
-        {value?.length === 0 && (
-          <Row
-            title="No providers yet"
-            description="People sign in with a password until you add one."
-          />
-        )}
-        {value?.map((provider) => (
-          <Row
-            key={provider.id}
-            initials={initialsOf(provider.label)}
-            title={provider.label}
-            description={
-              <span className="flex flex-col gap-0.5">
-                <span className="font-mono">{provider.issuer}</span>
-                <span>{whoMayJoin(provider)}</span>
+      <ul
+        aria-label="Add a provider"
+        className="grid grid-cols-2 gap-2.5 md:grid-cols-4"
+      >
+        {presets.map((preset) => (
+          <li key={preset.name}>
+            <button
+              type="button"
+              onClick={() => {
+                setEditing(preset);
+              }}
+              className="flex h-full w-full cursor-pointer flex-col items-start gap-1 rounded-lg border border-line bg-elevated px-4 py-3.5 text-left shadow-xs hover:border-line-strong"
+            >
+              <span className="text-ui font-medium text-fg-strong">
+                {preset.name}
               </span>
-            }
-          >
-            <Button
-              variant="ghost"
-              aria-label={`Edit ${provider.label}`}
-              onClick={() => {
-                setEditing(provider);
-              }}
-            >
-              Edit
-            </Button>
-            <Button
-              variant="ghost"
-              aria-label={`Remove ${provider.label}`}
-              onClick={() => {
-                remove(provider);
-              }}
-            >
-              Remove
-            </Button>
-          </Row>
+              <span className="text-label text-fg-dim">{preset.hint}</span>
+            </button>
+          </li>
         ))}
-      </Rows>
-      <p className="text-caption text-fg-dim">
-        Register{" "}
-        <code className="font-mono text-mono-sm">
-          {location.origin}/api/plugins/oidc/callback
-        </code>{" "}
-        as the redirect URI with each one. Providers are kept in the
-        server&apos;s pipoca.json.
-      </p>
+      </ul>
     </Section>
   );
 }
 
-function whoMayJoin(provider: ProviderView): string {
-  const who = [
+function ProviderRow({
+  context,
+  provider,
+  onEdit,
+}: {
+  readonly context: WebContext;
+  readonly provider: ProviderView;
+  readonly onEdit: () => void;
+}): ReactElement {
+  const [test, setTest] = useState<ProviderTest | "testing">();
+  const people = provider.signedInThisWeek;
+
+  const badge = (): ReactElement | null => {
+    if (test === "testing") {
+      return <Badge state="working">Testing</Badge>;
+    }
+
+    if (test?.ok === false) {
+      return <Badge state="failed">Can&apos;t reach it</Badge>;
+    }
+
+    return test?.ok === true || people > 0 ? (
+      <Badge state="done">Working</Badge>
+    ) : null;
+  };
+
+  return (
+    <Row
+      initials={initialsOf(provider.label)}
+      title={
+        <>
+          {provider.label}
+          {badge()}
+        </>
+      }
+      description={
+        <span className="flex flex-col gap-0.5">
+          <span className="font-mono">
+            {provider.issuer} · {people} {people === 1 ? "person" : "people"}{" "}
+            signed in this week
+          </span>
+          {typeof test === "object" && test.error !== null && (
+            <span role="alert" className="text-failed">
+              {test.error}
+            </span>
+          )}
+        </span>
+      }
+    >
+      <Button
+        variant="ghost"
+        aria-label={`Test ${provider.label}`}
+        onClick={() => {
+          setTest("testing");
+
+          json<ProviderTest>(
+            context.request(
+              `providers/${encodeURIComponent(provider.id)}/test`,
+              { method: "POST" },
+            ),
+          ).then(setTest, (reason: unknown) => {
+            setTest({
+              ok: false,
+              error: reason instanceof Error ? reason.message : String(reason),
+            });
+          });
+        }}
+      >
+        Test
+      </Button>
+      <Button
+        variant="ghost"
+        aria-label={`Edit ${provider.label}`}
+        onClick={onEdit}
+      >
+        Edit
+      </Button>
+    </Row>
+  );
+}
+
+function Rules({
+  context,
+  account,
+  providers,
+  onChange,
+}: {
+  readonly context: WebContext;
+  readonly account: Account;
+  readonly providers: readonly ProviderView[] | undefined;
+  readonly onChange: () => void;
+}): ReactElement {
+  const [error, setError] = useState<string>();
+  const [only] = providers?.length === 1 ? providers : [];
+
+  // The domain the admin's own company account is at, for one provider.
+  const domain =
+    only?.allowedDomains[0] ??
+    account.identities
+      .find(({ issuer }) => issuer === only?.issuer)
+      ?.email?.split("@")[1];
+
+  const setDomain = (domains: readonly string[]): void => {
+    if (only === undefined) {
+      return;
+    }
+
+    const input: ProviderInput = {
+      label: only.label,
+      issuer: only.issuer,
+      clientId: only.clientId,
+      clientSecret: "",
+      groupsClaim: only.groupsClaim,
+      accessGroup: only.accessGroup,
+      adminGroup: only.adminGroup,
+      allowedEmails: only.allowedEmails,
+      allowedDomains: domains,
+      adminEmails: only.adminEmails,
+    };
+
+    json(
+      context.request(`providers/${encodeURIComponent(only.id)}`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    ).then(
+      () => {
+        setError(undefined);
+        onChange();
+      },
+      (reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      },
+    );
+  };
+
+  return (
+    <Section title="Rules">
+      <Rows label="Rules">
+        <Row
+          title="Passwords"
+          description={
+            account.passwordLogin
+              ? "People without company sign-in use a name and password"
+              : "Turned off while company sign-in is required"
+          }
+        >
+          <Switch
+            label="Passwords"
+            labelHidden
+            checked={account.passwordLogin}
+            disabled
+            onChange={() => undefined}
+          />
+        </Row>
+        <Row
+          title={
+            <>
+              Require company sign-in
+              <Icon name="lock" />
+            </>
+          }
+          description="Set when the server starts, by --sso-only or the Helm chart's oidc.ssoOnly"
+        >
+          <Switch
+            label="Require company sign-in"
+            labelHidden
+            checked={!account.passwordLogin}
+            disabled
+            onChange={() => undefined}
+          />
+        </Row>
+        <Row
+          title="Who can join"
+          description={
+            <>
+              {whoMayJoin(providers ?? [])}
+              {error !== undefined && (
+                <span role="alert" className="block text-failed">
+                  {error}
+                </span>
+              )}
+            </>
+          }
+        >
+          {only !== undefined && domain !== undefined && (
+            <Segmented
+              label="Who can join"
+              value={only.allowedDomains.length > 0 ? "domain" : "invited"}
+              onChange={(chosen) => {
+                setDomain(chosen === "domain" ? [domain] : []);
+              }}
+              options={[
+                { value: "invited", label: "Invited people" },
+                { value: "domain", label: `Anyone at ${domain}` },
+              ]}
+            />
+          )}
+        </Row>
+      </Rows>
+    </Section>
+  );
+}
+
+function whoMayJoin(providers: readonly ProviderView[]): string {
+  const who = providers.flatMap((provider) => [
     ...(provider.accessGroup === ""
       ? []
       : [`the ${provider.accessGroup} group`]),
-    ...provider.allowedDomains.map((domain) => `@${domain}`),
+    ...provider.allowedDomains.map((domain) => `anyone at ${domain}`),
     ...provider.allowedEmails,
-  ];
+  ]);
 
   return who.length === 0
-    ? "Only its admins may join"
-    : `Who may join: ${who.join(", ")}`;
+    ? "Anyone else needs an invite"
+    : `Also ${who.join(", ")}. Anyone else needs an invite`;
 }
 
 function ProviderForm({
   provider,
+  preset,
   save,
+  remove,
   cancel,
 }: {
   readonly provider: ProviderView | undefined;
+  readonly preset: Preset | undefined;
   readonly save: (input: ProviderInput) => Promise<void>;
+  readonly remove: (() => void) | undefined;
   readonly cancel: () => void;
 }): ReactElement {
   const [error, setError] = useState<string>();
@@ -300,6 +558,12 @@ function ProviderForm({
     });
   };
 
+  const starting: Readonly<Record<string, string>> = {
+    label: preset?.label ?? "",
+    issuer: preset?.issuer ?? "",
+    groupsClaim: preset?.groupsClaim ?? "",
+  };
+
   const textField = (
     name:
       | "label"
@@ -314,7 +578,7 @@ function ProviderForm({
     <Field label={label}>
       <input
         name={name}
-        defaultValue={provider?.[name] ?? ""}
+        defaultValue={provider?.[name] ?? starting[name]}
         placeholder={placeholder}
         className={fieldClass}
       />
@@ -340,11 +604,19 @@ function ProviderForm({
   return (
     <form
       onSubmit={submit}
-      aria-label={provider ? `Edit ${provider.label}` : "New provider"}
+      aria-label={
+        provider
+          ? `Edit ${provider.label}`
+          : `New ${preset?.name ?? ""} sign-in`
+      }
       className="grid gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 md:grid-cols-2"
     >
       {textField("label", "Button label", "Sign in with SAP IAS")}
-      {textField("issuer", "Issuer", "https://tenant.accounts.ondemand.com")}
+      {textField(
+        "issuer",
+        "Issuer",
+        preset?.issuerHint ?? "https://tenant.accounts.ondemand.com",
+      )}
       {textField("clientId", "Client ID")}
       <Field label={secretLabel(provider)}>
         <input
@@ -371,12 +643,29 @@ function ProviderForm({
           {provider ? "Save" : "Add provider"}
         </Button>
         <Button onClick={cancel}>Cancel</Button>
+        {remove !== undefined && provider !== undefined && (
+          <Button
+            variant="ghost"
+            aria-label={`Remove ${provider.label}`}
+            className="ml-auto"
+            onClick={remove}
+          >
+            Remove
+          </Button>
+        )}
         {error !== undefined && (
           <p role="alert" className="text-caption text-failed">
             {error}
           </p>
         )}
       </div>
+      <p className="text-caption text-fg-dim md:col-span-2">
+        Register{" "}
+        <code className="font-mono text-mono-sm">
+          {location.origin}/api/plugins/oidc/callback
+        </code>{" "}
+        as the redirect URI with the provider.
+      </p>
     </form>
   );
 }

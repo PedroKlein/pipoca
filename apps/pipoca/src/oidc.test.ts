@@ -808,6 +808,7 @@ test("lets a password user link their account and sign in with it", async () => 
 
   expect(await account.json()).toEqual({
     admin: true,
+    passwordLogin: true,
     providers: [
       { id: providerId, label: "Sign in with IAS", issuer: provider.issuer },
     ],
@@ -986,3 +987,43 @@ function fakeProvider(): {
 
   return state;
 }
+
+test("tells admins how many people signed in with each provider this week", async () => {
+  const listed = async (): Promise<unknown> =>
+    (
+      (await (
+        await api("GET", "/api/plugins/oidc/providers", await pedro())
+      ).json()) as { signedInThisWeek: number }[]
+    )[0]?.signedInThisWeek;
+
+  expect(await listed()).toBe(0);
+
+  await signIn(ana);
+  await signIn(ana);
+
+  expect(await listed()).toBe(1);
+});
+
+test("tests whether the server reaches a provider", async () => {
+  const tested = async (id: string): Promise<unknown> =>
+    (
+      await api("POST", `/api/plugins/oidc/providers/${id}/test`, await pedro())
+    ).json();
+
+  expect(await tested(providerId)).toEqual({ ok: true, error: null });
+
+  const gone = await addProvider("http://127.0.0.1:1");
+
+  expect(await tested(gone)).toEqual({
+    ok: false,
+    error: expect.any(String) as string,
+  });
+});
+
+test("tells admins whether passwords still sign people in", async () => {
+  const account = (await (
+    await api("GET", "/api/plugins/oidc/account", await pedro())
+  ).json()) as { passwordLogin: boolean };
+
+  expect(account.passwordLogin).toBe(true);
+});
