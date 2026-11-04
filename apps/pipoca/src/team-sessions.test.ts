@@ -42,8 +42,14 @@ beforeEach(async () => {
     plugins: [
       {
         name: "starter",
-        register: ({ sessions }) => {
+        register: ({ sessions, auth }) => {
           starter = sessions;
+
+          auth.gitLogins((userId, { actsAs }) =>
+            actsAs === null
+              ? []
+              : [{ host: "git.example.com", token: `${actsAs} for ${userId}` }],
+          );
         },
       },
       gitHosts,
@@ -1009,4 +1015,38 @@ test("personal work moves to the team from a summary, leaving its transcript beh
   });
 
   expect(await stuck.json()).toMatchObject({ error: "not_movable" });
+});
+
+test("team work signs git in as a technical user the team may use, never as its starter", async () => {
+  const anas = await ana();
+  const team = await teamSetup();
+
+  await api("/api/sessions", anas, {
+    team: true,
+    environment: team.environment,
+    profile: team.profile,
+    workspace: workspace(),
+  });
+
+  const acting = starter?.start({
+    actor: "plugin:routines",
+    team: true,
+    actsAs: "release-bot",
+    environment: team.environment,
+    profile: team.profile,
+    workspace: workspace(),
+  });
+
+  const assigned = await poll(team.runner);
+
+  expect(
+    assigned.map(({ sessionId, gitLogins }) => [sessionId, gitLogins]),
+  ).toContainEqual([
+    acting?.id,
+    [{ host: "git.example.com", token: "release-bot for team" }],
+  ]);
+
+  expect(
+    assigned.filter(({ gitLogins }) => gitLogins === undefined),
+  ).toHaveLength(1);
 });

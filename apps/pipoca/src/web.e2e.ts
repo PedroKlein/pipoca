@@ -3959,6 +3959,34 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
     ownedBy: "team",
     firstMessage: "Goal: a handbook page on releases. Nothing done yet.",
   });
+
+  await page.goto(`${server.url.href}#plugin/routines`);
+  await page.getByRole("link", { name: "New team routine" }).click();
+  await page.getByRole("heading", { name: "New team routine" }).waitFor();
+  await page.getByLabel("Name").fill("weekly-notes");
+
+  await page.getByLabel("Routine JSON").fill(
+    JSON.stringify({
+      title: "Write the weekly notes",
+      triggers: [{ cron: "0 16 * * 5", timeZone: "Europe/Berlin" }],
+      run: {
+        prompt: "Write the weekly notes.",
+        workspace: { kind: "folder", path: folder },
+        environment: environment.id,
+        profile: profile.id,
+      },
+    }),
+  );
+
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByRole("heading", { name: "Write the weekly notes" }).waitFor();
+  await page.goto(`${server.url.href}#plugin/routines`);
+
+  await page
+    .locator("section")
+    .filter({ has: page.getByRole("heading", { name: "The team's" }) })
+    .getByRole("link", { name: /Write the weekly notes/ })
+    .waitFor();
 });
 
 test("shows plugin panels on the team hub and lets an admin lay out a page of them", async () => {

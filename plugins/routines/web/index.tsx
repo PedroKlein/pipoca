@@ -30,6 +30,16 @@ import { starters } from "./starters";
 
 const watched = { topics: ["routines.routines"] };
 
+// A person's own routines, or the team's, which anyone on the team makes
+// and changes (ADR 0067).
+interface Scope {
+  readonly api: "routines" | "team-routines";
+  readonly page: "" | "team/";
+}
+
+const yours: Scope = { api: "routines", page: "" };
+const teams: Scope = { api: "team-routines", page: "team/" };
+
 // Routines, a Session's pending wake-ups above its composer, and the notice
 // each wake-up sends when it comes (ADR 0059).
 export const routines: WebPlugin = {
@@ -39,24 +49,42 @@ export const routines: WebPlugin = {
     Page,
     fills: (path) => path.split("/").length > 1,
   },
-  sessionPath: (session) =>
-    `${session.owner?.key.split(":")[1] ?? ""}/${session.id}`,
+  sessionPath: (session) => {
+    const [owner = "", name = ""] = session.owner?.key.split(":") ?? [];
+
+    return `${owner === "team" ? teams.page : ""}${name}/${session.id}`;
+  },
   Composer: PendingWakeUps,
   notices: { wakeup: WakeUpNotice, routine: RoutineNotice },
 };
 
 function Page({ context, path }: PageProps): ReactElement {
-  const [name = "", sessionId] = path.split("/");
+  const scope = path.startsWith(teams.page) ? teams : yours;
+  const [name = "", sessionId] = path.slice(scope.page.length).split("/");
 
   if (name === "") {
     return <RoutineList context={context} />;
   }
 
   if (sessionId !== undefined) {
-    return <RunSession context={context} name={name} sessionId={sessionId} />;
+    return (
+      <RunSession
+        context={context}
+        scope={scope}
+        name={name}
+        sessionId={sessionId}
+      />
+    );
   }
 
-  return <RoutinePage key={name} context={context} name={name} />;
+  return (
+    <RoutinePage
+      key={`${scope.page}${name}`}
+      context={context}
+      scope={scope}
+      name={name}
+    />
+  );
 }
 
 function RoutineList({
@@ -64,50 +92,80 @@ function RoutineList({
 }: {
   readonly context: WebContext;
 }): ReactElement {
-  const list = useLoaded(
-    async () => json<RoutineView[]>(context.request("routines")),
-    "routines",
-    watched,
-  ).value;
+  const team =
+    useLoaded(
+      async () =>
+        json<unknown[]>(context.request("/api/environments?owner=team")),
+      "team-environments",
+      { topics: ["environments"] },
+    ).value ?? [];
 
   return (
     <>
       <PageTitle description="A routine runs a prompt on a schedule, each time in a new Session of its own, or as a message to one of your Sessions. Ask the assistant to make one, or write its JSON here.">
         Routines
       </PageTitle>
-      <div>
+      <div className="flex flex-wrap gap-2">
         <a href={context.href("new")} className="inline-flex">
           <Button variant="primary" tabIndex={-1}>
             New routine
           </Button>
         </a>
+        {team.length > 0 && (
+          <a href={context.href(`${teams.page}new`)} className="inline-flex">
+            <Button tabIndex={-1}>New team routine</Button>
+          </a>
+        )}
       </div>
-      <Section title="Yours">
-        {list?.length === 0 && <p className="text-fg-dim">No routines yet.</p>}
-        <ul className="flex flex-col gap-2">
-          {list?.map((routine) => (
-            <li key={routine.name}>
-              <a
-                href={context.href(routine.name)}
-                className="flex min-w-0 items-center gap-3 rounded-lg border border-line bg-elevated px-3 py-2 shadow-xs hover:border-line-strong"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-ui font-medium text-fg">
-                    {routine.title}
-                  </span>
-                  <span className="block truncate text-label text-fg-dim">
-                    {summaryOf(routine)}
-                  </span>
-                </span>
-                {routine.lastRun !== null && (
-                  <OutcomeBadge outcome={routine.lastRun.outcome} />
-                )}
-              </a>
-            </li>
-          ))}
-        </ul>
-      </Section>
+      <Routines context={context} scope={yours} title="Yours" />
+      {team.length > 0 && (
+        <Routines context={context} scope={teams} title="The team's" />
+      )}
     </>
+  );
+}
+
+function Routines({
+  context,
+  scope,
+  title,
+}: {
+  readonly context: WebContext;
+  readonly scope: Scope;
+  readonly title: string;
+}): ReactElement {
+  const list = useLoaded(
+    async () => json<RoutineView[]>(context.request(scope.api)),
+    scope.api,
+    watched,
+  ).value;
+
+  return (
+    <Section title={title}>
+      {list?.length === 0 && <p className="text-fg-dim">No routines yet.</p>}
+      <ul className="flex flex-col gap-2">
+        {list?.map((routine) => (
+          <li key={routine.name}>
+            <a
+              href={context.href(`${scope.page}${routine.name}`)}
+              className="flex min-w-0 items-center gap-3 rounded-lg border border-line bg-elevated px-3 py-2 shadow-xs hover:border-line-strong"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-ui font-medium text-fg">
+                  {routine.title}
+                </span>
+                <span className="block truncate text-label text-fg-dim">
+                  {summaryOf(routine)}
+                </span>
+              </span>
+              {routine.lastRun !== null && (
+                <OutcomeBadge outcome={routine.lastRun.outcome} />
+              )}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </Section>
   );
 }
 
@@ -117,9 +175,11 @@ function startText(index: number): string {
 
 function RoutinePage({
   context,
+  scope,
   name,
 }: {
   readonly context: WebContext;
+  readonly scope: Scope;
   readonly name: string;
 }): ReactElement {
   const creating = name === "new";
@@ -130,7 +190,7 @@ function RoutinePage({
     async () =>
       creating
         ? undefined
-        : json<RoutineDetail>(context.request(`routines/${name}`)),
+        : json<RoutineDetail>(context.request(`${scope.api}/${name}`)),
     name,
     watched,
   );
@@ -138,7 +198,7 @@ function RoutinePage({
   const act = (action: string, method = "POST"): void => {
     setFailure(undefined);
 
-    ok(context.request(`routines/${name}/${action}`, { method })).then(
+    ok(context.request(`${scope.api}/${name}/${action}`, { method })).then(
       reload,
       (error: unknown) => {
         setFailure(String(error instanceof Error ? error.message : error));
@@ -155,7 +215,9 @@ function RoutinePage({
           </a>
         }
       >
-        {creating ? "New routine" : (routine?.title ?? name)}
+        {creating
+          ? `New ${scope === teams ? "team " : ""}routine`
+          : (routine?.title ?? name)}
       </PageTitle>
       {routine !== undefined && (
         <div className="flex flex-col gap-3">
@@ -192,7 +254,9 @@ function RoutinePage({
               onClick={() => {
                 if (confirm(`Delete the routine “${routine.title}”?`)) {
                   void ok(
-                    context.request(`routines/${name}`, { method: "DELETE" }),
+                    context.request(`${scope.api}/${name}`, {
+                      method: "DELETE",
+                    }),
                   ).then(() => {
                     location.hash = context.href("");
                   });
@@ -211,13 +275,14 @@ function RoutinePage({
       {editing && (creating || routine !== undefined) && (
         <Editor
           context={context}
+          scope={scope}
           name={creating ? undefined : name}
           text={routine?.file ?? startText(0)}
           onSaved={(saved) => {
             setEditing(false);
 
             if (creating) {
-              location.hash = context.href(saved);
+              location.hash = context.href(`${scope.page}${saved}`);
             } else {
               reload();
             }
@@ -231,7 +296,13 @@ function RoutinePage({
           )}
           <ul className="flex flex-col gap-1">
             {routine.runs.map((run) => (
-              <RunRow key={run.id} context={context} name={name} run={run} />
+              <RunRow
+                key={run.id}
+                href={context.href(
+                  `${scope.page}${name}/${run.sessionId ?? ""}`,
+                )}
+                run={run}
+              />
             ))}
           </ul>
         </Section>
@@ -279,11 +350,13 @@ function Webhook({
 
 function Editor({
   context,
+  scope,
   name,
   text: initial,
   onSaved,
 }: {
   readonly context: WebContext;
+  readonly scope: Scope;
   readonly name: string | undefined;
   readonly text: string;
   readonly onSaved: (name: string) => void;
@@ -305,7 +378,7 @@ function Editor({
     }
 
     ok(
-      context.request(`routines/${encodeURIComponent(target)}`, {
+      context.request(`${scope.api}/${encodeURIComponent(target)}`, {
         method: "PUT",
         body: JSON.stringify(value),
       }),
@@ -423,12 +496,10 @@ function fieldNames(schema: Readonly<Record<string, unknown>>): string[] {
 }
 
 function RunRow({
-  context,
-  name,
+  href,
   run,
 }: {
-  readonly context: WebContext;
-  readonly name: string;
+  readonly href: string;
   readonly run: Run;
 }): ReactElement {
   const label = (
@@ -452,7 +523,7 @@ function RunRow({
         </span>
       ) : (
         <a
-          href={context.href(`${name}/${run.sessionId}`)}
+          href={href}
           className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1 hover:bg-hover"
         >
           {label}
@@ -464,10 +535,12 @@ function RunRow({
 
 function RunSession({
   context,
+  scope,
   name,
   sessionId,
 }: {
   readonly context: WebContext;
+  readonly scope: Scope;
   readonly name: string;
   readonly sessionId: string;
 }): ReactElement {
@@ -480,7 +553,7 @@ function RunSession({
       crumb={
         <>
           <a
-            href={context.href(name)}
+            href={context.href(`${scope.page}${name}`)}
             className="shrink-0 font-normal text-fg-dim hover:text-fg hover:underline"
           >
             {name}
