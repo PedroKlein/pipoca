@@ -136,6 +136,65 @@ test("a person sees, changes and starts Sessions only in their own Environments"
   expect((await session(anas)).environmentId).toBe(laptop);
 });
 
+test("only admins make and change team Environments, which users list apart", async () => {
+  const anas = await ana();
+
+  const created = await api("/api/environments", await pedro(), {
+    name: "team-pods",
+    team: true,
+  });
+
+  expect(created.status).toBe(201);
+
+  const { environment: team } = (await created.json()) as {
+    environment: Environment;
+  };
+
+  expect(team.ownerId).toBe("team");
+  expect(names(await json(api("/api/environments", anas)))).toEqual([]);
+
+  const listed = await json<Environment[]>(
+    api("/api/environments?owner=team", anas),
+  );
+
+  expect(names(listed)).toEqual(["team-pods"]);
+  expect(listed[0]?.variables).toEqual({});
+
+  const refused = await Promise.all([
+    api("/api/environments", anas, { name: "mine-for-all", team: true }),
+    api(`/api/environments/${team.id}`, anas, { name: "x" }, "PATCH"),
+    api(`/api/environments/${team.id}/key`, anas, {}),
+    api(`/api/environments/${team.id}`, anas, undefined, "DELETE"),
+  ]);
+
+  expect(refused.map(({ status }) => status)).toEqual([403, 404, 404, 404]);
+
+  const changed = await Promise.all([
+    api(
+      `/api/environments/${team.id}`,
+      await pedro(),
+      { variables: { REGION: "eu" } },
+      "PATCH",
+    ),
+    api(`/api/environments/${team.id}/key`, await pedro(), {}),
+  ]);
+
+  expect(changed.map(({ status }) => status)).toEqual([200, 200]);
+});
+
+test("a personal Session never runs in a team Environment", async () => {
+  const { environment: team } = await json<{ environment: Environment }>(
+    api("/api/environments", await pedro(), { name: "team-pods", team: true }),
+  );
+
+  const response = await api("/api/sessions", await pedro(), {
+    environment: team.id,
+    workspace: { kind: "folder", path: root },
+  });
+
+  expect(response.status).toBe(400);
+});
+
 test("an Environment a runner makes with a join key is the key maker's", async () => {
   const anas = await ana();
 

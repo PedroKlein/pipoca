@@ -1193,6 +1193,9 @@ export interface ListedTemplate extends EnvironmentTemplate {
 export interface CreateEnvironment {
   readonly name: string;
   readonly template?: string;
+  // The team's own, whose runners host only team work (ADR 0064). Only
+  // admins make one.
+  readonly team?: boolean;
 }
 
 // A null secret removes it.
