@@ -355,7 +355,12 @@ export interface PluginManifest {
   // The events the plugin publishes, by name without the plugin's prefix,
   // such as routines' triggers offer (ADR 0059).
   readonly events?: Readonly<Record<string, EventSpec>>;
+  // Where it works. Without "team" its parts never load in team work
+  // (ADR 0067).
+  readonly works?: readonly PluginWork[];
 }
+
+export type PluginWork = "personal" | "team";
 
 export interface EventSpec {
   readonly title: string;
@@ -440,6 +445,9 @@ export interface PluginInfo extends PluginManifest {
   // Of the manifest shown, so turning the plugin on can say which one the
   // user trusted.
   readonly digest: string;
+  // Its parts load in team Sessions: it works in team work and admins
+  // leave it on there (ADR 0067).
+  readonly teamWork: boolean;
 }
 
 export interface PluginUpdate {

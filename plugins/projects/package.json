@@ -27,6 +27,10 @@
       "events",
       "sessions",
       "routes"
+    ],
+    "works": [
+      "personal",
+      "team"
     ]
   }
 }

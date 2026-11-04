@@ -34,6 +34,10 @@
       "sessions",
       "environments",
       "routes"
+    ],
+    "works": [
+      "personal",
+      "team"
     ]
   }
 }

@@ -592,12 +592,26 @@ export function createHandler(
       "PATCH",
       /^\/api\/plugins\/([^/]+)$/,
       admin(async (request, [name = ""]) => {
-        const { settings, enabled, update, digest } = fieldsOf(
+        const { settings, enabled, update, digest, teamWork } = fieldsOf(
           await readJson(request),
         );
 
         if (enabled !== undefined && typeof enabled !== "boolean") {
           throw new BadRequest("enabled must be true or false");
+        }
+
+        if (teamWork !== undefined) {
+          if (typeof teamWork !== "boolean") {
+            throw new BadRequest("teamWork must be true or false");
+          }
+
+          const switched = plugins.setTeamWork(name, teamWork);
+
+          if (typeof switched === "string") {
+            throw new BadRequest(switched);
+          }
+
+          return switched === undefined ? notFound() : Response.json(switched);
         }
 
         const saved = await pluginChange(plugins, name, {

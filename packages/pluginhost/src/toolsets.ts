@@ -74,6 +74,7 @@ Its package.json has "type": "module", any npm "dependencies" its parts import, 
 - capabilities: the parts of the server context its server part uses, some of tools, toolsets, events, sessions, environments, profiles, routes, models;
 - parts: server, web and session, each a TypeScript or JavaScript file, all optional;
 - ownSessionsOnly: true to load its Session part only in the Sessions its server part owns;
+- works: ["personal", "team"] for a plugin that works in team work; without "team" its tools and Session and web parts never load in team Sessions, and admins turn it on there in Team setup;
 - settings: optional, by name, each { type: "string" | "number" | "boolean" | "choice" | "strings", title, description?, default, options? for choice, min?/max? for number }.
 
 Type each part with types from @pipoca/plugins (ServerPlugin, SessionPlugin) or @pipoca/plugins/web (WebPlugin) and check its default export with satisfies. The server and Session parts import @pipoca/plugins from the running server, so it needs no dependency: HttpError(status, message, code?), BadRequest and NotFound, thrown from a route, answer with that status and { error: code, message }, where code is a snake_case string that defaults to one for the status, such as bad_request or not_found; requireAdmin(caller, message) throws a 403 unless the caller is an admin; readJson(request) reads a JSON body or throws a 400; fieldsOf(body) gives a body's fields to check.

@@ -39,7 +39,7 @@ import { emptyFeed, type Feed, feedReader, followEvents } from "./feed";
 import { describe, sessionBadge, shortName, workspaceName } from "./names";
 import { PluginBoundary } from "./plugin-boundary";
 import { PrimaryView, usePrimaryId } from "./primary";
-import { enabledPlugins, pluginContext } from "./plugins";
+import { pluginContext, sessionPlugins } from "./plugins";
 import { sessionChannel } from "./session-channel";
 import { keyBar, type Modifier, modified } from "./keys";
 import { useTeammates } from "./hooks";
@@ -143,7 +143,7 @@ export function SessionView({
   // every token.
   const pluginHeaders = useMemo(
     () =>
-      enabledPlugins().map(({ name, SessionHeader }) =>
+      sessionPlugins(team).map(({ name, SessionHeader }) =>
         SessionHeader ? (
           <span key={name} data-plugin={name}>
             <PluginBoundary name={name}>
@@ -155,12 +155,12 @@ export function SessionView({
           </span>
         ) : null,
       ),
-    [channel.session],
+    [channel.session, team],
   );
 
   const pluginPanels = useMemo(
     () =>
-      enabledPlugins().map(({ name, SessionPanel }) =>
+      sessionPlugins(team).map(({ name, SessionPanel }) =>
         SessionPanel ? (
           <div key={name} data-plugin={name} className="empty:hidden">
             <PluginBoundary name={name}>
@@ -172,7 +172,7 @@ export function SessionView({
           </div>
         ) : null,
       ),
-    [channel.session],
+    [channel.session, team],
   );
 
   // The fork starts from this Session's branch, so it gets what was pushed

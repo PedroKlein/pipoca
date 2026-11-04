@@ -34,7 +34,7 @@ import type { Feed, Settings, ShownWidget } from "./feed";
 import { modelName, modelRef } from "./names";
 import { usePrimaryId } from "./primary";
 import { PluginBoundary } from "./plugin-boundary";
-import { enabledPlugins, pluginContext, widgetRenderer } from "./plugins";
+import { pluginContext, sessionPlugins, widgetRenderer } from "./plugins";
 import { PromptCard, type PromptHandlers } from "./prompt-card";
 import { browserCommand } from "./suggest";
 import { useSuggestions } from "./suggestions";
@@ -311,7 +311,7 @@ export function Composer({
 
       <TerminalColumns onColumns={setColumns} />
 
-      <PluginParts session={session} />
+      <PluginParts session={session} team={team} />
 
       <Widgets widgets={feed.widgetsAbove} session={session} />
 
@@ -566,10 +566,12 @@ async function attached(file: File): Promise<Attached> {
 // every token.
 const PluginParts = memo(function Parts({
   session,
+  team,
 }: {
   readonly session: MountedSession;
+  readonly team: boolean;
 }): ReactElement[] {
-  return enabledPlugins().flatMap(({ name, Composer: Part }) =>
+  return sessionPlugins(team).flatMap(({ name, Composer: Part }) =>
     Part
       ? [
           <PluginBoundary key={name} name={name}>

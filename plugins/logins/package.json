@@ -30,6 +30,10 @@
       "profiles",
       "sessions",
       "events"
+    ],
+    "works": [
+      "personal",
+      "team"
     ]
   }
 }

@@ -149,6 +149,7 @@ test("saves a plugin's settings, refusing values that don't fit", async () => {
       turnedOn: true,
       values: { greeting: "hello", times: 1 },
       digest: expect.any(String) as string,
+      teamWork: false,
     },
   ]);
 

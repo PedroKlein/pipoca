@@ -4195,3 +4195,27 @@ test("an admin sets up team work from Team setup: its Profiles, Environments, cr
   await nav.getByRole("link", { name: "Team home" }).click();
   await page.getByRole("heading", { name: "Team home" }).waitFor();
 });
+
+test("an admin keeps a plugin out of team work from Team setup", async () => {
+  await page.goto(new URL("/#team/setup/plugins", server.url).href);
+  await page.getByRole("heading", { name: "Plugins in team work" }).waitFor();
+
+  const ask = page.getByRole("switch", { name: "Ask in team work" });
+
+  expect(await ask.getAttribute("aria-checked")).toBe("true");
+
+  await ask.click();
+  await page.reload();
+
+  expect(
+    await page
+      .getByRole("switch", { name: "Ask in team work" })
+      .getAttribute("aria-checked"),
+  ).toBe("false");
+
+  await page.getByRole("switch", { name: "Ask in team work" }).click();
+
+  await page
+    .getByRole("switch", { name: "Ask in team work", checked: true })
+    .waitFor();
+});

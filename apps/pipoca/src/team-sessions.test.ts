@@ -9,6 +9,7 @@ import type {
   Command,
   Environment,
   Joined,
+  PluginInfo,
   Profile,
   ProfileFiles,
   Presence,
@@ -74,6 +75,19 @@ beforeEach(async () => {
       },
       gitHosts,
       askServer,
+      {
+        name: "notes",
+        register: (context) => {
+          context.tools.register({
+            name: "jot",
+            description: "Jots a note down",
+            parameters: { type: "object", properties: {} },
+            appliesTo: () => true,
+            run: async () =>
+              Promise.resolve({ text: "jotted", isError: false }),
+          });
+        },
+      },
     ],
     manifests: [
       {
@@ -81,6 +95,13 @@ beforeEach(async () => {
         title: "Starter",
         description: "",
         capabilities: ["sessions", "profiles", "toolsets"],
+        works: ["personal", "team"],
+      },
+      {
+        id: "notes",
+        title: "Notes",
+        description: "",
+        capabilities: ["tools"],
       },
       ...builtInPlugins.filter(({ id }) => id === "git-hosts" || id === "ask"),
     ],
@@ -1132,4 +1153,69 @@ test("a Team assistant runs as team work only its person steers, with tools that
       "own",
     ),
   ).toThrow();
+});
+
+test("team work loads only plugins that say they work there and that admins leave on", async () => {
+  const team = await teamSetup();
+
+  const startTeamWork = async () =>
+    api("/api/sessions", await pedro(), {
+      team: true,
+      environment: team.environment,
+      profile: team.profile,
+      workspace: workspace(),
+    });
+
+  await startTeamWork();
+
+  const [first] = await poll(team.runner);
+
+  expect(first?.plugins).toContain("ask");
+  expect(first?.plugins).not.toContain("notes");
+
+  const listed = await json<readonly PluginInfo[]>(
+    api("/api/plugins", await pedro()),
+  );
+
+  expect(
+    listed
+      .filter(({ id }) => id === "ask" || id === "notes")
+      .map(({ id, teamWork }) => ({ id, teamWork })),
+  ).toEqual([
+    { id: "ask", teamWork: true },
+    { id: "notes", teamWork: false },
+  ]);
+
+  expect(
+    (
+      await api(
+        "/api/plugins/notes",
+        await pedro(),
+        { teamWork: true },
+        "PATCH",
+      )
+    ).status,
+  ).toBe(400);
+
+  expect(
+    (await api("/api/plugins/ask", await ana(), { teamWork: false }, "PATCH"))
+      .status,
+  ).toBe(403);
+
+  const off = await json<PluginInfo>(
+    api("/api/plugins/ask", await pedro(), { teamWork: false }, "PATCH"),
+  );
+
+  expect(off.teamWork).toBe(false);
+
+  await startTeamWork();
+
+  const tools = await toolsOf(team.runner);
+
+  expect(tools).not.toContain("open_vote");
+  expect(tools).not.toContain("jot");
+
+  const [, second] = await poll(team.runner);
+
+  expect(second?.plugins).not.toContain("ask");
 });
