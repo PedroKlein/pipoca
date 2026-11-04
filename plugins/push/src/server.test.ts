@@ -16,6 +16,11 @@ interface Sent {
   readonly body: Uint8Array;
 }
 
+// Bun runs every test file in one process, so a Session another file left
+// running can still fetch while this file's spy is in place.
+const realFetch = globalThis.fetch;
+const pushService = "https://fcm.googleapis.com/";
+
 let sent: Sent[];
 let gone: Set<string>;
 let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">>;
@@ -29,6 +34,10 @@ beforeEach(() => {
     init?: RequestInit,
   ) => {
     const url = input instanceof Request ? input.url : input.toString();
+
+    if (!url.startsWith(pushService)) {
+      return realFetch(input, init);
+    }
 
     sent.push({
       url,
