@@ -181,6 +181,7 @@ export function SessionView({
   const forkSession = async (
     entry?: string,
     personal = false,
+    draft = "",
   ): Promise<void> => {
     try {
       const response = await api(
@@ -193,8 +194,10 @@ export function SessionView({
 
       const fork = (await response.json()) as ForkedSession;
 
-      if (fork.editorText !== undefined) {
-        prefillComposer(fork.id, fork.editorText);
+      const editorText = fork.editorText ?? draft;
+
+      if (editorText !== "") {
+        prefillComposer(fork.id, editorText);
       }
 
       location.hash = fork.id;
@@ -436,6 +439,9 @@ export function SessionView({
               replying={replying}
               onReplied={() => {
                 setReplying(undefined);
+              }}
+              onFork={(draft) => {
+                void forkSession(undefined, false, draft);
               }}
             />
           </div>

@@ -4,6 +4,8 @@ import {
   imageTypes,
   type ModelRef,
   type Quote,
+  teamMessagesRead,
+  teamTalkSince,
 } from "@pipoca/protocol";
 import {
   type MountedSession,
@@ -86,6 +88,7 @@ export function Composer({
   team = false,
   replying,
   onReplied,
+  onFork,
 }: {
   readonly sessionId: string;
   readonly session: MountedSession;
@@ -98,6 +101,8 @@ export function Composer({
   readonly team?: boolean;
   readonly replying?: Replying | undefined;
   readonly onReplied?: () => void;
+  // Starts a fork whose composer holds what was typed here.
+  readonly onFork?: (draft: string) => void;
 }): ReactElement {
   const [target, setTarget] = useState<Target>("pi");
   const text = useRef<HTMLTextAreaElement>(null);
@@ -354,6 +359,23 @@ export function Composer({
                 <Icon name="x" className="size-3.5" />
               </button>
             </p>
+          )}
+          {team && target === "pi" && (
+            <TeamTalk
+              unread={teamTalkSince(feed.voices).length}
+              onFork={
+                onFork &&
+                (() => {
+                  const draft = text.current?.value ?? "";
+
+                  if (text.current) {
+                    text.current.value = "";
+                  }
+
+                  onFork(draft);
+                })
+              }
+            />
           )}
           {images.length > 0 && (
             <ul
@@ -711,5 +733,48 @@ function ModelMenu({
         settings.thinking !== "off" &&
         ` · ${settings.thinking}`}
     </Picker>
+  );
+}
+
+// What Pi reads of the team's talk with the next message, and past what it
+// reads, a fork that starts fresh instead (ADR 0065).
+function TeamTalk({
+  unread,
+  onFork,
+}: {
+  readonly unread: number;
+  readonly onFork: (() => void) | undefined;
+}): ReactElement | null {
+  if (unread === 0) {
+    return null;
+  }
+
+  if (unread <= teamMessagesRead) {
+    return (
+      <p className="text-label text-fg-dim">
+        Pi also reads the{" "}
+        {unread === 1 ? "team message" : `${String(unread)} team messages`}{" "}
+        since its last turn.
+      </p>
+    );
+  }
+
+  return (
+    <p
+      role="status"
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 text-label text-fg-dim"
+    >
+      <span className="min-w-0 flex-1">
+        Pi reads only the latest {teamMessagesRead} of {unread} team messages
+        since its last turn. Fork to start fresh, and tell Pi where the team
+        landed.
+      </span>
+      {onFork && (
+        <Button variant="ghost" onClick={onFork}>
+          <Icon name="git-fork" />
+          Fork
+        </Button>
+      )}
+    </p>
   );
 }

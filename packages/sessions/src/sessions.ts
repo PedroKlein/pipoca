@@ -31,6 +31,8 @@ import {
   type TranscriptBatch,
   trustedRepository,
   type TrustAnswer,
+  teamMessagesRead,
+  teamTalkSince,
   type Quote,
   type Voice,
   type Work,
@@ -750,12 +752,7 @@ export class Sessions {
       return [];
     }
 
-    const voices = this.#store.voices(session.id);
-    const since = voices.findLastIndex(({ kind }) => kind === "message");
-
-    const said = voices
-      .slice(since + 1)
-      .filter(({ kind }) => kind === "team" || kind === "vote");
+    const said = teamTalkSince(this.#store.voices(session.id));
 
     const left = said.length - teamMessagesRead;
 
@@ -2005,8 +2002,6 @@ export class Sessions {
 
 const titleLength = 80;
 
-// Pi reads this much of what the team said since its last turn (ADR 0065).
-const teamMessagesRead = 40;
 const teamMessageLength = 2000;
 const quoteLength = 200;
 

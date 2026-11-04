@@ -1342,6 +1342,20 @@ export interface Voice {
   readonly quote?: Quote;
 }
 
+// Pi reads at most this many of the team's messages since its last turn,
+// and past it the Session offers a fork (ADR 0065).
+export const teamMessagesRead = 40;
+
+// What the team said since the last message to Pi, which Pi reads with the
+// next one.
+export function teamTalkSince(voices: readonly Voice[]): readonly Voice[] {
+  const since = voices.findLastIndex(({ kind }) => kind === "message");
+
+  return voices
+    .slice(since + 1)
+    .filter(({ kind }) => kind === "team" || kind === "vote");
+}
+
 // Someone looking at a team Session, and whether they are typing in it.
 export interface Presence {
   readonly person: string;
