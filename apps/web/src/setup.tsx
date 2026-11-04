@@ -6,7 +6,13 @@ import {
 } from "@pipoca/plugins/web";
 import type { Environment, Profile, SetupState } from "@pipoca/protocol";
 import { Badge, Button, cn, Icon, Row, Rows } from "@pipoca/ui";
-import { type ReactElement, type ReactNode, useState } from "react";
+import {
+  type ReactElement,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { api } from "./api";
 import {
   useEnvironments,
@@ -15,6 +21,7 @@ import {
   useTemplates,
 } from "./hooks";
 import { Mark } from "./mark";
+import { useNewcomers } from "./newcomers";
 import { NewSessionForm } from "./new-session";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext } from "./plugins";
@@ -57,7 +64,11 @@ const profileStep: SetupStep = {
     "A Profile is how Pi behaves: its instructions, skills, extensions and tools. Every Session runs with one.",
   optional: true,
   done: async () =>
-    (await json<Profile[]>(fetch("/api/profiles"))).some(hasContent),
+    (await json<Profile[]>(fetch("/api/profiles"))).some(
+      (profile) =>
+        hasContent(profile) ||
+        (profile.ownerId !== null && profile.buildsOn !== null),
+    ),
   topics: ["profiles"],
   Step: ProfileStepPage,
 };
@@ -65,7 +76,94 @@ const profileStep: SetupStep = {
 function ProfileStepPage(): ReactElement {
   const profiles = useProfiles();
 
-  return <ProfileStep profiles={profiles.value} onImported={profiles.reload} />;
+  const offered = useNewcomers().value.profiles.flatMap(
+    (id) => profiles.value.find((profile) => profile.id === id) ?? [],
+  );
+
+  return (
+    <>
+      {offered.length > 0 && (
+        <OfferedProfiles
+          offered={offered}
+          profiles={profiles.value}
+          onChange={profiles.reload}
+        />
+      )}
+      <ProfileStep profiles={profiles.value} onImported={profiles.reload} />
+    </>
+  );
+}
+
+// The shared Profiles an admin offers new people. Each one picked becomes a
+// Profile of theirs that builds on it (ADR 0063).
+function OfferedProfiles({
+  offered,
+  profiles,
+  onChange,
+}: {
+  readonly offered: readonly Profile[];
+  readonly profiles: readonly Profile[];
+  readonly onChange: () => void;
+}): ReactElement {
+  const [error, setError] = useState<string>();
+
+  const failed = (reason: unknown): void => {
+    setError(reason instanceof Error ? reason.message : String(reason));
+  };
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <p className="text-label text-fg-dim">
+        Pick any. Each one becomes a Profile of yours, and you can switch per
+        Session.
+      </p>
+      <ul aria-label="Profiles on offer" className="flex flex-col gap-2.5">
+        {offered.map((shared) => {
+          const mine = profiles.find(
+            ({ ownerId, buildsOn }) =>
+              ownerId !== null && buildsOn === shared.id,
+          );
+
+          return (
+            <Choice
+              key={shared.id}
+              title={shared.name}
+              description={offeredDescription(shared)}
+              checked={mine !== undefined}
+              onChange={(checked) => {
+                const change =
+                  checked || mine === undefined
+                    ? api("/api/profiles", {
+                        name: shared.name,
+                        buildsOn: shared.id,
+                      })
+                    : fetch(`/api/profiles/${encodeURIComponent(mine.id)}`, {
+                        method: "DELETE",
+                      });
+
+                change.then(onChange, failed);
+              }}
+            />
+          );
+        })}
+      </ul>
+      {error !== undefined && (
+        <p role="alert" className="text-caption text-failed">
+          {error}
+        </p>
+      )}
+      <p className="pt-2 text-label font-medium text-fg">Or bring your own</p>
+    </div>
+  );
+}
+
+function offeredDescription(profile: Profile): string {
+  const first = profile.agentsMd
+    .split("\n")
+    .map((line) => line.replace(/^#+\s*/, "").trim())
+    .find((line) => line !== "");
+
+  return first ?? "A Profile your team shares";
 }
 
 // The kernel's steps around the ones plugins add, such as a model and code
@@ -82,6 +180,16 @@ function setupSteps(): readonly Step[] {
     ),
     { id: "profile", step: profileStep, context: kernel },
   ];
+}
+
+// The steps people may skip, which admins can make new people do.
+export function skippableSteps(): readonly {
+  readonly id: string;
+  readonly title: string;
+}[] {
+  return setupSteps().flatMap(({ id, step }) =>
+    step.optional === true ? [{ id, title: step.title }] : [],
+  );
 }
 
 // Runners come online and report models without a topic, so a step that
@@ -116,6 +224,9 @@ export function SetupWizard({
   readonly onFinish: () => void;
 }): ReactElement {
   const steps = setupSteps();
+  const newcomers = useNewcomers().value;
+
+  useNewcomerEnvironment(newcomers.template);
 
   const first = Math.max(
     0,
@@ -168,41 +279,138 @@ export function SetupWizard({
           )}
         </span>
       </header>
-      <main
+      <div
         className={cn(
-          "mx-auto flex w-full animate-rise-in flex-col gap-8 px-4 pt-8 pb-16 md:pt-11",
-          step === undefined || step.step.wide === true
-            ? "max-w-chat"
-            : "max-w-150",
+          !admin &&
+            "mx-auto flex w-full max-w-260 flex-col gap-6 px-4 md:flex-row md:gap-14",
         )}
       >
-        {step === undefined ? (
-          <DoneStep
-            user={user}
-            admin={admin}
-            steps={steps}
-            onStarted={finish}
-            onLeave={finish}
-          />
-        ) : (
-          <CurrentStep
-            key={step.id}
-            step={step}
-            onBack={
-              at === 0
-                ? undefined
-                : () => {
-                    setAt(at - 1);
-                  }
-            }
-            onNext={() => {
-              setAt(at + 1);
-            }}
-          />
-        )}
-      </main>
+        {!admin && <JoinSteps user={user} steps={steps} at={at} />}
+        <main
+          className={cn(
+            "mx-auto flex w-full animate-rise-in flex-col gap-8 px-4 pt-8 pb-16 md:pt-11",
+            step === undefined || step.step.wide === true
+              ? "max-w-chat"
+              : "max-w-150",
+          )}
+        >
+          {step === undefined ? (
+            <DoneStep
+              user={user}
+              admin={admin}
+              steps={steps}
+              onStarted={finish}
+              onLeave={finish}
+            />
+          ) : (
+            <CurrentStep
+              key={step.id}
+              step={step}
+              required={newcomers.required.includes(step.id)}
+              onBack={
+                at === 0
+                  ? undefined
+                  : () => {
+                      setAt(at - 1);
+                    }
+              }
+              onNext={() => {
+                setAt(at + 1);
+              }}
+            />
+          )}
+        </main>
+      </div>
     </div>
   );
+}
+
+// Someone joining a team sees their steps beside the page, and that what
+// the team shares is already set up for them (ADR 0063).
+function JoinSteps({
+  user,
+  steps,
+  at,
+}: {
+  readonly user: string;
+  readonly steps: readonly Step[];
+  readonly at: number;
+}): ReactElement {
+  const rows = [
+    { id: "signed-in", title: "Signed in", summary: user },
+    ...steps.map(({ id, step }) => ({
+      id,
+      title: step.title,
+      summary: step.optional === true ? "Optional" : step.summary,
+    })),
+  ];
+
+  return (
+    <aside className="flex shrink-0 flex-col gap-5 pt-8 md:w-55 md:pt-11">
+      <ol aria-label="Your setup" className="flex flex-col gap-4">
+        {rows.map((row, index) => {
+          const done = index <= at;
+
+          return (
+            <li
+              key={row.id}
+              aria-current={index === at + 1 ? "step" : undefined}
+              className="flex items-start gap-3"
+            >
+              <span
+                className={cn(
+                  "grid size-6 shrink-0 place-items-center rounded-full text-caption",
+                  done
+                    ? "bg-done text-bg"
+                    : "border border-fg-strong text-fg-strong",
+                )}
+              >
+                {done ? <Icon name="check" /> : index + 1}
+              </span>
+              <span className="flex min-w-0 flex-col">
+                <span className="text-ui text-fg-strong">{row.title}</span>
+                <span className="truncate text-label text-fg-dim">
+                  {row.summary}
+                </span>
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+      <p className="border-t border-line pt-4 text-caption text-fg-dim">
+        What your team shares, such as machines, models and sign-in, is set up
+        already. You can see it in Settings.
+      </p>
+    </aside>
+  );
+}
+
+// Someone who joins gets an Environment from the template an admin picked
+// for new people, once, so Where is ready for them.
+function useNewcomerEnvironment(template: string | null): void {
+  const environments = useEnvironments();
+  const templates = useTemplates().value;
+  const asked = useRef(false);
+  const name = templates.find(({ id }) => id === template)?.name;
+
+  useEffect(() => {
+    if (
+      asked.current ||
+      template === null ||
+      name === undefined ||
+      !environments.loaded ||
+      environments.value.some(({ templateId }) => templateId === template)
+    ) {
+      return;
+    }
+
+    asked.current = true;
+
+    api("/api/environments", { name, template }).then(
+      environments.reload,
+      () => undefined,
+    );
+  }, [template, name, environments]);
 }
 
 function Heading({
@@ -226,10 +434,12 @@ function Heading({
 
 function CurrentStep({
   step,
+  required,
   onBack,
   onNext,
 }: {
   readonly step: Step;
+  readonly required: boolean;
   readonly onBack: (() => void) | undefined;
   readonly onNext: () => void;
 }): ReactElement {
@@ -249,7 +459,7 @@ function CurrentStep({
           </Button>
         )}
         <span className="flex-1" />
-        {about.optional === true && done !== true && (
+        {about.optional === true && !required && done !== true && (
           <Button variant="ghost" onClick={onNext}>
             Skip for now
           </Button>

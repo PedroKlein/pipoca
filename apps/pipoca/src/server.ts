@@ -62,6 +62,7 @@ import { sseResponse } from "./sse";
 import type { ConfigFiles } from "./config";
 import type { Templates } from "./templates";
 import { type Hub, layoutOf } from "./hub";
+import { type NewcomerSetup, newcomersOf } from "./newcomers";
 
 type Route = (
   request: Request,
@@ -119,6 +120,7 @@ export function createHandler(
   templates?: Templates,
   config?: ConfigFiles,
   hub?: Hub,
+  newcomers?: NewcomerSetup,
 ): (request: Request) => Promise<Response> {
   const present = presences();
 
@@ -965,6 +967,45 @@ export function createHandler(
         changes.publish("hub");
 
         return Response.json(layout);
+      },
+    ],
+    [
+      "GET",
+      /^\/api\/newcomers$/,
+      () =>
+        Response.json(
+          newcomers?.get() ?? { template: null, profiles: [], required: [] },
+        ),
+    ],
+    [
+      "PUT",
+      /^\/api\/newcomers$/,
+      async (request, _params, _actor, isAdmin) => {
+        if (!isAdmin) {
+          return errorReply(
+            403,
+            "admin_only",
+            "Only admins choose what new people get.",
+          );
+        }
+
+        const next = newcomersOf(await readJson(request));
+
+        if (newcomers === undefined) {
+          return notFound();
+        }
+
+        newcomers.set(next);
+
+        log("newcomer setup changed", {
+          template: next.template,
+          profiles: next.profiles.length,
+          required: next.required,
+        });
+
+        changes.publish("newcomers");
+
+        return Response.json(next);
       },
     ],
     [
