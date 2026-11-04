@@ -3,6 +3,9 @@ name: Image
 on:
   push:
     branches: [main]
+    # Agents on macOS copy pipoca for container Sessions out of the image of
+    # their own release.
+    tags: ["v*"]
   workflow_dispatch:
 
 jobs:
@@ -13,14 +16,24 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v5
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/pedroklein/pipoca
+          tags: |
+            type=raw,value=main,enable={{is_default_branch}}
+            type=sha,prefix=sha-,format=long
+            type=ref,event=tag
       - uses: docker/build-push-action@v6
         with:
           push: true
-          tags: |
-            ghcr.io/pedroklein/pipoca:main
-            ghcr.io/pedroklein/pipoca:sha-${{ github.sha }}
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
