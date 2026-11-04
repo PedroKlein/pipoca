@@ -153,6 +153,19 @@ export interface WidgetProps extends SessionPartProps {
   readonly lines: readonly string[];
 }
 
+// A card on a team hub page, which admins place by "<plugin>/<key>"
+// (ADR 0067).
+export interface HubPanel {
+  readonly title: string;
+  readonly Panel: ComponentType<{ readonly context: WebContext }>;
+}
+
+// A screen of its own in the team hub's menu.
+export interface HubScreen {
+  readonly label: string;
+  readonly Page: ComponentType<{ readonly context: WebContext }>;
+}
+
 // Each slot is a React component rendered by the web app (ADR 0015).
 export interface WebPlugin {
   readonly name: string;
@@ -164,6 +177,11 @@ export interface WebPlugin {
     // Paths whose page fills the window, such as an open Project, instead of
     // scrolling in the shell's column.
     readonly fills?: (path: string) => boolean;
+  };
+  // What the plugin gives the team hub, by key (ADR 0067).
+  readonly hub?: {
+    readonly panels?: Readonly<Record<string, HubPanel>>;
+    readonly pages?: Readonly<Record<string, HubScreen>>;
   };
   // The first enabled plugin with a home screen draws the app's root.
   readonly Home?: ComponentType<HomeProps>;

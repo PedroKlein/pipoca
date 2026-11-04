@@ -3763,3 +3763,40 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
 
   expect(await own.getByText("release-notes").count()).toBe(0);
 });
+
+test("shows plugin panels on the team hub and lets an admin lay out a page of them", async () => {
+  await page.goto(new URL("/#team", server.url).href);
+
+  await page
+    .getByRole("region", { name: "Spend this month" })
+    .getByText(/you used \$0\.00/)
+    .waitFor();
+
+  const nav = page.getByRole("navigation", { name: "Team" });
+
+  await nav.getByRole("button", { name: "Add page" }).click();
+  await nav.getByLabel("New page title").fill("Costs");
+  await nav.getByLabel("New page title").press("Enter");
+
+  await page.getByRole("heading", { name: "Costs" }).waitFor();
+
+  await page
+    .getByText("No panels here yet. Edit the layout to add some.")
+    .waitFor();
+
+  await page.getByRole("button", { name: "Edit layout" }).click();
+  await page.getByLabel("Add a panel").selectOption("usage/spend");
+  await page.getByRole("button", { name: "Done" }).click();
+
+  await page.getByRole("region", { name: "Spend this month" }).waitFor();
+  await page.reload();
+  await page.getByRole("region", { name: "Spend this month" }).waitFor();
+
+  expect(new URL(page.url()).hash).toBe("#team/page/costs");
+
+  await page.getByRole("button", { name: "Edit layout" }).click();
+  await page.getByRole("button", { name: "Remove page" }).click();
+  await page.getByRole("heading", { name: "Team home" }).waitFor();
+
+  expect(await nav.getByRole("link", { name: "Costs" }).count()).toBe(0);
+});

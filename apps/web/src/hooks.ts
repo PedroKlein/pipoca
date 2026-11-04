@@ -7,6 +7,8 @@ import {
 } from "react";
 import type {
   Environment,
+  HubLayout,
+  HubPage,
   Invite,
   ListedTemplate,
   Person,
@@ -90,6 +92,30 @@ export function useTeamSessions(): WatchedList<Session> {
     "/api/sessions?owner=team",
     "sessions",
   ) as WatchedList<Session>;
+}
+
+// The team hub's pages, or null while it shows every panel on Home.
+export function useHubLayout(): {
+  readonly pages: readonly HubPage[] | null;
+  readonly reload: () => void;
+} {
+  const [pages, setPages] = useState<readonly HubPage[] | null>(null);
+
+  const reload = useCallback(() => {
+    api("/api/hub")
+      .then(async (response) => {
+        setPages(((await response.json()) as HubLayout).pages);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    reload();
+
+    return watchChanges(["hub"], reload);
+  }, [reload]);
+
+  return { pages, reload };
 }
 
 export function useProfiles(): WatchedList<Profile> {

@@ -27,6 +27,7 @@ import { type AgentOptions, runAgent } from "./agent";
 import { Auth } from "./auth";
 import { configFile, configFolder } from "./config";
 import { sessionDocs } from "./docs";
+import { hubLayout } from "./hub";
 import { environmentTemplates } from "./templates";
 import {
   buildPlugin,
@@ -357,6 +358,7 @@ export function serve(options: ServeOptions): {
     },
     templates,
     configFile(configDir),
+    hubLayout(config("hub")),
   );
 
   const terminals = terminalBroker(sessions, auth, options.log);
