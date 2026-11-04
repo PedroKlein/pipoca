@@ -64,6 +64,9 @@ const assistantAsk = Type.Object({
   // The Profiles the assistant's coordinator and threads run on.
   profile: Type.String({ minLength: 1 }),
   threadProfile: Type.String({ minLength: 1 }),
+  // The person's Team assistant, in the hub, instead of their own
+  // (ADR 0067).
+  team: Type.Optional(Type.Boolean()),
 });
 
 const stateChange = Type.Object({ state: Type.Enum(workStates) });
@@ -426,7 +429,11 @@ async function route(
       );
     }
 
-    const found = assistantOf(store, caller.actor);
+    const found = assistantOf(
+      store,
+      caller.actor,
+      new URL(request.url).searchParams.get("team") === "true",
+    );
 
     if (request.method !== "GET" || found === undefined) {
       throw new NotFound(`no route ${path.join("/")}`);
@@ -606,7 +613,7 @@ function create(
 // the Profiles the assistant plugin gives its coordinator and threads (ADR
 // 0052). Each ask goes to its coordinator.
 function ask(
-  { text, model, profile, threadProfile }: Static<typeof assistantAsk>,
+  { text, model, profile, threadProfile, team }: Static<typeof assistantAsk>,
   store: ProjectStore,
   context: ServerPluginContext,
   user: `user:${string}`,
@@ -615,14 +622,14 @@ function ask(
     throw new BadRequest("text must not be empty");
   }
 
-  const found = assistantOf(store, user);
+  const found = assistantOf(store, user, team === true);
 
   if (found === undefined) {
     return begin(
       {
         id: randomUUID(),
         ownerId: user.slice("user:".length),
-        name: "Assistant",
+        name: team === true ? "Team assistant" : "Assistant",
         goal: "",
         instructions: "",
         repositories: [],
@@ -632,7 +639,7 @@ function ask(
         coordinatorId: "",
         createdAt: new Date().toISOString(),
         assistant: true,
-        team: false,
+        team: team === true,
       },
       { model, profile, firstMessage: text },
       store,
@@ -651,12 +658,15 @@ function ask(
 function assistantOf(
   store: ProjectStore,
   user: `user:${string}`,
+  team: boolean,
 ): Project | undefined {
   return store
     .list()
     .find(
       (project) =>
-        project.assistant && project.ownerId === user.slice("user:".length),
+        project.assistant &&
+        project.team === team &&
+        project.ownerId === user.slice("user:".length),
     );
 }
 
@@ -679,6 +689,9 @@ function begin(
         ...(ref && { model: ref }),
         actor: `user:${draft.ownerId}`,
         ...(draft.team && { team: true }),
+        // A Team assistant's chat is its person's alone (ADR 0067).
+        ...(draft.team &&
+          draft.assistant && { access: { kind: "named", people: [] } }),
         ...(draft.environmentId !== null && {
           environment: draft.environmentId,
         }),
@@ -747,6 +760,8 @@ function startFresh(
         ...(previous?.model && { model: previous.model }),
         actor: `user:${project.ownerId}`,
         ...(project.team && { team: true }),
+        ...(project.team &&
+          project.assistant && { access: { kind: "named", people: [] } }),
         ...(environment !== null && { environment }),
         ...(profile !== null && { profile }),
         workspace: {
@@ -802,7 +817,10 @@ function theirs(
   caller: RouteCaller & { readonly kind: "user" },
 ): Project | undefined {
   return project !== undefined &&
-    (canSee(caller, project.team ? "team" : `person:${project.ownerId}`) ||
+    (canSee(
+      caller,
+      project.team && !project.assistant ? "team" : `person:${project.ownerId}`,
+    ) ||
       (project.ownerId === beforePeople && caller.admin))
     ? project
     : undefined;

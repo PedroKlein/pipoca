@@ -10,7 +10,7 @@ import {
   type WebPlugin,
 } from "@pipoca/plugins/web";
 import type { Environment, ModelRef, Session } from "@pipoca/protocol";
-import { Button, cn, Icon, isComposing, Picker } from "@pipoca/ui";
+import { Button, cn, Icon, isComposing, PageTitle, Picker } from "@pipoca/ui";
 import {
   type ReactElement,
   type SubmitEvent,
@@ -34,6 +34,9 @@ export const meta: WebPlugin = {
   nav: { label: "Assistant", Page, Items, fills: (path) => path !== "" },
   sessionPath: (session) => session.id,
   Home,
+  hub: {
+    pages: { assistant: { label: "Team assistant", Page: TeamAssistant } },
+  },
 };
 
 function useMetaSessions(
@@ -129,10 +132,12 @@ function Composer({
   context,
   models,
   picksModel,
+  team = false,
 }: {
   readonly context: WebContext;
   readonly models: readonly string[];
   readonly picksModel: boolean;
+  readonly team?: boolean;
 }): ReactElement {
   const textId = useId();
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -159,9 +164,11 @@ function Composer({
 
     const ref = picksModel ? modelRef(model) : undefined;
 
-    ask(context, text, ref).then(
+    ask(context, text, ref, team).then(
       (where) => {
-        location.hash = where;
+        if (!team) {
+          location.hash = where;
+        }
       },
       (reason: unknown) => {
         setSending(false);
@@ -264,6 +271,7 @@ async function ask(
   context: WebContext,
   text: string,
   model: ModelRef | undefined,
+  team: boolean,
 ): Promise<string> {
   const response = await context.request(assistantPath, {
     method: "POST",
@@ -272,10 +280,11 @@ async function ask(
       ...(model && { model: `${model.provider}/${model.id}` }),
       profile: "meta.assistant",
       threadProfile: "meta.builder",
+      ...(team && { team }),
     }),
   });
 
-  if (response.status !== 404) {
+  if (response.status !== 404 || team) {
     const project = await json<{ id: string }>(Promise.resolve(response));
 
     return projectHref(project.id);
@@ -315,6 +324,69 @@ function useAssistantLoad(context: WebContext): string | null | undefined {
     "assistant",
     { topics: ["projects.projects"] },
   ).value;
+}
+
+// Each person's Team assistant, opened only from the team hub. Its chat is
+// theirs alone, and what it starts belongs to the team (ADR 0067).
+function TeamAssistant({
+  context,
+}: {
+  readonly context: WebContext;
+}): ReactElement {
+  const { SessionView } = context;
+
+  const project = useLoaded(
+    async () => {
+      const response = await context.request(`${assistantPath}?team=true`);
+
+      return response.ok
+        ? await json<{ coordinatorId: string }>(Promise.resolve(response))
+        : null;
+    },
+    "team-assistant",
+    { topics: ["projects.projects"] },
+  ).value;
+
+  const environments = useLoaded(
+    async () =>
+      json<Environment[]>(context.request("/api/environments?owner=team")),
+    "team-environments",
+    { topics: ["environments"] },
+  ).value;
+
+  if (project === undefined) {
+    return <></>;
+  }
+
+  if (project !== null) {
+    return (
+      <SessionView
+        sessionId={project.coordinatorId}
+        layout="full"
+        title="Team assistant"
+      />
+    );
+  }
+
+  return (
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-12">
+      <PageTitle description="Ask it to start team work, look up what the team is doing, or set up a routine for the team. Its chat is yours alone; what it starts belongs to the team, on the team's key.">
+        Team assistant
+      </PageTitle>
+      {environments !== undefined && environments.length > 0 ? (
+        <Composer
+          context={context}
+          models={modelNames(environments)}
+          picksModel
+          team
+        />
+      ) : (
+        <p className="text-fg-dim">
+          An admin has to set up a team Environment first.
+        </p>
+      )}
+    </div>
+  );
 }
 
 // Takes the assistant its page loaded, so the link and the page's model

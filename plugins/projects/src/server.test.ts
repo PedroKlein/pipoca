@@ -1479,3 +1479,45 @@ test("refuses a memory write made on top of a revision that changed since", asyn
 
   expect(stale.text).toContain("revision 2");
 }, 10_000);
+
+test("each person's Team assistant is theirs alone, apart from their own assistant", async () => {
+  const kernel = fakeKernel();
+  projects.register(kernel.context);
+  const ana = fakeUser({ id: "ana" });
+
+  const call = async (
+    path: string,
+    caller = pedro,
+    body?: unknown,
+  ): Promise<Response> =>
+    kernel.route()(
+      new Request(`http://pipoca/${path}`, {
+        ...(body !== undefined && {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      }),
+      path.split("?")[0] ?? path,
+      caller,
+    );
+
+  const asked = await call("assistant", pedro, {
+    text: "Start the release notes as team work",
+    profile: "meta.assistant",
+    threadProfile: "meta.builder",
+    team: true,
+  });
+
+  const teamAssistant = (await asked.json()) as ProjectView;
+
+  expect(teamAssistant).toMatchObject({ assistant: true, team: true });
+  expect(kernel.session(teamAssistant.coordinatorId).ownedBy).toBe("team");
+  expect((await call("assistant")).status).toBe(404);
+
+  expect(await (await call("assistant?team=true")).json()).toMatchObject({
+    id: teamAssistant.id,
+  });
+
+  expect((await call(`projects/${teamAssistant.id}`, ana)).status).toBe(404);
+  expect(await (await call("projects", ana)).json()).toEqual([]);
+});

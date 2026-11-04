@@ -216,6 +216,9 @@ export interface PluginProfile {
   readonly profile: ProfileContent & { readonly id: string };
   // Other plugins whose own Sessions may run on it.
   readonly sharedWith?: readonly string[];
+  // Team work may run on it too, such as each person's Team assistant
+  // (ADR 0067).
+  readonly team?: boolean;
 }
 
 // The server adds the Profiles, which Sessions don't hold.
@@ -338,7 +341,7 @@ export class Sessions {
           (team
             ? stored.ownerId === teamOwner
             : stored.ownerId === null || stored.ownerId === startedBy)
-        : !team &&
+        : (!team || provided.team === true) &&
           ownedBy !== undefined &&
           (provided.plugin === ownedBy.plugin ||
             provided.sharedWith?.includes(ownedBy.plugin) === true);
@@ -379,6 +382,11 @@ export class Sessions {
     };
 
     this.#store.insert(session);
+
+    if (team && request.access !== undefined) {
+      this.#store.setAccess(id, request.access);
+    }
+
     this.#polls.wake(session.provider);
     const view = this.#view(session);
     this.#changed();

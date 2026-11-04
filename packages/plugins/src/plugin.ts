@@ -20,6 +20,7 @@ import type {
   Question,
   QuestionsAnswer,
   Session,
+  SessionAccess,
   ThinkingLevel,
   ToolNamespace,
   ToolResult,
@@ -97,6 +98,9 @@ export type StartRequest = CreateSession & {
   // A technical user's name, which only plugins start Sessions as
   // (ADR 0060).
   readonly actsAs?: string;
+  // Who steers team work from the start, such as only the person whose
+  // Team assistant it is (ADR 0067).
+  readonly access?: SessionAccess;
 };
 
 export interface ToolCaller {
@@ -367,11 +371,15 @@ export interface ServerPluginContext {
     // Returns the id the plugin starts its Sessions with. Every Session on
     // it gets the plugin's toolsets, its own-Sessions parts and only the
     // parts it loads, whoever owns the Session. Plugins in sharedWith may
-    // start their own Sessions on it too (ADR 0052).
+    // start their own Sessions on it too (ADR 0052), and with team, team
+    // work too (ADR 0067).
     readonly provide: (
       key: string,
       profile: PluginProfile,
-      options?: { readonly sharedWith?: readonly string[] },
+      options?: {
+        readonly sharedWith?: readonly string[];
+        readonly team?: boolean;
+      },
     ) => string;
     // The MCP servers of the base Profile and the Profiles Sessions start
     // with, as their mcp.json files configure them.
