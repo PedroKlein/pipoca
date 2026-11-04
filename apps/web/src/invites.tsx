@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { api, send } from "./api";
+import { TheirSetup } from "./newcomers";
 
 export type Made = Invite & { readonly token: string };
 
@@ -109,9 +110,11 @@ const emailPattern = /^[^\s@]+@[^\s@]+$/;
 export function InviteDialog({
   open,
   onClose,
+  onChangeSetup,
 }: {
   readonly open: boolean;
   readonly onClose: () => void;
+  readonly onChangeSetup: () => void;
 }): ReactElement {
   const dialog = useRef<HTMLDialogElement>(null);
 
@@ -130,15 +133,17 @@ export function InviteDialog({
       aria-labelledby="invite-title"
       className="m-auto w-[min(600px,calc(100vw-32px))] rounded-xl border border-line bg-elevated p-0 text-fg shadow-pop backdrop:bg-black/30 backdrop:backdrop-blur-[2px] open:animate-pop-in"
     >
-      {open && <InviteForm onClose={onClose} />}
+      {open && <InviteForm onClose={onClose} onChangeSetup={onChangeSetup} />}
     </dialog>
   );
 }
 
 function InviteForm({
   onClose,
+  onChangeSetup,
 }: {
   readonly onClose: () => void;
+  readonly onChangeSetup: () => void;
 }): ReactElement {
   const [emails, setEmails] = useState<readonly string[]>([]);
   const [typed, setTyped] = useState("");
@@ -269,6 +274,7 @@ function InviteForm({
                 ]}
               />
             </div>
+            <TheirSetup onChange={onChangeSetup} />
             <div className="flex flex-col gap-1.5">
               <span className="text-label font-medium text-fg">
                 Or share a link

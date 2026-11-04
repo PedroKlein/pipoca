@@ -20,6 +20,7 @@ import { api, command, send } from "./api";
 import { ago } from "./chat";
 import { deleteEnvironment, kindNames } from "./environments";
 import { InviteDialog, InvitesTable, revoke } from "./invites";
+import { NewcomersCard } from "./newcomers";
 import {
   useEveryonesEnvironments,
   useEveryonesSessions,
@@ -43,6 +44,7 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
   const invites = useInvites();
   const [tab, setTab] = useState<"members" | "invites">("members");
   const [inviting, setInviting] = useState(false);
+  const [editingNewcomers, setEditingNewcomers] = useState(false);
   const [open, setOpen] = useState<string>();
   const [error, setError] = useState<string>();
 
@@ -92,6 +94,14 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
           setInviting(false);
           invites.reload();
         }}
+        onChangeSetup={() => {
+          setInviting(false);
+          setEditingNewcomers(true);
+        }}
+      />
+      <NewcomersCard
+        editing={editingNewcomers}
+        onEditing={setEditingNewcomers}
       />
       {error !== undefined && (
         <p role="alert" className="mb-3 text-caption text-failed">
@@ -101,7 +111,7 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
       <div
         role="tablist"
         aria-label="People"
-        className="flex gap-1 border-b border-line"
+        className="mt-6 flex gap-1 border-b border-line"
       >
         {(
           [

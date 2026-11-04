@@ -1261,6 +1261,15 @@ export interface HubPage {
 }
 
 // Null until an admin lays out the hub, which then shows every panel on Home.
+// What admins set up for people who join (ADR 0063): the Environment
+// template they get one from, the shared Profiles they pick from, and the
+// setup steps they can't skip.
+export interface Newcomers {
+  readonly template: string | null;
+  readonly profiles: readonly string[];
+  readonly required: readonly string[];
+}
+
 export interface HubLayout {
   readonly pages: readonly HubPage[] | null;
 }

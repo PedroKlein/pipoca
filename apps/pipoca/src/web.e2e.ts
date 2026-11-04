@@ -1588,6 +1588,96 @@ test("invites someone by email, who joins with their link and a password", async
   await page.getByRole("row", { name: "bea", exact: true }).waitFor();
 }, 30_000);
 
+test("chooses what new people get, and someone who joins picks an offered Profile in their setup", async () => {
+  const shared = (await (
+    await fetch(new URL("/api/profiles", server.url), {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        name: "Backend kit",
+        shared: true,
+        agentsMd: "Adds the Go skills",
+      }),
+    })
+  ).json()) as { readonly id: string };
+
+  await page.goto(server.url.href);
+  await openSettings("People");
+
+  const card = page.getByRole("region", { name: "What new people get" });
+  await card.getByRole("button", { name: "Edit" }).click();
+
+  const form = card.getByRole("form", { name: "Choose what new people get" });
+  await form.getByLabel("Backend kit").check();
+  await form.getByLabel("Your Profile").check();
+  await form.getByRole("button", { name: "Save" }).click();
+
+  await card
+    .getByRole("list", { name: "New people get" })
+    .getByText("Base Profile + Backend kit")
+    .waitFor();
+
+  await card.getByText("Must do: Your Profile").waitFor();
+
+  await page.getByRole("button", { name: "Invite people" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Invite people" });
+
+  await dialog
+    .getByRole("region", { name: "Their setup" })
+    .getByText("They pick: a Profile, from Backend kit, or their own")
+    .waitFor();
+
+  await dialog.getByRole("button", { name: "Make a link" }).click();
+
+  const link =
+    (await dialog.getByLabel("Invite link").textContent())?.trim() ?? "";
+
+  await dialog.getByRole("button", { name: "Close" }).click();
+
+  const context = await browser.newContext();
+
+  try {
+    const tab = await context.newPage();
+    await tab.goto(link);
+
+    const account = tab.getByRole("form", { name: "Make your account" });
+    await account.getByLabel("Username").fill("cleo");
+    await account.getByLabel("Password").fill("correct horse");
+    await account.getByRole("button", { name: "Join" }).click();
+    await tab.getByRole("list", { name: "Your setup" }).waitFor();
+
+    await tab.goto(`${server.url.href}#get-started/profile`);
+
+    const offered = tab.getByRole("list", { name: "Profiles on offer" });
+    await offered.getByLabel("Backend kit").click();
+
+    await offered
+      .getByRole("checkbox", { name: "Backend kit", checked: true })
+      .waitFor();
+
+    expect(
+      await tab.getByRole("button", { name: "Skip for now" }).count(),
+    ).toBe(0);
+
+    await tab.getByRole("button", { name: "Continue" }).click();
+    await tab.getByRole("heading", { name: "You're set, cleo" }).waitFor();
+  } finally {
+    await context.close();
+  }
+
+  await fetch(new URL("/api/newcomers", server.url), {
+    method: "PUT",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ template: null, profiles: [], required: [] }),
+  });
+
+  await fetch(new URL(`/api/profiles/${shared.id}`, server.url), {
+    method: "DELETE",
+    headers: { cookie },
+  });
+}, 30_000);
+
 test("shows why an Environment's last runner pod failed", async () => {
   await page.route("**/api/plugins/kubernetes/environments/*", async (route) =>
     route.fulfill({

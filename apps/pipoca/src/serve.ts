@@ -29,6 +29,7 @@ import { Auth } from "./auth";
 import { configFiles, configFolder } from "./config";
 import { sessionDocs } from "./docs";
 import { hubLayout } from "./hub";
+import { newcomerSetup } from "./newcomers";
 import { environmentTemplates } from "./templates";
 import {
   buildPlugin,
@@ -376,6 +377,7 @@ export function serve(options: ServeOptions): {
     templates,
     configFiles(configDir, options.lockedConfig),
     hubLayout(config("hub")),
+    newcomerSetup(config("newcomers")),
   );
 
   const terminals = terminalBroker(sessions, auth, options.log);
