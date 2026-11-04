@@ -66,6 +66,19 @@ export type KernelEvent =
       // When the Session was archived.
       readonly archivedAt: string;
     }
+  // Someone moved personal work to the team, which started this Session.
+  | {
+      readonly type: "SessionMoved";
+      readonly session: Session;
+      readonly from: string;
+      readonly actor: Actor;
+    }
+  // Whoever started team work, or an admin, changed who steers it.
+  | {
+      readonly type: "AccessChanged";
+      readonly session: Session;
+      readonly actor: Actor;
+    }
   // Someone asked Pi to stop the turn it is on.
   | {
       readonly type: "StopAsked";

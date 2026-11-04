@@ -1,5 +1,6 @@
 import type { SessionPartProps, WebPlugin } from "@pipoca/plugins/web";
 import { type ReactElement, useEffect, useState } from "react";
+import { Activity } from "./activity";
 import { AuditLog, Budgets } from "./setup";
 import { Spend } from "./spend";
 import { addUsage, describeContext, describeUsage, type Usage } from "./usage";
@@ -8,7 +9,10 @@ export const usage: WebPlugin = {
   name: "usage",
   SessionHeader,
   hub: {
-    panels: { spend: { title: "Spend this month", Panel: Spend } },
+    panels: {
+      activity: { title: "Activity", Panel: Activity },
+      spend: { title: "Spend this month", Panel: Spend },
+    },
     setup: {
       budgets: { label: "Budgets", group: "rules", Page: Budgets },
       audit: { label: "Audit log", group: "rules", Page: AuditLog },
