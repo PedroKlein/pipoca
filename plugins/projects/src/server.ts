@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   BadRequest,
+  canSee,
   NotFound,
   type PluginStore,
   readBody,
@@ -434,9 +435,7 @@ async function route(
   }
 
   const project =
-    resource === "projects"
-      ? theirs(store.get(id ?? ""), context, caller)
-      : undefined;
+    resource === "projects" ? theirs(store.get(id ?? ""), caller) : undefined;
 
   if (project && child === undefined && request.method === "GET") {
     return Response.json(view(project, store, context));
@@ -472,9 +471,7 @@ async function route(
   const member = resource === "threads" ? store.member(id ?? "") : undefined;
 
   const thread =
-    member && theirs(store.get(member.projectId), context, caller)
-      ? member
-      : undefined;
+    member && theirs(store.get(member.projectId), caller) ? member : undefined;
 
   if (thread?.role === "thread" && child === undefined) {
     return Response.json({
@@ -796,16 +793,17 @@ function startFresh(
 // had a person is an admin's.
 function theirs(
   project: Project | undefined,
-  { owner }: ServerPluginContext,
   caller: RouteCaller & { readonly kind: "user" },
 ): Project | undefined {
-  const person = caller.actor.slice("user:".length);
-
-  return project?.ownerId === person ||
-    (project?.ownerId === owner && caller.admin)
+  return project !== undefined &&
+    (canSee(caller, `person:${project.ownerId}`) ||
+      (project.ownerId === beforePeople && caller.admin))
     ? project
     : undefined;
 }
+
+// The owner every record had while a server had one user.
+const beforePeople = "local";
 
 function summaries(
   store: ProjectStore,
@@ -817,8 +815,7 @@ function summaries(
   return store
     .list()
     .filter(
-      (project) =>
-        !project.assistant && theirs(project, context, caller) !== undefined,
+      (project) => !project.assistant && theirs(project, caller) !== undefined,
     )
     .map((project) => {
       const threads = store.threads(project.id);

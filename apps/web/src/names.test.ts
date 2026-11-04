@@ -26,6 +26,7 @@ const session = (change: Partial<Session>): Session => ({
   workspaceKeptReason: null,
   startedBy: null,
   actsAs: null,
+  ownedBy: "person:local",
   online: true,
   waiting: false,
   ...change,

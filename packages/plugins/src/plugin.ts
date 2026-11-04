@@ -231,8 +231,6 @@ export interface PluginNotice {
 }
 
 export interface ServerPluginContext {
-  // The user this installation belongs to. v1 has exactly one.
-  readonly owner: string;
   readonly tools: { readonly register: (tool: ServerTool) => void };
   readonly toolsets: {
     readonly register: (toolset: Toolset) => void;

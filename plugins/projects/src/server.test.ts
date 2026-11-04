@@ -95,7 +95,6 @@ function fakeKernel(): {
   };
 
   const context = fakeContext({
-    owner: "pedro",
     tools: {
       register: (tool) => {
         tools.set(tool.name, tool);

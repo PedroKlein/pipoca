@@ -38,7 +38,7 @@ import { contentFiles, overBaseExtensions } from "@pipoca/profiles";
 import { placesOn, placesOnNewRunner, uniqueModels } from "./placement";
 import { RunnerPolls } from "./runner-polls";
 
-export type StoredSession = Omit<Session, "online" | "waiting">;
+export type StoredSession = Omit<Session, "online" | "waiting" | "ownedBy">;
 
 export type StoredEnvironment = Omit<
   Environment,
@@ -1553,6 +1553,7 @@ export class Sessions {
   #view(session: StoredSession): Session {
     return {
       ...session,
+      ownedBy: `person:${this.#person(session) ?? owner}`,
       online: this.#online(session),
       waiting: this.#waiting(session),
     };

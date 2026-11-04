@@ -31,6 +31,10 @@ const assistantProfile = {
   mcpServers: {},
 };
 
+// Every meta-session is owned under one key, the one the server's single
+// owner had before people (ADR 0028).
+const sessionsKey = "local";
+
 const fileContents = Type.Record(Type.String(), Type.String());
 
 const installation = Type.Union([
@@ -125,7 +129,7 @@ export const meta: ServerPlugin = {
       if (request.method === "GET") {
         return Response.json(
           context.sessions
-            .owned(context.owner)
+            .owned(sessionsKey)
             .filter(
               ({ startedBy }) => caller.actor === `user:${startedBy ?? ""}`,
             ),
@@ -230,7 +234,7 @@ function start(
         firstMessage: text,
         ...(model && { model: { provider: model.provider, id: model.id } }),
       },
-      context.owner,
+      sessionsKey,
     );
   } catch (error) {
     throw new BadRequest(
