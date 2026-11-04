@@ -23,6 +23,7 @@ export interface ProjectSummary {
   readonly threads: number;
   // Threads that are blocked or wait on an answer.
   readonly needsYou: number;
+  readonly team: boolean;
 }
 
 export interface ThreadView {
@@ -59,6 +60,7 @@ export interface ProjectView {
   readonly coordinatorState: RunState;
   // The person's Pipoca assistant (ADR 0052).
   readonly assistant: boolean;
+  readonly team: boolean;
   // Earlier coordinators, oldest first.
   readonly formerCoordinators: readonly string[];
   readonly threads: readonly ThreadView[];

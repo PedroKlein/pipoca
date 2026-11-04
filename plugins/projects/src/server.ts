@@ -55,6 +55,7 @@ const newProject = Type.Object({
   repositories: Type.Array(Type.String()),
   environment: Type.Optional(Type.String()),
   model: Type.Optional(Type.String()),
+  team: Type.Optional(Type.Boolean()),
 });
 
 const assistantAsk = Type.Object({
@@ -553,6 +554,7 @@ function create(
     profile,
     model,
     threadModel,
+    team,
   }: Static<typeof newProject>,
   store: ProjectStore,
   context: ServerPluginContext,
@@ -588,6 +590,7 @@ function create(
     coordinatorId: "",
     createdAt: new Date().toISOString(),
     assistant: false,
+    team: team === true,
   };
 
   try {
@@ -629,6 +632,7 @@ function ask(
         coordinatorId: "",
         createdAt: new Date().toISOString(),
         assistant: true,
+        team: false,
       },
       { model, profile, firstMessage: text },
       store,
@@ -674,6 +678,7 @@ function begin(
       {
         ...(ref && { model: ref }),
         actor: `user:${draft.ownerId}`,
+        ...(draft.team && { team: true }),
         ...(draft.environmentId !== null && {
           environment: draft.environmentId,
         }),
@@ -741,6 +746,7 @@ function startFresh(
       {
         ...(previous?.model && { model: previous.model }),
         actor: `user:${project.ownerId}`,
+        ...(project.team && { team: true }),
         ...(environment !== null && { environment }),
         ...(profile !== null && { profile }),
         workspace: {
@@ -789,14 +795,14 @@ function startFresh(
   return store.get(project.id) ?? project;
 }
 
-// A Project is its starter's alone (ADR 0049). One from before Projects
-// had a person is an admin's.
+// A Project is its starter's alone (ADR 0049), or the whole team's
+// (ADR 0067). One from before Projects had a person is an admin's.
 function theirs(
   project: Project | undefined,
   caller: RouteCaller & { readonly kind: "user" },
 ): Project | undefined {
   return project !== undefined &&
-    (canSee(caller, `person:${project.ownerId}`) ||
+    (canSee(caller, project.team ? "team" : `person:${project.ownerId}`) ||
       (project.ownerId === beforePeople && caller.admin))
     ? project
     : undefined;
@@ -832,6 +838,7 @@ function summaries(
             thread.workState === "blocked" ||
             runState(sessions.get(thread.sessionId)) === "waiting",
         ).length,
+        team: project.team,
       };
     });
 }
@@ -853,6 +860,7 @@ function view(
     coordinatorId: project.coordinatorId,
     coordinatorState: runState(sessions.get(project.coordinatorId)),
     assistant: project.assistant,
+    team: project.team,
     formerCoordinators: store
       .formers(project.id)
       .map(({ sessionId }) => sessionId),
