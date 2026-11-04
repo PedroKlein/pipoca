@@ -1630,8 +1630,7 @@ test("chooses what new people get, and someone who joins picks an offered Profil
 
   await dialog.getByRole("button", { name: "Make a link" }).click();
 
-  const link =
-    (await dialog.getByLabel("Invite link").textContent())?.trim() ?? "";
+  const link = (await dialog.getByText(/#join\//).textContent()) ?? "";
 
   await dialog.getByRole("button", { name: "Close" }).click();
 
