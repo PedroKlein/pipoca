@@ -4245,3 +4245,79 @@ test("an admin names the team, and the hub and sidebar show it", async () => {
 
   await page.getByRole("link", { name: "Team", exact: true }).waitFor();
 });
+
+test("offers a fork once the team said more than Pi reads", async () => {
+  await page.goto(server.url.href);
+
+  const signedIn = (await page.context().cookies()).find(
+    ({ name }) => name === "pipoca-session",
+  );
+
+  const current = `${signedIn?.name ?? ""}=${signedIn?.value ?? ""}`;
+
+  const post = async (path: string, body: unknown): Promise<unknown> =>
+    (
+      await fetch(new URL(path, server.url), {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: current },
+        body: JSON.stringify(body),
+      })
+    ).json();
+
+  const { environment } = (await post("/api/environments", {
+    name: "talk-pods",
+    team: true,
+  })) as { environment: Environment };
+
+  const profile = (await post("/api/profiles", {
+    name: "Talk",
+    team: true,
+  })) as Profile;
+
+  const folder = join(root, "long-talk");
+
+  await mkdir(folder, { recursive: true });
+
+  const session = (await post("/api/sessions", {
+    team: true,
+    environment: environment.id,
+    profile: profile.id,
+    workspace: { kind: "folder", path: folder },
+  })) as Session;
+
+  await post(`/api/sessions/${session.id}/say`, { to: "team", text: "One" });
+  await page.goto(new URL(`/#${session.id}`, server.url).href);
+
+  await page
+    .getByText("Pi also reads the team message since its last turn.")
+    .waitFor();
+
+  for (let n = 2; n <= 41; n++) {
+    await post(`/api/sessions/${session.id}/say`, {
+      to: "team",
+      text: `Message ${String(n)}`,
+    });
+  }
+
+  const offer = page
+    .getByRole("status")
+    .filter({ hasText: "Pi reads only the latest 40 of 41 team messages" });
+
+  await offer.waitFor();
+  await page.locator("#prompt-text").fill("We settled on 5 retries.");
+  await offer.getByRole("button", { name: "Fork" }).click();
+  await page.waitForURL((url) => url.hash !== `#${session.id}`);
+
+  await page.waitForFunction(
+    `document.querySelector("#prompt-text")?.value === "We settled on 5 retries."`,
+  );
+
+  const forked = (await (
+    await fetch(
+      new URL(`/api/sessions/${new URL(page.url()).hash.slice(1)}`, server.url),
+      { headers: { cookie: current } },
+    )
+  ).json()) as Session;
+
+  expect(forked.ownedBy).toBe("team");
+});
