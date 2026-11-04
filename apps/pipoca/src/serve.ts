@@ -250,6 +250,7 @@ export function serve(options: ServeOptions): {
     pluginProfile: (id) => pluginHost.profile(id),
     gitLogins: (userId, session) => pluginHost.gitLogins(userId, session),
     templates: () => templates.list(),
+    names: (person) => auth.userById(person)?.name,
     docs: sessionDocs(
       folder === undefined
         ? []

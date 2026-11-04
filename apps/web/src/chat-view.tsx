@@ -1,5 +1,5 @@
 import type { MountedSession } from "@pipoca/plugins/web";
-import type { UiAction } from "@pipoca/protocol";
+import type { Quote, UiAction } from "@pipoca/protocol";
 import { cn, Icon } from "@pipoca/ui";
 import {
   type ReactElement,
@@ -17,6 +17,7 @@ import { dataUrl } from "./attachments";
 import {
   ago,
   describeTool,
+  type Quoted,
   duration,
   linkParts,
   openedOf,
@@ -42,11 +43,14 @@ export function ChatView({
   session,
   place,
   hidden,
+  onReply,
 }: {
   readonly feed: Feed;
   readonly session: MountedSession;
   readonly place: string;
   readonly hidden: boolean;
+  // In team work, a message can quote the one it answers (ADR 0065).
+  readonly onReply?: (quote: Quote) => void;
 }): ReactElement {
   const scroller = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -170,8 +174,25 @@ export function ChatView({
                     ))}
                   </span>
                 )}
+                {turn.quote && <QuoteLine quote={turn.quote} />}
                 {turn.user}
               </li>
+            ),
+            turn.user !== undefined && onReply && (
+              <li key={`${String(turn.key)}-reply`} className="-mt-4 self-end">
+                <ReplyButton
+                  onClick={() => {
+                    onReply({ from: turn.from ?? "", text: turn.user ?? "" });
+                  }}
+                />
+              </li>
+            ),
+            turn.team && (
+              <TeamMessage
+                key={`${String(turn.key)}-team`}
+                said={turn.team}
+                onReply={onReply}
+              />
             ),
             turn.notice && (
               <li key={`${String(turn.key)}-notice`} data-role="notice">
@@ -213,6 +234,11 @@ export function ChatView({
                 key={`${String(turn.key)}-meta`}
                 turn={turn}
                 now={now}
+                {...(onReply && {
+                  onReply: () => {
+                    onReply({ from: "pi", text: turn.answer.join("\n\n") });
+                  },
+                })}
               />
             ),
           ];
@@ -230,11 +256,17 @@ export function ChatView({
 function AnswerMeta({
   turn,
   now,
+  onReply,
 }: {
   readonly turn: Turn;
   readonly now: number;
+  readonly onReply?: () => void;
 }): ReactElement | null {
-  if (turn.ended === undefined && turn.model === undefined) {
+  if (
+    turn.ended === undefined &&
+    turn.model === undefined &&
+    onReply === undefined
+  ) {
     return null;
   }
 
@@ -252,6 +284,81 @@ function AnswerMeta({
         </time>
       )}
       {turn.model !== undefined && <span>{turn.model}</span>}
+      {onReply && <ReplyButton onClick={onReply} />}
+    </li>
+  );
+}
+
+function ReplyButton({
+  className,
+  onClick,
+}: {
+  readonly className?: string;
+  readonly onClick: () => void;
+}): ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "cursor-pointer text-caption text-fg-dim hover:text-fg",
+        className,
+      )}
+    >
+      Reply
+    </button>
+  );
+}
+
+function QuoteLine({ quote }: { readonly quote: Quoted }): ReactElement {
+  return (
+    <span className="mb-1.5 block border-l-2 border-line-strong pl-2 text-label text-fg-dim">
+      <span className="font-medium">{quote.by}</span>{" "}
+      <span className="line-clamp-2">{quote.text}</span>
+    </span>
+  );
+}
+
+// People talking to each other in a team Session, which Pi doesn't answer.
+function TeamMessage({
+  said,
+  onReply,
+}: {
+  readonly said: NonNullable<Turn["team"]>;
+  readonly onReply: ((quote: Quote) => void) | undefined;
+}): ReactElement {
+  return (
+    <li data-role="team" className="flex max-w-[85%] flex-col gap-1 self-start">
+      <span className="text-caption text-fg-dim">
+        {said.by} · {said.aside ? "off the record" : "to the team"}
+      </span>
+      <span
+        className={cn(
+          "rounded-xl rounded-bl-sm px-4 py-2.5 text-prose whitespace-pre-wrap text-fg-strong",
+          said.aside
+            ? "border border-dashed border-line-strong"
+            : "bg-elevated shadow-card",
+        )}
+      >
+        {said.quote && <QuoteLine quote={said.quote} />}
+        {said.text}
+      </span>
+      <span className="flex gap-3 text-caption text-fg-dim">
+        {said.aside
+          ? "Hidden from Pi, visible to the team"
+          : "Pi didn't answer"}
+        {onReply && (
+          <button
+            type="button"
+            onClick={() => {
+              onReply({ from: said.from, text: said.text });
+            }}
+            className="cursor-pointer hover:text-fg"
+          >
+            Reply
+          </button>
+        )}
+      </span>
     </li>
   );
 }

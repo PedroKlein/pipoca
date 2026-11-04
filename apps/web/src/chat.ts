@@ -13,8 +13,20 @@ export type ChatItem = (
       readonly images?: readonly ImageAttachment[];
       // Who sent it, in team work several people steer.
       readonly by?: string;
+      readonly from?: string;
+      readonly quote?: Quoted;
       // The transcript entry, which a fork can start from.
       readonly entryId?: string;
+    }
+  // What people said to each other in team work (ADR 0065). Pi reads one to
+  // the team the next time it's asked, and never one aside.
+  | {
+      readonly role: "team";
+      readonly text: string;
+      readonly from: string;
+      readonly by: string;
+      readonly aside: boolean;
+      readonly quote?: Quoted;
     }
   | {
       readonly role: "assistant";
@@ -284,10 +296,19 @@ export type Work =
   | { readonly kind: "step"; readonly step: Step }
   | { readonly kind: "narration" | "error" | "note"; readonly text: string };
 
+// The message a reply answers, with its sender's name.
+export interface Quoted {
+  readonly by: string;
+  readonly text: string;
+}
+
 export interface Turn {
   readonly key: number;
   readonly user: string | undefined;
   readonly by?: string;
+  readonly from?: string;
+  readonly quote?: Quoted;
+  readonly team?: Extract<ChatItem, { role: "team" }>;
   // A plugin's notice that started the turn, in place of a user message.
   readonly notice?: { readonly text: string; readonly tag: NoticeTag };
   readonly images?: readonly ImageAttachment[];
@@ -325,6 +346,9 @@ export function turns(
     key: number;
     user: string | undefined;
     by: string | undefined;
+    from: string | undefined;
+    quote: Quoted | undefined;
+    team: Turn["team"];
     notice: Turn["notice"];
     images: readonly ImageAttachment[] | undefined;
     started: string | undefined;
@@ -333,12 +357,18 @@ export function turns(
 
   for (const item of items) {
     const current = result.at(-1);
-    const opens = item.role === "user" || item.role === "notice";
+
+    const opens =
+      item.role === "user" || item.role === "notice" || item.role === "team";
+
     if (opens || !current) {
       result.push({
         key: item.key,
         user: item.role === "user" ? item.text : undefined,
         by: item.role === "user" ? item.by : undefined,
+        from: item.role === "user" ? item.from : undefined,
+        quote: item.role === "user" ? item.quote : undefined,
+        team: item.role === "team" ? item : undefined,
         notice:
           item.role === "notice"
             ? { text: item.text, tag: item.notice }
@@ -353,7 +383,18 @@ export function turns(
   }
 
   return result.map(
-    ({ key, user, by, notice, images, started, items: inTurn }) => {
+    ({
+      key,
+      user,
+      by,
+      from,
+      quote,
+      team,
+      notice,
+      images,
+      started,
+      items: inTurn,
+    }) => {
       const lastTool = inTurn.findLastIndex(
         (item) => item.role === "tool" || item.role === "result",
       );
@@ -409,6 +450,7 @@ export function turns(
             return [{ kind: item.role, text: item.text }];
           case "user":
           case "notice":
+          case "team":
             return [];
         }
       });
@@ -427,6 +469,9 @@ export function turns(
         key,
         user,
         ...(by !== undefined && { by }),
+        ...(from !== undefined && { from }),
+        ...(quote && { quote }),
+        ...(team && { team }),
         ...(notice && { notice }),
         ...(images && { images }),
         ...(started !== undefined && { started }),

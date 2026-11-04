@@ -59,3 +59,50 @@ test("leaves a personal Session's items as they are", () => {
 
   expect(voiced(items, [], name)).toBe(items);
 });
+
+test("shows what people said to each other where they said it, with the message each replies to", () => {
+  const items: FeedItem[] = [
+    { role: "user", text: "go", at: "2026-11-04T05:00:00Z", key: 0 },
+    { role: "assistant", text: "done", at: "2026-11-04T05:03:00Z", key: 1 },
+  ];
+
+  const shown = voiced(
+    items,
+    [
+      {
+        kind: "message",
+        person: "ana",
+        at: "2026-11-04T05:00:00Z",
+        text: "go",
+      },
+      {
+        kind: "team",
+        person: "bo",
+        at: "2026-11-04T05:01:00Z",
+        text: "Ship it today?",
+        quote: { from: "pi", text: "working on it" },
+      },
+      {
+        kind: "aside",
+        person: "ana",
+        at: "2026-11-04T05:02:00Z",
+        text: "Bo is rushing",
+        quote: { from: "bo", text: "Ship it today?" },
+      },
+    ],
+    name,
+  );
+
+  expect(
+    shown.map((item) =>
+      item.role === "team"
+        ? [item.by, item.aside, item.text, item.quote?.by]
+        : [item.role],
+    ),
+  ).toEqual([
+    ["user"],
+    ["Bo", false, "Ship it today?", "Pi"],
+    ["Ana", true, "Bo is rushing", "Bo"],
+    ["assistant"],
+  ]);
+});

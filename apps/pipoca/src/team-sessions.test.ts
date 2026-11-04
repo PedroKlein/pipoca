@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type {
   Assignment,
+  Command,
   Environment,
   Joined,
   Profile,
@@ -569,4 +570,95 @@ test("everyone following team work sees who else is looking and who is typing", 
 
   expect(await next()).toEqual([{ person: an, typing: false }]);
   await seen.return(undefined);
+});
+
+test("Pi reads what the team said since its last turn, with names and replies, but nothing off the record", async () => {
+  const anas = await ana();
+  const bo = randomUUID();
+  const bos = await member("bo", bo);
+  const team = await teamSetup();
+
+  const session = await json<Session>(
+    api("/api/sessions", anas, {
+      team: true,
+      environment: team.environment,
+      profile: team.profile,
+      workspace: workspace(),
+    }),
+  );
+
+  const say = async (cookie: string, body: unknown): Promise<number> =>
+    (await api(`/api/sessions/${session.id}/say`, cookie, body)).status;
+
+  expect(await say(bos, { to: "team", text: "Ship it today?" })).toBe(201);
+
+  expect(await say(anas, { to: "aside", text: "Bo is rushing again" })).toBe(
+    201,
+  );
+
+  expect(await say(bos, { to: "pi", text: "hi" })).toBe(400);
+
+  const [assigned] = await poll(team.runner);
+
+  const sent = await api(`/api/sessions/${session.id}/commands`, anas, {
+    type: "message",
+    text: "Check the release first",
+    quote: { from: bo, text: "Ship it today?" },
+  });
+
+  expect(sent.status).toBe(202);
+
+  const commands = readSse(
+    await fetch(
+      new URL(
+        `/agent/sessions/${session.id}/commands?generation=${String(assigned?.generation)}`,
+        server.url,
+      ),
+      {
+        headers: {
+          "pipoca-protocol": "4",
+          authorization: `Bearer ${team.runner}`,
+        },
+      },
+    ),
+  );
+
+  const received: Command[] = [];
+
+  for await (const command of commands) {
+    received.push(command as Command);
+
+    if (received.length === 2) {
+      break;
+    }
+  }
+
+  expect(received.map(({ type }) => type)).toEqual(["context", "message"]);
+
+  expect(received[0]).toMatchObject({
+    hidden: true,
+    text: [
+      "The team talked since your last turn:",
+      "bo: Ship it today?",
+      "",
+      'ana, replying to bo ("Ship it today?") sends the next message.',
+    ].join("\n"),
+  });
+
+  const events = await api(`/api/sessions/${session.id}/events`, bos);
+  const kinds: string[] = [];
+
+  for await (const event of readSse(events)) {
+    const replayed = event as SessionEvent;
+
+    if (replayed.type === "voice") {
+      kinds.push(replayed.voice.kind);
+    }
+
+    if (kinds.length === 3) {
+      break;
+    }
+  }
+
+  expect(kinds).toEqual(["team", "aside", "message"]);
 });

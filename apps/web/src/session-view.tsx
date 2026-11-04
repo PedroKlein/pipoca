@@ -32,7 +32,7 @@ import {
 } from "react";
 import { api, command } from "./api";
 import { ago } from "./chat";
-import { Composer, prefillComposer } from "./composer";
+import { Composer, prefillComposer, type Replying } from "./composer";
 import { ChatView } from "./chat-view";
 import { emptyFeed, type Feed, feedReader, followEvents } from "./feed";
 import { describe, sessionBadge, shortName, workspaceName } from "./names";
@@ -41,6 +41,7 @@ import { PrimaryView, usePrimaryId } from "./primary";
 import { enabledPlugins, pluginContext } from "./plugins";
 import { sessionChannel } from "./session-channel";
 import { keyBar, type Modifier, modified } from "./keys";
+import { useTeammates } from "./hooks";
 import { Me } from "./me";
 import { PresenceLine, usePresence, useTyping } from "./presence";
 import { AccessDialog, accessLabels, steers } from "./team-access";
@@ -108,6 +109,8 @@ export function SessionView({
   const team = session?.ownedBy === "team";
   const present = usePresence(sessionId, team);
   const typed = useTyping(sessionId, team);
+  const [replying, setReplying] = useState<Replying>();
+  const teammates = useTeammates().value;
 
   const limits =
     session?.ownedBy === "team" && (me.admin || session.startedBy === me.id);
@@ -350,6 +353,20 @@ export function SessionView({
             place={place}
             hidden={shown !== "chat"}
             session={channel.session}
+            {...(team &&
+              !watching &&
+              !archived && {
+                onReply: (quote) => {
+                  setReplying({
+                    quote,
+                    by:
+                      quote.from === "pi"
+                        ? "Pi"
+                        : (teammates.find(({ id }) => id === quote.from)
+                            ?.name ?? "Someone"),
+                  });
+                },
+              })}
           />
           {!archived && (
             <PagesNotice
@@ -382,6 +399,11 @@ export function SessionView({
               }
               hidden={archived || watching}
               report={reportError}
+              team={team}
+              replying={replying}
+              onReplied={() => {
+                setReplying(undefined);
+              }}
             />
           </div>
           {watching && !archived && (

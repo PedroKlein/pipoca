@@ -3,13 +3,21 @@ import {
   imageLimits,
   imageTypes,
   type ModelRef,
+  type Quote,
 } from "@pipoca/protocol";
 import {
   type MountedSession,
   modelOptions,
   rememberModel,
 } from "@pipoca/plugins/web";
-import { Button, Icon, isComposing, Picker, Slider } from "@pipoca/ui";
+import {
+  Button,
+  Icon,
+  isComposing,
+  Picker,
+  Segmented,
+  Slider,
+} from "@pipoca/ui";
 import {
   memo,
   type ReactElement,
@@ -19,7 +27,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { command } from "./api";
+import { api, command } from "./api";
 import { admit, dataUrl } from "./attachments";
 import type { Feed, Settings, ShownWidget } from "./feed";
 import { modelName, modelRef } from "./names";
@@ -45,6 +53,27 @@ export function prefillComposer(sessionId: string, text: string): void {
   prefills.set(sessionId, text);
 }
 
+// Who a team Session message goes to (ADR 0065).
+type Target = "pi" | "team" | "aside";
+
+const targets = [
+  { value: "pi", label: "To Pi" },
+  { value: "team", label: "To the team" },
+  { value: "aside", label: "Off the record" },
+] as const;
+
+const placeholders = {
+  pi: "Message Pi",
+  team: "Message the team. Pi reads it next time it's asked",
+  aside: "Hidden from Pi, visible to the team",
+} as const satisfies Record<Target, string>;
+
+// A reply in team work, and the name of whoever it answers.
+export interface Replying {
+  readonly quote: Quote;
+  readonly by: string;
+}
+
 export function Composer({
   sessionId,
   session,
@@ -52,6 +81,9 @@ export function Composer({
   models,
   hidden,
   report,
+  team = false,
+  replying,
+  onReplied,
 }: {
   readonly sessionId: string;
   readonly session: MountedSession;
@@ -59,7 +91,12 @@ export function Composer({
   readonly models: readonly ModelRef[];
   readonly hidden: boolean;
   readonly report: (error: unknown) => void;
+  // Team work's composer also talks to people (ADR 0065).
+  readonly team?: boolean;
+  readonly replying?: Replying | undefined;
+  readonly onReplied?: () => void;
 }): ReactElement {
+  const [target, setTarget] = useState<Target>("pi");
   const text = useRef<HTMLTextAreaElement>(null);
   const promptId = usePrimaryId("prompt");
   const generatedId = useId();
@@ -163,10 +200,37 @@ export function Composer({
       return;
     }
 
+    const toPeople = team && target !== "pi";
+
+    if (toPeople && images.length > 0) {
+      report("Images go to Pi only. Switch to To Pi to send them.");
+
+      return;
+    }
+
     box.value = "";
     setImages([]);
 
-    command(sessionId, {
+    const quote = replying?.quote;
+    onReplied?.();
+
+    const restore = (error: unknown): void => {
+      box.value = box.value === "" ? message : `${message}\n${box.value}`;
+      report(error);
+    };
+
+    if (toPeople) {
+      api(`/api/sessions/${encodeURIComponent(sessionId)}/say`, {
+        to: target,
+        text: message,
+        ...(quote && { quote }),
+      }).catch(restore);
+
+      return;
+    }
+
+    api(`/api/sessions/${encodeURIComponent(sessionId)}/commands`, {
+      ...(quote && { quote }),
       type: "message",
       text: message,
       ...(images.length > 0 && {
@@ -270,8 +334,24 @@ export function Composer({
         >
           {suggestions.menu}
           <label htmlFor={textId} className="sr-only">
-            Message Pi
+            {placeholders[team ? target : "pi"]}
           </label>
+          {replying && (
+            <p className="flex items-start gap-2 border-l-2 border-line-strong pl-2 text-label text-fg-dim">
+              <span className="min-w-0 flex-1">
+                Replying to <span className="font-medium">{replying.by}</span>
+                <span className="line-clamp-1">{replying.quote.text}</span>
+              </span>
+              <button
+                type="button"
+                aria-label="Cancel the reply"
+                onClick={onReplied}
+                className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md hover:bg-hover hover:text-fg"
+              >
+                <Icon name="x" className="size-3.5" />
+              </button>
+            </p>
+          )}
           {images.length > 0 && (
             <ul
               aria-label="Attached images"
@@ -305,8 +385,16 @@ export function Composer({
             id={textId}
             name="text"
             rows={2}
-            placeholder="Message Pi"
+            placeholder={placeholders[team ? target : "pi"]}
+
             {...suggestions.box}
+            onInput={(event) => {
+              suggestions.box.onInput(event);
+
+              if (team && event.currentTarget.value.includes("@pipoca")) {
+                setTarget("pi");
+              }
+            }}
             onPaste={(event) => {
               const pasted = [...event.clipboardData.files];
 
@@ -383,6 +471,14 @@ export function Composer({
                     report,
                   );
                 }}
+              />
+            )}
+            {team && (
+              <Segmented
+                label="Send to"
+                value={target}
+                options={targets}
+                onChange={setTarget}
               />
             )}
             <span className="flex-1 truncate text-caption text-fg-dim max-md:hidden">

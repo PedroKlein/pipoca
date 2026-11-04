@@ -1005,8 +1005,13 @@ export type Command = { readonly actor: Actor } & (
       readonly text: string;
       readonly sendNow?: boolean;
     }
-  // Context for the model's next turn that doesn't start one.
-  | { readonly type: "context"; readonly text: string }
+  // Context for the model's next turn that doesn't start one. Hidden, it
+  // stays out of the chat, such as what the team said before a message.
+  | {
+      readonly type: "context";
+      readonly text: string;
+      readonly hidden?: boolean;
+    }
   // A plugin's notice to the model, which the web draws with the plugin's
   // own renderer (ADR 0028). With turn it starts a turn, or waits as a
   // follow-up while one runs.
@@ -1286,13 +1291,23 @@ export interface CreateSession {
   readonly firstMessage?: string;
 }
 
-// Who sent a team Session a message or stopped it (ADR 0054), which Pi's
-// transcript doesn't keep.
+// The message a reply answers (ADR 0065), as it read then. Pi's own are
+// from "pi".
+export interface Quote {
+  readonly from: string;
+  readonly text: string;
+}
+
+// What a person said in a team Session (ADR 0054, ADR 0065), which Pi's
+// transcript doesn't keep: a message to Pi, a stop, a message to the team
+// that Pi reads only when next asked, or one off the record that Pi never
+// reads.
 export interface Voice {
-  readonly kind: "message" | "stop";
+  readonly kind: "message" | "stop" | "team" | "aside";
   readonly person: string;
   readonly at: string;
   readonly text?: string;
+  readonly quote?: Quote;
 }
 
 // Someone looking at a team Session, and whether they are typing in it.
