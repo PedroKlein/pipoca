@@ -7,6 +7,7 @@ import {
   useProfiles,
   useSessions,
   useSettledNotices,
+  useTeamName,
 } from "./hooks";
 import { ShellMenu } from "./embedded-session";
 import { NewSessionDialog } from "./new-session";
@@ -54,6 +55,7 @@ export function App({
   const sessions = useSessions(showArchived);
   const environments = useEnvironments();
   const profiles = useProfiles();
+  const teamName = useTeamName();
   useSettledNotices(sessions.value, route);
 
   if (drawerRoute !== route) {
@@ -210,9 +212,9 @@ export function App({
     return (
       <div className="flex h-dvh overflow-hidden bg-bg font-sans text-ui text-fg">
         {admin && isTeamSetupRoute(route) ? (
-          <TeamSetup route={route} people={people} />
+          <TeamSetup route={route} people={people} teamName={teamName} />
         ) : (
-          <TeamHub route={route} admin={admin} />
+          <TeamHub route={route} admin={admin} name={teamName} />
         )}
       </div>
     );
@@ -253,7 +255,7 @@ export function App({
           showArchived={showArchived}
           onShowArchived={setShowArchived}
           user={user}
-          team={team}
+          team={team ? (teamName ?? "Team") : undefined}
           onNewSession={() => {
             setCreating(true);
           }}

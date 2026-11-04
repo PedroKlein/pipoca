@@ -63,6 +63,7 @@ import type { ConfigFiles } from "./config";
 import type { Templates } from "./templates";
 import { type Hub, layoutOf } from "./hub";
 import { type NewcomerSetup, newcomersOf } from "./newcomers";
+import { type Team, teamOf } from "./team";
 
 type Route = (
   request: Request,
@@ -121,6 +122,7 @@ export function createHandler(
   config?: ConfigFiles,
   hub?: Hub,
   newcomers?: NewcomerSetup,
+  teamName?: Team,
 ): (request: Request) => Promise<Response> {
   const present = presences();
 
@@ -981,6 +983,32 @@ export function createHandler(
         changes.publish("hub");
 
         return Response.json(layout);
+      },
+    ],
+    [
+      "GET",
+      /^\/api\/team$/,
+      () => Response.json(teamName?.get() ?? { name: null }),
+    ],
+    [
+      "PUT",
+      /^\/api\/team$/,
+      async (request, _params, _actor, isAdmin) => {
+        if (!isAdmin) {
+          return errorReply(403, "admin_only", "Only admins name the team.");
+        }
+
+        const next = teamOf(await readJson(request));
+
+        if (teamName === undefined) {
+          return notFound();
+        }
+
+        teamName.set(next);
+        log("team named", { name: next.name });
+        changes.publish("team");
+
+        return Response.json(next);
       },
     ],
     [

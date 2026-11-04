@@ -31,7 +31,8 @@ export interface SidebarProps {
   readonly onShowArchived: (show: boolean) => void;
   readonly onNewSession: () => void;
   readonly user: string;
-  readonly team: boolean;
+  // What the team is called, on a server several people use.
+  readonly team: string | undefined;
 }
 
 export function Sidebar({
@@ -91,7 +92,7 @@ export function Sidebar({
         </span>
       </div>
 
-      {team && (
+      {team !== undefined && (
         <a
           href="#team"
           className="mx-2 flex items-center gap-2.5 rounded-md px-2 py-1.5 text-ui text-fg hover:bg-hover"
@@ -102,7 +103,7 @@ export function Sidebar({
           >
             <Icon name="users" className="size-3.5" />
           </span>
-          Team
+          <span className="truncate">{team}</span>
         </a>
       )}
       <PluginNav nav={nav} route={route} />

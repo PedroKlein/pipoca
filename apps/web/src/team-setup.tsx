@@ -1,6 +1,21 @@
 import type { SetupScreen } from "@pipoca/plugins/web";
-import { Badge, Icon, PageTitle, Row, Rows, Switch } from "@pipoca/ui";
-import { type ReactElement, type ReactNode, useState } from "react";
+import {
+  Badge,
+  Button,
+  Field,
+  fieldClass,
+  Icon,
+  PageTitle,
+  Row,
+  Rows,
+  Switch,
+} from "@pipoca/ui";
+import {
+  type ReactElement,
+  type ReactNode,
+  type SubmitEvent,
+  useState,
+} from "react";
 import { send } from "./api";
 import { EnvironmentsPage } from "./environments";
 import { usePlugins, useTeamEnvironments, useTeamProfiles } from "./hooks";
@@ -39,9 +54,11 @@ function screens(): readonly Screen[] {
 export function TeamSetup({
   route,
   people,
+  teamName,
 }: {
   readonly route: string;
   readonly people: boolean;
+  readonly teamName: string | null;
 }): ReactElement {
   const profiles = useTeamProfiles();
   const environments = useTeamEnvironments();
@@ -69,6 +86,7 @@ export function TeamSetup({
     [
       "Rules",
       [
+        { path: "team/setup/name", label: "Name" },
         { path: "team/setup/plugins", label: "Plugins in team work" },
         ...plugins.filter(({ group }) => group === "rules"),
       ],
@@ -102,6 +120,10 @@ export function TeamSetup({
 
     if (section === "plugins") {
       return <TeamPlugins />;
+    }
+
+    if (section === "name") {
+      return <TeamNaming name={teamName} />;
     }
 
     const screen = plugins.find(({ path }) => path === route);
@@ -174,6 +196,65 @@ export function TeamSetup({
           ))}
       </nav>
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">{content()}</div>
+    </div>
+  );
+}
+
+function TeamNaming({ name }: { readonly name: string | null }): ReactElement {
+  const [draft, setDraft] = useState<string>();
+  const [error, setError] = useState<string>();
+  const [saved, setSaved] = useState(false);
+  const shown = draft ?? name ?? "";
+
+  const save = (event: SubmitEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    setSaved(false);
+
+    send("/api/team", "PUT", { name: shown }).then(
+      () => {
+        setError(undefined);
+        setSaved(true);
+      },
+      (reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      },
+    );
+  };
+
+  return (
+    <div className={settingsPageClass}>
+      <PageTitle description="Shown on the team hub and in everyone's sidebar.">
+        Name
+      </PageTitle>
+      <form onSubmit={save} className="flex max-w-md flex-col gap-4">
+        <Field label="Team name" hint="Left empty, it shows as Team.">
+          <input
+            value={shown}
+            maxLength={60}
+            placeholder="Team"
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setSaved(false);
+            }}
+            className={fieldClass}
+          />
+        </Field>
+        <div className="flex items-center gap-3">
+          <Button type="submit" variant="primary">
+            Save
+          </Button>
+          {saved && (
+            <span role="status" className="text-label text-fg-dim">
+              Saved
+            </span>
+          )}
+        </div>
+        {error !== undefined && (
+          <p role="alert" className="text-label text-failed">
+            {error}
+          </p>
+        )}
+      </form>
     </div>
   );
 }

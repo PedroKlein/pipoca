@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -1218,4 +1218,33 @@ test("team work loads only plugins that say they work there and that admins leav
   const [, second] = await poll(team.runner);
 
   expect(second?.plugins).not.toContain("ask");
+});
+
+test("an admin names the team, and everyone reads the name", async () => {
+  const anas = await ana();
+
+  expect(await json(api("/api/team", anas))).toEqual({ name: null });
+
+  expect((await api("/api/team", anas, { name: "Acme" }, "PUT")).status).toBe(
+    403,
+  );
+
+  expect(
+    (await api("/api/team", await pedro(), { name: "x".repeat(61) }, "PUT"))
+      .status,
+  ).toBe(400);
+
+  expect(
+    await json(api("/api/team", await pedro(), { name: "  Acme  " }, "PUT")),
+  ).toEqual({ name: "Acme" });
+
+  expect(await json(api("/api/team", anas))).toEqual({ name: "Acme" });
+
+  expect(
+    JSON.parse(await readFile(join(root, "config", "pipoca.json"), "utf8")),
+  ).toMatchObject({ team: { name: "Acme" } });
+
+  expect(
+    await json(api("/api/team", await pedro(), { name: "" }, "PUT")),
+  ).toEqual({ name: null });
 });
