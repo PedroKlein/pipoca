@@ -121,6 +121,7 @@ function fakeKernel(): {
           systemPrompt: request.systemPrompt ?? null,
           firstMessage: request.firstMessage ?? null,
           createdAt: new Date().toISOString(),
+          ownedBy: request.team === true ? "team" : "person:pedro",
         });
 
         sessions.set(id, session);
@@ -1306,6 +1307,60 @@ test("keeps each Project to the person who started it (ADR 0049)", async () => {
   }
 
   expect((await projectView(kernel)).name).toBe("Release");
+});
+
+test("a team Project runs its coordinator as team work, and everyone on the team opens it", async () => {
+  const kernel = fakeKernel();
+  projects.register(kernel.context);
+  const ana = fakeUser({ id: "ana" });
+
+  const created = await kernel.route()(
+    new Request("http://pipoca/projects", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Handbook",
+        repositories: ["https://example.com/handbook.git"],
+        environment: "team-pods",
+        profile: "team-work",
+        team: true,
+      }),
+    }),
+    "projects",
+    pedro,
+  );
+
+  const project = (await created.json()) as ProjectView;
+
+  expect(project.team).toBe(true);
+  expect(kernel.session(project.coordinatorId).ownedBy).toBe("team");
+
+  const listed = await kernel.route()(
+    new Request("http://pipoca/projects"),
+    "projects",
+    ana,
+  );
+
+  expect(await listed.json()).toMatchObject([{ id: project.id, team: true }]);
+
+  const opened = await kernel.route()(
+    new Request(`http://pipoca/projects/${project.id}`),
+    `projects/${project.id}`,
+    ana,
+  );
+
+  expect(opened.status).toBe(200);
+
+  const fresh = await kernel.route()(
+    new Request(`http://pipoca/projects/${project.id}/fresh`, {
+      method: "POST",
+    }),
+    `projects/${project.id}/fresh`,
+    ana,
+  );
+
+  const { coordinatorId } = (await fresh.json()) as ProjectView;
+
+  expect(kernel.session(coordinatorId).ownedBy).toBe("team");
 });
 
 async function startFresh(kernel: FakeKernel): Promise<ProjectView> {

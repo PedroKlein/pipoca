@@ -28,6 +28,7 @@ import {
   PageTitle,
   Picker,
   Section,
+  Segmented,
   Select,
   type BadgeState,
   type PickerOption,
@@ -463,7 +464,14 @@ function ProjectCards({
             }}
             className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg border border-line bg-elevated shadow-xs px-4 py-3 text-left hover:border-line-strong hover:bg-hover"
           >
-            <span className="font-medium text-fg-strong">{project.name}</span>
+            <span className="flex min-w-0 items-center gap-2 font-medium text-fg-strong">
+              {project.name}
+              {project.team && (
+                <span className="rounded bg-hover px-1.5 text-caption font-normal text-fg-dim">
+                  Team
+                </span>
+              )}
+            </span>
             <span className="text-caption text-fg-dim">
               {project.threads} {project.threads === 1 ? "thread" : "threads"}
             </span>
@@ -486,10 +494,12 @@ function modelNames(environments: readonly Environment[]): string[] {
 
 function ProfileSelect({
   context,
+  team,
   value,
   onChange,
 }: {
   readonly context: WebContext;
+  readonly team: boolean;
   readonly value: string;
   readonly onChange: (event: {
     readonly target: { readonly value: string };
@@ -497,8 +507,11 @@ function ProfileSelect({
 }): ReactElement {
   const profiles =
     useLoaded(
-      async () => json<Profile[]>(context.request("/api/profiles")),
-      "profiles",
+      async () =>
+        json<Profile[]>(
+          context.request(team ? "/api/profiles?owner=team" : "/api/profiles"),
+        ),
+      team ? "team-profiles" : "profiles",
       {
         topics: ["profiles"],
       },
@@ -506,7 +519,7 @@ function ProfileSelect({
 
   return (
     <Select value={value} onChange={onChange}>
-      <option value="">The default Profile</option>
+      {!team && <option value="">The default Profile</option>}
       {profiles.map((profile) => (
         <option key={profile.id} value={profile.id}>
           {profile.name}
@@ -562,10 +575,27 @@ function CreateForm({
       },
     ).value ?? [];
 
+  const teamEnvironments =
+    useLoaded(
+      async () =>
+        json<Environment[]>(context.request("/api/environments?owner=team")),
+      "team-environments",
+      { topics: ["environments"] },
+    ).value ?? [];
+
+  const [teamProfile] =
+    useLoaded(
+      async () => json<Profile[]>(context.request("/api/profiles?owner=team")),
+      "team-profiles",
+      { topics: ["profiles"] },
+    ).value ?? [];
+
   const [repositories, setRepositories] = useState<readonly string[]>([]);
   const [environment, setEnvironment] = useState("");
+  const [forTeam, setForTeam] = useState(false);
   const [creating, setCreating] = useState(false);
-  const chosen = environments.find(({ id }) => id === environment);
+  const offered = forTeam ? teamEnvironments : environments;
+  const chosen = offered.find(({ id }) => id === environment);
 
   const options = [
     ...new Set([...recentRepositories(sessions), ...repositories]),
@@ -594,7 +624,8 @@ function CreateForm({
           name: field("name"),
           goal: field("goal"),
           repositories,
-          environment: chosen?.id ?? environments[0]?.id ?? "",
+          environment: chosen?.id ?? offered[0]?.id ?? "",
+          ...(forTeam && { team: true, profile: teamProfile?.id ?? "" }),
         }),
       }),
     ).then(
@@ -613,6 +644,20 @@ function CreateForm({
       onSubmit={submit}
       className="project-create grid max-w-xl gap-3 rounded-lg border border-line bg-elevated shadow-xs p-5"
     >
+      {teamEnvironments.length > 0 && teamProfile !== undefined && (
+        <Segmented
+          label="Whose Project"
+          value={forTeam ? "team" : "mine"}
+          onChange={(value) => {
+            setForTeam(value === "team");
+            setEnvironment("");
+          }}
+          options={[
+            { value: "mine", label: "Mine" },
+            { value: "team", label: "The team's" },
+          ]}
+        />
+      )}
       <Field label="Name">
         <input name="name" required className={fieldClass} />
       </Field>
@@ -646,20 +691,20 @@ function CreateForm({
               .join(", ")
           )}
         </Picker>
-        {environments.length > 1 && (
+        {offered.length > 1 && (
           <Picker
             label="Environment"
-            options={environments.map(({ id, name }) => ({
+            options={offered.map(({ id, name }) => ({
               value: id,
               label: name,
             }))}
-            selected={[chosen?.id ?? environments[0]?.id ?? ""]}
+            selected={[chosen?.id ?? offered[0]?.id ?? ""]}
             onChange={([id]) => {
               setEnvironment(id ?? "");
             }}
           >
             <span className="text-fg-dim">on </span>
-            {(chosen ?? environments[0])?.name}
+            {(chosen ?? offered[0])?.name}
           </Picker>
         )}
         <Button
@@ -1435,6 +1480,7 @@ function Settings({
       <Field label="Profile">
         <ProfileSelect
           context={context}
+          team={project.team}
           value={draft.profile}
           onChange={edit("profile")}
         />

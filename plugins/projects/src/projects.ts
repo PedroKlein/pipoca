@@ -21,6 +21,9 @@ export interface Project {
   // The person's Pipoca assistant, which has no repositories and stays out
   // of the Project list (ADR 0052).
   readonly assistant: boolean;
+  // The team's, with its coordinator and threads on team Profiles and
+  // Environments (ADR 0067).
+  readonly team: boolean;
 }
 
 export interface Member {
@@ -62,6 +65,7 @@ interface ProjectRow {
   coordinator_id: string;
   created_at: string;
   assistant: number;
+  team: number;
 }
 
 interface MemberRow {
@@ -145,10 +149,12 @@ export function projectStore(
     }
   }
 
-  if (!columns.some(({ name }) => name === "assistant")) {
-    store.exec(
-      "alter table projects_projects add column assistant integer not null default 0",
-    );
+  for (const flag of ["assistant", "team"]) {
+    if (!columns.some(({ name }) => name === flag)) {
+      store.exec(
+        `alter table projects_projects add column ${flag} integer not null default 0`,
+      );
+    }
   }
 
   store.exec(`create table if not exists projects_members (
@@ -207,6 +213,7 @@ export function projectStore(
     coordinatorId: row.coordinator_id,
     createdAt: row.created_at,
     assistant: row.assistant === 1,
+    team: row.team === 1,
   });
 
   const toMember = (row: MemberRow): Member => ({
@@ -265,8 +272,8 @@ export function projectStore(
     create: (project) => {
       store.run(
         `insert into projects_projects
-          (id, owner_id, name, goal, instructions, repositories, environment_id, profile_id, thread_model, coordinator_id, created_at, assistant)
-          values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, owner_id, name, goal, instructions, repositories, environment_id, profile_id, thread_model, coordinator_id, created_at, assistant, team)
+          values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         project.id,
         project.ownerId,
         project.name,
@@ -279,6 +286,7 @@ export function projectStore(
         project.coordinatorId,
         project.createdAt,
         project.assistant ? 1 : 0,
+        project.team ? 1 : 0,
       );
     },
     list: () =>
