@@ -9,6 +9,7 @@ import {
   type MountedSession,
   modelOptions,
   rememberModel,
+  shownModels,
 } from "@pipoca/plugins/web";
 import {
   Button,
@@ -79,6 +80,7 @@ export function Composer({
   session,
   feed,
   models,
+  hiddenModels,
   hidden,
   report,
   team = false,
@@ -89,6 +91,7 @@ export function Composer({
   readonly session: MountedSession;
   readonly feed: Feed;
   readonly models: readonly ModelRef[];
+  readonly hiddenModels: readonly string[];
   readonly hidden: boolean;
   readonly report: (error: unknown) => void;
   // Team work's composer also talks to people (ADR 0065).
@@ -452,6 +455,7 @@ export function Composer({
               <ModelMenu
                 settings={feed.settings}
                 models={models}
+                hiddenModels={hiddenModels}
                 modelMenu={modelMenu}
                 onModel={(model) => {
                   command(sessionId, { type: "set_model", model }).catch(
@@ -636,6 +640,7 @@ function Widgets({
 function ModelMenu({
   settings,
   models,
+  hiddenModels,
   modelMenu,
   onModel,
   onLogin,
@@ -643,6 +648,7 @@ function ModelMenu({
 }: {
   readonly settings: Settings;
   readonly models: readonly ModelRef[];
+  readonly hiddenModels: readonly string[];
   readonly modelMenu: RefObject<HTMLButtonElement | null>;
   readonly onModel: (model: ModelRef) => void;
   readonly onLogin: () => void;
@@ -652,9 +658,15 @@ function ModelMenu({
 
   const known = [
     ...new Map(
-      [settings.model, ...models, ...settings.models].flatMap((model) =>
-        model ? [[modelName(model), model] as const] : [],
-      ),
+      shownModels(
+        [
+          ...(settings.model ? [settings.model] : []),
+          ...models,
+          ...settings.models,
+        ],
+        hiddenModels,
+        settings.model,
+      ).map((model) => [modelName(model), model] as const),
     ).values(),
   ];
 

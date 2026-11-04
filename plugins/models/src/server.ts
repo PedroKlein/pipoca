@@ -1,6 +1,7 @@
 import {
   BadRequest,
   HttpError,
+  isObject,
   NotFound,
   type OfferedModels,
   type PluginStore,
@@ -18,6 +19,7 @@ import {
   type Health,
   healthFrom,
   mergeHealth,
+  modelRef,
   noHealth,
   type SessionConfig,
   storedAliases,
@@ -41,6 +43,8 @@ const aliasConfig = Type.Object({
 const aliasesChange = Type.Object({
   aliases: Type.Union([aliasConfig, Type.Null()]),
 });
+
+const hiddenChange = Type.Object({ hidden: Type.Array(Type.String()) });
 
 // Below the server's 30 second idle timeout.
 const waitMs = 20_000;
@@ -92,9 +96,26 @@ export const models: ServerPlugin = {
         : saved;
     };
 
-    context.models.offer(({ id, templateId }) =>
-      offered(effective(id, () => templateId).aliases),
-    );
+    // Admins keep models nobody here should use out of the pickers, under
+    // `hidden` in the plugin's key of pipoca.json.
+    const settings = (): Record<string, unknown> => {
+      const value = context.config.get();
+
+      return isObject(value) ? value : {};
+    };
+
+    const hidden = (): readonly string[] => {
+      const { hidden: list } = settings();
+
+      return Array.isArray(list)
+        ? list.filter((each): each is string => typeof each === "string")
+        : [];
+    };
+
+    context.models.offer(({ id, templateId }) => ({
+      ...offered(effective(id, () => templateId).aliases),
+      hidden: hidden(),
+    }));
 
     context.routes.handle(async (request, path, caller) => {
       const method = request.method;
@@ -158,6 +179,37 @@ export const models: ServerPlugin = {
         }
 
         throw new NotFound(`no route ${path}`);
+      }
+
+      if (path === "hidden") {
+        if (method === "GET") {
+          return Response.json({
+            hidden: hidden(),
+            mayChange: caller.admin,
+          });
+        }
+
+        if (method === "POST") {
+          requireAdmin(caller, "only admins hide models");
+
+          const { hidden: next } = await readBody(request, hiddenChange);
+          const invalid = next.find((each) => modelRef(each) === undefined);
+
+          if (invalid !== undefined) {
+            throw new BadRequest(`${invalid} must be provider/id`);
+          }
+
+          const { hidden: _, ...rest } = settings();
+
+          context.config.set(
+            next.length === 0 ? rest : { ...rest, hidden: [...new Set(next)] },
+          );
+
+          context.changes.publish("hidden");
+          context.log("hidden models changed", { count: next.length });
+
+          return Response.json({ hidden: hidden(), mayChange: true });
+        }
       }
 
       const [resource, environmentId] = path.split("/");

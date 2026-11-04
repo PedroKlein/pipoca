@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { getEventListeners } from "node:events";
-import type { PluginRoute, RouteCaller } from "@pipoca/plugins";
+import type { ModelOffer, PluginRoute, RouteCaller } from "@pipoca/plugins";
 import type { Environment, EnvironmentTemplate } from "@pipoca/protocol";
 import {
   fakeContext,
@@ -213,4 +213,69 @@ test("an Environment without aliases of its own takes its template's", async () 
   await saveAliases(route, JSON.stringify({ aliases }));
 
   expect(await config()).toEqual(aliases);
+});
+
+test("an admin hides models from the pickers, and every Environment's offer carries them", async () => {
+  let saved: unknown = { other: true };
+  const routes: PluginRoute[] = [];
+  const offers: ModelOffer[] = [];
+
+  models.register(
+    fakeContext({
+      routes: {
+        handle: (route) => {
+          routes.push(served(route));
+        },
+      },
+      models: {
+        offer: (offer) => {
+          offers.push(offer);
+        },
+      },
+      config: {
+        get: () => saved,
+        set: (value) => {
+          saved = value;
+        },
+        dir: "",
+        lockedIn: () => undefined,
+      },
+    }),
+  );
+
+  const [route] = routes;
+  const [offer] = offers;
+  if (route === undefined || offer === undefined) {
+    throw new Error("models registered no route or offer");
+  }
+
+  const hide = async (
+    hidden: readonly string[],
+    who: RouteCaller,
+  ): Promise<Response> =>
+    route(
+      new Request("http://models/hidden", {
+        method: "POST",
+        body: JSON.stringify({ hidden }),
+      }),
+      "hidden",
+      who,
+    );
+
+  expect((await hide(["openai/gpt-4o"], fakeUser())).status).toBe(403);
+  expect((await hide(["no-slash"], admin)).status).toBe(400);
+  expect((await hide(["openai/gpt-4o", "openai/o3"], admin)).status).toBe(200);
+
+  expect(saved).toEqual({
+    other: true,
+    hidden: ["openai/gpt-4o", "openai/o3"],
+  });
+
+  expect(offer({ id: environmentId, templateId: null }).hidden).toEqual([
+    "openai/gpt-4o",
+    "openai/o3",
+  ]);
+
+  await hide([], admin);
+  expect(saved).toEqual({ other: true });
 });

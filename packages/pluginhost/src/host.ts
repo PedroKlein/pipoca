@@ -983,9 +983,12 @@ export function startPlugins(
       const offered = offers.map((offer) => offer(environment, userId));
       const fallback = offered.find((each) => each.default)?.default;
 
+      const hidden = [...new Set(offered.flatMap((each) => each.hidden ?? []))];
+
       return {
         models: offered.flatMap((each) => each.models),
         ...(fallback && { default: fallback }),
+        ...(hidden.length > 0 && { hidden }),
       };
     },
     startsRunners: (environment) =>

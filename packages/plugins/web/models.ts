@@ -11,6 +11,19 @@ export interface ModelOption {
   readonly group: string;
 }
 
+// Leaves out the models an admin hid, except the one in use.
+export function shownModels(
+  models: readonly ModelRef[],
+  hidden: readonly string[],
+  current?: ModelRef | null,
+): readonly ModelRef[] {
+  const kept = current ? modelName(current) : undefined;
+
+  return models.filter(
+    (model) => modelName(model) === kept || !hidden.includes(modelName(model)),
+  );
+}
+
 const recentKey = "pipoca.recentModels";
 const recentCount = 5;
 

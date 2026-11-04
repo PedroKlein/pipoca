@@ -1214,6 +1214,8 @@ export interface Environment {
   // The models logged in on its online runners, and every model any of its
   // runners reported, kept after they go (ADR 0044).
   readonly models: readonly ModelRef[];
+  // `provider/id` of models an admin keeps out of the model pickers.
+  readonly hiddenModels: readonly string[];
   readonly isolation: Isolation;
   // Null runs containers from the default image.
   readonly image: string | null;

@@ -15,7 +15,12 @@ import {
 } from "react";
 import { responseOrder } from "./responses";
 
-export { type ModelOption, modelOptions, rememberModel } from "./models";
+export {
+  type ModelOption,
+  modelOptions,
+  rememberModel,
+  shownModels,
+} from "./models";
 export { responseOrder } from "./responses";
 
 // The shell's own Session view, for a plugin page to show a Session in
