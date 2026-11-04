@@ -12,16 +12,20 @@ import {
   fakeUser,
   served,
 } from "@pipoca/plugins/testing";
+import { isHttpError } from "@pipoca/plugins";
+import type { Session } from "@pipoca/protocol";
 import type { Account, Connectable } from "./model";
 import { logins } from "./server";
 
 function registered(
   mcpServers: readonly ProfileMcpServer[] = [],
   buildsOn: (id: string) => readonly string[] = () => [],
+  sessions: readonly Session[] = [],
 ): {
   readonly route: PluginRoute;
   readonly offer: ModelOffer;
   readonly callback: (request: Request) => Promise<Response | undefined>;
+  readonly proxy: (request: Request) => Promise<Response | undefined>;
 } {
   const routes: PluginRoute[] = [];
   const offers: ModelOffer[] = [];
@@ -37,6 +41,10 @@ function registered(
         },
       },
       profiles: { ...faked.profiles, mcpServers: () => mcpServers, buildsOn },
+      sessions: {
+        ...faked.sessions,
+        get: (id) => sessions.find((session) => session.id === id),
+      },
       routes: {
         handle: (route) => {
           routes.push(route);
@@ -65,6 +73,20 @@ function registered(
         request,
         new URL(request.url).pathname.split("/").at(-1) ?? "",
       ),
+    proxy: async (request) => {
+      try {
+        return await publicRoute(
+          request,
+          new URL(request.url).pathname.replace("/api/plugins/logins/", ""),
+        );
+      } catch (error) {
+        if (isHttpError(error)) {
+          return new Response(null, { status: error.status });
+        }
+
+        throw error;
+      }
+    },
   };
 }
 
@@ -749,4 +771,155 @@ test("a client registered for a loopback address signs in with the address the p
   } finally {
     linear.stop();
   }
+});
+
+function urlOf(input: Parameters<typeof fetch>[0]): string {
+  if (input instanceof Request) {
+    return input.url;
+  }
+
+  return input instanceof URL ? input.href : input;
+}
+
+// Pi's providers load in the background when the plugin registers.
+async function proxyReady(route: PluginRoute, caller: RouteCaller) {
+  for (;;) {
+    const body = (await (await call(route, caller, "proxy")).json()) as {
+      providers: readonly { provider: string; baseUrl: string }[];
+      token?: string;
+    };
+
+    if (body.providers.length > 0 || caller.kind !== "session") {
+      return body;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+test("a team Session calls the team's provider through the proxy, with a token in place of the key", async () => {
+  const team = fakeSession({ id: "team-1", ownedBy: "team", startedBy: "ana" });
+  const { route, proxy } = registered([], () => [], [team]);
+
+  const saved = await call(
+    route,
+    fakeUser({ id: "admin", admin: true }),
+    "save",
+    {
+      provider: "anthropic",
+      credential: { type: "api_key", key: "sk-team" },
+      layer: "base",
+    },
+  );
+
+  expect(saved.status).toBe(200);
+
+  const caller: RouteCaller = {
+    kind: "session",
+    session: team,
+    actor: "session:team-1",
+  };
+
+  const { providers, token = "" } = await proxyReady(route, caller);
+
+  expect(providers).toContainEqual({
+    provider: "anthropic",
+    baseUrl: "http://logins/api/plugins/logins/proxy/anthropic",
+  });
+
+  const upstream: Request[] = [];
+
+  const realFetch = globalThis.fetch;
+
+  globalThis.fetch = Object.assign(
+    async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      upstream.push(new Request(urlOf(input), init));
+
+      return Promise.resolve(
+        new Response("data: {}\n\n", {
+          headers: {
+            "content-type": "text/event-stream",
+            "content-encoding": "gzip",
+          },
+        }),
+      );
+    },
+    { preconnect: realFetch.preconnect },
+  );
+
+  try {
+    const answer = await proxy(
+      new Request(
+        "http://logins/api/plugins/logins/proxy/anthropic/v1/messages?beta=true",
+        {
+          method: "POST",
+          headers: { "x-api-key": token, "content-type": "application/json" },
+          body: JSON.stringify({ model: "claude", stream: true }),
+        },
+      ),
+    );
+
+    expect(answer?.status).toBe(200);
+    expect(await answer?.text()).toBe("data: {}\n\n");
+    expect(answer?.headers.get("content-encoding")).toBeNull();
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  const [sent] = upstream;
+
+  expect(sent?.url).toBe("https://api.anthropic.com/v1/messages?beta=true");
+  expect(sent?.headers.get("x-api-key")).toBe("sk-team");
+  expect(await sent?.json()).toEqual({ model: "claude", stream: true });
+});
+
+test("the proxy refuses a token that isn't a live team Session's", async () => {
+  const team = fakeSession({ id: "team-1", ownedBy: "team" });
+
+  const archived = fakeSession({
+    id: "team-2",
+    ownedBy: "team",
+    archivedAt: "2026-11-04T00:00:00.000Z",
+  });
+
+  const { route, proxy } = registered([], () => [], [team, archived]);
+
+  await call(route, fakeUser({ id: "admin", admin: true }), "save", {
+    provider: "anthropic",
+    credential: { type: "api_key", key: "sk-team" },
+    layer: "base",
+  });
+
+  const asOf = (session: Session): RouteCaller => ({
+    kind: "session",
+    session,
+    actor: `session:${session.id}`,
+  });
+
+  const { token: old = "" } = await proxyReady(route, asOf(archived));
+
+  const statusOf = async (token: string) =>
+    (
+      await proxy(
+        new Request(
+          "http://logins/api/plugins/logins/proxy/anthropic/v1/messages",
+          {
+            method: "POST",
+            headers: { "x-api-key": token },
+            body: "{}",
+          },
+        ),
+      )
+    )?.status;
+
+  expect(await statusOf("ppx_made_up")).toBe(401);
+  expect(await statusOf(old)).toBe(401);
+});
+
+test("a personal Session gets no proxy, since its own logins reach only its runner", async () => {
+  const { route } = registered();
+
+  expect(await (await call(route, runnerOf("ana"), "proxy")).json()).toEqual({
+    providers: [],
+  });
 });

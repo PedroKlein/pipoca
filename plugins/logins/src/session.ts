@@ -19,6 +19,23 @@ const busyAsks = 5;
 // /login, /mcp login and token refreshes reach every runner (ADR 0045).
 export const logins: SessionPlugin = {
   name: "logins",
+  // A team Session reaches the team's providers through the server's proxy,
+  // with a token of its own in place of the key (ADR 0066).
+  extension: (cloud) => async (pi) => {
+    const response = await cloud.request("proxy");
+
+    if (!response.ok) {
+      cloud.log("team providers not set up", { status: response.status });
+
+      return;
+    }
+
+    const { providers, token } = (await response.json()) as ProxyProviders;
+
+    for (const { provider, baseUrl } of providers) {
+      pi.registerProvider(provider, { baseUrl, apiKey: token ?? "" });
+    }
+  },
   logins: async (cloud) => {
     const models = leased<Credential>(cloud, "credentials");
 
@@ -28,6 +45,14 @@ export const logins: SessionPlugin = {
     };
   },
 };
+
+interface ProxyProviders {
+  readonly providers: readonly {
+    readonly provider: string;
+    readonly baseUrl: string;
+  }[];
+  readonly token?: string;
+}
 
 interface Leased<T> {
   readonly keys: (

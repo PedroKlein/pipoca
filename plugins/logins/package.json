@@ -27,7 +27,8 @@
     "capabilities": [
       "routes",
       "models",
-      "profiles"
+      "profiles",
+      "sessions"
     ]
   }
 }
