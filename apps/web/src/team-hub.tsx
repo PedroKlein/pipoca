@@ -14,7 +14,14 @@ import {
 } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useState } from "react";
 import { send } from "./api";
-import { useHubLayout, useNow, useTeamSessions } from "./hooks";
+import {
+  useHubLayout,
+  useNow,
+  useTeamEnvironments,
+  useTeamProfiles,
+  useTeamSessions,
+} from "./hooks";
+import { NewSessionDialog } from "./new-session";
 import { ago, sessionBadge, shortName } from "./names";
 import { settingsPageClass } from "./page-class";
 import { PluginBoundary } from "./plugin-boundary";
@@ -102,7 +109,10 @@ export function TeamHub({
   readonly admin: boolean;
 }): ReactElement {
   const sessions = useTeamSessions();
+  const environments = useTeamEnvironments();
+  const profiles = useTeamProfiles();
   const layout = useHubLayout();
+  const [starting, setStarting] = useState(false);
   const pages = pagesOf(layout.pages);
   const [error, setError] = useState<string>();
 
@@ -163,6 +173,9 @@ export function TeamHub({
         sessions={sessions.value}
         admin={admin}
         error={error}
+        onStart={() => {
+          setStarting(true);
+        }}
         onChange={(changed) => {
           lay(pages.map((each) => (each.id === changed.id ? changed : each)));
         }}
@@ -217,6 +230,16 @@ export function TeamHub({
         )}
       </nav>
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">{content()}</div>
+      <NewSessionDialog
+        open={starting}
+        team
+        environments={environments.value}
+        profiles={profiles.value}
+        sessions={sessions.value}
+        onClose={() => {
+          setStarting(false);
+        }}
+      />
     </div>
   );
 }
@@ -281,6 +304,7 @@ function LayoutPage({
   sessions,
   admin,
   error,
+  onStart,
   onChange,
   onRemove,
 }: {
@@ -288,6 +312,7 @@ function LayoutPage({
   readonly sessions: readonly Session[];
   readonly admin: boolean;
   readonly error: string | undefined;
+  readonly onStart: () => void;
   readonly onChange: (page: HubPage) => void;
   readonly onRemove: () => void;
 }): ReactElement {
@@ -322,16 +347,24 @@ function LayoutPage({
             : undefined
         }
         actions={
-          admin ? (
-            <Button
-              aria-pressed={editing}
-              onClick={() => {
-                setEditing(!editing);
-              }}
-            >
-              {editing ? "Done" : "Edit layout"}
-            </Button>
-          ) : undefined
+          <>
+            {admin && (
+              <Button
+                aria-pressed={editing}
+                onClick={() => {
+                  setEditing(!editing);
+                }}
+              >
+                {editing ? "Done" : "Edit layout"}
+              </Button>
+            )}
+            {home && (
+              <Button variant="primary" onClick={onStart}>
+                <Icon name="plus" />
+                Start team work
+              </Button>
+            )}
+          </>
         }
       >
         {home ? "Team home" : page.title}

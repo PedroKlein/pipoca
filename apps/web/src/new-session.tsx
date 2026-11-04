@@ -43,7 +43,10 @@ interface Choices {
   readonly profile: string;
 }
 
-const choicesKey = "pipoca.new-session";
+// Team work keeps its own, since it runs on the team's Environments.
+function choicesKey(team: boolean): string {
+  return team ? "pipoca.new-team-work" : "pipoca.new-session";
+}
 
 const fresh: Choices = {
   environment: "",
@@ -54,9 +57,9 @@ const fresh: Choices = {
   profile: "",
 };
 
-function remembered(): Choices {
+function remembered(team: boolean): Choices {
   try {
-    const saved = localStorage.getItem(choicesKey);
+    const saved = localStorage.getItem(choicesKey(team));
 
     return saved === null
       ? fresh
@@ -66,9 +69,9 @@ function remembered(): Choices {
   }
 }
 
-function remember(choices: Choices): void {
+function remember(choices: Choices, team: boolean): void {
   try {
-    localStorage.setItem(choicesKey, JSON.stringify(choices));
+    localStorage.setItem(choicesKey(team), JSON.stringify(choices));
   } catch {
     // The choices only last this visit.
   }
@@ -141,12 +144,15 @@ export function NewSessionDialog({
   environments,
   profiles,
   sessions,
+  team = false,
   onClose,
 }: {
   readonly open: boolean;
   readonly environments: readonly Environment[];
   readonly profiles: readonly Profile[];
   readonly sessions: readonly Session[];
+  // Starts team work, on the team's Environments and Profiles (ADR 0064).
+  readonly team?: boolean;
   readonly onClose: () => void;
 }): ReactElement {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -172,7 +178,12 @@ export function NewSessionDialog({
           environments={environments}
           profiles={profiles}
           sessions={sessions}
-          placeholder="What should Pi do? Leave it empty to start idle."
+          team={team}
+          placeholder={
+            team
+              ? "What should the team's Pi do? Anyone on the team can follow it."
+              : "What should Pi do? Leave it empty to start idle."
+          }
           onStarted={onClose}
         >
           <header className="flex items-center gap-2 pt-3 pr-3 pb-1 pl-5">
@@ -180,7 +191,7 @@ export function NewSessionDialog({
               id="new-session-title"
               className="flex-1 text-ui font-semibold text-fg-strong"
             >
-              New session
+              {team ? "Start team work" : "New session"}
             </h2>
             <Button
               variant="ghost"
@@ -203,6 +214,7 @@ export function NewSessionForm({
   environments,
   profiles,
   sessions,
+  team = false,
   placeholder,
   onStarted,
   children,
@@ -210,12 +222,13 @@ export function NewSessionForm({
   readonly environments: readonly Environment[];
   readonly profiles: readonly Profile[];
   readonly sessions: readonly Session[];
+  readonly team?: boolean;
   readonly placeholder: string;
   readonly onStarted: () => void;
   readonly children?: ReactNode;
 }): ReactElement {
   const message = useRef<HTMLTextAreaElement>(null);
-  const [choices, setChoices] = useState(remembered);
+  const [choices, setChoices] = useState(() => remembered(team));
   const [text, setText] = useState("");
   const [startPoint, setStartPoint] = useState("");
   const [error, setError] = useState<string>();
@@ -261,7 +274,8 @@ export function NewSessionForm({
 
   const profile =
     profiles.find(({ id }) => id === choices.profile) ??
-    profiles.find(({ isDefault }) => isDefault);
+    profiles.find(({ isDefault }) => isDefault) ??
+    (team ? profiles[0] : undefined);
 
   const recent = recentPlaces(sessions, chosen?.id);
 
@@ -319,12 +333,19 @@ export function NewSessionForm({
       return;
     }
 
+    if (team && profile === undefined) {
+      setError("Team work needs a team Profile, which admins make.");
+
+      return;
+    }
+
     const model = choices.model === "" ? null : modelRef(choices.model);
 
     setSubmitting(true);
-    remember(choices);
+    remember(choices, team);
 
     api("/api/sessions", {
+      ...(team && { team }),
       environment: chosen?.id,
       workspace: workspaceRequest(choices.where, choices.share, startPoint),
       model,

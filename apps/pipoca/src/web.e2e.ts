@@ -3762,6 +3762,27 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
   await own.waitFor();
 
   expect(await own.getByText("release-notes").count()).toBe(0);
+
+  const docs = join(root, "team-docs");
+
+  await mkdir(docs, { recursive: true });
+  await page.goto(new URL("/#team", server.url).href);
+  await page.getByRole("button", { name: "Start team work" }).click();
+
+  const form = page.getByRole("dialog", { name: "Start team work" });
+
+  await form.getByRole("button", { name: "Folder or repository" }).click();
+
+  const search = form.getByRole("combobox", { name: "Folder or repository" });
+
+  await search.fill(docs);
+  await form.getByRole("option", { name: `Use ${docs}` }).click();
+  await search.press("Escape");
+  await form.getByLabel("What should Pi do?").fill("Write the release notes");
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.waitForURL((url) => !url.hash.startsWith("#team"));
+  await page.goto(new URL("/#team/sessions", server.url).href);
+  await page.getByRole("link", { name: "team-docs" }).waitFor();
 });
 
 test("shows plugin panels on the team hub and lets an admin lay out a page of them", async () => {
