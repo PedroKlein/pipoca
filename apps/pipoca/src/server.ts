@@ -54,6 +54,7 @@ import {
   setupChangeOf,
   textOf,
 } from "./requests";
+import { presences } from "./presence";
 import { sseResponse } from "./sse";
 import type { ConfigFile } from "./config";
 import type { Templates } from "./templates";
@@ -116,6 +117,8 @@ export function createHandler(
   config?: ConfigFile,
   hub?: Hub,
 ): (request: Request) => Promise<Response> {
+  const present = presences();
+
   const agent = (route: AgentRoute): Route => {
     return async (request, params) => {
       const unsupported = unsupportedVersion(request);
@@ -1184,6 +1187,26 @@ export function createHandler(
           sessions.forceRemoval(id),
         ),
       ),
+    ],
+    [
+      "GET",
+      /^\/api\/sessions\/([^/]+)\/presence$/,
+      own((_request, [id = ""], actor) =>
+        sseResponse((send) =>
+          present.join(id, userIdOf(actor), (people) => {
+            send(people);
+          }),
+        ),
+      ),
+    ],
+    [
+      "POST",
+      /^\/api\/sessions\/([^/]+)\/presence$/,
+      steer((_request, [id = ""], actor) => {
+        present.typing(id, userIdOf(actor));
+
+        return new Response(null, { status: 204 });
+      }),
     ],
     [
       "PUT",

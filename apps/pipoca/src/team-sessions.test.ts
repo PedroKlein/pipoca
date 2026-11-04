@@ -10,6 +10,7 @@ import type {
   Joined,
   Profile,
   ProfileFiles,
+  Presence,
   Session,
   SessionEvent,
   Voice,
@@ -519,4 +520,53 @@ test("a team Session keeps who sent each message, for everyone who opens it", as
   expect(voices.map(({ kind, person, text }) => [kind, person, text])).toEqual([
     ["message", bo, "Ship it"],
   ]);
+});
+
+test("everyone following team work sees who else is looking and who is typing", async () => {
+  const an = randomUUID();
+  const anas = await member("ana", an);
+  const bo = randomUUID();
+  const bos = await member("bo", bo);
+  const team = await teamSetup();
+
+  const session = await json<Session>(
+    api("/api/sessions", anas, {
+      team: true,
+      environment: team.environment,
+      profile: team.profile,
+      workspace: workspace(),
+    }),
+  );
+
+  const path = `/api/sessions/${session.id}/presence`;
+  const seen = readSse(await api(path, anas));
+
+  const next = async (): Promise<readonly Presence[]> =>
+    (await seen.next()).value as readonly Presence[];
+
+  expect(await next()).toEqual([{ person: an, typing: false }]);
+
+  const boLooks = new AbortController();
+
+  await fetch(new URL(path, server.url), {
+    headers: { cookie: bos },
+    signal: boLooks.signal,
+  });
+
+  expect(await next()).toEqual([
+    { person: an, typing: false },
+    { person: bo, typing: false },
+  ]);
+
+  expect((await api(path, bos, {})).status).toBe(204);
+
+  expect(await next()).toEqual([
+    { person: an, typing: false },
+    { person: bo, typing: true },
+  ]);
+
+  boLooks.abort();
+
+  expect(await next()).toEqual([{ person: an, typing: false }]);
+  await seen.return(undefined);
 });

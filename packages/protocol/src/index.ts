@@ -1295,6 +1295,12 @@ export interface Voice {
   readonly text?: string;
 }
 
+// Someone looking at a team Session, and whether they are typing in it.
+export interface Presence {
+  readonly person: string;
+  readonly typing: boolean;
+}
+
 export type SessionEvent =
   | { readonly type: "entry"; readonly line: number; readonly entry: string }
   | { readonly type: "voice"; readonly voice: Voice }

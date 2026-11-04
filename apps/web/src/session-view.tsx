@@ -42,6 +42,7 @@ import { enabledPlugins, pluginContext } from "./plugins";
 import { sessionChannel } from "./session-channel";
 import { keyBar, type Modifier, modified } from "./keys";
 import { Me } from "./me";
+import { PresenceLine, usePresence, useTyping } from "./presence";
 import { AccessDialog, accessLabels, steers } from "./team-access";
 import { openTerminal } from "./terminal";
 
@@ -103,6 +104,10 @@ export function SessionView({
 
   const archived = session !== undefined && session.archivedAt !== null;
   const watching = session !== undefined && !steers(session, me);
+
+  const team = session?.ownedBy === "team";
+  const present = usePresence(sessionId, team);
+  const typed = useTyping(sessionId, team);
 
   const limits =
     session?.ownedBy === "team" && (me.admin || session.startedBy === me.id);
@@ -365,17 +370,20 @@ export function SessionView({
               }}
             />
           )}
-          <Composer
-            sessionId={sessionId}
-            session={channel.session}
-            feed={feed}
-            models={
-              environments.find(({ id }) => id === session?.environmentId)
-                ?.models ?? []
-            }
-            hidden={archived || watching}
-            report={reportError}
-          />
+          {!archived && <PresenceLine people={present} me={me.id} />}
+          <div onInput={typed} className="contents">
+            <Composer
+              sessionId={sessionId}
+              session={channel.session}
+              feed={feed}
+              models={
+                environments.find(({ id }) => id === session?.environmentId)
+                  ?.models ?? []
+              }
+              hidden={archived || watching}
+              report={reportError}
+            />
+          </div>
           {watching && !archived && (
             <p
               role="status"
