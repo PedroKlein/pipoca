@@ -1180,6 +1180,12 @@ export interface EnvironmentTemplate {
   readonly source: RepositorySource | null;
 }
 
+// A template as the server lists it, with the plugin that starts runners for
+// Environments made from it, if any.
+export interface ListedTemplate extends EnvironmentTemplate {
+  readonly runnersFrom: string | null;
+}
+
 export interface CreateEnvironment {
   readonly name: string;
   readonly template?: string;
