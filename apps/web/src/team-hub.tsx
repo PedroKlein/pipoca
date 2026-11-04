@@ -23,9 +23,10 @@ import {
   useTeamSessions,
 } from "./hooks";
 import { NewSessionDialog } from "./new-session";
-import { ago, sessionBadge, shortName } from "./names";
+import { ago, sessionBadge, shortName, teamSessionHref } from "./names";
 import { settingsPageClass } from "./page-class";
 import { PluginBoundary } from "./plugin-boundary";
+import { SessionView } from "./session-view";
 import { enabledPlugins, pluginContext } from "./plugins";
 
 interface Entry {
@@ -149,7 +150,20 @@ export function TeamHub({
   const open = pages.find((page) => pathOf(page) === route);
   const screen = screens().find(({ path }) => path === route);
 
+  const opened = /^team\/sessions\/(.+)$/.exec(route)?.[1];
+
   const content = (): ReactNode => {
+    if (opened !== undefined) {
+      return (
+        <SessionView
+          key={opened}
+          sessionId={opened}
+          environments={environments.value}
+          onSessionChange={sessions.reload}
+        />
+      );
+    }
+
     if (route === "team/sessions") {
       return <TeamSessions sessions={sessions.value} />;
     }
@@ -221,7 +235,9 @@ export function TeamHub({
             key={path}
             href={`#${path}`}
             aria-current={
-              route === path || (route === "team/" && path === "team")
+              route === path ||
+              (route === "team/" && path === "team") ||
+              (opened !== undefined && path === "team/sessions")
                 ? "page"
                 : undefined
             }
@@ -251,7 +267,15 @@ export function TeamHub({
           />
         )}
       </nav>
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">{content()}</div>
+      <div
+        className={
+          opened === undefined
+            ? "min-h-0 min-w-0 flex-1 overflow-y-auto"
+            : "flex min-h-0 min-w-0 flex-1 flex-col"
+        }
+      >
+        {content()}
+      </div>
       <NewSessionDialog
         open={starting}
         team
@@ -557,7 +581,7 @@ function SessionRows({
             key={session.id}
             title={
               <a
-                href={`#${session.id}`}
+                href={teamSessionHref(session.id)}
                 className="hover:underline focus-visible:underline"
               >
                 {session.title ?? shortName(session.workspace)}

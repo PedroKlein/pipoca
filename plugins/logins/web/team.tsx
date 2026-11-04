@@ -147,7 +147,10 @@ export function TeamCredentials({
       <p className="mt-6 text-label text-fg-dim">
         Team work reaches git hosts as a technical user whose people include the
         team, never with a person&apos;s token. Set those up in{" "}
-        <a href="#settings/git-hosts" className="text-fg underline">
+        <a
+          href="#team/setup/server/git-hosts"
+          className="text-fg underline"
+        >
           Git hosts
         </a>
         .

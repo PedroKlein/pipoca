@@ -199,6 +199,7 @@ export function App({
           user={user}
           admin={admin}
           people={people}
+          team={team}
           environments={environments.value}
           profiles={profiles.value}
           onEnvironmentsChange={environments.reload}
@@ -212,7 +213,12 @@ export function App({
     return (
       <div className="flex h-dvh overflow-hidden bg-bg font-sans text-ui text-fg">
         {admin && isTeamSetupRoute(route) ? (
-          <TeamSetup route={route} people={people} teamName={teamName} />
+          <TeamSetup
+            route={route}
+            user={user}
+            people={people}
+            teamName={teamName}
+          />
         ) : (
           <TeamHub route={route} admin={admin} name={teamName} />
         )}

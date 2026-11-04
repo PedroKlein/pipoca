@@ -36,7 +36,13 @@ import { ago } from "./chat";
 import { Composer, prefillComposer, type Replying } from "./composer";
 import { ChatView } from "./chat-view";
 import { emptyFeed, type Feed, feedReader, followEvents } from "./feed";
-import { describe, sessionBadge, shortName, workspaceName } from "./names";
+import {
+  describe,
+  sessionBadge,
+  shortName,
+  teamSessionHref,
+  workspaceName,
+} from "./names";
 import { PluginBoundary } from "./plugin-boundary";
 import { PrimaryView, usePrimaryId } from "./primary";
 import { pluginContext, useSessionPlugins } from "./plugins";
@@ -121,6 +127,13 @@ export function SessionView({
 
   const limits =
     session?.ownedBy === "team" && (me.admin || session.startedBy === me.id);
+
+  // Team work opens inside the team's area, whichever link led to it.
+  useEffect(() => {
+    if (primary && team && location.hash === `#${sessionId}`) {
+      location.replace(teamSessionHref(sessionId));
+    }
+  }, [primary, team, sessionId]);
 
   const shown = archived ? "chat" : view;
 

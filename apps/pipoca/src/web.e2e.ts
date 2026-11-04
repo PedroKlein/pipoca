@@ -3941,7 +3941,7 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
 
   await page.getByRole("link", { name: "release-notes" }).click();
 
-  expect(new URL(page.url()).hash).not.toContain("team");
+  await page.waitForURL("**/#team/sessions/*");
 
   await page.goto(server.url.href);
 
@@ -4515,3 +4515,77 @@ test("drops a plugin's parts from open team work once an admin keeps it out", as
   await call("/api/plugins/usage", { teamWork: true }, "PATCH");
   await usageHeader.waitFor({ state: "attached" });
 });
+
+test("keeps team work inside the team's area, with the server's pages shared from Team setup", async () => {
+  await page.goto(server.url.href);
+
+  const signedIn = (await page.context().cookies()).find(
+    ({ name }) => name === "pipoca-session",
+  );
+
+  const current = `${signedIn?.name ?? ""}=${signedIn?.value ?? ""}`;
+
+  const post = async (path: string, body: unknown): Promise<unknown> =>
+    (
+      await fetch(new URL(path, server.url), {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: current },
+        body: JSON.stringify(body),
+      })
+    ).json();
+
+  const { environment } = (await post("/api/environments", {
+    name: "team-area-pods",
+    team: true,
+  })) as { environment: Environment };
+
+  const profile = (await post("/api/profiles", {
+    name: "Team area work",
+    team: true,
+  })) as Profile;
+
+  const folder = join(root, "team-area");
+
+  await mkdir(folder, { recursive: true });
+
+  const session = (await post("/api/sessions", {
+    team: true,
+    environment: environment.id,
+    profile: profile.id,
+    workspace: { kind: "folder", path: folder },
+  })) as Session;
+
+  const team = page.getByRole("navigation", { name: "Team" });
+
+  await page.goto(new URL("/#team/sessions", server.url).href);
+
+  await page
+    .getByRole("link", { name: session.title ?? "team-area" })
+    .first()
+    .click();
+
+  await page.waitForURL(`**/#team/sessions/${session.id}`);
+  await team.waitFor();
+
+  await page.goto(new URL(`/#${session.id}`, server.url).href);
+  await page.waitForURL(`**/#team/sessions/${session.id}`);
+  await team.waitFor();
+
+  await page.goto(new URL("/#team/setup", server.url).href);
+
+  await page
+    .getByRole("navigation", { name: "Team setup" })
+    .getByRole("link", { name: "Plugins", exact: true })
+    .click();
+
+  await page.waitForURL("**/#team/setup/server/plugins");
+  await page.getByRole("note").getByText("Server-wide").waitFor();
+  await page.getByRole("navigation", { name: "Team setup" }).waitFor();
+
+  await page.goto(new URL("/#plugins", server.url).href);
+
+  await page
+    .getByRole("note")
+    .getByRole("link", { name: "open it there" })
+    .waitFor();
+}, 30_000);

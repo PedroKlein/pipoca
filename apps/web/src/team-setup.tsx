@@ -21,8 +21,9 @@ import { EnvironmentsPage } from "./environments";
 import { usePlugins, useTeamEnvironments, useTeamProfiles } from "./hooks";
 import { settingsPageClass } from "./page-class";
 import { PluginBoundary } from "./plugin-boundary";
-import { enabledPlugins, pluginContext, pluginTitle } from "./plugins";
+import { enabledPlugins, pluginContext } from "./plugins";
 import { ProfilesPage } from "./profiles";
+import { ServerPageView, serverPages, SharedNote } from "./settings-layout";
 
 interface Entry {
   readonly path: string;
@@ -49,20 +50,23 @@ function screens(): readonly Screen[] {
   );
 }
 
-// What team work runs on and its rules, which only admins change. What the
-// whole server shares stays in Settings (ADRs 0064 and 0067).
+// What team work runs on and its rules, which only admins change, and the
+// server's own pages that personal Settings shows too (ADRs 0064 and 0067).
 export function TeamSetup({
   route,
+  user,
   people,
   teamName,
 }: {
   readonly route: string;
+  readonly user: string;
   readonly people: boolean;
   readonly teamName: string | null;
 }): ReactElement {
   const profiles = useTeamProfiles();
   const environments = useTeamEnvironments();
   const plugins = screens();
+  const server = serverPages(people);
   const [, , section = "profiles", ...rest] = route.split("/");
   const selected = rest.join("/");
 
@@ -92,21 +96,41 @@ export function TeamSetup({
       ],
     ],
     [
-      "For the whole server, in Settings",
-      [
-        ...(people ? [{ path: "people", label: "People" }] : []),
-        ...enabledPlugins().flatMap(
-          ({ name, SettingsSection, settingsGroup }) =>
-            SettingsSection && settingsGroup === "server"
-              ? [{ path: `settings/${name}`, label: pluginTitle(name) }]
-              : [],
-        ),
-        { path: "plugins", label: "Plugins" },
-      ],
+      "Shared with personal work",
+      server.map(({ key, label }) => ({
+        path: `team/setup/server/${key}`,
+        label,
+      })),
     ],
   ];
 
   const content = (): ReactNode => {
+    const shared =
+      section === "server"
+        ? server.find(({ key }) => key === rest[0])
+        : undefined;
+
+    if (shared !== undefined) {
+      return (
+        <>
+          <SharedNote>
+            Server-wide, for personal and team work alike. It&apos;s the same
+            page as in{" "}
+            <a href={`#${shared.path}`} className="text-fg underline">
+              Settings
+            </a>
+            , so a change shows in both.
+          </SharedNote>
+          <ServerPageView
+            page={shared}
+            route={route}
+            base={`team/setup/server/${shared.key}`}
+            user={user}
+          />
+        </>
+      );
+    }
+
     if (section === "environments") {
       return (
         <EnvironmentsPage
