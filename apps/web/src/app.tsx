@@ -208,7 +208,7 @@ export function App({
   if (page === undefined && team && isTeamRoute(route)) {
     return (
       <div className="flex h-dvh overflow-hidden bg-bg font-sans text-ui text-fg">
-        <TeamHub route={route} />
+        <TeamHub route={route} admin={admin} />
       </div>
     );
   }

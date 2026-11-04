@@ -1223,6 +1223,19 @@ export interface EnvironmentTemplate {
 
 // A template as the server lists it, with the plugin that starts runners for
 // Environments made from it, if any.
+// A page of the team hub: the panels plugins give it, in order, each as
+// "<plugin>/<panel>". Admins lay them out in pipoca.json (ADR 0067).
+export interface HubPage {
+  readonly id: string;
+  readonly title: string;
+  readonly panels: readonly string[];
+}
+
+// Null until an admin lays out the hub, which then shows every panel on Home.
+export interface HubLayout {
+  readonly pages: readonly HubPage[] | null;
+}
+
 export interface ListedTemplate extends EnvironmentTemplate {
   readonly runnersFrom: string | null;
 }

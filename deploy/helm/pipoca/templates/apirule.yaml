@@ -57,7 +57,7 @@ spec:
       methods: {{ toJson $methods }}
       noAuth: true
       timeout: 3900
-    {{- range list "environments" "templates" "people" "profiles" "base" "defaults" "plugins" "plugin-files" "plugin-builds" "plugin-parts" "pinned-pages" "mcp-tokens" "join-key" "restart" "setup" "invites" "config" }}
+    {{- range list "environments" "templates" "people" "profiles" "base" "defaults" "plugins" "plugin-files" "plugin-builds" "plugin-parts" "pinned-pages" "mcp-tokens" "join-key" "restart" "setup" "invites" "config" "hub" }}
     - path: /api/{{ . }}
       methods: {{ toJson $methods }}
       noAuth: true

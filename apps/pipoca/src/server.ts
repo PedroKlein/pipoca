@@ -55,6 +55,7 @@ import {
 import { sseResponse } from "./sse";
 import type { ConfigFile } from "./config";
 import type { Templates } from "./templates";
+import { type Hub, layoutOf } from "./hub";
 
 type Route = (
   request: Request,
@@ -111,6 +112,7 @@ export function createHandler(
   restart?: ServerRestart,
   templates?: Templates,
   config?: ConfigFile,
+  hub?: Hub,
 ): (request: Request) => Promise<Response> {
   const agent = (route: AgentRoute): Route => {
     return async (request, params) => {
@@ -895,6 +897,32 @@ export function createHandler(
       },
     ],
     ...profileRoutes(profiles, log),
+    [
+      "GET",
+      /^\/api\/hub$/,
+      () => Response.json(hub?.layout() ?? { pages: null }),
+    ],
+    [
+      "PUT",
+      /^\/api\/hub$/,
+      async (request, _params, _actor, isAdmin) => {
+        if (!isAdmin) {
+          return errorReply(403, "admin_only", "Only admins lay out the hub.");
+        }
+
+        const layout = layoutOf(await readJson(request));
+
+        if (hub === undefined) {
+          return notFound();
+        }
+
+        hub.lay(layout);
+        log("hub laid out", { pages: layout.pages?.length ?? 0 });
+        changes.publish("hub");
+
+        return Response.json(layout);
+      },
+    ],
     [
       "GET",
       /^\/api\/templates$/,

@@ -372,3 +372,33 @@ test("a team Session gets no tools that use a person's git accounts", async () =
 
   expect(gitTools(await toolsOf(team.runner))).toEqual([]);
 });
+
+test("only an admin lays out the team hub, and everyone reads the layout", async () => {
+  const anas = await ana();
+
+  const layout = {
+    pages: [
+      { id: "home", title: "Home", panels: ["usage/spend"] },
+      { id: "ops", title: "Ops", panels: [] },
+    ],
+  };
+
+  const before = await json<unknown>(api("/api/hub", anas));
+  const refused = await api("/api/hub", anas, layout, "PUT");
+  const laid = await api("/api/hub", await pedro(), layout, "PUT");
+
+  const invalid = await api(
+    "/api/hub",
+    await pedro(),
+    { pages: [{ id: "ops", title: "Ops", panels: [] }] },
+    "PUT",
+  );
+
+  expect(before).toEqual({ pages: null });
+
+  expect([refused.status, laid.status, invalid.status]).toEqual([
+    403, 200, 400,
+  ]);
+
+  expect(await json<unknown>(api("/api/hub", anas))).toEqual(layout);
+});
