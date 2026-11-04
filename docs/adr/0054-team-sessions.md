@@ -3,6 +3,7 @@
 - Status: accepted, direction only (nothing is built until its prerequisites below are settled)
 - Date: 2026-11-01
 - Amended by [ADR 0064](0064-one-team-per-server.md): a server is one team, its users are the members, and team work is open to every user unless its starter limits it, in place of per-Session roles.
+- Amended by [ADR 0066](0066-team-credentials-and-usage.md): team credentials stay behind a server proxy, and team budgets warn without stopping work.
 
 ## Context
 
