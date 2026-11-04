@@ -3,17 +3,25 @@ import type { ReactElement, ReactNode } from "react";
 export function PageTitle({
   children,
   description,
+  actions,
 }: {
   readonly children: ReactNode;
   readonly description?: ReactNode;
+  // Buttons at the top right, such as Add.
+  readonly actions?: ReactNode;
 }): ReactElement {
   return (
-    <header className="mb-6 flex flex-col gap-2">
-      <h1 className="text-display font-medium tracking-tight text-fg-strong">
-        {children}
-      </h1>
-      {description !== undefined && (
-        <p className="max-w-chat text-ui text-fg-dim">{description}</p>
+    <header className="mb-6 flex items-start gap-6">
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <h1 className="text-display font-medium tracking-tight text-fg-strong">
+          {children}
+        </h1>
+        {description !== undefined && (
+          <p className="max-w-chat text-ui text-fg-dim">{description}</p>
+        )}
+      </div>
+      {actions !== undefined && (
+        <div className="mt-7 flex shrink-0 gap-2">{actions}</div>
       )}
     </header>
   );

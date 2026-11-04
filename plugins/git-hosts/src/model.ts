@@ -14,6 +14,8 @@ export interface HostView extends Omit<HostInput, "clientSecret"> {
   // The environment variable the secret comes from, when the config file
   // names one instead of holding it sealed (ADR 0039).
   readonly clientSecretEnv: string | null;
+  // How many people connected their account on it.
+  readonly connected: number;
 }
 
 export interface Connection {

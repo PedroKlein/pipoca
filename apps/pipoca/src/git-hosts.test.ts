@@ -450,6 +450,21 @@ test("connects a host with a token and signs the person's Sessions in with it", 
   expect(logs.join("\n")).not.toContain(goodToken);
 });
 
+test("tells admins how many people connected on each host", async () => {
+  await api("POST", "/api/plugins/git-hosts/connect", {
+    host: enterprise,
+    token: goodToken,
+  });
+
+  const hosts = (await (
+    await api("GET", "/api/plugins/git-hosts/hosts")
+  ).json()) as { host: string; connected: number }[];
+
+  expect(hosts.map((each) => [each.host, each.connected])).toEqual([
+    [enterprise, 1],
+  ]);
+});
+
 test("signs the coordinator of a Project in with the git logins of the person who started it", async () => {
   await api("POST", "/api/plugins/git-hosts/connect", {
     host: enterprise,
@@ -514,6 +529,7 @@ test("keeps a host's OAuth secret sealed in pipoca.json and out of the page", as
     clientId: "Iv1.abc",
     hasClientSecret: true,
     clientSecretEnv: null,
+    connected: 0,
   });
 
   const file = readFileSync(join(configDir, "pipoca.json"), "utf8");

@@ -32,7 +32,7 @@ import {
   newHost,
   viewOf,
 } from "./hosts";
-import type { Account, Connection } from "./model";
+import type { Account, Connection, HostView } from "./model";
 
 // GitHub sends at most 25 MB, but the events taken from a webhook are small.
 const maxHookBody = 5 * 1024 * 1024;
@@ -273,16 +273,20 @@ export const gitHosts: ServerPlugin = {
       path: readonly string[],
     ): Promise<Response> => {
       const [, name] = path;
+      const counts = connections.counts();
+
+      const view = (host: HostConfig): HostView =>
+        viewOf(host, counts.get(host.host) ?? 0);
 
       if (name === undefined && request.method === "GET") {
-        return Response.json(hosts.list().map(viewOf));
+        return Response.json(hosts.list().map(view));
       }
 
       if (name === undefined && request.method === "POST") {
         const created = hosts.create(await readBody(request, newHost));
         context.log("host added", { host: created.host });
 
-        return Response.json(viewOf(created), { status: 201 });
+        return Response.json(view(created), { status: 201 });
       }
 
       if (name !== undefined && request.method === "DELETE") {
@@ -300,7 +304,7 @@ export const gitHosts: ServerPlugin = {
           throw new NotFound(`no host ${name}`);
         }
 
-        return Response.json(viewOf(updated));
+        return Response.json(view(updated));
       }
 
       throw new NotFound(`no route ${path.join("/")}`);
@@ -526,6 +530,8 @@ interface ConnectionStore {
     token: string,
   ) => void;
   readonly remove: (userId: string, host: string) => void;
+  // How many people connected on each host.
+  readonly counts: () => ReadonlyMap<string, number>;
 }
 
 // A connection is state people create as they go, so it lives in SQLite,
@@ -591,5 +597,13 @@ function connectionStore(store: PluginStore): ConnectionStore {
         host,
       );
     },
+    counts: () =>
+      new Map(
+        (
+          store.all(
+            `select host, count(*) as people from "git-hosts_connections" group by host`,
+          ) as { host: string; people: number }[]
+        ).map(({ host, people }) => [host, people]),
+      ),
   };
 }
