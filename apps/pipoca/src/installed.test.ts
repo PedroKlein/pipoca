@@ -191,6 +191,20 @@ test("turns an installed plugin on for the next start", async () => {
   });
 });
 
+test("keeps an installed plugin out of team work until an admin turns it on there", async () => {
+  await writePlugin("board", { works: ["personal", "team"] });
+  await start();
+  await api("PATCH", "/api/plugins/board", { enabled: true });
+  await start();
+
+  expect(await listed("board")).toMatchObject({ state: "on", teamWork: false });
+  expect(await listed("usage")).toMatchObject({ teamWork: true });
+
+  await api("PATCH", "/api/plugins/board", { teamWork: true });
+
+  expect(await listed("board")).toMatchObject({ teamWork: true });
+});
+
 test("fails a plugin that reaches past the capabilities it declared", async () => {
   await writePlugin(
     "nosy",
