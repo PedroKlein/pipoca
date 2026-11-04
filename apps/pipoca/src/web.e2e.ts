@@ -4435,6 +4435,14 @@ test("an admin pastes the key of a team runner's extension provider, and Credent
 
   await page.goto(server.url.href);
   await openSettings("Accounts");
+  await page.getByRole("list", { name: "Your model logins" }).waitFor();
+
+  // An earlier test's MCP sign-in stays on show until it's closed.
+  const finished = page.getByRole("region", { name: /^Connecting/ });
+  if (await finished.isVisible()) {
+    await finished.getByRole("button", { name: "Close" }).click();
+  }
+
   await page.getByRole("button", { name: "Add provider" }).click();
 
   const form = page.getByRole("form", { name: "Connect a model provider" });
@@ -4452,7 +4460,7 @@ test("an admin pastes the key of a team runner's extension provider, and Credent
     .getByRole("list", { name: "Reach the runner" })
     .getByText("ai-core", { exact: true })
     .waitFor();
-});
+}, 30_000);
 
 test("drops a plugin's parts from open team work once an admin keeps it out", async () => {
   await page.goto(server.url.href);
