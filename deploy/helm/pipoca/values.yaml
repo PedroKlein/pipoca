@@ -84,3 +84,9 @@ config: {}
 #        clientId: <client id>
 #        accessGroup: pipoca-users
 #        adminGroup: pipoca-admins
+
+# Plugin keys the chart owns, mounted read-only at /etc/pipoca/pipoca.json.
+# They win over the same keys in the data volume's pipoca.json, and Settings
+# shows them without letting anyone change them (ADR 0063). Use it for what
+# should only change through a chart upgrade, such as sign-in.
+lockedConfig: {}

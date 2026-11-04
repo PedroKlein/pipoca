@@ -81,6 +81,7 @@ function start(
       config: {
         get: () => undefined,
         set: () => undefined,
+        lockedIn: () => undefined,
         dir: mkdtempSync(join(tmpdir(), "routines-")),
       },
     }),

@@ -42,6 +42,9 @@ export interface Account {
   readonly admin: boolean;
   // Whether people may also sign in with a password.
   readonly passwordLogin: boolean;
+  // The file that sets the providers, such as one Helm writes, while
+  // Settings only shows them (ADR 0063).
+  readonly lockedIn: string | null;
   // The providers, for linking an account.
   readonly providers: readonly {
     readonly id: string;

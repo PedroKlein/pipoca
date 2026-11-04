@@ -65,6 +65,10 @@ spec:
             {{- if (.Values.oidc | default dict).ssoOnly }}
             - --sso-only
             {{- end }}
+            {{- if .Values.lockedConfig }}
+            - --locked-config
+            - /etc/pipoca/pipoca.json
+            {{- end }}
             {{- with .Values.builtInRunner }}
             - --provider
             - {{ . | quote }}
@@ -114,6 +118,11 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            {{- if .Values.lockedConfig }}
+            - name: locked-config
+              mountPath: /etc/pipoca
+              readOnly: true
+            {{- end }}
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -122,4 +131,9 @@ spec:
         - name: config
           configMap:
             name: {{ .Release.Name }}-config
+        {{- end }}
+        {{- if .Values.lockedConfig }}
+        - name: locked-config
+          configMap:
+            name: {{ .Release.Name }}-locked-config
         {{- end }}

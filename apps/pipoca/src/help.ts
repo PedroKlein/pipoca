@@ -129,6 +129,10 @@ PIPOCA_SECRET_KEY to keep logins encrypted with a key of your own.`,
         "folder of config files (default: config next to the database)",
       ],
       [
+        "--locked-config <path>",
+        "a pipoca.json whose plugin keys Settings can't change, such as Helm's",
+      ],
+      [
         "--provider <name>",
         "also run Sessions on this machine, as a runner with this name",
       ],

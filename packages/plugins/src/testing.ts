@@ -95,7 +95,12 @@ export function fakeContext(
     models: { offer: notFaked("models.offer") },
     store: memoryStore(),
     settings: { get: () => ({}) },
-    config: { get: () => undefined, set: () => undefined, dir: "" },
+    config: {
+      get: () => undefined,
+      set: () => undefined,
+      lockedIn: () => undefined,
+      dir: "",
+    },
     signal: new AbortController().signal,
     log: () => undefined,
     ...members,

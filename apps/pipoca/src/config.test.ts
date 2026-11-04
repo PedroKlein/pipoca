@@ -1,29 +1,43 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serve } from "./serve";
 import { firstUser } from "./testdata/sign-in";
 
-interface ConfigView {
-  readonly path: string;
+interface ConfigEntry {
+  readonly name: string;
+  readonly locked: boolean;
+}
+
+interface ConfigText extends ConfigEntry {
   readonly text: string;
   readonly version: string | null;
 }
+
+const ias = {
+  providers: [
+    {
+      id: "ias",
+      label: "Sign in with IAS",
+      issuer: "https://ias.example.com",
+      clientId: "pipoca",
+    },
+  ],
+};
 
 let root: string;
 let server: ReturnType<typeof serve>;
 let pedro: () => Promise<string>;
 
-beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "config-"));
-
+function start(lockedConfig?: string): void {
   const logs: string[] = [];
 
   server = serve({
     port: 0,
     database: ":memory:",
     configDir: join(root, "config"),
+    ...(lockedConfig !== undefined && { lockedConfig }),
     sessions: { pollWaitMs: 0 },
     log: (message, fields) => {
       logs.push(`${message} ${JSON.stringify(fields)}`);
@@ -31,6 +45,10 @@ beforeEach(async () => {
   });
 
   pedro = firstUser(server, logs);
+}
+
+beforeEach(async () => {
+  root = await mkdtemp(join(tmpdir(), "config-"));
 });
 
 afterEach(async () => {
@@ -38,9 +56,13 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-async function config(body?: unknown): Promise<Response> {
-  return fetch(new URL("/api/config", server.url), {
-    method: body === undefined ? "GET" : "PUT",
+async function call(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<Response> {
+  return fetch(new URL(path, server.url), {
+    method,
     headers: {
       cookie: await pedro(),
       ...(body !== undefined && { "content-type": "application/json" }),
@@ -49,56 +71,146 @@ async function config(body?: unknown): Promise<Response> {
   });
 }
 
-test("an admin edits pipoca.json, and plugins read the new values", async () => {
-  const opened = (await (await config()).json()) as ConfigView;
+async function open(name: string): Promise<ConfigText> {
+  return (await (
+    await call("GET", `/api/config/file?name=${encodeURIComponent(name)}`)
+  ).json()) as ConfigText;
+}
 
-  expect(opened.path).toBe(join(root, "config", "pipoca.json"));
+async function save(
+  name: string,
+  text: string,
+  version: string | null,
+): Promise<Response> {
+  return call("PUT", "/api/config/file", { name, text, version });
+}
 
-  const text = JSON.stringify({
-    oidc: {
-      providers: [
-        {
-          id: "ias",
-          label: "Sign in with IAS",
-          issuer: "https://ias.example.com",
-          clientId: "pipoca",
-        },
-      ],
-    },
-  });
-
-  const saved = await config({ text, version: opened.version });
-
-  expect(saved.status).toBe(200);
-  expect(await readFile(opened.path, "utf8")).toBe(`${text}\n`);
-
+async function labels(): Promise<readonly string[]> {
   const providers = (await (
-    await fetch(new URL("/api/plugins/oidc/providers", server.url), {
-      headers: { cookie: await pedro() },
-    })
+    await call("GET", "/api/plugins/oidc/providers")
   ).json()) as { label: string }[];
 
-  expect(providers.map(({ label }) => label)).toEqual(["Sign in with IAS"]);
+  return providers.map(({ label }) => label);
+}
+
+test("an admin edits pipoca.json, and plugins read the new values", async () => {
+  start();
+
+  const opened = await open("pipoca.json");
+  const text = JSON.stringify({ oidc: ias });
+
+  expect((await save("pipoca.json", text, opened.version)).status).toBe(200);
+
+  expect(await readFile(join(root, "config", "pipoca.json"), "utf8")).toBe(
+    `${text}\n`,
+  );
+
+  expect(await labels()).toEqual(["Sign in with IAS"]);
 });
 
 test("refuses text that isn't a JSON object, and an edit of a file that changed since", async () => {
-  const opened = (await (await config()).json()) as ConfigView;
+  start();
 
-  const broken = await config({ text: "{ nope", version: opened.version });
-  expect(broken.status).toBe(400);
+  const opened = await open("pipoca.json");
+  const path = join(root, "config", "pipoca.json");
 
-  const list = await config({ text: "[]", version: opened.version });
-  expect(list.status).toBe(400);
+  expect((await save("pipoca.json", "{ nope", opened.version)).status).toBe(
+    400,
+  );
 
-  await writeFile(opened.path, '{"by": "hand"}\n');
+  expect((await save("pipoca.json", "[]", opened.version)).status).toBe(400);
 
-  const stale = await config({ text: "{}", version: opened.version });
-  expect(stale.status).toBe(409);
-  expect(await readFile(opened.path, "utf8")).toBe('{"by": "hand"}\n');
+  await mkdir(join(root, "config"), { recursive: true });
+  await writeFile(path, '{"by": "hand"}\n');
+
+  expect((await save("pipoca.json", "{}", opened.version)).status).toBe(409);
+  expect(await readFile(path, "utf8")).toBe('{"by": "hand"}\n');
 });
 
-test("keeps the file to admins", async () => {
-  const response = await fetch(new URL("/api/config", server.url));
+test("lists shared Profiles to edit, and leaves people's own folders out", async () => {
+  start();
 
-  expect(response.status).toBe(401);
+  const config = join(root, "config");
+  await mkdir(join(config, "profiles", "default"), { recursive: true });
+  await mkdir(join(config, "people", "someone"), { recursive: true });
+  await writeFile(join(config, "profiles", "default", "AGENTS.md"), "Hi\n");
+  await writeFile(join(config, "people", "someone", "AGENTS.md"), "Mine\n");
+
+  const listed = (await (await call("GET", "/api/config")).json()) as {
+    files: ConfigEntry[];
+  };
+
+  expect(listed.files.map(({ name }) => name)).toEqual([
+    "pipoca.json",
+    "profiles/default/AGENTS.md",
+  ]);
+
+  const agents = await open("profiles/default/AGENTS.md");
+  expect(agents.text).toBe("Hi\n");
+
+  expect(
+    (await save("profiles/default/AGENTS.md", "Hello", agents.version)).status,
+  ).toBe(200);
+
+  expect(
+    await readFile(join(config, "profiles", "default", "AGENTS.md"), "utf8"),
+  ).toBe("Hello\n");
+
+  expect((await save("people/someone/AGENTS.md", "x", null)).status).toBe(400);
+  expect((await save("../escape.json", "{}", null)).status).toBe(400);
+
+  expect(
+    (await call("GET", "/api/config/file?name=people%2Fsomeone%2FAGENTS.md"))
+      .status,
+  ).toBe(404);
+});
+
+test("a locked file's keys win, show read-only, and can't be changed from Settings", async () => {
+  const locked = join(root, "locked.json");
+  await writeFile(locked, JSON.stringify({ oidc: ias }));
+  start(locked);
+
+  const opened = await open("pipoca.json");
+
+  const own = JSON.stringify({
+    oidc: { providers: [{ ...ias.providers[0], label: "Mine" }] },
+  });
+
+  expect((await save("pipoca.json", own, opened.version)).status).toBe(200);
+  expect(await labels()).toEqual(["Sign in with IAS"]);
+
+  const account = (await (
+    await call("GET", "/api/plugins/oidc/account")
+  ).json()) as { lockedIn: string | null };
+
+  expect(account.lockedIn).toBe(locked);
+
+  const listed = (await (await call("GET", "/api/config")).json()) as {
+    files: ConfigEntry[];
+  };
+
+  expect(listed.files).toContainEqual({ name: locked, locked: true });
+  expect((await open(locked)).locked).toBe(true);
+  expect((await save(locked, "{}", null)).status).toBe(400);
+
+  const added = await call("POST", "/api/plugins/oidc/providers", {
+    label: "Another",
+    issuer: "https://other.example.com",
+    clientId: "x",
+  });
+
+  expect(added.ok).toBe(false);
+  expect(await added.text()).toContain("can't change here");
+  expect(await labels()).toEqual(["Sign in with IAS"]);
+});
+
+test("keeps the files to admins", async () => {
+  start();
+
+  expect((await fetch(new URL("/api/config", server.url))).status).toBe(401);
+
+  expect(
+    (await fetch(new URL("/api/config/file?name=pipoca.json", server.url)))
+      .status,
+  ).toBe(401);
 });

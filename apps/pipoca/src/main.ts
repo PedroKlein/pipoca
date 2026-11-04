@@ -98,6 +98,7 @@ switch (command) {
         "trust-proxy": { type: "boolean", default: false },
         solo: { type: "boolean", default: false },
         "config-dir": { type: "string" },
+        "locked-config": { type: "string" },
         plugins: { type: "string" },
         provider: { type: "string" },
         "data-dir": { type: "string", default: join(dataRoot, "server") },
@@ -157,6 +158,9 @@ switch (command) {
       database: values.database,
       ...(values["config-dir"] !== undefined && {
         configDir: absolutePath(values["config-dir"]),
+      }),
+      ...(values["locked-config"] !== undefined && {
+        lockedConfig: absolutePath(values["locked-config"]),
       }),
       passwordLogin: !values["sso-only"],
       trustProxy: values["trust-proxy"],
