@@ -124,13 +124,14 @@ export function remoteUI(publish: (event: LiveEvent) => void): {
           new Error("Pipoca's web UI can't show custom terminal dialogs"),
         ),
     },
-    questions: async (questions, explain, signal) => {
+    questions: async (questions, explain, signal, person) => {
       const value = await ask(
         {
           kind: "questions",
           title: "Questions from the agent",
           questions,
           explain: explain !== undefined,
+          ...(person !== undefined && { for: person }),
         },
         signal ? { signal } : undefined,
         explain,

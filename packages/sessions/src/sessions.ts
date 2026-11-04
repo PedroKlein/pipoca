@@ -601,6 +601,25 @@ export class Sessions {
     });
   }
 
+  // Anyone who steers team work may answer Pi's questions, so Pi hears who
+  // did (ADR 0065).
+  #answeredBy(session: StoredSession, command: Command): Command {
+    const person = personOf(command.actor);
+    const name = person === undefined ? undefined : this.#names(person);
+
+    if (
+      command.type !== "answer" ||
+      name === undefined ||
+      !this.#team(session) ||
+      typeof command.value !== "object" ||
+      command.value === null
+    ) {
+      return command;
+    }
+
+    return { ...command, value: { ...command.value, by: name } };
+  }
+
   #addVoice(id: string, voice: Voice): void {
     this.#store.addVoice(id, voice);
     this.#emit(id, { type: "voice", voice });
@@ -1246,7 +1265,13 @@ export class Sessions {
         this.#emit(id, { type: "session", session: view });
 
         if (view.waiting) {
-          this.#events({ type: "SessionWaiting", session: view });
+          this.#events({
+            type: "SessionWaiting",
+            session: view,
+            ...(event.type === "prompt" &&
+              event.prompt.kind === "questions" &&
+              event.prompt.for !== undefined && { for: event.prompt.for }),
+          });
         }
       }
 
@@ -1340,7 +1365,10 @@ export class Sessions {
       return { ok: true, value: undefined };
     }
 
-    const told = [...this.#teamContext(session, command, quote), command];
+    const told = [
+      ...this.#teamContext(session, command, quote),
+      this.#answeredBy(session, command),
+    ];
 
     if (held) {
       this.#held.set(id, [...(this.#held.get(id) ?? []), ...told]);

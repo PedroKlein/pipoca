@@ -61,6 +61,11 @@ export function PromptCard({
       <strong className="text-label font-semibold text-waiting">
         {prompt.kind === "permission" ? "Permission needed" : prompt.title}
       </strong>
+      {prompt.kind === "questions" && prompt.for !== undefined && (
+        <p data-role="asked" className="-mt-2 text-caption text-fg-dim">
+          For {prompt.for}. Anyone on the team can answer for them.
+        </p>
+      )}
       {body()}
     </section>
   );

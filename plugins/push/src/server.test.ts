@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { createPublicKey, verify } from "node:crypto";
-import { eventBus, type PluginRoute } from "@pipoca/plugins";
+import {
+  eventBus,
+  type PluginRoute,
+  type ServerPluginContext,
+} from "@pipoca/plugins";
 import {
   fakeContext,
   fakeSession,
@@ -158,7 +162,10 @@ async function browser(at = endpoint): Promise<{
 
 type Bus = ReturnType<typeof eventBus>;
 
-function registered(): { readonly route: PluginRoute; readonly events: Bus } {
+function registered(members: Partial<ServerPluginContext> = {}): {
+  readonly route: PluginRoute;
+  readonly events: Bus;
+} {
   const routes: PluginRoute[] = [];
 
   const events = eventBus((_type, error) => {
@@ -180,6 +187,7 @@ function registered(): { readonly route: PluginRoute; readonly events: Bus } {
         routes.push(route);
       },
     },
+    ...members,
   });
 
   push.register(context);
@@ -424,5 +432,47 @@ test("tells the person whose cap team work reached, and every admin, but no one 
 
   expect(await boss?.read(bodyTo("device-3"))).toMatchObject({
     title: "Ana's team work reached 80% of their monthly cap",
+  });
+});
+
+test("tells the person Pi asks in team work, and the starter once nobody answers in time", async () => {
+  const waiting = fakeSession({
+    startedBy: "owner",
+    ownedBy: "team",
+    status: "running",
+    waiting: true,
+  });
+
+  const { route, events } = registered({
+    settings: { get: () => ({ answerMinutes: 0.0005 }) },
+    sessions: {
+      ...fakeContext().sessions,
+      get: () => waiting,
+    },
+  });
+
+  const [own, anas] = await Promise.all(
+    ["device-1", "device-2"].map(async (device) =>
+      browser(`https://fcm.googleapis.com/fcm/send/${device}`),
+    ),
+  );
+
+  await call(route, "PUT", "subscriptions", own?.subscription, "owner");
+  await call(route, "PUT", "subscriptions", anas?.subscription, "ana");
+
+  events.publish({ type: "SessionWaiting", session: waiting, for: "Ana" });
+  await delivered(2);
+
+  expect(sent.map(({ url }) => url.split("/").at(-1))).toEqual([
+    "device-2",
+    "device-1",
+  ]);
+
+  expect(await anas?.read(sent[0]?.body ?? new Uint8Array())).toMatchObject({
+    title: "Pi has a question for you",
+  });
+
+  expect(await own?.read(sent[1]?.body ?? new Uint8Array())).toMatchObject({
+    title: "Nobody answered Pi's question for Ana",
   });
 });

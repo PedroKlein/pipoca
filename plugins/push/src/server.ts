@@ -175,8 +175,49 @@ export const push: ServerPlugin = {
       }
     });
 
-    context.events.subscribe("SessionWaiting", ({ session }) => {
-      send(session, "Pi needs you", true);
+    // In team work Pi asks a named person, and whoever started the work hears
+    // of it too if nobody answers in time (ADR 0065).
+    context.events.subscribe("SessionWaiting", ({ session, for: person }) => {
+      const asked =
+        session.ownedBy === "team" && person !== undefined
+          ? context.auth.users().find(({ name }) => name === person)
+          : undefined;
+
+      if (asked === undefined) {
+        send(session, "Pi needs you", true);
+
+        return;
+      }
+
+      tell(
+        asked.id,
+        {
+          title: "Pi has a question for you",
+          body: session.title ?? "",
+          session: session.id,
+          url: `/#${session.id}`,
+        },
+        true,
+      );
+
+      if (asked.id === session.startedBy) {
+        return;
+      }
+
+      const minutes = context.settings.get()["answerMinutes"];
+
+      setTimeout(
+        () => {
+          if (context.sessions.get(session.id)?.waiting === true) {
+            send(
+              session,
+              `Nobody answered Pi's question for ${asked.name}`,
+              true,
+            );
+          }
+        },
+        (typeof minutes === "number" ? minutes : 10) * 60_000,
+      ).unref();
     });
 
     // Sessions a plugin owns, such as a Project's threads, report to it
