@@ -769,6 +769,37 @@ test("finds a plugin by a word of its name or description", async () => {
   expect(await plugins.getByRole("listitem").count()).toBe(1);
 });
 
+test("names an alias and orders its fallbacks on the Models page", async () => {
+  await page.goto(server.url.href);
+  await openSettings("Models");
+
+  await page.getByRole("button", { name: "New alias" }).click();
+  await page.getByLabel("New alias name").fill("smart");
+  await page.getByLabel("First model").fill("faux/one");
+  await page.getByRole("button", { name: "Add alias" }).click();
+
+  const alias = page.getByRole("region", { name: "Alias smart" });
+  await alias.getByRole("listitem", { name: "faux/one" }).waitFor();
+
+  await alias.getByLabel("Add a fallback", { exact: true }).fill("faux/two");
+  await alias.getByRole("button", { name: "Add", exact: true }).click();
+  await alias.getByRole("listitem", { name: "faux/two" }).waitFor();
+
+  await alias.getByRole("button", { name: "Move faux/two up" }).click();
+
+  await alias
+    .getByRole("listitem")
+    .first()
+    .getByText("two", { exact: true })
+    .waitFor();
+
+  await alias.getByRole("button", { name: "Make default" }).click();
+  await alias.getByText("Default for new Sessions").waitFor();
+
+  await alias.getByRole("button", { name: "Remove smart" }).click();
+  await alias.waitFor({ state: "detached" });
+});
+
 test("turns an installed plugin on for the next start", async () => {
   await page.goto(server.url.href);
   await openSettings("Plugins");

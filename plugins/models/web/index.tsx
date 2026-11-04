@@ -4,12 +4,14 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { availability, type Environment } from "@pipoca/protocol";
+import type { Environment } from "@pipoca/protocol";
 import {
   Badge,
   Button,
   cn,
   fieldClass,
+  Icon,
+  initialsOf,
   PageTitle,
   Row,
   Rows,
@@ -19,7 +21,6 @@ import {
 import { type ReactElement, useState } from "react";
 import {
   aliasesOf,
-  candidates,
   gatewayProvider,
   modelKey,
   unhealthy,
@@ -29,6 +30,7 @@ import {
   type EnvironmentModels,
   type Health,
   modelRef,
+  noHealth,
   type ProviderSettings,
 } from "../src/model";
 
@@ -51,13 +53,33 @@ function Page({ context }: { readonly context: WebContext }): ReactElement {
   );
 
   const [environments, configs] = value ?? [[], []];
+  const [chosen, setChosen] = useState<string>();
+  const [adding, setAdding] = useState(false);
+
+  const environment =
+    environments.find(({ id }) => id === chosen) ?? environments[0];
 
   return (
     <>
-      <PageTitle description="An alias such as medium-1 names a list of models, tried in order, that can mix providers. Each Environment has its own aliases, and a model that fails is skipped by every session there until it cools down or its provider resets.">
+      <PageTitle
+        description='Name a choice once, like "smart" or "fast", and list models to try in order. If one is down or out of quota, the next one answers.'
+        actions={
+          environment !== undefined &&
+          !adding && (
+            <Button
+              onClick={() => {
+                setAdding(true);
+              }}
+            >
+              <Icon name="plus" />
+              New alias
+            </Button>
+          )
+        }
+      >
         Models
       </PageTitle>
-      {value !== undefined && environments.length === 0 && (
+      {value !== undefined && environment === undefined && (
         <Rows>
           <Row
             title="No Environments yet"
@@ -65,184 +87,91 @@ function Page({ context }: { readonly context: WebContext }): ReactElement {
           />
         </Rows>
       )}
-      {environments.map((environment) => {
-        const saved = configs.find(
-          ({ environmentId }) => environmentId === environment.id,
-        );
-
-        return (
-          <EnvironmentSection
-            key={`${environment.id}-${JSON.stringify(saved?.aliases ?? null)}`}
-            context={context}
-            environment={environment}
-            saved={saved}
-            onSaved={reload}
-          />
-        );
-      })}
+      {environments.length > 1 && environment !== undefined && (
+        <label className="mt-6 flex flex-wrap items-center gap-3 text-label text-fg-dim">
+          Aliases of
+          <Select
+            value={environment.id}
+            onChange={(event) => {
+              setChosen(event.target.value);
+              setAdding(false);
+            }}
+          >
+            {environments.map((each) => (
+              <option key={each.id} value={each.id}>
+                {each.name}
+              </option>
+            ))}
+          </Select>
+        </label>
+      )}
+      {environment !== undefined && (
+        <Aliases
+          key={environment.id}
+          context={context}
+          environment={environment}
+          saved={configs.find(
+            ({ environmentId }) => environmentId === environment.id,
+          )}
+          adding={adding}
+          onAdding={setAdding}
+          onSaved={reload}
+        />
+      )}
     </>
   );
 }
 
-function EnvironmentSection({
+function Aliases({
   context,
   environment,
   saved,
+  adding,
+  onAdding,
   onSaved,
 }: {
   readonly context: WebContext;
   readonly environment: Environment;
   readonly saved: EnvironmentModels | undefined;
+  readonly adding: boolean;
+  readonly onAdding: (adding: boolean) => void;
   readonly onSaved: () => void;
 }): ReactElement {
-  const health = saved?.health ?? { version: 1, unhealthyUntil: {} };
+  const health = saved?.health ?? noHealth;
+  const config = saved?.aliases ?? { models: {} };
+  const [error, setError] = useState<string>();
+  const list = `models-${environment.id}`;
 
-  const [draft, setDraft] = useState<AliasConfig>(
-    saved?.aliases ?? { models: {} },
-  );
-
-  const save = async (aliases: AliasConfig | null): Promise<void> => {
-    const response = await context.request(
-      `environments/${encodeURIComponent(environment.id)}`,
-      { method: "POST", body: JSON.stringify({ aliases }) },
+  const save = (aliases: AliasConfig | null): void => {
+    json(
+      context.request(`environments/${encodeURIComponent(environment.id)}`, {
+        method: "POST",
+        body: JSON.stringify({ aliases }),
+      }),
+    ).then(
+      () => {
+        setError(undefined);
+        onSaved();
+      },
+      (reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      },
     );
+  };
 
-    if (!response.ok) {
-      alert(((await response.json()) as { error: string }).error);
+  const setModels = (
+    next: AliasConfig["models"],
+    defaultAlias = config.defaultAlias,
+  ): void => {
+    if (Object.keys(next).length === 0) {
+      save(null);
 
       return;
     }
 
-    onSaved();
-  };
+    const { defaultAlias: _, ...rest } = config;
 
-  return (
-    <Section
-      title={
-        <span className="flex items-center gap-3">
-          {environment.name}
-          <Badge
-            state={availability(environment) === "Offline" ? "offline" : "done"}
-          >
-            {availability(environment) === "Starts runners on demand"
-              ? "On demand"
-              : availability(environment)}
-          </Badge>
-        </span>
-      }
-    >
-      <div
-        data-environment={environment.id}
-        className="flex flex-col gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5"
-      >
-        {saved?.aliases && <Routing config={saved.aliases} health={health} />}
-        <Editor
-          environment={environment}
-          draft={draft}
-          health={health}
-          onChange={setDraft}
-        />
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="primary"
-            onClick={() => {
-              void save(draft);
-            }}
-          >
-            Save
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => {
-              void save(null);
-            }}
-          >
-            Turn aliases off
-          </Button>
-        </div>
-      </div>
-    </Section>
-  );
-}
-
-function Routing({
-  config,
-  health,
-}: {
-  readonly config: AliasConfig;
-  readonly health: Health;
-}): ReactElement {
-  const now = new Date();
-  const cell = "border-b border-line px-3 py-2 text-left";
-
-  return (
-    <div className="overflow-x-auto rounded-md border border-line">
-      <table className="w-full border-collapse text-ui [&_tr:last-child>td]:border-b-0">
-        <thead className="bg-elevated text-label text-fg-dim">
-          <tr>
-            <th className={cn(cell, "font-medium")}>Alias</th>
-            <th className={cn(cell, "font-medium")}>Routes to now</th>
-            <th className={cn(cell, "font-medium")}>Skipped</th>
-          </tr>
-        </thead>
-        <tbody>
-          {aliasesOf(config).map((alias) => {
-            const [first] = candidates(config, health, alias, now);
-
-            const skipped = (config.models[alias] ?? []).flatMap((value) => {
-              const model = modelRef(value);
-              const down = model && unhealthy(health, model, now);
-
-              return down
-                ? [`${value} until ${new Date(down.until).toLocaleString()}`]
-                : [];
-            });
-
-            return (
-              <tr key={alias}>
-                <td className={cn(cell, "font-mono text-mono-sm")}>
-                  {gatewayProvider}/{alias}
-                </td>
-                <td
-                  className={cn(
-                    cell,
-                    "font-mono text-mono-sm",
-                    !first && "text-failed",
-                  )}
-                >
-                  {first ? modelKey(first) : "no healthy model"}
-                </td>
-                <td className={cn(cell, "font-mono text-mono-sm text-fg-dim")}>
-                  {skipped.join(", ")}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function Editor({
-  environment,
-  draft,
-  health,
-  onChange,
-}: {
-  readonly environment: Environment;
-  readonly draft: AliasConfig;
-  readonly health: Health;
-  readonly onChange: (next: AliasConfig) => void;
-}): ReactElement {
-  const now = new Date();
-  const list = `models-${environment.id}`;
-  const [name, setName] = useState("");
-
-  const setModels = (next: AliasConfig["models"]): void => {
-    const { defaultAlias, ...rest } = draft;
-
-    onChange({
+    save({
       ...rest,
       models: next,
       ...(defaultAlias !== undefined &&
@@ -252,40 +181,14 @@ function Editor({
 
   const providers = [
     ...new Set(
-      Object.values(draft.models)
+      Object.values(config.models)
         .flat()
         .flatMap((value) => modelRef(value)?.provider ?? []),
     ),
   ];
 
   return (
-    <div className="flex flex-col gap-4">
-      <label className="flex flex-wrap items-center gap-3 text-label text-fg-dim">
-        Model for sessions that name none
-        <Select
-          value={draft.defaultAlias ?? ""}
-          onChange={(event) => {
-            const { defaultAlias: _, ...rest } = draft;
-
-            onChange(
-              event.target.value === ""
-                ? rest
-                : { ...rest, defaultAlias: event.target.value },
-            );
-          }}
-        >
-          <option value="">The machine&apos;s Pi default</option>
-          {aliasesOf(draft).map((alias) => (
-            <option key={alias} value={alias}>
-              {gatewayProvider}/{alias}
-            </option>
-          ))}
-        </Select>
-      </label>
-
-      <h3 className="text-ui font-semibold text-fg-strong">
-        Aliases, each with its models in fallback order
-      </h3>
+    <>
       <datalist id={list}>
         {environment.models
           .filter(({ provider }) => provider !== gatewayProvider)
@@ -293,81 +196,89 @@ function Editor({
             <option key={modelKey(model)} value={modelKey(model)} />
           ))}
       </datalist>
-      <div className="grid gap-2 sm:grid-cols-[max-content_1fr_max-content] sm:items-center sm:gap-x-4">
-        {aliasesOf(draft).map((alias) => (
-          <label key={alias} className="contents text-label text-fg-dim">
-            <span className="font-mono text-mono-sm">{alias}</span>
-            <input
-              list={list}
-              placeholder="provider/model, comma-separated"
-              defaultValue={(draft.models[alias] ?? []).join(", ")}
-              onBlur={(event) => {
-                setModels({
-                  ...draft.models,
-                  [alias]: event.target.value
-                    .split(",")
-                    .map((value) => value.trim())
-                    .filter((value) => value !== ""),
-                });
-              }}
-              className={cn(fieldClass, "font-mono text-mono-sm")}
+      {error !== undefined && (
+        <p role="alert" className="mt-4 text-caption text-failed">
+          {error}
+        </p>
+      )}
+      <div className="mt-6 flex flex-col gap-4">
+        {adding && (
+          <NewAlias
+            taken={aliasesOf(config)}
+            list={list}
+            add={(name, model) => {
+              setModels({ ...config.models, [name]: [model] });
+              onAdding(false);
+            }}
+            cancel={() => {
+              onAdding(false);
+            }}
+          />
+        )}
+        {aliasesOf(config).length === 0 && !adding && (
+          <Rows>
+            <Row
+              title="No aliases yet"
+              description={`Sessions in ${environment.name} use the model they pick. Add an alias to give them fallbacks.`}
             />
-            <Button
-              variant="danger"
-              onClick={() => {
-                setModels(
-                  Object.fromEntries(
-                    Object.entries(draft.models).filter(
-                      ([other]) => other !== alias,
-                    ),
+          </Rows>
+        )}
+        {aliasesOf(config).map((alias) => (
+          <AliasCard
+            key={alias}
+            name={alias}
+            tried={config.models[alias] ?? []}
+            isDefault={config.defaultAlias === alias}
+            health={health}
+            list={list}
+            onChange={(next) => {
+              setModels({ ...config.models, [alias]: next });
+            }}
+            onDefault={() => {
+              setModels(config.models, alias);
+            }}
+            onRename={(name) => {
+              setModels(
+                Object.fromEntries(
+                  Object.entries(config.models).map(([key, tried]) => [
+                    key === alias ? name : key,
+                    tried,
+                  ]),
+                ),
+                config.defaultAlias === alias ? name : config.defaultAlias,
+              );
+            }}
+            onRemove={() => {
+              setModels(
+                Object.fromEntries(
+                  Object.entries(config.models).filter(
+                    ([other]) => other !== alias,
                   ),
-                );
-              }}
-            >
-              Remove
-            </Button>
-          </label>
+                ),
+              );
+            }}
+          />
         ))}
       </div>
-      <form
-        className="flex flex-wrap gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (name !== "" && !(name in draft.models)) {
-            setModels({ ...draft.models, [name]: [] });
-            setName("");
-          }
-        }}
-      >
-        <input
-          aria-label="New alias name"
-          placeholder="medium-1"
-          value={name}
-          onChange={(event) => {
-            setName(event.target.value.trim());
-          }}
-          className={cn(fieldClass, "font-mono text-mono-sm")}
-        />
-        <Button type="submit">Add alias</Button>
-      </form>
-
       {providers.length > 0 && (
-        <>
-          <h3 className="text-ui font-semibold text-fg-strong">Providers</h3>
+        <Section
+          title="When a provider runs out"
+          description="Its models step aside until it resets"
+        >
           {providers.map((provider) => (
             <ProviderEditor
-              key={provider}
+              key={`${provider}-${JSON.stringify(config.providers?.[provider] ?? {})}`}
               name={provider}
-              settings={draft.providers?.[provider] ?? {}}
+              settings={config.providers?.[provider] ?? {}}
               down={health.unhealthyUntil[provider]}
-              now={now}
+              now={new Date()}
               onChange={(settings) => {
-                const others = Object.entries(draft.providers ?? {}).filter(
+                const others = Object.entries(config.providers ?? {}).filter(
                   ([other]) => other !== provider,
                 );
 
-                onChange({
-                  ...draft,
+                save({
+                  ...config,
                   providers: Object.fromEntries(
                     Object.keys(settings).length === 0
                       ? others
@@ -377,10 +288,286 @@ function Editor({
               }}
             />
           ))}
-        </>
+        </Section>
       )}
-    </div>
+      {saved?.aliases !== null && saved?.aliases !== undefined && (
+        <p className="mt-6 text-caption text-fg-dim">
+          Sessions see each alias as {gatewayProvider}/name.{" "}
+          <button
+            type="button"
+            className="cursor-pointer text-fg underline underline-offset-2"
+            onClick={() => {
+              save(null);
+            }}
+          >
+            Turn aliases off
+          </button>
+        </p>
+      )}
+    </>
   );
+}
+
+function NewAlias({
+  taken,
+  list,
+  add,
+  cancel,
+}: {
+  readonly taken: readonly string[];
+  readonly list: string;
+  readonly add: (name: string, model: string) => void;
+  readonly cancel: () => void;
+}): ReactElement {
+  const [name, setName] = useState("");
+  const [model, setModel] = useState("");
+  const clash = taken.includes(name);
+  const ready = name !== "" && !clash && modelRef(model) !== undefined;
+
+  return (
+    <form
+      aria-label="New alias"
+      className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-elevated p-4 shadow-xs"
+      onSubmit={(event) => {
+        event.preventDefault();
+
+        if (ready) {
+          add(name, model);
+        }
+      }}
+    >
+      <input
+        aria-label="New alias name"
+        placeholder="smart"
+        value={name}
+        autoFocus
+        onChange={(event) => {
+          setName(event.target.value.trim());
+        }}
+        className={cn(fieldClass, "w-40 font-mono text-mono-sm")}
+      />
+      <input
+        list={list}
+        aria-label="First model"
+        placeholder="provider/model to try first"
+        value={model}
+        onChange={(event) => {
+          setModel(event.target.value.trim());
+        }}
+        className={cn(fieldClass, "flex-1 font-mono text-mono-sm")}
+      />
+      <Button variant="primary" type="submit" disabled={!ready}>
+        Add alias
+      </Button>
+      <Button variant="ghost" onClick={cancel}>
+        Cancel
+      </Button>
+      {clash && (
+        <p role="alert" className="w-full text-caption text-failed">
+          {name} is already an alias.
+        </p>
+      )}
+    </form>
+  );
+}
+
+function AliasCard({
+  name,
+  tried,
+  isDefault,
+  health,
+  list,
+  onChange,
+  onDefault,
+  onRename,
+  onRemove,
+}: {
+  readonly name: string;
+  readonly tried: readonly string[];
+  readonly isDefault: boolean;
+  readonly health: Health;
+  readonly list: string;
+  readonly onChange: (models: readonly string[]) => void;
+  readonly onDefault: () => void;
+  readonly onRename: (name: string) => void;
+  readonly onRemove: () => void;
+}): ReactElement {
+  const [renaming, setRenaming] = useState(false);
+  const [adding, setAdding] = useState("");
+  const now = new Date();
+
+  const move = (from: number, to: number): void => {
+    const next = [...tried];
+    const [moved] = next.splice(from, 1);
+
+    if (moved !== undefined) {
+      next.splice(to, 0, moved);
+      onChange(next);
+    }
+  };
+
+  return (
+    <section
+      aria-label={`Alias ${name}`}
+      className="flex flex-col gap-3 rounded-lg border border-line bg-elevated p-4 shadow-xs"
+    >
+      <header className="flex flex-wrap items-center gap-2">
+        {renaming ? (
+          <form
+            aria-label={`Rename ${name}`}
+            className="flex flex-1 items-center gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const field = new FormData(event.currentTarget).get("name");
+              const next = typeof field === "string" ? field.trim() : "";
+
+              if (next !== "" && next !== name) {
+                onRename(next);
+              }
+
+              setRenaming(false);
+            }}
+          >
+            <input
+              name="name"
+              aria-label="Alias name"
+              defaultValue={name}
+              autoFocus
+              className={cn(fieldClass, "flex-1 font-mono text-mono-sm")}
+            />
+            <Button type="submit">Save</Button>
+          </form>
+        ) : (
+          <>
+            <h2 className="text-prose font-semibold text-fg-strong">{name}</h2>
+            {isDefault ? (
+              <Badge state="offline">Default for new Sessions</Badge>
+            ) : (
+              <Button variant="ghost" onClick={onDefault}>
+                Make default
+              </Button>
+            )}
+            <span className="ml-auto flex gap-1">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setRenaming(true);
+                }}
+              >
+                Rename
+              </Button>
+              <Button
+                variant="ghost"
+                aria-label={`Remove ${name}`}
+                onClick={onRemove}
+              >
+                Remove
+              </Button>
+            </span>
+          </>
+        )}
+      </header>
+      <ol aria-label={`${name} models`} className="flex flex-col gap-2">
+        {tried.map((value, index) => {
+          const ref = modelRef(value);
+          const down = ref && unhealthy(health, ref, now);
+
+          return (
+            <li
+              key={value}
+              aria-label={value}
+              className="flex flex-wrap items-center gap-3 rounded-md border border-line px-3 py-2.5"
+            >
+              <span
+                aria-hidden="true"
+                className="grid size-6 place-items-center rounded-full border border-line-strong text-caption text-fg"
+              >
+                {index + 1}
+              </span>
+              <span
+                aria-hidden="true"
+                className="grid size-7 place-items-center rounded-md bg-hover text-caption font-semibold text-fg-strong"
+              >
+                {initialsOf(ref?.provider ?? value)}
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-ui text-fg-strong">
+                  {ref?.id ?? value}
+                </span>
+                <span className="text-label text-fg-dim">
+                  {ref?.provider ?? "not a provider/model"}
+                </span>
+              </span>
+              {down === undefined ? (
+                <Badge state="done">Ready</Badge>
+              ) : (
+                <Badge state="waiting">
+                  Cooling down, {minutesLeft(down.until, now)} min
+                </Badge>
+              )}
+              <span className="flex">
+                <Button
+                  variant="ghost"
+                  iconOnly
+                  aria-label={`Move ${value} up`}
+                  disabled={index === 0}
+                  onClick={() => {
+                    move(index, index - 1);
+                  }}
+                >
+                  <Icon name="arrow-up" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  iconOnly
+                  aria-label={`Remove ${value} from ${name}`}
+                  disabled={tried.length === 1}
+                  onClick={() => {
+                    onChange(tried.filter((other) => other !== value));
+                  }}
+                >
+                  <Icon name="x" />
+                </Button>
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+      <form
+        aria-label={`Add a fallback to ${name}`}
+        className="flex items-center gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+
+          if (modelRef(adding) !== undefined && !tried.includes(adding)) {
+            onChange([...tried, adding]);
+            setAdding("");
+          }
+        }}
+      >
+        <Icon name="plus" />
+        <input
+          list={list}
+          value={adding}
+          aria-label={tried.length === 0 ? "Add a model" : "Add a fallback"}
+          placeholder={
+            tried.length === 0
+              ? "Add a model, as provider/model"
+              : "Add a fallback"
+          }
+          onChange={(event) => {
+            setAdding(event.target.value.trim());
+          }}
+          className="h-8 flex-1 bg-transparent font-mono text-mono-sm outline-none"
+        />
+        {adding !== "" && <Button type="submit">Add</Button>}
+      </form>
+    </section>
+  );
+}
+
+function minutesLeft(until: string, now: Date): number {
+  return Math.max(1, Math.ceil((Date.parse(until) - now.getTime()) / 60_000));
 }
 
 function ProviderEditor({
