@@ -435,6 +435,8 @@ export interface PluginInfo extends PluginManifest {
   readonly installedFrom?: { readonly url: string; readonly pinned: string };
   // A newer version was fetched, which runs when the server restarts.
   readonly updated?: boolean;
+  // Where it was installed from has a newer version than it has.
+  readonly updateAvailable?: boolean;
   // Of the manifest shown, so turning the plugin on can say which one the
   // user trusted.
   readonly digest: string;
