@@ -4378,3 +4378,58 @@ test("shows on the hub's Home who limited team work", async () => {
     .first()
     .waitFor();
 });
+
+test("flags team models that sign in on the runner in Team setup's credentials", async () => {
+  await page.goto(server.url.href);
+
+  const signedIn = (await page.context().cookies()).find(
+    ({ name }) => name === "pipoca-session",
+  );
+
+  const { environment, key } = (await (
+    await fetch(new URL("/api/environments", server.url), {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: `${signedIn?.name ?? ""}=${signedIn?.value ?? ""}`,
+      },
+      body: JSON.stringify({ name: "core-pods", team: true }),
+    })
+  ).json()) as { environment: Environment; key: string };
+
+  const agent = async (
+    path: string,
+    token: string,
+    body: unknown,
+  ): Promise<unknown> =>
+    (
+      await fetch(new URL(path, server.url), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "pipoca-protocol": "4",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      })
+    ).json();
+
+  const joined = (await agent("/agent/join", key, { name: "core-1" })) as {
+    token: string;
+  };
+
+  await agent("/agent/work", joined.token, {
+    running: [],
+    folders: [],
+    models: [{ provider: "ai-core", id: "claude-on-core" }],
+  });
+
+  await page.goto(
+    new URL("/#team/setup/plugin/logins/credentials", server.url).href,
+  );
+
+  await page
+    .getByRole("list", { name: "Reach the runner" })
+    .getByText(`Model sign-in on the runners of ${environment.name}`)
+    .waitFor();
+});
