@@ -294,14 +294,13 @@ test("a team Session gets no one's logins, not even its starter's", async () => 
     actor: "session:session-1",
   };
 
-  const statuses = await Promise.all(
-    ["credentials", "credentials/anthropic/lock"].map(
-      async (path, index) =>
-        (await call(route, team, path, index === 0 ? undefined : {})).status,
-    ),
-  );
+  const listed = await call(route, team, "credentials");
+  const servers = await call(route, team, "mcp");
+  const locked = await call(route, team, "credentials/anthropic/lock", {});
 
-  expect(statuses).toEqual([404, 404]);
+  expect(await listed.json()).toEqual([]);
+  expect(await servers.json()).toEqual([]);
+  expect(locked.status).toBe(403);
 });
 
 test("a Session that refreshes a login from the base keeps its own copy in My defaults", async () => {
