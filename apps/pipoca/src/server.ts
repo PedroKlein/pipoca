@@ -738,8 +738,44 @@ export function createHandler(
       /^\/api\/people$/,
       (_request, _params, _actor, isAdmin) =>
         isAdmin
-          ? Response.json(auth.users())
+          ? Response.json(auth.people())
           : errorReply(403, "admin_only", "Only admins list everyone."),
+    ],
+    [
+      "PATCH",
+      /^\/api\/people\/([^/]+)$/,
+      async (request, [id = ""], _actor, isAdmin) => {
+        if (!isAdmin) {
+          return errorReply(403, "admin_only", "Only admins change roles.");
+        }
+
+        const { admin: makeAdmin } = fieldsOf(await readJson(request));
+
+        if (typeof makeAdmin !== "boolean") {
+          throw new BadRequest("admin must be true or false");
+        }
+
+        const people = auth.people();
+        if (!people.some((person) => person.id === id)) {
+          return notFound();
+        }
+
+        if (
+          !makeAdmin &&
+          !people.some((person) => person.admin && person.id !== id)
+        ) {
+          return errorReply(
+            409,
+            "last_admin",
+            "The server needs an admin: make someone else an admin first.",
+          );
+        }
+
+        auth.setAdmin(id, makeAdmin);
+        log("role changed", { userId: id, admin: makeAdmin });
+
+        return Response.json(auth.people().find((person) => person.id === id));
+      },
     ],
     ...profileRoutes(profiles, log),
     [

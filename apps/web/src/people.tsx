@@ -2,6 +2,7 @@ import {
   availability,
   type Environment,
   kindOf,
+  type Person,
   type Session,
 } from "@pipoca/protocol";
 import {
@@ -11,27 +12,32 @@ import {
   PageTitle,
   Row,
   Rows,
-  Section,
+  Select,
 } from "@pipoca/ui";
-import { type ReactElement, useState } from "react";
-import { api, command } from "./api";
+import { Fragment, type ReactElement, type ReactNode, useState } from "react";
+import { api, command, send } from "./api";
+import { ago } from "./chat";
 import { deleteEnvironment, kindNames } from "./environments";
 import {
-  type Person,
   useEveryonesEnvironments,
   useEveryonesSessions,
+  useNow,
   usePeople,
 } from "./hooks";
 import { settingsPageClass } from "./page-class";
 
 const busy = new Set(["queued", "starting", "running"]);
 
-// What an admin sees of everyone's work: names and states, never
-// transcripts, files or variable values (ADR 0049).
-export function PeoplePage(): ReactElement {
+const headClass = "px-4 py-2.5 text-left text-caption font-medium text-fg-dim";
+const cellClass = "border-t border-line px-4 py-3 align-middle";
+
+// Who can use the server, and what an admin sees of their work: names and
+// states, never transcripts, files or variable values (ADR 0049).
+export function PeoplePage({ user }: { readonly user: string }): ReactElement {
   const people = usePeople();
   const environments = useEveryonesEnvironments();
   const sessions = useEveryonesSessions();
+  const [open, setOpen] = useState<string>();
   const [error, setError] = useState<string>();
 
   const act = (run: Promise<unknown>): void => {
@@ -39,6 +45,7 @@ export function PeoplePage(): ReactElement {
       () => {
         setError(undefined);
         sessions.reload();
+        people.reload();
       },
       (reason: unknown) => {
         setError(reason instanceof Error ? reason.message : String(reason));
@@ -52,47 +59,210 @@ export function PeoplePage(): ReactElement {
       ?.ownerId ??
     null;
 
+  const now = useNow();
+
   return (
     <div className={settingsPageClass}>
-      <PageTitle description="Everyone's Environments and running Sessions, as admins see them: names and states, never transcripts, files or variable values. Admins can stop or archive a Session, and delete an Environment once its Sessions are archived.">
+      <PageTitle description="Who can use this server. Admins see names and states, never transcripts, files or secret values.">
         People
       </PageTitle>
       {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
+        <p role="alert" className="mb-3 text-caption text-failed">
           {error}
         </p>
       )}
-      {people.value.map((person) => (
-        <PersonSection
-          key={person.id}
-          person={person}
-          environments={environments.value.filter(
-            ({ ownerId }) => ownerId === person.id,
-          )}
-          sessions={sessions.value.filter(
-            (session) => personOf(session) === person.id,
-          )}
-          onStop={(session) => {
-            act(command(session.id, { type: "abort" }));
-          }}
-          onDelete={(environment) => {
-            act(deleteEnvironment(environment).then(environments.reload));
-          }}
-          onArchive={(session) => {
-            act(
-              api(
-                `/api/sessions/${encodeURIComponent(session.id)}/archive`,
-                {},
-              ),
-            );
-          }}
-        />
-      ))}
+      <div
+        role="tablist"
+        aria-label="People"
+        className="flex border-b border-line"
+      >
+        <span
+          role="tab"
+          aria-selected="true"
+          className="-mb-px border-b-2 border-fg-strong px-3 py-2 text-ui font-medium text-fg-strong"
+        >
+          Members · {people.value.length}
+        </span>
+      </div>
+      <div
+        role="tabpanel"
+        className="mt-1.5 overflow-x-auto rounded-lg border border-line bg-elevated shadow-xs"
+      >
+        <table className="w-full min-w-xl border-collapse text-ui">
+          <thead>
+            <tr>
+              <th className={headClass}>Name</th>
+              <th className={headClass}>Role</th>
+              <th className={headClass}>Now</th>
+              <th className={headClass}>Last active</th>
+              <th className={headClass}>
+                <span className="sr-only">More</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {people.value.map((person) => {
+              const theirs = sessions.value.filter(
+                (session) => personOf(session) === person.id,
+              );
+
+              const own = environments.value.filter(
+                ({ ownerId }) => ownerId === person.id,
+              );
+
+              return (
+                <Fragment key={person.id}>
+                  <tr aria-label={person.name}>
+                    <td className={cellClass}>
+                      <span className="flex items-center gap-2.5">
+                        <span
+                          aria-hidden="true"
+                          className="grid size-7 shrink-0 place-items-center rounded-full bg-hover text-caption font-semibold text-fg-strong"
+                        >
+                          {initialsOf(person.name)}
+                        </span>
+                        <span className="flex min-w-0 flex-col">
+                          <span className="truncate text-fg-strong">
+                            {person.name}
+                          </span>
+                          <span className="text-label text-fg-dim">
+                            {[
+                              person.name === user && "you",
+                              person.settingUp && "setting up",
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                        </span>
+                      </span>
+                    </td>
+                    <td className={cellClass}>
+                      <Select
+                        aria-label={`Role of ${person.name}`}
+                        className="w-32"
+                        value={person.admin ? "admin" : "member"}
+                        onChange={(event) => {
+                          act(
+                            send(
+                              `/api/people/${encodeURIComponent(person.id)}`,
+                              "PATCH",
+                              { admin: event.target.value === "admin" },
+                            ),
+                          );
+                        }}
+                      >
+                        <option value="admin">Admin</option>
+                        <option value="member">Member</option>
+                      </Select>
+                    </td>
+                    <td className={cellClass}>
+                      <Doing person={person} sessions={theirs} />
+                    </td>
+                    <td className={`${cellClass} text-label text-fg-dim`}>
+                      {lastActive(person.lastActive, now)}
+                    </td>
+                    <td className={`${cellClass} w-11 text-right`}>
+                      <Button
+                        variant="ghost"
+                        aria-label={`More for ${person.name}`}
+                        aria-expanded={open === person.id}
+                        onClick={() => {
+                          setOpen(open === person.id ? undefined : person.id);
+                        }}
+                      >
+                        ···
+                      </Button>
+                    </td>
+                  </tr>
+                  {open === person.id && (
+                    <tr>
+                      <td colSpan={5} className={`${cellClass} bg-panel`}>
+                        <Work
+                          person={person}
+                          environments={own}
+                          sessions={theirs}
+                          onStop={(session) => {
+                            act(command(session.id, { type: "abort" }));
+                          }}
+                          onArchive={(session) => {
+                            act(
+                              api(
+                                `/api/sessions/${encodeURIComponent(session.id)}/archive`,
+                                {},
+                              ),
+                            );
+                          }}
+                          onDelete={(environment) => {
+                            act(
+                              deleteEnvironment(environment).then(
+                                environments.reload,
+                              ),
+                            );
+                          }}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
 
-function PersonSection({
+function Doing({
+  person,
+  sessions,
+}: {
+  readonly person: Person;
+  readonly sessions: readonly Session[];
+}): ReactElement {
+  const waiting = sessions.filter((session) => session.waiting).length;
+  const running = sessions.filter(({ status }) => busy.has(status)).length;
+
+  if (waiting > 0) {
+    return (
+      <Badge state="waiting">
+        {waiting} {waiting === 1 ? "needs" : "need"} an answer
+      </Badge>
+    );
+  }
+
+  if (running > 0) {
+    return <Badge state="working">{plural(running, "Session")}</Badge>;
+  }
+
+  if (person.settingUp) {
+    return <Badge state="offline">Setting up</Badge>;
+  }
+
+  return <span className="text-label text-fg-dim">Idle</span>;
+}
+
+function lastActive(at: string | null, now: number): string {
+  if (at === null) {
+    return "Never";
+  }
+
+  const said = ago(at, now);
+  if (said === "just now") {
+    return "Now";
+  }
+
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  return now - Date.parse(at) >= 24 * 3_600_000 &&
+    new Date(at).toDateString() === yesterday.toDateString()
+    ? "Yesterday"
+    : said;
+}
+
+// Everything of the person's an admin may stop, archive or delete.
+function Work({
   person,
   environments,
   sessions,
@@ -106,96 +276,88 @@ function PersonSection({
   readonly onStop: (session: Session) => void;
   readonly onArchive: (session: Session) => void;
   readonly onDelete: (environment: Environment) => void;
-}): ReactElement {
+}): ReactNode {
   const environmentName = (id: string): string =>
     environments.find((each) => each.id === id)?.name ?? id;
 
+  if (environments.length === 0 && sessions.length === 0) {
+    return (
+      <p className="text-label text-fg-dim">
+        {person.name} has no Environments or active Sessions.
+      </p>
+    );
+  }
+
   return (
-    <Section
-      title={
-        <span className="flex items-center gap-2">
-          <span
-            aria-hidden="true"
-            className="grid size-7 place-items-center rounded-full bg-hover text-label font-semibold text-fg-strong"
-          >
-            {initialsOf(person.name)}
-          </span>
-          {person.name}
-          {person.admin && <Badge state="offline">Admin</Badge>}
-        </span>
-      }
-      description={`${plural(environments.length, "Environment")} · ${plural(sessions.length, "active Session")}`}
-    >
-      <div aria-label={person.name} className="flex flex-col gap-2.5">
-        {environments.length > 0 && (
-          <Rows label="Environments">
-            {environments.map((environment) => (
-              <Row
-                key={environment.id}
-                initials={initialsOf(environment.name)}
-                title={
-                  <>
-                    {environment.name}
-                    <Badge
-                      state={
-                        availability(environment) === "Offline"
-                          ? "offline"
-                          : "done"
-                      }
-                    >
-                      {availability(environment) === "Starts runners on demand"
-                        ? "On demand"
-                        : availability(environment)}
-                    </Badge>
-                  </>
-                }
-                description={kindNames[kindOf(environment)]}
-              >
-                <Button
-                  variant="ghost"
-                  aria-label={`Delete ${environment.name}`}
-                  onClick={() => {
-                    onDelete(environment);
-                  }}
-                >
-                  Delete
-                </Button>
-              </Row>
-            ))}
-          </Rows>
-        )}
-        {sessions.length > 0 && (
-          <Rows label="Sessions">
-            {sessions.map((session) => (
-              <Row
-                key={session.id}
-                title={session.title ?? "Untitled Session"}
-                description={`${environmentName(session.environmentId)} · ${session.status}`}
-              >
-                {busy.has(session.status) && (
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      onStop(session);
-                    }}
+    <div aria-label={`${person.name}'s work`} className="flex flex-col gap-2.5">
+      {environments.length > 0 && (
+        <Rows label="Environments">
+          {environments.map((environment) => (
+            <Row
+              key={environment.id}
+              initials={initialsOf(environment.name)}
+              title={
+                <>
+                  {environment.name}
+                  <Badge
+                    state={
+                      availability(environment) === "Offline"
+                        ? "offline"
+                        : "done"
+                    }
                   >
-                    Stop
-                  </Button>
-                )}
+                    {availability(environment) === "Starts runners on demand"
+                      ? "On demand"
+                      : availability(environment)}
+                  </Badge>
+                </>
+              }
+              description={kindNames[kindOf(environment)]}
+            >
+              <Button
+                variant="ghost"
+                aria-label={`Delete ${environment.name}`}
+                onClick={() => {
+                  onDelete(environment);
+                }}
+              >
+                Delete
+              </Button>
+            </Row>
+          ))}
+        </Rows>
+      )}
+      {sessions.length > 0 && (
+        <Rows label="Sessions">
+          {sessions.map((session) => (
+            <Row
+              key={session.id}
+              title={session.title ?? "Untitled Session"}
+              description={`${environmentName(session.environmentId)} · ${session.status}`}
+            >
+              {busy.has(session.status) && (
                 <Button
                   variant="ghost"
                   onClick={() => {
-                    onArchive(session);
+                    onStop(session);
                   }}
                 >
-                  Archive
+                  Stop
                 </Button>
-              </Row>
-            ))}
-          </Rows>
-        )}
-      </div>
-    </Section>
+              )}
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  onArchive(session);
+                }}
+              >
+                Archive
+              </Button>
+            </Row>
+          ))}
+        </Rows>
+      )}
+    </div>
   );
 }
 

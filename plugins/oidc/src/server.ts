@@ -248,9 +248,13 @@ export const oidc: ServerPlugin = {
 
         identities.link(identity, user.id, true);
         context.log("user created", { ...fields, userId: user.id, admin });
-      } else if (linked.created) {
+      } else if (
+        linked.created &&
+        (config.adminGroup !== "" || config.adminEmails.length > 0)
+      ) {
         // Groups are read again on every sign-in, so a change in the
-        // provider applies the next time.
+        // provider applies the next time. A provider that names no admins
+        // leaves roles to People.
         context.auth.setAdmin(linked.userId, admin);
       }
 
