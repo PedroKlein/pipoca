@@ -8,6 +8,7 @@ import {
   installationToken,
   type TechnicalUser,
   type TechnicalUsers,
+  teamOwner,
 } from "./technical-users";
 
 // A Session gets a token that lives at least this long, and the tokens are
@@ -33,6 +34,9 @@ export interface Acting {
     session: Pick<Session, "actsAs" | "workspace">,
     own: readonly GitLogin[],
   ) => readonly GitLogin[];
+  // The logins of team work that acts as no one in particular: on each host,
+  // the technical user admins chose for the team.
+  readonly team: (session: Pick<Session, "workspace">) => readonly GitLogin[];
   // Who the Session's commits are by.
   readonly identity: (name: string) => Promise<Identity | undefined>;
   readonly refresh: () => Promise<void>;
@@ -161,6 +165,14 @@ export function acting(
 
       return [{ host: user.host, token }, ...others];
     },
+    team: ({ workspace }) =>
+      users.list().flatMap((user) => {
+        const token = user.users.includes(teamOwner)
+          ? tokenOf(user, workspace)
+          : undefined;
+
+        return token === undefined ? [] : [{ host: user.host, token }];
+      }),
     identity: async (name) => {
       const user = users.get(name);
       const host = user && hosts.get(user.host);

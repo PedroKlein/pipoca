@@ -22,7 +22,7 @@ import { pullRequests } from "./pull-requests";
 import { acting } from "./acting";
 import { commitAsBody, commitAsStore } from "./commit-as";
 import { technicalUserRoutes } from "./technical-user-routes";
-import { technicalUsers } from "./technical-users";
+import { teamOwner, technicalUsers } from "./technical-users";
 import { eventOf, signedWith } from "./webhooks";
 import { type HostSearch, repositoriesTool } from "./tool";
 import {
@@ -75,9 +75,11 @@ export const gitHosts: ServerPlugin = {
         .filter(({ host }) => hosts.get(host) !== undefined)
         .map(({ host, token }) => ({ host, token }));
 
-      return session.actsAs === null
-        ? own
-        : actingAs.logins(userId, session, own);
+      if (session.actsAs !== null) {
+        return actingAs.logins(userId, session, own);
+      }
+
+      return userId === teamOwner ? actingAs.team(session) : own;
     });
 
     const connect = async (

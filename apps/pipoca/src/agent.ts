@@ -996,5 +996,5 @@ function unconnectedHint(
 
   return host === undefined || logins.some((login) => login.host === host)
     ? error
-    : `${error}. If the repository is private, connect ${host} in Settings`;
+    : `${error}. If the repository is private, connect ${host} in Settings, or for team work have an admin choose a bot for it in Git hosts`;
 }

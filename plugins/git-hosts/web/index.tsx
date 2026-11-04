@@ -1160,6 +1160,15 @@ function Bots({
     ).then(reload, reload);
   };
 
+  const setTeam = (user: TechnicalUserView, team: boolean): void => {
+    void json(
+      context.request(`technical-users/${encodeURIComponent(user.name)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ team }),
+      }),
+    ).then(reload, reload);
+  };
+
   const hostField = (
     <Field label="Host">
       <select name="host" className={fieldClass}>
@@ -1175,7 +1184,7 @@ function Bots({
   return (
     <Section
       title="Bots"
-      description="Routines can open pull requests and comment as a bot instead of a person"
+      description="Routines can open pull requests and comment as a bot instead of a person. Team work signs in to each host as the bot chosen for it."
     >
       <Rows label="Bots">
         {value?.length === 0 && (
@@ -1194,6 +1203,7 @@ function Bots({
                 <Badge state="offline">
                   {user.kind === "app" ? "GitHub App" : "Machine user"}
                 </Badge>
+                {user.team && <Badge state="done">Team work</Badge>}
               </>
             }
             description={
@@ -1217,6 +1227,16 @@ function Bots({
                     Install
                   </a>
                 )}
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setTeam(user, !user.team);
+                  }}
+                >
+                  {user.team
+                    ? "Stop team work signing in as it"
+                    : `Team work signs in to ${user.host} as it`}
+                </Button>
                 <Button
                   variant="ghost"
                   aria-label={`Remove ${user.name}`}

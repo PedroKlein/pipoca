@@ -889,6 +889,7 @@ test("creates a GitHub App from a manifest as a technical user, with its key sea
       host: enterprise,
       kind: "app",
       login: "pipoca-bot[bot]",
+      team: false,
       installUrl: `https://${enterprise}/github-apps/pipoca-bot/installations/new`,
       installedOn: ["I572543"],
       error: null,
@@ -1148,4 +1149,74 @@ test("turns a GitHub App's signed webhooks into events for the routines of the p
   ).json()) as { type: string }[];
 
   expect(declared.map(({ type }) => type)).toContain("git-hosts.issue");
+});
+
+test("signs team work in as the technical user an admin chose for the team on each host", async () => {
+  await api("POST", "/api/plugins/git-hosts/connect", {
+    host: enterprise,
+    token: goodToken,
+  });
+
+  for (const name of ["ci-bot", "docs-bot"]) {
+    await api("POST", "/api/plugins/git-hosts/technical-users", {
+      name,
+      host: enterprise,
+      token: goodToken,
+    });
+  }
+
+  const choose = async (name: string, team: boolean): Promise<Response> =>
+    api("PATCH", `/api/plugins/git-hosts/technical-users/${name}`, { team });
+
+  expect((await choose("no-bot", true)).status).toBe(404);
+  expect((await choose("ci-bot", true)).status).toBe(200);
+  expect((await choose("docs-bot", true)).status).toBe(200);
+
+  const listed = (await (
+    await api("GET", "/api/plugins/git-hosts/technical-users")
+  ).json()) as { name: string; team: boolean }[];
+
+  expect(listed.map(({ name, team }) => [name, team])).toEqual([
+    ["ci-bot", false],
+    ["docs-bot", true],
+  ]);
+
+  const { environment, key } = (await (
+    await api("POST", "/api/environments", { name: "pods", team: true })
+  ).json()) as { environment: { id: string }; key: string };
+
+  const profile = (await (
+    await api("POST", "/api/profiles", { name: "Team work", team: true })
+  ).json()) as { id: string };
+
+  const { token } = (await (
+    await fetch(new URL("/agent/join", server.url), {
+      method: "POST",
+      headers: {
+        [versionHeader]: String(protocolVersion),
+        authorization: `Bearer ${key}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ name: "pod-1" }),
+    })
+  ).json()) as { token: string };
+
+  const start = async (): Promise<Assignment | undefined> => {
+    await api("POST", "/api/sessions", {
+      team: true,
+      environment: environment.id,
+      profile: profile.id,
+      workspace: { kind: "folder", path: "/srv/a" },
+    });
+
+    return polled(token);
+  };
+
+  expect((await start())?.gitLogins).toEqual([
+    { host: enterprise, token: goodToken },
+  ]);
+
+  await choose("docs-bot", false);
+
+  expect((await start())?.gitLogins).toBeUndefined();
 });
