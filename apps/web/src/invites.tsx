@@ -342,7 +342,7 @@ function InviteForm({
         <span className="flex-1 text-caption text-fg-dim">
           {sent === undefined
             ? "Each person gets a link of their own to sign in with."
-            : "Send each person their link. It works once."}
+            : "Each link works once. A mailbox you send from emails it too."}
         </span>
         <Button variant="ghost" onClick={onClose}>
           {sent === undefined ? "Cancel" : "Done"}

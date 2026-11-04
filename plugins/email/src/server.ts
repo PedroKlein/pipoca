@@ -180,6 +180,34 @@ export const email: ServerPlugin = {
         ? []
         : mailboxes.list().filter((each) => each.users.includes(userId));
 
+    // From a mailbox the admin who invited can send from, so the invite
+    // comes from someone the person may know.
+    context.events.subscribe("PersonInvited", (invite) => {
+      const [mailbox] = usable(invite.invitedBy.id);
+
+      if (mailbox === undefined) {
+        return;
+      }
+
+      const expires = new Date(invite.expiresAt).toUTCString().slice(5, 16);
+
+      void send(mailbox, {
+        to: invite.email,
+        subject: `${invite.invitedBy.name} invited you to Pipoca`,
+        text: `${invite.invitedBy.name} invited you to Pipoca${invite.admin ? " as an admin" : ""}.\n\nJoin with this link: ${invite.link}\n\nIt works once, until ${expires}.\n`,
+      }).then(
+        () => {
+          context.log("invite emailed", { mailbox: mailbox.name });
+        },
+        (failure: unknown) => {
+          context.log("couldn't email an invite", {
+            mailbox: mailbox.name,
+            error: failure instanceof Error ? failure.message : String(failure),
+          });
+        },
+      );
+    });
+
     context.tools.register({
       name: "email_send",
       description:

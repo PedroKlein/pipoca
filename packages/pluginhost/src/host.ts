@@ -74,6 +74,8 @@ export interface PluginHost {
   // The plugins that are on, without any that failed to register.
   readonly names: readonly string[];
   readonly list: () => readonly PluginInfo[];
+  // Tells plugins of something the kernel did.
+  readonly publish: EventBus["publish"];
   // The plugin's new settings, what is wrong with them, or undefined when no
   // plugin has the name.
   readonly saveSettings: (
@@ -687,6 +689,7 @@ export function startPlugins(
   return {
     names: running,
     list: () => manifests.map(info),
+    publish: deps.events.publish,
     saveSettings: (name, settings) => {
       const found = manifest(name);
       if (found === undefined) {

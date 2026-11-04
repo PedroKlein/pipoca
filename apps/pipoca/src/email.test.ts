@@ -360,3 +360,25 @@ test("a Session sends mail from the mailbox, and replies to it come back to it",
     kind: "email_reply",
   });
 }, 15_000);
+
+test("an invite by email goes out from a mailbox the admin sends from", async () => {
+  await addMailbox();
+
+  const invited = await api("POST", "/api/invites", {
+    emails: ["ana@example.com"],
+    admin: false,
+    days: 7,
+  });
+
+  const [made] = (await invited.json()) as { token: string }[];
+
+  await until(() => sent.length > 0);
+
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toContain("ana@example.com");
+  expect(sent[0]).toContain("invited you to Pipoca");
+
+  expect(sent[0]?.replace(/=\r\n/g, "")).toContain(
+    `/#join/${made?.token ?? "?"}`,
+  );
+}, 15_000);
