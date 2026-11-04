@@ -522,7 +522,7 @@ export class Sessions {
     return { ok: true, value: adopted };
   }
 
-  archive(id: string): Result<Session> {
+  archive(id: string, actor?: Actor): Result<Session> {
     const session = this.#store.get(id);
     if (!session) {
       return { ok: false, reason: "not_found" };
@@ -544,12 +544,17 @@ export class Sessions {
     this.#requestIds.delete(id);
     this.#update(archived);
     this.#polls.wake(session.provider);
-    this.#events({ type: "SessionArchived", session: this.#view(archived) });
+
+    this.#events({
+      type: "SessionArchived",
+      session: this.#view(archived),
+      ...(actor !== undefined && { actor }),
+    });
 
     return { ok: true, value: this.#view(archived) };
   }
 
-  unarchive(id: string): Result<Session> {
+  unarchive(id: string, actor?: Actor): Result<Session> {
     const session = this.#store.get(id);
     if (!session) {
       return { ok: false, reason: "not_found" };
@@ -580,6 +585,7 @@ export class Sessions {
       type: "SessionUnarchived",
       session: this.#view(unarchived),
       archivedAt: session.archivedAt,
+      ...(actor !== undefined && { actor }),
     });
 
     return { ok: true, value: this.#view(unarchived) };
@@ -1129,6 +1135,14 @@ export class Sessions {
       this.#held.set(id, [...(this.#held.get(id) ?? []), command]);
     } else {
       host?.send(command);
+    }
+
+    if (command.type === "abort") {
+      this.#events({
+        type: "StopAsked",
+        session: this.#view(session),
+        actor: command.actor,
+      });
     }
 
     return { ok: true, value: undefined };

@@ -240,9 +240,12 @@ export function createHandler(
         : await own(route)(request, params, actor, isAdmin);
 
   const sessionAction =
-    (message: string, act: (id: string) => Result<unknown>): Route =>
-    (_request, [id = ""]) => {
-      const result = act(id);
+    (
+      message: string,
+      act: (id: string, actor: UserActor) => Result<unknown>,
+    ): BrowserRoute =>
+    (_request, [id = ""], actor) => {
+      const result = act(id, actor);
       if (result.ok) {
         log(message, { sessionId: id });
       }
@@ -1050,14 +1053,18 @@ export function createHandler(
       "POST",
       /^\/api\/sessions\/([^/]+)\/archive$/,
       ownOrAdmin(
-        sessionAction("session archived", (id) => sessions.archive(id)),
+        sessionAction("session archived", (id, actor) =>
+          sessions.archive(id, actor),
+        ),
       ),
     ],
     [
       "POST",
       /^\/api\/sessions\/([^/]+)\/unarchive$/,
       ownOrAdmin(
-        sessionAction("session unarchived", (id) => sessions.unarchive(id)),
+        sessionAction("session unarchived", (id, actor) =>
+          sessions.unarchive(id, actor),
+        ),
       ),
     ],
     [

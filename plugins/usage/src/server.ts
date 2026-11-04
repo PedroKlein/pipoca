@@ -6,6 +6,7 @@ import {
   type RouteCaller,
   type ServerPlugin,
 } from "@pipoca/plugins";
+import { auditedAction, auditLog, csv } from "./audit";
 
 // One proxied model call of team work (ADR 0066).
 interface Call {
@@ -44,6 +45,20 @@ const shownCalls = 500;
 
 const warnedShares = [80, 100] as const;
 
+const callColumns = [
+  "at",
+  "owner",
+  "person",
+  "sessionId",
+  "provider",
+  "model",
+  "input",
+  "output",
+  "cost",
+] as const;
+
+const auditColumns = ["at", "actor", "sessionId", "action", "detail"] as const;
+
 // Records every call the proxy makes for team work, priced from the table
 // admins keep in pipoca.json, so admins see all of it and each person their
 // own and the team's totals (ADR 0066).
@@ -51,6 +66,20 @@ export const usage: ServerPlugin = {
   name: "usage",
   register: (context) => {
     const calls = callStore(context.store);
+    const audit = auditLog(context.store);
+
+    const record = (event: Parameters<typeof auditedAction>[0]) => {
+      const entry = auditedAction(event);
+
+      if (entry !== undefined) {
+        audit.add(entry);
+      }
+    };
+
+    context.events.subscribe("SessionCreated", record);
+    context.events.subscribe("SessionArchived", record);
+    context.events.subscribe("SessionUnarchived", record);
+    context.events.subscribe("StopAsked", record);
 
     const priceOf = (provider: string, model: string | null) => {
       const prices = objectAt(context.config.get(), "prices");
@@ -96,6 +125,13 @@ export const usage: ServerPlugin = {
       calls.add(call);
       context.changes.publish("totals");
 
+      audit.add({
+        actor: null,
+        sessionId: call.sessionId,
+        action: "used the team's key",
+        detail: `${call.provider}/${call.model ?? ""}`,
+      });
+
       if (call.cost === null || call.cost === 0) {
         return;
       }
@@ -122,10 +158,31 @@ export const usage: ServerPlugin = {
         throw new NotFound(`no route ${path}`);
       }
 
+      const exported =
+        new URL(request.url).searchParams.get("format") === "csv";
+
+      const limit = exported ? undefined : shownCalls;
+
       if (path === "calls") {
-        return Response.json(
-          calls.recent(caller.admin ? undefined : personOf(caller)),
+        const rows = calls.recent(
+          caller.admin ? undefined : personOf(caller),
+          limit,
         );
+
+        return exported
+          ? csvResponse(csv(rows, callColumns), "usage")
+          : Response.json(rows);
+      }
+
+      if (path === "audit") {
+        const rows = audit.entries(
+          caller.admin ? undefined : caller.actor,
+          limit,
+        );
+
+        return exported
+          ? csvResponse(csv(rows, auditColumns), "audit")
+          : Response.json(rows);
       }
 
       if (path === "totals") {
@@ -143,6 +200,15 @@ export const usage: ServerPlugin = {
     });
   },
 };
+
+function csvResponse(body: string, name: string): Response {
+  return new Response(body, {
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="${name}.csv"`,
+    },
+  });
+}
 
 function personOf(caller: RouteCaller & { readonly kind: "user" }): string {
   return caller.actor.slice("user:".length);
@@ -221,7 +287,10 @@ interface CallRow {
 
 function callStore(store: PluginStore): {
   readonly add: (call: Call) => void;
-  readonly recent: (person?: string) => readonly Call[];
+  readonly recent: (
+    person: string | undefined,
+    limit: number | undefined,
+  ) => readonly Call[];
   readonly totals: (since: string, person?: string) => Totals;
 } {
   store.exec(
@@ -243,17 +312,17 @@ function callStore(store: PluginStore): {
         call.cost,
       );
     },
-    recent: (person) =>
+    recent: (person, limit = -1) =>
       (
         (person === undefined
           ? store.all(
               "select * from usage_calls order by id desc limit ?",
-              shownCalls,
+              limit,
             )
           : store.all(
               "select * from usage_calls where person = ? order by id desc limit ?",
               person,
-              shownCalls,
+              limit,
             )) as CallRow[]
       ).map(({ session_id: sessionId, ...row }) => ({ ...row, sessionId })),
     totals: (since, person) => {

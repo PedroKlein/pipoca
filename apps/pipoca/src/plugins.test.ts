@@ -575,13 +575,16 @@ test("publishes kernel events and starts sessions for plugins", async () => {
           "SessionCreated",
           "TurnStarted",
           "TurnEnded",
+          "StopAsked",
           "SessionArchived",
         ] as const) {
           events.subscribe(type, (event) => {
+            const by = "actor" in event ? event.actor : undefined;
+
             seen.push(
-              event.type === "SessionCreated"
-                ? `${event.type} by ${event.actor}`
-                : event.type,
+              by === undefined
+                ? event.type
+                : `${event.type} by ${by.slice(0, by.indexOf(":"))}`,
             );
           });
         }
@@ -607,6 +610,7 @@ test("publishes kernel events and starts sessions for plugins", async () => {
   const id = started?.id ?? "";
   const events = await follow(id, entriesInclude("working on it"));
   await follow(id, idle);
+  await api(`/api/sessions/${id}/commands`, { type: "abort" });
   await api(`/api/sessions/${id}/archive`, {});
 
   expect(entriesInclude("begin the work")(events)).toBe(true);
@@ -614,10 +618,11 @@ test("publishes kernel events and starts sessions for plugins", async () => {
   expect(entriesInclude("You help the starter plugin.")(events)).toBe(true);
 
   expect(seen).toEqual([
-    "SessionCreated by plugin:starter",
+    "SessionCreated by plugin",
     "TurnStarted",
     "TurnEnded",
-    "SessionArchived",
+    "StopAsked by user",
+    "SessionArchived by user",
   ]);
 });
 

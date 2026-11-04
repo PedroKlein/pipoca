@@ -47,12 +47,24 @@ export type KernelEvent =
       // host says. The transcript upload can still be behind it.
       readonly transcriptLength?: number;
     }
-  | { readonly type: "SessionArchived"; readonly session: Session }
+  // The actor is the person who asked, and absent when a plugin did.
+  | {
+      readonly type: "SessionArchived";
+      readonly session: Session;
+      readonly actor?: Actor;
+    }
   | {
       readonly type: "SessionUnarchived";
       readonly session: Session;
+      readonly actor?: Actor;
       // When the Session was archived.
       readonly archivedAt: string;
+    }
+  // Someone asked Pi to stop the turn it is on.
+  | {
+      readonly type: "StopAsked";
+      readonly session: Session;
+      readonly actor: Actor;
     }
   | {
       readonly type: "ToolCalled";
