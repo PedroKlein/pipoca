@@ -8,6 +8,7 @@ import {
   installationToken,
   type TechnicalUser,
   type TechnicalUsers,
+  teamOwner,
 } from "./technical-users";
 
 // A Session gets a token that lives at least this long, and the tokens are
@@ -18,6 +19,13 @@ const refreshMs = 5 * 60_000;
 interface Cached {
   readonly token: string;
   readonly expiresAt: number;
+}
+
+export interface TeamReach {
+  readonly host: string;
+  readonly login: string;
+  readonly kind: "app" | "token";
+  readonly token: string;
 }
 
 export interface Identity {
@@ -33,6 +41,12 @@ export interface Acting {
     session: Pick<Session, "actsAs" | "workspace">,
     own: readonly GitLogin[],
   ) => readonly GitLogin[];
+  // The logins of team work that acts as no one in particular: on each host,
+  // the technical user admins chose for the team.
+  readonly team: (session: Pick<Session, "workspace">) => readonly GitLogin[];
+  // What team work can reach on each host: a machine user's token, or a
+  // token for each of the App's installations.
+  readonly teamReach: () => readonly TeamReach[];
   // Who the Session's commits are by.
   readonly identity: (name: string) => Promise<Identity | undefined>;
   readonly refresh: () => Promise<void>;
@@ -132,6 +146,17 @@ export function acting(
     return undefined;
   };
 
+  const teamUsers = (): readonly TechnicalUser[] =>
+    users.list().filter((user) => user.users.includes(teamOwner));
+
+  const installed = (user: TechnicalUser): readonly Cached[] =>
+    [...tokens]
+      .filter(
+        ([key, { expiresAt }]) =>
+          key.startsWith(`${user.name} `) && expiresAt > Date.now(),
+      )
+      .map(([, cached]) => cached);
+
   return {
     refresh,
     logins: (userId, { actsAs, workspace }, own) => {
@@ -161,6 +186,32 @@ export function acting(
 
       return [{ host: user.host, token }, ...others];
     },
+    // A package can live outside the workspace's accounts, so an App falls
+    // back to any of its installations.
+    team: ({ workspace }) =>
+      teamUsers().flatMap((user) => {
+        const token = tokenOf(user, workspace) ?? installed(user).at(0)?.token;
+
+        return token === undefined ? [] : [{ host: user.host, token }];
+      }),
+    teamReach: () =>
+      teamUsers().flatMap((user): readonly TeamReach[] =>
+        "app" in user
+          ? installed(user).map(({ token }) => ({
+              host: user.host,
+              login: `${user.app.slug}[bot]`,
+              kind: "app",
+              token,
+            }))
+          : [
+              {
+                host: user.host,
+                login: user.login,
+                kind: "token",
+                token: user.token,
+              },
+            ],
+      ),
     identity: async (name) => {
       const user = users.get(name);
       const host = user && hosts.get(user.host);

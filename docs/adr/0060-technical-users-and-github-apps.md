@@ -32,6 +32,7 @@ Cursor and Factory let an automation run as the person or as a service account, 
 - A routine, and later a Project or Team Session, says who it acts as: the person, which is the default, or a technical user by name (decided 2026-11-03).
 - Pipoca picks by name, not by organization. Several Apps can be installed on the same organization.
 - A person can choose only technical users they have been given.
+- Team work that names no one signs in to each host as the one technical user an admin chose for the team there. That covers installing a Profile's private packages, which happens before anyone could pick (decided 2026-11-04).
 
 ### Tokens stay on the server
 

@@ -16,6 +16,7 @@ import {
   installationsOf,
   type TechnicalUser,
   type TechnicalUsers,
+  teamOwner,
 } from "./technical-users";
 
 // An admin has this long to create the App on the host.
@@ -35,6 +36,8 @@ const machineUser = Type.Object({
   host: Type.String(),
   token: Type.String(),
 });
+
+const teamChoice = Type.Object({ team: Type.Boolean() });
 
 // Admins register technical users: GitHub Apps through GitHub's manifest
 // flow, and machine users by their token (ADR 0060).
@@ -60,6 +63,7 @@ export function technicalUserRoutes(
         host: user.host,
         kind: "token",
         login: user.login,
+        team: user.users.includes(teamOwner),
         installUrl: null,
         installedOn: null,
         error: null,
@@ -71,6 +75,7 @@ export function technicalUserRoutes(
       host: user.host,
       kind: "app" as const,
       login: `${user.app.slug}[bot]`,
+      team: user.users.includes(teamOwner),
       installUrl: `${user.app.url}/installations/new`,
     };
 
@@ -268,6 +273,23 @@ export function technicalUserRoutes(
       });
 
       return Response.json({ name: input.name.trim(), login }, { status: 201 });
+    }
+
+    if (name !== undefined && request.method === "PATCH") {
+      const { team } = await readBody(request, teamChoice);
+
+      if (!users.setTeam(name, team)) {
+        throw new NotFound(`no technical user ${name}`);
+      }
+
+      context.log(
+        team
+          ? "team work signs in as technical user"
+          : "team work stops signing in as technical user",
+        { name },
+      );
+
+      return Response.json({ name, team });
     }
 
     if (name !== undefined && request.method === "DELETE") {

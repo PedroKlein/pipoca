@@ -65,6 +65,8 @@ export interface TechnicalUserView {
   readonly kind: "app" | "token";
   // Who its commits and comments show as.
   readonly login: string;
+  // Whether team work signs in as it on its host.
+  readonly team: boolean;
   // Where an admin installs the App on more accounts.
   readonly installUrl: string | null;
   // The accounts the App is installed on, or null for a machine user.

@@ -8,6 +8,9 @@ import {
 import { HostRefused, reach } from "./github";
 import type { HostConfig } from "./hosts";
 
+// Team work's id among a technical user's people (ADR 0064).
+export const teamOwner = "team";
+
 // A bot identity on a git host that an admin registered (ADR 0060).
 export type TechnicalUser = AppUser | TokenUser;
 
@@ -41,6 +44,8 @@ export interface TechnicalUsers {
   readonly get: (name: string) => TechnicalUser | undefined;
   readonly add: (user: TechnicalUser) => void;
   readonly remove: (name: string) => boolean;
+  // Makes it the one team work signs in as on its host, or stops that.
+  readonly setTeam: (name: string, team: boolean) => boolean;
 }
 
 const namePattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
@@ -133,6 +138,33 @@ export function technicalUsers(
               token: seal(user.token),
             },
       ]);
+    },
+    setTeam: (name, team) => {
+      const chosen = list().find((user) => user.name === name);
+
+      if (chosen === undefined) {
+        return false;
+      }
+
+      write(
+        read().map((item) => {
+          if (!isObject(item) || item["host"] !== chosen.host) {
+            return item;
+          }
+
+          const others = (
+            Array.isArray(item["users"]) ? (item["users"] as unknown[]) : []
+          ).filter((each) => each !== teamOwner);
+
+          return {
+            ...item,
+            users:
+              team && item["name"] === name ? [...others, teamOwner] : others,
+          };
+        }),
+      );
+
+      return true;
     },
     remove: (name) => {
       const before = read();

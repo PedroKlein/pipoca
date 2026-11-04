@@ -246,7 +246,7 @@ export function NewSessionForm({
           return;
         }
 
-        void searchRepositories(query).then((repositories) => {
+        void searchRepositories(query, team).then((repositories) => {
           if (ticket === searches.current) {
             setFound(repositories);
           }
