@@ -67,6 +67,7 @@ export function createFork(body: unknown): {
 
 export function createSession(body: unknown): CreateSession {
   const {
+    team,
     environment,
     profile,
     workspace,
@@ -93,6 +94,7 @@ export function createSession(body: unknown): CreateSession {
   }
 
   const request = {
+    ...(team === true && { team: true }),
     ...(typeof environment === "string" && { environment }),
     ...(typeof profile === "string" && { profile }),
     workspace: workspaceRequest(workspace),

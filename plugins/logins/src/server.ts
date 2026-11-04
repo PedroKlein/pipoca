@@ -184,7 +184,9 @@ export const logins: ServerPlugin = {
       const kind = [models, mcp].find(({ name }) => name === route);
 
       if (caller.kind === "session") {
-        if (kind === undefined) {
+        // Team work reaches models through the server's proxy, never with a
+        // person's logins (ADR 0066).
+        if (kind === undefined || caller.session.ownedBy === "team") {
           throw new NotFound(`no route ${path}`);
         }
 

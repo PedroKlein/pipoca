@@ -1209,6 +1209,9 @@ export interface EnvironmentUpdate {
 }
 
 export interface CreateSession {
+  // Team work, which runs in a team Environment on a team Profile and
+  // belongs to the team (ADR 0064).
+  readonly team?: boolean;
   readonly environment?: string;
   readonly profile?: string;
   readonly workspace: WorkspaceRequest;

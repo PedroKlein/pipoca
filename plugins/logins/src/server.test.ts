@@ -283,6 +283,27 @@ test("only admins put a login on the base, and only an API key", async () => {
   ).toBe(403);
 });
 
+test("a team Session gets no one's logins, not even its starter's", async () => {
+  const { route } = registered();
+
+  await save(route, "ana", "anthropic");
+
+  const team: RouteCaller = {
+    kind: "session",
+    session: fakeSession({ startedBy: "ana", ownedBy: "team" }),
+    actor: "session:session-1",
+  };
+
+  const statuses = await Promise.all(
+    ["credentials", "credentials/anthropic/lock"].map(
+      async (path, index) =>
+        (await call(route, team, path, index === 0 ? undefined : {})).status,
+    ),
+  );
+
+  expect(statuses).toEqual([404, 404]);
+});
+
 test("a Session that refreshes a login from the base keeps its own copy in My defaults", async () => {
   const { route } = registered();
 

@@ -55,7 +55,9 @@ export function repositoriesTool({ accounts, search }: Sources): ServerTool {
     },
     exposure: "direct",
     annotations: { readOnlyHint: true, openWorldHint: true },
-    appliesTo: ({ startedBy }) => startedBy !== null,
+    // A person's git accounts never serve team work (ADR 0066).
+    appliesTo: ({ startedBy, ownedBy }) =>
+      startedBy !== null && ownedBy !== "team",
     run: async (input, { session }) => {
       const userId = session.startedBy ?? "";
 
