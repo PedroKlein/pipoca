@@ -283,11 +283,12 @@ export interface NavEntry {
 // A plugin whose search fails offers nothing, so the others still show.
 export async function searchRepositories(
   query: string,
+  team: boolean,
 ): Promise<readonly RepositoryChoice[]> {
   const found = await Promise.all(
     enabled.map(
       async ({ name, repositories }) =>
-        repositories?.(pluginContext(name), query).catch(() => []) ?? [],
+        repositories?.(pluginContext(name), query, team).catch(() => []) ?? [],
     ),
   );
 

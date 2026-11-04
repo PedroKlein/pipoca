@@ -145,8 +145,9 @@ export function TeamCredentials({
         </Section>
       )}
       <p className="mt-6 text-label text-fg-dim">
-        Team work reaches git hosts as a technical user whose people include the
-        team, never with a person&apos;s token. Set those up in{" "}
+        Team work reaches git hosts, and installs its Profiles&apos; private
+        packages, as the bot an admin chose for the team on each host, never
+        with a person&apos;s token. Choose it under Bots in{" "}
         <a href="#team/setup/server/git-hosts" className="text-fg underline">
           Git hosts
         </a>
