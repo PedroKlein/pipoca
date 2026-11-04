@@ -563,6 +563,7 @@ export function createEnvironment(body: unknown): CreateEnvironment {
   return {
     name: nameOf("name", fields["name"]),
     ...(template !== undefined && { template: textOf("template", template) }),
+    ...(fields["team"] === true && { team: true }),
   };
 }
 

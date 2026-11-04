@@ -594,6 +594,17 @@ export function createHandler(
         const person = userIdOf(actor);
         const everyone = isAdmin && peopleAll(request);
 
+        if (new URL(request.url).searchParams.get("owner") === teamOwner) {
+          return Response.json(
+            sessions
+              .environments(person)
+              .filter(({ ownerId }) => ownerId === teamOwner)
+              .map((environment) =>
+                isAdmin ? environment : environmentOutline(environment),
+              ),
+          );
+        }
+
         return Response.json(
           sessions
             .environments(person)
@@ -609,12 +620,22 @@ export function createHandler(
     [
       "POST",
       /^\/api\/environments$/,
-      async (request, _params, actor) => {
-        const { name, template } = createEnvironment(await readJson(request));
+      async (request, _params, actor, isAdmin) => {
+        const { name, template, team } = createEnvironment(
+          await readJson(request),
+        );
+
+        if (team === true && !isAdmin) {
+          return errorReply(
+            403,
+            "admin_only",
+            "Only admins make team Environments.",
+          );
+        }
 
         const created = sessions.createEnvironment(
           name,
-          userIdOf(actor),
+          team === true ? teamOwner : userIdOf(actor),
           template,
         );
 
@@ -646,10 +667,10 @@ export function createHandler(
     [
       "POST",
       /^\/api\/environments\/([^/]+)\/key$/,
-      (_request, [id = ""], actor) => {
+      (_request, [id = ""], actor, isAdmin) => {
         const environment = sessions
           .environments()
-          .find((each) => each.id === id && each.ownerId === userIdOf(actor));
+          .find((each) => each.id === id && manages(each, actor, isAdmin));
 
         if (!environment) {
           return notFound();
@@ -667,11 +688,11 @@ export function createHandler(
     [
       "PATCH",
       /^\/api\/environments\/([^/]+)$/,
-      async (request, [id = ""], actor) => {
+      async (request, [id = ""], actor, isAdmin) => {
         if (
           !sessions
             .environments()
-            .some((each) => each.id === id && each.ownerId === userIdOf(actor))
+            .some((each) => each.id === id && manages(each, actor, isAdmin))
         ) {
           return notFound();
         }
@@ -1218,6 +1239,21 @@ function unsupportedVersion(request: Request): Response | undefined {
         "unsupported_version",
         `unsupported protocol version ${String(version)}`,
       );
+}
+
+// The owner of what the team owns, rather than one person (ADR 0064).
+const teamOwner = "team";
+
+// A person changes their own Environments, and admins the team's.
+function manages(
+  environment: Environment,
+  actor: UserActor,
+  isAdmin: boolean,
+): boolean {
+  return (
+    environment.ownerId === userIdOf(actor) ||
+    (environment.ownerId === teamOwner && isAdmin)
+  );
 }
 
 function peopleAll(request: Request): boolean {
