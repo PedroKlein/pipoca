@@ -409,7 +409,12 @@ test("a login that isn't one is refused", async () => {
 });
 
 test("a person is offered Pi's models of the providers they logged in to", async () => {
-  const environment = { id: "environment-1", templateId: null };
+  const environment = {
+    id: "environment-1",
+    templateId: null,
+    ownerId: "owner",
+  };
+
   const { route, offer } = registered();
   await save(route, "ana", "anthropic");
 
@@ -427,6 +432,37 @@ test("a person is offered Pi's models of the providers they logged in to", async
   expect(offered.every(({ provider }) => provider === "anthropic")).toBe(true);
   expect(offer(environment, "bo").models).toEqual([]);
   expect(offer(environment).models).toEqual([]);
+});
+
+test("a team Environment offers the models the team's keys reach, never a person's", async () => {
+  const environment = {
+    id: "environment-team",
+    templateId: null,
+    ownerId: "team",
+  };
+
+  const { route, offer } = registered();
+  await save(route, "ana", "anthropic");
+
+  await call(route, fakeUser({ id: "admin", admin: true }), "save", {
+    provider: "openai",
+    credential: { type: "api_key", key: "sk-team" },
+    layer: "base",
+  });
+
+  // Pi's catalog loads in the background.
+  for (let tries = 0; tries < 100; tries++) {
+    if (offer(environment, "ana").models.length > 0) {
+      break;
+    }
+
+    await Bun.sleep(20);
+  }
+
+  const offered = offer(environment, "ana").models;
+
+  expect(offered.length).toBeGreaterThan(0);
+  expect(offered.every(({ provider }) => provider === "openai")).toBe(true);
 });
 
 async function connectable(route: PluginRoute): Promise<void> {

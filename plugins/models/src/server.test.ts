@@ -271,10 +271,9 @@ test("an admin hides models from the pickers, and every Environment's offer carr
     hidden: ["openai/gpt-4o", "openai/o3"],
   });
 
-  expect(offer({ id: environmentId, templateId: null }).hidden).toEqual([
-    "openai/gpt-4o",
-    "openai/o3",
-  ]);
+  expect(
+    offer({ id: environmentId, templateId: null, ownerId: "owner" }).hidden,
+  ).toEqual(["openai/gpt-4o", "openai/o3"]);
 
   await hide([], admin);
   expect(saved).toEqual({ other: true });

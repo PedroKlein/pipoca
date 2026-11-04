@@ -142,7 +142,17 @@ export const logins: ServerPlugin = {
         context.log("models not listed", { error: String(error) });
       });
 
-    context.models.offer((_environment, userId) => {
+    // Team work never uses a person's logins, so a team Environment offers
+    // the models the team's keys reach through the proxy (ADR 0066).
+    context.models.offer((environment, userId) => {
+      if (environment.ownerId === "team") {
+        const providers = new Set(teamProviders());
+
+        return {
+          models: catalog.filter(({ provider }) => providers.has(provider)),
+        };
+      }
+
       if (userId === undefined) {
         return { models: [] };
       }
