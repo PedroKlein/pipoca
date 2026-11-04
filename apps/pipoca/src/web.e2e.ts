@@ -1421,7 +1421,7 @@ test("keeps a Profile that follows a repository read-only until it is copied", a
 
   await synced.getByRole("button", { name: "Make a copy" }).click();
 
-  await page.getByRole("heading", { name: "Team kit copy" }).waitFor();
+  await page.getByRole("link", { name: "Team kit copy" }).waitFor();
 
   expect(await page.getByLabel("Synced from a repository").count()).toBe(0);
   expect(await page.getByRole("button", { name: "Save" }).count()).toBe(1);
@@ -1445,7 +1445,7 @@ test("lists a Profile's packages as chips and edits its folder's files", async (
   await page.getByRole("link", { name: "Tools" }).waitFor();
   await page.reload();
 
-  const packages = editor.getByRole("list", { name: "Pi packages" });
+  const packages = page.getByRole("list", { name: "Packages", exact: true });
 
   await packages.getByText("./tools").waitFor();
   expect(await packages.getByRole("listitem").count()).toBe(1);
@@ -1480,6 +1480,34 @@ test("lists a Profile's packages as chips and edits its folder's files", async (
   await profilesPage.getByRole("button", { name: /^review/ }).waitFor();
 
   await tabs.getByRole("link", { name: "Overview" }).click();
+
+  await page
+    .getByRole("list", { name: "Skills" })
+    .getByText("review")
+    .waitFor();
+
+  await page.getByRole("list", { name: "Prompts" }).getByText("/fix").waitFor();
+
+  await profilesPage.getByRole("button", { name: "Add package" }).click();
+  await profilesPage.getByLabel("Package source").fill("npm:pi-lint");
+  await profilesPage.getByRole("button", { name: "Add", exact: true }).click();
+  await packages.getByText("npm:pi-lint").waitFor();
+  await packages.getByRole("button", { name: "Remove npm:pi-lint" }).click();
+  await packages.getByText("npm:pi-lint").waitFor({ state: "detached" });
+
+  await profilesPage.getByRole("button", { name: "Add to Pi's" }).click();
+  await profilesPage.getByLabel("Added to Pi's prompt").fill("Be brief.");
+
+  await profilesPage
+    .getByRole("button", { name: "Save system prompt" })
+    .click();
+
+  await page.reload();
+
+  expect(
+    await profilesPage.getByLabel("Added to Pi's prompt").inputValue(),
+  ).toBe("Be brief.");
+
   page.once("dialog", async (dialog) => dialog.accept());
   await editor.getByRole("button", { name: "Delete" }).click();
 

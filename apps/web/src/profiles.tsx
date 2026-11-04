@@ -30,6 +30,7 @@ import {
   upload,
 } from "./profile-files";
 import { settingsPageClass } from "./page-class";
+import { ProfileOverview } from "./profile-overview";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext } from "./plugins";
 
@@ -79,9 +80,21 @@ export function ProfilesPage({
 
   return (
     <div id="profiles-page" className={settingsPageClass}>
-      <PageTitle description="How Pi behaves in a Session: what it knows, the skills and tools it has. A Profile is a Pi agent folder, like your ~/.pi/agent. Every Profile sits on the Server base and your My defaults. Edits reach a Session the next time it starts.">
-        Profiles
-      </PageTitle>
+      <div className="flex items-start justify-between gap-6">
+        <div className="min-w-0 flex-1">
+          <PageTitle description="How Pi behaves in a Session: what it knows, the skills and tools it has. A Profile is a Pi agent folder, like your ~/.pi/agent. Every Profile sits on the Server base and your My defaults. Edits reach a Session the next time it starts.">
+            Profiles
+          </PageTitle>
+        </div>
+        <a
+          href="#profiles/new"
+          aria-current={selected === "new" ? "page" : undefined}
+          className="mt-7 inline-flex h-control shrink-0 items-center gap-1.5 rounded-md border border-line bg-elevated px-3 text-ui font-medium text-fg shadow-xs hover:border-line-strong hover:bg-hover"
+        >
+          <Icon name="plus" />
+          New Profile
+        </a>
+      </div>
       <nav aria-label="Profiles" className="flex flex-wrap gap-2">
         {profiles.map((each) => (
           <a
@@ -109,14 +122,6 @@ export function ProfilesPage({
             {layerNames[each]}
           </a>
         ))}
-        <a
-          href="#profiles/new"
-          aria-current={selected === "new" ? "page" : undefined}
-          className={cn(chipClass, "border-dashed text-fg-dim")}
-        >
-          <Icon name="plus" className="size-4" />
-          New Profile
-        </a>
       </nav>
       {profile && (
         <ProfileTabs
@@ -132,6 +137,13 @@ export function ProfilesPage({
                   onChange={onChange}
                 />
               )}
+              <ProfileOverview
+                profile={profile}
+                editable={profile.source === null}
+                onChange={onChange}
+              >
+                <ProfileParts profileId={profile.id} />
+              </ProfileOverview>
               <Editor
                 key={`${profile.id}:${JSON.stringify(profile.packages)}:${profile.buildsOn ?? ""}`}
                 profile={profile}
@@ -142,7 +154,6 @@ export function ProfilesPage({
                 }}
                 onChange={onChange}
               />
-              <ProfileParts profileId={profile.id} />
             </>
           }
         />
@@ -266,7 +277,7 @@ function Editor({
   };
 
   return (
-    <Section title={profile ? profile.name : "New Profile"}>
+    <Section title={profile ? "This Profile" : "New Profile"}>
       <form
         onSubmit={submit}
         className="flex flex-col gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5"
@@ -291,12 +302,14 @@ function Editor({
           value={buildsOn}
           onChange={setBuildsOn}
         />
-        <ListInput
-          label="Pi packages"
-          values={packages}
-          placeholder="npm:pi-subagents, git:… or a path, then Enter"
-          onChange={setPackages}
-        />
+        {!profile && (
+          <ListInput
+            label="Pi packages"
+            values={packages}
+            placeholder="npm:pi-subagents, git:… or a path, then Enter"
+            onChange={setPackages}
+          />
+        )}
         <div className="flex flex-wrap items-center gap-2">
           {!profile?.source && (
             <Button variant="primary" type="submit">
