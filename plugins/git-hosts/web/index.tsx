@@ -20,7 +20,12 @@ import {
   Section,
   Switch,
 } from "@pipoca/ui";
-import { type ReactElement, type SubmitEvent, useState } from "react";
+import {
+  type ReactElement,
+  type ReactNode,
+  type SubmitEvent,
+  useState,
+} from "react";
 import type {
   Account,
   HostInput,
@@ -67,20 +72,38 @@ function SettingsSection({
     "account",
   );
 
+  const [adding, setAdding] = useState(false);
+
   if (value?.admin !== true) {
     return null;
   }
 
   return (
     <>
-      <PageTitle description="The hosts people can connect and the bots routines act as. Everyone connects their own account in Accounts.">
+      <PageTitle
+        description="Only admins see this page. It lists the hosts people can connect and the bots routines act as. Everyone else connects their own account in Accounts."
+        actions={
+          !adding && (
+            <Button
+              onClick={() => {
+                setAdding(true);
+              }}
+            >
+              <Icon name="plus" />
+              Add a host
+            </Button>
+          )
+        }
+      >
         Git hosts
       </PageTitle>
-      <Hosts context={context} onChange={reload} />
-      <TechnicalUsers
+      <Hosts
         context={context}
-        hosts={value.hosts.map(({ host }) => host)}
+        adding={adding}
+        onAdding={setAdding}
+        onChange={reload}
       />
+      <Bots context={context} hosts={value.hosts.map(({ host }) => host)} />
     </>
   );
 }
@@ -585,9 +608,13 @@ function HostRow({
 
 function Hosts({
   context,
+  adding,
+  onAdding,
   onChange,
 }: {
   readonly context: WebContext;
+  readonly adding: boolean;
+  readonly onAdding: (adding: boolean) => void;
   readonly onChange: () => void;
 }): ReactElement {
   const { value, reload } = useLoaded(
@@ -595,10 +622,21 @@ function Hosts({
     "hosts",
   );
 
-  const [editing, setEditing] = useState<HostView | "new">();
+  const [editing, setEditing] = useState<HostView>();
+  const [settingUp, setSettingUp] = useState<string>();
 
   const changed = (): void => {
     setEditing(undefined);
+    onAdding(false);
+    reload();
+    onChange();
+  };
+
+  const save = async (path: string, input: object): Promise<void> => {
+    await json(
+      context.request(path, { method: "POST", body: JSON.stringify(input) }),
+    );
+
     reload();
     onChange();
   };
@@ -615,41 +653,35 @@ function Hosts({
     ).then(changed, changed);
   };
 
+  const form = adding ? "new" : editing;
+  const setUp = value?.find(({ host }) => host === settingUp);
+
   return (
-    <Section
-      title="Hosts"
-      description="People connect their own account on each, in Accounts"
-      actions={
-        editing === undefined && (
-          <Button
-            onClick={() => {
-              setEditing("new");
-            }}
-          >
-            <Icon name="plus" />
-            Add host
-          </Button>
-        )
-      }
-    >
-      {editing !== undefined && (
+    <Section title="Hosts">
+      {form !== undefined && (
         <HostForm
-          key={editing === "new" ? "new" : editing.host}
-          host={editing === "new" ? undefined : editing}
+          key={form === "new" ? "new" : form.host}
+          host={form === "new" ? undefined : form}
           save={async (input) => {
-            await json(
-              context.request(
-                editing === "new"
-                  ? "hosts"
-                  : `hosts/${encodeURIComponent(editing.host)}`,
-                { method: "POST", body: JSON.stringify(input) },
-              ),
+            await save(
+              form === "new"
+                ? "hosts"
+                : `hosts/${encodeURIComponent(form.host)}`,
+              input,
             );
 
             changed();
           }}
+          remove={
+            form === "new"
+              ? undefined
+              : () => {
+                  remove(form);
+                }
+          }
           cancel={() => {
             setEditing(undefined);
+            onAdding(false);
           }}
         />
       )}
@@ -667,52 +699,274 @@ function Hosts({
             title={
               <>
                 {host.label}
-                <Badge state="offline">
-                  {host.clientId === "" ? "Tokens" : "OAuth app"}
-                </Badge>
+                {host.clientId === "" ? (
+                  <Badge state="waiting">Tokens only</Badge>
+                ) : (
+                  <Badge state="done">Sign-in ready</Badge>
+                )}
               </>
             }
-            description={<span className="font-mono">{host.host}</span>}
+            description={hostDescription(host)}
           >
             <Button
               variant="ghost"
               aria-label={`Edit ${host.host}`}
               onClick={() => {
+                onAdding(false);
                 setEditing(host);
               }}
             >
               Edit
             </Button>
-            <Button
-              variant="ghost"
-              aria-label={`Remove ${host.host}`}
-              onClick={() => {
-                remove(host);
-              }}
-            >
-              Remove
-            </Button>
+            {host.clientId === "" && settingUp !== host.host && (
+              <Button
+                variant="primary"
+                aria-label={`Set up Connect for ${host.host}`}
+                onClick={() => {
+                  setSettingUp(host.host);
+                }}
+              >
+                Set up Connect
+              </Button>
+            )}
           </Row>
         ))}
       </Rows>
-      <p className="text-caption text-fg-dim">
-        For a Connect button, register an OAuth app on the host with{" "}
-        <code className="font-mono text-mono-sm">
-          {location.origin}/api/plugins/git-hosts/callback
-        </code>{" "}
-        as its callback URL. Hosts are kept in the server&apos;s pipoca.json.
-      </p>
+      {setUp !== undefined && (
+        <ConnectSetup
+          host={setUp}
+          save={async (clientId, clientSecret) => {
+            await save(`hosts/${encodeURIComponent(setUp.host)}`, {
+              host: setUp.host,
+              label: setUp.label,
+              clientId,
+              clientSecret,
+            });
+          }}
+          close={() => {
+            setSettingUp(undefined);
+          }}
+        />
+      )}
     </Section>
+  );
+}
+
+function hostDescription(host: HostView): string {
+  const where = host.label === host.host ? kindOf(host.host) : host.host;
+
+  return host.clientId === ""
+    ? `${where} · people paste a token until a Connect button is set up`
+    : `${where} · OAuth app · ${String(host.connected)} ${host.connected === 1 ? "person" : "people"} connected`;
+}
+
+function kindOf(host: string): string {
+  return host === "github.com" ? "GitHub" : "GitHub Enterprise";
+}
+
+// Registering an OAuth app on the host gives everyone a Connect button
+// instead of pasting a token.
+function ConnectSetup({
+  host,
+  save,
+  close,
+}: {
+  readonly host: HostView;
+  readonly save: (clientId: string, clientSecret: string) => Promise<void>;
+  readonly close: () => void;
+}): ReactElement {
+  const [opened, setOpened] = useState(false);
+  const [error, setError] = useState<string>();
+  const saved = host.clientId !== "";
+  const callback = `${location.origin}/api/plugins/git-hosts/callback`;
+
+  const submit = (event: SubmitEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+
+    const text = (name: string): string => {
+      const field = form.get(name);
+
+      return typeof field === "string" ? field.trim() : "";
+    };
+
+    save(text("clientId"), text("clientSecret")).then(
+      () => {
+        setError(undefined);
+      },
+      (reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      },
+    );
+  };
+
+  const stepState = (step: number): StepState => {
+    const at = [true, opened, saved].lastIndexOf(true) + 1;
+
+    if (step < at) {
+      return "done";
+    }
+
+    return step === at ? "on" : "next";
+  };
+
+  return (
+    <section
+      aria-label={`Set up Connect for ${host.host}`}
+      className="flex flex-col gap-4 rounded-lg border border-dashed border-line-strong bg-elevated p-5"
+    >
+      <div className="flex items-center gap-2">
+        <h3 className="flex-1 text-ui font-medium text-fg-strong">
+          Set up Connect for {host.host}
+        </h3>
+        <Button variant="ghost" onClick={close}>
+          {saved ? "Done" : "Cancel"}
+        </Button>
+      </div>
+      <ol className="flex flex-col">
+        <Step
+          number={1}
+          state={stepState(1)}
+          title={
+            <a
+              href={`https://${host.host}/settings/applications/new`}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => {
+                setOpened(true);
+              }}
+              className="underline decoration-line-strong underline-offset-4 hover:decoration-fg"
+            >
+              Open the host&apos;s new OAuth app page
+            </a>
+          }
+        >
+          <span>
+            Name it Pipoca, with homepage{" "}
+            <code className="font-mono text-mono-sm">{location.origin}</code>{" "}
+            and callback URL{" "}
+            <code className="font-mono text-mono-sm break-all">{callback}</code>
+            .
+          </span>
+        </Step>
+        <Step
+          number={2}
+          state={stepState(2)}
+          title="Paste the Client ID and secret it shows"
+        >
+          {!saved && (
+            <form
+              onSubmit={submit}
+              className="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr_auto]"
+            >
+              <input
+                name="clientId"
+                required
+                aria-label="Client ID"
+                placeholder="Client ID"
+                className={fieldClass}
+                onFocus={() => {
+                  setOpened(true);
+                }}
+              />
+              <input
+                name="clientSecret"
+                type="password"
+                autoComplete="off"
+                required
+                aria-label="Client secret"
+                placeholder="Client secret"
+                className={fieldClass}
+              />
+              <Button variant="primary" type="submit">
+                Save
+              </Button>
+              {error !== undefined && (
+                <p
+                  role="alert"
+                  className="text-caption text-failed sm:col-span-3"
+                >
+                  {error}
+                </p>
+              )}
+            </form>
+          )}
+        </Step>
+        <Step
+          number={3}
+          state={stepState(3)}
+          title="Try it"
+          description="We'll sign you in once to check it works."
+        >
+          {saved && (
+            <Button
+              className="mt-2 self-start"
+              onClick={() => {
+                location.assign(
+                  `/api/plugins/git-hosts/sign-in/${encodeURIComponent(host.host)}`,
+                );
+              }}
+            >
+              Connect your account
+            </Button>
+          )}
+        </Step>
+      </ol>
+    </section>
+  );
+}
+
+type StepState = "done" | "on" | "next";
+
+function Step({
+  number,
+  state,
+  title,
+  description,
+  children,
+}: {
+  readonly number: number;
+  readonly state: StepState;
+  readonly title: ReactNode;
+  readonly description?: string;
+  readonly children?: ReactNode;
+}): ReactElement {
+  const marks: Record<StepState, string> = {
+    done: "border-done bg-done text-bg",
+    on: "border-fg-strong text-fg-strong",
+    next: "border-line-strong text-fg-dim",
+  };
+
+  return (
+    <li
+      aria-current={state === "on" ? "step" : undefined}
+      className="relative flex gap-3.5 pb-5 last:pb-0 before:absolute before:top-7 before:bottom-1 before:left-3 before:w-px before:bg-line last:before:hidden"
+    >
+      <span
+        className={`grid size-6 shrink-0 place-items-center rounded-full border-[1.5px] bg-elevated text-caption font-semibold ${marks[state]}`}
+      >
+        {state === "done" ? <Icon name="check" /> : number}
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-ui text-fg-strong">{title}</span>
+        {description !== undefined && (
+          <span className="text-label text-fg-dim">{description}</span>
+        )}
+        <span className="flex flex-col text-label text-fg-dim">{children}</span>
+      </span>
+    </li>
   );
 }
 
 function HostForm({
   host,
   save,
+  remove,
   cancel,
 }: {
   readonly host: HostView | undefined;
   readonly save: (input: HostInput) => Promise<void>;
+  readonly remove: (() => void) | undefined;
   readonly cancel: () => void;
 }): ReactElement {
   const [error, setError] = useState<string>();
@@ -787,6 +1041,16 @@ function HostForm({
           {host ? "Save" : "Add host"}
         </Button>
         <Button onClick={cancel}>Cancel</Button>
+        {remove !== undefined && (
+          <Button
+            variant="ghost"
+            className="ml-auto text-failed"
+            aria-label={`Remove ${host?.host ?? ""}`}
+            onClick={remove}
+          >
+            Remove host
+          </Button>
+        )}
         {error !== undefined && (
           <p role="alert" className="text-caption text-failed">
             {error}
@@ -809,9 +1073,19 @@ function secretLabel(host: HostView | undefined): string {
     : "OAuth app client secret";
 }
 
+function botDescription(user: TechnicalUserView): string {
+  if (user.installedOn === null) {
+    return `${user.host} · acts as ${user.login}`;
+  }
+
+  return user.installedOn.length === 0
+    ? "Not installed yet · keys stay on this server"
+    : `Installed on ${user.installedOn.join(", ")} · keys stay on this server`;
+}
+
 // Bot identities that routines and the factory act as instead of a person
 // (ADR 0060).
-function TechnicalUsers({
+function Bots({
   context,
   hosts,
 }: {
@@ -825,6 +1099,7 @@ function TechnicalUsers({
   );
 
   const [adding, setAdding] = useState<"app" | "token">();
+  const [managing, setManaging] = useState<string>();
   const [error, setError] = useState<string>();
 
   const text = (form: FormData, name: string): string => {
@@ -899,34 +1174,13 @@ function TechnicalUsers({
 
   return (
     <Section
-      title="Technical users"
-      description="Bots routines act as, so their pull requests and comments aren't yours"
-      actions={
-        adding === undefined && (
-          <>
-            <Button
-              onClick={() => {
-                setAdding("token");
-              }}
-            >
-              Add a machine user
-            </Button>
-            <Button
-              onClick={() => {
-                setAdding("app");
-              }}
-            >
-              <Icon name="plus" />
-              Create a GitHub App
-            </Button>
-          </>
-        )
-      }
+      title="Bots"
+      description="Routines can open pull requests and comment as a bot instead of a person"
     >
-      <Rows label="Technical users">
+      <Rows label="Bots">
         {value?.length === 0 && (
           <Row
-            title="No technical users yet"
+            title="No bots yet"
             description="A GitHub App is best: its keys stay on this server."
           />
         )}
@@ -944,41 +1198,76 @@ function TechnicalUsers({
             }
             description={
               <span className="flex flex-col gap-0.5">
-                <span>
-                  {user.login} on {user.host}
-                  {user.installedOn !== null &&
-                    (user.installedOn.length === 0
-                      ? " · not installed yet"
-                      : ` · installed on ${user.installedOn.join(", ")}`)}
-                </span>
+                <span>{botDescription(user)}</span>
                 {user.error !== null && (
                   <span className="text-failed">{user.error}</span>
                 )}
               </span>
             }
           >
-            {user.installUrl !== null && (
-              <a
-                href={user.installUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex h-control items-center rounded-md px-3 text-ui font-medium text-fg-dim hover:bg-hover hover:text-fg"
+            {managing === user.name ? (
+              <>
+                {user.installUrl !== null && (
+                  <a
+                    href={user.installUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex h-control items-center rounded-md px-3 text-ui font-medium text-fg-dim hover:bg-hover hover:text-fg"
+                  >
+                    Install
+                  </a>
+                )}
+                <Button
+                  variant="ghost"
+                  aria-label={`Remove ${user.name}`}
+                  onClick={() => {
+                    remove(user);
+                  }}
+                >
+                  Remove
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setManaging(undefined);
+                  }}
+                >
+                  Done
+                </Button>
+              </>
+            ) : (
+              <Button
+                variant="ghost"
+                aria-label={`Manage ${user.name}`}
+                onClick={() => {
+                  setManaging(user.name);
+                }}
               >
-                Install
-              </a>
+                Manage
+              </Button>
             )}
-            <Button
-              variant="ghost"
-              aria-label={`Remove ${user.name}`}
-              onClick={() => {
-                remove(user);
-              }}
-            >
-              Remove
-            </Button>
           </Row>
         ))}
       </Rows>
+      {adding === undefined && (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            onClick={() => {
+              setAdding("app");
+            }}
+          >
+            Create a GitHub App
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setAdding("token");
+            }}
+          >
+            Add a machine user
+          </Button>
+        </div>
+      )}
       {adding === "app" && (
         <form
           onSubmit={createApp}

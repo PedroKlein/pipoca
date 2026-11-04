@@ -1348,6 +1348,41 @@ test("lists everyone's Environments on the admins' People page", async () => {
   );
 });
 
+test("guides an admin from a token-only host to a Connect button", async () => {
+  await page.goto(server.url.href);
+  await openSettings("Git hosts");
+
+  await page.getByRole("button", { name: "Add a host" }).click();
+
+  const form = page.getByRole("form", { name: "New host" });
+  await form.getByLabel("Host").fill("git.example.com");
+  await form.getByRole("button", { name: "Add host" }).click();
+
+  const hosts = page.getByRole("list", { name: "Hosts" });
+  await hosts.getByText("Tokens only").waitFor();
+
+  await page
+    .getByRole("button", { name: "Set up Connect for git.example.com" })
+    .click();
+
+  const setup = page.getByRole("region", {
+    name: "Set up Connect for git.example.com",
+  });
+
+  await setup.getByLabel("Client ID").fill("Iv1.abc");
+  await setup.getByLabel("Client secret").fill("shh");
+  await setup.getByRole("button", { name: "Save" }).click();
+
+  await hosts.getByText("Sign-in ready").waitFor();
+  await setup.getByRole("button", { name: "Connect your account" }).waitFor();
+
+  await setup.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: "Edit git.example.com" }).click();
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.getByRole("button", { name: "Remove git.example.com" }).click();
+  await hosts.getByText("git.example.com").waitFor({ state: "detached" });
+});
+
 test("shows why an Environment's last runner pod failed", async () => {
   await page.route("**/api/plugins/kubernetes/environments/*", async (route) =>
     route.fulfill({

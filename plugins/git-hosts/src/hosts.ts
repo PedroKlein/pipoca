@@ -227,13 +227,17 @@ export function hostStore(
 }
 
 // The web never gets a client secret back, only whether one is set.
-export function viewOf({ host, label, oauth }: HostConfig): HostView {
+export function viewOf(
+  { host, label, oauth }: HostConfig,
+  connected: number,
+): HostView {
   return {
     host,
     label,
     clientId: oauth?.clientId ?? "",
     hasClientSecret: oauth?.clientSecret !== undefined,
     clientSecretEnv: oauth?.clientSecretEnv ?? null,
+    connected,
   };
 }
 
