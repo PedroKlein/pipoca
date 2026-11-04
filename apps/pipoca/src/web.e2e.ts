@@ -3794,6 +3794,29 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
   await access.waitFor({ state: "hidden" });
   await page.locator("header").getByText("View only").waitFor();
 
+  const sendTo = page.getByRole("group", { name: "Send to" });
+
+  await sendTo.getByRole("button", { name: "To the team" }).click();
+  await page.locator("#prompt-text").fill("Ship it today?");
+  await page.locator("#prompt-text").press("Enter");
+
+  const said = page.locator('[data-role="team"]', {
+    hasText: "Ship it today?",
+  });
+
+  await said.getByText("Pi didn't answer").waitFor();
+  await said.getByRole("button", { name: "Reply" }).click();
+  await sendTo.getByRole("button", { name: "Off the record" }).click();
+  await page.locator("#prompt-text").fill("Check the release first");
+  await page.locator("#prompt-text").press("Enter");
+
+  const aside = page.locator('[data-role="team"]', {
+    hasText: "Check the release first",
+  });
+
+  await aside.getByText("Hidden from Pi, visible to the team").waitFor();
+  await aside.getByText("Ship it today?").waitFor();
+
   await page.goto(new URL("/#team/sessions", server.url).href);
   await page.getByRole("link", { name: "team-docs" }).waitFor();
 });

@@ -18,6 +18,7 @@ import {
   type RemovalPost,
   type RemovalReport,
   type RepositoryCheckout,
+  type Quote,
   type Selection,
   type SessionAccess,
   type StartFailure,
@@ -64,6 +65,39 @@ export function createFork(body: unknown): {
     ...(typeof environment === "string" && { environment }),
     ...(typeof entry === "string" && { entry }),
   };
+}
+
+export function quoteOf(value: unknown): Quote | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const { from, text } = (value ?? {}) as Record<string, unknown>;
+
+  return { from: textOf("quote.from", from), text: textOf("quote.text", text) };
+}
+
+// A team Session message for people, not Pi (ADR 0065).
+export function teamMessage(body: unknown): {
+  readonly text: string;
+  readonly to: "team" | "aside";
+  readonly quote?: Quote;
+} {
+  const { text, to, quote } = (body ?? {}) as Record<string, unknown>;
+
+  if (to !== "team" && to !== "aside") {
+    throw new BadRequest('to must be "team" or "aside"');
+  }
+
+  const said = textOf("text", text).trim();
+
+  if (said === "") {
+    throw new BadRequest("text must not be empty");
+  }
+
+  const quoted = quoteOf(quote);
+
+  return { text: said, to, ...(quoted && { quote: quoted }) };
 }
 
 export function sessionAccess(body: unknown): SessionAccess {

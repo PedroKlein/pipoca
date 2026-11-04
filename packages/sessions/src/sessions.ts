@@ -31,6 +31,7 @@ import {
   type TranscriptBatch,
   trustedRepository,
   type TrustAnswer,
+  type Quote,
   type Voice,
   type Work,
   type WorkPoll,
@@ -203,6 +204,8 @@ export interface SessionsOptions {
   readonly templates?: () => readonly EnvironmentTemplate[];
   // The docs every Session gets as files (ADR 0052).
   readonly docs?: ProfileFiles;
+  // A user's name, which Pi reads team messages with (ADR 0065).
+  readonly names?: (person: string) => string | undefined;
 }
 
 export interface PluginProfile {
@@ -243,6 +246,7 @@ export class Sessions {
   readonly #pluginProfile: (id: string) => PluginProfile | undefined;
   readonly #gitLogins: NonNullable<SessionsOptions["gitLogins"]>;
   readonly #templates: () => readonly EnvironmentTemplate[];
+  readonly #names: (person: string) => string | undefined;
   readonly #docs: ProfileFiles | undefined;
   readonly #watchers = new Map<string, Set<Listener<SessionEvent>>>();
   readonly #hosts = new Map<
@@ -284,6 +288,7 @@ export class Sessions {
     this.#pluginProfile = options.pluginProfile ?? (() => undefined);
     this.#gitLogins = options.gitLogins ?? (() => []);
     this.#templates = options.templates ?? (() => []);
+    this.#names = options.names ?? (() => undefined);
   }
 
   // The one way a Session starts, for the UI and plugins alike (ADR 0015).
@@ -532,27 +537,132 @@ export class Sessions {
     return { ok: true, value: view };
   }
 
+  // People in a team Session talk to each other as well as to Pi
+  // (ADR 0065). Pi reads what they say to the team the next time it's asked,
+  // and never what they say off the record.
+  say(
+    id: string,
+    {
+      actor,
+      text,
+      to,
+      quote,
+    }: {
+      readonly actor: Actor;
+      readonly text: string;
+      readonly to: "team" | "aside";
+      readonly quote?: Quote;
+    },
+  ): Result<undefined, "not_found" | "archived" | "not_team"> {
+    const session = this.#store.get(id);
+    const person = personOf(actor);
+
+    if (session === undefined || person === undefined) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    if (session.archivedAt !== null) {
+      return { ok: false, reason: "archived" };
+    }
+
+    if (!this.#team(session)) {
+      return { ok: false, reason: "not_team" };
+    }
+
+    this.#addVoice(session.id, {
+      kind: to,
+      person,
+      at: new Date().toISOString(),
+      text,
+      ...(quote && { quote }),
+    });
+
+    return { ok: true, value: undefined };
+  }
+
   // Several people steer a team Session, so it keeps who said what.
-  #voice(session: StoredSession, command: Command): void {
-    const [kind = "", person = ""] = command.actor.split(/:(.*)/);
+  #voice(session: StoredSession, command: Command, quote?: Quote): void {
+    const person = personOf(command.actor);
 
     if (
-      kind !== "user" ||
+      person === undefined ||
       !this.#team(session) ||
       (command.type !== "message" && command.type !== "abort")
     ) {
       return;
     }
 
-    const voice: Voice = {
+    this.#addVoice(session.id, {
       kind: command.type === "abort" ? "stop" : "message",
       person,
       at: new Date().toISOString(),
       ...(command.type === "message" && { text: command.text }),
-    };
+      ...(command.type === "message" && quote && { quote }),
+    });
+  }
 
-    this.#store.addVoice(session.id, voice);
-    this.#emit(session.id, { type: "voice", voice });
+  #addVoice(id: string, voice: Voice): void {
+    this.#store.addVoice(id, voice);
+    this.#emit(id, { type: "voice", voice });
+  }
+
+  // What Pi reads before a person's message in a team Session: who sends
+  // it, what it replies to, and what the team said since Pi's last turn.
+  #teamContext(
+    session: StoredSession,
+    command: Command,
+    quote: Quote | undefined,
+  ): readonly Command[] {
+    const person = personOf(command.actor);
+
+    if (
+      command.type !== "message" ||
+      person === undefined ||
+      !this.#team(session)
+    ) {
+      return [];
+    }
+
+    const voices = this.#store.voices(session.id);
+    const since = voices.findLastIndex(({ kind }) => kind === "message");
+
+    const said = voices.slice(since + 1).filter(({ kind }) => kind === "team");
+
+    const left = said.length - teamMessagesRead;
+
+    const lines = [
+      ...(said.length === 0 ? [] : ["The team talked since your last turn:"]),
+      ...(left > 0
+        ? [
+            `(${String(left)} earlier messages are left out. Suggest forking the Session if they matter.)`,
+          ]
+        : []),
+      ...said
+        .slice(-teamMessagesRead)
+        .map(
+          (voice) =>
+            `${this.#said(voice.person, voice.quote)}: ${clipped(voice.text ?? "", teamMessageLength)}`,
+        ),
+      ...(said.length === 0 ? [] : [""]),
+      `${this.#said(person, quote)} sends the next message.`,
+    ];
+
+    return [
+      {
+        type: "context",
+        text: lines.join("\n"),
+        hidden: true,
+        actor: command.actor,
+      },
+    ];
+  }
+
+  #said(person: string, quote: Quote | undefined): string {
+    const name = this.#names(person) ?? "Someone";
+
+    return quote === undefined
+      ? name
+      : `${name}, replying to ${quote.from === "pi" ? "you" : (this.#names(quote.from) ?? "someone")} ("${clipped(quote.text, quoteLength)}")`;
   }
 
   #reach(session: StoredSession, person: string): "steers" | "sees" | null {
@@ -1196,6 +1306,7 @@ export class Sessions {
   send(
     id: string,
     command: Command,
+    quote?: Quote,
   ): Result<undefined, "not_found" | "archived" | "offline"> {
     const session = this.#store.get(id);
     if (!session) {
@@ -1229,10 +1340,14 @@ export class Sessions {
       return { ok: true, value: undefined };
     }
 
+    const told = [...this.#teamContext(session, command, quote), command];
+
     if (held) {
-      this.#held.set(id, [...(this.#held.get(id) ?? []), command]);
+      this.#held.set(id, [...(this.#held.get(id) ?? []), ...told]);
     } else {
-      host?.send(command);
+      for (const each of told) {
+        host?.send(each);
+      }
     }
 
     if (command.type === "abort") {
@@ -1243,7 +1358,7 @@ export class Sessions {
       });
     }
 
-    this.#voice(session, command);
+    this.#voice(session, command, quote);
 
     return { ok: true, value: undefined };
   }
@@ -1743,6 +1858,21 @@ export class Sessions {
 }
 
 const titleLength = 80;
+
+// Pi reads this much of what the team said since its last turn (ADR 0065).
+const teamMessagesRead = 40;
+const teamMessageLength = 2000;
+const quoteLength = 200;
+
+function clipped(text: string, length: number): string {
+  return text.length > length ? `${text.slice(0, length)}…` : text;
+}
+
+function personOf(actor: Actor): string | undefined {
+  const [kind = "", person = ""] = actor.split(/:(.*)/);
+
+  return kind === "user" ? person : undefined;
+}
 
 // Pi's own session name wins; until there is one, the first user message
 // names the Session.

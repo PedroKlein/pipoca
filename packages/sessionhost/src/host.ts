@@ -707,7 +707,7 @@ async function run(
         {
           customType: "pipoca-context",
           content: command.text,
-          display: true,
+          display: command.hidden !== true,
         },
         { triggerTurn: false },
       );

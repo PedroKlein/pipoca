@@ -50,7 +50,9 @@ import {
   joinRequest,
   lineAfter,
   listOf,
+  quoteOf,
   sessionAccess,
+  teamMessage,
   setupChangeOf,
   textOf,
 } from "./requests";
@@ -1189,6 +1191,16 @@ export function createHandler(
       ),
     ],
     [
+      "POST",
+      /^\/api\/sessions\/([^/]+)\/say$/,
+      steer(async (request, [id = ""], actor) =>
+        reply(
+          sessions.say(id, { ...teamMessage(await readJson(request)), actor }),
+          201,
+        ),
+      ),
+    ],
+    [
       "GET",
       /^\/api\/sessions\/([^/]+)\/presence$/,
       own((_request, [id = ""], actor) =>
@@ -1238,14 +1250,18 @@ export function createHandler(
       "POST",
       /^\/api\/sessions\/([^/]+)\/commands$/,
       async (request, [id = ""], actor, isAdmin) => {
-        const command = browserCommand(await readJson(request), actor);
+        const body = await readJson(request);
+        const command = browserCommand(body, actor);
         const person = userIdOf(actor);
 
         if (
           sessions.belongsTo(id, person) ||
           (isAdmin && command.type === "abort")
         ) {
-          return reply(sessions.send(id, command), 202);
+          return reply(
+            sessions.send(id, command, quoteOf(fieldsOf(body)["quote"])),
+            202,
+          );
         }
 
         return sessions.sees(id, person) ? rejected("view_only") : notFound();
