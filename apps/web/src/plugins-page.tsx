@@ -5,7 +5,9 @@ import {
   cn,
   Field,
   fieldClass,
+  initialsOf,
   PageTitle,
+  Section,
   Select,
   Switch,
 } from "@pipoca/ui";
@@ -26,6 +28,19 @@ const states = {
 export function PluginsPage(): ReactElement {
   const { value: plugins, reload } = usePlugins();
 
+  const groups = [
+    {
+      title: "Installed",
+      description: "Added to this server from a repository or a URL",
+      plugins: plugins.filter(({ source }) => source === "installed"),
+    },
+    {
+      title: "Built in",
+      description: "Part of Pipoca",
+      plugins: plugins.filter(({ source }) => source !== "installed"),
+    },
+  ].filter((group) => group.plugins.length > 0);
+
   return (
     <div id="plugins-page" className={settingsPageClass}>
       <PageTitle description="Plugins add features to Pipoca, for everyone on this server. The server uses new settings at once, open pages after a reload, and Sessions the next time they start.">
@@ -33,63 +48,92 @@ export function PluginsPage(): ReactElement {
       </PageTitle>
       {plugins.some(waitsForRestart) && <Restart />}
       <Install onInstalled={reload} />
-      <ul className="flex flex-col gap-3">
-        {plugins.map((plugin) => (
-          <li
-            key={plugin.id}
-            aria-label={plugin.title}
-            className="flex flex-col gap-3 rounded-lg border border-line bg-elevated shadow-xs p-5"
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-title font-semibold text-fg-strong">
-                {plugin.title}
-              </h2>
-              <Badge state={states[plugin.state].badge}>
-                {states[plugin.state].label}
-                {switchesAtRestart(plugin) && " until restart"}
-              </Badge>
-              {plugin.source === "installed" && (
-                <Badge state="offline">Installed</Badge>
-              )}
-            </div>
-            <p className="text-ui text-fg-dim">{plugin.description}</p>
-            {plugin.error !== undefined && (
-              <p className="text-ui text-failed">
-                It failed to start: {plugin.error}
-              </p>
-            )}
-            {webPartError(plugin.id) !== undefined && (
-              <p className="text-ui text-failed">
-                Its web part didn't load: {webPartError(plugin.id)}
-              </p>
-            )}
-            {plugin.source === "installed" && (
-              <p className="break-all font-mono text-mono-sm text-fg-dim">
-                {[
-                  plugin.version,
-                  plugin.installedFrom === undefined
-                    ? "written in place"
-                    : `${plugin.installedFrom.url} at ${shortPin(plugin.installedFrom.pinned)}`,
-                ]
-                  .filter((part) => part !== undefined)
-                  .join(" · ")}
-              </p>
-            )}
-            {plugin.source === "installed" && (
-              <Controls plugin={plugin} onChange={reload} />
-            )}
-            {plugin.settings !== undefined &&
-              Object.keys(plugin.settings).length > 0 && (
-                <SettingsForm
-                  plugin={plugin}
-                  settings={plugin.settings}
-                  onChange={reload}
-                />
-              )}
-          </li>
-        ))}
-      </ul>
+      {groups.map((group) => (
+        <Section
+          key={group.title}
+          title={group.title}
+          description={group.description}
+        >
+          <ul className="flex flex-col rounded-lg border border-line bg-elevated shadow-xs">
+            {group.plugins.map((plugin) => (
+              <PluginRow key={plugin.id} plugin={plugin} onChange={reload} />
+            ))}
+          </ul>
+        </Section>
+      ))}
     </div>
+  );
+}
+
+function PluginRow({
+  plugin,
+  onChange,
+}: {
+  readonly plugin: PluginInfo;
+  readonly onChange: () => void;
+}): ReactElement {
+  const failure = webPartError(plugin.id);
+
+  return (
+    <li
+      aria-label={plugin.title}
+      className="flex flex-col gap-3 border-t border-line px-4 py-3.5 first:border-t-0"
+    >
+      <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2">
+        <span
+          aria-hidden="true"
+          className="grid size-8.5 shrink-0 place-items-center rounded-md border border-line bg-hover text-label font-semibold text-fg-strong"
+        >
+          {initialsOf(plugin.title)}
+        </span>
+        <div className="flex min-w-0 flex-1 basis-48 flex-col gap-0.5">
+          <span className="flex flex-wrap items-center gap-2 text-ui font-medium text-fg-strong">
+            {plugin.title}
+            <Badge state={states[plugin.state].badge}>
+              {states[plugin.state].label}
+              {switchesAtRestart(plugin) && " until restart"}
+            </Badge>
+            {plugin.source === "installed" && (
+              <Badge state="offline">Installed</Badge>
+            )}
+          </span>
+          <span className="text-label text-fg-dim">{plugin.description}</span>
+          {plugin.source === "installed" && (
+            <span className="break-all font-mono text-mono-sm text-fg-dim">
+              {[
+                plugin.version,
+                plugin.installedFrom === undefined
+                  ? "written in place"
+                  : `${plugin.installedFrom.url} at ${shortPin(plugin.installedFrom.pinned)}`,
+              ]
+                .filter((part) => part !== undefined)
+                .join(" · ")}
+            </span>
+          )}
+        </div>
+        {plugin.source === "installed" && (
+          <Controls plugin={plugin} onChange={onChange} />
+        )}
+      </div>
+      {plugin.error !== undefined && (
+        <p className="text-label text-failed">
+          It failed to start: {plugin.error}
+        </p>
+      )}
+      {failure !== undefined && (
+        <p className="text-label text-failed">
+          Its web part didn&apos;t load: {failure}
+        </p>
+      )}
+      {plugin.settings !== undefined &&
+        Object.keys(plugin.settings).length > 0 && (
+          <SettingsForm
+            plugin={plugin}
+            settings={plugin.settings}
+            onChange={onChange}
+          />
+        )}
+    </li>
   );
 }
 
@@ -160,23 +204,34 @@ function Install({
   };
 
   return (
-    <form
-      onSubmit={submit}
-      aria-label="Install a plugin"
-      className="mb-4 flex flex-col gap-2 rounded-lg border border-line bg-elevated shadow-xs p-4"
+    <Section
+      title="Install a plugin"
+      description="It installs turned off, so none of its code runs yet"
     >
-      <Field label="Install from a git repository or a .tgz URL. A branch, tag or commit after # pins it. It installs turned off.">
-        <input
-          name="url"
-          required
-          placeholder="https://github.com/you/plugin.git#v1.0.0"
-          className={cn(fieldClass, "font-mono text-mono-sm")}
-        />
-      </Field>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button variant="primary" type="submit" disabled={installing}>
-          {installing ? "Installing…" : "Install"}
-        </Button>
+      <form
+        onSubmit={submit}
+        aria-label="Install a plugin"
+        className="flex flex-col gap-2"
+      >
+        <label className="sr-only" htmlFor="plugin-url">
+          Install from a git repository or a .tgz URL
+        </label>
+        <div className="flex gap-2">
+          <input
+            id="plugin-url"
+            name="url"
+            required
+            placeholder="https://github.com/you/plugin.git#v1.0.0"
+            className={cn(fieldClass, "flex-1 font-mono text-mono-sm")}
+          />
+          <Button variant="primary" type="submit" disabled={installing}>
+            {installing ? "Installing…" : "Install"}
+          </Button>
+        </div>
+        <p className="text-caption text-fg-dim">
+          A git repository or a .tgz URL. A branch, tag or commit after # pins
+          it.
+        </p>
         {error !== undefined && (
           <p role="alert" className="text-caption text-failed">
             {error}
@@ -187,8 +242,8 @@ function Install({
             {installed}
           </p>
         )}
-      </div>
-    </form>
+      </form>
+    </Section>
   );
 }
 
@@ -378,12 +433,17 @@ function Controls({
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-3 text-ui">
-      <Switch label="On" checked={plugin.turnedOn} onChange={turn} />
+    <div className="flex flex-wrap items-center gap-2 text-ui">
+      <span className="basis-full text-label text-fg-dim empty:hidden sm:basis-auto">
+        {pendingNote(plugin) ?? note}
+      </span>
       {plugin.installedFrom !== undefined && (
-        <Button onClick={update}>Update</Button>
+        <Button variant="ghost" onClick={update}>
+          Update
+        </Button>
       )}
       <Button
+        variant="ghost"
         onClick={remove}
         disabled={plugin.state === "on"}
         title={
@@ -394,7 +454,12 @@ function Controls({
       >
         Remove
       </Button>
-      <span className="text-fg-dim">{pendingNote(plugin) ?? note}</span>
+      <Switch
+        label="On"
+        labelHidden
+        checked={plugin.turnedOn}
+        onChange={turn}
+      />
       {error !== undefined && (
         <p role="alert" className="text-caption text-failed">
           {error}
@@ -450,7 +515,7 @@ function SettingsForm({
     <form
       onSubmit={submit}
       aria-label={`${plugin.title} settings`}
-      className="flex flex-col gap-4 border-t border-line pt-4"
+      className="flex flex-col gap-4 rounded-md bg-panel p-4"
     >
       {Object.entries(settings).map(([name, spec]) => (
         <SettingField

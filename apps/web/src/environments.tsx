@@ -33,7 +33,7 @@ import { enabledPlugins, pluginContext } from "./plugins";
 import { Templates } from "./templates";
 import { settingsPageClass } from "./page-class";
 
-const kindNames: Readonly<Record<EnvironmentKind, string>> = {
+export const kindNames: Readonly<Record<EnvironmentKind, string>> = {
   machine: "Machines",
   docker: "Docker image",
   kubernetes: "Kubernetes",

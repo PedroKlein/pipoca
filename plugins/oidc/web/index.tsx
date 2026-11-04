@@ -8,6 +8,7 @@ import {
   Button,
   Field,
   fieldClass,
+  Icon,
   initialsOf,
   PageTitle,
   Row,
@@ -151,57 +152,23 @@ function Providers({
   };
 
   return (
-    <div className="flex flex-col gap-2 text-ui">
-      <p className="text-fg-dim">
-        Providers people can sign in with, kept in the server's pipoca.json.
-        Register{" "}
-        <code className="font-mono text-mono-sm">
-          {location.origin}/api/plugins/oidc/callback
-        </code>{" "}
-        as the redirect URI with each one.
-      </p>
-      <ul
-        aria-label="Providers"
-        className="flex flex-col gap-1 rounded-lg border border-line bg-elevated shadow-xs p-3"
-      >
-        {value?.length === 0 && (
-          <li className="text-fg-dim">No providers yet.</li>
-        )}
-        {value?.map((provider) => (
-          <li key={provider.id} className="flex items-center gap-2">
-            <span className="flex-1 truncate text-fg">
-              {provider.label}
-              <span className="text-fg-dim"> · {provider.issuer}</span>
-            </span>
-            <Button
-              onClick={() => {
-                setEditing(provider);
-              }}
-            >
-              Edit
-            </Button>
-            <Button
-              aria-label={`Remove ${provider.label}`}
-              onClick={() => {
-                remove(provider);
-              }}
-            >
-              Remove
-            </Button>
-          </li>
-        ))}
-      </ul>
-      {editing === undefined ? (
-        <div>
+    <Section
+      title="Providers"
+      description="Single sign-on people can use to get in"
+      actions={
+        editing === undefined && (
           <Button
             onClick={() => {
               setEditing("new");
             }}
           >
+            <Icon name="plus" />
             Add provider
           </Button>
-        </div>
-      ) : (
+        )
+      }
+    >
+      {editing !== undefined && (
         <ProviderForm
           key={editing === "new" ? "new" : editing.id}
           provider={editing === "new" ? undefined : editing}
@@ -222,8 +189,70 @@ function Providers({
           }}
         />
       )}
-    </div>
+      <Rows label="Providers">
+        {value?.length === 0 && (
+          <Row
+            title="No providers yet"
+            description="People sign in with a password until you add one."
+          />
+        )}
+        {value?.map((provider) => (
+          <Row
+            key={provider.id}
+            initials={initialsOf(provider.label)}
+            title={provider.label}
+            description={
+              <span className="flex flex-col gap-0.5">
+                <span className="font-mono">{provider.issuer}</span>
+                <span>{whoMayJoin(provider)}</span>
+              </span>
+            }
+          >
+            <Button
+              variant="ghost"
+              aria-label={`Edit ${provider.label}`}
+              onClick={() => {
+                setEditing(provider);
+              }}
+            >
+              Edit
+            </Button>
+            <Button
+              variant="ghost"
+              aria-label={`Remove ${provider.label}`}
+              onClick={() => {
+                remove(provider);
+              }}
+            >
+              Remove
+            </Button>
+          </Row>
+        ))}
+      </Rows>
+      <p className="text-caption text-fg-dim">
+        Register{" "}
+        <code className="font-mono text-mono-sm">
+          {location.origin}/api/plugins/oidc/callback
+        </code>{" "}
+        as the redirect URI with each one. Providers are kept in the
+        server&apos;s pipoca.json.
+      </p>
+    </Section>
   );
+}
+
+function whoMayJoin(provider: ProviderView): string {
+  const who = [
+    ...(provider.accessGroup === ""
+      ? []
+      : [`the ${provider.accessGroup} group`]),
+    ...provider.allowedDomains.map((domain) => `@${domain}`),
+    ...provider.allowedEmails,
+  ];
+
+  return who.length === 0
+    ? "Only its admins may join"
+    : `Who may join: ${who.join(", ")}`;
 }
 
 function ProviderForm({

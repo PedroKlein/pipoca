@@ -1343,9 +1343,9 @@ test("lists everyone's Environments on the admins' People page", async () => {
   const pedro = page.getByLabel("pedro", { exact: true });
   await pedro.getByRole("list", { name: "Environments" }).waitFor();
 
-  expect(
-    await page.getByRole("heading", { name: "pedro (admin)" }).count(),
-  ).toBe(1);
+  expect(await page.getByRole("heading", { name: "pedro Admin" }).count()).toBe(
+    1,
+  );
 });
 
 test("shows why an Environment's last runner pod failed", async () => {

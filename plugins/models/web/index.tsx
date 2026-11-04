@@ -11,6 +11,8 @@ import {
   cn,
   fieldClass,
   PageTitle,
+  Row,
+  Rows,
   Section,
   Select,
 } from "@pipoca/ui";
@@ -55,6 +57,14 @@ function Page({ context }: { readonly context: WebContext }): ReactElement {
       <PageTitle description="An alias such as medium-1 names a list of models, tried in order, that can mix providers. Each Environment has its own aliases, and a model that fails is skipped by every session there until it cools down or its provider resets.">
         Models
       </PageTitle>
+      {value !== undefined && environments.length === 0 && (
+        <Rows>
+          <Row
+            title="No Environments yet"
+            description="Aliases belong to an Environment. Add one under Environments first."
+          />
+        </Rows>
+      )}
       {environments.map((environment) => {
         const saved = configs.find(
           ({ environmentId }) => environmentId === environment.id,
