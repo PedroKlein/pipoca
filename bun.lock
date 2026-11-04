@@ -410,6 +410,7 @@
       "name": "@pipoca/usage",
       "dependencies": {
         "@pipoca/plugins": "workspace:*",
+        "@pipoca/protocol": "workspace:*",
         "@pipoca/ui": "workspace:*",
         "react": "19.3.1",
       },

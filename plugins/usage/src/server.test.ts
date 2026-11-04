@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import { type PluginEvent, type PluginRoute, eventBus } from "@pipoca/plugins";
-import { fakeContext, fakeUser, served } from "@pipoca/plugins/testing";
+import {
+  fakeContext,
+  fakeSession,
+  fakeUser,
+  served,
+} from "@pipoca/plugins/testing";
 import { usage } from "./server";
 
 function registered(
@@ -10,6 +15,7 @@ function registered(
   readonly route: PluginRoute;
   readonly called: (fields: Record<string, unknown>) => void;
   readonly warnings: readonly PluginEvent[];
+  readonly events: ReturnType<typeof eventBus>;
 } {
   const events = eventBus((_type, error) => {
     throw error;
@@ -46,6 +52,7 @@ function registered(
   return {
     route,
     warnings,
+    events,
     called: (fields) => {
       events.publish({
         type: "logins.model_called",
@@ -158,4 +165,47 @@ test("warns once as the team's month reaches 80% and then 100% of its budget, an
   expect(await get(route, "totals")).toMatchObject({
     budgets: { team: 10, person: 5 },
   });
+});
+
+test("logs who started, stopped and archived team work, and each use of the team's key; a person sees their own, an admin exports all", async () => {
+  const { route, called, events } = registered();
+  const team = fakeSession({ id: "t1", ownedBy: "team", title: 'Fix, "now"' });
+
+  events.publish({ type: "SessionCreated", session: team, actor: "user:ana" });
+
+  events.publish({
+    type: "SessionCreated",
+    session: fakeSession({ id: "own" }),
+    actor: "user:ana",
+  });
+
+  called({ sessionId: "t1", person: "ana", input: 1, output: 1 });
+  events.publish({ type: "StopAsked", session: team, actor: "user:bo" });
+  events.publish({ type: "SessionArchived", session: team, actor: "user:ana" });
+
+  const anas = (await get(route, "audit")) as { action: string }[];
+
+  expect(anas.map(({ action }) => action)).toEqual(["archived", "started"]);
+
+  const admin = fakeUser({ id: "boss", admin: true });
+
+  const exported = await route(
+    new Request("http://usage/audit?format=csv"),
+    "audit",
+    admin,
+  );
+
+  expect(exported.headers.get("content-type")).toStartWith("text/csv");
+
+  expect(
+    (await exported.text())
+      .split("\r\n")
+      .map((line) => line.replace(/^"[^"]*",/, "")),
+  ).toEqual([
+    '"actor","sessionId","action","detail"',
+    '"user:ana","t1","archived","Fix, ""now"""',
+    '"user:bo","t1","stopped","Fix, ""now"""',
+    '"","t1","used the team\'s key","anthropic/claude-sonnet-4-5"',
+    '"user:ana","t1","started","Fix, ""now"""',
+  ]);
 });
