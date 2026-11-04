@@ -55,7 +55,7 @@ const layerNames: Readonly<Record<Layer, string>> = {
 };
 
 const chipClass =
-  "flex h-8 items-center gap-1.5 rounded-full border border-line bg-elevated px-3 text-ui text-fg hover:bg-hover aria-[current=page]:border-fg-strong aria-[current=page]:bg-fg-strong aria-[current=page]:text-bg";
+  "flex h-7 items-center gap-1.5 rounded-full border border-line bg-elevated px-3 text-label text-fg hover:bg-hover aria-[current=page]:border-fg-strong aria-[current=page]:bg-fg-strong aria-[current=page]:text-bg";
 
 export function ProfilesPage({
   profiles,
@@ -122,6 +122,24 @@ export function ProfilesPage({
             {layerNames[each]}
           </a>
         ))}
+        {profile && (
+          <span className="ml-auto">
+            <BuildsOn
+              profile={profile}
+              profiles={profiles}
+              value={profile.buildsOn}
+              disabled={profile.source !== null}
+              onChange={(buildsOn) => {
+                send(`/api/profiles/${profile.id}`, "PUT", { buildsOn }).then(
+                  onChange,
+                  (reason: unknown) => {
+                    alert(messageOf(reason));
+                  },
+                );
+              }}
+            />
+          </span>
+        )}
       </nav>
       {profile && (
         <ProfileTabs
@@ -139,6 +157,7 @@ export function ProfilesPage({
               )}
               <ProfileOverview
                 profile={profile}
+                profiles={profiles}
                 editable={profile.source === null}
                 onChange={onChange}
               >
@@ -296,12 +315,14 @@ function Editor({
             Shared with everyone. Only admins can change it.
           </label>
         )}
-        <BuildsOn
-          profile={profile}
-          profiles={profiles}
-          value={buildsOn}
-          onChange={setBuildsOn}
-        />
+        {!profile && (
+          <BuildsOn
+            profile={profile}
+            profiles={profiles}
+            value={buildsOn}
+            onChange={setBuildsOn}
+          />
+        )}
         {!profile && (
           <ListInput
             label="Pi packages"
@@ -500,24 +521,35 @@ function ProfileTabs({
   const kind = kinds[tab];
   const named = namedFiles[tab];
 
+  const overviewShown = tab === "overview" || (!kind && !named);
+
   return (
     <>
-      <nav
-        aria-label="Profile"
-        className="mt-6 flex gap-1 overflow-x-auto border-b border-line"
-      >
-        {tabs.map(([key, label]) => (
-          <a
-            key={key}
-            href={`#profiles/${hash}/${key}`}
-            aria-current={key === tab ? "page" : undefined}
-            className="-mb-px shrink-0 border-b-2 border-transparent px-2 py-2 text-ui text-fg-dim hover:text-fg aria-[current=page]:border-accent aria-[current=page]:text-fg-strong"
-          >
-            {label}
-          </a>
-        ))}
-      </nav>
-      {(tab === "overview" || (!kind && !named)) && overview}
+      {overviewShown ? (
+        <a
+          href={`#profiles/${hash}/files`}
+          className="mt-3 self-start rounded-md px-2 py-1 text-label text-fg-dim hover:bg-hover hover:text-fg"
+        >
+          Open as files
+        </a>
+      ) : (
+        <nav
+          aria-label="Profile"
+          className="mt-6 flex gap-1 overflow-x-auto border-b border-line"
+        >
+          {tabs.map(([key, label]) => (
+            <a
+              key={key}
+              href={`#profiles/${hash}/${key}`}
+              aria-current={key === tab ? "page" : undefined}
+              className="-mb-px shrink-0 border-b-2 border-transparent px-2 py-2 text-ui text-fg-dim hover:text-fg aria-[current=page]:border-accent aria-[current=page]:text-fg-strong"
+            >
+              {label}
+            </a>
+          ))}
+        </nav>
+      )}
+      {overviewShown && overview}
       {kind && <KindFiles key={`${url}:${tab}`} url={url} kind={kind} />}
       {named && (
         <NamedFiles
@@ -537,11 +569,13 @@ function BuildsOn({
   profile,
   profiles,
   value,
+  disabled = false,
   onChange,
 }: {
   readonly profile: Profile | undefined;
   readonly profiles: readonly Profile[];
   readonly value: string | null;
+  readonly disabled?: boolean;
   readonly onChange: (id: string | null) => void;
 }): ReactElement {
   const shared = profile?.ownerId === null;
@@ -553,7 +587,7 @@ function BuildsOn({
   const step = <Icon name="chevron-right" className="size-3.5 text-fg-dim" />;
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-ui">
+    <div className="flex flex-wrap items-center gap-1.5 text-label">
       <span className="mr-1 text-fg-dim">Builds on</span>
       <a href={`#profiles/${layerHashes.base}`} className={chipClass}>
         {layerNames.base}
@@ -563,19 +597,25 @@ function BuildsOn({
         {layerNames.defaults}
       </a>
       {step}
-      <Picker
-        label="Builds on"
-        options={[
-          { value: "", label: "Nothing else" },
-          ...options.map(({ id, name }) => ({ value: id, label: name })),
-        ]}
-        selected={[value ?? ""]}
-        onChange={([id]) => {
-          onChange(id === undefined || id === "" ? null : id);
-        }}
-      >
-        {profiles.find(({ id }) => id === value)?.name ?? "Nothing else"}
-      </Picker>
+      {disabled ? (
+        <span className={chipClass}>
+          {profiles.find(({ id }) => id === value)?.name ?? "Nothing else"}
+        </span>
+      ) : (
+        <Picker
+          label="Builds on"
+          options={[
+            { value: "", label: "Nothing else" },
+            ...options.map(({ id, name }) => ({ value: id, label: name })),
+          ]}
+          selected={[value ?? ""]}
+          onChange={([id]) => {
+            onChange(id === undefined || id === "" ? null : id);
+          }}
+        >
+          {profiles.find(({ id }) => id === value)?.name ?? "Nothing else"}
+        </Picker>
+      )}
     </div>
   );
 }

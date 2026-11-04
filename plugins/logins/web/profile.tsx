@@ -1,8 +1,8 @@
 import { json, useLoaded, type WebContext } from "@pipoca/plugins/web";
 import type { Profile } from "@pipoca/protocol";
-import { initialsOf, Row, Rows, Section, Segmented } from "@pipoca/ui";
+import { Badge, initialsOf, Row, Rows, Section, Segmented } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import type { Account, LoginLayer } from "../src/model";
+import type { Account, Connectable, LoginLayer } from "../src/model";
 import { ConnectForm, ConnectionCard } from "./connect";
 import { layerName } from "./layers";
 
@@ -10,6 +10,7 @@ interface Line {
   readonly kind: "model" | "mcp";
   readonly key: string;
   readonly name: string;
+  readonly type?: string;
   readonly own: boolean;
   readonly from: LoginLayer | undefined;
 }
@@ -33,6 +34,11 @@ export function ProfileLogins({
     async () => json<readonly Profile[]>(context.request("/api/profiles")),
     "profiles",
     { topics: ["profiles"] },
+  );
+
+  const { value: providers = [] } = useLoaded(
+    async () => json<readonly Connectable[]>(context.request("providers")),
+    "providers",
   );
 
   const [choosing, setChoosing] = useState<string>();
@@ -80,9 +86,22 @@ export function ProfileLogins({
     .map(({ server, layer }) => ({ key: server, layer }));
 
   const lines = [
-    ...unique(models.map(({ key }) => key)).map((key) =>
-      lineOf("model", key, key, layersOf(models, key)),
-    ),
+    ...unique(models.map(({ key }) => key)).map((key) => {
+      const line = lineOf(
+        "model",
+        key,
+        providers.find(({ id }) => id === key)?.name ?? key,
+        layersOf(models, key),
+      );
+
+      const from = line.own ? own : line.from;
+
+      const type = account.logins.find(
+        (login) => login.provider === key && login.layer === from,
+      )?.type;
+
+      return type === undefined ? line : { ...line, type: typeLabels[type] };
+    }),
     ...unique([
       ...account.servers.map(({ key }) => key),
       ...mcp.map(({ key }) => key),
@@ -166,7 +185,12 @@ export function ProfileLogins({
           <Row
             key={`${line.kind} ${line.key}`}
             initials={initialsOf(line.name)}
-            title={line.name}
+            title={
+              <>
+                {line.name}
+                {line.kind === "mcp" && <Badge state="offline">MCP</Badge>}
+              </>
+            }
             description={describe(line, profiles)}
           >
             <Segmented
@@ -187,14 +211,24 @@ export function ProfileLogins({
   );
 }
 
+const typeLabels = {
+  oauth: "Subscription",
+  api_key: "API key",
+} as const;
+
 function describe(line: Line, profiles: readonly Profile[]): string {
-  if (line.own) {
-    return "Its own login";
+  if (!line.own && line.from === undefined) {
+    return "Not signed in";
   }
 
-  return line.from === undefined
-    ? "Not signed in"
-    : `From ${layerName(line.from, profiles)}`;
+  const where =
+    line.from === undefined || line.own
+      ? "its own login"
+      : `from ${layerName(line.from, profiles)}`;
+
+  return line.type === undefined
+    ? where.charAt(0).toUpperCase() + where.slice(1)
+    : `${line.type}, ${where}`;
 }
 
 // The Profiles this one builds on, nearest first, as far as they're listed.
