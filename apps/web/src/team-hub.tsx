@@ -219,6 +219,15 @@ export function TeamHub({
           </a>
         ))}
         {admin && (
+          <a
+            href="#team/setup"
+            className="flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-ui text-fg hover:bg-hover"
+          >
+            <Icon name="settings" />
+            Team setup
+          </a>
+        )}
+        {admin && (
           <AddPage
             onAdd={(title) => {
               const page = { id: newPageId(title, pages), title, panels: [] };

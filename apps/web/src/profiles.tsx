@@ -16,7 +16,10 @@ import {
   Icon,
   ListInput,
   PageTitle,
+  initialsOf,
   Picker,
+  Row,
+  Rows,
   Section,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
@@ -30,7 +33,7 @@ import {
   upload,
 } from "./profile-files";
 import { settingsPageClass } from "./page-class";
-import { ProfileOverview } from "./profile-overview";
+import { ProfileOverview, profilesPath } from "./profile-overview";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext } from "./plugins";
 
@@ -57,23 +60,29 @@ const layerNames: Readonly<Record<Layer, string>> = {
 const chipClass =
   "flex h-7 items-center gap-1.5 rounded-full border border-line bg-elevated px-3 text-label text-fg hover:bg-hover aria-[current=page]:border-fg-strong aria-[current=page]:bg-fg-strong aria-[current=page]:text-bg";
 
+// A person's Profiles in Settings, or with team the team's in Team setup.
 export function ProfilesPage({
   profiles,
   admin,
+  team = false,
   selected,
   onChange,
 }: {
   readonly profiles: readonly Profile[];
   readonly admin: boolean;
+  readonly team?: boolean;
   readonly selected: string;
   readonly onChange: () => void;
 }): ReactElement {
   const [id = "", tab = "overview"] = selected.split("/");
   const profile = profiles.find((each) => each.id === id);
+  const root = profilesPath(team);
 
-  const layer = (Object.keys(layerHashes) as Layer[]).find(
-    (each) => layerHashes[each] === id,
-  );
+  const layer = team
+    ? undefined
+    : (Object.keys(layerHashes) as Layer[]).find(
+        (each) => layerHashes[each] === id,
+      );
 
   // The editor starts again when its files change, so it doesn't keep this.
   const [savedId, setSavedId] = useState<string>();
@@ -82,69 +91,79 @@ export function ProfilesPage({
     <div id="profiles-page" className={settingsPageClass}>
       <div className="flex items-start justify-between gap-6">
         <div className="min-w-0 flex-1">
-          <PageTitle description="How Pi behaves in a Session: what it knows, the skills and tools it has. A Profile is a Pi agent folder, like your ~/.pi/agent. Every Profile sits on the Server base and your My defaults. Edits reach a Session the next time it starts.">
-            Profiles
-          </PageTitle>
+          {team ? (
+            <PageTitle description="The team owns these. Everyone can pick them for team work, and only admins change them. They build on the Server base and never load anyone's My defaults.">
+              Team Profiles
+            </PageTitle>
+          ) : (
+            <PageTitle description="How Pi behaves in a Session: what it knows, the skills and tools it has. A Profile is a Pi agent folder, like your ~/.pi/agent. Every Profile sits on the Server base and your My defaults. Edits reach a Session the next time it starts.">
+              Profiles
+            </PageTitle>
+          )}
         </div>
         <a
-          href="#profiles/new"
+          href={`#${root}/new`}
           aria-current={selected === "new" ? "page" : undefined}
           className="mt-7 inline-flex h-control shrink-0 items-center gap-1.5 rounded-md border border-line bg-elevated px-3 text-ui font-medium text-fg shadow-xs hover:border-line-strong hover:bg-hover"
         >
           <Icon name="plus" />
-          New Profile
+          {team ? "New team Profile" : "New Profile"}
         </a>
       </div>
-      <nav aria-label="Profiles" className="flex flex-wrap gap-2">
-        {profiles.map((each) => (
-          <a
-            key={each.id}
-            href={`#profiles/${each.id}`}
-            aria-current={each.id === id ? "page" : undefined}
-            className={chipClass}
-          >
-            {each.name}
-            {each.isDefault && <Badge state="done">Default</Badge>}
-            {each.ownerId === null && <Badge state="offline">Shared</Badge>}
-            {each.source && <Badge state="offline">Synced</Badge>}
-          </a>
-        ))}
-        {(Object.keys(layerHashes) as Layer[]).map((each) => (
-          <a
-            key={each}
-            href={`#profiles/${layerHashes[each]}`}
-            aria-current={id === layerHashes[each] ? "page" : undefined}
-            className={chipClass}
-          >
-            {each === "base" && !admin && (
-              <Icon name="lock" className="size-3.5" />
-            )}
-            {layerNames[each]}
-          </a>
-        ))}
-        {profile && (
-          <span className="ml-auto">
-            <BuildsOn
-              profile={profile}
-              profiles={profiles}
-              value={profile.buildsOn}
-              disabled={profile.source !== null}
-              onChange={(buildsOn) => {
-                send(`/api/profiles/${profile.id}`, "PUT", { buildsOn }).then(
-                  onChange,
-                  (reason: unknown) => {
-                    alert(messageOf(reason));
-                  },
-                );
-              }}
-            />
-          </span>
-        )}
-      </nav>
+      {(!team || selected !== "") && (
+        <nav aria-label="Profiles" className="flex flex-wrap gap-2">
+          {profiles.map((each) => (
+            <a
+              key={each.id}
+              href={`#${root}/${each.id}`}
+              aria-current={each.id === id ? "page" : undefined}
+              className={chipClass}
+            >
+              {each.name}
+              {each.isDefault && <Badge state="done">Default</Badge>}
+              {each.ownerId === null && <Badge state="offline">Shared</Badge>}
+              {each.source && <Badge state="offline">Synced</Badge>}
+            </a>
+          ))}
+          {!team &&
+            (Object.keys(layerHashes) as Layer[]).map((each) => (
+              <a
+                key={each}
+                href={`#profiles/${layerHashes[each]}`}
+                aria-current={id === layerHashes[each] ? "page" : undefined}
+                className={chipClass}
+              >
+                {each === "base" && !admin && (
+                  <Icon name="lock" className="size-3.5" />
+                )}
+                {layerNames[each]}
+              </a>
+            ))}
+          {profile && (
+            <span className="ml-auto">
+              <BuildsOn
+                profile={profile}
+                profiles={profiles}
+                value={profile.buildsOn}
+                team={team}
+                disabled={profile.source !== null}
+                onChange={(buildsOn) => {
+                  send(`/api/profiles/${profile.id}`, "PUT", { buildsOn }).then(
+                    onChange,
+                    (reason: unknown) => {
+                      alert(messageOf(reason));
+                    },
+                  );
+                }}
+              />
+            </span>
+          )}
+        </nav>
+      )}
       {profile && (
         <ProfileTabs
           url={`/api/profiles/${profile.id}/files`}
-          hash={profile.id}
+          hash={`${root}/${profile.id}`}
           tab={tab}
           overview={
             <>
@@ -161,7 +180,7 @@ export function ProfilesPage({
                 editable={profile.source === null}
                 onChange={onChange}
               >
-                <ProfileParts profileId={profile.id} />
+                {!team && <ProfileParts profileId={profile.id} />}
               </ProfileOverview>
               <Editor
                 key={`${profile.id}:${JSON.stringify(profile.packages)}:${profile.buildsOn ?? ""}`}
@@ -181,15 +200,39 @@ export function ProfilesPage({
         <ProfileTabs
           key={layer}
           url={`/api/${layer}/files`}
-          hash={layerHashes[layer]}
+          hash={`profiles/${layerHashes[layer]}`}
           tab={tab}
           overview={<LayerEditor layer={layer} />}
         />
       )}
       {selected === "new" && (
-        <Editor key="new" profiles={profiles} onChange={onChange} />
+        <Editor key="new" profiles={profiles} team={team} onChange={onChange} />
       )}
-      {selected === "" && <Import onChange={onChange} />}
+      {selected === "" && !team && <Import onChange={onChange} />}
+      {selected === "" && team && profiles.length > 0 && (
+        <Rows label="Team Profiles">
+          {profiles.map((each) => (
+            <Row
+              key={each.id}
+              title={each.name}
+              initials={initialsOf(each.name)}
+              description={`Builds on ${profiles.find(({ id: under }) => under === each.buildsOn)?.name ?? "the Server base"}`}
+            >
+              <a
+                href={`#${root}/${each.id}`}
+                className="inline-flex h-control items-center rounded-md border border-line bg-elevated px-3 text-ui font-medium text-fg shadow-xs hover:bg-hover"
+              >
+                Edit
+              </a>
+            </Row>
+          ))}
+        </Rows>
+      )}
+      {selected === "" && team && profiles.length === 0 && (
+        <p className="rounded-lg border border-dashed border-line-strong p-5 text-ui text-fg-dim">
+          No team Profile yet. Team work can't start until there is one.
+        </p>
+      )}
     </div>
   );
 }
@@ -220,12 +263,14 @@ function ProfileParts({
 function Editor({
   profile,
   profiles,
+  team = false,
   saved = false,
   onSaved,
   onChange,
 }: {
   readonly profile?: Profile;
   readonly profiles: readonly Profile[];
+  readonly team?: boolean;
   readonly saved?: boolean;
   readonly onSaved?: () => void;
   readonly onChange: () => void;
@@ -287,16 +332,18 @@ function Editor({
       const created = (await (
         await api("/api/profiles", {
           ...body,
-          shared: form.get("shared") === "on",
+          ...(team ? { team: true } : { shared: form.get("shared") === "on" }),
         })
       ).json()) as Profile;
 
-      location.hash = `profiles/${created.id}`;
+      location.hash = `${profilesPath(team)}/${created.id}`;
     });
   };
 
   return (
-    <Section title={profile ? "This Profile" : "New Profile"}>
+    <Section
+      title={profile ? "This Profile" : `New ${team ? "team " : ""}Profile`}
+    >
       <form
         onSubmit={submit}
         className="flex flex-col gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5"
@@ -309,7 +356,7 @@ function Editor({
             className={fieldClass}
           />
         </Field>
-        {!profile && (
+        {!profile && !team && (
           <label className="flex items-center gap-2 text-ui text-fg">
             <input type="checkbox" name="shared" />
             Shared with everyone. Only admins can change it.
@@ -320,6 +367,7 @@ function Editor({
             profile={profile}
             profiles={profiles}
             value={buildsOn}
+            team={team}
             onChange={setBuildsOn}
           />
         )}
@@ -337,7 +385,7 @@ function Editor({
               {profile ? "Save" : "Create Profile"}
             </Button>
           )}
-          {profile && !profile.isDefault && (
+          {profile && !profile.isDefault && profile.ownerId !== "team" && (
             <Button
               onClick={() => {
                 run(async () => {
@@ -367,7 +415,7 @@ function Editor({
 
                 run(async () => {
                   await send(`/api/profiles/${profile.id}`, "DELETE");
-                  location.hash = "profiles";
+                  location.hash = profilesPath(profile.ownerId === "team");
                 });
               }}
             >
@@ -527,7 +575,7 @@ function ProfileTabs({
     <>
       {overviewShown ? (
         <a
-          href={`#profiles/${hash}/files`}
+          href={`#${hash}/files`}
           className="mt-3 self-start rounded-md px-2 py-1 text-label text-fg-dim hover:bg-hover hover:text-fg"
         >
           Open as files
@@ -540,7 +588,7 @@ function ProfileTabs({
           {tabs.map(([key, label]) => (
             <a
               key={key}
-              href={`#profiles/${hash}/${key}`}
+              href={`#${hash}/${key}`}
               aria-current={key === tab ? "page" : undefined}
               className="-mb-px shrink-0 border-b-2 border-transparent px-2 py-2 text-ui text-fg-dim hover:text-fg aria-[current=page]:border-accent aria-[current=page]:text-fg-strong"
             >
@@ -569,12 +617,14 @@ function BuildsOn({
   profile,
   profiles,
   value,
+  team,
   disabled = false,
   onChange,
 }: {
   readonly profile: Profile | undefined;
   readonly profiles: readonly Profile[];
   readonly value: string | null;
+  readonly team: boolean;
   readonly disabled?: boolean;
   readonly onChange: (id: string | null) => void;
 }): ReactElement {
@@ -593,10 +643,14 @@ function BuildsOn({
         {layerNames.base}
       </a>
       {step}
-      <a href={`#profiles/${layerHashes.defaults}`} className={chipClass}>
-        {layerNames.defaults}
-      </a>
-      {step}
+      {!team && (
+        <>
+          <a href={`#profiles/${layerHashes.defaults}`} className={chipClass}>
+            {layerNames.defaults}
+          </a>
+          {step}
+        </>
+      )}
       {disabled ? (
         <span className={chipClass}>
           {profiles.find(({ id }) => id === value)?.name ?? "Nothing else"}

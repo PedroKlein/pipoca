@@ -16,6 +16,7 @@ function registered(
   readonly called: (fields: Record<string, unknown>) => void;
   readonly warnings: readonly PluginEvent[];
   readonly events: ReturnType<typeof eventBus>;
+  readonly config: () => unknown;
 } {
   const events = eventBus((_type, error) => {
     throw error;
@@ -28,13 +29,16 @@ function registered(
   });
 
   let route: PluginRoute | undefined;
+  let config: unknown = { prices, budgets };
 
   usage.register(
     fakeContext({
       events: { ...events, declared: () => [] },
       config: {
-        get: () => ({ prices, budgets }),
-        set: () => undefined,
+        get: () => config,
+        set: (value) => {
+          config = value;
+        },
         lockedIn: () => undefined,
         dir: "",
       },
@@ -54,6 +58,7 @@ function registered(
     route,
     warnings,
     events,
+    config: () => config,
     called: (fields) => {
       events.publish({
         type: "logins.model_called",
@@ -209,4 +214,38 @@ test("logs who started, stopped and archived team work, and each use of the team
     '"","t1","used the team\'s key","anthropic/claude-sonnet-4-5"',
     '"user:ana","t1","started","Fix, ""now"""',
   ]);
+});
+
+test("only an admin sets the team's monthly budget and each person's cap, and an empty one means none", async () => {
+  const { route, config } = registered({
+    "anthropic/x": { input: 1, output: 1 },
+  });
+
+  const put = async (body: unknown, admin: boolean) =>
+    route(
+      new Request("http://usage/budgets", {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+      "budgets",
+      fakeUser({ id: "ana", admin }),
+    );
+
+  expect((await put({ team: 50, person: 10 }, false)).status).toBe(403);
+
+  expect((await put({ team: 50, person: 10 }, true)).status).toBe(204);
+
+  expect(await get(route, "totals")).toMatchObject({
+    budgets: { team: 50, person: 10 },
+  });
+
+  await put({ team: 80, person: null }, true);
+
+  expect(config()).toMatchObject({ prices: { "anthropic/x": {} } });
+
+  expect(await get(route, "totals")).toMatchObject({
+    budgets: { team: 80, person: null },
+  });
+
+  expect((await put({ team: -1, person: null }, true)).status).toBe(400);
 });

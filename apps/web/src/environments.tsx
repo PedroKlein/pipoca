@@ -33,6 +33,10 @@ import { enabledPlugins, pluginContext } from "./plugins";
 import { Templates } from "./templates";
 import { settingsPageClass } from "./page-class";
 
+function environmentsPath(team: boolean): string {
+  return team ? "team/setup/environments" : "environments";
+}
+
 export const kindNames: Readonly<Record<EnvironmentKind, string>> = {
   machine: "Machines",
   docker: "Docker image",
@@ -48,16 +52,21 @@ const kindAbout: Readonly<Record<EnvironmentKind, string>> = {
     "Each person gets a pod on the cluster, which their Sessions share. There are no machines to connect: the server starts a pod when a Session needs one and stops it when it goes idle.",
 };
 
+// A person's Environments in Settings, or with team the team's in Team
+// setup.
 export function EnvironmentsPage({
   environments,
+  team = false,
   selected,
   onChange,
 }: {
   readonly environments: readonly Environment[];
+  readonly team?: boolean;
   readonly selected: string;
   readonly onChange: () => void;
 }): ReactElement {
   const environment = environments.find(({ id }) => id === selected);
+  const root = environmentsPath(team);
   const templates = useTemplates();
   const [adding, setAdding] = useState(false);
 
@@ -71,11 +80,11 @@ export function EnvironmentsPage({
     return (
       <div id="environments-page" className={settingsPageClass}>
         <a
-          href="#environments"
+          href={`#${root}`}
           className="mb-3 inline-flex items-center gap-1 text-label text-fg-dim hover:text-fg"
         >
           <Icon name="chevron-left" className="size-3.5" />
-          Environments
+          {team ? "Team Environments" : "Environments"}
         </a>
         <Editor
           key={environment.id}
@@ -100,9 +109,15 @@ export function EnvironmentsPage({
     <div id="environments-page" className={settingsPageClass}>
       <div className="flex items-start justify-between gap-6">
         <div className="min-w-0 flex-1">
-          <PageTitle description="Where your Sessions run: a machine you connect, a Docker image on one, or pods on Kubernetes. Each has the tools and secrets its Sessions need, and it is yours alone.">
-            Environments
-          </PageTitle>
+          {team ? (
+            <PageTitle description="Where team work runs. Everyone can start team work on these, and only admins change them. Their secrets reach the runner of every team Session.">
+              Team Environments
+            </PageTitle>
+          ) : (
+            <PageTitle description="Where your Sessions run: a machine you connect, a Docker image on one, or pods on Kubernetes. Each has the tools and secrets its Sessions need, and it is yours alone.">
+              Environments
+            </PageTitle>
+          )}
         </div>
         <Button
           className="mt-7 shrink-0"
@@ -118,18 +133,24 @@ export function EnvironmentsPage({
       {adding && (
         <NewEnvironment
           templates={templates.value}
+          team={team}
           onCreated={(environmentId, key) => {
             setMadeKey({ environmentId, key });
             setAdding(false);
             onChange();
-            location.hash = `#environments/${environmentId}`;
+            location.hash = `#${root}/${environmentId}`;
           }}
         />
       )}
-      <ul aria-label="Your Environments" className="mt-6 flex flex-col gap-2.5">
+      <ul
+        aria-label={team ? "Team Environments" : "Your Environments"}
+        className="mt-6 flex flex-col gap-2.5"
+      >
         {environments.length === 0 && (
           <li className="rounded-lg border border-dashed border-line-strong p-5 text-ui text-fg-dim">
-            No Environment yet. Make one to connect a machine.
+            {team
+              ? "No team Environment yet. Team work can't start until there is one."
+              : "No Environment yet. Make one to connect a machine."}
           </li>
         )}
         {environments.map((each) => (
@@ -143,7 +164,9 @@ export function EnvironmentsPage({
           </li>
         ))}
       </ul>
-      <Templates templates={templates.value} onChange={templates.reload} />
+      {!team && (
+        <Templates templates={templates.value} onChange={templates.reload} />
+      )}
     </div>
   );
 }
@@ -176,7 +199,7 @@ function EnvironmentCard({
 
   return (
     <a
-      href={`#environments/${environment.id}`}
+      href={`#${environmentsPath(environment.ownerId === "team")}/${environment.id}`}
       className="flex items-center gap-4 rounded-lg border border-line bg-elevated p-4 shadow-xs hover:border-line-strong"
     >
       <span
@@ -221,9 +244,11 @@ function plural(count: number, noun: string): string {
 
 function NewEnvironment({
   templates,
+  team,
   onCreated,
 }: {
   readonly templates: readonly EnvironmentTemplate[];
+  readonly team: boolean;
   readonly onCreated: (environmentId: string, key: string) => void;
 }): ReactElement {
   const [error, setError] = useState<string>();
@@ -237,6 +262,7 @@ function NewEnvironment({
     void api("/api/environments", {
       name: fields.get("name"),
       ...(typeof template === "string" && template !== "" && { template }),
+      ...(team && { team: true }),
     })
       .then(async (response) => {
         const created = (await response.json()) as {
@@ -646,7 +672,7 @@ function Editor({
               deleteEnvironment(environment).then(
                 (deleted) => {
                   if (deleted) {
-                    location.hash = "#environments";
+                    location.hash = `#${environmentsPath(environment.ownerId === "team")}`;
                     onChange();
                   }
                 },

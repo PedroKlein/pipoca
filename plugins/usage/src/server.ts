@@ -1,6 +1,10 @@
 import {
+  BadRequest,
+  fieldsOf,
   isObject,
   NotFound,
+  readJson,
+  requireAdmin,
   type PluginEvent,
   type PluginStore,
   type RouteCaller,
@@ -73,6 +77,7 @@ export const usage: ServerPlugin = {
 
       if (entry !== undefined) {
         audit.add(entry);
+        context.changes.publish("audit");
       }
     };
 
@@ -132,6 +137,8 @@ export const usage: ServerPlugin = {
         detail: `${call.provider}/${call.model ?? ""}`,
       });
 
+      context.changes.publish("audit");
+
       if (call.cost === null || call.cost === 0) {
         return;
       }
@@ -153,7 +160,27 @@ export const usage: ServerPlugin = {
       }
     });
 
-    context.routes.handle((request, path, caller) => {
+    context.routes.handle(async (request, path, caller) => {
+      if (caller.kind === "user" && request.method === "PUT") {
+        if (path !== "budgets") {
+          throw new NotFound(`no route ${path}`);
+        }
+
+        requireAdmin(caller, "Only admins set the team's budgets.");
+
+        const set = budgetsOf(await readJson(request));
+        const config = context.config.get();
+
+        context.config.set({
+          ...(isObject(config) ? config : {}),
+          budgets: set,
+        });
+
+        context.changes.publish("totals");
+
+        return new Response(null, { status: 204 });
+      }
+
       if (caller.kind !== "user" || request.method !== "GET") {
         throw new NotFound(`no route ${path}`);
       }
@@ -253,6 +280,26 @@ function callOf(
         ? null
         : (input * price.input + output * price.output) / 1_000_000,
   };
+}
+
+function budgetsOf(body: unknown): Budgets {
+  const fields = fieldsOf(body);
+
+  const amount = (key: keyof Budgets): number | null => {
+    const value = fields[key];
+
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    if (typeof value !== "number" || !(value > 0)) {
+      throw new BadRequest(`${key} must be dollars above zero, or null`);
+    }
+
+    return value;
+  };
+
+  return { team: amount("team"), person: amount("person") };
 }
 
 function dollars(value: unknown): number | null {
