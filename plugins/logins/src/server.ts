@@ -19,6 +19,13 @@ import {
 import type { ModelRef } from "@pipoca/protocol";
 import { callbacks, callbackUrl } from "./callback";
 import { connections, modelSignIn } from "./connect";
+import {
+  forward,
+  proxyTokens,
+  tokenOf,
+  type Upstream,
+  upstreams,
+} from "./proxy";
 import { type Locks, locks } from "./locks";
 import {
   type McpOAuthState,
@@ -102,12 +109,15 @@ export const logins: ServerPlugin = {
     // Session.
     let catalog: readonly ModelRef[] = [];
     let connectable: readonly Connectable[] = [];
+    let proxied: ReadonlyMap<string, Upstream> = new Map();
 
     void ModelRuntime.create({ modelsPath: null, allowModelNetwork: false })
       .then((runtime) => {
         catalog = runtime
           .getModels()
           .map(({ provider, id }) => ({ provider, id }));
+
+        proxied = upstreams(runtime.getModels());
 
         connectable = runtime.getProviders().flatMap(({ id, name, auth }) => {
           const methods = [
@@ -149,11 +159,69 @@ export const logins: ServerPlugin = {
 
     const returns = callbacks();
 
-    context.auth.handlePublic((request, path) =>
-      request.method === "GET" && path === "callback"
-        ? returns.handle(request)
-        : undefined,
-    );
+    const tokens = proxyTokens(context.store);
+
+    // The team's API keys on the base, which team Sessions reach only
+    // through the proxy.
+    const teamProviders = (): readonly string[] =>
+      [...proxied.keys()].filter(
+        (provider) => models.get(baseOwner, provider)?.type === "api_key",
+      );
+
+    // A team Session's model call, with its token in place of the key
+    // (ADR 0066).
+    const proxy = async (
+      request: Request,
+      provider: string,
+      rest: string,
+    ): Promise<Response> => {
+      const upstream = proxied.get(provider);
+      if (upstream === undefined) {
+        throw new NotFound(`no proxy for ${provider}`);
+      }
+
+      const token = tokenOf(request, upstream.header);
+
+      const session =
+        token === undefined
+          ? undefined
+          : context.sessions.get(tokens.sessionOf(token) ?? "");
+
+      if (session?.ownedBy !== "team" || session.archivedAt !== null) {
+        throw new HttpError(401, "not a team Session's token", "unauthorized");
+      }
+
+      const key = models.get(baseOwner, provider);
+      if (key?.type !== "api_key" || key.key === undefined) {
+        throw new HttpError(
+          403,
+          `the team has no API key for ${provider}`,
+          "no_team_key",
+        );
+      }
+
+      const answer = await forward(request, upstream, rest, key.key);
+
+      context.log("model call proxied", {
+        sessionId: session.id,
+        provider,
+        status: answer.status,
+      });
+
+      return answer;
+    };
+
+    context.auth.handlePublic(async (request, path) => {
+      if (request.method === "GET" && path === "callback") {
+        return returns.handle(request);
+      }
+
+      const [first, provider = "", ...rest] = path.split("/");
+
+      return first === "proxy"
+        ? await proxy(request, provider, rest.join("/"))
+        : undefined;
+    });
 
     const servers = () => signableServers(context.profiles.mcpServers());
 
@@ -182,6 +250,21 @@ export const logins: ServerPlugin = {
       const userId = userOf(caller);
       const [route = "", key = "", action] = path.split("/");
       const kind = [models, mcp].find(({ name }) => name === route);
+
+      if (caller.kind === "session" && route === "proxy") {
+        const team = caller.session.ownedBy === "team";
+        const origin = new URL(request.url).origin;
+
+        return Response.json({
+          providers: team
+            ? teamProviders().map((provider) => ({
+                provider,
+                baseUrl: `${origin}/api/plugins/logins/proxy/${provider}`,
+              }))
+            : [],
+          ...(team && { token: tokens.issue(caller.session.id) }),
+        });
+      }
 
       if (caller.kind === "session") {
         if (kind === undefined) {
