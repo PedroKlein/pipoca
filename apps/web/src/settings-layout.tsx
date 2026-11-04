@@ -37,8 +37,6 @@ const integrationsPath = "settings/integrations";
 // Settings is grouped by who it is for, and only admins see the server's
 // pages (ADR 0063).
 function groups(admin: boolean, people: boolean): readonly Group[] {
-  const integrations = pluginPages("integrations");
-
   return [
     {
       label: "You",
@@ -61,15 +59,10 @@ function groups(admin: boolean, people: boolean): readonly Group[] {
       ? [
           {
             label: "Server, for admins",
-            entries: [
-              ...(people ? [{ path: "people", label: "People" }] : []),
-              ...pluginPages("server"),
-              ...(integrations.length > 0
-                ? [{ path: integrationsPath, label: "Integrations" }]
-                : []),
-              { path: "plugins", label: "Plugins" },
-              { path: "settings/configuration", label: "Configuration" },
-            ],
+            entries: serverPages(people).map(({ path, label }) => ({
+              path,
+              label,
+            })),
           },
         ]
       : []),
@@ -84,6 +77,88 @@ function opens(route: string, path: string): boolean {
   );
 }
 
+export interface ServerPage {
+  readonly key: string;
+  readonly path: string;
+  readonly label: string;
+}
+
+// The pages the whole server shares, which Team setup shows too (ADR 0064).
+export function serverPages(people: boolean): readonly ServerPage[] {
+  return [
+    ...(people ? [{ key: "people", path: "people", label: "People" }] : []),
+    ...pluginPages("server").map(({ path, label }) => ({
+      key: path.slice("settings/".length),
+      path,
+      label,
+    })),
+    ...(pluginPages("integrations").length > 0
+      ? [{ key: "integrations", path: integrationsPath, label: "Integrations" }]
+      : []),
+    { key: "plugins", path: "plugins", label: "Plugins" },
+    {
+      key: "configuration",
+      path: "settings/configuration",
+      label: "Configuration",
+    },
+  ];
+}
+
+// Says a page is the server's, the same one the other area shows.
+export function SharedNote({
+  children,
+}: {
+  readonly children: ReactNode;
+}): ReactElement {
+  return (
+    <p
+      role="note"
+      className="mx-auto mt-4 flex w-full max-w-chat items-center gap-2 px-4 text-caption text-fg-dim md:px-12"
+    >
+      <Icon name="settings" />
+      <span>{children}</span>
+    </p>
+  );
+}
+
+// One of the server's pages, at its key, under base in the address.
+export function ServerPageView({
+  page,
+  route,
+  base,
+  user,
+}: {
+  readonly page: ServerPage;
+  readonly route: string;
+  readonly base: string;
+  readonly user: string;
+}): ReactElement {
+  switch (page.key) {
+    case "people":
+      return <PeoplePage user={user} />;
+    case "plugins":
+      return <PluginsPage />;
+    case "configuration":
+      return <ConfigurationPage />;
+    case "integrations":
+      return <IntegrationsPage route={route} base={base} />;
+  }
+
+  const Section = enabledPlugins().find(
+    (plugin) => plugin.name === page.key,
+  )?.SettingsSection;
+
+  return (
+    <div className={settingsPageClass}>
+      {Section && (
+        <PluginBoundary name={page.key}>
+          <Section context={pluginContext(page.key)} />
+        </PluginBoundary>
+      )}
+    </div>
+  );
+}
+
 export function isSettingsRoute(route: string): boolean {
   return /^(environments|profiles|plugins|people|settings)(\/|$)/.test(route);
 }
@@ -93,6 +168,7 @@ export function SettingsLayout({
   user,
   admin,
   people,
+  team,
   environments,
   profiles,
   onEnvironmentsChange,
@@ -102,12 +178,17 @@ export function SettingsLayout({
   readonly user: string;
   readonly admin: boolean;
   readonly people: boolean;
+  readonly team: boolean;
   readonly environments: readonly Environment[];
   readonly profiles: readonly Profile[];
   readonly onEnvironmentsChange: () => void;
   readonly onProfilesChange: () => void;
 }): ReactElement {
   const menu = groups(admin, people);
+
+  const shared = admin
+    ? serverPages(people).find(({ path }) => opens(route, path))
+    : undefined;
 
   const page = (): ReactNode => {
     const profilesRoute = /^profiles\/?(.*)$/.exec(route);
@@ -154,7 +235,7 @@ export function SettingsLayout({
     }
 
     if (opens(route, integrationsPath)) {
-      return <IntegrationsPage route={route} />;
+      return <IntegrationsPage route={route} base={integrationsPath} />;
     }
 
     const name = /^settings\/(.+)$/.exec(route)?.[1];
@@ -224,6 +305,19 @@ export function SettingsLayout({
         >
           <Icon name="chevron-left" />
         </a>
+        {team && shared !== undefined && (
+          <SharedNote>
+            Server-wide, for personal and team work alike. Team setup shows this
+            same page:{" "}
+            <a
+              href={`#team/setup/server/${shared.key}`}
+              className="text-fg underline"
+            >
+              open it there
+            </a>
+            .
+          </SharedNote>
+        )}
         {page()}
       </div>
     </div>
@@ -293,13 +387,19 @@ function PhoneMenu({
 
 // Plugins that start routines from outside, such as Slack and Email, share
 // one page with a tab each (ADR 0063).
-function IntegrationsPage({ route }: { readonly route: string }): ReactElement {
+function IntegrationsPage({
+  route,
+  base,
+}: {
+  readonly route: string;
+  readonly base: string;
+}): ReactElement {
   const tabs = enabledPlugins().filter(
     ({ SettingsSection, settingsGroup }) =>
       SettingsSection !== undefined && settingsGroup === "integrations",
   );
 
-  const chosen = route.slice(integrationsPath.length + 1);
+  const chosen = route.slice(base.length + 1);
   const open = tabs.find(({ name }) => name === chosen) ?? tabs[0];
   const Section = open?.SettingsSection;
 
@@ -317,7 +417,7 @@ function IntegrationsPage({ route }: { readonly route: string }): ReactElement {
           <a
             key={name}
             role="tab"
-            href={`#${integrationsPath}/${name}`}
+            href={`#${base}/${name}`}
             aria-selected={name === open?.name}
             className="-mb-px border-b-2 border-transparent px-3 py-2 text-ui text-fg-dim hover:text-fg aria-selected:border-fg-strong aria-selected:font-medium aria-selected:text-fg-strong"
           >

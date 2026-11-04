@@ -148,7 +148,7 @@ export function TeamCredentials({
         Team work reaches git hosts, and installs its Profiles&apos; private
         packages, as the bot an admin chose for the team on each host, never
         with a person&apos;s token. Choose it under Bots in{" "}
-        <a href="#settings/git-hosts" className="text-fg underline">
+        <a href="#team/setup/server/git-hosts" className="text-fg underline">
           Git hosts
         </a>
         .
