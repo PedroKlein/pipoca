@@ -55,6 +55,9 @@ export type StoredEnvironment = Omit<
 // v1 has one user, who owns every record (ADR 0015).
 export const owner = "local";
 
+// The owner of what the team owns, rather than one person (ADR 0064).
+const teamOwner = "team";
+
 export interface SessionStore {
   profile: (id: string) =>
     | (ProfileContent & {
@@ -276,9 +279,18 @@ export class Sessions {
     // are the Environments (ADR 0049).
     const startedBy = this.#starter(request.actor);
 
+    // A Session that team work starts is team work too, so nothing a team
+    // Session runs reaches its starter's own runners or logins.
+    const team = request.team === true || this.#fromTeam(request.actor);
+
     const environments = this.#store
       .environments()
-      .filter(({ ownerId }) => startedBy === null || ownerId === startedBy);
+      .filter(({ ownerId }) =>
+        team
+          ? ownerId === teamOwner
+          : ownerId !== teamOwner &&
+            (startedBy === null || ownerId === startedBy),
+      );
 
     const environment =
       request.environment === undefined
@@ -290,18 +302,23 @@ export class Sessions {
     }
 
     const profileId =
-      request.profile ?? this.#store.defaultProfileId(startedBy ?? owner);
+      request.profile ??
+      (team ? "" : this.#store.defaultProfileId(startedBy ?? owner));
 
     const provided = this.#pluginProfile(profileId);
 
     const stored = this.#store.profile(profileId);
 
-    // Shared Profiles have no owner (ADR 0041).
+    // Shared Profiles have no owner (ADR 0041). Team work runs only on the
+    // team's (ADR 0064).
     const usable =
       provided === undefined
         ? stored !== undefined &&
-          (stored.ownerId === null || stored.ownerId === startedBy)
-        : ownedBy !== undefined &&
+          (team
+            ? stored.ownerId === teamOwner
+            : stored.ownerId === null || stored.ownerId === startedBy)
+        : !team &&
+          ownedBy !== undefined &&
           (provided.plugin === ownedBy.plugin ||
             provided.sharedWith?.includes(ownedBy.plugin) === true);
 
@@ -443,16 +460,37 @@ export class Sessions {
     return this.#store
       .list({ includeArchived: archived, ...(ownedBy && { owner: ownedBy }) })
       .filter(
-        (session) => person === undefined || this.#person(session) === person,
+        (session) =>
+          person === undefined ||
+          (!this.#team(session) && this.#person(session) === person),
       )
       .map((session) => this.#view(session));
   }
 
-  // Whether the Session is the person's own (ADR 0049).
+  // Whether the person may open and steer the Session: their own (ADR 0049)
+  // or the team's, which is open to every user (ADR 0064).
   belongsTo(id: string, person: string): boolean {
     const session = this.#store.get(id);
 
-    return session !== undefined && this.#person(session) === person;
+    return (
+      session !== undefined &&
+      (this.#team(session) || this.#person(session) === person)
+    );
+  }
+
+  #team(session: Pick<StoredSession, "environmentId">): boolean {
+    return (
+      this.#store.environments().find(({ id }) => id === session.environmentId)
+        ?.ownerId === teamOwner
+    );
+  }
+
+  // A Session that a team Session starts, directly or further down.
+  #fromTeam(actor: Actor): boolean {
+    const [kind = "", id = ""] = actor.split(/:(.*)/);
+    const session = kind === "session" ? this.#store.get(id) : undefined;
+
+    return session !== undefined && this.#team(session);
   }
 
   // Who started a Session, or else whose Environment it runs in.
@@ -1242,7 +1280,7 @@ export class Sessions {
       .flatMap((next) => {
         let profile: ProfileFiles | undefined;
         try {
-          profile = this.profileFiles(next.profileId, next.startedBy);
+          profile = this.profileFiles(next);
         } catch (error) {
           this.#update({
             ...next,
@@ -1364,8 +1402,10 @@ export class Sessions {
   }
 
   #gitLoginsOf(session: StoredSession): Pick<Assignment, "gitLogins"> {
+    // Team work signs git in only as a technical user, never as a person.
     const logins =
-      session.startedBy === null
+      session.startedBy === null ||
+      (this.#team(session) && session.actsAs === null)
         ? []
         : this.#gitLogins(session.startedBy, session);
 
@@ -1377,7 +1417,13 @@ export class Sessions {
     return this.#docs;
   }
 
-  profileFiles(id: string, personId: string | null): ProfileFiles | undefined {
+  // What a Session's runner gets of its Profile, on its starter's My
+  // defaults unless it's team work (ADR 0064).
+  profileFiles(
+    session: Pick<StoredSession, "profileId" | "startedBy" | "environmentId">,
+  ): ProfileFiles | undefined {
+    const id = session.profileId;
+    const personId = this.#team(session) ? null : session.startedBy;
     const provided = this.#pluginProfile(id);
     if (!provided) {
       return this.#store.profileFiles(id, personId);
@@ -1553,7 +1599,9 @@ export class Sessions {
   #view(session: StoredSession): Session {
     return {
       ...session,
-      ownedBy: `person:${this.#person(session) ?? owner}`,
+      ownedBy: this.#team(session)
+        ? teamOwner
+        : `person:${this.#person(session) ?? owner}`,
       online: this.#online(session),
       waiting: this.#waiting(session),
     };

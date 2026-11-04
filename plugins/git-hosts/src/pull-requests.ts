@@ -48,7 +48,7 @@ export function pullRequests(
 
   const watch = (session: Session, url: string): Watch => {
     const userId = session.startedBy;
-    if (userId === null) {
+    if (userId === null || session.ownedBy === "team") {
       throw new BadRequest("only a Session a person started can watch");
     }
 
@@ -114,7 +114,9 @@ export function pullRequests(
       },
       exposure: "direct",
       annotations: { readOnlyHint: false, destructiveHint: false },
-      appliesTo: ({ startedBy }) => startedBy !== null,
+      // A person's git accounts never serve team work (ADR 0066).
+      appliesTo: ({ startedBy, ownedBy }) =>
+        startedBy !== null && ownedBy !== "team",
       run: async (input, { session }) => {
         const { url } = (input ?? {}) as { url?: unknown };
 

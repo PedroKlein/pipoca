@@ -238,3 +238,35 @@ test("an MCP logout reaches every runner", async () => {
     ),
   ).toBeUndefined();
 });
+
+test("a team Session points the providers it's given at the proxy, with its token as the key", async () => {
+  const registered: [string, unknown][] = [];
+
+  const cloud = {
+    request: async () =>
+      Promise.resolve(
+        Response.json({
+          providers: [
+            { provider: "anthropic", baseUrl: "http://server/proxy/anthropic" },
+          ],
+          token: "ppx_1",
+        }),
+      ),
+    log: () => undefined,
+  } as unknown as SessionCloud;
+
+  await logins.extension?.(cloud)({
+    registerProvider: (name: string, config: unknown) => {
+      registered.push([name, config]);
+    },
+  } as unknown as Parameters<
+    ReturnType<NonNullable<typeof logins.extension>>
+  >[0]);
+
+  expect(registered).toEqual([
+    [
+      "anthropic",
+      { baseUrl: "http://server/proxy/anthropic", apiKey: "ppx_1" },
+    ],
+  ]);
+});
