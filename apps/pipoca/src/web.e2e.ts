@@ -734,7 +734,8 @@ test("changes a plugin's setting on the Plugins page", async () => {
   await openSettings("Plugins");
 
   const library = page.getByRole("listitem", { name: "Library" });
-  await library.getByText("On", { exact: true }).waitFor();
+  await library.getByRole("switch", { name: "On", checked: true }).waitFor();
+  await library.getByRole("button", { name: "Settings" }).click();
 
   const limit = library.getByLabel(/^File size limit in MB/);
   expect(await limit.inputValue()).toBe("10");
@@ -744,6 +745,7 @@ test("changes a plugin's setting on the Plugins page", async () => {
   await library.getByText("Saved").waitFor();
 
   await page.reload();
+  await library.getByRole("button", { name: "Settings" }).click();
   expect(await limit.inputValue()).toBe("25");
 
   await limit.fill("10");
@@ -751,12 +753,28 @@ test("changes a plugin's setting on the Plugins page", async () => {
   await library.getByText("Saved").waitFor();
 });
 
+test("finds a plugin by a word of its name or description", async () => {
+  await page.goto(server.url.href);
+  await openSettings("Plugins");
+
+  const plugins = page.getByRole("list", { name: "Plugins" });
+  await plugins.getByRole("listitem", { name: "Library" }).waitFor();
+
+  await page.getByLabel("Search plugins").fill("subagents");
+
+  await plugins
+    .getByRole("listitem", { name: "Library" })
+    .waitFor({ state: "detached" });
+
+  expect(await plugins.getByRole("listitem").count()).toBe(1);
+});
+
 test("turns an installed plugin on for the next start", async () => {
   await page.goto(server.url.href);
   await openSettings("Plugins");
 
   const hello = page.getByRole("listitem", { name: "Hello" });
-  await hello.getByText("Installed", { exact: true }).waitFor();
+  await hello.getByText(/^Installed/).waitFor();
 
   page.once("dialog", (dialog) => {
     void dialog.accept();
@@ -804,11 +822,13 @@ test("installs a plugin from a git repository, asks before turning it on, and re
   await page.goto(server.url.href);
   await openSettings("Plugins");
 
+  await page.getByRole("button", { name: "Install from git" }).click();
+
   await page
     .getByLabel(/Install from a git repository/)
     .fill(`file://${source}`);
 
-  await page.getByRole("button", { name: "Install" }).click();
+  await page.getByRole("button", { name: "Install", exact: true }).click();
 
   await page.getByText("Installed Weather, turned off.").waitFor();
 

@@ -5,9 +5,10 @@ import {
   cn,
   Field,
   fieldClass,
-  initialsOf,
+  Icon,
   PageTitle,
   Section,
+  Segmented,
   Select,
   Switch,
 } from "@pipoca/ui";
@@ -19,53 +20,88 @@ import { settingsOf } from "./plugin-settings";
 import { webPartError } from "./plugins";
 import { settingsPageClass } from "./page-class";
 
-const states = {
-  on: { badge: "done", label: "On" },
-  off: { badge: "offline", label: "Off" },
-  failed: { badge: "failed", label: "Failed" },
-} as const;
-
 export function PluginsPage(): ReactElement {
   const { value: plugins, reload } = usePlugins();
+  const [installing, setInstalling] = useState(false);
+  const [query, setQuery] = useState("");
+  const [shown, setShown] = useState<"all" | "git">("all");
 
-  const groups = [
-    {
-      title: "Installed",
-      description: "Added to this server from a repository or a URL",
-      plugins: plugins.filter(({ source }) => source === "installed"),
-    },
-    {
-      title: "Built in",
-      description: "Part of Pipoca",
-      plugins: plugins.filter(({ source }) => source !== "installed"),
-    },
-  ].filter((group) => group.plugins.length > 0);
+  const fromGit = plugins.filter(({ source }) => source === "installed");
+  const words = query.trim().toLowerCase();
+
+  const listed = (shown === "all" ? plugins : fromGit).filter(
+    ({ title, description }) =>
+      `${title} ${description}`.toLowerCase().includes(words),
+  );
 
   return (
     <div id="plugins-page" className={settingsPageClass}>
-      <PageTitle description="Plugins add features to Pipoca, for everyone on this server. The server uses new settings at once, open pages after a reload, and Sessions the next time they start.">
+      <PageTitle
+        description="Features for everyone on this server. A plugin with settings adds its own page to this menu."
+        actions={
+          !installing && (
+            <Button
+              onClick={() => {
+                setInstalling(true);
+              }}
+            >
+              Install from git
+            </Button>
+          )
+        }
+      >
         Plugins
       </PageTitle>
       {plugins.some(waitsForRestart) && <Restart />}
-      <Install onInstalled={reload} />
-      {groups.map((group) => (
-        <Section
-          key={group.title}
-          title={group.title}
-          description={group.description}
-        >
-          <ul className="flex flex-col rounded-lg border border-line bg-elevated shadow-xs">
-            {group.plugins.map((plugin) => (
-              <PluginRow key={plugin.id} plugin={plugin} onChange={reload} />
-            ))}
-          </ul>
-        </Section>
-      ))}
+      {installing && (
+        <Install
+          onInstalled={reload}
+          onClose={() => {
+            setInstalling(false);
+          }}
+        />
+      )}
+      <div className="mt-6 flex flex-wrap items-center gap-2.5">
+        <label className="flex h-9.5 min-w-60 flex-1 items-center gap-2 rounded-md border border-line bg-elevated px-3 focus-within:border-line-strong">
+          <Icon name="search" />
+          <input
+            type="search"
+            value={query}
+            aria-label="Search plugins"
+            placeholder="Search plugins"
+            className="flex-1 bg-transparent text-ui outline-none"
+            onChange={(event) => {
+              setQuery(event.target.value);
+            }}
+          />
+        </label>
+        <Segmented
+          label="Show"
+          value={shown}
+          onChange={setShown}
+          options={[
+            { value: "all", label: `Installed · ${String(plugins.length)}` },
+            { value: "git", label: `From git · ${String(fromGit.length)}` },
+          ]}
+        />
+      </div>
+      <ul aria-label="Plugins" className="mt-6 grid gap-3 md:grid-cols-2">
+        {listed.map((plugin) => (
+          <PluginCard key={plugin.id} plugin={plugin} onChange={reload} />
+        ))}
+      </ul>
+      {listed.length === 0 && (
+        <p className="mt-2 text-label text-fg-dim">No plugin matches.</p>
+      )}
+      <p className="mt-6 text-caption text-fg-dim">
+        Turning a plugin on or off applies when the server restarts, to open
+        pages after a reload, and to Sessions the next time they start.
+      </p>
     </div>
   );
 }
 
-function PluginRow({
+function PluginCard({
   plugin,
   onChange,
 }: {
@@ -73,48 +109,170 @@ function PluginRow({
   readonly onChange: () => void;
 }): ReactElement {
   const failure = webPartError(plugin.id);
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string>();
+  const [note, setNote] = useState<string>();
+  const installed = plugin.source === "installed";
+  const hasSettings = Object.keys(plugin.settings ?? {}).length > 0;
+
+  const run = (change: () => Promise<string | undefined>): void => {
+    change().then(
+      (said) => {
+        setError(undefined);
+        setNote(said);
+        onChange();
+      },
+      (reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      },
+    );
+  };
+
+  const turn = (): void => {
+    if (!plugin.turnedOn && !confirm(trustQuestion(plugin))) {
+      return;
+    }
+
+    run(async () => {
+      await send(`/api/plugins/${plugin.id}`, "PATCH", {
+        enabled: !plugin.turnedOn,
+        digest: plugin.digest,
+      });
+
+      return undefined;
+    });
+  };
+
+  const update = (): void => {
+    run(async () => {
+      const response = await send(`/api/plugins/${plugin.id}`, "PATCH", {
+        update: true,
+      });
+
+      const next = (await response.json()) as PluginInfo;
+
+      if (next.installedFrom?.pinned === plugin.installedFrom?.pinned) {
+        return "It already has the newest version.";
+      }
+
+      const added = (next.capabilities ?? []).filter(
+        (capability) => !(plugin.capabilities ?? []).includes(capability),
+      );
+
+      return plugin.turnedOn && !next.turnedOn
+        ? `Its newest version asks for more${added.length > 0 ? `, ${added.join(", ")}` : ""}, so it stays off until you turn it on again.`
+        : undefined;
+    });
+  };
+
+  const remove = (): void => {
+    if (!confirm(`Remove ${plugin.title} from this server?`)) {
+      return;
+    }
+
+    run(async () => {
+      await send(`/api/plugins/${plugin.id}`, "DELETE");
+
+      return undefined;
+    });
+  };
+
+  const meta = [
+    installed ? "Installed" : "Built in",
+    plugin.version,
+    plugin.state === "off" && !switchesAtRestart(plugin) ? "Off" : undefined,
+  ].filter((part) => part !== undefined);
 
   return (
     <li
       aria-label={plugin.title}
-      className="flex flex-col gap-3 border-t border-line px-4 py-3.5 first:border-t-0"
+      className={cn(
+        "flex flex-col gap-2 rounded-lg border border-line bg-elevated p-4 shadow-xs",
+        open && "md:col-span-2",
+      )}
     >
-      <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2">
-        <span
-          aria-hidden="true"
-          className="grid size-8.5 shrink-0 place-items-center rounded-md border border-line bg-hover text-label font-semibold text-fg-strong"
-        >
-          {initialsOf(plugin.title)}
-        </span>
-        <div className="flex min-w-0 flex-1 basis-48 flex-col gap-0.5">
-          <span className="flex flex-wrap items-center gap-2 text-ui font-medium text-fg-strong">
-            {plugin.title}
-            <Badge state={states[plugin.state].badge}>
-              {states[plugin.state].label}
-              {switchesAtRestart(plugin) && " until restart"}
+      <div className="flex items-start gap-3">
+        <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-ui font-medium text-fg-strong">
+          {plugin.title}
+          {plugin.state === "failed" && <Badge state="failed">Failed</Badge>}
+          {switchesAtRestart(plugin) && (
+            <Badge state="waiting">
+              {plugin.state === "on" ? "On" : "Off"} until restart
             </Badge>
-            {plugin.source === "installed" && (
-              <Badge state="offline">Installed</Badge>
-            )}
-          </span>
-          <span className="text-label text-fg-dim">{plugin.description}</span>
-          {plugin.source === "installed" && (
-            <span className="break-all font-mono text-mono-sm text-fg-dim">
-              {[
-                plugin.version,
-                plugin.installedFrom === undefined
-                  ? "written in place"
-                  : `${plugin.installedFrom.url} at ${shortPin(plugin.installedFrom.pinned)}`,
-              ]
-                .filter((part) => part !== undefined)
-                .join(" · ")}
-            </span>
           )}
-        </div>
-        {plugin.source === "installed" && (
-          <Controls plugin={plugin} onChange={onChange} />
+          {plugin.updated === true && <Badge state="waiting">Updated</Badge>}
+        </span>
+        <span
+          title={
+            installed
+              ? undefined
+              : "The server's config file turns built-in plugins on and off"
+          }
+        >
+          <Switch
+            label="On"
+            labelHidden
+            checked={installed ? plugin.turnedOn : plugin.state === "on"}
+            disabled={!installed}
+            onChange={turn}
+          />
+        </span>
+      </div>
+      <p className="text-label text-fg-dim">{plugin.description}</p>
+      {installed && (
+        <p className="break-all font-mono text-mono-sm text-fg-dim">
+          {plugin.installedFrom === undefined
+            ? "written in place"
+            : `${plugin.installedFrom.url} at ${shortPin(plugin.installedFrom.pinned)}`}
+        </p>
+      )}
+      <div className="mt-auto flex flex-wrap items-center gap-x-1.5 gap-y-1 text-caption text-fg-dim">
+        <span>{meta.join(" · ")}</span>
+        {hasSettings && (
+          <>
+            <span aria-hidden="true">·</span>
+            <button
+              type="button"
+              aria-expanded={open}
+              className="cursor-pointer text-fg underline underline-offset-2"
+              onClick={() => {
+                setOpen(!open);
+              }}
+            >
+              Settings
+            </button>
+          </>
+        )}
+        {installed && (
+          <span className="ml-auto flex gap-1">
+            {plugin.installedFrom !== undefined && (
+              <Button variant="ghost" onClick={update}>
+                Update
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              onClick={remove}
+              disabled={plugin.state === "on"}
+              title={
+                plugin.state === "on"
+                  ? "Turn it off and restart the server to remove it"
+                  : undefined
+              }
+            >
+              Remove
+            </Button>
+          </span>
         )}
       </div>
+      {(pendingNote(plugin) ?? note) !== undefined && (
+        <p className="text-label text-fg-dim">{pendingNote(plugin) ?? note}</p>
+      )}
+      {error !== undefined && (
+        <p role="alert" className="text-caption text-failed">
+          {error}
+        </p>
+      )}
       {plugin.error !== undefined && (
         <p className="text-label text-failed">
           It failed to start: {plugin.error}
@@ -125,14 +283,13 @@ function PluginRow({
           Its web part didn&apos;t load: {failure}
         </p>
       )}
-      {plugin.settings !== undefined &&
-        Object.keys(plugin.settings).length > 0 && (
-          <SettingsForm
-            plugin={plugin}
-            settings={plugin.settings}
-            onChange={onChange}
-          />
-        )}
+      {open && plugin.settings !== undefined && (
+        <SettingsForm
+          plugin={plugin}
+          settings={plugin.settings}
+          onChange={onChange}
+        />
+      )}
     </li>
   );
 }
@@ -165,8 +322,10 @@ function shortPin(pinned: string): string {
 // turned on (ADR 0022).
 function Install({
   onInstalled,
+  onClose,
 }: {
   readonly onInstalled: () => void;
+  readonly onClose: () => void;
 }): ReactElement {
   const [error, setError] = useState<string>();
   const [installed, setInstalled] = useState<string>();
@@ -226,6 +385,9 @@ function Install({
           />
           <Button variant="primary" type="submit" disabled={installing}>
             {installing ? "Installing…" : "Install"}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            Close
           </Button>
         </div>
         <p className="text-caption text-fg-dim">
@@ -355,117 +517,6 @@ async function startedAt(): Promise<string | undefined> {
         ? ((await response.json()) as { started: string }).started
         : undefined,
     () => undefined,
-  );
-}
-
-// An installed plugin starts turned off, and turning it on is the user's call
-// (ADR 0022). Either way it takes effect when the server restarts.
-function Controls({
-  plugin,
-  onChange,
-}: {
-  readonly plugin: PluginInfo;
-  readonly onChange: () => void;
-}): ReactElement {
-  const [error, setError] = useState<string>();
-  const [note, setNote] = useState<string>();
-
-  const run = (change: () => Promise<string | undefined>): void => {
-    change().then(
-      (said) => {
-        setError(undefined);
-        setNote(said);
-        onChange();
-      },
-      (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
-      },
-    );
-  };
-
-  const turn = (): void => {
-    if (!plugin.turnedOn && !confirm(trustQuestion(plugin))) {
-      return;
-    }
-
-    run(async () => {
-      await send(`/api/plugins/${plugin.id}`, "PATCH", {
-        enabled: !plugin.turnedOn,
-        digest: plugin.digest,
-      });
-
-      return undefined;
-    });
-  };
-
-  const update = (): void => {
-    run(async () => {
-      const response = await send(`/api/plugins/${plugin.id}`, "PATCH", {
-        update: true,
-      });
-
-      const next = (await response.json()) as PluginInfo;
-
-      if (next.installedFrom?.pinned === plugin.installedFrom?.pinned) {
-        return "It already has the newest version.";
-      }
-
-      const added = (next.capabilities ?? []).filter(
-        (capability) => !(plugin.capabilities ?? []).includes(capability),
-      );
-
-      return plugin.turnedOn && !next.turnedOn
-        ? `Its newest version asks for more${added.length > 0 ? `, ${added.join(", ")}` : ""}, so it stays off until you turn it on again.`
-        : undefined;
-    });
-  };
-
-  const remove = (): void => {
-    if (!confirm(`Remove ${plugin.title} from this server?`)) {
-      return;
-    }
-
-    run(async () => {
-      await send(`/api/plugins/${plugin.id}`, "DELETE");
-
-      return undefined;
-    });
-  };
-
-  return (
-    <div className="flex flex-wrap items-center gap-2 text-ui">
-      <span className="basis-full text-label text-fg-dim empty:hidden sm:basis-auto">
-        {pendingNote(plugin) ?? note}
-      </span>
-      {plugin.installedFrom !== undefined && (
-        <Button variant="ghost" onClick={update}>
-          Update
-        </Button>
-      )}
-      <Button
-        variant="ghost"
-        onClick={remove}
-        disabled={plugin.state === "on"}
-        title={
-          plugin.state === "on"
-            ? "Turn it off and restart the server to remove it"
-            : undefined
-        }
-      >
-        Remove
-      </Button>
-      <Switch
-        label="On"
-        labelHidden
-        checked={plugin.turnedOn}
-        onChange={turn}
-      />
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
-    </div>
   );
 }
 
