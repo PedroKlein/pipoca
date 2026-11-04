@@ -716,6 +716,81 @@ test("only admins create, change or delete shared Profiles", async () => {
   expect(used.status).toBe(200);
 });
 
+test("only admins make and change team Profiles, which every user sees apart", async () => {
+  const team = await api("/api/profiles", {
+    body: { name: "Team work", team: true },
+  });
+
+  expect(team.status).toBe(201);
+
+  const created = (await team.json()) as Profile;
+
+  expect(created.ownerId).toBe("team");
+
+  const ana = await secondUser();
+  const theirs = await json<Profile[]>(api("/api/profiles", { cookie: ana }));
+
+  const teams = await json<Profile[]>(
+    api("/api/profiles?owner=team", { cookie: ana }),
+  );
+
+  expect(theirs.map(({ id }) => id)).not.toContain(created.id);
+  expect(teams.map(({ id }) => id)).toEqual([created.id]);
+
+  const statuses = await Promise.all([
+    api("/api/profiles", { cookie: ana, body: { name: "x", team: true } }),
+    api(`/api/profiles/${created.id}`, {
+      cookie: ana,
+      method: "PUT",
+      body: { agentsMd: "x" },
+    }),
+    api(`/api/profiles/${created.id}`, { cookie: ana, method: "DELETE" }),
+    api(`/api/profiles/${created.id}/default`, { cookie: ana, body: {} }),
+  ]);
+
+  expect(statuses.map(({ status }) => status)).toEqual([403, 403, 403, 400]);
+});
+
+test("a personal Session can't run on a team Profile", async () => {
+  const environment = await vmEnvironment();
+
+  const team = await json<Profile>(
+    api("/api/profiles", { body: { name: "Team work", team: true } }),
+  );
+
+  const response = await api("/api/sessions", {
+    body: {
+      environment,
+      workspace: { kind: "folder", path: root },
+      profile: team.id,
+    },
+  });
+
+  expect(response.status).toBe(400);
+});
+
+test("a team Profile builds only on another team Profile", async () => {
+  const shared = await json<Profile>(
+    api("/api/profiles", { body: { name: "Shared", shared: true } }),
+  );
+
+  const team = await json<Profile>(
+    api("/api/profiles", { body: { name: "Team", team: true } }),
+  );
+
+  const statuses = await Promise.all([
+    api("/api/profiles", {
+      body: { name: "On shared", team: true, buildsOn: shared.id },
+    }),
+    api("/api/profiles", { body: { name: "Mine", buildsOn: team.id } }),
+    api("/api/profiles", {
+      body: { name: "On team", team: true, buildsOn: team.id },
+    }),
+  ]);
+
+  expect(statuses.map(({ status }) => status)).toEqual([400, 400, 201]);
+});
+
 test("hands runners a Profile's whole folder, without what machines keep", async () => {
   const environment = await vmEnvironment();
   await api("/api/profiles", { body: { name: "Work", agentsMd: "Be brief." } });

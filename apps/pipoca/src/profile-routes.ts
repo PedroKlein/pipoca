@@ -10,6 +10,7 @@ const profileRejections = {
   default: [409, "The default Profile can't be removed."],
   in_use: [409, "Sessions still use this Profile."],
   admin_only: [403, "Only admins change shared Profiles."],
+  team: [400, "Only team work runs on a team Profile."],
   synced: [
     409,
     "This Profile follows its repository. Make a copy to change it.",
@@ -157,8 +158,12 @@ export function profileRoutes(
     [
       "GET",
       /^\/api\/profiles$/,
-      (_request, _params, actor) =>
-        Response.json(profiles.list(userIdOf(actor))),
+      (request, _params, actor) =>
+        Response.json(
+          profiles.list(userIdOf(actor), {
+            team: new URL(request.url).searchParams.get("owner") === "team",
+          }),
+        ),
     ],
     [
       "POST",
