@@ -32,12 +32,11 @@ import {
   type ToolSpec,
 } from "@pipoca/protocol";
 import type { Log } from "@pipoca/providers";
-import {
-  owner,
-  type PluginProfile,
-  type Result,
-  type SessionPlugins,
-  type Sessions,
+import type {
+  PluginProfile,
+  Result,
+  SessionPlugins,
+  Sessions,
 } from "@pipoca/sessions";
 import {
   routeToolQuestion,
@@ -438,7 +437,6 @@ export function startPlugins(
     try {
       plugin.register(
         limited(plugin.name, declared, installedIds.has(plugin.name), {
-          owner,
           tools: {
             register: (tool) => {
               if (stagedTaken(tool.name)) {

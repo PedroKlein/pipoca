@@ -902,6 +902,9 @@ export interface LivePost {
 
 export type Actor = `user:${string}` | `session:${string}` | `plugin:${string}`;
 
+// Who a record belongs to: one person, or the server's one team (ADR 0064).
+export type Owner = `person:${string}` | "team";
+
 // Pi's reasoning levels, from none to the most a model allows.
 export const thinkingLevels = [
   "off",
@@ -1114,6 +1117,7 @@ export interface Session {
   // The technical user its git acts as instead of startedBy, such as a
   // GitHub App a routine runs as (ADR 0060).
   readonly actsAs: string | null;
+  readonly ownedBy: Owner;
   readonly online: boolean;
   // Pi asked a question and waits for a person to answer it (ADR 0025).
   readonly waiting: boolean;

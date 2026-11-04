@@ -38,7 +38,6 @@ export function fakeContext(
   };
 
   return {
-    owner: "owner",
     tools: { register: notFaked("tools.register") },
     toolsets: {
       register: notFaked("toolsets.register"),
@@ -124,13 +123,14 @@ export function fakeSession(fields: Partial<Session> = {}): Session {
     workspaceKeptReason: null,
     startedBy: null,
     actsAs: null,
+    ownedBy: "person:owner",
     online: true,
     waiting: false,
     ...fields,
   };
 }
 
-// A signed-in user calling a route, the context's owner unless the test
+// A signed-in user calling a route, the owner of fakeSession unless the test
 // names another. Not an admin unless the test says.
 export function fakeUser({
   id = "owner",

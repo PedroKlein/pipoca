@@ -11,6 +11,7 @@ export {
   requireAdmin,
 } from "./http";
 export { type Static, Type } from "typebox";
+export { canSee } from "./owners";
 export { checkedSettings, settingSpecs, settingValues } from "./settings";
 export type {
   AskPermission,
