@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./server": "./src/server.ts",
     "./web": "./web/index.tsx",
     "./package.json": "./package.json"
   },
@@ -17,7 +18,10 @@
   "pipoca": {
     "id": "usage",
     "title": "Usage",
-    "description": "Shows a Session's token use and cost in its header.",
-    "capabilities": []
+    "description": "Shows a Session's token use and cost in its header, and records what team work spends through the server's proxy.",
+    "capabilities": [
+      "routes",
+      "events"
+    ]
   }
 }

@@ -14,6 +14,7 @@ import { oidc } from "@pipoca/oidc/server";
 import { projects } from "@pipoca/projects/server";
 import { email } from "@pipoca/email/server";
 import { routines } from "@pipoca/routines/server";
+import { usage } from "@pipoca/usage/server";
 import { slack } from "@pipoca/slack/server";
 import { kernelToolsets, startPlugins } from "@pipoca/pluginhost";
 import { eventBus, type ServerPlugin } from "@pipoca/plugins";
@@ -65,6 +66,7 @@ const serverPlugins: readonly ServerPlugin[] = [
   routines,
   slack,
   email,
+  usage,
 ];
 
 const repositorySyncMs = 15 * 60_000;

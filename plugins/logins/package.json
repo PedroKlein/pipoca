@@ -28,7 +28,8 @@
       "routes",
       "models",
       "profiles",
-      "sessions"
+      "sessions",
+      "events"
     ]
   }
 }
