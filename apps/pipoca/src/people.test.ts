@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Environment, Joined, Session } from "@pipoca/protocol";
+import type { Environment, Joined, Person, Session } from "@pipoca/protocol";
 import { serve } from "./serve";
 import { firstUser } from "./testdata/sign-in";
 
@@ -322,6 +322,85 @@ test("only an admin lists everyone", async () => {
   ]);
 
   expect((await api("/api/people", anas)).status).toBe(403);
+});
+
+test("an admin changes roles, but never leaves the server without an admin", async () => {
+  const anas = await ana();
+  const pedros = await pedro();
+
+  const people = await json<Person[]>(api("/api/people", pedros));
+
+  const idOf = (name: string): string =>
+    people.find((person) => person.name === name)?.id ?? "";
+
+  const byMember = await api(
+    `/api/people/${idOf("pedro")}`,
+    anas,
+    { admin: false },
+    "PATCH",
+  );
+
+  const promoted = await api(
+    `/api/people/${idOf("ana")}`,
+    pedros,
+    { admin: true },
+    "PATCH",
+  );
+
+  const listedByAna = await api("/api/people", anas);
+
+  const demoted = await api(
+    `/api/people/${idOf("pedro")}`,
+    anas,
+    { admin: false },
+    "PATCH",
+  );
+
+  const lastAdmin = await api(
+    `/api/people/${idOf("ana")}`,
+    anas,
+    { admin: false },
+    "PATCH",
+  );
+
+  expect([
+    byMember.status,
+    promoted.status,
+    listedByAna.status,
+    demoted.status,
+    lastAdmin.status,
+  ]).toEqual([403, 200, 200, 200, 409]);
+
+  expect(
+    (await json<Person[]>(api("/api/people", anas))).map(({ name, admin }) => [
+      name,
+      admin,
+    ]),
+  ).toEqual([
+    ["pedro", false],
+    ["ana", true],
+  ]);
+});
+
+test("lists who is still setting up and when each person was last active", async () => {
+  const before = new Date().toISOString();
+  const anas = await ana();
+  const pedros = await pedro();
+
+  await api("/api/environments", anas);
+
+  await api("/api/setup", pedros, { finished: true });
+
+  const people = await json<Person[]>(api("/api/people", pedros));
+
+  expect(people.map(({ name, settingUp }) => [name, settingUp])).toEqual([
+    ["pedro", false],
+    ["ana", true],
+  ]);
+
+  expect(people.every(({ lastActive }) => (lastActive ?? "") >= before)).toBe(
+    true,
+  );
 });
 
 test("a person lists only the meta-sessions they started", async () => {

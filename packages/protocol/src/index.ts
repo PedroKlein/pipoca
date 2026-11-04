@@ -372,6 +372,16 @@ export interface DeclaredEvent extends EventSpec {
 // A plugin as the Plugins page shows it. A failed plugin's server part threw
 // while it loaded or registered, so the plugin is off until the server
 // restarts. turnedOn is whether it will be on after the next restart.
+// Someone who can use the server, as admins list them on People.
+// lastActive is when they last used the web app, to the minute.
+export interface Person {
+  readonly id: string;
+  readonly name: string;
+  readonly admin: boolean;
+  readonly settingUp: boolean;
+  readonly lastActive: string | null;
+}
+
 // Where a person is in the first-run setup (ADR 0063). Steps they dismissed
 // stop showing as reminders on home.
 export interface SetupState {

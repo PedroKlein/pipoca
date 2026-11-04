@@ -8,6 +8,7 @@ import {
 import type {
   Environment,
   ListedTemplate,
+  Person,
   PluginInfo,
   Profile,
   Session,
@@ -95,12 +96,6 @@ export function useEnvironments(): WatchedList<Environment> {
     "/api/environments",
     "environments",
   ) as WatchedList<Environment>;
-}
-
-export interface Person {
-  readonly id: string;
-  readonly name: string;
-  readonly admin: boolean;
 }
 
 // For admins: everyone, and an outline of their Environments and active
@@ -225,4 +220,21 @@ function notify(done: readonly Session[], route: string): void {
       notice.close();
     });
   }
+}
+
+// The time now, again every 30 seconds, for saying how long ago something was.
+export function useNow(): number {
+  const [now, setNow] = useState(Date.now);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(Date.now());
+    }, 30_000);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, []);
+
+  return now;
 }

@@ -123,7 +123,8 @@ create table if not exists users (
   created_at text not null,
   admin integer not null default 0,
   pinned_pages text,
-  setup text
+  setup text,
+  last_active text
 );
 create table if not exists agent_tokens (
   token_hash text primary key,
@@ -224,6 +225,10 @@ function migrate(db: DatabaseSync): void {
       alter table users add column setup text;
       update users set setup = '{"finished":true,"dismissed":[]}';
     `);
+  }
+
+  if (!userColumns.some(({ name }) => name === "last_active")) {
+    db.exec("alter table users add column last_active text");
   }
 
   // A join key from before keys had a person makes the first user's
@@ -975,6 +980,14 @@ function authStore(db: DatabaseSync): AuthStore {
 
   const updateAdmin = db.prepare("update users set admin = ? where id = ?");
 
+  const selectPeople = db.prepare(
+    "select id, name, admin, setup, last_active from users order by created_at",
+  );
+
+  const updateLastActive = db.prepare(
+    "update users set last_active = ? where id = ?",
+  );
+
   const insertBrowserSession = db.prepare(
     "insert into browser_sessions (token_hash, user_id, expires_at) values (?, ?, ?)",
   );
@@ -1112,6 +1125,23 @@ function authStore(db: DatabaseSync): AuthStore {
     },
     setAdmin: (id, admin) => {
       updateAdmin.run(admin ? 1 : 0, id);
+    },
+    people: () =>
+      (
+        selectPeople.all() as unknown as (UserRow & {
+          readonly setup: string | null;
+          readonly last_active: string | null;
+        })[]
+      ).map((row) => ({
+        id: row.id,
+        name: row.name,
+        admin: row.admin === 1,
+        settingUp:
+          row.setup === null || !(JSON.parse(row.setup) as SetupState).finished,
+        lastActive: row.last_active,
+      })),
+    setLastActive: (id, at) => {
+      updateLastActive.run(at, id);
     },
     insertBrowserSession: (tokenHash, userId, expiresAt) => {
       deleteExpired.run(new Date().toISOString());

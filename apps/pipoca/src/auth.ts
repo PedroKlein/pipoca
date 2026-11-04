@@ -1,4 +1,4 @@
-import type { Joined, SetupState } from "@pipoca/protocol";
+import type { Joined, Person, SetupState } from "@pipoca/protocol";
 import {
   createHash,
   randomBytes,
@@ -26,6 +26,8 @@ export interface AuthStore {
   readonly users: () => readonly User[];
   readonly insertUser: (user: StoredUser) => void;
   readonly setAdmin: (id: string, admin: boolean) => void;
+  readonly people: () => readonly Person[];
+  readonly setLastActive: (id: string, at: string) => void;
   readonly insertBrowserSession: (
     tokenHash: string,
     userId: string,
@@ -124,6 +126,8 @@ const runnerTokenDays = 30;
 // How stale a token's last use may get before it is written again, so a
 // poll seldom writes to the database.
 const lastUsedStepMs = 60 * 60_000;
+// The same for when a person last used the web app.
+const lastActiveStepMs = 60_000;
 const minPasswordLength = 8;
 const signInLinkMs = 10 * 60_000;
 const maxNameLength = 64;
@@ -149,6 +153,7 @@ export class Auth {
   // hash.
   readonly #soloUser: User | undefined;
   readonly #signInLinks = new Map<string, SignInLink>();
+  readonly #lastActive = new Map<string, number>();
 
   constructor(
     store: AuthStore,
@@ -179,7 +184,24 @@ export class Auth {
   userOf(request: Request): User | undefined {
     const session = this.browserSessionOf(request);
 
-    return session === undefined ? undefined : this.userOfSession(session);
+    const user =
+      session === undefined ? undefined : this.userOfSession(session);
+
+    if (user !== undefined) {
+      this.#active(user.id);
+    }
+
+    return user;
+  }
+
+  #active(userId: string): void {
+    const now = this.#now();
+    if (now - (this.#lastActive.get(userId) ?? 0) < lastActiveStepMs) {
+      return;
+    }
+
+    this.#lastActive.set(userId, now);
+    this.#store.setLastActive(userId, new Date(now).toISOString());
   }
 
   // Names the request's browser session without its token, so something
@@ -629,6 +651,10 @@ export class Auth {
     });
 
     return user;
+  }
+
+  people(): readonly Person[] {
+    return this.#store.people();
   }
 
   setAdmin(id: string, admin: boolean): void {

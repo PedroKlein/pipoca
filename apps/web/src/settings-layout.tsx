@@ -136,7 +136,7 @@ export function SettingsLayout({
     }
 
     if (route === "people" && people) {
-      return <PeoplePage />;
+      return <PeoplePage user={user} />;
     }
 
     if (route === "settings/accounts") {

@@ -1336,16 +1336,22 @@ test("deletes an Environment from its page", async () => {
   });
 });
 
-test("lists everyone's Environments on the admins' People page", async () => {
+test("lists everyone on the admins' People page, with their Environments a click away", async () => {
   await page.goto(server.url.href);
   await openSettings("People");
 
-  const pedro = page.getByLabel("pedro", { exact: true });
-  await pedro.getByRole("list", { name: "Environments" }).waitFor();
+  const pedro = page.getByRole("row", { name: "pedro", exact: true });
+  await pedro.waitFor();
 
-  expect(await page.getByRole("heading", { name: "pedro Admin" }).count()).toBe(
-    1,
-  );
+  expect(await pedro.getByText(/^you\b/).count()).toBe(1);
+  expect(await pedro.getByLabel("Role of pedro").inputValue()).toBe("admin");
+
+  await pedro.getByRole("button", { name: "More for pedro" }).click();
+
+  await page
+    .getByLabel("pedro's work")
+    .getByRole("list", { name: "Environments" })
+    .waitFor();
 });
 
 test("shows why an Environment's last runner pod failed", async () => {

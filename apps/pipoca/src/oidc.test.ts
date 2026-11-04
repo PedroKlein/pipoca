@@ -646,6 +646,26 @@ test("reads the admin group again on every sign-in", async () => {
   expect([asAdmin, await save(second.cookie)]).toEqual([200, 403]);
 });
 
+test("keeps the role an admin gave when the provider names no admins", async () => {
+  await configure({ adminGroup: "" });
+  await signIn(ana);
+
+  const people = (await (
+    await api("GET", "/api/people", await pedro())
+  ).json()) as { id: string; name: string }[];
+
+  const id = people.find(({ name }) => name !== "pedro")?.id ?? "";
+
+  const made = await api("PATCH", `/api/people/${id}`, await pedro(), {
+    admin: true,
+  });
+
+  const again = await signIn(ana);
+
+  expect(made.status).toBe(200);
+  expect(await userOf(again.cookie)).toMatchObject({ admin: true });
+});
+
 test("only admins change plugins or restart the server", async () => {
   const { cookie } = await signIn(ana);
 

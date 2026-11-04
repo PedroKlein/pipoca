@@ -28,6 +28,7 @@ import {
 } from "./chat";
 import type { Feed } from "./feed";
 import { Mark } from "./mark";
+import { useNow } from "./hooks";
 import { renderMarkdown } from "./markdown";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext, toolRenderer } from "./plugins";
@@ -200,22 +201,6 @@ export function ChatView({
       </ol>
     </div>
   );
-}
-
-function useNow(): number {
-  const [now, setNow] = useState(Date.now);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setNow(Date.now());
-    }, 30_000);
-
-    return () => {
-      clearInterval(timer);
-    };
-  }, []);
-
-  return now;
 }
 
 function AnswerMeta({
