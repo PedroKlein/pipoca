@@ -19,7 +19,7 @@ Team credentials are API keys. Subscription sign-ins stay personal and never go 
 
 - Team Sessions reach model providers through a proxy on the server (decided 2026-11-04). The runner gets a token for its Session, never the key. The server checks the token, puts the real key in the header the provider expects and streams the request and the response through unchanged.
 - The proxy translates nothing. It keeps a small table of how each provider takes its key, so adding a provider is one row.
-- The Session host points each team provider at the proxy, with the Session's token in place of the key. Whether Pi lets a built-in provider's base URL be changed this way is checked first, in a spike.
+- The Session host points each team provider at the proxy, with the Session's token in place of the key. Pi allows this for its own providers, checked in the spike below.
 - HTTP MCP servers with team logins go through the same proxy.
 - Some credentials can't go through it yet: providers that extensions add, whose sign-in code runs where the extension loads, and MCP servers that run as local processes with secrets in their environment. Their keys still reach team runners, and Team setup marks each one as reaching the runner.
 - Only team work uses the proxy for now (decided 2026-11-04). Personal Sessions keep their logins as ADR 0045 describes, since those reach only the person's own runner.
@@ -39,6 +39,14 @@ Team credentials are API keys. Subscription sign-ins stay personal and never go 
 
 - Admins see every row of usage and the audit log, and can export them (decided 2026-11-04).
 - A user sees their own spend and actions, and the team's totals on the hub.
+
+## Spike results
+
+Checked on 2026-11-04 against Pi 1.3.0, with a fake provider server standing in for the proxy:
+
+- **Base URL.** A `models.json` entry that gives an existing provider only `baseUrl` and `apiKey` keeps all its built-in models, lists them as available, and sends requests to the new URL with the token where the key goes: `x-api-key` for Anthropic (`/v1/messages`), `Authorization: Bearer` for OpenAI (`/v1/responses`) and `x-goog-api-key` for Google (`:streamGenerateContent?alt=sse`). The Session host can do the same through `ModelRuntime.registerProvider`, which keeps built-in models the same way.
+- **Usage in streams.** All three report tokens inside the stream, so the proxy can count them while passing bytes through: Anthropic in `message_start` and `message_delta`, OpenAI Responses in `response.completed`, and Google in each chunk's `usageMetadata`, the last one complete. Pi asks OpenAI-compatible chat endpoints for `stream_options.include_usage`, so they report it too.
+- **HTTP MCP.** Pi's MCP client sends every request (POST, GET and DELETE) to whatever `url` a server's config has, with its `headers`, so a proxy URL and a Session token in `Authorization` work. A server signed in with OAuth needs the proxy to send the stored access token in place of the Session's.
 
 ## Consequences
 
