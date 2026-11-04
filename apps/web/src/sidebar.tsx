@@ -31,6 +31,7 @@ export interface SidebarProps {
   readonly onShowArchived: (show: boolean) => void;
   readonly onNewSession: () => void;
   readonly user: string;
+  readonly team: boolean;
 }
 
 export function Sidebar({
@@ -42,6 +43,7 @@ export function Sidebar({
   onShowArchived,
   onNewSession,
   user,
+  team,
 }: SidebarProps): ReactElement {
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -89,6 +91,20 @@ export function Sidebar({
         </span>
       </div>
 
+      {team && (
+        <a
+          href="#team"
+          className="mx-2 flex items-center gap-2.5 rounded-md px-2 py-1.5 text-ui text-fg hover:bg-hover"
+        >
+          <span
+            aria-hidden="true"
+            className="grid size-6 place-items-center rounded-md border border-line bg-elevated text-fg-dim"
+          >
+            <Icon name="users" className="size-3.5" />
+          </span>
+          Team
+        </a>
+      )}
       <PluginNav nav={nav} route={route} />
 
       <div className="mt-2 flex items-center justify-between border-t border-line px-4 pt-4 pb-2">
