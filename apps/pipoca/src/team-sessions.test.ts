@@ -884,3 +884,129 @@ test("nobody opens a vote in team work they can't see", async () => {
     ).status,
   ).toBe(404);
 });
+
+const clone = {
+  kind: "clone",
+  repository: "https://git.example.com/team/docs.git",
+  startPoint: "main",
+} as const;
+
+test("team work forks as team work, or to a person's own side with its transcript", async () => {
+  const anas = await ana();
+  const team = await teamSetup();
+
+  const { environment: laptop } = await json<{ environment: Environment }>(
+    api("/api/environments", anas, { name: "laptop" }),
+  );
+
+  const session = await json<Session>(
+    api("/api/sessions", anas, {
+      team: true,
+      environment: team.environment,
+      profile: team.profile,
+      workspace: clone,
+    }),
+  );
+
+  const [assigned] = await poll(team.runner);
+  const lines = ['{"type":"session","id":"pi-1"}'];
+
+  const appended = await fetch(
+    new URL(`/agent/sessions/${session.id}/transcript`, server.url),
+    {
+      method: "POST",
+      headers: {
+        "pipoca-protocol": "4",
+        authorization: `Bearer ${team.runner}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        generation: assigned?.generation,
+        start: 0,
+        lines,
+      }),
+    },
+  );
+
+  expect(appended.status).toBe(200);
+
+  const fork = `/api/sessions/${session.id}/fork`;
+  const teamFork = await json<Session>(api(fork, anas, {}));
+
+  expect(teamFork).toMatchObject({
+    ownedBy: "team",
+    environmentId: team.environment,
+    profileId: team.profile,
+  });
+
+  const mine = await json<Session>(api(fork, anas, { personal: true }));
+
+  expect(mine.ownedBy).toBe(`person:${mine.startedBy ?? ""}`);
+  expect(mine.environmentId).toBe(laptop.id);
+  expect(mine.profileId).not.toBe(team.profile);
+  expect(starter?.transcript(mine.id)).toEqual(lines);
+});
+
+test("personal work moves to the team from a summary, leaving its transcript behind", async () => {
+  const anas = await ana();
+  const bos = await member("bo");
+  const team = await teamSetup();
+
+  await api("/api/environments", anas, { name: "laptop" });
+
+  const mine = await json<Session>(
+    api("/api/sessions", anas, { workspace: clone }),
+  );
+
+  const move = `/api/sessions/${mine.id}/move`;
+  const summary = "Goal: fix the docs build. Done: found the broken link.";
+
+  expect((await api(move, bos, { summary })).status).toBe(404);
+  expect((await api(move, anas, { summary: " " })).status).toBe(400);
+
+  const moved = await api(move, anas, {
+    summary,
+    environment: team.environment,
+    profile: team.profile,
+  });
+
+  expect(moved.status).toBe(201);
+
+  const teamWork = (await moved.json()) as Session;
+
+  expect(teamWork).toMatchObject({
+    ownedBy: "team",
+    environmentId: team.environment,
+    profileId: team.profile,
+    firstMessage: summary,
+    workspace: {
+      kind: "clone",
+      repository: clone.repository,
+      startPoint: "main",
+    },
+  });
+
+  expect(teamWork.workspace).not.toMatchObject({
+    branch: mine.workspace.kind === "clone" ? mine.workspace.branch : "",
+  });
+
+  expect(starter?.transcript(teamWork.id)).toEqual([]);
+
+  const again = await api(`/api/sessions/${teamWork.id}/move`, anas, {
+    summary,
+  });
+
+  expect(await again.json()).toMatchObject({ error: "not_personal" });
+
+  const folder = await json<Session>(
+    api("/api/sessions", anas, { workspace: workspace() }),
+  );
+
+  const stuck = await api(`/api/sessions/${folder.id}/move`, anas, {
+    summary,
+    environment: team.environment,
+    profile: team.profile,
+  });
+
+  expect(await stuck.json()).toMatchObject({ error: "not_movable" });
+});

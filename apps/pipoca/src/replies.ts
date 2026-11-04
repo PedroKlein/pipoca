@@ -28,6 +28,7 @@ const rejections = {
     "Only team work is limited. A personal Session is its person's alone.",
   ],
   not_starter: [403, "Only whoever started it, or an admin, limits team work."],
+  not_personal: [409, "This is team work already."],
   view_only: [
     403,
     "This team work is view-only. Only whoever started it steers it.",

@@ -48,8 +48,16 @@ function thinkingOf(value: unknown, field = "thinking"): ThinkingLevel {
 export function createFork(body: unknown): {
   readonly environment?: string;
   readonly entry?: string;
+  readonly personal?: boolean;
 } {
-  const { environment, entry } = (body ?? {}) as Record<string, unknown>;
+  const { environment, entry, personal } = (body ?? {}) as Record<
+    string,
+    unknown
+  >;
+
+  if (personal !== undefined && typeof personal !== "boolean") {
+    throw new BadRequest("personal must be a boolean");
+  }
 
   for (const [field, value] of Object.entries({ environment, entry })) {
     if (
@@ -64,6 +72,36 @@ export function createFork(body: unknown): {
   return {
     ...(typeof environment === "string" && { environment }),
     ...(typeof entry === "string" && { entry }),
+    ...(personal === true && { personal }),
+  };
+}
+
+// What moving personal work to the team takes: the handoff summary the team
+// Session starts from, and optionally where it runs.
+export function moveToTeam(body: unknown): {
+  readonly summary: string;
+  readonly environment?: string;
+  readonly profile?: string;
+} {
+  const { summary, environment, profile } = (body ?? {}) as Record<
+    string,
+    unknown
+  >;
+
+  if (typeof summary !== "string" || summary.trim() === "") {
+    throw new BadRequest("summary must be a non-empty string");
+  }
+
+  for (const [field, value] of Object.entries({ environment, profile })) {
+    if (value !== undefined && (typeof value !== "string" || value === "")) {
+      throw new BadRequest(`${field} must be a non-empty string`);
+    }
+  }
+
+  return {
+    summary: summary.trim(),
+    ...(typeof environment === "string" && { environment }),
+    ...(typeof profile === "string" && { profile }),
   };
 }
 
