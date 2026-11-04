@@ -1389,6 +1389,52 @@ test("guides an admin from a token-only host to a Connect button", async () => {
   await hosts.getByText("git.example.com").waitFor({ state: "detached" });
 });
 
+test("invites someone by email, who joins with their link and a password", async () => {
+  await page.goto(server.url.href);
+  await openSettings("People");
+
+  await page.getByRole("button", { name: "Invite people" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Invite people" });
+  await dialog.getByLabel("Email addresses").fill("Bea@Example.com");
+  await dialog.getByLabel("Email addresses").press("Enter");
+  await dialog.getByRole("button", { name: "Admins" }).click();
+  await dialog.getByRole("button", { name: "Invite 1 person" }).click();
+
+  const link =
+    (await dialog
+      .getByRole("list", { name: "Invite links" })
+      .getByText(/#join\//)
+      .textContent()) ?? "";
+
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("tab", { name: "Invites · 1" }).click();
+  await page.getByRole("row", { name: "bea@example.com" }).waitFor();
+
+  const context = await browser.newContext();
+
+  try {
+    const tab = await context.newPage();
+    await tab.goto(link);
+
+    await tab
+      .getByRole("heading", { name: "pedro invited you to Pipoca" })
+      .waitFor();
+
+    const form = tab.getByRole("form", { name: "Make your account" });
+    expect(await form.getByLabel("Username").inputValue()).toBe("bea");
+
+    await form.getByLabel("Password").fill("correct horse");
+    await form.getByRole("button", { name: "Join" }).click();
+    await tab.getByText("Step 1 of").or(tab.getByText("Step 2 of")).waitFor();
+  } finally {
+    await context.close();
+  }
+
+  await page.getByRole("tab", { name: /^Members/ }).click();
+  await page.getByRole("row", { name: "bea", exact: true }).waitFor();
+}, 30_000);
+
 test("shows why an Environment's last runner pod failed", async () => {
   await page.route("**/api/plugins/kubernetes/environments/*", async (route) =>
     route.fulfill({

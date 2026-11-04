@@ -35,6 +35,8 @@ interface Pending extends Attempt {
   readonly browser: string;
   // Set when a signed-in user links their identity.
   readonly linkTo: string | undefined;
+  // The invite link the person followed to get here (ADR 0063).
+  readonly join: string | undefined;
   readonly expires: number;
 }
 
@@ -115,6 +117,7 @@ export const oidc: ServerPlugin = {
         providerId,
         browser: hash(browser),
         linkTo,
+        join: new URL(request.url).searchParams.get("join") ?? undefined,
         expires: now + attemptMs,
       });
 
@@ -180,7 +183,7 @@ export const oidc: ServerPlugin = {
           params.get("code") ?? "",
         );
 
-        return signIn(request, config, identity, attempt.linkTo);
+        return signIn(request, config, identity, attempt);
       } catch (failure) {
         if (!(failure instanceof LoginFailed)) {
           throw failure;
@@ -199,7 +202,7 @@ export const oidc: ServerPlugin = {
       request: Request,
       config: ProviderConfig,
       identity: Identity,
-      linkTo: string | undefined,
+      { linkTo, join }: Pick<Pending, "linkTo" | "join">,
     ): Response => {
       const fields = {
         provider: config.id,
@@ -208,8 +211,20 @@ export const oidc: ServerPlugin = {
       };
 
       const { allowed, admin } = access(config, identity);
+      const linked = identities.find(identity);
 
-      if (!allowed) {
+      // An invite lets a new person in past the rules, and keeps them in.
+      const invite =
+        linked === undefined && linkTo === undefined
+          ? context.auth.invited(
+              join,
+              identity.emailVerified
+                ? (identity.email ?? undefined)
+                : undefined,
+            )
+          : undefined;
+
+      if (!allowed && invite === undefined && linked?.invited !== true) {
         context.log("sign-in refused: not let in", fields);
 
         return page(
@@ -218,14 +233,12 @@ export const oidc: ServerPlugin = {
         );
       }
 
-      const linked = identities.find(identity);
-
       if (linkTo !== undefined) {
         if (linked !== undefined && linked.userId !== linkTo) {
           return page("This account already signs in as another user.", 409);
         }
 
-        identities.link(identity, linkTo, false);
+        identities.link(identity, linkTo, false, false);
         context.log("identity linked", { ...fields, userId: linkTo });
 
         return redirect("/#settings/accounts", undefined);
@@ -234,9 +247,11 @@ export const oidc: ServerPlugin = {
       let user: User | undefined;
 
       if (linked === undefined) {
+        const asAdmin = admin || invite?.admin === true;
+
         user = context.auth.createUser(
           identity.email ?? identity.subject,
-          admin,
+          asAdmin,
         );
 
         if (user === undefined) {
@@ -246,15 +261,26 @@ export const oidc: ServerPlugin = {
           );
         }
 
-        identities.link(identity, user.id, true);
-        context.log("user created", { ...fields, userId: user.id, admin });
+        identities.link(identity, user.id, true, invite !== undefined);
+
+        if (invite !== undefined) {
+          context.auth.acceptInvite(invite.id);
+        }
+
+        context.log("user created", {
+          ...fields,
+          userId: user.id,
+          admin: asAdmin,
+          invited: invite !== undefined,
+        });
       } else if (
         linked.created &&
+        !linked.invited &&
         (config.adminGroup !== "" || config.adminEmails.length > 0)
       ) {
         // Groups are read again on every sign-in, so a change in the
-        // provider applies the next time. A provider that names no admins
-        // leaves roles to People.
+        // provider applies the next time. A provider that names no admins,
+        // or someone an invite let in, leaves roles to People.
         context.auth.setAdmin(linked.userId, admin);
       }
 
@@ -476,12 +502,21 @@ function hash(text: string): string {
 }
 
 interface IdentityStore {
-  readonly find: (
-    identity: Identity,
-  ) => { readonly userId: string; readonly created: boolean } | undefined;
+  readonly find: (identity: Identity) =>
+    | {
+        readonly userId: string;
+        readonly created: boolean;
+        readonly invited: boolean;
+      }
+    | undefined;
   // created is true when the plugin made the user, so its groups decide
-  // whether it is an admin.
-  readonly link: (identity: Identity, userId: string, created: boolean) => void;
+  // whether it is an admin. invited is true when an invite let them in.
+  readonly link: (
+    identity: Identity,
+    userId: string,
+    created: boolean,
+    invited: boolean,
+  ) => void;
   readonly of: (userId: string) => readonly LinkedIdentity[];
   readonly unlink: (userId: string, issuer: string) => void;
 }
@@ -495,29 +530,47 @@ function identityStore(store: PluginStore): IdentityStore {
       email text,
       created integer not null,
       linked_at text not null,
+      invited integer not null default 0,
       primary key (issuer, subject)
     )
   `);
 
+  const columns = store.all(
+    "select name from pragma_table_info('oidc_identities')",
+  ) as { name: string }[];
+
+  if (!columns.some(({ name }) => name === "invited")) {
+    store.exec(
+      "alter table oidc_identities add column invited integer not null default 0",
+    );
+  }
+
   return {
     find: ({ issuer, subject }) => {
       const [row] = store.all(
-        "select user_id, created from oidc_identities where issuer = ? and subject = ?",
+        "select user_id, created, invited from oidc_identities where issuer = ? and subject = ?",
         issuer,
         subject,
-      ) as { user_id: string; created: number }[];
+      ) as { user_id: string; created: number; invited: number }[];
 
-      return row && { userId: row.user_id, created: row.created === 1 };
+      return (
+        row && {
+          userId: row.user_id,
+          created: row.created === 1,
+          invited: row.invited === 1,
+        }
+      );
     },
-    link: ({ issuer, subject, email }, userId, created) => {
+    link: ({ issuer, subject, email }, userId, created, invited) => {
       store.run(
-        "insert into oidc_identities (issuer, subject, user_id, email, created, linked_at) values (?, ?, ?, ?, ?, ?) on conflict (issuer, subject) do update set email = excluded.email",
+        "insert into oidc_identities (issuer, subject, user_id, email, created, linked_at, invited) values (?, ?, ?, ?, ?, ?, ?) on conflict (issuer, subject) do update set email = excluded.email",
         issuer,
         subject,
         userId,
         email,
         created ? 1 : 0,
         new Date().toISOString(),
+        invited ? 1 : 0,
       );
     },
     of: (userId) =>

@@ -349,6 +349,15 @@ export interface ServerPluginContext {
     // name is taken.
     readonly createUser: (name: string, admin: boolean) => User | undefined;
     readonly setAdmin: (userId: string, admin: boolean) => void;
+    // The invite that lets someone in past the plugin's own rules: the one
+    // whose link they followed, or else one for their verified email
+    // (ADR 0063).
+    readonly invited: (
+      join: string | undefined,
+      email: string | undefined,
+    ) => { readonly id: string; readonly admin: boolean } | undefined;
+    // Uses the invite up, for someone who just joined with it.
+    readonly acceptInvite: (id: string) => void;
     // The Set-Cookie value of a new browser session for the user, or
     // undefined when no user has the id.
     readonly startSession: (

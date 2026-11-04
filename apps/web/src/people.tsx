@@ -8,6 +8,7 @@ import {
 import {
   Badge,
   Button,
+  Icon,
   initialsOf,
   PageTitle,
   Row,
@@ -18,9 +19,11 @@ import { Fragment, type ReactElement, type ReactNode, useState } from "react";
 import { api, command, send } from "./api";
 import { ago } from "./chat";
 import { deleteEnvironment, kindNames } from "./environments";
+import { InviteDialog, InvitesTable, revoke } from "./invites";
 import {
   useEveryonesEnvironments,
   useEveryonesSessions,
+  useInvites,
   useNow,
   usePeople,
 } from "./hooks";
@@ -37,6 +40,9 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
   const people = usePeople();
   const environments = useEveryonesEnvironments();
   const sessions = useEveryonesSessions();
+  const invites = useInvites();
+  const [tab, setTab] = useState<"members" | "invites">("members");
+  const [inviting, setInviting] = useState(false);
   const [open, setOpen] = useState<string>();
   const [error, setError] = useState<string>();
 
@@ -46,6 +52,7 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
         setError(undefined);
         sessions.reload();
         people.reload();
+        invites.reload();
       },
       (reason: unknown) => {
         setError(reason instanceof Error ? reason.message : String(reason));
@@ -63,9 +70,29 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
 
   return (
     <div className={settingsPageClass}>
-      <PageTitle description="Who can use this server. Admins see names and states, never transcripts, files or secret values.">
+      <PageTitle
+        description="Who can use this server. Admins see names and states, never transcripts, files or secret values."
+        actions={
+          <Button
+            variant="primary"
+            onClick={() => {
+              setInviting(true);
+            }}
+          >
+            <Icon name="plus" />
+            Invite people
+          </Button>
+        }
+      >
         People
       </PageTitle>
+      <InviteDialog
+        open={inviting}
+        onClose={() => {
+          setInviting(false);
+          invites.reload();
+        }}
+      />
       {error !== undefined && (
         <p role="alert" className="mb-3 text-caption text-failed">
           {error}
@@ -74,140 +101,162 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
       <div
         role="tablist"
         aria-label="People"
-        className="flex border-b border-line"
+        className="flex gap-1 border-b border-line"
       >
-        <span
-          role="tab"
-          aria-selected="true"
-          className="-mb-px border-b-2 border-fg-strong px-3 py-2 text-ui font-medium text-fg-strong"
-        >
-          Members · {people.value.length}
-        </span>
+        {(
+          [
+            ["members", `Members · ${String(people.value.length)}`],
+            ["invites", `Invites · ${String(invites.value.length)}`],
+          ] as const
+        ).map(([name, label]) => (
+          <button
+            key={name}
+            type="button"
+            role="tab"
+            aria-selected={tab === name}
+            onClick={() => {
+              setTab(name);
+            }}
+            className="-mb-px cursor-pointer border-b-2 border-transparent px-3 py-2 text-ui text-fg-dim hover:text-fg aria-selected:border-fg-strong aria-selected:font-medium aria-selected:text-fg-strong"
+          >
+            {label}
+          </button>
+        ))}
       </div>
       <div
         role="tabpanel"
         className="mt-1.5 overflow-x-auto rounded-lg border border-line bg-elevated shadow-xs"
       >
-        <table className="w-full min-w-xl border-collapse text-ui">
-          <thead>
-            <tr>
-              <th className={headClass}>Name</th>
-              <th className={headClass}>Role</th>
-              <th className={headClass}>Now</th>
-              <th className={headClass}>Last active</th>
-              <th className={headClass}>
-                <span className="sr-only">More</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {people.value.map((person) => {
-              const theirs = sessions.value.filter(
-                (session) => personOf(session) === person.id,
-              );
+        {tab === "invites" && (
+          <InvitesTable
+            invites={invites.value}
+            onRevoke={(invite) => {
+              act(revoke(invite));
+            }}
+          />
+        )}
+        {tab === "members" && (
+          <table className="w-full min-w-xl border-collapse text-ui">
+            <thead>
+              <tr>
+                <th className={headClass}>Name</th>
+                <th className={headClass}>Role</th>
+                <th className={headClass}>Now</th>
+                <th className={headClass}>Last active</th>
+                <th className={headClass}>
+                  <span className="sr-only">More</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {people.value.map((person) => {
+                const theirs = sessions.value.filter(
+                  (session) => personOf(session) === person.id,
+                );
 
-              const own = environments.value.filter(
-                ({ ownerId }) => ownerId === person.id,
-              );
+                const own = environments.value.filter(
+                  ({ ownerId }) => ownerId === person.id,
+                );
 
-              return (
-                <Fragment key={person.id}>
-                  <tr aria-label={person.name}>
-                    <td className={cellClass}>
-                      <span className="flex items-center gap-2.5">
-                        <span
-                          aria-hidden="true"
-                          className="grid size-7 shrink-0 place-items-center rounded-full bg-hover text-caption font-semibold text-fg-strong"
+                return (
+                  <Fragment key={person.id}>
+                    <tr aria-label={person.name}>
+                      <td className={cellClass}>
+                        <span className="flex items-center gap-2.5">
+                          <span
+                            aria-hidden="true"
+                            className="grid size-7 shrink-0 place-items-center rounded-full bg-hover text-caption font-semibold text-fg-strong"
+                          >
+                            {initialsOf(person.name)}
+                          </span>
+                          <span className="flex min-w-0 flex-col">
+                            <span className="truncate text-fg-strong">
+                              {person.name}
+                            </span>
+                            <span className="text-label text-fg-dim">
+                              {[
+                                person.name === user && "you",
+                                person.settingUp && "setting up",
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </span>
+                          </span>
+                        </span>
+                      </td>
+                      <td className={cellClass}>
+                        <Select
+                          aria-label={`Role of ${person.name}`}
+                          className="w-32"
+                          value={person.admin ? "admin" : "member"}
+                          onChange={(event) => {
+                            act(
+                              send(
+                                `/api/people/${encodeURIComponent(person.id)}`,
+                                "PATCH",
+                                { admin: event.target.value === "admin" },
+                              ),
+                            );
+                          }}
                         >
-                          {initialsOf(person.name)}
-                        </span>
-                        <span className="flex min-w-0 flex-col">
-                          <span className="truncate text-fg-strong">
-                            {person.name}
-                          </span>
-                          <span className="text-label text-fg-dim">
-                            {[
-                              person.name === user && "you",
-                              person.settingUp && "setting up",
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </span>
-                        </span>
-                      </span>
-                    </td>
-                    <td className={cellClass}>
-                      <Select
-                        aria-label={`Role of ${person.name}`}
-                        className="w-32"
-                        value={person.admin ? "admin" : "member"}
-                        onChange={(event) => {
-                          act(
-                            send(
-                              `/api/people/${encodeURIComponent(person.id)}`,
-                              "PATCH",
-                              { admin: event.target.value === "admin" },
-                            ),
-                          );
-                        }}
-                      >
-                        <option value="admin">Admin</option>
-                        <option value="member">Member</option>
-                      </Select>
-                    </td>
-                    <td className={cellClass}>
-                      <Doing person={person} sessions={theirs} />
-                    </td>
-                    <td className={`${cellClass} text-label text-fg-dim`}>
-                      {lastActive(person.lastActive, now)}
-                    </td>
-                    <td className={`${cellClass} w-11 text-right`}>
-                      <Button
-                        variant="ghost"
-                        aria-label={`More for ${person.name}`}
-                        aria-expanded={open === person.id}
-                        onClick={() => {
-                          setOpen(open === person.id ? undefined : person.id);
-                        }}
-                      >
-                        ···
-                      </Button>
-                    </td>
-                  </tr>
-                  {open === person.id && (
-                    <tr>
-                      <td colSpan={5} className={`${cellClass} bg-panel`}>
-                        <Work
-                          person={person}
-                          environments={own}
-                          sessions={theirs}
-                          onStop={(session) => {
-                            act(command(session.id, { type: "abort" }));
+                          <option value="admin">Admin</option>
+                          <option value="member">Member</option>
+                        </Select>
+                      </td>
+                      <td className={cellClass}>
+                        <Doing person={person} sessions={theirs} />
+                      </td>
+                      <td className={`${cellClass} text-label text-fg-dim`}>
+                        {lastActive(person.lastActive, now)}
+                      </td>
+                      <td className={`${cellClass} w-11 text-right`}>
+                        <Button
+                          variant="ghost"
+                          aria-label={`More for ${person.name}`}
+                          aria-expanded={open === person.id}
+                          onClick={() => {
+                            setOpen(open === person.id ? undefined : person.id);
                           }}
-                          onArchive={(session) => {
-                            act(
-                              api(
-                                `/api/sessions/${encodeURIComponent(session.id)}/archive`,
-                                {},
-                              ),
-                            );
-                          }}
-                          onDelete={(environment) => {
-                            act(
-                              deleteEnvironment(environment).then(
-                                environments.reload,
-                              ),
-                            );
-                          }}
-                        />
+                        >
+                          ···
+                        </Button>
                       </td>
                     </tr>
-                  )}
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
+                    {open === person.id && (
+                      <tr>
+                        <td colSpan={5} className={`${cellClass} bg-panel`}>
+                          <Work
+                            person={person}
+                            environments={own}
+                            sessions={theirs}
+                            onStop={(session) => {
+                              act(command(session.id, { type: "abort" }));
+                            }}
+                            onArchive={(session) => {
+                              act(
+                                api(
+                                  `/api/sessions/${encodeURIComponent(session.id)}/archive`,
+                                  {},
+                                ),
+                              );
+                            }}
+                            onDelete={(environment) => {
+                              act(
+                                deleteEnvironment(environment).then(
+                                  environments.reload,
+                                ),
+                              );
+                            }}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );

@@ -197,7 +197,12 @@ export function startPlugins(
     readonly api: (onBehalf: OnBehalf, request: Request) => Promise<Response>;
     readonly auth: Pick<
       ServerPluginContext["auth"],
-      "userOf" | "createUser" | "setAdmin" | "startSession"
+      | "userOf"
+      | "createUser"
+      | "setAdmin"
+      | "invited"
+      | "acceptInvite"
+      | "startSession"
     >;
     readonly installed?: InstalledPlugins;
     // The Session parts built into the binary, besides installed ones.
@@ -563,6 +568,8 @@ export function startPlugins(
             userOf: deps.auth.userOf,
             createUser: deps.auth.createUser,
             setAdmin: deps.auth.setAdmin,
+            invited: deps.auth.invited,
+            acceptInvite: deps.auth.acceptInvite,
             startSession: deps.auth.startSession,
             gitLogins: (loginsOf) => {
               staged.gitLogins.push(loginsOf);
