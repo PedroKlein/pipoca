@@ -11,17 +11,8 @@ import {
   type ModelRef,
   noHealth,
   type SessionConfig,
+  thinkingLevels,
 } from "./model";
-
-const thinkingLevels = [
-  "off",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-] as const;
 
 const retryMs = 5000;
 
@@ -59,10 +50,7 @@ export const models: SessionPlugin = {
             id: alias,
             name: alias,
             thinkingLevels,
-            route: (request, ctx) => ({
-              model: routeModel(config, alias, request, ctx),
-              thinkingLevel: request.thinkingLevel,
-            }),
+            route: (request, ctx) => routeModel(config, alias, request, ctx),
           });
         } catch (error) {
           cloud.log("model alias not registered", {
@@ -155,7 +143,7 @@ function routeModel(
   alias: string,
   request: ModelRouteRequest,
   ctx: ExtensionContext,
-): ModelRoute["model"] {
+): ModelRoute {
   const routable = candidates(
     config.aliases ?? { models: {} },
     config.health,
@@ -164,20 +152,23 @@ function routeModel(
   );
 
   const sticky = stickyOf(request);
-  if (
-    sticky &&
-    routable.some(
-      ({ provider, id }) =>
-        provider === sticky.model.provider && id === sticky.model.id,
-    )
-  ) {
-    return sticky.model;
+
+  const kept = routable.find(
+    ({ provider, id }) =>
+      provider === sticky?.model.provider && id === sticky.model.id,
+  );
+
+  if (sticky && kept) {
+    return {
+      model: sticky.model,
+      thinkingLevel: kept.thinking ?? request.thinkingLevel,
+    };
   }
 
-  for (const { provider, id } of routable) {
+  for (const { provider, id, thinking } of routable) {
     const model = ctx.modelRegistry.find(provider, id);
     if (model && ctx.modelRegistry.hasConfiguredAuth(model)) {
-      return model;
+      return { model, thinkingLevel: thinking ?? request.thinkingLevel };
     }
   }
 
