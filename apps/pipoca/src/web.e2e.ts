@@ -3630,11 +3630,20 @@ test("signs in in the browser for the desktop app and hands it a link only it ca
 });
 
 test("opens the team hub from the sidebar and lists team work anyone can pick up", async () => {
+  await page.goto(server.url.href);
+
+  // An earlier test signs out and back in, which ends the first cookie.
+  const signedIn = (await page.context().cookies()).find(
+    ({ name }) => name === "pipoca-session",
+  );
+
+  const current = `${signedIn?.name ?? ""}=${signedIn?.value ?? ""}`;
+
   const post = async (path: string, body: unknown): Promise<unknown> =>
     (
       await fetch(new URL(path, server.url), {
         method: "POST",
-        headers: { "content-type": "application/json", cookie },
+        headers: { "content-type": "application/json", cookie: current },
         body: JSON.stringify(body),
       })
     ).json();
