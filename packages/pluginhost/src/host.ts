@@ -204,6 +204,7 @@ export function startPlugins(
       | "setAdmin"
       | "invited"
       | "acceptInvite"
+      | "passwordLogin"
       | "startSession"
     >;
     readonly installed?: InstalledPlugins;
@@ -572,6 +573,7 @@ export function startPlugins(
             setAdmin: deps.auth.setAdmin,
             invited: deps.auth.invited,
             acceptInvite: deps.auth.acceptInvite,
+            passwordLogin: deps.auth.passwordLogin,
             startSession: deps.auth.startSession,
             gitLogins: (loginsOf) => {
               staged.gitLogins.push(loginsOf);

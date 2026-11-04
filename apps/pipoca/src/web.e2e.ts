@@ -1354,6 +1354,35 @@ test("lists everyone on the admins' People page, with their Environments a click
     .waitFor();
 });
 
+test("adds company sign-in from a preset, tests it, and removes it", async () => {
+  await page.goto(server.url.href);
+  await openSettings("Sign-in");
+
+  await page
+    .getByRole("list", { name: "Add a provider" })
+    .getByRole("button", { name: /Okta/ })
+    .click();
+
+  const form = page.getByRole("form", { name: "New Okta sign-in" });
+  await form.getByLabel("Issuer").fill("https://127.0.0.1:1");
+  await form.getByLabel("Client ID").fill("pipoca");
+  await form.getByRole("button", { name: "Add provider" }).click();
+
+  const providers = page.getByRole("list", { name: "Providers" });
+  await providers.getByText("0 people signed in this week").waitFor();
+
+  await providers.getByRole("button", { name: "Test Okta" }).click();
+  await providers.getByText("Can't reach it").waitFor();
+
+  page.once("dialog", (dialog) => {
+    void dialog.accept();
+  });
+
+  await providers.getByRole("button", { name: "Edit Okta" }).click();
+  await page.getByRole("button", { name: "Remove Okta" }).click();
+  await providers.waitFor({ state: "detached" });
+});
+
 test("guides an admin from a token-only host to a Connect button", async () => {
   await page.goto(server.url.href);
   await openSettings("Git hosts");
