@@ -30,7 +30,8 @@ export interface ProfileStore {
 
 export type Layer = "base" | "defaults";
 
-type Rejection = "not_found" | "default" | "in_use" | "admin_only" | "synced";
+type Rejection =
+  "not_found" | "default" | "in_use" | "admin_only" | "synced" | "team";
 
 export interface ProfileEntry {
   readonly path: string;
@@ -61,13 +62,17 @@ export class Profiles {
     return this.#folders.ids();
   }
 
-  list(userId: string): readonly Profile[] {
+  // A person's own and shared Profiles, or the team's, which only team work
+  // runs on (ADR 0064).
+  list(userId: string, { team = false } = {}): readonly Profile[] {
     return this.#folders
       .ids()
       .flatMap((id) => {
         const profile = this.#visible(userId, id);
 
-        return profile ? [this.#view(userId, profile)] : [];
+        return profile && (profile.ownerId === teamOwner) === team
+          ? [this.#view(userId, profile)]
+          : [];
       })
       .sort(
         (a, b) =>
@@ -88,12 +93,14 @@ export class Profiles {
     const name = nameOf(fields["name"]);
     const content = contentOf(fields);
 
-    if (fields["shared"] === true && !admin) {
+    const team = fields["team"] === true;
+
+    if ((fields["shared"] === true || team) && !admin) {
       return { ok: false, reason: "admin_only" };
     }
 
     const id = this.#folders.freeId(name);
-    const ownerId = fields["shared"] === true ? null : userId;
+    const ownerId = ownerOf(userId, team, fields["shared"] === true);
 
     const profile: StoredProfile = {
       id,
@@ -126,7 +133,7 @@ export class Profiles {
       return { ok: false, reason: "synced" };
     }
 
-    if (profile.ownerId === null && !admin) {
+    if (!mine(profile, userId) && !admin) {
       return { ok: false, reason: "admin_only" };
     }
 
@@ -157,7 +164,7 @@ export class Profiles {
       return { ok: false, reason: "not_found" };
     }
 
-    if (profile.ownerId === null && !admin) {
+    if (!mine(profile, userId) && !admin) {
       return { ok: false, reason: "admin_only" };
     }
 
@@ -181,6 +188,10 @@ export class Profiles {
     const profile = this.#visible(userId, id);
     if (!profile) {
       return { ok: false, reason: "not_found" };
+    }
+
+    if (profile.ownerId === teamOwner) {
+      return { ok: false, reason: "team" };
     }
 
     this.#store.setDefaultProfile(userId, id);
@@ -568,13 +579,14 @@ export class Profiles {
       return { ok: false, reason: "synced" };
     }
 
-    return profile.ownerId === null && !admin
+    return !mine(profile, userId) && !admin
       ? { ok: false, reason: "admin_only" }
       : undefined;
   }
 
-  // A Profile builds on one its owner can see, and a shared Profile only on
-  // a shared one, so nobody gets someone else's files. Throws InvalidProfile.
+  // A Profile builds on one its owner can see, a shared Profile only on a
+  // shared one and a team Profile only on a team one, so nobody gets someone
+  // else's files. Throws InvalidProfile.
   #buildsOn(id: string, ownerId: string | null, value: unknown): string | null {
     if (value === undefined || value === null || value === "") {
       return null;
@@ -585,7 +597,8 @@ export class Profiles {
 
     if (
       under === undefined ||
-      (under.ownerId !== null && under.ownerId !== ownerId)
+      (under.ownerId !== ownerId &&
+        (under.ownerId !== null || ownerId === teamOwner))
     ) {
       throw new InvalidProfile(
         "a Profile can only build on a Profile you can use",
@@ -632,7 +645,9 @@ export class Profiles {
   #visible(userId: string, id: string): StoredProfile | undefined {
     const profile = this.#folders.read(id);
 
-    return profile?.ownerId === null || profile?.ownerId === userId
+    return profile?.ownerId === null ||
+      profile?.ownerId === teamOwner ||
+      profile?.ownerId === userId
       ? profile
       : undefined;
   }
@@ -643,6 +658,25 @@ export class Profiles {
       isDefault: this.#store.defaultProfileId(userId) === profile.id,
     };
   }
+}
+
+const teamOwner = "team";
+
+function ownerOf(
+  userId: string,
+  team: boolean,
+  shared: boolean,
+): string | null {
+  if (team) {
+    return teamOwner;
+  }
+
+  return shared ? null : userId;
+}
+
+// Only admins change shared and team Profiles.
+function mine(profile: StoredProfile, userId: string): boolean {
+  return profile.ownerId === userId;
 }
 
 function parsedJson(text: string): unknown {
