@@ -27,6 +27,7 @@ import {
   type SessionEvent,
 } from "@pipoca/protocol";
 import { installedPlugins } from "./installed";
+import { latestOf } from "./sources";
 import { serve, type ServeOptions } from "./serve";
 import { readSse } from "./sse";
 import { firstUser } from "./testdata/sign-in";
@@ -35,6 +36,7 @@ let root: string;
 let plugins: string;
 let server: ReturnType<typeof serve> | undefined;
 let cookie: string;
+let logs: string[] = [];
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "pipoca-installed-"));
@@ -96,7 +98,7 @@ export default {
 async function start(agent?: ServeOptions["agent"]): Promise<void> {
   await server?.stop();
 
-  const logs: string[] = [];
+  logs = [];
 
   server = serve({
     port: 0,
@@ -768,6 +770,19 @@ async function commit(folder: string): Promise<string> {
   return (await $`git -C ${folder} rev-parse HEAD`.text()).trim();
 }
 
+// The check a server starts with runs in the background; it logs when done.
+async function checked(): Promise<void> {
+  for (let tries = 0; tries < 100; tries += 1) {
+    if (logs.some((line) => line.startsWith("plugin updates checked"))) {
+      return;
+    }
+
+    await Bun.sleep(20);
+  }
+
+  throw new Error("the server never checked for plugin updates");
+}
+
 async function install(url: string): Promise<Response> {
   return api("POST", "/api/plugins", { url });
 }
@@ -920,6 +935,43 @@ test("updates a plugin to its repository's newest commit for the next start", as
   expect(await (await api("GET", "/api/plugins/hello/")).text()).toBe(
     "hi again",
   );
+});
+
+test("offers an update once the plugin's repository moves past it, and stops once it updates", async () => {
+  const url = await gitPlugin("hello");
+  const folder = join(root, "sources", "hello");
+
+  await start();
+  await install(url);
+  await start();
+  await checked();
+
+  expect(await listed("hello")).not.toHaveProperty("updateAvailable");
+
+  await writeFile(join(folder, "README.md"), "newer\n");
+  await commit(folder);
+  await start();
+  await checked();
+
+  expect(await listed("hello")).toMatchObject({ updateAvailable: true });
+
+  await api("PATCH", "/api/plugins/hello", { update: true });
+
+  expect(await listed("hello")).not.toHaveProperty("updateAvailable");
+});
+
+test("follows a tag to its commit when it checks for an update", async () => {
+  const url = await gitPlugin("hello");
+  const folder = join(root, "sources", "hello");
+
+  await $`git -C ${folder} -c user.name=t -c user.email=t@t tag -a v1 -m v1`;
+
+  expect(await latestOf(`${url}#v1`)).toBe(
+    (await $`git -C ${folder} rev-parse HEAD`.text()).trim(),
+  );
+
+  expect(await latestOf(`${url}#nope`)).toBeUndefined();
+  expect(await latestOf("https://example.com/plugin.tgz")).toBeUndefined();
 });
 
 test("forgets why a plugin failed once an update replaces it", async () => {

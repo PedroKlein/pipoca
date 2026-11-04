@@ -24,12 +24,15 @@ export function PluginsPage(): ReactElement {
   const { value: plugins, reload } = usePlugins();
   const [installing, setInstalling] = useState(false);
   const [query, setQuery] = useState("");
-  const [shown, setShown] = useState<"all" | "git">("all");
+  const [shown, setShown] = useState<"all" | "updates">("all");
 
-  const fromGit = plugins.filter(({ source }) => source === "installed");
+  const updates = plugins.filter(
+    ({ updateAvailable }) => updateAvailable === true,
+  );
+
   const words = query.trim().toLowerCase();
 
-  const listed = (shown === "all" ? plugins : fromGit).filter(
+  const listed = (shown === "all" ? plugins : updates).filter(
     ({ title, description }) =>
       `${title} ${description}`.toLowerCase().includes(words),
   );
@@ -81,7 +84,7 @@ export function PluginsPage(): ReactElement {
           onChange={setShown}
           options={[
             { value: "all", label: `Installed · ${String(plugins.length)}` },
-            { value: "git", label: `From git · ${String(fromGit.length)}` },
+            { value: "updates", label: `Updates · ${String(updates.length)}` },
           ]}
         />
       </div>
@@ -91,7 +94,11 @@ export function PluginsPage(): ReactElement {
         ))}
       </ul>
       {listed.length === 0 && (
-        <p className="mt-2 text-label text-fg-dim">No plugin matches.</p>
+        <p className="mt-2 text-label text-fg-dim">
+          {shown === "updates" && words === ""
+            ? "Every plugin installed from git is up to date."
+            : "No plugin matches."}
+        </p>
       )}
       <p className="mt-6 text-caption text-fg-dim">
         Turning a plugin on or off applies when the server restarts, to open
@@ -201,6 +208,11 @@ function PluginCard({
             </Badge>
           )}
           {plugin.updated === true && <Badge state="waiting">Updated</Badge>}
+          {plugin.updateAvailable === true && plugin.updated !== true && (
+            <span className="inline-flex h-5 items-center rounded-full bg-working-tint px-2 text-caption font-medium text-working">
+              Update
+            </span>
+          )}
         </span>
         <span
           title={

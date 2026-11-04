@@ -43,6 +43,7 @@ import {
   turnOn,
   update,
 } from "./installed";
+import { latestOf } from "./sources";
 import { builtInPlugins, sessionPlugins } from "./session-parts";
 import { errorReply } from "./replies";
 import { previewBroker } from "./previews";
@@ -71,6 +72,7 @@ const serverPlugins: readonly ServerPlugin[] = [
 ];
 
 const repositorySyncMs = 15 * 60_000;
+const updateCheckMs = 6 * 60 * 60_000;
 export interface ServeOptions {
   // 127.0.0.1 unless a proxy or other machines reach the server directly.
   readonly hostname?: string;
@@ -324,6 +326,7 @@ export function serve(options: ServeOptions): {
         turnOn: async (id, on) => turnOn(folder.root, id, on),
         install: async (url, taken) => install(folder.root, url, taken),
         update: async (id) => update(folder.root, id),
+        latest: latestOf,
         remove: async (id) => remove(folder.root, id),
         reread: async (id) => reread(folder.root, id),
         files: async (id) => pluginFiles(folder.root, id),
@@ -339,6 +342,14 @@ export function serve(options: ServeOptions): {
     signal: pluginsStop.signal,
     log: options.log,
   });
+
+  // Asked at start and a few times a day, since each check reaches every
+  // installed plugin's repository.
+  void pluginHost.checkUpdates();
+
+  const checkingUpdates = setInterval(() => {
+    void pluginHost.checkUpdates();
+  }, updateCheckMs);
 
   const handler = createHandler(
     auth,
@@ -517,6 +528,7 @@ export function serve(options: ServeOptions): {
     url: server.url,
     stop: async () => {
       clearInterval(syncing);
+      clearInterval(checkingUpdates);
       agentStop.abort();
       pluginsStop.abort();
       await agent;

@@ -1,4 +1,5 @@
 import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
 // Where an installed plugin came from, and the exact version fetched: a git
@@ -43,6 +44,41 @@ export async function fetchSource(url: string, into: string): Promise<string> {
   await refuseLinks(into);
 
   return pinned;
+}
+
+// The commit a git URL's ref points at now, to tell an installed plugin
+// that it has a newer version. Undefined for a tarball, or for a ref the
+// repository doesn't list, such as a commit.
+export async function latestOf(url: string): Promise<string | undefined> {
+  const parsed = new URL(url);
+
+  if (/\.(tgz|tar\.gz)$/.test(parsed.pathname)) {
+    return undefined;
+  }
+
+  const ref = decodeURIComponent(parsed.hash.slice(1)) || "HEAD";
+  const repository = new URL(parsed);
+  repository.hash = "";
+
+  const listed = (
+    await run(
+      ["git", "ls-remote", "--", repository.href, ref, `${ref}^{}`],
+      tmpdir(),
+    )
+  )
+    .split("\n")
+    .flatMap((line) => {
+      const [commit, name] = line.split("\t");
+
+      return commit !== undefined && name !== undefined
+        ? [{ commit, name }]
+        : [];
+    });
+
+  // An annotated tag's own line names the tag object; ^{} is its commit.
+  const peeled = listed.find(({ name }) => name.endsWith("^{}"));
+
+  return peeled?.commit ?? listed[0]?.commit;
 }
 
 // A link could point the server's own writes and reads, such as the record

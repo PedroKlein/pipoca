@@ -74,6 +74,9 @@ export interface PluginHost {
   // The plugins that are on, without any that failed to register.
   readonly names: readonly string[];
   readonly list: () => readonly PluginInfo[];
+  // Asks where each installed plugin came from whether it has a newer
+  // version, for the Plugins page to offer.
+  readonly checkUpdates: () => Promise<void>;
   // Tells plugins of something the kernel did.
   readonly publish: EventBus["publish"];
   // The plugin's new settings, what is wrong with them, or undefined when no
@@ -252,6 +255,9 @@ export function startPlugins(
   );
 
   const updated = new Set<string>();
+
+  // Installed plugins whose URL points at a newer version than they have.
+  const newer = new Set<string>();
 
   const fileDigests = new Map(
     deps.installed?.plugins.flatMap(({ manifest: { id }, digest }) =>
@@ -671,6 +677,7 @@ export function startPlugins(
         .digest("hex"),
       ...(source !== undefined && { installedFrom: source }),
       ...(updated.has(found.id) && { updated: true }),
+      ...(newer.has(found.id) && { updateAvailable: true }),
     } as const;
 
     if (error !== undefined) {
@@ -693,6 +700,36 @@ export function startPlugins(
   return {
     names: running,
     list: () => manifests.map(info),
+    checkUpdates: async () => {
+      const latest = deps.installed?.latest;
+
+      if (latest === undefined) {
+        return;
+      }
+
+      for (const [id, { url, pinned }] of sources) {
+        try {
+          const found = await latest(url);
+
+          if (found !== undefined && found !== pinned) {
+            newer.add(id);
+          } else {
+            newer.delete(id);
+          }
+        } catch (error) {
+          deps.log("plugin update check failed", {
+            plugin: id,
+            url,
+            error: messageOf(error),
+          });
+        }
+      }
+
+      deps.log("plugin updates checked", {
+        checked: sources.size,
+        newer: [...newer],
+      });
+    },
     publish: deps.events.publish,
     saveSettings: (name, settings) => {
       const found = manifest(name);
@@ -790,6 +827,7 @@ export function startPlugins(
         remember(name, fetched.digest);
 
         updated.add(name);
+        newer.delete(name);
 
         // Why the version before failed doesn't hold for this one.
         failures.delete(name);
@@ -1175,6 +1213,8 @@ export interface InstalledPlugins {
   readonly update: (
     id: string,
   ) => Promise<InstalledPlugins["plugins"][number] | undefined>;
+  // The version a plugin's URL points at now, when it can tell.
+  readonly latest: (url: string) => Promise<string | undefined>;
   readonly remove: (id: string) => Promise<void>;
   readonly reread: (id: string) => Promise<InstalledPlugins["plugins"][number]>;
   readonly files: (id: string) => Promise<readonly string[]>;
