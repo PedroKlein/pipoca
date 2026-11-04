@@ -4321,3 +4321,57 @@ test("offers a fork once the team said more than Pi reads", async () => {
 
   expect(forked.ownedBy).toBe("team");
 });
+
+test("drops a plugin's parts from open team work once an admin keeps it out", async () => {
+  await page.goto(server.url.href);
+
+  const signedIn = (await page.context().cookies()).find(
+    ({ name }) => name === "pipoca-session",
+  );
+
+  const current = `${signedIn?.name ?? ""}=${signedIn?.value ?? ""}`;
+
+  const call = async (
+    path: string,
+    body: unknown,
+    method = "POST",
+  ): Promise<unknown> =>
+    (
+      await fetch(new URL(path, server.url), {
+        method,
+        headers: { "content-type": "application/json", cookie: current },
+        body: JSON.stringify(body),
+      })
+    ).json();
+
+  const { environment } = (await call("/api/environments", {
+    name: "switch-pods",
+    team: true,
+  })) as { environment: Environment };
+
+  const profile = (await call("/api/profiles", {
+    name: "Switch",
+    team: true,
+  })) as Profile;
+
+  const folder = join(root, "switched");
+
+  await mkdir(folder, { recursive: true });
+
+  const session = (await call("/api/sessions", {
+    team: true,
+    environment: environment.id,
+    profile: profile.id,
+    workspace: { kind: "folder", path: folder },
+  })) as Session;
+
+  await page.goto(new URL(`/#${session.id}`, server.url).href);
+
+  const usageHeader = page.locator('header [data-plugin="usage"]');
+
+  await usageHeader.waitFor({ state: "attached" });
+  await call("/api/plugins/usage", { teamWork: false }, "PATCH");
+  await usageHeader.waitFor({ state: "detached" });
+  await call("/api/plugins/usage", { teamWork: true }, "PATCH");
+  await usageHeader.waitFor({ state: "attached" });
+});

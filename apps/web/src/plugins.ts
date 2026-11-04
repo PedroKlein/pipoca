@@ -38,6 +38,8 @@ import {
   createElement,
   Fragment,
   type ReactElement,
+  useMemo,
+  useSyncExternalStore,
 } from "react";
 import * as reactDom from "react-dom";
 import * as reactDomClient from "react-dom/client";
@@ -71,6 +73,7 @@ const webErrors = new Map<string, string>();
 let settings: ReadonlyMap<string, PluginSettings> = new Map();
 let titles: ReadonlyMap<string, string> = new Map();
 let inTeamWork: ReadonlySet<string> = new Set();
+const teamWorkListeners = new Set<() => void>();
 
 // An installed plugin's web part is bundled with these left out, and reads
 // them from here, so the page has one React and one design system (ADR 0022).
@@ -104,9 +107,36 @@ export async function loadPlugins(): Promise<void> {
   settings = new Map(on.map(({ id, values }) => [id, values]));
   titles = new Map(on.map(({ id, title }) => [id, title]));
 
-  inTeamWork = new Set(
-    on.flatMap(({ id, teamWork }) => (teamWork ? [id] : [])),
+  inTeamWork = teamWorkOf(on);
+
+  // Admins turn plugins on and off in team work while pages stay open.
+  plugins.watchChanges(["plugins"], () => {
+    void fetch("/api/plugins")
+      .then(async (changed) => {
+        inTeamWork = teamWorkOf((await changed.json()) as PluginInfo[]);
+
+        for (const listener of teamWorkListeners) {
+          listener();
+        }
+      })
+      .catch(() => undefined);
+  });
+}
+
+function teamWorkOf(listed: readonly PluginInfo[]): ReadonlySet<string> {
+  return new Set(
+    listed.flatMap(({ id, state, teamWork }) =>
+      state === "on" && teamWork ? [id] : [],
+    ),
   );
+}
+
+function watchTeamWork(listener: () => void): () => void {
+  teamWorkListeners.add(listener);
+
+  return () => {
+    teamWorkListeners.delete(listener);
+  };
 }
 
 async function importWebPart(
@@ -160,8 +190,13 @@ export function enabledPlugins(): readonly WebPlugin[] {
 
 // The plugins whose parts draw in a Session: in team work, only the ones
 // that load there (ADR 0067).
-export function sessionPlugins(team: boolean): readonly WebPlugin[] {
-  return team ? enabled.filter(({ name }) => inTeamWork.has(name)) : enabled;
+export function useSessionPlugins(team: boolean): readonly WebPlugin[] {
+  const switches = useSyncExternalStore(watchTeamWork, () => inTeamWork);
+
+  return useMemo(
+    () => (team ? enabled.filter(({ name }) => switches.has(name)) : enabled),
+    [team, switches],
+  );
 }
 
 const contexts = new Map<string, WebContext>();

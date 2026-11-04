@@ -36,7 +36,7 @@ import type { Feed, Settings, ShownWidget } from "./feed";
 import { modelName, modelRef } from "./names";
 import { usePrimaryId } from "./primary";
 import { PluginBoundary } from "./plugin-boundary";
-import { pluginContext, sessionPlugins, widgetRenderer } from "./plugins";
+import { pluginContext, useSessionPlugins, widgetRenderer } from "./plugins";
 import { PromptCard, type PromptHandlers } from "./prompt-card";
 import { browserCommand } from "./suggest";
 import { useSuggestions } from "./suggestions";
@@ -593,7 +593,7 @@ const PluginParts = memo(function Parts({
   readonly session: MountedSession;
   readonly team: boolean;
 }): ReactElement[] {
-  return sessionPlugins(team).flatMap(({ name, Composer: Part }) =>
+  return useSessionPlugins(team).flatMap(({ name, Composer: Part }) =>
     Part
       ? [
           <PluginBoundary key={name} name={name}>
