@@ -16,6 +16,7 @@ import {
   type SessionPlugin,
   settingValues,
   type Toolset,
+  type User,
 } from "@pipoca/plugins";
 import {
   type Actor,
@@ -491,7 +492,13 @@ export function startPlugins(
                 : undefined;
 
               return (
-                found && routeToolQuestion(found, input, ownerOf(session), deps)
+                found &&
+                routeToolQuestion(
+                  found,
+                  input,
+                  ownerOf(session, deps.auth.users()),
+                  deps,
+                )
               );
             },
             call: async (session, name, input) => {
@@ -504,7 +511,7 @@ export function startPlugins(
                 : runRouteTool(
                     found,
                     input,
-                    ownerOf(session),
+                    ownerOf(session, deps.auth.users()),
                     deps,
                     () => undefined,
                   ).catch((error: unknown) => ({
@@ -556,6 +563,7 @@ export function startPlugins(
                 plugin: plugin.name,
                 profile: { id, ...content },
                 ...(options?.sharedWith && { sharedWith: options.sharedWith }),
+                ...(options?.team === true && { team: true }),
               });
 
               return id;
@@ -971,7 +979,7 @@ export function startPlugins(
           return runRouteTool(
             routed,
             call.input,
-            ownerOf(session),
+            ownerOf(session, deps.auth.users()),
             deps,
             (action) => {
               deps.sessions.publish(session.id, {
@@ -1261,10 +1269,15 @@ function limited(
 }
 
 // A meta-session's tools act as the person who started it, never as an admin
-// (ADR 0035).
-function ownerOf(session: Session): OnBehalf {
+// (ADR 0035). An admin's Team assistant changes team setup too, so its
+// tools follow the person's role (ADR 0067).
+function ownerOf(session: Session, users: readonly User[]): OnBehalf {
+  const person = session.startedBy ?? session.ownerId;
+
   return {
-    actor: `user:${session.startedBy ?? session.ownerId}`,
-    mayAdmin: false,
+    actor: `user:${person}`,
+    mayAdmin:
+      session.ownedBy === "team" &&
+      users.some(({ id, admin }) => id === person && admin),
   };
 }

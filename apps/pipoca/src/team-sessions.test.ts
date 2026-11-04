@@ -28,6 +28,7 @@ let root: string;
 let server: ReturnType<typeof serve>;
 let pedro: () => Promise<string>;
 let starter: ServerPluginContext["sessions"] | undefined;
+let toolsets: ServerPluginContext["toolsets"] | undefined;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "team-sessions-"));
@@ -42,10 +43,29 @@ beforeEach(async () => {
     plugins: [
       {
         name: "starter",
-        register: ({ sessions, auth }) => {
-          starter = sessions;
+        register: (context) => {
+          starter = context.sessions;
+          toolsets = context.toolsets;
 
-          auth.gitLogins((userId, { actsAs }) =>
+          const blank = {
+            packages: [],
+            agentsMd: "",
+            systemMd: "",
+            appendSystemMd: "",
+            mcpServers: {},
+            settings: {},
+          };
+
+          context.profiles.provide(
+            "helper",
+            { ...blank, name: "Helper" },
+            { team: true },
+          );
+
+          context.profiles.provide("own", { ...blank, name: "Own" });
+          context.toolsets.loadInOwnSessions();
+
+          context.auth.gitLogins((userId, { actsAs }) =>
             actsAs === null
               ? []
               : [{ host: "git.example.com", token: `${actsAs} for ${userId}` }],
@@ -60,7 +80,7 @@ beforeEach(async () => {
         id: "starter",
         title: "Starter",
         description: "",
-        capabilities: ["sessions"],
+        capabilities: ["sessions", "profiles", "toolsets"],
       },
       ...builtInPlugins.filter(({ id }) => id === "git-hosts" || id === "ask"),
     ],
@@ -1049,4 +1069,67 @@ test("team work signs git in as a technical user the team may use, never as its 
   expect(
     assigned.filter(({ gitLogins }) => gitLogins === undefined),
   ).toHaveLength(1);
+});
+
+test("a Team assistant runs as team work only its person steers, with tools that follow their role", async () => {
+  const pedros = await pedro();
+  const anaId = randomUUID();
+  await member("ana", anaId);
+  const bos = await member("bo");
+  const team = await teamSetup();
+
+  const { user: admin } = await json<{ user: { id: string } }>(
+    api("/api/auth", pedros),
+  );
+
+  const assistant = (person: string): Session | undefined =>
+    starter?.start(
+      {
+        team: true,
+        actor: `user:${person}`,
+        environment: team.environment,
+        profile: "starter.helper",
+        workspace: workspace(),
+        access: { kind: "named", people: [] },
+      },
+      `assistant-${person}`,
+    );
+
+  const anas = assistant(anaId);
+  const admins = assistant(admin.id);
+
+  expect(anas).toMatchObject({
+    ownedBy: "team",
+    access: { kind: "named", people: [] },
+  });
+
+  expect((await api(`/api/sessions/${anas?.id ?? ""}`, bos)).status).toBe(404);
+
+  const rename = async (session: Session | undefined, name: string) =>
+    session === undefined
+      ? undefined
+      : toolsets?.call(session, "profiles_update", {
+          id: team.profile,
+          name,
+        });
+
+  expect(await rename(anas, "Ana's")).toMatchObject({ isError: true });
+  expect((await rename(anas, "Ana's"))?.text).toContain("admin_only");
+
+  expect(await rename(admins, "Shared work")).toMatchObject({
+    isError: false,
+  });
+
+  expect(() =>
+    starter?.start(
+      {
+        team: true,
+        actor: `user:${anaId}`,
+        environment: team.environment,
+        profile: "starter.own",
+        workspace: workspace(),
+      },
+      "own",
+    ),
+  ).toThrow();
 });

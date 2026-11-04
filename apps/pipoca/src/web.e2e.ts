@@ -3836,6 +3836,20 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
     .click();
 
   await page.getByRole("heading", { name: "Sessions" }).waitFor();
+
+  await page
+    .getByRole("navigation", { name: "Team" })
+    .getByRole("link", { name: "Team assistant" })
+    .click();
+
+  await page.getByRole("heading", { name: "Team assistant" }).waitFor();
+  await page.getByLabel("Ask the Pipoca assistant").waitFor();
+
+  await page
+    .getByRole("navigation", { name: "Team" })
+    .getByRole("link", { name: "Sessions" })
+    .click();
+
   await page.getByRole("link", { name: "release-notes" }).click();
 
   expect(new URL(page.url()).hash).not.toContain("team");

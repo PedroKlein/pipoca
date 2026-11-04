@@ -81,7 +81,7 @@ export const meta: ServerPlugin = {
           defaultTools: ["-bash", "-edit", "-write", "+grep", "+find", "+ls"],
         },
       },
-      { sharedWith: ["projects"] },
+      { sharedWith: ["projects"], team: true },
     );
 
     context.profiles.provide(
@@ -91,7 +91,7 @@ export const meta: ServerPlugin = {
         name: "Pipoca assistant thread",
         settings: { defaultTools: ["+grep", "+find", "+ls"] },
       },
-      { sharedWith: ["projects"] },
+      { sharedWith: ["projects"], team: true },
     );
 
     context.routes.handle(async (request, path, caller) => {
