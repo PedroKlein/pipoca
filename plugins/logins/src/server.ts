@@ -188,6 +188,18 @@ export const logins: ServerPlugin = {
           throw new NotFound(`no route ${path}`);
         }
 
+        // Team work reaches models through the server's proxy, never with a
+        // person's logins (ADR 0066), so it has none to read or save.
+        if (caller.session.ownedBy === "team") {
+          if (key !== "") {
+            throw new HttpError(403, "team work keeps no logins", "team_work");
+          }
+
+          return Response.json(
+            new URL(request.url).searchParams.has("values") ? {} : [],
+          );
+        }
+
         const { profileId } = caller.session;
 
         const owners = [

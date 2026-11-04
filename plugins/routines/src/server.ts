@@ -181,7 +181,7 @@ export const routines: ServerPlugin = {
 };
 
 // A Session acts for the person who started it, except a routine's own run,
-// so routines can't make routines (ADR 0059).
+// so routines can't make routines (ADR 0059), and team work.
 function personOf(caller: RouteCaller): string {
   if (caller.kind === "user") {
     return caller.actor.slice("user:".length);
@@ -191,7 +191,8 @@ function personOf(caller: RouteCaller): string {
     throw new HttpError(403, "a routine's run can't change routines");
   }
 
-  if (caller.session.startedBy === null) {
+  // Anyone can steer a team Session, and a routine runs as its person.
+  if (caller.session.startedBy === null || caller.session.ownedBy === "team") {
     throw new HttpError(403, "only a Session a person started can do this");
   }
 

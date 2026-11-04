@@ -62,9 +62,7 @@ export function agentRoutes(
       (_request, [id = ""]) => {
         const session = sessions.get(id);
 
-        const files =
-          session &&
-          sessions.profileFiles(session.profileId, session.startedBy);
+        const files = session && sessions.profileFiles(session);
 
         return files ? Response.json(files) : notFound();
       },
