@@ -11,6 +11,7 @@ import type {
   SessionStatus,
   SetupState,
   ThinkingLevel,
+  Voice,
   Workspace,
   WorkspaceRemoval,
 } from "@pipoca/protocol";
@@ -199,6 +200,11 @@ create table if not exists sessions (
   acts_as text,
   access text
 );
+create table if not exists session_voices (
+  session_id text not null references sessions (id),
+  voice text not null
+);
+create index if not exists session_voices_session on session_voices (session_id);
 create table if not exists transcript (
   session_id text not null references sessions (id),
   line integer not null,
@@ -681,6 +687,14 @@ export function openStore(
     `${withProvider} where owner_plugin = ? and owner_key = ? and sessions.archived_at is null order by sessions.created_at desc`,
   );
 
+  const selectVoices = db.prepare(
+    "select voice from session_voices where session_id = ? order by rowid",
+  );
+
+  const insertVoice = db.prepare(
+    "insert into session_voices (session_id, voice) values (?, ?)",
+  );
+
   const selectAccess = db.prepare("select access from sessions where id = ?");
 
   const updateAccess = db.prepare(
@@ -737,6 +751,7 @@ export function openStore(
 
   const deleteEnvironment = [
     "delete from transcript where session_id in (select id from sessions where environment_id = ?)",
+    "delete from session_voices where session_id in (select id from sessions where environment_id = ?)",
     "delete from agent_tokens where session_id in (select id from sessions where environment_id = ?)",
     "delete from sessions where environment_id = ?",
     "delete from agent_tokens where environment = (select provider from environments where id = ?)",
@@ -860,6 +875,13 @@ export function openStore(
       return row === undefined || row.access === null
         ? undefined
         : (JSON.parse(row.access) as SessionAccess);
+    },
+    voices: (id) =>
+      (selectVoices.all(id) as { voice: string }[]).map(
+        ({ voice }) => JSON.parse(voice) as Voice,
+      ),
+    addVoice: (id, voice) => {
+      insertVoice.run(id, JSON.stringify(voice));
     },
     setAccess: (id, access) => {
       updateAccess.run(

@@ -11,6 +11,8 @@ export type ChatItem = (
       readonly role: "user";
       readonly text: string;
       readonly images?: readonly ImageAttachment[];
+      // Who sent it, in team work several people steer.
+      readonly by?: string;
       // The transcript entry, which a fork can start from.
       readonly entryId?: string;
     }
@@ -285,6 +287,7 @@ export type Work =
 export interface Turn {
   readonly key: number;
   readonly user: string | undefined;
+  readonly by?: string;
   // A plugin's notice that started the turn, in place of a user message.
   readonly notice?: { readonly text: string; readonly tag: NoticeTag };
   readonly images?: readonly ImageAttachment[];
@@ -321,6 +324,7 @@ export function turns(
   const result: {
     key: number;
     user: string | undefined;
+    by: string | undefined;
     notice: Turn["notice"];
     images: readonly ImageAttachment[] | undefined;
     started: string | undefined;
@@ -334,6 +338,7 @@ export function turns(
       result.push({
         key: item.key,
         user: item.role === "user" ? item.text : undefined,
+        by: item.role === "user" ? item.by : undefined,
         notice:
           item.role === "notice"
             ? { text: item.text, tag: item.notice }
@@ -347,97 +352,102 @@ export function turns(
     }
   }
 
-  return result.map(({ key, user, notice, images, started, items: inTurn }) => {
-    const lastTool = inTurn.findLastIndex(
-      (item) => item.role === "tool" || item.role === "result",
-    );
+  return result.map(
+    ({ key, user, by, notice, images, started, items: inTurn }) => {
+      const lastTool = inTurn.findLastIndex(
+        (item) => item.role === "tool" || item.role === "result",
+      );
 
-    const results = new Map(
-      inTurn.flatMap((item) =>
-        item.role === "result"
-          ? [
-              [
-                item.id,
-                {
-                  text: item.text,
-                  failed: item.failed,
-                  ...(item.details !== undefined && { details: item.details }),
-                },
-              ] as const,
-            ]
-          : [],
-      ),
-    );
-
-    const cards: Step[] = [];
-
-    const work = inTurn.slice(0, lastTool + 1).flatMap((item): Work[] => {
-      switch (item.role) {
-        case "tool": {
-          const found = results.get(item.id);
-
-          const step: Step = {
-            id: item.id,
-            name: item.name,
-            args: item.args,
-            ...(found && { result: found }),
-          };
-
-          if (claimed(item.name) || openedOf(found?.details) !== undefined) {
-            cards.push(step);
-
-            return [];
-          }
-
-          return [{ kind: "step", step }];
-        }
-
-        case "result":
-          return [];
-        case "assistant":
-          return [{ kind: "narration", text: item.text }];
-        case "error":
-        case "note":
-          return [{ kind: item.role, text: item.text }];
-        case "user":
-        case "notice":
-          return [];
-      }
-    });
-
-    const tail = inTurn.slice(lastTool + 1);
-
-    const ended = inTurn.findLast(
-      (item) => item.role !== "note" && item.at !== undefined,
-    )?.at;
-
-    const model = inTurn.findLast(
-      (item) => item.role === "assistant" && item.model !== undefined,
-    );
-
-    return {
-      key,
-      user,
-      ...(notice && { notice }),
-      ...(images && { images }),
-      ...(started !== undefined && { started }),
-      ...(ended !== undefined && { ended }),
-      ...(model?.role === "assistant" &&
-        model.model !== undefined && { model: model.model }),
-      work: [
-        ...work,
-        ...tail.flatMap((item): Work[] =>
-          item.role === "error" || item.role === "note"
-            ? [{ kind: item.role, text: item.text }]
+      const results = new Map(
+        inTurn.flatMap((item) =>
+          item.role === "result"
+            ? [
+                [
+                  item.id,
+                  {
+                    text: item.text,
+                    failed: item.failed,
+                    ...(item.details !== undefined && {
+                      details: item.details,
+                    }),
+                  },
+                ] as const,
+              ]
             : [],
         ),
-      ],
-      cards,
-      answer: tail.flatMap((item) =>
-        item.role === "assistant" ? [item.text] : [],
-      ),
-    };
-  });
+      );
+
+      const cards: Step[] = [];
+
+      const work = inTurn.slice(0, lastTool + 1).flatMap((item): Work[] => {
+        switch (item.role) {
+          case "tool": {
+            const found = results.get(item.id);
+
+            const step: Step = {
+              id: item.id,
+              name: item.name,
+              args: item.args,
+              ...(found && { result: found }),
+            };
+
+            if (claimed(item.name) || openedOf(found?.details) !== undefined) {
+              cards.push(step);
+
+              return [];
+            }
+
+            return [{ kind: "step", step }];
+          }
+
+          case "result":
+            return [];
+          case "assistant":
+            return [{ kind: "narration", text: item.text }];
+          case "error":
+          case "note":
+            return [{ kind: item.role, text: item.text }];
+          case "user":
+          case "notice":
+            return [];
+        }
+      });
+
+      const tail = inTurn.slice(lastTool + 1);
+
+      const ended = inTurn.findLast(
+        (item) => item.role !== "note" && item.at !== undefined,
+      )?.at;
+
+      const model = inTurn.findLast(
+        (item) => item.role === "assistant" && item.model !== undefined,
+      );
+
+      return {
+        key,
+        user,
+        ...(by !== undefined && { by }),
+        ...(notice && { notice }),
+        ...(images && { images }),
+        ...(started !== undefined && { started }),
+        ...(ended !== undefined && { ended }),
+        ...(model?.role === "assistant" &&
+          model.model !== undefined && { model: model.model }),
+        work: [
+          ...work,
+          ...tail.flatMap((item): Work[] =>
+            item.role === "error" || item.role === "note"
+              ? [{ kind: item.role, text: item.text }]
+              : [],
+          ),
+        ],
+        cards,
+        answer: tail.flatMap((item) =>
+          item.role === "assistant" ? [item.text] : [],
+        ),
+      };
+    },
+  );
 }
 
 const tallies: readonly {

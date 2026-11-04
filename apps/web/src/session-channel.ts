@@ -34,7 +34,7 @@ export function sessionChannel(id: string): {
       latest = event;
     } else if (event.type === "entry") {
       entries.push(event);
-    } else {
+    } else if (event.type === "live") {
       const surface = liveSurface(event.event);
       if (surface) {
         surfaces.delete(surface.key);
