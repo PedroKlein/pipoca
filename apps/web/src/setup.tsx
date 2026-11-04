@@ -8,7 +8,12 @@ import type { Environment, Profile, SetupState } from "@pipoca/protocol";
 import { Badge, Button, cn, Icon, Row, Rows } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useState } from "react";
 import { api } from "./api";
-import { useEnvironments, useProfiles, useSessions } from "./hooks";
+import {
+  useEnvironments,
+  useProfiles,
+  useSessions,
+  useTemplates,
+} from "./hooks";
 import { Mark } from "./mark";
 import { NewSessionForm } from "./new-session";
 import { PluginBoundary } from "./plugin-boundary";
@@ -267,6 +272,16 @@ function WhereStep(): ReactElement {
   const environments = useEnvironments().value;
   const ready = environments.filter(connected);
   const [machine, setMachine] = useState(ready.length === 0);
+  const [error, setError] = useState<string>();
+
+  const templates = useTemplates().value;
+
+  // Pod templates the person has no Environment from yet.
+  const clusters = templates.filter(
+    ({ id, runnersFrom }) =>
+      runnersFrom === "kubernetes" &&
+      !environments.some(({ templateId }) => templateId === id),
+  );
 
   return (
     <ul className="flex flex-col gap-2.5">
@@ -301,6 +316,28 @@ function WhereStep(): ReactElement {
           )}
         </Choice>
       ))}
+      {clusters.map((template) => (
+        <Choice
+          key={template.id}
+          title="A Kubernetes cluster"
+          badge={<Badge state="offline">{template.name}</Badge>}
+          description="Each Session gets its own pod, started when it needs one."
+          checked={false}
+          onChange={() => {
+            api("/api/environments", {
+              name: template.name,
+              template: template.id,
+            }).catch((reason: unknown) => {
+              setError(`Couldn't add it. ${String(reason)}`);
+            });
+          }}
+        />
+      ))}
+      {error !== undefined && (
+        <p role="alert" className="text-caption text-failed">
+          {error}
+        </p>
+      )}
       <Choice
         title="Another machine"
         description="A Linux VM, a workstation or a second laptop. Run one command on it."

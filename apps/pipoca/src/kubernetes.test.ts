@@ -14,6 +14,7 @@ import { kubernetes } from "@pipoca/kubernetes/server";
 import {
   type Environment,
   type EnvironmentTemplate,
+  type ListedTemplate,
   protocolVersion,
   type Session,
   versionHeader,
@@ -302,6 +303,24 @@ test("reads an Environment that starts runner pods as on demand, not offline", a
   expect(
     (await environments()).find(({ id }) => id === pods.id)?.onDemand,
   ).toBe(false);
+});
+
+test("says which templates have runner pods started for them", async () => {
+  const plain = (await (
+    await call("POST", "/api/templates", { name: "plain" })
+  ).json()) as EnvironmentTemplate;
+
+  const pods = await kubernetesEnvironment({ capacity: 1, maxPods: 2 });
+
+  const listed = (await (
+    await call("GET", "/api/templates")
+  ).json()) as ListedTemplate[];
+
+  expect(listed.find(({ id }) => id === pods.templateId)?.runnersFrom).toBe(
+    "kubernetes",
+  );
+
+  expect(listed.find(({ id }) => id === plain.id)?.runnersFrom).toBeNull();
 });
 
 test("starts no more runner pods for one person than the per-person limit, across their Environments", async () => {

@@ -1,5 +1,6 @@
 import {
   type Environment,
+  type ListedTemplate,
   type PluginInfo,
   type Session,
   type SessionEvent,
@@ -720,7 +721,19 @@ export function createHandler(
           : errorReply(403, "admin_only", "Only admins list everyone."),
     ],
     ...profileRoutes(profiles, log),
-    ["GET", /^\/api\/templates$/, () => Response.json(templates?.list() ?? [])],
+    [
+      "GET",
+      /^\/api\/templates$/,
+      () =>
+        Response.json(
+          (templates?.list() ?? []).map((template): ListedTemplate => ({
+            ...template,
+            runnersFrom:
+              plugins.startsRunners({ id: "", templateId: template.id }) ??
+              null,
+          })),
+        ),
+    ],
     [
       "POST",
       /^\/api\/templates$/,

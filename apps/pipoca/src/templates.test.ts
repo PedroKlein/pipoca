@@ -131,7 +131,7 @@ test("only admins change templates, and everyone reads them", async () => {
   ).toBe(200);
 
   expect(await json(api("/api/templates", anas))).toEqual([
-    { ...made, name: "Pods" },
+    { ...made, name: "Pods", runnersFrom: null },
   ]);
 
   expect(
@@ -247,6 +247,7 @@ test("reads templates an admin wrote into pipoca.json", async () => {
       aliases: null,
       source: null,
       variables: {},
+      runnersFrom: null,
     },
   ]);
 });
