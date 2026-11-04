@@ -1421,7 +1421,7 @@ test("keeps a Profile that follows a repository read-only until it is copied", a
 
   await synced.getByRole("button", { name: "Make a copy" }).click();
 
-  await page.getByRole("heading", { name: "Team kit copy" }).waitFor();
+  await page.getByRole("link", { name: "Team kit copy" }).waitFor();
 
   expect(await page.getByLabel("Synced from a repository").count()).toBe(0);
   expect(await page.getByRole("button", { name: "Save" }).count()).toBe(1);
@@ -1445,15 +1445,15 @@ test("lists a Profile's packages as chips and edits its folder's files", async (
   await page.getByRole("link", { name: "Tools" }).waitFor();
   await page.reload();
 
-  const packages = editor.getByRole("list", { name: "Pi packages" });
+  const packages = page.getByRole("list", { name: "Packages", exact: true });
 
-  await packages.getByText("./tools").waitFor();
+  await packages.getByText("./tools").first().waitFor();
   expect(await packages.getByRole("listitem").count()).toBe(1);
 
   const profilesPage = page.locator("#profiles-page");
   const tabs = profilesPage.getByRole("navigation", { name: "Profile" });
 
-  await tabs.getByRole("link", { name: "Files" }).click();
+  await profilesPage.getByRole("link", { name: "Open as files" }).click();
   await profilesPage.getByRole("button", { name: "settings.json" }).waitFor();
 
   await profilesPage
@@ -1480,6 +1480,66 @@ test("lists a Profile's packages as chips and edits its folder's files", async (
   await profilesPage.getByRole("button", { name: /^review/ }).waitFor();
 
   await tabs.getByRole("link", { name: "Overview" }).click();
+
+  await page
+    .getByRole("list", { name: "Skills" })
+    .getByRole("switch", { name: "review" })
+    .waitFor();
+
+  await page.getByRole("list", { name: "Prompts" }).getByText("/fix").waitFor();
+
+  await profilesPage.getByRole("button", { name: "Add package" }).click();
+  await profilesPage.getByLabel("Package source").fill("npm:pi-lint");
+  await profilesPage.getByRole("button", { name: "Add", exact: true }).click();
+  await packages.getByRole("switch", { name: "npm:pi-lint" }).waitFor();
+  await packages.getByRole("button", { name: "Remove npm:pi-lint" }).click();
+
+  await packages
+    .getByRole("switch", { name: "npm:pi-lint" })
+    .waitFor({ state: "detached" });
+
+  await page
+    .getByRole("list", { name: "Skills" })
+    .getByRole("switch", { name: "review" })
+    .click();
+
+  await page
+    .getByRole("list", { name: "Skills" })
+    .getByRole("switch", { name: "review", checked: false })
+    .waitFor();
+
+  await packages.getByRole("switch", { name: "./tools" }).click();
+
+  await packages
+    .getByRole("switch", { name: "./tools", checked: false })
+    .waitFor();
+
+  await profilesPage.getByRole("button", { name: "Add to Pi's" }).click();
+  await profilesPage.getByLabel("Added to Pi's prompt").fill("Be brief.");
+
+  await profilesPage
+    .getByRole("button", { name: "Save system prompt" })
+    .click();
+
+  await page.reload();
+
+  expect(
+    await profilesPage.getByLabel("Added to Pi's prompt").inputValue(),
+  ).toBe("Be brief.");
+
+  const settings = JSON.parse(
+    await readFile(
+      join(root, "config", "profiles", "tools", "settings.json"),
+      "utf8",
+    ),
+  ) as { skills?: unknown; packages?: unknown };
+
+  expect(settings.skills).toEqual(["-skills/review"]);
+
+  expect(settings.packages).toEqual([
+    { source: "./tools", extensions: [], skills: [], prompts: [], themes: [] },
+  ]);
+
   page.once("dialog", async (dialog) => dialog.accept());
   await editor.getByRole("button", { name: "Delete" }).click();
 
@@ -1519,7 +1579,7 @@ test("builds a Profile on another, over My defaults", async () => {
   await page.reload();
 
   expect(
-    await editor.getByRole("button", { name: "Builds on" }).textContent(),
+    await page.getByRole("button", { name: "Builds on" }).textContent(),
   ).toContain("Default");
 
   page.once("dialog", async (dialog) => dialog.accept());
@@ -1546,11 +1606,11 @@ test("imports a Profile from a picked folder with its files", async () => {
     .setInputFiles(folder);
 
   await page.getByRole("link", { name: "agent-folder" }).waitFor();
-  await page.getByRole("link", { name: "Skills" }).click();
 
   await page
-    .locator("#profiles-page")
-    .getByRole("button", { name: /^lint/ })
+    .getByRole("list", { name: "Skills" })
+    .getByText("lint")
+    .first()
     .waitFor();
 });
 
