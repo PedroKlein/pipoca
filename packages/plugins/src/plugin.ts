@@ -37,8 +37,13 @@ export type KernelEvent =
       readonly session: Session;
       readonly previous: Session["status"];
     }
-  // Pi asked a question and waits for a person to answer it.
-  | { readonly type: "SessionWaiting"; readonly session: Session }
+  // Pi asked a question and waits for a person to answer it, in team work
+  // maybe a named one.
+  | {
+      readonly type: "SessionWaiting";
+      readonly session: Session;
+      readonly for?: string;
+    }
   | { readonly type: "TurnStarted"; readonly session: Session }
   | {
       readonly type: "TurnEnded";
@@ -428,6 +433,8 @@ export type AskQuestions = (
   questions: readonly Question[],
   explain: Explain | undefined,
   signal: AbortSignal | undefined,
+  // In team work, the name of the person the questions are for.
+  person?: string,
 ) => Promise<QuestionsAnswer | null>;
 
 // Asks the user whether a tool call may run, and resolves to "deny" when the

@@ -711,6 +711,8 @@ export type QuestionAnswer =
 export interface QuestionsAnswer {
   readonly answers: readonly QuestionAnswer[];
   readonly note: string | null;
+  // Who answered, in team work, which the server fills in (ADR 0065).
+  readonly by?: string;
 }
 
 export type Answer = string | boolean | QuestionsAnswer | null;
@@ -722,6 +724,9 @@ export type Prompt =
       readonly title: string;
       readonly questions: readonly Question[];
       readonly explain: boolean;
+      // In team work, the name of the person Pi asks (ADR 0065). Anyone who
+      // steers may answer for them.
+      readonly for?: string;
     }
   | {
       readonly id: string;

@@ -662,3 +662,52 @@ test("Pi reads what the team said since its last turn, with names and replies, b
 
   expect(kinds).toEqual(["team", "aside", "message"]);
 });
+
+test("Pi hears who answered its question in team work", async () => {
+  const anas = await ana();
+  const bos = await member("bo");
+  const team = await teamSetup();
+
+  const session = await json<Session>(
+    api("/api/sessions", anas, {
+      team: true,
+      environment: team.environment,
+      profile: team.profile,
+      workspace: workspace(),
+    }),
+  );
+
+  const [assigned] = await poll(team.runner);
+
+  const commands = readSse(
+    await fetch(
+      new URL(
+        `/agent/sessions/${session.id}/commands?generation=${String(assigned?.generation)}`,
+        server.url,
+      ),
+      {
+        headers: {
+          "pipoca-protocol": "4",
+          authorization: `Bearer ${team.runner}`,
+        },
+      },
+    ),
+  );
+
+  const sent = await api(`/api/sessions/${session.id}/commands`, bos, {
+    type: "answer",
+    id: "prompt-1",
+    value: { answers: [], note: null },
+  });
+
+  expect(sent.status).toBe(202);
+
+  for await (const command of commands) {
+    expect(command).toMatchObject({
+      type: "answer",
+      value: { answers: [], note: null, by: "bo" },
+    });
+
+    break;
+  }
+});

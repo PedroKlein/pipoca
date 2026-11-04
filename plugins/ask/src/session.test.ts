@@ -75,3 +75,54 @@ test("asks a number question with a valid range", async () => {
 
   expect(asked).toBe(true);
 });
+
+test("asks the named person in team work and tells Pi who answered for them", async () => {
+  const unused = (): never => {
+    throw new Error("not used by ask_user");
+  };
+
+  const asked: (string | undefined)[] = [];
+
+  const cloud: SessionCloud = {
+    publish: unused,
+    askQuestions: async (_questions, _explain, _signal, person) => {
+      asked.push(person);
+
+      return Promise.resolve({
+        answers: [{ id: "ship", type: "text", text: "Friday" }],
+        note: null,
+        by: "Bo",
+      });
+    },
+    askPermission: unused,
+    checkouts: [],
+    settings: {},
+    request: unused,
+    log: () => undefined,
+    startChild: unused,
+  };
+
+  const tool = ((await ask.tools?.(cloud)) ?? []).find(
+    ({ name }) => name === "ask_user",
+  );
+
+  const result = await tool?.execute(
+    "call-1",
+    {
+      for: "Ana",
+      questions: [{ id: "ship", prompt: "When do we ship?", type: "text" }],
+    },
+    undefined,
+    undefined,
+    {} as ExtensionToolContext,
+  );
+
+  expect(asked).toEqual(["Ana"]);
+
+  expect(result?.content).toEqual([
+    {
+      type: "text",
+      text: "Bo, answering for Ana, answers:\n- Q1: Friday",
+    },
+  ]);
+});

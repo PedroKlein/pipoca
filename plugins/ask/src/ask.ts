@@ -75,6 +75,12 @@ const AskUserParams = Type.Object({
   questions: Type.Array(QuestionSchema, {
     description: "One or more questions to present to the user",
   }),
+  for: Type.Optional(
+    Type.String({
+      description:
+        "In team work, the name of the person to ask, such as whoever started the work or asked for this part of it. Anyone on the team may answer for them.",
+    }),
+  ),
 });
 
 type RawQuestion = Static<typeof QuestionSchema>;
@@ -108,10 +114,17 @@ export function askUserTool(ask: AskQuestions): ToolDefinition {
         throw new Error("No questions provided.");
       }
 
-      const answer = await ask(questions, explainer(ctx, questions), signal);
+      const answer = await ask(
+        questions,
+        explainer(ctx, questions),
+        signal,
+        params.for,
+      );
 
       return {
-        content: [{ type: "text", text: describe(questions, answer) }],
+        content: [
+          { type: "text", text: describe(questions, answer, params.for) },
+        ],
         details: { questions, answer },
       };
     },
@@ -253,6 +266,7 @@ function explainer(
 function describe(
   questions: readonly Question[],
   answer: QuestionsAnswer | null,
+  person: string | undefined,
 ): string {
   if (answer === null) {
     return "User cancelled the questionnaire without answering. Proceed with your best judgment: use recommended options where specified, make reasonable choices elsewhere.";
@@ -268,9 +282,23 @@ function describe(
     lines.push(`- Additional notes: ${answer.note.trim()}`);
   }
 
+  const who = answerer(answer.by, person);
+
   return lines.length === 0
-    ? "User submitted with no answers."
-    : ["User answers:", ...lines].join("\n");
+    ? `${who} submitted with no answers.`
+    : [`${who} answers:`, ...lines].join("\n");
+}
+
+// In team work Pi hears who answered, and for whom when it wasn't the person
+// it asked.
+function answerer(by: string | undefined, person: string | undefined): string {
+  if (by === undefined) {
+    return "User";
+  }
+
+  return person === undefined || by === person
+    ? by
+    : `${by}, answering for ${person},`;
 }
 
 function describeAnswer(question: Question, given: QuestionAnswer): string[] {
