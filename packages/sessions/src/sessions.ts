@@ -35,6 +35,7 @@ import {
   type Voice,
   type Work,
   type WorkPoll,
+  type Workspace,
   type WorkspaceRequest,
 } from "@pipoca/protocol";
 import { contentFiles, overBaseExtensions } from "@pipoca/profiles";
@@ -158,6 +159,7 @@ export type Rejection =
   | "unknown_entry"
   | "not_team"
   | "not_starter"
+  | "not_personal"
   | "view_only";
 
 export type Result<T, R extends Rejection = Rejection> =
@@ -397,11 +399,14 @@ export class Sessions {
   // From a user message it is Pi's /fork: the transcript up to that message,
   // whose text comes back for the new Session's composer. Without one it is
   // Pi's /clone.
+  // Team work forks as team work, or to the person's own side with personal,
+  // where it runs on their own Profile and logins (ADR 0067).
   fork(
     id: string,
     request: {
       readonly environment?: string;
       readonly entry?: string;
+      readonly personal?: boolean;
       readonly actor: Actor;
     },
   ): Result<ForkedSession> {
@@ -421,19 +426,27 @@ export class Sessions {
       return { ok: false, reason: "unknown_entry" };
     }
 
-    const environment = request.environment ?? source.environmentId;
+    const fromTeam = this.#team(source);
+    const team = fromTeam && request.personal !== true;
+    const sameSide = team === fromTeam;
+
+    const environment =
+      request.environment ?? (sameSide ? source.environmentId : undefined);
+
     if (environment !== source.environmentId && !movable(source.workspace)) {
       return { ok: false, reason: "not_movable" };
     }
 
     // A fork belongs to no plugin, so it can't keep a plugin's Profile.
     const forked = this.start({
-      environment,
-      ...(this.#pluginProfile(source.profileId) === undefined && {
-        profile: source.profileId,
-      }),
+      ...(environment !== undefined && { environment }),
+      ...(team && { team }),
+      ...(sameSide &&
+        this.#pluginProfile(source.profileId) === undefined && {
+          profile: source.profileId,
+        }),
       workspace: forkedWorkspace(source),
-      ...(source.model && { model: source.model }),
+      ...(sameSide && source.model && { model: source.model }),
       ...(source.thinking && { thinking: source.thinking }),
       ...(source.owner === null &&
         source.systemPrompt !== null && { systemPrompt: source.systemPrompt }),
@@ -464,6 +477,60 @@ export class Sessions {
         ...(before && { editorText: before.text }),
       },
     };
+  }
+
+  // Personal work moves to the team as a new team Session that starts from a
+  // handoff summary the person edited, never the transcript, with a fresh
+  // Workspace from the same repositories (ADR 0067).
+  move(
+    id: string,
+    request: {
+      readonly summary: string;
+      readonly environment?: string;
+      readonly profile?: string;
+      readonly actor: Actor;
+    },
+  ): Result<Session> {
+    const source = this.#store.get(id);
+    const person = personOf(request.actor);
+
+    if (
+      source === undefined ||
+      person === undefined ||
+      this.#reach(source, person) !== "steers"
+    ) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    if (this.#team(source)) {
+      return { ok: false, reason: "not_personal" };
+    }
+
+    const workspace = freshWorkspace(source.workspace);
+
+    if (workspace === undefined) {
+      return { ok: false, reason: "not_movable" };
+    }
+
+    const moved = this.start({
+      team: true,
+      ...(request.environment !== undefined && {
+        environment: request.environment,
+      }),
+      ...(request.profile !== undefined && { profile: request.profile }),
+      workspace,
+      ...(source.thinking && { thinking: source.thinking }),
+      firstMessage: request.summary,
+      actor: request.actor,
+    });
+
+    if (moved.ok && source.title !== null) {
+      this.#store.setTitle(moved.value.id, source.title);
+    }
+
+    return moved.ok
+      ? { ok: true, value: this.get(moved.value.id) ?? moved.value }
+      : moved;
   }
 
   // With team, only the team's Sessions the person may see, or all of them
@@ -2115,6 +2182,32 @@ function forkedWorkspace({
         ...(start.startPoint !== undefined && { startPoint: start.startPoint }),
       }
     : { kind: "clone", repository: workspace.repository, ...start };
+}
+
+// The same repositories from where the Session started, without its branch.
+function freshWorkspace(workspace: Workspace): WorkspaceRequest | undefined {
+  const at = (startPoint: string | undefined): { startPoint?: string } =>
+    startPoint === undefined ? {} : { startPoint };
+
+  switch (workspace.kind) {
+    case "repositories":
+      return {
+        kind: "repositories",
+        repositories: workspace.repositories.map((checkout) => ({
+          repository: checkout.repository,
+          ...at(checkout.startPoint),
+        })),
+      };
+    case "clone":
+      return {
+        kind: "clone",
+        repository: workspace.repository,
+        ...at(workspace.startPoint),
+      };
+    case "folder":
+    case "worktree":
+      return undefined;
+  }
 }
 
 function runnersFrom(

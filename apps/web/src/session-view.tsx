@@ -1,6 +1,7 @@
 import {
   type Environment,
   type ForkedSession,
+  movable,
   type OpenedPage,
   piTerminal,
   previewPort,
@@ -45,6 +46,7 @@ import { useTeammates } from "./hooks";
 import { Me } from "./me";
 import { PresenceLine, usePresence, useTyping } from "./presence";
 import { AccessDialog, accessLabels, steers } from "./team-access";
+import { MoveDialog } from "./move-team";
 import { openTerminal } from "./terminal";
 
 type View = "chat" | "pi" | "terminal";
@@ -71,6 +73,7 @@ export function SessionView({
   const forkMenu = useRef<HTMLButtonElement>(null);
   const [forkedAt, setForkedAt] = useState(0);
   const [limiting, setLimiting] = useState(false);
+  const [moving, setMoving] = useState(false);
   const me = useContext(Me);
   const report = useRef<(error: unknown) => void>(() => undefined);
   const [channel] = useState(() => sessionChannel(sessionId));
@@ -171,11 +174,17 @@ export function SessionView({
   // The fork starts from this Session's branch, so it gets what was pushed
   // or, on the same machine, committed. From a message, that message comes
   // back in the fork's composer.
-  const forkSession = async (entry?: string): Promise<void> => {
+  const forkSession = async (
+    entry?: string,
+    personal = false,
+  ): Promise<void> => {
     try {
       const response = await api(
         `/api/sessions/${encodeURIComponent(sessionId)}/fork`,
-        entry === undefined ? {} : { entry },
+        {
+          ...(entry !== undefined && { entry }),
+          ...(personal && { personal }),
+        },
       );
 
       const fork = (await response.json()) as ForkedSession;
@@ -302,6 +311,28 @@ export function SessionView({
                     forkMenu.current?.click();
                   },
                 },
+                ...(team
+                  ? [
+                      {
+                        label: "Fork to my own work",
+                        icon: "git-fork",
+                        run: () => {
+                          void forkSession(undefined, true);
+                        },
+                      } as const,
+                    ]
+                  : []),
+                ...(!team && me.team && !archived && movable(session.workspace)
+                  ? [
+                      {
+                        label: "Move to the team",
+                        icon: "users",
+                        run: () => {
+                          setMoving(true);
+                        },
+                      } as const,
+                    ]
+                  : []),
                 ...(session.workspaceRemoval === "kept"
                   ? [
                       {
@@ -422,6 +453,21 @@ export function SessionView({
             open={limiting}
             onClose={() => {
               setLimiting(false);
+            }}
+          />
+        )}
+        {session && !team && (
+          <MoveDialog
+            session={session}
+            items={feed.items}
+            busy={
+              session.status === "running" ||
+              session.status === "starting" ||
+              session.status === "queued"
+            }
+            open={moving}
+            onClose={() => {
+              setMoving(false);
             }}
           />
         )}

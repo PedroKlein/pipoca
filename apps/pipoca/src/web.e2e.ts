@@ -26,7 +26,7 @@ import {
   type Page,
   type Route,
 } from "playwright-core";
-import type { Environment, Profile } from "@pipoca/protocol";
+import type { Environment, Profile, Session } from "@pipoca/protocol";
 import { installedPlugins } from "./installed";
 import { serve } from "./serve";
 import { setupTokenOf } from "./testdata/sign-in";
@@ -3877,6 +3877,38 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
 
   await page.goto(new URL("/#team/sessions", server.url).href);
   await page.getByRole("link", { name: "team-docs" }).waitFor();
+
+  const mine = (await post("/api/sessions", {
+    workspace: {
+      kind: "clone",
+      repository: "https://git.example.com/team/handbook.git",
+    },
+  })) as Session;
+
+  await page.goto(new URL(`/#${mine.id}`, server.url).href);
+  await page.getByRole("button", { name: "Session actions" }).click();
+  await page.getByRole("menuitem", { name: "Move to the team" }).click();
+
+  const moving = page.getByRole("dialog", { name: "Move to the team" });
+
+  await moving
+    .getByLabel("Handoff summary")
+    .fill("Goal: a handbook page on releases. Nothing done yet.");
+
+  await moving.getByRole("button", { name: "Move to the team" }).click();
+  await page.waitForURL((url) => url.hash !== `#${mine.id}` && url.hash !== "");
+
+  const moved = (await (
+    await fetch(
+      new URL(`/api/sessions/${new URL(page.url()).hash.slice(1)}`, server.url),
+      { headers: { cookie: current } },
+    )
+  ).json()) as Session;
+
+  expect(moved).toMatchObject({
+    ownedBy: "team",
+    firstMessage: "Goal: a handbook page on releases. Nothing done yet.",
+  });
 });
 
 test("shows plugin panels on the team hub and lets an admin lay out a page of them", async () => {

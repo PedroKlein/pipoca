@@ -62,7 +62,13 @@ if (status === undefined) {
     .catch(() => ({ finished: true, dismissed: [] }));
 
   createRoot(root).render(
-    <Me value={{ id: status.user.id, admin: status.user.admin }}>
+    <Me
+      value={{
+        id: status.user.id,
+        admin: status.user.admin,
+        team: !status.solo,
+      }}
+    >
       <App
         nav={navEntries()}
         user={status.user.name}

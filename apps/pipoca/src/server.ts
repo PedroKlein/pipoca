@@ -45,6 +45,7 @@ import {
   browserCommand,
   createEnvironment,
   createFork,
+  moveToTeam,
   createSession,
   environmentUpdate,
   joinRequest,
@@ -1117,6 +1118,26 @@ export function createHandler(
         }
 
         return reply(forked, 201);
+      }),
+    ],
+    [
+      "POST",
+      /^\/api\/sessions\/([^/]+)\/move$/,
+      own(async (request, [id = ""], actor) => {
+        const moved = sessions.move(id, {
+          ...moveToTeam(await readJson(request)),
+          actor,
+        });
+
+        if (moved.ok) {
+          log("session moved to the team", {
+            sessionId: moved.value.id,
+            from: id,
+            environmentId: moved.value.environmentId,
+          });
+        }
+
+        return reply(moved, 201);
       }),
     ],
     [
