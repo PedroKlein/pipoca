@@ -215,7 +215,7 @@ export function SessionView({
         prefillComposer(fork.id, editorText);
       }
 
-      location.hash = fork.id;
+      location.hash = team && !personal ? teamSessionHref(fork.id) : fork.id;
     } catch (error) {
       reportError(error);
     }
