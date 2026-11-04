@@ -27,7 +27,7 @@ export function TeamCredentials({
     { topics: ["logins.logins"] },
   );
 
-  const { value: reaching = [] } = useLoaded(
+  const { value: loaded } = useLoaded(
     async () => {
       const [profiles, base, environments] = await Promise.all([
         json<readonly Profile[]>(context.request("/api/profiles?owner=team")),
@@ -37,21 +37,32 @@ export function TeamCredentials({
         ),
       ]);
 
-      return [
-        ...mcpSecrets("Server base", base),
-        ...profiles.flatMap((profile) => mcpSecrets(profile.name, profile)),
-        ...environments
-          .filter(({ secrets }) => secrets.length > 0)
-          .map(({ id, name, secrets }) => ({
-            key: `environment:${id}`,
-            title: name,
-            description: `Environment secrets ${secrets.join(", ")}`,
-          })),
-      ];
+      return {
+        environments,
+        secrets: [
+          ...mcpSecrets("Server base", base),
+          ...profiles.flatMap((profile) => mcpSecrets(profile.name, profile)),
+          ...environments
+            .filter(({ secrets }) => secrets.length > 0)
+            .map(({ id, name, secrets }) => ({
+              key: `environment:${id}`,
+              title: name,
+              description: `Environment secrets ${secrets.join(", ")}`,
+            })),
+        ],
+      };
     },
     "reaching",
     { topics: ["profiles", "environments"] },
   );
+
+  const reaching = [
+    ...(loaded?.secrets ?? []),
+    ...runnerProviders(
+      loaded?.environments ?? [],
+      new Set(keys.filter((key) => key.proxied).map((key) => key.provider)),
+    ),
+  ];
 
   const proxied = keys.filter(({ proxied: through }) => through);
   const unused = keys.filter(({ proxied: through }) => !through);
@@ -91,7 +102,7 @@ export function TeamCredentials({
       {reaching.length > 0 && (
         <Section
           title="Reach the runner"
-          description="Secrets in team Profiles and Environments"
+          description="Secrets and model sign-ins in team Profiles and Environments"
         >
           <Rows label="Reach the runner">
             {reaching.map(({ key, title, description }) => (
@@ -173,4 +184,27 @@ function fieldOf(
   return typeof inner === "object" && inner !== null
     ? (inner as Readonly<Record<string, unknown>>)
     : {};
+}
+
+// Providers whose models team runners reach without the proxy, such as ones
+// an extension adds, so their sign-in or key lives on the runner.
+function runnerProviders(
+  environments: readonly Environment[],
+  proxied: ReadonlySet<string>,
+): readonly Reaching[] {
+  const on = new Map<string, Set<string>>();
+
+  for (const { name, models } of environments) {
+    for (const { provider } of models) {
+      if (!proxied.has(provider)) {
+        on.set(provider, (on.get(provider) ?? new Set()).add(name));
+      }
+    }
+  }
+
+  return [...on].map(([provider, names]) => ({
+    key: `provider:${provider}`,
+    title: provider,
+    description: `Model sign-in on the runners of ${[...names].join(", ")}`,
+  }));
 }
