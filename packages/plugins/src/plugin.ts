@@ -345,6 +345,7 @@ export interface ServerPluginContext {
     // not, such as an identity provider redirecting back.
     readonly handlePublic: (route: PublicRoute) => void;
     readonly userOf: (request: Request) => User | undefined;
+    readonly users: () => readonly User[];
     // A user who signs in only through the plugin, or undefined when the
     // name is taken.
     readonly createUser: (name: string, admin: boolean) => User | undefined;

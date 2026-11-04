@@ -33,7 +33,16 @@ interface Price {
   readonly output: number;
 }
 
+// Dollars a month, from "budgets" in pipoca.json: the team's whole spend and
+// each person's share of it.
+interface Budgets {
+  readonly team: number | null;
+  readonly person: number | null;
+}
+
 const shownCalls = 500;
+
+const warnedShares = [80, 100] as const;
 
 // Records every call the proxy makes for team work, priced from the table
 // admins keep in pipoca.json, so admins see all of it and each person their
@@ -50,11 +59,61 @@ export const usage: ServerPlugin = {
       return isPrice(price) ? price : undefined;
     };
 
+    const budgets = (): Budgets => {
+      const set = objectAt(context.config.get(), "budgets");
+
+      return { team: dollars(set["team"]), person: dollars(set["person"]) };
+    };
+
+    const warn = (
+      person: string | null,
+      limit: number,
+      spent: number,
+      cost: number,
+    ) => {
+      for (const share of warnedShares) {
+        const line = (limit * share) / 100;
+
+        if (spent - cost < line && spent >= line) {
+          context.events.publish({
+            type: "usage.budget_warned",
+            person,
+            share,
+            spent,
+            limit,
+          });
+        }
+      }
+    };
+
     context.events.subscribe("logins.model_called", (event) => {
       const call = callOf(event, priceOf);
 
-      if (call !== undefined) {
-        calls.add(call);
+      if (call === undefined) {
+        return;
+      }
+
+      calls.add(call);
+      context.changes.publish("totals");
+
+      if (call.cost === null || call.cost === 0) {
+        return;
+      }
+
+      const since = monthStart(new Date());
+      const { team, person } = budgets();
+
+      if (team !== null) {
+        warn(null, team, calls.totals(since).cost, call.cost);
+      }
+
+      if (person !== null && call.person !== null) {
+        warn(
+          call.person,
+          person,
+          calls.totals(since, call.person).cost,
+          call.cost,
+        );
       }
     });
 
@@ -76,6 +135,7 @@ export const usage: ServerPlugin = {
           since,
           team: calls.totals(since),
           mine: calls.totals(since, personOf(caller)),
+          budgets: budgets(),
         });
       }
 
@@ -127,6 +187,10 @@ function callOf(
         ? null
         : (input * price.input + output * price.output) / 1_000_000,
   };
+}
+
+function dollars(value: unknown): number | null {
+  return typeof value === "number" && value > 0 ? value : null;
 }
 
 function isPrice(value: unknown): value is Price {

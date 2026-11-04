@@ -297,6 +297,7 @@ export function serve(options: ServeOptions): {
     api: async (onBehalf, request) => handler(onBehalfOf(onBehalf, request)),
     auth: {
       userOf: (request) => auth.userOf(request),
+      users: () => auth.users(),
       createUser: (name, admin) => auth.createUser(name, admin),
       setAdmin: (userId, admin) => {
         auth.setAdmin(userId, admin);

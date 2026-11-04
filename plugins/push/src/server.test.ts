@@ -158,6 +158,14 @@ function registered(): { readonly route: PluginRoute; readonly events: Bus } {
 
   const context = fakeContext({
     events: { ...events, declared: () => [] },
+    auth: {
+      ...fakeContext().auth,
+      users: () => [
+        { id: "owner", name: "Owner", admin: false },
+        { id: "ana", name: "Ana", admin: false },
+        { id: "boss", name: "Boss", admin: true },
+      ],
+    },
     routes: {
       handle: (route) => {
         routes.push(route);
@@ -364,4 +372,48 @@ test("refuses an endpoint that isn't a browser's push service", async () => {
   });
 
   expect(response.status).toBe(400);
+});
+
+test("tells the person whose cap team work reached, and every admin, but no one else", async () => {
+  const { route, events } = registered();
+
+  const [own, anas, boss] = await Promise.all(
+    ["device-1", "device-2", "device-3"].map(async (device) =>
+      browser(`https://fcm.googleapis.com/fcm/send/${device}`),
+    ),
+  );
+
+  await call(route, "PUT", "subscriptions", own?.subscription, "owner");
+  await call(route, "PUT", "subscriptions", anas?.subscription, "ana");
+  await call(route, "PUT", "subscriptions", boss?.subscription, "boss");
+
+  events.publish({
+    type: "usage.budget_warned",
+    person: "ana",
+    share: 80,
+    spent: 40,
+    limit: 50,
+  });
+
+  await delivered(2);
+
+  const bodyTo = (device: string): Uint8Array =>
+    sent.find(({ url }) => url.endsWith(device))?.body ?? new Uint8Array();
+
+  expect(
+    sent
+      .map(({ url }) => url.split("/").at(-1))
+      .toSorted((a = "", b = "") => a.localeCompare(b)),
+  ).toEqual(["device-2", "device-3"]);
+
+  expect(await anas?.read(bodyTo("device-2"))).toEqual({
+    title: "Your team work reached 80% of your monthly cap",
+    body: "$40.00 of $50.00 this month",
+    tag: "usage.budget",
+    url: "/",
+  });
+
+  expect(await boss?.read(bodyTo("device-3"))).toMatchObject({
+    title: "Ana's team work reached 80% of their monthly cap",
+  });
 });
