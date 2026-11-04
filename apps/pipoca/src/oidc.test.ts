@@ -666,6 +666,60 @@ test("keeps the role an admin gave when the provider names no admins", async () 
   expect(await userOf(again.cookie)).toMatchObject({ admin: true });
 });
 
+test("lets in someone outside the rules who has an invite, with the invite's role, and keeps them in", async () => {
+  const zoe: Account = {
+    sub: "P000099",
+    email: "Zoe@Example.com",
+    email_verified: true,
+    groups: ["others"],
+  };
+
+  const before = await signIn(zoe);
+
+  const invited = await api("POST", "/api/invites", await pedro(), {
+    emails: ["zoe@example.com"],
+    admin: true,
+  });
+
+  const first = await signIn(zoe);
+  const again = await signIn(zoe);
+
+  const left = (await (
+    await api("GET", "/api/invites", await pedro())
+  ).json()) as unknown[];
+
+  expect([before.response.status, invited.status]).toEqual([403, 201]);
+  expect(await userOf(first.cookie)).toMatchObject({ admin: true });
+  expect(await userOf(again.cookie)).toMatchObject({ admin: true });
+  expect(left).toEqual([]);
+});
+
+test("lets in whoever follows an invite link through the provider", async () => {
+  const outsider: Account = {
+    sub: "P000098",
+    email: "out@elsewhere.org",
+    groups: [],
+  };
+
+  const [link] = (await (
+    await api("POST", "/api/invites", await pedro(), {})
+  ).json()) as { token: string }[];
+
+  const joining = (await (
+    await fetch(new URL(`/api/auth/join/${link?.token ?? ""}`, server.url))
+  ).json()) as { logins: { path: string }[] };
+
+  const { cookie } = await signIn(outsider, {
+    start: joining.logins[0]?.path ?? "",
+  });
+
+  expect(joining.logins[0]?.path).toBe(
+    `/api/plugins/oidc/start/${providerId}?join=${link?.token ?? ""}`,
+  );
+
+  expect(await userOf(cookie)).toMatchObject({ admin: false });
+});
+
 test("only admins change plugins or restart the server", async () => {
   const { cookie } = await signIn(ana);
 

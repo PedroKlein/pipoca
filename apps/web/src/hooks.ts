@@ -7,6 +7,7 @@ import {
 } from "react";
 import type {
   Environment,
+  Invite,
   ListedTemplate,
   Person,
   PluginInfo,
@@ -102,6 +103,10 @@ export function useEnvironments(): WatchedList<Environment> {
 // Sessions (ADR 0049).
 export function usePeople(): WatchedList<Person> {
   return useWatchedList("/api/people", "environments") as WatchedList<Person>;
+}
+
+export function useInvites(): WatchedList<Invite> {
+  return useWatchedList("/api/invites", "environments") as WatchedList<Invite>;
 }
 
 export function useEveryonesEnvironments(): WatchedList<Environment> {

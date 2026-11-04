@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type {
+  Invite,
   ModelRef,
   ProfileContent,
   SessionOwner,
@@ -138,6 +139,16 @@ create table if not exists join_keys (
   key_hash text primary key,
   created_at text not null,
   owner_id text not null
+);
+create table if not exists invites (
+  id text primary key,
+  token_hash text not null unique,
+  email text,
+  admin integer not null,
+  created_by text not null,
+  created_at text not null,
+  expires_at text not null,
+  uses integer not null default 0
 );
 create table if not exists browser_sessions (
   token_hash text primary key,
@@ -959,6 +970,28 @@ function userOf(row: UserRow | undefined): User | undefined {
   return row && { id: row.id, name: row.name, admin: row.admin === 1 };
 }
 
+interface InviteRow {
+  readonly id: string;
+  readonly email: string | null;
+  readonly admin: number;
+  readonly created_by: string;
+  readonly created_at: string;
+  readonly expires_at: string;
+  readonly uses: number;
+}
+
+function inviteOf(row: InviteRow): Invite {
+  return {
+    id: row.id,
+    email: row.email,
+    admin: row.admin === 1,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    uses: row.uses,
+  };
+}
+
 function authStore(db: DatabaseSync): AuthStore {
   const countUsers = db.prepare("select count(*) as n from users");
 
@@ -1006,6 +1039,29 @@ function authStore(db: DatabaseSync): AuthStore {
 
   const updateKey = db.prepare(
     "update environments set key_hash = ? where provider = ?",
+  );
+
+  const insertInvite = db.prepare(
+    "insert into invites (id, token_hash, email, admin, created_by, created_at, expires_at) values (?, ?, ?, ?, ?, ?, ?)",
+  );
+
+  // An invite with an email is used up once someone joins with it.
+  const selectInvites = db.prepare(
+    "select id, email, admin, created_by, created_at, expires_at, uses from invites where expires_at > ? and (email is null or uses = 0) order by created_at",
+  );
+
+  const selectInviteByToken = db.prepare(
+    "select id, email, admin, created_by, created_at, expires_at, uses from invites where token_hash = ? and expires_at > ? and (email is null or uses = 0)",
+  );
+
+  const selectInviteByEmail = db.prepare(
+    "select id, email, admin, created_by, created_at, expires_at, uses from invites where email = ? and expires_at > ? and uses = 0 order by created_at desc",
+  );
+
+  const deleteInvite = db.prepare("delete from invites where id = ?");
+
+  const useInvite = db.prepare(
+    "update invites set uses = uses + 1 where id = ?",
   );
 
   const insertJoinKey = db.prepare(
@@ -1159,6 +1215,34 @@ function authStore(db: DatabaseSync): AuthStore {
         updateKey.run(keyHash, provider);
         deleteJoinedTokens.run(provider);
       });
+    },
+    insertInvite: (invite, tokenHash) => {
+      insertInvite.run(
+        invite.id,
+        tokenHash,
+        invite.email,
+        invite.admin ? 1 : 0,
+        invite.createdBy,
+        invite.createdAt,
+        invite.expiresAt,
+      );
+    },
+    invites: (now) =>
+      (selectInvites.all(now) as unknown as InviteRow[]).map(inviteOf),
+    inviteByToken: (tokenHash, now) => {
+      const row = selectInviteByToken.get(tokenHash, now) as
+        InviteRow | undefined;
+
+      return row && inviteOf(row);
+    },
+    inviteByEmail: (email, now) => {
+      const row = selectInviteByEmail.get(email, now) as InviteRow | undefined;
+
+      return row && inviteOf(row);
+    },
+    deleteInvite: (id) => deleteInvite.run(id).changes > 0,
+    useInvite: (id) => {
+      useInvite.run(id);
     },
     insertJoinKey: (keyHash, ownerId) => {
       insertJoinKey.run(keyHash, new Date().toISOString(), ownerId);

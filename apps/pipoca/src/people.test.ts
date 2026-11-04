@@ -4,7 +4,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Environment, Joined, Person, Session } from "@pipoca/protocol";
+import type {
+  Environment,
+  Invite,
+  JoinInfo,
+  Joined,
+  Person,
+  Session,
+} from "@pipoca/protocol";
 import { serve } from "./serve";
 import { firstUser } from "./testdata/sign-in";
 
@@ -460,6 +467,87 @@ test("lists who is still setting up and when each person was last active", async
   expect(people.every(({ lastActive }) => (lastActive ?? "") >= before)).toBe(
     true,
   );
+});
+
+async function joinWith(token: string, name: string): Promise<Response> {
+  return fetch(new URL(`/api/auth/join/${token}`, server.url), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name, password: "correct horse" }),
+  });
+}
+
+test("lets anyone with an invite link join with a password, as the role it names", async () => {
+  const anas = await ana();
+  const pedros = await pedro();
+
+  const byMember = await api("/api/invites", anas, {});
+
+  const [link] = await json<(Invite & { token: string })[]>(
+    api("/api/invites", pedros, { admin: false, days: 3 }),
+  );
+
+  const token = link?.token ?? "";
+
+  const info = await json<JoinInfo>(
+    fetch(new URL(`/api/auth/join/${token}`, server.url)),
+  );
+
+  const bea = await joinWith(token, "bea");
+  const cid = await joinWith(token, "cid");
+  const taken = await joinWith(token, "cid");
+  const beas = bea.headers.get("set-cookie")?.split(";")[0] ?? "";
+
+  expect(byMember.status).toBe(403);
+
+  expect(info).toMatchObject({
+    email: null,
+    admin: false,
+    passwordLogin: true,
+  });
+
+  expect([bea.status, cid.status, taken.status]).toEqual([201, 201, 409]);
+  expect((await api("/api/people", beas)).status).toBe(403);
+
+  expect(await json(api("/api/invites", pedros))).toEqual([
+    { ...link, token: undefined, uses: 2 },
+  ]);
+});
+
+test("lets an email invite in once, and not after an admin revokes it", async () => {
+  await ana();
+  const pedros = await pedro();
+
+  const badEmail = await api("/api/invites", pedros, { emails: ["nobody"] });
+
+  const [dan, eve] = await json<(Invite & { token: string })[]>(
+    api("/api/invites", pedros, {
+      emails: ["Dan@Example.com ", "eve@example.com"],
+      admin: true,
+    }),
+  );
+
+  const revoked = await api(
+    `/api/invites/${eve?.id ?? ""}`,
+    pedros,
+    undefined,
+    "DELETE",
+  );
+
+  const joined = await joinWith(dan?.token ?? "", "dan");
+  const twice = await joinWith(dan?.token ?? "", "dan2");
+  const afterRevoke = await joinWith(eve?.token ?? "", "eve");
+
+  expect(badEmail.status).toBe(400);
+  expect(dan?.email).toBe("dan@example.com");
+  expect(revoked.status).toBe(204);
+
+  expect([joined.status, twice.status, afterRevoke.status]).toEqual([
+    201, 404, 404,
+  ]);
+
+  expect(await joined.json()).toMatchObject({ name: "dan", admin: true });
+  expect(await json(api("/api/invites", pedros))).toEqual([]);
 });
 
 test("a person lists only the meta-sessions they started", async () => {

@@ -299,6 +299,10 @@ export function serve(options: ServeOptions): {
       setAdmin: (userId, admin) => {
         auth.setAdmin(userId, admin);
       },
+      invited: (token, address) => auth.inviteFor(token, address),
+      acceptInvite: (id) => {
+        auth.acceptInvite(id);
+      },
       startSession: (userId, request) => {
         const user = auth.userById(userId);
 

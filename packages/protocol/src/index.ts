@@ -382,6 +382,33 @@ export interface Person {
   readonly lastActive: string | null;
 }
 
+// An admin's invite to the server (ADR 0063). One with an email lets that
+// one person in once; one without is a link anyone may join with until it
+// expires. An invited person gets in even where sign-in rules would refuse
+// them, with the role the invite names.
+export interface Invite {
+  readonly id: string;
+  readonly email: string | null;
+  readonly admin: boolean;
+  // The admin who made it.
+  readonly createdBy: string;
+  readonly createdAt: string;
+  readonly expiresAt: string;
+  readonly uses: number;
+}
+
+// What the join page shows to someone who opened an invite's link.
+export interface JoinInfo {
+  readonly email: string | null;
+  readonly admin: boolean;
+  // The name of the admin who invited them.
+  readonly invitedBy: string;
+  readonly expiresAt: string;
+  readonly passwordLogin: boolean;
+  // Sign-in links that carry the invite along.
+  readonly logins: readonly { readonly label: string; readonly path: string }[];
+}
+
 // Where a person is in the first-run setup (ADR 0063). Steps they dismissed
 // stop showing as reminders on home.
 export interface SetupState {

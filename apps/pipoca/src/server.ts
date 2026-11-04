@@ -1,5 +1,6 @@
 import {
   type Environment,
+  type JoinInfo,
   type ListedTemplate,
   type PluginInfo,
   type Session,
@@ -302,7 +303,7 @@ export function createHandler(
         });
       },
     ],
-    ...authRoutes(auth, plugins, log),
+    ...authRoutes(auth, plugins, log, changes),
     [
       "ANY",
       /^\/api\/plugins\/([^/]+)\/(.*)$/,
@@ -742,6 +743,52 @@ export function createHandler(
           : errorReply(403, "admin_only", "Only admins list everyone."),
     ],
     [
+      "GET",
+      /^\/api\/invites$/,
+      (_request, _params, _actor, isAdmin) =>
+        isAdmin
+          ? Response.json(auth.invites())
+          : errorReply(403, "admin_only", "Only admins invite people."),
+    ],
+    [
+      "POST",
+      /^\/api\/invites$/,
+      async (request, _params, actor, isAdmin) => {
+        if (!isAdmin) {
+          return errorReply(403, "admin_only", "Only admins invite people.");
+        }
+
+        const {
+          emails,
+          admin: asAdmin,
+          days,
+        } = inviteOf(fieldsOf(await readJson(request)));
+
+        const made = auth.invite(userIdOf(actor), emails, asAdmin, days);
+
+        log("people invited", {
+          invites: made.length,
+          link: emails.length === 0,
+          admin: asAdmin,
+        });
+
+        return Response.json(made, { status: 201 });
+      },
+    ],
+    [
+      "DELETE",
+      /^\/api\/invites\/([^/]+)$/,
+      (_request, [id = ""], _actor, isAdmin) => {
+        if (!isAdmin) {
+          return errorReply(403, "admin_only", "Only admins invite people.");
+        }
+
+        return auth.revokeInvite(id)
+          ? new Response(null, { status: 204 })
+          : notFound();
+      },
+    ],
+    [
       "PATCH",
       /^\/api\/people\/([^/]+)$/,
       async (request, [id = ""], _actor, isAdmin) => {
@@ -1079,7 +1126,12 @@ export function createHandler(
   };
 }
 
-function authRoutes(auth: Auth, plugins: PluginHost, log: Log): RouteTable {
+function authRoutes(
+  auth: Auth,
+  plugins: PluginHost,
+  log: Log,
+  changes: Changes,
+): RouteTable {
   return [
     [
       "GET",
@@ -1109,6 +1161,59 @@ function authRoutes(auth: Auth, plugins: PluginHost, log: Log): RouteTable {
         log("first user created", { userId: user.id });
 
         return signedInAs(auth, user, request, 201);
+      },
+    ],
+    [
+      "GET",
+      /^\/api\/auth\/join\/([\w-]+)$/,
+      (_request, [token = ""]) => {
+        const invite = auth.inviteFor(token, undefined);
+        if (invite === undefined) {
+          return expiredInvite();
+        }
+
+        return Response.json({
+          email: invite.email,
+          admin: invite.admin,
+          invitedBy: auth.userById(invite.createdBy)?.name ?? "An admin",
+          expiresAt: invite.expiresAt,
+          passwordLogin: auth.passwordLogin,
+          logins: plugins.logins().map((login) => ({
+            ...login,
+            path: `${login.path}?join=${token}`,
+          })),
+        } satisfies JoinInfo);
+      },
+    ],
+    [
+      "POST",
+      /^\/api\/auth\/join\/([\w-]+)$/,
+      async (request, [token = ""]) => {
+        const joined = await auth.joinWithInvite(
+          token,
+          credentialsOf(fieldsOf(await readJson(request))),
+        );
+
+        if (joined === "off") {
+          return errorReply(
+            403,
+            "password_login_off",
+            "This server doesn't sign people in with a password.",
+          );
+        }
+
+        if (joined === "taken") {
+          return errorReply(409, "name_taken", "Someone has that name.");
+        }
+
+        if (joined === undefined) {
+          return expiredInvite();
+        }
+
+        log("user joined", { userId: joined.id, admin: joined.admin });
+        changes.publish("environments");
+
+        return signedInAs(auth, joined, request, 201);
       },
     ],
     [
@@ -1229,6 +1334,57 @@ function signedInAs(
     status,
     headers: { "set-cookie": auth.startSession(user, request) },
   });
+}
+
+const maxInvites = 100;
+const emailPattern = /^[^\s@]+@[^\s@]+$/;
+
+function inviteOf(fields: Record<string, unknown>): {
+  readonly emails: readonly string[];
+  readonly admin: boolean;
+  readonly days: number;
+} {
+  const { emails = [], admin = false, days = 7 } = fields;
+
+  if (
+    !Array.isArray(emails) ||
+    emails.length > maxInvites ||
+    !emails.every(
+      (email): email is string =>
+        typeof email === "string" && emailPattern.test(email.trim()),
+    )
+  ) {
+    throw new BadRequest(
+      `emails must be a list of up to ${String(maxInvites)} email addresses`,
+    );
+  }
+
+  if (typeof admin !== "boolean") {
+    throw new BadRequest("admin must be true or false");
+  }
+
+  if (
+    typeof days !== "number" ||
+    !Number.isInteger(days) ||
+    days < 1 ||
+    days > 30
+  ) {
+    throw new BadRequest("days must be a whole number from 1 to 30");
+  }
+
+  return {
+    emails: [...new Set(emails.map((email) => email.trim().toLowerCase()))],
+    admin,
+    days,
+  };
+}
+
+function expiredInvite(): Response {
+  return errorReply(
+    404,
+    "invalid_invite",
+    "This invite was used, revoked or is too old. Ask an admin for a new one.",
+  );
 }
 
 function credentialsOf(fields: Record<string, unknown>): Credentials {

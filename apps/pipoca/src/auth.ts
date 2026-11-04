@@ -1,4 +1,4 @@
-import type { Joined, Person, SetupState } from "@pipoca/protocol";
+import type { Invite, Joined, Person, SetupState } from "@pipoca/protocol";
 import {
   createHash,
   randomBytes,
@@ -47,6 +47,17 @@ export interface AuthStore {
   // A join key belongs to no Environment until a runner joins with it, and
   // then becomes the key of the Environment made for that runner (ADR 0040).
   readonly insertJoinKey: (keyHash: string, ownerId: string) => void;
+  readonly insertInvite: (invite: Invite, tokenHash: string) => void;
+  // Unexpired invites that can still be used.
+  readonly invites: (now: string) => readonly Invite[];
+  readonly inviteByToken: (
+    tokenHash: string,
+    now: string,
+  ) => Invite | undefined;
+  readonly inviteByEmail: (email: string, now: string) => Invite | undefined;
+  // Whether there was an invite with the id.
+  readonly deleteInvite: (id: string) => boolean;
+  readonly useInvite: (id: string) => void;
   // The person whose Environment a runner joining with the key gets.
   readonly joinKeyOwner: (keyHash: string) => string | undefined;
   readonly claimJoinKey: (keyHash: string, provider: string) => void;
@@ -651,6 +662,105 @@ export class Auth {
     });
 
     return user;
+  }
+
+  // One invite for each email, or a link anyone may join with when there
+  // are none. Each token is only in the answer, and only its hash is kept.
+  invite(
+    createdBy: string,
+    emails: readonly string[],
+    admin: boolean,
+    days: number,
+  ): readonly (Invite & { readonly token: string })[] {
+    const now = this.#now();
+
+    return (emails.length === 0 ? [null] : emails).map((email) => {
+      const token = randomBytes(24).toString("base64url");
+
+      const invite: Invite = {
+        id: randomUUID(),
+        email,
+        admin,
+        createdBy,
+        createdAt: new Date(now).toISOString(),
+        expiresAt: new Date(now + days * 86_400_000).toISOString(),
+        uses: 0,
+      };
+
+      this.#store.insertInvite(invite, hash(token));
+
+      return { ...invite, token };
+    });
+  }
+
+  invites(): readonly Invite[] {
+    return this.#store.invites(new Date(this.#now()).toISOString());
+  }
+
+  revokeInvite(id: string): boolean {
+    return this.#store.deleteInvite(id);
+  }
+
+  // The invite that lets someone in: the one whose link they followed, or
+  // else one for their email.
+  inviteFor(
+    token: string | undefined,
+    email: string | undefined,
+  ): Invite | undefined {
+    const now = new Date(this.#now()).toISOString();
+
+    return (
+      (token === undefined
+        ? undefined
+        : this.#store.inviteByToken(hash(token), now)) ??
+      (email === undefined
+        ? undefined
+        : this.#store.inviteByEmail(email.toLowerCase(), now))
+    );
+  }
+
+  acceptInvite(id: string): void {
+    this.#store.useInvite(id);
+  }
+
+  // A person joining with an invite's link and a password of their own.
+  // Undefined when the link doesn't let anyone in any more.
+  async joinWithInvite(
+    token: string,
+    credentials: Credentials,
+  ): Promise<User | "off" | "taken" | undefined> {
+    if (!this.#passwordLogin || this.#soloUser !== undefined) {
+      return "off";
+    }
+
+    const invite = this.inviteFor(token, undefined);
+    if (invite === undefined) {
+      return undefined;
+    }
+
+    checkCredentials(credentials);
+
+    const name = credentials.name.trim();
+    if (this.#store.userByName(name) !== undefined) {
+      return "taken";
+    }
+
+    const user: StoredUser = {
+      id: randomUUID(),
+      name,
+      admin: invite.admin,
+      passwordHash: await Bun.password.hash(credentials.password),
+      createdAt: new Date().toISOString(),
+    };
+
+    this.#store.insertUser(user);
+    this.#store.useInvite(invite.id);
+
+    return { id: user.id, name: user.name, admin: user.admin };
+  }
+
+  get passwordLogin(): boolean {
+    return this.#passwordLogin && this.#soloUser === undefined;
   }
 
   people(): readonly Person[] {

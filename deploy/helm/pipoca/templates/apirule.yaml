@@ -42,6 +42,9 @@ spec:
     - path: /api/auth/link/{*}
       methods: [GET]
       noAuth: true
+    - path: /api/auth/join/{*}
+      methods: [GET, POST]
+      noAuth: true
     - path: /api/changes
       methods: [GET]
       noAuth: true
@@ -54,7 +57,7 @@ spec:
       methods: {{ toJson $methods }}
       noAuth: true
       timeout: 3900
-    {{- range list "environments" "templates" "people" "profiles" "base" "defaults" "plugins" "plugin-files" "plugin-builds" "plugin-parts" "pinned-pages" "mcp-tokens" "join-key" "restart" "setup" }}
+    {{- range list "environments" "templates" "people" "profiles" "base" "defaults" "plugins" "plugin-files" "plugin-builds" "plugin-parts" "pinned-pages" "mcp-tokens" "join-key" "restart" "setup" "invites" }}
     - path: /api/{{ . }}
       methods: {{ toJson $methods }}
       noAuth: true

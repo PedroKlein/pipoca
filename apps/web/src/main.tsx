@@ -2,6 +2,7 @@ import type { SetupState } from "@pipoca/protocol";
 import { createRoot } from "react-dom/client";
 import { App } from "./app";
 import { AppSignIn, pendingAppSignIn } from "./app-sign-in";
+import { JoinPage } from "./join";
 import { loadPlugins, navEntries } from "./plugins";
 import { type Login, SignInPage } from "./sign-in";
 import { applyTheme } from "./theme";
@@ -30,10 +31,13 @@ const status = await fetch("/api/auth")
   .catch(() => undefined);
 
 const setupToken = /^#setup\/(.+)$/.exec(location.hash)?.[1];
+const joinToken = /^#join\/(.+)$/.exec(location.hash)?.[1];
 const appChallenge = pendingAppSignIn();
 
 if (status === undefined) {
   root.textContent = "The server can't be reached. Reload to try again.";
+} else if (status.user === null && joinToken !== undefined) {
+  createRoot(root).render(<JoinPage token={joinToken} />);
 } else if (status.user === null) {
   createRoot(root).render(
     <SignInPage
