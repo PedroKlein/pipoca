@@ -537,13 +537,24 @@ export class Sessions {
       actor: request.actor,
     });
 
-    if (moved.ok && source.title !== null) {
+    if (!moved.ok) {
+      return moved;
+    }
+
+    if (source.title !== null) {
       this.#store.setTitle(moved.value.id, source.title);
     }
 
-    return moved.ok
-      ? { ok: true, value: this.get(moved.value.id) ?? moved.value }
-      : moved;
+    const view = this.get(moved.value.id) ?? moved.value;
+
+    this.#events({
+      type: "SessionMoved",
+      session: view,
+      from: source.id,
+      actor: request.actor,
+    });
+
+    return { ok: true, value: view };
   }
 
   // With team, only the team's Sessions the person may see, or all of them
@@ -613,6 +624,12 @@ export class Sessions {
     this.#store.setAccess(session.id, access);
     const view = this.#view(session);
     this.#emit(session.id, { type: "session", session: view });
+
+    this.#events({
+      type: "AccessChanged",
+      session: view,
+      actor: `user:${by.person}`,
+    });
 
     return { ok: true, value: view };
   }

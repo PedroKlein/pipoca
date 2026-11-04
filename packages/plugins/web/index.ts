@@ -472,6 +472,22 @@ export function useLoaded<T>(
   };
 }
 
+const units = [
+  ["d", 86_400_000],
+  ["h", 3_600_000],
+  ["m", 60_000],
+] as const;
+
+// How long ago a time was, such as "5m ago".
+export function ago(time: string, now: number): string {
+  const elapsed = now - Date.parse(time);
+  const unit = units.find(([, ms]) => elapsed >= ms);
+
+  return unit
+    ? `${String(Math.floor(elapsed / unit[1]))}${unit[0]} ago`
+    : "just now";
+}
+
 // The current time, again every everyMs, for "5m ago" labels.
 export function useNow(everyMs = 30_000): number {
   const [now, setNow] = useState(Date.now);
