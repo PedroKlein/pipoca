@@ -1,8 +1,9 @@
 import type { SetupScreen } from "@pipoca/plugins/web";
-import { Icon } from "@pipoca/ui";
-import type { ReactElement, ReactNode } from "react";
+import { Badge, Icon, PageTitle, Row, Rows, Switch } from "@pipoca/ui";
+import { type ReactElement, type ReactNode, useState } from "react";
+import { send } from "./api";
 import { EnvironmentsPage } from "./environments";
-import { useTeamEnvironments, useTeamProfiles } from "./hooks";
+import { usePlugins, useTeamEnvironments, useTeamProfiles } from "./hooks";
 import { settingsPageClass } from "./page-class";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext, pluginTitle } from "./plugins";
@@ -65,7 +66,13 @@ export function TeamSetup({
         ...plugins.filter(({ group }) => group === "runs-on"),
       ],
     ],
-    ["Rules", plugins.filter(({ group }) => group === "rules")],
+    [
+      "Rules",
+      [
+        { path: "team/setup/plugins", label: "Plugins in team work" },
+        ...plugins.filter(({ group }) => group === "rules"),
+      ],
+    ],
     [
       "For the whole server, in Settings",
       [
@@ -91,6 +98,10 @@ export function TeamSetup({
           onChange={environments.reload}
         />
       );
+    }
+
+    if (section === "plugins") {
+      return <TeamPlugins />;
     }
 
     const screen = plugins.find(({ path }) => path === route);
@@ -163,6 +174,64 @@ export function TeamSetup({
           ))}
       </nav>
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">{content()}</div>
+    </div>
+  );
+}
+
+// A plugin loads in team Sessions only if it says it works in team work and
+// admins leave it on there (ADR 0067).
+function TeamPlugins(): ReactElement {
+  const { value: plugins, reload } = usePlugins();
+  const [error, setError] = useState<string>();
+
+  const turn = (id: string, on: boolean): void => {
+    send(`/api/plugins/${encodeURIComponent(id)}`, "PATCH", {
+      teamWork: on,
+    }).then(
+      () => {
+        setError(undefined);
+        reload();
+      },
+      (reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      },
+    );
+  };
+
+  return (
+    <div className={settingsPageClass}>
+      <PageTitle description="A plugin loads in team Sessions only if it says it works in team work and you leave it on. Built-in ones start on, installed ones start off. New team Sessions pick up a change.">
+        Plugins in team work
+      </PageTitle>
+      {error !== undefined && (
+        <p role="alert" className="mb-4 text-label text-failed">
+          {error}
+        </p>
+      )}
+      <Rows label="Plugins in team work">
+        {plugins
+          .filter(({ state }) => state === "on")
+          .map(({ id, title, description, works, teamWork }) => {
+            const supports = works?.includes("team") === true;
+
+            return (
+              <Row key={id} title={title} description={description}>
+                <Badge state={supports ? "done" : "offline"}>
+                  {supports ? "Works in team work" : "Personal only"}
+                </Badge>
+                <Switch
+                  label={`${title} in team work`}
+                  labelHidden
+                  checked={teamWork}
+                  disabled={!supports}
+                  onChange={(on) => {
+                    turn(id, on);
+                  }}
+                />
+              </Row>
+            );
+          })}
+      </Rows>
     </div>
   );
 }

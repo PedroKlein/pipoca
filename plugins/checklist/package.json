@@ -22,6 +22,10 @@
     "id": "checklist",
     "title": "Checklist",
     "description": "Lets the agent keep a checklist of its steps, shown above the composer.",
-    "capabilities": []
+    "capabilities": [],
+    "works": [
+      "personal",
+      "team"
+    ]
   }
 }

@@ -153,7 +153,11 @@ The part shares `react`, `react-dom`, `@pipoca/ui` and `@pipoca/plugins/web` wit
 
 ## The Session part
 
-The Session part runs in every Session's process, on whichever machine runs it, including a laptop. Set `ownSessionsOnly` in the manifest to load it only in the Sessions your server part starts. Its default export is a `SessionPlugin`:
+The Session part runs in every Session's process, on whichever machine runs it, including a laptop. Set `ownSessionsOnly` in the manifest to load it only in the Sessions your server part starts.
+
+Team Sessions load a plugin's tools and its Session and web parts only if its manifest has `"works": ["personal", "team"]` and an admin turned it on in Team setup's Plugins in team work. Without `works` a plugin is personal only, so code written for one person never runs in team work unchecked (ADR 0067).
+
+Its default export is a `SessionPlugin`:
 
 ```ts
 import type { SessionPlugin } from "@pipoca/plugins";

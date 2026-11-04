@@ -117,6 +117,12 @@ export interface PluginHost {
   // The file of a running installed plugin's Session part, by its hash.
   readonly sessionPart: (name: string, hash: string) => string | undefined;
   readonly sessionPlugins: () => SessionPlugins;
+  // Keeps a plugin that works in team work on or off there. Says why not,
+  // or undefined when no plugin has the name.
+  readonly setTeamWork: (
+    name: string,
+    on: boolean,
+  ) => PluginInfo | string | undefined;
   readonly profile: (id: string) => PluginProfile | undefined;
   readonly profileIds: () => readonly string[];
   readonly tools: (session: Session) => readonly ToolSpec[];
@@ -216,6 +222,9 @@ export function startPlugins(
     // The Session parts built into the binary, besides installed ones.
     readonly sessionParts: readonly SessionPlugin[];
     readonly mcpServers?: ServerPluginContext["profiles"]["mcpServers"];
+    // Which plugins admins turned on or off in team work, by name, in
+    // pipoca.json (ADR 0067).
+    readonly teamPlugins?: PluginConfig;
     readonly buildsOn?: ServerPluginContext["profiles"]["buildsOn"];
     readonly signal: AbortSignal;
     readonly log: Log;
@@ -419,6 +428,31 @@ export function startPlugins(
 
   const loadsToolsets = (session: Session): boolean =>
     toolsetUsers.has(deps.sessions.powersOf(session) ?? "");
+
+  const teamSwitches = (): Readonly<Record<string, unknown>> => {
+    const saved = deps.teamPlugins?.get();
+
+    return typeof saved === "object" && saved !== null
+      ? (saved as Readonly<Record<string, unknown>>)
+      : {};
+  };
+
+  // A plugin loads in team work only if it says it works there, and then
+  // a built-in is on until admins turn it off and an installed one is off
+  // until they turn it on (ADR 0067).
+  const inTeamWork = (name: string): boolean => {
+    const switched = teamSwitches()[name];
+
+    return (
+      running.includes(name) &&
+      manifest(name)?.works?.includes("team") === true &&
+      (typeof switched === "boolean" ? switched : !installedIds.has(name))
+    );
+  };
+
+  // The kernel's own toolsets have no plugin.
+  const loadsIn = (session: Session, plugin: string | undefined): boolean =>
+    session.ownedBy !== "team" || plugin === undefined || inTeamWork(plugin);
 
   for (const plugin of plugins.filter(({ name }) => enabled.includes(name))) {
     const log: Log = (message, fields) => {
@@ -686,6 +720,7 @@ export function startPlugins(
       ...(source !== undefined && { installedFrom: source }),
       ...(updated.has(found.id) && { updated: true }),
       ...(newer.has(found.id) && { updateAvailable: true }),
+      teamWork: inTeamWork(found.id),
     } as const;
 
     if (error !== undefined) {
@@ -943,6 +978,7 @@ export function startPlugins(
           ),
         ],
         loadOnly: Object.fromEntries(loaded),
+        teamWork: running.filter(inTeamWork),
         installedParts: Object.fromEntries(
           [...sessionBundles]
             .filter(([name]) => running.includes(name))
@@ -950,13 +986,40 @@ export function startPlugins(
         ),
       };
     },
+    setTeamWork: (name, on) => {
+      const found = manifest(name);
+
+      if (found === undefined) {
+        return undefined;
+      }
+
+      if (found.works?.includes("team") !== true) {
+        return `${name} doesn't say it works in team work`;
+      }
+
+      if (deps.teamPlugins === undefined) {
+        return "this server keeps no team work settings";
+      }
+
+      deps.teamPlugins.set({ ...teamSwitches(), [name]: on });
+      deps.log("plugin team work set", { plugin: name, on });
+
+      return info(listed(name) ?? found);
+    },
     profile: (id) => profiles.get(id),
     profileIds: () => [...profiles.keys()],
     tools: (session) => [
       ...[...tools.values()]
-        .filter(({ tool }) => tool.appliesTo(session))
+        .filter(
+          ({ plugin, tool }) =>
+            loadsIn(session, plugin) && tool.appliesTo(session),
+        )
         .map(({ tool: { appliesTo: _appliesTo, run: _run, ...spec } }) => spec),
-      ...(loadsToolsets(session) ? modelTools().map(({ spec }) => spec) : []),
+      ...(loadsToolsets(session)
+        ? modelTools()
+            .filter(({ plugin }) => loadsIn(session, plugin))
+            .map(({ spec }) => spec)
+        : []),
     ],
     call: (session, call) => {
       const actor: Actor = `session:${session.id}`;
@@ -969,10 +1032,18 @@ export function startPlugins(
       });
 
       const routed = loadsToolsets(session)
-        ? modelTools().find(({ spec }) => spec.name === call.name)
+        ? modelTools().find(
+            ({ spec, plugin }) =>
+              spec.name === call.name && loadsIn(session, plugin),
+          )
         : undefined;
 
-      const found = tools.get(call.name);
+      const registered = tools.get(call.name);
+
+      const found =
+        registered !== undefined && loadsIn(session, registered.plugin)
+          ? registered
+          : undefined;
 
       const result = async (): Promise<ToolResult> => {
         if (routed !== undefined) {

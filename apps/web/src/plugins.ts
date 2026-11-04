@@ -70,6 +70,7 @@ let enabled: readonly WebPlugin[] = [];
 const webErrors = new Map<string, string>();
 let settings: ReadonlyMap<string, PluginSettings> = new Map();
 let titles: ReadonlyMap<string, string> = new Map();
+let inTeamWork: ReadonlySet<string> = new Set();
 
 // An installed plugin's web part is bundled with these left out, and reads
 // them from here, so the page has one React and one design system (ADR 0022).
@@ -102,6 +103,10 @@ export async function loadPlugins(): Promise<void> {
 
   settings = new Map(on.map(({ id, values }) => [id, values]));
   titles = new Map(on.map(({ id, title }) => [id, title]));
+
+  inTeamWork = new Set(
+    on.flatMap(({ id, teamWork }) => (teamWork ? [id] : [])),
+  );
 }
 
 async function importWebPart(
@@ -151,6 +156,12 @@ export function pluginTitle(name: string): string {
 
 export function enabledPlugins(): readonly WebPlugin[] {
   return enabled;
+}
+
+// The plugins whose parts draw in a Session: in team work, only the ones
+// that load there (ADR 0067).
+export function sessionPlugins(team: boolean): readonly WebPlugin[] {
+  return team ? enabled.filter(({ name }) => inTeamWork.has(name)) : enabled;
 }
 
 const contexts = new Map<string, WebContext>();

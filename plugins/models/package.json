@@ -27,6 +27,10 @@
       "routes",
       "models",
       "environments"
+    ],
+    "works": [
+      "personal",
+      "team"
     ]
   }
 }

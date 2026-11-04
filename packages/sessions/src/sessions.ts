@@ -177,6 +177,8 @@ export type SessionPlugins = Required<
   readonly loadOnly?: Readonly<Record<string, readonly string[]>>;
   // The installed plugins' Session parts, by name, with their bundles' hash.
   readonly installedParts?: Readonly<Record<string, string>>;
+  // The Session plugins that load in team work (ADR 0067).
+  readonly teamWork?: readonly string[];
 };
 
 export interface SessionsOptions {
@@ -1712,15 +1714,18 @@ export class Sessions {
       ownSessionsOnly,
       loadOnly,
       installedParts,
+      teamWork,
     } = this.#sessionPlugins();
 
     const ownedBy = this.powersOf(session);
     const limit = ownedBy === undefined ? undefined : loadOnly?.[ownedBy];
+    const team = this.#team(session);
 
     const loaded = plugins.filter(
       (name) =>
         (limit?.includes(name) ?? true) &&
-        (ownSessionsOnly?.includes(name) !== true || ownedBy === name),
+        (ownSessionsOnly?.includes(name) !== true || ownedBy === name) &&
+        (!team || (teamWork?.includes(name) ?? true)),
     );
 
     const installed = Object.entries(installedParts ?? {}).filter(([name]) =>

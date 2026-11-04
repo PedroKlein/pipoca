@@ -554,6 +554,9 @@ const pluginPackage = Type.Object({
       }),
     ),
     ownSessionsOnly: Type.Optional(Type.Boolean()),
+    works: Type.Optional(
+      Type.Array(Type.Union([Type.Literal("personal"), Type.Literal("team")])),
+    ),
     settings: Type.Optional(Type.Unknown()),
     events: Type.Optional(
       Type.Record(
@@ -578,8 +581,17 @@ function manifestOf(packageJson: unknown, folder: string): PluginManifest {
     );
   }
 
-  const { id, title, description, version, engine, parts, settings, events } =
-    packageJson.pipoca;
+  const {
+    id,
+    title,
+    description,
+    version,
+    engine,
+    parts,
+    settings,
+    events,
+    works,
+  } = packageJson.pipoca;
 
   if (id !== folder) {
     throw new Error(`pipoca.id must be the folder's name, ${folder}`);
@@ -608,6 +620,7 @@ function manifestOf(packageJson: unknown, folder: string): PluginManifest {
     },
     ...(settings !== undefined && { settings: settingSpecs(settings) }),
     ...(events !== undefined && { events }),
+    ...(works !== undefined && { works }),
   };
 }
 

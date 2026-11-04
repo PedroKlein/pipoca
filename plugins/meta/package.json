@@ -27,6 +27,10 @@
       "sessions",
       "profiles",
       "routes"
+    ],
+    "works": [
+      "personal",
+      "team"
     ]
   }
 }

@@ -202,7 +202,8 @@ export function serve(options: ServeOptions): {
   const builtIn =
     options.plugins?.map(
       ({ name }) =>
-        options.manifests?.find(({ id }) => id === name) ?? {
+        options.manifests?.find(({ id }) => id === name) ??
+        builtInPlugins.find(({ id }) => id === name) ?? {
           id: name,
           title: name,
           description: "",
@@ -341,6 +342,7 @@ export function serve(options: ServeOptions): {
     }),
     sessionParts: sessionPlugins,
     mcpServers: () => userProfiles.mcpServers(),
+    teamPlugins: config("teamPlugins"),
     buildsOn: (id) => profiles.buildsOn(id),
     signal: pluginsStop.signal,
     log: options.log,

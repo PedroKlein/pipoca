@@ -23,6 +23,10 @@
     "capabilities": [
       "environments",
       "routes"
+    ],
+    "works": [
+      "personal",
+      "team"
     ]
   }
 }

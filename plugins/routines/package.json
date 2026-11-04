@@ -29,6 +29,10 @@
       "tools",
       "events",
       "sessions"
+    ],
+    "works": [
+      "personal",
+      "team"
     ]
   }
 }
