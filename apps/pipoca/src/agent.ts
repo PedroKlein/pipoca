@@ -49,7 +49,13 @@ import {
   reportStartFailure,
 } from "./client";
 import { installedSessionParts, sessionParts } from "./session-parts";
-import { containerSession } from "./container";
+import { version } from "../package.json";
+import {
+  binaryVolume,
+  containerSession,
+  pipocaImage,
+  type SessionBinary,
+} from "./container";
 import { environmentSetup } from "./setup";
 import {
   installPackageApart,
@@ -522,7 +528,7 @@ async function runAs(
               sessionId,
               generation,
               image,
-              binary: sessionBinary(options.sessionBinary),
+              binary: await sessionBinary(options.sessionBinary),
               folders: options.folders,
               session: sessionOptions,
               variables,
@@ -900,21 +906,24 @@ async function claimProfiles(dir: string, server: string): Promise<boolean> {
   return owner === server;
 }
 
-function sessionBinary(configured: string | undefined): string {
+// A compiled agent on Linux mounts itself. One on another system copies the
+// binary of its own version out of the Pipoca image, as runner pods do.
+async function sessionBinary(
+  configured: string | undefined,
+): Promise<SessionBinary> {
   if (configured !== undefined) {
-    return configured;
+    return { file: configured };
   }
 
-  if (
-    process.platform === "linux" &&
-    import.meta.dirname.startsWith("/$bunfs")
-  ) {
-    return process.execPath;
+  if (!import.meta.dirname.startsWith("/$bunfs")) {
+    throw new Error(
+      "container Sessions need a Linux pipoca binary: start the agent with --session-binary",
+    );
   }
 
-  throw new Error(
-    "container Sessions need a Linux pipoca binary: start the agent with --session-binary",
-  );
+  return process.platform === "linux"
+    ? { file: process.execPath }
+    : { volume: await binaryVolume(`${pipocaImage}:v${version}`) };
 }
 
 function idleExit(
