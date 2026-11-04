@@ -30,6 +30,7 @@ import { configFiles, configFolder } from "./config";
 import { sessionDocs } from "./docs";
 import { hubLayout } from "./hub";
 import { newcomerSetup } from "./newcomers";
+import { teamSettings } from "./team";
 import { environmentTemplates } from "./templates";
 import {
   buildPlugin,
@@ -380,6 +381,7 @@ export function serve(options: ServeOptions): {
     configFiles(configDir, options.lockedConfig),
     hubLayout(config("hub")),
     newcomerSetup(config("newcomers")),
+    teamSettings(config("team")),
   );
 
   const terminals = terminalBroker(sessions, auth, options.log);

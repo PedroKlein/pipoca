@@ -16,6 +16,7 @@ import type {
   Profile,
   Session,
   Teammate,
+  TeamName,
 } from "@pipoca/protocol";
 import { responseOrder, watchChanges } from "@pipoca/plugins/web";
 import { api } from "./api";
@@ -132,6 +133,27 @@ export function useHubLayout(): {
   }, [reload]);
 
   return { pages, reload };
+}
+
+// The team's name, or null while admins haven't given it one.
+export function useTeamName(): string | null {
+  const [name, setName] = useState<string | null>(null);
+
+  useEffect(() => {
+    const read = (): void => {
+      api("/api/team")
+        .then(async (response) => {
+          setName(((await response.json()) as TeamName).name);
+        })
+        .catch(() => undefined);
+    };
+
+    read();
+
+    return watchChanges(["team"], read);
+  }, []);
+
+  return name;
 }
 
 export function useProfiles(): WatchedList<Profile> {

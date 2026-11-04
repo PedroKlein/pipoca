@@ -1278,6 +1278,11 @@ export interface Newcomers {
   readonly required: readonly string[];
 }
 
+// The team's own name, which admins set, or null while it has none.
+export interface TeamName {
+  readonly name: string | null;
+}
+
 export interface HubLayout {
   readonly pages: readonly HubPage[] | null;
 }

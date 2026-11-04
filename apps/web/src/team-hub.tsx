@@ -18,6 +18,7 @@ import {
   useHubLayout,
   useNow,
   useTeamEnvironments,
+  useTeammates,
   useTeamProfiles,
   useTeamSessions,
 } from "./hooks";
@@ -104,10 +105,13 @@ function newPageId(title: string, pages: readonly HubPage[]): string {
 export function TeamHub({
   route,
   admin,
+  name,
 }: {
   readonly route: string;
   readonly admin: boolean;
+  readonly name: string | null;
 }): ReactElement {
+  const people = useTeammates();
   const sessions = useTeamSessions();
   const environments = useTeamEnvironments();
   const profiles = useTeamProfiles();
@@ -200,9 +204,18 @@ export function TeamHub({
           <Icon name="chevron-left" />
           My work
         </a>
-        <h2 className="px-2.5 pt-0.5 pb-2 font-serif text-wordmark font-light text-fg-strong max-md:hidden">
-          Team
-        </h2>
+        <div className="px-2.5 pt-0.5 pb-2 max-md:hidden">
+          <h2 className="truncate font-serif text-wordmark font-light text-fg-strong">
+            {name ?? "Team"}
+          </h2>
+          {people.loaded && (
+            <p className="text-caption text-fg-dim">
+              {people.value.length === 1
+                ? "1 person"
+                : `${String(people.value.length)} people`}
+            </p>
+          )}
+        </div>
         {entries.map(({ path, label, icon }) => (
           <a
             key={path}

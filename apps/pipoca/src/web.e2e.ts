@@ -4219,3 +4219,29 @@ test("an admin keeps a plugin out of team work from Team setup", async () => {
     .getByRole("switch", { name: "Ask in team work", checked: true })
     .waitFor();
 });
+
+test("an admin names the team, and the hub and sidebar show it", async () => {
+  await page.goto(new URL("/#team/setup/name", server.url).href);
+  await page.getByLabel("Team name").fill("Acme platform");
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByRole("status").getByText("Saved").waitFor();
+
+  await page
+    .getByRole("navigation", { name: "Team setup" })
+    .getByRole("link", { name: "Team home" })
+    .click();
+
+  await page
+    .getByRole("navigation", { name: "Team" })
+    .getByRole("heading", { name: "Acme platform" })
+    .waitFor();
+
+  await page.getByRole("link", { name: "My work" }).click();
+  await page.getByRole("link", { name: "Acme platform" }).waitFor();
+
+  await page.request.put(new URL("/api/team", server.url).href, {
+    data: { name: null },
+  });
+
+  await page.getByRole("link", { name: "Team", exact: true }).waitFor();
+});
