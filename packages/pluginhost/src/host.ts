@@ -200,6 +200,7 @@ export function startPlugins(
     readonly auth: Pick<
       ServerPluginContext["auth"],
       | "userOf"
+      | "users"
       | "createUser"
       | "setAdmin"
       | "invited"
@@ -569,6 +570,7 @@ export function startPlugins(
               staged.publicRoute = route;
             },
             userOf: deps.auth.userOf,
+            users: deps.auth.users,
             createUser: deps.auth.createUser,
             setAdmin: deps.auth.setAdmin,
             invited: deps.auth.invited,

@@ -22,6 +22,36 @@
     "capabilities": [
       "routes",
       "events"
-    ]
+    ],
+    "events": {
+      "budget_warned": {
+        "title": "Budget warning",
+        "description": "Team work reached 80% or 100% of the team's monthly budget or of one person's monthly cap.",
+        "fields": {
+          "type": "object",
+          "properties": {
+            "person": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Whose cap it is, or null for the team's budget"
+            },
+            "share": {
+              "type": "number",
+              "description": "80 or 100"
+            },
+            "spent": {
+              "type": "number",
+              "description": "Dollars spent this month"
+            },
+            "limit": {
+              "type": "number",
+              "description": "The budget or cap in dollars"
+            }
+          }
+        }
+      }
+    }
   }
 }

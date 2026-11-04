@@ -44,7 +44,7 @@ self.addEventListener("push", (event) => {
     if (!watching) {
       await self.registration.showNotification(notice.title ?? "Pipoca", {
         body: notice.body,
-        tag: notice.session,
+        tag: notice.tag ?? notice.session,
         data: { session: notice.session, url: notice.url ?? "/" },
       });
     }
@@ -63,7 +63,10 @@ self.addEventListener("notificationclick", (event) => {
       return;
     }
 
-    open.postMessage({ type: "open-session", session });
+    if (session !== undefined) {
+      open.postMessage({ type: "open-session", session });
+    }
+
     await open.focus();
   })());
 });

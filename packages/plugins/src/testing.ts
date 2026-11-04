@@ -83,6 +83,7 @@ export function fakeContext(
       offer: notFaked("auth.offer"),
       handlePublic: notFaked("auth.handlePublic"),
       userOf: notFaked("auth.userOf"),
+      users: notFaked("auth.users"),
       createUser: notFaked("auth.createUser"),
       setAdmin: notFaked("auth.setAdmin"),
       invited: notFaked("auth.invited"),

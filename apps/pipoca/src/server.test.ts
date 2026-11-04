@@ -56,6 +56,7 @@ test("reports unhealthy when the database can't be read, keeping why in the log"
       },
       auth: {
         userOf: () => undefined,
+        users: () => [],
         createUser: () => undefined,
         setAdmin: () => undefined,
         invited: () => undefined,
@@ -142,6 +143,7 @@ function startServer(
       },
       auth: {
         userOf: () => undefined,
+        users: () => [],
         createUser: () => undefined,
         setAdmin: () => undefined,
         invited: () => undefined,
@@ -521,6 +523,7 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
         },
         auth: {
           userOf: () => undefined,
+          users: () => [],
           createUser: () => undefined,
           setAdmin: () => undefined,
           invited: () => undefined,

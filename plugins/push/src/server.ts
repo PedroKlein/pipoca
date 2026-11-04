@@ -42,7 +42,9 @@ interface Subscription {
 interface Notice {
   readonly title: string;
   readonly body: string;
-  readonly session: string;
+  readonly session?: string;
+  // A newer notice of the same tag replaces the one shown.
+  readonly tag?: string;
   readonly url: string;
 }
 
@@ -107,27 +109,71 @@ export const push: ServerPlugin = {
       throw new NotFound(`no route ${path}`);
     });
 
-    const send = (session: Session, title: string, urgent: boolean): void => {
-      if (session.startedBy === null) {
-        return;
-      }
-
-      const notice: Notice = {
-        title,
-        body: session.title ?? "",
-        session: session.id,
-        url: `/#${session.id}`,
-      };
-
+    const tell = (userId: string, notice: Notice, urgent: boolean): void => {
       const subscriptions = store.all(
         "select endpoint, p256dh, auth from push_subscriptions where user_id = ?",
-        session.startedBy,
+        userId,
       ) as Subscription[];
 
       for (const target of subscriptions) {
         void deliver(target, notice, urgent, keys, store, context);
       }
     };
+
+    const send = (session: Session, title: string, urgent: boolean): void => {
+      if (session.startedBy === null) {
+        return;
+      }
+
+      tell(
+        session.startedBy,
+        {
+          title,
+          body: session.title ?? "",
+          session: session.id,
+          url: `/#${session.id}`,
+        },
+        urgent,
+      );
+    };
+
+    // The person whose cap it is and every admin hear of a budget warning
+    // (ADR 0066).
+    context.events.subscribe("usage.budget_warned", (event) => {
+      const { person, share, spent, limit } = event;
+
+      if (
+        typeof share !== "number" ||
+        typeof spent !== "number" ||
+        typeof limit !== "number"
+      ) {
+        return;
+      }
+
+      const users = context.auth.users();
+      const capped = users.find(({ id }) => id === person);
+      const body = `$${spent.toFixed(2)} of $${limit.toFixed(2)} this month`;
+
+      const title = (user: { readonly id: string }) => {
+        if (user === capped) {
+          return `Your team work reached ${String(share)}% of your monthly cap`;
+        }
+
+        return capped === undefined
+          ? `Team work reached ${String(share)}% of its monthly budget`
+          : `${capped.name}'s team work reached ${String(share)}% of their monthly cap`;
+      };
+
+      for (const user of users) {
+        if (user === capped || user.admin) {
+          tell(
+            user.id,
+            { title: title(user), body, tag: "usage.budget", url: "/" },
+            false,
+          );
+        }
+      }
+    });
 
     context.events.subscribe("SessionWaiting", ({ session }) => {
       send(session, "Pi needs you", true);
