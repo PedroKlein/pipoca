@@ -11,11 +11,14 @@ import type {
   Profile,
   ProfileFiles,
   Session,
+  SessionEvent,
+  Voice,
 } from "@pipoca/protocol";
 import { gitHosts } from "@pipoca/git-hosts/server";
 import type { ServerPluginContext } from "@pipoca/plugins";
 import { serve } from "./serve";
 import { builtInPlugins } from "./session-parts";
+import { readSse } from "./sse";
 import { firstUser } from "./testdata/sign-in";
 
 let root: string;
@@ -475,4 +478,45 @@ test("whoever started team work makes it view-only or limits it to named people"
 
   expect((await limit(await pedro(), { kind: "team" })).status).toBe(200);
   expect(await listed(cys)).toEqual([session.id]);
+});
+
+test("a team Session keeps who sent each message, for everyone who opens it", async () => {
+  const anas = await ana();
+  const bo = randomUUID();
+  const bos = await member("bo", bo);
+  const team = await teamSetup();
+
+  const session = await json<Session>(
+    api("/api/sessions", anas, {
+      team: true,
+      environment: team.environment,
+      profile: team.profile,
+      workspace: workspace(),
+    }),
+  );
+
+  await poll(team.runner);
+
+  const sent = await api(`/api/sessions/${session.id}/commands`, bos, {
+    type: "message",
+    text: "Ship it",
+  });
+
+  expect(sent.status).toBe(202);
+
+  const events = await api(`/api/sessions/${session.id}/events`, anas);
+  const voices: Voice[] = [];
+
+  for await (const event of readSse(events)) {
+    const replayed = event as SessionEvent;
+
+    if (replayed.type === "voice") {
+      voices.push(replayed.voice);
+      break;
+    }
+  }
+
+  expect(voices.map(({ kind, person, text }) => [kind, person, text])).toEqual([
+    ["message", bo, "Ship it"],
+  ]);
 });

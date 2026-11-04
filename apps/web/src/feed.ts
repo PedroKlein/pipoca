@@ -9,6 +9,7 @@ import {
   type SlashCommand,
   type TerminalTab,
   type UiAction,
+  type Voice,
 } from "@pipoca/protocol";
 import { chatItems, type ChatItem } from "./chat";
 
@@ -35,6 +36,8 @@ export interface Feed {
   readonly missing: boolean;
   readonly title: string | undefined;
   readonly items: readonly FeedItem[];
+  // Who sent a team Session's messages and who stopped it, oldest first.
+  readonly voices: readonly Voice[];
   readonly streaming: string | undefined;
   readonly tools: readonly { readonly id: string; readonly name: string }[];
   readonly prompts: readonly OpenPrompt[];
@@ -69,6 +72,7 @@ export const emptyFeed: Feed = {
   missing: false,
   title: undefined,
   items: [],
+  voices: [],
   streaming: undefined,
   tools: [],
   prompts: [],
@@ -330,7 +334,7 @@ export function feedReader({
     const replayed =
       event.type === "session"
         ? event.session.waiting
-        : event.type === "entry" || liveSurface(event.event)?.open === true;
+        : event.type !== "live" || liveSurface(event.event)?.open === true;
 
     if (unconfirmed.size === 0 || replayed) {
       return;
@@ -365,7 +369,7 @@ export function feedReader({
       unconfirmed.add(prompt.id);
     }
 
-    update(clearLive());
+    update({ ...clearLive(), voices: [] });
   };
 
   const receive = (event: SessionEvent): void => {
@@ -418,6 +422,11 @@ export function feedReader({
 
         return;
       }
+
+      case "voice":
+        update({ voices: [...feed.voices, event.voice] });
+
+        return;
 
       case "live":
         live(event.event);

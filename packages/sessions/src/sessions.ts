@@ -31,6 +31,7 @@ import {
   type TranscriptBatch,
   trustedRepository,
   type TrustAnswer,
+  type Voice,
   type Work,
   type WorkPoll,
   type WorkspaceRequest,
@@ -112,6 +113,8 @@ export interface SessionStore {
   // Undefined while the Session is open to the whole team.
   access: (id: string) => SessionAccess | undefined;
   setAccess: (id: string, access: SessionAccess) => void;
+  voices: (id: string) => readonly Voice[];
+  addVoice: (id: string, voice: Voice) => void;
   byEnvironment: (
     provider: string,
     statuses: readonly SessionStatus[],
@@ -527,6 +530,29 @@ export class Sessions {
     this.#emit(session.id, { type: "session", session: view });
 
     return { ok: true, value: view };
+  }
+
+  // Several people steer a team Session, so it keeps who said what.
+  #voice(session: StoredSession, command: Command): void {
+    const [kind = "", person = ""] = command.actor.split(/:(.*)/);
+
+    if (
+      kind !== "user" ||
+      !this.#team(session) ||
+      (command.type !== "message" && command.type !== "abort")
+    ) {
+      return;
+    }
+
+    const voice: Voice = {
+      kind: command.type === "abort" ? "stop" : "message",
+      person,
+      at: new Date().toISOString(),
+      ...(command.type === "message" && { text: command.text }),
+    };
+
+    this.#store.addVoice(session.id, voice);
+    this.#emit(session.id, { type: "voice", voice });
   }
 
   #reach(session: StoredSession, person: string): "steers" | "sees" | null {
@@ -1144,6 +1170,9 @@ export class Sessions {
         line: fromLine + i,
         entry,
       })),
+      ...this.#store
+        .voices(id)
+        .map((voice): SessionEvent => ({ type: "voice", voice })),
       ...this.#openSurfaces(session).map((event): SessionEvent => ({
         type: "live",
         event,
@@ -1213,6 +1242,8 @@ export class Sessions {
         actor: command.actor,
       });
     }
+
+    this.#voice(session, command);
 
     return { ok: true, value: undefined };
   }

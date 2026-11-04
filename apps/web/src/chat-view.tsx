@@ -28,13 +28,14 @@ import {
 } from "./chat";
 import type { Feed } from "./feed";
 import { Mark } from "./mark";
-import { useNow } from "./hooks";
+import { useNow, useTeammates } from "./hooks";
 import { renderMarkdown } from "./markdown";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext, toolRenderer } from "./plugins";
 import { usePrimaryId } from "./primary";
 import { TerminalText } from "./terminal-text";
 import { useVerbosity } from "./verbosity";
+import { voiced } from "./voices";
 
 export function ChatView({
   feed,
@@ -50,7 +51,21 @@ export function ChatView({
   const scroller = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
   const top = useRef(0);
-  const shown = useMemo(() => turns(feed.items, claimed), [feed.items]);
+  const teammates = useTeammates().value;
+
+  const shown = useMemo(() => {
+    const names = new Map(teammates.map(({ id, name }) => [id, name]));
+
+    return turns(
+      voiced(
+        feed.items,
+        feed.voices,
+        (person) => names.get(person) ?? "Someone",
+      ),
+      claimed,
+    );
+  }, [feed.items, feed.voices, teammates]);
+
   const chatId = usePrimaryId("chat");
 
   const live =
@@ -127,6 +142,15 @@ export function ChatView({
                 aria-hidden
                 className="border-t border-line"
               />
+            ),
+            turn.by !== undefined && (
+              <li
+                key={`${String(turn.key)}-by`}
+                data-role="author"
+                className="-mb-4 self-end text-caption text-fg-dim"
+              >
+                {turn.by}
+              </li>
             ),
             turn.user !== undefined && (
               <li

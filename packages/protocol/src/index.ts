@@ -1286,7 +1286,17 @@ export interface CreateSession {
   readonly firstMessage?: string;
 }
 
+// Who sent a team Session a message or stopped it (ADR 0054), which Pi's
+// transcript doesn't keep.
+export interface Voice {
+  readonly kind: "message" | "stop";
+  readonly person: string;
+  readonly at: string;
+  readonly text?: string;
+}
+
 export type SessionEvent =
   | { readonly type: "entry"; readonly line: number; readonly entry: string }
+  | { readonly type: "voice"; readonly voice: Voice }
   | { readonly type: "live"; readonly event: LiveEvent }
   | { readonly type: "session"; readonly session: Session };
