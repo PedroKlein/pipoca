@@ -59,6 +59,15 @@ export type KernelEvent =
       readonly session: Session;
       readonly tool: string;
       readonly actor: Actor;
+    }
+  // An admin invited someone by email, whose link works once (ADR 0063).
+  | {
+      readonly type: "PersonInvited";
+      readonly email: string;
+      readonly link: string;
+      readonly invitedBy: { readonly id: string; readonly name: string };
+      readonly admin: boolean;
+      readonly expiresAt: string;
     };
 
 export interface PluginEvent {

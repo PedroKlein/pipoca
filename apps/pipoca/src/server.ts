@@ -764,7 +764,22 @@ export function createHandler(
           days,
         } = inviteOf(fieldsOf(await readJson(request)));
 
-        const made = auth.invite(userIdOf(actor), emails, asAdmin, days);
+        const by = userIdOf(actor);
+        const made = auth.invite(by, emails, asAdmin, days);
+        const name = auth.userById(by)?.name ?? "An admin";
+
+        for (const invite of made) {
+          if (invite.email !== null) {
+            plugins.publish({
+              type: "PersonInvited",
+              email: invite.email,
+              link: `${originOf(request)}/#join/${invite.token}`,
+              invitedBy: { id: by, name },
+              admin: invite.admin,
+              expiresAt: invite.expiresAt,
+            });
+          }
+        }
 
         log("people invited", {
           invites: made.length,
@@ -1473,4 +1488,16 @@ function environmentOutline(environment: Environment): Environment {
 
 function sessionOutline(session: Session): Session {
   return { ...session, systemPrompt: null, firstMessage: null };
+}
+
+// The Host header already passed the server's own site check, and HTTPS
+// usually ends in a gateway in front of the server (ADR 0034).
+function originOf(request: Request): string {
+  const url = new URL(request.url);
+
+  const secure =
+    url.protocol === "https:" ||
+    request.headers.get("x-forwarded-proto") === "https";
+
+  return `${secure ? "https" : "http"}://${request.headers.get("host") ?? url.host}`;
 }
