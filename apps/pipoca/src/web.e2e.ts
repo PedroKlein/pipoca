@@ -3155,6 +3155,56 @@ test("switches a session's model and reasoning level from the composer", async (
   expect(asked).toEqual({ model: "faux-deep", reasoning: "high" });
 }, 30_000);
 
+test("an admin hides a model on the Models page, and the composer's menu leaves it out", async () => {
+  await page.goto(server.url.href);
+  await openSettings("Models");
+
+  const providers = page.getByRole("list", {
+    name: "Providers in the model picker",
+  });
+
+  await providers.getByRole("button", { name: "Choose faux models" }).click();
+
+  await page
+    .getByRole("group", { name: "faux models" })
+    .getByLabel("faux-deep")
+    .uncheck();
+
+  await providers.getByText("1 of 2 shown").waitFor();
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, root);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const composer = page.locator("form#prompt");
+  const model = composer.getByRole("button", { name: "Model" });
+
+  await model.filter({ hasText: "faux-1" }).waitFor();
+  await model.click();
+  await composer.getByRole("option", { name: "faux-1", exact: true }).waitFor();
+
+  expect(
+    await composer
+      .getByRole("option", { name: "faux-deep", exact: true })
+      .count(),
+  ).toBe(0);
+
+  await page.keyboard.press("Escape");
+  await openSettings("Models");
+  await providers.getByRole("button", { name: "Choose faux models" }).click();
+
+  await page
+    .getByRole("group", { name: "faux models" })
+    .getByLabel("faux-deep")
+    .check();
+
+  await providers.getByText("2 of 2 shown").waitFor();
+}, 30_000);
+
 test("folds other providers' models away in the composer's model menu, and keeps recent ones on top", async () => {
   await page.goto(server.url.href);
   await page.getByRole("button", { name: "New session" }).click();

@@ -24,7 +24,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { modelOptions, rememberModel } from "@pipoca/plugins/web";
+import { modelOptions, rememberModel, shownModels } from "@pipoca/plugins/web";
 import { api } from "./api";
 import { modelRef } from "./names";
 import { searchRepositories } from "./plugins";
@@ -306,7 +306,7 @@ export function NewSessionForm({
   ];
 
   const { options: modelChoices, openGroups } = modelOptions(
-    chosen?.models ?? [],
+    shownModels(chosen?.models ?? [], chosen?.hiddenModels ?? []),
   );
 
   const sharing =

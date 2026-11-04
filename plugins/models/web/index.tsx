@@ -4,7 +4,7 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import type { Environment } from "@pipoca/protocol";
+import type { Environment, ModelRef } from "@pipoca/protocol";
 import {
   Badge,
   Button,
@@ -120,7 +120,158 @@ function Page({ context }: { readonly context: WebContext }): ReactElement {
           onSaved={reload}
         />
       )}
+      {environment !== undefined && (
+        <InThePicker context={context} environment={environment} />
+      )}
     </>
+  );
+}
+
+interface HiddenModels {
+  readonly hidden: readonly string[];
+  readonly mayChange: boolean;
+}
+
+// Admins hide the models nobody here should use from every model picker.
+function InThePicker({
+  context,
+  environment,
+}: {
+  readonly context: WebContext;
+  readonly environment: Environment;
+}): ReactElement | null {
+  const { value, reload } = useLoaded(
+    async () => json<HiddenModels>(context.request("hidden")),
+    "models.hidden",
+  );
+
+  const [choosing, setChoosing] = useState<string>();
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState<readonly string[]>();
+
+  if (value?.mayChange !== true) {
+    return null;
+  }
+
+  const hidden = saving ?? value.hidden;
+
+  const byProvider = new Map<string, ModelRef[]>();
+
+  for (const model of environment.models) {
+    if (model.provider !== gatewayProvider) {
+      byProvider.set(model.provider, [
+        ...(byProvider.get(model.provider) ?? []),
+        model,
+      ]);
+    }
+  }
+
+  if (byProvider.size === 0) {
+    return null;
+  }
+
+  const save = (next: readonly string[]): void => {
+    setSaving(next);
+
+    json(
+      context.request("hidden", {
+        method: "POST",
+        body: JSON.stringify({ hidden: next }),
+      }),
+    ).then(
+      () => {
+        setError(undefined);
+        reload();
+      },
+      (reason: unknown) => {
+        setSaving(undefined);
+        setError(reason instanceof Error ? reason.message : String(reason));
+      },
+    );
+  };
+
+  return (
+    <Section
+      title="In the model picker"
+      description="Hide models nobody here should use"
+    >
+      {error !== undefined && (
+        <p role="alert" className="text-caption text-failed">
+          {error}
+        </p>
+      )}
+      <Rows label="Providers in the model picker">
+        {[...byProvider].map(([provider, listed]) => {
+          const shown = listed.filter(
+            (model) => !hidden.includes(modelKey(model)),
+          );
+
+          return (
+            <Row
+              key={provider}
+              initials={initialsOf(provider)}
+              title={provider}
+              description={
+                <span className="flex flex-col gap-2">
+                  <span>
+                    {listed
+                      .slice(0, 3)
+                      .map(({ id }) => id)
+                      .join(", ")}{" "}
+                    · {listed.length} {listed.length === 1 ? "model" : "models"}
+                  </span>
+                  {choosing === provider && (
+                    <span
+                      role="group"
+                      aria-label={`${provider} models`}
+                      className="flex flex-col gap-1.5"
+                    >
+                      {listed.map((model) => {
+                        const key = modelKey(model);
+
+                        return (
+                          <label
+                            key={key}
+                            className="flex items-center gap-2 font-mono text-mono-sm text-fg"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={!hidden.includes(key)}
+                              onChange={(event) => {
+                                save(
+                                  event.target.checked
+                                    ? hidden.filter((each) => each !== key)
+                                    : [...hidden, key],
+                                );
+                              }}
+                            />
+                            {model.id}
+                          </label>
+                        );
+                      })}
+                    </span>
+                  )}
+                </span>
+              }
+            >
+              <span className="text-label text-fg-dim">
+                {shown.length} of {listed.length} shown
+              </span>
+              <Button
+                variant="ghost"
+                aria-expanded={choosing === provider}
+                aria-label={`Choose ${provider} models`}
+                onClick={() => {
+                  setChoosing(choosing === provider ? undefined : provider);
+                }}
+              >
+                {choosing === provider ? "Done" : "Choose"}
+              </Button>
+            </Row>
+          );
+        })}
+      </Rows>
+    </Section>
   );
 }
 

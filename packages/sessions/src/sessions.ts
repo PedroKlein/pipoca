@@ -54,6 +54,7 @@ export type StoredEnvironment = Omit<
   | "runners"
   | "folders"
   | "models"
+  | "hiddenModels"
   | "registeredModels"
   | "secrets"
 > & { readonly secrets: Readonly<Record<string, string>> };
@@ -969,7 +970,8 @@ export class Sessions {
   environments(userId?: string): readonly Environment[] {
     return this.#store.environments().map((environment) => {
       const runners = this.#polls.runners(environment.provider);
-      const offered = this.#offeredModels(environment, userId).models;
+      const offer = this.#offeredModels(environment, userId);
+      const offered = offer.models;
 
       return {
         ...environment,
@@ -994,6 +996,7 @@ export class Sessions {
             .flatMap(({ inventory }) => inventory.models),
           ...this.#store.registeredModels(environment.provider),
         ]),
+        hiddenModels: offer.hidden ?? [],
       };
     });
   }

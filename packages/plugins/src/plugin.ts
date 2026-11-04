@@ -236,6 +236,8 @@ export interface PluginProfile extends ProfileContent {
 export interface OfferedModels {
   readonly models: readonly ModelRef[];
   readonly default?: ModelRef;
+  // `provider/id` of models the pickers leave out, such as ones an admin hid.
+  readonly hidden?: readonly string[];
 }
 
 // The user is the one who looks at the models, when there is one, such as

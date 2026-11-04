@@ -99,6 +99,10 @@ export function SessionView({
 
   const { session } = feed;
 
+  const environment = environments.find(
+    ({ id }) => id === session?.environmentId,
+  );
+
   const place = session ? shortName(session.workspace) : "";
   const named = feed.title ?? session?.title ?? undefined;
   const title = shownTitle ?? named ?? place;
@@ -393,10 +397,8 @@ export function SessionView({
               sessionId={sessionId}
               session={channel.session}
               feed={feed}
-              models={
-                environments.find(({ id }) => id === session?.environmentId)
-                  ?.models ?? []
-              }
+              models={environment?.models ?? []}
+              hiddenModels={environment?.hiddenModels ?? []}
               hidden={archived || watching}
               report={reportError}
               team={team}
