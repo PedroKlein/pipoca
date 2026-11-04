@@ -3781,6 +3781,19 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
   await form.getByLabel("What should Pi do?").fill("Write the release notes");
   await form.getByRole("button", { name: "Start session" }).click();
   await page.waitForURL((url) => !url.hash.startsWith("#team"));
+
+  await page.getByRole("button", { name: "Session actions" }).click();
+  await page.getByRole("menuitem", { name: "Who steers" }).click();
+
+  const access = page.getByRole("dialog", {
+    name: "Who steers this team work",
+  });
+
+  await access.getByRole("button", { name: "View only" }).click();
+  await access.getByRole("button", { name: "Save" }).click();
+  await access.waitFor({ state: "hidden" });
+  await page.locator("header").getByText("View only").waitFor();
+
   await page.goto(new URL("/#team/sessions", server.url).href);
   await page.getByRole("link", { name: "team-docs" }).waitFor();
 });

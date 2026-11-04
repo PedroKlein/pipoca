@@ -23,6 +23,7 @@ import {
   type ReactNode,
   type RefObject,
   useCallback,
+  useContext,
   useEffect,
   useEffectEvent,
   useMemo,
@@ -40,6 +41,8 @@ import { PrimaryView, usePrimaryId } from "./primary";
 import { enabledPlugins, pluginContext } from "./plugins";
 import { sessionChannel } from "./session-channel";
 import { keyBar, type Modifier, modified } from "./keys";
+import { Me } from "./me";
+import { AccessDialog, accessLabels, steers } from "./team-access";
 import { openTerminal } from "./terminal";
 
 type View = "chat" | "pi" | "terminal";
@@ -65,6 +68,8 @@ export function SessionView({
   const [view, setView] = useState<View>("chat");
   const forkMenu = useRef<HTMLButtonElement>(null);
   const [forkedAt, setForkedAt] = useState(0);
+  const [limiting, setLimiting] = useState(false);
+  const me = useContext(Me);
   const report = useRef<(error: unknown) => void>(() => undefined);
   const [channel] = useState(() => sessionChannel(sessionId));
 
@@ -97,6 +102,11 @@ export function SessionView({
   const title = shownTitle ?? named ?? place;
 
   const archived = session !== undefined && session.archivedAt !== null;
+  const watching = session !== undefined && !steers(session, me);
+
+  const limits =
+    session?.ownedBy === "team" && (me.admin || session.startedBy === me.id);
+
   const shown = archived ? "chat" : view;
 
   const pageTitle = shownTitle ?? named;
@@ -223,6 +233,12 @@ export function SessionView({
             </p>
           </div>
           {session && <StateBadge session={session} />}
+          {session && session.access.kind !== "team" && (
+            <span className="inline-flex shrink-0 items-center gap-1 text-caption text-fg-dim">
+              <Icon name="lock" className="size-3.5" />
+              {accessLabels[session.access.kind]}
+            </span>
+          )}
           <span
             id={primary ? "plugin-header" : undefined}
             className="flex items-center gap-2 text-caption text-fg-dim"
@@ -259,6 +275,17 @@ export function SessionView({
                         action("archive");
                       },
                     },
+                ...(limits
+                  ? [
+                      {
+                        label: "Who steers",
+                        icon: "users",
+                        run: () => {
+                          setLimiting(true);
+                        },
+                      } as const,
+                    ]
+                  : []),
                 {
                   label: "Fork",
                   icon: "git-fork",
@@ -346,10 +373,28 @@ export function SessionView({
               environments.find(({ id }) => id === session?.environmentId)
                 ?.models ?? []
             }
-            hidden={archived}
+            hidden={archived || watching}
             report={reportError}
           />
+          {watching && !archived && (
+            <p
+              role="status"
+              className="mx-auto w-full max-w-chat px-4 pb-4 text-label text-fg-dim"
+            >
+              This team work is view-only. You can follow along while whoever
+              started it steers.
+            </p>
+          )}
         </div>
+        {session && limits && (
+          <AccessDialog
+            session={session}
+            open={limiting}
+            onClose={() => {
+              setLimiting(false);
+            }}
+          />
+        )}
       </section>
     </PrimaryView>
   );

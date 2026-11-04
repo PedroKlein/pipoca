@@ -6,6 +6,7 @@ import type {
   Invite,
   ModelRef,
   ProfileContent,
+  SessionAccess,
   SessionOwner,
   SessionStatus,
   SetupState,
@@ -195,7 +196,8 @@ create table if not exists sessions (
   workspace_removal text,
   workspace_kept_reason text,
   started_by text,
-  acts_as text
+  acts_as text,
+  access text
 );
 create table if not exists transcript (
   session_id text not null references sessions (id),
@@ -326,6 +328,7 @@ function migrate(db: DatabaseSync): void {
     "owner_key",
     "started_by",
     "acts_as",
+    "access",
   ]) {
     if (sessionsTableExists && !hasColumn(column)) {
       db.exec(`alter table sessions add column ${column} text`);
@@ -678,6 +681,12 @@ export function openStore(
     `${withProvider} where owner_plugin = ? and owner_key = ? and sessions.archived_at is null order by sessions.created_at desc`,
   );
 
+  const selectAccess = db.prepare("select access from sessions where id = ?");
+
+  const updateAccess = db.prepare(
+    "update sessions set access = ? where id = ?",
+  );
+
   const updateOwner = db.prepare(
     "update sessions set owner_plugin = ?, owner_key = ? where id = ?",
   );
@@ -844,6 +853,19 @@ export function openStore(
     },
     setOwner: (id, { plugin, key }: SessionOwner) => {
       updateOwner.run(plugin, key, id);
+    },
+    access: (id) => {
+      const row = selectAccess.get(id) as { access: string | null } | undefined;
+
+      return row === undefined || row.access === null
+        ? undefined
+        : (JSON.parse(row.access) as SessionAccess);
+    },
+    setAccess: (id, access) => {
+      updateAccess.run(
+        access.kind === "team" ? null : JSON.stringify(access),
+        id,
+      );
     },
     byEnvironment: (provider, statuses) =>
       (

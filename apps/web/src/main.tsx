@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./app";
 import { AppSignIn, pendingAppSignIn } from "./app-sign-in";
 import { JoinPage } from "./join";
+import { Me } from "./me";
 import { loadPlugins, navEntries } from "./plugins";
 import { type Login, SignInPage } from "./sign-in";
 import { applyTheme } from "./theme";
@@ -19,6 +20,7 @@ const status = await fetch("/api/auth")
     async (response) =>
       (await response.json()) as {
         readonly user: {
+          readonly id: string;
           readonly name: string;
           readonly admin: boolean;
         } | null;
@@ -60,13 +62,15 @@ if (status === undefined) {
     .catch(() => ({ finished: true, dismissed: [] }));
 
   createRoot(root).render(
-    <App
-      nav={navEntries()}
-      user={status.user.name}
-      admin={status.user.admin}
-      setup={setup}
-      people={status.user.admin && !status.solo}
-      team={!status.solo}
-    />,
+    <Me value={{ id: status.user.id, admin: status.user.admin }}>
+      <App
+        nav={navEntries()}
+        user={status.user.name}
+        admin={status.user.admin}
+        setup={setup}
+        people={status.user.admin && !status.solo}
+        team={!status.solo}
+      />
+    </Me>,
   );
 }

@@ -15,6 +15,7 @@ import type {
   PluginInfo,
   Profile,
   Session,
+  Teammate,
 } from "@pipoca/protocol";
 import { responseOrder, watchChanges } from "@pipoca/plugins/web";
 import { api } from "./api";
@@ -152,6 +153,13 @@ export function useEnvironments(): WatchedList<Environment> {
 // Sessions (ADR 0049).
 export function usePeople(): WatchedList<Person> {
   return useWatchedList("/api/people", "environments") as WatchedList<Person>;
+}
+
+export function useTeammates(): WatchedList<Teammate> {
+  return useWatchedList(
+    "/api/teammates",
+    "environments",
+  ) as WatchedList<Teammate>;
 }
 
 export function useInvites(): WatchedList<Invite> {

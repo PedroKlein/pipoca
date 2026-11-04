@@ -382,6 +382,12 @@ export interface Person {
   readonly lastActive: string | null;
 }
 
+// Who a user may name in team work, such as the people it is limited to.
+export interface Teammate {
+  readonly id: string;
+  readonly name: string;
+}
+
 // An admin's invite to the server (ADR 0063). One with an email lets that
 // one person in once; one without is a link anyone may join with until it
 // expires. An invited person gets in even where sign-in rules would refuse
@@ -1121,6 +1127,13 @@ export interface SessionOwner {
   readonly key: string;
 }
 
+// Who may see and steer a team Session (ADR 0064): every user, every user
+// seeing it but only its starter steering, or its starter and named people.
+export type SessionAccess =
+  | { readonly kind: "team" }
+  | { readonly kind: "view" }
+  | { readonly kind: "named"; readonly people: readonly string[] };
+
 export interface Session {
   readonly id: string;
   readonly environmentId: string;
@@ -1155,6 +1168,8 @@ export interface Session {
   // GitHub App a routine runs as (ADR 0060).
   readonly actsAs: string | null;
   readonly ownedBy: Owner;
+  // A personal Session's is always team, since only its person reaches it.
+  readonly access: SessionAccess;
   readonly online: boolean;
   // Pi asked a question and waits for a person to answer it (ADR 0025).
   readonly waiting: boolean;

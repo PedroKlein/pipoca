@@ -23,6 +23,15 @@ const rejections = {
     "The Session's workspace can't move to another Environment.",
   ],
   unknown_entry: [400, "That isn't one of the Session's messages."],
+  not_team: [
+    409,
+    "Only team work is limited. A personal Session is its person's alone.",
+  ],
+  not_starter: [403, "Only whoever started it, or an admin, limits team work."],
+  view_only: [
+    403,
+    "This team work is view-only. Only whoever started it steers it.",
+  ],
 } as const satisfies Record<Rejection, readonly [number, string]>;
 
 // Every error the API answers has this body: a code a program can check and

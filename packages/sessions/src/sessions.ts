@@ -22,6 +22,7 @@ import {
   type RemovalPost,
   type Session,
   type SessionEnvironment,
+  type SessionAccess,
   type SessionEvent,
   type SessionOwner,
   type SessionStatus,
@@ -38,7 +39,10 @@ import { contentFiles, overBaseExtensions } from "@pipoca/profiles";
 import { placesOn, placesOnNewRunner, uniqueModels } from "./placement";
 import { RunnerPolls } from "./runner-polls";
 
-export type StoredSession = Omit<Session, "online" | "waiting" | "ownedBy">;
+export type StoredSession = Omit<
+  Session,
+  "online" | "waiting" | "ownedBy" | "access"
+>;
 
 export type StoredEnvironment = Omit<
   Environment,
@@ -105,6 +109,9 @@ export interface SessionStore {
     readonly owner?: SessionOwner;
   }) => readonly StoredSession[];
   setOwner: (id: string, owner: SessionOwner) => void;
+  // Undefined while the Session is open to the whole team.
+  access: (id: string) => SessionAccess | undefined;
+  setAccess: (id: string, access: SessionAccess) => void;
   byEnvironment: (
     provider: string,
     statuses: readonly SessionStatus[],
@@ -144,7 +151,10 @@ export type Rejection =
   | "environment_in_use"
   | "unknown_profile"
   | "not_movable"
-  | "unknown_entry";
+  | "unknown_entry"
+  | "not_team"
+  | "not_starter"
+  | "view_only";
 
 export type Result<T, R extends Rejection = Rejection> =
   | { readonly ok: true; readonly value: T }
@@ -448,7 +458,8 @@ export class Sessions {
     };
   }
 
-  // With team, only the team's Sessions, which every user may see.
+  // With team, only the team's Sessions the person may see, or all of them
+  // without a person.
   list({
     archived = false,
     owner: ownedBy,
@@ -464,7 +475,8 @@ export class Sessions {
       .list({ includeArchived: archived, ...(ownedBy && { owner: ownedBy }) })
       .filter((session) =>
         team
-          ? this.#team(session)
+          ? this.#team(session) &&
+            (person === undefined || this.#reach(session, person) !== null)
           : person === undefined ||
             (!this.#team(session) && this.#person(session) === person),
       )
@@ -472,14 +484,67 @@ export class Sessions {
   }
 
   // Whether the person may open and steer the Session: their own (ADR 0049)
-  // or the team's, which is open to every user (ADR 0064).
+  // or the team's, unless its starter limited it (ADR 0064).
   belongsTo(id: string, person: string): boolean {
     const session = this.#store.get(id);
 
-    return (
-      session !== undefined &&
-      (this.#team(session) || this.#person(session) === person)
-    );
+    return session !== undefined && this.#reach(session, person) === "steers";
+  }
+
+  // Whether the person may open the Session, if only to watch it.
+  sees(id: string, person: string): boolean {
+    const session = this.#store.get(id);
+
+    return session !== undefined && this.#reach(session, person) !== null;
+  }
+
+  // Whoever started team work, or an admin, makes it view-only for everyone
+  // else, limits it to named people, or opens it to the team again.
+  limit(
+    id: string,
+    access: SessionAccess,
+    by: { readonly person: string; readonly admin: boolean },
+  ): Result<Session> {
+    const session = this.#store.get(id);
+
+    if (
+      session === undefined ||
+      (!by.admin && this.#reach(session, by.person) === null)
+    ) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    if (!by.admin && session.startedBy !== by.person) {
+      return { ok: false, reason: "not_starter" };
+    }
+
+    if (!this.#team(session)) {
+      return { ok: false, reason: "not_team" };
+    }
+
+    this.#store.setAccess(session.id, access);
+    const view = this.#view(session);
+    this.#emit(session.id, { type: "session", session: view });
+
+    return { ok: true, value: view };
+  }
+
+  #reach(session: StoredSession, person: string): "steers" | "sees" | null {
+    if (!this.#team(session)) {
+      return this.#person(session) === person ? "steers" : null;
+    }
+
+    const access = this.#store.access(session.id) ?? { kind: "team" };
+
+    if (access.kind === "team" || session.startedBy === person) {
+      return "steers";
+    }
+
+    if (access.kind === "view") {
+      return "sees";
+    }
+
+    return access.people.includes(person) ? "steers" : null;
   }
 
   #team(session: Pick<StoredSession, "environmentId">): boolean {
@@ -1620,6 +1685,7 @@ export class Sessions {
       ownedBy: this.#team(session)
         ? teamOwner
         : `person:${this.#person(session) ?? owner}`,
+      access: this.#store.access(session.id) ?? { kind: "team" },
       online: this.#online(session),
       waiting: this.#waiting(session),
     };

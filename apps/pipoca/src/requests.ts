@@ -19,6 +19,7 @@ import {
   type RemovalReport,
   type RepositoryCheckout,
   type Selection,
+  type SessionAccess,
   type StartFailure,
   type ThinkingLevel,
   thinkingLevels,
@@ -62,6 +63,27 @@ export function createFork(body: unknown): {
   return {
     ...(typeof environment === "string" && { environment }),
     ...(typeof entry === "string" && { entry }),
+  };
+}
+
+export function sessionAccess(body: unknown): SessionAccess {
+  const { kind, people } = (body ?? {}) as Record<string, unknown>;
+
+  if (kind === "team" || kind === "view") {
+    return { kind };
+  }
+
+  if (kind !== "named") {
+    throw new BadRequest("kind must be one of team, view, named");
+  }
+
+  return {
+    kind,
+    people: [
+      ...new Set(
+        listOf("people", people, (person) => textOf("people", person)),
+      ),
+    ],
   };
 }
 

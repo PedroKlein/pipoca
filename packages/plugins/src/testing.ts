@@ -128,6 +128,7 @@ export function fakeSession(fields: Partial<Session> = {}): Session {
     startedBy: null,
     actsAs: null,
     ownedBy: "person:owner",
+    access: { kind: "team" },
     online: true,
     waiting: false,
     ...fields,
