@@ -177,7 +177,6 @@ export function App({
         start={reminded}
         onFinish={() => {
           setSetup({ ...setup, finished: true });
-          location.hash = "";
         }}
       />
     );

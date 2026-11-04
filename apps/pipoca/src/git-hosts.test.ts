@@ -976,6 +976,50 @@ test("signs a routine's run in as the GitHub App it acts as, and commits as its 
   });
 });
 
+test("has a person's Sessions commit as the name and email they chose", async () => {
+  const token = await runnerToken();
+
+  await api("POST", "/api/sessions", {
+    workspace: { kind: "folder", path: "/srv/a" },
+  });
+
+  const started = await polled(token);
+
+  const identity = async (): Promise<unknown> =>
+    (
+      await fetch(
+        new URL(
+          `/agent/sessions/${started?.sessionId ?? ""}/plugins/git-hosts/identity?generation=${String(started?.generation ?? 0)}`,
+          server.url,
+        ),
+        {
+          headers: {
+            [versionHeader]: String(protocolVersion),
+            authorization: `Bearer ${token}`,
+          },
+        },
+      )
+    ).json();
+
+  expect(await identity()).toBeNull();
+
+  const half = await api("POST", "/api/plugins/git-hosts/commit-as", {
+    name: "Pedro Klein",
+    email: "",
+  });
+
+  expect(half.status).toBe(400);
+
+  const chosen = { name: "Pedro Klein", email: "pedro@example.com" };
+  await api("POST", "/api/plugins/git-hosts/commit-as", chosen);
+
+  expect(
+    await (await api("GET", "/api/plugins/git-hosts/commit-as")).json(),
+  ).toEqual(chosen);
+
+  expect(await identity()).toEqual(chosen);
+});
+
 test("gives no git login to a Session acting as a technical user its person may not use", async () => {
   await api("POST", "/api/plugins/git-hosts/connect", {
     host: enterprise,

@@ -47,7 +47,7 @@ export const gitHosts: SessionPlugin = {
     pi.on("session_start", () => {
       check();
 
-      signAsTechnicalUser(cloud).catch((failure: unknown) => {
+      signCommits(cloud).catch((failure: unknown) => {
         cloud.log("could not set the technical user's git identity", {
           error: String(failure),
         });
@@ -82,8 +82,9 @@ async function recordedPullRequests({
   return found.flat();
 }
 
-// A Session acting as a technical user commits as it (ADR 0060).
-async function signAsTechnicalUser(cloud: SessionCloud): Promise<void> {
+// A Session commits as the technical user it acts as (ADR 0060), or as the
+// name and email its person chose.
+async function signCommits(cloud: SessionCloud): Promise<void> {
   const response = await cloud.request("identity");
 
   if (!response.ok) {

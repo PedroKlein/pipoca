@@ -8,8 +8,9 @@ import type { Environment, Profile, SetupState } from "@pipoca/protocol";
 import { Badge, Button, cn, Icon, Row, Rows } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useState } from "react";
 import { api } from "./api";
-import { useEnvironments, useProfiles } from "./hooks";
+import { useEnvironments, useProfiles, useSessions } from "./hooks";
 import { Mark } from "./mark";
+import { NewSessionForm } from "./new-session";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext } from "./plugins";
 import { ProfileStep } from "./setup-profile";
@@ -124,6 +125,11 @@ export function SetupWizard({
     void api("/api/setup", { finished: true }).finally(onFinish);
   };
 
+  const leave = (): void => {
+    location.hash = "";
+    finish();
+  };
+
   return (
     <div className="flex min-h-dvh flex-col bg-bg font-sans text-ui text-fg">
       <header className="grid grid-cols-[1fr_auto_1fr] items-center px-7 py-5">
@@ -147,7 +153,7 @@ export function SetupWizard({
           {step === undefined ? (
             <button
               type="button"
-              onClick={finish}
+              onClick={leave}
               className="cursor-pointer hover:text-fg"
             >
               Done
@@ -166,7 +172,13 @@ export function SetupWizard({
         )}
       >
         {step === undefined ? (
-          <DoneStep user={user} admin={admin} steps={steps} onFinish={finish} />
+          <DoneStep
+            user={user}
+            admin={admin}
+            steps={steps}
+            onStarted={finish}
+            onLeave={finish}
+          />
         ) : (
           <CurrentStep
             key={step.id}
@@ -410,13 +422,19 @@ function DoneStep({
   user,
   admin,
   steps,
-  onFinish,
+  onStarted,
+  onLeave,
 }: {
   readonly user: string;
   readonly admin: boolean;
   readonly steps: readonly Step[];
-  readonly onFinish: () => void;
+  readonly onStarted: () => void;
+  readonly onLeave: () => void;
 }): ReactElement {
+  const environments = useEnvironments().value;
+  const profiles = useProfiles().value;
+  const sessions = useSessions(false).value;
+
   const next = [
     ...(admin
       ? [
@@ -451,13 +469,15 @@ function DoneStep({
           <Summary key={step.id} step={step} />
         ))}
       </ul>
-      <Button
-        variant="primary"
-        onClick={onFinish}
-        className="h-11 self-center px-6 text-prose"
-      >
-        Start building
-      </Button>
+      <div className="rounded-xl border border-line bg-elevated pt-2 shadow-xs">
+        <NewSessionForm
+          environments={environments}
+          profiles={profiles}
+          sessions={sessions}
+          placeholder="What do you want to build first?"
+          onStarted={onStarted}
+        />
+      </div>
       <section className="flex flex-col gap-2">
         <h2 className="text-label text-fg-dim">When you're ready</h2>
         <ul className="grid gap-2.5 md:grid-cols-3">
@@ -465,7 +485,7 @@ function DoneStep({
             <li key={href}>
               <a
                 href={href}
-                onClick={onFinish}
+                onClick={onLeave}
                 className="flex h-full flex-col gap-1 rounded-lg border border-line bg-elevated p-3.5 hover:border-line-strong"
               >
                 <span className="text-ui font-medium text-fg-strong">

@@ -34,7 +34,7 @@ export const gitHosts: WebPlugin = {
   name: "git-hosts",
   SettingsSection,
   settingsGroup: "server",
-  settingsParts: { General: PullRequestChoices, Accounts },
+  settingsParts: { General: CodeChoices, Accounts },
   setupStep: {
     title: "Your code",
     summary: "GitHub or another git host",
@@ -128,8 +128,118 @@ function CodeStep({ context }: { readonly context: WebContext }): ReactElement {
   return (
     <div className="-mt-8 flex flex-col">
       <Accounts context={context} />
-      <PullRequestChoices context={context} />
+      <CodeChoices context={context} />
     </div>
+  );
+}
+
+function CodeChoices({
+  context,
+}: {
+  readonly context: WebContext;
+}): ReactElement {
+  return (
+    <>
+      <CommitAs context={context} />
+      <PullRequestChoices context={context} />
+    </>
+  );
+}
+
+interface Identity {
+  readonly name: string;
+  readonly email: string;
+}
+
+// The name and email the person's Sessions commit as, on every runner.
+function CommitAs({
+  context,
+}: {
+  readonly context: WebContext;
+}): ReactElement | null {
+  const { value, reload } = useLoaded(
+    async () => json<Identity | null>(context.request("commit-as")),
+    "commit-as",
+  );
+
+  const [error, setError] = useState<string>();
+  const [saved, setSaved] = useState(false);
+
+  if (value === undefined) {
+    return null;
+  }
+
+  const submit = (event: SubmitEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+
+    json(
+      context.request("commit-as", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: form.get("name"),
+          email: form.get("email"),
+        }),
+      }),
+    ).then(
+      () => {
+        setError(undefined);
+        setSaved(true);
+        reload();
+      },
+      (failure: unknown) => {
+        setSaved(false);
+        setError(failure instanceof Error ? failure.message : String(failure));
+      },
+    );
+  };
+
+  return (
+    <Section title="Commit as">
+      <form
+        aria-label="Commit as"
+        onSubmit={submit}
+        onChange={() => {
+          setSaved(false);
+        }}
+        className="flex flex-col gap-2"
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Name">
+            <input
+              name="name"
+              defaultValue={value?.name ?? ""}
+              autoComplete="name"
+              className={fieldClass}
+            />
+          </Field>
+          <Field label="Email">
+            <input
+              name="email"
+              type="email"
+              defaultValue={value?.email ?? ""}
+              autoComplete="email"
+              className={fieldClass}
+            />
+          </Field>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="flex-1 text-caption text-fg-dim">
+            Sessions on every machine commit with these. Leave both empty to use
+            each machine&apos;s own git config.
+          </p>
+          <Button type="submit">Save</Button>
+        </div>
+        <p role="status" className="text-caption">
+          {error !== undefined ? (
+            <span className="text-failed">{error}</span>
+          ) : (
+            saved && <span className="text-fg-dim">Saved</span>
+          )}
+        </p>
+      </form>
+    </Section>
   );
 }
 
