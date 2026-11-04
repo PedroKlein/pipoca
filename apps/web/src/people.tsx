@@ -1,8 +1,21 @@
-import { availability, type Environment, type Session } from "@pipoca/protocol";
-import { Badge, Button, PageTitle, Section } from "@pipoca/ui";
+import {
+  availability,
+  type Environment,
+  kindOf,
+  type Session,
+} from "@pipoca/protocol";
+import {
+  Badge,
+  Button,
+  initialsOf,
+  PageTitle,
+  Row,
+  Rows,
+  Section,
+} from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { api, command } from "./api";
-import { deleteEnvironment } from "./environments";
+import { deleteEnvironment, kindNames } from "./environments";
 import {
   type Person,
   useEveryonesEnvironments,
@@ -98,30 +111,46 @@ function PersonSection({
     environments.find((each) => each.id === id)?.name ?? id;
 
   return (
-    <Section title={person.admin ? `${person.name} (admin)` : person.name}>
-      <div
-        aria-label={person.name}
-        className="flex flex-col gap-3 rounded-lg border border-line bg-elevated p-5 text-ui shadow-xs"
-      >
-        {environments.length === 0 ? (
-          <p className="text-fg-dim">No Environments yet.</p>
-        ) : (
-          <ul aria-label="Environments" className="flex flex-wrap gap-2">
+    <Section
+      title={
+        <span className="flex items-center gap-2">
+          <span
+            aria-hidden="true"
+            className="grid size-7 place-items-center rounded-full bg-hover text-label font-semibold text-fg-strong"
+          >
+            {initialsOf(person.name)}
+          </span>
+          {person.name}
+          {person.admin && <Badge state="offline">Admin</Badge>}
+        </span>
+      }
+      description={`${plural(environments.length, "Environment")} · ${plural(sessions.length, "active Session")}`}
+    >
+      <div aria-label={person.name} className="flex flex-col gap-2.5">
+        {environments.length > 0 && (
+          <Rows label="Environments">
             {environments.map((environment) => (
-              <li
+              <Row
                 key={environment.id}
-                className="flex items-center gap-2 rounded-md border border-line px-3 py-1.5"
+                initials={initialsOf(environment.name)}
+                title={
+                  <>
+                    {environment.name}
+                    <Badge
+                      state={
+                        availability(environment) === "Offline"
+                          ? "offline"
+                          : "done"
+                      }
+                    >
+                      {availability(environment) === "Starts runners on demand"
+                        ? "On demand"
+                        : availability(environment)}
+                    </Badge>
+                  </>
+                }
+                description={kindNames[kindOf(environment)]}
               >
-                {environment.name}
-                <Badge
-                  state={
-                    availability(environment) === "Offline" ? "offline" : "done"
-                  }
-                >
-                  {availability(environment) === "Starts runners on demand"
-                    ? "On demand"
-                    : availability(environment)}
-                </Badge>
                 <Button
                   variant="ghost"
                   aria-label={`Delete ${environment.name}`}
@@ -131,30 +160,21 @@ function PersonSection({
                 >
                   Delete
                 </Button>
-              </li>
+              </Row>
             ))}
-          </ul>
+          </Rows>
         )}
-        {sessions.length === 0 ? (
-          <p className="text-fg-dim">No active Sessions.</p>
-        ) : (
-          <ul
-            aria-label="Sessions"
-            className="flex flex-col divide-y divide-line"
-          >
+        {sessions.length > 0 && (
+          <Rows label="Sessions">
             {sessions.map((session) => (
-              <li
+              <Row
                 key={session.id}
-                className="flex flex-wrap items-center gap-2 py-2"
+                title={session.title ?? "Untitled Session"}
+                description={`${environmentName(session.environmentId)} · ${session.status}`}
               >
-                <span className="min-w-0 flex-1 truncate text-fg-strong">
-                  {session.title ?? "Untitled Session"}
-                </span>
-                <span className="text-caption text-fg-dim">
-                  {environmentName(session.environmentId)} · {session.status}
-                </span>
                 {busy.has(session.status) && (
                   <Button
+                    variant="ghost"
                     onClick={() => {
                       onStop(session);
                     }}
@@ -163,17 +183,22 @@ function PersonSection({
                   </Button>
                 )}
                 <Button
+                  variant="ghost"
                   onClick={() => {
                     onArchive(session);
                   }}
                 >
                   Archive
                 </Button>
-              </li>
+              </Row>
             ))}
-          </ul>
+          </Rows>
         )}
       </div>
     </Section>
   );
+}
+
+function plural(count: number, noun: string): string {
+  return `${String(count)} ${noun}${count === 1 ? "" : "s"}`;
 }

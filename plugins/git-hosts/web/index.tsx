@@ -616,58 +616,23 @@ function Hosts({
   };
 
   return (
-    <div className="flex flex-col gap-2 text-ui">
-      <p className="text-fg-dim">
-        Hosts people can connect, kept in the server's pipoca.json. For a
-        Connect button, register an OAuth app on the host with{" "}
-        <code className="font-mono text-mono-sm">
-          {location.origin}/api/plugins/git-hosts/callback
-        </code>{" "}
-        as its callback URL.
-      </p>
-      <ul
-        aria-label="Hosts"
-        className="flex flex-col gap-1 rounded-lg border border-line bg-elevated shadow-xs p-3"
-      >
-        {value?.map((host) => (
-          <li key={host.host} className="flex items-center gap-2">
-            <span className="flex-1 truncate text-fg">
-              {host.label}
-              <span className="text-fg-dim">
-                {" "}
-                · {host.host}
-                {host.clientId === "" ? " · tokens" : " · OAuth app"}
-              </span>
-            </span>
-            <Button
-              onClick={() => {
-                setEditing(host);
-              }}
-            >
-              Edit
-            </Button>
-            <Button
-              aria-label={`Remove ${host.host}`}
-              onClick={() => {
-                remove(host);
-              }}
-            >
-              Remove
-            </Button>
-          </li>
-        ))}
-      </ul>
-      {editing === undefined ? (
-        <div>
+    <Section
+      title="Hosts"
+      description="People connect their own account on each, in Accounts"
+      actions={
+        editing === undefined && (
           <Button
             onClick={() => {
               setEditing("new");
             }}
           >
+            <Icon name="plus" />
             Add host
           </Button>
-        </div>
-      ) : (
+        )
+      }
+    >
+      {editing !== undefined && (
         <HostForm
           key={editing === "new" ? "new" : editing.host}
           host={editing === "new" ? undefined : editing}
@@ -688,7 +653,56 @@ function Hosts({
           }}
         />
       )}
-    </div>
+      <Rows label="Hosts">
+        {value?.length === 0 && (
+          <Row
+            title="No hosts yet"
+            description="Add GitHub, GitHub Enterprise or another host."
+          />
+        )}
+        {value?.map((host) => (
+          <Row
+            key={host.host}
+            initials={initialsOf(host.label)}
+            title={
+              <>
+                {host.label}
+                <Badge state="offline">
+                  {host.clientId === "" ? "Tokens" : "OAuth app"}
+                </Badge>
+              </>
+            }
+            description={<span className="font-mono">{host.host}</span>}
+          >
+            <Button
+              variant="ghost"
+              aria-label={`Edit ${host.host}`}
+              onClick={() => {
+                setEditing(host);
+              }}
+            >
+              Edit
+            </Button>
+            <Button
+              variant="ghost"
+              aria-label={`Remove ${host.host}`}
+              onClick={() => {
+                remove(host);
+              }}
+            >
+              Remove
+            </Button>
+          </Row>
+        ))}
+      </Rows>
+      <p className="text-caption text-fg-dim">
+        For a Connect button, register an OAuth app on the host with{" "}
+        <code className="font-mono text-mono-sm">
+          {location.origin}/api/plugins/git-hosts/callback
+        </code>{" "}
+        as its callback URL. Hosts are kept in the server&apos;s pipoca.json.
+      </p>
+    </Section>
   );
 }
 
@@ -884,82 +898,87 @@ function TechnicalUsers({
   );
 
   return (
-    <div className="flex flex-col gap-2 text-ui">
-      <h3 className="text-label font-medium text-fg-strong">Technical users</h3>
-      <p className="text-fg-dim">
-        Bots that routines can act as instead of a person, so their pull
-        requests and comments aren't yours. A GitHub App is best: its keys stay
-        on this server.
-      </p>
-      <ul
-        aria-label="Technical users"
-        className="flex flex-col gap-1 rounded-lg border border-line bg-elevated shadow-xs p-3"
-      >
+    <Section
+      title="Technical users"
+      description="Bots routines act as, so their pull requests and comments aren't yours"
+      actions={
+        adding === undefined && (
+          <>
+            <Button
+              onClick={() => {
+                setAdding("token");
+              }}
+            >
+              Add a machine user
+            </Button>
+            <Button
+              onClick={() => {
+                setAdding("app");
+              }}
+            >
+              <Icon name="plus" />
+              Create a GitHub App
+            </Button>
+          </>
+        )
+      }
+    >
+      <Rows label="Technical users">
         {value?.length === 0 && (
-          <li className="text-fg-dim">No technical users yet.</li>
+          <Row
+            title="No technical users yet"
+            description="A GitHub App is best: its keys stay on this server."
+          />
         )}
         {value?.map((user) => (
-          <li key={user.name} className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <span className="flex-1 truncate text-fg">
+          <Row
+            key={user.name}
+            initials={initialsOf(user.name)}
+            title={
+              <>
                 {user.name}
-                <span className="text-fg-dim">
-                  {" "}
-                  · {user.kind === "app"
-                    ? "GitHub App"
-                    : "machine user"} on {user.host} · {user.login}
+                <Badge state="offline">
+                  {user.kind === "app" ? "GitHub App" : "Machine user"}
+                </Badge>
+              </>
+            }
+            description={
+              <span className="flex flex-col gap-0.5">
+                <span>
+                  {user.login} on {user.host}
+                  {user.installedOn !== null &&
+                    (user.installedOn.length === 0
+                      ? " · not installed yet"
+                      : ` · installed on ${user.installedOn.join(", ")}`)}
                 </span>
+                {user.error !== null && (
+                  <span className="text-failed">{user.error}</span>
+                )}
               </span>
-              {user.installUrl !== null && (
-                <a
-                  href={user.installUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-accent hover:underline"
-                >
-                  Install
-                </a>
-              )}
-              <Button
-                aria-label={`Remove ${user.name}`}
-                onClick={() => {
-                  remove(user);
-                }}
+            }
+          >
+            {user.installUrl !== null && (
+              <a
+                href={user.installUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-control items-center rounded-md px-3 text-ui font-medium text-fg-dim hover:bg-hover hover:text-fg"
               >
-                Remove
-              </Button>
-            </div>
-            {user.installedOn !== null && (
-              <p className="text-caption text-fg-dim">
-                {user.installedOn.length === 0
-                  ? "Not installed yet."
-                  : `Installed on ${user.installedOn.join(", ")}.`}
-              </p>
+                Install
+              </a>
             )}
-            {user.error !== null && (
-              <p className="text-caption text-failed">{user.error}</p>
-            )}
-          </li>
+            <Button
+              variant="ghost"
+              aria-label={`Remove ${user.name}`}
+              onClick={() => {
+                remove(user);
+              }}
+            >
+              Remove
+            </Button>
+          </Row>
         ))}
-      </ul>
-      {adding === undefined && (
-        <div className="flex gap-2">
-          <Button
-            onClick={() => {
-              setAdding("app");
-            }}
-          >
-            Create a GitHub App
-          </Button>
-          <Button
-            onClick={() => {
-              setAdding("token");
-            }}
-          >
-            Add a machine user
-          </Button>
-        </div>
-      )}
+      </Rows>
       {adding === "app" && (
         <form
           onSubmit={createApp}
@@ -1040,6 +1059,6 @@ function TechnicalUsers({
           </div>
         </form>
       )}
-    </div>
+    </Section>
   );
 }
