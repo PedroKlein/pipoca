@@ -200,7 +200,24 @@ export const logins: ServerPlugin = {
         );
       }
 
-      const answer = await forward(request, upstream, rest, key.key);
+      const answer = await forward(
+        request,
+        upstream,
+        rest,
+        key.key,
+        ({ model, input, output }) => {
+          context.events.publish({
+            type: "logins.model_called",
+            sessionId: session.id,
+            owner: session.ownedBy,
+            person: session.startedBy,
+            provider,
+            model,
+            input,
+            output,
+          });
+        },
+      );
 
       context.log("model call proxied", {
         sessionId: session.id,

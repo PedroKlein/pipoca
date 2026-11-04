@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type {
   ModelOffer,
+  PluginEvent,
   PluginRoute,
   ProfileMcpServer,
   PublicRoute,
@@ -26,7 +27,9 @@ function registered(
   readonly offer: ModelOffer;
   readonly callback: (request: Request) => Promise<Response | undefined>;
   readonly proxy: (request: Request) => Promise<Response | undefined>;
+  readonly published: readonly PluginEvent[];
 } {
+  const published: PluginEvent[] = [];
   const routes: PluginRoute[] = [];
   const offers: ModelOffer[] = [];
   const publicRoutes: PublicRoute[] = [];
@@ -41,6 +44,12 @@ function registered(
         },
       },
       profiles: { ...faked.profiles, mcpServers: () => mcpServers, buildsOn },
+      events: {
+        ...faked.events,
+        publish: (event) => {
+          published.push(event);
+        },
+      },
       sessions: {
         ...faked.sessions,
         get: (id) => sessions.find((session) => session.id === id),
@@ -73,6 +82,7 @@ function registered(
         request,
         new URL(request.url).pathname.split("/").at(-1) ?? "",
       ),
+    published,
     proxy: async (request) => {
       try {
         return await publicRoute(
@@ -922,4 +932,136 @@ test("a personal Session gets no proxy, since its own logins reach only its runn
   expect(await (await call(route, runnerOf("ana"), "proxy")).json()).toEqual({
     providers: [],
   });
+});
+
+// The proxy's answer from an upstream that sends the body given.
+async function proxiedWith(
+  answer: string,
+  path: string,
+  body: unknown,
+): Promise<readonly PluginEvent[]> {
+  const team = fakeSession({ id: "team-1", ownedBy: "team", startedBy: "ana" });
+  const { route, proxy, published } = registered([], () => [], [team]);
+  const provider = path.split("/")[0] ?? "";
+
+  await call(route, fakeUser({ id: "admin", admin: true }), "save", {
+    provider,
+    credential: { type: "api_key", key: "sk-team" },
+    layer: "base",
+  });
+
+  const { token = "" } = await proxyReady(route, {
+    kind: "session",
+    session: team,
+    actor: "session:team-1",
+  });
+
+  const realFetch = globalThis.fetch;
+
+  globalThis.fetch = Object.assign(
+    async () =>
+      Promise.resolve(
+        new Response(answer, {
+          headers: { "content-type": "text/event-stream" },
+        }),
+      ),
+    { preconnect: realFetch.preconnect },
+  );
+
+  try {
+    const response = await proxy(
+      new Request(`http://logins/api/plugins/logins/proxy/${path}`, {
+        method: "POST",
+        headers: {
+          "x-api-key": token,
+          "x-goog-api-key": token,
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      }),
+    );
+
+    expect(await response?.text()).toBe(answer);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  for (let tries = 0; tries < 2000 && published.length === 0; tries++) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+
+  return published;
+}
+
+const sse = (...events: unknown[]): string =>
+  events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
+
+test("the proxy reports the tokens an Anthropic stream used, for the team's usage", async () => {
+  const published = await proxiedWith(
+    sse(
+      {
+        type: "message_start",
+        message: {
+          usage: {
+            input_tokens: 11,
+            cache_read_input_tokens: 4,
+            output_tokens: 1,
+          },
+        },
+      },
+      { type: "message_delta", usage: { output_tokens: 7 } },
+    ),
+    "anthropic/v1/messages",
+    { model: "claude-sonnet-4-5", stream: true },
+  );
+
+  expect(published).toEqual([
+    {
+      type: "logins.model_called",
+      sessionId: "team-1",
+      owner: "team",
+      person: "ana",
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      input: 15,
+      output: 7,
+    },
+  ]);
+});
+
+test("the proxy reads OpenAI's and Google's token reports too", async () => {
+  const openai = await proxiedWith(
+    sse(
+      { type: "response.created", response: { usage: null } },
+      {
+        type: "response.completed",
+        response: { usage: { input_tokens: 12, output_tokens: 8 } },
+      },
+    ),
+    "openai/responses",
+    { model: "gpt-5", stream: true },
+  );
+
+  const google = await proxiedWith(
+    sse(
+      { usageMetadata: { promptTokenCount: 13 } },
+      {
+        usageMetadata: {
+          promptTokenCount: 13,
+          candidatesTokenCount: 6,
+          thoughtsTokenCount: 3,
+        },
+      },
+    ),
+    "google/models/gemini-2.5-flash:streamGenerateContent",
+    {},
+  );
+
+  expect(
+    openai.map(({ model, input, output }) => [model, input, output]),
+  ).toEqual([["gpt-5", 12, 8]]);
+
+  expect(
+    google.map(({ model, input, output }) => [model, input, output]),
+  ).toEqual([["gemini-2.5-flash", 13, 9]]);
 });

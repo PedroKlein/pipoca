@@ -112,13 +112,21 @@ const dropped = new Set([
   "x-goog-api-key",
 ]);
 
+// What one model call used, as the provider's answer reports it.
+export interface CallUsage {
+  readonly model: string | null;
+  readonly input: number;
+  readonly output: number;
+}
+
 // Sends the request on with the real key and streams the answer back as it
-// comes.
+// comes, reading the tokens it reports on the way (ADR 0066).
 export async function forward(
   request: Request,
   upstream: Upstream,
   rest: string,
   key: string,
+  onUsage: (usage: CallUsage) => void,
 ): Promise<Response> {
   const url = new URL(
     `${upstream.baseUrl.replace(/\/$/, "")}/${rest}${new URL(request.url).search}`,
@@ -137,10 +145,12 @@ export async function forward(
     upstream.header === "authorization" ? `Bearer ${key}` : key,
   );
 
+  const body = request.body === null ? null : await request.text();
+
   const answer = await fetch(url, {
     method: request.method,
     headers,
-    ...(request.body !== null && { body: request.body, duplex: "half" }),
+    ...(body !== null && { body }),
     signal: request.signal,
   });
 
@@ -150,9 +160,120 @@ export async function forward(
   back.delete("content-encoding");
   back.delete("content-length");
 
-  return new Response(answer.body, {
+  const [counted, passed] = answer.body?.tee() ?? [null, null];
+
+  if (counted !== null && answer.ok) {
+    void tokensIn(counted).then((tokens) => {
+      if (tokens !== undefined) {
+        onUsage({ model: modelOf(body, rest), ...tokens });
+      }
+    });
+  }
+
+  return new Response(passed, {
     status: answer.status,
     statusText: answer.statusText,
     headers: back,
   });
+}
+
+// The model a call names: in its JSON body, or in Google's path.
+function modelOf(body: string | null, rest: string): string | null {
+  const named = /(?:^|\/)models\/([^/:]+)/.exec(rest)?.[1];
+  if (named !== undefined) {
+    return named;
+  }
+
+  try {
+    const parsed = JSON.parse(body ?? "") as { model?: unknown };
+
+    return typeof parsed.model === "string" ? parsed.model : null;
+  } catch {
+    return null;
+  }
+}
+
+interface Tokens {
+  readonly input: number;
+  readonly output: number;
+}
+
+// Reads an answer to its end: a stream of server-sent events or one JSON
+// body. The last report of each count wins, since streams send running
+// totals.
+async function tokensIn(
+  stream: ReadableStream<Uint8Array>,
+): Promise<Tokens | undefined> {
+  const text = await new Response(stream).text().catch(() => "");
+
+  const objects = text.trimStart().startsWith("{")
+    ? [text]
+    : text
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice("data:".length).trim());
+
+  let found: Partial<Tokens> = {};
+
+  for (const each of objects) {
+    try {
+      found = { ...found, ...reported(JSON.parse(each)) };
+    } catch {
+      continue;
+    }
+  }
+
+  return found.input === undefined && found.output === undefined
+    ? undefined
+    : { input: found.input ?? 0, output: found.output ?? 0 };
+}
+
+const count = (value: unknown): number =>
+  typeof value === "number" ? value : 0;
+
+const objectAt = (value: unknown, key: string): Record<string, unknown> => {
+  const inner =
+    typeof value === "object" && value !== null
+      ? (value as Record<string, unknown>)[key]
+      : undefined;
+
+  return typeof inner === "object" && inner !== null
+    ? (inner as Record<string, unknown>)
+    : {};
+};
+
+// Where each API reports tokens: Anthropic in message_start and
+// message_delta, OpenAI Responses in response.completed, OpenAI chat in a
+// usage chunk, and Google in usageMetadata.
+function reported(event: unknown): Partial<Tokens> {
+  const usage = {
+    ...objectAt(objectAt(event, "message"), "usage"),
+    ...objectAt(objectAt(event, "response"), "usage"),
+    ...objectAt(event, "usage"),
+  };
+
+  const google = objectAt(event, "usageMetadata");
+
+  if ("promptTokenCount" in google) {
+    return {
+      input: count(google["promptTokenCount"]),
+      output:
+        count(google["candidatesTokenCount"]) +
+        count(google["thoughtsTokenCount"]),
+    };
+  }
+
+  return {
+    ...("input_tokens" in usage && {
+      input:
+        count(usage["input_tokens"]) +
+        count(usage["cache_creation_input_tokens"]) +
+        count(usage["cache_read_input_tokens"]),
+    }),
+    ...("prompt_tokens" in usage && { input: count(usage["prompt_tokens"]) }),
+    ...("output_tokens" in usage && { output: count(usage["output_tokens"]) }),
+    ...("completion_tokens" in usage && {
+      output: count(usage["completion_tokens"]),
+    }),
+  };
 }
