@@ -14,7 +14,7 @@ import {
   served,
 } from "@pipoca/plugins/testing";
 import { isHttpError } from "@pipoca/plugins";
-import type { Session } from "@pipoca/protocol";
+import type { Environment, Session } from "@pipoca/protocol";
 import type { Account, Connectable } from "./model";
 import { logins } from "./server";
 
@@ -22,6 +22,7 @@ function registered(
   mcpServers: readonly ProfileMcpServer[] = [],
   buildsOn: (id: string) => readonly string[] = () => [],
   sessions: readonly Session[] = [],
+  environments: readonly Environment[] = [],
 ): {
   readonly route: PluginRoute;
   readonly offer: ModelOffer;
@@ -44,6 +45,7 @@ function registered(
         },
       },
       profiles: { ...faked.profiles, mcpServers: () => mcpServers, buildsOn },
+      environments: { ...faked.environments, list: () => environments },
       events: {
         ...faked.events,
         publish: (event) => {
@@ -1128,4 +1130,77 @@ test("an admin sees which of the team's keys reach models only through the serve
     { provider: "anthropic", proxied: true },
     { provider: "my-extension", proxied: false },
   ]);
+});
+
+test("a team Session reads the base's keys the proxy can't carry, and only those", async () => {
+  const { route } = registered();
+  const admin = fakeUser({ id: "admin", admin: true });
+
+  for (const provider of ["anthropic", "sap-ai-core"]) {
+    await call(route, admin, "save", {
+      provider,
+      credential: { type: "api_key", key: `${provider}-key` },
+      layer: "base",
+    });
+  }
+
+  const team: RouteCaller = {
+    kind: "session",
+    session: fakeSession({ id: "team-1", ownedBy: "team" }),
+    actor: "session:team-1",
+  };
+
+  await proxyReady(route, team);
+
+  expect(await (await call(route, team, "credentials")).json()).toEqual([
+    { key: "sap-ai-core", type: "api_key" },
+  ]);
+
+  const values = await route(
+    new Request("http://logins/credentials?values"),
+    "credentials",
+    team,
+  );
+
+  expect(await values.json()).toEqual({
+    "sap-ai-core": { type: "api_key", key: "sap-ai-core-key" },
+  });
+
+  expect(
+    (await call(route, team, "credentials/sap-ai-core/lock", {})).status,
+  ).toBe(403);
+
+  expect(await (await call(route, team, "mcp")).json()).toEqual([]);
+});
+
+test("an admin pastes the key of a provider an extension adds on the runners", async () => {
+  const { route } = registered(
+    [],
+    () => [],
+    [],
+    [
+      {
+        id: "team-env",
+        models: [{ provider: "sap-ai-core", id: "gpt-5" }],
+      } as unknown as Environment,
+    ],
+  );
+
+  const admin = fakeUser({ id: "admin", admin: true });
+
+  await connectable(route);
+
+  const listed = async (caller: RouteCaller) =>
+    (
+      (await (await call(route, caller, "providers")).json()) as Connectable[]
+    ).find(({ id }) => id === "sap-ai-core");
+
+  expect(await listed(fakeUser({ id: "ana" }))).toBeUndefined();
+
+  expect(await listed(admin)).toEqual({
+    id: "sap-ai-core",
+    name: "sap-ai-core",
+    methods: [{ type: "api_key", label: "Paste a key" }],
+    paste: true,
+  });
 });

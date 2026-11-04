@@ -179,6 +179,35 @@ export const logins: ServerPlugin = {
         (provider) => models.get(baseOwner, provider)?.type === "api_key",
       );
 
+    // The team's API keys on the base the proxy can't carry, which go to
+    // team Sessions' runners.
+    const runnerKeys = (): readonly Stored[] =>
+      models
+        .list(baseOwner)
+        .filter(({ key, type }) => type === "api_key" && !proxied.has(key));
+
+    // Providers an extension adds on the runners. The server can't run their
+    // sign-in, so an admin pastes their key.
+    const extensionProviders = (): readonly Connectable[] => {
+      const known = new Set(connectable.map(({ id }) => id));
+
+      const added = new Set(
+        context.environments
+          .list()
+          .flatMap(({ models: offered }) =>
+            offered.map(({ provider }) => provider),
+          )
+          .filter((provider) => !known.has(provider)),
+      );
+
+      return [...added].sort().map((id) => ({
+        id,
+        name: id,
+        methods: [{ type: "api_key", label: "Paste a key" }],
+        paste: true,
+      }));
+    };
+
     // A team Session's model call, with its token in place of the key
     // (ADR 0066).
     const proxy = async (
@@ -299,15 +328,29 @@ export const logins: ServerPlugin = {
           throw new NotFound(`no route ${path}`);
         }
 
-        // Team work reaches models through the server's proxy, never with a
-        // person's logins (ADR 0066), so it has none to read or save.
+        // Team work never uses a person's logins (ADR 0066). It reads the
+        // base's keys the proxy can't carry, such as an extension
+        // provider's, and saves none.
         if (caller.session.ownedBy === "team") {
           if (key !== "") {
             throw new HttpError(403, "team work keeps no logins", "team_work");
           }
 
+          const handed = kind === models ? runnerKeys() : [];
+
           return Response.json(
-            new URL(request.url).searchParams.has("values") ? {} : [],
+            new URL(request.url).searchParams.has("values")
+              ? Object.fromEntries(
+                  handed.flatMap(({ key: provider }) => {
+                    const value = models.get(baseOwner, provider);
+
+                    return value === undefined ? [] : [[provider, value]];
+                  }),
+                )
+              : handed.map(({ key: provider, type }) => ({
+                  key: provider,
+                  type,
+                })),
           );
         }
 
@@ -378,7 +421,11 @@ export const logins: ServerPlugin = {
       }
 
       if (route === "providers" && request.method === "GET") {
-        return Response.json(connectable);
+        return Response.json(
+          caller.admin
+            ? [...connectable, ...extensionProviders()]
+            : connectable,
+        );
       }
 
       if (route === "connect" && request.method === "POST") {

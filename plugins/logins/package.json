@@ -28,6 +28,7 @@
       "routes",
       "models",
       "profiles",
+      "environments",
       "sessions",
       "events"
     ],

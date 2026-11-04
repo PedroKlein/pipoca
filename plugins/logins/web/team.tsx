@@ -56,16 +56,23 @@ export function TeamCredentials({
     { topics: ["profiles", "environments"] },
   );
 
+  const proxied = keys.filter(({ proxied: through }) => through);
+  const handed = keys.filter(({ proxied: through }) => !through);
+
   const reaching = [
     ...(loaded?.secrets ?? []),
-    ...runnerProviders(
-      loaded?.environments ?? [],
-      new Set(keys.filter((key) => key.proxied).map((key) => key.provider)),
-    ),
+    ...handed.map(({ provider }) => ({
+      key: `key:${provider}`,
+      title: provider,
+      description:
+        "Key on the Server base. The server can't carry this provider's calls, so every team Session's runner gets the key.",
+    })),
   ];
 
-  const proxied = keys.filter(({ proxied: through }) => through);
-  const unused = keys.filter(({ proxied: through }) => !through);
+  const missing = extensionProviders(
+    loaded?.environments ?? [],
+    new Set(keys.map(({ provider }) => provider)),
+  );
 
   return (
     <>
@@ -102,7 +109,7 @@ export function TeamCredentials({
       {reaching.length > 0 && (
         <Section
           title="Reach the runner"
-          description="Secrets and model sign-ins in team Profiles and Environments"
+          description="Secrets in team Profiles and Environments, and keys the server can't carry"
         >
           <Rows label="Reach the runner">
             {reaching.map(({ key, title, description }) => (
@@ -118,20 +125,20 @@ export function TeamCredentials({
           </Rows>
         </Section>
       )}
-      {unused.length > 0 && (
+      {missing.length > 0 && (
         <Section
-          title="Not used by team work"
-          description="The server can't pass these on for team work"
+          title="No team key"
+          description="Providers on team runners that team work can't call yet"
         >
-          <Rows label="Not used by team work">
-            {unused.map(({ provider }) => (
+          <Rows label="No team key">
+            {missing.map(({ key, title, description }) => (
               <Row
-                key={provider}
-                title={provider}
-                initials={initialsOf(provider)}
-                description="A provider an extension adds signs in where the extension runs. Team work gets no copy of this key."
+                key={key}
+                title={title}
+                initials={initialsOf(title)}
+                description={description}
               >
-                <Badge state="offline">Personal work only</Badge>
+                <Badge state="offline">No key</Badge>
               </Row>
             ))}
           </Rows>
@@ -186,17 +193,17 @@ function fieldOf(
     : {};
 }
 
-// Providers whose models team runners reach without the proxy, such as ones
-// an extension adds, so their sign-in or key lives on the runner.
-function runnerProviders(
+// Providers team runners list that the base has no key for, such as ones an
+// extension adds.
+function extensionProviders(
   environments: readonly Environment[],
-  proxied: ReadonlySet<string>,
+  keyed: ReadonlySet<string>,
 ): readonly Reaching[] {
   const on = new Map<string, Set<string>>();
 
   for (const { name, models } of environments) {
     for (const { provider } of models) {
-      if (!proxied.has(provider)) {
+      if (!keyed.has(provider)) {
         on.set(provider, (on.get(provider) ?? new Set()).add(name));
       }
     }
@@ -205,6 +212,6 @@ function runnerProviders(
   return [...on].map(([provider, names]) => ({
     key: `provider:${provider}`,
     title: provider,
-    description: `Model sign-in on the runners of ${[...names].join(", ")}`,
+    description: `On the runners of ${[...names].join(", ")}. Put its key on the Server base from Accounts for team work to use it.`,
   }));
 }

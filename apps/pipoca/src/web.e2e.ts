@@ -4379,7 +4379,7 @@ test("shows on the hub's Home who limited team work", async () => {
     .waitFor();
 });
 
-test("flags team models that sign in on the runner in Team setup's credentials", async () => {
+test("an admin pastes the key of a team runner's extension provider, and Credentials shows it reaching the runner", async () => {
   await page.goto(server.url.href);
 
   const signedIn = (await page.context().cookies()).find(
@@ -4429,10 +4429,38 @@ test("flags team models that sign in on the runner in Team setup's credentials",
   );
 
   await page
-    .getByRole("list", { name: "Reach the runner" })
-    .getByText(`Model sign-in on the runners of ${environment.name}`)
+    .getByRole("list", { name: "No team key" })
+    .getByText(`On the runners of ${environment.name}.`, { exact: false })
     .waitFor();
-});
+
+  await page.goto(server.url.href);
+  await openSettings("Accounts");
+  await page.getByRole("list", { name: "Your model logins" }).waitFor();
+
+  // An earlier test's MCP sign-in stays on show until it's closed.
+  const finished = page.getByRole("region", { name: /^Connecting/ });
+  if (await finished.isVisible()) {
+    await finished.getByRole("button", { name: "Close" }).click();
+  }
+
+  await page.getByRole("button", { name: "Add provider" }).click();
+
+  const form = page.getByRole("form", { name: "Connect a model provider" });
+  await form.getByLabel("Provider").selectOption("ai-core");
+  await form.getByRole("combobox", { name: /^For/ }).selectOption("base");
+  await form.getByLabel("Key").fill('{"clientid":"team"}');
+  await form.getByRole("button", { name: "Connect" }).click();
+  await form.waitFor({ state: "detached" });
+
+  await page.goto(
+    new URL("/#team/setup/plugin/logins/credentials", server.url).href,
+  );
+
+  await page
+    .getByRole("list", { name: "Reach the runner" })
+    .getByText("ai-core", { exact: true })
+    .waitFor();
+}, 30_000);
 
 test("drops a plugin's parts from open team work once an admin keeps it out", async () => {
   await page.goto(server.url.href);

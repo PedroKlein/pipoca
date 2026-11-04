@@ -65,6 +65,8 @@ export interface Connectable {
     readonly type: AuthType;
     readonly label: string;
   }[];
+  // The server can't run this provider's sign-in, so its key is pasted.
+  readonly paste?: boolean;
 }
 
 // A lease on one login, held while a Session reads, refreshes and writes it
