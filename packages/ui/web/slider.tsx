@@ -15,13 +15,21 @@ export function Slider<T extends string>({
   readonly onChange: (value: T) => void;
 }): ReactElement {
   // A level saved elsewhere arrives after the next key press, so the slider
-  // moves on from the level it last asked for until value catches up.
-  const [moved, setMoved] = useState<{ readonly from: T; readonly to: T }>();
-  if (moved !== undefined && moved.from !== value) {
+  // moves on from the level it last asked for until value catches up, past
+  // the levels it asked for before.
+  const [moved, setMoved] = useState<{
+    readonly via: readonly T[];
+    readonly to: T;
+  }>();
+
+  const pending =
+    moved !== undefined && moved.to !== value && moved.via.includes(value);
+
+  if (moved !== undefined && !pending) {
     setMoved(undefined);
   }
 
-  const shown = moved?.from === value ? moved.to : value;
+  const shown = pending ? moved.to : value;
 
   const at = Math.max(
     0,
@@ -35,7 +43,11 @@ export function Slider<T extends string>({
     const stop = stops[Math.min(Math.max(index, 0), last)];
 
     if (stop && stop.value !== shown) {
-      setMoved({ from: value, to: stop.value });
+      setMoved({
+        via: pending ? [...moved.via, moved.to] : [value],
+        to: stop.value,
+      });
+
       onChange(stop.value);
     }
   };
