@@ -218,9 +218,6 @@ export function App({
 
       <NewSessionDialog
         open={creating}
-        environments={environments.value}
-        profiles={profiles.value}
-        sessions={sessions.value}
         onClose={() => {
           setCreating(false);
         }}

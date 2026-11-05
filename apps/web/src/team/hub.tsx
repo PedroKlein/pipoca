@@ -6,7 +6,6 @@ import {
   useHubLayout,
   useTeamEnvironments,
   useTeammates,
-  useTeamProfiles,
   useTeamSessions,
 } from "../hooks";
 import { NewSessionDialog } from "../shell/new-session";
@@ -35,7 +34,6 @@ export function TeamHub({
   const people = useTeammates();
   const sessions = useTeamSessions();
   const environments = useTeamEnvironments();
-  const profiles = useTeamProfiles();
   const layout = useHubLayout();
   const [starting, setStarting] = useState(false);
   const pages = pagesOf(layout.pages);
@@ -59,7 +57,12 @@ export function TeamHub({
       label: page.title,
       icon: page.id === "home" ? ("home" as const) : ("panel-right" as const),
     })),
-    { path: "team/sessions", label: "Sessions", icon: "menu" },
+    {
+      path: "team/sessions",
+      label: "Sessions",
+      icon: "menu",
+      ...(sessions.loaded && { count: sessions.value.length }),
+    },
     ...screens().map(({ path, label }) => ({
       path,
       label,
@@ -139,10 +142,11 @@ export function TeamHub({
       groups={[
         {
           items: [
-            ...entries.map(({ path, label, icon }) => ({
+            ...entries.map(({ path, label, icon, count }) => ({
               href: `#${path}`,
               label,
               icon,
+              ...(count !== undefined && { count }),
               current:
                 route === path ||
                 (route === "team/" && path === "team") ||
@@ -178,9 +182,6 @@ export function TeamHub({
       <NewSessionDialog
         open={starting}
         team
-        environments={environments.value}
-        profiles={profiles.value}
-        sessions={sessions.value}
         onClose={() => {
           setStarting(false);
         }}

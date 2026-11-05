@@ -133,6 +133,8 @@ export interface SessionStore {
   // there are any.
   baseProfileFiles: (personId: string | null) => ProfileFiles | undefined;
   defaultProfileId: (userId: string) => string;
+  // Where the person's Sessions start when they don't pick, if they chose.
+  defaultEnvironmentId: (userId: string) => string | null;
   repositoryTrust: (ownerId: string, repository: string) => boolean | null;
   setRepositoryTrust: (
     ownerId: string,
@@ -348,10 +350,16 @@ export class Sessions {
             (startedBy === null || ownerId === startedBy),
       );
 
+    const picked =
+      request.environment ??
+      (team || startedBy === null
+        ? undefined
+        : (this.#store.defaultEnvironmentId(startedBy) ?? undefined));
+
     const environment =
-      request.environment === undefined
+      picked === undefined
         ? environments[0]
-        : environments.find(({ id }) => id === request.environment);
+        : environments.find(({ id }) => id === picked);
 
     if (!environment) {
       return { ok: false, reason: "unknown_environment" };

@@ -14,10 +14,12 @@ import {
 } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { api } from "../../api";
+import { useAccount } from "../../hooks";
 import { PluginBoundary } from "../../plugin-boundary";
 import { enabledPlugins, pluginContext } from "../../plugins";
 import { useTheme } from "../../theme";
 import { useVerbosity, type Verbosity, verbosities } from "../../verbosity";
+import { EditProfile, SignOutEverywhere, StartWith } from "./account";
 
 const verbosityLabels = {
   quiet: "Quiet",
@@ -34,6 +36,8 @@ export function GeneralPage({
 }): ReactElement {
   const [theme, setTheme] = useTheme();
   const [verbosity, setVerbosity] = useVerbosity();
+  const account = useAccount();
+  const shown = account?.displayName ?? user;
 
   return (
     <Page id="general-page">
@@ -42,16 +46,18 @@ export function GeneralPage({
       </PageTitle>
       <Rows label="You">
         <Row
-          initials={initialsOf(user)}
+          initials={initialsOf(shown)}
           round
           title={
             <>
-              {user}
+              {shown}
               {admin && <Badge>Admin</Badge>}
             </>
           }
-          description={`Signed in to ${location.host}`}
-        />
+          description={`@${user} · signed in to ${location.host}`}
+        >
+          <EditProfile account={account} />
+        </Row>
       </Rows>
       <Section title="Appearance">
         <Rows>
@@ -84,6 +90,7 @@ export function GeneralPage({
           </Row>
         </Rows>
       </Section>
+      <StartWith account={account} />
       {enabledPlugins().map(({ name, settingsParts }) => {
         const Part = settingsParts?.General;
 
@@ -105,6 +112,7 @@ export function GeneralPage({
         >
           Sign out
         </Button>
+        <SignOutEverywhere />
       </div>
     </Page>
   );

@@ -481,11 +481,25 @@ export const inviteRequest = Type.Object({
 });
 
 // What the join page shows to someone who opened an invite's link.
+// A line of what joining brings: something the team set up, or a step that
+// is the newcomer's own.
+const joinItem = Type.Object({
+  title: Type.String(),
+  summary: Type.String(),
+  optional: Type.Boolean(),
+});
+
+export type JoinItem = Wire<typeof joinItem>;
+
 export const joinInfo = Type.Object({
   email: nullable(Type.String()),
   admin: Type.Boolean(),
   // The name of the admin who invited them.
   invitedBy: Type.String(),
+  team: nullable(Type.String()),
+  // Derived from what admins chose for new people (ADR 0063).
+  setUp: Type.Array(joinItem),
+  yours: Type.Array(joinItem),
   expiresAt: Type.String(),
   passwordLogin: Type.Boolean(),
   // Sign-in links that carry the invite along.
@@ -529,6 +543,7 @@ export const appLink = Type.Object({ link: Type.String() });
 export const firstUser = Type.Object({
   ...credentials.properties,
   token: Type.String(),
+  displayName: Type.Optional(Type.String()),
 });
 
 export const appSignIn = Type.Object({
@@ -667,6 +682,24 @@ export const teamView = Type.Object({
 });
 
 export type TeamView = Wire<typeof teamView>;
+
+// The signed-in person's own account: the name people see, beside the
+// username they sign in with, and the Environment their Sessions start in
+// when they don't pick one.
+export const account = Type.Object({
+  ...user.properties,
+  displayName: nullable(Type.String()),
+  defaultEnvironment: nullable(Type.String()),
+});
+
+export type Account = Wire<typeof account>;
+
+export const accountChange = Type.Object({
+  displayName: Type.Optional(Type.String()),
+  defaultEnvironment: Type.Optional(nullable(Type.String())),
+});
+
+export type AccountChange = Wire<typeof accountChange>;
 
 // What admins set up for people who join (ADR 0063): the Environment
 // template they get one from, the shared Profiles they pick from, and the

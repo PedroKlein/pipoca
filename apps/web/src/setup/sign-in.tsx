@@ -72,7 +72,13 @@ export function SignInPage({
       try {
         await (setupToken === undefined
           ? api("auth.session.create", { body: credentials })
-          : api("auth.setup", { body: { ...credentials, token: setupToken } }));
+          : api("auth.setup", {
+              body: {
+                ...credentials,
+                displayName: text("displayName"),
+                token: setupToken,
+              },
+            }));
 
         location.replace("/");
       } catch (reason) {
