@@ -43,7 +43,7 @@ async function start(
   server = testServer({
     ...options,
     database: join(root, "server.db"),
-    sessions: { pollWaitMs: 0 },
+    runners: { pollWaitMs: 0 },
     installed: {
       root: plugins,
       plugins: await installedPlugins(

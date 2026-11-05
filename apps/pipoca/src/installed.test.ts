@@ -119,7 +119,7 @@ async function start(agent?: ServeOptions["agent"]): Promise<void> {
 
   server = testServer({
     database: join(root, "server.db"),
-    sessions: { pollWaitMs: agent ? 100 : 0 },
+    runners: { pollWaitMs: agent ? 100 : 0 },
     ...(agent && { agent }),
     installed: {
       root: plugins,

@@ -87,7 +87,7 @@ beforeEach(() => {
 
   server = testServer({
     configDir,
-    sessions: { pollWaitMs: 0 },
+    runners: { pollWaitMs: 0 },
   });
 });
 
@@ -236,7 +236,7 @@ test("a bot written into pipoca.json by hand takes its tokens from the environme
     }),
   );
 
-  server = testServer({ configDir, sessions: { pollWaitMs: 0 } });
+  server = testServer({ configDir, runners: { pollWaitMs: 0 } });
 
   for (let tries = 0; tries < 100 && socket === undefined; tries++) {
     await Bun.sleep(20);

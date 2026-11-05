@@ -30,8 +30,12 @@ import {
   systemClock,
 } from "@pipoca/protocol";
 import { ProfileFolders, Profiles } from "@pipoca/profiles";
-import { Sessions, type SessionsOptions } from "@pipoca/sessions";
-import { RunnerCredentials } from "@pipoca/environments";
+import { Sessions } from "@pipoca/sessions";
+import {
+  Environments,
+  type EnvironmentsOptions,
+  RunnerCredentials,
+} from "@pipoca/environments";
 import { People, SignIn } from "@pipoca/people";
 import web from "@pipoca/web/index.html";
 import { type AgentOptions, runAgent } from "./agent";
@@ -116,7 +120,11 @@ export interface ServeOptions {
   // front added. Only behind one, since without it anyone can send that
   // header and pick the address their failed sign-ins count against.
   readonly trustProxy?: boolean;
-  readonly sessions?: SessionsOptions;
+  // How the runner pool times polls, going offline and leases.
+  readonly runners?: Pick<
+    EnvironmentsOptions,
+    "pollWaitMs" | "offlineAfterMs" | "leaseMs"
+  >;
   readonly agent?: Omit<
     AgentOptions,
     "server" | "credential" | "log" | "signal"
@@ -267,23 +275,39 @@ export function serve(options: ServeOptions): {
   const ownConfig = serverConfig(config("server"));
   const team = teamSettings(config("team"));
 
-  const sessions = new Sessions(store.sessions, {
-    ...options.sessions,
+  const environments: Environments = new Environments(store.environments, {
+    ...options.runners,
+    clock,
+    templates: () => templates.list(),
+    offeredModels: (environment, userId) =>
+      pluginHost.offeredModels(environment, userId),
+    startsRunners: (environment) => pluginHost.startsRunners(environment),
+    sessions: () => ({
+      running: (provider, runner) => sessions.running(provider, runner),
+      inUse: (id) => sessions.inUse(id),
+      removed: () => {
+        changes.publish("sessions");
+      },
+    }),
+    onlineChanged: (provider, runner) => {
+      sessions.runnerChanged(provider, runner);
+    },
+    changed: () => {
+      changes.publish("environments");
+    },
+  });
+
+  const sessions: Sessions = new Sessions(store.sessions, environments, {
     clock,
     events: events.publish,
     changed: () => {
       changes.publish("sessions");
     },
-    runnersChanged: () => {
-      changes.publish("environments");
-    },
     sessionPlugins: () => pluginHost.sessionPlugins(),
     offeredModels: (environment, userId) =>
       pluginHost.offeredModels(environment, userId),
-    startsRunners: (environment) => pluginHost.startsRunners(environment),
     pluginProfile: (id) => pluginHost.profile(id),
     gitLogins: (userId, session) => pluginHost.gitLogins(userId, session),
-    templates: () => templates.list(),
     teamMessagesRead: team.messagesRead,
     names: (person) => people.userById(person)?.name,
     docs: sessionDocs(
@@ -304,7 +328,7 @@ export function serve(options: ServeOptions): {
 
   const ownEnvironment = (person: string): void => {
     if (ownRunner !== undefined) {
-      store.sessions.ensureEnvironment(ownRunner, person);
+      store.environments.ensureEnvironment(ownRunner, person);
     }
   };
 
@@ -341,7 +365,7 @@ export function serve(options: ServeOptions): {
 
   if (
     options.solo !== undefined &&
-    store.sessions.environments().length === 0
+    store.environments.environments().length === 0
   ) {
     seed = thisMachineEnvironment(store, options.solo.folders ?? []);
   }
@@ -364,6 +388,7 @@ export function serve(options: ServeOptions): {
   const pluginHost = startPlugins(plugins, enabled, {
     manifests: known,
     sessions,
+    environments,
     runners: {
       token: (environment, runner) => runners.runnerToken(environment, runner),
       revoke: (environment, runner) => {
@@ -431,6 +456,7 @@ export function serve(options: ServeOptions): {
   const handler = createHandler(
     auth,
     sessions,
+    environments,
     userProfiles,
     pluginHost,
     changes,
@@ -571,7 +597,7 @@ export function serve(options: ServeOptions): {
           throw new Error("a solo install has no user yet");
         }
 
-        store.sessions.ensureEnvironment(name, owner.id);
+        store.environments.ensureEnvironment(name, owner.id);
 
         return runners.runnerToken(name, name);
       },
@@ -616,7 +642,7 @@ export function serve(options: ServeOptions): {
       await agent;
       await links?.stop(true);
       await server.stop(true);
-      sessions.close();
+      environments.close();
       store.close();
       options.log("server stopped");
     },
@@ -740,9 +766,9 @@ function thisMachineEnvironment(
     return undefined;
   }
 
-  store.sessions.ensureEnvironment(provider, owner.id);
+  store.environments.ensureEnvironment(provider, owner.id);
 
-  const created = store.sessions
+  const created = store.environments
     .environments()
     .find((environment) => environment.provider === provider);
 
@@ -750,7 +776,7 @@ function thisMachineEnvironment(
     return undefined;
   }
 
-  store.sessions.updateEnvironment({ ...created, name: "This machine" });
+  store.environments.updateEnvironment({ ...created, name: "This machine" });
 
   return { environmentId: created.id, folders };
 }

@@ -12,7 +12,7 @@ beforeEach(async () => {
 
   server = testServer({
     configDir: join(root, "config"),
-    sessions: { pollWaitMs: 0 },
+    runners: { pollWaitMs: 0 },
   });
 });
 

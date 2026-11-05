@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import type { Environments } from "@pipoca/environments";
 import { canSee } from "@pipoca/people";
 import {
   checkedSettings,
@@ -156,6 +157,7 @@ export interface PluginHost {
 
 function pluginEnvironments(
   sessions: Sessions,
+  environments: Environments,
   runners: {
     readonly token: (environment: string, runner: string) => string;
     readonly revoke: (environment: string, runner: string) => void;
@@ -164,9 +166,7 @@ function pluginEnvironments(
   templateConfig: ServerPluginContext["environments"]["templateConfig"],
 ): ServerPluginContext["environments"] {
   const provider = (environmentId: string): string => {
-    const found = sessions
-      .environments()
-      .find(({ id }) => id === environmentId);
+    const found = environments.get(environmentId);
 
     if (found === undefined) {
       throw new Error(`no Environment ${environmentId}`);
@@ -176,7 +176,7 @@ function pluginEnvironments(
   };
 
   return {
-    list: () => sessions.environments(),
+    list: () => environments.list(),
     unplaced: (environmentId) => sessions.unplaced(environmentId),
     runnerToken: (environmentId, runner) =>
       runners.token(provider(environmentId), runner),
@@ -184,7 +184,7 @@ function pluginEnvironments(
       runners.revoke(provider(environmentId), runner);
     },
     startsRunners,
-    templates: () => sessions.templates(),
+    templates: () => environments.templates(),
     templateConfig,
   };
 }
@@ -196,6 +196,7 @@ export function startPlugins(
     // What the Plugins page lists, on or not.
     readonly manifests: readonly PluginManifest[];
     readonly sessions: Sessions;
+    readonly environments: Environments;
     readonly runners: {
       readonly token: (environment: string, runner: string) => string;
       readonly revoke: (environment: string, runner: string) => void;
@@ -595,6 +596,7 @@ export function startPlugins(
           }),
           environments: pluginEnvironments(
             deps.sessions,
+            deps.environments,
             deps.runners,
             (starts) => {
               staged.starters.push({ plugin: plugin.name, starts });

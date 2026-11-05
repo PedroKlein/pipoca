@@ -48,7 +48,7 @@ beforeEach(async () => {
   runtime.registerNativeProvider(faux.provider);
 
   server = testServer({
-    sessions: { pollWaitMs: 100, offlineAfterMs: 200 },
+    runners: { pollWaitMs: 100, offlineAfterMs: 200 },
   });
 
   runners = runnerCredentials(server, server.signedIn);

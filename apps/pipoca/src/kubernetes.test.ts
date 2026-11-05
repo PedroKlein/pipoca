@@ -174,7 +174,7 @@ function startServer(
   server = testServer({
     database,
     ...(configDir !== undefined && { configDir }),
-    sessions: { pollWaitMs: 100, offlineAfterMs: 1000 },
+    runners: { pollWaitMs: 100, offlineAfterMs: 1000 },
     plugins: [
       kubernetes(() => ({
         api: { url: api.url, namespace: "pi", token: () => "t" },

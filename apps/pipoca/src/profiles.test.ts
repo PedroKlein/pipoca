@@ -37,7 +37,7 @@ beforeEach(async () => {
   server = testServer({
     database: join(root, "server.db"),
     configDir: join(root, "config"),
-    sessions: { pollWaitMs: 0 },
+    runners: { pollWaitMs: 0 },
   });
 
   runners = runnerCredentials(server, server.signedIn);

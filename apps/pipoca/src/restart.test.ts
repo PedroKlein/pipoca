@@ -36,7 +36,7 @@ afterEach(async () => {
 
 async function start(options: Partial<ServeOptions> = {}): Promise<void> {
   server = testServer({
-    sessions: { pollWaitMs: 100 },
+    runners: { pollWaitMs: 100 },
     ...options,
   });
 
@@ -349,7 +349,7 @@ test("shows a waiting Session's open prompt again after the server restarts", as
     server = testServer({
       port,
       database,
-      sessions: { pollWaitMs: 100 },
+      runners: { pollWaitMs: 100 },
       cookie,
     });
 

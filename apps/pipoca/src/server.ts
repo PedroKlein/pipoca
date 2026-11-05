@@ -69,7 +69,7 @@ import {
   type User,
   type Viewer,
 } from "@pipoca/people";
-import type { RunnerCredentials } from "@pipoca/environments";
+import type { Environments, RunnerCredentials } from "@pipoca/environments";
 import { type Changes, changedBy } from "./changes";
 import { mcpHandler } from "./mcp";
 import { type AgentRoute, agentRoutes } from "./agent-routes";
@@ -138,6 +138,7 @@ export interface Auth {
 export function createHandler(
   auth: Auth,
   sessions: Sessions,
+  environments: Environments,
   profiles: Profiles,
   plugins: PluginHost,
   changes: Changes,
@@ -302,37 +303,12 @@ export function createHandler(
       return reply(result, 200);
     };
 
-  // A runner that joins with a join key gets an Environment of its own name,
-  // numbered when another Environment has it.
   const environmentFor = (runner: string, ownerId: string): string => {
-    const taken = new Set(
-      sessions.environments().map(({ provider }) => provider),
-    );
+    const created = environments.createForRunner(runner, ownerId);
+    log("environment created", { environmentId: created.id, runner });
 
-    let provider = runner;
-    for (let n = 2; taken.has(provider); n++) {
-      provider = `${runner.slice(0, 60)}-${String(n)}`;
-    }
-
-    const created = sessions.createEnvironment(provider, ownerId);
-    if (!created.ok) {
-      throw new Error(`environment ${provider} was not made`);
-    }
-
-    log("environment created", { environmentId: created.value.id, runner });
-    changes.publish("environments");
-
-    return provider;
+    return created.provider;
   };
-
-  const runnerOnline = (environment: string, runner: string): boolean =>
-    sessions
-      .environments()
-      .some(
-        ({ provider, runners }) =>
-          provider === environment &&
-          runners.some(({ name, online }) => name === runner && online),
-      );
 
   const publicRoutes: RouteTable = [
     [
@@ -394,7 +370,8 @@ export function createHandler(
           scheme === "Bearer" && key !== undefined
             ? auth.runners.join(key, name, {
                 create: environmentFor,
-                online: runnerOnline,
+                online: (environment, runner) =>
+                  environments.online(environment, runner),
               })
             : undefined;
 
@@ -666,8 +643,8 @@ export function createHandler(
 
         if (new URL(request.url).searchParams.get("owner") === teamOwner) {
           return Response.json(
-            sessions
-              .environments(person)
+            environments
+              .list(person)
               .filter(({ ownerId }) => ownerId === teamOwner)
               // Anyone can start team work, so they see its folders and
               // models; only its variables stay with admins.
@@ -678,8 +655,8 @@ export function createHandler(
         }
 
         return Response.json(
-          sessions
-            .environments(person)
+          environments
+            .list(person)
             .filter(({ ownerId }) => everyone || ownerId === person)
             .map((environment) =>
               environment.ownerId === person
@@ -706,7 +683,7 @@ export function createHandler(
           );
         }
 
-        const created = sessions.createEnvironment(
+        const created = environments.create(
           name,
           team === true ? teamOwner : userIdOf(actor),
           template,
@@ -741,8 +718,8 @@ export function createHandler(
       "POST",
       /^\/api\/environments\/([^/]+)\/key$/,
       (_request, [id = ""], actor, isAdmin) => {
-        const environment = sessions
-          .environments()
+        const environment = environments
+          .list()
           .find(
             (each) =>
               each.id === id &&
@@ -767,8 +744,8 @@ export function createHandler(
       /^\/api\/environments\/([^/]+)$/,
       async (request, [id = ""], actor, isAdmin) => {
         if (
-          !sessions
-            .environments()
+          !environments
+            .all()
             .some(
               (each) =>
                 each.id === id &&
@@ -780,7 +757,7 @@ export function createHandler(
 
         const { name, ...update } = await readBody(request, environmentUpdate);
 
-        const updated = sessions.updateEnvironment(id, {
+        const updated = environments.update(id, {
           ...update,
           ...(name !== undefined && { name: name.trim() }),
         });
@@ -797,8 +774,8 @@ export function createHandler(
       /^\/api\/environments\/([^/]+)$/,
       (_request, [id = ""], actor, isAdmin) => {
         if (
-          !sessions
-            .environments()
+          !environments
+            .all()
             .some(
               (each) =>
                 each.id === id &&
@@ -808,7 +785,7 @@ export function createHandler(
           return notFound();
         }
 
-        const deleted = sessions.deleteEnvironment(id);
+        const deleted = environments.remove(id);
         if (deleted.ok) {
           log("environment deleted", { environmentId: id });
         }
@@ -1750,7 +1727,9 @@ function viewerOf(actor: UserActor, admin = false): Viewer {
   return { id: userIdOf(actor), admin };
 }
 
-function ownedEnvironment(environment: Environment): { owner: string } {
+function ownedEnvironment(environment: Pick<Environment, "ownerId">): {
+  owner: string;
+} {
   return { owner: environment.ownerId };
 }
 

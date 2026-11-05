@@ -5,6 +5,7 @@
   "exports": "./src/index.ts",
   "dependencies": {
     "@pipoca/people": "workspace:*",
+    "@pipoca/plugins": "workspace:*",
     "@pipoca/protocol": "workspace:*"
   }
 }

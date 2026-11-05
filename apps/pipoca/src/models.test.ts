@@ -29,7 +29,7 @@ beforeEach(async () => {
   runtime.registerNativeProvider(fallback.provider);
 
   server = testServer({
-    sessions: { pollWaitMs: 100, offlineAfterMs: 1000 },
+    runners: { pollWaitMs: 100, offlineAfterMs: 1000 },
     agent: {
       provider: "local",
       dataDir: join(root, "local"),

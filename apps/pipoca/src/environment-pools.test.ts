@@ -33,7 +33,7 @@ function startServer({
   readonly offlineAfterMs?: number;
 } = {}): void {
   server = testServer({
-    sessions: { pollWaitMs, offlineAfterMs, leaseMs },
+    runners: { pollWaitMs, offlineAfterMs, leaseMs },
     plugins: [
       {
         name: "machines",

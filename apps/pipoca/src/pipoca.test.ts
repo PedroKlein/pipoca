@@ -79,7 +79,7 @@ async function startAgent(
 
 function startServer(builtInProvider?: string): TestServer {
   const started = testServer({
-    sessions: { pollWaitMs: 100, offlineAfterMs: 200 },
+    runners: { pollWaitMs: 100, offlineAfterMs: 200 },
     ...(builtInProvider !== undefined && {
       agent: {
         provider: builtInProvider,

@@ -134,7 +134,7 @@ export default { name: "greeter", nav: { label: "Greeter", Page } };
     port: 0,
     database: ":memory:",
     configDir: join(root, "config"),
-    sessions: { pollWaitMs: 100, offlineAfterMs: 1000 },
+    runners: { pollWaitMs: 100, offlineAfterMs: 1000 },
     agent: {
       provider: "e2e",
       dataDir: join(root, "e2e"),

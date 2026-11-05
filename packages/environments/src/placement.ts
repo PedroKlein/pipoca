@@ -1,7 +1,9 @@
 import { relative, sep } from "node:path";
-import { type ModelRef, movable } from "@pipoca/protocol";
+import { type ModelRef, movable, type Session } from "@pipoca/protocol";
 import type { PolledRunner } from "./runner-polls";
-import type { StoredSession } from "./sessions";
+
+// What placement reads of a Session.
+export type Placeable = Pick<Session, "id" | "runner" | "workspace">;
 
 // A Session that ran on a runner goes back to it, unless that runner's lease
 // lapsed and the Session's Workspace can be made again elsewhere. A new
@@ -9,7 +11,7 @@ import type { StoredSession } from "./sessions";
 // folder, while one is online, and any other Session goes to the first runner
 // with room (ADR 0032).
 export function placesOn(
-  session: StoredSession,
+  session: Placeable,
   runner: string,
   pool: {
     readonly runners: readonly PolledRunner[];
@@ -37,7 +39,7 @@ export function placesOn(
 // Whether a runner that hasn't joined the pool yet, and so lists no folder,
 // could take a Session that hasn't run.
 export function placesOnNewRunner(
-  { workspace }: StoredSession,
+  { workspace }: Placeable,
   pool: { readonly runners: readonly PolledRunner[] },
 ): boolean {
   return (

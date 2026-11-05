@@ -2,12 +2,12 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { type Clock, systemClock } from "@pipoca/protocol";
-import type { CredentialStore } from "@pipoca/environments";
+import type { CredentialStore, EnvironmentStore } from "@pipoca/environments";
 import type { PeopleStore } from "@pipoca/people";
 import type { PluginStore, ServerPlugin } from "@pipoca/plugins";
 import type { ProfileFolders, ProfileStore } from "@pipoca/profiles";
 import type { SessionStore } from "@pipoca/sessions";
-import { credentialStore } from "./credentials";
+import { credentialStore, environmentStore } from "./environments";
 import { openDatabase, resetPlugin } from "./database";
 import { peopleStore } from "./people";
 import { pluginStore } from "./plugin-data";
@@ -17,6 +17,7 @@ import { profileStore, sessionStore } from "./sessions";
 
 export interface Store {
   readonly sessions: SessionStore;
+  readonly environments: EnvironmentStore;
   readonly profiles: ProfileStore;
   readonly people: PeopleStore;
   readonly credentials: CredentialStore;
@@ -69,7 +70,8 @@ export function openStore(
   const pluginStores = new Map<string, PluginStore>();
 
   return {
-    sessions: sessionStore(db, clock, box, profiles),
+    sessions: sessionStore(db, clock, profiles),
+    environments: environmentStore(db, clock, box),
     profiles: profileStore(db),
     people: peopleStore(db, clock),
     credentials: credentialStore(db, clock),

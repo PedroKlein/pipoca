@@ -5,7 +5,7 @@ let server: TestServer;
 
 beforeEach(() => {
   server = testServer({
-    sessions: { pollWaitMs: 0 },
+    runners: { pollWaitMs: 0 },
   });
 });
 

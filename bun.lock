@@ -117,6 +117,7 @@
       "name": "@pipoca/environments",
       "dependencies": {
         "@pipoca/people": "workspace:*",
+        "@pipoca/plugins": "workspace:*",
         "@pipoca/protocol": "workspace:*",
       },
     },
@@ -129,6 +130,7 @@
     "packages/pluginhost": {
       "name": "@pipoca/pluginhost",
       "dependencies": {
+        "@pipoca/environments": "workspace:*",
         "@pipoca/people": "workspace:*",
         "@pipoca/plugins": "workspace:*",
         "@pipoca/protocol": "workspace:*",

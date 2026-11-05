@@ -13,14 +13,9 @@ import {
   type ProfileFolders,
   type ProfileStore,
 } from "@pipoca/profiles";
-import type {
-  SessionStore,
-  StoredEnvironment,
-  StoredSession,
-} from "@pipoca/sessions";
+import type { SessionStore, StoredSession } from "@pipoca/sessions";
 import { transaction } from "./database";
-import { iso, isoOrNull, ms, msOrNull, ownerOf, userOf } from "./rows";
-import type { SecretBox } from "./secret-box";
+import { iso, isoOrNull, ms, msOrNull, userOf } from "./rows";
 
 interface SessionRow {
   id: string;
@@ -49,21 +44,6 @@ interface SessionRow {
   acts_as: string | null;
 }
 
-interface EnvironmentRow {
-  id: string;
-  slug: string;
-  name: string;
-  owner_user_id: string | null;
-  template_id: string | null;
-  isolation: string | null;
-  image: string | null;
-  setup_script: string | null;
-  variables: string;
-  secrets_sealed: string | null;
-  key_hash: string | null;
-  created_at: number;
-}
-
 interface VoiceRow {
   kind: Voice["kind"];
   person: string;
@@ -73,12 +53,9 @@ interface VoiceRow {
   at: number;
 }
 
-const monthMs = 30 * 24 * 60 * 60 * 1000;
-
 export function sessionStore(
   db: DatabaseSync,
   clock: Clock,
-  box: SecretBox,
   profiles: ProfileFolders | undefined,
 ): SessionStore {
   const toSession = (row: SessionRow): StoredSession => ({
@@ -180,59 +157,6 @@ export function sessionStore(
 
   const selectPendingRemovals = db.prepare(
     `${withProvider} where environments.slug = ? and (runner = ? or runner is null) and status = ? and workspace_removal in (?, ?) order by sessions.created_at`,
-  );
-
-  const toEnvironment = (row: EnvironmentRow): StoredEnvironment => ({
-    id: row.id,
-    name: row.name,
-    provider: row.slug,
-    ownerId: ownerOf(row.owner_user_id),
-    createdAt: iso(row.created_at),
-    isolation: row.isolation === "container" ? "container" : "process",
-    image: row.image,
-    setupScript: row.setup_script ?? "",
-    variables: JSON.parse(row.variables) as Record<string, string>,
-    secrets:
-      row.secrets_sealed === null
-        ? {}
-        : (JSON.parse(box.open(row.secrets_sealed, row.id)) as Record<
-            string,
-            string
-          >),
-    hasKey: row.key_hash !== null,
-    templateId: row.template_id,
-  });
-
-  const insertEnvironment = db.prepare(
-    "insert into environments (id, slug, name, owner_user_id, template_id, isolation, setup_script, created_at) values (?, ?, ?, ?, ?, ?, ?, ?) on conflict (slug) do nothing",
-  );
-
-  const updateEnvironment = db.prepare(
-    "update environments set name = ?, isolation = ?, image = ?, setup_script = ?, variables = ?, secrets_sealed = ? where id = ?",
-  );
-
-  const deleteEnvironment = db.prepare("delete from environments where id = ?");
-
-  const selectEnvironments = db.prepare(
-    "select * from environments order by created_at, name",
-  );
-
-  const selectRunnerModels = db.prepare(
-    "select runner_models.provider, model_id from runner_models join environments on environments.id = environment_id where slug = ? order by reported_at, runner, position",
-  );
-
-  const deleteRunnerModels = db.prepare(
-    "delete from runner_models where environment_id = (select id from environments where slug = ?) and runner = ?",
-  );
-
-  const insertRunnerModel = db.prepare(
-    "insert into runner_models (environment_id, runner, position, provider, model_id, reported_at) values ((select id from environments where slug = ?), ?, ?, ?, ?, ?)",
-  );
-
-  // Runners started on demand each have a name of their own, so what the
-  // ones gone for a month reported is dropped.
-  const deleteOldRunnerModels = db.prepare(
-    "delete from runner_models where reported_at < ?",
   );
 
   const countTranscript = db.prepare(
@@ -392,67 +316,6 @@ export function sessionStore(
         "pending" satisfies WorkspaceRemoval,
         "forced" satisfies WorkspaceRemoval,
       ),
-    ensureEnvironment: (provider, ownerId, templateId = null) => {
-      insertEnvironment.run(
-        Bun.randomUUIDv7(),
-        provider,
-        provider,
-        userOf(ownerId),
-        templateId,
-        templateId === null ? "process" : null,
-        templateId === null ? "" : null,
-        clock.now(),
-      );
-    },
-    environments: () =>
-      (selectEnvironments.all() as unknown as EnvironmentRow[]).map(
-        toEnvironment,
-      ),
-    registeredModels: (provider) =>
-      (
-        selectRunnerModels.all(provider) as {
-          provider: string;
-          model_id: string;
-        }[]
-      ).map((row) => ({ provider: row.provider, id: row.model_id })),
-    setRegisteredModels: (provider, runner, models) => {
-      const now = clock.now();
-
-      transaction(db, () => {
-        deleteRunnerModels.run(provider, runner);
-
-        models.forEach((model, position) => {
-          insertRunnerModel.run(
-            provider,
-            runner,
-            position,
-            model.provider,
-            model.id,
-            now,
-          );
-        });
-
-        deleteOldRunnerModels.run(now - monthMs);
-      });
-    },
-    updateEnvironment: (environment) => {
-      const own = environment.templateId === null;
-
-      updateEnvironment.run(
-        environment.name,
-        own ? environment.isolation : null,
-        own ? environment.image : null,
-        own ? environment.setupScript : null,
-        JSON.stringify(environment.variables),
-        Object.keys(environment.secrets).length === 0
-          ? null
-          : box.seal(JSON.stringify(environment.secrets), environment.id),
-        environment.id,
-      );
-    },
-    deleteEnvironment: (id) => {
-      deleteEnvironment.run(id);
-    },
     transcriptLength: (id) => (countTranscript.get(id) as { n: number }).n,
     appendTranscript: (id, start, lines) => {
       transaction(db, () => {

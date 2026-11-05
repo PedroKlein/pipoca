@@ -166,7 +166,7 @@ beforeEach(async () => {
 
   server = testServer({
     configDir,
-    sessions: { pollWaitMs: 0 },
+    runners: { pollWaitMs: 0 },
   });
 });
 
