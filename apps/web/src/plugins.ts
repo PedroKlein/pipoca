@@ -282,6 +282,8 @@ const shell: Omit<Shell, "viewer"> = {
     }),
   part: (plugin, children) =>
     createElement(PluginBoundary, { name: plugin, children }),
+  href: (plugin, path) => pluginContext(plugin).href(path),
+  SessionView: EmbeddedSession,
 };
 
 // What the plugins' parts draw inside: who looks, and every enabled

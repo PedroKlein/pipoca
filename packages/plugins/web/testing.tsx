@@ -44,6 +44,8 @@ export function TestShell({
       return Component === undefined ? [] : [{ plugin: "other", Component }];
     },
     part: (_plugin, child): ReactNode => child,
+    href: (id, path) => `#plugin/${id}/${path}`,
+    SessionView: ({ sessionId }) => <p>Session {sessionId}</p>,
   };
 
   return (

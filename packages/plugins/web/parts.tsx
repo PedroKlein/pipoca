@@ -13,6 +13,7 @@ import { pluginClient, type TypedClient } from "../src/client";
 import type { PluginDefinition } from "../src/definition";
 import { transcriptReader } from "../src/transcript";
 import type {
+  EmbeddedSessionProps,
   EnvironmentSectionProps,
   HomeProps,
   LinkProps,
@@ -122,6 +123,19 @@ export function Hidden(): null {
 
 export function useViewer(): Viewer {
   return useShell().viewer;
+}
+
+// The address of a path inside the plugin's own page, "" for the page.
+export function useHref(): (path: string) => string {
+  const { href } = useShell();
+  const plugin = usePlugin();
+
+  return useMemo(() => (path: string) => href(plugin, path), [href, plugin]);
+}
+
+// The app's own view of a Session, for a page to show one in.
+export function SessionView(props: EmbeddedSessionProps): ReactElement {
+  return createElement(useShell().SessionView, props);
 }
 
 export function useApi(plugin: Pick<PluginDefinition, "id">): TypedClient {

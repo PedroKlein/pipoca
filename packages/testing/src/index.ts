@@ -111,6 +111,9 @@ export interface PluginTest {
     // A folder of the test's own unless it says.
     readonly workspace?: WorkspaceRequest;
   }) => Promise<TestSession>;
+  // A Session the plugin started, such as a run, hosted by the runner of an
+  // earlier test Session in its Environment.
+  readonly attach: (sessionId: string) => Promise<TestSession>;
   readonly tool: (
     name: string,
     input: unknown,
