@@ -21,6 +21,7 @@ export {
   type HubPage,
   type Invite,
   type JoinInfo,
+  type JoinItem,
   kindOf,
   type ListedTemplate,
   type ManifestEntry,

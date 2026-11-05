@@ -1,16 +1,12 @@
 import { HttpError } from "@pipoca/plugins";
-import type { JoinInfo } from "@pipoca/protocol";
+import type { Invite, JoinInfo, JoinItem } from "@pipoca/protocol";
 import type { Credentials, SignIn, User } from "@pipoca/people";
 import type { ApiDeps, Group } from "../deps";
 import { addressOf, type Handlers } from "../router";
 
-export function authRoutes({
-  people,
-  signIn,
-  plugins,
+export function authRoutes(deps: ApiDeps): Handlers<Group<"auth">> {
+  const { people, signIn, plugins, team, log } = deps;
 
-  log,
-}: ApiDeps): Handlers<Group<"auth">> {
   return {
     "auth.status": ({ request }) => ({
       ...signIn.status(request),
@@ -45,6 +41,8 @@ export function authRoutes({
         email: invite.email,
         admin: invite.admin,
         invitedBy: people.userById(invite.createdBy)?.name ?? "An admin",
+        team: team?.get().name ?? null,
+        ...joining(deps, invite),
         expiresAt: invite.expiresAt,
         passwordLogin: signIn.passwordLogin,
         logins: plugins.logins().map((login) => ({
@@ -152,6 +150,103 @@ export function authRoutes({
         headers: { "set-cookie": signIn.endSession(request) },
       }),
   };
+}
+
+// What the team already set up for someone joining, and the setup steps
+// left to them: an Environment from the template admins picked, the base
+// Profile under theirs, the shared Profiles they pick from, and the steps
+// admins made required.
+function joining(
+  { newcomers, templates, profiles, plugins }: ApiDeps,
+  invite: Invite,
+): Pick<JoinInfo, "setUp" | "yours"> {
+  const chosen = newcomers?.get();
+  const required = new Set(chosen?.required);
+
+  const template = templates?.list().find(({ id }) => id === chosen?.template);
+
+  const base = profiles.layer(invite.createdBy, "base");
+
+  const baseParts = [
+    ...(base.agentsMd === "" ? [] : ["instructions"]),
+    ...(base.packages.length === 0
+      ? []
+      : [plural(base.packages.length, "package")]),
+    ...Object.keys(base.mcpServers),
+  ];
+
+  const offered = (chosen?.profiles ?? []).flatMap(
+    (id) => profiles.get(invite.createdBy, id)?.name ?? [],
+  );
+
+  const setUp: JoinItem[] = [
+    ...(template === undefined
+      ? []
+      : [
+          {
+            title: template.name,
+            summary: "You get your own Environment from it",
+            optional: false,
+          },
+        ]),
+    ...(baseParts.length === 0
+      ? []
+      : [
+          {
+            title: "Team base Profile",
+            summary: sentence(baseParts.join(", ")),
+            optional: false,
+          },
+        ]),
+    ...(offered.length === 0
+      ? []
+      : [
+          {
+            title: "Profiles to pick from",
+            summary: offered.join(", "),
+            optional: false,
+          },
+        ]),
+  ];
+
+  const titles = new Map(plugins.list().map(({ id, title }) => [id, title]));
+
+  const yours: JoinItem[] = [
+    ...(template === undefined
+      ? [
+          {
+            title: "Where Pi works",
+            summary: "Your machine, Docker on it or a cluster",
+            optional: false,
+          },
+        ]
+      : []),
+    ...[...required].flatMap((step) => {
+      const title = titles.get(step);
+
+      return title === undefined
+        ? []
+        : [{ title, summary: "Your team asks for it", optional: false }];
+    }),
+    {
+      title: "Your Profile",
+      summary:
+        offered.length === 0
+          ? "Your own skills on top of the team's"
+          : "One of the team's, or your own",
+      optional: !required.has("profile"),
+    },
+  ];
+
+  return { setUp, yours };
+}
+
+function plural(count: number, noun: string): string {
+  return `${String(count)} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+function sentence(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function signedInAs(

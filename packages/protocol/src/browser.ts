@@ -481,11 +481,25 @@ export const inviteRequest = Type.Object({
 });
 
 // What the join page shows to someone who opened an invite's link.
+// A line of what joining brings: something the team set up, or a step that
+// is the newcomer's own.
+const joinItem = Type.Object({
+  title: Type.String(),
+  summary: Type.String(),
+  optional: Type.Boolean(),
+});
+
+export type JoinItem = Wire<typeof joinItem>;
+
 export const joinInfo = Type.Object({
   email: nullable(Type.String()),
   admin: Type.Boolean(),
   // The name of the admin who invited them.
   invitedBy: Type.String(),
+  team: nullable(Type.String()),
+  // Derived from what admins chose for new people (ADR 0063).
+  setUp: Type.Array(joinItem),
+  yours: Type.Array(joinItem),
   expiresAt: Type.String(),
   passwordLogin: Type.Boolean(),
   // Sign-in links that carry the invite along.

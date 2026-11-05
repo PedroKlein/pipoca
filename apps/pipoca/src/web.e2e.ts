@@ -1862,6 +1862,15 @@ test("chooses what new people get, and someone who joins picks an offered Profil
     const tab = await context.newPage();
     await tab.goto(link);
 
+    await tab
+      .getByRole("list", { name: "Set up by your team" })
+      .getByText("Profiles to pick from")
+      .waitFor();
+
+    const yours = tab.getByRole("list", { name: "You'll add" });
+    await yours.getByText("One of the team's, or your own").waitFor();
+    expect(await yours.getByText("Optional").count()).toBe(0);
+
     const account = tab.getByRole("form", { name: "Make your account" });
     await account.getByLabel("Username").fill("cleo");
     await account.getByLabel("Password").fill("correct horse");
