@@ -25,6 +25,7 @@
 
 - Resolved: the product is called Pipoca, written `pipoca` wherever people type it, with a popped-kernel mark, Ink and Ivory in the app and Butter only in the mark ([ADR 0042](adr/0042-pipoca.md)).
 - Resolved: Pipoca owns its control plane and UI ([ADR 0001](adr/0001-own-the-control-plane-and-ui.md)) and uses TypeScript for every component ([ADR 0002](adr/0002-typescript-for-all-components.md)). The web UI is React and Tailwind on the design system's tokens, with as few dependencies as possible ([ADR 0020](adr/0020-web-stack.md)).
+- Resolved: before anyone runs Pipoca with data worth keeping, the code is rebuilt in slices with no backwards compatibility, a fresh database without migrations, one owner model, one route table and a declarative plugin SDK, held to an acceptance list of every feature ([ADR 0068](adr/0068-clean-rebuild.md)).
 - Resolved: Bun runtime, Bun workspaces monorepo ([ADR 0003](adr/0003-bun-runtime-and-workspaces.md)).
 - Resolved: the session host runs Pi, a third-party extension and a PTY terminal on Bun, also from a compiled binary ([ADR 0010](adr/0010-session-host-on-bun.md)).
 - Resolved: apps for entry points, domain-named packages, and a separate folder for Pi extensions ([ADR 0008](adr/0008-monorepo-layout.md)).
