@@ -100,7 +100,7 @@ create index usage_audit_actor on usage_audit (actor, id);
 // own and the team's totals (ADR 0066).
 export const usage: ServerPlugin = {
   name: "usage",
-  schema: schema,
+  schema,
   register: (context) => {
     const calls = callStore(context.store);
     const audit = auditLog(context.store);

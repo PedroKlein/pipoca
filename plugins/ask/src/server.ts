@@ -68,7 +68,7 @@ create table ask_vote_picks (
 // (ADR 0065).
 export const askServer: ServerPlugin = {
   name: "ask",
-  schema: schema,
+  schema,
   register: (context) => {
     const votes = ballots(context);
 
