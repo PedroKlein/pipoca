@@ -25,8 +25,8 @@ import { isSettingsRoute, SettingsLayout } from "./settings/layout";
 import { SetupReminders } from "./setup/reminders";
 import { SetupWizard } from "./setup/wizard";
 import { Sidebar } from "./sidebar";
-import { isTeamRoute, TeamHub } from "./team-hub";
-import { isTeamSetupRoute, TeamSetup } from "./team-setup";
+import { isTeamRoute, TeamHub } from "./team/hub";
+import { isTeamSetupRoute, TeamSetup } from "./team/setup";
 
 export function App({
   nav,

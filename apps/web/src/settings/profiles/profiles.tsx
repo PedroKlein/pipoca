@@ -1,10 +1,10 @@
 import { apiPath, type Profile } from "@pipoca/protocol";
 import {
   Badge,
+  buttonClass,
   Icon,
   initialsOf,
   Page,
-  PageTitle,
   Row,
   Rows,
 } from "@pipoca/ui";
@@ -55,28 +55,25 @@ export function ProfilesPage({
   const [savedId, setSavedId] = useState<string>();
 
   return (
-    <Page id="profiles-page">
-      <div className="flex items-start justify-between gap-6">
-        <div className="min-w-0 flex-1">
-          {team ? (
-            <PageTitle description="The team owns these. Everyone can pick them for team work, and only admins change them. They build on the Server base and never load anyone's My defaults.">
-              Team Profiles
-            </PageTitle>
-          ) : (
-            <PageTitle description="How Pi behaves in a Session: what it knows, the skills and tools it has. A Profile is a Pi agent folder, like your ~/.pi/agent. Every Profile sits on the Server base and your My defaults. Edits reach a Session the next time it starts.">
-              Profiles
-            </PageTitle>
-          )}
-        </div>
+    <Page
+      id="profiles-page"
+      title={team ? "Team Profiles" : "Profiles"}
+      description={
+        team
+          ? "The team owns these. Everyone can pick them for team work, and only admins change them. They build on the Server base and never load anyone's My defaults."
+          : "How Pi behaves in a Session: what it knows, the skills and tools it has. A Profile is a Pi agent folder, like your ~/.pi/agent. Every Profile sits on the Server base and your My defaults. Edits reach a Session the next time it starts."
+      }
+      actions={
         <a
           href={`#${root}/new`}
           aria-current={selected === "new" ? "page" : undefined}
-          className="mt-7 inline-flex h-control shrink-0 items-center gap-1.5 rounded-md border border-line bg-elevated px-3 text-ui font-medium text-fg shadow-xs hover:border-line-strong hover:bg-hover"
+          className={buttonClass({ variant: "primary" })}
         >
           <Icon name="plus" />
           {team ? "New team Profile" : "New Profile"}
         </a>
-      </div>
+      }
+    >
       {(!team || selected !== "") && (
         <nav aria-label="Profiles" className="flex flex-wrap gap-2">
           {profiles.map((each) => (
