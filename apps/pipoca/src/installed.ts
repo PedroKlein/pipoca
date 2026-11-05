@@ -11,12 +11,12 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import {
-  type PluginDefinition,
-  type ServerPart,
-  type ServerPlugin,
-  settingSpecs,
+import type {
+  PluginDefinition,
+  ServerPart,
+  ServerPlugin,
 } from "@pipoca/plugins";
+import { settingSpecs } from "@pipoca/plugins/host";
 import {
   capabilities,
   type PluginManifest,

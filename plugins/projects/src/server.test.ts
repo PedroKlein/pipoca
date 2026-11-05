@@ -1,13 +1,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import {
-  eventBus,
-  type EventBus,
-  type PluginNotice,
-  type PluginRoute,
-  type SendOutcome,
-  type ServerPluginContext,
-  type ServerTool,
+import type {
+  PluginNotice,
+  PluginRoute,
+  SendOutcome,
+  ServerPluginContext,
+  ServerTool,
 } from "@pipoca/plugins";
+import { eventBus, type EventBus } from "@pipoca/plugins/testing";
 import {
   fakeContext,
   fakeSession,

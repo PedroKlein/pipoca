@@ -3,13 +3,12 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ServerWebSocket } from "bun";
 import { pluginSwitches, startPlugins } from "@pipoca/pluginhost";
-import {
-  eventBus,
-  type PluginDefinition,
-  type ServerPart,
-  type ServerPlugin,
-  type TypedBus,
+import type {
+  PluginDefinition,
+  ServerPart,
+  ServerPlugin,
 } from "@pipoca/plugins";
+import { eventBus, type TypedBus } from "@pipoca/plugins/host";
 import {
   apiPath,
   type Clock,

@@ -7,9 +7,9 @@ import {
   NotFound,
   type Person,
   type ServerContext,
+  type Session,
   Type,
 } from "@pipoca/plugins";
-import type { Session } from "@pipoca/protocol";
 import { ask } from "../plugin";
 import type { Votes } from "./votes";
 

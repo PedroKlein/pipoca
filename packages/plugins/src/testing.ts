@@ -32,6 +32,9 @@ import { envSecrets, secretRefs } from "./secrets";
 import type { ServerPart, Store } from "./server";
 import type { SessionPart } from "./session";
 
+// For v1 plugins' fakes, until they port.
+export { type EventBus, eventBus } from "./events";
+
 export interface TestPerson {
   readonly id: string;
   readonly name?: string;

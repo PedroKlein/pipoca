@@ -1,10 +1,5 @@
-import {
-  fieldsOf,
-  kernelConfig,
-  type ConfigKey,
-  type Static,
-  Type,
-} from "@pipoca/plugins";
+import { fieldsOf, type ConfigKey, type Static, Type } from "@pipoca/plugins";
+import { kernelConfig } from "@pipoca/plugins/host";
 import type { Log } from "@pipoca/protocol";
 
 // The kernel's own keys in pipoca.json, which no plugin id may take.

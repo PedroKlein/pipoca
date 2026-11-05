@@ -1,8 +1,5 @@
-import {
-  type SessionPart,
-  type SessionPlugin,
-  settingValues,
-} from "@pipoca/plugins";
+import type { SessionPart, SessionPlugin } from "@pipoca/plugins";
+import { settingValues } from "@pipoca/plugins/host";
 import type { Assignment, PluginSettings } from "@pipoca/protocol";
 import { builtInSessions } from "./built-in";
 import { provideSdk } from "./bundle";

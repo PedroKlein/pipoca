@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { type PluginEvent, type PluginRoute, eventBus } from "@pipoca/plugins";
+import type { PluginEvent, PluginRoute } from "@pipoca/plugins";
+import { eventBus } from "@pipoca/plugins/testing";
 import {
   fakeContext,
   fakeSession,

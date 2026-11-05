@@ -7,10 +7,10 @@ import {
   HttpError,
   type OfferedModels,
   type ServerContext,
+  type Session,
   type Store,
   Type,
 } from "@pipoca/plugins";
-import type { Session } from "@pipoca/protocol";
 import { models } from "../plugin";
 import { aliasesOf, gatewayProvider } from "./gateway";
 import {

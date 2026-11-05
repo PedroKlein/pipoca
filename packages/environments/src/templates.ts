@@ -1,14 +1,13 @@
 import {
   BadRequest,
-  checkBody,
   Config,
   HttpError,
   isObject,
-  kernelConfig,
   NotFound,
   type ConfigKey,
   type Static,
 } from "@pipoca/plugins";
+import { checkBody, kernelConfig } from "@pipoca/plugins/host";
 import {
   listedIn,
   picked,

@@ -1,4 +1,3 @@
-import { StringEnum } from "@earendil-works/pi-ai";
 import type {
   Question,
   QuestionAnswer,
@@ -10,6 +9,7 @@ import {
   type SessionTool,
   type SessionToolCall,
   type Static,
+  StringEnum,
   ToolError,
   Type,
 } from "@pipoca/plugins";

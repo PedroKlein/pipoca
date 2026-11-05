@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { transcriptReader } from "@pipoca/plugins";
+import { transcriptReader } from "@pipoca/plugins/host";
 
 const lines = readFileSync(
   new URL("testdata/pi-session.jsonl", import.meta.url),

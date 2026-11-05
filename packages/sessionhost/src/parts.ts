@@ -8,14 +8,13 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
   isHttpError,
-  isToolError,
-  pluginClient,
   type SessionContext,
   type SessionPart,
   type SessionTool,
   type SessionToolCall,
   type ToolOutput,
 } from "@pipoca/plugins";
+import { isToolError, pluginClient } from "@pipoca/plugins/host";
 import type { Log } from "@pipoca/protocol";
 import { repairArguments } from "./arguments";
 

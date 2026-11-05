@@ -1,7 +1,6 @@
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { StringEnum } from "@earendil-works/pi-ai";
 import {
   type ExtensionAPI,
   getAgentDir,
@@ -10,6 +9,7 @@ import {
   defineSession,
   type SessionContext,
   type Static,
+  StringEnum,
   Type,
 } from "@pipoca/plugins";
 import { noticeType } from "@pipoca/protocol";

@@ -1,10 +1,7 @@
 import { expect, test } from "bun:test";
 import { setTimeout as sleep } from "node:timers/promises";
-import {
-  eventBus,
-  type ServerPlugin,
-  type ServerPluginContext,
-} from "@pipoca/plugins";
+import type { ServerPlugin, ServerPluginContext } from "@pipoca/plugins";
+import { eventBus } from "@pipoca/plugins/host";
 import {
   type Assignment,
   protocolVersion,

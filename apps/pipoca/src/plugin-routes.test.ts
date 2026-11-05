@@ -3,7 +3,8 @@ import { createHmac } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HttpError, pluginClient } from "@pipoca/plugins";
+import { HttpError } from "@pipoca/plugins";
+import { pluginClient } from "@pipoca/plugins/host";
 import {
   type Invite,
   readSse,

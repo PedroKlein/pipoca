@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { createPublicKey, verify } from "node:crypto";
-import {
-  eventBus,
-  type PluginRoute,
-  type ServerPluginContext,
-} from "@pipoca/plugins";
+import type { PluginRoute, ServerPluginContext } from "@pipoca/plugins";
+import { eventBus } from "@pipoca/plugins/testing";
 import {
   fakeContext,
   fakeSession,

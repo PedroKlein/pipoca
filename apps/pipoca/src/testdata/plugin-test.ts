@@ -4,14 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
-  eventBus,
   owners,
-  pluginClient,
   type PluginDefinition,
   type ServerContext,
   type ServerPart,
-  type TypedBus,
 } from "@pipoca/plugins";
+import { eventBus, pluginClient, type TypedBus } from "@pipoca/plugins/host";
 import {
   type Duration,
   type PluginTest,

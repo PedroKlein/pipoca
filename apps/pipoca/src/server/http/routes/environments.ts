@@ -1,11 +1,11 @@
 import {
   BadRequest,
-  checkBody,
   HttpError,
   isObject,
   NotFound,
   Type,
 } from "@pipoca/plugins";
+import { checkBody } from "@pipoca/plugins/host";
 import {
   type Environment,
   type EnvironmentKey,

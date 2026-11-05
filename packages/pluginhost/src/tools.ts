@@ -1,8 +1,6 @@
 import {
-  checkBody,
   fieldsOf,
   isHttpError,
-  isToolError,
   type Person,
   type RouteRequest,
   type ServerTool,
@@ -10,6 +8,7 @@ import {
   type ToolDef,
   type Toolset,
 } from "@pipoca/plugins";
+import { checkBody, isToolError } from "@pipoca/plugins/host";
 import {
   type Log,
   type Method,
