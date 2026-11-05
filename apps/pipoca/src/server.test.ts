@@ -44,6 +44,7 @@ test("reports unhealthy when the database can't be read, keeping why in the log"
       changes: () => undefined,
       manifests: [],
       store: store.plugin,
+      dataFailure: store.pluginFailure,
       resetData: store.resetPlugin,
       switches: { get: () => ({}), set: () => undefined },
       config: (name) => ({
@@ -133,6 +134,7 @@ function startServer(
         { id: "echo", title: "Echo", description: "", capabilities: ["tools"] },
       ],
       store: store.plugin,
+      dataFailure: store.pluginFailure,
       resetData: store.resetPlugin,
       switches: { get: () => ({}), set: () => undefined },
       config: (name) => ({
@@ -515,6 +517,7 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
           },
         ],
         store: store.plugin,
+        dataFailure: store.pluginFailure,
         resetData: store.resetPlugin,
         switches: { get: () => ({}), set: () => undefined },
         config: (name) => ({

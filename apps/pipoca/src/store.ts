@@ -123,6 +123,8 @@ export function openStore(
     check: () => void;
     close: () => void;
     plugin: (name: string) => PluginStore;
+    // Why a plugin's tables can't be used, if they can't.
+    pluginFailure: (name: string) => string | undefined;
     // Drops a plugin's tables and makes them again, or says why it couldn't.
     resetPlugin: (name: string) => string | undefined;
   } {
@@ -621,6 +623,7 @@ export function openStore(
 
       return found;
     },
+    pluginFailure: (name) => failures.get(name),
     resetPlugin: (name) => {
       const declared = plugins.find((each) => each.name === name)?.schema;
 

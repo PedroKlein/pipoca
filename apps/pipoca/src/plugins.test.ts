@@ -29,6 +29,7 @@ import {
 import {
   capabilities,
   type Environment,
+  type PluginInfo,
   type PluginManifest,
   type Session,
   type SessionEvent,
@@ -563,6 +564,7 @@ test("resets a plugin whose tables another version made, once an admin asks", as
     {
       id: "notes",
       state: "failed",
+      resettable: true,
       error:
         "its tables were made by another version of notes; its data is kept until an admin resets it",
     },
@@ -594,6 +596,68 @@ test("resets a plugin whose tables another version made, once an admin asks", as
   expect(
     (await server.api("/api/plugin-resets/nobody", { method: "POST" })).status,
   ).toBe(404);
+});
+
+test("keeps the data of a plugin that failed for another reason than its tables", async () => {
+  const database = join(root, "server.db");
+  let configured = true;
+
+  const notes: ServerPlugin = {
+    name: "notes",
+    schema: { version: 1, sql: "create table notes_items (text text) strict" },
+    register: ({ routes, store }) => {
+      if (!configured) {
+        throw new Error("notes needs a folder");
+      }
+
+      routes.handle(async (request) => {
+        if (request.method === "POST") {
+          store.run("insert into notes_items (text) values ('kept')");
+
+          return new Response(null, { status: 204 });
+        }
+
+        return Response.json(store.all("select text from notes_items"));
+      });
+    },
+  };
+
+  const manifests = [
+    { id: "notes", title: "Notes", description: "", capabilities },
+  ];
+
+  server = testServer({ database, plugins: [notes], manifests });
+  await server.api("/api/plugins/notes/items", { body: {} });
+
+  const cookie = await server.signedIn();
+  await server.close();
+
+  configured = false;
+  server = testServer({ database, cookie, plugins: [notes], manifests });
+
+  const [listed] = (await (
+    await server.api("/api/plugins")
+  ).json()) as PluginInfo[];
+
+  const reset = await server.api("/api/plugin-resets/notes", {
+    method: "POST",
+  });
+
+  await server.close();
+
+  configured = true;
+  server = testServer({ database, cookie, plugins: [notes], manifests });
+
+  expect(listed).toMatchObject({
+    state: "failed",
+    error: "notes needs a folder",
+  });
+  expect(listed?.resettable).toBeUndefined();
+  expect(reset.status).toBe(400);
+
+  expect(await (await server.api("/api/plugins/notes/items")).json()).toEqual([
+    { text: "kept" },
+  ]);
 });
 
 test("answers the errors a plugin's route throws as the server's own", async () => {

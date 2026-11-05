@@ -336,6 +336,7 @@ export function serve(options: ServeOptions): {
     events,
     changes: changes.publish,
     store: store.plugin,
+    dataFailure: store.pluginFailure,
     resetData: store.resetPlugin,
     config,
     toolsets: kernelToolsets,

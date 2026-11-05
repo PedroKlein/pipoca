@@ -75,7 +75,7 @@ export interface PluginHost {
   readonly checkUpdates: () => Promise<void>;
   // Tells plugins of something the kernel did.
   readonly publish: EventBus["publish"];
-  // Drops a failed plugin's tables, makes them again and starts it, as it
+  // Drops the tables of a plugin that failed because of them, makes them again and starts it, as it
   // starts after its schema changed (ADR 0068). Says why it couldn't, or
   // undefined when no plugin has the name.
   readonly resetData: (name: string) => PluginInfo | string | undefined;
@@ -202,6 +202,8 @@ export function startPlugins(
     readonly events: EventBus;
     readonly changes: (topic: string) => void;
     readonly store: (name: string) => PluginStore;
+    // Why a plugin's tables can't be used, if they can't.
+    readonly dataFailure: (name: string) => string | undefined;
     // Drops a plugin's tables and makes them again, or says why it couldn't.
     readonly resetData: (name: string) => string | undefined;
     readonly config: (name: string) => PluginConfig;
@@ -743,7 +745,12 @@ export function startPlugins(
     } as const;
 
     if (error !== undefined) {
-      return { ...base, state: "failed", error };
+      return {
+        ...base,
+        state: "failed",
+        error,
+        ...(deps.dataFailure(found.id) !== undefined && { resettable: true }),
+      };
     }
 
     const web = webParts.get(found.id);
@@ -804,9 +811,10 @@ export function startPlugins(
       if (
         plugin === undefined ||
         !enabled.includes(name) ||
-        !failures.has(name)
+        !failures.has(name) ||
+        deps.dataFailure(name) === undefined
       ) {
-        return "only the data of a plugin that failed to start is reset";
+        return "only the data of a plugin whose tables can't be used is reset";
       }
 
       const refused = deps.resetData(name);
