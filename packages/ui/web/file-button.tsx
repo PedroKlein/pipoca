@@ -1,5 +1,6 @@
 import type { InputHTMLAttributes, ReactElement, ReactNode } from "react";
 import { buttonClass } from "./button";
+import { cn } from "./cn";
 import { Icon } from "./icon";
 
 // A button that opens the file chooser. The input stays in the page, so its
@@ -15,11 +16,12 @@ export function FileButton({
 }): ReactElement {
   return (
     <label
-      className={buttonClass(
-        "default",
-        false,
-        `has-focus-visible:border-line-focus has-focus-visible:ring-4 has-focus-visible:ring-focus ${className ?? ""}`,
-      )}
+      className={buttonClass({
+        className: cn(
+          "has-focus-visible:border-line-focus has-focus-visible:ring-4 has-focus-visible:ring-focus",
+          className,
+        ),
+      })}
     >
       <Icon name="upload" className="text-fg-dim" />
       {children}

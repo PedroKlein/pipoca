@@ -2,6 +2,26 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import type { TerminalControl } from "@pipoca/protocol";
 
+// xterm's theme names for the 16 colours, in ANSI order.
+const ansiNames = [
+  "black",
+  "red",
+  "green",
+  "yellow",
+  "blue",
+  "magenta",
+  "cyan",
+  "white",
+  "brightBlack",
+  "brightRed",
+  "brightGreen",
+  "brightYellow",
+  "brightBlue",
+  "brightMagenta",
+  "brightCyan",
+  "brightWhite",
+] as const;
+
 export function openTerminal(
   sessionId: string,
   terminalId: string,
@@ -23,6 +43,9 @@ export function openTerminal(
     foreground: token("--term-fg"),
     cursor: token("--term-fg"),
     selectionBackground: token("--accent-tint"),
+    ...Object.fromEntries(
+      ansiNames.map((name, index) => [name, token(`--ansi-${String(index)}`)]),
+    ),
   });
 
   const terminal = new Terminal({

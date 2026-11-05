@@ -3,8 +3,8 @@ import { ansiRuns } from "./ansi";
 
 test("splits styled text into runs of one style", () => {
   expect(ansiRuns("\x1b[1;32mFOCUS\x1b[22m plan\x1b[0m done")).toEqual([
-    { text: "FOCUS", style: { bold: true, fg: "#4e9a06" } },
-    { text: " plan", style: { fg: "#4e9a06" } },
+    { text: "FOCUS", style: { bold: true, fg: "var(--ansi-2)" } },
+    { text: " plan", style: { fg: "var(--ansi-2)" } },
     { text: " done", style: {} },
   ]);
 });
