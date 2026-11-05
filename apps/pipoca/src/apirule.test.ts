@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type RouteKey, routes, type RouteSpec } from "@pipoca/protocol";
+import { withApiPaths } from "./apirule";
 
 const apiRule = readFileSync(
   join(import.meta.dir, "../../../deploy/helm/pipoca/templates/apirule.yaml"),
@@ -103,6 +104,10 @@ test("the APIRule lets through every route the server serves", () => {
   ).toEqual([]);
 
   expect(unlisted.filter((key) => ruleFor(routes[key]))).toEqual([]);
+});
+
+test("the APIRule lists the route table's paths, as bun run apirule writes them", () => {
+  expect(withApiPaths(apiRule)).toBe(apiRule);
 });
 
 // Kyma's gateway ends a request after 180 seconds unless its rule says
