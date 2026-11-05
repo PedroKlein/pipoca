@@ -413,6 +413,89 @@ test("makes the tables of a plugin turned on later, and refuses ones outside its
   store.close();
 });
 
+test("refuses a plugin whose tables' names would run into the kernel's or another plugin's", () => {
+  const path = join(root, "server.db");
+
+  const store = openStore(path, undefined, undefined, undefined, [
+    {
+      name: "git-hosts",
+      schema: "create table git_hosts_watches (id text) strict",
+    },
+    { name: "git", schema: "create table git_items (id text) strict" },
+    { name: "session", schema: "create table session_notes (id text) strict" },
+    { name: "notes", schema: "create table notes_items (id text) strict" },
+    { name: "notes-x", schema: "create table notes_x_items (id text) strict" },
+  ]);
+
+  store
+    .plugin("git-hosts")
+    .run("insert into git_hosts_watches (id) values ('kept')");
+
+  expect(() => store.plugin("git")).toThrow(
+    "plugin git can't keep git_ tables: git_hosts_watches belongs to another owner",
+  );
+
+  expect(() => store.plugin("session")).toThrow(
+    "plugin session can't keep session_ tables: session_access_people belongs to another owner",
+  );
+
+  expect(() => store.plugin("notes-x")).toThrow(
+    "plugin notes-x can't keep notes_x_ tables: they would start with notes_, the tables of plugin notes",
+  );
+
+  expect(store.resetPlugin("git")).toBe(
+    "plugin git can't keep git_ tables: git_hosts_watches belongs to another owner",
+  );
+
+  expect(
+    store.plugin("git-hosts").all("select id from git_hosts_watches"),
+  ).toEqual([{ id: "kept" }]);
+
+  store.close();
+});
+
+test("a reset drops only the tables the plugin's schema made", () => {
+  const path = join(root, "server.db");
+
+  const notes = (sql: string) => ({ name: "notes", schema: sql });
+
+  openStore(path, undefined, undefined, undefined, [
+    notes("create table notes_items (id text) strict"),
+  ]).close();
+
+  const db = new DatabaseSync(path);
+
+  db.exec(
+    "create table notes_by_hand (id text); insert into notes_by_hand values ('kept')",
+  );
+
+  db.close();
+
+  const store = openStore(path, undefined, undefined, undefined, [
+    notes("create table notes_items (id text, at integer) strict"),
+  ]);
+
+  expect(store.resetPlugin("notes")).toBe(
+    "plugin notes can't keep notes_ tables: notes_by_hand belongs to another owner",
+  );
+
+  store.close();
+
+  const after = new DatabaseSync(path);
+
+  expect(after.prepare("select id from notes_by_hand").all()).toEqual([
+    { id: "kept" },
+  ]);
+
+  expect(
+    after
+      .prepare("select name from sqlite_master where name = 'notes_items'")
+      .all(),
+  ).toEqual([]);
+
+  after.close();
+});
+
 test("removes a plugin's rows with the Session, Environment or person they point at", () => {
   const path = join(root, "server.db");
 

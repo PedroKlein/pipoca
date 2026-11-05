@@ -6,6 +6,8 @@ const sql = `
 create table schema_owners (
   owner text primary key,
   sql_hash text not null,
+  -- A JSON array of the tables and views its schema made.
+  tables text not null,
   created_at integer not null
 ) strict;
 
