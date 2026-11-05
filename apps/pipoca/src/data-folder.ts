@@ -1,14 +1,9 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-// The product was called Pi Cloud before ADR 0042. Its folder stays where it
-// is, since the database and git worktrees hold absolute paths into it.
 export function dataFolder(): string {
-  const root = join(homedir(), ".pipoca");
-  const old = join(homedir(), ".pi-cloud");
-
-  return !existsSync(root) && existsSync(old) ? old : root;
+  return join(homedir(), ".pipoca");
 }
 
 const loopback = new Set(["127.0.0.1", "localhost", "[::1]"]);
@@ -29,14 +24,11 @@ export function runnerFolder(root: string, server: string): string {
 }
 
 // What `pipoca connect` runs on this machine for the server on an SSH host,
-// which it reaches through a tunnel to a loopback address. A machine that
-// connected before keeps its one folder.
+// which it reaches through a tunnel to a loopback address.
 export function connectFolder(root: string, sshHost: string): string {
-  const old = join(root, "connect");
   const host = sshHost.split("@").at(-1) ?? sshHost;
-  const folder = join(root, "servers", folderName(host));
 
-  return existsSync(old) && !existsSync(folder) ? old : folder;
+  return join(root, "servers", folderName(host));
 }
 
 function folderName(host: string): string {

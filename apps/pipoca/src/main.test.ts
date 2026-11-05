@@ -88,39 +88,6 @@ test("shuts down cleanly on SIGTERM when another library also handles it", async
   expect(log).toContain("server stopped");
 });
 
-test("keeps using the data folder from before the product was renamed", async () => {
-  const home = await mkdtemp(join(tmpdir(), "pipoca-home-"));
-  await mkdir(join(home, ".pi-cloud"));
-
-  const server = spawn(
-    process.execPath,
-    [join(import.meta.dirname, "main.ts"), "server", "--port", "0"],
-    {
-      stdio: ["ignore", "ignore", "pipe"],
-      env: { ...process.env, HOME: home },
-    },
-  );
-
-  try {
-    await signedIn(server);
-
-    const exists = async (path: string): Promise<boolean> =>
-      stat(path).then(
-        () => true,
-        () => false,
-      );
-
-    expect([
-      await exists(join(home, ".pi-cloud", "server.db")),
-      await exists(join(home, ".pipoca")),
-    ]).toEqual([true, false]);
-  } finally {
-    server.kill("SIGTERM");
-    await once(server, "exit");
-    await rm(home, { recursive: true, force: true });
-  }
-});
-
 test("restarts a supervised server in place and stops it through the server on SIGTERM", async () => {
   const home = await mkdtemp(join(tmpdir(), "pipoca-supervised-"));
   const port = await freePort();
