@@ -1,4 +1,11 @@
-import { fieldsOf, isObject, type PluginConfig } from "@pipoca/plugins";
+import {
+  fieldsOf,
+  kernelConfig,
+  type PluginConfig,
+  type Static,
+  Type,
+} from "@pipoca/plugins";
+import type { Log } from "@pipoca/protocol";
 
 // The kernel's own keys in pipoca.json, which no plugin id may take.
 export const kernelKeys: readonly string[] = [
@@ -10,12 +17,14 @@ export const kernelKeys: readonly string[] = [
   "templates",
 ];
 
+const pluginSwitch = Type.Object({
+  personal: Type.Optional(Type.Boolean()),
+  team: Type.Optional(Type.Boolean()),
+});
+
 // Whether a plugin loads at all, and whether its parts load in team work
 // (ADR 0067). What is left out takes the plugin's default.
-export interface PluginSwitch {
-  readonly personal?: boolean;
-  readonly team?: boolean;
-}
+export type PluginSwitch = Static<typeof pluginSwitch>;
 
 export interface PluginSwitches {
   readonly get: (id: string) => PluginSwitch;
@@ -23,34 +32,23 @@ export interface PluginSwitches {
   readonly set: (id: string, change: PluginSwitch | undefined) => void;
 }
 
-// Every plugin's switch, by id, under "plugins" in pipoca.json.
-export function pluginSwitches(config: PluginConfig): PluginSwitches {
-  const all = (): Readonly<Record<string, unknown>> => {
-    const value = config.get();
+const switches = Type.Record(Type.String(), pluginSwitch, { default: {} });
 
-    return fieldsOf(value);
-  };
+// Every plugin's switch, by id, under "plugins" in pipoca.json.
+export function pluginSwitches(config: PluginConfig, log: Log): PluginSwitches {
+  const read = kernelConfig(config, switches, log);
 
   const get = (id: string): PluginSwitch => {
-    const saved = Object.hasOwn(all(), id) ? all()[id] : undefined;
+    const all = read();
 
-    if (!isObject(saved)) {
-      return {};
-    }
-
-    const { personal, team } = saved;
-
-    return {
-      ...(typeof personal === "boolean" && { personal }),
-      ...(typeof team === "boolean" && { team }),
-    };
+    return (Object.hasOwn(all, id) ? all[id] : undefined) ?? {};
   };
 
   return {
     get,
     set: (id, change) => {
       const others = Object.fromEntries(
-        Object.entries(all()).filter(([key]) => key !== id),
+        Object.entries(fieldsOf(config.get())).filter(([key]) => key !== id),
       );
 
       const next =

@@ -178,7 +178,7 @@ export function serve(options: ServeOptions): {
   // machine holds everyone's data and the sealing key, so only a solo install
   // runs runners on it unless admins say otherwise, and a solo install signs
   // in no one else (ADR 0053).
-  const switches = pluginSwitches(config("plugins"));
+  const switches = pluginSwitches(config("plugins"), options.log);
   const offByDefault = options.solo === undefined ? ["local"] : ["oidc"];
 
   const folder = options.installed;
@@ -257,8 +257,8 @@ export function serve(options: ServeOptions): {
   const changes = changeFeed();
 
   const templates = environmentTemplates(config("templates"), options.log);
-  const ownConfig = serverConfig(config("server"));
-  const team = teamSettings(config("team"));
+  const ownConfig = serverConfig(config("server"), options.log);
+  const team = teamSettings(config("team"), options.log);
 
   const environments: Environments = new Environments(store.environments, {
     ...options.runners,
@@ -463,8 +463,8 @@ export function serve(options: ServeOptions): {
     },
     templates,
     config: configFiles(configDir, options.lockedConfig),
-    hub: hubSettings(config("hub")),
-    newcomers: newcomerSetup(config("newcomers")),
+    hub: hubSettings(config("hub"), options.log),
+    newcomers: newcomerSetup(config("newcomers"), options.log),
     team,
   });
 

@@ -1,20 +1,21 @@
-import type { PluginConfig } from "@pipoca/plugins";
-import { type HubLayout, hubLayout } from "@pipoca/protocol";
-import { Value } from "typebox/value";
+import { Config, kernelConfig, type PluginConfig } from "@pipoca/plugins";
+import { type HubLayout, hubLayout, type Log } from "@pipoca/protocol";
 
 export interface Hub {
   readonly layout: () => HubLayout;
   readonly lay: (layout: HubLayout) => void;
 }
 
-// The hub's layout in pipoca.json, under "hub".
-export function hubSettings(config: PluginConfig): Hub {
-  return {
-    layout: () => {
-      const value = config.get() ?? { pages: null };
+const hubOptions = Config.object({
+  pages: { ...hubLayout.properties.pages, default: null },
+});
 
-      return Value.Check(hubLayout, value) ? laidOut(value) : { pages: null };
-    },
+// The hub's layout in pipoca.json, under "hub".
+export function hubSettings(config: PluginConfig, log: Log): Hub {
+  const read = kernelConfig(config, hubOptions, log);
+
+  return {
+    layout: () => laidOut(read()),
     lay: (layout) => {
       config.set(layout);
     },

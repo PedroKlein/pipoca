@@ -1,6 +1,5 @@
-import type { PluginConfig } from "@pipoca/plugins";
-import { type Newcomers, newcomersChange } from "@pipoca/protocol";
-import { Value } from "typebox/value";
+import { Config, kernelConfig, type PluginConfig } from "@pipoca/plugins";
+import { type Log, type Newcomers, newcomersChange } from "@pipoca/protocol";
 
 export interface NewcomerSetup {
   readonly get: () => Newcomers;
@@ -9,13 +8,15 @@ export interface NewcomerSetup {
 
 // What admins set up for the people who join, in pipoca.json under
 // "newcomers" (ADR 0063).
-export function newcomerSetup(config: PluginConfig): NewcomerSetup {
-  return {
-    get: () => {
-      const value = config.get() ?? {};
+export function newcomerSetup(config: PluginConfig, log: Log): NewcomerSetup {
+  const read = kernelConfig(
+    config,
+    Config.object(newcomersChange.properties),
+    log,
+  );
 
-      return newcomersOf(Value.Check(newcomersChange, value) ? value : {});
-    },
+  return {
+    get: () => newcomersOf(read()),
     set: (newcomers) => {
       config.set(newcomers);
     },

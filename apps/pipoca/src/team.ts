@@ -1,11 +1,16 @@
-import { fieldsOf, type PluginConfig } from "@pipoca/plugins";
 import {
+  Config,
+  fieldsOf,
+  kernelConfig,
+  type PluginConfig,
+  Type,
+} from "@pipoca/plugins";
+import {
+  type Log,
   type TeamName,
   teamMessagesRead,
   teamNameChange,
 } from "@pipoca/protocol";
-import { Value } from "typebox/value";
-import { positive } from "./server-config";
 
 export interface Team {
   readonly get: () => TeamName;
@@ -14,25 +19,21 @@ export interface Team {
   readonly messagesRead: () => number;
 }
 
-// The team's name and options in pipoca.json, under "team".
-export function teamSettings(config: PluginConfig): Team {
-  const value = (): Readonly<Record<string, unknown>> => {
-    const read = config.get();
+const teamOptions = Config.object({
+  ...teamNameChange.properties,
+  messagesRead: Type.Number({ minimum: 1, default: teamMessagesRead }),
+});
 
-    return fieldsOf(read);
-  };
+// The team's name and options in pipoca.json, under "team".
+export function teamSettings(config: PluginConfig, log: Log): Team {
+  const read = kernelConfig(config, teamOptions, log);
 
   return {
-    get: () =>
-      Value.Check(teamNameChange, value()) ? teamOf(value()) : { name: null },
+    get: () => teamOf(read()),
     set: (team) => {
-      config.set({ ...value(), ...team });
+      config.set({ ...fieldsOf(config.get()), ...team });
     },
-    messagesRead: () =>
-      Math.max(
-        1,
-        Math.floor(positive(value()["messagesRead"], teamMessagesRead)),
-      ),
+    messagesRead: () => Math.floor(read().messagesRead),
   };
 }
 
