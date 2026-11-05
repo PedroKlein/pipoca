@@ -22,6 +22,7 @@ import {
   eventBus,
   type PluginDefinition,
   type ServerPlugin,
+  type TypedBus,
 } from "@pipoca/plugins";
 import {
   apiPath,
@@ -68,7 +69,7 @@ import { builtInPlugins, sessionPlugins } from "./session-parts";
 import { errorReply } from "./server/http/replies";
 import { previewBroker } from "./previews";
 import { webAppFile } from "./web-app";
-import { changeFeed } from "./changes";
+import { changeFeed, type Changes } from "./changes";
 import { createApi } from "./server/http/api";
 import { fromAddress, onBehalfOf } from "./server/http/router";
 import type { PreviewData, SocketData, TerminalData } from "./sockets";
@@ -157,6 +158,10 @@ export interface ServeOptions {
   // schedules wake by; the system's when unset.
   readonly clock?: Clock;
   readonly timer?: Timer;
+  // The event bus and change feed the kernel and plugins publish on; new
+  // ones when unset.
+  readonly events?: TypedBus;
+  readonly changes?: Changes;
   readonly log: Log;
 }
 
@@ -292,11 +297,13 @@ export function serve(options: ServeOptions): {
     );
   }
 
-  const events = eventBus((type, error) => {
-    options.log("event listener failed", { type, error: String(error) });
-  });
+  const events =
+    options.events ??
+    eventBus((type, error) => {
+      options.log("event listener failed", { type, error: String(error) });
+    });
 
-  const changes = changeFeed();
+  const changes = options.changes ?? changeFeed();
 
   const templates = environmentTemplates(config("templates"), options.log);
   const ownConfig = serverConfig(config("server"), options.log);
