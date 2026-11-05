@@ -18,6 +18,7 @@ import {
   type KeyValue,
   KeyValues,
   linkCardClass,
+  Page,
   PageTitle,
   plural,
   Row,
@@ -38,7 +39,6 @@ import { useTemplates } from "./hooks";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext } from "./plugins";
 import { Templates } from "./templates";
-import { settingsPageClass } from "./page-class";
 
 function environmentsPath(team: boolean): string {
   return team ? "team/setup/environments" : "environments";
@@ -85,7 +85,7 @@ export function EnvironmentsPage({
 
   if (environment) {
     return (
-      <div id="environments-page" className={settingsPageClass}>
+      <Page id="environments-page">
         <a
           href={`#${root}`}
           className="mb-3 inline-flex items-center gap-1 text-label text-fg-dim hover:text-fg"
@@ -108,12 +108,12 @@ export function EnvironmentsPage({
           }}
           onChange={onChange}
         />
-      </div>
+      </Page>
     );
   }
 
   return (
-    <div id="environments-page" className={settingsPageClass}>
+    <Page id="environments-page">
       <div className="flex items-start justify-between gap-6">
         <div className="min-w-0 flex-1">
           {team ? (
@@ -174,7 +174,7 @@ export function EnvironmentsPage({
       {!team && (
         <Templates templates={templates.value} onChange={templates.reload} />
       )}
-    </div>
+    </Page>
   );
 }
 

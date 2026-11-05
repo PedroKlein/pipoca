@@ -9,6 +9,7 @@ import {
   Field,
   fieldClass,
   Icon,
+  Page,
   PageTitle,
   plural,
   Section,
@@ -23,7 +24,6 @@ import { api, send } from "./api";
 import { usePlugins } from "./hooks";
 import { settingsOf } from "./plugin-settings";
 import { webPartError } from "./plugins";
-import { settingsPageClass } from "./page-class";
 
 export function PluginsPage(): ReactElement {
   const { value: plugins, reload } = usePlugins();
@@ -43,7 +43,7 @@ export function PluginsPage(): ReactElement {
   );
 
   return (
-    <div id="plugins-page" className={settingsPageClass}>
+    <Page id="plugins-page">
       <PageTitle
         description="Features for everyone on this server. A plugin with settings adds its own page to this menu."
         actions={
@@ -109,7 +109,7 @@ export function PluginsPage(): ReactElement {
         Turning a plugin on or off applies when the server restarts, to open
         pages after a reload, and to Sessions the next time they start.
       </p>
-    </div>
+    </Page>
   );
 }
 

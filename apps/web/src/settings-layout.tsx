@@ -6,6 +6,7 @@ import {
   cn,
   Icon,
   linkCardClass,
+  Page,
   PageTitle,
   Tabs,
 } from "@pipoca/ui";
@@ -13,7 +14,6 @@ import type { ReactElement, ReactNode } from "react";
 import { AccountsPage } from "./accounts";
 import { EnvironmentsPage } from "./environments";
 import { GeneralPage } from "./general";
-import { settingsPageClass } from "./page-class";
 import { PeoplePage } from "./people";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext, pluginTitle } from "./plugins";
@@ -157,13 +157,13 @@ export function ServerPageView({
   )?.SettingsSection;
 
   return (
-    <div className={settingsPageClass}>
+    <Page>
       {Section && (
         <PluginBoundary name={page.key}>
           <Section context={pluginContext(page.key)} />
         </PluginBoundary>
       )}
-    </div>
+    </Page>
   );
 }
 
@@ -254,11 +254,11 @@ export function SettingsLayout({
 
     if (name !== undefined && Section) {
       return (
-        <div className={settingsPageClass}>
+        <Page>
           <PluginBoundary name={name}>
             <Section context={pluginContext(name)} />
           </PluginBoundary>
-        </div>
+        </Page>
       );
     }
 
@@ -333,7 +333,7 @@ function IntegrationsPage({
   const Section = open?.SettingsSection;
 
   return (
-    <div className={settingsPageClass}>
+    <Page>
       <PageTitle description="Services that start your routines from outside Pipoca and that Sessions can answer through.">
         Integrations
       </PageTitle>
@@ -352,6 +352,6 @@ function IntegrationsPage({
           <Section context={pluginContext(open.name)} />
         </PluginBoundary>
       )}
-    </div>
+    </Page>
   );
 }

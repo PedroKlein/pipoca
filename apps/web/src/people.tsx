@@ -14,6 +14,7 @@ import {
   ErrorText,
   Icon,
   initialsOf,
+  Page,
   PageTitle,
   plural,
   Row,
@@ -35,7 +36,6 @@ import {
   useInvites,
   usePeople,
 } from "./hooks";
-import { settingsPageClass } from "./page-class";
 
 const busy = new Set(["queued", "starting", "running"]);
 
@@ -76,7 +76,7 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
   const now = useNow();
 
   return (
-    <div className={settingsPageClass}>
+    <Page>
       <PageTitle
         description="Who can use this server. Admins see names and states, never transcripts, files or secret values."
         actions={
@@ -258,7 +258,7 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
         )}
       </Card>
       {asking}
-    </div>
+    </Page>
   );
 }
 

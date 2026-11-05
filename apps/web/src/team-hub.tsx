@@ -11,6 +11,7 @@ import {
   fieldClass,
   Icon,
   type IconName,
+  Page,
   PageTitle,
   plural,
   Row,
@@ -29,7 +30,6 @@ import {
 } from "./hooks";
 import { NewSessionDialog } from "./new-session";
 import { ago, sessionBadge, shortName, teamSessionHref } from "./names";
-import { settingsPageClass } from "./page-class";
 import { PluginBoundary } from "./plugin-boundary";
 import { SessionView } from "./session-view";
 import { enabledPlugins, pluginContext } from "./plugins";
@@ -175,11 +175,11 @@ export function TeamHub({
 
     if (screen !== undefined) {
       return (
-        <div className={settingsPageClass}>
+        <Page>
           <PluginBoundary name={screen.plugin}>
             <screen.Page context={pluginContext(screen.plugin)} />
           </PluginBoundary>
-        </div>
+        </Page>
       );
     }
 
@@ -368,7 +368,7 @@ function LayoutPage({
   };
 
   return (
-    <div className={settingsPageClass}>
+    <Page>
       <PageTitle
         description={
           home
@@ -518,7 +518,7 @@ function LayoutPage({
             : "No panels here yet."}
         </p>
       )}
-    </div>
+    </Page>
   );
 }
 
@@ -528,12 +528,12 @@ function TeamSessions({
   readonly sessions: readonly Session[];
 }): ReactElement {
   return (
-    <div className={settingsPageClass}>
+    <Page>
       <PageTitle description="Every Session the team has, newest first. Anyone on the team can open one.">
         Sessions
       </PageTitle>
       <SessionRows sessions={sessions} empty="The team has no Sessions yet." />
-    </div>
+    </Page>
   );
 }
 

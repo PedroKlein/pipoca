@@ -6,6 +6,7 @@ import {
   ErrorText,
   Field,
   fieldClass,
+  Page,
   PageTitle,
   Row,
   Rows,
@@ -20,7 +21,6 @@ import {
 import { send } from "./api";
 import { EnvironmentsPage } from "./environments";
 import { usePlugins, useTeamEnvironments, useTeamProfiles } from "./hooks";
-import { settingsPageClass } from "./page-class";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext } from "./plugins";
 import { ProfilesPage } from "./profiles";
@@ -155,11 +155,11 @@ export function TeamSetup({
 
     if (screen !== undefined) {
       return (
-        <div className={settingsPageClass}>
+        <Page>
           <PluginBoundary name={screen.plugin}>
             <screen.Page context={pluginContext(screen.plugin)} />
           </PluginBoundary>
-        </div>
+        </Page>
       );
     }
 
@@ -221,7 +221,7 @@ function TeamNaming({ name }: { readonly name: string | null }): ReactElement {
   };
 
   return (
-    <div className={settingsPageClass}>
+    <Page>
       <PageTitle description="Shown on the team hub and in everyone's sidebar.">
         Name
       </PageTitle>
@@ -250,7 +250,7 @@ function TeamNaming({ name }: { readonly name: string | null }): ReactElement {
         </div>
         <ErrorText>{error}</ErrorText>
       </form>
-    </div>
+    </Page>
   );
 }
 
@@ -275,7 +275,7 @@ function TeamPlugins(): ReactElement {
   };
 
   return (
-    <div className={settingsPageClass}>
+    <Page>
       <PageTitle description="A plugin loads in team Sessions only if it says it works in team work and you leave it on. Built-in ones start on, installed ones start off. New team Sessions pick up a change.">
         Plugins in team work
       </PageTitle>
@@ -304,6 +304,6 @@ function TeamPlugins(): ReactElement {
             );
           })}
       </Rows>
-    </div>
+    </Page>
   );
 }

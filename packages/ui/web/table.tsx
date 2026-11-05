@@ -23,24 +23,24 @@ export function Table({
 }): ReactElement {
   const table = (
     <table
-        aria-label={label}
-        className={cn("w-full border-collapse text-ui", minWidth && "min-w-xl")}
-      >
-        <thead>
-          <tr>
-            {columns.map((column, index) => (
-              <th
-                // Columns never move, so their place is their identity.
-                key={index}
-                className="px-4 py-2.5 text-left text-caption font-medium text-fg-dim"
-              >
-                {column}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>{children}</tbody>
-      </table>
+      aria-label={label}
+      className={cn("w-full border-collapse text-ui", minWidth && "min-w-xl")}
+    >
+      <thead>
+        <tr>
+          {columns.map((column, index) => (
+            <th
+              // Columns never move, so their place is their identity.
+              key={index}
+              className="px-4 py-2.5 text-left text-caption font-medium text-fg-dim"
+            >
+              {column}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>{children}</tbody>
+    </table>
   );
 
   return bare ? (

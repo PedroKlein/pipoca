@@ -19,6 +19,7 @@ import {
   Icon,
   initialsOf,
   ListInput,
+  Page,
   PageTitle,
   Picker,
   Row,
@@ -37,7 +38,6 @@ import {
   type OneFile,
   upload,
 } from "./profile-files";
-import { settingsPageClass } from "./page-class";
 import { ProfileOverview, profilesPath } from "./profile-overview";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext } from "./plugins";
@@ -93,7 +93,7 @@ export function ProfilesPage({
   const [savedId, setSavedId] = useState<string>();
 
   return (
-    <div id="profiles-page" className={settingsPageClass}>
+    <Page id="profiles-page">
       <div className="flex items-start justify-between gap-6">
         <div className="min-w-0 flex-1">
           {team ? (
@@ -238,7 +238,7 @@ export function ProfilesPage({
           No team Profile yet. Team work can't start until there is one.
         </p>
       )}
-    </div>
+    </Page>
   );
 }
 

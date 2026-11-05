@@ -5,12 +5,12 @@ import {
   cn,
   ErrorText,
   Icon,
+  Page,
   PageTitle,
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, useEffect, useState } from "react";
 import { api, send } from "./api";
-import { settingsPageClass } from "./page-class";
 
 interface ConfigEntry {
   readonly name: string;
@@ -101,7 +101,7 @@ export function ConfigurationPage(): ReactElement {
   };
 
   return (
-    <div className={settingsPageClass}>
+    <Page>
       <PageTitle
         description="Every page in Settings reads and writes these files. Edit them here, keep them in git, or let Helm write them."
         actions={
@@ -245,7 +245,7 @@ export function ConfigurationPage(): ReactElement {
         </section>
       </div>
       {asking}
-    </div>
+    </Page>
   );
 }
 
