@@ -144,6 +144,8 @@ export {
 } from "./runner";
 export {
   type Actor,
+  actsAs,
+  type ActsAs,
   checkoutName,
   type ForkedSession,
   type ModelRef,

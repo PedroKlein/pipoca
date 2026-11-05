@@ -63,10 +63,21 @@ export function pluginConfig(
     check();
   };
 
+  // A collection the file leaves out holds its default, which a change
+  // keeps.
   const stored = (name: string): readonly unknown[] => {
     const raw = fieldsOf(key.get())[name];
 
-    return Array.isArray(raw) ? raw : [];
+    if (Array.isArray(raw)) {
+      return raw;
+    }
+
+    const fallback: unknown = Reflect.get(
+      propertyOf(schema, name) ?? {},
+      "default",
+    );
+
+    return Array.isArray(fallback) ? structuredClone(fallback) : [];
   };
 
   return {
@@ -106,11 +117,22 @@ export function pluginConfig(
       return {
         list: items,
         get: (wanted) => items().find((item) => keyOf(item) === wanted),
+        // An item read back and changed keeps the refs of the secrets it
+        // holds unchanged, such as one named by an environment variable.
         put: (item) => {
           const list = stored(name);
           const at = list.findIndex((each) => keyOf(each) === keyOf(item));
 
-          keep(at === -1 ? [...list, item] : list.with(at, item));
+          keep(
+            at === -1
+              ? [...list, item]
+              : list.with(
+                  at,
+                  Type.IsArray(field)
+                    ? refsKept(field.items, item, list[at], [name], secrets)
+                    : item,
+                ),
+          );
         },
         remove: (wanted) => {
           const list = stored(name);
@@ -144,6 +166,47 @@ function merged(base: unknown, change: unknown): unknown {
       ]),
     ),
   };
+}
+
+function refsKept(
+  schema: TSchema,
+  value: unknown,
+  before: unknown,
+  path: readonly string[],
+  secrets: SecretRefs,
+): unknown {
+  if (marks(schema)["secret"] !== undefined) {
+    if (typeof value !== "string" || before === undefined) {
+      return value;
+    }
+
+    try {
+      const context = path.join(".");
+
+      return secrets.open(before, context, context).secret === value
+        ? before
+        : value;
+    } catch {
+      return value;
+    }
+  }
+
+  if (Type.IsObject(schema) && isObject(value) && isObject(before)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([name, field]) => {
+        const property = propertyOf(schema, name);
+
+        return [
+          name,
+          property === undefined
+            ? field
+            : refsKept(property, field, before[name], [...path, name], secrets),
+        ];
+      }),
+    );
+  }
+
+  return value;
 }
 
 function sealed(
@@ -182,7 +245,8 @@ function sealed(
   return value;
 }
 
-const slug = /^[a-z0-9][a-z0-9-]*$/;
+// Host names, such as github.com or git.example.org:8443, are keys too.
+const slug = /^[a-z0-9][a-z0-9.:-]*$/;
 
 export function configOf<const S extends TSchema>(
   schema: S,
@@ -391,7 +455,7 @@ function itemProblem(
   }
 
   if (typeof name !== "string" || !slug.test(name)) {
-    return `${key} must be lowercase letters, digits and hyphens`;
+    return `${key} must be lowercase letters, digits, dots, colons and hyphens`;
   }
 
   return seen.has(name) ? `another item has the ${key} ${name}` : undefined;

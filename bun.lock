@@ -305,6 +305,8 @@
         "react": "19.3.1",
       },
       "devDependencies": {
+        "@pipoca/testing": "workspace:*",
+        "@types/node": "26.6.5",
         "@types/react": "19.3.0",
       },
     },

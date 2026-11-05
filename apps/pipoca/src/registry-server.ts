@@ -5,8 +5,8 @@ import { changes } from "../../../plugins/changes/plugin";
 import { checklist } from "../../../plugins/checklist/plugin";
 import emailPackage from "../../../plugins/email/package.json";
 import * as emailServer from "../../../plugins/email/src/server";
-import gitHostsPackage from "../../../plugins/git-hosts/package.json";
-import * as gitHostsServer from "../../../plugins/git-hosts/src/server";
+import { gitHosts } from "../../../plugins/git-hosts/plugin";
+import { server as gitHostsServer } from "../../../plugins/git-hosts/src/server";
 import kubernetesPackage from "../../../plugins/kubernetes/package.json";
 import * as kubernetesServer from "../../../plugins/kubernetes/src/server";
 import libraryPackage from "../../../plugins/library/package.json";
@@ -38,7 +38,7 @@ export const serverRegistry = [
   { id: "changes", definition: changes },
   { id: "checklist", definition: checklist },
   { id: "email", manifest: emailPackage.pipoca, server: emailServer },
-  { id: "git-hosts", manifest: gitHostsPackage.pipoca, server: gitHostsServer },
+  { id: "git-hosts", definition: gitHosts, server: gitHostsServer },
   {
     id: "kubernetes",
     manifest: kubernetesPackage.pipoca,

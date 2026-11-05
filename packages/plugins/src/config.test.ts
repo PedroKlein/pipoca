@@ -143,7 +143,8 @@ describe("configOf", () => {
         fields: {
           path: "bots",
           item: "Big Bot",
-          error: "name must be lowercase letters, digits and hyphens",
+          error:
+            "name must be lowercase letters, digits, dots, colons and hyphens",
         },
       },
       {

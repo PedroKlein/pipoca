@@ -11,6 +11,7 @@ import {
   type LivePost,
   liveSurface,
   type ModelRef,
+  type Owner,
   type ProfileContent,
   type ProfileFiles,
   type Removal,
@@ -227,7 +228,7 @@ export interface SessionsOptions {
   readonly pluginProfile?: (id: string) => PluginProfile | undefined;
   // The git hosts a user connected (ADR 0043).
   readonly gitLogins?: (
-    userId: string,
+    owner: Owner,
     session: Pick<Session, "actsAs" | "workspace">,
   ) => readonly GitLogin[];
   // How many of the team's messages since its last turn Pi reads.
@@ -1699,8 +1700,11 @@ export class Sessions {
   #gitLoginsOf(session: StoredSession): Pick<Assignment, "gitLogins"> {
     // Team work signs git in only as a technical user that admins let the
     // team use, never as a person (ADR 0067).
-    const person = this.#team(session) ? teamOwner : session.startedBy;
-    const logins = person === null ? [] : this.#gitLogins(person, session);
+    const person = session.startedBy;
+    const own: Owner | null = person === null ? null : `person:${person}`;
+    const owner = this.#team(session) ? "team" : own;
+
+    const logins = owner === null ? [] : this.#gitLogins(owner, session);
 
     return logins.length > 0 ? { gitLogins: logins } : {};
   }

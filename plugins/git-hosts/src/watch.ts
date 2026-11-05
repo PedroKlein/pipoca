@@ -1,4 +1,4 @@
-import type { PluginStore } from "@pipoca/plugins";
+import type { Store } from "@pipoca/plugins";
 import type { Preferences, PullWatch } from "./model";
 import type { PullRef, PullState, Remark } from "./pulls";
 
@@ -58,7 +58,7 @@ const preferences = "git_hosts_preferences";
 
 // Watched pull requests and each person's choices are runtime data, so they
 // live in SQLite (ADR 0051).
-export function watchStore(store: PluginStore): WatchStore {
+export function watchStore(store: Store): WatchStore {
   const watchOf = (row: Row): Watch => {
     const base = {
       id: row.id,
@@ -93,9 +93,7 @@ export function watchStore(store: PluginStore): WatchStore {
   };
 
   const select = (where: string, ...params: (string | number)[]) =>
-    (store.all(`select * from ${watches} ${where}`, ...params) as Row[]).map(
-      watchOf,
-    );
+    store.all<Row>(`select * from ${watches} ${where}`, ...params).map(watchOf);
 
   return {
     all: () => select("order by id"),
@@ -160,10 +158,10 @@ export function watchStore(store: PluginStore): WatchStore {
       store.run(`delete from ${watches} where id = ?`, id);
     },
     preferences: (userId) => {
-      const [row] = store.all(
+      const row = store.get<{ auto_fix: number; reply: number }>(
         `select auto_fix, reply from ${preferences} where user_id = ?`,
         userId,
-      ) as { auto_fix: number; reply: number }[];
+      );
 
       return row === undefined
         ? { autoFix: true, reply: false }

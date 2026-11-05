@@ -133,11 +133,6 @@ export default tseslint.config(
       // Until these move to the clock and schedule as their plugins port.
       "plugins/email/src/mail.ts",
       "plugins/email/src/server.ts",
-      "plugins/git-hosts/src/acting.ts",
-      "plugins/git-hosts/src/poller.ts",
-      "plugins/git-hosts/src/server.ts",
-      "plugins/git-hosts/src/technical-user-routes.ts",
-      "plugins/git-hosts/src/technical-users.ts",
       "plugins/kubernetes/src/cluster.ts",
       "plugins/kubernetes/src/server.ts",
       "plugins/local/src/server.ts",

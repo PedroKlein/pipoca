@@ -107,6 +107,7 @@ create table sessions (
   id text primary key,
   environment_id text not null references environments (id) on delete cascade,
   started_by text references users (id) on delete set null,
+  acts_as_plugin text,
   acts_as text,
   plugin text,
   plugin_key text,
@@ -129,6 +130,7 @@ create table sessions (
   interrupted_at integer,
   archived_at integer,
   check ((plugin is null) = (plugin_key is null)),
+  check ((acts_as_plugin is null) = (acts_as is null)),
   check ((model_provider is null) = (model_id is null))
 ) strict;
 create index sessions_listing on sessions (archived_at, created_at);
