@@ -29,7 +29,7 @@ import type { ServeOptions } from "./serve";
 import { builtInPlugins } from "./session-parts";
 import { readSse } from "./sse";
 import { json, testServer, type TestServer } from "./testdata/harness";
-import { until } from "./testdata/until";
+import { until } from "@pipoca/plugins/testing";
 
 let root: string;
 let faux: ReturnType<typeof fauxProvider>;

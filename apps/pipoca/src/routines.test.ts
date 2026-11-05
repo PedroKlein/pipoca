@@ -13,7 +13,7 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Prompt, Session, SessionEvent } from "@pipoca/protocol";
 import { readSse } from "./sse";
 import { json, testServer, type TestServer } from "./testdata/harness";
-import { until } from "./testdata/until";
+import { until } from "@pipoca/plugins/testing";
 
 let root: string;
 let faux: ReturnType<typeof fauxProvider>;

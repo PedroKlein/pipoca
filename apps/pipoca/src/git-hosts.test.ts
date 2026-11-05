@@ -13,7 +13,7 @@ import {
 } from "@pipoca/protocol";
 import { readSse } from "./sse";
 import { testServer, type TestServer } from "./testdata/harness";
-import { until } from "./testdata/until";
+import { until } from "@pipoca/plugins/testing";
 import { runnerCredentials } from "./testdata/runners";
 
 const enterprise = "github.tools.sap";

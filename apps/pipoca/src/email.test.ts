@@ -12,7 +12,7 @@ import type { TCPSocketListener } from "bun";
 import { SMTPServer } from "smtp-server";
 import { readSse } from "./sse";
 import { testServer, type TestServer } from "./testdata/harness";
-import { until } from "./testdata/until";
+import { until } from "@pipoca/plugins/testing";
 import { runnerCredentials } from "./testdata/runners";
 
 interface Message {

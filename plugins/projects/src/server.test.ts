@@ -14,6 +14,7 @@ import {
   fakeUser,
   memoryStore,
   served,
+  until,
 } from "@pipoca/plugins/testing";
 import type { Actor, Session } from "@pipoca/protocol";
 import type { ProjectView } from "./model";
@@ -385,12 +386,6 @@ function turn(
   turnStarted(kernel, threadId);
   transcript.push(...lines);
   turnEnded(kernel, threadId, transcript.length);
-}
-
-async function until(done: () => boolean): Promise<void> {
-  while (!done()) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
 }
 
 test("owns its coordinator and threads", async () => {

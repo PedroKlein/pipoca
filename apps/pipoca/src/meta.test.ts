@@ -18,7 +18,7 @@ import type {
   SlashCommand,
 } from "@pipoca/protocol";
 import { json, testServer, type TestServer } from "./testdata/harness";
-import { until } from "./testdata/until";
+import { until } from "@pipoca/plugins/testing";
 import { runnerCredentials } from "./testdata/runners";
 import { readSse } from "./sse";
 

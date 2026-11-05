@@ -5,7 +5,7 @@ import { type AddressInfo, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { hostTerminals } from "@pipoca/sessionhost";
 import { httpSessionStream } from "./client";
-import { until } from "./testdata/until";
+import { until } from "@pipoca/plugins/testing";
 
 // Stands in for a server behind a link much slower than the shell's output.
 async function stalledServer(

@@ -18,7 +18,7 @@ import type { Environment, Session, ToolSpec } from "@pipoca/protocol";
 import { runAgent } from "./agent";
 import { runnerCredentials } from "./testdata/runners";
 import { closeServers, testServer, type TestServer } from "./testdata/harness";
-import { until } from "./testdata/until";
+import { until } from "@pipoca/plugins/testing";
 
 const run = promisify(execFile);
 

@@ -33,7 +33,7 @@ import {
 import { runAgent } from "./agent";
 import { readSse } from "./sse";
 import { testServer, type TestServer } from "./testdata/harness";
-import { until } from "./testdata/until";
+import { until } from "@pipoca/plugins/testing";
 import { runnerCredentials } from "./testdata/runners";
 
 let root: string;
