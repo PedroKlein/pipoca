@@ -7,6 +7,7 @@ export interface Entry {
   readonly path: string;
   readonly label: string;
   readonly icon: IconName;
+  readonly count?: number;
 }
 
 interface Placed extends HubPanel {

@@ -59,7 +59,12 @@ export function TeamHub({
       label: page.title,
       icon: page.id === "home" ? ("home" as const) : ("panel-right" as const),
     })),
-    { path: "team/sessions", label: "Sessions", icon: "menu" },
+    {
+      path: "team/sessions",
+      label: "Sessions",
+      icon: "menu",
+      ...(sessions.loaded && { count: sessions.value.length }),
+    },
     ...screens().map(({ path, label }) => ({
       path,
       label,
@@ -139,10 +144,11 @@ export function TeamHub({
       groups={[
         {
           items: [
-            ...entries.map(({ path, label, icon }) => ({
+            ...entries.map(({ path, label, icon, count }) => ({
               href: `#${path}`,
               label,
               icon,
+              ...(count !== undefined && { count }),
               current:
                 route === path ||
                 (route === "team/" && path === "team") ||

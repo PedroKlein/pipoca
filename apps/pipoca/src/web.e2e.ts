@@ -4153,7 +4153,7 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
 
   await page
     .getByRole("navigation", { name: "Team" })
-    .getByRole("link", { name: "Sessions" })
+    .getByRole("link", { name: /^Sessions\s*1$/ })
     .click();
 
   await page.getByRole("heading", { name: "Sessions" }).waitFor();
