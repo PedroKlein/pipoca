@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -99,10 +99,12 @@ export async function pluginTest(
   const definitions = [plugin, ...(o.plugins ?? [])];
   const contexts = new Map<string, ServerContext>();
 
+  const configFile = join(configDir, "pipoca.json");
+
   await mkdir(configDir);
 
   await writeFile(
-    join(configDir, "pipoca.json"),
+    configFile,
     JSON.stringify({
       ...(o.config !== undefined && { [plugin.id]: o.config }),
       plugins: Object.fromEntries(
@@ -664,6 +666,16 @@ export async function pluginTest(
           left -= step;
         } while (left > 0);
       },
+    },
+    editConfig: async (config) => {
+      const file = JSON.parse(await readFile(configFile, "utf8")) as Readonly<
+        Record<string, unknown>
+      >;
+
+      await writeFile(
+        configFile,
+        JSON.stringify({ ...file, [plugin.id]: config }),
+      );
     },
     restart: async () => {
       await server.close();
