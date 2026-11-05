@@ -1,6 +1,7 @@
 import type { Log } from "@pipoca/protocol";
 import {
   BadRequest,
+  fieldsOf,
   isObject,
   type PluginConfig,
   type PluginStore,
@@ -118,7 +119,7 @@ export function hostStore(
 
     try {
       config.set({
-        ...(isObject(value) ? value : {}),
+        ...fieldsOf(value),
         hosts: next.map(fileEntry),
       });
     } catch (failure) {

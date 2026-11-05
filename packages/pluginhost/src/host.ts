@@ -2,7 +2,7 @@ import { basename } from "node:path";
 import {
   checkedSettings,
   type EventBus,
-  isObject,
+  fieldsOf,
   type Login,
   type ModelOffer,
   type PluginConfig,
@@ -857,7 +857,7 @@ export function startPlugins(
 
       const next = {
         ...Object.fromEntries(
-          Object.entries(isObject(current) ? current : {}).filter(
+          Object.entries(fieldsOf(current)).filter(
             ([key]) => !Object.hasOwn(declared, key),
           ),
         ),

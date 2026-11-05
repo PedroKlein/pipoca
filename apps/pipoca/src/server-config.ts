@@ -1,4 +1,4 @@
-import { isObject, type PluginConfig } from "@pipoca/plugins";
+import { fieldsOf, type PluginConfig } from "@pipoca/plugins";
 
 export interface ServerConfig {
   readonly sessionDays: number;
@@ -18,7 +18,7 @@ export const serverDefaults: ServerConfig = {
 export function serverConfig(config: PluginConfig): () => ServerConfig {
   return () => {
     const value = config.get();
-    const given = isObject(value) ? value : {};
+    const given = fieldsOf(value);
 
     return {
       sessionDays: positive(given["sessionDays"], serverDefaults.sessionDays),

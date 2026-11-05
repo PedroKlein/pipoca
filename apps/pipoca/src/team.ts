@@ -1,4 +1,4 @@
-import { isObject, type PluginConfig } from "@pipoca/plugins";
+import { fieldsOf, type PluginConfig } from "@pipoca/plugins";
 import {
   type TeamName,
   teamMessagesRead,
@@ -19,7 +19,7 @@ export function teamSettings(config: PluginConfig): Team {
   const value = (): Readonly<Record<string, unknown>> => {
     const read = config.get();
 
-    return isObject(read) ? read : {};
+    return fieldsOf(read);
   };
 
   return {

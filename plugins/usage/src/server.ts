@@ -1,13 +1,14 @@
 import {
+  fieldsOf,
   isObject,
   NotFound,
-  readBody,
-  requireAdmin,
-  Type,
   type PluginEvent,
   type PluginStore,
+  readBody,
+  requireAdmin,
   type RouteCaller,
   type ServerPlugin,
+  Type,
 } from "@pipoca/plugins";
 import { auditedAction, auditLog, csv } from "./audit";
 
@@ -213,7 +214,7 @@ export const usage: ServerPlugin = {
         const config = context.config.get();
 
         context.config.set({
-          ...(isObject(config) ? config : {}),
+          ...fieldsOf(config),
           budgets: set,
         });
 
@@ -360,7 +361,7 @@ function isPrice(value: unknown): value is Price {
 function objectAt(value: unknown, key: string): Record<string, unknown> {
   const inner = isObject(value) ? value[key] : undefined;
 
-  return isObject(inner) ? inner : {};
+  return fieldsOf(inner);
 }
 
 const microsPerDollar = 1_000_000;

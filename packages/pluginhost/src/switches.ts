@@ -1,4 +1,4 @@
-import { isObject, type PluginConfig } from "@pipoca/plugins";
+import { fieldsOf, isObject, type PluginConfig } from "@pipoca/plugins";
 
 // The kernel's own keys in pipoca.json, which no plugin id may take.
 export const kernelKeys: readonly string[] = [
@@ -28,7 +28,7 @@ export function pluginSwitches(config: PluginConfig): PluginSwitches {
   const all = (): Readonly<Record<string, unknown>> => {
     const value = config.get();
 
-    return isObject(value) ? value : {};
+    return fieldsOf(value);
   };
 
   const get = (id: string): PluginSwitch => {

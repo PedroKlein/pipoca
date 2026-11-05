@@ -1,7 +1,7 @@
 import {
   BadRequest,
+  fieldsOf,
   HttpError,
-  isObject,
   NotFound,
   type OfferedModels,
   type PluginStore,
@@ -125,7 +125,7 @@ export const models: ServerPlugin = {
     const settings = (): Record<string, unknown> => {
       const value = context.config.get();
 
-      return isObject(value) ? value : {};
+      return fieldsOf(value);
     };
 
     const hidden = (): readonly string[] => {
