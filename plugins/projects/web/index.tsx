@@ -64,7 +64,13 @@ const watched = { topics: ["sessions", "projects.projects"] };
 
 export const projects: WebPlugin = {
   name: "projects",
-  nav: { label: "Projects", Page, Items, fills: (path) => path !== "" },
+  nav: {
+    label: "Projects",
+    Page,
+    Items,
+    fills: (path) => path !== "",
+    pinned: true,
+  },
   sessionPath: (session) => `${session.owner?.key ?? ""}/${session.id}`,
   notices: {
     thread: ThreadNotice,

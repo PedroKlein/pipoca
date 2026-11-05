@@ -358,8 +358,8 @@ function AccountMenu({ user }: { readonly user: string }): ReactElement {
 }
 
 // Plugin pages show in the sidebar when pinned, and the rest under More, like
-// Claude Code's sidebar (ADR 0040).
-const pinnedAtFirst = ["projects", "meta"];
+// Claude Code's sidebar (ADR 0040). Someone who never changed their pins has
+// the ones the plugins pin.
 
 function PluginNav({
   nav,
@@ -373,6 +373,10 @@ function PluginNav({
   const page = pluginRoute(route);
 
   useEffect(() => {
+    const pinnedAtFirst = nav.flatMap(({ name, pinned }) =>
+      pinned ? [name] : [],
+    );
+
     void api("me.pinnedPages")
       .then(({ pages }) => {
         setPins(pages ?? pinnedAtFirst);
@@ -380,7 +384,7 @@ function PluginNav({
       .catch(() => {
         setPins(pinnedAtFirst);
       });
-  }, []);
+  }, [nav]);
 
   if (nav.length === 0 || pins === undefined) {
     return null;

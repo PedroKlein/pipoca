@@ -5,6 +5,8 @@ export {
   configOf,
   kernelConfig,
   pluginConfig,
+  sealedConfig,
+  sessionConfig,
 } from "./config";
 export {
   Config,
@@ -82,6 +84,15 @@ export {
   type When,
 } from "./server";
 export type { Schedule, Scheduled } from "./schedule";
+export { transcriptReader } from "./transcript";
+export {
+  type ConfigValue,
+  defineSession,
+  type SessionContext,
+  type SessionPart,
+  type SessionTool,
+  type SessionToolCall,
+} from "./session";
 export { checkedSettings, settingSpecs, settingValues } from "./settings";
 export type {
   AskPermission,

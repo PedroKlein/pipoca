@@ -1,6 +1,15 @@
 import { readFile, realpath, rm } from "node:fs/promises";
-import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import * as sdk from "@pipoca/plugins";
+import type { PluginDefinition } from "@pipoca/plugins";
 
 export interface PluginParts {
   readonly server?: string;
@@ -17,6 +26,7 @@ const sharedWebModules = [
   "react-dom",
   "react-dom/client",
   "@pipoca/ui",
+  "@pipoca/plugins",
   "@pipoca/plugins/web",
 ];
 
@@ -45,14 +55,128 @@ export async function bundleParts(
 
   return {
     ...(entries.server !== undefined && {
-      server: await bundle(entries.server, outdir, "server"),
+      server: await bundle(entries.server, outdir, "server", [sdkFromServer]),
     }),
     ...(entries.web !== undefined && {
-      web: await bundle(entries.web, outdir, "web"),
+      web: await bundle(entries.web, outdir, "web", [sharedWithShell]),
     }),
     ...(entries.session !== undefined && {
-      session: await bundle(entries.session, outdir, "session"),
+      session: await bundle(entries.session, outdir, "session", [
+        sdkFromServer,
+      ]),
     }),
+  };
+}
+
+// A plugin defined with definePlugin: its definition bundled with its server
+// part, and its web and Session parts each bundled without the others.
+export async function bundleDefined(
+  folder: string,
+  entry: string,
+  id: string,
+): Promise<{
+  readonly definition: string;
+  readonly web?: string;
+  readonly session?: string;
+}> {
+  await installDependencies(folder);
+
+  const outdir = join(folder, ".build");
+  await rm(outdir, { recursive: true, force: true });
+
+  const isEntry = (path: string): boolean => path === entry;
+
+  const paths = await importedDefinition(
+    await bundle(entry, outdir, "parts", [
+      sdkFromServer,
+      partsLeftOut(isEntry),
+    ]),
+    id,
+  );
+
+  const at = async (
+    load: PluginDefinition["server"],
+  ): Promise<string | undefined> =>
+    ((await load?.()) as { readonly path?: string } | undefined)?.path;
+
+  const [server, web, session] = await Promise.all([
+    at(paths.server),
+    at(paths.web),
+    at(paths.session),
+  ]);
+
+  return {
+    definition: await bundle(entry, outdir, "server", [
+      sdkFromServer,
+      partsLeftOut(isEntry, server),
+    ]),
+    ...(web !== undefined && {
+      web: await bundle(web, outdir, "web", [
+        sharedWithShell,
+        partsLeftOut(isEntry),
+      ]),
+    }),
+    ...(session !== undefined && {
+      session: await bundle(session, outdir, "session", [
+        sdkFromServer,
+        partsLeftOut(isEntry),
+      ]),
+    }),
+  };
+}
+
+// The one definePlugin a bundle exports with the plugin's id.
+export async function importedDefinition(
+  path: string,
+  id: string,
+): Promise<PluginDefinition> {
+  provideSdk();
+
+  const found = Object.values(
+    (await import(path)) as Readonly<Record<string, unknown>>,
+  ).filter(
+    (value): value is PluginDefinition =>
+      typeof value === "object" &&
+      value !== null &&
+      (value as { readonly id?: unknown }).id === id,
+  );
+
+  const [definition] = found;
+
+  if (definition === undefined || found.length > 1) {
+    throw new Error(`its entry must export one definePlugin with the id ${id}`);
+  }
+
+  return definition;
+}
+
+// A definition loads each part with import(), and a part's bundle has only
+// that part: the other loaders resolve to where their part is, which runs
+// none of its code.
+export function partsLeftOut(
+  isDefinition: (path: string) => boolean,
+  keep?: string,
+): Bun.BunPlugin {
+  return {
+    name: "parts-left-out",
+    setup: (build) => {
+      build.onResolve({ filter: /.*/ }, ({ path, importer, kind }) => {
+        if (kind !== "dynamic-import" || !isDefinition(importer)) {
+          return undefined;
+        }
+
+        const resolved = Bun.resolveSync(path, dirname(importer));
+
+        return resolved === keep
+          ? undefined
+          : { path: resolved, namespace: "pipoca-part" };
+      });
+
+      build.onLoad({ filter: /.*/, namespace: "pipoca-part" }, ({ path }) => ({
+        contents: `export const path = ${JSON.stringify(path)};`,
+        loader: "js",
+      }));
+    },
   };
 }
 
@@ -65,7 +189,8 @@ const noMacros = { macros: false };
 async function bundle(
   entry: string,
   outdir: string,
-  part: "server" | "web" | "session",
+  part: "server" | "web" | "session" | "parts",
+  plugins: Bun.BunPlugin[],
 ): Promise<string> {
   const result = await Bun.build({
     entrypoints: [entry],
@@ -73,10 +198,9 @@ async function bundle(
     target: part === "web" ? "browser" : "bun",
     naming: `${part}-[hash].[ext]`,
     throw: false,
+    plugins,
     ...noMacros,
-    ...(part === "web"
-      ? { plugins: [sharedWithShell], jsx: { development: false } }
-      : { plugins: [sdkFromServer] }),
+    ...(part === "web" && { jsx: { development: false } }),
   });
 
   const [output, ...others] = result.outputs;
@@ -89,7 +213,7 @@ async function bundle(
 
   // Only the bundle itself is served to the page or the runner, so a
   // stylesheet or file it imports would be missing there.
-  if (part !== "server" && others.length > 0) {
+  if ((part === "web" || part === "session") && others.length > 0) {
     throw new Error(
       part === "web"
         ? `${basename(entry)} imports CSS or other files, which a web part can't have yet; style it with @pipoca/ui`

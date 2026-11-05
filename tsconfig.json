@@ -8,5 +8,5 @@
     "**/*.test.ts",
     "test-setup.ts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "apps/web", "packages/plugins/web"]
 }

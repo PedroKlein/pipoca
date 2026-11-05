@@ -12,7 +12,7 @@ import type {
   AgentSessionEvent,
   ExtensionError,
 } from "@earendil-works/pi-coding-agent";
-import type { ChildOptions, SessionPlugin } from "@pipoca/plugins";
+import type { ChildOptions, SessionPart, SessionPlugin } from "@pipoca/plugins";
 import {
   type Command,
   type ImageAttachment,
@@ -22,6 +22,7 @@ import {
   piTerminal,
   type PluginSettings,
   type SlashCommand,
+  systemClock,
   type ToolSpec,
 } from "@pipoca/protocol";
 import {
@@ -34,6 +35,7 @@ import {
 import { workspaceFiles } from "./files";
 import { browserHelper, hostPages, type PreviewExchange } from "./pages";
 import { webSurfaces } from "./surfaces";
+import { setUpPart } from "./parts";
 import { remoteUI } from "./ui";
 import {
   asksForTrust,
@@ -72,6 +74,8 @@ export interface SessionStream {
 export interface HostOptions extends SessionOptions {
   readonly plugins?: readonly SessionPlugin[];
   readonly pluginSettings?: Readonly<Record<string, PluginSettings>>;
+  readonly parts?: readonly SessionPart[];
+  readonly pluginConfig?: Readonly<Record<string, unknown>>;
   readonly firstMessage?: string | null;
   readonly serverToolTimeoutMs?: number;
   // Runs `pipoca open <url>`, for the BROWSER helper.
@@ -346,40 +350,54 @@ export async function hostSession(
     options.serverToolTimeoutMs,
   );
 
+  const shared = (name: string) => ({
+    publish: (
+      key: string,
+      data: unknown,
+      { waiting }: { readonly waiting?: boolean } = {},
+    ) => {
+      live.push({
+        type: "plugin",
+        plugin: name,
+        key,
+        data,
+        ...(waiting === true && { waiting }),
+      });
+    },
+    askQuestions: prompts.questions,
+    askPermission: prompts.permission,
+    checkouts: options.checkouts ?? [],
+    log: (message: string, fields?: Readonly<Record<string, unknown>>) => {
+      log(message, { plugin: name, ...fields });
+    },
+    startChild: async (child: ChildOptions) => {
+      if (!started.session) {
+        throw new Error("the Session hasn't started yet");
+      }
+
+      return startChild(started.session, options, child);
+    },
+    request: async (path: string, init?: RequestInit) =>
+      stream.pluginRequest(name, path, init),
+  });
+
   const plugins = (options.plugins ?? []).map((plugin) => ({
     plugin,
     cloud: {
-      publish: (
-        key: string,
-        data: unknown,
-        { waiting }: { readonly waiting?: boolean } = {},
-      ) => {
-        live.push({
-          type: "plugin",
-          plugin: plugin.name,
-          key,
-          data,
-          ...(waiting === true && { waiting }),
-        });
-      },
-      askQuestions: prompts.questions,
-      askPermission: prompts.permission,
-      checkouts: options.checkouts ?? [],
+      ...shared(plugin.name),
       settings: options.pluginSettings?.[plugin.name] ?? {},
-      request: async (path: string, init?: RequestInit) =>
-        stream.pluginRequest(plugin.name, path, init),
-      log: (message: string, fields?: Readonly<Record<string, unknown>>) => {
-        log(message, { plugin: plugin.name, ...fields });
-      },
-      startChild: async (child: ChildOptions) => {
-        if (!started.session) {
-          throw new Error("the Session hasn't started yet");
-        }
-
-        return startChild(started.session, options, child);
-      },
     },
   }));
+
+  const parts = await Promise.all(
+    (options.parts ?? []).map(async (part) =>
+      setUpPart(part, {
+        ...shared(part.plugin.id),
+        config: options.pluginConfig?.[part.plugin.id] ?? {},
+        clock: systemClock,
+      }),
+    ),
+  );
 
   const pluginTools = await Promise.all(
     plugins.map(async ({ plugin, cloud }) => plugin.tools?.(cloud) ?? []),
@@ -422,7 +440,11 @@ export async function hostSession(
 
   const session = await startSession(options, {
     ui,
-    tools: [...pluginTools.flat(), ...calls.tools],
+    tools: [
+      ...pluginTools.flat(),
+      ...parts.flatMap(({ tools }) => tools),
+      ...calls.tools,
+    ],
     extensions: [
       { name: "pi-view", factory: view.extension },
       ...plugins.flatMap(({ plugin, cloud }) =>
@@ -436,6 +458,7 @@ export async function hostSession(
             ]
           : [],
       ),
+      ...parts.flatMap(({ extensions }) => extensions),
     ],
     packages: plugins.flatMap(({ plugin }) => plugin.packages ?? []),
     onError,

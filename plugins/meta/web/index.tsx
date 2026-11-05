@@ -39,7 +39,13 @@ const assistantPath = "/api/ext/projects/assistant";
 
 export const meta: WebPlugin = {
   name: "meta",
-  nav: { label: "Assistant", Page, Items, fills: (path) => path !== "" },
+  nav: {
+    label: "Assistant",
+    Page,
+    Items,
+    fills: (path) => path !== "",
+    pinned: true,
+  },
   sessionPath: (session) => session.id,
   Home,
   hub: {

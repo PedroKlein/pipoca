@@ -20,7 +20,7 @@ import type {
 import { askServer } from "@pipoca/ask/server";
 import { gitHosts } from "@pipoca/git-hosts/server";
 import type { ServerPluginContext } from "@pipoca/plugins";
-import { builtInPlugins } from "./session-parts";
+import { builtInPlugins } from "./built-in";
 import { readSse } from "@pipoca/protocol";
 import { json, testServer, type TestServer } from "./testdata/harness";
 
