@@ -63,9 +63,9 @@ interface EnvironmentRow {
   name: string;
   owner_user_id: string | null;
   template_id: string | null;
-  isolation: string;
+  isolation: string | null;
   image: string | null;
-  setup_script: string;
+  setup_script: string | null;
   variables: string;
   secrets_sealed: string | null;
   key_hash: string | null;
@@ -285,7 +285,7 @@ export function openStore(
     createdAt: iso(row.created_at),
     isolation: row.isolation === "container" ? "container" : "process",
     image: row.image,
-    setupScript: row.setup_script,
+    setupScript: row.setup_script ?? "",
     variables: JSON.parse(row.variables) as Record<string, string>,
     secrets:
       row.secrets_sealed === null
@@ -299,7 +299,7 @@ export function openStore(
   });
 
   const insertEnvironment = db.prepare(
-    "insert into environments (id, slug, name, owner_user_id, template_id, created_at) values (?, ?, ?, ?, ?, ?) on conflict (slug) do nothing",
+    "insert into environments (id, slug, name, owner_user_id, template_id, isolation, setup_script, created_at) values (?, ?, ?, ?, ?, ?, ?, ?) on conflict (slug) do nothing",
   );
 
   const updateEnvironment = db.prepare(
@@ -504,6 +504,8 @@ export function openStore(
         provider,
         environmentOwner(ownerId),
         templateId,
+        templateId === null ? "process" : null,
+        templateId === null ? "" : null,
         clock.now(),
       );
     },
@@ -542,11 +544,13 @@ export function openStore(
       });
     },
     updateEnvironment: (environment) => {
+      const own = environment.templateId === null;
+
       updateEnvironment.run(
         environment.name,
-        environment.isolation,
-        environment.image,
-        environment.setupScript,
+        own ? environment.isolation : null,
+        own ? environment.image : null,
+        own ? environment.setupScript : null,
         JSON.stringify(environment.variables),
         Object.keys(environment.secrets).length === 0
           ? null

@@ -289,6 +289,38 @@ test("stores Environment secrets encrypted and reads them back after a restart",
   again.close();
 });
 
+test("keeps no setup of its own for an Environment made from a template", () => {
+  const path = join(root, "server.db");
+  const store = openStore(path);
+  store.ensureEnvironment("vm", undefined, "python");
+  store.ensureEnvironment("laptop");
+
+  for (const environment of store.environments()) {
+    store.updateEnvironment({ ...environment, name: `${environment.name}!` });
+  }
+
+  store.close();
+
+  const db = new DatabaseSync(path);
+
+  expect(
+    db
+      .prepare(
+        "select slug, isolation, image, setup_script from environments order by slug",
+      )
+      .all(),
+  ).toEqual([
+    { slug: "laptop", isolation: "process", image: null, setup_script: "" },
+    { slug: "vm", isolation: null, image: null, setup_script: null },
+  ]);
+
+  expect(() => {
+    db.exec("update environments set setup_script = 'make' where slug = 'vm'");
+  }).toThrow("CHECK constraint failed");
+
+  db.close();
+});
+
 test("refuses to open a database's secrets with another key", () => {
   const path = join(root, "server.db");
   const store = openStore(path, randomBytes(32));

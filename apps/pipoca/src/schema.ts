@@ -72,13 +72,17 @@ create table environments (
   name text not null,
   owner_user_id text references users (id) on delete cascade,
   template_id text,
-  isolation text not null default 'process' check (isolation in ('process', 'container')),
+  -- One made from a template runs as the template says, so it keeps no
+  -- setup of its own (ADR 0049).
+  isolation text check (isolation in ('process', 'container')),
   image text,
-  setup_script text not null default '',
+  setup_script text,
   variables text not null default '{}' check (json_valid(variables)),
   secrets_sealed text,
   key_hash text unique,
-  created_at integer not null
+  created_at integer not null,
+  check (template_id is not null or (isolation is not null and setup_script is not null)),
+  check (template_id is null or (isolation is null and image is null and setup_script is null))
 ) strict;
 create index environments_owner on environments (owner_user_id);
 

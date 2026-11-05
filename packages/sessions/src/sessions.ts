@@ -1841,8 +1841,8 @@ export class Sessions {
       : this.#templates().find((each) => each.id === id);
   }
 
-  // An Environment made from a template runs as the template says. One whose
-  // template is gone keeps its own settings.
+  // An Environment made from a template runs as the template says, and with
+  // the defaults once its template is gone.
   #templated(
     environment: StoredEnvironment,
   ): Pick<Environment, "isolation" | "image" | "setupScript"> {
