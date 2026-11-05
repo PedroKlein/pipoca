@@ -20,24 +20,19 @@ import type {
 import { askServer } from "@pipoca/ask/server";
 import { gitHosts } from "@pipoca/git-hosts/server";
 import type { ServerPluginContext } from "@pipoca/plugins";
-import { serve } from "./serve";
 import { builtInPlugins } from "./session-parts";
 import { readSse } from "./sse";
-import { firstUser } from "./testdata/sign-in";
+import { json, testServer, type TestServer } from "./testdata/harness";
 
 let root: string;
-let server: ReturnType<typeof serve>;
-let pedro: () => Promise<string>;
+let server: TestServer;
 let starter: ServerPluginContext["sessions"] | undefined;
 let toolsets: ServerPluginContext["toolsets"] | undefined;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "team-sessions-"));
 
-  const logs: string[] = [];
-
-  server = serve({
-    port: 0,
+  server = testServer({
     database: join(root, "server.db"),
     configDir: join(root, "config"),
     sessions: { pollWaitMs: 0 },
@@ -105,43 +100,18 @@ beforeEach(async () => {
       },
       ...builtInPlugins.filter(({ id }) => id === "git-hosts" || id === "ask"),
     ],
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
   });
-
-  pedro = firstUser(server, logs);
 });
 
 afterEach(async () => {
   setSystemTime();
-  await server.stop();
+  await server.close();
   await rm(root, { recursive: true, force: true });
 });
 
-async function api(
-  path: string,
-  cookie: string,
-  body?: unknown,
-  method = body === undefined ? "GET" : "POST",
-): Promise<Response> {
-  return fetch(new URL(path, server.url), {
-    method,
-    headers: {
-      cookie,
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
-}
-
-async function json<T>(response: Promise<Response>): Promise<T> {
-  return (await (await response).json()) as T;
-}
-
 // Signs in a user who isn't an admin and returns their cookie.
 async function member(name: string, id = randomUUID()): Promise<string> {
-  await pedro();
+  await server.signedIn();
 
   const db = new DatabaseSync(join(root, "server.db"));
 
@@ -179,13 +149,15 @@ async function teamSetup(): Promise<{
   const { environment, key } = await json<{
     environment: Environment;
     key: string;
-  }>(api("/api/environments", await pedro(), { name: "pods", team: true }));
+  }>(server.api("/api/environments", { body: { name: "pods", team: true } }));
 
   const profile = await json<Profile>(
-    api("/api/profiles", await pedro(), {
-      name: "Team work",
-      team: true,
-      agentsMd: "Ship.",
+    server.api("/api/profiles", {
+      body: {
+        name: "Team work",
+        team: true,
+        agentsMd: "Ship.",
+      },
     }),
   );
 
@@ -234,14 +206,16 @@ test("a team Session starts only in a team Environment, on a team Profile", asyn
   const team = await teamSetup();
 
   const { environment: laptop } = await json<{ environment: Environment }>(
-    api("/api/environments", anas, { name: "laptop" }),
+    server.as(anas)("/api/environments", { body: { name: "laptop" } }),
   );
 
-  const started = await api("/api/sessions", anas, {
-    team: true,
-    environment: team.environment,
-    profile: team.profile,
-    workspace: workspace(),
+  const started = await server.as(anas)("/api/sessions", {
+    body: {
+      team: true,
+      environment: team.environment,
+      profile: team.profile,
+      workspace: workspace(),
+    },
   });
 
   expect(started.status).toBe(201);
@@ -252,16 +226,20 @@ test("a team Session starts only in a team Environment, on a team Profile", asyn
   expect(session.startedBy).not.toBeNull();
 
   const refused = await Promise.all([
-    api("/api/sessions", anas, {
-      team: true,
-      environment: laptop.id,
-      profile: team.profile,
-      workspace: workspace(),
+    server.as(anas)("/api/sessions", {
+      body: {
+        team: true,
+        environment: laptop.id,
+        profile: team.profile,
+        workspace: workspace(),
+      },
     }),
-    api("/api/sessions", anas, {
-      team: true,
-      environment: team.environment,
-      workspace: workspace(),
+    server.as(anas)("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        workspace: workspace(),
+      },
     }),
   ]);
 
@@ -273,26 +251,26 @@ test("every user can open and list team work, and it stays out of their own list
   const team = await teamSetup();
 
   const session = await json<Session>(
-    api("/api/sessions", anas, {
-      team: true,
-      environment: team.environment,
-      profile: team.profile,
-      workspace: workspace(),
-      firstMessage: "hello",
+    server.as(anas)("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        profile: team.profile,
+        workspace: workspace(),
+        firstMessage: "hello",
+      },
     }),
   );
 
-  const opened = await json<Session>(
-    api(`/api/sessions/${session.id}`, await pedro()),
-  );
+  const opened = await json<Session>(server.api(`/api/sessions/${session.id}`));
 
   expect(opened.firstMessage).toBe("hello");
 
-  const own = await json<Session[]>(api("/api/sessions", anas));
+  const own = await json<Session[]>(server.as(anas)("/api/sessions"));
 
   const teams = await Promise.all(
-    [anas, await pedro()].map(async (cookie) =>
-      json<Session[]>(api("/api/sessions?owner=team", cookie)),
+    [anas, await server.signedIn()].map(async (cookie) =>
+      json<Session[]>(server.as(cookie)("/api/sessions?owner=team")),
     ),
   );
 
@@ -305,7 +283,7 @@ test("every user can open and list team work, and it stays out of their own list
 });
 
 test("a team Session's runner gets the team Profile on the base, never anyone's My defaults", async () => {
-  const cookie = await pedro();
+  const cookie = await server.signedIn();
 
   for (const [layer, text] of [
     ["base", "Team."],
@@ -321,11 +299,13 @@ test("a team Session's runner gets the team Profile on the base, never anyone's 
   const team = await teamSetup();
 
   const session = await json<Session>(
-    api("/api/sessions", cookie, {
-      team: true,
-      environment: team.environment,
-      profile: team.profile,
-      workspace: workspace(),
+    server.as(cookie)("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        profile: team.profile,
+        workspace: workspace(),
+      },
     }),
   );
 
@@ -352,15 +332,17 @@ test("a Session a team Session starts is the team's too", async () => {
   const team = await teamSetup();
 
   const parent = await json<Session>(
-    api("/api/sessions", await pedro(), {
-      team: true,
-      environment: team.environment,
-      profile: team.profile,
-      workspace: workspace(),
+    server.api("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        profile: team.profile,
+        workspace: workspace(),
+      },
     }),
   );
 
-  await api("/api/environments", await pedro(), { name: "mac" });
+  await server.api("/api/environments", { body: { name: "mac" } });
 
   const child = starter?.start({
     actor: `session:${parent.id}`,
@@ -397,7 +379,7 @@ test("a team Session gets no tools that use a person's git accounts", async () =
   const team = await teamSetup();
 
   const { key } = await json<{ key: string }>(
-    api("/api/environments", await pedro(), { name: "mac" }),
+    server.api("/api/environments", { body: { name: "mac" } }),
   );
 
   const mac = await json<Joined>(
@@ -412,13 +394,15 @@ test("a team Session gets no tools that use a person's git accounts", async () =
     }),
   );
 
-  await api("/api/sessions", await pedro(), { workspace: workspace() });
+  await server.api("/api/sessions", { body: { workspace: workspace() } });
 
-  await api("/api/sessions", await pedro(), {
-    team: true,
-    environment: team.environment,
-    profile: team.profile,
-    workspace: workspace(),
+  await server.api("/api/sessions", {
+    body: {
+      team: true,
+      environment: team.environment,
+      profile: team.profile,
+      workspace: workspace(),
+    },
   });
 
   const gitTools = (tools: readonly string[]) =>
@@ -443,16 +427,19 @@ test("only an admin lays out the team hub, and everyone reads the layout", async
     ],
   };
 
-  const before = await json<unknown>(api("/api/hub", anas));
-  const refused = await api("/api/hub", anas, layout, "PUT");
-  const laid = await api("/api/hub", await pedro(), layout, "PUT");
+  const before = await json<unknown>(server.as(anas)("/api/hub"));
 
-  const invalid = await api(
-    "/api/hub",
-    await pedro(),
-    { pages: [{ id: "ops", title: "Ops", panels: [] }] },
-    "PUT",
-  );
+  const refused = await server.as(anas)("/api/hub", {
+    method: "PUT",
+    body: layout,
+  });
+
+  const laid = await server.api("/api/hub", { method: "PUT", body: layout });
+
+  const invalid = await server.api("/api/hub", {
+    method: "PUT",
+    body: { pages: [{ id: "ops", title: "Ops", panels: [] }] },
+  });
 
   expect(before).toEqual({ pages: null });
 
@@ -460,7 +447,7 @@ test("only an admin lays out the team hub, and everyone reads the layout", async
     403, 200, 400,
   ]);
 
-  expect(await json<unknown>(api("/api/hub", anas))).toEqual(layout);
+  expect(await json<unknown>(server.as(anas)("/api/hub"))).toEqual(layout);
 });
 
 test("whoever started team work makes it view-only or limits it to named people", async () => {
@@ -471,18 +458,20 @@ test("whoever started team work makes it view-only or limits it to named people"
   const team = await teamSetup();
 
   const session = await json<Session>(
-    api("/api/sessions", anas, {
-      team: true,
-      environment: team.environment,
-      profile: team.profile,
-      workspace: workspace(),
+    server.as(anas)("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        profile: team.profile,
+        workspace: workspace(),
+      },
     }),
   );
 
   expect(session.access).toEqual({ kind: "team" });
 
   const teammates = await json<{ id: string; name: string }[]>(
-    api("/api/teammates", bos),
+    server.as(bos)("/api/teammates"),
   );
 
   expect(teammates.map(({ name }) => name).toSorted()).toEqual(
@@ -491,16 +480,21 @@ test("whoever started team work makes it view-only or limits it to named people"
 
   const steer = async (cookie: string): Promise<number> =>
     (
-      await api(`/api/sessions/${session.id}/commands`, cookie, {
-        type: "abort",
+      await server.as(cookie)(`/api/sessions/${session.id}/commands`, {
+        body: {
+          type: "abort",
+        },
       })
     ).status;
 
   const limit = async (cookie: string, access: unknown): Promise<Response> =>
-    api(`/api/sessions/${session.id}/access`, cookie, access, "PUT");
+    server.as(cookie)(`/api/sessions/${session.id}/access`, {
+      method: "PUT",
+      body: access,
+    });
 
   const listed = async (cookie: string): Promise<readonly string[]> =>
-    (await json<Session[]>(api("/api/sessions?owner=team", cookie))).map(
+    (await json<Session[]>(server.as(cookie)("/api/sessions?owner=team"))).map(
       ({ id }) => id,
     );
 
@@ -513,7 +507,11 @@ test("whoever started team work makes it view-only or limits it to named people"
   expect(((await viewOnly.json()) as Session).access).toEqual({ kind: "view" });
   expect(await steer(bos)).toBe(403);
   expect(await steer(anas)).not.toBe(403);
-  expect((await api(`/api/sessions/${session.id}`, bos)).status).toBe(200);
+
+  expect((await server.as(bos)(`/api/sessions/${session.id}`)).status).toBe(
+    200,
+  );
+
   expect(await listed(bos)).toEqual([session.id]);
 
   expect(
@@ -524,11 +522,18 @@ test("whoever started team work makes it view-only or limits it to named people"
 
   expect(await steer(bos)).not.toBe(403);
   expect(await steer(cys)).toBe(404);
-  expect((await api(`/api/sessions/${session.id}`, cys)).status).toBe(404);
-  expect(await listed(cys)).toEqual([]);
-  expect(await listed(await pedro())).toEqual([session.id]);
 
-  expect((await limit(await pedro(), { kind: "team" })).status).toBe(200);
+  expect((await server.as(cys)(`/api/sessions/${session.id}`)).status).toBe(
+    404,
+  );
+
+  expect(await listed(cys)).toEqual([]);
+  expect(await listed(await server.signedIn())).toEqual([session.id]);
+
+  expect((await limit(await server.signedIn(), { kind: "team" })).status).toBe(
+    200,
+  );
+
   expect(await listed(cys)).toEqual([session.id]);
 });
 
@@ -539,24 +544,28 @@ test("a team Session keeps who sent each message, for everyone who opens it", as
   const team = await teamSetup();
 
   const session = await json<Session>(
-    api("/api/sessions", anas, {
-      team: true,
-      environment: team.environment,
-      profile: team.profile,
-      workspace: workspace(),
+    server.as(anas)("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        profile: team.profile,
+        workspace: workspace(),
+      },
     }),
   );
 
   await poll(team.runner);
 
-  const sent = await api(`/api/sessions/${session.id}/commands`, bos, {
-    type: "message",
-    text: "Ship it",
+  const sent = await server.as(bos)(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "Ship it",
+    },
   });
 
   expect(sent.status).toBe(202);
 
-  const events = await api(`/api/sessions/${session.id}/events`, anas);
+  const events = await server.as(anas)(`/api/sessions/${session.id}/events`);
   const voices: Voice[] = [];
 
   for await (const event of readSse(events)) {
@@ -581,16 +590,18 @@ test("everyone following team work sees who else is looking and who is typing", 
   const team = await teamSetup();
 
   const session = await json<Session>(
-    api("/api/sessions", anas, {
-      team: true,
-      environment: team.environment,
-      profile: team.profile,
-      workspace: workspace(),
+    server.as(anas)("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        profile: team.profile,
+        workspace: workspace(),
+      },
     }),
   );
 
   const path = `/api/sessions/${session.id}/presence`;
-  const seen = readSse(await api(path, anas));
+  const seen = readSse(await server.as(anas)(path));
 
   const next = async (): Promise<readonly Presence[]> =>
     (await seen.next()).value as readonly Presence[];
@@ -599,17 +610,14 @@ test("everyone following team work sees who else is looking and who is typing", 
 
   const boLooks = new AbortController();
 
-  await fetch(new URL(path, server.url), {
-    headers: { cookie: bos },
-    signal: boLooks.signal,
-  });
+  await server.as(bos)(path, { signal: boLooks.signal });
 
   expect(await next()).toEqual([
     { person: an, typing: false },
     { person: bo, typing: false },
   ]);
 
-  expect((await api(path, bos, {})).status).toBe(204);
+  expect((await server.as(bos)(path, { body: {} })).status).toBe(204);
 
   expect(await next()).toEqual([
     { person: an, typing: false },
@@ -629,16 +637,19 @@ test("Pi reads what the team said since its last turn, with names and replies, b
   const team = await teamSetup();
 
   const session = await json<Session>(
-    api("/api/sessions", anas, {
-      team: true,
-      environment: team.environment,
-      profile: team.profile,
-      workspace: workspace(),
+    server.as(anas)("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        profile: team.profile,
+        workspace: workspace(),
+      },
     }),
   );
 
   const say = async (cookie: string, body: unknown): Promise<number> =>
-    (await api(`/api/sessions/${session.id}/say`, cookie, body)).status;
+    (await server.as(cookie)(`/api/sessions/${session.id}/say`, { body }))
+      .status;
 
   expect(await say(bos, { to: "team", text: "Ship it today?" })).toBe(201);
 
@@ -650,10 +661,12 @@ test("Pi reads what the team said since its last turn, with names and replies, b
 
   const [assigned] = await poll(team.runner);
 
-  const sent = await api(`/api/sessions/${session.id}/commands`, anas, {
-    type: "message",
-    text: "Check the release first",
-    quote: { from: bo, text: "Ship it today?" },
+  const sent = await server.as(anas)(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "Check the release first",
+      quote: { from: bo, text: "Ship it today?" },
+    },
   });
 
   expect(sent.status).toBe(202);
@@ -695,7 +708,7 @@ test("Pi reads what the team said since its last turn, with names and replies, b
     ].join("\n"),
   });
 
-  const events = await api(`/api/sessions/${session.id}/events`, bos);
+  const events = await server.as(bos)(`/api/sessions/${session.id}/events`);
   const kinds: string[] = [];
 
   for await (const event of readSse(events)) {
@@ -719,11 +732,13 @@ test("Pi hears who answered its question in team work", async () => {
   const team = await teamSetup();
 
   const session = await json<Session>(
-    api("/api/sessions", anas, {
-      team: true,
-      environment: team.environment,
-      profile: team.profile,
-      workspace: workspace(),
+    server.as(anas)("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        profile: team.profile,
+        workspace: workspace(),
+      },
     }),
   );
 
@@ -744,10 +759,12 @@ test("Pi hears who answered its question in team work", async () => {
     ),
   );
 
-  const sent = await api(`/api/sessions/${session.id}/commands`, bos, {
-    type: "answer",
-    id: "prompt-1",
-    value: { answers: [], note: null },
+  const sent = await server.as(bos)(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "answer",
+      id: "prompt-1",
+      value: { answers: [], note: null },
+    },
   });
 
   expect(sent.status).toBe(202);
@@ -769,19 +786,23 @@ test("the team votes, and Pi reads the result the next time it's asked", async (
   const team = await teamSetup();
 
   const session = await json<Session>(
-    api("/api/sessions", anas, {
-      team: true,
-      environment: team.environment,
-      profile: team.profile,
-      workspace: workspace(),
+    server.as(anas)("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        profile: team.profile,
+        workspace: workspace(),
+      },
     }),
   );
 
   const votes = `/api/plugins/ask/sessions/${session.id}/votes`;
 
-  const opened = await api(votes, bos, {
-    question: "Ship it today?",
-    options: ["Ship", "Wait"],
+  const opened = await server.as(bos)(votes, {
+    body: {
+      question: "Ship it today?",
+      options: ["Ship", "Wait"],
+    },
   });
 
   expect(opened.status).toBe(201);
@@ -789,15 +810,19 @@ test("the team votes, and Pi reads the result the next time it's asked", async (
   const { id } = (await opened.json()) as { id: string };
 
   const pick = async (cookie: string, option: string): Promise<number> =>
-    (await api(`/api/plugins/ask/votes/${id}/pick`, cookie, { option }, "PUT"))
-      .status;
+    (
+      await server.as(cookie)(`/api/plugins/ask/votes/${id}/pick`, {
+        method: "PUT",
+        body: { option },
+      })
+    ).status;
 
   expect(await pick(anas, "Ship")).toBe(200);
   expect(await pick(bos, "Wait")).toBe(200);
   expect(await pick(bos, "Ship")).toBe(200);
   expect(await pick(cys, "Later")).toBe(400);
 
-  expect(await json(api(votes, cys))).toMatchObject({
+  expect(await json(server.as(cys)(votes))).toMatchObject({
     canOpen: true,
     votes: [
       {
@@ -815,9 +840,13 @@ test("the team votes, and Pi reads the result the next time it's asked", async (
 
   const close = `/api/plugins/ask/votes/${id}/close`;
 
-  expect((await api(close, cys, {})).status).toBe(403);
-  expect((await api(close, anas, {})).status).toBe(200);
-  expect(await json(api(votes, anas))).toEqual({ canOpen: true, votes: [] });
+  expect((await server.as(cys)(close, { body: {} })).status).toBe(403);
+  expect((await server.as(anas)(close, { body: {} })).status).toBe(200);
+
+  expect(await json(server.as(anas)(votes))).toEqual({
+    canOpen: true,
+    votes: [],
+  });
 
   const [assigned] = await poll(team.runner);
 
@@ -836,9 +865,11 @@ test("the team votes, and Pi reads the result the next time it's asked", async (
     ),
   );
 
-  await api(`/api/sessions/${session.id}/commands`, anas, {
-    type: "message",
-    text: "Go on",
+  await server.as(anas)(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "Go on",
+    },
   });
 
   for await (const command of commands) {
@@ -861,11 +892,13 @@ test("a vote closes on time, even with nobody voting", async () => {
   const team = await teamSetup();
 
   const session = await json<Session>(
-    api("/api/sessions", anas, {
-      team: true,
-      environment: team.environment,
-      profile: team.profile,
-      workspace: workspace(),
+    server.as(anas)("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        profile: team.profile,
+        workspace: workspace(),
+      },
     }),
   );
 
@@ -873,19 +906,24 @@ test("a vote closes on time, even with nobody voting", async () => {
 
   expect(
     (
-      await api(votes, anas, {
-        question: "Lunch?",
-        options: ["Yes", "No"],
-        minutes: 1,
+      await server.as(anas)(votes, {
+        body: {
+          question: "Lunch?",
+          options: ["Yes", "No"],
+          minutes: 1,
+        },
       })
     ).status,
   ).toBe(201);
 
   setSystemTime(new Date(Date.now() + 61_000));
 
-  expect(await json(api(votes, anas))).toEqual({ canOpen: true, votes: [] });
+  expect(await json(server.as(anas)(votes))).toEqual({
+    canOpen: true,
+    votes: [],
+  });
 
-  const events = await api(`/api/sessions/${session.id}/events`, anas);
+  const events = await server.as(anas)(`/api/sessions/${session.id}/events`);
 
   for await (const event of readSse(events)) {
     const replayed = event as SessionEvent;
@@ -907,26 +945,28 @@ test("nobody opens a vote in team work they can't see", async () => {
   const team = await teamSetup();
 
   const shared = await json<Session>(
-    api("/api/sessions", anas, {
-      team: true,
-      environment: team.environment,
-      profile: team.profile,
-      workspace: workspace(),
+    server.as(anas)("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        profile: team.profile,
+        workspace: workspace(),
+      },
     }),
   );
 
-  await api(
-    `/api/sessions/${shared.id}/access`,
-    anas,
-    { kind: "named", people: [] },
-    "PUT",
-  );
+  await server.as(anas)(`/api/sessions/${shared.id}/access`, {
+    method: "PUT",
+    body: { kind: "named", people: [] },
+  });
 
   expect(
     (
-      await api(`/api/plugins/ask/sessions/${shared.id}/votes`, bos, {
-        question: "Ship?",
-        options: ["Yes", "No"],
+      await server.as(bos)(`/api/plugins/ask/sessions/${shared.id}/votes`, {
+        body: {
+          question: "Ship?",
+          options: ["Yes", "No"],
+        },
       })
     ).status,
   ).toBe(404);
@@ -943,15 +983,17 @@ test("team work forks as team work, or to a person's own side with its transcrip
   const team = await teamSetup();
 
   const { environment: laptop } = await json<{ environment: Environment }>(
-    api("/api/environments", anas, { name: "laptop" }),
+    server.as(anas)("/api/environments", { body: { name: "laptop" } }),
   );
 
   const session = await json<Session>(
-    api("/api/sessions", anas, {
-      team: true,
-      environment: team.environment,
-      profile: team.profile,
-      workspace: clone,
+    server.as(anas)("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        profile: team.profile,
+        workspace: clone,
+      },
     }),
   );
 
@@ -978,7 +1020,7 @@ test("team work forks as team work, or to a person's own side with its transcrip
   expect(appended.status).toBe(200);
 
   const fork = `/api/sessions/${session.id}/fork`;
-  const teamFork = await json<Session>(api(fork, anas, {}));
+  const teamFork = await json<Session>(server.as(anas)(fork, { body: {} }));
 
   expect(teamFork).toMatchObject({
     ownedBy: "team",
@@ -986,7 +1028,9 @@ test("team work forks as team work, or to a person's own side with its transcrip
     profileId: team.profile,
   });
 
-  const mine = await json<Session>(api(fork, anas, { personal: true }));
+  const mine = await json<Session>(
+    server.as(anas)(fork, { body: { personal: true } }),
+  );
 
   expect(mine.ownedBy).toBe(`person:${mine.startedBy ?? ""}`);
   expect(mine.environmentId).toBe(laptop.id);
@@ -999,22 +1043,27 @@ test("personal work moves to the team from a summary, leaving its transcript beh
   const bos = await member("bo");
   const team = await teamSetup();
 
-  await api("/api/environments", anas, { name: "laptop" });
+  await server.as(anas)("/api/environments", { body: { name: "laptop" } });
 
   const mine = await json<Session>(
-    api("/api/sessions", anas, { workspace: clone }),
+    server.as(anas)("/api/sessions", { body: { workspace: clone } }),
   );
 
   const move = `/api/sessions/${mine.id}/move`;
   const summary = "Goal: fix the docs build. Done: found the broken link.";
 
-  expect((await api(move, bos, { summary })).status).toBe(404);
-  expect((await api(move, anas, { summary: " " })).status).toBe(400);
+  expect((await server.as(bos)(move, { body: { summary } })).status).toBe(404);
 
-  const moved = await api(move, anas, {
-    summary,
-    environment: team.environment,
-    profile: team.profile,
+  expect((await server.as(anas)(move, { body: { summary: " " } })).status).toBe(
+    400,
+  );
+
+  const moved = await server.as(anas)(move, {
+    body: {
+      summary,
+      environment: team.environment,
+      profile: team.profile,
+    },
   });
 
   expect(moved.status).toBe(201);
@@ -1039,20 +1088,24 @@ test("personal work moves to the team from a summary, leaving its transcript beh
 
   expect(starter?.transcript(teamWork.id)).toEqual([]);
 
-  const again = await api(`/api/sessions/${teamWork.id}/move`, anas, {
-    summary,
+  const again = await server.as(anas)(`/api/sessions/${teamWork.id}/move`, {
+    body: {
+      summary,
+    },
   });
 
   expect(await again.json()).toMatchObject({ error: "not_personal" });
 
   const folder = await json<Session>(
-    api("/api/sessions", anas, { workspace: workspace() }),
+    server.as(anas)("/api/sessions", { body: { workspace: workspace() } }),
   );
 
-  const stuck = await api(`/api/sessions/${folder.id}/move`, anas, {
-    summary,
-    environment: team.environment,
-    profile: team.profile,
+  const stuck = await server.as(anas)(`/api/sessions/${folder.id}/move`, {
+    body: {
+      summary,
+      environment: team.environment,
+      profile: team.profile,
+    },
   });
 
   expect(await stuck.json()).toMatchObject({ error: "not_movable" });
@@ -1062,11 +1115,13 @@ test("team work signs git in as a technical user the team may use, never as its 
   const anas = await ana();
   const team = await teamSetup();
 
-  await api("/api/sessions", anas, {
-    team: true,
-    environment: team.environment,
-    profile: team.profile,
-    workspace: workspace(),
+  await server.as(anas)("/api/sessions", {
+    body: {
+      team: true,
+      environment: team.environment,
+      profile: team.profile,
+      workspace: workspace(),
+    },
   });
 
   const acting = starter?.start({
@@ -1093,14 +1148,14 @@ test("team work signs git in as a technical user the team may use, never as its 
 });
 
 test("a Team assistant runs as team work only its person steers, with tools that follow their role", async () => {
-  const pedros = await pedro();
+  const pedros = await server.signedIn();
   const anaId = randomUUID();
   await member("ana", anaId);
   const bos = await member("bo");
   const team = await teamSetup();
 
   const { user: admin } = await json<{ user: { id: string } }>(
-    api("/api/auth", pedros),
+    server.as(pedros)("/api/auth"),
   );
 
   const assistant = (person: string): Session | undefined =>
@@ -1124,7 +1179,9 @@ test("a Team assistant runs as team work only its person steers, with tools that
     access: { kind: "named", people: [] },
   });
 
-  expect((await api(`/api/sessions/${anas?.id ?? ""}`, bos)).status).toBe(404);
+  expect((await server.as(bos)(`/api/sessions/${anas?.id ?? ""}`)).status).toBe(
+    404,
+  );
 
   const rename = async (session: Session | undefined, name: string) =>
     session === undefined
@@ -1159,11 +1216,13 @@ test("team work loads only plugins that say they work there and that admins leav
   const team = await teamSetup();
 
   const startTeamWork = async () =>
-    api("/api/sessions", await pedro(), {
-      team: true,
-      environment: team.environment,
-      profile: team.profile,
-      workspace: workspace(),
+    server.api("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        profile: team.profile,
+        workspace: workspace(),
+      },
     });
 
   await startTeamWork();
@@ -1173,9 +1232,7 @@ test("team work loads only plugins that say they work there and that admins leav
   expect(first?.plugins).toContain("ask");
   expect(first?.plugins).not.toContain("notes");
 
-  const listed = await json<readonly PluginInfo[]>(
-    api("/api/plugins", await pedro()),
-  );
+  const listed = await json<readonly PluginInfo[]>(server.api("/api/plugins"));
 
   expect(
     listed
@@ -1188,22 +1245,27 @@ test("team work loads only plugins that say they work there and that admins leav
 
   expect(
     (
-      await api(
-        "/api/plugins/notes",
-        await pedro(),
-        { teamWork: true },
-        "PATCH",
-      )
+      await server.api("/api/plugins/notes", {
+        method: "PATCH",
+        body: { teamWork: true },
+      })
     ).status,
   ).toBe(400);
 
   expect(
-    (await api("/api/plugins/ask", await ana(), { teamWork: false }, "PATCH"))
-      .status,
+    (
+      await server.as(await ana())("/api/plugins/ask", {
+        method: "PATCH",
+        body: { teamWork: false },
+      })
+    ).status,
   ).toBe(403);
 
   const off = await json<PluginInfo>(
-    api("/api/plugins/ask", await pedro(), { teamWork: false }, "PATCH"),
+    server.api("/api/plugins/ask", {
+      method: "PATCH",
+      body: { teamWork: false },
+    }),
   );
 
   expect(off.teamWork).toBe(false);
@@ -1223,28 +1285,39 @@ test("team work loads only plugins that say they work there and that admins leav
 test("an admin names the team, and everyone reads the name", async () => {
   const anas = await ana();
 
-  expect(await json(api("/api/team", anas))).toEqual({ name: null });
-
-  expect((await api("/api/team", anas, { name: "Acme" }, "PUT")).status).toBe(
-    403,
-  );
+  expect(await json(server.as(anas)("/api/team"))).toEqual({ name: null });
 
   expect(
-    (await api("/api/team", await pedro(), { name: "x".repeat(61) }, "PUT"))
-      .status,
+    (
+      await server.as(anas)("/api/team", {
+        method: "PUT",
+        body: { name: "Acme" },
+      })
+    ).status,
+  ).toBe(403);
+
+  expect(
+    (
+      await server.api("/api/team", {
+        method: "PUT",
+        body: { name: "x".repeat(61) },
+      })
+    ).status,
   ).toBe(400);
 
   expect(
-    await json(api("/api/team", await pedro(), { name: "  Acme  " }, "PUT")),
+    await json(
+      server.api("/api/team", { method: "PUT", body: { name: "  Acme  " } }),
+    ),
   ).toEqual({ name: "Acme" });
 
-  expect(await json(api("/api/team", anas))).toEqual({ name: "Acme" });
+  expect(await json(server.as(anas)("/api/team"))).toEqual({ name: "Acme" });
 
   expect(
     JSON.parse(await readFile(join(root, "config", "pipoca.json"), "utf8")),
   ).toMatchObject({ team: { name: "Acme" } });
 
   expect(
-    await json(api("/api/team", await pedro(), { name: "" }, "PUT")),
+    await json(server.api("/api/team", { method: "PUT", body: { name: "" } })),
   ).toEqual({ name: null });
 });

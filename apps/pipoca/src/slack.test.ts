@@ -9,15 +9,12 @@ import {
   type WorkPoll,
 } from "@pipoca/protocol";
 import type { ServerWebSocket } from "bun";
-import { serve } from "./serve";
 import { readSse } from "./sse";
 import { runnerCredentials } from "./testdata/runners";
-import { firstUser } from "./testdata/sign-in";
+import { testServer, type TestServer } from "./testdata/harness";
 
-let logs: string[];
 let configDir: string;
-let server: ReturnType<typeof serve>;
-let pedro: () => Promise<string>;
+let server: TestServer;
 let slack: ReturnType<typeof Bun.serve>;
 let socket: ServerWebSocket<unknown> | undefined;
 let acknowledged: string[];
@@ -25,7 +22,6 @@ let posted: Record<string, unknown>[];
 let streams: AsyncGenerator[];
 
 beforeEach(() => {
-  logs = [];
   acknowledged = [];
   posted = [];
   streams = [];
@@ -89,47 +85,27 @@ beforeEach(() => {
     }),
   );
 
-  server = serve({
-    port: 0,
-    database: ":memory:",
+  server = testServer({
     configDir,
     sessions: { pollWaitMs: 0 },
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
   });
-
-  pedro = firstUser(server, logs);
 });
 
 afterEach(async () => {
   await Promise.all(streams.map(async (stream) => stream.return(undefined)));
-  await server.stop();
+  await server.close();
   await slack.stop(true);
 });
-
-async function api(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<Response> {
-  return fetch(new URL(path, server.url), {
-    method,
-    headers: {
-      cookie: await pedro(),
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
-}
 
 async function addBot(): Promise<void> {
   expect(
     (
-      await api("POST", "/api/plugins/slack/bots", {
-        name: "team-bot",
-        appToken: "xapp-good",
-        botToken: "xoxb-good",
+      await server.api("/api/plugins/slack/bots", {
+        body: {
+          name: "team-bot",
+          appToken: "xapp-good",
+          botToken: "xoxb-good",
+        },
       })
     ).status,
   ).toBe(201);
@@ -160,15 +136,17 @@ async function slackSends(event: Record<string, unknown>): Promise<void> {
 }
 
 const heard = (): readonly string[] =>
-  logs.filter((line) => line.startsWith("routine heard an event"));
+  server.logs.filter((line) => line.startsWith("routine heard an event"));
 
 test("an admin adds a Slack bot, and its mentions reach routines", async () => {
   expect(
     (
-      await api("POST", "/api/plugins/slack/bots", {
-        name: "team-bot",
-        appToken: "xapp-good",
-        botToken: "xoxb-bad",
+      await server.api("/api/plugins/slack/bots", {
+        body: {
+          name: "team-bot",
+          appToken: "xapp-good",
+          botToken: "xoxb-bad",
+        },
       })
     ).status,
   ).toBe(400);
@@ -179,7 +157,7 @@ test("an admin adds a Slack bot, and its mentions reach routines", async () => {
   expect(file).not.toContain("xoxb-good");
   expect(file).not.toContain("xapp-good");
 
-  expect(await (await api("GET", "/api/plugins/slack/bots")).json()).toEqual([
+  expect(await (await server.api("/api/plugins/slack/bots")).json()).toEqual([
     {
       name: "team-bot",
       team: "Acme",
@@ -189,14 +167,17 @@ test("an admin adds a Slack bot, and its mentions reach routines", async () => {
     },
   ]);
 
-  await api("PUT", "/api/plugins/routines/routines/answer", {
-    title: "Answer questions in #help",
-    triggers: [{ event: "slack.mention", filter: { channel: "C1" } }],
-    run: {
-      prompt: "Answer the question.",
-      workspace: { kind: "folder", path: "/srv/a" },
+  await server.api("/api/plugins/routines/routines/answer", {
+    method: "PUT",
+    body: {
+      title: "Answer questions in #help",
+      triggers: [{ event: "slack.mention", filter: { channel: "C1" } }],
+      run: {
+        prompt: "Answer the question.",
+        workspace: { kind: "folder", path: "/srv/a" },
+      },
+      key: ["channel", "ts"],
     },
-    key: ["channel", "ts"],
   });
 
   await slackSends({
@@ -233,13 +214,15 @@ test("an admin adds a Slack bot, and its mentions reach routines", async () => {
 test("a Session posts as the bot, and replies in its thread come back to it", async () => {
   await addBot();
 
-  const token = await runnerCredentials(server, pedro).token(
+  const token = await runnerCredentials(server, server.signedIn).token(
     "laptop",
     "laptops",
   );
 
-  await api("POST", "/api/sessions", {
-    workspace: { kind: "folder", path: "/srv/a" },
+  await server.api("/api/sessions", {
+    body: {
+      workspace: { kind: "folder", path: "/srv/a" },
+    },
   });
 
   const agent = async (path: string, body?: unknown): Promise<Response> =>

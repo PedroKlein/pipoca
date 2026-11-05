@@ -10,14 +10,13 @@ import {
 } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Prompt, Session, SessionEvent } from "@pipoca/protocol";
-import { serve } from "./serve";
-import { firstUser } from "./testdata/sign-in";
 import { readSse } from "./sse";
+import { json, testServer, type TestServer } from "./testdata/harness";
+import { until } from "./testdata/until";
 
 let root: string;
 let faux: ReturnType<typeof fauxProvider>;
-let server: ReturnType<typeof serve>;
-let signedIn: () => Promise<string>;
+let server: TestServer;
 
 beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), "pipoca-routines-")));
@@ -30,11 +29,8 @@ beforeEach(async () => {
   });
 
   runtime.registerNativeProvider(faux.provider);
-  const logs: string[] = [];
 
-  server = serve({
-    port: 0,
-    database: ":memory:",
+  server = testServer({
     sessions: { pollWaitMs: 100, offlineAfterMs: 1000 },
     agent: {
       provider: "local",
@@ -44,58 +40,41 @@ beforeEach(async () => {
       models: { runtime, model: faux.getModel() },
     },
     disabledPlugins: ["subagents"],
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
   });
-
-  signedIn = firstUser(server, logs);
 });
 
 afterEach(async () => {
-  await server.stop();
+  await server.close();
   await rm(root, { recursive: true, force: true });
 });
 
-async function api(path: string, body?: unknown): Promise<Response> {
-  return fetch(new URL(path, server.url), {
-    method: body === undefined ? "GET" : "POST",
-    headers: {
-      cookie: await signedIn(),
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
-}
-
-async function json<T>(response: Promise<Response>): Promise<T> {
-  return (await (await response).json()) as T;
-}
-
 async function environmentReady(): Promise<void> {
-  while ((await json<unknown[]>(api("/api/environments"))).length === 0) {
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
+  await until(
+    async () =>
+      (await json<unknown[]>(server.api("/api/environments"))).length > 0,
+  );
 }
 
 async function createSession(): Promise<Session> {
   await environmentReady();
 
   return json<Session>(
-    api("/api/sessions", { workspace: { kind: "folder", path: root } }),
+    server.api("/api/sessions", {
+      body: { workspace: { kind: "folder", path: root } },
+    }),
   );
 }
 
 async function follow(
   sessionId: string,
-  until: (events: readonly SessionEvent[]) => boolean,
+  done: (events: readonly SessionEvent[]) => boolean,
 ): Promise<SessionEvent[]> {
   const events: SessionEvent[] = [];
   for await (const event of readSse(
-    await api(`/api/sessions/${sessionId}/events`),
+    await server.api(`/api/sessions/${sessionId}/events`),
   )) {
     events.push(event as SessionEvent);
-    if (until(events)) {
+    if (done(events)) {
       break;
     }
   }
@@ -152,9 +131,11 @@ test("a Session makes a routine after the user allows it, and the routine runs o
 
   const session = await createSession();
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "every weekday morning, summarise new issues",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "every weekday morning, summarise new issues",
+    },
   });
 
   const asked = prompts(
@@ -165,10 +146,12 @@ test("a Session makes a routine after the user allows it, and the routine runs o
     ["permission", "Create the routine “daily-issues”?"],
   ]);
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "answer",
-    id: asked[0]?.id,
-    value: "once",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "answer",
+      id: asked[0]?.id,
+      value: "once",
+    },
   });
 
   const events = await follow(session.id, entriesInclude("made it"));
@@ -176,7 +159,7 @@ test("a Session makes a routine after the user allows it, and the routine runs o
 
   const [listed] = await json<
     { name: string; lastRun: { sessionId: string } }[]
-  >(api("/api/plugins/routines/routines"));
+  >(server.api("/api/plugins/routines/routines"));
 
   expect(listed?.name).toBe("daily-issues");
 
@@ -204,19 +187,23 @@ test("a Session can't make a routine the user doesn't allow", async () => {
 
   const session = await createSession();
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "every night",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "every night",
+    },
   });
 
   const asked = prompts(
     await follow(session.id, (all) => prompts(all).length > 0),
   );
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "answer",
-    id: asked[0]?.id,
-    value: "deny",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "answer",
+      id: asked[0]?.id,
+      value: "deny",
+    },
   });
 
   const events = await follow(session.id, entriesInclude("fine"));
@@ -225,5 +212,5 @@ test("a Session can't make a routine the user doesn't allow", async () => {
     entriesInclude("The user didn't allow creating the routine.")(events),
   ).toBe(true);
 
-  expect(await json(api("/api/plugins/routines/routines"))).toEqual([]);
+  expect(await json(server.api("/api/plugins/routines/routines"))).toEqual([]);
 }, 30_000);

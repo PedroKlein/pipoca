@@ -10,8 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { serve } from "./serve";
-import { firstUser } from "./testdata/sign-in";
+import { testServer, type TestServer } from "./testdata/harness";
 
 const clientId = "pipoca-test";
 
@@ -23,52 +22,24 @@ interface Account {
   readonly [claim: string]: unknown;
 }
 
-let logs: string[];
-let server: ReturnType<typeof serve>;
+let server: TestServer;
 let provider: ReturnType<typeof fakeProvider>;
-let pedro: () => Promise<string>;
 let providerId: string;
 let configDir: string;
 
 beforeEach(async () => {
-  logs = [];
   provider = fakeProvider();
 
   configDir = mkdtempSync(join(tmpdir(), "pipoca-config-"));
 
-  server = serve({
-    port: 0,
-    database: ":memory:",
-    configDir,
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
-  });
-
-  pedro = firstUser(server, logs);
+  server = testServer({ configDir });
   providerId = await addProvider(provider.issuer);
 });
 
 afterEach(async () => {
-  await server.stop();
+  await server.close();
   await provider.stop();
 });
-
-async function api(
-  method: string,
-  path: string,
-  cookie: string,
-  body?: unknown,
-): Promise<Response> {
-  return fetch(new URL(path, server.url), {
-    method,
-    headers: {
-      cookie,
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
-}
 
 function providerInput(
   issuer: string,
@@ -88,12 +59,9 @@ async function addProvider(
   issuer: string,
   more: Record<string, unknown> = {},
 ): Promise<string> {
-  const added = await api(
-    "POST",
-    "/api/plugins/oidc/providers",
-    await pedro(),
-    providerInput(issuer, more),
-  );
+  const added = await server.api("/api/plugins/oidc/providers", {
+    body: providerInput(issuer, more),
+  });
 
   expect(added.status).toBe(201);
 
@@ -101,12 +69,9 @@ async function addProvider(
 }
 
 async function configure(more: Record<string, unknown>): Promise<Response> {
-  const saved = await api(
-    "POST",
-    `/api/plugins/oidc/providers/${providerId}`,
-    await pedro(),
-    providerInput(provider.issuer, more),
-  );
+  const saved = await server.api(`/api/plugins/oidc/providers/${providerId}`, {
+    body: providerInput(provider.issuer, more),
+  });
 
   expect(saved.status).toBe(200);
 
@@ -114,7 +79,7 @@ async function configure(more: Record<string, unknown>): Promise<Response> {
 }
 
 async function userOf(cookie: string): Promise<unknown> {
-  const status = (await (await api("GET", "/api/auth", cookie)).json()) as {
+  const status = (await (await server.as(cookie)("/api/auth")).json()) as {
     user: unknown;
   };
 
@@ -131,12 +96,9 @@ async function signIn(
   account: Account,
   options: { start?: string; cookie?: string; browser?: string } = {},
 ): Promise<{ readonly response: Response; readonly cookie: string }> {
-  const started = await fetch(
-    new URL(
-      options.start ?? `/api/plugins/oidc/start/${providerId}`,
-      server.url,
-    ),
-    { redirect: "manual", headers: { cookie: options.cookie ?? "" } },
+  const started = await server.as(options.cookie ?? "")(
+    options.start ?? `/api/plugins/oidc/start/${providerId}`,
+    { redirect: "manual" },
   );
 
   expect(started.status).toBe(302);
@@ -225,7 +187,7 @@ test("offers a button for each provider and signs in through any of them", async
 test("keeps a client secret out of the page, sends it to the provider, and takes it away", async () => {
   const set = await configure({ clientSecret: "s3cret value" });
   const file = readFileSync(join(configDir, "pipoca.json"), "utf8");
-  const listed = await api("GET", "/api/plugins/oidc/providers", await pedro());
+  const listed = await server.api("/api/plugins/oidc/providers");
 
   await signIn(ana);
   const kept = await configure({ clientSecret: "" });
@@ -252,17 +214,17 @@ test("lets only admins see and change providers", async () => {
   const { cookie } = await signIn(ana);
 
   const statuses = [
-    (await api("GET", "/api/plugins/oidc/providers", cookie)).status,
+    (await server.as(cookie)("/api/plugins/oidc/providers")).status,
     (
-      await api(
-        "POST",
-        "/api/plugins/oidc/providers",
-        cookie,
-        providerInput(provider.issuer),
-      )
+      await server.as(cookie)("/api/plugins/oidc/providers", {
+        body: providerInput(provider.issuer),
+      })
     ).status,
-    (await api("DELETE", `/api/plugins/oidc/providers/${providerId}`, cookie))
-      .status,
+    (
+      await server.as(cookie)(`/api/plugins/oidc/providers/${providerId}`, {
+        method: "DELETE",
+      })
+    ).status,
   ];
 
   expect(statuses).toEqual([403, 403, 403]);
@@ -273,12 +235,9 @@ test("refuses a provider without an issuer URL or a client ID", async () => {
     [{ issuer: "not a url" }, { clientId: "" }].map(
       async (more) =>
         (
-          await api(
-            "POST",
-            "/api/plugins/oidc/providers",
-            await pedro(),
-            providerInput(provider.issuer, more),
-          )
+          await server.api("/api/plugins/oidc/providers", {
+            body: providerInput(provider.issuer, more),
+          })
         ).status,
     ),
   );
@@ -287,10 +246,9 @@ test("refuses a provider without an issuer URL or a client ID", async () => {
 });
 
 test("stops offering a provider once it is removed", async () => {
-  const removed = await api(
-    "DELETE",
+  const removed = await server.api(
     `/api/plugins/oidc/providers/${providerId}`,
-    await pedro(),
+    { method: "DELETE" },
   );
 
   const status = (await (
@@ -315,18 +273,9 @@ function writeConfig(settings: unknown): void {
 
 // Starts the server again on the same config folder and database.
 async function restart(database = ":memory:"): Promise<void> {
-  await server.stop();
+  await server.close();
 
-  server = serve({
-    port: 0,
-    database,
-    configDir,
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
-  });
-
-  pedro = firstUser(server, logs);
+  server = testServer({ database, configDir });
 }
 
 test("keeps the providers Settings adds in pipoca.json", () => {
@@ -385,7 +334,7 @@ test("signs in through a provider written into the file by hand, with its secret
     start: "/api/plugins/oidc/start/sap",
   });
 
-  const listed = await api("GET", "/api/plugins/oidc/providers", await pedro());
+  const listed = await server.api("/api/plugins/oidc/providers");
 
   expect(status.logins).toEqual([
     { label: "Sign in with IAS", path: "/api/plugins/oidc/start/ias" },
@@ -424,9 +373,11 @@ test("fails the plugin, with the reason, when the file's providers don't fit at 
 
   await restart();
 
-  const listed = (await (
-    await api("GET", "/api/plugins", await pedro())
-  ).json()) as { id: string; state: string; error?: string }[];
+  const listed = (await (await server.api("/api/plugins")).json()) as {
+    id: string;
+    state: string;
+    error?: string;
+  }[];
 
   expect(listed.find(({ id }) => id === "oidc")).toMatchObject({
     state: "failed",
@@ -442,12 +393,9 @@ test("keeps the last providers that fit while the file is broken, and won't over
     await fetch(new URL("/api/auth", server.url))
   ).json()) as { logins: unknown[] };
 
-  const added = await api(
-    "POST",
-    "/api/plugins/oidc/providers",
-    await pedro(),
-    providerInput(provider.issuer, { label: "Sign in with Google" }),
-  );
+  const added = await server.api("/api/plugins/oidc/providers", {
+    body: providerInput(provider.issuer, { label: "Sign in with Google" }),
+  });
 
   expect(status.logins).toHaveLength(1);
   expect(added.status).toBe(400);
@@ -456,9 +404,9 @@ test("keeps the last providers that fit while the file is broken, and won't over
     "{ not json",
   );
 
-  expect(logs.some((line) => line.startsWith("config file unreadable"))).toBe(
-    true,
-  );
+  expect(
+    server.logs.some((line) => line.startsWith("config file unreadable")),
+  ).toBe(true);
 });
 
 test("won't save over providers edited by hand into a list that doesn't fit", async () => {
@@ -472,12 +420,9 @@ test("won't save over providers edited by hand into a list that doesn't fit", as
 
   const edited = readFileSync(join(configDir, "pipoca.json"), "utf8");
 
-  const added = await api(
-    "POST",
-    "/api/plugins/oidc/providers",
-    await pedro(),
-    providerInput(provider.issuer, { label: "Sign in with Google" }),
-  );
+  const added = await server.api("/api/plugins/oidc/providers", {
+    body: providerInput(provider.issuer, { label: "Sign in with Google" }),
+  });
 
   expect(added.status).toBe(400);
 
@@ -545,7 +490,7 @@ test("makes a user for a member of the access group and signs them in", async ()
 
   const users = await Promise.all(
     [cookie, again.cookie].map(async (each) => {
-      const status = (await (await api("GET", "/api/auth", each)).json()) as {
+      const status = (await (await server.as(each)("/api/auth")).json()) as {
         user: unknown;
       };
 
@@ -565,7 +510,7 @@ test("makes a user for a member of the access group and signs them in", async ()
 test("names a user it makes without the spaces around the provider's email", async () => {
   const { cookie } = await signIn({ ...ana, email: " ana@example.com " });
 
-  const status = (await (await api("GET", "/api/auth", cookie)).json()) as {
+  const status = (await (await server.as(cookie)("/api/auth")).json()) as {
     user: unknown;
   };
 
@@ -636,7 +581,7 @@ test("reads the admin group again on every sign-in", async () => {
   const first = await signIn(account);
 
   const save = async (cookie: string): Promise<number> =>
-    (await api("GET", "/api/plugins/oidc/providers", cookie)).status;
+    (await server.as(cookie)("/api/plugins/oidc/providers")).status;
 
   const asAdmin = await save(first.cookie);
 
@@ -650,14 +595,18 @@ test("keeps the role an admin gave when the provider names no admins", async () 
   await configure({ adminGroup: "" });
   await signIn(ana);
 
-  const people = (await (
-    await api("GET", "/api/people", await pedro())
-  ).json()) as { id: string; name: string }[];
+  const people = (await (await server.api("/api/people")).json()) as {
+    id: string;
+    name: string;
+  }[];
 
   const id = people.find(({ name }) => name !== "pedro")?.id ?? "";
 
-  const made = await api("PATCH", `/api/people/${id}`, await pedro(), {
-    admin: true,
+  const made = await server.api(`/api/people/${id}`, {
+    method: "PATCH",
+    body: {
+      admin: true,
+    },
   });
 
   const again = await signIn(ana);
@@ -676,17 +625,17 @@ test("lets in someone outside the rules who has an invite, with the invite's rol
 
   const before = await signIn(zoe);
 
-  const invited = await api("POST", "/api/invites", await pedro(), {
-    emails: ["zoe@example.com"],
-    admin: true,
+  const invited = await server.api("/api/invites", {
+    body: {
+      emails: ["zoe@example.com"],
+      admin: true,
+    },
   });
 
   const first = await signIn(zoe);
   const again = await signIn(zoe);
 
-  const left = (await (
-    await api("GET", "/api/invites", await pedro())
-  ).json()) as unknown[];
+  const left = (await (await server.api("/api/invites")).json()) as unknown[];
 
   expect([before.response.status, invited.status]).toEqual([403, 201]);
   expect(await userOf(first.cookie)).toMatchObject({ admin: true });
@@ -702,7 +651,7 @@ test("lets in whoever follows an invite link through the provider", async () => 
   };
 
   const [link] = (await (
-    await api("POST", "/api/invites", await pedro(), {})
+    await server.api("/api/invites", { body: {} })
   ).json()) as { token: string }[];
 
   const joining = (await (
@@ -724,11 +673,19 @@ test("only admins change plugins or restart the server", async () => {
   const { cookie } = await signIn(ana);
 
   const statuses = [
-    (await api("POST", "/api/plugins", cookie, { url: "file:///nowhere" }))
-      .status,
-    (await api("PATCH", "/api/plugins/oidc", cookie, { settings: {} })).status,
-    (await api("DELETE", "/api/plugins/oidc", cookie)).status,
-    (await api("POST", "/api/restart", cookie, {})).status,
+    (
+      await server.as(cookie)("/api/plugins", {
+        body: { url: "file:///nowhere" },
+      })
+    ).status,
+    (
+      await server.as(cookie)("/api/plugins/oidc", {
+        method: "PATCH",
+        body: { settings: {} },
+      })
+    ).status,
+    (await server.as(cookie)("/api/plugins/oidc", { method: "DELETE" })).status,
+    (await server.as(cookie)("/api/restart", { body: {} })).status,
   ];
 
   expect(statuses).toEqual([403, 403, 403, 403]);
@@ -738,17 +695,18 @@ test("only admins change a template's Kubernetes settings", async () => {
   const { cookie } = await signIn(ana);
 
   const template = (await (
-    await api("POST", "/api/templates", await pedro(), { name: "pods" })
+    await server.api("/api/templates", { body: { name: "pods" } })
   ).json()) as { id: string };
 
   const path = `/api/plugins/kubernetes/templates/${template.id}`;
   const patch = { spec: { volumes: [{ name: "key", secret: {} }] } };
 
   const statuses = [
-    (await api("GET", path, cookie)).status,
-    (await api("POST", path, cookie, { settings: { podPatch: patch } })).status,
-    (await api("POST", path, cookie, { settings: null })).status,
-    (await api("POST", path, await pedro(), { settings: { podPatch: patch } }))
+    (await server.as(cookie)(path)).status,
+    (await server.as(cookie)(path, { body: { settings: { podPatch: patch } } }))
+      .status,
+    (await server.as(cookie)(path, { body: { settings: null } })).status,
+    (await server.api(path, { body: { settings: { podPatch: patch } } }))
       .status,
   ];
 
@@ -759,13 +717,15 @@ test("only admins change model aliases, and anyone changes a Project's goal", as
   const { cookie } = await signIn(ana);
 
   const { environment } = (await (
-    await api("POST", "/api/environments", cookie, { name: "laptop" })
+    await server.as(cookie)("/api/environments", { body: { name: "laptop" } })
   ).json()) as { environment: { id: string } };
 
   const project = (await (
-    await api("POST", "/api/plugins/projects/projects", cookie, {
-      name: "Release",
-      repositories: ["https://example.com/app.git"],
+    await server.as(cookie)("/api/plugins/projects/projects", {
+      body: {
+        name: "Release",
+        repositories: ["https://example.com/app.git"],
+      },
     })
   ).json()) as { id: string };
 
@@ -773,9 +733,9 @@ test("only admins change model aliases, and anyone changes a Project's goal", as
   const settings = `/api/plugins/projects/projects/${project.id}/settings`;
 
   const statuses = [
-    (await api("POST", aliases, cookie, { aliases: null })).status,
-    (await api("POST", aliases, await pedro(), { aliases: null })).status,
-    (await api("POST", settings, cookie, { goal: "Ship it" })).status,
+    (await server.as(cookie)(aliases, { body: { aliases: null } })).status,
+    (await server.api(aliases, { body: { aliases: null } })).status,
+    (await server.as(cookie)(settings, { body: { goal: "Ship it" } })).status,
   ];
 
   expect(statuses).toEqual([403, 200, 200]);
@@ -791,18 +751,21 @@ test("refuses a callback in a browser that didn't start the sign-in", async () =
 test("lets a password user link their account and sign in with it", async () => {
   const linked = await signIn(
     { ...ana, email: "pedro@example.com" },
-    { start: `/api/plugins/oidc/link/${providerId}`, cookie: await pedro() },
+    {
+      start: `/api/plugins/oidc/link/${providerId}`,
+      cookie: await server.signedIn(),
+    },
   );
 
   expect(await linked.response.text()).toContain("url=/#settings/accounts");
 
   const { cookie } = await signIn({ ...ana, email: "pedro@example.com" });
 
-  const status = (await (await api("GET", "/api/auth", cookie)).json()) as {
+  const status = (await (await server.as(cookie)("/api/auth")).json()) as {
     user: unknown;
   };
 
-  const account = await api("GET", "/api/plugins/oidc/account", await pedro());
+  const account = await server.api("/api/plugins/oidc/account");
 
   expect(status.user).toMatchObject({ name: "pedro", admin: true });
 
@@ -823,10 +786,9 @@ test("lets a password user link their account and sign in with it", async () => 
     ],
   });
 
-  const unlinked = await api(
-    "DELETE",
+  const unlinked = await server.api(
     `/api/plugins/oidc/identities/${encodeURIComponent(provider.issuer)}`,
-    await pedro(),
+    { method: "DELETE" },
   );
 
   expect(await unlinked.json()).toMatchObject({ identities: [] });
@@ -992,9 +954,9 @@ function fakeProvider(): {
 test("tells admins how many people signed in with each provider this week", async () => {
   const listed = async (): Promise<unknown> =>
     (
-      (await (
-        await api("GET", "/api/plugins/oidc/providers", await pedro())
-      ).json()) as { signedInThisWeek: number }[]
+      (await (await server.api("/api/plugins/oidc/providers")).json()) as {
+        signedInThisWeek: number;
+      }[]
     )[0]?.signedInThisWeek;
 
   expect(await listed()).toBe(0);
@@ -1008,7 +970,9 @@ test("tells admins how many people signed in with each provider this week", asyn
 test("tests whether the server reaches a provider", async () => {
   const tested = async (id: string): Promise<unknown> =>
     (
-      await api("POST", `/api/plugins/oidc/providers/${id}/test`, await pedro())
+      await server.api(`/api/plugins/oidc/providers/${id}/test`, {
+        method: "POST",
+      })
     ).json();
 
   expect(await tested(providerId)).toEqual({ ok: true, error: null });
@@ -1023,7 +987,7 @@ test("tests whether the server reaches a provider", async () => {
 
 test("tells admins whether passwords still sign people in", async () => {
   const account = (await (
-    await api("GET", "/api/plugins/oidc/account", await pedro())
+    await server.api("/api/plugins/oidc/account")
   ).json()) as { passwordLogin: boolean };
 
   expect(account.passwordLogin).toBe(true);

@@ -5,12 +5,7 @@ import { type AddressInfo, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { hostTerminals } from "@pipoca/sessionhost";
 import { httpSessionStream } from "./client";
-
-async function waitFor(predicate: () => boolean): Promise<void> {
-  while (!predicate()) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-}
+import { until } from "./testdata/until";
 
 // Stands in for a server behind a link much slower than the shell's output.
 async function stalledServer(
@@ -111,7 +106,7 @@ test("closes a terminal socket whose output the server stops reading", async () 
       rows: 24,
     });
 
-    await waitFor(() => logs.includes("terminal socket closed"));
+    await until(() => logs.includes("terminal socket closed"));
   } finally {
     terminals.close();
     server.close();

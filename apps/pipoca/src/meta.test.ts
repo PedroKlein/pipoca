@@ -17,15 +17,14 @@ import type {
   SessionEvent,
   SlashCommand,
 } from "@pipoca/protocol";
-import { serve } from "./serve";
+import { json, testServer, type TestServer } from "./testdata/harness";
+import { until } from "./testdata/until";
 import { runnerCredentials } from "./testdata/runners";
-import { firstUser } from "./testdata/sign-in";
 import { readSse } from "./sse";
 
 let root: string;
 let faux: ReturnType<typeof fauxProvider>;
-let server: ReturnType<typeof serve>;
-let signedIn: () => Promise<string>;
+let server: TestServer;
 
 beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), "pipoca-meta-")));
@@ -38,11 +37,8 @@ beforeEach(async () => {
   });
 
   runtime.registerNativeProvider(faux.provider);
-  const logs: string[] = [];
 
-  server = serve({
-    port: 0,
-    database: ":memory:",
+  server = testServer({
     sessions: { pollWaitMs: 100, offlineAfterMs: 1000 },
     agent: {
       provider: "local",
@@ -52,56 +48,39 @@ beforeEach(async () => {
       models: { runtime, model: faux.getModel() },
     },
     disabledPlugins: ["subagents"],
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
   });
-
-  signedIn = firstUser(server, logs);
 });
 
 afterEach(async () => {
-  await server.stop();
+  await server.close();
   await rm(root, { recursive: true, force: true });
 });
 
-async function api(path: string, body?: unknown): Promise<Response> {
-  return fetch(new URL(path, server.url), {
-    method: body === undefined ? "GET" : "POST",
-    headers: {
-      cookie: await signedIn(),
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
-}
-
-async function json<T>(response: Promise<Response>): Promise<T> {
-  return (await (await response).json()) as T;
-}
-
 async function environmentReady(): Promise<void> {
-  while ((await json<unknown[]>(api("/api/environments"))).length === 0) {
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
+  await until(
+    async () =>
+      (await json<unknown[]>(server.api("/api/environments"))).length > 0,
+  );
 }
 
 async function startMeta(text: string): Promise<Session> {
   await environmentReady();
 
-  return json<Session>(api("/api/plugins/meta/sessions", { text }));
+  return json<Session>(
+    server.api("/api/plugins/meta/sessions", { body: { text } }),
+  );
 }
 
 async function follow(
   sessionId: string,
-  until: (events: readonly SessionEvent[]) => boolean,
+  done: (events: readonly SessionEvent[]) => boolean,
 ): Promise<SessionEvent[]> {
   const events: SessionEvent[] = [];
   for await (const event of readSse(
-    await api(`/api/sessions/${sessionId}/events`),
+    await server.api(`/api/sessions/${sessionId}/events`),
   )) {
     events.push(event as SessionEvent);
-    if (until(events)) {
+    if (done(events)) {
       break;
     }
   }
@@ -134,8 +113,8 @@ test("starts a meta-session on the meta Profile and keeps it out of the Session 
   const session = await startMeta("What can you do?");
   await follow(session.id, entriesInclude("the assistant answers"));
 
-  const listed = await json<Session[]>(api("/api/sessions"));
-  const owned = await json<Session[]>(api("/api/plugins/meta/sessions"));
+  const listed = await json<Session[]>(server.api("/api/sessions"));
+  const owned = await json<Session[]>(server.api("/api/plugins/meta/sessions"));
 
   expect(listed.map(({ id }) => id)).not.toContain(session.id);
   expect(owned.map(({ id }) => id)).toEqual([session.id]);
@@ -145,7 +124,10 @@ test("starts a meta-session as the person who asked for it", async () => {
   faux.setResponses([fauxAssistantMessage([fauxText("hello")])]);
 
   const session = await startMeta("What can you do?");
-  const { user } = await json<{ user: { id: string } }>(api("/api/auth"));
+
+  const { user } = await json<{ user: { id: string } }>(
+    server.api("/api/auth"),
+  );
 
   expect(session.startedBy).toBe(user.id);
 });
@@ -154,26 +136,28 @@ test("a meta-session belongs to the person who asked for it", async () => {
   faux.setResponses([fauxAssistantMessage([fauxText("hello")])]);
 
   const session = await startMeta("What can you do?");
-  const { user } = await json<{ user: { id: string } }>(api("/api/auth"));
+
+  const { user } = await json<{ user: { id: string } }>(
+    server.api("/api/auth"),
+  );
 
   expect(session.ownedBy).toBe(`person:${user.id}`);
 });
 
 test("refuses a meta-session without a first message", async () => {
   await environmentReady();
-  const response = await api("/api/plugins/meta/sessions", { text: " " });
+
+  const response = await server.api("/api/plugins/meta/sessions", {
+    body: { text: " " },
+  });
 
   expect(response.status).toBe(400);
 });
 
 test("answers a method the meta-session list has no route for as not found", async () => {
-  const response = await fetch(
-    new URL("/api/plugins/meta/sessions", server.url),
-    {
-      method: "DELETE",
-      headers: { cookie: await signedIn() },
-    },
-  );
+  const response = await server.api("/api/plugins/meta/sessions", {
+    method: "DELETE",
+  });
 
   expect(response.status).toBe(404);
 
@@ -185,7 +169,10 @@ test("answers a method the meta-session list has no route for as not found", asy
 
 async function environmentId(): Promise<string> {
   await environmentReady();
-  const [environment] = await json<{ id: string }[]>(api("/api/environments"));
+
+  const [environment] = await json<{ id: string }[]>(
+    server.api("/api/environments"),
+  );
 
   return environment?.id ?? "";
 }
@@ -229,10 +216,12 @@ test("asks before a destructive call, names what it changes, runs it only when a
 
     asked.push(...(prompt ? [prompt] : []));
 
-    await api(`/api/sessions/${session.id}/commands`, {
-      type: "answer",
-      id: prompt?.id,
-      value,
+    await server.api(`/api/sessions/${session.id}/commands`, {
+      body: {
+        type: "answer",
+        id: prompt?.id,
+        value,
+      },
     });
   };
 
@@ -245,9 +234,9 @@ test("asks before a destructive call, names what it changes, runs it only when a
     .flatMap((e) => (e.type === "entry" ? [e.entry] : []))
     .join("\n");
 
-  const names = (await json<{ name: string }[]>(api("/api/environments"))).map(
-    ({ name }) => name,
-  );
+  const names = (
+    await json<{ name: string }[]>(server.api("/api/environments"))
+  ).map(({ name }) => name);
 
   expect(asked.map(({ kind, title }) => [kind, title])).toEqual([
     ["permission", "Change the Environment “local”?"],
@@ -269,9 +258,11 @@ test("loads the meta-session's confirm only in meta-sessions", async () => {
   await environmentReady();
 
   const session = await json<Session>(
-    api("/api/sessions", {
-      workspace: { kind: "folder", path: root },
-      firstMessage: "Run something",
+    server.api("/api/sessions", {
+      body: {
+        workspace: { kind: "folder", path: root },
+        firstMessage: "Run something",
+      },
     }),
   );
 
@@ -300,7 +291,9 @@ test("loads only the Session parts the meta plugin allows in a meta-session", as
   const metaSession = await startMeta("Hello");
 
   const ordinary = await json<Session>(
-    api("/api/sessions", { workspace: { kind: "folder", path: root } }),
+    server.api("/api/sessions", {
+      body: { workspace: { kind: "folder", path: root } },
+    }),
   );
 
   const names = async (id: string): Promise<string[]> =>
@@ -337,10 +330,12 @@ test("shows a destructive call's fields as labelled values, leaving out ids and 
     await follow(session.id, (all) => prompts(all).length > 0),
   );
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "answer",
-    id: asked?.id,
-    value: "deny",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "answer",
+      id: asked?.id,
+      value: "deny",
+    },
   });
 
   expect(asked?.kind === "permission" && asked.details).toEqual([
@@ -372,17 +367,19 @@ test("stops asking about a tool the user allowed for the rest of the Session", a
     await follow(session.id, (all) => prompts(all).length > 0),
   );
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "answer",
-    id: asked?.id,
-    value: "session",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "answer",
+      id: asked?.id,
+      value: "session",
+    },
   });
 
   const events = await follow(session.id, entriesInclude("all done"));
 
-  const names = (await json<{ name: string }[]>(api("/api/environments"))).map(
-    ({ name }) => name,
-  );
+  const names = (
+    await json<{ name: string }[]>(server.api("/api/environments"))
+  ).map(({ name }) => name);
 
   expect(prompts(events).filter(({ id }) => id !== asked?.id)).toEqual([]);
   expect(names).toEqual(["second"]);
@@ -409,10 +406,12 @@ test("asks the user questions without asking permission first", async () => {
     await follow(session.id, (all) => prompts(all).length > 0),
   );
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "answer",
-    id: asked?.id,
-    value: null,
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "answer",
+      id: asked?.id,
+      value: null,
+    },
   });
 
   expect(asked?.kind).toBe("questions");
@@ -429,7 +428,9 @@ test("stops a turn that waits on a confirm", async () => {
   const session = await startMeta("Run something");
   await follow(session.id, (all) => prompts(all).length > 0);
 
-  await api(`/api/sessions/${session.id}/commands`, { type: "abort" });
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: { type: "abort" },
+  });
 
   await follow(session.id, (all) =>
     all.some((e) => e.type === "session" && e.session.status === "idle"),
@@ -437,33 +438,14 @@ test("stops a turn that waits on a confirm", async () => {
 });
 
 test("hands a runner only the allowed Session parts and requires the meta one", async () => {
-  const logs: string[] = [];
-
-  const bare = serve({
-    port: 0,
-    database: ":memory:",
-    sessions: { pollWaitMs: 0 },
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
-  });
+  const bare = testServer({ sessions: { pollWaitMs: 0 } });
 
   try {
-    const cookie = firstUser(bare, logs);
-    const runners = runnerCredentials(bare, cookie);
+    const runners = runnerCredentials(bare, bare.signedIn);
     const token = await runners.token("vm");
 
     const post = async (path: string, body: unknown): Promise<Session> =>
-      json<Session>(
-        fetch(new URL(path, bare.url), {
-          method: "POST",
-          headers: {
-            cookie: await cookie(),
-            "content-type": "application/json",
-          },
-          body: JSON.stringify(body),
-        }),
-      );
+      json<Session>(bare.api(path, { body }));
 
     const metaSession = await post("/api/plugins/meta/sessions", {
       text: "Hello",
@@ -499,6 +481,6 @@ test("hands a runner only the allowed Session parts and requires the meta one", 
     expect(of(ordinary.id)?.plugins).not.toContain("meta");
     expect(of(ordinary.id)?.requiredPlugins).toEqual([]);
   } finally {
-    await bare.stop();
+    await bare.close();
   }
 });

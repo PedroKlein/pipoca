@@ -14,66 +14,43 @@ import { DatabaseSync } from "node:sqlite";
 import { $ } from "bun";
 import type { PluginInfo } from "@pipoca/protocol";
 import { installedPlugins } from "./installed";
-import { serve, type ServeOptions } from "./serve";
-import { firstUser } from "./testdata/sign-in";
+import type { ServeOptions } from "./serve";
+import { closeServers, testServer, type TestServer } from "./testdata/harness";
 
 let root: string;
 let plugins: string;
-let server: ReturnType<typeof serve> | undefined;
-let cookie: string;
+let server: TestServer;
+let cookie: string | undefined;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "pipoca-in-place-"));
   plugins = join(root, "plugins");
-  cookie = "";
+  cookie = undefined;
   await mkdir(plugins);
 });
 
 afterEach(async () => {
-  await server?.stop();
-  server = undefined;
+  await closeServers();
   await rm(root, { recursive: true, force: true });
 });
 
 async function start(
   options: Pick<ServeOptions, "idleTimeout"> = {},
 ): Promise<void> {
-  await server?.stop();
+  await closeServers();
 
-  const logs: string[] = [];
-
-  server = serve({
+  server = testServer({
     ...options,
-    port: 0,
     database: join(root, "server.db"),
     sessions: { pollWaitMs: 0 },
     installed: {
       root: plugins,
       plugins: await installedPlugins(plugins, () => undefined),
     },
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
+    ...(cookie !== undefined && { cookie }),
   });
 
-  if (cookie === "") {
-    cookie = await firstUser(server, logs)();
-  }
-}
-
-async function api(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<Response> {
-  return fetch(new URL(path, server?.url), {
-    method,
-    headers: {
-      cookie,
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
+  cookie = await server.signedIn();
 }
 
 async function write(
@@ -81,7 +58,10 @@ async function write(
   path: string,
   content: string,
 ): Promise<Response> {
-  return api("PUT", `/api/plugin-files/${plugin}`, { path, content });
+  return server.api(`/api/plugin-files/${plugin}`, {
+    method: "PUT",
+    body: { path, content },
+  });
 }
 
 async function errorOf(response: Promise<Response>): Promise<string> {
@@ -140,14 +120,14 @@ test("writes a new plugin turned off, and lists and reads its files", async () =
 
   await write("hello", "src/util.ts", "export const two = 2;\n");
 
-  expect(await (await api("GET", "/api/plugin-files/hello")).json()).toEqual([
+  expect(await (await server.api("/api/plugin-files/hello")).json()).toEqual([
     "package.json",
     "src/util.ts",
   ]);
 
   expect(
     await (
-      await api("GET", "/api/plugin-files/hello?path=src%2Futil.ts")
+      await server.api("/api/plugin-files/hello?path=src%2Futil.ts")
     ).json(),
   ).toEqual({ path: "src/util.ts", content: "export const two = 2;\n" });
 });
@@ -162,18 +142,20 @@ test("builds a plugin turned off without running it, and says why one doesn't bu
     `${serverPart}\nawait Bun.write(${JSON.stringify(join(root, "ran"))}, "");`,
   );
 
-  const built = await api("POST", "/api/plugin-builds/hello");
+  const built = await server.api("/api/plugin-builds/hello", {
+    method: "POST",
+  });
 
   expect(built.status).toBe(200);
   expect(await exists(join(plugins, "hello", ".build"))).toBe(true);
   expect(await exists(join(root, "ran"))).toBe(false);
-  expect((await api("GET", "/api/plugins/hello/")).status).toBe(404);
+  expect((await server.api("/api/plugins/hello/")).status).toBe(404);
 
   await write("hello", "server.ts", "export default {");
 
-  expect(await errorOf(api("POST", "/api/plugin-builds/hello"))).toContain(
-    "doesn't build",
-  );
+  expect(
+    await errorOf(server.api("/api/plugin-builds/hello", { method: "POST" })),
+  ).toContain("doesn't build");
 });
 
 test("finishes a build that takes longer than the server's idle timeout", async () => {
@@ -210,7 +192,9 @@ test("finishes a build that takes longer than the server's idle timeout", async 
 
   await write("hello", "server.ts", serverPart);
 
-  const built = await api("POST", "/api/plugin-builds/hello");
+  const built = await server.api("/api/plugin-builds/hello", {
+    method: "POST",
+  });
 
   expect(built.status).toBe(200);
 }, 30_000);
@@ -219,9 +203,9 @@ test("won't build a plugin with no parts, since it would do nothing", async () =
   await start();
   await write("hello", "package.json", manifest({}));
 
-  expect(await errorOf(api("POST", "/api/plugin-builds/hello"))).toContain(
-    "no parts",
-  );
+  expect(
+    await errorOf(server.api("/api/plugin-builds/hello", { method: "POST" })),
+  ).toContain("no parts");
 });
 
 test("builds without running a macro, which would run the plugin's code", async () => {
@@ -242,9 +226,9 @@ test("builds without running a macro, which would run the plugin's code", async 
     `import { hi } from "./macro.ts" with { type: "macro" };\n\nexport default { name: hi(), register: () => undefined };\n`,
   );
 
-  expect(await errorOf(api("POST", "/api/plugin-builds/hello"))).toContain(
-    "Macros are disabled",
-  );
+  expect(
+    await errorOf(server.api("/api/plugin-builds/hello", { method: "POST" })),
+  ).toContain("Macros are disabled");
 
   await new Promise((resolve) => setTimeout(resolve, 100));
 
@@ -286,18 +270,26 @@ test("changes only plugins turned off that are its own to change", async () => {
   await start();
   await write("hello", "package.json", manifest());
   await write("hello", "server.ts", serverPart);
-  await api("PATCH", "/api/plugins/hello", { enabled: true });
+
+  await server.api("/api/plugins/hello", {
+    method: "PATCH",
+    body: { enabled: true },
+  });
 
   expect(await errorOf(write("hello", "server.ts", "x"))).toContain(
     "turned on",
   );
 
   await start();
-  await api("PATCH", "/api/plugins/hello", { enabled: false });
 
-  expect(await errorOf(api("POST", "/api/plugin-builds/hello"))).toContain(
-    "running",
-  );
+  await server.api("/api/plugins/hello", {
+    method: "PATCH",
+    body: { enabled: false },
+  });
+
+  expect(
+    await errorOf(server.api("/api/plugin-builds/hello", { method: "POST" })),
+  ).toContain("running");
 
   expect(await errorOf(write("projects", "x.ts", "x"))).toContain("built-in");
 
@@ -325,7 +317,7 @@ test("shows a plugin's broken manifest once it is written", async () => {
   await write("hello", "package.json", "{");
 
   const listed = (await (
-    await api("GET", "/api/plugins")
+    await server.api("/api/plugins")
   ).json()) as PluginInfo[];
 
   expect(listed.find(({ id }) => id === "hello")).toMatchObject({
@@ -340,7 +332,7 @@ test("writes a new plugin turned off even when a removed one of its id was on", 
   await write("hello", "server.ts", serverPart);
   await start();
 
-  expect((await api("GET", "/api/plugins/hello/")).status).toBe(404);
+  expect((await server.api("/api/plugins/hello/")).status).toBe(404);
 });
 
 test("won't turn on a plugin that changed since the user saw it", async () => {
@@ -354,19 +346,26 @@ test("won't turn on a plugin that changed since the user saw it", async () => {
 
   expect(
     await errorOf(
-      api("PATCH", "/api/plugins/hello", {
-        enabled: true,
-        digest: seen.digest,
+      server.api("/api/plugins/hello", {
+        method: "PATCH",
+        body: {
+          enabled: true,
+          digest: seen.digest,
+        },
       }),
     ),
   ).toContain("changed since");
 
-  const now = (await (await api("GET", "/api/plugins")).json()) as PluginInfo[];
+  const now = (await (await server.api("/api/plugins")).json()) as PluginInfo[];
   const digest = now.find(({ id }) => id === "hello")?.digest;
 
   expect(
-    (await api("PATCH", "/api/plugins/hello", { enabled: true, digest }))
-      .status,
+    (
+      await server.api("/api/plugins/hello", {
+        method: "PATCH",
+        body: { enabled: true, digest },
+      })
+    ).status,
   ).toBe(200);
 });
 
@@ -382,9 +381,12 @@ test("won't turn on a plugin whose code changed since the user saw it", async ()
 
   expect(
     await errorOf(
-      api("PATCH", "/api/plugins/hello", {
-        enabled: true,
-        digest: seen.digest,
+      server.api("/api/plugins/hello", {
+        method: "PATCH",
+        body: {
+          enabled: true,
+          digest: seen.digest,
+        },
       }),
     ),
   ).toContain("changed since");
@@ -424,17 +426,17 @@ test("won't build a plugin whose install would reach outside its folder", async 
       JSON.stringify({ ...JSON.parse(manifest()), [field]: value }),
     );
 
-    expect(await errorOf(api("POST", "/api/plugin-builds/hello"))).toMatch(
-      /can't have|not from elsewhere/,
-    );
+    expect(
+      await errorOf(server.api("/api/plugin-builds/hello", { method: "POST" })),
+    ).toMatch(/can't have|not from elsewhere/);
   }
 
   await write("hello", "package.json", manifest());
   await write("hello", "bunfig.toml", "[install]\n");
 
-  expect(await errorOf(api("POST", "/api/plugin-builds/hello"))).toContain(
-    "bunfig.toml",
-  );
+  expect(
+    await errorOf(server.api("/api/plugin-builds/hello", { method: "POST" })),
+  ).toContain("bunfig.toml");
 });
 
 test("builds only plugins of its own folder", async () => {
@@ -451,13 +453,13 @@ test("builds only plugins of its own folder", async () => {
 
   await start();
 
-  expect(await errorOf(api("POST", "/api/plugin-builds/linked"))).toContain(
-    "elsewhere",
-  );
+  expect(
+    await errorOf(server.api("/api/plugin-builds/linked", { method: "POST" })),
+  ).toContain("elsewhere");
 
-  expect(await errorOf(api("POST", "/api/plugin-builds/pinned"))).toContain(
-    "updating",
-  );
+  expect(
+    await errorOf(server.api("/api/plugin-builds/pinned", { method: "POST" })),
+  ).toContain("updating");
 
   expect(await exists(join(root, "elsewhere", ".build"))).toBe(false);
 });
@@ -469,7 +471,7 @@ test("leaves no folder behind for a write it refuses, nor reads one that isn't a
   expect((await write("fresh", "../x", "x")).status).toBe(400);
   expect(await exists(join(plugins, "fresh"))).toBe(false);
 
-  expect((await api("GET", "/api/plugin-files/.install-left")).status).toBe(
+  expect((await server.api("/api/plugin-files/.install-left")).status).toBe(
     400,
   );
 });
@@ -484,7 +486,10 @@ test("answers not found for a plugin or file that isn't there", async () => {
       ["GET", "/api/plugin-files/nope?path=server.ts"],
       ["POST", "/api/plugin-builds/nope"],
       ["GET", "/api/plugin-files/hello?path=server.ts"],
-    ].map(async ([method = "", path = ""]) => (await api(method, path)).status),
+    ].map(
+      async ([method = "", path = ""]) =>
+        (await server.api(path, { method })).status,
+    ),
   );
 
   expect(statuses).toEqual([404, 404, 404, 404]);
@@ -501,7 +506,7 @@ test("lets only an admin write or build a plugin's files", async () => {
 
   const refused = await Promise.all([
     write("hello", "server.ts", "export default {};"),
-    api("POST", "/api/plugin-builds/hello"),
+    server.api("/api/plugin-builds/hello", { method: "POST" }),
   ]);
 
   expect(refused.map(({ status }) => status)).toEqual([403, 403]);

@@ -1,3 +1,4 @@
+export { type Clock, systemClock } from "./clock";
 export {
   owner,
   type PluginProfile,

@@ -1,4 +1,5 @@
 import type { WorkPoll } from "@pipoca/protocol";
+import { type Clock, systemClock } from "./clock";
 
 type Inventory = Pick<WorkPoll, "folders" | "models" | "session">;
 
@@ -29,7 +30,8 @@ export class RunnerPolls {
   readonly #pollWaitMs: number;
   readonly #offlineAfterMs: number;
   readonly #leaseMs: number;
-  readonly #startedAt = Date.now();
+  readonly #clock: Clock;
+  readonly #startedAt: number;
   readonly #onlineChanged: (environment: string, runner: string) => void;
   readonly #runners = new Map<string, RunnerState>();
   readonly #waiting = new Map<string, Set<() => void>>();
@@ -39,11 +41,14 @@ export class RunnerPolls {
     readonly offlineAfterMs: number;
     readonly leaseMs: number;
     readonly onlineChanged: (environment: string, runner: string) => void;
+    readonly clock?: Clock;
   }) {
     this.#pollWaitMs = options.pollWaitMs;
     this.#offlineAfterMs = options.offlineAfterMs;
     this.#leaseMs = options.leaseMs;
     this.#onlineChanged = options.onlineChanged;
+    this.#clock = options.clock ?? systemClock;
+    this.#startedAt = this.#clock.now();
   }
 
   begin(
@@ -76,7 +81,7 @@ export class RunnerPolls {
 
     return () => {
       state.polling--;
-      state.lastPoll = Date.now();
+      state.lastPoll = this.#clock.now();
       if (state.polling > 0) {
         return;
       }
@@ -92,7 +97,8 @@ export class RunnerPolls {
 
     return (
       state !== undefined &&
-      (state.polling > 0 || Date.now() - state.lastPoll < this.#offlineAfterMs)
+      (state.polling > 0 ||
+        this.#clock.now() - state.lastPoll < this.#offlineAfterMs)
     );
   }
 
@@ -101,10 +107,12 @@ export class RunnerPolls {
   leaseLapsed(environment: string, runner: string): boolean {
     const state = this.#runners.get(key(environment, runner));
     if (state === undefined) {
-      return Date.now() - this.#startedAt >= this.#leaseMs;
+      return this.#clock.now() - this.#startedAt >= this.#leaseMs;
     }
 
-    return state.polling === 0 && Date.now() - state.lastPoll >= this.#leaseMs;
+    return (
+      state.polling === 0 && this.#clock.now() - state.lastPoll >= this.#leaseMs
+    );
   }
 
   // The runners that polled for the Environment since the server started.

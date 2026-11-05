@@ -11,18 +11,16 @@ import {
   type Work,
   type WorkPoll,
 } from "@pipoca/protocol";
-import { serve } from "./serve";
 import { readSse } from "./sse";
+import { testServer, type TestServer } from "./testdata/harness";
+import { until } from "./testdata/until";
 import { runnerCredentials } from "./testdata/runners";
-import { firstUser } from "./testdata/sign-in";
 
 const enterprise = "github.tools.sap";
 const goodToken = "ghp_good";
 
-let logs: string[];
 let configDir: string;
-let server: ReturnType<typeof serve>;
-let pedro: () => Promise<string>;
+let server: TestServer;
 let host: ReturnType<typeof Bun.serve>;
 
 // Command streams the tests opened, closed before their server stops.
@@ -76,7 +74,6 @@ function signedByApp(authorization: string | null): boolean {
 }
 
 beforeEach(() => {
-  logs = [];
   minted = 0;
   streams = [];
 
@@ -241,55 +238,34 @@ beforeEach(() => {
     }),
   );
 
-  server = serve({
-    port: 0,
-    database: ":memory:",
+  server = testServer({
     configDir,
     sessions: { pollWaitMs: 0 },
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
   });
-
-  pedro = firstUser(server, logs);
 });
 
 afterEach(async () => {
   await Promise.all(streams.map(async (stream) => stream.return(undefined)));
 
-  await server.stop();
+  await server.close();
   await host.stop();
 });
-
-async function api(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<Response> {
-  return fetch(new URL(path, server.url), {
-    method,
-    redirect: "manual",
-    headers: {
-      cookie: await pedro(),
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
-}
 
 // What a runner gets for a new Session of Pedro's.
 async function assignment(): Promise<Assignment | undefined> {
   const token = await runnerToken();
 
-  await api("POST", "/api/sessions", {
-    workspace: { kind: "folder", path: "/srv/a" },
+  await server.api("/api/sessions", {
+    body: {
+      workspace: { kind: "folder", path: "/srv/a" },
+    },
   });
 
   return polled(token);
 }
 
 async function runnerToken(): Promise<string> {
-  return runnerCredentials(server, pedro).token("laptop", "laptops");
+  return runnerCredentials(server, server.signedIn).token("laptop", "laptops");
 }
 
 // What the runner gets for the first Session it can start.
@@ -320,8 +296,10 @@ async function pedroSession(): Promise<{
 }> {
   const token = await runnerToken();
 
-  await api("POST", "/api/sessions", {
-    workspace: { kind: "folder", path: "/srv/a" },
+  await server.api("/api/sessions", {
+    body: {
+      workspace: { kind: "folder", path: "/srv/a" },
+    },
   });
 
   const { sessionId, generation } = (await polled(token)) ?? {
@@ -404,13 +382,18 @@ async function repositoriesTool(
 
 // Pedro's Session watching the pull request, polled every second.
 async function watching(): Promise<Awaited<ReturnType<typeof pedroSession>>> {
-  await api("POST", "/api/plugins/git-hosts/connect", {
-    host: enterprise,
-    token: goodToken,
+  await server.api("/api/plugins/git-hosts/connect", {
+    body: {
+      host: enterprise,
+      token: goodToken,
+    },
   });
 
-  await api("PATCH", "/api/plugins/git-hosts", {
-    settings: { pollSeconds: 1 },
+  await server.api("/api/plugins/git-hosts", {
+    method: "PATCH",
+    body: {
+      settings: { pollSeconds: 1 },
+    },
   });
 
   const session = await pedroSession();
@@ -425,8 +408,7 @@ async function watching(): Promise<Awaited<ReturnType<typeof pedroSession>>> {
 
 async function watched(sessionId: string): Promise<unknown> {
   return (
-    await api(
-      "GET",
+    await server.api(
       `/api/plugins/git-hosts/pull-requests?session=${sessionId}`,
     )
   ).json();
@@ -436,7 +418,7 @@ test("lists only github.com when the config file names no hosts", async () => {
   writeFileSync(join(configDir, "pipoca.json"), "{}");
 
   const account = await (
-    await api("GET", "/api/plugins/git-hosts/account")
+    await server.api("/api/plugins/git-hosts/account")
   ).json();
 
   expect(account).toMatchObject({
@@ -446,9 +428,11 @@ test("lists only github.com when the config file names no hosts", async () => {
 });
 
 test("connects a host with a token and signs the person's Sessions in with it", async () => {
-  const connected = await api("POST", "/api/plugins/git-hosts/connect", {
-    host: enterprise,
-    token: goodToken,
+  const connected = await server.api("/api/plugins/git-hosts/connect", {
+    body: {
+      host: enterprise,
+      token: goodToken,
+    },
   });
 
   const page = await connected.text();
@@ -461,17 +445,19 @@ test("connects a host with a token and signs the person's Sessions in with it", 
     { host: enterprise, token: goodToken },
   ]);
 
-  expect(logs.join("\n")).not.toContain(goodToken);
+  expect(server.logs.join("\n")).not.toContain(goodToken);
 });
 
 test("tells admins how many people connected on each host", async () => {
-  await api("POST", "/api/plugins/git-hosts/connect", {
-    host: enterprise,
-    token: goodToken,
+  await server.api("/api/plugins/git-hosts/connect", {
+    body: {
+      host: enterprise,
+      token: goodToken,
+    },
   });
 
   const hosts = (await (
-    await api("GET", "/api/plugins/git-hosts/hosts")
+    await server.api("/api/plugins/git-hosts/hosts")
   ).json()) as { host: string; connected: number }[];
 
   expect(hosts.map((each) => [each.host, each.connected])).toEqual([
@@ -480,16 +466,20 @@ test("tells admins how many people connected on each host", async () => {
 });
 
 test("signs the coordinator of a Project in with the git logins of the person who started it", async () => {
-  await api("POST", "/api/plugins/git-hosts/connect", {
-    host: enterprise,
-    token: goodToken,
+  await server.api("/api/plugins/git-hosts/connect", {
+    body: {
+      host: enterprise,
+      token: goodToken,
+    },
   });
 
   const token = await runnerToken();
 
-  const created = await api("POST", "/api/plugins/projects/projects", {
-    name: "Release",
-    repositories: [`https://${enterprise}/I572543/pi-aicore-provider.git`],
+  const created = await server.api("/api/plugins/projects/projects", {
+    body: {
+      name: "Release",
+      repositories: [`https://${enterprise}/I572543/pi-aicore-provider.git`],
+    },
   });
 
   expect(created.status).toBe(200);
@@ -500,23 +490,27 @@ test("signs the coordinator of a Project in with the git logins of the person wh
 });
 
 test("sends no login for a host after the person disconnects it", async () => {
-  await api("POST", "/api/plugins/git-hosts/connect", {
-    host: enterprise,
-    token: goodToken,
+  await server.api("/api/plugins/git-hosts/connect", {
+    body: {
+      host: enterprise,
+      token: goodToken,
+    },
   });
 
-  await api(
-    "DELETE",
+  await server.api(
     `/api/plugins/git-hosts/connections/${encodeURIComponent(enterprise)}`,
+    { method: "DELETE" },
   );
 
   expect((await assignment())?.gitLogins).toBeUndefined();
 });
 
 test("refuses a token the host doesn't accept, saying so", async () => {
-  const refused = await api("POST", "/api/plugins/git-hosts/connect", {
-    host: enterprise,
-    token: "ghp_wrong",
+  const refused = await server.api("/api/plugins/git-hosts/connect", {
+    body: {
+      host: enterprise,
+      token: "ghp_wrong",
+    },
   });
 
   expect(refused.status).toBe(400);
@@ -528,11 +522,13 @@ test("refuses a token the host doesn't accept, saying so", async () => {
 });
 
 test("keeps a host's OAuth secret sealed in pipoca.json and out of the page", async () => {
-  const added = await api("POST", "/api/plugins/git-hosts/hosts", {
-    host: "GitHub.example.com",
-    label: "Example",
-    clientId: "Iv1.abc",
-    clientSecret: "shh",
+  const added = await server.api("/api/plugins/git-hosts/hosts", {
+    body: {
+      host: "GitHub.example.com",
+      label: "Example",
+      clientId: "Iv1.abc",
+      clientSecret: "shh",
+    },
   });
 
   expect(added.status).toBe(201);
@@ -552,7 +548,7 @@ test("keeps a host's OAuth secret sealed in pipoca.json and out of the page", as
   expect(file).not.toContain("shh");
 
   const account = await (
-    await api("GET", "/api/plugins/git-hosts/account")
+    await server.api("/api/plugins/git-hosts/account")
   ).json();
 
   expect(account).toMatchObject({
@@ -564,7 +560,7 @@ test("keeps a host's OAuth secret sealed in pipoca.json and out of the page", as
 });
 
 test("won't save over hosts edited by hand into a list that doesn't fit", async () => {
-  await api("GET", "/api/plugins/git-hosts/hosts");
+  await server.api("/api/plugins/git-hosts/hosts");
 
   const edited = JSON.stringify({
     "git-hosts": { hosts: [{ host: enterprise, api: "ftp://nowhere" }] },
@@ -572,8 +568,10 @@ test("won't save over hosts edited by hand into a list that doesn't fit", async 
 
   writeFileSync(join(configDir, "pipoca.json"), edited);
 
-  const added = await api("POST", "/api/plugins/git-hosts/hosts", {
-    host: "github.example.com",
+  const added = await server.api("/api/plugins/git-hosts/hosts", {
+    body: {
+      host: "github.example.com",
+    },
   });
 
   expect(added.status).toBe(400);
@@ -604,8 +602,7 @@ test("sends a sign-in to the host's authorize page, and refuses a callback in an
 
   process.env["SAP_SECRET"] = "shh";
 
-  const started = await api(
-    "GET",
+  const started = await server.api(
     `/api/plugins/git-hosts/sign-in/${enterprise}`,
   );
 
@@ -637,13 +634,15 @@ test("sends a sign-in to the host's authorize page, and refuses a callback in an
 });
 
 test("finds the repositories of each connected host for what the person typed", async () => {
-  await api("POST", "/api/plugins/git-hosts/connect", {
-    host: enterprise,
-    token: goodToken,
+  await server.api("/api/plugins/git-hosts/connect", {
+    body: {
+      host: enterprise,
+      token: goodToken,
+    },
   });
 
   const found = await (
-    await api("GET", "/api/plugins/git-hosts/repositories?q=aicore")
+    await server.api("/api/plugins/git-hosts/repositories?q=aicore")
   ).json();
 
   expect(found).toEqual([
@@ -661,9 +660,11 @@ test("finds the repositories of each connected host for what the person typed", 
 });
 
 test("gives a Session the person's accounts and real repository URLs instead of a guess", async () => {
-  await api("POST", "/api/plugins/git-hosts/connect", {
-    host: enterprise,
-    token: goodToken,
+  await server.api("/api/plugins/git-hosts/connect", {
+    body: {
+      host: enterprise,
+      token: goodToken,
+    },
   });
 
   const { offered, answer } = await repositoriesTool({ query: "aicore" });
@@ -693,9 +694,11 @@ test("tells a Session where the person connects a git host when they have none",
 });
 
 test("names only the person's accounts when a Session searches for nothing", async () => {
-  await api("POST", "/api/plugins/git-hosts/connect", {
-    host: enterprise,
-    token: goodToken,
+  await server.api("/api/plugins/git-hosts/connect", {
+    body: {
+      host: enterprise,
+      token: goodToken,
+    },
   });
 
   const { answer } = await repositoriesTool({});
@@ -707,9 +710,11 @@ test("names only the person's accounts when a Session searches for nothing", asy
 });
 
 test("tells a Session the person hasn't connected the host it asked to search", async () => {
-  await api("POST", "/api/plugins/git-hosts/connect", {
-    host: enterprise,
-    token: goodToken,
+  await server.api("/api/plugins/git-hosts/connect", {
+    body: {
+      host: enterprise,
+      token: goodToken,
+    },
   });
 
   const { answer } = await repositoriesTool({
@@ -770,9 +775,11 @@ test("passes on new review comments and conflicts without repeating the rules", 
 }, 15_000);
 
 test("lets the Session reply on GitHub only when the person chose so", async () => {
-  await api("POST", "/api/plugins/git-hosts/preferences", {
-    autoFix: true,
-    reply: true,
+  await server.api("/api/plugins/git-hosts/preferences", {
+    body: {
+      autoFix: true,
+      reply: true,
+    },
   });
 
   const session = await watching();
@@ -785,18 +792,25 @@ test("lets the Session reply on GitHub only when the person chose so", async () 
 }, 15_000);
 
 test("keeps a pull request's news on its card when the person turned auto-fix off", async () => {
-  await api("POST", "/api/plugins/git-hosts/preferences", {
-    autoFix: false,
-    reply: false,
+  await server.api("/api/plugins/git-hosts/preferences", {
+    body: {
+      autoFix: false,
+      reply: false,
+    },
   });
 
-  await api("POST", "/api/plugins/git-hosts/connect", {
-    host: enterprise,
-    token: goodToken,
+  await server.api("/api/plugins/git-hosts/connect", {
+    body: {
+      host: enterprise,
+      token: goodToken,
+    },
   });
 
-  await api("PATCH", "/api/plugins/git-hosts", {
-    settings: { pollSeconds: 1 },
+  await server.api("/api/plugins/git-hosts", {
+    method: "PATCH",
+    body: {
+      settings: { pollSeconds: 1 },
+    },
   });
 
   const session = await pedroSession();
@@ -813,17 +827,16 @@ test("keeps a pull request's news on its card when the person turned auto-fix of
     { checks: { failed: 1 }, autoFix: false },
   ]);
 
-  expect(logs.join("\n")).not.toContain("pull request news sent");
+  expect(server.logs.join("\n")).not.toContain("pull request news sent");
 }, 15_000);
 
 test("merges a watched pull request the way its repository allows, and stops watching", async () => {
   const session = await watching();
   const [{ id }] = (await watched(session.id)) as [{ id: string }];
 
-  const merged = await api(
-    "POST",
+  const merged = await server.api(
     `/api/plugins/git-hosts/pull-requests/${id}/merge`,
-    {},
+    { body: {} },
   );
 
   expect(merged.status).toBe(200);
@@ -837,8 +850,7 @@ async function startApp(): Promise<{
   readonly manifest: Record<string, unknown>;
   readonly browser: string;
 }> {
-  const started = await api(
-    "GET",
+  const started = await server.api(
     `/api/plugins/git-hosts/technical-users/new-app?host=${enterprise}&name=Pipoca%20bot&organization=I572543`,
   );
 
@@ -867,12 +879,8 @@ async function startApp(): Promise<{
 async function createApp(): Promise<void> {
   const { state, browser } = await startApp();
 
-  await fetch(
-    new URL(
-      `/api/plugins/git-hosts/app-created?code=m4nifest&state=${state}`,
-      server.url,
-    ),
-    { headers: { cookie: browser } },
+  await server.as(browser)(
+    `/api/plugins/git-hosts/app-created?code=m4nifest&state=${state}`,
   );
 }
 
@@ -889,14 +897,12 @@ test("creates a GitHub App from a manifest as a technical user, with its key sea
 
   expect((await fetch(new URL(callback, server.url))).status).toBe(400);
 
-  const created = await fetch(new URL(callback, server.url), {
-    headers: { cookie: browser },
-  });
+  const created = await server.as(browser)(callback);
 
   expect(created.status).toBe(200);
 
   expect(
-    await (await api("GET", "/api/plugins/git-hosts/technical-users")).json(),
+    await (await server.api("/api/plugins/git-hosts/technical-users")).json(),
   ).toEqual([
     {
       name: "pipoca-bot",
@@ -919,10 +925,12 @@ test("creates a GitHub App from a manifest as a technical user, with its key sea
 
 test("adds a machine user by a token its host accepts, and removes it", async () => {
   const add = async (token: string): Promise<Response> =>
-    api("POST", "/api/plugins/git-hosts/technical-users", {
-      name: "ci-bot",
-      host: enterprise,
-      token,
+    server.api("/api/plugins/git-hosts/technical-users", {
+      body: {
+        name: "ci-bot",
+        host: enterprise,
+        token,
+      },
     });
 
   expect((await add("ghp_bad")).status).toBe(400);
@@ -939,19 +947,24 @@ test("adds a machine user by a token its host accepts, and removes it", async ()
   );
 
   expect(
-    (await api("DELETE", "/api/plugins/git-hosts/technical-users/ci-bot"))
-      .status,
+    (
+      await server.api("/api/plugins/git-hosts/technical-users/ci-bot", {
+        method: "DELETE",
+      })
+    ).status,
   ).toBe(200);
 
   expect(
-    await (await api("GET", "/api/plugins/git-hosts/technical-users")).json(),
+    await (await server.api("/api/plugins/git-hosts/technical-users")).json(),
   ).toEqual([]);
 });
 
 test("signs a routine's run in as the GitHub App it acts as, and commits as its bot", async () => {
-  await api("POST", "/api/plugins/git-hosts/connect", {
-    host: enterprise,
-    token: goodToken,
+  await server.api("/api/plugins/git-hosts/connect", {
+    body: {
+      host: enterprise,
+      token: goodToken,
+    },
   });
 
   const token = await runnerToken();
@@ -959,28 +972,31 @@ test("signs a routine's run in as the GitHub App it acts as, and commits as its 
   await createApp();
 
   // The App's installation token is minted in the background.
-  for (let tries = 0; tries < 100 && minted === 0; tries++) {
-    await Bun.sleep(20);
-  }
+  await until(() => minted > 0);
 
   expect(
     (
-      await api("PUT", "/api/plugins/routines/routines/tidy", {
-        title: "Tidy the dotfiles",
-        triggers: [{ webhook: true }],
-        run: {
-          prompt: "Tidy them.",
-          workspace: {
-            kind: "clone",
-            repository: `https://${enterprise}/I572543/dotfiles.git`,
+      await server.api("/api/plugins/routines/routines/tidy", {
+        method: "PUT",
+        body: {
+          title: "Tidy the dotfiles",
+          triggers: [{ webhook: true }],
+          run: {
+            prompt: "Tidy them.",
+            workspace: {
+              kind: "clone",
+              repository: `https://${enterprise}/I572543/dotfiles.git`,
+            },
+            as: "pipoca-bot",
           },
-          as: "pipoca-bot",
         },
       })
     ).status,
   ).toBe(200);
 
-  await api("POST", "/api/plugins/routines/routines/tidy/run");
+  await server.api("/api/plugins/routines/routines/tidy/run", {
+    method: "POST",
+  });
 
   const started = await polled(token);
 
@@ -1010,8 +1026,10 @@ test("signs a routine's run in as the GitHub App it acts as, and commits as its 
 test("has a person's Sessions commit as the name and email they chose", async () => {
   const token = await runnerToken();
 
-  await api("POST", "/api/sessions", {
-    workspace: { kind: "folder", path: "/srv/a" },
+  await server.api("/api/sessions", {
+    body: {
+      workspace: { kind: "folder", path: "/srv/a" },
+    },
   });
 
   const started = await polled(token);
@@ -1034,27 +1052,31 @@ test("has a person's Sessions commit as the name and email they chose", async ()
 
   expect(await identity()).toBeNull();
 
-  const half = await api("POST", "/api/plugins/git-hosts/commit-as", {
-    name: "Pedro Klein",
-    email: "",
+  const half = await server.api("/api/plugins/git-hosts/commit-as", {
+    body: {
+      name: "Pedro Klein",
+      email: "",
+    },
   });
 
   expect(half.status).toBe(400);
 
   const chosen = { name: "Pedro Klein", email: "pedro@example.com" };
-  await api("POST", "/api/plugins/git-hosts/commit-as", chosen);
+  await server.api("/api/plugins/git-hosts/commit-as", { body: chosen });
 
   expect(
-    await (await api("GET", "/api/plugins/git-hosts/commit-as")).json(),
+    await (await server.api("/api/plugins/git-hosts/commit-as")).json(),
   ).toEqual(chosen);
 
   expect(await identity()).toEqual(chosen);
 });
 
 test("gives no git login to a Session acting as a technical user its person may not use", async () => {
-  await api("POST", "/api/plugins/git-hosts/connect", {
-    host: enterprise,
-    token: goodToken,
+  await server.api("/api/plugins/git-hosts/connect", {
+    body: {
+      host: enterprise,
+      token: goodToken,
+    },
   });
 
   writeFileSync(
@@ -1073,17 +1095,22 @@ test("gives no git login to a Session acting as a technical user its person may 
 
   const token = await runnerToken();
 
-  await api("PUT", "/api/plugins/routines/routines/tidy", {
-    title: "Tidy the dotfiles",
-    triggers: [{ webhook: true }],
-    run: {
-      prompt: "Tidy them.",
-      workspace: { kind: "folder", path: "/srv/a" },
-      as: "someone-elses-bot",
+  await server.api("/api/plugins/routines/routines/tidy", {
+    method: "PUT",
+    body: {
+      title: "Tidy the dotfiles",
+      triggers: [{ webhook: true }],
+      run: {
+        prompt: "Tidy them.",
+        workspace: { kind: "folder", path: "/srv/a" },
+        as: "someone-elses-bot",
+      },
     },
   });
 
-  await api("POST", "/api/plugins/routines/routines/tidy/run");
+  await server.api("/api/plugins/routines/routines/tidy/run", {
+    method: "POST",
+  });
 
   const started = await polled(token);
 
@@ -1102,17 +1129,20 @@ test("turns a GitHub App's signed webhooks into events for the routines of the p
 
   const hook = technicalUsers[0]?.app.hook ?? "";
 
-  await api("PUT", "/api/plugins/routines/routines/fix-issues", {
-    title: "Fix labelled issues",
-    triggers: [
-      { event: "git-hosts.issue", filter: { label: "pipoca", member: true } },
-    ],
-    run: {
-      prompt: "Fix the issue.",
-      workspace: { kind: "folder", path: "/srv/a" },
-      as: "pipoca-bot",
+  await server.api("/api/plugins/routines/routines/fix-issues", {
+    method: "PUT",
+    body: {
+      title: "Fix labelled issues",
+      triggers: [
+        { event: "git-hosts.issue", filter: { label: "pipoca", member: true } },
+      ],
+      run: {
+        prompt: "Fix the issue.",
+        workspace: { kind: "folder", path: "/srv/a" },
+        as: "pipoca-bot",
+      },
+      key: ["repository", "number"],
     },
-    key: ["repository", "number"],
   });
 
   const deliver = async (
@@ -1148,7 +1178,7 @@ test("turns a GitHub App's signed webhooks into events for the routines of the p
   };
 
   const heard = (): readonly string[] =>
-    logs.filter((line) => line.startsWith("routine heard an event"));
+    server.logs.filter((line) => line.startsWith("routine heard an event"));
 
   expect(await deliver("OWNER", "not-the-secret")).toBe(401);
   expect(await deliver("NONE")).toBe(202);
@@ -1159,35 +1189,42 @@ test("turns a GitHub App's signed webhooks into events for the routines of the p
   expect(heard()[0]).toContain('"key":"I572543/dotfiles/7"');
 
   const declared = (await (
-    await api("GET", "/api/plugins/routines/events")
+    await server.api("/api/plugins/routines/events")
   ).json()) as { type: string }[];
 
   expect(declared.map(({ type }) => type)).toContain("git-hosts.issue");
 });
 
 test("signs team work in as the technical user an admin chose for the team on each host", async () => {
-  await api("POST", "/api/plugins/git-hosts/connect", {
-    host: enterprise,
-    token: goodToken,
+  await server.api("/api/plugins/git-hosts/connect", {
+    body: {
+      host: enterprise,
+      token: goodToken,
+    },
   });
 
   for (const name of ["ci-bot", "docs-bot"]) {
-    await api("POST", "/api/plugins/git-hosts/technical-users", {
-      name,
-      host: enterprise,
-      token: goodToken,
+    await server.api("/api/plugins/git-hosts/technical-users", {
+      body: {
+        name,
+        host: enterprise,
+        token: goodToken,
+      },
     });
   }
 
   const choose = async (name: string, team: boolean): Promise<Response> =>
-    api("PATCH", `/api/plugins/git-hosts/technical-users/${name}`, { team });
+    server.api(`/api/plugins/git-hosts/technical-users/${name}`, {
+      method: "PATCH",
+      body: { team },
+    });
 
   expect((await choose("no-bot", true)).status).toBe(404);
   expect((await choose("ci-bot", true)).status).toBe(200);
   expect((await choose("docs-bot", true)).status).toBe(200);
 
   const listed = (await (
-    await api("GET", "/api/plugins/git-hosts/technical-users")
+    await server.api("/api/plugins/git-hosts/technical-users")
   ).json()) as { name: string; team: boolean }[];
 
   expect(listed.map(({ name, team }) => [name, team])).toEqual([
@@ -1196,11 +1233,15 @@ test("signs team work in as the technical user an admin chose for the team on ea
   ]);
 
   const { environment, key } = (await (
-    await api("POST", "/api/environments", { name: "pods", team: true })
+    await server.api("/api/environments", {
+      body: { name: "pods", team: true },
+    })
   ).json()) as { environment: { id: string }; key: string };
 
   const profile = (await (
-    await api("POST", "/api/profiles", { name: "Team work", team: true })
+    await server.api("/api/profiles", {
+      body: { name: "Team work", team: true },
+    })
   ).json()) as { id: string };
 
   const { token } = (await (
@@ -1216,11 +1257,13 @@ test("signs team work in as the technical user an admin chose for the team on ea
   ).json()) as { token: string };
 
   const start = async (): Promise<Assignment | undefined> => {
-    await api("POST", "/api/sessions", {
-      team: true,
-      environment: environment.id,
-      profile: profile.id,
-      workspace: { kind: "folder", path: "/srv/a" },
+    await server.api("/api/sessions", {
+      body: {
+        team: true,
+        environment: environment.id,
+        profile: profile.id,
+        workspace: { kind: "folder", path: "/srv/a" },
+      },
     });
 
     return polled(token);
@@ -1236,22 +1279,21 @@ test("signs team work in as the technical user an admin chose for the team on ea
 });
 
 test("team work reaches only what the team's GitHub App is installed on", async () => {
-  await api("POST", "/api/plugins/git-hosts/connect", {
-    host: enterprise,
-    token: goodToken,
+  await server.api("/api/plugins/git-hosts/connect", {
+    body: {
+      host: enterprise,
+      token: goodToken,
+    },
   });
 
   await createApp();
 
-  for (let tries = 0; tries < 100 && minted === 0; tries++) {
-    await Bun.sleep(20);
-  }
+  await until(() => minted > 0);
 
   const search = async (team: boolean): Promise<readonly string[]> =>
     (
       (await (
-        await api(
-          "GET",
+        await server.api(
           `/api/plugins/git-hosts/repositories?q=${team ? "&team" : ""}`,
         )
       ).json()) as { name: string }[]
@@ -1259,19 +1301,26 @@ test("team work reaches only what the team's GitHub App is installed on", async 
 
   expect(await search(true)).toEqual([]);
 
-  await api("PATCH", "/api/plugins/git-hosts/technical-users/pipoca-bot", {
-    team: true,
+  await server.api("/api/plugins/git-hosts/technical-users/pipoca-bot", {
+    method: "PATCH",
+    body: {
+      team: true,
+    },
   });
 
   expect(await search(true)).toEqual(["I572543/pi-aicore-provider"]);
   expect(await search(false)).toContain("I572543/dotfiles");
 
   const { environment, key } = (await (
-    await api("POST", "/api/environments", { name: "pods", team: true })
+    await server.api("/api/environments", {
+      body: { name: "pods", team: true },
+    })
   ).json()) as { environment: { id: string }; key: string };
 
   const profile = (await (
-    await api("POST", "/api/profiles", { name: "Team work", team: true })
+    await server.api("/api/profiles", {
+      body: { name: "Team work", team: true },
+    })
   ).json()) as { id: string };
 
   const { token } = (await (
@@ -1288,11 +1337,13 @@ test("team work reaches only what the team's GitHub App is installed on", async 
 
   // A folder names no account, and the base Profile's packages still need
   // the App's token to install.
-  await api("POST", "/api/sessions", {
-    team: true,
-    environment: environment.id,
-    profile: profile.id,
-    workspace: { kind: "folder", path: "/srv/a" },
+  await server.api("/api/sessions", {
+    body: {
+      team: true,
+      environment: environment.id,
+      profile: profile.id,
+      workspace: { kind: "folder", path: "/srv/a" },
+    },
   });
 
   expect((await polled(token))?.gitLogins).toEqual([

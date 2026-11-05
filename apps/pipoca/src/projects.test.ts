@@ -16,17 +16,16 @@ import type { ServerPluginContext } from "@pipoca/plugins";
 import type { ProjectView } from "@pipoca/projects/model";
 import type { Environment, Session, ToolSpec } from "@pipoca/protocol";
 import { runAgent } from "./agent";
-import { serve } from "./serve";
 import { runnerCredentials } from "./testdata/runners";
-import { firstUser } from "./testdata/sign-in";
+import { closeServers, testServer, type TestServer } from "./testdata/harness";
+import { until } from "./testdata/until";
 
 const run = promisify(execFile);
 
 let root: string;
 let faux: ReturnType<typeof fauxProvider>;
 let runtime: ModelRuntime;
-let server: ReturnType<typeof serve> | undefined;
-let signedIn: () => Promise<string>;
+let server: TestServer;
 let runners: ReturnType<typeof runnerCredentials>;
 let machines: ServerPluginContext["environments"] | undefined;
 
@@ -42,11 +41,7 @@ beforeEach(async () => {
 
   runtime.registerNativeProvider(faux.provider);
 
-  const logs: string[] = [];
-
-  server = serve({
-    port: 0,
-    database: ":memory:",
+  server = testServer({
     sessions: { pollWaitMs: 100, offlineAfterMs: 1000 },
     agent: {
       provider: "local",
@@ -77,31 +72,15 @@ beforeEach(async () => {
         },
       ],
     },
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
   });
 
-  signedIn = firstUser(server, logs);
-  runners = runnerCredentials(server, signedIn);
+  runners = runnerCredentials(server, server.signedIn);
 });
 
 afterEach(async () => {
-  await server?.stop();
-  server = undefined;
+  await closeServers();
   await rm(root, { recursive: true, force: true });
 });
-
-async function api(path: string, body?: unknown): Promise<Response> {
-  return fetch(new URL(path, server?.url), {
-    method: body === undefined ? "GET" : "POST",
-    headers: {
-      cookie: await signedIn(),
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
-}
 
 async function repository(name: string): Promise<string> {
   const path = join(root, name);
@@ -118,28 +97,14 @@ async function repository(name: string): Promise<string> {
   return path;
 }
 
-async function until<T>(
-  read: () => Promise<T>,
-  done: (value: T) => boolean,
-): Promise<T> {
-  for (;;) {
-    const value = await read();
-    if (done(value)) {
-      return value;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-}
-
 async function project(id: string): Promise<ProjectView> {
   return (await (
-    await api(`/api/plugins/projects/projects/${id}`)
+    await server.api(`/api/plugins/projects/projects/${id}`)
   ).json()) as ProjectView;
 }
 
 async function transcript(id: string): Promise<string> {
-  const response = await api(`/api/sessions/${id}/events`);
+  const response = await server.api(`/api/sessions/${id}/events`);
   const reader = response.body?.getReader();
   const decoder = new TextDecoder();
   let text = "";
@@ -240,15 +205,18 @@ test("runs a Project: a coordinator starts a thread, hears about its turns and s
   faux.setResponses(Array.from({ length: 20 }, () => reply));
 
   await until(
-    async () => (await (await api("/api/environments")).json()) as unknown[],
+    async () =>
+      (await (await server.api("/api/environments")).json()) as unknown[],
     (environments) => environments.length > 0,
   );
 
-  const created = await api("/api/plugins/projects/projects", {
-    name: "Release",
-    instructions: "Keep commits small.",
-    repositories: [a, b],
-    threadModel: `${faux.getModel().provider}/${faux.getModel().id}`,
+  const created = await server.api("/api/plugins/projects/projects", {
+    body: {
+      name: "Release",
+      instructions: "Keep commits small.",
+      repositories: [a, b],
+      threadModel: `${faux.getModel().provider}/${faux.getModel().id}`,
+    },
   });
 
   const { id, coordinatorId } = (await created.json()) as ProjectView;
@@ -256,7 +224,7 @@ test("runs a Project: a coordinator starts a thread, hears about its turns and s
   expect(created.status).toBe(200);
 
   const coordinator = (await (
-    await api(`/api/sessions/${coordinatorId}`)
+    await server.api(`/api/sessions/${coordinatorId}`)
   ).json()) as Session;
 
   expect(coordinator.workspace).toMatchObject({
@@ -270,13 +238,17 @@ test("runs a Project: a coordinator starts a thread, hears about its turns and s
 
   await until(
     async () =>
-      (await (await api(`/api/sessions/${coordinatorId}`)).json()) as Session,
+      (await (
+        await server.api(`/api/sessions/${coordinatorId}`)
+      ).json()) as Session,
     (session) => session.status === "idle",
   );
 
-  await api(`/api/sessions/${coordinatorId}/commands`, {
-    type: "message",
-    text: "plan the release",
+  await server.api(`/api/sessions/${coordinatorId}/commands`, {
+    body: {
+      type: "message",
+      text: "plan the release",
+    },
   });
 
   const [thread] = (
@@ -287,7 +259,7 @@ test("runs a Project: a coordinator starts a thread, hears about its turns and s
   ).threads;
 
   const threadSession = (await (
-    await api(`/api/sessions/${thread?.sessionId ?? ""}`)
+    await server.api(`/api/sessions/${thread?.sessionId ?? ""}`)
   ).json()) as Session;
 
   expect(thread).toMatchObject({ title: "Bump version" });
@@ -325,7 +297,7 @@ test("runs a Project: a coordinator starts a thread, hears about its turns and s
         await fetch(
           new URL(
             `/agent/sessions/${sessionId}/tools?generation=1`,
-            server?.url,
+            server.url,
           ),
           {
             headers: {
@@ -398,26 +370,33 @@ test("wakes the coordinator once for each thread turn", async () => {
   faux.setResponses(Array.from({ length: 20 }, () => reply));
 
   await until(
-    async () => (await (await api("/api/environments")).json()) as unknown[],
+    async () =>
+      (await (await server.api("/api/environments")).json()) as unknown[],
     (environments) => environments.length > 0,
   );
 
   const { coordinatorId } = (await (
-    await api("/api/plugins/projects/projects", {
-      name: "Split",
-      repositories: [a],
+    await server.api("/api/plugins/projects/projects", {
+      body: {
+        name: "Split",
+        repositories: [a],
+      },
     })
   ).json()) as ProjectView;
 
   await until(
     async () =>
-      (await (await api(`/api/sessions/${coordinatorId}`)).json()) as Session,
+      (await (
+        await server.api(`/api/sessions/${coordinatorId}`)
+      ).json()) as Session,
     (session) => session.status === "idle",
   );
 
-  await api(`/api/sessions/${coordinatorId}/commands`, {
-    type: "message",
-    text: "split the work",
+  await server.api(`/api/sessions/${coordinatorId}/commands`, {
+    body: {
+      type: "message",
+      text: "split the work",
+    },
   });
 
   await until(
@@ -465,26 +444,33 @@ test("tells the coordinator about a failed thread turn without waking it", async
   faux.setResponses(Array.from({ length: 20 }, () => reply));
 
   await until(
-    async () => (await (await api("/api/environments")).json()) as unknown[],
+    async () =>
+      (await (await server.api("/api/environments")).json()) as unknown[],
     (environments) => environments.length > 0,
   );
 
   const { coordinatorId } = (await (
-    await api("/api/plugins/projects/projects", {
-      name: "Failing",
-      repositories: [a],
+    await server.api("/api/plugins/projects/projects", {
+      body: {
+        name: "Failing",
+        repositories: [a],
+      },
     })
   ).json()) as ProjectView;
 
   await until(
     async () =>
-      (await (await api(`/api/sessions/${coordinatorId}`)).json()) as Session,
+      (await (
+        await server.api(`/api/sessions/${coordinatorId}`)
+      ).json()) as Session,
     (session) => session.status === "idle",
   );
 
-  await api(`/api/sessions/${coordinatorId}/commands`, {
-    type: "message",
-    text: "start it",
+  await server.api(`/api/sessions/${coordinatorId}/commands`, {
+    body: {
+      type: "message",
+      text: "start it",
+    },
   });
 
   await until(
@@ -541,26 +527,33 @@ test("reads a thread page by page and finds nothing past the last page", async (
   faux.setResponses(Array.from({ length: 20 }, () => reply));
 
   await until(
-    async () => (await (await api("/api/environments")).json()) as unknown[],
+    async () =>
+      (await (await server.api("/api/environments")).json()) as unknown[],
     (environments) => environments.length > 0,
   );
 
   const { coordinatorId } = (await (
-    await api("/api/plugins/projects/projects", {
-      name: "Pages",
-      repositories: [a],
+    await server.api("/api/plugins/projects/projects", {
+      body: {
+        name: "Pages",
+        repositories: [a],
+      },
     })
   ).json()) as ProjectView;
 
   await until(
     async () =>
-      (await (await api(`/api/sessions/${coordinatorId}`)).json()) as Session,
+      (await (
+        await server.api(`/api/sessions/${coordinatorId}`)
+      ).json()) as Session,
     (session) => session.status === "idle",
   );
 
-  await api(`/api/sessions/${coordinatorId}/commands`, {
-    type: "message",
-    text: "start it",
+  await server.api(`/api/sessions/${coordinatorId}/commands`, {
+    body: {
+      type: "message",
+      text: "start it",
+    },
   });
 
   const pages = await until(
@@ -603,26 +596,32 @@ test("lists a Project's threads for its coordinator", async () => {
 
   const [environment] = await until(
     async () =>
-      (await (await api("/api/environments")).json()) as Environment[],
+      (await (await server.api("/api/environments")).json()) as Environment[],
     (environments) => environments.length > 0,
   );
 
   const { id, coordinatorId } = (await (
-    await api("/api/plugins/projects/projects", {
-      name: "Listed",
-      repositories: [a],
+    await server.api("/api/plugins/projects/projects", {
+      body: {
+        name: "Listed",
+        repositories: [a],
+      },
     })
   ).json()) as ProjectView;
 
   await until(
     async () =>
-      (await (await api(`/api/sessions/${coordinatorId}`)).json()) as Session,
+      (await (
+        await server.api(`/api/sessions/${coordinatorId}`)
+      ).json()) as Session,
     (session) => session.status === "idle",
   );
 
-  await api(`/api/sessions/${coordinatorId}/commands`, {
-    type: "message",
-    text: "start the docs",
+  await server.api(`/api/sessions/${coordinatorId}/commands`, {
+    body: {
+      type: "message",
+      text: "start the docs",
+    },
   });
 
   const listing = await until(
@@ -672,26 +671,33 @@ test("checks out a repository once when start_thread lists it twice", async () =
   faux.setResponses(Array.from({ length: 20 }, () => reply));
 
   await until(
-    async () => (await (await api("/api/environments")).json()) as unknown[],
+    async () =>
+      (await (await server.api("/api/environments")).json()) as unknown[],
     (environments) => environments.length > 0,
   );
 
   const { id, coordinatorId } = (await (
-    await api("/api/plugins/projects/projects", {
-      name: "Twice",
-      repositories: [a],
+    await server.api("/api/plugins/projects/projects", {
+      body: {
+        name: "Twice",
+        repositories: [a],
+      },
     })
   ).json()) as ProjectView;
 
   await until(
     async () =>
-      (await (await api(`/api/sessions/${coordinatorId}`)).json()) as Session,
+      (await (
+        await server.api(`/api/sessions/${coordinatorId}`)
+      ).json()) as Session,
     (session) => session.status === "idle",
   );
 
-  await api(`/api/sessions/${coordinatorId}/commands`, {
-    type: "message",
-    text: "start it",
+  await server.api(`/api/sessions/${coordinatorId}/commands`, {
+    body: {
+      type: "message",
+      text: "start it",
+    },
   });
 
   const [thread] = (
@@ -704,7 +710,7 @@ test("checks out a repository once when start_thread lists it twice", async () =
   const threadSession = await until(
     async () =>
       (await (
-        await api(`/api/sessions/${thread?.sessionId ?? ""}`)
+        await server.api(`/api/sessions/${thread?.sessionId ?? ""}`)
       ).json()) as Session,
     (session) => session.status === "idle" || session.status === "failed",
   );
@@ -718,18 +724,22 @@ test("checks out a repository once when start_thread lists it twice", async () =
 }, 30_000);
 
 test("refuses a Project without repositories", async () => {
-  const response = await api("/api/plugins/projects/projects", {
-    name: "Empty",
-    repositories: [],
+  const response = await server.api("/api/plugins/projects/projects", {
+    body: {
+      name: "Empty",
+      repositories: [],
+    },
   });
 
   expect(response.status).toBe(400);
 });
 
 test("refuses a Project repository whose URL leaves no name for its folder", async () => {
-  const response = await api("/api/plugins/projects/projects", {
-    name: "Unnamed",
-    repositories: [join(await repository("app"), ".git")],
+  const response = await server.api("/api/plugins/projects/projects", {
+    body: {
+      name: "Unnamed",
+      repositories: [join(await repository("app"), ".git")],
+    },
   });
 
   expect(response.status).toBe(400);
@@ -739,34 +749,40 @@ test("refuses a null body and a file name that does not decode", async () => {
   const a = await repository("app");
 
   await until(
-    async () => (await (await api("/api/environments")).json()) as unknown[],
+    async () =>
+      (await (await server.api("/api/environments")).json()) as unknown[],
     (environments) => environments.length > 0,
   );
 
   const { id, coordinatorId } = (await (
-    await api("/api/plugins/projects/projects", {
-      name: "Bad input",
-      repositories: [a],
+    await server.api("/api/plugins/projects/projects", {
+      body: {
+        name: "Bad input",
+        repositories: [a],
+      },
     })
   ).json()) as ProjectView;
 
   const projects = "/api/plugins/projects";
 
   const responses = [
-    await api(`${projects}/projects/${id}/settings`, { instructions: 5 }),
-    await api(`${projects}/threads/${coordinatorId}/state`, null),
-    await api(`${projects}/projects/${id}/memory/%zz`),
-    await api(`/api/plugins/library/projects/${id}/files/%zz`),
+    await server.api(`${projects}/projects/${id}/settings`, {
+      body: { instructions: 5 },
+    }),
+    await server.api(`${projects}/threads/${coordinatorId}/state`, {
+      body: null,
+    }),
+    await server.api(`${projects}/projects/${id}/memory/%zz`),
+    await server.api(`/api/plugins/library/projects/${id}/files/%zz`),
   ];
 
   expect(responses.map(({ status }) => status)).toEqual([400, 400, 400, 400]);
 });
 
 test("answers a method the Project list has no route for as not found", async () => {
-  const response = await fetch(
-    new URL("/api/plugins/projects/projects", server?.url),
-    { method: "DELETE", headers: { cookie: await signedIn() } },
-  );
+  const response = await server.api("/api/plugins/projects/projects", {
+    method: "DELETE",
+  });
 
   expect(response.status).toBe(404);
 
@@ -793,26 +809,33 @@ test("lists memory file sizes in UTF-8 bytes", async () => {
   ]);
 
   await until(
-    async () => (await (await api("/api/environments")).json()) as unknown[],
+    async () =>
+      (await (await server.api("/api/environments")).json()) as unknown[],
     (environments) => environments.length > 0,
   );
 
   const { id, coordinatorId } = (await (
-    await api("/api/plugins/projects/projects", {
-      name: "Notes",
-      repositories: [a],
+    await server.api("/api/plugins/projects/projects", {
+      body: {
+        name: "Notes",
+        repositories: [a],
+      },
     })
   ).json()) as ProjectView;
 
   await until(
     async () =>
-      (await (await api(`/api/sessions/${coordinatorId}`)).json()) as Session,
+      (await (
+        await server.api(`/api/sessions/${coordinatorId}`)
+      ).json()) as Session,
     (session) => session.status === "idle",
   );
 
-  await api(`/api/sessions/${coordinatorId}/commands`, {
-    type: "message",
-    text: "take notes",
+  await server.api(`/api/sessions/${coordinatorId}/commands`, {
+    body: {
+      type: "message",
+      text: "take notes",
+    },
   });
 
   await until(
@@ -846,22 +869,25 @@ test("shares files between the user and Project sessions through the library", a
   ]);
 
   await until(
-    async () => (await (await api("/api/environments")).json()) as unknown[],
+    async () =>
+      (await (await server.api("/api/environments")).json()) as unknown[],
     (environments) => environments.length > 0,
   );
 
   const { id, coordinatorId } = (await (
-    await api("/api/plugins/projects/projects", {
-      name: "Docs",
-      repositories: [a],
+    await server.api("/api/plugins/projects/projects", {
+      body: {
+        name: "Docs",
+        repositories: [a],
+      },
     })
   ).json()) as ProjectView;
 
   const files = `/api/plugins/library/projects/${id}/files`;
 
-  const uploaded = await fetch(new URL(`${files}/brief.txt`, server?.url), {
+  const uploaded = await fetch(new URL(`${files}/brief.txt`, server.url), {
     method: "PUT",
-    headers: { cookie: await signedIn() },
+    headers: { cookie: await server.signedIn() },
     body: "the brief\n",
   });
 
@@ -869,13 +895,17 @@ test("shares files between the user and Project sessions through the library", a
 
   await until(
     async () =>
-      (await (await api(`/api/sessions/${coordinatorId}`)).json()) as Session,
+      (await (
+        await server.api(`/api/sessions/${coordinatorId}`)
+      ).json()) as Session,
     (session) => session.status === "idle",
   );
 
-  await api(`/api/sessions/${coordinatorId}/commands`, {
-    type: "message",
-    text: "share the readme",
+  await server.api(`/api/sessions/${coordinatorId}/commands`, {
+    body: {
+      type: "message",
+      text: "share the readme",
+    },
   });
 
   await until(
@@ -890,16 +920,16 @@ test("shares files between the user and Project sessions through the library", a
     ),
   ).toBe("the brief\n");
 
-  const { user } = (await (await api("/api/auth")).json()) as {
+  const { user } = (await (await server.api("/api/auth")).json()) as {
     user: { id: string };
   };
 
-  expect(await (await api(files)).json()).toMatchObject([
+  expect(await (await server.api(files)).json()).toMatchObject([
     { name: "brief.txt", size: 10, actor: `user:${user.id}` },
     { name: "readme.md", size: 4, actor: `session:${coordinatorId}` },
   ]);
 
-  expect(await (await api(`${files}/readme.md`)).text()).toBe("app\n");
+  expect(await (await server.api(`${files}/readme.md`)).text()).toBe("app\n");
 }, 30_000);
 
 test("refuses library file names made only of dots", async () => {
@@ -917,28 +947,31 @@ test("refuses library file names made only of dots", async () => {
   ]);
 
   await until(
-    async () => (await (await api("/api/environments")).json()) as unknown[],
+    async () =>
+      (await (await server.api("/api/environments")).json()) as unknown[],
     (environments) => environments.length > 0,
   );
 
   const { id, coordinatorId } = (await (
-    await api("/api/plugins/projects/projects", {
-      name: "Docs",
-      repositories: [a],
+    await server.api("/api/plugins/projects/projects", {
+      body: {
+        name: "Docs",
+        repositories: [a],
+      },
     })
   ).json()) as ProjectView;
 
   const files = `/api/plugins/library/projects/${id}/files`;
 
-  const dot = await fetch(new URL(`${files}/.`, server?.url), {
+  const dot = await fetch(new URL(`${files}/.`, server.url), {
     method: "PUT",
-    headers: { cookie: await signedIn() },
+    headers: { cookie: await server.signedIn() },
     body: "x",
   });
 
-  const dots = await fetch(new URL(`${files}/...`, server?.url), {
+  const dots = await fetch(new URL(`${files}/...`, server.url), {
     method: "PUT",
-    headers: { cookie: await signedIn() },
+    headers: { cookie: await server.signedIn() },
     body: "x",
   });
 
@@ -947,13 +980,17 @@ test("refuses library file names made only of dots", async () => {
 
   await until(
     async () =>
-      (await (await api(`/api/sessions/${coordinatorId}`)).json()) as Session,
+      (await (
+        await server.api(`/api/sessions/${coordinatorId}`)
+      ).json()) as Session,
     (session) => session.status === "idle",
   );
 
-  await api(`/api/sessions/${coordinatorId}/commands`, {
-    type: "message",
-    text: "share the readme",
+  await server.api(`/api/sessions/${coordinatorId}/commands`, {
+    body: {
+      type: "message",
+      text: "share the readme",
+    },
   });
 
   const text = await until(
@@ -963,7 +1000,7 @@ test("refuses library file names made only of dots", async () => {
 
   expect(text).not.toContain("Published");
   expect(text).toContain("file names can't be empty, longer than 200");
-  expect(await (await api(files)).json()).toEqual([]);
+  expect(await (await server.api(files)).json()).toEqual([]);
 
   expect(
     readFile(
@@ -985,14 +1022,17 @@ test("accepts library file names with letters from any script", async () => {
   ]);
 
   await until(
-    async () => (await (await api("/api/environments")).json()) as unknown[],
+    async () =>
+      (await (await server.api("/api/environments")).json()) as unknown[],
     (environments) => environments.length > 0,
   );
 
   const { id, coordinatorId } = (await (
-    await api("/api/plugins/projects/projects", {
-      name: "Docs",
-      repositories: [a],
+    await server.api("/api/plugins/projects/projects", {
+      body: {
+        name: "Docs",
+        repositories: [a],
+      },
     })
   ).json()) as ProjectView;
 
@@ -1000,10 +1040,11 @@ test("accepts library file names with letters from any script", async () => {
 
   const put = async (name: string): Promise<number> =>
     (
-      await fetch(
-        new URL(`${files}/${encodeURIComponent(name)}`, server?.url),
-        { method: "PUT", headers: { cookie: await signedIn() }, body: "x" },
-      )
+      await fetch(new URL(`${files}/${encodeURIComponent(name)}`, server.url), {
+        method: "PUT",
+        headers: { cookie: await server.signedIn() },
+        body: "x",
+      })
     ).status;
 
   expect(await put("Relatório final.pdf")).toBe(200);
@@ -1015,7 +1056,9 @@ test("accepts library file names with letters from any script", async () => {
 
   await until(
     async () =>
-      (await (await api(`/api/sessions/${coordinatorId}`)).json()) as Session,
+      (await (
+        await server.api(`/api/sessions/${coordinatorId}`)
+      ).json()) as Session,
     (session) => session.status === "idle",
   );
 
@@ -1024,9 +1067,11 @@ test("accepts library file names with letters from any script", async () => {
     "cv\n",
   );
 
-  await api(`/api/sessions/${coordinatorId}/commands`, {
-    type: "message",
-    text: "share the résumé",
+  await server.api(`/api/sessions/${coordinatorId}/commands`, {
+    body: {
+      type: "message",
+      text: "share the résumé",
+    },
   });
 
   await until(
@@ -1034,14 +1079,16 @@ test("accepts library file names with letters from any script", async () => {
     (said) => said.includes("tried"),
   );
 
-  expect(await (await api(files)).json()).toMatchObject([
+  expect(await (await server.api(files)).json()).toMatchObject([
     { name: "Relatório final.pdf", size: 1 },
     { name: decomposed.normalize("NFC"), size: 3 },
     { name: "日本.txt", size: 1 },
   ]);
 
   expect(
-    await (await api(`${files}/${encodeURIComponent(decomposed)}`)).text(),
+    await (
+      await server.api(`${files}/${encodeURIComponent(decomposed)}`)
+    ).text(),
   ).toBe("cv\n");
 }, 30_000);
 
@@ -1051,7 +1098,7 @@ test("runs a Project's threads across two machines and two repositories", async 
   const laptop = new AbortController();
 
   const laptopDone = runAgent({
-    server: server?.url.href ?? "",
+    server: server.url.href,
     provider: "laptop",
     credential: { key: await runners.key("laptop") },
     dataDir: join(root, "laptop"),
@@ -1064,7 +1111,7 @@ test("runs a Project's threads across two machines and two repositories", async 
 
   const environments = await until(
     async () =>
-      (await (await api("/api/environments")).json()) as Environment[],
+      (await (await server.api("/api/environments")).json()) as Environment[],
     (list) => list.length === 2,
   );
 
@@ -1138,22 +1185,28 @@ test("runs a Project's threads across two machines and two repositories", async 
   faux.setResponses(Array.from({ length: 30 }, () => reply));
 
   const { id, coordinatorId } = (await (
-    await api("/api/plugins/projects/projects", {
-      name: "Release",
-      environment: local?.id,
-      repositories: [app, lib],
+    await server.api("/api/plugins/projects/projects", {
+      body: {
+        name: "Release",
+        environment: local?.id,
+        repositories: [app, lib],
+      },
     })
   ).json()) as ProjectView;
 
   await until(
     async () =>
-      (await (await api(`/api/sessions/${coordinatorId}`)).json()) as Session,
+      (await (
+        await server.api(`/api/sessions/${coordinatorId}`)
+      ).json()) as Session,
     (session) => session.status === "idle",
   );
 
-  await api(`/api/sessions/${coordinatorId}/commands`, {
-    type: "message",
-    text: "split the release",
+  await server.api(`/api/sessions/${coordinatorId}/commands`, {
+    body: {
+      type: "message",
+      text: "split the release",
+    },
   });
 
   const { threads } = await until(
@@ -1169,7 +1222,9 @@ test("runs a Project's threads across two machines and two repositories", async 
   const sessions = await Promise.all(
     threads.map(
       async ({ sessionId }) =>
-        (await (await api(`/api/sessions/${sessionId}`)).json()) as Session,
+        (await (
+          await server.api(`/api/sessions/${sessionId}`)
+        ).json()) as Session,
     ),
   );
 
@@ -1192,9 +1247,11 @@ test("runs a Project's threads across two machines and two repositories", async 
     (text) => (text.match(/event\W+finished a turn/g) ?? []).length >= 3,
   );
 
-  await api(`/api/sessions/${coordinatorId}/commands`, {
-    type: "message",
-    text: "summarize",
+  await server.api(`/api/sessions/${coordinatorId}/commands`, {
+    body: {
+      type: "message",
+      text: "summarize",
+    },
   });
 
   await until(
@@ -1213,7 +1270,7 @@ test("holds a thread's turn notice while the coordinator's machine is offline", 
 
   const startLaptop = async (signal: AbortSignal): Promise<void> =>
     runAgent({
-      server: server?.url.href ?? "",
+      server: server.url.href,
       provider: "laptop",
       credential: { key: await runners.key("laptop") },
       dataDir: join(root, "laptop"),
@@ -1229,7 +1286,7 @@ test("holds a thread's turn notice while the coordinator's machine is offline", 
 
   const environments = await until(
     async () =>
-      (await (await api("/api/environments")).json()) as Environment[],
+      (await (await server.api("/api/environments")).json()) as Environment[],
     (list) => list.length === 2,
   );
 
@@ -1274,10 +1331,12 @@ test("holds a thread's turn notice while the coordinator's machine is offline", 
   faux.setResponses(Array.from({ length: 20 }, () => reply));
 
   const { id, coordinatorId } = (await (
-    await api("/api/plugins/projects/projects", {
-      name: "Release",
-      environment: onLaptop?.id,
-      repositories: [app],
+    await server.api("/api/plugins/projects/projects", {
+      body: {
+        name: "Release",
+        environment: onLaptop?.id,
+        repositories: [app],
+      },
     })
   ).json()) as ProjectView;
 
@@ -1286,9 +1345,11 @@ test("holds a thread's turn notice while the coordinator's machine is offline", 
     (view) => view.coordinatorState === "idle",
   );
 
-  await api(`/api/sessions/${coordinatorId}/commands`, {
-    type: "message",
-    text: "start it",
+  await server.api(`/api/sessions/${coordinatorId}/commands`, {
+    body: {
+      type: "message",
+      text: "start it",
+    },
   });
 
   await until(
@@ -1314,9 +1375,11 @@ test("holds a thread's turn notice while the coordinator's machine is offline", 
 
   const threadId = threads[0]?.sessionId ?? "";
 
-  await api(`/api/sessions/${threadId}/commands`, {
-    type: "message",
-    text: "check the tag",
+  await server.api(`/api/sessions/${threadId}/commands`, {
+    body: {
+      type: "message",
+      text: "check the tag",
+    },
   });
 
   await until(

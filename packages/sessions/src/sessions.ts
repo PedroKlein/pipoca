@@ -42,6 +42,7 @@ import {
 } from "@pipoca/protocol";
 import { contentFiles, overBaseExtensions } from "@pipoca/profiles";
 import { placesOn, placesOnNewRunner, uniqueModels } from "./placement";
+import { type Clock, systemClock } from "./clock";
 import { RunnerPolls } from "./runner-polls";
 
 export type StoredSession = Omit<
@@ -187,6 +188,7 @@ export interface SessionsOptions {
   readonly pollWaitMs?: number;
   readonly offlineAfterMs?: number;
   readonly leaseMs?: number;
+  readonly clock?: Clock;
   readonly events?: (event: KernelEvent) => void;
   // Called whenever a Session starts or its view changes (ADR 0038).
   readonly changed?: () => void;
@@ -244,6 +246,7 @@ const unhosted: readonly SessionStatus[] = ["queued", "starting"];
 
 export class Sessions {
   readonly #store: SessionStore;
+  readonly #clock: Clock;
   readonly #polls: RunnerPolls;
   readonly #events: (event: KernelEvent) => void;
   readonly #changed: () => void;
@@ -274,8 +277,10 @@ export class Sessions {
 
   constructor(store: SessionStore, options: SessionsOptions = {}) {
     this.#store = store;
+    this.#clock = options.clock ?? systemClock;
 
     this.#polls = new RunnerPolls({
+      clock: this.#clock,
       pollWaitMs: options.pollWaitMs ?? 10_000,
       offlineAfterMs: options.offlineAfterMs ?? 30_000,
       leaseMs: options.leaseMs ?? leaseMs,
@@ -375,7 +380,7 @@ export class Sessions {
       title: null,
       status: "queued",
       generation: 0,
-      createdAt: new Date().toISOString(),
+      createdAt: new Date(this.#clock.now()).toISOString(),
       interruptedAt: null,
       error: null,
       archivedAt: null,
@@ -669,7 +674,7 @@ export class Sessions {
     this.#addVoice(session.id, {
       kind: to,
       person,
-      at: new Date().toISOString(),
+      at: new Date(this.#clock.now()).toISOString(),
       text,
       ...(quote && { quote }),
     });
@@ -700,7 +705,7 @@ export class Sessions {
     this.#addVoice(session.id, {
       kind: "vote",
       person: opener,
-      at: new Date().toISOString(),
+      at: new Date(this.#clock.now()).toISOString(),
       text,
     });
 
@@ -722,7 +727,7 @@ export class Sessions {
     this.#addVoice(session.id, {
       kind: command.type === "abort" ? "stop" : "message",
       person,
-      at: new Date().toISOString(),
+      at: new Date(this.#clock.now()).toISOString(),
       ...(command.type === "message" && { text: command.text }),
       ...(command.type === "message" && quote && { quote }),
     });
@@ -883,7 +888,7 @@ export class Sessions {
     const archived: StoredSession = {
       ...session,
       status: "stopped",
-      archivedAt: new Date().toISOString(),
+      archivedAt: new Date(this.#clock.now()).toISOString(),
       workspaceRemoval: session.workspace.kind === "folder" ? null : "pending",
       workspaceKeptReason: null,
     };
@@ -1585,7 +1590,7 @@ export class Sessions {
     runner: { readonly name: string; readonly environment: string },
     running: readonly Attempt[],
   ): readonly Attempt[] {
-    const now = new Date().toISOString();
+    const now = new Date(this.#clock.now()).toISOString();
     const interrupted: Attempt[] = [];
     for (const session of this.#store.byRunner(
       runner.environment,
@@ -1872,7 +1877,7 @@ export class Sessions {
     const interrupted: StoredSession = {
       ...session,
       status: "interrupted",
-      interruptedAt: new Date().toISOString(),
+      interruptedAt: new Date(this.#clock.now()).toISOString(),
     };
 
     this.#update(interrupted);

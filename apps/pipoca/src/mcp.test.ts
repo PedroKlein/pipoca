@@ -1,49 +1,23 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { serve } from "./serve";
-import { firstUser } from "./testdata/sign-in";
+import { testServer, type TestServer } from "./testdata/harness";
 
-let server: ReturnType<typeof serve>;
-let signedIn: () => Promise<string>;
+let server: TestServer;
 
 beforeEach(() => {
-  const logs: string[] = [];
-
-  server = serve({
-    port: 0,
-    database: ":memory:",
+  server = testServer({
     sessions: { pollWaitMs: 0 },
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
   });
-
-  signedIn = firstUser(server, logs);
 });
 
 afterEach(async () => {
-  await server.stop();
+  await server.close();
 });
-
-async function browser(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<Response> {
-  return fetch(new URL(path, server.url), {
-    method,
-    headers: {
-      cookie: await signedIn(),
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
-}
 
 async function newToken(name = "Claude Code"): Promise<{
   token: { id: string; name: string };
   secret: string;
 }> {
-  const response = await browser("POST", "/api/mcp-tokens", { name });
+  const response = await server.api("/api/mcp-tokens", { body: { name } });
   expect(response.status).toBe(201);
 
   return (await response.json()) as {
@@ -167,7 +141,7 @@ test("runs a tool as the token's user, through the same route", async () => {
   );
 
   const environments = (await (
-    await browser("GET", "/api/environments")
+    await server.api("/api/environments")
   ).json()) as { name: string }[];
 
   expect(created.isError).toBe(false);
@@ -180,17 +154,23 @@ test("runs a tool as the token's user, through the same route", async () => {
 test("lets a revoked token, a missing one or another site's page in no more", async () => {
   const { token, secret } = await newToken();
 
-  const listed = await (await browser("GET", "/api/mcp-tokens")).json();
+  const listed = await (await server.api("/api/mcp-tokens")).json();
 
   const foreign = await rpc(secret, "ping", undefined, {
     origin: "https://evil.example",
   });
 
-  const revoked = await browser("DELETE", `/api/mcp-tokens/${token.id}`);
+  const revoked = await server.api(`/api/mcp-tokens/${token.id}`, {
+    method: "DELETE",
+  });
+
   const after = await rpc(secret, "ping");
   const missing = await rpc("pcm_unknown", "ping");
   const streamed = await fetch(new URL("/api/mcp", server.url));
-  const again = await browser("DELETE", `/api/mcp-tokens/${token.id}`);
+
+  const again = await server.api(`/api/mcp-tokens/${token.id}`, {
+    method: "DELETE",
+  });
 
   expect(listed).toMatchObject([{ id: token.id, name: "Claude Code" }]);
 

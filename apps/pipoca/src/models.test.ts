@@ -6,14 +6,13 @@ import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { EnvironmentModels } from "@pipoca/models/model";
 import type { Environment, Session } from "@pipoca/protocol";
-import { serve } from "./serve";
-import { firstUser } from "./testdata/sign-in";
+import { testServer, type TestServer } from "./testdata/harness";
+import { until } from "./testdata/until";
 
 let root: string;
 let primary: ReturnType<typeof fauxProvider>;
 let fallback: ReturnType<typeof fauxProvider>;
-let server: ReturnType<typeof serve> | undefined;
-let signedIn: () => Promise<string>;
+let server: TestServer;
 
 beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), "pipoca-models-")));
@@ -29,11 +28,7 @@ beforeEach(async () => {
   runtime.registerNativeProvider(primary.provider);
   runtime.registerNativeProvider(fallback.provider);
 
-  const logs: string[] = [];
-
-  server = serve({
-    port: 0,
-    database: ":memory:",
+  server = testServer({
     sessions: { pollWaitMs: 100, offlineAfterMs: 1000 },
     agent: {
       provider: "local",
@@ -42,49 +37,18 @@ beforeEach(async () => {
       folders: [root],
       models: { runtime, model: primary.getModel() },
     },
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
   });
-
-  signedIn = firstUser(server, logs);
 });
 
 afterEach(async () => {
-  await server?.stop();
-  server = undefined;
+  await server.close();
   await rm(root, { recursive: true, force: true });
 });
-
-async function api(path: string, body?: unknown): Promise<Response> {
-  return fetch(new URL(path, server?.url), {
-    method: body === undefined ? "GET" : "POST",
-    headers: {
-      cookie: await signedIn(),
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
-}
-
-async function until<T>(
-  read: () => T | Promise<T>,
-  done: (value: T) => boolean,
-): Promise<T> {
-  for (;;) {
-    const value = await read();
-    if (done(value)) {
-      return value;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-}
 
 async function environment(): Promise<Environment> {
   const [found] = await until(
     async () =>
-      (await (await api("/api/environments")).json()) as Environment[],
+      (await (await server.api("/api/environments")).json()) as Environment[],
     (environments) => environments.length > 0,
   );
 
@@ -96,7 +60,7 @@ async function environment(): Promise<Environment> {
 }
 
 const session = async (id: string): Promise<Session> =>
-  (await (await api(`/api/sessions/${id}`)).json()) as Session;
+  (await (await server.api(`/api/sessions/${id}`)).json()) as Session;
 
 // A new Session reports idle once before its first turn starts, so a test
 // that counts model calls waits for the call first.
@@ -104,15 +68,17 @@ const settled = (value: Session): boolean =>
   value.status === "idle" || value.status === "failed";
 
 async function aliases(environmentId: string): Promise<void> {
-  const response = await api(
+  const response = await server.api(
     `/api/plugins/models/environments/${environmentId}`,
     {
-      aliases: {
-        models: {
-          "medium-1": [
-            `primary/${primary.getModel().id}`,
-            `fallback/${fallback.getModel().id}`,
-          ],
+      body: {
+        aliases: {
+          models: {
+            "medium-1": [
+              `primary/${primary.getModel().id}`,
+              `fallback/${fallback.getModel().id}`,
+            ],
+          },
         },
       },
     },
@@ -128,10 +94,12 @@ test("routes an alias to its first model in the session's Environment", async ()
   primary.setResponses([fauxAssistantMessage("from primary")]);
 
   const started = (await (
-    await api("/api/sessions", {
-      workspace: { kind: "folder", path: root },
-      model: { provider: "alias", id: "medium-1" },
-      firstMessage: "hi",
+    await server.api("/api/sessions", {
+      body: {
+        workspace: { kind: "folder", path: root },
+        model: { provider: "alias", id: "medium-1" },
+        firstMessage: "hi",
+      },
     })
   ).json()) as Session;
 
@@ -162,17 +130,19 @@ test("takes a provider that hit its cap out of routing for the whole Environment
   fallback.setResponses([fauxAssistantMessage("from fallback")]);
 
   const capped = (await (
-    await api("/api/sessions", {
-      workspace: { kind: "folder", path: root },
-      model: { provider: "alias", id: "medium-1" },
-      firstMessage: "hi",
+    await server.api("/api/sessions", {
+      body: {
+        workspace: { kind: "folder", path: root },
+        model: { provider: "alias", id: "medium-1" },
+        firstMessage: "hi",
+      },
     })
   ).json()) as Session;
 
   const [models] = await until(
     async () =>
       (await (
-        await api("/api/plugins/models/environments")
+        await server.api("/api/plugins/models/environments")
       ).json()) as EnvironmentModels[],
     ([found]) =>
       found !== undefined && "primary" in found.health.unhealthyUntil,
@@ -181,10 +151,12 @@ test("takes a provider that hit its cap out of routing for the whole Environment
   expect(models?.health.unhealthyUntil["primary"]?.reason).toContain("402");
 
   const next = (await (
-    await api("/api/sessions", {
-      workspace: { kind: "folder", path: root },
-      model: { provider: "alias", id: "medium-1" },
-      firstMessage: "hi again",
+    await server.api("/api/sessions", {
+      body: {
+        workspace: { kind: "folder", path: root },
+        model: { provider: "alias", id: "medium-1" },
+        firstMessage: "hi again",
+      },
     })
   ).json()) as Session;
 
@@ -213,9 +185,9 @@ test("refuses an alias config without aliases or with a malformed one", async ()
     { models: { "a/b": ["primary/m"] } },
     { models: { "medium-1": ["primary/m"] }, defaultAlias: "heavy-1" },
   ]) {
-    const response = await api(
+    const response = await server.api(
       `/api/plugins/models/environments/${environmentId}`,
-      { aliases: config },
+      { body: { aliases: config } },
     );
 
     expect(response.status).toBe(400);
@@ -230,12 +202,14 @@ test("refuses provider settings with the wrong types", async () => {
     { capStatusCodes: ["402"] },
     { resetSchedule: 1 },
   ]) {
-    const response = await api(
+    const response = await server.api(
       `/api/plugins/models/environments/${environmentId}`,
       {
-        aliases: {
-          models: { "medium-1": ["primary/m"] },
-          providers: { primary: settings },
+        body: {
+          aliases: {
+            models: { "medium-1": ["primary/m"] },
+            providers: { primary: settings },
+          },
         },
       },
     );
@@ -247,15 +221,17 @@ test("refuses provider settings with the wrong types", async () => {
 test("lists an Environment's aliases first and gives a session with no model its default alias", async () => {
   const { id: environmentId } = await environment();
 
-  await api(`/api/plugins/models/environments/${environmentId}`, {
-    aliases: {
-      defaultAlias: "medium-1",
-      models: { "medium-1": [`primary/${primary.getModel().id}`] },
+  await server.api(`/api/plugins/models/environments/${environmentId}`, {
+    body: {
+      aliases: {
+        defaultAlias: "medium-1",
+        models: { "medium-1": [`primary/${primary.getModel().id}`] },
+      },
     },
   });
 
   const [listed] = (await (
-    await api("/api/environments")
+    await server.api("/api/environments")
   ).json()) as Environment[];
 
   expect(listed?.models[0]).toEqual({ provider: "alias", id: "medium-1" });
@@ -263,9 +239,11 @@ test("lists an Environment's aliases first and gives a session with no model its
   primary.setResponses([fauxAssistantMessage("from primary")]);
 
   const started = (await (
-    await api("/api/sessions", {
-      workspace: { kind: "folder", path: root },
-      firstMessage: "hi",
+    await server.api("/api/sessions", {
+      body: {
+        workspace: { kind: "folder", path: root },
+        firstMessage: "hi",
+      },
     })
   ).json()) as Session;
 
@@ -280,9 +258,11 @@ test("routes an alias set after its Session started", async () => {
   primary.setResponses([fauxAssistantMessage("from primary")]);
 
   const started = (await (
-    await api("/api/sessions", {
-      workspace: { kind: "folder", path: root },
-      firstMessage: "hi",
+    await server.api("/api/sessions", {
+      body: {
+        workspace: { kind: "folder", path: root },
+        firstMessage: "hi",
+      },
     })
   ).json()) as Session;
 
@@ -290,8 +270,12 @@ test("routes an alias set after its Session started", async () => {
 
   const { id: environmentId } = await environment();
 
-  await api(`/api/plugins/models/environments/${environmentId}`, {
-    aliases: { models: { "medium-1": [`fallback/${fallback.getModel().id}`] } },
+  await server.api(`/api/plugins/models/environments/${environmentId}`, {
+    body: {
+      aliases: {
+        models: { "medium-1": [`fallback/${fallback.getModel().id}`] },
+      },
+    },
   });
 
   fallback.setResponses([fauxAssistantMessage("from fallback")]);
@@ -299,14 +283,18 @@ test("routes an alias set after its Session started", async () => {
   // The Session learns of the alias a moment after the server has it.
   await until(
     async () => {
-      await api(`/api/sessions/${started.id}/commands`, {
-        type: "set_model",
-        model: { provider: "alias", id: "medium-1" },
+      await server.api(`/api/sessions/${started.id}/commands`, {
+        body: {
+          type: "set_model",
+          model: { provider: "alias", id: "medium-1" },
+        },
       });
 
-      await api(`/api/sessions/${started.id}/commands`, {
-        type: "message",
-        text: "hi again",
+      await server.api(`/api/sessions/${started.id}/commands`, {
+        body: {
+          type: "message",
+          text: "hi again",
+        },
       });
 
       await new Promise((resolve) => setTimeout(resolve, 100));

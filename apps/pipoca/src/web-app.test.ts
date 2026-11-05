@@ -1,12 +1,12 @@
 import { afterAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { serve } from "./serve";
+import { testServer } from "./testdata/harness";
 
-const server = serve({ port: 0, database: ":memory:", log: () => undefined });
+const server = testServer();
 
 afterAll(async () => {
-  await server.stop();
+  await server.close();
 });
 
 // Browsers fetch the manifest and its icons without the sign-in cookie, and
