@@ -35,6 +35,6 @@ export const webRegistry = [
   { id: "push", plugin: pushWeb },
   { id: "routines", plugin: routinesWeb },
   { id: "slack", plugin: slackWeb },
-  { id: "subagents", plugin: subagentsWeb },
+  { id: "subagents", part: subagentsWeb },
   { id: "usage", plugin: usageWeb },
 ] as const;

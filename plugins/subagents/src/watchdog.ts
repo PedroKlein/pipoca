@@ -6,7 +6,7 @@ import {
   type ExtensionAPI,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import type { SessionCloud } from "@pipoca/plugins";
+import type { SessionContext } from "@pipoca/plugins";
 import { noticeType, type ThinkingLevel } from "@pipoca/protocol";
 import { thinkingLevel } from "./agents";
 import {
@@ -38,7 +38,10 @@ const instructions = `You are a watchdog. Another agent has just changed a repos
 // Reviews what each turn changed in the working tree, when the Profile's Pi
 // settings turn it on (ADR 0058). High findings go back to the agent; the
 // rest are for the person only.
-export function watchdog(cloud: SessionCloud, pi: ExtensionAPI): void {
+export function watchdog(
+  s: Pick<SessionContext, "startChild">,
+  pi: ExtensionAPI,
+): void {
   const prompts: string[] = [];
   let baseline: string | undefined;
   let lastHigh: string | undefined;
@@ -75,7 +78,7 @@ export function watchdog(cloud: SessionCloud, pi: ExtensionAPI): void {
     baseline = end;
 
     const review = await reviewed(
-      cloud,
+      s,
       settings,
       ctx.signal,
       task(prompts, await guidance(ctx), await changes(ctx.cwd, start, end)),
@@ -252,13 +255,13 @@ function task(
 }
 
 async function reviewed(
-  cloud: SessionCloud,
+  s: Pick<SessionContext, "startChild">,
   settings: Settings,
   signal: AbortSignal | undefined,
   prompt: string,
 ): Promise<Review> {
   try {
-    const session = await cloud.startChild({
+    const session = await s.startChild({
       tools,
       ...settings,
       systemPrompt: instructions,

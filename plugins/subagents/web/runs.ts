@@ -13,33 +13,25 @@ import {
   type RunView,
   runsKey,
   runState,
+  type Started,
   watchdogKind,
 } from "../src/format";
 
 export {
   type ChildView,
   manages,
+  missionsKey,
   type MissionView,
   openDecisions,
   type Review,
+  runsKey,
   type RunView,
   runState,
+  type Started,
   watchdogKind,
 };
 
 export type Tone = "running" | "done" | "failed" | "stopped";
-
-// Every run of the Session, as the session part last published them.
-export function publishedRuns(
-  event: SessionEvent,
-): readonly RunView[] | undefined {
-  return event.type === "live" &&
-    event.event.type === "plugin" &&
-    event.event.plugin === "subagents" &&
-    event.event.key === runsKey
-    ? (event.event.data as readonly RunView[])
-    : undefined;
-}
 
 // A run as the notice that brought its outputs to the parent recorded it.
 export function finishedRun(event: SessionEvent): RunView | undefined {
@@ -90,18 +82,6 @@ export function recordedRun(event: SessionEvent): RunView | undefined {
   } catch {
     return undefined;
   }
-}
-
-// Every mission of the Session, as the session part last published them.
-export function publishedMissions(
-  event: SessionEvent,
-): readonly MissionView[] | undefined {
-  return event.type === "live" &&
-    event.event.type === "plugin" &&
-    event.event.plugin === "subagents" &&
-    event.event.key === missionsKey
-    ? (event.event.data as readonly MissionView[])
-    : undefined;
 }
 
 // A mission as the transcript last recorded it.

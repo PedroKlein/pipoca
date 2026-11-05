@@ -7,12 +7,13 @@ import {
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import {
-  type SessionCloud,
-  type SessionPlugin,
+  defineSession,
+  type SessionContext,
   type Static,
   Type,
 } from "@pipoca/plugins";
 import { noticeType } from "@pipoca/protocol";
+import { subagents } from "../plugin";
 import { type Agent, loadAgents } from "./agents";
 import { fleet, type Run, type Step } from "./fleet";
 import {
@@ -39,13 +40,12 @@ import { watchdog } from "./watchdog";
 
 // Subagents as child sessions in the Session's process, on its model runtime
 // and logins (ADR 0057).
-export const subagents: SessionPlugin = {
-  name: "subagents",
-  extension: (cloud) => (pi) => {
-    extension(cloud, pi);
-    watchdog(cloud, pi);
-  },
-};
+export default defineSession(subagents, (s) => {
+  s.extension((pi) => {
+    extension(s, pi);
+    watchdog(s, pi);
+  });
+});
 
 const publishMs = 250;
 
@@ -142,20 +142,22 @@ const description = `Starts subagents: Pi sessions with their own context that w
   Its return value and logs are its output. A key names a step; when the workflow is resumed after a restart, a step that already ended done gives back its output.
 - A mission tracks an objective you work toward over many runs, such as a feature that ends in a pull request. action "mission" with mission.title and mission.objective creates one; with missionId it adds a decision (a question for the person, with options), a receipt (a link to what it produced), or closes it with a summary. Start runs with missionId to attach them. A workflow started with missionId reads and changes the mission's JSON state as \`state\`. The person's answer to a decision comes back in a later message; don't wait or poll for it.`;
 
-function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
+function extension(s: SessionContext, pi: ExtensionAPI): void {
   let projectAgents: string | undefined;
-  let publishing: ReturnType<typeof setTimeout> | undefined;
+  let publishing: (() => void) | undefined;
 
-  const publish = (): void => {
+  const publish = async (): Promise<void> => {
     publishing = undefined;
 
-    cloud.publish(runsKey, runs.runs());
+    s.publish(runsKey, runs.runs());
+
+    return Promise.resolve();
   };
 
   const publishMissions = (): void => {
     const all = goals.list();
 
-    cloud.publish(missionsKey, all, {
+    s.publish(missionsKey, all, {
       waiting: openDecisions(all).length > 0,
     });
   };
@@ -165,6 +167,7 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
       pi.appendEntry(missionRecordType, mission);
       publishMissions();
     },
+    now: s.clock.now,
   });
 
   // A mission's state as a workflow of it reads and changes it.
@@ -185,7 +188,7 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
 
   const runs = fleet({
     startChild: async (agent, continueFrom) =>
-      cloud.startChild({
+      s.startChild({
         tools: agent.tools,
         ...(agent.model !== undefined && { model: agent.model }),
         ...(agent.thinking !== undefined && { thinking: agent.thinking }),
@@ -193,11 +196,12 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
         ...(continueFrom !== undefined && { continueFrom }),
       }),
     changed: () => {
-      publishing ??= setTimeout(publish, publishMs);
+      publishing ??= s.timer.after(publishMs, publish);
     },
     recorded: (run) => {
       pi.appendEntry(recordType, run);
     },
+    now: s.clock.now,
   });
 
   // Wakes the parent with the run's outputs when it ends.
@@ -265,7 +269,7 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
       publishMissions();
     }
 
-    const at = Date.now();
+    const at = s.clock.now();
 
     const recorded = latest(
       ctx.sessionManager.getEntries(),
@@ -425,14 +429,17 @@ function extension(cloud: SessionCloud, pi: ExtensionAPI): void {
         goals.attach(missionId, run.id);
       }
 
-      const started: Started = { runId: run.id };
-
       if (params.wait === true) {
+        const ended = await run.ended;
+
         return {
-          content: [{ type: "text", text: outputs(await run.ended) }],
-          details: started,
+          content: [{ type: "text", text: outputs(ended) }],
+          details: { runId: run.id, run: ended } satisfies Started,
         };
       }
+
+      const view = runs.runs().find(({ id }) => id === run.id);
+      const started: Started = { runId: run.id, ...(view && { run: view }) };
 
       report(run);
 

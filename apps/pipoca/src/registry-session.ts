@@ -14,8 +14,7 @@ import modelsPackage from "../../../plugins/models/package.json";
 import * as modelsSession from "../../../plugins/models/src/session";
 import routinesPackage from "../../../plugins/routines/package.json";
 import * as routinesSession from "../../../plugins/routines/src/session";
-import subagentsPackage from "../../../plugins/subagents/package.json";
-import * as subagentsSession from "../../../plugins/subagents/src/session";
+import { subagents } from "../../../plugins/subagents/plugin";
 
 export const sessionRegistry = [
   { id: "ask", definition: ask },
@@ -35,9 +34,5 @@ export const sessionRegistry = [
     manifest: routinesPackage.pipoca,
     session: routinesSession,
   },
-  {
-    id: "subagents",
-    manifest: subagentsPackage.pipoca,
-    session: subagentsSession,
-  },
+  { id: "subagents", definition: subagents },
 ] as const;

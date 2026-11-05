@@ -28,7 +28,7 @@ import routinesPackage from "../../../plugins/routines/package.json";
 import * as routinesServer from "../../../plugins/routines/src/server";
 import slackPackage from "../../../plugins/slack/package.json";
 import * as slackServer from "../../../plugins/slack/src/server";
-import subagentsPackage from "../../../plugins/subagents/package.json";
+import { subagents } from "../../../plugins/subagents/plugin";
 import usagePackage from "../../../plugins/usage/package.json";
 import * as usageServer from "../../../plugins/usage/src/server";
 
@@ -53,6 +53,6 @@ export const serverRegistry = [
   { id: "push", manifest: pushPackage.pipoca, server: pushServer },
   { id: "routines", manifest: routinesPackage.pipoca, server: routinesServer },
   { id: "slack", manifest: slackPackage.pipoca, server: slackServer },
-  { id: "subagents", manifest: subagentsPackage.pipoca },
+  { id: "subagents", definition: subagents },
   { id: "usage", manifest: usagePackage.pipoca, server: usageServer },
 ] as const;

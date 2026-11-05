@@ -42,7 +42,7 @@ export async function runWorkflow(
 ): Promise<WorkflowResult> {
   compiled ??= readFile(wasm).then(async (bytes) => WebAssembly.compile(bytes));
 
-  let busySince = Date.now();
+  let busySince = performance.now();
   let checks = 0;
 
   const vm = await QuickJS.create({
@@ -54,7 +54,7 @@ export async function runWorkflow(
         return false;
       }
 
-      return host.stopped() || Date.now() - busySince > busyMs;
+      return host.stopped() || performance.now() - busySince > busyMs;
     },
   });
 
@@ -62,7 +62,7 @@ export async function runWorkflow(
 
   // Runs guest code, counting the time it computes.
   const guest = <T>(work: () => T): T => {
-    busySince = Date.now();
+    busySince = performance.now();
 
     return work();
   };

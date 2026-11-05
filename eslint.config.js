@@ -162,10 +162,6 @@ export default tseslint.config(
       "plugins/routines/src/engine.ts",
       "plugins/routines/src/wakeups.ts",
       "plugins/slack/src/socket.ts",
-      "plugins/subagents/src/fleet.ts",
-      "plugins/subagents/src/missions.ts",
-      "plugins/subagents/src/session.ts",
-      "plugins/subagents/src/workflow.ts",
     ],
     rules: {
       "no-restricted-globals": [

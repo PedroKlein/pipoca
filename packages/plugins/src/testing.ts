@@ -11,6 +11,7 @@ import {
   type Owner,
   type Session,
   systemClock,
+  systemTimer,
 } from "@pipoca/protocol";
 import type { TypedClient } from "./client";
 import { sessionConfig } from "./config";
@@ -230,6 +231,7 @@ export async function testSession(
           ? {}
           : sessionConfig(plugin.config, cloud.config ?? {}, given.log),
       clock: systemClock,
+      timer: systemTimer,
     };
 
     const { tools: direct, extensions } = await setUp(part, host);
