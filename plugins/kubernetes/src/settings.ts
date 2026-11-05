@@ -1,5 +1,3 @@
-import type { PluginStore } from "@pipoca/plugins";
-
 // A Kubernetes Environment's runner pods (ADR 0032). With "claim", each
 // Session gets a pod of its own that mounts a claim of claimSize, so its
 // workspace outlives the pod; capacity doesn't apply. The patch is a JSON
@@ -65,52 +63,5 @@ export function settingsFrom(
     claimSize: settings.claimSize,
     storageClass: settings.storageClass,
     podPatch: settings.podPatch,
-  };
-}
-
-export interface SettingsStore {
-  readonly get: (id: string) => KubernetesSettings | undefined;
-  readonly all: () => readonly (readonly [string, KubernetesSettings])[];
-  readonly set: (id: string, settings: KubernetesSettings) => void;
-  readonly remove: (id: string) => void;
-}
-
-export const kubernetesSchema = `
-create table kubernetes_templates (
-  template_id text primary key,
-  settings text not null check (json_valid(settings))
-) strict;
-`;
-
-// Pod settings by template (ADR 0049).
-export function settingsStore(store: PluginStore): SettingsStore {
-  const rows = (where = "", ...values: string[]) =>
-    (
-      store.all(
-        `select template_id as id, settings from kubernetes_templates ${where}`,
-        ...values,
-      ) as { id: string; settings: string }[]
-    ).map(
-      (row) =>
-        [
-          row.id,
-          { ...defaultSettings, ...(JSON.parse(row.settings) as object) },
-        ] as const,
-    );
-
-  return {
-    get: (id) => rows("where template_id = ?", id)[0]?.[1],
-    all: () => rows(),
-    set: (id, settings) => {
-      store.run(
-        `insert into kubernetes_templates (template_id, settings) values (?, ?)
-         on conflict (template_id) do update set settings = excluded.settings`,
-        id,
-        JSON.stringify(settings),
-      );
-    },
-    remove: (id) => {
-      store.run("delete from kubernetes_templates where template_id = ?", id);
-    },
   };
 }

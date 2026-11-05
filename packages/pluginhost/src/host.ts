@@ -156,6 +156,7 @@ function pluginEnvironments(
     readonly revoke: (environment: string, runner: string) => void;
   },
   startsRunners: ServerPluginContext["environments"]["startsRunners"],
+  templateConfig: ServerPluginContext["environments"]["templateConfig"],
 ): ServerPluginContext["environments"] {
   const provider = (environmentId: string): string => {
     const found = sessions
@@ -179,6 +180,7 @@ function pluginEnvironments(
     },
     startsRunners,
     templates: () => sessions.templates(),
+    templateConfig,
   };
 }
 
@@ -217,6 +219,15 @@ export function startPlugins(
     readonly sessionParts: readonly SessionPlugin[];
     readonly mcpServers?: ServerPluginContext["profiles"]["mcpServers"];
     readonly switches: PluginSwitches;
+    // Each plugin's key in a template's entry in pipoca.json.
+    readonly templates?: {
+      readonly config: (templateId: string, plugin: string) => unknown;
+      readonly setConfig: (
+        templateId: string,
+        plugin: string,
+        value: unknown,
+      ) => void;
+    };
     readonly buildsOn?: ServerPluginContext["profiles"]["buildsOn"];
     readonly signal: AbortSignal;
     readonly log: Log;
@@ -574,6 +585,17 @@ export function startPlugins(
             deps.runners,
             (starts) => {
               staged.starters.push({ plugin: plugin.name, starts });
+            },
+            {
+              get: (templateId) =>
+                deps.templates?.config(templateId, plugin.name),
+              set: (templateId, value) => {
+                if (deps.templates === undefined) {
+                  throw new Error("this server keeps no templates");
+                }
+
+                deps.templates.setConfig(templateId, plugin.name, value);
+              },
             },
           ),
           profiles: {

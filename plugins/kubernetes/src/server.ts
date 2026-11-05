@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
   BadRequest,
+  checkBody,
   HttpError,
   NotFound,
   readBody,
@@ -29,8 +30,6 @@ import {
   type KubernetesEnvironment,
   type KubernetesSettings,
   settingsFrom,
-  kubernetesSchema,
-  settingsStore,
   workspaces,
 } from "./settings";
 
@@ -39,20 +38,19 @@ const positive = Type.Integer({
   maximum: Number.MAX_SAFE_INTEGER,
 });
 
+const settingsFields = Type.Object({
+  workspace: Type.Optional(Type.Enum(workspaces)),
+  capacity: Type.Optional(positive),
+  maxPods: Type.Optional(positive),
+  idleSeconds: Type.Optional(positive),
+  claimSize: Type.Optional(Type.String()),
+  storageClass: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  podPatch: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+});
+
 // Null settings stop runner pods in the Environment.
 const settingsChange = Type.Object({
-  settings: Type.Union([
-    Type.Object({
-      workspace: Type.Optional(Type.Enum(workspaces)),
-      capacity: Type.Optional(positive),
-      maxPods: Type.Optional(positive),
-      idleSeconds: Type.Optional(positive),
-      claimSize: Type.Optional(Type.String()),
-      storageClass: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-      podPatch: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-    }),
-    Type.Null(),
-  ]),
+  settings: Type.Union([settingsFields, Type.Null()]),
 });
 
 export interface KubernetesOptions {
@@ -90,14 +88,47 @@ const finished = new Set(["Succeeded", "Failed"]);
 // Longer than pulling a large image takes.
 const stuckAfterMs = 10 * 60_000;
 
+function fitting(saved: unknown): KubernetesSettings | string {
+  try {
+    return settingsFrom(checkBody(saved, settingsFields));
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 // Starts runner pods for the Sessions of a Kubernetes Environment that no
 // runner can take, and removes the pods that stopped (ADR 0032).
 export function kubernetes(options: () => KubernetesOptions): ServerPlugin {
   return {
     name: "kubernetes",
-    schema: { version: 1, sql: kubernetesSchema },
     register: (context) => {
-      const byTemplate = settingsStore(context.store);
+      // Pod settings live in their template's entry in pipoca.json
+      // (ADR 0049). Ones that stop fitting are logged and start no pods.
+      const byTemplate = {
+        get: (id: string): KubernetesSettings | undefined => {
+          const saved = context.environments.templateConfig.get(id);
+
+          if (saved === undefined) {
+            return undefined;
+          }
+
+          const settings = fitting(saved);
+
+          if (typeof settings === "string") {
+            context.log("kubernetes template settings don't fit", {
+              templateId: id,
+              error: settings,
+            });
+
+            return undefined;
+          }
+
+          return settings;
+        },
+        set: (id: string, settings: KubernetesSettings | undefined): void => {
+          context.environments.templateConfig.set(id, settings);
+        },
+      };
 
       const {
         api,
@@ -192,11 +223,7 @@ export function kubernetes(options: () => KubernetesOptions): ServerPlugin {
           requireAdmin(caller, "only admins change Kubernetes settings");
 
           const settings = await changed(request, found.isolation, (saved) => {
-            if (saved === null) {
-              byTemplate.remove(id);
-            } else {
-              byTemplate.set(id, saved);
-            }
+            byTemplate.set(id, saved ?? undefined);
           });
 
           for (const environment of context.environments.list()) {

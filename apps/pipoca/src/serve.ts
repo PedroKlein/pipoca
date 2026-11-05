@@ -364,6 +364,7 @@ export function serve(options: ServeOptions): {
     sessionParts: sessionPlugins,
     mcpServers: () => userProfiles.mcpServers(),
     switches,
+    templates,
     buildsOn: (id) => profiles.buildsOn(id),
     signal: pluginsStop.signal,
     log: options.log,

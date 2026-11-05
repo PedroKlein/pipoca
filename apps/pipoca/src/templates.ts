@@ -2,6 +2,7 @@ import {
   BadRequest,
   checkBody,
   HttpError,
+  isObject,
   NotFound,
   type PluginConfig,
 } from "@pipoca/plugins";
@@ -27,11 +28,26 @@ export interface Templates {
     paths: readonly string[],
   ) => Promise<readonly EnvironmentTemplate[]>;
   readonly sync: (url?: string) => Promise<void>;
+  // A plugin's key in a template's entry, such as its pod settings.
+  readonly config: (id: string, plugin: string) => unknown;
+  readonly setConfig: (id: string, plugin: string, value: unknown) => void;
 }
+
+const templateFields = new Set([
+  "id",
+  "name",
+  "isolation",
+  "image",
+  "setupScript",
+  "variables",
+  "aliases",
+  "source",
+]);
 
 // Admins keep Environment templates under "templates" in pipoca.json, so a
 // Helm value can set them as well as Settings (ADR 0039, ADR 0049). An entry
-// that doesn't read is left out and logged, and the others still work.
+// that doesn't read is left out and logged, and the others still work. An
+// entry also holds a key per plugin, which saves keep.
 export function environmentTemplates(
   config: PluginConfig,
   log: Log,
@@ -59,8 +75,29 @@ export function environmentTemplates(
     });
   };
 
+  const entries = (): readonly Readonly<Record<string, unknown>>[] => {
+    const value = config.get();
+
+    return Array.isArray(value) ? value.filter(isObject) : [];
+  };
+
+  const entryOf = (id: string): Readonly<Record<string, unknown>> | undefined =>
+    entries().find((entry) => entry["id"] === id);
+
+  const pluginKeys = (id: string): Readonly<Record<string, unknown>> =>
+    Object.fromEntries(
+      Object.entries(entryOf(id) ?? {}).filter(
+        ([key]) => !templateFields.has(key),
+      ),
+    );
+
   const save = (templates: readonly EnvironmentTemplate[]): void => {
-    config.set(templates);
+    config.set(
+      templates.map((template) => ({
+        ...pluginKeys(template.id),
+        ...template,
+      })),
+    );
   };
 
   const freeId = (name: string, taken: ReadonlySet<string>): string => {
@@ -212,6 +249,34 @@ export function environmentTemplates(
         return imported;
       }),
     sync,
+    config: (id, plugin) => {
+      const entry = entryOf(id);
+
+      return entry !== undefined && Object.hasOwn(entry, plugin)
+        ? entry[plugin]
+        : undefined;
+    },
+    setConfig: (id, plugin, value) => {
+      if (templateFields.has(plugin)) {
+        throw new Error(`${plugin} is a template's own field`);
+      }
+
+      if (!list().some((each) => each.id === id)) {
+        throw new NotFound(`no template ${id}`);
+      }
+
+      config.set(
+        entries().map((entry) => {
+          if (entry["id"] !== id) {
+            return entry;
+          }
+
+          const { [plugin]: _, ...rest } = entry;
+
+          return value === undefined ? rest : { ...rest, [plugin]: value };
+        }),
+      );
+    },
   };
 }
 
