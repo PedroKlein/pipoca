@@ -1,5 +1,5 @@
 import { profilePath, type Profile } from "@pipoca/protocol";
-import { Button, cn, FileButton, fieldClass, Icon } from "@pipoca/ui";
+import { Button, ChoiceCard, cn, fieldClass, FileButton, Icon } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { api } from "./api";
 import { base64 } from "./profile-files";
@@ -245,29 +245,18 @@ export function ProfileStep({
     description: string,
     body?: ReactElement,
   ): ReactElement => (
-    <li
-      className={cn(
-        "flex flex-col gap-3 rounded-lg border border-line bg-elevated p-4",
-        choice === value && "border-fg-strong shadow-xs",
-      )}
+    <ChoiceCard
+      as="li"
+      name="profile-start"
+      checked={choice === value}
+      onChange={() => {
+        setChoice(value);
+      }}
+      title={title}
+      description={description}
     >
-      <label className="flex cursor-pointer items-start gap-3">
-        <input
-          type="radio"
-          name="profile-start"
-          checked={choice === value}
-          onChange={() => {
-            setChoice(value);
-          }}
-          className="mt-1 size-4 accent-(--accent)"
-        />
-        <span className="flex flex-col gap-0.5">
-          <span className="text-ui font-medium text-fg-strong">{title}</span>
-          <span className="text-label text-fg-dim">{description}</span>
-        </span>
-      </label>
-      {choice === value && body}
-    </li>
+      {body}
+    </ChoiceCard>
   );
 
   return (
@@ -277,7 +266,7 @@ export function ProfileStep({
           "folder",
           "Bring my Pi setup",
           "Pick your ~/.pi/agent folder. Click anything to leave it out. Logins and history stay behind.",
-          <div className="flex flex-col gap-3 pl-7">
+          <div className="flex flex-col gap-3">
             <FileButton
               className="self-start"
               {...{ webkitdirectory: "" }}
@@ -370,7 +359,7 @@ export function ProfileStep({
           "Start from a git repository",
           "A repository with a Pi agent folder, such as your dotfiles. It becomes your default Profile.",
           <form
-            className="flex flex-wrap gap-2 pl-7"
+            className="flex flex-wrap gap-2"
             onSubmit={(event) => {
               event.preventDefault();
 

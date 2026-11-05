@@ -5,7 +5,7 @@ import {
   type EnvironmentTemplate,
   kindOf,
 } from "@pipoca/protocol";
-import { Badge, Button, cn, Command, type ConfirmOptions, fieldClass, Icon, type KeyValue, KeyValues, PageTitle, plural, Row, Rows, Section, Select, useConfirm } from "@pipoca/ui";
+import { Badge, Button, ChoiceTiles, cn, Command, type ConfirmOptions, fieldClass, Icon, type KeyValue, KeyValues, PageTitle, plural, Row, Rows, Section, Select, useConfirm } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -557,42 +557,26 @@ function Editor({
         </Section>
         {template === undefined && kind !== "kubernetes" && (
           <Section title="Each Session runs">
-            <div className="grid gap-2.5 sm:grid-cols-2">
-              {(
-                [
-                  [
-                    "process",
-                    "On the machine",
+            <ChoiceTiles
+              label="Each Session runs"
+              name="isolation"
+              value={isolation}
+              onChange={setIsolation}
+              tiles={[
+                {
+                  value: "process",
+                  title: "On the machine",
+                  description:
                     "With what's installed there. Fast, nothing to set up.",
-                  ],
-                  [
-                    "container",
-                    "In a container",
+                },
+                {
+                  value: "container",
+                  title: "In a container",
+                  description:
                     "One container from an image, shared by its Sessions. Needs Docker.",
-                  ],
-                ] as const
-              ).map(([value, title, about]) => (
-                <label
-                  key={value}
-                  className="flex cursor-pointer flex-col gap-1 rounded-lg border border-line bg-elevated p-4 has-checked:border-fg-strong has-checked:shadow-xs"
-                >
-                  <span className="flex items-center gap-2 text-ui font-medium text-fg-strong">
-                    <input
-                      type="radio"
-                      name="isolation"
-                      value={value}
-                      checked={isolation === value}
-                      onChange={() => {
-                        setIsolation(value);
-                      }}
-                      className="accent-(--accent)"
-                    />
-                    {title}
-                  </span>
-                  <span className="text-label text-fg-dim">{about}</span>
-                </label>
-              ))}
-            </div>
+                },
+              ]}
+            />
             {isolation === "process" && (
               <Note icon="terminal">
                 Sessions here use what&apos;s already installed on the machine.

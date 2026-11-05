@@ -1,5 +1,5 @@
 import type { JoinInfo } from "@pipoca/protocol";
-import { Button, Field, fieldClass, initialsOf, Mark } from "@pipoca/ui";
+import { Avatar, Button, Field, fieldClass, Hero, SetupShell, Spinner } from "@pipoca/ui";
 import {
   type ReactElement,
   type SubmitEvent,
@@ -51,34 +51,19 @@ export function JoinPage({ token }: { readonly token: string }): ReactElement {
   };
 
   return (
-    <div className="flex min-h-dvh flex-col">
-      <header className="flex items-center justify-between px-7 py-5">
-        <span className="flex items-center gap-2 font-serif text-wordmark font-light text-fg-strong">
-          <Mark className="size-7" />
-          pipoca
-        </span>
-        <span className="font-mono text-mono-sm text-fg-dim">
-          {location.host}
-        </span>
-      </header>
+    <SetupShell
+      aside={<span className="font-mono text-mono-sm">{location.host}</span>}
+    >
       <main className="mx-auto flex w-full max-w-xl animate-rise-in flex-col gap-6 px-4 pt-10 pb-16">
-        {info === undefined && <p className="text-fg-dim">Loading…</p>}
+        {info === undefined && <Spinner label="Loading…" />}
         {typeof info === "string" && (
           <>
-            <h1 className="font-serif text-hero leading-tight font-light text-fg-strong">
-              This invite doesn&apos;t work any more
-            </h1>
-            <p className="text-prose text-fg-dim">{info}</p>
+            <Hero title="This invite doesn't work any more">{info}</Hero>
           </>
         )}
         {typeof info === "object" && (
           <>
-            <span
-              aria-hidden="true"
-              className="grid size-11 place-items-center rounded-full bg-hover text-prose font-semibold text-fg-strong"
-            >
-              {initialsOf(info.invitedBy)}
-            </span>
+            <Avatar name={info.invitedBy} size="lg" />
             <div className="flex flex-col gap-2">
               <h1 className="font-serif text-hero leading-tight font-light text-fg-strong">
                 {info.invitedBy} invited you to Pipoca
@@ -151,6 +136,6 @@ export function JoinPage({ token }: { readonly token: string }): ReactElement {
           </>
         )}
       </main>
-    </div>
+    </SetupShell>
   );
 }
