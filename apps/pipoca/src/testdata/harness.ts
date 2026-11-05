@@ -129,27 +129,6 @@ export async function closeServers(): Promise<void> {
   await Promise.all([...open].map(async (server) => server.close()));
 }
 
-export async function until<T>(
-  read: () => T | Promise<T>,
-  done: (value: T) => boolean = Boolean,
-  timeoutMs = 10_000,
-): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
-
-  for (;;) {
-    const value = await read();
-    if (done(value)) {
-      return value;
-    }
-
-    if (Date.now() > deadline) {
-      throw new Error(`not done after ${String(timeoutMs)} ms`);
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
-
 export async function json<T>(response: Promise<Response>): Promise<T> {
   return (await (await response).json()) as T;
 }

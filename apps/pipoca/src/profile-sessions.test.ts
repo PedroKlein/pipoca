@@ -24,14 +24,13 @@ import type {
   SessionEvent,
 } from "@pipoca/protocol";
 import { runAgent } from "./agent";
-import { serve } from "./serve";
 import { runnerCredentials } from "./testdata/runners";
-import { firstUser } from "./testdata/sign-in";
 import { readSse } from "./sse";
+import { json, testServer, type TestServer } from "./testdata/harness";
+import { until } from "./testdata/until";
 
 let root: string;
-let server: ReturnType<typeof serve>;
-let signedIn: () => Promise<string>;
+let server: TestServer;
 let runners: ReturnType<typeof runnerCredentials>;
 let faux: ReturnType<typeof fauxProvider>;
 let stopAgent: () => Promise<void>;
@@ -48,19 +47,11 @@ beforeEach(async () => {
 
   runtime.registerNativeProvider(faux.provider);
 
-  const logs: string[] = [];
-
-  server = serve({
-    port: 0,
-    database: ":memory:",
+  server = testServer({
     sessions: { pollWaitMs: 100, offlineAfterMs: 200 },
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
   });
 
-  signedIn = firstUser(server, logs);
-  runners = runnerCredentials(server, signedIn);
+  runners = runnerCredentials(server, server.signedIn);
 
   const controller = new AbortController();
 
@@ -84,53 +75,47 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await stopAgent();
-  await server.stop();
+  await server.close();
   await rm(root, { recursive: true, force: true });
 });
 
-async function api<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(new URL(path, server.url), {
-    method: body === undefined ? "GET" : "POST",
-    headers: {
-      cookie: await signedIn(),
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
-
-  return (await response.json()) as T;
-}
-
 async function sessionWith(content: Partial<ProfileContent>): Promise<Session> {
-  const profile = await api<Profile>("/api/profiles", {
-    name: "Work",
-    ...content,
-  });
+  const profile = await json<Profile>(
+    server.api("/api/profiles", {
+      body: {
+        name: "Work",
+        ...content,
+      },
+    }),
+  );
 
   let environment: Environment | undefined;
   while (environment === undefined) {
-    environment = (await api<Environment[]>("/api/environments")).find(
-      (each) => each.online,
-    );
+    environment = (
+      await json<Environment[]>(server.api("/api/environments"))
+    ).find((each) => each.online);
   }
 
-  return api<Session>("/api/sessions", {
-    environment: environment.id,
-    profile: profile.id,
-    workspace: { kind: "folder", path: root },
-  });
+  return json<Session>(
+    server.api("/api/sessions", {
+      body: {
+        environment: environment.id,
+        profile: profile.id,
+        workspace: { kind: "folder", path: root },
+      },
+    }),
+  );
 }
 
-async function until(
+async function sessionUntil(
   sessionId: string,
   done: (session: Session) => boolean,
 ): Promise<Session> {
   const controller = new AbortController();
 
-  const response = await fetch(
-    new URL(`/api/sessions/${sessionId}/events`, server.url),
-    { signal: controller.signal, headers: { cookie: await signedIn() } },
-  );
+  const response = await server.api(`/api/sessions/${sessionId}/events`, {
+    signal: controller.signal,
+  });
 
   for await (const event of readSse(response)) {
     const sessionEvent = event as SessionEvent;
@@ -155,12 +140,16 @@ async function firstRequest(session: Session): Promise<string> {
     },
   ]);
 
-  await until(session.id, ({ status }) => status === "idle");
+  await sessionUntil(session.id, ({ status }) => status === "idle");
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "hello",
-  });
+  await json(
+    server.api(`/api/sessions/${session.id}/commands`, {
+      body: {
+        type: "message",
+        text: "hello",
+      },
+    }),
+  );
 
   return seen.promise;
 }
@@ -219,14 +208,17 @@ test("a package that can't be installed stops the Session, naming it", async () 
   const missing = join(root, "no-such-package");
   const session = await sessionWith({ packages: [missing] });
 
-  const failed = await until(session.id, ({ status }) => status === "failed");
+  const failed = await sessionUntil(
+    session.id,
+    ({ status }) => status === "failed",
+  );
 
   expect(failed.error).toContain(`package ${missing} failed to install`);
 });
 
 test("a machine deletes a deleted Profile's folder once its Sessions stop", async () => {
   const session = await sessionWith({ agentsMd: "Be brief." });
-  await until(session.id, ({ status }) => status === "idle");
+  await sessionUntil(session.id, ({ status }) => status === "idle");
 
   const dir = join(root, "laptop", "profiles", session.profileId);
 
@@ -238,17 +230,12 @@ test("a machine deletes a deleted Profile's folder once its Sessions stop", asyn
 
   expect(await exists()).toBe(true);
 
-  await api(`/api/sessions/${session.id}/archive`, {});
+  await json(server.api(`/api/sessions/${session.id}/archive`, { body: {} }));
 
-  await fetch(new URL(`/api/profiles/${session.profileId}`, server.url), {
-    method: "DELETE",
-    headers: { cookie: await signedIn() },
-  });
+  await server.api(`/api/profiles/${session.profileId}`, { method: "DELETE" });
 
   const deadline = Date.now() + 5000;
-  while ((await exists()) && Date.now() < deadline) {
-    await sleep(50);
-  }
+  await until(async () => !((await exists()) && Date.now() < deadline));
 
   expect(await exists()).toBe(false);
 });
@@ -277,9 +264,7 @@ test("leaves Profile folders another server wrote in a shared data directory", a
     signal: controller.signal,
   });
 
-  while (polls === 0) {
-    await sleep(20);
-  }
+  await until(() => polls > 0);
 
   await sleep(500);
   controller.abort();
@@ -333,7 +318,10 @@ test("a git package that fails says what git said, and which host to connect", a
   const source = "https://127.0.0.1:1/team/kit";
   const session = await sessionWith({ packages: [source] });
 
-  const failed = await until(session.id, ({ status }) => status === "failed");
+  const failed = await sessionUntil(
+    session.id,
+    ({ status }) => status === "failed",
+  );
 
   expect(failed.error).toContain(`package ${source} failed to install`);
   expect(failed.error).toContain("unable to access");

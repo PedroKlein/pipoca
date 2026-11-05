@@ -96,12 +96,9 @@ async function signIn(
   account: Account,
   options: { start?: string; cookie?: string; browser?: string } = {},
 ): Promise<{ readonly response: Response; readonly cookie: string }> {
-  const started = await fetch(
-    new URL(
-      options.start ?? `/api/plugins/oidc/start/${providerId}`,
-      server.url,
-    ),
-    { redirect: "manual", headers: { cookie: options.cookie ?? "" } },
+  const started = await server.as(options.cookie ?? "")(
+    options.start ?? `/api/plugins/oidc/start/${providerId}`,
+    { redirect: "manual" },
   );
 
   expect(started.status).toBe(302);

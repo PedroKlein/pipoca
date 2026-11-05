@@ -1,38 +1,20 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { serve } from "./serve";
-import { firstUser } from "./testdata/sign-in";
+import { testServer, type TestServer } from "./testdata/harness";
 
-let server: ReturnType<typeof serve>;
-let signedIn: () => Promise<string>;
+let server: TestServer;
 
 beforeEach(() => {
-  const logs: string[] = [];
-
-  server = serve({
-    port: 0,
-    database: ":memory:",
+  server = testServer({
     sessions: { pollWaitMs: 0 },
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
   });
-
-  signedIn = firstUser(server, logs);
 });
 
 afterEach(async () => {
-  await server.stop();
+  await server.close();
 });
 
 async function setup(body?: unknown): Promise<Response> {
-  return fetch(new URL("/api/setup", server.url), {
-    method: body === undefined ? "GET" : "POST",
-    headers: {
-      cookie: await signedIn(),
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
+  return server.api("/api/setup", { body });
 }
 
 test("a new person has the setup ahead of them until they finish it", async () => {

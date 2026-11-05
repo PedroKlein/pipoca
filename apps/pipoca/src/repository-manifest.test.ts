@@ -16,16 +16,14 @@ import type {
   ManifestEntry,
   Profile,
 } from "@pipoca/protocol";
-import { serve } from "./serve";
-import { firstUser } from "./testdata/sign-in";
+import { json, testServer, type TestServer } from "./testdata/harness";
 
 const run = promisify(execFile);
 
 let certs: string;
 let git: Bun.Server<undefined>;
 let root: string;
-let server: ReturnType<typeof serve>;
-let signedIn: () => Promise<string>;
+let server: TestServer;
 
 // Clones go over https only, so a git server with a throwaway certificate
 // stands in for a git host.
@@ -68,22 +66,14 @@ afterAll(async () => {
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "manifest-"));
 
-  const logs: string[] = [];
-
-  server = serve({
-    port: 0,
+  server = testServer({
     database: join(root, "server.db"),
     configDir: join(root, "config"),
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
   });
-
-  signedIn = firstUser(server, logs);
 });
 
 afterEach(async () => {
-  await server.stop();
+  await server.close();
   await rm(root, { recursive: true, force: true });
 });
 
@@ -101,7 +91,7 @@ test("imports the Profiles a repository's pipoca.json lists and follows the repo
   });
 
   const listed = await json<{ readonly profiles: ManifestEntry[] }>(
-    api("/api/profiles/listed", { body: { url } }),
+    server.api("/api/profiles/listed", { body: { url } }),
   );
 
   expect(listed.profiles).toEqual([
@@ -110,7 +100,7 @@ test("imports the Profiles a repository's pipoca.json lists and follows the repo
   ]);
 
   const imported = await json<{ readonly profiles: Profile[] }>(
-    api("/api/profiles/import", {
+    server.api("/api/profiles/import", {
       body: { url, paths: ["profiles/review"] },
     }),
   );
@@ -125,7 +115,7 @@ test("imports the Profiles a repository's pipoca.json lists and follows the repo
 
   const id = review?.id ?? "";
 
-  const edited = await api(`/api/profiles/${id}`, {
+  const edited = await server.api(`/api/profiles/${id}`, {
     method: "PUT",
     body: { agentsMd: "Mine now." },
   });
@@ -138,20 +128,20 @@ test("imports the Profiles a repository's pipoca.json lists and follows the repo
   });
 
   const synced = await json<Profile>(
-    api(`/api/profiles/${id}/sync`, { body: {} }),
+    server.api(`/api/profiles/${id}/sync`, { body: {} }),
   );
 
   expect(synced.agentsMd).toBe("Review twice.");
   expect(synced.source?.commit).not.toBe(review?.source?.commit);
 
   expect(
-    (await json<{ path: string }[]>(api(`/api/profiles/${id}/files`))).map(
-      ({ path }) => path,
-    ),
+    (
+      await json<{ path: string }[]>(server.api(`/api/profiles/${id}/files`))
+    ).map(({ path }) => path),
   ).not.toContain("skills/lint/SKILL.md");
 
   const copy = await json<Profile>(
-    api(`/api/profiles/${id}/copy`, { body: {} }),
+    server.api(`/api/profiles/${id}/copy`, { body: {} }),
   );
 
   expect([copy.name, copy.agentsMd, copy.source]).toEqual([
@@ -162,7 +152,7 @@ test("imports the Profiles a repository's pipoca.json lists and follows the repo
 
   expect(
     (
-      await api(`/api/profiles/${copy.id}`, {
+      await server.api(`/api/profiles/${copy.id}`, {
         method: "PUT",
         body: { agentsMd: "Mine now." },
       })
@@ -177,7 +167,7 @@ test("refuses a folder the manifest doesn't list or that leaves the repository",
     }),
   });
 
-  const listed = await api("/api/profiles/listed", { body: { url } });
+  const listed = await server.api("/api/profiles/listed", { body: { url } });
 
   expect(listed.status).toBe(400);
 
@@ -192,7 +182,7 @@ test("refuses a folder the manifest doesn't list or that leaves the repository",
     "other",
   );
 
-  const unlisted = await api("/api/profiles/import", {
+  const unlisted = await server.api("/api/profiles/import", {
     body: { url: other, paths: ["secret"] },
   });
 
@@ -217,7 +207,7 @@ test("imports the templates a repository's pipoca.json lists and follows the rep
   );
 
   const listed = await json<{ readonly templates: ManifestEntry[] }>(
-    api("/api/templates/listed", { body: { url } }),
+    server.api("/api/templates/listed", { body: { url } }),
   );
 
   expect(listed.templates).toEqual([
@@ -225,7 +215,7 @@ test("imports the templates a repository's pipoca.json lists and follows the rep
   ]);
 
   const imported = await json<{ readonly templates: EnvironmentTemplate[] }>(
-    api("/api/templates/import", {
+    server.api("/api/templates/import", {
       body: { url, paths: ["environments/go.json"] },
     }),
   );
@@ -242,7 +232,7 @@ test("imports the templates a repository's pipoca.json lists and follows the rep
     source: { url, path: "environments/go.json" },
   });
 
-  const edited = await api("/api/templates/go-services", {
+  const edited = await server.api("/api/templates/go-services", {
     method: "PATCH",
     body: { image: "golang:1.26" },
   });
@@ -257,7 +247,7 @@ test("imports the templates a repository's pipoca.json lists and follows the rep
   });
 
   const synced = await json<EnvironmentTemplate>(
-    api("/api/templates/go-services/sync", { body: {} }),
+    server.api("/api/templates/go-services/sync", { body: {} }),
   );
 
   expect([synced.image, synced.variables, synced.setupScript]).toEqual([
@@ -280,12 +270,15 @@ test("refuses a template file that holds secrets", async () => {
     "leaky",
   );
 
-  const imported = await api("/api/templates/import", {
+  const imported = await server.api("/api/templates/import", {
     body: { url, paths: ["leaky.json"] },
   });
 
   expect(imported.status).toBe(400);
-  expect(await json<EnvironmentTemplate[]>(api("/api/templates"))).toEqual([]);
+
+  expect(
+    await json<EnvironmentTemplate[]>(server.api("/api/templates")),
+  ).toEqual([]);
 });
 
 async function repository(
@@ -400,27 +393,4 @@ async function httpBackend(
   }
 
   return new Response(output.subarray(end + 4), { status, headers });
-}
-
-async function api(
-  path: string,
-  init: { readonly method?: string; readonly body?: unknown } = {},
-): Promise<Response> {
-  return fetch(new URL(path, server.url), {
-    method: init.method ?? (init.body === undefined ? "GET" : "POST"),
-    headers: {
-      cookie: await signedIn(),
-      ...(init.body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(init.body !== undefined && { body: JSON.stringify(init.body) }),
-  });
-}
-
-async function json<T>(response: Promise<Response>): Promise<T> {
-  const answer = await response;
-  if (!answer.ok) {
-    throw new Error(`${String(answer.status)} ${await answer.text()}`);
-  }
-
-  return (await answer.json()) as T;
 }

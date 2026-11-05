@@ -17,7 +17,8 @@ import type {
   SessionEvent,
   SlashCommand,
 } from "@pipoca/protocol";
-import { json, testServer, type TestServer, until } from "./testdata/harness";
+import { json, testServer, type TestServer } from "./testdata/harness";
+import { until } from "./testdata/until";
 import { runnerCredentials } from "./testdata/runners";
 import { readSse } from "./sse";
 
@@ -154,13 +155,9 @@ test("refuses a meta-session without a first message", async () => {
 });
 
 test("answers a method the meta-session list has no route for as not found", async () => {
-  const response = await fetch(
-    new URL("/api/plugins/meta/sessions", server.url),
-    {
-      method: "DELETE",
-      headers: { cookie: await server.signedIn() },
-    },
-  );
+  const response = await server.api("/api/plugins/meta/sessions", {
+    method: "DELETE",
+  });
 
   expect(response.status).toBe(404);
 

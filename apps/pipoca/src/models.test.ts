@@ -6,7 +6,8 @@ import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { EnvironmentModels } from "@pipoca/models/model";
 import type { Environment, Session } from "@pipoca/protocol";
-import { testServer, type TestServer, until } from "./testdata/harness";
+import { testServer, type TestServer } from "./testdata/harness";
+import { until } from "./testdata/until";
 
 let root: string;
 let primary: ReturnType<typeof fauxProvider>;

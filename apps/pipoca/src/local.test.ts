@@ -14,9 +14,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Environment, Session, SessionEvent } from "@pipoca/protocol";
-import { serve } from "./serve";
 import { readSse } from "./sse";
-import { firstUser } from "./testdata/sign-in";
+import { testServer } from "./testdata/harness";
+import { until } from "./testdata/until";
 
 const main = join(import.meta.dirname, "main.ts");
 
@@ -182,9 +182,7 @@ test("prints the sign-in link for the desktop app without opening a browser", as
     const openedLinks = async (): Promise<string> =>
       readFile(opened, "utf8").catch(() => "");
 
-    while (!(await openedLinks()).includes(reopened)) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
+    await until(async () => (await openedLinks()).includes(reopened));
 
     expect({
       signedIn: signedIn.status,
@@ -255,48 +253,31 @@ async function pluginState(
 test("runs runners on its own machine only in a solo install, which signs no one else in", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "pipoca-up-")));
   const socket = join(root, "run", "pipoca.sock");
-  const logs: string[] = [];
+  const team = testServer({ database: join(root, "team.db") });
 
-  const team = serve({
-    port: 0,
-    database: join(root, "team.db"),
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
-  });
-
-  const solo = serve({
-    port: 0,
+  const solo = testServer({
     database: join(root, "solo.db"),
     solo: { name: "pedro", socket },
-    log: () => undefined,
   });
 
   try {
     const cookie = await soloCookie(socket);
 
     const [environment] = (await (
-      await fetch(new URL("/api/environments", solo.url), {
-        headers: { cookie },
-      })
+      await solo.as(cookie)("/api/environments")
     ).json()) as Environment[];
 
-    const refused = await fetch(
-      new URL(
-        `/api/plugins/local/environments/${environment?.id ?? ""}`,
-        solo.url,
-      ),
+    const refused = await solo.as(cookie)(
+      `/api/plugins/local/environments/${environment?.id ?? ""}`,
       {
-        method: "POST",
-        headers: { "content-type": "application/json", cookie },
-        body: JSON.stringify({
+        body: {
           settings: { folders: [join(root, "missing")] },
-        }),
+        },
       },
     );
 
     expect({
-      team: await pluginState(team.url, await firstUser(team, logs)(), "local"),
+      team: await pluginState(team.url, await team.signedIn(), "local"),
       solo: await pluginState(solo.url, cookie, "local"),
       soloSignIn: await pluginState(solo.url, cookie, "oidc"),
       status: refused.status,
@@ -309,8 +290,8 @@ test("runs runners on its own machine only in a solo install, which signs no one
       message: `${join(root, "missing")} isn't a folder on this machine`,
     });
   } finally {
-    await team.stop();
-    await solo.stop();
+    await team.close();
+    await solo.close();
     await rm(root, { recursive: true, force: true });
   }
 });

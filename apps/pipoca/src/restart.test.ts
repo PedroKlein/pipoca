@@ -17,18 +17,17 @@ import type {
 } from "@pipoca/protocol";
 import { runAgent } from "./agent";
 import { supervised } from "./restart";
-import { serve, type ServeOptions } from "./serve";
+import type { ServeOptions } from "./serve";
 import { readSse } from "./sse";
 import { runnerCredentials } from "./testdata/runners";
-import { firstUser } from "./testdata/sign-in";
+import { closeServers, testServer, type TestServer } from "./testdata/harness";
+import { until } from "./testdata/until";
 
 let root: string | undefined;
-let server: ReturnType<typeof serve> | undefined;
-let cookie = "";
+let server: TestServer;
 
 afterEach(async () => {
-  await server?.stop();
-  server = undefined;
+  await closeServers();
 
   if (root !== undefined) {
     await rm(root, { recursive: true, force: true });
@@ -36,27 +35,12 @@ afterEach(async () => {
 });
 
 async function start(options: Partial<ServeOptions> = {}): Promise<void> {
-  const logs: string[] = [];
-
-  server = serve({
-    port: 0,
-    database: ":memory:",
+  server = testServer({
     sessions: { pollWaitMs: 100 },
     ...options,
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
   });
 
-  cookie = await firstUser(server, logs)();
-}
-
-async function api(path: string, body?: unknown): Promise<Response> {
-  return fetch(new URL(path, server?.url), {
-    method: body === undefined ? "GET" : "POST",
-    headers: { cookie, "content-type": "application/json" },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
+  await server.signedIn();
 }
 
 test("restarts when something starts the server again", async () => {
@@ -68,7 +52,7 @@ test("restarts when something starts the server again", async () => {
     },
   });
 
-  expect((await api("/api/restart", {})).status).toBe(202);
+  expect((await server.api("/api/restart", { body: {} })).status).toBe(202);
 
   await Bun.sleep(200);
   expect(restarted).toBe(true);
@@ -77,7 +61,7 @@ test("restarts when something starts the server again", async () => {
 test("says to restart by hand when nothing would start the server again", async () => {
   await start();
 
-  const refused = await api("/api/restart", {});
+  const refused = await server.api("/api/restart", { body: {} });
 
   expect(refused.status).toBe(400);
   expect(await refused.text()).toContain("restart it yourself");
@@ -124,27 +108,31 @@ test("asks first while a Session on the server's own runner is mid-turn", async 
     },
   });
 
-  while (
-    ((await (await api("/api/environments")).json()) as unknown[]).length === 0
-  ) {
-    await Bun.sleep(10);
-  }
+  await until(
+    async () =>
+      ((await (await server.api("/api/environments")).json()) as unknown[])
+        .length > 0,
+  );
 
   const session = (await (
-    await api("/api/sessions", {
-      workspace: { kind: "folder", path: root },
-      firstMessage: "Take your time",
+    await server.api("/api/sessions", {
+      body: {
+        workspace: { kind: "folder", path: root },
+        firstMessage: "Take your time",
+      },
     })
   ).json()) as Session;
 
-  while (
-    ((await (await api(`/api/sessions/${session.id}`)).json()) as Session)
-      .status !== "running"
-  ) {
-    await Bun.sleep(20);
-  }
+  await until(
+    async () =>
+      (
+        (await (
+          await server.api(`/api/sessions/${session.id}`)
+        ).json()) as Session
+      ).status === "running",
+  );
 
-  const asked = await api("/api/restart", {});
+  const asked = await server.api("/api/restart", { body: {} });
 
   expect(asked.status).toBe(409);
 
@@ -154,7 +142,9 @@ test("asks first while a Session on the server's own runner is mid-turn", async 
     sessions: 1,
   });
 
-  expect((await api("/api/restart", { force: true })).status).toBe(202);
+  expect(
+    (await server.api("/api/restart", { body: { force: true } })).status,
+  ).toBe(202);
 
   await Bun.sleep(200);
   expect(restarted).toBe(1);
@@ -208,28 +198,27 @@ test("counts a Session its own runner is starting, and none of another runner's"
   let environment: Environment | undefined;
   while (environment === undefined) {
     [environment] = (await (
-      await api("/api/environments")
+      await server.api("/api/environments")
     ).json()) as Environment[];
 
     await Bun.sleep(10);
   }
 
-  await fetch(new URL(`/api/environments/${environment.id}`, server?.url), {
+  await server.api(`/api/environments/${environment.id}`, {
     method: "PATCH",
-    headers: { cookie, "content-type": "application/json" },
-    body: JSON.stringify({
+    body: {
       setupScript: `while [ ! -f "${ready}" ]; do sleep 0.05; done`,
-    }),
+    },
   });
 
   const { key } = (await (
-    await api(`/api/environments/${environment.id}/key`, {})
+    await server.api(`/api/environments/${environment.id}/key`, { body: {} })
   ).json()) as { key: string };
 
   const stopOther = new AbortController();
 
   const otherRunner = runAgent({
-    server: server?.url.href ?? "",
+    server: server.url.href,
     provider: "other",
     credential: { key },
     dataDir: join(root, "other-data"),
@@ -242,25 +231,26 @@ test("counts a Session its own runner is starting, and none of another runner's"
 
   const created = async (path: string, firstMessage?: string) =>
     (await (
-      await api("/api/sessions", {
-        workspace: { kind: "folder", path },
-        ...(firstMessage !== undefined && { firstMessage }),
+      await server.api("/api/sessions", {
+        body: {
+          workspace: { kind: "folder", path },
+          ...(firstMessage !== undefined && { firstMessage }),
+        },
       })
     ).json()) as Session;
 
   const reaches = async (id: string, status: Session["status"]) => {
-    while (
-      ((await (await api(`/api/sessions/${id}`)).json()) as Session).status !==
-      status
-    ) {
-      await Bun.sleep(20);
-    }
+    await until(
+      async () =>
+        ((await (await server.api(`/api/sessions/${id}`)).json()) as Session)
+          .status === status,
+    );
   };
 
   const starting = await created(own);
   await reaches(starting.id, "starting");
 
-  const whileStarting = await api("/api/restart", {});
+  const whileStarting = await server.api("/api/restart", { body: {} });
 
   await writeFile(ready, "");
   await reaches(starting.id, "idle");
@@ -268,7 +258,7 @@ test("counts a Session its own runner is starting, and none of another runner's"
   const elsewhere = await created(other, "Take your time");
   await reaches(elsewhere.id, "running");
 
-  const whileOtherRuns = await api("/api/restart", {});
+  const whileOtherRuns = await server.api("/api/restart", { body: {} });
 
   expect([whileStarting.status, whileOtherRuns.status]).toEqual([409, 202]);
 
@@ -312,17 +302,14 @@ test("shows a waiting Session's open prompt again after the server restarts", as
   ]);
 
   await start({ database });
-  const port = Number(server?.url.port);
+  const port = Number(server.url.port);
 
-  const runners = runnerCredentials(
-    { url: server?.url ?? new URL("http://localhost") },
-    async () => Promise.resolve(cookie),
-  );
+  const runners = runnerCredentials(server, server.signedIn);
 
   const stopAgent = new AbortController();
 
   const agent = runAgent({
-    server: server?.url.href ?? "",
+    server: server.url.href,
     provider: "laptop",
     credential: { key: await runners.key("laptop") },
     dataDir: join(root, "laptop"),
@@ -335,14 +322,16 @@ test("shows a waiting Session's open prompt again after the server restarts", as
 
   try {
     const session = (await (
-      await api("/api/sessions", {
-        workspace: { kind: "folder", path: root },
-        firstMessage: "Pick a colour",
+      await server.api("/api/sessions", {
+        body: {
+          workspace: { kind: "folder", path: root },
+          firstMessage: "Pick a colour",
+        },
       })
     ).json()) as Session;
 
     const firstPrompt = async (): Promise<Prompt | undefined> => {
-      const response = await api(`/api/sessions/${session.id}/events`);
+      const response = await server.api(`/api/sessions/${session.id}/events`);
       for await (const data of readSse(response)) {
         const event = data as SessionEvent;
         if (event.type === "live" && event.event.type === "prompt") {
@@ -354,13 +343,14 @@ test("shows a waiting Session's open prompt again after the server restarts", as
     };
 
     await firstPrompt();
-    await server?.stop();
+    const cookie = await server.signedIn();
+    await server.close();
 
-    server = serve({
+    server = testServer({
       port,
       database,
       sessions: { pollWaitMs: 100 },
-      log: () => undefined,
+      cookie,
     });
 
     const asked = await Promise.race([
@@ -369,29 +359,31 @@ test("shows a waiting Session's open prompt again after the server restarts", as
     ]);
 
     let restarted = (await (
-      await api(`/api/sessions/${session.id}`)
+      await server.api(`/api/sessions/${session.id}`)
     ).json()) as Session;
 
     while (!restarted.online) {
       await Bun.sleep(20);
 
       restarted = (await (
-        await api(`/api/sessions/${session.id}`)
+        await server.api(`/api/sessions/${session.id}`)
       ).json()) as Session;
     }
 
     expect(asked?.title).toBe("Which one?");
     expect(restarted).toMatchObject({ status: "running", waiting: true });
 
-    const answered = await api(`/api/sessions/${session.id}/commands`, {
-      type: "answer",
-      id: asked?.id,
-      value: "blue",
+    const answered = await server.api(`/api/sessions/${session.id}/commands`, {
+      body: {
+        type: "answer",
+        id: asked?.id,
+        value: "blue",
+      },
     });
 
     expect(answered.status).toBe(202);
 
-    const response = await api(`/api/sessions/${session.id}/events`);
+    const response = await server.api(`/api/sessions/${session.id}/events`);
     for await (const data of readSse(response)) {
       const event = data as SessionEvent;
       if (event.type === "entry" && event.entry.includes("picked blue")) {

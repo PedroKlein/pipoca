@@ -32,7 +32,8 @@ import {
 } from "@pipoca/protocol";
 import { runAgent } from "./agent";
 import { readSse } from "./sse";
-import { testServer, type TestServer, until } from "./testdata/harness";
+import { testServer, type TestServer } from "./testdata/harness";
+import { until } from "./testdata/until";
 import { runnerCredentials } from "./testdata/runners";
 
 let root: string;
@@ -1545,17 +1546,10 @@ async function updateEnvironment(
   provider: string,
   update: Record<string, unknown>,
 ): Promise<Response> {
-  return fetch(
-    new URL(`/api/environments/${await environmentOf(provider)}`, server.url),
-    {
-      method: "PATCH",
-      headers: {
-        "content-type": "application/json",
-        cookie: await server.signedIn(),
-      },
-      body: JSON.stringify(update),
-    },
-  );
+  return server.api(`/api/environments/${await environmentOf(provider)}`, {
+    method: "PATCH",
+    body: update,
+  });
 }
 
 test("runs the Environment's setup script once and gives its Sessions its variables and secrets", async () => {
@@ -4174,18 +4168,9 @@ async function visitPreview(
   port: number,
   path: string,
 ): Promise<{ host: string; cookie: string; location: string | null }> {
-  const opened = await fetch(
-    new URL(
-      `/api/sessions/${sessionId}/previews/${String(port)}?path=${encodeURIComponent(path)}`,
-      server.url,
-    ),
-    {
-      redirect: "manual",
-      headers: {
-        cookie: await server.signedIn(),
-        host: `localhost:${server.url.port}`,
-      },
-    },
+  const opened = await server.api(
+    `/api/sessions/${sessionId}/previews/${String(port)}?path=${encodeURIComponent(path)}`,
+    { headers: { host: `localhost:${server.url.port}` }, redirect: "manual" },
   );
 
   const admit = new URL(opened.headers.get("location") ?? "");
@@ -4233,9 +4218,9 @@ test("previews a page the Session opened in a browser at its own origin", async 
     body: "approve",
   });
 
-  const moved = await fetch(new URL("/moved", server.url), {
+  const moved = await server.as(preview.cookie)("/moved", {
+    headers: { host: preview.host },
     redirect: "manual",
-    headers: { host: preview.host, cookie: preview.cookie },
   });
 
   expect(moved.headers.get("location")).toBe("/plan");
@@ -4252,10 +4237,7 @@ test("ends a preview's visit when its user signs out", async () => {
 
   const before = await fetch(new URL("/", server.url), { headers });
 
-  const signedOut = await fetch(new URL("/api/auth/logout", server.url), {
-    method: "POST",
-    headers: { cookie: await server.signedIn() },
-  });
+  const signedOut = await server.api("/api/auth/logout", { method: "POST" });
 
   const after = await fetch(new URL("/", server.url), { headers });
 
@@ -4282,19 +4264,13 @@ test("keeps Pipoca's API and other ports out of a preview's origin", async () =>
     fetch(new URL("/api/sessions", server.url), {
       headers: { host: preview.host },
     }),
-    fetch(new URL("/api/sessions", server.url), {
-      headers: { host: preview.host, cookie: await server.signedIn() },
-    }),
-    fetch(new URL("/", server.url), {
-      headers: { host: otherPort.host, cookie: otherPort.cookie },
-    }),
+    server.api("/api/sessions", { headers: { host: preview.host } }),
+    server.as(otherPort.cookie)("/", { headers: { host: otherPort.host } }),
   ]);
 
   const proxied = await Promise.all(
     ["/", "/api/sessions"].map(async (path) =>
-      fetch(new URL(path, server.url), {
-        headers: { host: preview.host, cookie: preview.cookie },
-      }),
+      server.as(preview.cookie)(path, { headers: { host: preview.host } }),
     ),
   );
 

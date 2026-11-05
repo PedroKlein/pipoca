@@ -28,12 +28,8 @@ import {
 } from "@pipoca/protocol";
 import { runAgent } from "./agent";
 import { sessionParts } from "./session-parts";
-import {
-  closeServers,
-  testServer,
-  type TestServer,
-  until,
-} from "./testdata/harness";
+import { closeServers, testServer, type TestServer } from "./testdata/harness";
+import { until } from "./testdata/until";
 import { readSse } from "./sse";
 
 let root: string;

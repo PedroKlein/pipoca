@@ -21,7 +21,8 @@ import {
 } from "@pipoca/protocol";
 import { runAgent } from "./agent";
 import { builtInPlugins } from "./session-parts";
-import { testServer, type TestServer, until } from "./testdata/harness";
+import { testServer, type TestServer } from "./testdata/harness";
+import { until } from "./testdata/until";
 
 interface FakePod {
   readonly metadata: {

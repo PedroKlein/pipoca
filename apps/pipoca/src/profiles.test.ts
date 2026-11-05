@@ -22,62 +22,35 @@ import {
   type Session,
   type WorkPoll,
 } from "@pipoca/protocol";
-import { serve } from "./serve";
 import { runnerCredentials } from "./testdata/runners";
-import { firstUser } from "./testdata/sign-in";
+import { json, testServer, type TestServer } from "./testdata/harness";
 
 const run = promisify(execFile);
 
 let root: string;
-let server: ReturnType<typeof serve>;
-let signedIn: () => Promise<string>;
+let server: TestServer;
 let runners: ReturnType<typeof runnerCredentials>;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "profiles-"));
 
-  const logs: string[] = [];
-
-  server = serve({
-    port: 0,
+  server = testServer({
     database: join(root, "server.db"),
     configDir: join(root, "config"),
     sessions: { pollWaitMs: 0 },
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
   });
 
-  signedIn = firstUser(server, logs);
-  runners = runnerCredentials(server, signedIn);
+  runners = runnerCredentials(server, server.signedIn);
 });
 
 afterEach(async () => {
-  await server.stop();
+  await server.close();
   await rm(root, { recursive: true, force: true });
 });
 
-async function api(
-  path: string,
-  init: {
-    readonly method?: string;
-    readonly body?: unknown;
-    readonly cookie?: string;
-  } = {},
-): Promise<Response> {
-  return fetch(new URL(path, server.url), {
-    method: init.method ?? (init.body === undefined ? "GET" : "POST"),
-    headers: {
-      cookie: init.cookie ?? (await signedIn()),
-      ...(init.body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(init.body !== undefined && { body: JSON.stringify(init.body) }),
-  });
-}
-
 // Signs in a second user, who isn't an admin, and returns their cookie.
 async function secondUser(): Promise<string> {
-  await signedIn();
+  await server.signedIn();
 
   const db = new DatabaseSync(join(root, "server.db"));
 
@@ -100,10 +73,6 @@ async function secondUser(): Promise<string> {
   return response.headers.get("set-cookie")?.split(";")[0] ?? "";
 }
 
-async function json<T>(response: Promise<Response>): Promise<T> {
-  return (await (await response).json()) as T;
-}
-
 async function poll(
   models: Pick<WorkPoll, "models" | "registeredModels"> = { models: [] },
 ): Promise<{ readonly start: readonly Assignment[] }> {
@@ -123,7 +92,9 @@ async function poll(
 async function vmEnvironment(): Promise<string> {
   await poll();
 
-  const environments = await json<Environment[]>(api("/api/environments"));
+  const environments = await json<Environment[]>(
+    server.api("/api/environments"),
+  );
 
   return environments[0]?.id ?? "";
 }
@@ -138,7 +109,7 @@ const content = {
 };
 
 test("starts with one empty default Profile, shared by everyone", async () => {
-  expect(await json<Profile[]>(api("/api/profiles"))).toEqual([
+  expect(await json<Profile[]>(server.api("/api/profiles"))).toEqual([
     {
       id: "default",
       name: "Default",
@@ -159,7 +130,7 @@ test("starts with one empty default Profile, shared by everyone", async () => {
 
 test("creates, edits and makes a Profile the default", async () => {
   const created = await json<Profile>(
-    api("/api/profiles", { body: { name: "Work", ...content } }),
+    server.api("/api/profiles", { body: { name: "Work", ...content } }),
   );
 
   expect(created).toMatchObject({
@@ -171,7 +142,7 @@ test("creates, edits and makes a Profile the default", async () => {
   });
 
   const edited = await json<Profile>(
-    api(`/api/profiles/${created.id}`, {
+    server.api(`/api/profiles/${created.id}`, {
       method: "PUT",
       body: { agentsMd: "Be thorough." },
     }),
@@ -183,8 +154,8 @@ test("creates, edits and makes a Profile the default", async () => {
     packages: content.packages,
   });
 
-  await api(`/api/profiles/${created.id}/default`, { body: {} });
-  const profiles = await json<Profile[]>(api("/api/profiles"));
+  await server.api(`/api/profiles/${created.id}/default`, { body: {} });
+  const profiles = await json<Profile[]>(server.api("/api/profiles"));
 
   expect(profiles.map(({ name, isDefault }) => ({ name, isDefault }))).toEqual([
     { name: "Default", isDefault: false },
@@ -197,41 +168,37 @@ test("each user picks their own default and keeps their Profiles to themselves",
   const workspace = { kind: "folder", path: root };
 
   const work = await json<Profile>(
-    api("/api/profiles", { body: { name: "Work" } }),
+    server.api("/api/profiles", { body: { name: "Work" } }),
   );
 
-  await api(`/api/profiles/${work.id}/default`, { body: {} });
+  await server.api(`/api/profiles/${work.id}/default`, { body: {} });
 
   const defaults = async (cookie: string): Promise<string[]> =>
-    (await json<Profile[]>(api("/api/profiles", { cookie })))
+    (await json<Profile[]>(server.as(cookie)("/api/profiles")))
       .filter(({ isDefault }) => isDefault)
       .map(({ id }) => id);
 
-  expect(await defaults(await signedIn())).toEqual(["work"]);
+  expect(await defaults(await server.signedIn())).toEqual(["work"]);
   expect(await defaults(ana)).toEqual(["default"]);
 
-  const anas = await json<Profile[]>(api("/api/profiles", { cookie: ana }));
+  const anas = await json<Profile[]>(server.as(ana)("/api/profiles"));
 
   expect(anas.map(({ id }) => id)).toEqual(["default"]);
 
-  expect((await api(`/api/profiles/${work.id}`, { cookie: ana })).status).toBe(
-    404,
-  );
+  expect((await server.as(ana)(`/api/profiles/${work.id}`)).status).toBe(404);
 
   const laptop = await json<{ environment: Environment }>(
-    api("/api/environments", { body: { name: "laptop" }, cookie: ana }),
+    server.as(ana)("/api/environments", { body: { name: "laptop" } }),
   );
 
   const started = await json<Session>(
-    api("/api/sessions", {
+    server.as(ana)("/api/sessions", {
       body: { environment: laptop.environment.id, workspace },
-      cookie: ana,
     }),
   );
 
-  const named = await api("/api/sessions", {
+  const named = await server.as(ana)("/api/sessions", {
     body: { environment: laptop.environment.id, workspace, profile: work.id },
-    cookie: ana,
   });
 
   expect(started.profileId).toBe("default");
@@ -249,7 +216,7 @@ test("rejects Profile content Pi couldn't use", async () => {
   ];
 
   for (const body of cases) {
-    const response = await api("/api/profiles", { body });
+    const response = await server.api("/api/profiles", { body });
 
     expect({ body, status: response.status }).toEqual({ body, status: 400 });
   }
@@ -259,20 +226,20 @@ test("a new Session runs with the Profile it names, or else the default", async 
   const environment = await vmEnvironment();
 
   const work = await json<Profile>(
-    api("/api/profiles", { body: { name: "Work", ...content } }),
+    server.api("/api/profiles", { body: { name: "Work", ...content } }),
   );
 
-  const [defaultProfile] = await json<Profile[]>(api("/api/profiles"));
+  const [defaultProfile] = await json<Profile[]>(server.api("/api/profiles"));
   const workspace = { kind: "folder", path: root };
 
   const named = await json<Session>(
-    api("/api/sessions", {
+    server.api("/api/sessions", {
       body: { environment, workspace, profile: work.id },
     }),
   );
 
   const plain = await json<Session>(
-    api("/api/sessions", { body: { environment, workspace } }),
+    server.api("/api/sessions", { body: { environment, workspace } }),
   );
 
   expect(named.profileId).toBe(work.id);
@@ -286,7 +253,7 @@ test("a new Session runs with the Profile it names, or else the default", async 
     hash: expect.any(String) as string,
   });
 
-  const unknown = await api("/api/sessions", {
+  const unknown = await server.api("/api/sessions", {
     body: { environment, workspace, profile: "nope" },
   });
 
@@ -300,14 +267,14 @@ test("a new Session runs with the Profile it names, or else the default", async 
 
 test("keeps the default Profile and Profiles in use", async () => {
   const environment = await vmEnvironment();
-  const [defaultProfile] = await json<Profile[]>(api("/api/profiles"));
+  const [defaultProfile] = await json<Profile[]>(server.api("/api/profiles"));
 
   const work = await json<Profile>(
-    api("/api/profiles", { body: { name: "Work" } }),
+    server.api("/api/profiles", { body: { name: "Work" } }),
   );
 
   const session = await json<Session>(
-    api("/api/sessions", {
+    server.api("/api/sessions", {
       body: {
         environment,
         workspace: { kind: "folder", path: root },
@@ -317,12 +284,12 @@ test("keeps the default Profile and Profiles in use", async () => {
   );
 
   const deleteProfile = async (id: string): Promise<number> =>
-    (await api(`/api/profiles/${id}`, { method: "DELETE" })).status;
+    (await server.api(`/api/profiles/${id}`, { method: "DELETE" })).status;
 
   expect(await deleteProfile(defaultProfile?.id ?? "")).toBe(409);
   expect(await deleteProfile(work.id)).toBe(409);
 
-  await api(`/api/sessions/${session.id}/archive`, { body: {} });
+  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
 
   expect(await deleteProfile(work.id)).toBe(204);
   expect(await deleteProfile(work.id)).toBe(404);
@@ -330,7 +297,7 @@ test("keeps the default Profile and Profiles in use", async () => {
 
 test("exports a Profile's folder and imports it as a copy", async () => {
   const created = await json<Profile>(
-    api("/api/profiles", { body: { name: "Work", ...content } }),
+    server.api("/api/profiles", { body: { name: "Work", ...content } }),
   );
 
   await mkdir(join(root, "config", "profiles", "work", "skills", "review"), {
@@ -342,7 +309,7 @@ test("exports a Profile's folder and imports it as a copy", async () => {
     "# Review",
   );
 
-  const response = await api("/api/profiles/work/export");
+  const response = await server.api("/api/profiles/work/export");
 
   expect(response.headers.get("content-disposition")).toBe(
     'attachment; filename="work.tar.gz"',
@@ -353,7 +320,10 @@ test("exports a Profile's folder and imports it as a copy", async () => {
   const imported = await json<Profile>(
     fetch(new URL("/api/profiles/import?name=Work", server.url), {
       method: "POST",
-      headers: { cookie: await signedIn(), "content-type": "application/gzip" },
+      headers: {
+        cookie: await server.signedIn(),
+        "content-type": "application/gzip",
+      },
       body: archive,
     }),
   );
@@ -387,14 +357,16 @@ test("exports a Profile's own files without the admin's base Profile", async () 
     new URL("/api/base/files/skills%2Fshared%2FSKILL.md", server.url),
     {
       method: "PUT",
-      headers: { cookie: await signedIn() },
+      headers: { cookie: await server.signedIn() },
       body: "# Shared",
     },
   );
 
-  await api("/api/profiles", { body: { name: "Work", agentsMd: "Be brief." } });
+  await server.api("/api/profiles", {
+    body: { name: "Work", agentsMd: "Be brief." },
+  });
 
-  const response = await api("/api/profiles/work/export");
+  const response = await server.api("/api/profiles/work/export");
   const files = await new Bun.Archive(await response.arrayBuffer()).files();
 
   expect([...files.keys()].sort()).toEqual(["AGENTS.md"]);
@@ -414,13 +386,16 @@ test("imports someone's own Pi folder without their logins or history", async ()
   const imported = await json<Profile>(
     fetch(new URL("/api/profiles/import?name=Mine", server.url), {
       method: "POST",
-      headers: { cookie: await signedIn(), "content-type": "application/gzip" },
+      headers: {
+        cookie: await server.signedIn(),
+        "content-type": "application/gzip",
+      },
       body: archive,
     }),
   );
 
   const files = await json<{ path: string }[]>(
-    api(`/api/profiles/${imported.id}/files`),
+    server.api(`/api/profiles/${imported.id}/files`),
   );
 
   expect(files.map(({ path }) => path)).toEqual([
@@ -431,14 +406,14 @@ test("imports someone's own Pi folder without their logins or history", async ()
 
 test("still imports a Profile file exported before Profiles were folders", async () => {
   const imported = await json<Profile>(
-    api("/api/profiles/import", {
+    server.api("/api/profiles/import", {
       body: { pipocaProfile: 1, name: "Work", ...content },
     }),
   );
 
   expect(imported).toMatchObject({ name: "Work", ...content });
 
-  const notAProfile = await api("/api/profiles/import", {
+  const notAProfile = await server.api("/api/profiles/import", {
     body: { name: "x" },
   });
 
@@ -446,13 +421,13 @@ test("still imports a Profile file exported before Profiles were folders", async
 });
 
 test("reads, writes, uploads and deletes a Profile's files", async () => {
-  await api("/api/profiles", { body: { name: "Work" } });
+  await server.api("/api/profiles", { body: { name: "Work" } });
 
   const put = async (path: string, text: string): Promise<number> =>
     (
       await fetch(new URL(`/api/profiles/work/files/${path}`, server.url), {
         method: "PUT",
-        headers: { cookie: await signedIn() },
+        headers: { cookie: await server.signedIn() },
         body: text,
       })
     ).status;
@@ -461,7 +436,7 @@ test("reads, writes, uploads and deletes a Profile's files", async () => {
   expect(await put("auth.json", "{}")).toBe(400);
   expect(await put("..%2Fescape", "x")).toBe(400);
 
-  const uploaded = await api("/api/profiles/work/files", {
+  const uploaded = await server.api("/api/profiles/work/files", {
     body: {
       files: {
         "prompts/fix.md": Buffer.from("Fix it.").toString("base64"),
@@ -472,27 +447,35 @@ test("reads, writes, uploads and deletes a Profile's files", async () => {
 
   expect(uploaded.status).toBe(204);
 
-  expect(await json<unknown>(api("/api/profiles/work/files"))).toEqual([
+  expect(await json<unknown>(server.api("/api/profiles/work/files"))).toEqual([
     { path: "AGENTS.md", size: 9 },
     { path: "prompts/fix.md", size: 7 },
     { path: "skills/review/SKILL.md", size: 8 },
   ]);
 
-  const read = await api("/api/profiles/work/files/skills%2Freview%2FSKILL.md");
+  const read = await server.api(
+    "/api/profiles/work/files/skills%2Freview%2FSKILL.md",
+  );
 
   expect(await read.text()).toBe("# Review");
 
-  const deleted = await api("/api/profiles/work/files/AGENTS.md", {
+  const deleted = await server.api("/api/profiles/work/files/AGENTS.md", {
     method: "DELETE",
   });
 
   expect(deleted.status).toBe(204);
-  expect((await json<Profile>(api("/api/profiles/work"))).agentsMd).toBe("");
-  expect((await api("/api/profiles/work/files/AGENTS.md")).status).toBe(404);
+
+  expect((await json<Profile>(server.api("/api/profiles/work"))).agentsMd).toBe(
+    "",
+  );
+
+  expect((await server.api("/api/profiles/work/files/AGENTS.md")).status).toBe(
+    404,
+  );
 });
 
 test("refuses a file path that isn't valid percent-encoding", async () => {
-  await api("/api/profiles", { body: { name: "Work" } });
+  await server.api("/api/profiles", { body: { name: "Work" } });
 
   const statuses = await Promise.all(
     ["/api/profiles/work/files/%E0%A4%A", "/api/base/files/%E0%A4%A"].flatMap(
@@ -500,7 +483,7 @@ test("refuses a file path that isn't valid percent-encoding", async () => {
         ["GET", "PUT", "DELETE"].map(async (method) => {
           const response = await fetch(new URL(path, server.url), {
             method,
-            headers: { cookie: await signedIn() },
+            headers: { cookie: await server.signedIn() },
             ...(method === "PUT" && { body: "x" }),
           });
 
@@ -521,13 +504,13 @@ test("refuses a file path that isn't valid percent-encoding", async () => {
 
 test("only admins change a shared Profile's files", async () => {
   const db = new DatabaseSync(join(root, "server.db"));
-  await signedIn();
+  await server.signedIn();
   db.exec("update users set admin = 0");
   db.close();
 
   const response = await fetch(
     new URL("/api/profiles/default/files/AGENTS.md", server.url),
-    { method: "PUT", headers: { cookie: await signedIn() }, body: "x" },
+    { method: "PUT", headers: { cookie: await server.signedIn() }, body: "x" },
   );
 
   expect(response.status).toBe(403);
@@ -538,12 +521,16 @@ test("imports from git only over https or ssh", async () => {
   await run("git", ["init", "--quiet", repository]);
 
   for (const url of [repository, `file://${repository}`, "-u", "http://x/y"]) {
-    const response = await api("/api/profiles/import", { body: { url } });
+    const response = await server.api("/api/profiles/import", {
+      body: { url },
+    });
 
     expect({ url, status: response.status }).toEqual({ url, status: 400 });
   }
 
-  const notText = await api("/api/profiles/import", { body: { url: 5 } });
+  const notText = await server.api("/api/profiles/import", {
+    body: { url: 5 },
+  });
 
   expect(await notText.json()).toEqual({
     error: "bad_request",
@@ -555,11 +542,11 @@ test("a Session whose Profile was deleted can't come back", async () => {
   const environment = await vmEnvironment();
 
   const work = await json<Profile>(
-    api("/api/profiles", { body: { name: "Work" } }),
+    server.api("/api/profiles", { body: { name: "Work" } }),
   );
 
   const session = await json<Session>(
-    api("/api/sessions", {
+    server.api("/api/sessions", {
       body: {
         environment,
         workspace: { kind: "folder", path: root },
@@ -568,10 +555,10 @@ test("a Session whose Profile was deleted can't come back", async () => {
     }),
   );
 
-  await api(`/api/sessions/${session.id}/archive`, { body: {} });
-  await api(`/api/profiles/${work.id}`, { method: "DELETE" });
+  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
+  await server.api(`/api/profiles/${work.id}`, { method: "DELETE" });
 
-  const unarchived = await api(`/api/sessions/${session.id}/unarchive`, {
+  const unarchived = await server.api(`/api/sessions/${session.id}/unarchive`, {
     body: {},
   });
 
@@ -588,7 +575,7 @@ test("keeps a repository trust answer for the next Session in it", async () => {
   const workspace = { kind: "folder", path: root };
 
   const first = await json<Session>(
-    api("/api/sessions", { body: { environment, workspace } }),
+    server.api("/api/sessions", { body: { environment, workspace } }),
   );
 
   const [asked] = (await poll()).start;
@@ -611,7 +598,7 @@ test("keeps a repository trust answer for the next Session in it", async () => {
   expect(answered.status).toBe(204);
 
   const second = await json<Session>(
-    api("/api/sessions", { body: { environment, workspace } }),
+    server.api("/api/sessions", { body: { environment, workspace } }),
   );
 
   const { start } = await poll();
@@ -623,7 +610,7 @@ test("keeps a repository trust answer for the next Session in it", async () => {
 
 test("keeps a Profile as a Pi agent folder people can edit by hand", async () => {
   const created = await json<Profile>(
-    api("/api/profiles", { body: { name: "Work", ...content } }),
+    server.api("/api/profiles", { body: { name: "Work", ...content } }),
   );
 
   const folder = join(root, "config", "profiles", "work");
@@ -649,7 +636,7 @@ test("keeps a Profile as a Pi agent folder people can edit by hand", async () =>
     JSON.stringify({ defaultModel: "gpt-5", theme: "dark" }),
   );
 
-  const profiles = await json<Profile[]>(api("/api/profiles"));
+  const profiles = await json<Profile[]>(server.api("/api/profiles"));
 
   expect(
     profiles.map(({ id, name, ownerId, agentsMd }) => ({
@@ -669,7 +656,7 @@ test("keeps a Profile as a Pi agent folder people can edit by hand", async () =>
     },
   ]);
 
-  await api("/api/profiles/review", {
+  await server.api("/api/profiles/review", {
     method: "PUT",
     body: { packages: ["npm:pi-review"] },
   });
@@ -690,7 +677,7 @@ test("keeps a Profile as a Pi agent folder people can edit by hand", async () =>
 
 test("only admins create, change or delete shared Profiles", async () => {
   const shared = await json<Profile>(
-    api("/api/profiles", { body: { name: "Team", shared: true } }),
+    server.api("/api/profiles", { body: { name: "Team", shared: true } }),
   );
 
   expect(shared.ownerId).toBeNull();
@@ -700,24 +687,29 @@ test("only admins create, change or delete shared Profiles", async () => {
   db.close();
 
   const statuses = await Promise.all([
-    api("/api/profiles", { body: { name: "Mine too", shared: true } }),
-    api("/api/profiles/default", { method: "PUT", body: { agentsMd: "x" } }),
-    api(`/api/profiles/${shared.id}`, { method: "DELETE" }),
+    server.api("/api/profiles", { body: { name: "Mine too", shared: true } }),
+    server.api("/api/profiles/default", {
+      method: "PUT",
+      body: { agentsMd: "x" },
+    }),
+    server.api(`/api/profiles/${shared.id}`, { method: "DELETE" }),
   ]);
 
   expect(statuses.map(({ status }) => status)).toEqual([403, 403, 403]);
 
-  const mine = await api("/api/profiles", { body: { name: "Mine" } });
+  const mine = await server.api("/api/profiles", { body: { name: "Mine" } });
 
   expect(mine.status).toBe(201);
 
-  const used = await api(`/api/profiles/${shared.id}/default`, { body: {} });
+  const used = await server.api(`/api/profiles/${shared.id}/default`, {
+    body: {},
+  });
 
   expect(used.status).toBe(200);
 });
 
 test("only admins make and change team Profiles, which every user sees apart", async () => {
-  const team = await api("/api/profiles", {
+  const team = await server.api("/api/profiles", {
     body: { name: "Team work", team: true },
   });
 
@@ -728,24 +720,23 @@ test("only admins make and change team Profiles, which every user sees apart", a
   expect(created.ownerId).toBe("team");
 
   const ana = await secondUser();
-  const theirs = await json<Profile[]>(api("/api/profiles", { cookie: ana }));
+  const theirs = await json<Profile[]>(server.as(ana)("/api/profiles"));
 
   const teams = await json<Profile[]>(
-    api("/api/profiles?owner=team", { cookie: ana }),
+    server.as(ana)("/api/profiles?owner=team"),
   );
 
   expect(theirs.map(({ id }) => id)).not.toContain(created.id);
   expect(teams.map(({ id }) => id)).toEqual([created.id]);
 
   const statuses = await Promise.all([
-    api("/api/profiles", { cookie: ana, body: { name: "x", team: true } }),
-    api(`/api/profiles/${created.id}`, {
-      cookie: ana,
+    server.as(ana)("/api/profiles", { body: { name: "x", team: true } }),
+    server.as(ana)(`/api/profiles/${created.id}`, {
       method: "PUT",
       body: { agentsMd: "x" },
     }),
-    api(`/api/profiles/${created.id}`, { cookie: ana, method: "DELETE" }),
-    api(`/api/profiles/${created.id}/default`, { cookie: ana, body: {} }),
+    server.as(ana)(`/api/profiles/${created.id}`, { method: "DELETE" }),
+    server.as(ana)(`/api/profiles/${created.id}/default`, { body: {} }),
   ]);
 
   expect(statuses.map(({ status }) => status)).toEqual([403, 403, 403, 400]);
@@ -755,10 +746,10 @@ test("a personal Session can't run on a team Profile", async () => {
   const environment = await vmEnvironment();
 
   const team = await json<Profile>(
-    api("/api/profiles", { body: { name: "Team work", team: true } }),
+    server.api("/api/profiles", { body: { name: "Team work", team: true } }),
   );
 
-  const response = await api("/api/sessions", {
+  const response = await server.api("/api/sessions", {
     body: {
       environment,
       workspace: { kind: "folder", path: root },
@@ -771,19 +762,19 @@ test("a personal Session can't run on a team Profile", async () => {
 
 test("a team Profile builds only on another team Profile", async () => {
   const shared = await json<Profile>(
-    api("/api/profiles", { body: { name: "Shared", shared: true } }),
+    server.api("/api/profiles", { body: { name: "Shared", shared: true } }),
   );
 
   const team = await json<Profile>(
-    api("/api/profiles", { body: { name: "Team", team: true } }),
+    server.api("/api/profiles", { body: { name: "Team", team: true } }),
   );
 
   const statuses = await Promise.all([
-    api("/api/profiles", {
+    server.api("/api/profiles", {
       body: { name: "On shared", team: true, buildsOn: shared.id },
     }),
-    api("/api/profiles", { body: { name: "Mine", buildsOn: team.id } }),
-    api("/api/profiles", {
+    server.api("/api/profiles", { body: { name: "Mine", buildsOn: team.id } }),
+    server.api("/api/profiles", {
       body: { name: "On team", team: true, buildsOn: team.id },
     }),
   ]);
@@ -793,7 +784,10 @@ test("a team Profile builds only on another team Profile", async () => {
 
 test("hands runners a Profile's whole folder, without what machines keep", async () => {
   const environment = await vmEnvironment();
-  await api("/api/profiles", { body: { name: "Work", agentsMd: "Be brief." } });
+
+  await server.api("/api/profiles", {
+    body: { name: "Work", agentsMd: "Be brief." },
+  });
 
   const folder = join(root, "config", "profiles", "work");
   await mkdir(join(folder, "skills", "review"), { recursive: true });
@@ -804,7 +798,7 @@ test("hands runners a Profile's whole folder, without what machines keep", async
   await symlink("/etc/hostname", join(folder, "linked"));
 
   const session = await json<Session>(
-    api("/api/sessions", {
+    server.api("/api/sessions", {
       body: {
         environment,
         workspace: { kind: "folder", path: root },
@@ -838,7 +832,7 @@ test("hands runners a Profile's whole folder, without what machines keep", async
 
 test("fails a Session whose Profile is too big for runners", async () => {
   const environment = await vmEnvironment();
-  await api("/api/profiles", { body: { name: "Huge" } });
+  await server.api("/api/profiles", { body: { name: "Huge" } });
 
   await writeFile(
     join(root, "config", "profiles", "huge", "blob"),
@@ -846,7 +840,7 @@ test("fails a Session whose Profile is too big for runners", async () => {
   );
 
   const session = await json<Session>(
-    api("/api/sessions", {
+    server.api("/api/sessions", {
       body: {
         environment,
         workspace: { kind: "folder", path: root },
@@ -857,9 +851,9 @@ test("fails a Session whose Profile is too big for runners", async () => {
 
   expect((await poll()).start).toEqual([]);
 
-  expect(await json<Session>(api(`/api/sessions/${session.id}`))).toMatchObject(
-    { status: "failed", error: "Profile Huge is over 20 MB" },
-  );
+  expect(
+    await json<Session>(server.api(`/api/sessions/${session.id}`)),
+  ).toMatchObject({ status: "failed", error: "Profile Huge is over 20 MB" });
 });
 
 // What the runner downloads for a new Session with the Profile.
@@ -868,7 +862,7 @@ async function runnerFilesOf(
   profile: string,
 ): Promise<{ hash: string; files: Record<string, string> }> {
   const session = await json<Session>(
-    api("/api/sessions", {
+    server.api("/api/sessions", {
       body: {
         environment,
         workspace: { kind: "folder", path: root },
@@ -910,7 +904,7 @@ test("layers the admin's base Profile under every Profile runners get", async ()
     (
       await fetch(new URL(`/api/base/files/${path}`, server.url), {
         method: "PUT",
-        headers: { cookie: await signedIn() },
+        headers: { cookie: await server.signedIn() },
         body: text,
       })
     ).status;
@@ -932,14 +926,14 @@ test("layers the admin's base Profile under every Profile runners get", async ()
 
   expect(await put("auth.json", "{}")).toBe(400);
 
-  expect(await json<unknown>(api("/api/base/files"))).toEqual([
+  expect(await json<unknown>(server.api("/api/base/files"))).toEqual([
     { path: "AGENTS.md", size: 21 },
     { path: "settings.json", size: 117 },
     { path: "skills/review/SKILL.md", size: 13 },
     { path: "skills/shared/SKILL.md", size: 8 },
   ]);
 
-  await api("/api/profiles", {
+  await server.api("/api/profiles", {
     body: {
       name: "Work",
       agentsMd: "Be brief.",
@@ -995,7 +989,7 @@ test("gives assistant sessions the base Profile's extensions and packages only",
   const put = async (path: string, text: string): Promise<void> => {
     await fetch(new URL(`/api/base/files/${path}`, server.url), {
       method: "PUT",
-      headers: { cookie: await signedIn() },
+      headers: { cookie: await server.signedIn() },
       body: text,
     });
   };
@@ -1014,7 +1008,7 @@ test("gives assistant sessions the base Profile's extensions and packages only",
   );
 
   const session = await json<Session>(
-    api("/api/plugins/meta/sessions", { body: { text: "hi" } }),
+    server.api("/api/plugins/meta/sessions", { body: { text: "hi" } }),
   );
 
   await poll();
@@ -1046,22 +1040,22 @@ test("gives assistant sessions the base Profile's extensions and packages only",
 });
 
 test("edits the base Profile's packages and AGENTS.md like a Profile's", async () => {
-  expect(await json<unknown>(api("/api/base"))).toEqual(emptyProfile);
+  expect(await json<unknown>(server.api("/api/base"))).toEqual(emptyProfile);
 
   await fetch(new URL("/api/base/files/settings.json", server.url), {
     method: "PUT",
-    headers: { cookie: await signedIn() },
+    headers: { cookie: await server.signedIn() },
     body: JSON.stringify({ defaultThinkingLevel: "low" }),
   });
 
-  const updated = await api("/api/base", {
+  const updated = await server.api("/api/base", {
     method: "PUT",
     body: { packages: ["npm:ai-provider"], agentsMd: "Be kind." },
   });
 
   expect(updated.status).toBe(200);
 
-  expect(await json<unknown>(api("/api/base"))).toEqual({
+  expect(await json<unknown>(server.api("/api/base"))).toEqual({
     ...emptyProfile,
     packages: ["npm:ai-provider"],
     agentsMd: "Be kind.",
@@ -1069,32 +1063,41 @@ test("edits the base Profile's packages and AGENTS.md like a Profile's", async (
   });
 
   expect(
-    (await api("/api/base", { method: "PUT", body: { packages: "npm:x" } }))
-      .status,
+    (
+      await server.api("/api/base", {
+        method: "PUT",
+        body: { packages: "npm:x" },
+      })
+    ).status,
   ).toBe(400);
 });
 
 test("only admins change the base Profile", async () => {
   const db = new DatabaseSync(join(root, "server.db"));
-  await signedIn();
+  await server.signedIn();
   db.exec("update users set admin = 0");
   db.close();
 
   const response = await fetch(
     new URL("/api/base/files/AGENTS.md", server.url),
-    { method: "PUT", headers: { cookie: await signedIn() }, body: "x" },
+    { method: "PUT", headers: { cookie: await server.signedIn() }, body: "x" },
   );
 
   expect(response.status).toBe(403);
-  expect(await json<unknown>(api("/api/base/files"))).toEqual([]);
+  expect(await json<unknown>(server.api("/api/base/files"))).toEqual([]);
 
   expect(
-    (await api("/api/base", { method: "PUT", body: { agentsMd: "x" } })).status,
+    (await server.api("/api/base", { method: "PUT", body: { agentsMd: "x" } }))
+      .status,
   ).toBe(403);
 
   expect(
-    (await api("/api/defaults", { method: "PUT", body: { agentsMd: "x" } }))
-      .status,
+    (
+      await server.api("/api/defaults", {
+        method: "PUT",
+        body: { agentsMd: "x" },
+      })
+    ).status,
   ).toBe(200);
 });
 
@@ -1105,7 +1108,7 @@ test("layers My defaults and the Profiles a Profile builds on, the nearest winni
     (
       await fetch(new URL(`/api/${layer}/files/${path}`, server.url), {
         method: "PUT",
-        headers: { cookie: await signedIn() },
+        headers: { cookie: await server.signedIn() },
         body: text,
       })
     ).status;
@@ -1116,11 +1119,13 @@ test("layers My defaults and the Profiles a Profile builds on, the nearest winni
   expect(await put("defaults", "skills%2Fgo%2FSKILL.md", "# Go")).toBe(204);
 
   const research = await json<Profile>(
-    api("/api/profiles", { body: { name: "Research", agentsMd: "Read." } }),
+    server.api("/api/profiles", {
+      body: { name: "Research", agentsMd: "Read." },
+    }),
   );
 
   const deep = await json<Profile>(
-    api("/api/profiles", {
+    server.api("/api/profiles", {
       body: {
         name: "Deep",
         agentsMd: "Dig.",
@@ -1138,7 +1143,7 @@ test("layers My defaults and the Profiles a Profile builds on, the nearest winni
     "skills/go/SKILL.md": "# Go",
   });
 
-  expect(await json<unknown>(api("/api/defaults/files"))).toEqual([
+  expect(await json<unknown>(server.api("/api/defaults/files"))).toEqual([
     { path: "AGENTS.md", size: 5 },
     { path: "SYSTEM.md", size: 6 },
     { path: "skills/go/SKILL.md", size: 4 },
@@ -1153,15 +1158,17 @@ test("layers My defaults and the Profiles a Profile builds on, the nearest winni
 });
 
 test("refuses a Profile that would build on itself or on someone else's", async () => {
-  const a = await json<Profile>(api("/api/profiles", { body: { name: "A" } }));
+  const a = await json<Profile>(
+    server.api("/api/profiles", { body: { name: "A" } }),
+  );
 
   const b = await json<Profile>(
-    api("/api/profiles", { body: { name: "B", buildsOn: a.id } }),
+    server.api("/api/profiles", { body: { name: "B", buildsOn: a.id } }),
   );
 
   expect(
     (
-      await api(`/api/profiles/${a.id}`, {
+      await server.api(`/api/profiles/${a.id}`, {
         method: "PUT",
         body: { buildsOn: b.id },
       })
@@ -1170,7 +1177,7 @@ test("refuses a Profile that would build on itself or on someone else's", async 
 
   expect(
     (
-      await api(`/api/profiles/${a.id}`, {
+      await server.api(`/api/profiles/${a.id}`, {
         method: "PUT",
         body: { buildsOn: a.id },
       })
@@ -1179,7 +1186,7 @@ test("refuses a Profile that would build on itself or on someone else's", async 
 
   expect(
     (
-      await api("/api/profiles", {
+      await server.api("/api/profiles", {
         body: { name: "Team", shared: true, buildsOn: a.id },
       })
     ).status,
@@ -1187,7 +1194,10 @@ test("refuses a Profile that would build on itself or on someone else's", async 
 
   expect(
     await json<Profile>(
-      api(`/api/profiles/${b.id}`, { method: "PUT", body: { buildsOn: null } }),
+      server.api(`/api/profiles/${b.id}`, {
+        method: "PUT",
+        body: { buildsOn: null },
+      }),
     ),
   ).toMatchObject({ buildsOn: null });
 });
@@ -1199,33 +1209,29 @@ test("offers the models extension providers registered on runners, after a resta
   await poll({ models: [gemini], registeredModels: [gemini, aiCore] });
 
   const environmentOf = async (): Promise<Environment | undefined> =>
-    (await json<Environment[]>(api("/api/environments")))[0];
+    (await json<Environment[]>(server.api("/api/environments")))[0];
 
   expect((await environmentOf())?.models).toEqual([gemini, aiCore]);
 
-  await server.stop();
+  const cookie = await server.signedIn();
+  await server.close();
 
-  const logs: string[] = [];
-
-  server = serve({
-    port: 0,
+  server = testServer({
     database: join(root, "server.db"),
     configDir: join(root, "config"),
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
+    cookie,
   });
 
   expect((await environmentOf())?.models).toEqual([gemini, aiCore]);
 });
 
 test("offers sign-in to the MCP servers of the base Profile and the user's Profiles", async () => {
-  await api("/api/base", {
+  await server.api("/api/base", {
     method: "PUT",
     body: { mcpServers: { linear: { url: "https://mcp.linear.app/mcp" } } },
   });
 
-  await api("/api/profiles", {
+  await server.api("/api/profiles", {
     body: {
       name: "Work",
       mcpServers: {
@@ -1236,7 +1242,7 @@ test("offers sign-in to the MCP servers of the base Profile and the user's Profi
   });
 
   const account = await json<{ servers: readonly { name: string }[] }>(
-    api("/api/plugins/logins/account"),
+    server.api("/api/plugins/logins/account"),
   );
 
   expect(account.servers.map(({ name }) => name)).toEqual(["linear", "notion"]);

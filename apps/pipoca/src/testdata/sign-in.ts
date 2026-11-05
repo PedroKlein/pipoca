@@ -34,17 +34,3 @@ export async function firstUserCookie(
 
   return cookie;
 }
-
-// The Cookie header of a served server's first user, created on first use.
-export function firstUser(
-  server: { readonly url: URL },
-  logs: readonly string[],
-): () => Promise<string> {
-  let cookie: Promise<string> | undefined;
-
-  return async () => {
-    cookie ??= firstUserCookie(fetch, server.url, setupTokenOf(logs));
-
-    return cookie;
-  };
-}

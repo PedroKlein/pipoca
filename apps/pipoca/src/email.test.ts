@@ -11,7 +11,8 @@ import {
 import type { TCPSocketListener } from "bun";
 import { SMTPServer } from "smtp-server";
 import { readSse } from "./sse";
-import { testServer, type TestServer, until } from "./testdata/harness";
+import { testServer, type TestServer } from "./testdata/harness";
+import { until } from "./testdata/until";
 import { runnerCredentials } from "./testdata/runners";
 
 interface Message {

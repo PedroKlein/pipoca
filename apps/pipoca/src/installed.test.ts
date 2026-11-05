@@ -30,12 +30,8 @@ import { installedPlugins } from "./installed";
 import { latestOf } from "./sources";
 import type { ServeOptions } from "./serve";
 import { readSse } from "./sse";
-import {
-  closeServers,
-  testServer,
-  type TestServer,
-  until,
-} from "./testdata/harness";
+import { closeServers, testServer, type TestServer } from "./testdata/harness";
+import { until } from "./testdata/until";
 
 let root: string;
 let plugins: string;

@@ -4,22 +4,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { systemClock } from "@pipoca/sessions";
 import { Auth, InvalidCredentials } from "./auth";
-import { serve } from "./serve";
 import { openStore } from "./store";
+import { testServer, type TestServer } from "./testdata/harness";
 
 let root: string;
 let socket: string;
 let logs: string[];
-let server: ReturnType<typeof serve>;
+let server: TestServer;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "pipoca-solo-"));
   socket = join(root, "run", "pipoca.sock");
   logs = [];
 
-  server = serve({
-    port: 0,
-    database: ":memory:",
+  server = testServer({
     solo: { name: "pedro", socket },
     log: (message) => {
       logs.push(message);
@@ -28,7 +26,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await server.stop();
+  await server.close();
   await rm(root, { recursive: true, force: true });
 });
 
@@ -48,9 +46,10 @@ test("signs a solo install's one user in through a one-time link from its socket
   const visit = await fetch(link, { redirect: "manual" });
   const cookie = visit.headers.get("set-cookie")?.split(";")[0] ?? "";
 
-  const status = (await (
-    await fetch(new URL("/api/auth", server.url), { headers: { cookie } })
-  ).json()) as { user: { name: string; admin: boolean }; solo: boolean };
+  const status = (await (await server.as(cookie)("/api/auth")).json()) as {
+    user: { name: string; admin: boolean };
+    solo: boolean;
+  };
 
   const again = await fetch(link, { redirect: "manual" });
 

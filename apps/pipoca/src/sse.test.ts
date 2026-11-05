@@ -2,12 +2,7 @@ import { expect, test } from "bun:test";
 import { once } from "node:events";
 import { connect } from "node:net";
 import { readSse, sseResponse } from "./sse";
-
-async function waitFor(predicate: () => boolean): Promise<void> {
-  while (!predicate()) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-}
+import { until } from "./testdata/until";
 
 function chunked(text: string, size: number): Response {
   const bytes = new TextEncoder().encode(text);
@@ -82,7 +77,7 @@ test("drops a client that stops reading while others keep receiving", async () =
   stalled.pause();
 
   const healthy = readSse(await fetch(server.url));
-  await waitFor(() => sends.length === 2);
+  await until(() => sends.length === 2);
 
   const chunk = "x".repeat(64 * 1024);
   let received = 0;

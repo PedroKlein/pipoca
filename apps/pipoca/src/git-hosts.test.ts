@@ -12,7 +12,8 @@ import {
   type WorkPoll,
 } from "@pipoca/protocol";
 import { readSse } from "./sse";
-import { testServer, type TestServer, until } from "./testdata/harness";
+import { testServer, type TestServer } from "./testdata/harness";
+import { until } from "./testdata/until";
 import { runnerCredentials } from "./testdata/runners";
 
 const enterprise = "github.tools.sap";
@@ -878,12 +879,8 @@ async function startApp(): Promise<{
 async function createApp(): Promise<void> {
   const { state, browser } = await startApp();
 
-  await fetch(
-    new URL(
-      `/api/plugins/git-hosts/app-created?code=m4nifest&state=${state}`,
-      server.url,
-    ),
-    { headers: { cookie: browser } },
+  await server.as(browser)(
+    `/api/plugins/git-hosts/app-created?code=m4nifest&state=${state}`,
   );
 }
 
@@ -900,9 +897,7 @@ test("creates a GitHub App from a manifest as a technical user, with its key sea
 
   expect((await fetch(new URL(callback, server.url))).status).toBe(400);
 
-  const created = await fetch(new URL(callback, server.url), {
-    headers: { cookie: browser },
-  });
+  const created = await server.as(browser)(callback);
 
   expect(created.status).toBe(200);
 

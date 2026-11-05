@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { serve } from "./serve";
+import { testServer } from "./testdata/harness";
 
 let root: string;
 
@@ -22,8 +22,7 @@ afterEach(async () => {
 test("runs no runner of its own where it starts runner pods (ADR 0049)", async () => {
   const logs: string[] = [];
 
-  const server = serve({
-    port: 0,
+  const server = testServer({
     database: join(root, "server.db"),
     configDir: join(root, "config"),
     agent: {
@@ -37,7 +36,7 @@ test("runs no runner of its own where it starts runner pods (ADR 0049)", async (
     },
   });
 
-  await server.stop();
+  await server.close();
 
   expect(logs).toContain(
     "the server's own runner is off, since it starts runner pods in its cluster",
