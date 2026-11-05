@@ -149,18 +149,21 @@ create index session_access_people_user on session_access_people (user_id);
 create table session_messages (
   session_id text not null references sessions (id) on delete cascade,
   seq integer not null,
-  kind text not null check (kind in ('message', 'stop', 'team', 'aside', 'vote')),
+  kind text not null check (kind in ('message', 'stop', 'team', 'aside', 'notice')),
   actor text not null check (actor like 'user:_%' or actor like 'session:_%' or actor like 'plugin:_%'),
   user_id text references users (id) on delete set null,
   request_id text,
   text text,
   quote_from text,
   quote_text text,
+  plugin text,
+  notice text check (notice is null or json_valid(notice)),
   at integer not null,
   primary key (session_id, seq),
   unique (session_id, request_id),
   check (user_id is null or actor = 'user:' || user_id),
-  check ((quote_from is null) = (quote_text is null))
+  check ((quote_from is null) = (quote_text is null)),
+  check ((kind = 'notice') = (plugin is not null and notice is not null))
 ) strict, without rowid;
 
 -- What plugins and the kernel send a Session, kept until its host takes it.

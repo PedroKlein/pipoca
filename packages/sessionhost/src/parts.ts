@@ -1,7 +1,8 @@
-import { Type } from "@earendil-works/pi-ai";
+import { type Api, type Model, Type } from "@earendil-works/pi-ai";
 import {
   defineTool,
   type ExtensionFactory,
+  type ExtensionToolContext,
   type InlineExtension,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -12,6 +13,7 @@ import {
   type SessionContext,
   type SessionPart,
   type SessionTool,
+  type SessionToolCall,
   type ToolOutput,
 } from "@pipoca/plugins";
 import type { Log } from "@pipoca/protocol";
@@ -99,7 +101,7 @@ export async function setUpPart(
 
 function piTool(
   tool: SessionTool,
-  host: Pick<PartHost, "askPermission" | "log">,
+  host: Pick<PartHost, "askPermission" | "log" | "clock">,
 ): ToolDefinition {
   const schema = tool.params as unknown as Readonly<Record<string, unknown>>;
 
@@ -110,6 +112,13 @@ function piTool(
     parameters: Type.Unsafe<unknown>(schema),
     prepareArguments: (args) => repairArguments(args, schema),
     ...(tool.exposure && { exposure: tool.exposure }),
+    ...(tool.prompt && {
+      promptSnippet: tool.prompt.snippet,
+      ...(tool.prompt.guidelines && {
+        promptGuidelines: [...tool.prompt.guidelines],
+      }),
+    }),
+    ...(tool.sequential === true && { executionMode: "sequential" }),
     ...(tool.annotations && {
       annotations: {
         ...(tool.annotations.readOnly !== undefined && {
@@ -120,7 +129,7 @@ function piTool(
         }),
       },
     }),
-    execute: async (id, input, signal) => {
+    execute: async (id, input, signal, _update, ctx) => {
       const question = await tool.asks?.(input);
 
       if (
@@ -130,7 +139,20 @@ function piTool(
         throw new Error("The person said no.");
       }
 
-      const output = await ran(tool, input, { id, signal }, host.log);
+      const model: Model<Api> | undefined = ctx.model;
+
+      const output = await ran(
+        tool,
+        input,
+        {
+          id,
+          signal,
+          ...(model && {
+            complete: completion(ctx.modelRegistry, model, host),
+          }),
+        },
+        host.log,
+      );
 
       return typeof output === "string"
         ? { content: [{ type: "text", text: output }], details: {} }
@@ -142,10 +164,40 @@ function piTool(
   });
 }
 
+function completion(
+  models: ExtensionToolContext["modelRegistry"],
+  model: Model<Api>,
+  host: Pick<PartHost, "clock">,
+): NonNullable<SessionToolCall["complete"]> {
+  return async ({ system, prompt }) => {
+    const response = await models
+      .streamSimple(model, {
+        systemPrompt: system,
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: prompt }],
+            timestamp: host.clock.now(),
+          },
+        ],
+      })
+      .result();
+
+    if (response.stopReason === "error" || response.stopReason === "aborted") {
+      throw new Error(response.errorMessage ?? "the model did not answer");
+    }
+
+    return response.content
+      .flatMap((part) => (part.type === "text" ? [part.text] : []))
+      .join("\n")
+      .trim();
+  };
+}
+
 async function ran(
   tool: SessionTool,
   input: unknown,
-  call: { readonly id: string; readonly signal: AbortSignal | undefined },
+  call: SessionToolCall,
   log: Log,
 ): Promise<ToolOutput> {
   try {

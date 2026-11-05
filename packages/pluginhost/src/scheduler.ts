@@ -63,12 +63,16 @@ export function scheduler(deps: {
   const intervals = new Map<string, Interval>();
   const handlers = new Map<string, readonly Handler[]>();
   const running = new Set<string>();
+  const committed = new Set<string>();
   let cancel: (() => void) | undefined;
 
   const idOf = ({ plugin, key }: Pick<ScheduleRow, "plugin" | "key">) =>
     `${plugin}\n${key}`;
 
   const idle = (row: ScheduleRow): boolean => !running.has(idOf(row));
+
+  // A plugin's rows wait until it has set its handlers up.
+  const on = (): string[] => deps.on().filter((each) => committed.has(each));
 
   const arm = (): void => {
     cancel?.();
@@ -79,9 +83,9 @@ export function scheduler(deps: {
     }
 
     const now = deps.clock.now();
-    const on = deps.on();
-    const waiting = deps.store.due(now, on).some(idle);
-    const next = waiting ? now : deps.store.next(now, on);
+    const plugins = on();
+    const waiting = deps.store.due(now, plugins).some(idle);
+    const next = waiting ? now : deps.store.next(now, plugins);
 
     if (next !== undefined) {
       cancel = deps.timer.after(Math.min(next - now, maxSleepMs), tick);
@@ -198,10 +202,7 @@ export function scheduler(deps: {
       return;
     }
 
-    const runs = deps.store
-      .due(deps.clock.now(), deps.on())
-      .filter(idle)
-      .map(run);
+    const runs = deps.store.due(deps.clock.now(), on()).filter(idle).map(run);
 
     arm();
     await Promise.all(runs);
@@ -276,6 +277,7 @@ export function scheduler(deps: {
         }
 
         handlers.set(plugin, stagedHandlers);
+        committed.add(plugin);
         arm();
       };
 

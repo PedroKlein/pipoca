@@ -1,10 +1,8 @@
 // Written by `bun run registries` from plugins/*/package.json. Don't edit.
-import askPackage from "../../../plugins/ask/package.json";
-import * as askServer from "../../../plugins/ask/src/server";
+import { ask } from "../../../plugins/ask/plugin";
 import changesPackage from "../../../plugins/changes/package.json";
-import checklistPackage from "../../../plugins/checklist/package.json";
-import emailPackage from "../../../plugins/email/package.json";
-import * as emailServer from "../../../plugins/email/src/server";
+import { checklist } from "../../../plugins/checklist/plugin";
+import { email } from "../../../plugins/email/plugin";
 import gitHostsPackage from "../../../plugins/git-hosts/package.json";
 import * as gitHostsServer from "../../../plugins/git-hosts/src/server";
 import kubernetesPackage from "../../../plugins/kubernetes/package.json";
@@ -27,17 +25,16 @@ import pushPackage from "../../../plugins/push/package.json";
 import * as pushServer from "../../../plugins/push/src/server";
 import routinesPackage from "../../../plugins/routines/package.json";
 import * as routinesServer from "../../../plugins/routines/src/server";
-import slackPackage from "../../../plugins/slack/package.json";
-import * as slackServer from "../../../plugins/slack/src/server";
+import { slack } from "../../../plugins/slack/plugin";
 import subagentsPackage from "../../../plugins/subagents/package.json";
 import usagePackage from "../../../plugins/usage/package.json";
 import * as usageServer from "../../../plugins/usage/src/server";
 
 export const serverRegistry = [
-  { id: "ask", manifest: askPackage.pipoca, server: askServer },
+  { id: "ask", definition: ask },
   { id: "changes", manifest: changesPackage.pipoca },
-  { id: "checklist", manifest: checklistPackage.pipoca },
-  { id: "email", manifest: emailPackage.pipoca, server: emailServer },
+  { id: "checklist", definition: checklist },
+  { id: "email", definition: email },
   { id: "git-hosts", manifest: gitHostsPackage.pipoca, server: gitHostsServer },
   {
     id: "kubernetes",
@@ -53,7 +50,7 @@ export const serverRegistry = [
   { id: "projects", manifest: projectsPackage.pipoca, server: projectsServer },
   { id: "push", manifest: pushPackage.pipoca, server: pushServer },
   { id: "routines", manifest: routinesPackage.pipoca, server: routinesServer },
-  { id: "slack", manifest: slackPackage.pipoca, server: slackServer },
+  { id: "slack", definition: slack },
   { id: "subagents", manifest: subagentsPackage.pipoca },
   { id: "usage", manifest: usagePackage.pipoca, server: usageServer },
 ] as const;

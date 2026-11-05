@@ -19,10 +19,10 @@ import * as subagentsWeb from "../../../plugins/subagents/web/index";
 import * as usageWeb from "../../../plugins/usage/web/index";
 
 export const webRegistry = [
-  { id: "ask", plugin: askWeb },
+  { id: "ask", part: askWeb },
   { id: "changes", plugin: changesWeb },
-  { id: "checklist", plugin: checklistWeb },
-  { id: "email", plugin: emailWeb },
+  { id: "checklist", part: checklistWeb },
+  { id: "email", part: emailWeb },
   { id: "git-hosts", plugin: gitHostsWeb },
   { id: "kubernetes", plugin: kubernetesWeb },
   { id: "library", plugin: libraryWeb },
@@ -34,7 +34,7 @@ export const webRegistry = [
   { id: "projects", plugin: projectsWeb },
   { id: "push", plugin: pushWeb },
   { id: "routines", plugin: routinesWeb },
-  { id: "slack", plugin: slackWeb },
+  { id: "slack", part: slackWeb },
   { id: "subagents", plugin: subagentsWeb },
   { id: "usage", plugin: usageWeb },
 ] as const;

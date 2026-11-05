@@ -152,8 +152,10 @@ export function runnerRoutes({
       // stream opens.
       const early: Command[] = [];
 
-      let send = (command: Command): void => {
+      let send = (command: Command): boolean => {
         early.push(command);
+
+        return true;
       };
 
       let end = (): void => undefined;
@@ -162,9 +164,7 @@ export function runnerRoutes({
         sessions.attach(
           id,
           generation,
-          (command) => {
-            send(command);
-          },
+          (command) => send(command),
           () => {
             end();
           },

@@ -23,6 +23,8 @@ export interface ExtRoute {
   readonly method: Exclude<Method, "ANY">;
   readonly path: string;
   readonly spec: RouteSpec;
+  // A scoped route's personal half, whose team half is under team/.
+  readonly teamTwin?: true;
   readonly handler: (input: ExtInput) => unknown;
 }
 
@@ -71,6 +73,7 @@ export function pluginRoutes(
         method,
         path: own,
         spec: { ...spec, auth: "person" },
+        ...(o.team && { teamTwin: true }),
         handler: (input) => run({ ...input, owner: ownerOf(input.caller) }),
       });
 
@@ -78,10 +81,12 @@ export function pluginRoutes(
         return;
       }
 
+      const { tool: _tool, ...withoutTool } = spec;
+
       declare({
         method,
         path: joined("team", own),
-        spec: { ...spec, auth: "person" },
+        spec: { ...withoutTool, auth: "person" },
         handler: (input) => {
           if (!o.inTeamWork()) {
             throw new NotFound("Not found.");

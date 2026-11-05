@@ -20,6 +20,7 @@ jobs:
       - run: bun test
       - run: bun run build
       - run: bun x playwright-core install --with-deps chromium
+        working-directory: apps/pipoca
       - run: bun run test:e2e
 
   kind:
