@@ -70,7 +70,7 @@ create table models_health (
 
 export const models: ServerPlugin = {
   name: "models",
-  schema: { version: 1, sql: schema },
+  schema: schema,
   register: (context) => {
     const store = modelsStore(context.store);
     const versions = changes(context.signal);

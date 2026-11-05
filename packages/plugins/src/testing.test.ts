@@ -10,10 +10,7 @@ import {
 } from "./testing";
 
 test("a memory store keeps rows and seals nothing", () => {
-  const store = memoryStore({
-    version: 1,
-    sql: "create table greeter_names (name text)",
-  });
+  const store = memoryStore("create table greeter_names (name text)");
 
   store.run("insert into greeter_names values (?)", "Ana");
 

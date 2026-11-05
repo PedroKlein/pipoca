@@ -111,7 +111,7 @@ create index logins_proxy_tokens_session on logins_proxy_tokens (session_id);
 
 export const logins: ServerPlugin = {
   name: "logins",
-  schema: { version: 1, sql: schema },
+  schema: schema,
   register: (context) => {
     const leases = locks(holdMs, waitMs);
 

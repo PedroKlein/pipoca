@@ -5,7 +5,6 @@ import type { Schema } from "./database";
 const sql = `
 create table schema_owners (
   owner text primary key,
-  version integer not null,
   sql_hash text not null,
   created_at integer not null
 ) strict;
@@ -180,4 +179,4 @@ create table repository_trust (
 create unique index repository_trust_key on repository_trust (coalesce(owner_user_id, ''), repository);
 `;
 
-export const kernelSchema: Schema = { owner: "kernel", version: 1, sql };
+export const kernelSchema: Schema = { owner: "kernel", sql };

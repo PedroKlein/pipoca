@@ -12,7 +12,7 @@ const maxHookBody = 1024 * 1024;
 
 export const routines: ServerPlugin = {
   name: "routines",
-  schema: { version: 1, sql: routinesSchema },
+  schema: routinesSchema,
   register: (context) => {
     const wakeups = wakeUps(context);
     const engine = routinesEngine(context);

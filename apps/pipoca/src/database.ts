@@ -4,7 +4,6 @@ import { DatabaseSync } from "node:sqlite";
 // The tables one owner keeps: the kernel, or a plugin by its id.
 export interface Schema {
   readonly owner: string;
-  readonly version: number;
   readonly sql: string;
 }
 
@@ -13,10 +12,6 @@ export interface Database {
   // Why each plugin's tables can't be used, by plugin id.
   readonly failures: Map<string, string>;
 }
-
-// Statements that create something, and the name they give it.
-const created =
-  /create\s+(?:unique\s+)?(?:table|index|trigger|view)\s+(?:if\s+not\s+exists\s+)?["`]?([\w-]+)/gi;
 
 // The database has no migrations (ADR 0068): a new one gets every schema at
 // once, and one made from other SQL is refused, or for a plugin, fails it.
@@ -39,11 +34,13 @@ export function openDatabase(
 
   try {
     transaction(db, () => {
-      if (isEmpty(db)) {
+      if (names(db).length === 0) {
         db.exec(kernel.sql);
-        db.exec(`pragma user_version = ${String(kernel.version)}`);
         record(db, kernel, now());
-      } else if (!madeBy(db, kernel)) {
+      } else if (
+        !names(db).includes("schema_owners") ||
+        recordedHash(db, kernel.owner) !== hash(kernel.sql)
+      ) {
         throw new Error(
           `${path}: this database was made by another Pipoca version; move it aside to start fresh`,
         );
@@ -80,23 +77,16 @@ export function transaction<T>(db: DatabaseSync, fn: () => T): T {
   }
 }
 
-function isEmpty(db: DatabaseSync): boolean {
-  return (
-    version(db) === 0 &&
-    db.prepare("select 1 from sqlite_master limit 1").get() === undefined
-  );
-}
+// Why a plugin's schema is refused, after rolling back what it made.
+class Refused extends Error {}
 
-function madeBy(db: DatabaseSync, kernel: Schema): boolean {
+// The names of the tables, indexes, triggers and views, without SQLite's own.
+function names(db: DatabaseSync): string[] {
   return (
-    version(db) === kernel.version &&
-    recordedHash(db, kernel.owner) === hash(kernel.sql)
-  );
-}
-
-function version(db: DatabaseSync): number {
-  return (db.prepare("pragma user_version").get() as { user_version: number })
-    .user_version;
+    db
+      .prepare("select name from sqlite_master where name not like 'sqlite%'")
+      .all() as { name: string }[]
+  ).map(({ name }) => name);
 }
 
 function recordedHash(db: DatabaseSync, owner: string): string | undefined {
@@ -121,20 +111,26 @@ function addPlugin(
   }
 
   const prefix = `${schema.owner.replaceAll("-", "_")}_`;
-
-  for (const [, name = ""] of schema.sql.matchAll(created)) {
-    if (!name.startsWith(prefix)) {
-      return `plugin ${schema.owner} may only create ${prefix} tables`;
-    }
-  }
+  const before = new Set(names(db));
 
   try {
     transaction(db, () => {
       db.exec(schema.sql);
+
+      if (
+        names(db).some((name) => !before.has(name) && !name.startsWith(prefix))
+      ) {
+        throw new Refused(
+          `plugin ${schema.owner} may only create ${prefix} tables`,
+        );
+      }
+
       record(db, schema, at);
     });
   } catch (error) {
-    return `its tables could not be made: ${error instanceof Error ? error.message : String(error)}`;
+    return error instanceof Refused
+      ? error.message
+      : `its tables could not be made: ${error instanceof Error ? error.message : String(error)}`;
   }
 
   return undefined;
@@ -177,8 +173,8 @@ export function resetPlugin(
 
 function record(db: DatabaseSync, schema: Schema, at: number): void {
   db.prepare(
-    "insert into schema_owners (owner, version, sql_hash, created_at) values (?, ?, ?, ?)",
-  ).run(schema.owner, schema.version, hash(schema.sql), at);
+    "insert into schema_owners (owner, sql_hash, created_at) values (?, ?, ?)",
+  ).run(schema.owner, hash(schema.sql), at);
 }
 
 function hash(sql: string): string {

@@ -66,7 +66,7 @@ create index push_subscriptions_user on push_subscriptions (user_id);
 
 export const push: ServerPlugin = {
   name: "push",
-  schema: { version: 1, sql: schema },
+  schema: schema,
   register: (context) => {
     const { store } = context;
     const keys = vapidKeys(store);

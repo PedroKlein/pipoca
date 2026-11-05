@@ -467,10 +467,7 @@ test("routes requests to a plugin that keeps its own tables", async () => {
   await start([
     {
       name: "notes",
-      schema: {
-        version: 1,
-        sql: "create table notes_items (text text) strict",
-      },
+      schema: "create table notes_items (text text) strict",
       register: ({ routes, store }) => {
         routes.handle(async (request, path) => {
           if (request.method === "POST" && path === "items") {
@@ -488,7 +485,7 @@ test("routes requests to a plugin that keeps its own tables", async () => {
     },
     {
       name: "copier",
-      schema: { version: 1, sql: "create table sessions_copy (id text)" },
+      schema: "create table sessions_copy (id text)",
       register: () => undefined,
     },
   ]);
@@ -519,7 +516,7 @@ test("resets a plugin whose tables another version made, once an admin asks", as
 
   const notes = (sql: string): ServerPlugin => ({
     name: "notes",
-    schema: { version: 1, sql },
+    schema: sql,
     register: ({ routes, store }) => {
       routes.handle(async (request) => {
         if (request.method === "POST") {
@@ -604,7 +601,7 @@ test("keeps the data of a plugin that failed for another reason than its tables"
 
   const notes: ServerPlugin = {
     name: "notes",
-    schema: { version: 1, sql: "create table notes_items (text text) strict" },
+    schema: "create table notes_items (text text) strict",
     register: ({ routes, store }) => {
       if (!configured) {
         throw new Error("notes needs a folder");

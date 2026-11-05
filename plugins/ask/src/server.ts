@@ -90,7 +90,7 @@ export interface Votes {
 // (ADR 0065).
 export const askServer: ServerPlugin = {
   name: "ask",
-  schema: { version: 1, sql: schema },
+  schema: schema,
   register: (context) => {
     const votes = ballots(context);
 

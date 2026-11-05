@@ -18,7 +18,7 @@ test("a team Session can't make routines, which would run as its starter", async
 
   routines.register(
     fakeContext({
-      store: memoryStore({ version: 1, sql: routinesSchema }),
+      store: memoryStore(routinesSchema),
       config: {
         get: () => undefined,
         set: () => undefined,
@@ -54,7 +54,7 @@ test("anyone on the team makes a team routine, whose runs start as team work", a
 
   routines.register(
     fakeContext({
-      store: memoryStore({ version: 1, sql: routinesSchema }),
+      store: memoryStore(routinesSchema),
       config: {
         get: () => undefined,
         set: () => undefined,

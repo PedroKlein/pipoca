@@ -352,7 +352,7 @@ test("fails a plugin whose tables came from other SQL, and keeps its data", () =
 
   const notes = (sql: string) => ({
     name: "notes",
-    schema: { version: 1, sql },
+    schema: sql,
   });
 
   const first = openStore(path, undefined, undefined, undefined, [
@@ -392,17 +392,11 @@ test("makes the tables of a plugin turned on later, and refuses ones outside its
   const store = openStore(path, undefined, undefined, undefined, [
     {
       name: "notes",
-      schema: {
-        version: 1,
-        sql: "create table notes_items (text text) strict",
-      },
+      schema: "create table notes_items (text text) strict",
     },
     {
       name: "copier",
-      schema: {
-        version: 1,
-        sql: "create table sessions_copy (id text) strict",
-      },
+      schema: "create table sessions_copy (id text) strict",
     },
   ]);
 
@@ -424,14 +418,11 @@ test("removes a plugin's rows with the Session, Environment or person they point
 
   const trail = {
     name: "trail",
-    schema: {
-      version: 1,
-      sql: `
+    schema: `
         create table trail_by_session (session_id text not null references sessions (id) on delete cascade) strict;
         create table trail_by_environment (environment_id text not null references environments (id) on delete cascade) strict;
         create table trail_by_user (user_id text not null references users (id) on delete cascade) strict;
       `,
-    },
   };
 
   const store = openStore(path, undefined, undefined, undefined, [trail]);

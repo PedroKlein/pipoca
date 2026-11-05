@@ -30,7 +30,6 @@ export type {
   PluginEvent,
   PluginNotice,
   PluginRoute,
-  PluginSchema,
   PluginStore,
   SqlValue,
   ProfileMcpServer,

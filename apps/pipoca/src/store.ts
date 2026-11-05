@@ -141,7 +141,7 @@ export function openStore(
     path,
     kernelSchema,
     plugins.flatMap(({ name, schema }) =>
-      schema === undefined ? [] : [{ owner: name, ...schema }],
+      schema === undefined ? [] : [{ owner: name, sql: schema }],
     ),
     clock.now,
   );
@@ -630,7 +630,7 @@ export function openStore(
       const failure =
         declared === undefined
           ? undefined
-          : resetPlugin(db, { owner: name, ...declared }, clock.now());
+          : resetPlugin(db, { owner: name, sql: declared }, clock.now());
 
       if (failure === undefined) {
         failures.delete(name);

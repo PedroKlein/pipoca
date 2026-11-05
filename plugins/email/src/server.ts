@@ -50,7 +50,7 @@ create index email_threads_session on email_threads (session_id);
 
 export const email: ServerPlugin = {
   name: "email",
-  schema: { version: 1, sql: schema },
+  schema: schema,
   register: (context) => {
     const mailboxes = mailboxStore(context.config, context.store, context.log);
 

@@ -95,7 +95,7 @@ create table git_hosts_preferences (
 
 export const gitHosts: ServerPlugin = {
   name: "git-hosts",
-  schema: { version: 1, sql: schema },
+  schema: schema,
   register: (context) => {
     const hosts = hostStore(
       context.config,

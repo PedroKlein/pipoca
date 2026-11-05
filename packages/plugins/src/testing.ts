@@ -4,7 +4,6 @@ import { eventBus } from "./events";
 import { isHttpError } from "./http";
 import type {
   PluginRoute,
-  PluginSchema,
   PluginStore,
   RouteCaller,
   ServerPluginContext,
@@ -12,12 +11,12 @@ import type {
 
 // A store in memory with the plugin's tables, for a plugin's tests. It seals
 // nothing, and has no kernel tables for the plugin's to reference.
-export function memoryStore(schema?: PluginSchema): PluginStore {
+export function memoryStore(schema?: string): PluginStore {
   const db = new DatabaseSync(":memory:");
   db.exec("pragma foreign_keys = off");
 
   if (schema !== undefined) {
-    db.exec(schema.sql);
+    db.exec(schema);
   }
 
   return {
