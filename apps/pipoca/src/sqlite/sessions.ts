@@ -196,6 +196,10 @@ export function sessionStore(
     "select default_profile_id from users where id = ?",
   );
 
+  const selectDefaultEnvironment = db.prepare(
+    "select default_environment_id from users where id = ?",
+  );
+
   const selectTrust = db.prepare(
     "select trusted from repository_trust where owner_user_id is ? and repository = ?",
   );
@@ -378,6 +382,11 @@ export function sessionStore(
         selectDefault.get(ownerId) as
           { default_profile_id: string | null } | undefined
       )?.default_profile_id ?? sharedDefault,
+    defaultEnvironmentId: (userId) =>
+      (
+        selectDefaultEnvironment.get(userId) as
+          { default_environment_id: string | null } | undefined
+      )?.default_environment_id ?? null,
     repositoryTrust: (ownerId, repository) => {
       const row = selectTrust.get(userOf(ownerId), repository) as
         { trusted: number } | undefined;

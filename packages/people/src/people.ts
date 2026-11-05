@@ -1,4 +1,10 @@
-import type { Account, Invite, Person, SetupState } from "@pipoca/protocol";
+import type {
+  Account,
+  AccountChange,
+  Invite,
+  Person,
+  SetupState,
+} from "@pipoca/protocol";
 import { type Clock, systemClock } from "@pipoca/protocol";
 import { secretToken, tokenHash } from "./tokens";
 
@@ -32,6 +38,11 @@ export interface PeopleStore {
   readonly userById: (id: string) => User | undefined;
   readonly users: () => readonly User[];
   readonly account: (id: string) => Account | undefined;
+  readonly setDisplayName: (id: string, name: string | null) => void;
+  readonly setDefaultEnvironment: (
+    id: string,
+    environment: string | null,
+  ) => void;
   readonly insertUser: (user: StoredUser) => void;
   readonly setAdmin: (id: string, admin: boolean) => void;
   readonly people: () => readonly Person[];
@@ -47,6 +58,8 @@ export interface PeopleStore {
     now: string,
   ) => User | undefined;
   readonly deleteBrowserSession: (tokenHash: string) => void;
+  // Every browser session and access token of the user.
+  readonly deleteSignIns: (userId: string) => void;
   readonly insertInvite: (invite: Invite, tokenHash: string) => void;
   // Unexpired invites that can still be used.
   readonly invites: (now: string) => readonly Invite[];
@@ -121,6 +134,22 @@ export class People {
   }
 
   account(id: string): Account | undefined {
+    return this.#store.account(id);
+  }
+
+  // The caller checks that a default Environment is the person's own.
+  changeAccount(id: string, change: AccountChange): Account | undefined {
+    if (change.displayName !== undefined) {
+      this.#store.setDisplayName(
+        id,
+        checkedDisplayName(change.displayName) ?? null,
+      );
+    }
+
+    if (change.defaultEnvironment !== undefined) {
+      this.#store.setDefaultEnvironment(id, change.defaultEnvironment);
+    }
+
     return this.#store.account(id);
   }
 

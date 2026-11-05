@@ -52,7 +52,23 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
   );
 
   const selectAccount = db.prepare(
-    "select id, name, admin, display_name from users where id = ?",
+    "select id, name, admin, display_name, default_environment_id from users where id = ?",
+  );
+
+  const updateDisplayName = db.prepare(
+    "update users set display_name = ? where id = ?",
+  );
+
+  const updateDefaultEnvironment = db.prepare(
+    "update users set default_environment_id = ? where id = ?",
+  );
+
+  const deleteBrowserSessions = db.prepare(
+    "delete from browser_sessions where user_id = ?",
+  );
+
+  const deleteTokens = db.prepare(
+    "delete from access_tokens where user_id = ?",
   );
 
   const insertUser = db.prepare(
@@ -197,6 +213,7 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
       const row = selectAccount.get(id) as
         | (UserRow & {
             readonly display_name: string | null;
+            readonly default_environment_id: string | null;
           })
         | undefined;
 
@@ -206,8 +223,15 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
           name: row.name,
           admin: row.admin === 1,
           displayName: row.display_name,
+          defaultEnvironment: row.default_environment_id,
         }
       );
+    },
+    setDisplayName: (id, name) => {
+      updateDisplayName.run(name, id);
+    },
+    setDefaultEnvironment: (id, environment) => {
+      updateDefaultEnvironment.run(environment, id);
     },
     insertUser: (user) => {
       insertUser.run(
@@ -249,6 +273,12 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
       ),
     deleteBrowserSession: (tokenHash) => {
       deleteBrowserSession.run(tokenHash);
+    },
+    deleteSignIns: (userId) => {
+      transaction(db, () => {
+        deleteBrowserSessions.run(userId);
+        deleteTokens.run(userId);
+      });
     },
     insertInvite: (invite, tokenHash) => {
       insertInvite.run(

@@ -1051,6 +1051,106 @@ test("shows the name given at setup on General, beside the username", async () =
   await you.getByText(/^@pedro · /).waitFor();
 });
 
+test("edits the person's name and what new Sessions start with on General", async () => {
+  await page.goto(server.url.href);
+  await openSettings("General");
+
+  const you = page.getByRole("list", { name: "You" });
+  await you.getByRole("button", { name: "Edit profile" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Edit profile" });
+  await dialog.getByLabel("Your name").fill("Pedro K.");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await dialog.waitFor({ state: "detached" });
+  await you.getByText("Pedro K.").waitFor();
+
+  const startWith = page.locator("section", {
+    has: page.getByRole("heading", { name: "New Sessions start with" }),
+  });
+
+  const [environment] = (await (
+    await fetch(new URL("/api/environments", server.url), {
+      headers: { cookie },
+    })
+  ).json()) as Environment[];
+
+  const saved = page.waitForResponse("**/api/me");
+  await startWith.getByLabel("Environment").selectOption(environment?.id ?? "");
+  await saved;
+
+  const me = async (): Promise<unknown> =>
+    (
+      await fetch(new URL("/api/me", server.url), { headers: { cookie } })
+    ).json();
+
+  expect(await me()).toMatchObject({
+    displayName: "Pedro K.",
+    defaultEnvironment: environment?.id,
+  });
+
+  await startWith.getByLabel("Profile").waitFor();
+
+  await fetch(new URL("/api/me", server.url), {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({
+      displayName: "Pedro Klein",
+      defaultEnvironment: null,
+    }),
+  });
+}, 30_000);
+
+test("signs a person out in every browser from General", async () => {
+  const [invite] = (await (
+    await fetch(new URL("/api/invites", server.url), {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({}),
+    })
+  ).json()) as { readonly token: string }[];
+
+  const first = await browser.newContext();
+  const second = await browser.newContext();
+
+  try {
+    const tab = await first.newPage();
+    await tab.goto(new URL(`/#join/${invite?.token ?? ""}`, server.url).href);
+
+    const account = tab.getByRole("form", { name: "Make your account" });
+    await account.getByLabel("Username").fill("dora");
+    await account.getByLabel("Password").fill("correct horse");
+    await account.getByRole("button", { name: "Join" }).click();
+    await tab.getByRole("list", { name: "Your setup" }).waitFor();
+
+    await first.request.patch(new URL("/api/me/setup", server.url).href, {
+      data: { finished: true },
+    });
+
+    const other = await second.newPage();
+    await other.goto(server.url.href);
+    await other.getByLabel("Name").fill("dora");
+    await other.getByLabel("Password").fill("correct horse");
+    await other.getByRole("button", { name: "Sign in" }).click();
+    await other.getByRole("button", { name: "New session" }).waitFor();
+
+    await tab.goto(new URL("/#settings/general", server.url).href);
+    await tab.reload();
+    await tab.getByRole("button", { name: "Sign out everywhere" }).click();
+
+    await tab
+      .getByRole("dialog", { name: "Sign out everywhere?" })
+      .getByRole("button", { name: "Sign out everywhere" })
+      .click();
+
+    await tab.getByRole("heading", { name: "Sign in" }).waitFor();
+    await other.reload();
+    await other.getByRole("heading", { name: "Sign in" }).waitFor();
+  } finally {
+    await first.close();
+    await second.close();
+  }
+}, 30_000);
+
 test("draws a defined plugin's page and slots, pinned for someone who never changed their pins", async () => {
   await page.route("**/api/me/pinned-pages", async (route) => {
     await (route.request().method() === "GET"

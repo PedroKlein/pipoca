@@ -670,13 +670,22 @@ export const teamView = Type.Object({
 export type TeamView = Wire<typeof teamView>;
 
 // The signed-in person's own account: the name people see, beside the
-// username they sign in with.
+// username they sign in with, and the Environment their Sessions start in
+// when they don't pick one.
 export const account = Type.Object({
   ...user.properties,
   displayName: nullable(Type.String()),
+  defaultEnvironment: nullable(Type.String()),
 });
 
 export type Account = Wire<typeof account>;
+
+export const accountChange = Type.Object({
+  displayName: Type.Optional(Type.String()),
+  defaultEnvironment: Type.Optional(nullable(Type.String())),
+});
+
+export type AccountChange = Wire<typeof accountChange>;
 
 // What admins set up for people who join (ADR 0063): the Environment
 // template they get one from, the shared Profiles they pick from, and the

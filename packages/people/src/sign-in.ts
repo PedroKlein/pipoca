@@ -350,6 +350,14 @@ export class SignIn {
     }).serialize();
   }
 
+  // Ends every browser session and access token of the user, and gives the
+  // Set-Cookie value that clears this browser's.
+  endEverySession(userId: string, request: Request): string {
+    this.#store.deleteSignIns(userId);
+
+    return this.endSession(request);
+  }
+
   // The Set-Cookie value that clears the browser's session.
   endSession(request: Request): string {
     const token = new Bun.CookieMap(request.headers.get("cookie") ?? "").get(
