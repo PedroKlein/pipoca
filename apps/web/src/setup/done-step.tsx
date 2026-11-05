@@ -1,7 +1,7 @@
 import { cardClass, cn, Icon, linkCardClass } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { useEnvironments, useProfiles, useSessions } from "../hooks";
-import { NewSessionForm } from "../new-session";
+import { NewSessionForm } from "../shell/new-session";
 import { type WizardStep, useDone } from "./step";
 import { Heading } from "./wizard";
 

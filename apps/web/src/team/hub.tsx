@@ -9,7 +9,7 @@ import {
   useTeamProfiles,
   useTeamSessions,
 } from "../hooks";
-import { NewSessionDialog } from "../new-session";
+import { NewSessionDialog } from "../shell/new-session";
 import { PluginBoundary } from "../plugin-boundary";
 import { SessionView } from "../session-view";
 import { pluginContext } from "../plugins";

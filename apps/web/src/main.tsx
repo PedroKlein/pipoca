@@ -1,7 +1,7 @@
 import type { SetupState } from "@pipoca/protocol";
 import { createRoot } from "react-dom/client";
 import { api } from "./api";
-import { App } from "./app";
+import { App } from "./shell/app";
 import { AppSignIn, pendingAppSignIn } from "./setup/app-sign-in";
 import { JoinPage } from "./setup/join";
 import { Me } from "./me";
