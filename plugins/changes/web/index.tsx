@@ -1,8 +1,8 @@
-import type {
-  MountedSession,
-  SessionPartProps,
-  WebContext,
-  WebPlugin,
+import {
+  defineWeb,
+  type MountedSession,
+  Slot,
+  useSessionState,
 } from "@pipoca/plugins/web";
 import { Button, cn, ErrorText, Icon, isComposing, popClass } from "@pipoca/ui";
 import {
@@ -12,46 +12,42 @@ import {
   useMemo,
   useState,
 } from "react";
+import { about } from "../about";
 import type { CheckoutChanges, PullRequest } from "../src/report";
 import { type DiffComment, reviewMessage } from "./comments";
 import { type DiffFile, type DiffLine, parseDiff } from "./diff";
 
-export const changes: WebPlugin = {
-  name: "changes",
-  SessionHeader,
-};
+// What other plugins show beside a pull request the Session opened, such as
+// its checks on the git host (ADR 0051).
+declare module "@pipoca/plugins/web" {
+  interface Slots {
+    "pullRequest.status": {
+      readonly session: MountedSession;
+      readonly url: string;
+    };
+  }
+}
+
+export default defineWeb(about, {
+  slots: { "session.header": SessionHeader },
+});
+
+const none: readonly never[] = [];
 
 // The header's Diff button opens the session's changes in a side panel, like
 // the mockups and Claude Code's diff view.
 function SessionHeader({
-  context,
   session,
-}: SessionPartProps): ReactElement | null {
+}: {
+  readonly session: MountedSession;
+}): ReactElement | null {
   const [open, setOpen] = useState(false);
-  const [found, setFound] = useState<readonly CheckoutChanges[]>([]);
-  const [pullRequests, setPullRequests] = useState<readonly PullRequest[]>([]);
 
-  useEffect(
-    () =>
-      session.events((event) => {
-        if (
-          event.type !== "live" ||
-          event.event.type !== "plugin" ||
-          event.event.plugin !== "changes"
-        ) {
-          return;
-        }
+  const found =
+    useSessionState<readonly CheckoutChanges[]>(session, "changes") ?? none;
 
-        if (event.event.key === "changes") {
-          setFound(event.event.data as readonly CheckoutChanges[]);
-        }
-
-        if (event.event.key === "pull-requests") {
-          setPullRequests(event.event.data as readonly PullRequest[]);
-        }
-      }),
-    [session],
-  );
+  const pullRequests =
+    useSessionState<readonly PullRequest[]>(session, "pull-requests") ?? none;
 
   useEffect(() => {
     if (!open) {
@@ -114,7 +110,6 @@ function SessionHeader({
           {changed.map((checkout) => (
             <Checkout
               key={checkout.name}
-              context={context}
               checkout={checkout}
               session={session}
               pullRequest={pullRequests.find(
@@ -129,12 +124,10 @@ function SessionHeader({
 }
 
 function Checkout({
-  context,
   checkout: { name, fileCount, patch, truncated, branched },
   session,
   pullRequest,
 }: {
-  readonly context: WebContext;
   readonly checkout: CheckoutChanges;
   readonly session: MountedSession;
   readonly pullRequest: PullRequest | undefined;
@@ -185,7 +178,6 @@ function Checkout({
         </h3>
         {branched && (
           <PullRequestActions
-            context={context}
             name={name}
             session={session}
             pullRequest={pullRequest}
@@ -230,12 +222,10 @@ const modes = [
 
 // The Create PR button runs the session part's /pr command (ADR 0021).
 function PullRequestActions({
-  context,
   name,
   session,
   pullRequest,
 }: {
-  readonly context: WebContext;
   readonly name: string;
   readonly session: MountedSession;
   readonly pullRequest: PullRequest | undefined;
@@ -262,7 +252,8 @@ function PullRequestActions({
       <div className="flex items-center gap-2">
         {pullRequest?.status === "open" && (
           <>
-            <context.PullRequestStatus
+            <Slot
+              name="pullRequest.status"
               session={session}
               url={pullRequest.url}
             />

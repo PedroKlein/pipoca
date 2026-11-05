@@ -23,6 +23,7 @@ import {
   type PluginSettings,
   type SlashCommand,
   systemClock,
+  systemTimer,
   type ToolSpec,
 } from "@pipoca/protocol";
 import {
@@ -395,6 +396,7 @@ export async function hostSession(
         ...shared(part.plugin.id),
         config: options.pluginConfig?.[part.plugin.id] ?? {},
         clock: systemClock,
+        timer: systemTimer,
       }),
     ),
   );

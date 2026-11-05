@@ -1,7 +1,7 @@
 import {
   ConfigForm,
   type NavItemsProps,
-  type PullRequestStatusProps,
+  type PullRequestProps,
   type ToolCallProps,
   type WebContext,
   type WebPart,
@@ -23,7 +23,6 @@ import * as react from "react";
 import {
   type ComponentType,
   createElement,
-  Fragment,
   type ReactElement,
   type ReactNode,
   useMemo,
@@ -49,6 +48,7 @@ const builtIn: readonly {
 // A web part the shell draws, a v2 one drawn through the v1 fields.
 interface ShellPlugin extends WebPlugin {
   readonly part?: WebPart;
+  readonly slots?: Readonly<Record<string, ComponentType<never>>>;
   // Its pages have no place in the sidebar.
   readonly unlisted?: boolean;
 }
@@ -144,7 +144,21 @@ function shellPlugin(id: string, module: Module | undefined): ShellPlugin {
     throw new Error(`the ${id} web module exports no web part`);
   }
 
-  return plugin as WebPlugin;
+  return bridged(plugin as WebPlugin);
+}
+
+// A v1 part's PullRequest fills the slot that changes declares.
+function bridged(plugin: WebPlugin): ShellPlugin {
+  const { name, PullRequest } = plugin;
+
+  if (PullRequest === undefined) {
+    return plugin;
+  }
+
+  const Status = (props: Omit<PullRequestProps, "context">): ReactElement =>
+    createElement(PullRequest, { ...props, context: pluginContext(name) });
+
+  return { ...plugin, slots: { "pullRequest.status": Status } };
 }
 
 function isPart(value: unknown): value is WebPart {
@@ -223,6 +237,7 @@ function adapted(part: WebPart): ShellPlugin {
   return {
     name: id,
     part,
+    slots,
     ...(listed === undefined && { unlisted: true }),
     ...(first && {
       nav: {
@@ -278,11 +293,8 @@ function adapted(part: WebPart): ShellPlugin {
 
 const shell: Omit<Shell, "viewer"> = {
   fills: (name) =>
-    enabled.flatMap(({ name: plugin, part }) => {
-      const Component = (
-        part?.slots as
-          Readonly<Record<string, ComponentType<never>>> | undefined
-      )?.[name];
+    enabled.flatMap(({ name: plugin, slots }) => {
+      const Component = slots?.[name];
 
       return Component === undefined ? [] : [{ plugin, Component }];
     }),
@@ -340,7 +352,7 @@ async function importWebPart(
       throw new Error("its nav needs a label and a Page component");
     }
 
-    return plugin;
+    return bridged(plugin);
   } catch (error) {
     webErrors.set(id, error instanceof Error ? error.message : String(error));
 
@@ -394,30 +406,11 @@ export function pluginContext(name: string): WebContext {
     href: (path) => `#plugin/${name}/${path}`,
     settings: settings.get(name) ?? {},
     SessionView: EmbeddedSession,
-    PullRequestStatus,
   };
 
   contexts.set(name, context);
 
   return context;
-}
-
-function PullRequestStatus(props: PullRequestStatusProps): ReactElement {
-  return createElement(
-    Fragment,
-    null,
-    ...enabled.flatMap(({ name, PullRequest }) =>
-      PullRequest === undefined
-        ? []
-        : [
-            createElement(PullRequest, {
-              key: name,
-              ...props,
-              context: pluginContext(name),
-            }),
-          ],
-    ),
-  );
 }
 
 export interface Claimed<Props> {

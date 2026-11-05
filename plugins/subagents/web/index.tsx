@@ -1,12 +1,12 @@
-import type {
-  MountedSession,
-  NoticeProps,
-  SessionPartProps,
-  ToolCall,
-  ToolCallProps,
-  WebPlugin,
+import {
+  defineWeb,
+  type MountedSession,
+  type ToolCall,
+  useNow,
+  useSessionState,
+  useToolResults,
 } from "@pipoca/plugins/web";
-import { useNow } from "@pipoca/plugins/web";
+import type { SessionEvent } from "@pipoca/protocol";
 import {
   Button,
   Card,
@@ -17,116 +17,136 @@ import {
   isComposing,
   StatusMark,
 } from "@pipoca/ui";
-import { type ReactElement, useEffect, useState } from "react";
+import { type ReactElement, useEffect, useMemo, useState } from "react";
+import { about } from "../about";
 import {
   type ChildView,
   elapsed,
   finishedRun,
   manages,
-  publishedRuns,
+  type MissionView,
+  missionsKey,
+  openDecisions,
+  recordedMission,
   recordedRun,
+  type Review,
   runIdOf,
   running,
+  runsKey,
   runState,
   type RunView,
   separateOutput,
+  type Started,
   stateLabel,
   type Tone,
   toneOf,
   took,
-  type Review,
   watchdogKind,
-  type MissionView,
-  openDecisions,
-  publishedMissions,
-  recordedMission,
 } from "./runs";
 
 // Subagent runs as cards in the chat, and a fleet panel from the header
 // (ADR 0030, ADR 0057).
-export const subagents: WebPlugin = {
-  name: "subagents",
-  tools: { subagent: SubagentCall },
-  SessionHeader: FleetButton,
-  notices: {
-    finished: FinishedNotice,
-    interrupted: InterruptedNotice,
-    [watchdogKind]: WatchdogNotice,
-    decided: DecidedNotice,
+export default defineWeb(about, {
+  slots: {
+    "session.toolCall:subagent": SubagentCall,
+    "session.header": FleetButton,
+    "notice:finished": FinishedNotice,
+    "notice:interrupted": InterruptedNotice,
+    [`notice:${watchdogKind}`]: WatchdogNotice,
+    "notice:decided": DecidedNotice,
   },
-};
+});
 
-// The latest of every run: as published while the Session runs, and as the
-// transcript recorded the ones that ended.
+interface NoticeData {
+  readonly data: unknown;
+}
+
+// The latest of every run: as the call that started it returned, as the
+// transcript recorded it, and as the Session part last published them.
 function useRuns(session: MountedSession): ReadonlyMap<string, RunView> {
-  const [runs, setRuns] = useState<ReadonlyMap<string, RunView>>(new Map());
+  const called = useToolResults<Partial<Started>>(session, "subagent");
+  const published = useSessionState<readonly RunView[]>(session, runsKey);
+  const kept = useKept(session, keptRun);
 
-  useEffect(
+  return useMemo(
     () =>
-      session.events((event) => {
-        const published = publishedRuns(event);
-        const kept = recordedRun(event) ?? finishedRun(event);
-
-        if (published === undefined && kept === undefined) {
-          return;
-        }
-
-        setRuns((seen) => {
-          const next = new Map(seen);
-
-          for (const run of published ?? []) {
-            next.set(run.id, run);
-          }
-
-          if (kept) {
-            next.set(kept.id, kept);
-          }
-
-          return next;
-        });
-      }),
-    [session],
+      new Map([
+        ...called.flatMap(({ details: { run } }) =>
+          run === undefined ? [] : [[run.id, run] as const],
+        ),
+        ...kept,
+        ...(published ?? []).map((run) => [run.id, run] as const),
+      ]),
+    [called, kept, published],
   );
-
-  return runs;
 }
 
-// The latest of every mission, as published and as the transcript recorded.
+// The latest of every mission, as the transcript recorded it and as the
+// Session part last published them.
 function useMissions(session: MountedSession): readonly MissionView[] {
-  const [missions, setMissions] = useState<ReadonlyMap<string, MissionView>>(
-    new Map(),
+  const published = useSessionState<readonly MissionView[]>(
+    session,
+    missionsKey,
   );
+
+  const kept = useKept(session, recordedMission);
+
+  return useMemo(
+    () =>
+      [
+        ...new Map([
+          ...kept,
+          ...(published ?? []).map((mission) => [mission.id, mission] as const),
+        ]).values(),
+      ].reverse(),
+    [kept, published],
+  );
+}
+
+// What the transcript last recorded of each run or mission, by its id.
+function useKept<T extends { readonly id: string }>(
+  session: MountedSession,
+  read: (event: SessionEvent) => T | undefined,
+): ReadonlyMap<string, T> {
+  const [kept, setKept] = useState<{
+    readonly session: MountedSession;
+    readonly records: ReadonlyMap<string, T>;
+  }>();
 
   useEffect(
     () =>
       session.events((event) => {
-        const published = publishedMissions(event);
-        const kept = recordedMission(event);
+        const record = read(event);
 
-        if (published === undefined && kept === undefined) {
-          return;
+        if (record !== undefined) {
+          setKept((seen) => ({
+            session,
+            records: new Map(seen?.session === session ? seen.records : []).set(
+              record.id,
+              record,
+            ),
+          }));
         }
-
-        setMissions((seen) => {
-          const next = new Map(seen);
-
-          for (const mission of [
-            ...(published ?? []),
-            ...(kept ? [kept] : []),
-          ]) {
-            next.set(mission.id, mission);
-          }
-
-          return next;
-        });
       }),
-    [session],
+    [session, read],
   );
 
-  return [...missions.values()].reverse();
+  return kept?.session === session ? kept.records : none;
 }
 
-function SubagentCall({ call, session }: ToolCallProps): ReactElement {
+const none: ReadonlyMap<never, never> = new Map<never, never>();
+
+function keptRun(event: SessionEvent): RunView | undefined {
+  return recordedRun(event) ?? finishedRun(event);
+}
+
+function SubagentCall({
+  call,
+  session,
+}: {
+  readonly call: ToolCall;
+  readonly session: MountedSession;
+}): ReactElement {
   const runs = useRuns(session);
   const runId = runIdOf(call.result?.details);
   const run = runId === undefined ? undefined : runs.get(runId);
@@ -407,9 +427,17 @@ function Mark({ tone }: { readonly tone: Tone }): ReactElement {
 
 // The header's Subagents button opens every run of the Session in a side
 // panel, once there is one.
-function FleetButton({ session }: SessionPartProps): ReactElement | null {
+function FleetButton({
+  session,
+}: {
+  readonly session: MountedSession;
+}): ReactElement | null {
   const [open, setOpen] = useState(false);
-  const runs = [...useRuns(session).values()].reverse();
+
+  const runs = [...useRuns(session).values()].sort(
+    (one, other) => other.startedAt - one.startedAt,
+  );
+
   const missions = useMissions(session);
   const asking = openDecisions(missions).length;
   const count = running(runs);
@@ -492,7 +520,7 @@ function FleetButton({ session }: SessionPartProps): ReactElement | null {
 }
 
 // The message that wakes the parent with a finished run's outputs.
-function FinishedNotice({ data }: NoticeProps): ReactElement {
+function FinishedNotice({ data }: NoticeData): ReactElement {
   const run = data as RunView;
 
   return (
@@ -504,7 +532,7 @@ function FinishedNotice({ data }: NoticeProps): ReactElement {
 }
 
 // The message that tells the parent which runs a restart cut off.
-function InterruptedNotice({ data }: NoticeProps): ReactElement {
+function InterruptedNotice({ data }: NoticeData): ReactElement {
   const cutOff = data as readonly RunView[];
 
   return (
@@ -519,7 +547,7 @@ function InterruptedNotice({ data }: NoticeProps): ReactElement {
 
 // A watchdog review of a turn's changes. Only its high findings reached the
 // agent (ADR 0058).
-function WatchdogNotice({ data }: NoticeProps): ReactElement {
+function WatchdogNotice({ data }: NoticeData): ReactElement {
   const review = data as Review;
 
   if (review.error !== undefined) {
@@ -684,7 +712,7 @@ function Decide({
 }
 
 // The message that brings the person's decision to the agent.
-function DecidedNotice({ data }: NoticeProps): ReactElement {
+function DecidedNotice({ data }: NoticeData): ReactElement {
   const { decision } = data as {
     readonly decision: { readonly question: string; readonly answer?: string };
   };

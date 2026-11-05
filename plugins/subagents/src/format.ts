@@ -73,9 +73,11 @@ export const interruptedKind = "interrupted";
 // run outlasts the Session's process (ADR 0058).
 export const recordType = "subagents-run";
 
-// A tool result's details for a call that started a run.
+// A tool result's details for a call that started a run, with the run as it
+// stood when the call returned.
 export interface Started {
   readonly runId: string;
+  readonly run?: RunView;
 }
 
 export function runState(run: RunView): ChildState {

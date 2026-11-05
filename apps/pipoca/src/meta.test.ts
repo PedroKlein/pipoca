@@ -473,8 +473,8 @@ test("hands a runner only the allowed Session parts and requires the meta one", 
     expect(of(metaSession.id)?.plugins).toEqual([
       "logins",
       "meta",
-      "models",
       "ask",
+      "models",
     ]);
 
     expect(of(metaSession.id)?.requiredPlugins).toEqual(["meta"]);

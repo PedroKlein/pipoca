@@ -120,7 +120,7 @@ export default tseslint.config(
           patterns: [
             {
               regex:
-                "^@pipoca/(?!(plugins|plugins/testing|plugins/web|protocol|ui)$)",
+                "^@pipoca/(?!(plugins|plugins/testing|plugins/web|plugins/web/testing|protocol|ui)$)",
               message:
                 "Plugins import only @pipoca/plugins, @pipoca/protocol and @pipoca/ui.",
             },
@@ -140,8 +140,6 @@ export default tseslint.config(
     ignores: [
       "plugins/*/src/**/*.test.ts",
       // Until these move to the clock and schedule as their plugins port.
-      "plugins/changes/src/pull-request.ts",
-      "plugins/changes/src/session.ts",
       "plugins/git-hosts/src/acting.ts",
       "plugins/git-hosts/src/poller.ts",
       "plugins/git-hosts/src/server.ts",
@@ -152,8 +150,6 @@ export default tseslint.config(
       "plugins/local/src/server.ts",
       "plugins/logins/src/connect.ts",
       "plugins/logins/src/locks.ts",
-      "plugins/models/src/server.ts",
-      "plugins/models/src/session.ts",
       "plugins/oidc/src/oidc.ts",
       "plugins/projects/src/projects.ts",
       "plugins/projects/src/server.ts",
@@ -161,10 +157,6 @@ export default tseslint.config(
       "plugins/push/src/server.ts",
       "plugins/routines/src/engine.ts",
       "plugins/routines/src/wakeups.ts",
-      "plugins/subagents/src/fleet.ts",
-      "plugins/subagents/src/missions.ts",
-      "plugins/subagents/src/session.ts",
-      "plugins/subagents/src/workflow.ts",
     ],
     rules: {
       "no-restricted-globals": [

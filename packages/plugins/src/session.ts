@@ -2,7 +2,7 @@ import type {
   AgentSession,
   ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
-import type { Clock, Log } from "@pipoca/protocol";
+import type { Clock, Log, Timer } from "@pipoca/protocol";
 import type { Static, TSchema } from "typebox";
 import type { TypedClient } from "./client";
 import type { PluginDefinition } from "./definition";
@@ -79,6 +79,9 @@ export interface SessionContext<P extends PluginDefinition = PluginDefinition> {
   readonly checkouts: readonly Checkout[];
   readonly startChild: (o: ChildOptions) => Promise<AgentSession>;
   readonly clock: Clock;
+  // Waits that end with the Session, such as a retry, since a Session part
+  // has no durable schedule.
+  readonly timer: Timer;
   readonly log: Log;
 }
 

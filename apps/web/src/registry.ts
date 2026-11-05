@@ -20,7 +20,7 @@ import * as usageWeb from "../../../plugins/usage/web/index";
 
 export const webRegistry = [
   { id: "ask", part: askWeb },
-  { id: "changes", plugin: changesWeb },
+  { id: "changes", part: changesWeb },
   { id: "checklist", part: checklistWeb },
   { id: "email", part: emailWeb },
   { id: "git-hosts", plugin: gitHostsWeb },
@@ -29,12 +29,12 @@ export const webRegistry = [
   { id: "local", plugin: localWeb },
   { id: "logins", plugin: loginsWeb },
   { id: "meta", plugin: metaWeb },
-  { id: "models", plugin: modelsWeb },
+  { id: "models", part: modelsWeb },
   { id: "oidc", plugin: oidcWeb },
   { id: "projects", plugin: projectsWeb },
   { id: "push", plugin: pushWeb },
   { id: "routines", plugin: routinesWeb },
   { id: "slack", part: slackWeb },
-  { id: "subagents", plugin: subagentsWeb },
+  { id: "subagents", part: subagentsWeb },
   { id: "usage", plugin: usageWeb },
 ] as const;

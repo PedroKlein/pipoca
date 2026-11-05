@@ -4,7 +4,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { Checkout, SessionCloud } from "@pipoca/plugins";
+import type { Checkout } from "@pipoca/plugins";
+import { systemClock } from "@pipoca/protocol";
 import { type Complete, pullRequestCommand } from "./pull-request";
 import type { PullRequest } from "./report";
 
@@ -68,27 +69,21 @@ async function pr(
 ): Promise<PullRequest | undefined> {
   let outcome: PullRequest | undefined;
 
-  const unused = (): never => {
-    throw new Error("not used by /pr");
-  };
-
-  const cloud: SessionCloud = {
-    publish: (_key, data) => {
-      said.push(JSON.stringify(data));
-      outcome = (data as readonly PullRequest[]).at(-1);
+  const command = pullRequestCommand(
+    {
+      publish: (_key, data) => {
+        said.push(JSON.stringify(data));
+        outcome = (data as readonly PullRequest[]).at(-1);
+      },
+      checkouts: [checkout],
+      clock: systemClock,
+      log: (message, fields) => {
+        said.push(`${message} ${JSON.stringify(fields)}`);
+      },
     },
-    askQuestions: unused,
-    askPermission: unused,
-    checkouts: [checkout],
-    settings: {},
-    request: unused,
-    startChild: unused,
-    log: (message, fields) => {
-      said.push(`${message} ${JSON.stringify(fields)}`);
-    },
-  };
+    () => undefined,
+  );
 
-  const command = pullRequestCommand(cloud, () => undefined);
   command.start(args, checkout.path, complete);
   await command.settled();
 

@@ -26,11 +26,7 @@ import {
 } from "@pipoca/plugins";
 import type { Command, LiveEvent, ToolSpec } from "@pipoca/protocol";
 import { ask } from "@pipoca/ask";
-import {
-  type CheckoutChanges,
-  changes,
-  type PullRequest,
-} from "@pipoca/changes/session";
+import { changes } from "@pipoca/changes";
 import {
   hostSession,
   hostTerminals,
@@ -42,6 +38,8 @@ import { fauxModels } from "./testdata/models";
 import { sessionOptions } from "./testdata/options";
 
 const askPart = (await ask.session()).default as SessionPart;
+
+const changesPart = (await changes.session()).default as SessionPart;
 
 let root: string;
 
@@ -2074,6 +2072,16 @@ async function gitRepository(): Promise<string> {
   return dir;
 }
 
+// What the changes plugin publishes about a checkout, as far as these tests
+// read it.
+interface CheckoutChanges {
+  readonly files: readonly { readonly status: string; readonly path: string }[];
+  readonly fileCount: number;
+  readonly stat: string;
+  readonly patch: string;
+  readonly truncated: boolean;
+}
+
 function published(
   events: readonly LiveEvent[],
 ): (readonly CheckoutChanges[])[] {
@@ -2103,7 +2111,7 @@ test("publishes what the session changed in its git workspace after a turn", asy
     sessionOptions(root, {
       cwd: repo,
       models,
-      plugins: [changes],
+      parts: [changesPart],
       checkouts: [{ path: repo, base: null }],
     }),
     fake.stream,
@@ -2156,7 +2164,7 @@ test("sends only the stat when the patch is too large", async () => {
     sessionOptions(root, {
       cwd: repo,
       models,
-      plugins: [changes],
+      parts: [changesPart],
       checkouts: [{ path: repo, base: null }],
     }),
     fake.stream,
@@ -2196,7 +2204,7 @@ test("sends the file list and stat when they alone are larger than the patch lim
     sessionOptions(root, {
       cwd: repo,
       models,
-      plugins: [changes],
+      parts: [changesPart],
       checkouts: [{ path: repo, base: null }],
     }),
     fake.stream,
@@ -2241,7 +2249,7 @@ test("caps the published file list and stat but reports the real file count", as
     sessionOptions(root, {
       cwd: repo,
       models,
-      plugins: [changes],
+      parts: [changesPart],
       checkouts: [{ path: repo, base: null }],
     }),
     fake.stream,
@@ -2330,6 +2338,14 @@ async function pullRequestSetup(reply: string): Promise<{
   };
 }
 
+// Where a checkout's pull request stands, as the changes plugin publishes it.
+interface PullRequest {
+  readonly name: string;
+  readonly status: string;
+  readonly url?: string;
+  readonly error?: string;
+}
+
 function pullRequests(events: readonly LiveEvent[]): PullRequest[] {
   return events.flatMap((event) =>
     event.type === "plugin" &&
@@ -2359,7 +2375,7 @@ test("/pr draft commits, pushes and opens a draft pull request that the next sta
     const options = sessionOptions(root, {
       cwd: setup.repo,
       models,
-      plugins: [changes],
+      parts: [changesPart],
       checkouts: [{ path: setup.repo, base: setup.base }],
     });
 
@@ -2441,7 +2457,7 @@ test("/pr on a branch that has a pull request commits, pushes and keeps its link
       sessionOptions(root, {
         cwd: setup.repo,
         models,
-        plugins: [changes],
+        parts: [changesPart],
         checkouts: [{ path: setup.repo, base: setup.base }],
       }),
       fake.stream,
@@ -2500,7 +2516,7 @@ test("/pr falls back to GitHub's compose page when gh fails", async () => {
       sessionOptions(root, {
         cwd: setup.repo,
         models,
-        plugins: [changes],
+        parts: [changesPart],
         checkouts: [{ path: setup.repo, base: setup.base }],
       }),
       fake.stream,
@@ -2523,7 +2539,7 @@ test("/pr falls back to GitHub's compose page when gh fails", async () => {
       reason: "gh pr create failed: not logged in",
     });
 
-    const url = new URL(last?.status === "compose" ? last.url : "");
+    const url = new URL(last?.url ?? "");
     expect(url.pathname).toBe("/acme/widgets/compare/pi%2Fnotes");
     expect(url.searchParams.get("title")).toBe("Add notes");
     expect(url.searchParams.get("body")).toBe("Why.");
@@ -2544,7 +2560,7 @@ test("/pr says why when the branch has nothing to push", async () => {
       sessionOptions(root, {
         cwd: setup.repo,
         models,
-        plugins: [changes],
+        parts: [changesPart],
         checkouts: [{ path: setup.repo, base: setup.base }],
       }),
       fake.stream,
@@ -2591,7 +2607,7 @@ test("/pr with only a checkout's name opens a full pull request for that checkou
     const hosted = await hostSession(
       sessionOptions(root, {
         models,
-        plugins: [changes],
+        parts: [changesPart],
         checkouts: [
           { path: setup.repo, base: setup.base },
           { path: other, base: setup.base },
@@ -2641,7 +2657,7 @@ test("/pr constructor starts no pull request", async () => {
       sessionOptions(root, {
         cwd: setup.repo,
         models,
-        plugins: [changes],
+        parts: [changesPart],
         checkouts: [{ path: setup.repo, base: setup.base }],
       }),
       fake.stream,
@@ -2682,7 +2698,7 @@ test("publishes no changes outside a git repository", async () => {
   const hosted = await hostSession(
     sessionOptions(root, {
       models,
-      plugins: [changes],
+      parts: [changesPart],
       checkouts: [{ path: root, base: null }],
     }),
     fake.stream,

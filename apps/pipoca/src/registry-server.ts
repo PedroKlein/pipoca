@@ -1,6 +1,6 @@
 // Written by `bun run registries` from plugins/*/package.json. Don't edit.
 import { ask } from "../../../plugins/ask/plugin";
-import changesPackage from "../../../plugins/changes/package.json";
+import { changes } from "../../../plugins/changes/plugin";
 import { checklist } from "../../../plugins/checklist/plugin";
 import { email } from "../../../plugins/email/plugin";
 import gitHostsPackage from "../../../plugins/git-hosts/package.json";
@@ -15,8 +15,7 @@ import loginsPackage from "../../../plugins/logins/package.json";
 import * as loginsServer from "../../../plugins/logins/src/server";
 import metaPackage from "../../../plugins/meta/package.json";
 import * as metaServer from "../../../plugins/meta/src/server";
-import modelsPackage from "../../../plugins/models/package.json";
-import * as modelsServer from "../../../plugins/models/src/server";
+import { models } from "../../../plugins/models/plugin";
 import oidcPackage from "../../../plugins/oidc/package.json";
 import * as oidcServer from "../../../plugins/oidc/src/server";
 import projectsPackage from "../../../plugins/projects/package.json";
@@ -26,13 +25,13 @@ import * as pushServer from "../../../plugins/push/src/server";
 import routinesPackage from "../../../plugins/routines/package.json";
 import * as routinesServer from "../../../plugins/routines/src/server";
 import { slack } from "../../../plugins/slack/plugin";
-import subagentsPackage from "../../../plugins/subagents/package.json";
+import { subagents } from "../../../plugins/subagents/plugin";
 import usagePackage from "../../../plugins/usage/package.json";
 import * as usageServer from "../../../plugins/usage/src/server";
 
 export const serverRegistry = [
   { id: "ask", definition: ask },
-  { id: "changes", manifest: changesPackage.pipoca },
+  { id: "changes", definition: changes },
   { id: "checklist", definition: checklist },
   { id: "email", definition: email },
   { id: "git-hosts", manifest: gitHostsPackage.pipoca, server: gitHostsServer },
@@ -45,12 +44,12 @@ export const serverRegistry = [
   { id: "local", manifest: localPackage.pipoca, server: localServer },
   { id: "logins", manifest: loginsPackage.pipoca, server: loginsServer },
   { id: "meta", manifest: metaPackage.pipoca, server: metaServer },
-  { id: "models", manifest: modelsPackage.pipoca, server: modelsServer },
+  { id: "models", definition: models },
   { id: "oidc", manifest: oidcPackage.pipoca, server: oidcServer },
   { id: "projects", manifest: projectsPackage.pipoca, server: projectsServer },
   { id: "push", manifest: pushPackage.pipoca, server: pushServer },
   { id: "routines", manifest: routinesPackage.pipoca, server: routinesServer },
   { id: "slack", definition: slack },
-  { id: "subagents", manifest: subagentsPackage.pipoca },
+  { id: "subagents", definition: subagents },
   { id: "usage", manifest: usagePackage.pipoca, server: usageServer },
 ] as const;
