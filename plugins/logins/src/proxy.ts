@@ -55,10 +55,6 @@ export interface ProxyTokens {
 }
 
 export function proxyTokens(store: PluginStore): ProxyTokens {
-  store.exec(
-    "create table if not exists logins_proxy_tokens (token_hash text primary key, session_id text not null, created_at text not null)",
-  );
-
   return {
     issue: (sessionId) => {
       const token = `ppx_${randomBytes(24).toString("base64url")}`;
@@ -67,7 +63,7 @@ export function proxyTokens(store: PluginStore): ProxyTokens {
         "insert into logins_proxy_tokens (token_hash, session_id, created_at) values (?, ?, ?)",
         hash(token),
         sessionId,
-        new Date().toISOString(),
+        Date.now(),
       );
 
       return token;

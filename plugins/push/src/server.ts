@@ -48,19 +48,27 @@ interface Notice {
   readonly url: string;
 }
 
+const schema = `
+create table push_vapid (
+  id integer primary key check (id = 1),
+  private_key text not null
+) strict;
+
+create table push_subscriptions (
+  endpoint text primary key,
+  user_id text not null references users (id) on delete cascade,
+  p256dh text not null,
+  auth text not null,
+  created_at integer not null
+) strict, without rowid;
+create index push_subscriptions_user on push_subscriptions (user_id);
+`;
+
 export const push: ServerPlugin = {
   name: "push",
+  schema: { version: 1, sql: schema },
   register: (context) => {
     const { store } = context;
-
-    store.exec(
-      "create table if not exists push_vapid (id integer primary key check (id = 1), private_key text not null)",
-    );
-
-    store.exec(
-      "create table if not exists push_subscriptions (endpoint text primary key, user_id text not null, p256dh text not null, auth text not null, created_at text not null)",
-    );
-
     const keys = vapidKeys(store);
 
     context.routes.handle(async (request, path, caller) => {
@@ -88,7 +96,7 @@ export const push: ServerPlugin = {
           caller.actor.slice("user:".length),
           browser.p256dh,
           browser.auth,
-          new Date().toISOString(),
+          Date.now(),
         );
 
         return Response.json({ ok: true });

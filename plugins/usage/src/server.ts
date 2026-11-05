@@ -66,11 +66,41 @@ const callColumns = [
 
 const auditColumns = ["at", "actor", "sessionId", "action", "detail"] as const;
 
+// Calls and the audit are history, so they keep the ids of Sessions and
+// people that are gone. Cost is in millionths of a dollar.
+const schema = `
+create table usage_calls (
+  id integer primary key,
+  at integer not null,
+  owner text not null,
+  person text,
+  session_id text not null,
+  provider text not null,
+  model text,
+  input integer not null,
+  output integer not null,
+  cost_micros integer
+) strict;
+create index usage_calls_at on usage_calls (at);
+create index usage_calls_person on usage_calls (person, at);
+
+create table usage_audit (
+  id integer primary key,
+  at integer not null,
+  actor text,
+  session_id text not null,
+  action text not null,
+  detail text
+) strict;
+create index usage_audit_actor on usage_audit (actor, id);
+`;
+
 // Records every call the proxy makes for team work, priced from the table
 // admins keep in pipoca.json, so admins see all of it and each person their
 // own and the team's totals (ADR 0066).
 export const usage: ServerPlugin = {
   name: "usage",
+  schema: { version: 1, sql: schema },
   register: (context) => {
     const calls = callStore(context.store);
     const audit = auditLog(context.store);
@@ -347,8 +377,10 @@ function objectAt(value: unknown, key: string): Record<string, unknown> {
   return isObject(inner) ? inner : {};
 }
 
+const microsPerDollar = 1_000_000;
+
 interface CallRow {
-  readonly at: string;
+  readonly at: number;
   readonly owner: string;
   readonly person: string | null;
   readonly session_id: string;
@@ -356,7 +388,7 @@ interface CallRow {
   readonly model: string | null;
   readonly input: number;
   readonly output: number;
-  readonly cost: number | null;
+  readonly cost_micros: number | null;
 }
 
 function callStore(store: PluginStore): {
@@ -367,15 +399,11 @@ function callStore(store: PluginStore): {
   ) => readonly Call[];
   readonly totals: (since: string, person?: string) => Totals;
 } {
-  store.exec(
-    "create table if not exists usage_calls (id integer primary key, at text not null, owner text not null, person text, session_id text not null, provider text not null, model text, input integer not null, output integer not null, cost real)",
-  );
-
   return {
     add: (call) => {
       store.run(
-        "insert into usage_calls (at, owner, person, session_id, provider, model, input, output, cost) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        call.at,
+        "insert into usage_calls (at, owner, person, session_id, provider, model, input, output, cost_micros) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        Date.parse(call.at),
         call.owner,
         call.person,
         call.sessionId,
@@ -383,7 +411,7 @@ function callStore(store: PluginStore): {
         call.model,
         call.input,
         call.output,
-        call.cost,
+        call.cost === null ? null : Math.round(call.cost * microsPerDollar),
       );
     },
     recent: (person, limit = -1) =>
@@ -398,17 +426,22 @@ function callStore(store: PluginStore): {
               person,
               limit,
             )) as CallRow[]
-      ).map(({ session_id: sessionId, ...row }) => ({ ...row, sessionId })),
+      ).map(({ session_id: sessionId, at, cost_micros, ...row }) => ({
+        ...row,
+        at: new Date(at).toISOString(),
+        sessionId,
+        cost: cost_micros === null ? null : cost_micros / microsPerDollar,
+      })),
     totals: (since, person) => {
       const [row] = (
         person === undefined
           ? store.all(
-              "select coalesce(sum(input), 0) as input, coalesce(sum(output), 0) as output, coalesce(sum(cost), 0) as cost from usage_calls where at >= ?",
-              since,
+              "select coalesce(sum(input), 0) as input, coalesce(sum(output), 0) as output, coalesce(sum(cost_micros), 0) / 1000000.0 as cost from usage_calls where at >= ?",
+              Date.parse(since),
             )
           : store.all(
-              "select coalesce(sum(input), 0) as input, coalesce(sum(output), 0) as output, coalesce(sum(cost), 0) as cost from usage_calls where at >= ? and person = ?",
-              since,
+              "select coalesce(sum(input), 0) as input, coalesce(sum(output), 0) as output, coalesce(sum(cost_micros), 0) / 1000000.0 as cost from usage_calls where at >= ? and person = ?",
+              Date.parse(since),
               person,
             )
       ) as Totals[];

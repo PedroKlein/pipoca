@@ -1,29 +1,23 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync, SQLInputValue, StatementSync } from "node:sqlite";
 import type {
   Invite,
-  ModelRef,
-  ProfileContent,
   SessionAccess,
-  SessionOwner,
   SessionStatus,
-  SetupState,
   ThinkingLevel,
   Voice,
   Workspace,
   WorkspaceRemoval,
 } from "@pipoca/protocol";
-import type { PluginStore } from "@pipoca/plugins";
+import type { PluginStore, ServerPlugin } from "@pipoca/plugins";
 import type { PluginSettingsStore } from "@pipoca/pluginhost";
 import {
   defaultProfileId as sharedDefault,
   type ProfileFolders,
   type ProfileStore,
 } from "@pipoca/profiles";
-import type { AuthStore, User } from "./auth";
-import { fileSecretKey, SecretBox } from "./secret-box";
 import {
   type Clock,
   owner,
@@ -32,574 +26,98 @@ import {
   type StoredSession,
   systemClock,
 } from "@pipoca/sessions";
+import type { AuthStore, User } from "./auth";
+import { openDatabase, transaction } from "./database";
+import { kernelSchema } from "./schema";
+import { fileSecretKey, SecretBox } from "./secret-box";
 
 interface SessionRow {
   id: string;
   environment_id: string;
-  owner_id: string;
-  owner_plugin: string | null;
-  owner_key: string | null;
+  plugin: string | null;
+  plugin_key: string | null;
   provider: string;
   runner: string | null;
   profile_id: string;
   workspace: string;
-  model: string | null;
+  model_provider: string | null;
+  model_id: string | null;
   system_prompt: string | null;
   first_message: string | null;
   thinking: ThinkingLevel | null;
   title: string | null;
   status: SessionStatus;
   generation: number;
-  created_at: string;
-  interrupted_at: string | null;
+  created_at: number;
+  interrupted_at: number | null;
   error: string | null;
-  archived_at: string | null;
+  archived_at: number | null;
   workspace_removal: WorkspaceRemoval | null;
   workspace_kept_reason: string | null;
   started_by: string | null;
   acts_as: string | null;
 }
 
-interface ProfileRow {
-  id: string;
-  owner_id: string;
-  name: string;
-  content: string;
-  created_at: string;
-}
-
 interface EnvironmentRow {
   id: string;
+  slug: string;
   name: string;
-  provider: string;
-  owner_id: string;
-  created_at: string;
+  owner_user_id: string | null;
+  template_id: string | null;
   isolation: string;
   image: string | null;
   setup_script: string;
   variables: string;
-  secrets: string;
+  secrets_sealed: string | null;
   key_hash: string | null;
-  template_id: string | null;
+  created_at: number;
 }
 
-const environmentsTable = `
-create table if not exists environments (
-  id text primary key,
-  name text not null,
-  provider text not null unique,
-  owner_id text not null,
-  created_at text not null,
-  isolation text not null default 'process',
-  image text,
-  setup_script text not null default '',
-  variables text not null default '{}',
-  secrets text not null default '{}',
-  key_hash text unique,
-  template_id text
-);
-create table if not exists runner_models (
-  provider text not null,
-  runner text not null,
-  models text not null,
-  reported_at text not null,
-  primary key (provider, runner)
-);
-`;
-
-const profileTables = `
-create table if not exists repository_trust (
-  owner_id text not null,
-  repository text not null,
-  trusted integer not null,
-  primary key (owner_id, repository)
-);
-create table if not exists profile_defaults (
-  owner_id text primary key,
-  profile_id text not null
-);
-`;
-
-const authTables = `
-create table if not exists users (
-  id text primary key,
-  name text not null unique,
-  password_hash text not null,
-  created_at text not null,
-  admin integer not null default 0,
-  pinned_pages text,
-  setup text,
-  last_active text
-);
-create table if not exists agent_tokens (
-  token_hash text primary key,
-  environment text not null,
-  runner text not null,
-  session_id text,
-  joined integer not null default 1,
-  last_used text not null
-);
-create table if not exists join_keys (
-  key_hash text primary key,
-  created_at text not null,
-  owner_id text not null
-);
-create table if not exists invites (
-  id text primary key,
-  token_hash text not null unique,
-  email text,
-  admin integer not null,
-  created_by text not null,
-  created_at text not null,
-  expires_at text not null,
-  uses integer not null default 0
-);
-create table if not exists browser_sessions (
-  token_hash text primary key,
-  user_id text not null references users (id),
-  expires_at text not null
-);
-create table if not exists mcp_tokens (
-  id text primary key,
-  token_hash text not null unique,
-  user_id text not null references users (id),
-  name text not null,
-  created_at text not null
-);
-`;
-
-const pluginTables = `
-create table if not exists plugin_settings (
-  plugin text primary key,
-  settings text not null
-);
-`;
-
-const sessionTables = `
-create table if not exists sessions (
-  id text primary key,
-  environment_id text not null references environments (id),
-  owner_id text not null,
-  owner_plugin text,
-  owner_key text,
-  runner text,
-  profile_id text not null,
-  workspace text not null,
-  model text,
-  system_prompt text,
-  first_message text,
-  thinking text,
-  title text,
-  status text not null,
-  generation integer not null,
-  created_at text not null,
-  interrupted_at text,
-  error text,
-  archived_at text,
-  workspace_removal text,
-  workspace_kept_reason text,
-  started_by text,
-  acts_as text,
-  access text
-);
-create table if not exists session_voices (
-  session_id text not null references sessions (id),
-  voice text not null
-);
-create index if not exists session_voices_session on session_voices (session_id);
-create table if not exists transcript (
-  session_id text not null references sessions (id),
-  line integer not null,
-  entry text not null,
-  primary key (session_id, line)
-);
-`;
-
-// Databases from before Sessions had a workspace stored a folder path in cwd,
-// and ones from before Environments named the provider on each Session.
-function migrate(db: DatabaseSync): void {
-  db.exec(environmentsTable);
-  db.exec(profileTables);
-  db.exec(authTables);
-  db.exec(pluginTables);
-
-  const userColumns = db
-    .prepare("select name from pragma_table_info('users')")
-    .all() as { name: string }[];
-
-  // Every user so far was the first one, made from the setup link.
-  if (!userColumns.some(({ name }) => name === "admin")) {
-    db.exec(`
-      alter table users add column admin integer not null default 0;
-      update users set admin = 1;
-    `);
-  }
-
-  if (!userColumns.some(({ name }) => name === "pinned_pages")) {
-    db.exec("alter table users add column pinned_pages text");
-  }
-
-  // People from before the setup wizard skip it, and only the steps they
-  // never did show up as reminders (ADR 0063).
-  if (!userColumns.some(({ name }) => name === "setup")) {
-    db.exec(`
-      alter table users add column setup text;
-      update users set setup = '{"finished":true,"dismissed":[]}';
-    `);
-  }
-
-  if (!userColumns.some(({ name }) => name === "last_active")) {
-    db.exec("alter table users add column last_active text");
-  }
-
-  // A join key from before keys had a person makes the first user's
-  // Environment, as an Environment from then is (ADR 0049).
-  const joinKeyColumns = db
-    .prepare("select name from pragma_table_info('join_keys')")
-    .all() as { name: string }[];
-
-  if (!joinKeyColumns.some(({ name }) => name === "owner_id")) {
-    db.exec(
-      `alter table join_keys add column owner_id text not null default '${owner}'`,
-    );
-  }
-
-  const tokenColumns = db
-    .prepare("select name from pragma_table_info('agent_tokens')")
-    .all() as { name: string }[];
-
-  if (!tokenColumns.some(({ name }) => name === "joined")) {
-    db.exec(
-      "alter table agent_tokens add column joined integer not null default 1",
-    );
-  }
-
-  // Tokens from before runner tokens expired count as used now.
-  if (!tokenColumns.some(({ name }) => name === "last_used")) {
-    transaction(db, () => {
-      db.exec(
-        "alter table agent_tokens add column last_used text not null default ''",
-      );
-
-      db.prepare("update agent_tokens set last_used = ?").run(
-        new Date().toISOString(),
-      );
-    });
-  }
-
-  const environmentColumns = db
-    .prepare("select name from pragma_table_info('environments')")
-    .all() as { name: string }[];
-
-  for (const [column, definition] of [
-    ["isolation", "text not null default 'process'"],
-    ["image", "text"],
-    ["setup_script", "text not null default ''"],
-    ["variables", "text not null default '{}'"],
-    ["secrets", "text not null default '{}'"],
-    ["key_hash", "text"],
-    ["template_id", "text"],
-  ] as const) {
-    if (!environmentColumns.some(({ name }) => name === column)) {
-      db.exec(`alter table environments add column ${column} ${definition}`);
-    }
-  }
-
-  const columns = db
-    .prepare("select name from pragma_table_info('sessions')")
-    .all() as { name: string }[];
-
-  const sessionsTableExists = columns.length > 0;
-
-  const hasColumn = (name: string): boolean =>
-    columns.some((column) => column.name === name);
-
-  if (hasColumn("cwd")) {
-    transaction(db, () => {
-      db.exec(`
-        alter table sessions rename column cwd to workspace;
-        update sessions set workspace = json_object('kind', 'folder', 'path', workspace);
-      `);
-    });
-  }
-
-  for (const column of [
-    "model",
-    "archived_at",
-    "workspace_removal",
-    "system_prompt",
-    "first_message",
-    "title",
-    "thinking",
-    "workspace_kept_reason",
-    "owner_plugin",
-    "owner_key",
-    "started_by",
-    "acts_as",
-    "access",
-  ]) {
-    if (sessionsTableExists && !hasColumn(column)) {
-      db.exec(`alter table sessions add column ${column} text`);
-    }
-  }
-
-  if (hasColumn("provider")) {
-    migrateToEnvironments(db);
-  }
-
-  // Sessions from before pools ran on the runner named after their
-  // Environment (ADR 0032).
-  if (sessionsTableExists && !hasColumn("runner")) {
-    transaction(db, () => {
-      db.exec(`
-        alter table sessions add column runner text;
-        update sessions set runner = (
-          select provider from environments where id = sessions.environment_id
-        ) where generation > 0;
-      `);
-    });
-  }
-
-  // Sessions from before Profiles run with the default one.
-  if (sessionsTableExists && !hasColumn("profile_id")) {
-    db.exec(
-      `alter table sessions add column profile_id text not null default '${defaultProfileId(db, owner)}'`,
-    );
-  }
-
-  db.exec(sessionTables);
+interface VoiceRow {
+  kind: Voice["kind"];
+  person: string;
+  text: string | null;
+  quote_from: string | null;
+  quote_text: string | null;
+  at: number;
 }
 
-// Owners use the shared default Profile until they pick another (ADR 0041).
-function defaultProfileId(db: DatabaseSync, ownerId: string): string {
-  const found = db
-    .prepare("select profile_id from profile_defaults where owner_id = ?")
-    .get(ownerId) as { profile_id: string } | undefined;
+// The wire keeps ISO times and named owners; the tables keep milliseconds
+// and a user id, or NULL for the team (ADR 0064).
+const teamOwner = "team";
 
-  return found?.profile_id ?? sharedDefault;
+function iso(at: number): string {
+  return new Date(at).toISOString();
 }
 
-// Profiles were rows before they were folders (ADR 0041). Each becomes a
-// folder named after it, and what pointed at its old id points at the folder.
-// The empty Default Profile every owner got points at the shared one instead.
-function moveProfilesToFolders(
-  db: DatabaseSync,
-  folders: ProfileFolders | undefined,
-): void {
-  const legacy = db
-    .prepare(
-      "select name from sqlite_master where type = 'table' and name = 'profiles'",
-    )
-    .get();
-
-  if (legacy === undefined) {
-    return;
-  }
-
-  const rows = db
-    .prepare("select * from profiles order by created_at, name")
-    .all() as unknown as ProfileRow[];
-
-  if (rows.length > 0 && folders === undefined) {
-    throw new Error(
-      "the database holds Profiles and has no folder to move them to",
-    );
-  }
-
-  const moved = new Map(
-    folders === undefined
-      ? []
-      : rows.map((row) => [row.id, moveProfile(row, folders)] as const),
-  );
-
-  const projects = db
-    .prepare(
-      "select name from sqlite_master where type = 'table' and name = 'projects_projects'",
-    )
-    .get();
-
-  transaction(db, () => {
-    // The old table's profile_id referenced Profile rows, which would refuse
-    // the folder ids.
-    db.exec(`
-      create table profile_defaults_moved (
-        owner_id text primary key,
-        profile_id text not null
-      );
-      insert into profile_defaults_moved select owner_id, profile_id from profile_defaults;
-      drop table profile_defaults;
-      alter table profile_defaults_moved rename to profile_defaults;
-    `);
-
-    for (const [from, to] of moved) {
-      db.prepare("update sessions set profile_id = ? where profile_id = ?").run(
-        to,
-        from,
-      );
-
-      db.prepare(
-        "update profile_defaults set profile_id = ? where profile_id = ?",
-      ).run(to, from);
-
-      if (projects !== undefined) {
-        db.prepare(
-          "update projects_projects set profile_id = ? where profile_id = ?",
-        ).run(to, from);
-      }
-    }
-
-    db.exec("drop table profiles");
-  });
+function isoOrNull(at: number | null): string | null {
+  return at === null ? null : iso(at);
 }
 
-// Profiles and the default Profile belonged to one server-wide owner before
-// each user had their own (ADR 0041). A sole user takes them over. With
-// several users nobody knows whose a Profile was, so it becomes shared, and
-// each user keeps the old default until they pick another.
-function giveProfilesToUsers(
-  db: DatabaseSync,
-  folders: ProfileFolders | undefined,
-): void {
-  const users = db
-    .prepare("select id from users order by created_at")
-    .all() as { id: string }[];
-
-  if (users.length === 0) {
-    return;
-  }
-
-  const sole = users.length === 1 ? (users[0]?.id ?? null) : null;
-
-  for (const id of folders?.ids() ?? []) {
-    const profile = folders?.read(id);
-
-    if (profile?.ownerId === owner) {
-      folders?.write(
-        id,
-        { name: profile.name, ownerId: sole, createdAt: profile.createdAt },
-        {},
-      );
-    }
-  }
-
-  transaction(db, () => {
-    db.prepare(
-      "insert or ignore into profile_defaults (owner_id, profile_id) select users.id, old.profile_id from users, profile_defaults old where old.owner_id = ?",
-    ).run(owner);
-
-    db.prepare("delete from profile_defaults where owner_id = ?").run(owner);
-  });
+function ms(at: string): number {
+  return Date.parse(at);
 }
 
-function moveProfile(row: ProfileRow, folders: ProfileFolders): string {
-  const content = JSON.parse(row.content) as ProfileContent;
-  if (row.name === "Default" && isEmpty(content)) {
-    return sharedDefault;
-  }
-
-  // A move cut short left some folders behind, which are used again.
-  const written = folders.ids().find((id) => {
-    const profile = folders.read(id);
-
-    return (
-      profile?.createdAt === row.created_at &&
-      profile.ownerId === row.owner_id &&
-      profile.name === row.name
-    );
-  });
-
-  const id = written ?? folders.freeId(row.name);
-
-  folders.write(
-    id,
-    { name: row.name, ownerId: row.owner_id, createdAt: row.created_at },
-    content,
-  );
-
-  return id;
+function msOrNull(at: string | null): number | null {
+  return at === null ? null : ms(at);
 }
 
-function isEmpty(content: ProfileContent): boolean {
-  return (
-    content.packages.length === 0 &&
-    content.agentsMd === "" &&
-    content.systemMd === "" &&
-    content.appendSystemMd === "" &&
-    Object.keys(content.mcpServers).length === 0 &&
-    Object.keys(content.settings).length === 0
-  );
+function ownerOf(userId: string | null): string {
+  return userId ?? teamOwner;
 }
 
-function migrateToEnvironments(db: DatabaseSync): void {
-  const providers = db
-    .prepare("select distinct provider from sessions")
-    .all() as { provider: string }[];
-
-  transaction(db, () => {
-    for (const { provider } of providers) {
-      insertEnvironment(db, provider, owner);
-    }
-
-    db.exec(`
-      alter table sessions add column environment_id text references environments (id);
-      alter table sessions add column owner_id text;
-      update sessions set
-        environment_id = (select id from environments where provider = sessions.provider),
-        owner_id = '${owner}';
-      alter table sessions drop column provider;
-    `);
-  });
+function userOf(ownerId: string): string | null {
+  return ownerId === teamOwner || ownerId === owner ? null : ownerId;
 }
 
-function insertEnvironment(
-  db: DatabaseSync,
-  provider: string,
-  ownerId: string,
-  templateId: string | null = null,
-  createdAt = new Date().toISOString(),
-): void {
-  db.prepare(
-    "insert into environments (id, name, provider, owner_id, created_at, template_id) values (?, ?, ?, ?, ?, ?) on conflict (provider) do nothing",
-  ).run(randomUUID(), provider, provider, ownerId, createdAt, templateId);
-}
-
-// Seals secrets stored before they were encrypted, and fails the start when
-// the key doesn't open the ones already sealed.
-function sealSecrets(db: DatabaseSync, box: SecretBox): void {
-  const rows = db.prepare("select id, secrets from environments").all() as {
-    id: string;
-    secrets: string;
-  }[];
-
-  const seal = db.prepare("update environments set secrets = ? where id = ?");
-
-  transaction(db, () => {
-    for (const { id, secrets } of rows) {
-      if (SecretBox.isSealed(secrets)) {
-        box.open(secrets, id);
-      } else {
-        seal.run(box.seal(secrets, id), id);
-      }
-    }
-  });
-}
-
-function transaction(db: DatabaseSync, run: () => void): void {
-  db.exec("begin");
-  try {
-    run();
-    db.exec("commit");
-  } catch (error) {
-    db.exec("rollback");
-    throw error;
-  }
-}
+const monthMs = 30 * 24 * 60 * 60 * 1000;
 
 export function openStore(
   path: string,
   secretKey?: Buffer,
   profiles?: ProfileFolders,
   clock: Clock = systemClock,
+  plugins: readonly Pick<ServerPlugin, "name" | "schema">[] = [],
 ): SessionStore &
   ProfileStore & {
     auth: AuthStore;
@@ -617,44 +135,63 @@ export function openStore(
       (path === ":memory:" ? randomBytes(32) : fileSecretKey(`${path}.key`)),
   );
 
-  const db = new DatabaseSync(path);
-  db.exec("pragma journal_mode = wal");
-  migrate(db);
-  moveProfilesToFolders(db, profiles);
-  giveProfilesToUsers(db, profiles);
-  sealSecrets(db, box);
+  const { db, failures } = openDatabase(
+    path,
+    kernelSchema,
+    plugins.flatMap(({ name, schema }) =>
+      schema === undefined ? [] : [{ owner: name, ...schema }],
+    ),
+    clock.now,
+  );
+
+  // A key that doesn't open what is sealed stops the start.
+  const sealed = db
+    .prepare(
+      "select id, secrets_sealed from environments where secrets_sealed is not null limit 1",
+    )
+    .get() as { id: string; secrets_sealed: string } | undefined;
+
+  if (sealed !== undefined) {
+    box.open(sealed.secrets_sealed, sealed.id);
+  }
 
   const toSession = (row: SessionRow): StoredSession => ({
     id: row.id,
     environmentId: row.environment_id,
-    ownerId: row.owner_id,
+    ownerId: owner,
     owner:
-      row.owner_plugin === null || row.owner_key === null
+      row.plugin === null || row.plugin_key === null
         ? null
-        : { plugin: row.owner_plugin, key: row.owner_key },
+        : { plugin: row.plugin, key: row.plugin_key },
     provider: row.provider,
     runner: row.runner,
     profileId: row.profile_id,
     workspace: JSON.parse(row.workspace) as Workspace,
-    model: row.model === null ? null : (JSON.parse(row.model) as ModelRef),
+    model:
+      row.model_provider === null || row.model_id === null
+        ? null
+        : { provider: row.model_provider, id: row.model_id },
     systemPrompt: row.system_prompt,
     thinking: row.thinking,
     firstMessage: row.first_message,
     title: row.title,
     status: row.status,
     generation: row.generation,
-    createdAt: row.created_at,
-    interruptedAt: row.interrupted_at,
+    createdAt: iso(row.created_at),
+    interruptedAt: isoOrNull(row.interrupted_at),
     error: row.error,
-    archivedAt: row.archived_at,
+    archivedAt: isoOrNull(row.archived_at),
     workspaceRemoval: row.workspace_removal,
     workspaceKeptReason: row.workspace_kept_reason,
     startedBy: row.started_by,
     actsAs: row.acts_as,
   });
 
+  const sessionRows = (statement: StatementSync, ...params: SQLInputValue[]) =>
+    (statement.all(...params) as unknown as SessionRow[]).map(toSession);
+
   const insertSession = db.prepare(
-    "insert into sessions (id, environment_id, owner_id, owner_plugin, owner_key, runner, profile_id, workspace, model, system_prompt, first_message, thinking, title, status, generation, created_at, interrupted_at, error, archived_at, workspace_removal, workspace_kept_reason, started_by, acts_as) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "insert into sessions (id, environment_id, plugin, plugin_key, runner, profile_id, workspace, model_provider, model_id, system_prompt, first_message, thinking, title, status, generation, created_at, interrupted_at, error, archived_at, workspace_removal, workspace_kept_reason, started_by, acts_as) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   );
 
   const updateSession = db.prepare(
@@ -664,7 +201,7 @@ export function openStore(
   const selectAnySession = db.prepare("select 1 from sessions limit 1");
 
   const withProvider =
-    "select sessions.*, environments.provider from sessions join environments on environments.id = sessions.environment_id";
+    "select sessions.*, environments.slug as provider from sessions join environments on environments.id = sessions.environment_id";
 
   const selectSession = db.prepare(`${withProvider} where sessions.id = ?`);
 
@@ -677,96 +214,112 @@ export function openStore(
   );
 
   const selectOwnedSessions = db.prepare(
-    `${withProvider} where owner_plugin = ? and owner_key = ? order by sessions.created_at desc`,
+    `${withProvider} where plugin = ? and plugin_key = ? order by sessions.created_at desc`,
   );
 
   const selectUnarchivedOwnedSessions = db.prepare(
-    `${withProvider} where owner_plugin = ? and owner_key = ? and sessions.archived_at is null order by sessions.created_at desc`,
+    `${withProvider} where plugin = ? and plugin_key = ? and sessions.archived_at is null order by sessions.created_at desc`,
   );
 
   const selectVoices = db.prepare(
-    "select voice from session_voices where session_id = ? order by rowid",
+    "select kind, person, text, quote_from, quote_text, at from session_messages where session_id = ? order by seq",
   );
 
   const insertVoice = db.prepare(
-    "insert into session_voices (session_id, voice) values (?, ?)",
+    "insert into session_messages (session_id, seq, kind, person, text, quote_from, quote_text, at) values (?1, (select coalesce(max(seq), 0) + 1 from session_messages where session_id = ?1), ?2, ?3, ?4, ?5, ?6, ?7)",
   );
 
   const selectAccess = db.prepare("select access from sessions where id = ?");
+
+  const selectAccessPeople = db.prepare(
+    "select user_id from session_access_people where session_id = ? order by rowid",
+  );
 
   const updateAccess = db.prepare(
     "update sessions set access = ? where id = ?",
   );
 
-  const updateOwner = db.prepare(
-    "update sessions set owner_plugin = ?, owner_key = ? where id = ?",
+  const deleteAccessPeople = db.prepare(
+    "delete from session_access_people where session_id = ?",
+  );
+
+  const insertAccessPerson = db.prepare(
+    "insert or ignore into session_access_people (session_id, user_id) values (?, ?)",
   );
 
   const selectByEnvironment = db.prepare(
-    `${withProvider} where environments.provider = ? and status in (select value from json_each(?)) order by sessions.created_at`,
+    `${withProvider} where environments.slug = ? and status in (select value from json_each(?)) order by sessions.created_at`,
   );
 
   const selectByRunner = db.prepare(
-    `${withProvider} where environments.provider = ? and runner = ? and status in (select value from json_each(?)) order by sessions.created_at`,
+    `${withProvider} where environments.slug = ? and runner = ? and status in (select value from json_each(?)) order by sessions.created_at`,
   );
 
   const selectPendingRemovals = db.prepare(
-    `${withProvider} where environments.provider = ? and (runner = ? or runner is null) and status = ? and workspace_removal in (?, ?) order by sessions.created_at`,
+    `${withProvider} where environments.slug = ? and (runner = ? or runner is null) and status = ? and workspace_removal in (?, ?) order by sessions.created_at`,
   );
 
   const selectFirstUser = db.prepare(
     "select id from users order by created_at limit 1",
   );
 
-  // An Environment from before each one had a person, or one a runner made
-  // with a join key, is the person the setup link made (ADR 0049).
-  const toEnvironment = (row: EnvironmentRow): StoredEnvironment => ({
+  const firstUser = (): string | null =>
+    (selectFirstUser.get() as { id: string } | undefined)?.id ?? null;
+
+  // Environments made before anyone signed up, such as the server's own
+  // runner's, are the first person's (ADR 0049).
+  const environmentOwner = (ownerId: string | undefined): string | null =>
+    ownerId === undefined || ownerId === owner ? firstUser() : userOf(ownerId);
+
+  const toEnvironment = (
+    row: EnvironmentRow,
+    nobody: boolean,
+  ): StoredEnvironment => ({
     id: row.id,
     name: row.name,
-    provider: row.provider,
+    provider: row.slug,
     ownerId:
-      row.owner_id === owner
-        ? ((selectFirstUser.get() as { id: string } | undefined)?.id ?? owner)
-        : row.owner_id,
-    createdAt: row.created_at,
+      row.owner_user_id === null && nobody ? owner : ownerOf(row.owner_user_id),
+    createdAt: iso(row.created_at),
     isolation: row.isolation === "container" ? "container" : "process",
     image: row.image,
     setupScript: row.setup_script,
     variables: JSON.parse(row.variables) as Record<string, string>,
-    secrets: JSON.parse(
-      SecretBox.isSealed(row.secrets)
-        ? box.open(row.secrets, row.id)
-        : row.secrets,
-    ) as Record<string, string>,
+    secrets:
+      row.secrets_sealed === null
+        ? {}
+        : (JSON.parse(box.open(row.secrets_sealed, row.id)) as Record<
+            string,
+            string
+          >),
     hasKey: row.key_hash !== null,
     templateId: row.template_id,
   });
 
-  const updateEnvironment = db.prepare(
-    "update environments set name = ?, isolation = ?, image = ?, setup_script = ?, variables = ?, secrets = ? where id = ?",
+  const insertEnvironment = db.prepare(
+    "insert into environments (id, slug, name, owner_user_id, template_id, created_at) values (?, ?, ?, ?, ?, ?) on conflict (slug) do nothing",
   );
 
-  const deleteEnvironment = [
-    "delete from transcript where session_id in (select id from sessions where environment_id = ?)",
-    "delete from session_voices where session_id in (select id from sessions where environment_id = ?)",
-    "delete from agent_tokens where session_id in (select id from sessions where environment_id = ?)",
-    "delete from sessions where environment_id = ?",
-    "delete from agent_tokens where environment = (select provider from environments where id = ?)",
-    "delete from runner_models where provider = (select provider from environments where id = ?)",
-    "delete from environments where id = ?",
-  ].map((sql) => db.prepare(sql));
+  const updateEnvironment = db.prepare(
+    "update environments set name = ?, isolation = ?, image = ?, setup_script = ?, variables = ?, secrets_sealed = ? where id = ?",
+  );
+
+  const deleteEnvironment = db.prepare("delete from environments where id = ?");
 
   const selectEnvironments = db.prepare(
     "select * from environments order by created_at, name",
   );
 
   const selectRunnerModels = db.prepare(
-    "select models from runner_models where provider = ? order by reported_at",
+    "select runner_models.provider, model_id from runner_models join environments on environments.id = environment_id where slug = ? order by reported_at, runner, position",
   );
 
-  const upsertRunnerModels = db.prepare(
-    `insert into runner_models (provider, runner, models, reported_at) values (?, ?, ?, ?)
-     on conflict (provider, runner) do update set models = excluded.models, reported_at = excluded.reported_at`,
+  const deleteRunnerModels = db.prepare(
+    "delete from runner_models where environment_id = (select id from environments where slug = ?) and runner = ?",
+  );
+
+  const insertRunnerModel = db.prepare(
+    "insert into runner_models (environment_id, runner, position, provider, model_id, reported_at) values ((select id from environments where slug = ?), ?, ?, ?, ?, ?)",
   );
 
   // Runners started on demand each have a name of their own, so what the
@@ -776,18 +329,25 @@ export function openStore(
   );
 
   const countTranscript = db.prepare(
-    "select count(*) as n from transcript where session_id = ?",
+    "select count(*) as n from transcript_lines where session_id = ?",
   );
 
   const insertTranscriptLine = db.prepare(
-    "insert into transcript (session_id, line, entry) values (?, ?, ?)",
+    "insert into transcript_lines (session_id, line, entry) values (?, ?, ?)",
   );
 
   const updateTitle = db.prepare("update sessions set title = ? where id = ?");
-  const updateModel = db.prepare("update sessions set model = ? where id = ?");
 
-  const upsertDefault = db.prepare(
-    "insert into profile_defaults (owner_id, profile_id) values (?, ?) on conflict (owner_id) do update set profile_id = excluded.profile_id",
+  const updateModel = db.prepare(
+    "update sessions set model_provider = ?, model_id = ? where id = ?",
+  );
+
+  const selectDefault = db.prepare(
+    "select default_profile_id from users where id = ?",
+  );
+
+  const updateDefault = db.prepare(
+    "update users set default_profile_id = ? where id = ?",
   );
 
   const selectProfileUse = db.prepare(
@@ -795,39 +355,45 @@ export function openStore(
   );
 
   const selectTrust = db.prepare(
-    "select trusted from repository_trust where owner_id = ? and repository = ?",
+    "select trusted from repository_trust where owner_user_id is ? and repository = ?",
   );
 
-  const upsertTrust = db.prepare(
-    "insert into repository_trust (owner_id, repository, trusted) values (?, ?, ?) on conflict (owner_id, repository) do update set trusted = excluded.trusted",
+  const deleteTrust = db.prepare(
+    "delete from repository_trust where owner_user_id is ? and repository = ?",
+  );
+
+  const insertTrust = db.prepare(
+    "insert into repository_trust (owner_user_id, repository, trusted, decided_at) values (?, ?, ?, ?)",
   );
 
   const selectTranscript = db.prepare(
-    "select entry from transcript where session_id = ? and line >= ? order by line",
+    "select entry from transcript_lines where session_id = ? and line >= ? order by line",
   );
+
+  const pluginStores = new Map<string, PluginStore>();
 
   return {
     insert: (s) => {
       insertSession.run(
         s.id,
         s.environmentId,
-        s.ownerId,
         s.owner?.plugin ?? null,
         s.owner?.key ?? null,
         s.runner,
         s.profileId,
         JSON.stringify(s.workspace),
-        s.model && JSON.stringify(s.model),
+        s.model?.provider ?? null,
+        s.model?.id ?? null,
         s.systemPrompt,
         s.firstMessage,
         s.thinking,
         s.title,
         s.status,
         s.generation,
-        s.createdAt,
-        s.interruptedAt,
+        ms(s.createdAt),
+        msOrNull(s.interruptedAt),
         s.error,
-        s.archivedAt,
+        msOrNull(s.archivedAt),
         s.workspaceRemoval,
         s.workspaceKeptReason,
         s.startedBy,
@@ -840,9 +406,9 @@ export function openStore(
         JSON.stringify(s.workspace),
         s.status,
         s.generation,
-        s.interruptedAt,
+        msOrNull(s.interruptedAt),
         s.error,
-        s.archivedAt,
+        msOrNull(s.archivedAt),
         s.workspaceRemoval,
         s.workspaceKeptReason,
         s.id,
@@ -853,94 +419,125 @@ export function openStore(
 
       return row && toSession(row);
     },
-    list: ({ includeArchived, owner: ownedBy }) => {
-      const rows = ownedBy
-        ? (includeArchived
-            ? selectOwnedSessions
-            : selectUnarchivedOwnedSessions
-          ).all(ownedBy.plugin, ownedBy.key)
-        : (includeArchived ? selectSessions : selectUnarchivedSessions).all();
-
-      return (rows as unknown as SessionRow[]).map(toSession);
-    },
-    setOwner: (id, { plugin, key }: SessionOwner) => {
-      updateOwner.run(plugin, key, id);
-    },
+    list: ({ includeArchived, owner: ownedBy }) =>
+      ownedBy
+        ? sessionRows(
+            includeArchived
+              ? selectOwnedSessions
+              : selectUnarchivedOwnedSessions,
+            ownedBy.plugin,
+            ownedBy.key,
+          )
+        : sessionRows(
+            includeArchived ? selectSessions : selectUnarchivedSessions,
+          ),
     access: (id) => {
-      const row = selectAccess.get(id) as { access: string | null } | undefined;
+      const row = selectAccess.get(id) as
+        { access: SessionAccess["kind"] } | undefined;
 
-      return row === undefined || row.access === null
-        ? undefined
-        : (JSON.parse(row.access) as SessionAccess);
-    },
-    voices: (id) =>
-      (selectVoices.all(id) as { voice: string }[]).map(
-        ({ voice }) => JSON.parse(voice) as Voice,
-      ),
-    addVoice: (id, voice) => {
-      insertVoice.run(id, JSON.stringify(voice));
+      if (row === undefined || row.access === "team") {
+        return undefined;
+      }
+
+      return row.access === "view"
+        ? { kind: "view" }
+        : {
+            kind: "named",
+            people: (selectAccessPeople.all(id) as { user_id: string }[]).map(
+              ({ user_id }) => user_id,
+            ),
+          };
     },
     setAccess: (id, access) => {
-      updateAccess.run(
-        access.kind === "team" ? null : JSON.stringify(access),
+      transaction(db, () => {
+        updateAccess.run(access.kind, id);
+        deleteAccessPeople.run(id);
+
+        if (access.kind === "named") {
+          for (const person of access.people) {
+            insertAccessPerson.run(id, person);
+          }
+        }
+      });
+    },
+    voices: (id) =>
+      (selectVoices.all(id) as unknown as VoiceRow[]).map((row) => ({
+        kind: row.kind,
+        person: row.person,
+        at: iso(row.at),
+        ...(row.text !== null && { text: row.text }),
+        ...(row.quote_from !== null &&
+          row.quote_text !== null && {
+            quote: { from: row.quote_from, text: row.quote_text },
+          }),
+      })),
+    addVoice: (id, voice) => {
+      insertVoice.run(
         id,
+        voice.kind,
+        voice.person,
+        voice.text ?? null,
+        voice.quote?.from ?? null,
+        voice.quote?.text ?? null,
+        ms(voice.at),
       );
     },
     byEnvironment: (provider, statuses) =>
-      (
-        selectByEnvironment.all(
-          provider,
-          JSON.stringify(statuses),
-        ) as unknown as SessionRow[]
-      ).map(toSession),
+      sessionRows(selectByEnvironment, provider, JSON.stringify(statuses)),
     byRunner: (provider, runner, statuses) =>
-      (
-        selectByRunner.all(
-          provider,
-          runner,
-          JSON.stringify(statuses),
-        ) as unknown as SessionRow[]
-      ).map(toSession),
+      sessionRows(selectByRunner, provider, runner, JSON.stringify(statuses)),
     pendingRemovals: (provider, runner) =>
-      (
-        selectPendingRemovals.all(
-          provider,
-          runner,
-          "stopped" satisfies SessionStatus,
-          "pending" satisfies WorkspaceRemoval,
-          "forced" satisfies WorkspaceRemoval,
-        ) as unknown as SessionRow[]
-      ).map(toSession),
-    ensureEnvironment: (provider, ownerId = owner, templateId = null) => {
-      insertEnvironment(
-        db,
-        provider,
-        ownerId,
-        templateId,
-        new Date(clock.now()).toISOString(),
-      );
-    },
-    environments: () =>
-      (selectEnvironments.all() as unknown as EnvironmentRow[]).map(
-        toEnvironment,
-      ),
-    registeredModels: (provider) =>
-      (selectRunnerModels.all(provider) as { models: string }[]).flatMap(
-        ({ models }) => JSON.parse(models) as ModelRef[],
-      ),
-    setRegisteredModels: (provider, runner, models) => {
-      const now = new Date(clock.now());
-
-      upsertRunnerModels.run(
+      sessionRows(
+        selectPendingRemovals,
         provider,
         runner,
-        JSON.stringify(models),
-        now.toISOString(),
+        "stopped" satisfies SessionStatus,
+        "pending" satisfies WorkspaceRemoval,
+        "forced" satisfies WorkspaceRemoval,
+      ),
+    ensureEnvironment: (provider, ownerId, templateId = null) => {
+      insertEnvironment.run(
+        Bun.randomUUIDv7(),
+        provider,
+        provider,
+        environmentOwner(ownerId),
+        templateId,
+        clock.now(),
       );
+    },
+    environments: () => {
+      const nobody = firstUser() === null;
 
-      deleteOldRunnerModels.run(
-        new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+      return (selectEnvironments.all() as unknown as EnvironmentRow[]).map(
+        (row) => toEnvironment(row, nobody),
       );
+    },
+    registeredModels: (provider) =>
+      (
+        selectRunnerModels.all(provider) as {
+          provider: string;
+          model_id: string;
+        }[]
+      ).map((row) => ({ provider: row.provider, id: row.model_id })),
+    setRegisteredModels: (provider, runner, models) => {
+      const now = clock.now();
+
+      transaction(db, () => {
+        deleteRunnerModels.run(provider, runner);
+
+        models.forEach((model, position) => {
+          insertRunnerModel.run(
+            provider,
+            runner,
+            position,
+            model.provider,
+            model.id,
+            now,
+          );
+        });
+
+        deleteOldRunnerModels.run(now - monthMs);
+      });
     },
     updateEnvironment: (environment) => {
       updateEnvironment.run(
@@ -949,16 +546,14 @@ export function openStore(
         environment.image,
         environment.setupScript,
         JSON.stringify(environment.variables),
-        box.seal(JSON.stringify(environment.secrets), environment.id),
+        Object.keys(environment.secrets).length === 0
+          ? null
+          : box.seal(JSON.stringify(environment.secrets), environment.id),
         environment.id,
       );
     },
     deleteEnvironment: (id) => {
-      transaction(db, () => {
-        for (const statement of deleteEnvironment) {
-          statement.run(id);
-        }
-      });
+      deleteEnvironment.run(id);
     },
     transcriptLength: (id) => (countTranscript.get(id) as { n: number }).n,
     appendTranscript: (id, start, lines) => {
@@ -969,7 +564,7 @@ export function openStore(
       });
     },
     setModel: (id, model) => {
-      updateModel.run(JSON.stringify(model), id);
+      updateModel.run(model.provider, model.id, id);
     },
     setTitle: (id, title) => {
       updateTitle.run(title, id);
@@ -984,22 +579,48 @@ export function openStore(
     profile: (id) => profiles?.read(id),
     profileFiles: (id, personId) => profiles?.files(id, personId ?? undefined),
     baseProfileFiles: (personId) => profiles?.layers(personId ?? undefined),
-    defaultProfileId: (ownerId) => defaultProfileId(db, ownerId),
+    // Owners use the shared default Profile until they pick another
+    // (ADR 0041).
+    defaultProfileId: (ownerId) =>
+      (
+        selectDefault.get(ownerId) as
+          { default_profile_id: string | null } | undefined
+      )?.default_profile_id ?? sharedDefault,
     setDefaultProfile: (ownerId, id) => {
-      upsertDefault.run(ownerId, id);
+      updateDefault.run(id, ownerId);
     },
     repositoryTrust: (ownerId, repository) => {
-      const row = selectTrust.get(ownerId, repository) as
+      const row = selectTrust.get(userOf(ownerId), repository) as
         { trusted: number } | undefined;
 
       return row === undefined ? null : row.trusted === 1;
     },
     setRepositoryTrust: (ownerId, repository, trusted) => {
-      upsertTrust.run(ownerId, repository, trusted ? 1 : 0);
+      transaction(db, () => {
+        deleteTrust.run(userOf(ownerId), repository);
+
+        insertTrust.run(
+          userOf(ownerId),
+          repository,
+          trusted ? 1 : 0,
+          clock.now(),
+        );
+      });
     },
     profileInUse: (id) => selectProfileUse.get(id) !== undefined,
     auth: authStore(db, clock),
-    plugin: (name) => pluginStore(db, name, box),
+    plugin: (name) => {
+      const failure = failures.get(name);
+
+      if (failure !== undefined) {
+        throw new Error(failure);
+      }
+
+      const found = pluginStores.get(name) ?? pluginStore(db, name, box);
+      pluginStores.set(name, found);
+
+      return found;
+    },
     pluginSettings: pluginSettingsStore(db),
     close: () => {
       db.close();
@@ -1013,7 +634,7 @@ interface UserRow {
   readonly admin: number;
 }
 
-function userOf(row: UserRow | undefined): User | undefined {
+function userOfRow(row: UserRow | undefined): User | undefined {
   return row && { id: row.id, name: row.name, admin: row.admin === 1 };
 }
 
@@ -1021,9 +642,9 @@ interface InviteRow {
   readonly id: string;
   readonly email: string | null;
   readonly admin: number;
-  readonly created_by: string;
-  readonly created_at: string;
-  readonly expires_at: string;
+  readonly created_by: string | null;
+  readonly created_at: number;
+  readonly expires_at: number;
   readonly uses: number;
 }
 
@@ -1032,9 +653,9 @@ function inviteOf(row: InviteRow): Invite {
     id: row.id,
     email: row.email,
     admin: row.admin === 1,
-    createdBy: row.created_by,
-    createdAt: row.created_at,
-    expiresAt: row.expires_at,
+    createdBy: row.created_by ?? "",
+    createdAt: iso(row.created_at),
+    expiresAt: iso(row.expires_at),
     uses: row.uses,
   };
 }
@@ -1058,18 +679,22 @@ function authStore(db: DatabaseSync, clock: Clock): AuthStore {
     "insert into users (id, name, password_hash, created_at, admin) values (?, ?, ?, ?, ?)",
   );
 
+  const giveEnvironments = db.prepare(
+    "update environments set owner_user_id = ? where owner_user_id is null",
+  );
+
   const updateAdmin = db.prepare("update users set admin = ? where id = ?");
 
   const selectPeople = db.prepare(
-    "select id, name, admin, setup, last_active from users order by created_at",
+    "select id, name, admin, setup_finished_at, last_active_at from users order by created_at",
   );
 
   const updateLastActive = db.prepare(
-    "update users set last_active = ? where id = ?",
+    "update users set last_active_at = ? where id = ?",
   );
 
   const insertBrowserSession = db.prepare(
-    "insert into browser_sessions (token_hash, user_id, expires_at) values (?, ?, ?)",
+    "insert into browser_sessions (token_hash, user_id, created_at, expires_at) values (?, ?, ?, ?)",
   );
 
   const selectBrowserSessionUser = db.prepare(
@@ -1085,24 +710,27 @@ function authStore(db: DatabaseSync, clock: Clock): AuthStore {
   );
 
   const updateKey = db.prepare(
-    "update environments set key_hash = ? where provider = ?",
+    "update environments set key_hash = ? where slug = ?",
   );
 
   const insertInvite = db.prepare(
     "insert into invites (id, token_hash, email, admin, created_by, created_at, expires_at) values (?, ?, ?, ?, ?, ?, ?)",
   );
 
+  const inviteColumns =
+    "select id, email, admin, created_by, created_at, expires_at, uses from invites";
+
   // An invite with an email is used up once someone joins with it.
   const selectInvites = db.prepare(
-    "select id, email, admin, created_by, created_at, expires_at, uses from invites where expires_at > ? and (email is null or uses = 0) order by created_at",
+    `${inviteColumns} where expires_at > ? and (email is null or uses = 0) order by created_at`,
   );
 
   const selectInviteByToken = db.prepare(
-    "select id, email, admin, created_by, created_at, expires_at, uses from invites where token_hash = ? and expires_at > ? and (email is null or uses = 0)",
+    `${inviteColumns} where token_hash = ? and expires_at > ? and (email is null or uses = 0)`,
   );
 
   const selectInviteByEmail = db.prepare(
-    "select id, email, admin, created_by, created_at, expires_at, uses from invites where email = ? and expires_at > ? and uses = 0 order by created_at desc",
+    `${inviteColumns} where email = ? and expires_at > ? and uses = 0 order by created_at desc`,
   );
 
   const deleteInvite = db.prepare("delete from invites where id = ?");
@@ -1112,81 +740,110 @@ function authStore(db: DatabaseSync, clock: Clock): AuthStore {
   );
 
   const insertJoinKey = db.prepare(
-    "insert into join_keys (key_hash, created_at, owner_id) values (?, ?, ?)",
+    "insert into environment_join_keys (key_hash, owner_user_id, created_at) values (?, ?, ?)",
   );
 
   const selectJoinKey = db.prepare(
-    "select owner_id from join_keys where key_hash = ?",
+    "select owner_user_id from environment_join_keys where key_hash = ?",
   );
 
-  const deleteJoinKey = db.prepare("delete from join_keys where key_hash = ?");
+  const deleteJoinKey = db.prepare(
+    "delete from environment_join_keys where key_hash = ?",
+  );
 
   const selectKeyEnvironment = db.prepare(
-    "select provider from environments where key_hash = ?",
+    "select slug from environments where key_hash = ?",
   );
 
   const insertAgentToken = db.prepare(
-    "insert into agent_tokens (token_hash, environment, runner, session_id, joined, last_used) values (?, ?, ?, ?, ?, ?)",
+    "insert into runner_tokens (token_hash, environment_id, runner, session_id, joined, created_at, last_used_at) values (?1, (select id from environments where slug = ?2), ?3, ?4, ?5, ?6, ?6)",
   );
 
   const selectAgentToken = db.prepare(
-    "select environment, runner, session_id, joined, last_used from agent_tokens where token_hash = ?",
+    "select slug, runner, session_id, joined, last_used_at from runner_tokens join environments on environments.id = environment_id where token_hash = ?",
   );
 
   const updateLastUsed = db.prepare(
-    "update agent_tokens set last_used = ? where token_hash = ?",
+    "update runner_tokens set last_used_at = ? where token_hash = ?",
   );
 
   const deleteJoinedTokens = db.prepare(
-    "delete from agent_tokens where environment = ? and joined = 1",
+    "delete from runner_tokens where environment_id = (select id from environments where slug = ?) and joined = 1",
   );
 
   const deleteRunnerTokens = db.prepare(
-    "delete from agent_tokens where environment = ? and runner = ?",
+    "delete from runner_tokens where environment_id = (select id from environments where slug = ?) and runner = ?",
   );
 
   const deleteSessionTokens = db.prepare(
-    "delete from agent_tokens where session_id = ?",
+    "delete from runner_tokens where session_id = ?",
   );
 
   const deleteUnusedRunnerTokens = db.prepare(
-    "delete from agent_tokens where session_id is null and last_used < ?",
+    "delete from runner_tokens where session_id is null and last_used_at < ?",
   );
 
   const deleteOrphanedSessionTokens = db.prepare(`
-    delete from agent_tokens where session_id is not null and not exists (
-      select 1 from agent_tokens runners
+    delete from runner_tokens where session_id is not null and not exists (
+      select 1 from runner_tokens runners
       where runners.session_id is null
-        and runners.environment = agent_tokens.environment
-        and runners.runner = agent_tokens.runner
+        and runners.environment_id = runner_tokens.environment_id
+        and runners.runner = runner_tokens.runner
     )
   `);
 
   const insertMcpToken = db.prepare(
-    "insert into mcp_tokens (id, token_hash, user_id, name, created_at) values (?, ?, ?, ?, ?)",
+    "insert into access_tokens (id, token_hash, user_id, name, created_at) values (?, ?, ?, ?, ?)",
   );
+
+  const selectPinnedAt = db.prepare("select pinned_at from users where id = ?");
 
   const selectPinnedPages = db.prepare(
-    "select pinned_pages from users where id = ?",
+    "select page from user_pinned_pages where user_id = ? order by position",
   );
 
-  const updatePinnedPages = db.prepare(
-    "update users set pinned_pages = ? where id = ?",
+  const updatePinnedAt = db.prepare(
+    "update users set pinned_at = ? where id = ?",
   );
 
-  const selectSetup = db.prepare("select setup from users where id = ?");
-  const updateSetup = db.prepare("update users set setup = ? where id = ?");
+  const deletePinnedPages = db.prepare(
+    "delete from user_pinned_pages where user_id = ?",
+  );
+
+  const insertPinnedPage = db.prepare(
+    "insert into user_pinned_pages (user_id, position, page) values (?, ?, ?)",
+  );
+
+  const selectSetupFinished = db.prepare(
+    "select setup_finished_at from users where id = ?",
+  );
+
+  const selectDismissed = db.prepare(
+    "select step from user_dismissed_steps where user_id = ? order by rowid",
+  );
+
+  const updateSetupFinished = db.prepare(
+    "update users set setup_finished_at = case when ?1 then coalesce(setup_finished_at, ?2) end where id = ?3",
+  );
+
+  const deleteDismissed = db.prepare(
+    "delete from user_dismissed_steps where user_id = ?",
+  );
+
+  const insertDismissed = db.prepare(
+    "insert or ignore into user_dismissed_steps (user_id, step) values (?, ?)",
+  );
 
   const selectMcpTokens = db.prepare(
-    "select id, name, created_at from mcp_tokens where user_id = ? order by created_at",
+    "select id, name, created_at from access_tokens where user_id = ? order by created_at",
   );
 
   const selectMcpTokenUser = db.prepare(
-    "select users.id, users.name, users.admin from mcp_tokens join users on users.id = mcp_tokens.user_id where token_hash = ?",
+    "select users.id, users.name, users.admin from access_tokens join users on users.id = access_tokens.user_id where token_hash = ?",
   );
 
   const deleteMcpToken = db.prepare(
-    "delete from mcp_tokens where id = ? and user_id = ?",
+    "delete from access_tokens where id = ? and user_id = ?",
   );
 
   return {
@@ -1196,8 +853,8 @@ function authStore(db: DatabaseSync, clock: Clock): AuthStore {
         | {
             id: string;
             name: string;
-            password_hash: string;
-            created_at: string;
+            password_hash: string | null;
+            created_at: number;
             admin: number;
           }
         | undefined;
@@ -1207,24 +864,30 @@ function authStore(db: DatabaseSync, clock: Clock): AuthStore {
           id: row.id,
           name: row.name,
           admin: row.admin === 1,
-          passwordHash: row.password_hash,
-          createdAt: row.created_at,
+          passwordHash: row.password_hash ?? "",
+          createdAt: iso(row.created_at),
         }
       );
     },
-    userById: (id) => userOf(selectUserById.get(id) as UserRow | undefined),
+    userById: (id) => userOfRow(selectUserById.get(id) as UserRow | undefined),
     users: () =>
       (selectUsers.all() as unknown as UserRow[]).flatMap(
-        (row) => userOf(row) ?? [],
+        (row) => userOfRow(row) ?? [],
       ),
     insertUser: (user) => {
-      insertUser.run(
-        user.id,
-        user.name,
-        user.passwordHash,
-        user.createdAt,
-        user.admin ? 1 : 0,
-      );
+      transaction(db, () => {
+        insertUser.run(
+          user.id,
+          user.name,
+          user.passwordHash === "" ? null : user.passwordHash,
+          ms(user.createdAt),
+          user.admin ? 1 : 0,
+        );
+
+        if ((countUsers.get() as { n: number }).n === 1) {
+          giveEnvironments.run(user.id);
+        }
+      });
     },
     setAdmin: (id, admin) => {
       updateAdmin.run(admin ? 1 : 0, id);
@@ -1232,27 +895,27 @@ function authStore(db: DatabaseSync, clock: Clock): AuthStore {
     people: () =>
       (
         selectPeople.all() as unknown as (UserRow & {
-          readonly setup: string | null;
-          readonly last_active: string | null;
+          readonly setup_finished_at: number | null;
+          readonly last_active_at: number | null;
         })[]
       ).map((row) => ({
         id: row.id,
         name: row.name,
         admin: row.admin === 1,
-        settingUp:
-          row.setup === null || !(JSON.parse(row.setup) as SetupState).finished,
-        lastActive: row.last_active,
+        settingUp: row.setup_finished_at === null,
+        lastActive: isoOrNull(row.last_active_at),
       })),
     setLastActive: (id, at) => {
-      updateLastActive.run(at, id);
+      updateLastActive.run(ms(at), id);
     },
     insertBrowserSession: (tokenHash, userId, expiresAt) => {
-      deleteExpired.run(new Date(clock.now()).toISOString());
-      insertBrowserSession.run(tokenHash, userId, expiresAt);
+      const now = clock.now();
+      deleteExpired.run(now);
+      insertBrowserSession.run(tokenHash, userId, now, ms(expiresAt));
     },
     browserSessionUser: (tokenHash, now) =>
-      userOf(
-        selectBrowserSessionUser.get(tokenHash, now) as UserRow | undefined,
+      userOfRow(
+        selectBrowserSessionUser.get(tokenHash, ms(now)) as UserRow | undefined,
       ),
     deleteBrowserSession: (tokenHash) => {
       deleteBrowserSession.run(tokenHash);
@@ -1270,20 +933,21 @@ function authStore(db: DatabaseSync, clock: Clock): AuthStore {
         invite.email,
         invite.admin ? 1 : 0,
         invite.createdBy,
-        invite.createdAt,
-        invite.expiresAt,
+        ms(invite.createdAt),
+        ms(invite.expiresAt),
       );
     },
     invites: (now) =>
-      (selectInvites.all(now) as unknown as InviteRow[]).map(inviteOf),
+      (selectInvites.all(ms(now)) as unknown as InviteRow[]).map(inviteOf),
     inviteByToken: (tokenHash, now) => {
-      const row = selectInviteByToken.get(tokenHash, now) as
+      const row = selectInviteByToken.get(tokenHash, ms(now)) as
         InviteRow | undefined;
 
       return row && inviteOf(row);
     },
     inviteByEmail: (email, now) => {
-      const row = selectInviteByEmail.get(email, now) as InviteRow | undefined;
+      const row = selectInviteByEmail.get(email, ms(now)) as
+        InviteRow | undefined;
 
       return row && inviteOf(row);
     },
@@ -1292,11 +956,14 @@ function authStore(db: DatabaseSync, clock: Clock): AuthStore {
       useInvite.run(id);
     },
     insertJoinKey: (keyHash, ownerId) => {
-      insertJoinKey.run(keyHash, new Date(clock.now()).toISOString(), ownerId);
+      insertJoinKey.run(keyHash, userOf(ownerId), clock.now());
     },
-    joinKeyOwner: (keyHash) =>
-      (selectJoinKey.get(keyHash) as { owner_id: string } | undefined)
-        ?.owner_id,
+    joinKeyOwner: (keyHash) => {
+      const row = selectJoinKey.get(keyHash) as
+        { owner_user_id: string | null } | undefined;
+
+      return row && ownerOf(row.owner_user_id);
+    },
     claimJoinKey: (keyHash, provider) => {
       transaction(db, () => {
         deleteJoinKey.run(keyHash);
@@ -1304,8 +971,7 @@ function authStore(db: DatabaseSync, clock: Clock): AuthStore {
       });
     },
     keyEnvironment: (keyHash) =>
-      (selectKeyEnvironment.get(keyHash) as { provider: string } | undefined)
-        ?.provider,
+      (selectKeyEnvironment.get(keyHash) as { slug: string } | undefined)?.slug,
     insertAgentToken: (tokenHash, holder, now) => {
       transaction(db, () => {
         if (holder.sessionId !== null) {
@@ -1318,16 +984,16 @@ function authStore(db: DatabaseSync, clock: Clock): AuthStore {
           holder.runner,
           holder.sessionId,
           holder.joined ? 1 : 0,
-          now,
+          ms(now),
         );
       });
     },
     useAgentToken: (tokenHash, now) => {
-      updateLastUsed.run(now, tokenHash);
+      updateLastUsed.run(ms(now), tokenHash);
     },
     deleteUnusedAgentTokens: (usedBefore) => {
       transaction(db, () => {
-        deleteUnusedRunnerTokens.run(usedBefore);
+        deleteUnusedRunnerTokens.run(ms(usedBefore));
         deleteOrphanedSessionTokens.run();
       });
     },
@@ -1340,7 +1006,7 @@ function authStore(db: DatabaseSync, clock: Clock): AuthStore {
         tokenHash,
         token.userId,
         token.name,
-        token.createdAt,
+        ms(token.createdAt),
       );
     },
     mcpTokens: (userId) =>
@@ -1348,63 +1014,79 @@ function authStore(db: DatabaseSync, clock: Clock): AuthStore {
         selectMcpTokens.all(userId) as {
           id: string;
           name: string;
-          created_at: string;
+          created_at: number;
         }[]
       ).map((row) => ({
         id: row.id,
         userId,
         name: row.name,
-        createdAt: row.created_at,
+        createdAt: iso(row.created_at),
       })),
     mcpTokenUser: (tokenHash) =>
-      userOf(selectMcpTokenUser.get(tokenHash) as UserRow | undefined),
+      userOfRow(selectMcpTokenUser.get(tokenHash) as UserRow | undefined),
     deleteMcpToken: (id, userId) =>
       Number(deleteMcpToken.run(id, userId).changes) > 0,
     pinnedPages: (userId) => {
-      const row = selectPinnedPages.get(userId) as
-        { pinned_pages: string | null } | undefined;
+      const row = selectPinnedAt.get(userId) as
+        { pinned_at: number | null } | undefined;
 
-      return row?.pinned_pages === undefined || row.pinned_pages === null
+      return row === undefined || row.pinned_at === null
         ? null
-        : (JSON.parse(row.pinned_pages) as string[]);
-    },
-    setup: (userId) => {
-      const row = selectSetup.get(userId) as
-        { setup: string | null } | undefined;
-
-      return row?.setup === undefined || row.setup === null
-        ? { finished: false, dismissed: [] }
-        : (JSON.parse(row.setup) as SetupState);
-    },
-    setSetup: (userId, state) => {
-      updateSetup.run(JSON.stringify(state), userId);
+        : (selectPinnedPages.all(userId) as { page: string }[]).map(
+            ({ page }) => page,
+          );
     },
     setPinnedPages: (userId, pages) => {
-      updatePinnedPages.run(
-        pages === null ? null : JSON.stringify(pages),
-        userId,
-      );
+      transaction(db, () => {
+        updatePinnedAt.run(pages === null ? null : clock.now(), userId);
+        deletePinnedPages.run(userId);
+
+        pages?.forEach((page, position) => {
+          insertPinnedPage.run(userId, position, page);
+        });
+      });
+    },
+    setup: (userId) => {
+      const row = selectSetupFinished.get(userId) as
+        { setup_finished_at: number | null } | undefined;
+
+      return {
+        finished: row !== undefined && row.setup_finished_at !== null,
+        dismissed: (selectDismissed.all(userId) as { step: string }[]).map(
+          ({ step }) => step,
+        ),
+      };
+    },
+    setSetup: (userId, state) => {
+      transaction(db, () => {
+        updateSetupFinished.run(state.finished ? 1 : 0, clock.now(), userId);
+        deleteDismissed.run(userId);
+
+        for (const step of state.dismissed) {
+          insertDismissed.run(userId, step);
+        }
+      });
     },
     agentToken: (tokenHash) => {
       const row = selectAgentToken.get(tokenHash) as
         | {
-            environment: string;
+            slug: string;
             runner: string;
             session_id: string | null;
             joined: number;
-            last_used: string;
+            last_used_at: number;
           }
         | undefined;
 
       return (
         row && {
           agent: {
-            environment: row.environment,
+            environment: row.slug,
             runner: row.runner,
             sessionId: row.session_id,
             joined: row.joined === 1,
           },
-          lastUsed: row.last_used,
+          lastUsed: iso(row.last_used_at),
         }
       );
     },
@@ -1435,32 +1117,27 @@ function pluginSettingsStore(db: DatabaseSync): PluginSettingsStore {
   };
 }
 
-// A plugin whose id has a hyphen quotes its table names.
-const createdTable =
-  /create\s+table\s+(?:if\s+not\s+exists\s+)?(?:["`]([\w-]+)["`]|(\w+))/gi;
-
-// Plugins are trusted in v1, so this only keeps their tables apart by name.
+// Plugins are trusted in v1 (ADR 0022), so their statements reach any table.
 function pluginStore(
   db: DatabaseSync,
   name: string,
   box: SecretBox,
 ): PluginStore {
+  const statements = new Map<string, StatementSync>();
+
+  const prepared = (sql: string): StatementSync => {
+    const found = statements.get(sql) ?? db.prepare(sql);
+    statements.set(sql, found);
+
+    return found;
+  };
+
   return {
-    exec: (sql) => {
-      for (const [, quoted, bare = ""] of sql.matchAll(createdTable)) {
-        const table = quoted ?? bare;
-
-        if (!table.startsWith(`${name}_`)) {
-          throw new Error(`plugin ${name} may only create ${name}_ tables`);
-        }
-      }
-
-      db.exec(sql);
-    },
-    all: (sql, ...params) => db.prepare(sql).all(...params),
+    all: (sql, ...params) => prepared(sql).all(...params),
     run: (sql, ...params) => {
-      db.prepare(sql).run(...params);
+      prepared(sql).run(...params);
     },
+    transaction: (fn) => transaction(db, fn),
     seal: (text, context) => box.seal(text, `plugin:${name}:${context}`),
     open: (sealed, context) => box.open(sealed, `plugin:${name}:${context}`),
   };

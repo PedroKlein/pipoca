@@ -117,12 +117,7 @@ async function member(name: string, id = randomUUID()): Promise<string> {
 
   db.prepare(
     "insert into users (id, name, password_hash, created_at, admin) values (?, ?, ?, ?, 0)",
-  ).run(
-    id,
-    name,
-    await Bun.password.hash("battery staple"),
-    new Date().toISOString(),
-  );
+  ).run(id, name, await Bun.password.hash("battery staple"), Date.now());
 
   db.close();
 

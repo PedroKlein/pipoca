@@ -6,7 +6,12 @@ import type {
   SessionCloud,
   SessionLogins,
 } from "@pipoca/plugins";
-import { fakeContext, fakeSession, served } from "@pipoca/plugins/testing";
+import {
+  fakeContext,
+  fakeSession,
+  memoryStore,
+  served,
+} from "@pipoca/plugins/testing";
 import { logins as server } from "./server";
 import { logins } from "./session";
 
@@ -16,6 +21,7 @@ function serverRoute(): PluginRoute {
 
   server.register(
     fakeContext({
+      store: memoryStore(server.schema),
       auth: { ...faked.auth, handlePublic: () => undefined },
       routes: {
         handle: (route) => {

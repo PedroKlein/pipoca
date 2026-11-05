@@ -4,6 +4,7 @@ import {
   fakeContext,
   fakeSession,
   fakeUser,
+  memoryStore,
   served,
 } from "@pipoca/plugins/testing";
 import { usage } from "./server";
@@ -33,6 +34,7 @@ function registered(
 
   usage.register(
     fakeContext({
+      store: memoryStore(usage.schema),
       events: { ...events, declared: () => [] },
       // Team work limited to named people that leaves Ana out.
       sessions: {

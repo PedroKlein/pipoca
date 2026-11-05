@@ -14,18 +14,10 @@ export interface CommitAs {
 // The name and email a person's Sessions commit as on every runner. Without
 // one, git uses the runner's own config.
 export function commitAsStore(store: PluginStore): CommitAs {
-  store.exec(`
-    create table if not exists "git-hosts_commit_as" (
-      user_id text primary key,
-      name text not null,
-      email text not null
-    )
-  `);
-
   return {
     of: (userId) => {
       const [row] = store.all(
-        `select name, email from "git-hosts_commit_as" where user_id = ?`,
+        `select name, email from git_hosts_commit_as where user_id = ?`,
         userId,
       ) as Identity[];
 
@@ -36,10 +28,7 @@ export function commitAsStore(store: PluginStore): CommitAs {
       const email = identity.email.trim();
 
       if (name === "" && email === "") {
-        store.run(
-          `delete from "git-hosts_commit_as" where user_id = ?`,
-          userId,
-        );
+        store.run(`delete from git_hosts_commit_as where user_id = ?`, userId);
 
         return;
       }
@@ -49,7 +38,7 @@ export function commitAsStore(store: PluginStore): CommitAs {
       }
 
       store.run(
-        `insert into "git-hosts_commit_as" (user_id, name, email) values (?, ?, ?) on conflict (user_id) do update set name = excluded.name, email = excluded.email`,
+        `insert into git_hosts_commit_as (user_id, name, email) values (?, ?, ?) on conflict (user_id) do update set name = excluded.name, email = excluded.email`,
         userId,
         name,
         email,

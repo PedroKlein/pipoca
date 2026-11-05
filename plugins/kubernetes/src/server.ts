@@ -29,6 +29,7 @@ import {
   type KubernetesEnvironment,
   type KubernetesSettings,
   settingsFrom,
+  kubernetesSchema,
   settingsStore,
   workspaces,
 } from "./settings";
@@ -94,9 +95,9 @@ const stuckAfterMs = 10 * 60_000;
 export function kubernetes(options: () => KubernetesOptions): ServerPlugin {
   return {
     name: "kubernetes",
+    schema: { version: 1, sql: kubernetesSchema },
     register: (context) => {
-      const byEnvironment = settingsStore(context.store, "environment");
-      const byTemplate = settingsStore(context.store, "template");
+      const byTemplate = settingsStore(context.store);
 
       const {
         api,
@@ -117,12 +118,11 @@ export function kubernetes(options: () => KubernetesOptions): ServerPlugin {
       const template = (id: string | null) =>
         context.environments.templates().find((each) => each.id === id);
 
-      // An Environment made from a template starts pods as its template says.
-      // One from before templates, or whose template is gone, keeps its own
-      // (ADR 0049).
+      // An Environment starts pods as its template says, and none once its
+      // template is gone (ADR 0049).
       const settingsOf: Settings = (environment) =>
         template(environment.templateId) === undefined
-          ? byEnvironment.get(environment.id)
+          ? undefined
           : byTemplate.get(environment.templateId ?? "");
 
       const answer = (
@@ -226,50 +226,16 @@ export function kubernetes(options: () => KubernetesOptions): ServerPlugin {
           throw new NotFound(`no route ${path}`);
         }
 
-        const own = template(environment.templateId) === undefined;
-        const legacy = byEnvironment.get(id);
-
         if (request.method === "GET") {
-          return answer(
-            settingsOf(environment),
-            own && legacy !== undefined && caller.admin,
-            id,
-          );
+          return answer(settingsOf(environment), false, id);
         }
 
         requireAdmin(caller, "only admins change Kubernetes settings");
 
-        // Pods come from a pod template now. An Environment from before
-        // templates keeps the settings it has until they are removed.
-        if (!own || legacy === undefined) {
-          throw new HttpError(
-            409,
-            "runner pods come from a pod template: make the Environment from one",
-          );
-        }
-
-        const settings = await changed(
-          request,
-          environment.isolation,
-          (saved) => {
-            if (saved === null) {
-              byEnvironment.remove(id);
-            } else {
-              byEnvironment.set(id, saved);
-            }
-          },
+        throw new HttpError(
+          409,
+          "runner pods come from a pod template: make the Environment from one",
         );
-
-        failures.clearEnvironment(id);
-
-        context.log(
-          settings === undefined
-            ? "kubernetes settings removed"
-            : "kubernetes settings saved",
-          { environmentId: id },
-        );
-
-        return answer(settings, settings !== undefined, id);
       });
 
       if (startsPods) {

@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { PluginStore } from "@pipoca/plugins";
 import type { Preferences, PullWatch } from "./model";
 import type { PullRef, PullState, Remark } from "./pulls";
@@ -57,38 +56,12 @@ interface Row {
   view: string | null;
 }
 
-const watches = `"git-hosts_watches"`;
-const preferences = `"git-hosts_preferences"`;
+const watches = "git_hosts_watches";
+const preferences = "git_hosts_preferences";
 
 // Watched pull requests and each person's choices are runtime data, so they
 // live in SQLite (ADR 0051).
 export function watchStore(store: PluginStore): WatchStore {
-  store.exec(`
-    create table if not exists ${watches} (
-      id text primary key,
-      session_id text not null,
-      user_id text not null,
-      url text not null,
-      host text not null,
-      repository text not null,
-      number integer not null,
-      auto_fix integer not null,
-      briefed integer not null default 0,
-      seen text,
-      pending text,
-      view text,
-      unique (session_id, url)
-    )
-  `);
-
-  store.exec(`
-    create table if not exists ${preferences} (
-      user_id text primary key,
-      auto_fix integer not null,
-      reply integer not null
-    )
-  `);
-
   const watchOf = (row: Row): Watch => {
     const base = {
       id: row.id,
@@ -136,7 +109,7 @@ export function watchStore(store: PluginStore): WatchStore {
     add: (sessionId, userId, url, ref, autoFix) => {
       store.run(
         `insert into ${watches} (id, session_id, user_id, url, host, repository, number, auto_fix) values (?, ?, ?, ?, ?, ?, ?, ?) on conflict (session_id, url) do nothing`,
-        randomUUID(),
+        Bun.randomUUIDv7(),
         sessionId,
         userId,
         url,

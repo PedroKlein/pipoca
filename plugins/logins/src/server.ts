@@ -10,6 +10,7 @@ import {
   type McpLoginState,
   NotFound,
   type PluginStore,
+  type SqlValue,
   readBody,
   requireAdmin,
   type RouteCaller,
@@ -81,15 +82,42 @@ const waitMs = 20_000;
 
 // Each person's model and MCP logins live on the server, and their Sessions
 // read and write them through it on every runner (ADR 0045).
+// A login is kept for the base, a person's My defaults, or a person's
+// Profile, so Sessions on that Profile use it.
+const schema = `
+create table logins_logins (
+  id integer primary key,
+  kind text not null check (kind in ('model', 'mcp')),
+  layer text not null check (layer in ('base', 'defaults', 'profile')),
+  owner_user_id text references users (id) on delete cascade,
+  profile_id text,
+  name text not null,
+  type text not null,
+  credential text not null,
+  updated_at integer not null,
+  check ((layer = 'profile') = (profile_id is not null)),
+  check ((layer = 'base') = (owner_user_id is null))
+) strict;
+create unique index logins_logins_key on logins_logins (kind, layer, coalesce(owner_user_id, ''), coalesce(profile_id, ''), name);
+create index logins_logins_owner on logins_logins (owner_user_id);
+
+create table logins_proxy_tokens (
+  token_hash text primary key,
+  session_id text not null references sessions (id) on delete cascade,
+  created_at integer not null
+) strict, without rowid;
+create index logins_proxy_tokens_session on logins_proxy_tokens (session_id);
+`;
+
 export const logins: ServerPlugin = {
   name: "logins",
+  schema: { version: 1, sql: schema },
   register: (context) => {
     const leases = locks(holdMs, waitMs);
 
     const models = loginKind(context, leases, {
       name: "credentials",
-      table: "logins_credentials",
-      column: "provider",
+      kind: "model",
       valid: credentialOf,
       typeOf: ({ type }) => type,
     });
@@ -98,8 +126,7 @@ export const logins: ServerPlugin = {
     // tokens, keyed by the server's name and address.
     const mcp = loginKind(context, leases, {
       name: "mcp",
-      table: "logins_mcp",
-      column: "server",
+      kind: "mcp",
       valid: mcpStateOf,
       typeOf: () => "oauth",
     });
@@ -629,8 +656,7 @@ function userOf(caller: RouteCaller): string {
 interface KindSpec<T> {
   // The first part of the Session routes.
   readonly name: string;
-  readonly table: string;
-  readonly column: string;
+  readonly kind: "model" | "mcp";
   readonly valid: (value: unknown) => T;
   readonly typeOf: (value: T) => string;
 }
@@ -865,62 +891,83 @@ interface SealedRows<T> {
   readonly remove: (userId: string, key: string) => void;
 }
 
+interface LoginRow {
+  readonly layer: "base" | "defaults" | "profile";
+  readonly owner_user_id: string | null;
+  readonly profile_id: string | null;
+  readonly key: string;
+  readonly type: string;
+  readonly updated_at: number;
+}
+
+// The owner the routes name a row by: the base, a person, or a person and
+// one of their Profiles.
+function rowOwner(row: LoginRow): string {
+  if (row.layer === "base") {
+    return baseOwner;
+  }
+
+  return row.profile_id === null
+    ? (row.owner_user_id ?? "")
+    : profileOwner(row.owner_user_id ?? "", row.profile_id);
+}
+
+function ownerColumns(
+  owner: string,
+): readonly [LoginRow["layer"], string | null, string | null] {
+  if (owner === baseOwner) {
+    return ["base", null, null];
+  }
+
+  const [userId = "", profileId] = owner.split(/:(.*)/);
+
+  return profileId === undefined
+    ? ["defaults", userId, null]
+    : ["profile", userId, profileId];
+}
+
+const ownerMatch =
+  "layer = ? and owner_user_id is ? and profile_id is ? and name = ?";
+
 // A login is state people create as they go, so it lives in SQLite, sealed
 // for its user and key (ADR 0039).
 function sealedRows<T>(
   store: PluginStore,
-  { table, column, valid, typeOf }: KindSpec<T>,
+  { kind, valid, typeOf }: KindSpec<T>,
 ): SealedRows<T> {
-  store.exec(`
-    create table if not exists "${table}" (
-      user_id text not null,
-      ${column} text not null,
-      type text not null,
-      credential text not null,
-      updated_at text not null,
-      primary key (user_id, ${column})
-    )
-  `);
-
   const sealedFor = (userId: string, key: string): string => `${userId} ${key}`;
+
+  const rows = (where: string, ...params: SqlValue[]): readonly LoginRow[] =>
+    store.all(
+      `select layer, owner_user_id, profile_id, name as key, type, updated_at from logins_logins where kind = ? and (${where}) order by name, case layer when 'base' then 0 when 'defaults' then 1 else 2 end, profile_id`,
+      kind,
+      ...params,
+    ) as LoginRow[];
 
   return {
     list: (userId) =>
-      (
-        store.all(
-          `select ${column} as key, type, updated_at from "${table}" where user_id = ? order by ${column}`,
-          userId,
-        ) as { key: string; type: string; updated_at: string }[]
+      rows(
+        "layer = ? and owner_user_id is ? and profile_id is ?",
+        ...ownerColumns(userId),
       ).map(({ key, type, updated_at }) => ({
         key,
         type,
-        updatedAt: updated_at,
+        updatedAt: new Date(updated_at).toISOString(),
       })),
     mine: (userId) =>
-      (
-        store.all(
-          `select user_id, ${column} as key, type, updated_at from "${table}" where user_id in (?, ?) or user_id like ? order by ${column}, user_id`,
-          userId,
-          baseOwner,
-          `${userId}:%`,
-        ) as {
-          user_id: string;
-          key: string;
-          type: string;
-          updated_at: string;
-        }[]
-      ).map(({ user_id, key, type, updated_at }) => ({
-        owner: user_id,
-        key,
-        type,
-        updatedAt: updated_at,
+      rows("layer = 'base' or owner_user_id = ?", userId).map((row) => ({
+        owner: rowOwner(row),
+        key: row.key,
+        type: row.type,
+        updatedAt: new Date(row.updated_at).toISOString(),
       })),
     // A login sealed under another server key can't be opened, and reads as
     // logged out.
     get: (userId, key) => {
       const [row] = store.all(
-        `select credential from "${table}" where user_id = ? and ${column} = ?`,
-        userId,
+        `select credential from logins_logins where kind = ? and ${ownerMatch}`,
+        kind,
+        ...ownerColumns(userId),
         key,
       ) as { credential: string }[];
 
@@ -938,18 +985,21 @@ function sealedRows<T>(
     },
     save: (userId, key, value) => {
       store.run(
-        `insert into "${table}" (user_id, ${column}, type, credential, updated_at) values (?, ?, ?, ?, ?) on conflict (user_id, ${column}) do update set type = excluded.type, credential = excluded.credential, updated_at = excluded.updated_at`,
-        userId,
+        `insert into logins_logins (kind, layer, owner_user_id, profile_id, name, type, credential, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)
+         on conflict (kind, layer, coalesce(owner_user_id, ''), coalesce(profile_id, ''), name) do update set type = excluded.type, credential = excluded.credential, updated_at = excluded.updated_at`,
+        kind,
+        ...ownerColumns(userId),
         key,
         typeOf(value),
         store.seal(JSON.stringify(value), sealedFor(userId, key)),
-        new Date().toISOString(),
+        Date.now(),
       );
     },
     remove: (userId, key) => {
       store.run(
-        `delete from "${table}" where user_id = ? and ${column} = ?`,
-        userId,
+        `delete from logins_logins where kind = ? and ${ownerMatch}`,
+        kind,
+        ...ownerColumns(userId),
         key,
       );
     },

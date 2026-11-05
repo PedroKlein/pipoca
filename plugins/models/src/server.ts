@@ -20,7 +20,6 @@ import {
   healthFrom,
   mergeHealth,
   modelRef,
-  noHealth,
   type SessionConfig,
   storedAliases,
 } from "./model";
@@ -49,8 +48,29 @@ const hiddenChange = Type.Object({ hidden: Type.Array(Type.String()) });
 // Below the server's 30 second idle timeout.
 const waitMs = 20_000;
 
+// Benched models and providers are keyed by a provider, or a provider/id.
+const schema = `
+create table models_environments (
+  environment_id text primary key references environments (id) on delete cascade,
+  aliases text check (json_valid(aliases))
+) strict;
+
+create table models_health (
+  environment_id text not null references environments (id) on delete cascade,
+  target text not null,
+  until integer not null,
+  reason text not null,
+  quota_spent real,
+  quota_cap real,
+  quota_currency text,
+  primary key (environment_id, target),
+  check ((quota_spent is null) = (quota_currency is null))
+) strict, without rowid;
+`;
+
 export const models: ServerPlugin = {
   name: "models",
+  schema: { version: 1, sql: schema },
   register: (context) => {
     const store = modelsStore(context.store);
     const versions = changes(context.signal);
@@ -267,40 +287,66 @@ interface ModelsStore {
   readonly setHealth: (environmentId: string, health: Health) => void;
 }
 
-interface Row {
-  readonly environment_id: string;
-  readonly aliases: string | null;
-  readonly health: string | null;
+interface HealthRow {
+  readonly target: string;
+  readonly until: number;
+  readonly reason: string;
+  readonly quota_spent: number | null;
+  readonly quota_cap: number | null;
+  readonly quota_currency: string | null;
 }
 
 function modelsStore(store: PluginStore): ModelsStore {
-  store.exec(`create table if not exists models_environments (
-    environment_id text primary key,
-    aliases text,
-    health text
-  )`);
+  const savedAliases = (environmentId: string): AliasConfig | null => {
+    const [row] = store.all(
+      "select aliases from models_environments where environment_id = ?",
+      environmentId,
+    ) as { aliases: string | null }[];
 
-  const parsed = (row: Row): EnvironmentModels => ({
-    environmentId: row.environment_id,
-    aliases:
-      row.aliases === null ? null : storedAliases(JSON.parse(row.aliases)),
-    health: row.health === null ? noHealth : (JSON.parse(row.health) as Health),
+    return row === undefined || row.aliases === null
+      ? null
+      : storedAliases(JSON.parse(row.aliases));
+  };
+
+  const healthOf = (environmentId: string): Health => ({
+    version: 1,
+    unhealthyUntil: Object.fromEntries(
+      (
+        store.all(
+          "select target, until, reason, quota_spent, quota_cap, quota_currency from models_health where environment_id = ? order by target",
+          environmentId,
+        ) as HealthRow[]
+      ).map((row) => [
+        row.target,
+        {
+          until: new Date(row.until).toISOString(),
+          reason: row.reason,
+          ...(row.quota_spent !== null &&
+            row.quota_currency !== null && {
+              quota: {
+                spent: row.quota_spent,
+                cap: row.quota_cap ?? 0,
+                currency: row.quota_currency,
+              },
+            }),
+        },
+      ]),
+    ),
   });
 
-  const get = (environmentId: string): EnvironmentModels => {
-    const [row] = store.all(
-      "select * from models_environments where environment_id = ?",
-      environmentId,
-    ) as Row[];
-
-    return row
-      ? parsed(row)
-      : { environmentId, aliases: null, health: noHealth };
-  };
+  const get = (environmentId: string): EnvironmentModels => ({
+    environmentId,
+    aliases: savedAliases(environmentId),
+    health: healthOf(environmentId),
+  });
 
   return {
     all: () =>
-      (store.all("select * from models_environments") as Row[]).map(parsed),
+      (
+        store.all(
+          "select environment_id from models_environments union select environment_id from models_health",
+        ) as { environment_id: string }[]
+      ).map(({ environment_id }) => get(environment_id)),
     get,
     setAliases: (environmentId, aliases) => {
       store.run(
@@ -311,12 +357,27 @@ function modelsStore(store: PluginStore): ModelsStore {
       );
     },
     setHealth: (environmentId, health) => {
-      store.run(
-        `insert into models_environments (environment_id, health) values (?, ?)
-         on conflict (environment_id) do update set health = excluded.health`,
-        environmentId,
-        JSON.stringify(health),
-      );
+      store.transaction(() => {
+        store.run(
+          "delete from models_health where environment_id = ?",
+          environmentId,
+        );
+
+        for (const [target, unhealthy] of Object.entries(
+          health.unhealthyUntil,
+        )) {
+          store.run(
+            "insert into models_health (environment_id, target, until, reason, quota_spent, quota_cap, quota_currency) values (?, ?, ?, ?, ?, ?, ?)",
+            environmentId,
+            target,
+            Date.parse(unhealthy.until),
+            unhealthy.reason,
+            unhealthy.quota?.spent ?? null,
+            unhealthy.quota?.cap ?? null,
+            unhealthy.quota?.currency ?? null,
+          );
+        }
+      });
     },
   };
 }

@@ -10,6 +10,7 @@ import {
   memoryStore,
   served,
 } from "@pipoca/plugins/testing";
+import { routinesSchema } from "./engine";
 import { routines } from "./server";
 
 test("a team Session can't make routines, which would run as its starter", async () => {
@@ -17,7 +18,7 @@ test("a team Session can't make routines, which would run as its starter", async
 
   routines.register(
     fakeContext({
-      store: memoryStore(),
+      store: memoryStore({ version: 1, sql: routinesSchema }),
       config: {
         get: () => undefined,
         set: () => undefined,
@@ -53,7 +54,7 @@ test("anyone on the team makes a team routine, whose runs start as team work", a
 
   routines.register(
     fakeContext({
-      store: memoryStore(),
+      store: memoryStore({ version: 1, sql: routinesSchema }),
       config: {
         get: () => undefined,
         set: () => undefined,

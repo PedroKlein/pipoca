@@ -4,23 +4,40 @@ import { eventBus } from "./events";
 import { isHttpError } from "./http";
 import type {
   PluginRoute,
+  PluginSchema,
   PluginStore,
   RouteCaller,
   ServerPluginContext,
 } from "./plugin";
 
-// A store in memory that seals nothing, for a plugin's tests.
-export function memoryStore(): PluginStore {
+// A store in memory with the plugin's tables, for a plugin's tests. It seals
+// nothing, and has no kernel tables for the plugin's to reference.
+export function memoryStore(schema?: PluginSchema): PluginStore {
   const db = new DatabaseSync(":memory:");
+  db.exec("pragma foreign_keys = off");
+
+  if (schema !== undefined) {
+    db.exec(schema.sql);
+  }
 
   return {
-    exec: (sql) => {
-      db.exec(sql);
-    },
     all: (sql, ...params) =>
       db.prepare(sql).all(...(params as SQLInputValue[])),
     run: (sql, ...params) => {
       db.prepare(sql).run(...(params as SQLInputValue[]));
+    },
+    transaction: (fn) => {
+      db.exec("savepoint test");
+
+      try {
+        const result = fn();
+        db.exec("release test");
+
+        return result;
+      } catch (error) {
+        db.exec("rollback to test; release test");
+        throw error;
+      }
     },
     seal: (text) => text,
     open: (sealed) => sealed,
@@ -57,7 +74,6 @@ export function fakeContext(
       get: notFaked("sessions.get"),
       owned: notFaked("sessions.owned"),
       loadOnly: notFaked("sessions.loadOnly"),
-      adopt: notFaked("sessions.adopt"),
       archive: notFaked("sessions.archive"),
       unarchive: notFaked("sessions.unarchive"),
       send: notFaked("sessions.send"),

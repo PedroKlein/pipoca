@@ -75,23 +75,19 @@ export interface SettingsStore {
   readonly remove: (id: string) => void;
 }
 
-// Settings by template, or by an Environment from before templates.
-export function settingsStore(
-  store: PluginStore,
-  of: "environment" | "template",
-): SettingsStore {
-  const table = `kubernetes_${of}s`;
-  const key = `${of}_id`;
+export const kubernetesSchema = `
+create table kubernetes_templates (
+  template_id text primary key,
+  settings text not null check (json_valid(settings))
+) strict;
+`;
 
-  store.exec(`create table if not exists ${table} (
-    ${key} text primary key,
-    settings text not null
-  )`);
-
+// Pod settings by template (ADR 0049).
+export function settingsStore(store: PluginStore): SettingsStore {
   const rows = (where = "", ...values: string[]) =>
     (
       store.all(
-        `select ${key} as id, settings from ${table} ${where}`,
+        `select template_id as id, settings from kubernetes_templates ${where}`,
         ...values,
       ) as { id: string; settings: string }[]
     ).map(
@@ -103,18 +99,18 @@ export function settingsStore(
     );
 
   return {
-    get: (id) => rows(`where ${key} = ?`, id)[0]?.[1],
+    get: (id) => rows("where template_id = ?", id)[0]?.[1],
     all: () => rows(),
     set: (id, settings) => {
       store.run(
-        `insert into ${table} (${key}, settings) values (?, ?)
-         on conflict (${key}) do update set settings = excluded.settings`,
+        `insert into kubernetes_templates (template_id, settings) values (?, ?)
+         on conflict (template_id) do update set settings = excluded.settings`,
         id,
         JSON.stringify(settings),
       );
     },
     remove: (id) => {
-      store.run(`delete from ${table} where ${key} = ?`, id);
+      store.run("delete from kubernetes_templates where template_id = ?", id);
     },
   };
 }

@@ -54,16 +54,15 @@ export interface Queued {
 
 interface ProjectRow {
   id: string;
-  owner_id: string;
+  owner_user_id: string;
   name: string;
-  goal: string | null;
+  goal: string;
   instructions: string;
-  repositories: string;
   environment_id: string | null;
   profile_id: string | null;
   thread_model: string | null;
   coordinator_id: string;
-  created_at: string;
+  created_at: number;
   assistant: number;
   team: number;
 }
@@ -74,8 +73,73 @@ interface MemberRow {
   role: Role;
   title: string;
   work_state: WorkState;
-  last_activity: string;
+  last_activity_at: number;
 }
+
+// A team Project keeps the person who made it as its owner, with team set
+// (ADR 0067).
+export const projectsSchema = `
+create table projects_projects (
+  id text primary key,
+  owner_user_id text not null references users (id) on delete cascade,
+  name text not null,
+  goal text not null default '',
+  instructions text not null,
+  environment_id text references environments (id) on delete set null,
+  profile_id text,
+  thread_model text,
+  coordinator_id text not null,
+  assistant integer not null check (assistant in (0, 1)),
+  team integer not null check (team in (0, 1)),
+  created_at integer not null
+) strict;
+create index projects_projects_owner on projects_projects (owner_user_id);
+
+create table projects_repositories (
+  project_id text not null references projects_projects (id) on delete cascade,
+  position integer not null,
+  repository text not null,
+  primary key (project_id, position)
+) strict, without rowid;
+
+create table projects_members (
+  session_id text primary key references sessions (id) on delete cascade,
+  project_id text not null references projects_projects (id) on delete cascade,
+  role text not null check (role in ('coordinator', 'thread', 'former')),
+  title text not null,
+  work_state text not null check (work_state in ('in_progress', 'blocked', 'review_ready', 'done', 'failed')),
+  last_activity_at integer not null
+) strict;
+create index projects_members_project on projects_members (project_id, role);
+
+create table projects_memory (
+  project_id text not null references projects_projects (id) on delete cascade,
+  name text not null,
+  content text not null,
+  revision integer not null default 1,
+  actor text not null,
+  updated_at integer not null,
+  primary key (project_id, name)
+) strict, without rowid;
+
+create table projects_memory_log (
+  id integer primary key,
+  project_id text not null references projects_projects (id) on delete cascade,
+  name text not null,
+  size integer not null,
+  actor text not null,
+  at integer not null
+) strict;
+create index projects_memory_log_project on projects_memory_log (project_id, at);
+
+create table projects_outbox (
+  id integer primary key,
+  session_id text not null references sessions (id) on delete cascade,
+  actor text not null,
+  delivery text not null check (json_valid(delivery))
+) strict;
+create index projects_outbox_session on projects_outbox (session_id);
+`;
 
 const memoryLimit = 16 * 1024;
 
@@ -128,90 +192,26 @@ export function projectStore(
   store: PluginStore,
   memberAdded: (member: Member) => void,
 ): ProjectStore {
-  store.exec(`create table if not exists projects_projects (
-    id text primary key,
-    owner_id text not null,
-    name text not null,
-    instructions text not null,
-    repositories text not null,
-    environment_id text,
-    coordinator_id text not null,
-    created_at text not null
-  )`);
-
-  const columns = store.all("pragma table_info(projects_projects)") as {
-    name: string;
-  }[];
-
-  for (const column of ["thread_model", "profile_id", "goal"]) {
-    if (!columns.some(({ name }) => name === column)) {
-      store.exec(`alter table projects_projects add column ${column} text`);
-    }
-  }
-
-  for (const flag of ["assistant", "team"]) {
-    if (!columns.some(({ name }) => name === flag)) {
-      store.exec(
-        `alter table projects_projects add column ${flag} integer not null default 0`,
-      );
-    }
-  }
-
-  store.exec(`create table if not exists projects_members (
-    session_id text primary key,
-    project_id text not null,
-    role text not null,
-    title text not null,
-    work_state text not null,
-    last_activity text not null
-  )`);
-
-  store.exec(`create table if not exists projects_memory (
-    project_id text not null,
-    name text not null,
-    content text not null,
-    updated_at text not null,
-    actor text not null,
-    primary key (project_id, name)
-  )`);
-
-  const memoryColumns = store.all("pragma table_info(projects_memory)") as {
-    name: string;
-  }[];
-
-  if (!memoryColumns.some(({ name }) => name === "revision")) {
-    store.exec(
-      "alter table projects_memory add column revision integer not null default 1",
-    );
-  }
-
-  store.exec(`create table if not exists projects_memory_log (
-    project_id text not null,
-    name text not null,
-    size integer not null,
-    actor text not null,
-    at text not null
-  )`);
-
-  store.exec(`create table if not exists projects_outbox (
-    id integer primary key autoincrement,
-    session_id text not null,
-    actor text not null,
-    delivery text not null
-  )`);
+  const repositoriesOf = (projectId: string): readonly string[] =>
+    (
+      store.all(
+        "select repository from projects_repositories where project_id = ? order by position",
+        projectId,
+      ) as { repository: string }[]
+    ).map(({ repository }) => repository);
 
   const toProject = (row: ProjectRow): Project => ({
     id: row.id,
-    ownerId: row.owner_id,
+    ownerId: row.owner_user_id,
     name: row.name,
-    goal: row.goal ?? "",
+    goal: row.goal,
     instructions: row.instructions,
-    repositories: JSON.parse(row.repositories) as string[],
+    repositories: repositoriesOf(row.id),
     environmentId: row.environment_id,
     profileId: row.profile_id,
     threadModel: row.thread_model,
     coordinatorId: row.coordinator_id,
-    createdAt: row.created_at,
+    createdAt: new Date(row.created_at).toISOString(),
     assistant: row.assistant === 1,
     team: row.team === 1,
   });
@@ -222,7 +222,7 @@ export function projectStore(
     role: row.role,
     title: row.title,
     workState: row.work_state,
-    lastActivity: row.last_activity,
+    lastActivity: new Date(row.last_activity_at).toISOString(),
   });
 
   // A delivery marked delivered is never read back, even when its delete
@@ -235,6 +235,20 @@ export function projectStore(
       store.run("delete from projects_outbox where id = ?", id);
       deliveredIds.delete(id);
     }
+  };
+
+  const insertMember = (member: Member): void => {
+    store.run(
+      `insert into projects_members
+        (session_id, project_id, role, title, work_state, last_activity_at)
+        values (?, ?, ?, ?, ?, ?)`,
+      member.sessionId,
+      member.projectId,
+      member.role,
+      member.title,
+      member.workState,
+      Date.parse(member.lastActivity),
+    );
   };
 
   const moveToCoordinator = (project: Project, next: Member): void => {
@@ -255,39 +269,39 @@ export function projectStore(
       project.id,
     );
 
-    store.run(
-      `insert into projects_members
-        (session_id, project_id, role, title, work_state, last_activity)
-        values (?, ?, ?, ?, ?, ?)`,
-      next.sessionId,
-      next.projectId,
-      next.role,
-      next.title,
-      next.workState,
-      next.lastActivity,
-    );
+    insertMember(next);
   };
 
   return {
     create: (project) => {
-      store.run(
-        `insert into projects_projects
-          (id, owner_id, name, goal, instructions, repositories, environment_id, profile_id, thread_model, coordinator_id, created_at, assistant, team)
-          values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        project.id,
-        project.ownerId,
-        project.name,
-        project.goal,
-        project.instructions,
-        JSON.stringify(project.repositories),
-        project.environmentId,
-        project.profileId,
-        project.threadModel,
-        project.coordinatorId,
-        project.createdAt,
-        project.assistant ? 1 : 0,
-        project.team ? 1 : 0,
-      );
+      store.transaction(() => {
+        store.run(
+          `insert into projects_projects
+            (id, owner_user_id, name, goal, instructions, environment_id, profile_id, thread_model, coordinator_id, created_at, assistant, team)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          project.id,
+          project.ownerId,
+          project.name,
+          project.goal,
+          project.instructions,
+          project.environmentId,
+          project.profileId,
+          project.threadModel,
+          project.coordinatorId,
+          Date.parse(project.createdAt),
+          project.assistant ? 1 : 0,
+          project.team ? 1 : 0,
+        );
+
+        project.repositories.forEach((repository, position) => {
+          store.run(
+            "insert into projects_repositories (project_id, position, repository) values (?, ?, ?)",
+            project.id,
+            position,
+            repository,
+          );
+        });
+      });
     },
     list: () =>
       (
@@ -316,18 +330,7 @@ export function projectStore(
       );
     },
     addMember: (member) => {
-      store.run(
-        `insert into projects_members
-          (session_id, project_id, role, title, work_state, last_activity)
-          values (?, ?, ?, ?, ?, ?)`,
-        member.sessionId,
-        member.projectId,
-        member.role,
-        member.title,
-        member.workState,
-        member.lastActivity,
-      );
-
+      insertMember(member);
       memberAdded(member);
     },
     member: (sessionId) => {
@@ -358,15 +361,9 @@ export function projectStore(
       ).map(toMember),
     // What waits for the old coordinator goes to the new one.
     replaceCoordinator: (project, next) => {
-      store.exec("begin immediate");
-
-      try {
+      store.transaction(() => {
         moveToCoordinator(project, next);
-        store.exec("commit");
-      } catch (error) {
-        store.exec("rollback");
-        throw error;
-      }
+      });
 
       memberAdded(next);
     },
@@ -379,8 +376,8 @@ export function projectStore(
     },
     touch: (sessionId) => {
       store.run(
-        "update projects_members set last_activity = ? where session_id = ?",
-        new Date().toISOString(),
+        "update projects_members set last_activity_at = ? where session_id = ?",
+        Date.now(),
         sessionId,
       );
     },
@@ -390,11 +387,11 @@ export function projectStore(
           `select name, length(cast(content as blob)) as size, updated_at, actor
             from projects_memory where project_id = ? order by name`,
           projectId,
-        ) as { name: string; size: number; updated_at: string; actor: string }[]
+        ) as { name: string; size: number; updated_at: number; actor: string }[]
       ).map((row) => ({
         name: row.name,
         size: row.size,
-        updatedAt: row.updated_at,
+        updatedAt: new Date(row.updated_at).toISOString(),
         actor: row.actor,
       })),
     readMemory: (projectId, name) => {
@@ -427,7 +424,7 @@ export function projectStore(
         );
       }
 
-      const at = new Date().toISOString();
+      const at = Date.now();
 
       store.run(
         `insert into projects_memory (project_id, name, content, updated_at, actor, revision)

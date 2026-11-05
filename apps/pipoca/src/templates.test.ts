@@ -42,11 +42,7 @@ async function ana(): Promise<string> {
 
   db.prepare(
     "insert into users (id, name, password_hash, created_at, admin) values (?, 'ana', ?, ?, 0)",
-  ).run(
-    randomUUID(),
-    await Bun.password.hash("battery staple"),
-    new Date().toISOString(),
-  );
+  ).run(randomUUID(), await Bun.password.hash("battery staple"), Date.now());
 
   db.close();
 

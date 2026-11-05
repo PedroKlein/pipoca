@@ -7,11 +7,12 @@ import {
   type ServerPluginContext,
 } from "@pipoca/plugins";
 import type { Actor } from "@pipoca/protocol";
-import { type LibraryStore, libraryStore } from "./library";
+import { type LibraryStore, librarySchema, libraryStore } from "./library";
 import { fileLimit, nameRule, sizeRule, validName } from "./model";
 
 export const library: ServerPlugin = {
   name: "library",
+  schema: { version: 1, sql: librarySchema },
   register: (context) => {
     const store = libraryStore(context.store);
 

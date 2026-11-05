@@ -4,6 +4,7 @@ import {
   fakeContext,
   fakeSession,
   fakeUser,
+  memoryStore,
   served,
 } from "@pipoca/plugins/testing";
 import type { PluginSettings } from "@pipoca/protocol";
@@ -24,6 +25,7 @@ function registered(
   const routes: PluginRoute[] = [];
 
   const context = fakeContext({
+    store: memoryStore(library.schema),
     routes: {
       handle: (route) => {
         routes.push(route);
