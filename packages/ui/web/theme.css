@@ -229,6 +229,9 @@
 
   --container-chat: 760px;
   --container-form: 768px;
+  /* The chat column with a page's side padding on a wide screen. */
+  --container-page: 856px;
+  --container-page-wide: 1096px;
   --spacing-sidebar: 288px;
   --spacing-control: 32px;
   --spacing-touch: 44px;
