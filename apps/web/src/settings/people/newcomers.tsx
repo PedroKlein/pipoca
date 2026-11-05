@@ -4,7 +4,7 @@ import { Button, cardClass, cn } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { api } from "../../api";
 import { useProfiles, useTemplates } from "../../hooks";
-import { skippableSteps } from "../../setup";
+import { skippableSteps } from "../../setup/steps";
 import { NewcomersForm } from "./newcomers-form";
 
 const nothingSet: Newcomers = { template: null, profiles: [], required: [] };

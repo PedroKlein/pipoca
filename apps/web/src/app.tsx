@@ -22,7 +22,8 @@ import {
 } from "./plugins";
 import { SessionView } from "./session-view";
 import { isSettingsRoute, SettingsLayout } from "./settings/layout";
-import { SetupReminders, SetupWizard } from "./setup";
+import { SetupReminders } from "./setup/reminders";
+import { SetupWizard } from "./setup/wizard";
 import { Sidebar } from "./sidebar";
 import { isTeamRoute, TeamHub } from "./team-hub";
 import { isTeamSetupRoute, TeamSetup } from "./team-setup";

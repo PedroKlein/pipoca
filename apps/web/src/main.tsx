@@ -2,11 +2,11 @@ import type { SetupState } from "@pipoca/protocol";
 import { createRoot } from "react-dom/client";
 import { api } from "./api";
 import { App } from "./app";
-import { AppSignIn, pendingAppSignIn } from "./app-sign-in";
-import { JoinPage } from "./join";
+import { AppSignIn, pendingAppSignIn } from "./setup/app-sign-in";
+import { JoinPage } from "./setup/join";
 import { Me } from "./me";
 import { loadPlugins, navEntries, PluginShell } from "./plugins";
-import { SignInPage } from "./sign-in";
+import { SignInPage } from "./setup/sign-in";
 import { applyTheme } from "./theme";
 
 const root = document.getElementById("root");

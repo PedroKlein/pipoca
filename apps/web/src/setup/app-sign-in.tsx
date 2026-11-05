@@ -1,7 +1,7 @@
 import { Button, ErrorText } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import { api } from "./api";
-import { Welcome } from "./sign-in";
+import { api } from "../api";
+import { Welcome } from "./setup-account";
 
 const pendingKey = "pipoca.app-sign-in";
 

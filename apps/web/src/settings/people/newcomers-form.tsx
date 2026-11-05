@@ -3,7 +3,7 @@ import { Button, Checkbox, ErrorText, Select } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { api } from "../../api";
 import { useProfiles, useTemplates } from "../../hooks";
-import { skippableSteps } from "../../setup";
+import { skippableSteps } from "../../setup/steps";
 
 export function NewcomersForm({
   saved,

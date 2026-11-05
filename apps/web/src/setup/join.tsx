@@ -5,11 +5,11 @@ import {
   cn,
   ErrorText,
   Field,
-  fieldClass,
   Hero,
   raisedCardClass,
   SetupShell,
   Spinner,
+  TextInput,
 } from "@pipoca/ui";
 import {
   type ReactElement,
@@ -17,7 +17,7 @@ import {
   useEffect,
   useState,
 } from "react";
-import { api } from "./api";
+import { api } from "../api";
 
 // Where an invite's link lands someone who isn't signed in (ADR 0063).
 export function JoinPage({ token }: { readonly token: string }): ReactElement {
@@ -106,22 +106,20 @@ export function JoinPage({ token }: { readonly token: string }): ReactElement {
                 )}
               >
                 <Field label="Username">
-                  <input
+                  <TextInput
                     name="name"
                     required
                     autoComplete="username"
                     defaultValue={info.email?.split("@")[0] ?? ""}
-                    className={fieldClass}
                   />
                 </Field>
                 <Field label="Password" hint="At least 8 characters.">
-                  <input
+                  <TextInput
                     name="password"
                     type="password"
                     required
                     minLength={8}
                     autoComplete="new-password"
-                    className={fieldClass}
                   />
                 </Field>
                 <ErrorText size="caption">{error}</ErrorText>
