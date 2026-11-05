@@ -12,7 +12,6 @@ const dayMs = 24 * 60 * minuteMs;
 const maxAheadMs = 30 * dayMs;
 const maxPending = 10;
 const maxDeliveredPerDay = 48;
-const offlineRetryMs = 30_000;
 // setTimeout fires at once past about 24.8 days, so a later wake-up re-arms.
 const maxTimerMs = 60 * minuteMs;
 const maxReasonLength = 120;
@@ -87,21 +86,6 @@ export function wakeUps(
       );
 
       log("wake-up delivered", { id: row.id, sessionId: row.session_id });
-
-      return;
-    }
-
-    if (sent.reason === "offline") {
-      store.run(
-        "update routines_wakeups set try_at = ? where id = ?",
-        Date.now() + offlineRetryMs,
-        row.id,
-      );
-
-      log("wake-up waits for its Session to come online", {
-        id: row.id,
-        sessionId: row.session_id,
-      });
 
       return;
     }

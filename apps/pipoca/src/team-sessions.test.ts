@@ -1474,3 +1474,56 @@ test("an admin names the team, and everyone reads the name", async () => {
     ),
   ).toEqual({ name: null });
 });
+
+test("keeps a team message that a retried request sends twice once", async () => {
+  const anas = await ana();
+  const team = await teamSetup();
+
+  const session = await json<Session>(
+    server.as(anas)("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        profile: team.profile,
+        workspace: workspace(),
+      },
+    }),
+  );
+
+  const said = async (path: string, body: unknown): Promise<number> =>
+    (await server.as(anas)(`/api/sessions/${session.id}/${path}`, { body }))
+      .status;
+
+  await poll(team.runner);
+
+  const statuses = [
+    await said("messages", { to: "team", text: "Ship it?", requestId: "r1" }),
+    await said("messages", { to: "team", text: "Ship it?", requestId: "r1" }),
+    await said("commands", { type: "message", text: "Go", requestId: "r2" }),
+    await said("commands", { type: "message", text: "Go", requestId: "r2" }),
+    await said("messages", { to: "aside", text: "Done", requestId: "r3" }),
+  ];
+
+  const events = await server.as(anas)(`/api/sessions/${session.id}/events`);
+  const voices: Voice[] = [];
+
+  for await (const event of readSse(events)) {
+    const replayed = event as SessionEvent;
+
+    if (replayed.type === "voice") {
+      voices.push(replayed.voice);
+    }
+
+    if (voices.at(-1)?.text === "Done") {
+      break;
+    }
+  }
+
+  expect(statuses).toEqual([201, 201, 202, 202, 201]);
+
+  expect(voices.map(({ kind, text }) => [kind, text])).toEqual([
+    ["team", "Ship it?"],
+    ["message", "Go"],
+    ["aside", "Done"],
+  ]);
+});

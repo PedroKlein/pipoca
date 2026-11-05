@@ -1,8 +1,14 @@
-import type { DeclaredEvent, Owner } from "@pipoca/protocol";
-import type { Static, TObject } from "typebox";
+import type {
+  Clock,
+  DeclaredEvent,
+  Log,
+  Owner,
+  Session,
+} from "@pipoca/protocol";
+import type { Static, TObject, TSchema } from "typebox";
 import type { EventDef, Events, PluginDefinition } from "./definition";
 import type { KernelEventOf } from "./events";
-import type { KernelEvent, ServerPlugin, ServerPluginContext } from "./plugin";
+import type { KernelEvent } from "./plugin";
 
 export interface Person {
   readonly id: string;
@@ -71,26 +77,151 @@ export interface PluginEvents<P extends PluginDefinition> {
   readonly declared: () => readonly DeclaredEvent[];
 }
 
-export type ServerContext<P extends PluginDefinition> = Omit<
-  ServerPluginContext,
-  "events"
-> & {
-  readonly id: P["id"];
-  readonly events: ServerPluginContext["events"] & PluginEvents<P>;
-  readonly people: People;
-  readonly transcript: Transcript;
-};
+export type Params = Readonly<Record<string, string>>;
 
-export function defineServer<const P extends PluginDefinition>(
-  plugin: P,
-  register: (context: ServerContext<P>) => void,
-): ServerPlugin {
-  return {
-    name: plugin.id,
-    ...(plugin.schema !== undefined && { schema: plugin.schema }),
-    definition: plugin,
-    register: (context) => {
-      register(context as unknown as ServerContext<P>);
-    },
+export type Auth =
+  | "person"
+  | "admin"
+  | "session"
+  | "public"
+  | {
+      readonly webhook: {
+        readonly secret: (params: Params) => string | undefined;
+        readonly header?: string;
+        readonly maxBytes?: number;
+      };
+    };
+
+export type Caller =
+  | { readonly kind: "person"; readonly person: Person; readonly owner: Owner }
+  | {
+      readonly kind: "session";
+      readonly session: Session;
+      readonly person?: Person;
+      readonly owner: Owner;
+    }
+  | { readonly kind: "public"; readonly person?: Person };
+
+type Schema = TSchema | undefined;
+
+type StaticOf<S extends Schema> = [S] extends [TSchema] ? Static<S> : undefined;
+
+export interface RouteSpec<
+  B extends Schema = Schema,
+  Q extends Schema = Schema,
+  R extends Schema = Schema,
+> {
+  readonly auth: Auth;
+  readonly body?: B;
+  readonly query?: Q;
+  readonly response?: R;
+  readonly changes?: readonly string[];
+  readonly long?: boolean;
+}
+
+export interface RouteInput<B extends Schema, Q extends Schema> {
+  readonly caller: Caller;
+  readonly params: Params;
+  readonly body: StaticOf<B>;
+  readonly query: StaticOf<Q>;
+  readonly raw: Request;
+}
+
+type Reply<R extends Schema> = [R] extends [TSchema]
+  ? Static<R> | Response
+  : unknown;
+
+export type Handler<B extends Schema, Q extends Schema, R extends Schema> = (
+  request: RouteInput<B, Q>,
+) => Reply<R> | Promise<Reply<R>>;
+
+type Read = <Q extends Schema = undefined, R extends Schema = undefined>(
+  path: string,
+  spec: RouteSpec<undefined, Q, R>,
+  handler: Handler<undefined, Q, R>,
+) => void;
+
+type Write = <
+  B extends Schema = undefined,
+  Q extends Schema = undefined,
+  R extends Schema = undefined,
+>(
+  path: string,
+  spec: RouteSpec<B, Q, R>,
+  handler: Handler<B, Q, R>,
+) => void;
+
+type ScopedRead = <Q extends Schema = undefined, R extends Schema = undefined>(
+  path: string,
+  spec: Omit<RouteSpec<undefined, Q, R>, "auth">,
+  handler: (
+    request: RouteInput<undefined, Q> & { readonly owner: Owner },
+  ) => Reply<R> | Promise<Reply<R>>,
+) => void;
+
+type ScopedWrite = <
+  B extends Schema = undefined,
+  Q extends Schema = undefined,
+  R extends Schema = undefined,
+>(
+  path: string,
+  spec: Omit<RouteSpec<B, Q, R>, "auth">,
+  handler: (
+    request: RouteInput<B, Q> & { readonly owner: Owner },
+  ) => Reply<R> | Promise<Reply<R>>,
+) => void;
+
+export interface ScopedRoutes {
+  readonly get: ScopedRead;
+  readonly post: ScopedWrite;
+  readonly put: ScopedWrite;
+  readonly patch: ScopedWrite;
+  readonly delete: ScopedRead;
+}
+
+export interface Routes {
+  readonly get: Read;
+  readonly post: Write;
+  readonly put: Write;
+  readonly patch: Write;
+  readonly delete: Read;
+  readonly scoped: (path: string, routes: (r: ScopedRoutes) => void) => void;
+  readonly topic: (name: string) => void;
+}
+
+export interface Urls {
+  readonly public: (path: string) => string;
+  readonly cookie: {
+    readonly set: (
+      response: Response,
+      name: string,
+      value: string,
+      maxAgeS: number,
+    ) => void;
+    readonly get: (request: Request, name: string) => string | undefined;
   };
+}
+
+export interface ServerContext<P extends PluginDefinition = PluginDefinition> {
+  readonly id: P["id"];
+  readonly people: People;
+  readonly routes: Routes;
+  readonly events: PluginEvents<P>;
+  readonly transcript: Transcript;
+  readonly urls: Urls;
+  readonly clock: Clock;
+  readonly log: Log;
+  readonly signal: AbortSignal;
+}
+
+export interface ServerPart<P extends PluginDefinition = PluginDefinition> {
+  readonly plugin: P;
+  register(ctx: ServerContext<P>): void | Promise<void>;
+}
+
+export function defineServer<P extends PluginDefinition>(
+  plugin: P,
+  register: (ctx: ServerContext<P>) => void | Promise<void>,
+): ServerPart<P> {
+  return { plugin, register };
 }

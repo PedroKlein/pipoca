@@ -57,6 +57,12 @@ export class BadRequest extends HttpError {
   }
 }
 
+export class Forbidden extends HttpError {
+  constructor(message: string, code?: string) {
+    super(403, message, code);
+  }
+}
+
 export class NotFound extends HttpError {
   constructor(message: string, code?: string) {
     super(404, message, code);

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import type { ServerPlugin } from "@pipoca/plugins";
+import { definePlugin, type ServerPlugin } from "@pipoca/plugins";
 import type { PluginInfo } from "@pipoca/protocol";
 import { closeServers, json, testServer } from "./testdata/harness";
 
@@ -67,6 +67,38 @@ test("fails a plugin whose schema makes more than STRICT tables and indexes of i
       state: "failed",
       error:
         "plugin linked's table linked_items points at profiles, but only its own tables, users, sessions and environments may be pointed at",
+    },
+  ]);
+});
+
+test("checks the schema of a plugin defined with definePlugin the same way", async () => {
+  const server = testServer({
+    plugins: [],
+    definitions: [
+      definePlugin({
+        id: "kept",
+        title: "Kept",
+        description: "",
+        schema: "create table kept_items (id text primary key) strict",
+      }),
+      definePlugin({
+        id: "loose",
+        title: "Loose",
+        description: "",
+        schema: "create table loose_items (id text)",
+      }),
+    ],
+  });
+
+  const listed = await json<PluginInfo[]>(server.api("/api/plugins"));
+
+  expect(listed.map(({ id, state, error }) => ({ id, state, error }))).toEqual([
+    { id: "kept", state: "on", error: undefined },
+    {
+      id: "loose",
+      state: "failed",
+      error:
+        "plugin loose may only create STRICT tables, and loose_items isn't",
     },
   ]);
 });

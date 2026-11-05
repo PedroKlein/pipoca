@@ -40,7 +40,14 @@ import {
 } from "@pipoca/profiles";
 import type { SessionEnvironment, WorkPoll } from "@pipoca/protocol";
 import { canSee, canSteer, type Owned } from "@pipoca/people";
-import { type Clock, systemClock } from "@pipoca/protocol";
+import { type Clock, type Log, systemClock } from "@pipoca/protocol";
+import {
+  type Delivery,
+  type Outgoing,
+  Outbox,
+  type OutboxStore,
+  type Queued,
+} from "./outbox";
 
 export type StoredSession = Omit<
   Session,
@@ -92,6 +99,23 @@ export interface SessionEnvironments {
 // The owner of what the team owns, rather than one person (ADR 0064).
 const teamOwner = "team";
 
+// What a team Session keeps of who said what, by actor rather than by name.
+export type StoredVoice = Omit<Voice, "person"> & {
+  readonly actor: Actor;
+  readonly requestId?: string;
+};
+
+export interface BindingStore {
+  readonly bind: (
+    plugin: string,
+    key: string,
+    sessionId: string,
+    at: number,
+  ) => void;
+  readonly boundTo: (plugin: string, key: string) => string | undefined;
+  readonly unbind: (plugin: string, key: string) => void;
+}
+
 export interface SessionStore {
   profile: (id: string) =>
     | (ProfileContent & {
@@ -125,8 +149,11 @@ export interface SessionStore {
   // Undefined while the Session is open to the whole team.
   access: (id: string) => SessionAccess | undefined;
   setAccess: (id: string, access: SessionAccess) => void;
-  voices: (id: string) => readonly Voice[];
-  addVoice: (id: string, voice: Voice) => void;
+  voices: (id: string) => readonly StoredVoice[];
+  // False when the Session already keeps one with the voice's requestId.
+  addVoice: (id: string, voice: StoredVoice) => boolean;
+  readonly outbox: OutboxStore;
+  readonly bindings: BindingStore;
   byEnvironment: (
     provider: string,
     statuses: readonly SessionStatus[],
@@ -208,6 +235,7 @@ export interface SessionsOptions {
   readonly docs?: ProfileFiles;
   // A user's name, which Pi reads team messages with (ADR 0065).
   readonly names?: (person: string) => string | undefined;
+  readonly log?: Log;
 }
 
 export interface PluginProfile {
@@ -257,6 +285,7 @@ export class Sessions {
   >();
   readonly #requestIds = new Map<string, Set<string>>();
   readonly #held = new Map<string, Command[]>();
+  readonly #outbox: Outbox;
   readonly #hostedGeneration = new Map<string, number>();
   readonly #surfaces = new Map<
     string,
@@ -287,6 +316,13 @@ export class Sessions {
       options.teamMessagesRead ?? (() => teamMessagesRead);
 
     this.#names = options.names ?? (() => undefined);
+
+    this.#outbox = new Outbox(
+      store.outbox,
+      (message) => this.#deliver(message),
+      this.#clock,
+      options.log ?? (() => undefined),
+    );
   }
 
   // The one way a Session starts, for the UI and plugins alike (ADR 0015).
@@ -629,11 +665,13 @@ export class Sessions {
       text,
       to,
       quote,
+      requestId,
     }: {
       readonly actor: Actor;
       readonly text: string;
       readonly to: "team" | "aside";
       readonly quote?: Quote;
+      readonly requestId?: string;
     },
   ): Result<undefined, "not_found" | "archived" | "not_team"> {
     const session = this.#store.get(id);
@@ -653,10 +691,11 @@ export class Sessions {
 
     this.#addVoice(session.id, {
       kind: to,
-      person,
+      actor,
       at: new Date(this.#clock.now()).toISOString(),
       text,
       ...(quote && { quote }),
+      ...(requestId !== undefined && { requestId }),
     });
 
     return { ok: true, value: undefined };
@@ -684,7 +723,7 @@ export class Sessions {
 
     this.#addVoice(session.id, {
       kind: "vote",
-      person: opener,
+      actor: opener === "pi" ? `session:${session.id}` : `user:${opener}`,
       at: new Date(this.#clock.now()).toISOString(),
       text,
     });
@@ -692,24 +731,25 @@ export class Sessions {
     return { ok: true, value: undefined };
   }
 
-  // Several people steer a team Session, so it keeps who said what.
-  #voice(session: StoredSession, command: Command, quote?: Quote): void {
-    const person = personOf(command.actor);
-
+  // Several people steer a team Session, so it keeps who said what. False
+  // for a message it already kept.
+  #voice(session: StoredSession, command: Command, quote?: Quote): boolean {
     if (
-      person === undefined ||
+      personOf(command.actor) === undefined ||
       !this.#team(session) ||
       (command.type !== "message" && command.type !== "abort")
     ) {
-      return;
+      return true;
     }
 
-    this.#addVoice(session.id, {
+    return this.#addVoice(session.id, {
       kind: command.type === "abort" ? "stop" : "message",
-      person,
+      actor: command.actor,
       at: new Date(this.#clock.now()).toISOString(),
       ...(command.type === "message" && { text: command.text }),
       ...(command.type === "message" && quote && { quote }),
+      ...(command.type === "message" &&
+        command.requestId !== undefined && { requestId: command.requestId }),
     });
   }
 
@@ -732,9 +772,18 @@ export class Sessions {
     return { ...command, value: { ...command.value, by: name } };
   }
 
-  #addVoice(id: string, voice: Voice): void {
-    this.#store.addVoice(id, voice);
-    this.#emit(id, { type: "voice", voice });
+  #addVoice(id: string, stored: StoredVoice): boolean {
+    if (!this.#store.addVoice(id, stored)) {
+      return false;
+    }
+
+    this.#emit(id, { type: "voice", voice: voiceOf(stored) });
+
+    return true;
+  }
+
+  #voices(id: string): readonly Voice[] {
+    return this.#store.voices(id).map(voiceOf);
   }
 
   // What Pi reads before a person's message in a team Session: who sends
@@ -754,7 +803,7 @@ export class Sessions {
       return [];
     }
 
-    const said = teamTalkSince(this.#store.voices(session.id));
+    const said = teamTalkSince(this.#voices(session.id));
 
     const read = this.#teamMessagesRead();
     const left = said.length - read;
@@ -846,6 +895,7 @@ export class Sessions {
 
     this.#hosts.get(id)?.end();
     this.#requestIds.delete(id);
+    this.#outbox.drop(id, "archived");
     this.#update(archived);
     this.#environments.wake(session.provider);
 
@@ -1212,9 +1262,10 @@ export class Sessions {
         line: fromLine + i,
         entry,
       })),
-      ...this.#store
-        .voices(id)
-        .map((voice): SessionEvent => ({ type: "voice", voice })),
+      ...this.#voices(id).map((voice): SessionEvent => ({
+        type: "voice",
+        voice,
+      })),
       ...this.#openSurfaces(session).map((event): SessionEvent => ({
         type: "live",
         event,
@@ -1264,7 +1315,9 @@ export class Sessions {
       return { ok: false, reason: "offline" };
     }
 
+    // A team Session keeps its messages, and with them their request ids.
     if (
+      !this.#team(session) &&
       command.type === "message" &&
       command.requestId !== undefined &&
       !this.#rememberRequest(id, command.requestId)
@@ -1276,6 +1329,10 @@ export class Sessions {
       ...this.#teamContext(session, command, quote),
       this.#answeredBy(session, command),
     ];
+
+    if (!this.#voice(session, command, quote)) {
+      return { ok: true, value: undefined };
+    }
 
     if (held) {
       this.#held.set(id, [...(this.#held.get(id) ?? []), ...told]);
@@ -1293,9 +1350,82 @@ export class Sessions {
       });
     }
 
-    this.#voice(session, command, quote);
+    return { ok: true, value: undefined };
+  }
+
+  // Durable and in order per Session: it reaches the Session once its host
+  // takes commands, even after a restart of the server.
+  enqueue(
+    id: string,
+    message: Outgoing & {
+      readonly plugin?: string;
+      readonly actor: Actor;
+      readonly dedupe?: string;
+    },
+  ): Result<undefined, "not_found" | "archived"> {
+    const session = this.#store.get(id);
+
+    if (session === undefined) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    if (session.archivedAt !== null) {
+      return { ok: false, reason: "archived" };
+    }
+
+    this.#outbox.enqueue(id, message);
 
     return { ok: true, value: undefined };
+  }
+
+  // A safety net for a host that came back without its stream connecting.
+  flushOutbox(): void {
+    this.#outbox.flushAll();
+  }
+
+  #deliver(message: Queued): Delivery {
+    const session = this.#store.get(message.sessionId);
+
+    if (session === undefined) {
+      return "not_found";
+    }
+
+    if (session.archivedAt !== null) {
+      return "archived";
+    }
+
+    if (
+      message.kind === "tool_result" &&
+      !this.#current(session.id, message.generation).ok
+    ) {
+      return "stale_generation";
+    }
+
+    if (!this.#hosts.has(session.id)) {
+      return "waits";
+    }
+
+    return this.send(session.id, commandOf(message)).ok ? "sent" : "waits";
+  }
+
+  // An external thread, such as a Slack thread, that talks to a Session.
+  // One per key per plugin, gone with the Session.
+  bind(plugin: string, key: string, sessionId: string): Result<undefined> {
+    if (this.#store.get(sessionId) === undefined) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    this.#store.bindings.bind(plugin, key, sessionId, this.#clock.now());
+
+    return { ok: true, value: undefined };
+  }
+
+  boundTo(plugin: string, key: string): string | undefined {
+    return this.#store.bindings.boundTo(plugin, key);
+  }
+
+  unbind(plugin: string, key: string): void {
+    this.#store.bindings.unbind(plugin, key);
   }
 
   #rememberRequest(id: string, requestId: string): boolean {
@@ -1335,6 +1465,7 @@ export class Sessions {
     }
 
     this.#held.delete(id);
+    this.#outbox.flush(id);
 
     return {
       ok: true,
@@ -1642,7 +1773,9 @@ export class Sessions {
       );
 
     for (const session of sessions) {
-      if (!online) {
+      if (online) {
+        this.#outbox.flush(session.id);
+      } else {
         this.#hosts.get(session.id)?.end();
       }
 
@@ -1767,6 +1900,46 @@ const quoteLength = 200;
 
 function clipped(text: string, length: number): string {
   return text.length > length ? `${text.slice(0, length)}…` : text;
+}
+
+// Pi's own votes are told by its Session.
+function voiceOf({
+  actor,
+  requestId: _requestId,
+  ...voice
+}: StoredVoice): Voice {
+  return { ...voice, person: personOf(actor) ?? "pi" };
+}
+
+function commandOf(message: Queued): Command {
+  const { actor } = message;
+
+  switch (message.kind) {
+    case "message":
+      return {
+        actor,
+        type: "message",
+        text: message.text,
+        delivery: "followUp",
+      };
+    case "context":
+      return { actor, type: "context", text: message.text };
+    case "notice":
+      return {
+        actor,
+        type: "notice",
+        text: message.text,
+        notice: { plugin: message.plugin ?? "", ...message.notice },
+        turn: message.turn,
+      };
+    case "tool_result":
+      return {
+        actor,
+        type: "tool_result",
+        id: message.call,
+        result: message.result,
+      };
+  }
 }
 
 function personOf(actor: Actor): string | undefined {

@@ -3,10 +3,12 @@ import {
   definePlugin,
   defineServer,
   event,
+  type PluginDefinition,
+  type ServerContext,
   type ServerPlugin,
   Type,
 } from "@pipoca/plugins";
-import type { DeclaredEvent, PluginInfo } from "@pipoca/protocol";
+import type { DeclaredEvent, Owner, PluginInfo } from "@pipoca/protocol";
 import {
   closeServers,
   json,
@@ -19,45 +21,73 @@ let server: TestServer;
 
 afterEach(closeServers);
 
+function served<P extends PluginDefinition>(
+  plugin: P,
+  register: (context: ServerContext<P>) => void,
+): P {
+  const definition: P = {
+    ...plugin,
+    server: async () =>
+      Promise.resolve({ default: defineServer(definition, register) }),
+  };
+
+  return definition;
+}
+
 const noted = event({
   title: "Note added",
   description: "Someone added a note.",
   fields: Type.Object({ text: Type.String() }),
 });
 
-const notes = definePlugin({
-  id: "notes",
-  title: "Notes",
-  description: "Keeps notes.",
-  events: { noted },
+const sent = Type.Object({
+  text: Type.Unknown(),
+  to: Type.Array(Type.Unsafe<Owner>(Type.String())),
 });
 
-// Emits what its route is sent, to whom the route says, or publishes it as
-// a v1 plugin does.
-const notesServer = defineServer(notes, ({ routes, events }) => {
-  routes.handle(async (request, path) => {
-    const { text, to } = (await request.json()) as {
-      text: unknown;
-      to: readonly ("team" | `person:${string}`)[];
-    };
-
-    try {
-      if (path === "v1") {
-        events.publish({
-          type: "notes.noted",
-          text,
-          userIds: to.map((owner) => owner.replace("person:", "")),
+// Emits what its route is sent, to whom the route says.
+const notes = served(
+  definePlugin({
+    id: "notes",
+    title: "Notes",
+    description: "Keeps notes.",
+    events: { noted },
+  }),
+  ({ routes, events }) => {
+    routes.post("notes", { auth: "person", body: sent }, ({ body }) => {
+      try {
+        events.emit("noted", { text: body.text } as { text: string }, {
+          to: body.to,
         });
-      } else {
-        events.emit("noted", { text } as { text: string }, { to });
+      } catch (error) {
+        return Response.json({ error: String(error) }, { status: 500 });
       }
-    } catch (error) {
-      return Response.json({ error: String(error) }, { status: 500 });
-    }
 
-    return new Response(null, { status: 204 });
-  });
-});
+      return { emitted: true };
+    });
+  },
+);
+
+// Publishes what its route is sent as a v1 plugin does.
+const v1Publisher: ServerPlugin = {
+  name: "old-notes",
+  register: ({ routes, events }) => {
+    routes.handle(async (request) => {
+      const { text, to } = (await request.json()) as {
+        text: unknown;
+        to: readonly Owner[];
+      };
+
+      events.publish({
+        type: "notes.noted",
+        text,
+        userIds: to.map((owner) => owner.replace("person:", "")),
+      });
+
+      return new Response(null, { status: 204 });
+    });
+  },
+};
 
 const v1Listener: ServerPlugin = {
   name: "old",
@@ -72,7 +102,7 @@ const v1Listener: ServerPlugin = {
   },
 };
 
-const v2Listener = defineServer(
+const board = served(
   definePlugin({ id: "board", title: "Board", description: "Shows notes." }),
   ({ routes, events }) => {
     const heard: unknown[] = [];
@@ -85,7 +115,7 @@ const v2Listener = defineServer(
       heard.push({ ownedBy: session.ownedBy, to });
     });
 
-    routes.handle(() => Response.json(heard));
+    routes.get("heard", { auth: "person" }, () => heard);
   },
 );
 
@@ -95,9 +125,10 @@ async function plugins(): Promise<PluginInfo[]> {
 
 test("refuses an event its plugin didn't define, or fields that don't fit it", async () => {
   server = testServer({
-    plugins: [
-      notesServer,
-      defineServer(
+    plugins: [],
+    definitions: [
+      notes,
+      served(
         definePlugin({ id: "loud", title: "Loud", description: "" }),
         ({ events }) => {
           (events.emit as (name: string, fields: object, o: object) => void)(
@@ -110,7 +141,7 @@ test("refuses an event its plugin didn't define, or fields that don't fit it", a
     ],
   });
 
-  const wrong = await server.api("/api/ext/notes/x", {
+  const wrong = await server.api("/api/ext/notes/notes", {
     body: { text: 3, to: [] },
   });
 
@@ -128,16 +159,19 @@ test("refuses an event its plugin didn't define, or fields that don't fit it", a
 
 test("tells v1 listeners whose an event is as user ids, and v2 listeners as owners", async () => {
   server = testServer({
-    plugins: [notesServer, v1Listener, v2Listener],
+    plugins: [v1Publisher, v1Listener],
+    definitions: [notes, board],
   });
 
-  await server.api("/api/ext/notes/x", {
+  await server.api("/api/ext/notes/notes", {
     body: { text: "hello", to: ["person:ana", "team"] },
   });
 
-  await server.api("/api/ext/notes/x", { body: { text: "quiet", to: [] } });
+  await server.api("/api/ext/notes/notes", {
+    body: { text: "quiet", to: [] },
+  });
 
-  await server.api("/api/ext/notes/v1", {
+  await server.api("/api/ext/old-notes/x", {
     body: { text: "old", to: ["person:bo"] },
   });
 
@@ -155,7 +189,7 @@ test("tells v1 listeners whose an event is as user ids, and v2 listeners as owne
 
   const [hello, quiet, old, created] = await json<
     { fields?: unknown; plugin?: string; ownedBy?: string; to: string[] }[]
-  >(server.api("/api/ext/board/x"));
+  >(server.api("/api/ext/board/heard"));
 
   expect([hello, quiet, old]).toEqual([
     {
@@ -172,20 +206,21 @@ test("tells v1 listeners whose an event is as user ids, and v2 listeners as owne
 });
 
 test("hears another plugin's events while it is on, and keeps going while it is off", async () => {
-  server = testServer({ plugins: [notesServer, v2Listener] });
+  server = testServer({ plugins: [], definitions: [notes, board] });
 
-  await server.api("/api/ext/notes/x", {
+  await server.api("/api/ext/notes/notes", {
     body: { text: "hello", to: ["team"] },
   });
 
-  expect(await json(server.api("/api/ext/board/x"))).toEqual([
+  expect(await json(server.api("/api/ext/board/heard"))).toEqual([
     { fields: { text: "hello" }, to: ["team"], plugin: "notes" },
   ]);
 
   await server.close();
 
   server = testServer({
-    plugins: [notesServer, v2Listener],
+    plugins: [],
+    definitions: [notes, board],
     disabledPlugins: ["notes"],
   });
 
@@ -198,8 +233,8 @@ test("hears another plugin's events while it is on, and keeps going while it is 
 });
 
 test("keeps a plugin off while a plugin it requires is off or failed", async () => {
-  const needing = (requires: string): ServerPlugin =>
-    defineServer(
+  const needing = (requires: string): PluginDefinition =>
+    served(
       definePlugin({
         id: `needs-${requires}`,
         title: "Needs",
@@ -211,16 +246,19 @@ test("keeps a plugin off while a plugin it requires is off or failed", async () 
 
   server = testServer({
     plugins: [
-      needing("notes"),
-      needing("broken"),
-      notesServer,
       {
         name: "broken",
         register: () => {
           throw new Error("broken always fails");
         },
       },
+    ],
+    definitions: [
+      needing("notes"),
+      needing("broken"),
+      notes,
       needing("board"),
+      board,
     ],
     disabledPlugins: ["board"],
   });
@@ -228,6 +266,7 @@ test("keeps a plugin off while a plugin it requires is off or failed", async () 
   expect(
     (await plugins()).map(({ id, state, error }) => ({ id, state, error })),
   ).toEqual([
+    { id: "broken", state: "failed", error: "broken always fails" },
     { id: "needs-notes", state: "on", error: undefined },
     {
       id: "needs-broken",
@@ -235,34 +274,31 @@ test("keeps a plugin off while a plugin it requires is off or failed", async () 
       error: "needs-broken needs broken, which failed",
     },
     { id: "notes", state: "on", error: undefined },
-    { id: "broken", state: "failed", error: "broken always fails" },
     {
       id: "needs-board",
       state: "failed",
       error: "needs-board needs board, which is off",
     },
+    { id: "board", state: "off", error: undefined },
   ]);
 });
 
 test("lists the events plugins define, and finds people", async () => {
   server = testServer({
-    plugins: [
-      notesServer,
-      defineServer(
+    plugins: [],
+    definitions: [
+      notes,
+      served(
         definePlugin({ id: "lookup", title: "Lookup", description: "" }),
         ({ routes, events, people }) => {
-          routes.handle((_request, path) =>
-            Response.json(
-              path === "events"
-                ? events.declared()
-                : {
-                    first: people.list().map(({ name }) => name),
-                    byName: people.byName(people.list()[0]?.name ?? "")?.id,
-                    byId: people.get(people.list()[0]?.id ?? "")?.admin,
-                    nobody: people.get("nobody") ?? null,
-                  },
-            ),
-          );
+          routes.get("events", { auth: "person" }, () => events.declared());
+
+          routes.get("people", { auth: "person" }, () => ({
+            first: people.list().map(({ name }) => name),
+            byName: people.byName(people.list()[0]?.name ?? "")?.id,
+            byId: people.get(people.list()[0]?.id ?? "")?.admin,
+            nobody: people.get("nobody") ?? null,
+          }));
         },
       ),
     ],
@@ -290,4 +326,15 @@ test("lists the events plugins define, and finds people", async () => {
   expect(found).toMatchObject({ byId: true, nobody: null });
   expect(found.first).toHaveLength(1);
   expect(found.byName).toBeString();
+});
+
+test("lists what a plugin's server part reaches of its context", async () => {
+  server = testServer({ plugins: [], definitions: [notes, board] });
+
+  expect(
+    (await plugins()).map(({ id, capabilities }) => ({ id, capabilities })),
+  ).toEqual([
+    { id: "notes", capabilities: ["events", "routes"] },
+    { id: "board", capabilities: ["events", "routes"] },
+  ]);
 });

@@ -16,7 +16,7 @@ import {
   type PublicRoute,
   type RouteCaller,
   type RunnerSource,
-  type ServerContext,
+  type ServerPart,
   type ServerPlugin,
   type ServerPluginContext,
   secretRefs,
@@ -31,7 +31,6 @@ import {
   type Actor,
   type Capability,
   capabilities,
-  type Command,
   type DeclaredEvent,
   type GitLogin,
   type PluginInfo,
@@ -45,7 +44,6 @@ import {
 import type { Clock, Log, Timer } from "@pipoca/protocol";
 import {
   type PluginProfile,
-  type Result,
   type SessionPlugins,
   type Sessions,
   transcriptReader,
@@ -58,6 +56,7 @@ import {
 } from "./toolsets";
 import { scheduler, type ScheduleStore } from "./scheduler";
 import { kernelKeys, type PluginSwitches } from "./switches";
+import { type ExtRoute, pluginRoutes, pluginUrls } from "./routes";
 
 export type UserActor = `user:${string}`;
 
@@ -162,6 +161,9 @@ export interface PluginHost {
   // The links the sign-in page shows besides the password form, each with
   // its path from the server's root.
   readonly logins: () => readonly Login[];
+  // Settles once every plugin defined with definePlugin registered or failed.
+  readonly ready: Promise<void>;
+  readonly extRoutes: () => readonly ExtRoute[];
 }
 
 function pluginEnvironments(
@@ -202,6 +204,9 @@ export function startPlugins(
   plugins: readonly ServerPlugin[],
   enabled: readonly string[],
   deps: {
+    readonly definitions: readonly PluginDefinition[];
+    // Where people open the server, for plugins' public URLs.
+    readonly url: () => URL;
     // What the Plugins page lists, on or not.
     readonly manifests: readonly PluginManifest[];
     readonly sessions: Sessions;
@@ -266,7 +271,6 @@ export function startPlugins(
   const fromEnv = envSecrets(process.env);
   const settled = new Set<string>();
   const used = new Map<string, Set<Capability>>();
-  const definitions = plugins.flatMap(({ definition }) => definition ?? []);
   const transcript = transcriptReader((id) => deps.sessions.transcript(id));
   const running: string[] = [];
 
@@ -488,7 +492,7 @@ export function startPlugins(
     enabled
       .filter((name) => !failures.has(name))
       .flatMap((name) => {
-        const defined = definitions.find(({ id }) => id === name)?.events;
+        const defined = deps.definitions.find(({ id }) => id === name)?.events;
 
         return defined === undefined
           ? Object.entries(manifest(name)?.events ?? {}).map(
@@ -546,19 +550,8 @@ export function startPlugins(
         );
       }
 
-      for (const [id, need] of Object.entries(
-        plugin.definition?.requires ?? {},
-      )) {
-        if (need === "required" && !settled.has(id)) {
-          throw new Error(
-            `${plugin.name} needs ${id}, which ${failures.has(id) ? "failed" : "is off"}`,
-          );
-        }
-      }
-
       plugin.register(
         recorded(plugin.name, trusted, installedIds.has(plugin.name), touched, {
-          id: plugin.name,
           tools: {
             register: (tool) => {
               if (stagedTaken(tool.name)) {
@@ -639,27 +632,7 @@ export function startPlugins(
               return unsubscribe;
             },
             declared: declaredEvents,
-            ...pluginEvents(
-              deps.events,
-              plugin.definition ?? {
-                id: plugin.name,
-                title: plugin.name,
-                description: "",
-              },
-              definitions,
-              (stop) => {
-                staged.unsubscribes.push(stop);
-              },
-              log,
-            ),
           },
-          people: {
-            get: (id) => deps.auth.users().find((each) => each.id === id),
-            list: () => deps.auth.users(),
-            byName: (name) =>
-              deps.auth.users().find((each) => each.name === name),
-          },
-          transcript,
           changes: {
             publish: (name) => {
               deps.changes(`${plugin.name}.${name}`);
@@ -803,14 +776,114 @@ export function startPlugins(
     deps.log("plugin registered", { plugin: plugin.name });
   };
 
-  for (const plugin of inOrder(
-    plugins.filter(({ name }) => enabled.includes(name)),
-  )) {
+  for (const plugin of plugins.filter(({ name }) => enabled.includes(name))) {
     register(plugin);
   }
 
   running.push(...enabled.filter((name) => !failures.has(name)));
   schedules.wake();
+
+  const extRoutes: ExtRoute[] = [];
+
+  const load = async (definition: PluginDefinition): Promise<void> => {
+    const { id } = definition;
+
+    const log: Log = (message, fields) => {
+      deps.log(message, { plugin: id, ...fields });
+    };
+
+    const failed = new AbortController();
+    const touched = new Set<Capability>();
+    const unsubscribes: (() => void)[] = [];
+
+    const declared = pluginRoutes(id, {
+      team: definition.works?.includes("team") === true,
+      inTeamWork: () => inTeamWork(id),
+      publish: deps.changes,
+    });
+
+    try {
+      if (kernelKeys.includes(id)) {
+        throw new Error(
+          `${id} is a key the kernel keeps in pipoca.json, so no plugin can have it`,
+        );
+      }
+
+      for (const [needed, need] of Object.entries(definition.requires ?? {})) {
+        if (need === "required" && !settled.has(needed)) {
+          throw new Error(
+            `${id} needs ${needed}, which ${failures.has(needed) ? "failed" : "is off"}`,
+          );
+        }
+      }
+
+      const dataFailure = deps.dataFailure(id);
+
+      if (dataFailure !== undefined) {
+        throw new Error(dataFailure);
+      }
+
+      const part = await serverPart(definition);
+
+      await part?.register(
+        recorded(id, [], false, touched, {
+          id,
+          people: {
+            get: (person) =>
+              deps.auth.users().find((each) => each.id === person),
+            list: () => deps.auth.users(),
+            byName: (name) =>
+              deps.auth.users().find((each) => each.name === name),
+          },
+          routes: declared.routes,
+          events: {
+            ...pluginEvents(
+              deps.events,
+              definition,
+              deps.definitions,
+              (stop) => {
+                unsubscribes.push(stop);
+              },
+              log,
+            ),
+            declared: declaredEvents,
+          },
+          transcript,
+          urls: pluginUrls(id, deps.url),
+          clock: deps.clock,
+          log,
+          signal: AbortSignal.any([deps.signal, failed.signal]),
+        }),
+      );
+    } catch (error) {
+      for (const unsubscribe of unsubscribes) {
+        unsubscribe();
+      }
+
+      failed.abort();
+
+      const message = messageOf(error);
+      failures.set(id, message);
+      running.splice(running.indexOf(id), 1);
+      log("plugin failed to register", { error: message });
+
+      return;
+    }
+
+    extRoutes.push(...declared.declared);
+    settled.add(id);
+    used.set(id, touched);
+    deps.log("plugin registered", { plugin: id });
+  };
+
+  // One at a time, so a plugin loads after the ones it requires.
+  const ready = (async () => {
+    for (const definition of inOrder(
+      deps.definitions.filter(({ id }) => enabled.includes(id)),
+    )) {
+      await load(definition);
+    }
+  })();
 
   const info = (found: PluginManifest): PluginInfo => {
     const error = failures.get(found.id);
@@ -863,6 +936,8 @@ export function startPlugins(
 
   return {
     names: running,
+    ready,
+    extRoutes: () => extRoutes,
     list: () => manifests.map(info),
     checkUpdates: async () => {
       const latest = deps.installed?.latest;
@@ -1260,12 +1335,24 @@ export function startPlugins(
       void result()
         .catch((error: unknown) => ({ text: String(error), isError: true }))
         .then((reply) => {
-          sendResult(deps, session.id, call, {
-            actor: `plugin:${plugin ?? "kernel"}`,
-            type: "tool_result",
-            id: call.id,
+          const queued = deps.sessions.enqueue(session.id, {
+            kind: "tool_result",
+            generation: call.generation,
+            call: call.id,
             result: reply,
+            ...(plugin !== undefined && { plugin }),
+            actor: `plugin:${plugin ?? "kernel"}`,
           });
+
+          if (!queued.ok) {
+            deps.log("tool result dropped", {
+              sessionId: session.id,
+              generation: call.generation,
+              tool: call.name,
+              callId: call.id,
+              reason: queued.reason,
+            });
+          }
         });
     },
     toolsetTools: () => modelTools().map(({ spec }) => spec),
@@ -1358,109 +1445,37 @@ function pluginSessions(
     unarchive: (id) => {
       settle(sessions.unarchive(ownedHere(id)), "unarchived");
     },
-    send: (id, text, actor, notice) =>
-      sessions.send(
-        id,
-        notice
-          ? {
-              actor,
-              type: "notice",
-              text,
-              notice: { plugin, ...notice },
-              turn: true,
-            }
-          : { actor, type: "message", text, delivery: "followUp" },
-      ),
-    notify: (id, text, actor, notice) =>
-      sessions.send(
-        id,
-        notice
-          ? {
-              actor,
-              type: "notice",
-              text,
-              notice: { plugin, ...notice },
-              turn: false,
-            }
-          : { actor, type: "context", text },
-      ),
+    send: (id, text, actor, notice, dedupe) =>
+      sessions.enqueue(id, {
+        ...(notice
+          ? { kind: "notice", text, notice, turn: true }
+          : { kind: "message", text }),
+        plugin,
+        actor,
+        ...(dedupe !== undefined && { dedupe }),
+      }),
+    notify: (id, text, actor, notice, dedupe) =>
+      sessions.enqueue(id, {
+        ...(notice
+          ? { kind: "notice", text, notice, turn: false }
+          : { kind: "context", text }),
+        plugin,
+        actor,
+        ...(dedupe !== undefined && { dedupe }),
+      }),
+    bind: (key, sessionId) => {
+      settle(sessions.bind(plugin, key, sessionId), "bound");
+    },
+    boundTo: (key) => sessions.boundTo(plugin, key),
+    unbind: (key) => {
+      sessions.unbind(plugin, key);
+    },
     transcript: (id) => sessions.transcript(id),
     transcriptLength: (id) => sessions.transcriptLength(id),
     sees: (id, person) =>
       canSee({ id: person, admin: false }, sessions.owned(id)),
     voted: (id, opener, text) => sessions.voted(id, { opener, text }),
   };
-}
-
-const resultRetryMs = 1000;
-
-// A result that finds the command stream reconnecting waits for the same
-// attempt to come back. Like the projects outbox (ADR 0016), this holds only
-// what the server sends, never user input (ADR 0006).
-function sendResult(
-  deps: {
-    readonly sessions: Sessions;
-    readonly runners: {
-      readonly token: (environment: string, runner: string) => string;
-      readonly revoke: (environment: string, runner: string) => void;
-    };
-    readonly signal: AbortSignal;
-    readonly log: Log;
-  },
-  sessionId: string,
-  call: ToolCall,
-  command: Command,
-): void {
-  const fields = {
-    sessionId,
-    generation: call.generation,
-    tool: call.name,
-    callId: call.id,
-  };
-
-  const send = (): Result<undefined> =>
-    deps.sessions.isCurrent(sessionId, call.generation)
-      ? deps.sessions.send(sessionId, command)
-      : { ok: false, reason: "stale_generation" };
-
-  const sent = send();
-  if (sent.ok) {
-    return;
-  }
-
-  if (sent.reason !== "offline") {
-    deps.log("tool result dropped", { ...fields, reason: sent.reason });
-
-    return;
-  }
-
-  if (deps.signal.aborted) {
-    return;
-  }
-
-  deps.log("tool result waiting for the session", fields);
-
-  const stop = (): void => {
-    clearInterval(retry);
-    deps.signal.removeEventListener("abort", stop);
-  };
-
-  const retry = setInterval(() => {
-    const resent = send();
-    if (!resent.ok && resent.reason === "offline") {
-      return;
-    }
-
-    stop();
-
-    if (resent.ok) {
-      deps.log("tool result delivered", fields);
-    } else {
-      deps.log("tool result dropped", { ...fields, reason: resent.reason });
-    }
-  }, resultRetryMs);
-
-  deps.signal.addEventListener("abort", stop);
 }
 
 export interface InstalledPlugins {
@@ -1490,6 +1505,29 @@ export interface InstalledPlugins {
   readonly build: (id: string) => Promise<void>;
 }
 
+async function serverPart(
+  definition: PluginDefinition,
+): Promise<ServerPart | undefined> {
+  const loaded = (await definition.server?.())?.default;
+
+  if (loaded === undefined) {
+    return undefined;
+  }
+
+  if (
+    typeof loaded !== "object" ||
+    loaded === null ||
+    !("plugin" in loaded) ||
+    loaded.plugin !== definition
+  ) {
+    throw new Error(
+      `the server part of ${definition.id} isn't one defineServer made for it`,
+    );
+  }
+
+  return loaded as ServerPart;
+}
+
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -1498,13 +1536,13 @@ function messageOf(error: unknown): string {
 // shows. An installed plugin was trusted with what its manifest asked for, so
 // it reaches no further. It isn't a sandbox: the plugin runs in the server's
 // process (ADR 0022).
-function recorded(
+function recorded<C extends object>(
   plugin: string,
   trusted: readonly Capability[],
   installed: boolean,
   touched: Set<Capability>,
-  context: ServerContext<PluginDefinition>,
-): ServerContext<PluginDefinition> {
+  context: C,
+): C {
   return new Proxy(context, {
     get: (target, key, receiver) => {
       if (installed && key === "auth") {
@@ -1528,30 +1566,31 @@ function recorded(
   });
 }
 
-// A plugin registers after the ones it requires.
-function inOrder(plugins: readonly ServerPlugin[]): ServerPlugin[] {
-  const sorted: ServerPlugin[] = [];
+// A plugin loads after the ones it requires.
+function inOrder(definitions: readonly PluginDefinition[]): PluginDefinition[] {
+  const sorted: PluginDefinition[] = [];
 
-  const visit = (plugin: ServerPlugin, seen: readonly string[]): void => {
-    if (sorted.includes(plugin) || seen.includes(plugin.name)) {
+  const visit = (
+    definition: PluginDefinition,
+    seen: readonly string[],
+  ): void => {
+    if (sorted.includes(definition) || seen.includes(definition.id)) {
       return;
     }
 
-    for (const [id, need] of Object.entries(
-      plugin.definition?.requires ?? {},
-    )) {
-      const required = plugins.find(({ name }) => name === id);
+    for (const [id, need] of Object.entries(definition.requires ?? {})) {
+      const required = definitions.find((each) => each.id === id);
 
       if (need === "required" && required !== undefined) {
-        visit(required, [...seen, plugin.name]);
+        visit(required, [...seen, definition.id]);
       }
     }
 
-    sorted.push(plugin);
+    sorted.push(definition);
   };
 
-  for (const plugin of plugins) {
-    visit(plugin, []);
+  for (const definition of definitions) {
+    visit(definition, []);
   }
 
   return sorted;

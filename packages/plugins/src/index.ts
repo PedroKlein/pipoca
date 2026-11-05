@@ -1,4 +1,5 @@
 export { checkBody, readBody } from "./body";
+export { type ClientOptions, pluginClient, type TypedClient } from "./client";
 export { type ConfigSecrets, configOf, kernelConfig } from "./config";
 export {
   Config,
@@ -23,6 +24,7 @@ export {
 export {
   BadRequest,
   fieldsOf,
+  Forbidden,
   HttpError,
   isHttpError,
   isObject,
@@ -30,15 +32,6 @@ export {
   readJson,
   requireAdmin,
 } from "./http";
-export {
-  defineServer,
-  type People,
-  type Person,
-  type PluginEvents,
-  type ServerContext,
-  type ToolResultEntry,
-  type Transcript,
-} from "./server";
 export { type Static, Type } from "typebox";
 export { canSee, owners } from "./owners";
 export {
@@ -48,6 +41,25 @@ export {
   type SecretRefs,
   secretRefs,
 } from "./secrets";
+export {
+  type Auth,
+  type Caller,
+  defineServer,
+  type Handler,
+  type Params,
+  type People,
+  type Person,
+  type PluginEvents,
+  type RouteInput,
+  type Routes,
+  type RouteSpec,
+  type ScopedRoutes,
+  type ServerContext,
+  type ServerPart,
+  type ToolResultEntry,
+  type Transcript,
+  type Urls,
+} from "./server";
 export type { Schedule, Scheduled } from "./schedule";
 export { checkedSettings, settingSpecs, settingValues } from "./settings";
 export type {

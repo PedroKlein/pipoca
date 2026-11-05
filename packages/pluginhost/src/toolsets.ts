@@ -40,7 +40,7 @@ const pluginInstructions = `An in-place plugin is a folder in the server's plugi
 
 Its package.json has "type": "module", any npm "dependencies" its parts import, and a "pipoca" field:
 - id (the folder's name), title, description, engine: 1, and an optional version;
-- capabilities: the parts of the server context its server part uses, some of tools, toolsets, events, sessions, environments, profiles, routes, models, people, transcript;
+- capabilities: the parts of the server context its server part uses, some of tools, toolsets, events, sessions, environments, profiles, routes, models;
 - parts: server, web and session, each a TypeScript or JavaScript file, all optional;
 - ownSessionsOnly: true to load its Session part only in the Sessions its server part owns;
 - works: ["personal", "team"] for a plugin that works in team work; without "team" its tools and Session and web parts never load in team Sessions, and admins turn it on there in Team setup;
