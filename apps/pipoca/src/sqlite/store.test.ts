@@ -638,3 +638,70 @@ test("removes a plugin's rows with the Session, Environment or person they point
   expect(again.sessions.get("s-vm")).toBeUndefined();
   again.close();
 });
+
+test("keeps who said what in a Session as an actor, once per request", () => {
+  const path = join(root, "server.db");
+  const store = openStore(path);
+
+  store.people.insertUser({
+    id: "ana",
+    name: "ana",
+    admin: false,
+    passwordHash: "",
+    createdAt: "2026-11-01T00:00:00.000Z",
+  });
+
+  store.environments.ensureEnvironment("vm", "ana");
+  const [environment] = store.environments.environments();
+  defaultProfile = store.sessions.defaultProfileId("ana");
+
+  store.sessions.insert(
+    sessionIn(environment?.id ?? "", "vm", {
+      id: "s1",
+      createdAt: "2026-11-02T00:00:00.000Z",
+    }),
+  );
+
+  const said = {
+    kind: "team",
+    actor: "user:ana",
+    at: "2026-11-02T00:00:01.000Z",
+    text: "Ship it?",
+    requestId: "r1",
+  } as const;
+
+  const kept = [
+    store.sessions.addVoice("s1", said),
+    store.sessions.addVoice("s1", said),
+  ];
+
+  store.close();
+
+  const db = new DatabaseSync(path);
+
+  const insert = (actor: string, userId: string | null): void => {
+    db.prepare(
+      "insert into session_messages (session_id, seq, kind, actor, user_id, at) values ('s1', 9, 'team', ?, ?, 0)",
+    ).run(actor, userId);
+  };
+
+  expect(kept).toEqual([true, false]);
+
+  expect(() => {
+    insert("pi", null);
+  }).toThrow("CHECK constraint failed");
+
+  expect(() => {
+    insert("user:", null);
+  }).toThrow("CHECK constraint failed");
+
+  expect(() => {
+    insert("user:bo", "ana");
+  }).toThrow("CHECK constraint failed");
+
+  expect(
+    db.prepare("select actor, user_id, request_id from session_messages").all(),
+  ).toEqual([{ actor: "user:ana", user_id: "ana", request_id: "r1" }]);
+
+  db.close();
+});

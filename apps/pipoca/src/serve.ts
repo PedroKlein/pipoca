@@ -91,6 +91,8 @@ const serverPlugins: readonly ServerPlugin[] = [
 ];
 
 const updateCheckMs = 6 * 60 * 60_000;
+const outboxSweepMs = 5000;
+
 export interface ServeOptions {
   // 127.0.0.1 unless a proxy or other machines reach the server directly.
   readonly hostname?: string;
@@ -295,6 +297,7 @@ export function serve(options: ServeOptions): {
     gitLogins: (userId, session) => pluginHost.gitLogins(userId, session),
     teamMessagesRead: team.messagesRead,
     names: (person) => people.userById(person)?.name,
+    log: options.log,
     docs: sessionDocs(
       folder === undefined
         ? []
@@ -437,6 +440,10 @@ export function serve(options: ServeOptions): {
   const checkingUpdates = setInterval(() => {
     void pluginHost.checkUpdates();
   }, updateCheckMs);
+
+  const flushingOutbox = setInterval(() => {
+    sessions.flushOutbox();
+  }, outboxSweepMs);
 
   const api = createApi({
     people,
@@ -630,6 +637,7 @@ export function serve(options: ServeOptions): {
     stop: async () => {
       clearTimeout(syncing);
       clearInterval(checkingUpdates);
+      clearInterval(flushingOutbox);
       agentStop.abort();
       pluginsStop.abort();
       await agent;

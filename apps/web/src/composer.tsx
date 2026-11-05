@@ -231,7 +231,12 @@ export function Composer({
     if (toPeople) {
       api("sessions.messages.create", {
         params: { id: sessionId },
-        body: { to: target, text: message, ...(quote && { quote }) },
+        body: {
+          to: target,
+          text: message,
+          ...(quote && { quote }),
+          requestId: crypto.randomUUID(),
+        },
       }).catch(restore);
 
       return;

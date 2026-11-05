@@ -27,7 +27,6 @@ import {
   type Actor,
   type Capability,
   capabilities,
-  type Command,
   type GitLogin,
   type PluginInfo,
   type PluginManifest,
@@ -38,12 +37,7 @@ import {
   type ToolSpec,
 } from "@pipoca/protocol";
 import type { Log } from "@pipoca/protocol";
-import type {
-  PluginProfile,
-  Result,
-  SessionPlugins,
-  Sessions,
-} from "@pipoca/sessions";
+import type { PluginProfile, SessionPlugins, Sessions } from "@pipoca/sessions";
 import {
   routeToolQuestion,
   runRouteTool,
@@ -1175,12 +1169,24 @@ export function startPlugins(
       void result()
         .catch((error: unknown) => ({ text: String(error), isError: true }))
         .then((reply) => {
-          sendResult(deps, session.id, call, {
-            actor: `plugin:${plugin ?? "kernel"}`,
-            type: "tool_result",
-            id: call.id,
+          const queued = deps.sessions.enqueue(session.id, {
+            kind: "tool_result",
+            generation: call.generation,
+            call: call.id,
             result: reply,
+            ...(plugin !== undefined && { plugin }),
+            actor: `plugin:${plugin ?? "kernel"}`,
           });
+
+          if (!queued.ok) {
+            deps.log("tool result dropped", {
+              sessionId: session.id,
+              generation: call.generation,
+              tool: call.name,
+              callId: call.id,
+              reason: queued.reason,
+            });
+          }
         });
     },
     toolsetTools: () => modelTools().map(({ spec }) => spec),
@@ -1273,109 +1279,37 @@ function pluginSessions(
     unarchive: (id) => {
       settle(sessions.unarchive(ownedHere(id)), "unarchived");
     },
-    send: (id, text, actor, notice) =>
-      sessions.send(
-        id,
-        notice
-          ? {
-              actor,
-              type: "notice",
-              text,
-              notice: { plugin, ...notice },
-              turn: true,
-            }
-          : { actor, type: "message", text, delivery: "followUp" },
-      ),
-    notify: (id, text, actor, notice) =>
-      sessions.send(
-        id,
-        notice
-          ? {
-              actor,
-              type: "notice",
-              text,
-              notice: { plugin, ...notice },
-              turn: false,
-            }
-          : { actor, type: "context", text },
-      ),
+    send: (id, text, actor, notice, dedupe) =>
+      sessions.enqueue(id, {
+        ...(notice
+          ? { kind: "notice", text, notice, turn: true }
+          : { kind: "message", text }),
+        plugin,
+        actor,
+        ...(dedupe !== undefined && { dedupe }),
+      }),
+    notify: (id, text, actor, notice, dedupe) =>
+      sessions.enqueue(id, {
+        ...(notice
+          ? { kind: "notice", text, notice, turn: false }
+          : { kind: "context", text }),
+        plugin,
+        actor,
+        ...(dedupe !== undefined && { dedupe }),
+      }),
+    bind: (key, sessionId) => {
+      settle(sessions.bind(plugin, key, sessionId), "bound");
+    },
+    boundTo: (key) => sessions.boundTo(plugin, key),
+    unbind: (key) => {
+      sessions.unbind(plugin, key);
+    },
     transcript: (id) => sessions.transcript(id),
     transcriptLength: (id) => sessions.transcriptLength(id),
     sees: (id, person) =>
       canSee({ id: person, admin: false }, sessions.owned(id)),
     voted: (id, opener, text) => sessions.voted(id, { opener, text }),
   };
-}
-
-const resultRetryMs = 1000;
-
-// A result that finds the command stream reconnecting waits for the same
-// attempt to come back. Like the projects outbox (ADR 0016), this holds only
-// what the server sends, never user input (ADR 0006).
-function sendResult(
-  deps: {
-    readonly sessions: Sessions;
-    readonly runners: {
-      readonly token: (environment: string, runner: string) => string;
-      readonly revoke: (environment: string, runner: string) => void;
-    };
-    readonly signal: AbortSignal;
-    readonly log: Log;
-  },
-  sessionId: string,
-  call: ToolCall,
-  command: Command,
-): void {
-  const fields = {
-    sessionId,
-    generation: call.generation,
-    tool: call.name,
-    callId: call.id,
-  };
-
-  const send = (): Result<undefined> =>
-    deps.sessions.isCurrent(sessionId, call.generation)
-      ? deps.sessions.send(sessionId, command)
-      : { ok: false, reason: "stale_generation" };
-
-  const sent = send();
-  if (sent.ok) {
-    return;
-  }
-
-  if (sent.reason !== "offline") {
-    deps.log("tool result dropped", { ...fields, reason: sent.reason });
-
-    return;
-  }
-
-  if (deps.signal.aborted) {
-    return;
-  }
-
-  deps.log("tool result waiting for the session", fields);
-
-  const stop = (): void => {
-    clearInterval(retry);
-    deps.signal.removeEventListener("abort", stop);
-  };
-
-  const retry = setInterval(() => {
-    const resent = send();
-    if (!resent.ok && resent.reason === "offline") {
-      return;
-    }
-
-    stop();
-
-    if (resent.ok) {
-      deps.log("tool result delivered", fields);
-    } else {
-      deps.log("tool result dropped", { ...fields, reason: resent.reason });
-    }
-  }, resultRetryMs);
-
-  deps.signal.addEventListener("abort", stop);
 }
 
 export interface InstalledPlugins {

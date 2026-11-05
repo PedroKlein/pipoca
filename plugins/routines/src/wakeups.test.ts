@@ -152,23 +152,6 @@ test("a wake-up at a time comes then", async () => {
   expect(sent).toHaveLength(1);
 });
 
-test("a wake-up for an offline Session waits for it to come online", async () => {
-  let online = false;
-
-  const { sent, call } = start(() =>
-    online ? { ok: true } : { ok: false, reason: "offline" },
-  );
-
-  await call({ delay_minutes: 1, reason: "Later", message: "Carry on." });
-
-  minutes(1);
-  expect(sent).toEqual([]);
-
-  online = true;
-  jest.advanceTimersByTime(30_000);
-  expect(sent).toHaveLength(1);
-});
-
 test("a wake-up for a Session that is gone is dropped", async () => {
   let calls = 0;
 
