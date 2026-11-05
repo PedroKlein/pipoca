@@ -117,6 +117,10 @@ export interface PluginTest {
     readonly now: () => number;
     readonly advance: (by: Duration) => Promise<void>;
   };
+  // Writes the plugin's key in pipoca.json, as someone editing the file.
+  readonly editConfig: (
+    config: Readonly<Record<string, unknown>>,
+  ) => Promise<void>;
   // Stops the server and starts a new one on the same database.
   readonly restart: () => Promise<void>;
   readonly store: Store;

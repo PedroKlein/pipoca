@@ -88,6 +88,28 @@ const keys = defineServer(
       run: () => "wiped",
     });
 
+    tools.define({
+      name: "burn_keys",
+      description: "Burns the keys",
+      params: Type.Object({}),
+      asks: () => {
+        throw new Error("lookup failed");
+      },
+      run: () => "burned",
+    });
+
+    tools.define({
+      name: "hidden_keys",
+      description: "Shows hidden keys",
+      params: Type.Object({}),
+      when: {
+        available: () => {
+          throw new Error("availability broke");
+        },
+      },
+      run: () => "hidden keys",
+    });
+
     const profile = provide.profile("desk", desk, { routeTools: true });
 
     routes.post(
@@ -131,13 +153,54 @@ const keys = defineServer(
   },
 );
 
+// A list for each person and one for the team, read by a route tool.
+const lists = defineServer(
+  definePlugin({
+    id: "lists",
+    title: "Lists",
+    description: "Keeps lists.",
+    works: ["personal", "team"],
+  }),
+  ({ routes, sessions, provide }) => {
+    const profile = provide.profile(
+      "planner",
+      { ...desk, name: "Planner" },
+      { team: true, routeTools: true },
+    );
+
+    routes.get(
+      "lists",
+      {
+        auth: "person",
+        team: true,
+        tool: { name: "lists_read", description: "Reads the list" },
+      },
+      ({ caller }) => ({ owner: caller.owner }),
+    );
+
+    routes.post(
+      "planners",
+      { auth: "person", body: Type.Object({ environment: Type.String() }) },
+      ({ caller, body }) =>
+        sessions.start({
+          actor: `user:${caller.person.id}`,
+          environment: body.environment,
+          profile,
+          team: true,
+          key: "planner",
+          workspace: { kind: "folder", path: root },
+        }),
+    );
+  },
+);
+
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "server-tools-"));
   ran.length = 0;
 
   server = testServer({
     runners: { pollWaitMs: 0 },
-    servers: [keys],
+    servers: [keys, lists],
   });
 });
 
@@ -344,6 +407,71 @@ test("says a tool asks, and what to ask the person, before every call", async ()
   expect(await question(token, assigned, "count_keys", { count: 3 })).toBe(
     null,
   );
+});
+
+test("still asks the person before a tool whose question throws", async () => {
+  const { token, environment } = await laptop();
+  await ordinary(environment);
+  const assigned = await claim(token);
+
+  expect(await question(token, assigned, "burn_keys", {})).toBe(
+    "Run burn_keys?",
+  );
+
+  expect(server.logs.some((line) => line.includes("lookup failed"))).toBe(true);
+});
+
+test("leaves out only the tool whose availability check throws", async () => {
+  const { token, environment } = await laptop();
+  await ordinary(environment);
+  const assigned = await claim(token);
+
+  const names = (await toolsOf(token, assigned)).map(({ name }) => name);
+
+  expect(names).toContain("count_keys");
+  expect(names).not.toContain("hidden_keys");
+
+  expect(await call(token, assigned, "hidden_keys", {})).toEqual({
+    text: "no tool named hidden_keys",
+    isError: true,
+  });
+
+  expect(server.logs.some((line) => line.includes("availability broke"))).toBe(
+    true,
+  );
+});
+
+test("runs a team route's tool on the team's half in a team Session", async () => {
+  const office = await json<{ id: string; key: string }>(
+    server.api("/api/environments", { body: { name: "office", team: true } }),
+  );
+
+  const { token } = await json<{ token: string }>(
+    fetch(new URL("/runner/join", server.url), {
+      method: "POST",
+      headers: runnerHeaders(office.key),
+      body: JSON.stringify({ name: "office" }),
+    }),
+  );
+
+  const session = await json<Session>(
+    server.api("/api/ext/lists/planners", { body: { environment: office.id } }),
+  );
+
+  expect(session.ownedBy).toBe("team");
+
+  const assigned = await claim(token, session.id);
+
+  expect(
+    (await toolsOf(token, assigned)).filter(
+      ({ name }) => name === "lists_read",
+    ),
+  ).toHaveLength(1);
+
+  expect(await call(token, assigned, "lists_read", {})).toEqual({
+    text: JSON.stringify({ owner: "team" }),
+    isError: false,
+  });
 });
 
 test("loads every route tool only in Sessions on a Profile that asks for them", async () => {

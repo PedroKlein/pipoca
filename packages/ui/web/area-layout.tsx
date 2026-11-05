@@ -29,6 +29,7 @@ export function AreaLayout({
   label,
   back,
   heading,
+  mark,
   detail,
   groups,
   footer,
@@ -42,6 +43,8 @@ export function AreaLayout({
   readonly label: string;
   readonly back: { readonly href: string; readonly label: string };
   readonly heading: string;
+  // A square before the heading, such as the team's initial.
+  readonly mark?: ReactNode;
   // A line under the heading, such as how many people there are.
   readonly detail?: ReactNode;
   readonly groups: readonly AreaGroup[];
@@ -64,7 +67,7 @@ export function AreaLayout({
       <nav
         aria-label={label}
         className={cn(
-          "flex w-62 shrink-0 flex-col gap-px overflow-y-auto border-r border-line bg-panel px-3 pt-4 pb-6",
+          "flex w-58 shrink-0 flex-col gap-px overflow-y-auto border-r border-line bg-panel px-3 pt-4 pb-6",
           bar
             ? "max-md:w-full max-md:flex-row max-md:flex-wrap max-md:items-center max-md:border-r-0 max-md:border-b max-md:py-2"
             : "max-md:hidden",
@@ -77,13 +80,16 @@ export function AreaLayout({
           <Icon name="chevron-left" />
           {back.label}
         </a>
-        <div className="px-2.5 pt-0.5 pb-1.5 max-md:hidden">
-          <h2 className="truncate font-serif text-wordmark font-light text-fg-strong">
-            {heading}
-          </h2>
-          {detail !== undefined && (
-            <p className="mt-1 text-caption text-fg-dim">{detail}</p>
-          )}
+        <div className="flex items-center gap-2.5 px-2.5 pt-0.5 pb-1.5 max-md:hidden">
+          {mark}
+          <div className="min-w-0">
+            <h2 className="truncate font-serif text-wordmark font-light text-fg-strong">
+              {heading}
+            </h2>
+            {detail !== undefined && (
+              <p className="mt-1 text-caption text-fg-dim">{detail}</p>
+            )}
+          </div>
         </div>
         {groups
           .filter(({ items }) => items.length > 0)
@@ -155,6 +161,8 @@ function PhoneMenu({
 }: {
   readonly back: { readonly href: string; readonly label: string };
   readonly heading: string;
+  // A square before the heading, such as the team's initial.
+  readonly mark?: ReactNode;
   readonly groups: readonly AreaGroup[];
   readonly top: ReactNode;
 }): ReactElement {

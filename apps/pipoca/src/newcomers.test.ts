@@ -57,6 +57,82 @@ test("refuses what new people get when it doesn't fit", async () => {
   expect((await newcomers({ template: 3 })).status).toBe(422);
 });
 
+async function joinInfo(): Promise<unknown> {
+  const [link] = (await (
+    await server.api("/api/invites", { body: {} })
+  ).json()) as { readonly token: string }[];
+
+  return (
+    await fetch(new URL(`/api/auth/invites/${link?.token ?? ""}`, server.url))
+  ).json();
+}
+
+test("an invite shows what the team set up and what's left to the newcomer", async () => {
+  expect(await joinInfo()).toMatchObject({
+    team: null,
+    setUp: [],
+    yours: [
+      { title: "Where Pi works", optional: false },
+      { title: "Your Profile", optional: true },
+    ],
+  });
+
+  const template = (await (
+    await server.api("/api/environment-templates", {
+      body: { name: "Cluster pods", setupScript: "" },
+    })
+  ).json()) as { readonly id: string };
+
+  const backend = (await (
+    await server.api("/api/profiles", {
+      body: { name: "Backend", shared: true, agentsMd: "Go" },
+    })
+  ).json()) as { readonly id: string };
+
+  await server.api("/api/settings/base-profile", {
+    method: "PUT",
+    body: {
+      agentsMd: "House rules.",
+      packages: ["npm:review-skills"],
+      mcpServers: { linear: { url: "https://mcp.linear.app/sse" } },
+    },
+  });
+
+  await server.api("/api/settings/team", {
+    method: "PUT",
+    body: { name: "Platform" },
+  });
+
+  await newcomers({
+    template: template.id,
+    profiles: [backend.id],
+    required: ["git-hosts", "profile"],
+  });
+
+  expect(await joinInfo()).toMatchObject({
+    team: "Platform",
+    setUp: [
+      {
+        title: "Cluster pods",
+        summary: "You get your own Environment from it",
+      },
+      {
+        title: "Team base Profile",
+        summary: "Instructions, 1 package, linear",
+      },
+      { title: "Profiles to pick from", summary: "Backend" },
+    ],
+    yours: [
+      { title: "Git hosts", summary: "Your team asks for it", optional: false },
+      {
+        title: "Your Profile",
+        summary: "One of the team's, or your own",
+        optional: false,
+      },
+    ],
+  });
+});
+
 test("keeps what new people get to signed-in people", async () => {
   expect(
     (await fetch(new URL("/api/settings/newcomers", server.url))).status,
