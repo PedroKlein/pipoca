@@ -14,12 +14,14 @@ import {
   Icon,
   isComposing,
   Picker,
+  Segmented,
   Slider,
 } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
   type SubmitEvent,
+  useContext,
   useEffect,
   useEffectEvent,
   useRef,
@@ -27,6 +29,15 @@ import {
 } from "react";
 import { modelOptions, rememberModel, shownModels } from "@pipoca/plugins/web";
 import { api } from "../api";
+import {
+  useEnvironments,
+  useProfiles,
+  useSessions,
+  useTeamEnvironments,
+  useTeamProfiles,
+  useTeamSessions,
+} from "../hooks";
+import { Me } from "../me";
 import { modelRef } from "../names";
 import { searchRepositories } from "../plugins";
 import {
@@ -43,17 +54,12 @@ import {
 
 export function NewSessionDialog({
   open,
-  environments,
-  profiles,
-  sessions,
   team = false,
   onClose,
 }: {
   readonly open: boolean;
-  readonly environments: readonly Environment[];
-  readonly profiles: readonly Profile[];
-  readonly sessions: readonly Session[];
-  // Starts team work, on the team's Environments and Profiles (ADR 0064).
+  // Starts on team work, on the team's Environments and Profiles
+  // (ADR 0064).
   readonly team?: boolean;
   readonly onClose: () => void;
 }): ReactElement {
@@ -66,31 +72,97 @@ export function NewSessionDialog({
       sheet
       initialFocus="textarea"
     >
-      <NewSessionForm
-        environments={environments}
-        profiles={profiles}
-        sessions={sessions}
-        team={team}
-        placeholder={
-          team
-            ? "What should the team's Pi do? Anyone on the team can follow it."
-            : "What should Pi do? Leave it empty to start idle."
-        }
-        onStarted={onClose}
-      >
-        <header className="flex items-center gap-2 pt-3 pr-3 pb-1 pl-5">
-          <h2
-            id="new-session-title"
-            className="flex-1 text-ui font-semibold text-fg-strong"
-          >
-            {team ? "Start team work" : "New session"}
-          </h2>
-          <Button variant="ghost" iconOnly aria-label="Close" onClick={onClose}>
-            <Icon name="x" />
-          </Button>
-        </header>
-      </NewSessionForm>
+      <Starter team={team} onClose={onClose} />
     </Dialog>
+  );
+}
+
+// On a server with a team, whose work it is switches between the person's
+// own and the team's, which the team owns (ADR 0064).
+function Starter({
+  team,
+  onClose,
+}: {
+  readonly team: boolean;
+  readonly onClose: () => void;
+}): ReactElement {
+  const [forTeam, setForTeam] = useState(team);
+  const hasTeam = useContext(Me).team;
+
+  const header = (
+    <header className="flex flex-col gap-2 pt-3 pr-3 pb-1 pl-5">
+      <div className="flex items-center gap-2">
+        <h2
+          id="new-session-title"
+          className="flex-1 text-ui font-semibold text-fg-strong"
+        >
+          {forTeam ? "Start team work" : "New session"}
+        </h2>
+        <Button variant="ghost" iconOnly aria-label="Close" onClick={onClose}>
+          <Icon name="x" />
+        </Button>
+      </div>
+      {hasTeam && (
+        <Segmented
+          label="Whose work"
+          value={forTeam ? "team" : "mine"}
+          options={[
+            { value: "mine", label: "Just me" },
+            { value: "team", label: "The team" },
+          ]}
+          onChange={(whose) => {
+            setForTeam(whose === "team");
+          }}
+        />
+      )}
+    </header>
+  );
+
+  return forTeam ? (
+    <TeamForm onStarted={onClose}>{header}</TeamForm>
+  ) : (
+    <OwnForm onStarted={onClose}>{header}</OwnForm>
+  );
+}
+
+function OwnForm({
+  onStarted,
+  children,
+}: {
+  readonly onStarted: () => void;
+  readonly children: ReactNode;
+}): ReactElement {
+  return (
+    <NewSessionForm
+      environments={useEnvironments().value}
+      profiles={useProfiles().value}
+      sessions={useSessions(false).value}
+      placeholder="What should Pi do? Leave it empty to start idle."
+      onStarted={onStarted}
+    >
+      {children}
+    </NewSessionForm>
+  );
+}
+
+function TeamForm({
+  onStarted,
+  children,
+}: {
+  readonly onStarted: () => void;
+  readonly children: ReactNode;
+}): ReactElement {
+  return (
+    <NewSessionForm
+      environments={useTeamEnvironments().value}
+      profiles={useTeamProfiles().value}
+      sessions={useTeamSessions().value}
+      team
+      placeholder="What should the team's Pi do? Anyone on the team can follow it."
+      onStarted={onStarted}
+    >
+      {children}
+    </NewSessionForm>
   );
 }
 
@@ -396,13 +468,15 @@ export function NewSessionForm({
           {choices.thinking !== "" && ` · ${choices.thinking}`}
         </Picker>
 
-        {profiles.length > 1 && (
+        {(team ? profiles.length > 0 : profiles.length > 1) && (
           <Picker
             label="Profile"
             options={profiles.map(({ id, name, isDefault }) => ({
               value: id,
               label: name,
-              ...(isDefault && { detail: "default" }),
+              ...(team
+                ? { group: "Team Profiles, set up by admins" }
+                : isDefault && { detail: "default" }),
             }))}
             selected={profile ? [profile.id] : []}
             onChange={([id]) => {

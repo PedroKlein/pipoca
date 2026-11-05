@@ -4190,7 +4190,28 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
   await page.getByRole("button", { name: "Start team work" }).click();
 
   const form = page.getByRole("dialog", { name: "Start team work" });
+  const whose = form.getByRole("group", { name: "Whose work" });
 
+  await whose
+    .getByRole("button", { name: "The team", pressed: true })
+    .waitFor();
+
+  await whose.getByRole("button", { name: "Just me" }).click();
+
+  await page
+    .getByRole("dialog", { name: "New session" })
+    .getByRole("group", { name: "Whose work" })
+    .getByRole("button", { name: "The team" })
+    .click();
+
+  await form.getByRole("button", { name: "Profile" }).click();
+
+  await form
+    .getByRole("listbox", { name: "Profile" })
+    .getByText("Team Profiles, set up by admins")
+    .waitFor();
+
+  await page.keyboard.press("Escape");
   await form.getByRole("button", { name: "Folder or repository" }).click();
 
   const search = form.getByRole("combobox", { name: "Folder or repository" });

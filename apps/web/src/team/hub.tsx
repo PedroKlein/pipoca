@@ -6,7 +6,6 @@ import {
   useHubLayout,
   useTeamEnvironments,
   useTeammates,
-  useTeamProfiles,
   useTeamSessions,
 } from "../hooks";
 import { NewSessionDialog } from "../shell/new-session";
@@ -35,7 +34,6 @@ export function TeamHub({
   const people = useTeammates();
   const sessions = useTeamSessions();
   const environments = useTeamEnvironments();
-  const profiles = useTeamProfiles();
   const layout = useHubLayout();
   const [starting, setStarting] = useState(false);
   const pages = pagesOf(layout.pages);
@@ -184,9 +182,6 @@ export function TeamHub({
       <NewSessionDialog
         open={starting}
         team
-        environments={environments.value}
-        profiles={profiles.value}
-        sessions={sessions.value}
         onClose={() => {
           setStarting(false);
         }}
