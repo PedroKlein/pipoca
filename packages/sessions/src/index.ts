@@ -12,3 +12,4 @@ export {
   type StoredSession,
   type StoredVoice,
 } from "./sessions";
+export { transcriptReader } from "./transcript";

@@ -269,7 +269,13 @@ export function serve(options: ServeOptions): {
     options.secretKey,
     profiles,
     clock,
-    plugins.filter(({ name }) => enabled.includes(name)),
+    [
+      ...plugins,
+      ...definitions.map(({ id, schema }) => ({
+        name: id,
+        ...(schema !== undefined && { schema }),
+      })),
+    ].filter(({ name }) => enabled.includes(name)),
   );
 
   // A Session on the server's own runner would share the server pod's files,

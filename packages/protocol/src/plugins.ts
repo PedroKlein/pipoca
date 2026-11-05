@@ -64,6 +64,8 @@ export const capabilities = [
   "profiles",
   "routes",
   "models",
+  "people",
+  "transcript",
 ] as const;
 
 export type Capability = (typeof capabilities)[number];

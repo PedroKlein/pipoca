@@ -14,7 +14,13 @@ export {
   type TConfig,
   type TSecret,
 } from "./definition";
-export { type EventBus, eventBus } from "./events";
+export {
+  type EventBus,
+  eventBus,
+  type KernelEventOf,
+  pluginEvents,
+  type TypedBus,
+} from "./events";
 export {
   BadRequest,
   fieldsOf,
@@ -41,13 +47,17 @@ export {
   defineServer,
   type Handler,
   type Params,
+  type People,
   type Person,
+  type PluginEvents,
   type RouteInput,
   type Routes,
   type RouteSpec,
   type ScopedRoutes,
   type ServerContext,
   type ServerPart,
+  type ToolResultEntry,
+  type Transcript,
   type Urls,
 } from "./server";
 export type { Schedule, Scheduled } from "./schedule";

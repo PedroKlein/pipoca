@@ -125,6 +125,7 @@ test("saves a plugin's settings, refusing values that don't fit", async () => {
   expect(listed).toEqual([
     {
       ...greeter,
+      capabilities: [],
       source: "built-in",
       state: "on",
       turnedOn: true,
@@ -310,7 +311,7 @@ test("turns off a plugin that throws while it registers and keeps the rest", asy
   ).toEqual(["shared"]);
 });
 
-test("fails a built-in plugin that reaches past the capabilities it declared, as an installed one", async () => {
+test("lists what a built-in plugin reaches of its context, whatever its manifest says", async () => {
   start([
     {
       name: "greeter",
@@ -330,21 +331,16 @@ test("fails a built-in plugin that reaches past the capabilities it declared, as
     await server.api("/api/plugins")
   ).json()) as PluginInfo[];
 
-  expect(listed.map(({ id, state, error }) => ({ id, state, error }))).toEqual([
-    {
-      id: "greeter",
-      state: "failed",
-      error:
-        "greeter uses sessions without declaring it in pipoca.capabilities",
-    },
-    {
-      id: "unlisted",
-      state: "failed",
-      error: "unlisted uses routes without declaring it in pipoca.capabilities",
-    },
+  expect(
+    listed.map(({ id, state, capabilities }) => ({ id, state, capabilities })),
+  ).toEqual([
+    { id: "greeter", state: "on", capabilities: ["sessions"] },
+    { id: "unlisted", state: "on", capabilities: ["routes"] },
   ]);
 
-  expect((await server.api("/api/ext/unlisted/anything")).status).toBe(404);
+  expect(await (await server.api("/api/ext/unlisted/anything")).json()).toEqual(
+    { reached: true },
+  );
 });
 
 test("gives a Session part its defaults when the server sends no settings", async () => {
