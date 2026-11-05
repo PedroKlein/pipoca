@@ -518,6 +518,15 @@ export type TeamName = Wire<typeof teamName>;
 
 export const teamNameChange = Type.Partial(teamName);
 
+// The team as the server reads it, with how many of its messages since its
+// last turn Pi reads (ADR 0065).
+export const teamView = Type.Object({
+  ...teamName.properties,
+  messagesRead: Type.Integer({ minimum: 1 }),
+});
+
+export type TeamView = Wire<typeof teamView>;
+
 // What admins set up for people who join (ADR 0063): the Environment
 // template they get one from, the shared Profiles they pick from, and the
 // setup steps they can't skip.

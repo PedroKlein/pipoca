@@ -35,7 +35,9 @@ import {
   setupChange,
   teamMessage,
   type Teammate,
+  teamMessagesRead,
   teamNameChange,
+  type TeamView,
   versionHeader,
 } from "@pipoca/protocol";
 import { VERSION as piVersion } from "@earendil-works/pi-coding-agent";
@@ -974,7 +976,11 @@ export function createHandler(
     [
       "GET",
       /^\/api\/team$/,
-      () => Response.json(teamName?.get() ?? { name: null }),
+      () =>
+        Response.json({
+          ...(teamName?.get() ?? { name: null }),
+          messagesRead: teamName?.messagesRead() ?? teamMessagesRead,
+        } satisfies TeamView),
     ],
     [
       "PUT",

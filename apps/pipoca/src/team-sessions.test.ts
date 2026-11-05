@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -721,6 +721,83 @@ test("Pi reads what the team said since its last turn, with names and replies, b
   expect(kinds).toEqual(["team", "aside", "message"]);
 });
 
+test("Pi reads only as many of the team's messages as pipoca.json says", async () => {
+  const anas = await ana();
+  const bos = await member("bo");
+  const team = await teamSetup();
+
+  await mkdir(join(root, "config"), { recursive: true });
+
+  await writeFile(
+    join(root, "config", "pipoca.json"),
+    JSON.stringify({ team: { name: "Acme", messagesRead: 1 } }),
+  );
+
+  expect(await json(server.api("/api/team"))).toEqual({
+    name: "Acme",
+    messagesRead: 1,
+  });
+
+  const session = await json<Session>(
+    server.as(anas)("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        profile: team.profile,
+        workspace: workspace(),
+      },
+    }),
+  );
+
+  for (const text of ["First", "Second"]) {
+    await server.as(bos)(`/api/sessions/${session.id}/say`, {
+      body: { to: "team", text },
+    });
+  }
+
+  const [assigned] = await poll(team.runner);
+
+  await server.as(anas)(`/api/sessions/${session.id}/commands`, {
+    body: { type: "message", text: "Go on" },
+  });
+
+  const commands = readSse(
+    await fetch(
+      new URL(
+        `/agent/sessions/${session.id}/commands?generation=${String(assigned?.generation)}`,
+        server.url,
+      ),
+      {
+        headers: {
+          "pipoca-protocol": "4",
+          authorization: `Bearer ${team.runner}`,
+        },
+      },
+    ),
+  );
+
+  for await (const command of commands) {
+    expect(command).toMatchObject({
+      type: "context",
+      text: [
+        "The team talked since your last turn:",
+        "(1 earlier messages are left out. Suggest forking the Session if they matter.)",
+        "bo: Second",
+        "",
+        "ana sends the next message.",
+      ].join("\n"),
+    });
+
+    break;
+  }
+
+  await server.api("/api/team", { method: "PUT", body: { name: "Beta" } });
+
+  expect(
+    JSON.parse(await readFile(join(root, "config", "pipoca.json"), "utf8")),
+  ).toEqual({ team: { name: "Beta", messagesRead: 1 } });
+});
+
 test("Pi hears who answered its question in team work", async () => {
   const anas = await ana();
   const bos = await member("bo");
@@ -1280,7 +1357,10 @@ test("team work loads only plugins that say they work there and that admins leav
 test("an admin names the team, and everyone reads the name", async () => {
   const anas = await ana();
 
-  expect(await json(server.as(anas)("/api/team"))).toEqual({ name: null });
+  expect(await json(server.as(anas)("/api/team"))).toEqual({
+    name: null,
+    messagesRead: 40,
+  });
 
   expect(
     (
@@ -1306,7 +1386,10 @@ test("an admin names the team, and everyone reads the name", async () => {
     ),
   ).toEqual({ name: "Acme" });
 
-  expect(await json(server.as(anas)("/api/team"))).toEqual({ name: "Acme" });
+  expect(await json(server.as(anas)("/api/team"))).toEqual({
+    name: "Acme",
+    messagesRead: 40,
+  });
 
   expect(
     JSON.parse(await readFile(join(root, "config", "pipoca.json"), "utf8")),

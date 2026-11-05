@@ -7,7 +7,7 @@ import {
   useProfiles,
   useSessions,
   useSettledNotices,
-  useTeamName,
+  useTeam,
 } from "./hooks";
 import { ShellMenu } from "./embedded-session";
 import { NewSessionDialog } from "./new-session";
@@ -55,7 +55,7 @@ export function App({
   const sessions = useSessions(showArchived);
   const environments = useEnvironments();
   const profiles = useProfiles();
-  const teamName = useTeamName();
+  const teamName = useTeam().name;
   useSettledNotices(sessions.value, route);
 
   if (drawerRoute !== route) {

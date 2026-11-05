@@ -39,6 +39,7 @@ import { configFiles, configFolder } from "./config";
 import { sessionDocs } from "./docs";
 import { hubSettings } from "./hub";
 import { newcomerSetup } from "./newcomers";
+import { serverConfig } from "./server-config";
 import { teamSettings } from "./team";
 import { environmentTemplates } from "./templates";
 import {
@@ -83,7 +84,6 @@ const serverPlugins: readonly ServerPlugin[] = [
   usage,
 ];
 
-const repositorySyncMs = 15 * 60_000;
 const updateCheckMs = 6 * 60 * 60_000;
 export interface ServeOptions {
   // 127.0.0.1 unless a proxy or other machines reach the server directly.
@@ -264,6 +264,8 @@ export function serve(options: ServeOptions): {
   const changes = changeFeed();
 
   const templates = environmentTemplates(config("templates"), options.log);
+  const ownConfig = serverConfig(config("server"));
+  const team = teamSettings(config("team"));
 
   const sessions = new Sessions(store, {
     ...options.sessions,
@@ -282,6 +284,7 @@ export function serve(options: ServeOptions): {
     pluginProfile: (id) => pluginHost.profile(id),
     gitLogins: (userId, session) => pluginHost.gitLogins(userId, session),
     templates: () => templates.list(),
+    teamMessagesRead: team.messagesRead,
     names: (person) => auth.userById(person)?.name,
     docs: sessionDocs(
       folder === undefined
@@ -299,6 +302,7 @@ export function serve(options: ServeOptions): {
     options.passwordLogin,
     clock,
     options.solo?.name,
+    ownConfig,
   );
 
   if (options.solo !== undefined && store.environments().length === 0) {
@@ -309,9 +313,16 @@ export function serve(options: ServeOptions): {
 
   // Profiles and templates that follow a repository keep up with it
   // (ADR 0063).
-  const syncing = setInterval(() => {
-    void userProfiles.sync(options.log).then(async () => templates.sync());
-  }, repositorySyncMs);
+  let syncing: ReturnType<typeof setTimeout> | undefined;
+
+  const syncLater = (): void => {
+    syncing = setTimeout(() => {
+      void userProfiles.sync(options.log).then(async () => templates.sync());
+      syncLater();
+    }, ownConfig().repositorySyncMinutes * 60_000);
+  };
+
+  syncLater();
 
   const pluginHost = startPlugins(plugins, enabled, {
     manifests: known,
@@ -402,7 +413,7 @@ export function serve(options: ServeOptions): {
     configFiles(configDir, options.lockedConfig),
     hubSettings(config("hub")),
     newcomerSetup(config("newcomers")),
-    teamSettings(config("team")),
+    team,
   );
 
   const terminals = terminalBroker(sessions, auth, options.log);
@@ -556,7 +567,7 @@ export function serve(options: ServeOptions): {
   return {
     url: server.url,
     stop: async () => {
-      clearInterval(syncing);
+      clearTimeout(syncing);
       clearInterval(checkingUpdates);
       agentStop.abort();
       pluginsStop.abort();
