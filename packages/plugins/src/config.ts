@@ -43,13 +43,11 @@ export function pluginConfig(
   };
 
   const poll = (): void => {
-    if (o.signal.aborted) {
-      return;
-    }
-
     o.timer.after(watchMs, async () => {
-      check();
-      poll();
+      if (!o.signal.aborted) {
+        check();
+        poll();
+      }
 
       return Promise.resolve();
     });
