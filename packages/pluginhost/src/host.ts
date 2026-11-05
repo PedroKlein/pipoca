@@ -531,14 +531,12 @@ export function startPlugins(
                 ? routeTools.get(name)
                 : undefined;
 
+              const onBehalf = ownerOf(session, deps.auth.users());
+
               return (
                 found &&
-                routeToolQuestion(
-                  found,
-                  input,
-                  ownerOf(session, deps.auth.users()),
-                  deps,
-                )
+                onBehalf &&
+                routeToolQuestion(found, input, onBehalf, deps)
               );
             },
             call: async (session, name, input) => {
@@ -546,12 +544,18 @@ export function startPlugins(
                 ? routeTools.get(name)
                 : undefined;
 
-              return found === undefined
-                ? { text: `no tool named ${name}`, isError: true }
+              const onBehalf = ownerOf(session, deps.auth.users());
+
+              if (found === undefined) {
+                return { text: `no tool named ${name}`, isError: true };
+              }
+
+              return onBehalf === undefined
+                ? nobodyToActAs
                 : runRouteTool(
                     found,
                     input,
-                    ownerOf(session, deps.auth.users()),
+                    onBehalf,
                     deps,
                     () => undefined,
                   ).catch((error: unknown) => ({
@@ -1137,18 +1141,18 @@ export function startPlugins(
 
       const result = async (): Promise<ToolResult> => {
         if (routed !== undefined) {
-          return runRouteTool(
-            routed,
-            call.input,
-            ownerOf(session, deps.auth.users()),
-            deps,
-            (action) => {
-              deps.sessions.publish(session.id, {
-                generation: call.generation,
-                events: [{ type: "ui_action", action }],
-              });
-            },
-          );
+          const onBehalf = ownerOf(session, deps.auth.users());
+
+          if (onBehalf === undefined) {
+            return nobodyToActAs;
+          }
+
+          return runRouteTool(routed, call.input, onBehalf, deps, (action) => {
+            deps.sessions.publish(session.id, {
+              generation: call.generation,
+              events: [{ type: "ui_action", action }],
+            });
+          });
         }
 
         return found?.tool.appliesTo(session) === true
@@ -1428,13 +1432,25 @@ function limited(
 // A meta-session's tools act as the person who started it, never as an admin
 // (ADR 0035). An admin's Team assistant changes team setup too, so its
 // tools follow the person's role (ADR 0067).
-function ownerOf(session: Session, users: readonly User[]): OnBehalf {
-  const person = session.startedBy ?? session.ownerId;
+// Undefined for a Session nobody started, such as a routine's team work,
+// which has no person to act as.
+function ownerOf(
+  session: Session,
+  users: readonly User[],
+): OnBehalf | undefined {
+  const person = session.startedBy;
 
-  return {
-    actor: `user:${person}`,
-    mayAdmin:
-      session.ownedBy === "team" &&
-      users.some(({ id, admin }) => id === person && admin),
-  };
+  return person === null
+    ? undefined
+    : {
+        actor: `user:${person}`,
+        mayAdmin:
+          session.ownedBy === "team" &&
+          users.some(({ id, admin }) => id === person && admin),
+      };
 }
+
+const nobodyToActAs: ToolResult = {
+  text: "nobody started this Session, so it can't act as a person",
+  isError: true,
+};

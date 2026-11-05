@@ -1284,6 +1284,36 @@ test("a Team assistant runs as team work only its person steers, with tools that
   ).toThrow();
 });
 
+test("team work nobody started uses no toolset tool, since it has no person to act as", async () => {
+  await server.signedIn();
+  const team = await teamSetup();
+
+  const routine = starter?.start(
+    {
+      team: true,
+      actor: "plugin:routines",
+      environment: team.environment,
+      profile: "starter.helper",
+      workspace: workspace(),
+    },
+    "nightly",
+  );
+
+  const renamed =
+    routine &&
+    (await toolsets?.call(routine, "profiles_update", {
+      id: team.profile,
+      name: "Nightly",
+    }));
+
+  expect(routine?.startedBy).toBeNull();
+
+  expect(renamed).toEqual({
+    text: "nobody started this Session, so it can't act as a person",
+    isError: true,
+  });
+});
+
 test("team work loads only plugins that say they work there and that admins leave on", async () => {
   const team = await teamSetup();
 
