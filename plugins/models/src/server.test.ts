@@ -2,10 +2,12 @@ import { afterEach, expect, test } from "bun:test";
 import {
   person,
   type PluginTest,
+  type TestPluginOptions,
   type TestSession,
   testPlugin,
   until,
-} from "@pipoca/plugins/testing";
+} from "@pipoca/testing";
+import type { models } from "../plugin";
 import { server } from "./server";
 
 const people = [
@@ -33,7 +35,7 @@ afterEach(async () => {
 });
 
 async function started(
-  config?: Readonly<Record<string, unknown>>,
+  config?: TestPluginOptions<typeof models>["config"],
 ): Promise<{ readonly kernel: PluginTest; readonly session: TestSession }> {
   opened = await testPlugin(server, {
     people,

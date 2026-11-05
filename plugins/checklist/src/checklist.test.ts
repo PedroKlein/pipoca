@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { testSession } from "@pipoca/plugins/testing";
+import { testSession } from "@pipoca/testing";
 import { session as part } from "./session";
 
 const steps = [

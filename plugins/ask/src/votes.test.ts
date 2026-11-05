@@ -1,20 +1,14 @@
-import { afterEach, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import {
   type PluginTest,
   person,
   type TestPluginOptions,
   type TestSession,
   testPlugin,
-  until,
-} from "@pipoca/plugins/testing";
+} from "@pipoca/testing";
+import type { ask } from "../plugin";
 import { server } from "./server";
 import type { Votes } from "./votes";
-
-const tests: PluginTest[] = [];
-
-afterEach(async () => {
-  await Promise.all(tests.splice(0).map(async (each) => each.close()));
-});
 
 const people = [
   { id: "ana", name: "ana", admin: true },
@@ -22,11 +16,10 @@ const people = [
   { id: "cy", name: "cy" },
 ];
 
-async function started(o: TestPluginOptions = {}): Promise<PluginTest> {
-  const t = await testPlugin(server, { people, ...o });
-  tests.push(t);
-
-  return t;
+async function started(
+  o: TestPluginOptions<typeof ask> = {},
+): Promise<PluginTest> {
+  return testPlugin(server, { people, ...o });
 }
 
 async function teamWork(t: PluginTest): Promise<TestSession> {
@@ -53,16 +46,11 @@ async function piReads(
 ): Promise<string | undefined> {
   await session.send("ana", text);
 
-  const delivered = await until(
-    () => session.delivered(),
-    (all) => all.some((each) => each.text === text),
-  );
-
-  return delivered.at(-2)?.text;
+  return session.delivered().at(-2)?.text;
 }
 
 test("Pi opens votes only in team work", async () => {
-  const t = await started();
+  await using t = await started();
   const own = await t.session({ owner: person("bo") });
   const team = await teamWork(t);
 
@@ -93,7 +81,7 @@ test("Pi opens votes only in team work", async () => {
 });
 
 test("the team votes, whoever started the work closes it, and Pi reads the result", async () => {
-  const t = await started();
+  await using t = await started();
   const session = await teamWork(t);
 
   const response = await t
@@ -154,7 +142,7 @@ test("the team votes, whoever started the work closes it, and Pi reads the resul
 });
 
 test("a vote closes on time, at the minutes it was opened for", async () => {
-  const t = await started();
+  await using t = await started();
   const session = await teamWork(t);
 
   await opened(t, session, "ana", {
@@ -177,7 +165,7 @@ test("a vote closes on time, at the minutes it was opened for", async () => {
 });
 
 test("a vote still closes on time after the server restarts", async () => {
-  const t = await started();
+  await using t = await started();
   const session = await teamWork(t);
 
   await opened(t, session, "ana", {
@@ -193,7 +181,7 @@ test("a vote still closes on time after the server restarts", async () => {
 });
 
 test("a result that closes while the Session is offline reaches Pi once it is back", async () => {
-  const t = await started();
+  await using t = await started();
   const session = await teamWork(t);
 
   const { id } = await opened(t, session, "bo", {
@@ -211,7 +199,7 @@ test("a result that closes while the Session is offline reaches Pi once it is ba
 });
 
 test("only a signed-in person picks", async () => {
-  const t = await started();
+  await using t = await started();
   const session = await teamWork(t);
 
   const { id } = await opened(t, session, "ana", {
@@ -229,7 +217,7 @@ test("only a signed-in person picks", async () => {
 });
 
 test("a vote stays open for the minutes the config gives, unless its opener says", async () => {
-  const t = await started({ config: { voteMinutes: 5 } });
+  await using t = await started({ config: { voteMinutes: 5 } });
   const session = await teamWork(t);
 
   await opened(t, session, "ana", {

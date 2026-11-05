@@ -1,15 +1,18 @@
 import { afterEach, expect, test } from "bun:test";
-import { definePlugin, event } from "./definition";
-import type { SessionPlugin } from "./plugin";
-import { defineServer } from "./server";
+import {
+  definePlugin,
+  defineServer,
+  event,
+  type SessionPlugin,
+  Type,
+} from "@pipoca/plugins";
 import {
   type PluginTest,
   person,
   testPlugin,
   testSession,
   until,
-} from "./testing";
-import { Type } from "typebox";
+} from "./index";
 
 const tests: PluginTest[] = [];
 

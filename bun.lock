@@ -65,6 +65,7 @@
       },
       "devDependencies": {
         "@earendil-works/pi-ai": "1.3.0",
+        "@pipoca/testing": "workspace:*",
         "@types/smtp-server": "3.5.13",
         "playwright-core": "1.64.0",
         "smtp-server": "3.20.2",
@@ -145,13 +146,16 @@
       "dependencies": {
         "@earendil-works/pi-ai": "1.3.0",
         "@earendil-works/pi-coding-agent": "1.3.0",
+        "@happy-dom/global-registrator": "20.0.0",
         "@pipoca/protocol": "workspace:*",
         "@pipoca/ui": "workspace:*",
         "react": "19.3.1",
+        "react-dom": "19.3.1",
         "typebox": "1.3.27",
       },
       "devDependencies": {
         "@types/react": "19.3.0",
+        "@types/react-dom": "19.3.0",
       },
     },
     "packages/profiles": {
@@ -209,6 +213,17 @@
         "@pipoca/protocol": "workspace:*",
       },
     },
+    "packages/testing": {
+      "name": "@pipoca/testing",
+      "dependencies": {
+        "@earendil-works/pi-ai": "1.3.0",
+        "@earendil-works/pi-coding-agent": "1.3.0",
+        "@pipoca/pipoca": "workspace:*",
+        "@pipoca/plugins": "workspace:*",
+        "@pipoca/protocol": "workspace:*",
+        "@pipoca/sessionhost": "workspace:*",
+      },
+    },
     "packages/ui": {
       "name": "@pipoca/ui",
       "dependencies": {
@@ -236,6 +251,7 @@
         "react": "19.3.1",
       },
       "devDependencies": {
+        "@pipoca/testing": "workspace:*",
         "@types/react": "19.3.0",
       },
     },
@@ -248,11 +264,8 @@
         "react": "19.3.1",
       },
       "devDependencies": {
-        "@happy-dom/global-registrator": "20.0.0",
         "@types/node": "26.6.5",
         "@types/react": "19.3.0",
-        "@types/react-dom": "19.3.0",
-        "react-dom": "19.3.1",
       },
     },
     "plugins/checklist": {
@@ -263,11 +276,9 @@
         "react": "19.3.1",
       },
       "devDependencies": {
-        "@happy-dom/global-registrator": "20.0.0",
+        "@pipoca/testing": "workspace:*",
         "@types/node": "26.6.5",
         "@types/react": "19.3.0",
-        "@types/react-dom": "19.3.0",
-        "react-dom": "19.3.1",
       },
     },
     "plugins/email": {
@@ -373,6 +384,7 @@
         "react": "19.3.1",
       },
       "devDependencies": {
+        "@pipoca/testing": "workspace:*",
         "@types/react": "19.3.0",
       },
     },
@@ -450,11 +462,8 @@
         "react": "19.3.1",
       },
       "devDependencies": {
-        "@happy-dom/global-registrator": "20.0.0",
         "@types/node": "26.6.5",
         "@types/react": "19.3.0",
-        "@types/react-dom": "19.3.0",
-        "react-dom": "19.3.1",
       },
     },
     "plugins/usage": {
@@ -694,6 +703,8 @@
     "@pipoca/slack": ["@pipoca/slack@workspace:plugins/slack"],
 
     "@pipoca/subagents": ["@pipoca/subagents@workspace:plugins/subagents"],
+
+    "@pipoca/testing": ["@pipoca/testing@workspace:packages/testing"],
 
     "@pipoca/ui": ["@pipoca/ui@workspace:packages/ui"],
 

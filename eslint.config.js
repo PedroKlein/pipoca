@@ -111,9 +111,9 @@ export default tseslint.config(
           patterns: [
             {
               regex:
-                "^@pipoca/(?!(plugins|plugins/testing|plugins/web|plugins/web/testing|protocol|ui)$)",
+                "^@pipoca/(?!(plugins|plugins/testing|plugins/web|plugins/web/testing|protocol|testing|ui)$)",
               message:
-                "Plugins import only @pipoca/plugins, @pipoca/protocol and @pipoca/ui.",
+                "Plugins import only @pipoca/plugins, @pipoca/protocol, @pipoca/testing and @pipoca/ui.",
             },
             {
               regex: "^\\.\\./\\.\\./",
@@ -211,7 +211,7 @@ export default tseslint.config(
           patterns: [
             {
               regex:
-                "^@pipoca/(?!(environments|people|pluginhost|plugins|profiles|protocol|repositories|runner|sessionhost|sessions|ui|web|workspaces)(/|$))",
+                "^@pipoca/(?!(environments|people|pipoca/plugin-test|pluginhost|plugins|profiles|protocol|repositories|runner|sessionhost|sessions|testing|ui|web|workspaces)(/|$))",
               message: "Only the plugin registries import plugins.",
             },
             {

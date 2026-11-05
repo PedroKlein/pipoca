@@ -10,13 +10,13 @@ import {
   type ServerPart,
 } from "@pipoca/plugins";
 import { eventBus, pluginClient, type TypedBus } from "@pipoca/plugins/host";
-import {
-  type Duration,
-  type PluginTest,
-  type TestPluginOptions,
-  type TestSession,
-  until,
-} from "@pipoca/plugins/testing";
+import { until } from "@pipoca/plugins/testing";
+import type {
+  Duration,
+  PluginTest,
+  TestPluginOptions,
+  TestSession,
+} from "@pipoca/testing";
 import {
   type Command,
   type Method,
@@ -92,7 +92,7 @@ export async function pluginTest(
   const database = join(root, "server.db");
   const configDir = join(root, "config");
   const people = o.people ?? [];
-  const clock = testClock();
+  const clock = testClock({ frozen: true });
 
   const parts = [tested, ...(o.plugins ?? [])].map((each): ServerPart =>
     "register" in each ? each : { plugin: each, register: () => undefined },
@@ -368,6 +368,16 @@ export async function pluginTest(
     "select text from session_outbox where session_id = ? and text is not null order by id",
   );
 
+  const queuedCount = outbox.prepare(
+    "select count(*) as count from session_outbox where session_id = ?",
+  );
+
+  const taken = async (host: Host): Promise<void> => {
+    await until(
+      () => (queuedCount.get(host.id) as { count: number }).count === 0,
+    );
+  };
+
   const adminId = (): string => {
     const found = people.find(({ admin }) => admin === true);
 
@@ -411,6 +421,22 @@ export async function pluginTest(
   };
 
   let calls = 0;
+
+  const close = async (): Promise<void> => {
+    for (const host of hosts.values()) {
+      host.stream?.abort();
+    }
+
+    await server.close();
+    outbox.close();
+    opened.delete(self);
+
+    if (opened.size === 0) {
+      globalThis.fetch = realFetch;
+    }
+
+    await rm(root, { recursive: true, force: true });
+  };
 
   await ready();
 
@@ -510,6 +536,7 @@ export async function pluginTest(
         online: async (on) => {
           if (on && host.stream === undefined) {
             await connect(host);
+            await taken(host);
           }
 
           if (!on && host.stream !== undefined) {
@@ -549,6 +576,15 @@ export async function pluginTest(
           if (!sent.ok) {
             throw new Error(
               `the message answered ${String(sent.status)}: ${await sent.text()}`,
+            );
+          }
+
+          if (host.stream !== undefined) {
+            await until(() =>
+              host.commands.some(
+                (command) =>
+                  command.type === "message" && command.text === text,
+              ),
             );
           }
         },
@@ -697,20 +733,7 @@ export async function pluginTest(
     },
     topics,
     log,
-    close: async () => {
-      for (const host of hosts.values()) {
-        host.stream?.abort();
-      }
-
-      await server.close();
-      outbox.close();
-      opened.delete(self);
-
-      if (opened.size === 0) {
-        globalThis.fetch = realFetch;
-      }
-
-      await rm(root, { recursive: true, force: true });
-    },
+    close,
+    [Symbol.asyncDispose]: close,
   };
 }
