@@ -174,7 +174,7 @@ test("offers only the models logged in on online runners", async () => {
   const here = { provider: "openai", id: "gpt-here" };
 
   await claimed("mac-1", { models: [gone] });
-  server.clock.advance(150);
+  await server.clock.advance(150);
   await claimed("mac-2", { models: [here] });
 
   const [environment] = await json<Environment[]>(
@@ -248,7 +248,7 @@ test("moves a Session whose Workspace can be cloned again once its runner's leas
   const folder = await startSession("/srv/a");
   const first = await claimed("mac-1");
 
-  server.clock.advance(leaseMs * 1.5);
+  await server.clock.advance(leaseMs * 1.5);
 
   const moved = await claimed("mac-2");
   const back = await poll("mac-1", { running: [...first] });
@@ -280,10 +280,10 @@ test("tells a runner to start fresh when a Session comes back from another runne
 
   const restarted = await claimed("mac-1");
 
-  server.clock.advance(leaseMs * 1.5);
+  await server.clock.advance(leaseMs * 1.5);
   const moved = await claimed("mac-2");
 
-  server.clock.advance(leaseMs * 1.5);
+  await server.clock.advance(leaseMs * 1.5);
   const back = await claimed("mac-1");
 
   expect(first).toMatchObject([{ sessionId: clone, generation: 1 }]);
@@ -626,13 +626,13 @@ test("keeps a Session's token while its runner polls, and drops it with the runn
     (await asRunner(assignment?.token, `/runner/sessions/${id}/transcript`))
       .status;
 
-  server.clock.advance(29 * day);
+  await server.clock.advance(29 * day);
   expect((await asRunner(token, "/runner/work", running)).status).toBe(200);
 
-  server.clock.advance(29 * day);
+  await server.clock.advance(29 * day);
   expect(await transcript()).toBe(200);
 
-  server.clock.advance(31 * day);
+  await server.clock.advance(31 * day);
   expect((await asRunner(token, "/runner/work", running)).status).toBe(401);
   expect(await transcript()).toBe(401);
 });
@@ -763,7 +763,7 @@ test("gives an offline runner's name to the next runner that joins under it, and
   const old = await runners.token("mac-1", "laptops");
 
   expect((await asRunner(old, "/runner/work", emptyPoll)).status).toBe(200);
-  server.clock.advance(150);
+  await server.clock.advance(150);
 
   const joined = await joinAs("mac-1");
   const { token } = (await joined.json()) as Joined;
@@ -779,7 +779,7 @@ test("keeps a runner that comes back with its own token, since that is no join",
   const token = await runners.token("mac-1", "laptops");
 
   expect((await asRunner(token, "/runner/work", emptyPoll)).status).toBe(200);
-  server.clock.advance(150);
+  await server.clock.advance(150);
   expect((await asRunner(token, "/runner/work", emptyPoll)).status).toBe(200);
   expect((await joinAs("mac-1")).status).toBe(409);
   expect((await asRunner(token, "/runner/work", emptyPoll)).status).toBe(200);
@@ -838,9 +838,9 @@ test("reports a clone Session whose runner went offline once its lease lapses", 
   });
 
   await claimed("mac-1");
-  server.clock.advance(150);
+  await server.clock.advance(150);
   const beforeLease = await unplaced();
-  server.clock.advance(leaseMs);
+  await server.clock.advance(leaseMs);
 
   expect(beforeLease).toEqual([]);
   expect(await unplaced()).toEqual([clone]);
@@ -935,7 +935,7 @@ test("reports a Session whose own runner went offline", async () => {
 
   await claimed("pod-a", { session: own, capacity: 1, running: [full] });
   const whileOnline = await unplaced();
-  server.clock.advance(150);
+  await server.clock.advance(150);
 
   expect(whileOnline).toEqual([]);
   expect(await unplaced()).toEqual([own]);

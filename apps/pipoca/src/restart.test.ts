@@ -35,7 +35,9 @@ afterEach(async () => {
   }
 });
 
-async function start(options: Partial<ServeOptions> = {}): Promise<void> {
+async function start(
+  options: Partial<Omit<ServeOptions, "clock" | "timer">> = {},
+): Promise<void> {
   server = testServer({
     runners: { pollWaitMs: 100 },
     ...options,
