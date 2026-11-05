@@ -257,6 +257,9 @@ export interface Claim extends Omit<Work, "profiles" | "start"> {
 
 type Listener<T> = (value: T) => void;
 
+// False when the host's stream ended before it took the command.
+type HostSend = (command: Command) => boolean;
+
 // Enough to catch a browser retrying a send; ids only need to outlive retries.
 const maxRequestIds = 100;
 const claimableStatuses: readonly SessionStatus[] = ["queued", "interrupted"];
@@ -282,7 +285,7 @@ export class Sessions {
   readonly #watchers = new Map<string, Set<Listener<SessionEvent>>>();
   readonly #hosts = new Map<
     string,
-    { readonly send: Listener<Command>; readonly end: () => void }
+    { readonly send: HostSend; readonly end: () => void }
   >();
   readonly #requestIds = new Map<string, Set<string>>();
   readonly #held = new Map<string, Command[]>();
@@ -1308,10 +1311,8 @@ export class Sessions {
 
     if (held) {
       this.#held.set(id, [...(this.#held.get(id) ?? []), ...told]);
-    } else {
-      for (const each of told) {
-        host?.send(each);
-      }
+    } else if (!told.every((each) => host?.send(each) === true)) {
+      return { ok: false, reason: "offline" };
     }
 
     if (command.type === "abort") {
@@ -1432,7 +1433,7 @@ export class Sessions {
   attach(
     id: string,
     generation: number,
-    send: Listener<Command>,
+    send: HostSend,
     end: () => void,
   ): Result<() => void> {
     const current = this.#current(id, generation);
