@@ -29,7 +29,7 @@ const hostTimeoutMs = 10_000;
 const maxBufferedBytes = 1024 * 1024;
 const browserPath = /^\/api\/sessions\/([^/]+)\/terminal$/;
 const terminalIdPattern = /^[\w-]{1,64}$/;
-const hostPath = /^\/agent\/sessions\/([^/]+)\/terminals\/([^/]+)$/;
+const hostPath = /^\/runner\/sessions\/([^/]+)\/terminals\/([^/]+)$/;
 
 export function terminalBroker(
   sessions: Sessions,

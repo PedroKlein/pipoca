@@ -13,7 +13,7 @@ import {
   Select,
 } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useState } from "react";
-import { send } from "./api";
+import { api } from "./api";
 import {
   useHubLayout,
   useNow,
@@ -122,7 +122,7 @@ export function TeamHub({
   const [error, setError] = useState<string>();
 
   const lay = (next: readonly HubPage[]): void => {
-    send("/api/hub", "PUT", { pages: next }).then(
+    api("settings.hub.update", { body: { pages: next } }).then(
       () => {
         setError(undefined);
         layout.reload();

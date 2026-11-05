@@ -53,7 +53,9 @@ test("restarts when something starts the server again", async () => {
     },
   });
 
-  expect((await server.api("/api/restart", { body: {} })).status).toBe(202);
+  expect((await server.api("/api/server/restart", { body: {} })).status).toBe(
+    202,
+  );
 
   await Bun.sleep(200);
   expect(restarted).toBe(true);
@@ -62,7 +64,7 @@ test("restarts when something starts the server again", async () => {
 test("says to restart by hand when nothing would start the server again", async () => {
   await start();
 
-  const refused = await server.api("/api/restart", { body: {} });
+  const refused = await server.api("/api/server/restart", { body: {} });
 
   expect(refused.status).toBe(400);
   expect(await refused.text()).toContain("restart it yourself");
@@ -133,7 +135,7 @@ test("asks first while a Session on the server's own runner is mid-turn", async 
       ).status === "running",
   );
 
-  const asked = await server.api("/api/restart", { body: {} });
+  const asked = await server.api("/api/server/restart", { body: {} });
 
   expect(asked.status).toBe(409);
 
@@ -144,7 +146,7 @@ test("asks first while a Session on the server's own runner is mid-turn", async 
   });
 
   expect(
-    (await server.api("/api/restart", { body: { force: true } })).status,
+    (await server.api("/api/server/restart", { body: { force: true } })).status,
   ).toBe(202);
 
   await Bun.sleep(200);
@@ -213,7 +215,7 @@ test("counts a Session its own runner is starting, and none of another runner's"
   });
 
   const { key } = (await (
-    await server.api(`/api/environments/${environment.id}/key`, { body: {} })
+    await server.api(`/api/environments/${environment.id}/keys`, { body: {} })
   ).json()) as { key: string };
 
   const stopOther = new AbortController();
@@ -252,7 +254,7 @@ test("counts a Session its own runner is starting, and none of another runner's"
   const starting = await created(own);
   await reaches(starting.id, "starting");
 
-  const whileStarting = await server.api("/api/restart", { body: {} });
+  const whileStarting = await server.api("/api/server/restart", { body: {} });
 
   await writeFile(ready, "");
   await reaches(starting.id, "idle");
@@ -260,7 +262,7 @@ test("counts a Session its own runner is starting, and none of another runner's"
   const elsewhere = await created(other, "Take your time");
   await reaches(elsewhere.id, "running");
 
-  const whileOtherRuns = await server.api("/api/restart", { body: {} });
+  const whileOtherRuns = await server.api("/api/server/restart", { body: {} });
 
   expect([whileStarting.status, whileOtherRuns.status]).toEqual([409, 202]);
 

@@ -80,7 +80,7 @@ async function claimSession(): Promise<Assignment> {
   ).json()) as { readonly id: string };
 
   const work = (await (
-    await asRunner("/agent/work", {
+    await asRunner("/runner/work", {
       running: [],
       folders: ["/work"],
       models: [],
@@ -290,8 +290,8 @@ test("turns off a plugin that throws while it registers and keeps the rest", asy
     { id: "greeter", state: "on", error: undefined },
   ]);
 
-  expect((await server.api("/api/plugins/broken/anything")).status).toBe(404);
-  expect((await server.api("/api/plugins/greeter/ping")).status).toBe(200);
+  expect((await server.api("/api/ext/broken/anything")).status).toBe(404);
+  expect((await server.api("/api/ext/greeter/ping")).status).toBe(200);
   expect(heard).toEqual(["greeter"]);
   expect(signal?.aborted).toBe(true);
 
@@ -300,7 +300,7 @@ test("turns off a plugin that throws while it registers and keeps the rest", asy
   expect(assignment.plugins).toEqual(["greeter"]);
 
   const tools = await asRunner(
-    `/agent/sessions/${assignment.sessionId}/tools?generation=${String(assignment.generation)}`,
+    `/runner/sessions/${assignment.sessionId}/tools?generation=${String(assignment.generation)}`,
   );
 
   expect(
@@ -344,7 +344,7 @@ test("fails a built-in plugin that reaches past the capabilities it declared, as
     },
   ]);
 
-  expect((await server.api("/api/plugins/unlisted/anything")).status).toBe(404);
+  expect((await server.api("/api/ext/unlisted/anything")).status).toBe(404);
 });
 
 test("gives a Session part its defaults when the server sends no settings", async () => {

@@ -3,6 +3,7 @@ import {
   type Environment,
   type EnvironmentKind,
   type EnvironmentTemplate,
+  type EnvironmentUpdate,
   kindOf,
 } from "@pipoca/protocol";
 import {
@@ -26,7 +27,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { api, send } from "./api";
+import { api } from "./api";
 import { useTemplates } from "./hooks";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext } from "./plugins";
@@ -258,21 +259,19 @@ function NewEnvironment({
     const form = event.currentTarget;
     const fields = new FormData(form);
     const template = fields.get("template");
+    const name = fields.get("name");
 
-    void api("/api/environments", {
-      name: fields.get("name"),
-      ...(typeof template === "string" && template !== "" && { template }),
-      ...(team && { team: true }),
+    void api("environments.create", {
+      body: {
+        name: typeof name === "string" ? name : "",
+        ...(typeof template === "string" && template !== "" && { template }),
+        ...(team && { team: true }),
+      },
     })
-      .then(async (response) => {
-        const created = (await response.json()) as {
-          readonly environment: Environment;
-          readonly key: string;
-        };
-
+      .then((created) => {
         setError(undefined);
         form.reset();
-        onCreated(created.environment.id, created.key);
+        onCreated(created.id, created.key);
       })
       .catch((reason: unknown) => {
         setError(reason instanceof Error ? reason.message : String(reason));
@@ -333,9 +332,9 @@ function JoinKey({
       return;
     }
 
-    void api(`/api/environments/${environment.id}/key`, {})
-      .then(async (response) => {
-        onKey(((await response.json()) as { readonly key: string }).key);
+    void api("environments.keys.create", { params: { id: environment.id } })
+      .then(({ key }) => {
+        onKey(key);
       })
       .catch((reason: unknown) => {
         setError(reason instanceof Error ? reason.message : String(reason));
@@ -402,10 +401,10 @@ function Editor({
   const [rows, setRows] = useState(() => rowsOf(environment));
   const [isolation, setIsolation] = useState(environment.isolation);
 
-  const update = (body: unknown, then?: () => void): void => {
+  const update = (body: EnvironmentUpdate, then?: () => void): void => {
     setSaved(false);
 
-    send(`/api/environments/${environment.id}`, "PATCH", body).then(
+    api("environments.update", { params: { id: environment.id }, body }).then(
       () => {
         setError(undefined);
         setSaved(true);
@@ -443,7 +442,10 @@ function Editor({
       update(
         {
           ...(edited("name") && { name: text("name") }),
-          ...(edited("isolation") && { isolation: text("isolation") }),
+          ...(edited("isolation") && {
+            isolation:
+              text("isolation") === "container" ? "container" : "process",
+          }),
           ...(edited("image") && { image: image === "" ? null : image }),
           ...(edited("setupScript") && { setupScript: text("setupScript") }),
           ...(variables !== undefined && { variables }),
@@ -738,7 +740,7 @@ export async function deleteEnvironment(
     return false;
   }
 
-  await send(`/api/environments/${environment.id}`, "DELETE");
+  await api("environments.remove", { params: { id: environment.id } });
 
   return true;
 }

@@ -138,7 +138,7 @@ export function AuditLog({
   const { value: teammates = [] } = useLoaded(
     async () =>
       json<readonly { id: string; name: string }[]>(
-        context.request("/api/teammates"),
+        context.request("/api/people"),
       ),
     "teammates",
   );
@@ -158,14 +158,14 @@ export function AuditLog({
   const download = (
     <>
       <a
-        href="/api/plugins/usage/audit?format=csv"
+        href="/api/ext/usage/audit?format=csv"
         download
         className="inline-flex h-control items-center rounded-md border border-line bg-elevated px-3 text-ui font-medium text-fg shadow-xs hover:bg-hover"
       >
         Download CSV
       </a>
       <a
-        href="/api/plugins/usage/calls?format=csv"
+        href="/api/ext/usage/calls?format=csv"
         download
         className="inline-flex h-control items-center rounded-md border border-line bg-elevated px-3 text-ui font-medium text-fg shadow-xs hover:bg-hover"
       >

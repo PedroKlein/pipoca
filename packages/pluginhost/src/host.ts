@@ -767,7 +767,7 @@ export function startPlugins(
           ...base,
           state: "on",
           ...(web !== undefined && {
-            webPart: `/api/plugin-parts/${found.id}/${basename(web)}`,
+            webPart: `/api/plugins/${found.id}/parts/${basename(web)}`,
           }),
         }
       : { ...base, state: "off" };
@@ -1217,7 +1217,7 @@ export function startPlugins(
       logins.flatMap(({ plugin, offered }) =>
         offered().map((login) => ({
           ...login,
-          path: `/api/plugins/${plugin}/${login.path}`,
+          path: `/api/ext/${plugin}/${login.path}`,
         })),
       ),
   };

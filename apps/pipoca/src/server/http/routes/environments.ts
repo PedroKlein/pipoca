@@ -1,8 +1,17 @@
-import { HttpError, NotFound } from "@pipoca/plugins";
-import type {
-  Environment,
-  EnvironmentKey,
-  ListedTemplate,
+import {
+  BadRequest,
+  checkBody,
+  HttpError,
+  isObject,
+  NotFound,
+  Type,
+} from "@pipoca/plugins";
+import {
+  type Environment,
+  type EnvironmentKey,
+  type EnvironmentTemplate,
+  type ListedTemplate,
+  repositoryImport,
 } from "@pipoca/protocol";
 import { canManage, canSteer, type Viewer } from "@pipoca/people";
 import type { Templates } from "@pipoca/environments";
@@ -34,10 +43,16 @@ export function environmentRoutes({
   };
 
   return {
-    "environments.list": ({ query, caller }) => {
-      const everyone = caller.admin && query.people === "all";
+    "environments.list": ({ query: { scope = "mine" }, caller }) => {
+      if (scope === "all" && !caller.admin) {
+        throw new HttpError(
+          403,
+          "Only admins list everyone's Environments.",
+          "admin_only",
+        );
+      }
 
-      if (query.owner === teamOwner) {
+      if (scope === "team") {
         return (
           environments
             .list(caller.id)
@@ -52,7 +67,7 @@ export function environmentRoutes({
 
       return environments
         .list(caller.id)
-        .filter(({ ownerId }) => everyone || ownerId === caller.id)
+        .filter(({ ownerId }) => scope === "all" || ownerId === caller.id)
         .map((environment) =>
           environment.ownerId === caller.id
             ? environment
@@ -79,7 +94,7 @@ export function environmentRoutes({
       const key = runners.newKey(created.provider);
       log("environment created", { environmentId: created.id });
 
-      return { environment: { ...created, hasKey: true }, key };
+      return { ...created, hasKey: true, key };
     },
     "environments.keys.create": ({ params: { id }, caller }) => {
       const environment = reached(id, caller, canSteer);
@@ -131,9 +146,10 @@ export function environmentRoutes({
 // templates (ADR 0049).
 export function templateRoutes({
   templates,
+  profiles,
   plugins,
   log,
-}: ApiDeps): Handlers<Group<"templates">> {
+}: ApiDeps): Handlers<Group<"environmentTemplates"> | Group<"repositories">> {
   const made = (): Templates => {
     if (templates === undefined) {
       throw new NotFound("Not found.");
@@ -142,32 +158,41 @@ export function templateRoutes({
     return templates;
   };
 
+  const listed = (template: EnvironmentTemplate): ListedTemplate => ({
+    ...template,
+    runnersFrom:
+      plugins.startsRunners({ id: "", templateId: template.id }) ?? null,
+  });
+
   return {
-    "templates.list": () =>
-      (templates?.list() ?? []).map((template): ListedTemplate => ({
-        ...template,
-        runnersFrom:
-          plugins.startsRunners({ id: "", templateId: template.id }) ?? null,
-      })),
-    "templates.create": ({ body }) => {
-      const created = made().create(body);
-      log("template created", { templateId: created.id });
+    "environmentTemplates.list": () => (templates?.list() ?? []).map(listed),
+    "environmentTemplates.create": async ({ body }) => {
+      const { source } = isObject(body) ? checkBody(body, sourced) : {};
 
-      return created;
+      if (source === undefined) {
+        const created = made().create(body);
+        log("template created", { templateId: created.id });
+
+        return listed(created);
+      }
+
+      if (source.path === undefined) {
+        throw new BadRequest(
+          "source.path must name a template the repository lists",
+        );
+      }
+
+      const [imported] = await made().importListed(source.url, [source.path]);
+
+      if (imported === undefined) {
+        throw new NotFound("The repository lists no template there.");
+      }
+
+      log("template imported", { templateId: imported.id });
+
+      return listed(imported);
     },
-    "templates.listed": async ({ body: { url } }) => ({
-      templates: await made().listed(url),
-    }),
-    "templates.import": async ({ body: { url, paths } }) => {
-      const imported = await made().importListed(url, paths);
-
-      log("templates imported", {
-        templateIds: imported.map(({ id }) => id),
-      });
-
-      return { templates: imported };
-    },
-    "templates.syncs.create": async ({ params: { id } }) => {
+    "environmentTemplates.syncs.create": async ({ params: { id } }) => {
       const template = made()
         .list()
         .find((each) => each.id === id);
@@ -180,26 +205,39 @@ export function templateRoutes({
 
       await made().sync(source.url);
 
-      return (
+      return listed(
         made()
           .list()
-          .find((each) => each.id === id) ?? template
+          .find((each) => each.id === id) ?? template,
       );
     },
-    "templates.update": ({ params: { id }, body }) => {
+    "environmentTemplates.update": ({ params: { id }, body }) => {
       const updated = made().update(id, body);
       log("template updated", { templateId: id });
 
-      return updated;
+      return listed(updated);
     },
-    "templates.remove": ({ params: { id } }) => {
+    "environmentTemplates.remove": ({ params: { id } }) => {
       made().remove(id);
       log("template removed", { templateId: id });
 
       return undefined;
     },
+    // Read once for both kinds, so a person picks Profiles and admins
+    // templates from the same answer.
+    "repositories.manifest": async ({ query: { url } }) => {
+      const [listedProfiles, listedTemplates] = await Promise.all([
+        profiles.listed(url),
+        templates?.listed(url) ?? [],
+      ]);
+
+      return { profiles: listedProfiles, templates: listedTemplates };
+    },
   };
 }
+
+// Imported from a folder a repository's pipoca.json lists (ADR 0063).
+const sourced = Type.Partial(repositoryImport);
 
 // What an admin sees of someone else's Environment: never their variable
 // values, folders or models (ADR 0049).

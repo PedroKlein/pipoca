@@ -181,7 +181,7 @@ afterEach(async () => {
 });
 
 async function addMailbox(password = "right"): Promise<Response> {
-  return server.api("/api/plugins/email/mailboxes", {
+  return server.api("/api/ext/email/mailboxes", {
     body: {
       name: "support",
       address: "support@example.com",
@@ -209,7 +209,7 @@ test("an admin adds a mailbox, and its new mail reaches routines", async () => {
   // The first check only learns where the mailbox is.
   await until(() => selected > 0);
 
-  await server.api("/api/plugins/routines/routines/support", {
+  await server.api("/api/ext/routines/routines/support", {
     method: "PUT",
     body: {
       title: "Answer support mail",
@@ -267,7 +267,7 @@ test("a mailbox written into pipoca.json by hand takes its password from the env
 
   expect(
     (
-      (await (await server.api("/api/plugins/email/mailboxes")).json()) as {
+      (await (await server.api("/api/ext/email/mailboxes")).json()) as {
         readonly name: string;
       }[]
     ).map(({ name }) => name),
@@ -309,9 +309,9 @@ test("a Session sends mail from the mailbox, and replies to it come back to it",
     });
 
   const poll: WorkPoll = { running: [], folders: ["/srv/a"], models: [] };
-  const work = (await (await agent("/agent/work", poll)).json()) as Work;
+  const work = (await (await agent("/runner/work", poll)).json()) as Work;
   const [started] = work.start;
-  const session = `/agent/sessions/${started?.sessionId ?? ""}`;
+  const session = `/runner/sessions/${started?.sessionId ?? ""}`;
 
   const commands = readSse(
     await agent(

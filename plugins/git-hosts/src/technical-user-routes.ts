@@ -159,7 +159,7 @@ export function technicalUserRoutes(
           "cache-control": "no-store",
           // Lax, since the host's redirect back is a cross-site navigation.
           "set-cookie": new Bun.Cookie(browserCookie, browser, {
-            path: "/api/plugins/git-hosts/",
+            path: "/api/ext/git-hosts/",
             httpOnly: true,
             sameSite: "lax",
             secure: secure(request),

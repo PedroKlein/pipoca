@@ -22,7 +22,7 @@ afterEach(async () => {
 });
 
 async function newcomers(body?: unknown): Promise<Response> {
-  return server.api("/api/newcomers", {
+  return server.api("/api/settings/newcomers", {
     method: body === undefined ? "GET" : "PUT",
     body,
   });
@@ -58,5 +58,7 @@ test("refuses what new people get when it doesn't fit", async () => {
 });
 
 test("keeps what new people get to signed-in people", async () => {
-  expect((await fetch(new URL("/api/newcomers", server.url))).status).toBe(401);
+  expect(
+    (await fetch(new URL("/api/settings/newcomers", server.url))).status,
+  ).toBe(401);
 });

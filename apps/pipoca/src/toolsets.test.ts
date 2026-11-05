@@ -96,7 +96,7 @@ async function startMeta(text: string): Promise<Session> {
   await environmentReady();
 
   return json<Session>(
-    server.api("/api/plugins/meta/sessions", { body: { text } }),
+    server.api("/api/ext/meta/sessions", { body: { text } }),
   );
 }
 
@@ -265,11 +265,11 @@ test("creates a Project through the Projects plugin's route", async () => {
   );
 
   const projects = await json<{ id: string; name: string }[]>(
-    server.api("/api/plugins/projects/projects"),
+    server.api("/api/ext/projects/projects"),
   );
 
   const project = await json<{ goal: string; coordinatorId: string }>(
-    server.api(`/api/plugins/projects/projects/${projects[0]?.id ?? ""}`),
+    server.api(`/api/ext/projects/projects/${projects[0]?.id ?? ""}`),
   );
 
   const coordinator = await json<Session>(
@@ -315,12 +315,12 @@ test("changes a Project's goal from a meta-session", async () => {
   await environmentReady();
 
   // On an Environment without runners, so its coordinator takes no turn.
-  const { environment } = await json<{ environment: { id: string } }>(
+  const environment = await json<{ id: string }>(
     server.api("/api/environments", { body: { name: "nowhere" } }),
   );
 
   const { id } = await json<{ id: string }>(
-    server.api("/api/plugins/projects/projects", {
+    server.api("/api/ext/projects/projects", {
       body: {
         name: "Shop",
         repositories: ["https://example.com/shop.git"],
@@ -340,7 +340,7 @@ test("changes a Project's goal from a meta-session", async () => {
   await follow(metaSession.id, entriesInclude("changed the goal"));
 
   const project = await json<{ goal: string }>(
-    server.api(`/api/plugins/projects/projects/${id}`),
+    server.api(`/api/ext/projects/projects/${id}`),
   );
 
   expect(asked.title).toBe("Change the settings of “Shop”?");
@@ -420,16 +420,16 @@ test("gives another plugin's Session on a toolset plugin's shared Profile its to
   ]);
 
   const session = await json<Session>(
-    server.api("/api/plugins/crew/start", { body: {} }),
+    server.api("/api/ext/crew/start", { body: {} }),
   );
 
   const events = await follow(session.id, entriesInclude("listed"));
 
   expect(transcriptOf(events)).not.toContain("Tool sessions_list not found");
 
-  expect(
-    (await server.api("/api/plugins/stranger/start", { body: {} })).ok,
-  ).toBe(false);
+  expect((await server.api("/api/ext/stranger/start", { body: {} })).ok).toBe(
+    false,
+  );
 });
 
 test("runs the person's assistant as a Project of their own, on the assistant's Profiles", async () => {
@@ -467,7 +467,7 @@ test("runs the person's assistant as a Project of their own, on the assistant's 
     assistant: boolean;
     repositories: string[];
   }>(
-    server.api("/api/plugins/projects/assistant", {
+    server.api("/api/ext/projects/assistant", {
       body: {
         ...asked,
         text: "Build me a Profile",
@@ -487,7 +487,7 @@ test("runs the person's assistant as a Project of their own, on the assistant's 
 
   const [thread] = (
     await json<{ threads: { sessionId: string }[] }>(
-      server.api(`/api/plugins/projects/projects/${assistant.id}`),
+      server.api(`/api/ext/projects/projects/${assistant.id}`),
     )
   ).threads;
 
@@ -498,11 +498,11 @@ test("runs the person's assistant as a Project of their own, on the assistant's 
   expect(seen.thread).toContain('{"name":"sessions_list"');
 
   expect(
-    await json<unknown[]>(server.api("/api/plugins/projects/projects")),
+    await json<unknown[]>(server.api("/api/ext/projects/projects")),
   ).toEqual([]);
 
   const again = await json<{ id: string }>(
-    server.api("/api/plugins/projects/assistant", {
+    server.api("/api/ext/projects/assistant", {
       body: { ...asked, text: "And another" },
     }),
   );
@@ -652,7 +652,7 @@ test("opens what a tool started or asked for in the browsers watching, once", as
   const [started] = await json<Session[]>(server.api("/api/sessions"));
 
   const [project] = await json<{ id: string }[]>(
-    server.api("/api/plugins/projects/projects"),
+    server.api("/api/ext/projects/projects"),
   );
 
   expect(uiActions(events)).toEqual([
@@ -844,7 +844,7 @@ test("installs an in-place plugin from a folder after asking, and leaves turning
   ).toBe(true);
 
   expect(
-    await json<unknown>(server.api("/api/plugin-files/hello")),
+    await json<unknown>(server.api("/api/plugins/hello/files")),
   ).not.toContainEqual(expect.stringContaining("node_modules"));
 });
 

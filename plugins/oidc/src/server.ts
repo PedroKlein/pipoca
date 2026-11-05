@@ -152,7 +152,7 @@ export const oidc: ServerPlugin = {
           // Lax, since the provider's redirect back is a cross-site
           // navigation, which leaves Strict cookies out.
           "set-cookie": new Bun.Cookie(browserCookie, browser, {
-            path: "/api/plugins/oidc/",
+            path: "/api/ext/oidc/",
             httpOnly: true,
             sameSite: "lax",
             secure: secure(request),
@@ -508,7 +508,7 @@ function access(
 function redirectUri(request: Request): string {
   const host = request.headers.get("host") ?? new URL(request.url).host;
 
-  return `${secure(request) ? "https" : "http"}://${host}/api/plugins/oidc/callback`;
+  return `${secure(request) ? "https" : "http"}://${host}/api/ext/oidc/callback`;
 }
 
 // HTTPS usually ends in a gateway in front of the server (ADR 0034).

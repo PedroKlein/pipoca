@@ -179,6 +179,8 @@ export const pluginFileWrite = Type.Object({
   content: Type.String(),
 });
 
+export const pluginFileContent = Type.Pick(pluginFileWrite, ["content"]);
+
 // How the model reaches a tool, as Pi's tool exposure has it: deferred and
 // codemode tools are found through tool_search and codemode scripts.
 const toolExposure = Type.Enum(["direct", "deferred", "codemode"]);

@@ -1,4 +1,4 @@
-import { BadRequest, HttpError, NotFound } from "@pipoca/plugins";
+import { HttpError, NotFound } from "@pipoca/plugins";
 import {
   type Command,
   loggedStart,
@@ -147,13 +147,7 @@ export function runnerRoutes({
 
       return undefined;
     },
-    "runner.commands": ({ params: { id }, query }) => {
-      const generation = Number(query.generation ?? NaN);
-
-      if (!Number.isSafeInteger(generation)) {
-        throw new BadRequest("generation must be an integer");
-      }
-
+    "runner.commands": ({ params: { id }, query: { generation } }) => {
       // Commands held for the Session arrive while it attaches, before the
       // stream opens.
       const early: Command[] = [];
@@ -189,7 +183,7 @@ export function runnerRoutes({
       });
     },
     "runner.tools": ({ params: { id }, query }) => {
-      current(id, Number(query.generation ?? NaN));
+      current(id, query.generation);
 
       const session = sessions.get(id);
 
@@ -237,13 +231,14 @@ export function runnerRoutes({
 
       return new Response(Bun.file(path));
     },
-    "runner.ext": async ({ request, params: { id, plugin, path }, query }) => {
+    "runner.ext": async ({ request, params: { id, plugin, path } }) => {
       const session = sessions.get(id);
 
-      if (
-        !session ||
-        !sessions.isCurrent(id, Number(query.generation ?? NaN))
-      ) {
+      const generation = Number(
+        new URL(request.url).searchParams.get("generation") ?? NaN,
+      );
+
+      if (!session || !sessions.isCurrent(id, generation)) {
         throw rejection("stale_generation");
       }
 

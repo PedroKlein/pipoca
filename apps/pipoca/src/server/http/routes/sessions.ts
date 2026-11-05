@@ -1,5 +1,15 @@
-import { BadRequest, NotFound } from "@pipoca/plugins";
-import { type Session, type SessionEvent, sseResponse } from "@pipoca/protocol";
+import { BadRequest, checkBody, HttpError, NotFound } from "@pipoca/plugins";
+import {
+  type ForkedSession,
+  type ForkSession,
+  forkSession,
+  type MoveToTeam,
+  moveToTeam,
+  type Session,
+  type SessionAccess,
+  type SessionEvent,
+  sseResponse,
+} from "@pipoca/protocol";
 import { canManage, canSee, canSteer, type Viewer } from "@pipoca/people";
 import { presences } from "../../../presence";
 import type { ApiDeps, Group } from "../deps";
@@ -35,11 +45,89 @@ export function sessionRoutes({
     }
   };
 
-  return {
-    "sessions.list": ({ query, caller }) => {
-      const archived = query.archived === "true";
+  const forked = (body: ForkSession, caller: PersonCaller): ForkedSession => {
+    const { from, personal, ...fork } = body;
 
-      if (query.owner === "team") {
+    seen(from.session, caller);
+
+    const made = ok(
+      sessions.fork(from.session, {
+        ...fork,
+        ...(from.entry !== undefined && { entry: from.entry }),
+        ...(personal === true && { personal }),
+        actor: caller.actor,
+      }),
+    );
+
+    log("session forked", {
+      sessionId: made.id,
+      from: from.session,
+      environmentId: made.environmentId,
+      fromMessage: made.editorText !== undefined,
+    });
+
+    return made;
+  };
+
+  const moved = (body: MoveToTeam, caller: PersonCaller): Session => {
+    const { from, owner: _team, summary, ...move } = body;
+
+    seen(from.session, caller);
+
+    const made = ok(
+      sessions.move(from.session, {
+        ...move,
+        summary: summary.trim(),
+        actor: caller.actor,
+      }),
+    );
+
+    log("session moved to the team", {
+      sessionId: made.id,
+      from: from.session,
+      environmentId: made.environmentId,
+    });
+
+    return made;
+  };
+
+  const limit = (
+    id: string,
+    change: SessionAccess,
+    caller: PersonCaller,
+  ): void => {
+    const access =
+      change.kind === "named"
+        ? { kind: change.kind, people: [...new Set(change.people)] }
+        : change;
+
+    const users = new Set(people.users().map((user) => user.id));
+
+    if (
+      access.kind === "named" &&
+      !access.people.every((person) => users.has(person))
+    ) {
+      throw new BadRequest("people must be users of this server");
+    }
+
+    ok(sessions.limit(id, access, { person: caller.id, admin: caller.admin }));
+    log("session access changed", { sessionId: id, access: access.kind });
+  };
+
+  return {
+    "sessions.list": ({
+      query: { scope, archived = false, plugins: owned },
+      caller,
+    }) => {
+      if (scope === "all" && !caller.admin) {
+        throw new HttpError(
+          403,
+          "Only admins list everyone's Sessions.",
+          "admin_only",
+        );
+      }
+
+      if (scope === "team") {
         return sessions.list({
           archived,
           team: true,
@@ -49,14 +137,12 @@ export function sessionRoutes({
 
       const all = sessions.list({
         archived,
-        ...(!(caller.admin && query.people === "all") && {
-          person: caller.id,
-        }),
+        ...(scope !== "all" && { person: caller.id }),
       });
 
       // An owned Session shows only inside its plugin, unless that plugin
-      // is off (ADR 0028). owner=all is for search and notices.
-      return query.owner === "all"
+      // is off (ADR 0028), or for search and notices.
+      return owned === true
         ? all
         : all.filter(
             (session) =>
@@ -64,7 +150,16 @@ export function sessionRoutes({
               !plugins.names.includes(session.owner.plugin),
           );
     },
+    // A fork and a move to the team make a new Session too.
     "sessions.create": ({ body, caller }) => {
+      // A body that misses one shape can fit another, so each is checked
+      // again whole, to say what is wrong with the one it meant.
+      if ("from" in body) {
+        return "summary" in body || "owner" in body
+          ? moved(checkBody(body, moveToTeam), caller)
+          : forked(checkBody(body, forkSession), caller);
+      }
+
       const created = ok(sessions.start({ ...body, actor: caller.actor }));
 
       log("session created", {
@@ -74,49 +169,6 @@ export function sessionRoutes({
       });
 
       return created;
-    },
-    "sessions.fork": ({ params: { id }, body, caller }) => {
-      seen(id, caller);
-
-      const { personal, ...fork } = body;
-
-      const forked = ok(
-        sessions.fork(id, {
-          ...fork,
-          ...(personal === true && { personal }),
-          actor: caller.actor,
-        }),
-      );
-
-      log("session forked", {
-        sessionId: forked.id,
-        from: id,
-        environmentId: forked.environmentId,
-        fromMessage: forked.editorText !== undefined,
-      });
-
-      return forked;
-    },
-    "sessions.move": ({ params: { id }, body, caller }) => {
-      seen(id, caller);
-
-      const { summary, ...move } = body;
-
-      const moved = ok(
-        sessions.move(id, {
-          ...move,
-          summary: summary.trim(),
-          actor: caller.actor,
-        }),
-      );
-
-      log("session moved to the team", {
-        sessionId: moved.id,
-        from: id,
-        environmentId: moved.environmentId,
-      });
-
-      return moved;
     },
     "sessions.get": ({ params: { id }, caller }) => {
       const session = sessions.get(id);
@@ -153,21 +205,38 @@ export function sessionRoutes({
         return watch.stop;
       });
     },
-    "sessions.archive": ({ params: { id }, caller }) => {
-      steered(id, caller);
+    "sessions.update": ({
+      params: { id },
+      body: { archived, access },
+      caller,
+    }) => {
+      if (access !== undefined) {
+        limit(id, access, caller);
+      }
 
-      const archived = ok(sessions.archive(id, caller.actor));
-      log("session archived", { sessionId: id });
+      if (archived === true) {
+        steered(id, caller);
+        ok(sessions.archive(id, caller.actor));
+        log("session archived", { sessionId: id });
+      }
 
-      return archived;
-    },
-    "sessions.unarchive": ({ params: { id }, caller }) => {
-      steered(id, caller);
+      if (archived === false) {
+        steered(id, caller);
+        ok(sessions.unarchive(id, caller.actor));
+        log("session unarchived", { sessionId: id });
+      }
 
-      const unarchived = ok(sessions.unarchive(id, caller.actor));
-      log("session unarchived", { sessionId: id });
+      if (archived === undefined && access === undefined) {
+        seen(id, caller);
+      }
 
-      return unarchived;
+      const session = sessions.get(id);
+
+      if (session === undefined) {
+        throw new NotFound("Not found.");
+      }
+
+      return session;
     },
     "sessions.workspace.remove": ({ params: { id }, caller }) => {
       steered(id, caller);
@@ -206,29 +275,6 @@ export function sessionRoutes({
       present.typing(id, caller.id);
 
       return undefined;
-    },
-    "sessions.access": ({ params: { id }, body, caller }) => {
-      const access =
-        body.kind === "named"
-          ? { kind: body.kind, people: [...new Set(body.people)] }
-          : body;
-
-      const users = new Set(people.users().map((user) => user.id));
-
-      if (
-        access.kind === "named" &&
-        !access.people.every((person) => users.has(person))
-      ) {
-        throw new BadRequest("people must be users of this server");
-      }
-
-      const limited = ok(
-        sessions.limit(id, access, { person: caller.id, admin: caller.admin }),
-      );
-
-      log("session access changed", { sessionId: id, access: access.kind });
-
-      return limited;
     },
     "sessions.commands.create": ({ params: { id }, body, caller }) => {
       const { quote, ...sent } = body;

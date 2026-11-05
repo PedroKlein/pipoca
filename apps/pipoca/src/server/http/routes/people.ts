@@ -10,9 +10,12 @@ export function peopleRoutes({
   log,
 }: ApiDeps): Handlers<Group<"people"> | Group<"invites">> {
   return {
-    "people.list": () => people.people(),
-    "people.teammates": () =>
-      people.users().map(({ id, name }): Teammate => ({ id, name })),
+    // Everyone names people in team work; admins also see their roles and
+    // when they were last active.
+    "people.list": ({ caller }) =>
+      caller.admin
+        ? people.people()
+        : people.users().map(({ id, name }): Teammate => ({ id, name })),
     "people.update": ({ params: { id }, body: { admin } }) => {
       const changed = people.changeRole(id, admin);
 
@@ -69,7 +72,10 @@ export function peopleRoutes({
   };
 }
 
-export function meRoutes({ people, log }: ApiDeps): Handlers<Group<"me">> {
+export function meRoutes({
+  people,
+  log,
+}: ApiDeps): Handlers<Exclude<Group<"me">, Group<"me.profileDefaults">>> {
   return {
     "me.setup": ({ caller }) => people.setup(caller.id),
     "me.setup.update": ({ body, caller }) => {
@@ -79,7 +85,7 @@ export function meRoutes({ people, log }: ApiDeps): Handlers<Group<"me">> {
         people.dismissSetupStep(caller.id, body.dismiss);
       }
 
-      return undefined;
+      return people.setup(caller.id);
     },
     "me.pinnedPages": ({ caller }) => ({
       pages: people.pinnedPages(caller.id),
@@ -87,21 +93,22 @@ export function meRoutes({ people, log }: ApiDeps): Handlers<Group<"me">> {
     "me.pinnedPages.update": ({ body: { pages }, caller }) => {
       people.pinPages(caller.id, pages);
 
-      return undefined;
+      return { pages: people.pinnedPages(caller.id) };
     },
-    "me.tokens": ({ caller }) => people.accessTokens(caller.id).map(tokenView),
-    "me.tokens.create": ({ body: { name }, caller }) => {
+    "me.accessTokens": ({ caller }) =>
+      people.accessTokens(caller.id).map(tokenView),
+    "me.accessTokens.create": ({ body: { name }, caller }) => {
       const { token, secret } = people.newAccessToken(caller.id, name);
-      log("mcp token created", { tokenId: token.id });
+      log("access token created", { tokenId: token.id });
 
-      return { token: tokenView(token), secret };
+      return { ...tokenView(token), secret };
     },
-    "me.tokens.remove": ({ params: { id }, caller }) => {
+    "me.accessTokens.remove": ({ params: { id }, caller }) => {
       if (!people.revokeAccessToken(caller.id, id)) {
         throw new NotFound("Not found.");
       }
 
-      log("mcp token revoked", { tokenId: id });
+      log("access token revoked", { tokenId: id });
 
       return undefined;
     },

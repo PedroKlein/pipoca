@@ -1,4 +1,5 @@
 import type { Static, TSchema } from "typebox";
+import type { Wire } from "./wire";
 
 // Who may call a route. A person signs in with a cookie or an access token;
 // a runner and its Sessions' hosts carry the tokens the server gave them
@@ -48,14 +49,19 @@ export type ParamsOf<Path extends string> = Readonly<
   Record<NameOf<Segments<Path>>, string>
 >;
 
-export type BodyOf<Spec extends RouteSpec> = Spec["body"] extends TSchema
-  ? Static<Spec["body"]>
-  : undefined;
+export type BodyOf<Spec extends RouteSpec> = Spec["body"] extends "bytes"
+  ? undefined
+  : Spec["body"] extends TSchema
+    ? Static<Spec["body"]>
+    : undefined;
 
 export type QueryOf<Spec extends RouteSpec> = Spec["query"] extends TSchema
   ? Static<Spec["query"]>
   : undefined;
 
-export type ReplyOf<Spec extends RouteSpec> = Spec["response"] extends TSchema
-  ? Static<Spec["response"]>
-  : unknown;
+export type ReplyOf<Spec extends RouteSpec> = Spec["response"] extends
+  "bytes" | "stream"
+  ? never
+  : Spec["response"] extends TSchema
+    ? Wire<Spec["response"]>
+    : unknown;

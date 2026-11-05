@@ -262,7 +262,7 @@ export function appManifest(
   return {
     name,
     url: origin,
-    redirect_url: `${origin}/api/plugins/git-hosts/app-created`,
+    redirect_url: `${origin}/api/ext/git-hosts/app-created`,
     public: false,
     default_permissions: {
       contents: "write",
@@ -275,7 +275,7 @@ export function appManifest(
     },
     ...(hook !== undefined && {
       hook_attributes: {
-        url: `${origin}/api/plugins/git-hosts/hooks/${hook}`,
+        url: `${origin}/api/ext/git-hosts/hooks/${hook}`,
         active: true,
       },
       default_events: [

@@ -4,6 +4,7 @@ import { runnerName } from "./runner";
 import {
   isolation,
   modelRef,
+  sessionAccess,
   thinkingLevel,
   workspaceRequest,
 } from "./session";
@@ -35,13 +36,17 @@ export const createSession = Type.Object({
 
 export type CreateSession = Wire<typeof createSession>;
 
-export const createFork = Type.Object({
+// A fork of a Session, or of it up to one of its messages.
+export const forkSession = Type.Object({
+  from: Type.Object({
+    session: Type.String({ minLength: 1, description: "Session id" }),
+    entry: Type.Optional(nonEmpty),
+  }),
   environment: Type.Optional(nonEmpty),
-  entry: Type.Optional(nonEmpty),
   personal: Type.Optional(Type.Boolean()),
 });
 
-export type CreateFork = Wire<typeof createFork>;
+export type ForkSession = Wire<typeof forkSession>;
 
 const said = Type.Refine(
   Type.String(),
@@ -52,12 +57,31 @@ const said = Type.Refine(
 // What moving personal work to the team takes: the handoff summary the team
 // Session starts from, and optionally where it runs.
 export const moveToTeam = Type.Object({
+  from: Type.Object({
+    session: Type.String({ minLength: 1, description: "Session id" }),
+  }),
+  owner: Type.Literal("team"),
   summary: said,
   environment: Type.Optional(nonEmpty),
   profile: Type.Optional(nonEmpty),
 });
 
 export type MoveToTeam = Wire<typeof moveToTeam>;
+
+// A new Session, a fork of one, or personal work moved to the team: each
+// makes a new Session. Each shape takes only its own fields, so a body fits
+// the one it means.
+export const newSession = Type.Union(
+  [createSession, forkSession, moveToTeam].map((shape) =>
+    Type.Object(shape.properties, { additionalProperties: false }),
+  ) as [typeof createSession, typeof forkSession, typeof moveToTeam],
+);
+
+// What a person changes on a Session.
+export const sessionChange = Type.Object({
+  archived: Type.Optional(Type.Boolean()),
+  access: Type.Optional(sessionAccess),
+});
 
 // A team Session message for people, not Pi (ADR 0065).
 export const teamMessage = Type.Object({
@@ -124,7 +148,8 @@ export const environmentUpdate = Type.Object({
 export type EnvironmentUpdate = Wire<typeof environmentUpdate>;
 
 // The key is shown once. Runners that joined with an Environment's earlier
-// key are let go.
+// key are let go. A join key makes an Environment for the runner that joins
+// with it.
 export const environmentKey = Type.Object({ key: Type.String() });
 
 export type EnvironmentKey = Wire<typeof environmentKey>;
@@ -176,6 +201,12 @@ export const environment = Type.Object({
 
 export type Environment = Wire<typeof environment>;
 
+// A new Environment, with the key its runners join with, shown once.
+export const createdEnvironment = Type.Object({
+  ...environment.properties,
+  key: Type.String(),
+});
+
 // What the UI says about an Environment: a runner is online, a plugin starts
 // one when a Session needs it, or none can take a Session now (ADR 0040).
 export function availability(
@@ -220,11 +251,19 @@ export const manifestEntry = Type.Object({
 
 export type ManifestEntry = Wire<typeof manifestEntry>;
 
-export const repositoryListing = Type.Object({ url: Type.String() });
+// What a repository's pipoca.json lists, by kind.
+export const repositoryManifest = Type.Object({
+  profiles: Type.Array(manifestEntry),
+  templates: Type.Array(manifestEntry),
+});
 
+// Where a Profile or template comes from: a folder a repository's
+// pipoca.json lists, or for a Profile the repository's root.
 export const repositoryImport = Type.Object({
-  url: Type.String(),
-  paths: strings,
+  source: Type.Object({
+    url: Type.String(),
+    path: Type.Optional(Type.String()),
+  }),
 });
 
 // What admins share for people's Environments: settings, never secrets or
@@ -387,6 +426,14 @@ export const teammate = Type.Object({ id: Type.String(), name: Type.String() });
 
 export type Teammate = Wire<typeof teammate>;
 
+// Everyone sees people's names; admins also see the rest.
+export const personView = Type.Object({
+  ...teammate.properties,
+  ...Type.Partial(Type.Omit(person, ["id", "name"])).properties,
+});
+
+export type PersonView = Wire<typeof personView>;
+
 // An admin's invite to the server (ADR 0063). One with an email lets that
 // one person in once; one without is a link anyone may join with until it
 // expires. An invited person gets in even where sign-in rules would refuse
@@ -403,6 +450,12 @@ export const invite = Type.Object({
 });
 
 export type Invite = Wire<typeof invite>;
+
+// A new invite with the token its link carries, shown once.
+export const madeInvite = Type.Object({
+  ...invite.properties,
+  token: Type.String(),
+});
 
 export const inviteRequest = Type.Object({
   emails: Type.Optional(
@@ -435,6 +488,31 @@ export const credentials = Type.Object({
   password: Type.String(),
 });
 
+// The person signed in, as sign-in answers.
+export const user = Type.Object({
+  id: Type.String(),
+  name: Type.String(),
+  admin: Type.Boolean(),
+});
+
+export type User = Wire<typeof user>;
+
+export const signInStatus = Type.Object({
+  user: nullable(user),
+  // No one has an account yet, so the setup link makes the first.
+  setup: Type.Boolean(),
+  passwordLogin: Type.Boolean(),
+  solo: Type.Boolean(),
+  // Plugins' sign-in buttons, such as OIDC's.
+  logins: Type.Array(
+    Type.Object({ label: Type.String(), path: Type.String() }),
+  ),
+});
+
+export type SignInStatus = Wire<typeof signInStatus>;
+
+export const appLink = Type.Object({ link: Type.String() });
+
 export const firstUser = Type.Object({
   ...credentials.properties,
   token: Type.String(),
@@ -458,18 +536,68 @@ export const setupChange = Type.Union([
   Type.Object({ dismiss: nonEmpty }),
 ]);
 
-export const pinnedPages = Type.Object({ pages: strings });
+// Null until the person pins or unpins a page.
+export const pinnedPages = Type.Object({ pages: nullable(strings) });
 
-export const mcpTokenRequest = Type.Object({ name: Type.String() });
+export const pinnedPagesChange = Type.Object({ pages: strings });
+
+export const accessTokenRequest = Type.Object({ name: Type.String() });
+
+// A personal token for MCP clients (ADR 0035). Its secret is shown once.
+export const accessToken = Type.Object({
+  id: Type.String(),
+  name: Type.String(),
+  createdAt: Type.String(),
+});
+
+export type AccessToken = Wire<typeof accessToken>;
+
+export const createdAccessToken = Type.Object({
+  ...accessToken.properties,
+  secret: Type.String(),
+});
+
+export const health = Type.Object({
+  status: Type.String(),
+  version: Type.String(),
+  pi: Type.String(),
+  // When this run of the server started, to tell it from the next.
+  started: Type.String(),
+});
 
 export const restartRequest = Type.Object({
   force: Type.Optional(Type.Boolean()),
 });
 
+// The text read and the version it had, so a write never overwrites a
+// change made since.
 export const configFileWrite = Type.Object({
-  name: Type.String(),
   text: Type.String(),
   version: nullable(Type.String()),
+});
+
+const configEntry = Type.Object({
+  name: Type.String(),
+  locked: Type.Boolean(),
+});
+
+export const configFiles = Type.Object({
+  root: Type.String(),
+  files: Type.Array(configEntry),
+});
+
+export const configFile = Type.Object({
+  ...configEntry.properties,
+  text: Type.String(),
+  version: nullable(Type.String()),
+});
+
+export type ConfigFile = Wire<typeof configFile>;
+
+// A file in a Profile's folder.
+export const profileEntry = Type.Object({
+  path: Type.String(),
+  size: Type.Integer(),
 });
 
 const trimmedUpTo = (most: number) =>

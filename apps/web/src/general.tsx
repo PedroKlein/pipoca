@@ -89,7 +89,7 @@ export function GeneralPage({
       <div className="mt-8 flex gap-2">
         <Button
           onClick={() => {
-            void api("/api/auth/logout", {}).finally(() => {
+            void api("auth.session.remove").finally(() => {
               location.replace("/");
             });
           }}

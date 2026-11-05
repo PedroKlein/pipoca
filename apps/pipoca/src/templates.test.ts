@@ -8,6 +8,7 @@ import {
   type Assignment,
   type Environment,
   type EnvironmentTemplate,
+  type ListedTemplate,
   type Joined,
   protocolVersion,
   versionHeader,
@@ -46,7 +47,7 @@ async function ana(): Promise<string> {
 
   db.close();
 
-  const response = await fetch(new URL("/api/auth/login", server.url), {
+  const response = await fetch(new URL("/api/auth/session", server.url), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name: "ana", password: "battery staple" }),
@@ -65,12 +66,13 @@ test("only admins change templates, and everyone reads them", async () => {
   start();
   const anas = await ana();
 
-  expect((await server.as(anas)("/api/templates", { body: pods })).status).toBe(
-    403,
-  );
+  expect(
+    (await server.as(anas)("/api/environment-templates", { body: pods }))
+      .status,
+  ).toBe(403);
 
-  const made = await json<EnvironmentTemplate>(
-    server.api("/api/templates", { body: pods }),
+  const made = await json<ListedTemplate>(
+    server.api("/api/environment-templates", { body: pods }),
   );
 
   expect(made).toEqual({
@@ -79,12 +81,13 @@ test("only admins change templates, and everyone reads them", async () => {
     image: null,
     aliases: null,
     source: null,
+    runnersFrom: null,
     ...pods,
   });
 
   expect(
     (
-      await server.as(anas)(`/api/templates/${made.id}`, {
+      await server.as(anas)(`/api/environment-templates/${made.id}`, {
         method: "PATCH",
         body: { name: "x" },
       })
@@ -93,20 +96,23 @@ test("only admins change templates, and everyone reads them", async () => {
 
   expect(
     (
-      await server.api(`/api/templates/${made.id}`, {
+      await server.api(`/api/environment-templates/${made.id}`, {
         method: "PATCH",
         body: { name: "Pods" },
       })
     ).status,
   ).toBe(200);
 
-  expect(await json(server.as(anas)("/api/templates"))).toEqual([
+  expect(await json(server.as(anas)("/api/environment-templates"))).toEqual([
     { ...made, name: "Pods", runnersFrom: null },
   ]);
 
   expect(
-    (await server.api("/api/templates", { body: { ...pods, secrets: {} } }))
-      .status,
+    (
+      await server.api("/api/environment-templates", {
+        body: { ...pods, secrets: {} },
+      })
+    ).status,
   ).toBe(400);
 });
 
@@ -115,13 +121,10 @@ test("runs a person's Environment as its template says, with their own variables
   const anas = await ana();
 
   const template = await json<EnvironmentTemplate>(
-    server.api("/api/templates", { body: pods }),
+    server.api("/api/environment-templates", { body: pods }),
   );
 
-  const { environment, key } = await json<{
-    environment: Environment;
-    key: string;
-  }>(
+  const { key, ...environment } = await json<Environment & { key: string }>(
     server.as(anas)("/api/environments", {
       body: { name: "mine", template: template.id },
     }),
@@ -154,7 +157,7 @@ test("runs a person's Environment as its template says, with their own variables
   });
 
   const { token } = await json<Joined>(
-    fetch(new URL("/agent/join", server.url), {
+    fetch(new URL("/runner/join", server.url), {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -166,7 +169,7 @@ test("runs a person's Environment as its template says, with their own variables
   );
 
   const { start: assignments } = await json<{ start: Assignment[] }>(
-    fetch(new URL("/agent/work", server.url), {
+    fetch(new URL("/runner/work", server.url), {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -211,7 +214,7 @@ test("reads templates an admin wrote into pipoca.json", async () => {
 
   start();
 
-  expect(await json(server.api("/api/templates"))).toEqual([
+  expect(await json(server.api("/api/environment-templates"))).toEqual([
     {
       id: "vm",
       name: "VM",

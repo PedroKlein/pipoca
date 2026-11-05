@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { api, send } from "./api";
+import { api } from "./api";
 import { TheirSetup } from "./newcomers";
 
 export type Made = Invite & { readonly token: string };
@@ -100,8 +100,8 @@ export function InvitesTable({
   );
 }
 
-export async function revoke(invite: Invite): Promise<Response> {
-  return await send(`/api/invites/${encodeURIComponent(invite.id)}`, "DELETE");
+export async function revoke(invite: Invite): Promise<void> {
+  await api("invites.remove", { params: { id: invite.id } });
 }
 
 const emailPattern = /^[^\s@]+@[^\s@]+$/;
@@ -173,13 +173,9 @@ function InviteForm({
   };
 
   const make = async (list: readonly string[]): Promise<readonly Made[]> =>
-    (await (
-      await api("/api/invites", {
-        emails: list,
-        admin: role === "admin",
-        days: Number(days),
-      })
-    ).json()) as Made[];
+    api("invites.create", {
+      body: { emails: list, admin: role === "admin", days: Number(days) },
+    });
 
   const failed = (reason: unknown): void => {
     setError(reason instanceof Error ? reason.message : String(reason));

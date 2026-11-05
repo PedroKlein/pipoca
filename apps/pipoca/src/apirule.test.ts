@@ -1,75 +1,148 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { type RouteKey, routes, type RouteSpec } from "@pipoca/protocol";
 
 const apiRule = readFileSync(
   join(import.meta.dir, "../../../deploy/helm/pipoca/templates/apirule.yaml"),
   "utf8",
 );
 
-const server = readFileSync(join(import.meta.dir, "server.ts"), "utf8");
+interface Rule {
+  readonly path: string;
+  readonly methods: readonly string[];
+  readonly timeout: number | undefined;
+}
 
-// The gateway refuses any path its APIRule doesn't list, so a browser route
-// missing from it works through a port-forward and fails on Kyma.
-test("the APIRule lets the browser reach every API the server serves", () => {
-  const listed =
-    /range list ((?:"[a-z-]+" ?)+)/
-      .exec(apiRule)?.[1]
-      ?.split(" ")
-      .map((name) => name.replaceAll('"', "")) ?? [];
+const allMethods =
+  /\{\{- \$methods := list ((?:"[A-Z]+" ?)+)\}\}/
+    .exec(apiRule)?.[1]
+    ?.split(" ")
+    .map((method) => method.replaceAll('"', "")) ?? [];
 
-  const served = [
-    ...new Set(
-      [...server.matchAll(/\^\\\/api\\\/([a-z-]+)/g)].map(([, name]) => name),
-    ),
-  ];
+// The APIRule's rules, with its range of top-level paths spelled out. Rules
+// behind a value, such as MCP's, count as on.
+const rules: readonly Rule[] = apiRule
+  .replace(
+    / *\{\{- range list ((?:"[a-z-]+" ?)+)\}\}\n([\s\S]*?) *\{\{- end \}\}\n/,
+    (_, names: string, body: string) =>
+      names
+        .split(" ")
+        .map((name) => body.replaceAll("{{ . }}", name.replaceAll('"', "")))
+        .join(""),
+  )
+  .split("\n    - path: ")
+  .slice(1)
+  .map((rule) => {
+    const methods = /^ {6}methods: (.+)$/m.exec(rule)?.[1] ?? "";
+    const timeout = /^ {6}timeout: (\d+)$/m.exec(rule)?.[1];
 
-  // Sign-in, change events, Sessions and MCP have rules of their own.
-  const own = ["auth", "changes", "sessions", "mcp"];
+    return {
+      path: rule.split("\n")[0] ?? "",
+      methods: methods.includes("$methods")
+        ? allMethods
+        : methods.replace(/[[\]\s]/g, "").split(","),
+      timeout: timeout === undefined ? undefined : Number(timeout),
+    };
+  });
 
+// Kyma's path patterns: {*} is one segment and {**} any number of them.
+function matches(pattern: string, path: string): boolean {
+  const wildcards: Readonly<Record<string, string>> = {
+    "{**}": ".*",
+    "{*}": "[^/]+",
+  };
+
+  const regex = pattern
+    .split("/")
+    .map(
+      (part) => wildcards[part] ?? part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+    )
+    .join("/");
+
+  return new RegExp(`^${regex}$`).test(path);
+}
+
+// A path the route answers, with a sample for each parameter.
+function sampleOf(spec: RouteSpec): string {
+  return spec.path
+    .split("/")
+    .map((part) => {
+      if (part.startsWith("*")) {
+        return "x/y";
+      }
+
+      return part.startsWith(":") ? "x" : part;
+    })
+    .join("/");
+}
+
+function ruleFor(spec: RouteSpec): Rule | undefined {
+  const path = sampleOf(spec);
+  const methods = spec.method === "ANY" ? ["GET", "POST"] : [spec.method];
+
+  return rules.find(
+    (rule) =>
+      matches(rule.path, path) &&
+      methods.every((method) => rule.methods.includes(method)),
+  );
+}
+
+const table = Object.entries(routes) as [RouteKey, RouteSpec][];
+
+// Making the first account works only through a port-forward.
+const unlisted: readonly RouteKey[] = ["auth.setup"];
+
+// The gateway refuses any path its APIRule doesn't list, so a route missing
+// from it works through a port-forward and fails on Kyma.
+test("the APIRule lets through every route the server serves", () => {
   expect(
-    served.filter(
-      (name) => !own.includes(name ?? "") && !listed.includes(name ?? ""),
-    ),
+    table
+      .filter(([key, spec]) => !unlisted.includes(key) && !ruleFor(spec))
+      .map(([key, spec]) => `${key}: ${spec.method} ${spec.path}`),
   ).toEqual([]);
+
+  expect(unlisted.filter((key) => ruleFor(routes[key]))).toEqual([]);
 });
 
 // Kyma's gateway ends a request after 180 seconds unless its rule says
 // otherwise, which would cut change feeds, Session event streams, terminals
 // and MCP streams. 3900 seconds is the most an APIRule allows.
-test("the APIRule keeps streams and terminals open as long as Kyma allows", () => {
-  const rules = new Map(
-    apiRule
-      .split("\n    - path: ")
-      .slice(1)
-      .map((rule) => [rule.split("\n")[0], rule]),
+test("the APIRule keeps streams open as long as Kyma allows", () => {
+  const streams = table.filter(
+    ([key, spec]) => spec.response === "stream" || key === "mcp",
   );
 
-  const streaming = [
-    "/api/changes",
-    "/api/sessions/{**}",
-    "/api/mcp",
-    "/agent/{**}",
-  ];
+  expect(streams.length).toBeGreaterThan(3);
 
   expect(
-    streaming.map(
-      (path) => /^ {6}timeout: (\d+)$/m.exec(rules.get(path) ?? "")?.[1],
-    ),
-  ).toEqual(["3900", "3900", "3900", "3900"]);
+    streams
+      .filter(([, spec]) => ruleFor(spec)?.timeout !== 3900)
+      .map(([key]) => key),
+  ).toEqual([]);
 });
 
-// Plugin routes remove things with DELETE, so the gateway has to let it
-// through to them.
-test("the APIRule lets plugin routes take DELETE", () => {
-  const methods = /\{\{- \$methods := list ((?:"[A-Z]+" ?)+)\}\}/
-    .exec(apiRule)?.[1]
-    ?.split(" ")
-    .map((method) => method.replaceAll('"', ""));
+// Runner pods reach the server through its Service, which the gateway's
+// policies would shut out but for this one.
+test("the APIRule's policy lets runner pods reach their routes", () => {
+  const paths =
+    /paths: \[(.+)\]/
+      .exec(apiRule)?.[1]
+      ?.split(", ")
+      .map((path) => path.replaceAll('"', "")) ?? [];
 
-  const plugins = /range list ((?:"[a-z-]+" ?)+)/.exec(apiRule)?.[1];
+  const runners = table.filter(([key]) => key.startsWith("runner."));
 
-  expect([methods?.includes("DELETE"), plugins?.includes('"plugins"')]).toEqual(
-    [true, true],
-  );
+  expect(runners.length).toBeGreaterThan(10);
+
+  expect(
+    runners
+      .filter(
+        ([, spec]) =>
+          !paths.some((path) =>
+            sampleOf(spec).startsWith(path.replace(/\*$/, "")),
+          ),
+      )
+      .map(([key]) => key),
+  ).toEqual([]);
 });

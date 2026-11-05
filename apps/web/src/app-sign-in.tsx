@@ -45,8 +45,9 @@ export function AppSignIn({
   const open = (): void => {
     void (async () => {
       try {
-        const response = await api("/api/auth/app", { challenge });
-        const { link } = (await response.json()) as { link: string };
+        const { link } = await api("auth.appLinks.create", {
+          body: { challenge },
+        });
 
         forget();
         setState("opened");

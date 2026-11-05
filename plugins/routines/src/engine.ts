@@ -960,7 +960,7 @@ export function routinesEngine(
       ? {}
       : {
           webhook: {
-            path: `/api/plugins/routines/hooks/${hook.id}`,
+            path: `/api/ext/routines/hooks/${hook.id}`,
             secret: store.open(hook.secret, hook.id),
           },
         };

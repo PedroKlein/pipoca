@@ -24,6 +24,7 @@ import {
 } from "@pipoca/pluginhost";
 import { eventBus, type ServerPlugin } from "@pipoca/plugins";
 import {
+  apiPath,
   type Clock,
   type Log,
   type PluginManifest,
@@ -577,7 +578,10 @@ export function serve(options: ServeOptions): {
     options.solo &&
     soloSocket(options.solo.socket, {
       link: () =>
-        new URL(`/api/auth/link/${signIn.link()}`, options.url ?? server.url),
+        new URL(
+          apiPath("auth.link", { params: { token: signIn.link() } }),
+          options.url ?? server.url,
+        ),
       runner: (name) => {
         const [owner] = people.users();
 
@@ -732,7 +736,7 @@ function fromThisSite(request: Request, hosts: ReadonlySet<string>): boolean {
     return true;
   }
 
-  if (pathname.startsWith("/agent/")) {
+  if (pathname.startsWith("/runner/")) {
     return origin === null;
   }
 

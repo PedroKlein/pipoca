@@ -10,7 +10,7 @@ import {
   type KeyValue,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import { api, send } from "./api";
+import { api } from "./api";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext } from "./plugins";
 
@@ -31,7 +31,11 @@ export function Templates({
     event.preventDefault();
     const form = event.currentTarget;
 
-    void api("/api/templates", { name: new FormData(form).get("name") })
+    const name = new FormData(form).get("name");
+
+    void api("environmentTemplates.create", {
+      body: { name: typeof name === "string" ? name : "" },
+    })
       .then(() => {
         setError(undefined);
         form.reset();
@@ -134,12 +138,8 @@ function FromRepository({
     const url = new FormData(event.currentTarget).get("url");
     const repository = typeof url === "string" ? url.trim() : "";
 
-    api("/api/templates/listed", { url: repository })
-      .then(async (response) => {
-        const { templates } = (await response.json()) as {
-          readonly templates: readonly ManifestEntry[];
-        };
-
+    api("repositories.manifest", { query: { url: repository } })
+      .then(({ templates }) => {
         setError(
           templates.length === 0
             ? "Its pipoca.json lists no templates."
@@ -160,10 +160,15 @@ function FromRepository({
 
     const paths = new FormData(event.currentTarget).getAll("path");
 
-    api("/api/templates/import", { url: listed.url, paths }).then(
-      onImported,
-      failed,
-    );
+    Promise.all(
+      paths
+        .flatMap((path) => (typeof path === "string" ? [path] : []))
+        .map(async (path) =>
+          api("environmentTemplates.create", {
+            body: { source: { url: listed.url, path } },
+          }),
+        ),
+    ).then(onImported, failed);
   };
 
   return (
@@ -256,14 +261,17 @@ function TemplateEditor({
 
     const image = text("image").trim();
 
-    send(`/api/templates/${template.id}`, "PATCH", {
-      name: text("name"),
-      setupScript: text("setupScript"),
-      isolation: text("isolation"),
-      image: image === "" ? null : image,
-      variables: Object.fromEntries(
-        named.map(({ name, value }) => [name.trim(), value]),
-      ),
+    api("environmentTemplates.update", {
+      params: { id: template.id },
+      body: {
+        name: text("name"),
+        setupScript: text("setupScript"),
+        isolation: text("isolation"),
+        image: image === "" ? null : image,
+        variables: Object.fromEntries(
+          named.map(({ name, value }) => [name.trim(), value]),
+        ),
+      },
     }).then(() => {
       setError(undefined);
       setSaved(true);
@@ -280,7 +288,10 @@ function TemplateEditor({
       return;
     }
 
-    send(`/api/templates/${template.id}`, "DELETE").then(onChange, failed);
+    api("environmentTemplates.remove", { params: { id: template.id } }).then(
+      onChange,
+      failed,
+    );
   };
 
   return (
@@ -349,10 +360,9 @@ function TemplateEditor({
           {template.source ? (
             <Button
               onClick={() => {
-                api(`/api/templates/${template.id}/sync`, {}).then(
-                  onChange,
-                  failed,
-                );
+                api("environmentTemplates.syncs.create", {
+                  params: { id: template.id },
+                }).then(onChange, failed);
               }}
             >
               Sync now

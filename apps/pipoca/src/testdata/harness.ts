@@ -71,7 +71,7 @@ export function testServer(
   const signIn = async (): Promise<string> => {
     await firstUser();
 
-    const response = await fetch(new URL("/api/auth/login", server.url), {
+    const response = await fetch(new URL("/api/auth/session", server.url), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(firstUserLogin),

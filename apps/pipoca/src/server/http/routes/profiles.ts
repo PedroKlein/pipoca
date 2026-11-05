@@ -1,15 +1,14 @@
 import {
-  BadRequest,
   checkBody,
   HttpError,
+  isObject,
   NotFound,
-  readJson,
   Type,
 } from "@pipoca/plugins";
-import { repositoryImport } from "@pipoca/protocol";
+import { type Profile, repositoryImport } from "@pipoca/protocol";
 import type { Layer, Profiles } from "@pipoca/profiles";
 import type { ApiDeps, Group } from "../deps";
-import type { Handlers } from "../router";
+import { type Handlers, type PersonCaller, restOf } from "../router";
 
 const rejections = {
   not_found: [404, "There is no such Profile."],
@@ -39,74 +38,102 @@ function ok<T>(result: Result<T>): T {
   return result.value;
 }
 
-// A Profile comes from an exported file, from a repository's root, or from
-// the folders its pipoca.json lists.
-const importSource = Type.Partial(repositoryImport);
+// Where a new Profile comes from, when not from its content: a copy of
+// another, a repository, or an exported Profile file.
+const origin = Type.Object({
+  from: Type.Optional(Type.String({ minLength: 1 })),
+  ...Type.Partial(repositoryImport).properties,
+  pipocaProfile: Type.Optional(Type.Unknown()),
+});
 
 // Shared Profiles are changed only by admins (ADR 0041).
 export function profileRoutes({
   profiles,
   log,
-}: ApiDeps): Handlers<Group<"profiles"> | Group<"layers">> {
+}: ApiDeps): Handlers<
+  | Group<"profiles">
+  | Group<"me.profileDefaults">
+  | Group<"settings.baseProfile">
+> {
+  const created = async (
+    body: unknown,
+    caller: PersonCaller,
+  ): Promise<Profile> => {
+    const { from, source, pipocaProfile } = isObject(body)
+      ? checkBody(body, origin)
+      : {};
+
+    if (from !== undefined) {
+      const copied = ok(profiles.copy(caller.id, from));
+      log("profile copied", { profileId: copied.id, from });
+
+      return copied;
+    }
+
+    if (source !== undefined) {
+      const [imported] =
+        source.path === undefined
+          ? [await profiles.importFromGit(caller.id, source.url)]
+          : await profiles.importListed(caller.id, source.url, [source.path]);
+
+      if (imported === undefined) {
+        throw new NotFound("The repository lists no Profile there.");
+      }
+
+      log("profile imported", { profileId: imported.id });
+
+      return imported;
+    }
+
+    if (pipocaProfile !== undefined) {
+      const imported = profiles.import(caller.id, body);
+      log("profile imported", { profileId: imported.id });
+
+      return imported;
+    }
+
+    const made = ok(profiles.create(caller.id, body, caller.admin));
+    log("profile created", { profileId: made.id });
+
+    return made;
+  };
+
   return {
-    "profiles.list": ({ query, caller }) =>
-      profiles.list(caller.id, { team: query.owner === "team" }),
-    "profiles.create": ({ body, caller }) => {
-      const created = ok(profiles.create(caller.id, body, caller.admin));
-      log("profile created", { profileId: created.id });
+    "profiles.list": ({ query: { scope }, caller }) =>
+      profiles.list(caller.id, { team: scope === "team" }),
+    "profiles.create": async ({ body, caller }) => created(body, caller),
+    "profiles.archives.create": async ({ request, query, caller }) => {
+      const name = query.name ?? "";
 
-      return created;
-    },
-    // A gzip body is an exported archive. A JSON body with a url imports
-    // from a git repository, and any other is an exported Profile file.
-    "profiles.import": async ({ request, query, caller }) => {
-      if (request.headers.get("content-type") === "application/gzip") {
-        const name = query.name ?? "";
+      const imported = await profiles.importArchive(
+        caller.id,
+        name.trim() === "" ? "Imported" : name,
+        await request.bytes(),
+      );
 
-        const imported = await profiles.importArchive(
-          caller.id,
-          name.trim() === "" ? "Imported" : name,
-          await request.bytes(),
-        );
+      log("profile imported", { profileId: imported.id });
 
-        log("profile imported", { profileId: imported.id });
-
-        return imported;
-      }
-
-      const body = await readJson(request);
-      const { url, paths } = checkBody(body, importSource);
-
-      if (paths !== undefined) {
-        if (url === undefined) {
-          throw new BadRequest("paths must be a list with a url");
-        }
-
-        const imported = await profiles.importListed(caller.id, url, paths);
-
-        log("profiles imported", {
-          profileIds: imported.map(({ id }) => id),
-        });
-
-        return { profiles: imported };
-      }
-
-      const profile =
-        url === undefined
-          ? profiles.import(caller.id, body)
-          : await profiles.importFromGit(caller.id, url);
-
-      log("profile imported", { profileId: profile.id });
-
-      return profile;
+      return imported;
     },
     "profiles.get": ({ params: { id }, caller }) =>
       found(profiles.get(caller.id, id)),
     "profiles.update": ({ params: { id }, body, caller }) => {
-      const updated = ok(profiles.update(caller.id, id, body, caller.admin));
-      log("profile updated", { profileId: id });
+      const { isDefault, ...content } = isObject(body)
+        ? body
+        : ({} as Readonly<Record<string, unknown>>);
 
-      return updated;
+      let updated = profiles.get(caller.id, id);
+
+      if (Object.keys(content).length > 0 || isDefault === undefined) {
+        updated = ok(profiles.update(caller.id, id, content, caller.admin));
+        log("profile updated", { profileId: id });
+      }
+
+      if (isDefault === true) {
+        updated = ok(profiles.makeDefault(caller.id, id));
+      }
+
+      return found(updated);
     },
     "profiles.remove": ({ params: { id }, caller }) => {
       ok(profiles.remove(caller.id, id, caller.admin));
@@ -114,20 +141,8 @@ export function profileRoutes({
 
       return undefined;
     },
-    // What a repository's pipoca.json lists, to pick from (ADR 0063).
-    "profiles.listed": async ({ body: { url } }) => ({
-      profiles: await profiles.listed(url),
-    }),
     "profiles.syncs.create": async ({ params: { id }, caller }) =>
       ok(await profiles.syncOne(log, caller.id, id)),
-    "profiles.copy": ({ params: { id }, caller }) => {
-      const copied = ok(profiles.copy(caller.id, id));
-      log("profile copied", { profileId: copied.id, from: id });
-
-      return copied;
-    },
-    "profiles.default": ({ params: { id }, caller }) =>
-      ok(profiles.makeDefault(caller.id, id)),
     "profiles.archive": async ({ params: { id }, caller }) => {
       const archive = found(await profiles.archive(caller.id, id));
 
@@ -151,7 +166,7 @@ export function profileRoutes({
       return undefined;
     },
     "profiles.file": ({ params: { id, path: encoded }, caller }) =>
-      new Response(found(profiles.file(caller.id, id, filePath(encoded)))),
+      new Response(found(profiles.file(caller.id, id, restOf(encoded)))),
     "profiles.file.write": async ({
       request,
       params: { id, path: encoded },
@@ -161,7 +176,7 @@ export function profileRoutes({
         profiles.writeFiles(
           caller.id,
           id,
-          new Map([[filePath(encoded), Buffer.from(await request.bytes())]]),
+          new Map([[restOf(encoded), Buffer.from(await request.bytes())]]),
           caller.admin,
         ),
       );
@@ -171,27 +186,42 @@ export function profileRoutes({
       return undefined;
     },
     "profiles.file.remove": ({ params: { id, path: encoded }, caller }) => {
-      ok(profiles.deleteFile(caller.id, id, filePath(encoded), caller.admin));
+      ok(profiles.deleteFile(caller.id, id, restOf(encoded), caller.admin));
       log("profile file deleted", { profileId: id });
 
       return undefined;
     },
-    ...layerRoutes(profiles, "base", "base profile", log),
-    ...layerRoutes(profiles, "defaults", "my defaults", log),
+    ...layerRoutes(
+      profiles,
+      "base",
+      "settings.baseProfile",
+      "base profile",
+      log,
+    ),
+    ...layerRoutes(
+      profiles,
+      "defaults",
+      "me.profileDefaults",
+      "my defaults",
+      log,
+    ),
   };
 }
 
+type LayerKey = "settings.baseProfile" | "me.profileDefaults";
+
 // The admin's base Profile (ADR 0044) and each person's My defaults
 // (ADR 0063), the layers under every Profile.
-function layerRoutes<const Which extends Layer>(
+function layerRoutes<const Key extends LayerKey>(
   profiles: Profiles,
-  which: Which,
+  which: Layer,
+  key: Key,
   name: string,
   log: ApiDeps["log"],
-): Handlers<Group<`layers.${Which}`>> {
-  const handlers: Handlers<Group<"layers.base">> = {
-    "layers.base": ({ caller }) => profiles.layer(caller.id, which),
-    "layers.base.update": ({ body, caller }) => {
+): Handlers<Group<Key>> {
+  const handlers: Handlers<Group<"settings.baseProfile">> = {
+    "settings.baseProfile": ({ caller }) => profiles.layer(caller.id, which),
+    "settings.baseProfile.update": ({ body, caller }) => {
       const updated = ok(
         profiles.updateLayer(caller.id, which, body, caller.admin),
       );
@@ -200,19 +230,20 @@ function layerRoutes<const Which extends Layer>(
 
       return updated;
     },
-    "layers.base.files": ({ caller }) => profiles.layerFiles(caller.id, which),
-    "layers.base.files.upload": ({ body, caller }) => {
+    "settings.baseProfile.files": ({ caller }) =>
+      profiles.layerFiles(caller.id, which),
+    "settings.baseProfile.files.upload": ({ body, caller }) => {
       const files = decoded(body.files);
       ok(profiles.writeLayerFiles(caller.id, which, files, caller.admin));
       log(`${name} files uploaded`, { files: files.size });
 
       return undefined;
     },
-    "layers.base.file": ({ params: { path: encoded }, caller }) =>
+    "settings.baseProfile.file": ({ params: { path: encoded }, caller }) =>
       new Response(
-        found(profiles.layerFile(caller.id, which, filePath(encoded))),
+        found(profiles.layerFile(caller.id, which, restOf(encoded))),
       ),
-    "layers.base.file.write": async ({
+    "settings.baseProfile.file.write": async ({
       request,
       params: { path: encoded },
       caller,
@@ -221,7 +252,7 @@ function layerRoutes<const Which extends Layer>(
         profiles.writeLayerFiles(
           caller.id,
           which,
-          new Map([[filePath(encoded), Buffer.from(await request.bytes())]]),
+          new Map([[restOf(encoded), Buffer.from(await request.bytes())]]),
           caller.admin,
         ),
       );
@@ -230,12 +261,15 @@ function layerRoutes<const Which extends Layer>(
 
       return undefined;
     },
-    "layers.base.file.remove": ({ params: { path: encoded }, caller }) => {
+    "settings.baseProfile.file.remove": ({
+      params: { path: encoded },
+      caller,
+    }) => {
       ok(
         profiles.deleteLayerFile(
           caller.id,
           which,
-          filePath(encoded),
+          restOf(encoded),
           caller.admin,
         ),
       );
@@ -249,11 +283,11 @@ function layerRoutes<const Which extends Layer>(
   // Both layers' routes have the same shapes, so one set of handlers
   // answers either.
   return Object.fromEntries(
-    Object.entries(handlers).map(([key, handler]) => [
-      key.replace("layers.base", `layers.${which}`),
+    Object.entries(handlers).map(([route, handler]) => [
+      route.replace("settings.baseProfile", key),
       handler,
     ]),
-  ) as unknown as Handlers<Group<`layers.${Which}`>>;
+  ) as unknown as Handlers<Group<Key>>;
 }
 
 function found<T>(value: T | undefined | null | false): T {
@@ -271,13 +305,4 @@ function decoded(files: Readonly<Record<string, string>>): Map<string, Buffer> {
       Buffer.from(content, "base64"),
     ]),
   );
-}
-
-// A file's path as it arrives in a URL, percent-encoded.
-function filePath(encoded: string): string {
-  try {
-    return decodeURIComponent(encoded);
-  } catch {
-    throw new BadRequest("path isn't valid percent-encoding");
-  }
 }

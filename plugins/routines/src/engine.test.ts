@@ -141,7 +141,7 @@ function start({
     user = "owner",
   ): Promise<{ status: number; body: unknown }> => {
     const response = await (route?.(
-      new Request(`http://pipoca/api/plugins/routines/${path}`, {
+      new Request(`http://pipoca/api/ext/routines/${path}`, {
         method,
         ...(body !== undefined && { body: JSON.stringify(body) }),
       }),
@@ -160,7 +160,7 @@ function start({
 
   const deliver = async (path: string, body: string, signature?: string) =>
     hooks?.(
-      new Request(`http://pipoca/api/plugins/routines/${path}`, {
+      new Request(`http://pipoca/api/ext/routines/${path}`, {
         method: "POST",
         body,
         ...(signature !== undefined && {
@@ -597,7 +597,7 @@ test("a webhook signed with the routine's secret starts a run with its body", as
   const { webhook } = (await it.request("routines/deploys"))
     .body as RoutineDetail;
 
-  const path = webhook?.path.replace("/api/plugins/routines/", "") ?? "";
+  const path = webhook?.path.replace("/api/ext/routines/", "") ?? "";
   const body = JSON.stringify({ service: "api", status: "failed" });
 
   const sign = (secret: string) =>

@@ -6,6 +6,7 @@ import {
   type Session,
   type ThinkingLevel,
   thinkingLevels,
+  type WorkspaceRequest,
 } from "@pipoca/protocol";
 import {
   Button,
@@ -96,7 +97,7 @@ function workspaceRequest(
   where: readonly string[],
   share: boolean,
   startPoint: string,
-): unknown {
+): WorkspaceRequest {
   const [only] = where;
 
   const from = startPoint === "" ? {} : { startPoint };
@@ -346,21 +347,23 @@ export function NewSessionForm({
     setSubmitting(true);
     remember(choices, team);
 
-    api("/api/sessions", {
-      ...(team && { team }),
-      ...(chosen && { environment: chosen.id }),
-      workspace: workspaceRequest(choices.where, choices.share, startPoint),
-      ...(model && { model }),
-      ...(profile && { profile: profile.id }),
-      ...(choices.thinking !== "" && { thinking: choices.thinking }),
-      ...(text.trim() !== "" && { firstMessage: text.trim() }),
+    api("sessions.create", {
+      body: {
+        ...(team && { team }),
+        ...(chosen && { environment: chosen.id }),
+        workspace: workspaceRequest(choices.where, choices.share, startPoint),
+        ...(model && { model }),
+        ...(profile && { profile: profile.id }),
+        ...(choices.thinking !== "" && { thinking: choices.thinking }),
+        ...(text.trim() !== "" && { firstMessage: text.trim() }),
+      },
     })
-      .then(async (response) => {
+      .then((started) => {
         setError(undefined);
         setText("");
         setStartPoint("");
         onStarted();
-        location.hash = ((await response.json()) as Session).id;
+        location.hash = started.id;
       })
       .catch((reason: unknown) => {
         setError(`Couldn't start the session. ${String(reason)}`);

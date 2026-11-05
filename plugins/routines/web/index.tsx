@@ -95,7 +95,7 @@ function RoutineList({
   const team =
     useLoaded(
       async () =>
-        json<unknown[]>(context.request("/api/environments?owner=team")),
+        json<unknown[]>(context.request("/api/environments?scope=team")),
       "team-environments",
       { topics: ["environments"] },
     ).value ?? [];

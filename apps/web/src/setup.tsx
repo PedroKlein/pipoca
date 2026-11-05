@@ -1,5 +1,4 @@
 import {
-  json,
   type SetupStep,
   useLoaded,
   type WebContext,
@@ -50,8 +49,7 @@ const whereStep: SetupStep = {
   heading: "Where should Pi work?",
   description:
     "Each place becomes an Environment, and you choose between them when you start a Session.",
-  done: async () =>
-    (await json<Environment[]>(fetch("/api/environments"))).some(connected),
+  done: async () => (await api("environments.list")).some(connected),
   topics: ["environments"],
   Step: WhereStep,
 };
@@ -64,7 +62,7 @@ const profileStep: SetupStep = {
     "A Profile is how Pi behaves: its instructions, skills, extensions and tools. Every Session runs with one.",
   optional: true,
   done: async () =>
-    (await json<Profile[]>(fetch("/api/profiles"))).some(
+    (await api("profiles.list")).some(
       (profile) =>
         hasContent(profile) ||
         (profile.ownerId !== null && profile.buildsOn !== null),
@@ -133,13 +131,10 @@ function OfferedProfiles({
               onChange={(checked) => {
                 const change =
                   checked || mine === undefined
-                    ? api("/api/profiles", {
-                        name: shared.name,
-                        buildsOn: shared.id,
+                    ? api("profiles.create", {
+                        body: { name: shared.name, buildsOn: shared.id },
                       })
-                    : fetch(`/api/profiles/${encodeURIComponent(mine.id)}`, {
-                        method: "DELETE",
-                      });
+                    : api("profiles.remove", { params: { id: mine.id } });
 
                 change.then(onChange, failed);
               }}
@@ -238,7 +233,7 @@ export function SetupWizard({
   const total = steps.length + 2;
 
   const finish = (): void => {
-    void api("/api/setup", { finished: true }).finally(onFinish);
+    void api("me.setup.update", { body: { finished: true } }).finally(onFinish);
   };
 
   const leave = (): void => {
@@ -406,7 +401,7 @@ function useNewcomerEnvironment(template: string | null): void {
 
     asked.current = true;
 
-    api("/api/environments", { name, template }).then(
+    api("environments.create", { body: { name, template } }).then(
       environments.reload,
       () => undefined,
     );
@@ -534,9 +529,8 @@ function WhereStep(): ReactElement {
           description="Each Session gets its own pod, started when it needs one."
           checked={false}
           onChange={() => {
-            api("/api/environments", {
-              name: template.name,
-              template: template.id,
+            api("environments.create", {
+              body: { name: template.name, template: template.id },
             }).catch((reason: unknown) => {
               setError(`Couldn't add it. ${String(reason)}`);
             });
@@ -616,9 +610,9 @@ function ConnectMachine(): ReactElement {
       <div className="flex flex-wrap items-center gap-2">
         <Button
           onClick={() => {
-            api("/api/join-key", {})
-              .then(async (response) => {
-                setKey(((await response.json()) as { key: string }).key);
+            api("joinKeys.create")
+              .then(({ key: made }) => {
+                setKey(made);
               })
               .catch((reason: unknown) => {
                 setError(`Couldn't make a key. ${String(reason)}`);
@@ -797,7 +791,9 @@ export function SetupReminders({
               key={step.id}
               step={step}
               onDismiss={() => {
-                void api("/api/setup", { dismiss: step.id }).then(() => {
+                void api("me.setup.update", {
+                  body: { dismiss: step.id },
+                }).then(() => {
                   onDismiss(step.id);
                 });
               }}

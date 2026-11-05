@@ -16,7 +16,7 @@ import {
   type SubmitEvent,
   useState,
 } from "react";
-import { send } from "./api";
+import { api } from "./api";
 import { EnvironmentsPage } from "./environments";
 import { usePlugins, useTeamEnvironments, useTeamProfiles } from "./hooks";
 import { settingsPageClass } from "./page-class";
@@ -234,7 +234,7 @@ function TeamNaming({ name }: { readonly name: string | null }): ReactElement {
     event.preventDefault();
     setSaved(false);
 
-    send("/api/team", "PUT", { name: shown }).then(
+    api("settings.team.update", { body: { name: shown } }).then(
       () => {
         setError(undefined);
         setSaved(true);
@@ -290,8 +290,9 @@ function TeamPlugins(): ReactElement {
   const [error, setError] = useState<string>();
 
   const turn = (id: string, on: boolean): void => {
-    send(`/api/plugins/${encodeURIComponent(id)}`, "PATCH", {
-      teamWork: on,
+    api("plugins.update", {
+      params: { plugin: id },
+      body: { teamWork: on },
     }).then(
       () => {
         setError(undefined);

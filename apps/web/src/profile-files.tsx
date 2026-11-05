@@ -2,7 +2,6 @@ import { json, ok, useLoaded } from "@pipoca/plugins/web";
 import { profilePath } from "@pipoca/protocol";
 import { Button, cn, Field, FileButton, fieldClass, Section } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import { api, send } from "./api";
 
 const errors: Readonly<Record<string, string>> = {
   default: "Make another Profile the default before deleting this one.",
@@ -77,7 +76,13 @@ export async function upload(
     }
   }
 
-  await api(url, { files });
+  await ok(
+    fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ files }),
+    }),
+  );
 }
 
 function useRun(
@@ -212,7 +217,7 @@ export function KindFiles({
             }}
             onDelete={() => {
               run(async () => {
-                await send(fileUrl(open.path), "DELETE");
+                await ok(fetch(fileUrl(open.path), { method: "DELETE" }));
                 setOpen(undefined);
               });
             }}
@@ -344,7 +349,7 @@ function NamedFile({
   const save = async (): Promise<void> => {
     if (text.trim() === "") {
       if (saved !== "") {
-        await send(url, "DELETE");
+        await ok(fetch(url, { method: "DELETE" }));
       }
 
       return;

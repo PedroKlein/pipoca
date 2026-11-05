@@ -8,7 +8,7 @@ export function authRoutes({
   people,
   signIn,
   plugins,
-  changes,
+
   log,
 }: ApiDeps): Handlers<Group<"auth">> {
   return {
@@ -50,7 +50,7 @@ export function authRoutes({
         })),
       } satisfies JoinInfo;
     },
-    "auth.join": async ({ request, params: { token }, body }) => {
+    "auth.invite.accept": async ({ request, params: { token }, body }) => {
       const joined = await signIn.joinWithInvite(token, credentialsOf(body));
 
       if (joined === "off") {
@@ -66,7 +66,6 @@ export function authRoutes({
       }
 
       log("user joined", { userId: joined.id, admin: joined.admin });
-      changes.publish("environments");
 
       return signedInAs(signIn, joined, request, 201);
     },
@@ -92,7 +91,7 @@ export function authRoutes({
         },
       });
     },
-    "auth.app": ({ body: { challenge }, caller }) => {
+    "auth.appLinks.create": ({ body: { challenge }, caller }) => {
       const user = people.userById(caller.id);
 
       if (user === undefined) {
@@ -115,7 +114,7 @@ export function authRoutes({
 
       return { link: link.href };
     },
-    "auth.login": async ({ request, body }) => {
+    "auth.session.create": async ({ request, body }) => {
       const given = credentialsOf(body);
       const address = addressOf(request);
       const user = await signIn.signIn(given, address);
@@ -144,7 +143,7 @@ export function authRoutes({
 
       return signedInAs(signIn, user, request, 200);
     },
-    "auth.logout": ({ request }) =>
+    "auth.session.remove": ({ request }) =>
       new Response(null, {
         status: 204,
         headers: { "set-cookie": signIn.endSession(request) },

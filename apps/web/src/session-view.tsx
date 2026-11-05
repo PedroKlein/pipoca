@@ -1,6 +1,5 @@
 import {
   type Environment,
-  type ForkedSession,
   movable,
   type OpenedPage,
   piTerminal,
@@ -199,15 +198,12 @@ export function SessionView({
     draft = "",
   ): Promise<void> => {
     try {
-      const response = await api(
-        `/api/sessions/${encodeURIComponent(sessionId)}/fork`,
-        {
-          ...(entry !== undefined && { entry }),
+      const fork = await api("sessions.create", {
+        body: {
+          from: { session: sessionId, ...(entry !== undefined && { entry }) },
           ...(personal && { personal }),
         },
-      );
-
-      const fork = (await response.json()) as ForkedSession;
+      });
 
       const editorText = fork.editorText ?? draft;
 
@@ -221,8 +217,15 @@ export function SessionView({
     }
   };
 
-  const action = (name: string): void => {
-    api(`/api/sessions/${encodeURIComponent(sessionId)}/${name}`, {}).catch(
+  const archive = (to: boolean): void => {
+    api("sessions.update", {
+      params: { id: sessionId },
+      body: { archived: to },
+    }).catch(reportError);
+  };
+
+  const removeWorkspace = (): void => {
+    api("sessions.workspace.remove", { params: { id: sessionId } }).catch(
       reportError,
     );
   };
@@ -304,14 +307,14 @@ export function SessionView({
                       label: "Unarchive",
                       icon: "archive",
                       run: () => {
-                        action("unarchive");
+                        archive(false);
                       },
                     }
                   : {
                       label: "Archive",
                       icon: "archive",
                       run: () => {
-                        action("archive");
+                        archive(true);
                       },
                     },
                 ...(limits
@@ -367,7 +370,7 @@ export function SessionView({
                               `The workspace was kept: ${session.workspaceKeptReason ?? "unpushed work"}. Delete it for good?`,
                             )
                           ) {
-                            action("remove-workspace");
+                            removeWorkspace();
                           }
                         },
                       } as const,

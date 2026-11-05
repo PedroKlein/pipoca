@@ -51,7 +51,7 @@ const admitPath = "/__pipoca/open";
 
 const previewHost = /^(\d{1,5})--([0-9a-f-]{36})\.(.+)$/;
 const openPath = /^\/api\/sessions\/([^/]+)\/previews\/(\d{1,5})$/;
-const hostPath = /^\/agent\/sessions\/([^/]+)\/previews\/([\w-]{1,64})$/;
+const hostPath = /^\/runner\/sessions\/([^/]+)\/previews\/([\w-]{1,64})$/;
 
 const hopByHop = new Set([
   "connection",

@@ -2,8 +2,8 @@ import { ThemeSwitch } from "./theme";
 import { availability, type Environment, type Session } from "@pipoca/protocol";
 import { Badge, Button, cn, fieldClass, Icon } from "@pipoca/ui";
 import { type ReactElement, useEffect, useState } from "react";
-import { json, useNow } from "@pipoca/plugins/web";
-import { api, send } from "./api";
+import { useNow } from "@pipoca/plugins/web";
+import { api } from "./api";
 import { Mark } from "./mark";
 import { matches } from "./notices";
 import {
@@ -328,7 +328,7 @@ function AccountMenu({ user }: { readonly user: string }): ReactElement {
             type="button"
             role="menuitem"
             onClick={() => {
-              void api("/api/auth/logout", {}).finally(() => {
+              void api("auth.session.remove").finally(() => {
                 location.replace("/");
               });
             }}
@@ -377,7 +377,7 @@ function PluginNav({
   const page = pluginRoute(route);
 
   useEffect(() => {
-    void json<{ readonly pages: string[] | null }>(fetch("/api/pinned-pages"))
+    void api("me.pinnedPages")
       .then(({ pages }) => {
         setPins(pages ?? pinnedAtFirst);
       })
@@ -397,7 +397,7 @@ function PluginNav({
 
     setPins(next);
 
-    send("/api/pinned-pages", "PUT", { pages: next }).catch(() => {
+    api("me.pinnedPages.update", { body: { pages: next } }).catch(() => {
       setPins(pins);
     });
   };

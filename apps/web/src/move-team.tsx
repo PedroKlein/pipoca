@@ -98,13 +98,16 @@ function MoveForm({
   const move = (): void => {
     setError(undefined);
 
-    api(`/api/sessions/${encodeURIComponent(session.id)}/move`, {
-      summary,
-      environment,
-      profile,
+    api("sessions.create", {
+      body: {
+        from: { session: session.id },
+        owner: "team",
+        summary,
+        environment,
+        profile,
+      },
     })
-      .then(async (response) => {
-        const moved = (await response.json()) as Session;
+      .then((moved) => {
         onDone();
         location.hash = moved.id;
       })

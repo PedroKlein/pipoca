@@ -25,7 +25,7 @@ function Page({ context }: PageProps): ReactElement {
 
   const projects = useLoaded(
     async () =>
-      json<ProjectSummary[]>(context.request("/api/plugins/projects/projects")),
+      json<ProjectSummary[]>(context.request("/api/ext/projects/projects")),
     "projects",
   ).value;
 
@@ -125,7 +125,7 @@ function ProjectFiles({
                 className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-2.5"
               >
                 <a
-                  href={`/api/plugins/library/${filePath(file.name)}`}
+                  href={`/api/ext/library/${filePath(file.name)}`}
                   download={file.name}
                   className="font-mono text-mono text-accent hover:underline"
                 >

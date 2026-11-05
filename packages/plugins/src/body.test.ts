@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { BadRequest, readBody, Type } from "@pipoca/plugins";
+import { BadRequest, checkBody, readBody, Type } from "@pipoca/plugins";
 
 const post = (body: string): Request =>
   new Request("http://plugin/items", { method: "POST", body });
@@ -91,4 +91,29 @@ test("refuses a body to check that isn't JSON", async () => {
 
   expect(refused).toBeInstanceOf(BadRequest);
   expect(refused).toMatchObject({ status: 400, message: "body must be JSON" });
+});
+
+test("names the field of the untagged shape a body comes closest to", () => {
+  const strict = { additionalProperties: false };
+
+  const made = Type.Union([
+    Type.Object({ name: Type.Optional(Type.String()) }, strict),
+    Type.Object(
+      { from: Type.String(), summary: Type.String({ minLength: 2 }) },
+      strict,
+    ),
+  ]);
+
+  const refused = (() => {
+    try {
+      return checkBody({ from: "a", summary: " " }, made);
+    } catch (error) {
+      return error;
+    }
+  })();
+
+  expect(refused).toMatchObject({
+    status: 422,
+    details: { field: "summary" },
+  });
 });

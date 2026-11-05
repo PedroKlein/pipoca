@@ -34,7 +34,7 @@ export interface SocketHandler<Data> {
   ) => void;
 }
 
-// Whether a socket opened under /agent/ comes from the Session host of the
+// Whether a socket opened under /runner/ comes from the Session host of the
 // Session's current attempt.
 export function fromSessionHost(
   request: Request,

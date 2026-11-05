@@ -83,7 +83,7 @@ interface Compiled extends Route {
   readonly segments: readonly Segment[];
 }
 
-const runnerPrefix = "/agent/";
+const runnerPrefix = "/runner/";
 
 const kindOrder = { static: 0, param: 1, rest: 2 } as const;
 
@@ -228,6 +228,14 @@ export function createRouter(
             spec.query,
           );
 
+    if (typeof spec.body === "object" && !sentJson(request)) {
+      throw new HttpError(
+        415,
+        "Send the body as JSON, with content-type application/json.",
+        "unsupported_media_type",
+      );
+    }
+
     const body =
       spec.body === undefined || spec.body === "bytes"
         ? undefined
@@ -330,6 +338,12 @@ export function createRouter(
       );
     },
   };
+}
+
+function sentJson(request: Request): boolean {
+  const type = request.headers.get("content-type") ?? "";
+
+  return type.split(";")[0]?.trim().toLowerCase() === "application/json";
 }
 
 function matchOf(
@@ -453,4 +467,18 @@ export function fromAddress(address: string, request: Request): Request {
 
 export function addressOf(request: Request): string {
   return addresses.get(request) ?? "";
+}
+
+// The rest of a path, such as a file's, which the router leaves
+// percent-encoded.
+export function restOf(encoded: string): string {
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    throw new HttpError(
+      400,
+      "path isn't valid percent-encoding",
+      "bad_request",
+    );
+  }
 }

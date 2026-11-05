@@ -14,14 +14,19 @@ afterEach(async () => {
 });
 
 async function newToken(name = "Claude Code"): Promise<{
-  token: { id: string; name: string };
+  id: string;
+  name: string;
   secret: string;
 }> {
-  const response = await server.api("/api/mcp-tokens", { body: { name } });
+  const response = await server.api("/api/me/access-tokens", {
+    body: { name },
+  });
+
   expect(response.status).toBe(201);
 
   return (await response.json()) as {
-    token: { id: string; name: string };
+    id: string;
+    name: string;
     secret: string;
   };
 }
@@ -152,15 +157,16 @@ test("runs a tool as the token's user, through the same route", async () => {
 });
 
 test("lets a revoked token, a missing one or another site's page in no more", async () => {
-  const { token, secret } = await newToken();
+  const token = await newToken();
+  const { secret } = token;
 
-  const listed = await (await server.api("/api/mcp-tokens")).json();
+  const listed = await (await server.api("/api/me/access-tokens")).json();
 
   const foreign = await rpc(secret, "ping", undefined, {
     origin: "https://evil.example",
   });
 
-  const revoked = await server.api(`/api/mcp-tokens/${token.id}`, {
+  const revoked = await server.api(`/api/me/access-tokens/${token.id}`, {
     method: "DELETE",
   });
 
@@ -168,7 +174,7 @@ test("lets a revoked token, a missing one or another site's page in no more", as
   const missing = await rpc("pcm_unknown", "ping");
   const streamed = await fetch(new URL("/api/mcp", server.url));
 
-  const again = await server.api(`/api/mcp-tokens/${token.id}`, {
+  const again = await server.api(`/api/me/access-tokens/${token.id}`, {
     method: "DELETE",
   });
 

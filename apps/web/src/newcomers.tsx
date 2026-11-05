@@ -1,8 +1,8 @@
-import { json, useLoaded } from "@pipoca/plugins/web";
+import { useLoaded } from "@pipoca/plugins/web";
 import type { Newcomers, Profile } from "@pipoca/protocol";
 import { Button, Select } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import { send } from "./api";
+import { api } from "./api";
 import { useProfiles, useTemplates } from "./hooks";
 import { skippableSteps } from "./setup";
 
@@ -13,7 +13,7 @@ export function useNewcomers(): {
   readonly reload: () => void;
 } {
   const { value, reload } = useLoaded(
-    async () => json<Newcomers>(fetch("/api/newcomers")),
+    async () => api("settings.newcomers"),
     "newcomers",
     { topics: ["newcomers"] },
   );
@@ -138,9 +138,12 @@ function NewcomersForm({
       onSubmit={(event) => {
         event.preventDefault();
 
-        send("/api/newcomers", "PUT", draft).then(onDone, (reason: unknown) => {
-          setError(reason instanceof Error ? reason.message : String(reason));
-        });
+        api("settings.newcomers.update", { body: draft }).then(
+          onDone,
+          (reason: unknown) => {
+            setError(reason instanceof Error ? reason.message : String(reason));
+          },
+        );
       }}
     >
       <label className="flex flex-col gap-1.5">

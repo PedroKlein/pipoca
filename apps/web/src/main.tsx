@@ -1,11 +1,12 @@
 import type { SetupState } from "@pipoca/protocol";
 import { createRoot } from "react-dom/client";
+import { api } from "./api";
 import { App } from "./app";
 import { AppSignIn, pendingAppSignIn } from "./app-sign-in";
 import { JoinPage } from "./join";
 import { Me } from "./me";
 import { loadPlugins, navEntries } from "./plugins";
-import { type Login, SignInPage } from "./sign-in";
+import { SignInPage } from "./sign-in";
 import { applyTheme } from "./theme";
 
 const root = document.getElementById("root");
@@ -15,22 +16,7 @@ if (!root) {
 
 applyTheme();
 
-const status = await fetch("/api/auth")
-  .then(
-    async (response) =>
-      (await response.json()) as {
-        readonly user: {
-          readonly id: string;
-          readonly name: string;
-          readonly admin: boolean;
-        } | null;
-        readonly setup: boolean;
-        readonly logins: readonly Login[];
-        readonly passwordLogin: boolean;
-        readonly solo: boolean;
-      },
-  )
-  .catch(() => undefined);
+const status = await api("auth.status").catch(() => undefined);
 
 const setupToken = /^#setup\/(.+)$/.exec(location.hash)?.[1];
 const joinToken = /^#join\/(.+)$/.exec(location.hash)?.[1];
@@ -57,9 +43,10 @@ if (status === undefined) {
 } else {
   await loadPlugins().catch(() => undefined);
 
-  const setup = await fetch("/api/setup")
-    .then(async (response) => (await response.json()) as SetupState)
-    .catch(() => ({ finished: true, dismissed: [] }));
+  const setup = await api("me.setup").catch((): SetupState => ({
+    finished: true,
+    dismissed: [],
+  }));
 
   createRoot(root).render(
     <Me

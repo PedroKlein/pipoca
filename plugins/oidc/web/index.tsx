@@ -146,7 +146,7 @@ function Accounts({
                 <Button
                   onClick={() => {
                     location.assign(
-                      `/api/plugins/oidc/link/${encodeURIComponent(provider.id)}`,
+                      `/api/ext/oidc/link/${encodeURIComponent(provider.id)}`,
                     );
                   }}
                 >
@@ -708,7 +708,7 @@ function ProviderForm({
       <p className="text-caption text-fg-dim md:col-span-2">
         Register{" "}
         <code className="font-mono text-mono-sm">
-          {location.origin}/api/plugins/oidc/callback
+          {location.origin}/api/ext/oidc/callback
         </code>{" "}
         as the redirect URI with the provider.
       </p>

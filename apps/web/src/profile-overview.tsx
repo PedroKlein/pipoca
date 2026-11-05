@@ -1,5 +1,5 @@
 import { json, useLoaded } from "@pipoca/plugins/web";
-import type { PiPackage, Profile } from "@pipoca/protocol";
+import { apiPath, type PiPackage, type Profile } from "@pipoca/protocol";
 import {
   Badge,
   Button,
@@ -14,7 +14,7 @@ import {
   Switch,
 } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useEffect, useState } from "react";
-import { send } from "./api";
+import { api } from "./api";
 import { messageOf } from "./profile-files";
 
 interface Skill {
@@ -62,7 +62,7 @@ export function ProfileOverview({
   readonly onChange: () => void;
   readonly children?: ReactNode;
 }): ReactElement {
-  const url = `/api/profiles/${profile.id}/files`;
+  const url = apiPath("profiles.files", { params: { id: profile.id } });
 
   const tab = (name: string): string =>
     `#${profilesPath(profile.ownerId === "team")}/${profile.id}/${name}`;
@@ -70,12 +70,12 @@ export function ProfileOverview({
   const below: readonly Below[] = [
     ...chainOf(profile, profiles).map(({ id, name }) => ({
       name,
-      url: `/api/profiles/${id}/files`,
+      url: apiPath("profiles.files", { params: { id } }),
     })),
     ...(profile.ownerId === "team"
       ? []
-      : [{ name: "My defaults", url: "/api/defaults/files" }]),
-    { name: "Server base", url: "/api/base/files" },
+      : [{ name: "My defaults", url: apiPath("me.profileDefaults.files") }]),
+    { name: "Server base", url: apiPath("settings.baseProfile.files") },
   ];
 
   const { value: files } = useLoaded(
@@ -113,7 +113,7 @@ export function ProfileOverview({
   const [error, setError] = useState<string>();
 
   const save = (body: Partial<Profile>): void => {
-    send(`/api/profiles/${profile.id}`, "PUT", body).then(
+    api("profiles.update", { params: { id: profile.id }, body }).then(
       () => {
         setError(undefined);
         onChange();

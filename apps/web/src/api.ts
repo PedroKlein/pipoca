@@ -1,44 +1,14 @@
-import { ok } from "@pipoca/plugins/web";
-import type { Command } from "@pipoca/protocol";
+import { apiClient, type ApiInput } from "@pipoca/protocol";
 
-// The server adds the actor to everything a browser sends.
-export type BrowserCommand = Command extends infer C
-  ? C extends Command
-    ? Omit<C, "actor">
-    : never
-  : never;
+// The server's routes, typed by the route table (ADR 0068).
+export const api = apiClient();
 
-export async function api(path: string, body?: unknown): Promise<Response> {
-  return await ok(
-    fetch(path, {
-      method: body === undefined ? "GET" : "POST",
-      ...(body !== undefined && {
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      }),
-    }),
-  );
-}
-
-export async function send(
-  path: string,
-  method: "POST" | "PUT" | "PATCH" | "DELETE",
-  body?: unknown,
-): Promise<Response> {
-  return await ok(
-    fetch(path, {
-      method,
-      ...(body !== undefined && {
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      }),
-    }),
-  );
-}
+// What a browser sends a Session; the server adds the actor.
+export type BrowserCommand = ApiInput<"sessions.commands.create">["body"];
 
 export async function command(
   sessionId: string,
   body: BrowserCommand,
 ): Promise<void> {
-  await api(`/api/sessions/${encodeURIComponent(sessionId)}/commands`, body);
+  await api("sessions.commands.create", { params: { id: sessionId }, body });
 }

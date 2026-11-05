@@ -6,8 +6,8 @@ import {
   useSyncExternalStore,
 } from "react";
 import type {
+  AccessToken,
   Environment,
-  HubLayout,
   HubPage,
   Invite,
   ListedTemplate,
@@ -42,20 +42,22 @@ interface WatchedList<T> {
   readonly reload: () => void;
 }
 
-// Reads a JSON list from the server and reads it again whenever the server
-// says its topic changed (ADR 0038).
-function useWatchedList(path: string, topic: string): WatchedList<unknown> {
-  const [value, setValue] = useState<readonly unknown[]>([]);
+// Reads a list from the server and reads it again whenever the server says
+// its topic changed (ADR 0038). The list is read again when key changes.
+function useWatchedList<T>(
+  key: string,
+  load: () => Promise<readonly T[]>,
+  ...topics: readonly string[]
+): WatchedList<T> {
+  const [value, setValue] = useState<readonly T[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [order] = useState(responseOrder);
 
   const reload = useCallback(() => {
     const request = order.send();
 
-    api(path)
-      .then(async (response) => {
-        const list = (await response.json()) as unknown[];
-
+    load()
+      .then((list) => {
         if (order.accept(request)) {
           setValue(list);
           setLoaded(true);
@@ -67,49 +69,58 @@ function useWatchedList(path: string, topic: string): WatchedList<unknown> {
           location.reload();
         }
       });
-  }, [path, order]);
+    // key names what load reads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, order]);
+
+  const watched = topics.join(" ");
 
   useEffect(() => {
     reload();
-    const unwatch = watchChanges([topic], reload);
+    const unwatch = watchChanges(watched.split(" "), reload);
 
     return () => {
       unwatch();
       order.drop();
     };
-  }, [reload, order, topic]);
+  }, [reload, order, watched]);
 
   return { value, loaded, reload };
 }
 
+// Owned Sessions too, for search and notices (ADR 0028).
 export function useSessions(archived: boolean): WatchedList<Session> {
   return useWatchedList(
-    `/api/sessions?archived=${String(archived)}&owner=all`,
+    String(archived),
+    async () => api("sessions.list", { query: { archived, plugins: true } }),
     "sessions",
-  ) as WatchedList<Session>;
+  );
 }
 
 // Every user sees the team's Sessions (ADR 0064).
 export function useTeamSessions(): WatchedList<Session> {
   return useWatchedList(
-    "/api/sessions?owner=team",
+    "team",
+    async () => api("sessions.list", { query: { scope: "team" } }),
     "sessions",
-  ) as WatchedList<Session>;
+  );
 }
 
 // The team's Environments and Profiles, which any user starts team work on.
 export function useTeamEnvironments(): WatchedList<Environment> {
   return useWatchedList(
-    "/api/environments?owner=team",
+    "team",
+    async () => api("environments.list", { query: { scope: "team" } }),
     "environments",
-  ) as WatchedList<Environment>;
+  );
 }
 
 export function useTeamProfiles(): WatchedList<Profile> {
   return useWatchedList(
-    "/api/profiles?owner=team",
+    "team",
+    async () => api("profiles.list", { query: { scope: "team" } }),
     "profiles",
-  ) as WatchedList<Profile>;
+  );
 }
 
 // The team hub's pages, or null while it shows every panel on Home.
@@ -120,9 +131,9 @@ export function useHubLayout(): {
   const [pages, setPages] = useState<readonly HubPage[] | null>(null);
 
   const reload = useCallback(() => {
-    api("/api/hub")
-      .then(async (response) => {
-        setPages(((await response.json()) as HubLayout).pages);
+    api("settings.hub")
+      .then((layout) => {
+        setPages(layout.pages);
       })
       .catch(() => undefined);
   }, []);
@@ -146,10 +157,8 @@ export function useTeam(): TeamView {
 
   useEffect(() => {
     const read = (): void => {
-      api("/api/team")
-        .then(async (response) => {
-          setTeam((await response.json()) as TeamView);
-        })
+      api("settings.team")
+        .then(setTeam)
         .catch(() => undefined);
     };
 
@@ -162,69 +171,76 @@ export function useTeam(): TeamView {
 }
 
 export function useProfiles(): WatchedList<Profile> {
-  return useWatchedList("/api/profiles", "profiles") as WatchedList<Profile>;
+  return useWatchedList("", async () => api("profiles.list"), "profiles");
 }
 
 export function usePlugins(): WatchedList<PluginInfo> {
-  return useWatchedList("/api/plugins", "plugins") as WatchedList<PluginInfo>;
+  return useWatchedList("", async () => api("plugins.list"), "plugins");
 }
 
 export function useEnvironments(): WatchedList<Environment> {
   return useWatchedList(
-    "/api/environments",
+    "",
+    async () => api("environments.list"),
     "environments",
-  ) as WatchedList<Environment>;
+  );
 }
 
 // For admins: everyone, and an outline of their Environments and active
 // Sessions (ADR 0049).
 export function usePeople(): WatchedList<Person> {
-  return useWatchedList("/api/people", "environments") as WatchedList<Person>;
+  return useWatchedList(
+    "",
+    async () => (await api("people.list")) as readonly Person[],
+    "people",
+    // Their outline changes as runners and Sessions come and go.
+    "environments",
+    "sessions",
+  );
 }
 
+// Everyone else sees only names.
 export function useTeammates(): WatchedList<Teammate> {
-  return useWatchedList(
-    "/api/teammates",
-    "environments",
-  ) as WatchedList<Teammate>;
+  return useWatchedList("", async () => api("people.list"), "people");
 }
 
 export function useInvites(): WatchedList<Invite> {
-  return useWatchedList("/api/invites", "environments") as WatchedList<Invite>;
+  return useWatchedList("", async () => api("invites.list"), "people");
 }
 
 export function useEveryonesEnvironments(): WatchedList<Environment> {
   return useWatchedList(
-    "/api/environments?people=all",
+    "all",
+    async () => api("environments.list", { query: { scope: "all" } }),
     "environments",
-  ) as WatchedList<Environment>;
+  );
 }
 
 export function useEveryonesSessions(): WatchedList<Session> {
   return useWatchedList(
-    "/api/sessions?archived=false&owner=all&people=all",
+    "all",
+    async () =>
+      api("sessions.list", {
+        query: { scope: "all", archived: false, plugins: true },
+      }),
     "sessions",
-  ) as WatchedList<Session>;
+  );
 }
 
 export function useTemplates(): WatchedList<ListedTemplate> {
   return useWatchedList(
-    "/api/templates",
+    "",
+    async () => api("environmentTemplates.list"),
     "environments",
-  ) as WatchedList<ListedTemplate>;
+  );
 }
 
-export interface McpToken {
-  readonly id: string;
-  readonly name: string;
-  readonly createdAt: string;
-}
-
-export function useMcpTokens(): WatchedList<McpToken> {
+export function useAccessTokens(): WatchedList<AccessToken> {
   return useWatchedList(
-    "/api/mcp-tokens",
-    "mcp-tokens",
-  ) as WatchedList<McpToken>;
+    "",
+    async () => api("me.accessTokens"),
+    "access-tokens",
+  );
 }
 
 // Tells the browser when a session stops working, unless it is on screen or

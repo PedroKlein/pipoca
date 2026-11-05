@@ -349,12 +349,10 @@ export function ProfileStep({
                 className="self-start"
                 onClick={() => {
                   run(async () => {
-                    await api(
-                      `/api/profiles/${encodeURIComponent(target.id)}/files`,
-                      {
-                        files: await filesToImport(picked, left),
-                      },
-                    );
+                    await api("profiles.files.upload", {
+                      params: { id: target.id },
+                      body: { files: await filesToImport(picked, left) },
+                    });
 
                     return `Imported ${String(kept)} items into ${target.name}.`;
                   });
@@ -375,13 +373,14 @@ export function ProfileStep({
               event.preventDefault();
 
               run(async () => {
-                const response = await api("/api/profiles/import", { url });
-                const made = (await response.json()) as Profile;
+                const made = await api("profiles.create", {
+                  body: { source: { url } },
+                });
 
-                await api(
-                  `/api/profiles/${encodeURIComponent(made.id)}/default`,
-                  {},
-                );
+                await api("profiles.update", {
+                  params: { id: made.id },
+                  body: { isDefault: true },
+                });
 
                 return `Made ${made.name} your default Profile.`;
               });

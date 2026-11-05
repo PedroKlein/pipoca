@@ -39,7 +39,7 @@ export interface EmbeddedSessionProps {
 export type SettingsGroup = "you" | "workspace" | "server" | "integrations";
 
 export interface WebContext {
-  // A fetch of the plugin's own routes under /api/plugins/<name>/, or of the
+  // A fetch of the plugin's own routes under /api/ext/<name>/, or of the
   // server's, such as /api/sessions, for a path that starts with /.
   readonly request: (path: string, init?: RequestInit) => Promise<Response>;
   readonly openSession: (sessionId: string) => void;

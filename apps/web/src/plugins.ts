@@ -18,11 +18,12 @@ import type {
   WebPlugin,
   WidgetProps,
 } from "@pipoca/plugins/web";
-import type {
-  PluginInfo,
-  PluginSettings,
-  RepositoryChoice,
-  Session,
+import {
+  apiPath,
+  type PluginInfo,
+  type PluginSettings,
+  type RepositoryChoice,
+  type Session,
 } from "@pipoca/protocol";
 import { projects } from "@pipoca/projects/web";
 import { email } from "@pipoca/email/web";
@@ -44,6 +45,7 @@ import {
 import * as reactDom from "react-dom";
 import * as reactDomClient from "react-dom/client";
 import * as jsxRuntime from "react/jsx-runtime";
+import { api } from "./api";
 import { EmbeddedSession } from "./embedded-session";
 
 // The web parts of the plugins built into this bundle (ADR 0015).
@@ -89,8 +91,7 @@ Object.assign(globalThis, {
 });
 
 export async function loadPlugins(): Promise<void> {
-  const response = await fetch("/api/plugins");
-  const listed = (await response.json()) as PluginInfo[];
+  const listed = await api("plugins.list");
   const on = listed.filter(({ state }) => state === "on");
 
   const installed = await Promise.all(
@@ -111,9 +112,9 @@ export async function loadPlugins(): Promise<void> {
 
   // Admins turn plugins on and off in team work while pages stay open.
   plugins.watchChanges(["plugins"], () => {
-    void fetch("/api/plugins")
-      .then(async (changed) => {
-        inTeamWork = teamWorkOf((await changed.json()) as PluginInfo[]);
+    void api("plugins.list")
+      .then((changed) => {
+        inTeamWork = teamWorkOf(changed);
 
         for (const listener of teamWorkListeners) {
           listener();
@@ -209,7 +210,12 @@ export function pluginContext(name: string): WebContext {
 
   const context: WebContext = {
     request: async (path, init) =>
-      fetch(path.startsWith("/") ? path : `/api/plugins/${name}/${path}`, init),
+      fetch(
+        path.startsWith("/")
+          ? path
+          : apiPath("ext", { params: { plugin: name, path } }),
+        init,
+      ),
     openSession: (sessionId) => {
       location.hash = sessionId;
     },

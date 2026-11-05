@@ -12,7 +12,9 @@ export function settingsRoutes({
   team,
   newcomers,
   log,
-}: ApiDeps): Handlers<Group<"settings">> {
+}: ApiDeps): Handlers<
+  Exclude<Group<"settings">, Group<"settings.baseProfile">>
+> {
   return {
     "settings.config": () => {
       if (config === undefined) {
@@ -21,7 +23,7 @@ export function settingsRoutes({
 
       return { root: config.root, files: config.list() };
     },
-    "settings.config.file": ({ query: { name = "" } }) => {
+    "settings.config.file": ({ params: { name } }) => {
       const file = config?.read(name);
 
       if (file === undefined) {
@@ -30,7 +32,10 @@ export function settingsRoutes({
 
       return file;
     },
-    "settings.config.file.write": ({ body: { name, text, version } }) => {
+    "settings.config.file.write": ({
+      params: { name },
+      body: { text, version },
+    }) => {
       if (config === undefined) {
         throw new NotFound("Not found.");
       }

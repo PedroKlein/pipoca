@@ -1,22 +1,12 @@
 import { Badge, Button, cn, Icon, PageTitle } from "@pipoca/ui";
+import type { ApiReply, ConfigFile } from "@pipoca/protocol";
 import { type ReactElement, useEffect, useState } from "react";
-import { api, send } from "./api";
+import { api } from "./api";
 import { settingsPageClass } from "./page-class";
 
-interface ConfigEntry {
-  readonly name: string;
-  readonly locked: boolean;
-}
-
-interface ConfigText extends ConfigEntry {
-  readonly text: string;
-  readonly version: string | null;
-}
-
-interface ConfigList {
-  readonly root: string;
-  readonly files: readonly ConfigEntry[];
-}
+type ConfigText = ConfigFile;
+type ConfigList = ApiReply<"settings.config">;
+type ConfigEntry = ConfigList["files"][number];
 
 // The config files every Settings page reads and writes, for admins who'd
 // rather edit them whole (ADR 0039, ADR 0063).
@@ -41,15 +31,14 @@ export function ConfigurationPage(): ReactElement {
   };
 
   useEffect(() => {
-    api("/api/config")
-      .then(async (response) => (await response.json()) as ConfigList)
-      .then(setList, failed);
+    api("settings.config").then(setList, failed);
   }, []);
 
   useEffect(() => {
-    api(`/api/config/file?name=${encodeURIComponent(chosen)}`)
-      .then(async (response) => (await response.json()) as ConfigText)
-      .then(opened, failed);
+    api("settings.config.file", { params: { name: chosen } }).then(
+      opened,
+      failed,
+    );
   }, [chosen]);
 
   const edited = file !== undefined && draft !== file.text;
@@ -184,16 +173,10 @@ export function ConfigurationPage(): ReactElement {
                   variant="primary"
                   disabled={!edited || invalid !== undefined}
                   onClick={() => {
-                    send("/api/config/file", "PUT", {
-                      name: chosen,
-                      text: draft,
-                      version: file?.version ?? null,
-                    })
-                      .then(
-                        async (response) =>
-                          (await response.json()) as ConfigText,
-                      )
-                      .then(opened, failed);
+                    api("settings.config.file.write", {
+                      params: { name: chosen },
+                      body: { text: draft, version: file?.version ?? null },
+                    }).then(opened, failed);
                   }}
                 >
                   Save

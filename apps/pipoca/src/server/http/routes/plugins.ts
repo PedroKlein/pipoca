@@ -2,7 +2,7 @@ import { BadRequest, HttpError, NotFound } from "@pipoca/plugins";
 import type { PluginHost } from "@pipoca/pluginhost";
 import type { PluginInfo } from "@pipoca/protocol";
 import type { ApiDeps, Group } from "../deps";
-import type { Handlers, PersonCaller } from "../router";
+import { type Handlers, type PersonCaller, restOf } from "../router";
 
 // Plugins run code inside the server, so only admins change them.
 export function pluginRoutes({
@@ -49,14 +49,24 @@ export function pluginRoutes({
 
       return undefined;
     },
-    "plugins.files": async ({ params: { plugin }, query: { path } }) =>
-      path === undefined
-        ? await refused(plugins.files.list(plugin))
-        : { path, content: await refused(plugins.files.read(plugin, path)) },
-    "plugins.files.write": async ({ params: { plugin }, body, caller }) => {
+    "plugins.files": async ({ params: { plugin } }) =>
+      refused(plugins.files.list(plugin)),
+    "plugins.file": async ({ params: { plugin, path } }) => {
+      const file = restOf(path);
+
+      return {
+        path: file,
+        content: await refused(plugins.files.read(plugin, file)),
+      };
+    },
+    "plugins.file.write": async ({
+      params: { plugin, path },
+      body,
+      caller,
+    }) => {
       drafter(caller);
 
-      return refused(plugins.files.write(plugin, body.path, body.content));
+      return refused(plugins.files.write(plugin, restOf(path), body.content));
     },
     "plugins.builds.create": async ({ params: { plugin }, caller }) => {
       drafter(caller);

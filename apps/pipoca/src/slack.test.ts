@@ -100,7 +100,7 @@ afterEach(async () => {
 async function addBot(): Promise<void> {
   expect(
     (
-      await server.api("/api/plugins/slack/bots", {
+      await server.api("/api/ext/slack/bots", {
         body: {
           name: "team-bot",
           appToken: "xapp-good",
@@ -141,7 +141,7 @@ const heard = (): readonly string[] =>
 test("an admin adds a Slack bot, and its mentions reach routines", async () => {
   expect(
     (
-      await server.api("/api/plugins/slack/bots", {
+      await server.api("/api/ext/slack/bots", {
         body: {
           name: "team-bot",
           appToken: "xapp-good",
@@ -157,7 +157,7 @@ test("an admin adds a Slack bot, and its mentions reach routines", async () => {
   expect(file).not.toContain("xoxb-good");
   expect(file).not.toContain("xapp-good");
 
-  expect(await (await server.api("/api/plugins/slack/bots")).json()).toEqual([
+  expect(await (await server.api("/api/ext/slack/bots")).json()).toEqual([
     {
       name: "team-bot",
       team: "Acme",
@@ -167,7 +167,7 @@ test("an admin adds a Slack bot, and its mentions reach routines", async () => {
     },
   ]);
 
-  await server.api("/api/plugins/routines/routines/answer", {
+  await server.api("/api/ext/routines/routines/answer", {
     method: "PUT",
     body: {
       title: "Answer questions in #help",
@@ -242,7 +242,7 @@ test("a bot written into pipoca.json by hand takes its tokens from the environme
     await Bun.sleep(20);
   }
 
-  expect(await (await server.api("/api/plugins/slack/bots")).json()).toEqual([
+  expect(await (await server.api("/api/ext/slack/bots")).json()).toEqual([
     {
       name: "team-bot",
       team: "Acme",
@@ -282,10 +282,10 @@ test("a Session posts as the bot, and replies in its thread come back to it", as
 
   const poll: WorkPoll = { running: [], folders: ["/srv/a"], models: [] };
 
-  const work = (await (await agent("/agent/work", poll)).json()) as Work;
+  const work = (await (await agent("/runner/work", poll)).json()) as Work;
   const [started] = work.start;
 
-  const session = `/agent/sessions/${started?.sessionId ?? ""}`;
+  const session = `/runner/sessions/${started?.sessionId ?? ""}`;
   const generation = String(started?.generation ?? 0);
 
   const commands = readSse(

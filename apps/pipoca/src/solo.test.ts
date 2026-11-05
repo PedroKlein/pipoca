@@ -75,7 +75,7 @@ test("makes a solo install's socket and its folder reachable only by the server'
 
 test("refuses a made-up sign-in link", async () => {
   const visit = await fetch(
-    new URL("/api/auth/link/not-a-real-token", server.url),
+    new URL("/api/auth/links/not-a-real-token", server.url),
     { redirect: "manual" },
   );
 

@@ -27,7 +27,7 @@ const modelKey = "pipoca.meta.model";
 
 // The assistant is a Project of the person's own, with this plugin's
 // Profiles for its coordinator and threads (ADR 0052).
-const assistantPath = "/api/plugins/projects/assistant";
+const assistantPath = "/api/ext/projects/assistant";
 
 export const meta: WebPlugin = {
   name: "meta",
@@ -349,7 +349,7 @@ function TeamAssistant({
 
   const environments = useLoaded(
     async () =>
-      json<Environment[]>(context.request("/api/environments?owner=team")),
+      json<Environment[]>(context.request("/api/environments?scope=team")),
     "team-environments",
     { topics: ["environments"] },
   ).value;

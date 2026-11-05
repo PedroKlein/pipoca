@@ -35,7 +35,7 @@ export function runnerCredentials(
     const id = listed.find(({ provider }) => provider === environment)?.id;
 
     const replaced = await fetch(
-      new URL(`/api/environments/${id ?? ""}/key`, server.url),
+      new URL(`/api/environments/${id ?? ""}/keys`, server.url),
       { method: "POST", headers, body: "{}" },
     );
 
@@ -50,7 +50,7 @@ export function runnerCredentials(
   };
 
   const join = async (runner: string, environment: string): Promise<string> => {
-    const response = await fetch(new URL("/agent/join", server.url), {
+    const response = await fetch(new URL("/runner/join", server.url), {
       method: "POST",
       headers: {
         "content-type": "application/json",

@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { type AuthorizationResponse, responseOf } from "./mcp";
 
 const browserCookie = "pipoca-logins";
-const cookiePath = "/api/plugins/logins/";
+const cookiePath = "/api/ext/logins/";
 const callbackPath = `${cookiePath}callback`;
 
 export interface Callbacks {

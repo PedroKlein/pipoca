@@ -373,7 +373,7 @@ test("asks the assistant from the home screen with the model picked, then contin
     fauxAssistantMessage([fauxText("Happy to help")]),
   ]);
 
-  await fetch(new URL("/api/plugins/meta/sessions", server.url), {
+  await fetch(new URL("/api/ext/meta/sessions", server.url), {
     method: "POST",
     headers: { cookie, "content-type": "application/json" },
     body: JSON.stringify({ text: "An older question" }),
@@ -407,7 +407,7 @@ test("asks the assistant from the home screen with the model picked, then contin
   expect(projectHash).toMatch(/^#plugin\/projects\/[\w-]+$/);
 
   const assistant = (await (
-    await fetch(new URL("/api/plugins/projects/assistant", server.url), {
+    await fetch(new URL("/api/ext/projects/assistant", server.url), {
       headers: { cookie },
     })
   ).json()) as { coordinatorId: string };
@@ -1020,7 +1020,7 @@ test("pins a plugin page to the sidebar and keeps the rest under More", async ()
 test("puts a pin back when the server doesn't save it", async () => {
   const { promise: pinned, resolve: refuse } = Promise.withResolvers();
 
-  await page.route("**/api/pinned-pages", async (route) => {
+  await page.route("**/api/me/pinned-pages", async (route) => {
     if (route.request().method() !== "PUT") {
       await route.continue();
 
@@ -1047,7 +1047,7 @@ test("puts a pin back when the server doesn't save it", async () => {
     .getByRole("button", { name: "Pin Library", exact: true })
     .waitFor({ timeout: 2000 });
 
-  await page.unroute("**/api/pinned-pages");
+  await page.unroute("**/api/me/pinned-pages");
 });
 
 test("connects a model provider from Settings by answering its prompts", async () => {
@@ -1188,7 +1188,7 @@ test("signs in to an MCP server of the base Profile from Settings and comes back
   });
 
   const base = async (mcpServers: unknown): Promise<void> => {
-    await fetch(new URL("/api/base", server.url), {
+    await fetch(new URL("/api/settings/base-profile", server.url), {
       method: "PUT",
       headers: { "content-type": "application/json", cookie },
       body: JSON.stringify({ mcpServers }),
@@ -1262,7 +1262,7 @@ test("says why an MCP token wasn't revoked", async () => {
   await page.getByRole("button", { name: "New token" }).click();
   const revoke = page.getByRole("button", { name: "Revoke Old laptop" });
 
-  await page.route("**/api/mcp-tokens/*", async (route) =>
+  await page.route("**/api/me/access-tokens/*", async (route) =>
     route.fulfill({
       status: 500,
       json: { error: "internal", message: "token store is locked" },
@@ -1272,7 +1272,7 @@ test("says why an MCP token wasn't revoked", async () => {
   page.once("dialog", async (dialog) => dialog.accept());
   await revoke.click();
   await page.getByRole("alert").getByText("token store is locked").waitFor();
-  await page.unroute("**/api/mcp-tokens/*");
+  await page.unroute("**/api/me/access-tokens/*");
 
   page.once("dialog", async (dialog) => dialog.accept());
   await revoke.click();
@@ -1375,7 +1375,7 @@ test("edits an Environment's variables and secrets without showing secret values
 
 test("starts and stops runner pods from a template's Kubernetes section", async () => {
   const template = (await (
-    await fetch(new URL("/api/templates", server.url), {
+    await fetch(new URL("/api/environment-templates", server.url), {
       method: "POST",
       headers: { "content-type": "application/json", cookie },
       body: JSON.stringify({ name: "Pods" }),
@@ -1399,10 +1399,7 @@ test("starts and stops runner pods from a template's Kubernetes section", async 
     (
       (await (
         await fetch(
-          new URL(
-            `/api/plugins/kubernetes/templates/${template.id}`,
-            server.url,
-          ),
+          new URL(`/api/ext/kubernetes/templates/${template.id}`, server.url),
           { headers: { cookie } },
         )
       ).json()) as { readonly settings: unknown }
@@ -1433,20 +1430,23 @@ test("starts and stops runner pods from a template's Kubernetes section", async 
 
   expect(await settings()).toBeNull();
 
-  await fetch(new URL(`/api/templates/${template.id}`, server.url), {
-    method: "DELETE",
-    headers: { cookie },
-  });
+  await fetch(
+    new URL(`/api/environment-templates/${template.id}`, server.url),
+    {
+      method: "DELETE",
+      headers: { cookie },
+    },
+  );
 });
 
 test("deletes an Environment from its page", async () => {
-  const { environment } = (await (
+  const environment = (await (
     await fetch(new URL("/api/environments", server.url), {
       method: "POST",
       headers: { "content-type": "application/json", cookie },
       body: JSON.stringify({ name: "throwaway" }),
     })
-  ).json()) as { readonly environment: { readonly id: string } };
+  ).json()) as { readonly id: string };
 
   await page.goto(`${server.url.href}#environments/${environment.id}`);
 
@@ -1666,7 +1666,7 @@ test("chooses what new people get, and someone who joins picks an offered Profil
     await context.close();
   }
 
-  await fetch(new URL("/api/newcomers", server.url), {
+  await fetch(new URL("/api/settings/newcomers", server.url), {
     method: "PUT",
     headers: { "content-type": "application/json", cookie },
     body: JSON.stringify({ template: null, profiles: [], required: [] }),
@@ -1679,7 +1679,7 @@ test("chooses what new people get, and someone who joins picks an offered Profil
 }, 30_000);
 
 test("shows why an Environment's last runner pod failed", async () => {
-  await page.route("**/api/plugins/kubernetes/environments/*", async (route) =>
+  await page.route("**/api/ext/kubernetes/environments/*", async (route) =>
     route.fulfill({
       json: {
         settings: {
@@ -1717,7 +1717,7 @@ test("shows why an Environment's last runner pod failed", async () => {
     "Runner pod pi-runner-1a2b3c4d failed",
   );
 
-  await page.unroute("**/api/plugins/kubernetes/environments/*");
+  await page.unroute("**/api/ext/kubernetes/environments/*");
 });
 
 test("keeps a Profile that follows a repository read-only until it is copied", async () => {
@@ -2681,7 +2681,7 @@ test("shows a Project made elsewhere on the open Projects page", async () => {
   let made = false;
   const { promise: listed, resolve: list } = Promise.withResolvers();
 
-  await page.route("**/api/plugins/projects/projects", async (route) =>
+  await page.route("**/api/ext/projects/projects", async (route) =>
     route.fulfill({
       json: made
         ? [
@@ -2724,11 +2724,11 @@ test("shows a Project made elsewhere on the open Projects page", async () => {
     .waitFor({ timeout: 2000 });
 
   await page.unroute("**/api/changes");
-  await page.unroute("**/api/plugins/projects/projects");
+  await page.unroute("**/api/ext/projects/projects");
 });
 
 test("shows a plugin page's failure without taking the app down", async () => {
-  await page.route("**/api/plugins/projects/projects", async (route) =>
+  await page.route("**/api/ext/projects/projects", async (route) =>
     route.fulfill({
       status: 500,
       contentType: "application/json",
@@ -2759,7 +2759,7 @@ test("shows a plugin page's failure without taking the app down", async () => {
     .filter({ hasText: "projects store is unreadable" })
     .waitFor();
 
-  await page.unroute("**/api/plugins/projects/projects");
+  await page.unroute("**/api/ext/projects/projects");
   await pluginPage.getByRole("button", { name: "Try again" }).click();
   await page.getByRole("heading", { name: "New Project" }).waitFor();
   await page.getByRole("button", { name: "New session" }).waitFor();
@@ -2779,7 +2779,7 @@ test("keeps a plugin's newest list when an older load answers last", async () =>
   const loads: Route[] = [];
   const { promise: watching, resolve: watched } = Promise.withResolvers();
 
-  await page.route("**/api/plugins/projects/projects", async (route) => {
+  await page.route("**/api/ext/projects/projects", async (route) => {
     loads.push(route);
     watched(undefined);
 
@@ -2810,7 +2810,7 @@ test("keeps a plugin's newest list when an older load answers last", async () =>
   expect(shown.map((text) => text.split("1 repository")[0])).toEqual(["Newer"]);
 
   await page.unroute("**/api/changes");
-  await page.unroute("**/api/plugins/projects/projects");
+  await page.unroute("**/api/ext/projects/projects");
 });
 
 test("attaches an image to a message and shows it in the chat", async () => {
@@ -3706,7 +3706,7 @@ test("opens a page the Session opened in a browser through its preview", async (
   const site = `http://localhost:${server.url.port}`;
   const context = await browser.newContext();
 
-  await context.request.post(`${site}/api/auth/login`, {
+  await context.request.post(`${site}/api/auth/session`, {
     data: { name: "pedro", password: "correct horse" },
   });
 
@@ -3853,14 +3853,14 @@ test("signs in in the browser for the desktop app and hands it a link only it ca
     .getByRole("heading", { name: "Sign in to the Pipoca app" })
     .waitFor();
 
-  const handed = tab.waitForResponse("**/api/auth/app");
+  const handed = tab.waitForResponse("**/api/auth/app-links");
   await tab.getByRole("button", { name: "Open Pipoca" }).click();
   const { link } = (await (await handed).json()) as { link: string };
   const token = new URL(link).searchParams.get("link") ?? "";
 
   await tab.getByRole("heading", { name: "Pipoca is open" }).waitFor();
 
-  const app = new URL(`/api/auth/link/${token}`, server.url);
+  const app = new URL(`/api/auth/links/${token}`, server.url);
   app.searchParams.set("verifier", verifier);
   const signedIn = await fetch(app, { redirect: "manual" });
 
@@ -3892,10 +3892,10 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
       })
     ).json();
 
-  const { environment } = (await post("/api/environments", {
+  const environment = (await post("/api/environments", {
     name: "team-pods",
     team: true,
-  })) as { environment: Environment };
+  })) as Environment;
 
   const profile = (await post("/api/profiles", {
     name: "Team work",
@@ -4159,7 +4159,7 @@ test("an admin sets up team work from Team setup: its Profiles, Environments, cr
   ).toBe(0);
 
   const teamProfiles = (await (
-    await page.request.get(new URL("/api/profiles?owner=team", server.url).href)
+    await page.request.get(new URL("/api/profiles?scope=team", server.url).href)
   ).json()) as Profile[];
 
   expect(teamProfiles.map(({ name }) => name)).toContain("Backend");
@@ -4185,9 +4185,7 @@ test("an admin sets up team work from Team setup: its Profiles, Environments, cr
   await page.getByRole("status").getByText("Saved").waitFor();
 
   const totals = (await (
-    await page.request.get(
-      new URL("/api/plugins/usage/totals", server.url).href,
-    )
+    await page.request.get(new URL("/api/ext/usage/totals", server.url).href)
   ).json()) as { budgets: unknown };
 
   expect(totals.budgets).toEqual({ team: 200, person: 40 });
@@ -4243,7 +4241,7 @@ test("an admin names the team, and the hub and sidebar show it", async () => {
   await page.getByRole("link", { name: "My work" }).click();
   await page.getByRole("link", { name: "Acme platform" }).waitFor();
 
-  await page.request.put(new URL("/api/team", server.url).href, {
+  await page.request.put(new URL("/api/settings/team", server.url).href, {
     data: { name: null },
   });
 
@@ -4268,10 +4266,10 @@ test("offers a fork once the team said more than Pi reads", async () => {
       })
     ).json();
 
-  const { environment } = (await post("/api/environments", {
+  const environment = (await post("/api/environments", {
     name: "talk-pods",
     team: true,
-  })) as { environment: Environment };
+  })) as Environment;
 
   const profile = (await post("/api/profiles", {
     name: "Talk",
@@ -4289,7 +4287,11 @@ test("offers a fork once the team said more than Pi reads", async () => {
     workspace: { kind: "folder", path: folder },
   })) as Session;
 
-  await post(`/api/sessions/${session.id}/say`, { to: "team", text: "One" });
+  await post(`/api/sessions/${session.id}/messages`, {
+    to: "team",
+    text: "One",
+  });
+
   await page.goto(new URL(`/#${session.id}`, server.url).href);
 
   await page
@@ -4297,7 +4299,7 @@ test("offers a fork once the team said more than Pi reads", async () => {
     .waitFor();
 
   for (let n = 2; n <= 41; n++) {
-    await post(`/api/sessions/${session.id}/say`, {
+    await post(`/api/sessions/${session.id}/messages`, {
       to: "team",
       text: `Message ${String(n)}`,
     });
@@ -4355,10 +4357,10 @@ test("shows on the hub's Home who limited team work", async () => {
       })
     ).json();
 
-  const { environment } = (await call("/api/environments", {
+  const environment = (await call("/api/environments", {
     name: "activity-pods",
     team: true,
-  })) as { environment: Environment };
+  })) as Environment;
 
   const profile = (await call("/api/profiles", {
     name: "Activity",
@@ -4376,10 +4378,14 @@ test("shows on the hub's Home who limited team work", async () => {
     workspace: { kind: "folder", path: folder },
   })) as Session;
 
-  await call(`/api/sessions/${session.id}/access`, { kind: "view" }, "PUT");
+  await call(
+    `/api/sessions/${session.id}`,
+    { access: { kind: "view" } },
+    "PATCH",
+  );
 
   // Home shows every panel until an admin lays it out.
-  await call("/api/hub", { pages: null }, "PUT");
+  await call("/api/settings/hub", { pages: null }, "PUT");
   await page.goto(new URL("/#team", server.url).href);
 
   await page
@@ -4397,7 +4403,7 @@ test("an admin pastes the key of a team runner's extension provider, and Credent
     ({ name }) => name === "pipoca-session",
   );
 
-  const { environment, key } = (await (
+  const { key, ...environment } = (await (
     await fetch(new URL("/api/environments", server.url), {
       method: "POST",
       headers: {
@@ -4406,7 +4412,7 @@ test("an admin pastes the key of a team runner's extension provider, and Credent
       },
       body: JSON.stringify({ name: "core-pods", team: true }),
     })
-  ).json()) as { environment: Environment; key: string };
+  ).json()) as Environment & { key: string };
 
   const agent = async (
     path: string,
@@ -4425,11 +4431,11 @@ test("an admin pastes the key of a team runner's extension provider, and Credent
       })
     ).json();
 
-  const joined = (await agent("/agent/join", key, { name: "core-1" })) as {
+  const joined = (await agent("/runner/join", key, { name: "core-1" })) as {
     token: string;
   };
 
-  await agent("/agent/work", joined.token, {
+  await agent("/runner/work", joined.token, {
     running: [],
     folders: [],
     models: [{ provider: "ai-core", id: "claude-on-core" }],
@@ -4495,10 +4501,10 @@ test("drops a plugin's parts from open team work once an admin keeps it out", as
       })
     ).json();
 
-  const { environment } = (await call("/api/environments", {
+  const environment = (await call("/api/environments", {
     name: "switch-pods",
     team: true,
-  })) as { environment: Environment };
+  })) as Environment;
 
   const profile = (await call("/api/profiles", {
     name: "Switch",
@@ -4545,10 +4551,10 @@ test("keeps team work inside the team's area, with the server's pages shared fro
       })
     ).json();
 
-  const { environment } = (await post("/api/environments", {
+  const environment = (await post("/api/environments", {
     name: "team-area-pods",
     team: true,
-  })) as { environment: Environment };
+  })) as Environment;
 
   const profile = (await post("/api/profiles", {
     name: "Team area work",

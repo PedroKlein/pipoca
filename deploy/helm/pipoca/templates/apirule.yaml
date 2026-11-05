@@ -29,20 +29,17 @@ spec:
     - path: /api/auth
       methods: [GET]
       noAuth: true
-    - path: /api/auth/login
-      methods: [POST]
-      noAuth: true
-    - path: /api/auth/logout
-      methods: [POST]
+    - path: /api/auth/session
+      methods: [POST, DELETE]
       noAuth: true
     # The desktop app's sign-in (ADR 0055).
-    - path: /api/auth/app
+    - path: /api/auth/app-links
       methods: [POST]
       noAuth: true
-    - path: /api/auth/link/{*}
+    - path: /api/auth/links/{*}
       methods: [GET]
       noAuth: true
-    - path: /api/auth/join/{*}
+    - path: /api/auth/invites/{*}
       methods: [GET, POST]
       noAuth: true
     - path: /api/changes
@@ -57,7 +54,7 @@ spec:
       methods: {{ toJson $methods }}
       noAuth: true
       timeout: 3900
-    {{- range list "environments" "templates" "people" "profiles" "base" "defaults" "plugins" "plugin-files" "plugin-builds" "plugin-resets" "plugin-parts" "pinned-pages" "mcp-tokens" "join-key" "restart" "setup" "invites" "config" "hub" "teammates" "newcomers" "team" }}
+    {{- range list "environments" "environment-templates" "join-keys" "repositories" "people" "invites" "profiles" "plugins" "ext" "me" "settings" "server" }}
     - path: /api/{{ . }}
       methods: {{ toJson $methods }}
       noAuth: true
@@ -72,7 +69,7 @@ spec:
       timeout: 3900
     {{- end }}
     {{- if .Values.apiRule.exposeAgents }}
-    - path: /agent/{**}
+    - path: /runner/{**}
       methods: {{ toJson $methods }}
       noAuth: true
       timeout: 3900
@@ -100,5 +97,5 @@ spec:
             namespaces: [{{ .Release.Namespace }}]
       to:
         - operation:
-            paths: ["/agent/*", "/api/plugins/logins/proxy/*"]
+            paths: ["/runner/*", "/api/ext/logins/proxy/*"]
 {{- end }}

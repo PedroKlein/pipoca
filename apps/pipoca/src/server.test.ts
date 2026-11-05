@@ -179,7 +179,11 @@ function startServer(
   log: Log,
   { offlineAfterMs = 30_000, plugin = echo() } = {},
 ): {
-  readonly call: (path: string, body?: unknown) => Promise<Response>;
+  readonly call: (
+    path: string,
+    body?: unknown,
+    method?: string,
+  ) => Promise<Response>;
   readonly claim: () => Promise<Assignment>;
   readonly stop: () => void;
 } {
@@ -255,10 +259,14 @@ function startServer(
 
   const token = auth.runners.ownRunnerToken("local", "local");
 
-  const call = async (path: string, body?: unknown): Promise<Response> =>
+  const call = async (
+    path: string,
+    body?: unknown,
+    method = body === undefined ? "GET" : "POST",
+  ): Promise<Response> =>
     handler(
       new Request(`http://127.0.0.1${path}`, {
-        method: body === undefined ? "GET" : "POST",
+        method,
         headers: {
           [versionHeader]: String(protocolVersion),
           authorization: `Bearer ${token}`,
@@ -272,13 +280,13 @@ function startServer(
   return {
     call,
     claim: async () => {
-      await call("/agent/work", poll);
+      await call("/runner/work", poll);
 
       await call("/api/sessions", {
         workspace: { kind: "folder", path: "/srv/app" },
       });
 
-      const work = (await (await call("/agent/work", poll)).json()) as {
+      const work = (await (await call("/runner/work", poll)).json()) as {
         start: Assignment[];
       };
 
@@ -301,7 +309,7 @@ test("delivers a server tool's result that finished while the command stream was
   const server = startServer(() => undefined);
   const { sessionId, generation } = await server.claim();
 
-  const called = await server.call(`/agent/sessions/${sessionId}/tool-calls`, {
+  const called = await server.call(`/runner/sessions/${sessionId}/tool-calls`, {
     generation,
     id: "call-1",
     name: "echo",
@@ -311,7 +319,7 @@ test("delivers a server tool's result that finished while the command stream was
   await sleep(0);
 
   const stream = await server.call(
-    `/agent/sessions/${sessionId}/commands?generation=${String(generation)}`,
+    `/runner/sessions/${sessionId}/commands?generation=${String(generation)}`,
   );
 
   const commands: unknown[] = [];
@@ -320,7 +328,7 @@ test("delivers a server tool's result that finished while the command stream was
     break;
   }
 
-  await server.call(`/api/sessions/${sessionId}/archive`, {});
+  await server.call(`/api/sessions/${sessionId}`, { archived: true }, "PATCH");
   server.stop();
 
   expect(called.status).toBe(202);
@@ -347,7 +355,7 @@ test("drops and logs a waiting tool result once its attempt is no longer current
 
   const { sessionId, generation } = await server.claim();
 
-  await server.call(`/agent/sessions/${sessionId}/tool-calls`, {
+  await server.call(`/runner/sessions/${sessionId}/tool-calls`, {
     generation,
     id: "call-1",
     name: "echo",
@@ -355,7 +363,7 @@ test("drops and logs a waiting tool result once its attempt is no longer current
   });
 
   await sleep(0);
-  await server.call(`/api/sessions/${sessionId}/archive`, {});
+  await server.call(`/api/sessions/${sessionId}`, { archived: true }, "PATCH");
 
   expect(await dropped).toEqual({
     sessionId,
@@ -370,7 +378,7 @@ test("drops and logs a waiting tool result once its attempt is no longer current
 
 test("holds a message sent before the session's runner connects and delivers it when it does", async () => {
   const server = startServer(() => undefined);
-  await server.call("/agent/work", poll);
+  await server.call("/runner/work", poll);
 
   const created = (await (
     await server.call("/api/sessions", {
@@ -383,14 +391,14 @@ test("holds a message sent before the session's runner connects and delivers it 
     text: "hi early",
   });
 
-  const work = (await (await server.call("/agent/work", poll)).json()) as {
+  const work = (await (await server.call("/runner/work", poll)).json()) as {
     start: Assignment[];
   };
 
   const generation = work.start[0]?.generation ?? 0;
 
   const stream = await server.call(
-    `/agent/sessions/${created.id}/commands?generation=${String(generation)}`,
+    `/runner/sessions/${created.id}/commands?generation=${String(generation)}`,
   );
 
   const commands: unknown[] = [];
@@ -399,7 +407,7 @@ test("holds a message sent before the session's runner connects and delivers it 
     break;
   }
 
-  await server.call(`/api/sessions/${created.id}/archive`, {});
+  await server.call(`/api/sessions/${created.id}`, { archived: true }, "PATCH");
   server.stop();
 
   expect(sent.status).toBe(202);
@@ -411,7 +419,7 @@ test("holds a message sent before the session's runner connects and delivers it 
 
 test("keeps a held message for the next attempt when the runner restarts before it connects", async () => {
   const server = startServer(() => undefined);
-  await server.call("/agent/work", poll);
+  await server.call("/runner/work", poll);
 
   const created = (await (
     await server.call("/api/sessions", {
@@ -424,16 +432,18 @@ test("keeps a held message for the next attempt when the runner restarts before 
     text: "hi early",
   });
 
-  await server.call("/agent/work", poll);
+  await server.call("/runner/work", poll);
 
-  const restarted = (await (await server.call("/agent/work", poll)).json()) as {
+  const restarted = (await (
+    await server.call("/runner/work", poll)
+  ).json()) as {
     start: Assignment[];
   };
 
   const generation = restarted.start[0]?.generation ?? 0;
 
   const stream = await server.call(
-    `/agent/sessions/${created.id}/commands?generation=${String(generation)}`,
+    `/runner/sessions/${created.id}/commands?generation=${String(generation)}`,
   );
 
   const commands: unknown[] = [];
@@ -442,7 +452,7 @@ test("keeps a held message for the next attempt when the runner restarts before 
     break;
   }
 
-  await server.call(`/api/sessions/${created.id}/archive`, {});
+  await server.call(`/api/sessions/${created.id}`, { archived: true }, "PATCH");
   server.stop();
 
   expect(generation).toBe(2);
@@ -460,7 +470,7 @@ test("refuses messages from when the provider goes offline until a new command s
 
   // Nobody reads this stream, like one whose tunnel died without closing.
   await server.call(
-    `/agent/sessions/${sessionId}/commands?generation=${String(generation)}`,
+    `/runner/sessions/${sessionId}/commands?generation=${String(generation)}`,
   );
 
   await sleep(offlineAfterMs * 2);
@@ -474,7 +484,7 @@ test("refuses messages from when the provider goes offline until a new command s
     { type: "message", text: "hi" },
   );
 
-  await server.call("/agent/work", {
+  await server.call("/runner/work", {
     ...poll,
     running: [{ sessionId, generation }],
   });
@@ -484,7 +494,7 @@ test("refuses messages from when the provider goes offline until a new command s
     { type: "message", text: "hi again" },
   );
 
-  await server.call(`/api/sessions/${sessionId}/archive`, {});
+  await server.call(`/api/sessions/${sessionId}`, { archived: true }, "PATCH");
   server.stop();
 
   expect(view.online).toBe(false);
@@ -516,12 +526,12 @@ test("delivers a server tool's result that finished while the provider was offli
   });
 
   const { sessionId, generation } = await server.claim();
-  const commandsPath = `/agent/sessions/${sessionId}/commands?generation=${String(generation)}`;
+  const commandsPath = `/runner/sessions/${sessionId}/commands?generation=${String(generation)}`;
 
   // Nobody reads this stream, like one whose tunnel died without closing.
   await server.call(commandsPath);
 
-  await server.call(`/agent/sessions/${sessionId}/tool-calls`, {
+  await server.call(`/runner/sessions/${sessionId}/tool-calls`, {
     generation,
     id: "call-1",
     name: "echo",
@@ -533,7 +543,7 @@ test("delivers a server tool's result that finished while the provider was offli
   await sleep(0);
 
   const polling = setInterval(() => {
-    void server.call("/agent/work", {
+    void server.call("/runner/work", {
       ...poll,
       running: [{ sessionId, generation }],
     });
@@ -548,7 +558,7 @@ test("delivers a server tool's result that finished while the provider was offli
   }
 
   clearInterval(polling);
-  await server.call(`/api/sessions/${sessionId}/archive`, {});
+  await server.call(`/api/sessions/${sessionId}`, { archived: true }, "PATCH");
   server.stop();
 
   expect(commands).toEqual([
@@ -679,7 +689,7 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
   expect(owned.owner).toEqual({ plugin: "keeper", key: "k1" });
   expect(ids(await on("/api/sessions"))).toEqual(ids([plain.value]));
 
-  expect(ids(await on("/api/sessions?owner=all"))).toEqual(
+  expect(ids(await on("/api/sessions?plugins=true"))).toEqual(
     ids([owned, plain.value, other]),
   );
 
