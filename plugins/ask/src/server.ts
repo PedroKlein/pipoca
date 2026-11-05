@@ -1,26 +1,35 @@
 import {
   BadRequest,
+  type Caller,
+  defineServer,
+  Forbidden,
   HttpError,
   NotFound,
-  readBody,
-  type RouteCaller,
-  type ServerPlugin,
-  type ServerPluginContext,
+  type Person,
+  type ServerContext,
   Type,
 } from "@pipoca/plugins";
 import type { Session } from "@pipoca/protocol";
+import { ask } from "../plugin";
 import type { Votes } from "./votes";
 
-const sweepMs = 30_000;
-const maxOptions = 8;
-
 const opening = Type.Object({
-  question: Type.String({ minLength: 1, maxLength: 500 }),
+  question: Type.String({
+    minLength: 1,
+    maxLength: 500,
+    description: "The choice, one line",
+  }),
   options: Type.Array(Type.String({ minLength: 1, maxLength: 200 }), {
     minItems: 2,
-    maxItems: maxOptions,
+    maxItems: 8,
   }),
-  minutes: Type.Optional(Type.Number({ minimum: 1, maximum: 10_080 })),
+  minutes: Type.Optional(
+    Type.Number({
+      minimum: 1,
+      maximum: 10_080,
+      description: "How long it stays open, if not the team's default",
+    }),
+  ),
 });
 
 const picking = Type.Object({ option: Type.String() });
@@ -36,161 +45,87 @@ interface StoredVote {
   readonly closes_at: number;
 }
 
-const schema = `
-create table ask_votes (
-  id text primary key,
-  session_id text not null references sessions (id) on delete cascade,
-  opener text not null check (opener like 'user:%' or opener like 'session:%'),
-  question text not null,
-  opened_at integer not null,
-  closes_at integer not null,
-  closed_at integer
-) strict;
-create index ask_votes_session on ask_votes (session_id, opened_at);
-create index ask_votes_open on ask_votes (closes_at) where closed_at is null;
-
-create table ask_vote_options (
-  vote_id text not null references ask_votes (id) on delete cascade,
-  position integer not null,
-  label text not null,
-  primary key (vote_id, position)
-) strict, without rowid;
-
-create table ask_vote_picks (
-  vote_id text not null,
-  user_id text not null references users (id) on delete cascade,
-  position integer not null,
-  picked_at integer not null,
-  primary key (vote_id, user_id),
-  foreign key (vote_id, position) references ask_vote_options (vote_id, position) on delete cascade
-) strict;
-`;
-
 // Anyone in team work opens a vote, Pi too. The opener or the starter closes
 // it, or it closes on time, and Pi reads the result on its next turn
 // (ADR 0065).
-export const askServer: ServerPlugin = {
-  name: "ask",
-  schema,
-  register: (context) => {
-    const votes = ballots(context);
+export default defineServer(ask, (context) => {
+  const { routes, schedule, tools } = context;
+  const votes = ballots(context);
 
-    const sweep = setInterval(votes.sweep, sweepMs);
+  schedule.on("close:", (id) => {
+    votes.closeOnTime(String(id));
+  });
 
-    context.signal.addEventListener("abort", () => {
-      clearInterval(sweep);
-    });
+  tools.define({
+    name: "open_vote",
+    description:
+      "Opens a vote for the team on a choice the team should make together. Everyone following the work picks one option; the vote closes when whoever started the work closes it, or on time. You read the result with the team's messages the next time someone asks you something, so don't wait for it.",
+    params: opening,
+    when: { owner: "team" },
+    exposure: "direct",
+    annotations: { readOnly: false, destructive: false },
+    run: (input, { session }) => {
+      const vote = votes.open(session, `session:${session.id}`, input);
+      routes.topic("votes");
 
-    context.tools.register({
-      name: "open_vote",
-      description:
-        "Opens a vote for the team on a choice the team should make together. Everyone following the work picks one option; the vote closes when whoever started the work closes it, or on time. You read the result with the team's messages the next time someone asks you something, so don't wait for it.",
-      parameters: {
-        type: "object",
-        properties: {
-          question: { type: "string", description: "The choice, one line" },
-          options: {
-            type: "array",
-            items: { type: "string" },
-            minItems: 2,
-            maxItems: maxOptions,
-          },
-          minutes: {
-            type: "number",
-            description: "How long it stays open, if not the team's default",
-          },
-        },
-        required: ["question", "options"],
-        additionalProperties: false,
-      },
-      exposure: "direct",
-      annotations: { readOnlyHint: false, destructiveHint: false },
-      appliesTo: (session) => session.ownedBy === "team",
-      run: async (input, { session }) => {
-        await Promise.resolve();
+      return `The vote is open until ${vote.closesAt}.`;
+    },
+  });
 
-        try {
-          const vote = votes.open(
-            session,
-            `session:${session.id}`,
-            checked(input),
-          );
+  routes.get("sessions/:id/votes", { auth: "person" }, ({ params, caller }) => {
+    const person = personOf(caller);
 
-          return {
-            text: `The vote is open until ${vote.closesAt}.`,
-            isError: false,
-          };
-        } catch (error) {
-          return {
-            text: error instanceof Error ? error.message : String(error),
-            isError: true,
-          };
-        }
-      },
-    });
+    return votes.of(votes.session(params["id"] ?? "", person), person);
+  });
 
-    context.routes.handle(async (request, path, caller) => {
-      if (caller.kind !== "user") {
-        throw new NotFound(`no route ${path}`);
-      }
+  routes.post(
+    "sessions/:id/votes",
+    { auth: "person", body: opening, changes: ["votes"] },
+    ({ params, caller, body }) => {
+      const person = personOf(caller);
+      const session = votes.session(params["id"] ?? "", person);
 
-      const [route, id = "", action] = path.split("/");
+      return Response.json(votes.open(session, `user:${person.id}`, body), {
+        status: 201,
+      });
+    },
+  );
 
-      if (route === "sessions" && action === "votes") {
-        const session = votes.session(id, caller);
+  routes.put(
+    "votes/:id/pick",
+    { auth: "person", body: picking, changes: ["votes"] },
+    ({ params, caller, body }) => {
+      votes.pick(params["id"] ?? "", personOf(caller), body.option);
 
-        if (request.method === "GET") {
-          votes.sweep();
+      return { ok: true };
+    },
+  );
 
-          return Response.json(votes.of(session, caller));
-        }
+  routes.post(
+    "votes/:id/close",
+    { auth: "person", changes: ["votes"] },
+    ({ params, caller }) => {
+      votes.close(params["id"] ?? "", personOf(caller));
 
-        if (request.method === "POST") {
-          const body = await readBody(request, opening);
+      return { ok: true };
+    },
+  );
+});
 
-          return Response.json(votes.open(session, caller.actor, body), {
-            status: 201,
-          });
-        }
-      }
-
-      if (route === "votes" && action === "pick" && request.method === "PUT") {
-        const { option } = await readBody(request, picking);
-        votes.pick(id, caller, option);
-
-        return Response.json({ ok: true });
-      }
-
-      if (
-        route === "votes" &&
-        action === "close" &&
-        request.method === "POST"
-      ) {
-        votes.close(id, caller);
-
-        return Response.json({ ok: true });
-      }
-
-      throw new NotFound(`no route ${path}`);
-    });
-  },
-};
-
-function ballots(context: ServerPluginContext) {
-  const { store, sessions } = context;
+function ballots(context: ServerContext<typeof ask>) {
+  const { store, sessions, people, schedule, clock, config, routes } = context;
 
   const name = (person: string): string =>
-    context.auth.users().find(({ id }) => id === person)?.name ?? "Someone";
+    people.get(person)?.name ?? "Someone";
 
-  // Who opened it, as the Session's messages name a person or Pi.
-  const openedBy = (opener: Opener): string =>
-    opener.startsWith("user:") ? opener.slice("user:".length) : "pi";
-
-  const stored = (id: string): StoredVote => {
-    const [vote] = store.all(
+  const stored = (id: string): StoredVote | undefined =>
+    store.get<StoredVote>(
       "select * from ask_votes where id = ? and closed_at is null",
       id,
-    ) as StoredVote[];
+    );
+
+  const open = (id: string): StoredVote => {
+    const vote = stored(id);
 
     if (vote === undefined) {
       throw new NotFound("no open vote with that id");
@@ -200,29 +135,29 @@ function ballots(context: ServerPluginContext) {
   };
 
   const optionsOf = (vote: StoredVote): readonly string[] =>
-    (
-      store.all(
+    store
+      .all<{ label: string }>(
         "select label from ask_vote_options where vote_id = ? order by position",
         vote.id,
-      ) as { label: string }[]
-    ).map(({ label }) => label);
+      )
+      .map(({ label }) => label);
 
   const picksOf = (vote: StoredVote): Readonly<Record<string, string>> =>
     Object.fromEntries(
-      (
-        store.all(
+      store
+        .all<{ user_id: string; label: string }>(
           "select user_id, label from ask_vote_picks join ask_vote_options using (vote_id, position) where vote_id = ? order by ask_vote_picks.rowid",
           vote.id,
-        ) as { user_id: string; label: string }[]
-      ).map(({ user_id, label }) => [user_id, label]),
+        )
+        .map(({ user_id, label }) => [user_id, label]),
     );
 
-  const session = (id: string, caller: RouteCaller): Session => {
+  const session = (id: string, person: Person): Session => {
     const found = sessions.get(id);
 
     if (
       found === undefined ||
-      (!admin(caller) && !sessions.sees(id, personOf(caller)))
+      (!person.admin && !sessions.sees(id, person.id))
     ) {
       throw new NotFound("no session with that id");
     }
@@ -230,57 +165,43 @@ function ballots(context: ServerPluginContext) {
     return found;
   };
 
-  const canClose = (
-    vote: StoredVote,
-    caller: RouteCaller,
-    of: Session | undefined,
-  ): boolean => {
-    const person = personOf(caller);
-
-    return (
-      admin(caller) ||
-      vote.opener === `user:${person}` ||
-      of?.startedBy === person
-    );
-  };
+  const canClose = (vote: StoredVote, person: Person, of: Session): boolean =>
+    person.admin ||
+    vote.opener === `user:${person.id}` ||
+    of.startedBy === person.id;
 
   const finish = (vote: StoredVote, by: string | undefined): void => {
     store.run(
       "update ask_votes set closed_at = ? where id = ?",
-      Date.now(),
+      clock.now(),
       vote.id,
     );
 
-    const told = sessions.voted(
-      vote.session_id,
-      openedBy(vote.opener),
-      tally(vote, optionsOf(vote), picksOf(vote), name, by),
-    );
+    const told = sessions.send(vote.session_id, {
+      text: `Vote closed. ${tally(vote, optionsOf(vote), picksOf(vote), name, by)}`,
+      turn: false,
+      notice: { kind: "vote_result" },
+    });
 
-    if (!told.ok) {
+    if (told === "gone") {
       context.log("vote result not told", {
         vote: vote.id,
         session: vote.session_id,
-        reason: told.reason,
       });
     }
-
-    context.changes.publish("votes");
   };
 
   return {
     session,
-    of: (of: Session, caller: RouteCaller): Votes => {
-      const person = personOf(caller);
-
-      const open = store.all(
+    of: (of: Session, person: Person): Votes => {
+      const opened = store.all<StoredVote>(
         "select * from ask_votes where session_id = ? and closed_at is null order by opened_at",
         of.id,
-      ) as StoredVote[];
+      );
 
       return {
         canOpen: of.ownedBy === "team" && of.archivedAt === null,
-        votes: open.map((vote) => {
+        votes: opened.map((vote) => {
           const picks = picksOf(vote);
 
           return {
@@ -293,8 +214,8 @@ function ballots(context: ServerPluginContext) {
               name: name(who),
               option,
             })),
-            mine: picks[person] ?? null,
-            canClose: canClose(vote, caller, of),
+            mine: picks[person.id] ?? null,
+            canClose: canClose(vote, person, of),
             closesAt: new Date(vote.closes_at).toISOString(),
           };
         }),
@@ -303,7 +224,15 @@ function ballots(context: ServerPluginContext) {
     open: (
       of: Session,
       opener: Opener,
-      { question, options, minutes }: Opening,
+      {
+        question,
+        options,
+        minutes = config.get().voteMinutes,
+      }: {
+        readonly question: string;
+        readonly options: readonly string[];
+        readonly minutes?: number;
+      },
     ): { readonly id: string; readonly closesAt: string } => {
       if (of.ownedBy !== "team") {
         throw new HttpError(409, "only team work has votes", "not_team");
@@ -319,10 +248,9 @@ function ballots(context: ServerPluginContext) {
         throw new BadRequest("a vote needs a question and two options");
       }
 
-      const now = Date.now();
-      const open = minutes ?? Number(context.settings.get()["voteMinutes"]);
+      const now = clock.now();
       const id = Bun.randomUUIDv7();
-      const closesAt = now + open * 60_000;
+      const closesAt = now + minutes * 60_000;
 
       store.transaction(() => {
         store.run(
@@ -345,13 +273,13 @@ function ballots(context: ServerPluginContext) {
         });
       });
 
-      context.changes.publish("votes");
+      schedule.at(`close:${id}`, closesAt, id);
 
       return { id, closesAt: new Date(closesAt).toISOString() };
     },
-    pick: (id: string, caller: RouteCaller, option: string): void => {
-      const vote = stored(id);
-      session(vote.session_id, caller);
+    pick: (id: string, person: Person, option: string): void => {
+      const vote = open(id);
+      session(vote.session_id, person);
 
       const position = optionsOf(vote).indexOf(option);
 
@@ -362,18 +290,15 @@ function ballots(context: ServerPluginContext) {
       store.run(
         "insert into ask_vote_picks (vote_id, user_id, position, picked_at) values (?, ?, ?, ?) on conflict (vote_id, user_id) do update set position = excluded.position, picked_at = excluded.picked_at",
         id,
-        personOf(caller),
+        person.id,
         position,
-        Date.now(),
+        clock.now(),
       );
-
-      context.changes.publish("votes");
     },
-    close: (id: string, caller: RouteCaller): void => {
-      const vote = stored(id);
-      const of = session(vote.session_id, caller);
+    close: (id: string, person: Person): void => {
+      const vote = open(id);
 
-      if (!canClose(vote, caller, of)) {
+      if (!canClose(vote, person, session(vote.session_id, person))) {
         throw new HttpError(
           403,
           "only whoever opened the vote or started the work closes it",
@@ -381,50 +306,28 @@ function ballots(context: ServerPluginContext) {
         );
       }
 
-      finish(vote, personOf(caller));
+      schedule.cancel(`close:${vote.id}`);
+      finish(vote, person.id);
     },
-    sweep: (): void => {
-      const due = store.all(
-        "select * from ask_votes where closed_at is null and closes_at <= ?",
-        Date.now(),
-      ) as StoredVote[];
+    closeOnTime: (id: string): void => {
+      const vote = stored(id);
 
-      for (const vote of due) {
+      if (vote !== undefined) {
         finish(vote, undefined);
+        routes.topic("votes");
       }
     },
   };
 }
 
-interface Opening {
-  readonly question: string;
-  readonly options: readonly string[];
-  readonly minutes?: number;
-}
-
-function checked(input: unknown): Opening {
-  const { question, options, minutes } = (input ?? {}) as Record<
-    string,
-    unknown
-  >;
-
-  if (
-    typeof question !== "string" ||
-    !Array.isArray(options) ||
-    !options.every((option) => typeof option === "string") ||
-    options.length > maxOptions ||
-    (minutes !== undefined && (typeof minutes !== "number" || minutes < 1))
-  ) {
-    throw new Error(
-      `give a question, 2 to ${String(maxOptions)} options as text, and minutes of at least 1 if any`,
-    );
+// Votes are people's, so only a signed-in person, not a Session, calls the
+// routes.
+function personOf(caller: Caller): Person {
+  if (caller.kind !== "person") {
+    throw new Forbidden("only a person votes", "people_only");
   }
 
-  return {
-    question,
-    options,
-    ...(typeof minutes === "number" && { minutes }),
-  };
+  return caller.person;
 }
 
 // The result as the team and Pi read it, such as "Ship it today?": Ship 2
@@ -439,13 +342,13 @@ function tally(
   const voters = Object.entries(picks);
 
   const counts = options.map((option) => {
-    const people = voters
+    const voted = voters
       .filter(([, picked]) => picked === option)
       .map(([person]) => name(person));
 
-    return people.length === 0
+    return voted.length === 0
       ? `${option} 0`
-      : `${option} ${String(people.length)} (${people.join(", ")})`;
+      : `${option} ${String(voted.length)} (${voted.join(", ")})`;
   });
 
   const closed =
@@ -454,14 +357,4 @@ function tally(
   return voters.length === 0
     ? `"${vote.question}": nobody voted. ${closed}`
     : `"${vote.question}": ${counts.join(", ")}. ${closed}`;
-}
-
-function personOf(caller: RouteCaller): string {
-  return caller.kind === "user"
-    ? caller.actor.slice("user:".length)
-    : (caller.session.startedBy ?? "");
-}
-
-function admin(caller: RouteCaller): boolean {
-  return caller.kind === "user" && caller.admin;
 }

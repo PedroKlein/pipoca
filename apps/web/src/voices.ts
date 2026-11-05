@@ -77,13 +77,16 @@ function spoken(
         at: voice.at,
         key,
       };
-    case "vote":
-      return {
-        role: "note",
-        text: `Vote closed. ${voice.text ?? ""}`,
-        at: voice.at,
-        key,
-      };
+    case "notice":
+      return voice.notice === undefined
+        ? undefined
+        : {
+            role: "notice",
+            text: voice.text ?? "",
+            notice: voice.notice,
+            at: voice.at,
+            key,
+          };
     case "team":
     case "aside":
       return {

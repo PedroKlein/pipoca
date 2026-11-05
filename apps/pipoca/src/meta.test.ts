@@ -471,10 +471,10 @@ test("hands a runner only the allowed Session parts and requires the meta one", 
       work.start.find(({ sessionId }) => sessionId === id);
 
     expect(of(metaSession.id)?.plugins).toEqual([
-      "ask",
       "logins",
       "meta",
       "models",
+      "ask",
     ]);
 
     expect(of(metaSession.id)?.requiredPlugins).toEqual(["meta"]);

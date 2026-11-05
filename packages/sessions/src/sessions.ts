@@ -702,36 +702,6 @@ export class Sessions {
     return { ok: true, value: undefined };
   }
 
-  // A closed vote's result, which Pi reads with what the team said since its
-  // last turn (ADR 0065).
-  voted(
-    id: string,
-    { opener, text }: { readonly opener: string; readonly text: string },
-  ): Result<undefined, "not_found" | "archived" | "not_team"> {
-    const session = this.#store.get(id);
-
-    if (session === undefined) {
-      return { ok: false, reason: "not_found" };
-    }
-
-    if (session.archivedAt !== null) {
-      return { ok: false, reason: "archived" };
-    }
-
-    if (!this.#team(session)) {
-      return { ok: false, reason: "not_team" };
-    }
-
-    this.#addVoice(session.id, {
-      kind: "vote",
-      actor: opener === "pi" ? `session:${session.id}` : `user:${opener}`,
-      at: new Date(this.#clock.now()).toISOString(),
-      text,
-    });
-
-    return { ok: true, value: undefined };
-  }
-
   // Several people steer a team Session, so it keeps who said what. False
   // for a message it already kept.
   #voice(session: StoredSession, command: Command, quote?: Quote): boolean {
@@ -816,12 +786,13 @@ export class Sessions {
             `(${String(left)} earlier messages are left out. Suggest forking the Session if they matter.)`,
           ]
         : []),
-      ...said
-        .slice(-read)
-        .map(
-          (voice) =>
-            `${voice.kind === "vote" ? "A vote closed" : this.#said(voice.person, voice.quote)}: ${clipped(voice.text ?? "", teamMessageLength)}`,
-        ),
+      ...said.slice(-read).map((voice) => {
+        const text = clipped(voice.text ?? "", teamMessageLength);
+
+        return voice.kind === "notice"
+          ? text
+          : `${this.#said(voice.person, voice.quote)}: ${text}`;
+      }),
       ...(said.length === 0 ? [] : [""]),
       `${this.#said(person, quote)} sends the next message.`,
     ];
@@ -1374,6 +1345,19 @@ export class Sessions {
       return { ok: false, reason: "archived" };
     }
 
+    // Pi reads it with the team's messages, which the team sees at once.
+    if (message.kind === "notice" && !message.turn && this.#team(session)) {
+      this.#addVoice(id, {
+        kind: "notice",
+        actor: message.actor,
+        at: new Date(this.#clock.now()).toISOString(),
+        text: message.text,
+        notice: { plugin: message.plugin ?? "", ...message.notice },
+      });
+
+      return { ok: true, value: undefined };
+    }
+
     this.#outbox.enqueue(id, message);
 
     return { ok: true, value: undefined };
@@ -1911,7 +1895,6 @@ function clipped(text: string, length: number): string {
   return text.length > length ? `${text.slice(0, length)}…` : text;
 }
 
-// Pi's own votes are told by its Session.
 function voiceOf({
   actor,
   requestId: _requestId,

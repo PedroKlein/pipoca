@@ -546,6 +546,23 @@ export async function pluginTest(
             return [];
           }),
         queued: () => queuedText.all(host.id) as { text: string }[],
+        send: async (personId, text) => {
+          const sent = await request(
+            `/api/sessions/${host.id}/commands`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ type: "message", text }),
+            },
+            await cookieOf(personId),
+          );
+
+          if (!sent.ok) {
+            throw new Error(
+              `the message answered ${String(sent.status)}: ${await sent.text()}`,
+            );
+          }
+        },
         transcript: async (lines) => {
           const { entries } = await json<{ entries: readonly string[] }>(
             request(
