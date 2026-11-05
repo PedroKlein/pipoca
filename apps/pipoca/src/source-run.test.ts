@@ -28,12 +28,12 @@ afterAll(() => {
   server.kill();
 });
 
-// Reads the server's log for as long as it runs, since a server whose log
-// nobody reads stops at its next line.
+// Reads stderr to its end, since the server logs after it listens, such as
+// the plugins that register late.
 async function listening(): Promise<URL> {
-  let output = "";
-
   return new Promise((resolve, reject) => {
+    let output = "";
+
     server.stderr.on("data", (chunk) => {
       output += String(chunk);
       const url = /"server listening","url":"([^"]+)"/.exec(output)?.[1];

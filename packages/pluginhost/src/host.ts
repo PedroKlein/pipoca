@@ -1784,7 +1784,6 @@ function pluginSessions(
     transcriptLength: (id) => sessions.transcriptLength(id),
     sees: (id, person) =>
       canSee({ id: person, admin: false }, sessions.owned(id)),
-    voted: (id, opener, text) => sessions.voted(id, { opener, text }),
   };
 }
 

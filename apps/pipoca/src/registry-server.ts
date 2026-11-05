@@ -1,8 +1,7 @@
 // Written by `bun run registries` from plugins/*/package.json. Don't edit.
-import askPackage from "../../../plugins/ask/package.json";
-import * as askServer from "../../../plugins/ask/src/server";
+import { ask } from "../../../plugins/ask/plugin";
 import changesPackage from "../../../plugins/changes/package.json";
-import checklistPackage from "../../../plugins/checklist/package.json";
+import { checklist } from "../../../plugins/checklist/plugin";
 import { email } from "../../../plugins/email/plugin";
 import gitHostsPackage from "../../../plugins/git-hosts/package.json";
 import * as gitHostsServer from "../../../plugins/git-hosts/src/server";
@@ -32,9 +31,9 @@ import usagePackage from "../../../plugins/usage/package.json";
 import * as usageServer from "../../../plugins/usage/src/server";
 
 export const serverRegistry = [
-  { id: "ask", manifest: askPackage.pipoca, server: askServer },
+  { id: "ask", definition: ask },
   { id: "changes", manifest: changesPackage.pipoca },
-  { id: "checklist", manifest: checklistPackage.pipoca },
+  { id: "checklist", definition: checklist },
   { id: "email", definition: email },
   { id: "git-hosts", manifest: gitHostsPackage.pipoca, server: gitHostsServer },
   {

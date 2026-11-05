@@ -1,26 +1,40 @@
-import type { SessionPartProps, WebPlugin } from "@pipoca/plugins/web";
+import {
+  defineWeb,
+  Hidden,
+  type MountedSession,
+  useToolResults,
+} from "@pipoca/plugins/web";
 import { cn, Icon, type MarkStatus, StatusMark } from "@pipoca/ui";
-import { type ReactElement, useEffect, useId, useState } from "react";
-import { isOpen, type Item, listOf, toolName } from "../src/list";
+import { type ReactElement, useId, useState } from "react";
+import { checklist } from "../plugin";
+import { type Item, toolName } from "../src/items";
 
 // The agent's checklist, pinned above the composer while it has open items
 // (ADR 0056). Its calls show nowhere else.
-export const checklist: WebPlugin = {
-  name: "checklist",
-  Composer: PinnedList,
-  tools: { [toolName]: () => null },
-};
+export default defineWeb(checklist, {
+  slots: {
+    "session.composer": PinnedList,
+    [`session.toolCall:${toolName}`]: Hidden,
+  },
+});
 
-function PinnedList({ session }: SessionPartProps): ReactElement | null {
-  const items = useList(session);
+function PinnedList({
+  session,
+}: {
+  readonly session: MountedSession;
+}): ReactElement | null {
+  const items =
+    useToolResults<{ readonly items?: readonly Item[] }>(session, toolName)
+      .filter(({ isError }) => !isError)
+      .at(-1)?.details.items ?? [];
+
   const [open, setOpen] = useState(false);
   const listId = useId();
+  const done = items.filter(({ status }) => status === "completed").length;
 
-  if (!isOpen(items)) {
+  if (done === items.length) {
     return null;
   }
-
-  const done = items.filter(({ status }) => status === "completed").length;
 
   const current =
     items.find(({ status }) => status === "in_progress") ??
@@ -68,24 +82,6 @@ function PinnedList({ session }: SessionPartProps): ReactElement | null {
       )}
     </section>
   );
-}
-
-function useList(session: SessionPartProps["session"]): readonly Item[] {
-  const [items, setItems] = useState<readonly Item[]>([]);
-
-  useEffect(
-    () =>
-      session.events((event) => {
-        const found = event.type === "entry" ? listOf(event.entry) : undefined;
-
-        if (found) {
-          setItems(found);
-        }
-      }),
-    [session],
-  );
-
-  return items;
 }
 
 const marks = {

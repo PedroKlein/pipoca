@@ -17,6 +17,12 @@ import type {
 export interface SessionToolCall {
   readonly id: string;
   readonly signal: AbortSignal | undefined;
+  // Asks the Session's model one question outside its conversation, such as
+  // to explain an option. Undefined while the Session has no model.
+  readonly complete?: (o: {
+    readonly system: string;
+    readonly prompt: string;
+  }) => Promise<string>;
 }
 
 export interface SessionTool<Pm extends TSchema = TSchema> {
@@ -34,6 +40,13 @@ export interface SessionTool<Pm extends TSchema = TSchema> {
     readonly destructive?: boolean;
   };
   readonly exposure?: "direct" | "deferred";
+  // What the system prompt says about the tool, as Pi's own tools do.
+  readonly prompt?: {
+    readonly snippet: string;
+    readonly guidelines?: readonly string[];
+  };
+  // Runs alone, never beside the turn's other tool calls.
+  readonly sequential?: boolean;
   // A user's own tool of this name wins.
   readonly replaceable?: boolean;
   readonly run: (

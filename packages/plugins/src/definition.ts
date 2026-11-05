@@ -83,6 +83,7 @@ export const Config = {
 
   number: (o: {
     readonly title: string;
+    readonly description?: string;
     readonly default: number;
     readonly min?: number;
     readonly max?: number;
@@ -90,6 +91,7 @@ export const Config = {
     Type.Number({
       title: o.title,
       default: o.default,
+      ...(o.description !== undefined && { description: o.description }),
       ...(o.min !== undefined && { minimum: o.min }),
       ...(o.max !== undefined && { maximum: o.max }),
     }),

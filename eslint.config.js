@@ -106,6 +106,7 @@ export default tseslint.config(
       "plugins/*/src/server.ts",
       "plugins/*/web/index.tsx",
       "plugins/*/web.d.ts",
+      "plugins/*/src/session.ts",
     ],
     rules: { "no-restricted-exports": "off" },
   },
@@ -139,8 +140,6 @@ export default tseslint.config(
     ignores: [
       "plugins/*/src/**/*.test.ts",
       // Until these move to the clock and schedule as their plugins port.
-      "plugins/ask/src/ask.ts",
-      "plugins/ask/src/server.ts",
       "plugins/changes/src/pull-request.ts",
       "plugins/changes/src/session.ts",
       "plugins/git-hosts/src/acting.ts",
