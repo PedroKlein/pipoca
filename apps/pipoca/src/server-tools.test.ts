@@ -2,14 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  definePlugin,
-  defineServer,
-  type PluginDefinition,
-  type ServerContext,
-  ToolError,
-  Type,
-} from "@pipoca/plugins";
+import { definePlugin, defineServer, ToolError, Type } from "@pipoca/plugins";
 import {
   type Assignment,
   type Command,
@@ -31,19 +24,6 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-function served<P extends PluginDefinition>(
-  plugin: P,
-  register: (context: ServerContext<P>) => void,
-): P {
-  const definition: P = {
-    ...plugin,
-    server: async () =>
-      Promise.resolve({ default: defineServer(definition, register) }),
-  };
-
-  return definition;
-}
-
 const desk = {
   name: "Desk",
   packages: [],
@@ -54,7 +34,7 @@ const desk = {
   settings: {},
 };
 
-const keys = served(
+const keys = defineServer(
   definePlugin({
     id: "keys",
     title: "Keys",
@@ -152,7 +132,7 @@ beforeEach(async () => {
 
   server = testServer({
     runners: { pollWaitMs: 0 },
-    definitions: [keys],
+    servers: [keys],
   });
 });
 

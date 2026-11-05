@@ -6,7 +6,7 @@ import {
   testPlugin,
   until,
 } from "@pipoca/plugins/testing";
-import { models } from "../plugin";
+import { server } from "./server";
 
 const people = [
   { id: "ada", name: "Ada", admin: true },
@@ -35,7 +35,7 @@ afterEach(async () => {
 async function started(
   config?: Readonly<Record<string, unknown>>,
 ): Promise<{ readonly kernel: PluginTest; readonly session: TestSession }> {
-  opened = await testPlugin(models, {
+  opened = await testPlugin(server, {
     people,
     ...(config !== undefined && { config }),
   });

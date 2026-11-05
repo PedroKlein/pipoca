@@ -16,7 +16,7 @@ const params = Type.Object({
 });
 
 // The list lives in each call's result, so the transcript keeps it (ADR 0056).
-export default defineSession(checklist, (s) => {
+export const session = defineSession(checklist, (s) => {
   s.tools.define({
     name: toolName,
     label: "Checklist",

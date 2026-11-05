@@ -190,8 +190,6 @@ export interface PluginHost {
   // The links the sign-in page shows besides the password form, each with
   // its path from the server's root.
   readonly logins: () => readonly Login[];
-  // Settles once every plugin defined with definePlugin registered or failed.
-  readonly ready: Promise<void>;
   readonly extRoutes: () => readonly ExtRoute[];
 }
 
@@ -234,6 +232,7 @@ export function startPlugins(
   enabled: readonly string[],
   deps: {
     readonly definitions: readonly PluginDefinition[];
+    readonly servers: readonly ServerPart[];
     // Where people open the server, for plugins' public URLs.
     readonly url: () => URL;
     // What the Plugins page lists, on or not.
@@ -877,7 +876,7 @@ export function startPlugins(
     };
   };
 
-  const load = async (definition: PluginDefinition): Promise<void> => {
+  const load = (definition: PluginDefinition): void => {
     const { id } = definition;
 
     const log: Log = (message, fields) => {
@@ -933,11 +932,11 @@ export function startPlugins(
         throw new Error(dataFailure);
       }
 
-      const part = await serverPart(definition);
+      const part = deps.servers.find(({ plugin }) => plugin.id === id);
       const store = deps.store(id);
       const signal = AbortSignal.any([deps.signal, failed.signal]);
 
-      await part?.register(
+      part?.register(
         recorded(id, [], false, touched, {
           id,
           people: {
@@ -1113,14 +1112,13 @@ export function startPlugins(
     deps.log("plugin registered", { plugin: id });
   };
 
-  // One at a time, so a plugin loads after the ones it requires.
-  const ready = (async () => {
-    for (const definition of inOrder(
-      deps.definitions.filter(({ id }) => enabled.includes(id)),
-    )) {
-      await load(definition);
-    }
-  })();
+  // In order, so a plugin loads after the ones it requires, and before the
+  // server listens.
+  for (const definition of inOrder(
+    deps.definitions.filter(({ id }) => enabled.includes(id)),
+  )) {
+    load(definition);
+  }
 
   const info = (found: PluginManifest): PluginInfo => {
     const error = failures.get(found.id);
@@ -1173,7 +1171,6 @@ export function startPlugins(
 
   return {
     names: running,
-    ready,
     extRoutes: () => extRoutes,
     list: () => manifests.map(info),
     checkUpdates: async () => {
@@ -1803,29 +1800,6 @@ export interface InstalledPlugins {
   readonly read: (id: string, path: string) => Promise<string>;
   readonly write: (id: string, path: string, content: string) => Promise<void>;
   readonly build: (id: string) => Promise<void>;
-}
-
-async function serverPart(
-  definition: PluginDefinition,
-): Promise<ServerPart | undefined> {
-  const loaded = (await definition.server?.())?.default;
-
-  if (loaded === undefined) {
-    return undefined;
-  }
-
-  if (
-    typeof loaded !== "object" ||
-    loaded === null ||
-    !("plugin" in loaded) ||
-    loaded.plugin !== definition
-  ) {
-    throw new Error(
-      `the server part of ${definition.id} isn't one defineServer made for it`,
-    );
-  }
-
-  return loaded as ServerPart;
 }
 
 function routeOf(route: ExtRoute): Parameters<typeof routeToolsOf>[1] {

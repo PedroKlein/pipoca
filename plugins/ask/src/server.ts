@@ -48,7 +48,7 @@ interface StoredVote {
 // Anyone in team work opens a vote, Pi too. The opener or the starter closes
 // it, or it closes on time, and Pi reads the result on its next turn
 // (ADR 0065).
-export default defineServer(ask, (context) => {
+export const server = defineServer(ask, (context) => {
   const { routes, schedule, tools } = context;
   const votes = ballots(context);
 

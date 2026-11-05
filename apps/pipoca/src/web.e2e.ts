@@ -128,7 +128,7 @@ export default { name: "greeter", nav: { label: "Greeter", Page } };
 `,
   );
 
-  await mkdir(join(plugins, "vault"));
+  await mkdir(join(plugins, "vault", "web"), { recursive: true });
 
   await writeFile(
     join(plugins, "vault", "package.json"),
@@ -158,16 +158,15 @@ export const vault = definePlugin({
       }),
     }),
   }),
-  web: async () => import("./web"),
 });
 `,
   );
 
   await writeFile(
-    join(plugins, "vault", "web.tsx"),
+    join(plugins, "vault", "web", "index.tsx"),
     `import { defineWeb, Slot, useViewer } from "@pipoca/plugins/web";
 import { Page } from "@pipoca/ui";
-import { vault } from "./plugin";
+import { vault } from "../plugin";
 
 function VaultPage({ path }: { readonly path: string }) {
   const { person } = useViewer();
@@ -184,7 +183,7 @@ function General() {
   return <p>Vault keeps your keys.</p>;
 }
 
-export default defineWeb(vault, {
+export const web = defineWeb(vault, {
   pages: [{ path: "", label: "Vault", Page: VaultPage, nav: { pinned: true } }],
   settings: { group: "server", form: "auto" },
   slots: { "settings.general": General },

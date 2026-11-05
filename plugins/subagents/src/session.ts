@@ -40,7 +40,7 @@ import { watchdog } from "./watchdog";
 
 // Subagents as child sessions in the Session's process, on its model runtime
 // and logins (ADR 0057).
-export default defineSession(subagents, (s) => {
+export const session = defineSession(subagents, (s) => {
   s.extension((pi) => {
     extension(s, pi);
     watchdog(s, pi);

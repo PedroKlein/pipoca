@@ -1,5 +1,6 @@
 import type {
   PluginDefinition,
+  ServerPart,
   ServerPlugin,
   SessionPart,
   SessionPlugin,
@@ -10,11 +11,13 @@ import { sessionRegistry } from "./registry-session";
 
 type Module = Readonly<Record<string, unknown>>;
 
+// A v1 entry has its manifest and modules, a defined one its definition and
+// parts.
 interface Entry {
   readonly id: string;
   readonly manifest?: unknown;
-  readonly server?: Module;
-  readonly session?: Module;
+  readonly server?: Module | ServerPart;
+  readonly session?: Module | SessionPart;
   readonly definition?: PluginDefinition;
 }
 
@@ -56,15 +59,22 @@ export const builtInDefinitions: readonly PluginDefinition[] = servers.flatMap(
   ({ definition }) => (definition === undefined ? [] : [definition]),
 );
 
+export const builtInParts: readonly ServerPart[] = servers.flatMap(
+  ({ definition, server }) =>
+    definition === undefined || server === undefined
+      ? []
+      : [server as ServerPart],
+);
+
 // A v1 server module exports its part, or a function of the runtime that
 // makes it.
 export function builtInServers(runtime: () => Runtime): ServerPlugin[] {
-  return servers.flatMap(({ id, server }) => {
-    if (server === undefined) {
+  return servers.flatMap(({ id, server, definition }) => {
+    if (server === undefined || definition !== undefined) {
       return [];
     }
 
-    const values = Object.values(server);
+    const values = Object.values(server as Module);
     const part = values.find((value) => named(value, id));
 
     if (part !== undefined) {
@@ -87,13 +97,15 @@ export const builtInSessions: readonly {
   readonly id: string;
   readonly manifest?: PluginManifest;
   readonly plugin?: SessionPlugin;
-  readonly definition?: PluginDefinition;
+  readonly part?: SessionPart;
 }[] = sessions.map(({ id, manifest, session, definition }) => {
   if (definition !== undefined) {
-    return { id, definition };
+    return { id, part: session as SessionPart };
   }
 
-  const plugin = Object.values(session ?? {}).find((value) => named(value, id));
+  const plugin = Object.values((session ?? {}) as Module).find((value) =>
+    named(value, id),
+  );
 
   if (plugin === undefined) {
     throw new Error(`the ${id} session module exports no Session part`);
@@ -105,21 +117,6 @@ export const builtInSessions: readonly {
     plugin: plugin as SessionPlugin,
   };
 });
-
-export async function definedSession(
-  definition: PluginDefinition,
-): Promise<SessionPart> {
-  const part = (await definition.session?.())?.default as
-    SessionPart | undefined;
-
-  if (part?.plugin !== definition) {
-    throw new Error(
-      `the Session part of ${definition.id} isn't one defineSession made for it`,
-    );
-  }
-
-  return part;
-}
 
 function named(value: unknown, id: string): boolean {
   return (

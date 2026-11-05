@@ -56,7 +56,7 @@ const healthReport = Type.Object({
 // Below the server's 30 second idle timeout.
 const waitMs = 20_000;
 
-export default defineServer(models, (context) => {
+export const server = defineServer(models, (context) => {
   const { routes, environments, config, clock, log } = context;
   const store = modelsStore(context.store);
   const versions = changes(context);

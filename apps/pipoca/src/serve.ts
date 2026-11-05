@@ -6,6 +6,7 @@ import { pluginSwitches, startPlugins } from "@pipoca/pluginhost";
 import {
   eventBus,
   type PluginDefinition,
+  type ServerPart,
   type ServerPlugin,
   type TypedBus,
 } from "@pipoca/plugins";
@@ -52,6 +53,7 @@ import {
 import { latestCommit } from "@pipoca/repositories";
 import {
   builtInDefinitions,
+  builtInParts,
   builtInPlugins,
   builtInServers,
   builtInSessions,
@@ -114,8 +116,10 @@ export interface ServeOptions {
   // Replaces the built-in plugins. A plugin without a manifest gets one with
   // just its name.
   readonly plugins?: readonly ServerPlugin[];
-  // Plugins defined with definePlugin, besides the ones above.
+  // Plugins defined with definePlugin, besides the ones above, and their
+  // server parts.
   readonly definitions?: readonly PluginDefinition[];
+  readonly servers?: readonly ServerPart[];
   readonly manifests?: readonly PluginManifest[];
   readonly disabledPlugins?: readonly string[];
   // The plugins folder and what was found in it (ADR 0022).
@@ -202,9 +206,17 @@ export function serve(options: ServeOptions): {
       ({ id }) => !builtInDefinitions.some((each) => each.id === id),
     );
 
+  const ownServers = [
+    ...(options.plugins === undefined ? builtInParts : []),
+    ...(options.servers ?? []),
+  ];
+
   const ownDefinitions = [
-    ...(options.plugins === undefined ? builtInDefinitions : []),
-    ...(options.definitions ?? []),
+    ...new Set([
+      ...(options.plugins === undefined ? builtInDefinitions : []),
+      ...(options.definitions ?? []),
+      ...(options.servers ?? []).map(({ plugin }) => plugin),
+    ]),
   ];
 
   const definitions = [
@@ -403,6 +415,10 @@ export function serve(options: ServeOptions): {
 
   const pluginHost = startPlugins(plugins, enabled, {
     definitions,
+    servers: [
+      ...ownServers,
+      ...installed.flatMap(({ part }) => (part ? [part] : [])),
+    ],
     url: () => options.url ?? server.url,
     manifests: known,
     sessions,
@@ -419,8 +435,7 @@ export function serve(options: ServeOptions): {
     dataFailure: store.pluginFailure,
     resetData: store.resetPlugin,
     config,
-    api: async (onBehalf, request) =>
-      (await api).handle(onBehalfOf(onBehalf, request)),
+    api: async (onBehalf, request) => api.handle(onBehalfOf(onBehalf, request)),
     auth: {
       userOf: (request) => signIn.userOf(request),
       users: () => people.users(),
@@ -480,38 +495,35 @@ export function serve(options: ServeOptions): {
     sessions.flushOutbox();
   }, outboxSweepMs);
 
-  // Requests wait for the plugins' routes, which load in the background.
-  const api = pluginHost.ready.then(() =>
-    createApi({
-      people,
-      signIn,
-      runners,
-      sessions,
-      environments,
-      profiles: userProfiles,
-      plugins: pluginHost,
-      changes,
-      checkStore: store.check,
-      log: options.log,
-      restart: options.restart && {
-        busy: () =>
-          sessions
-            .list()
-            .filter(
-              ({ provider, runner, status }) =>
-                provider === ownAgent?.provider &&
-                runner === ownAgent.provider &&
-                (status === "starting" || status === "running"),
-            ).length,
-        now: options.restart,
-      },
-      templates,
-      config: configFiles(configDir, options.lockedConfig),
-      hub: hubSettings(config("hub"), options.log),
-      newcomers: newcomerSetup(config("newcomers"), options.log),
-      team,
-    }),
-  );
+  const api = createApi({
+    people,
+    signIn,
+    runners,
+    sessions,
+    environments,
+    profiles: userProfiles,
+    plugins: pluginHost,
+    changes,
+    checkStore: store.check,
+    log: options.log,
+    restart: options.restart && {
+      busy: () =>
+        sessions
+          .list()
+          .filter(
+            ({ provider, runner, status }) =>
+              provider === ownAgent?.provider &&
+              runner === ownAgent.provider &&
+              (status === "starting" || status === "running"),
+          ).length,
+      now: options.restart,
+    },
+    templates,
+    config: configFiles(configDir, options.lockedConfig),
+    hub: hubSettings(config("hub"), options.log),
+    newcomers: newcomerSetup(config("newcomers"), options.log),
+    team,
+  });
 
   const terminals = terminalBroker(sessions, auth, options.log);
 
@@ -575,7 +587,7 @@ export function serve(options: ServeOptions): {
         return undefined;
       }
 
-      const router = await api;
+      const router = api;
 
       if (router.takesLong(request)) {
         bunServer.timeout(request, 0);

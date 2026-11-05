@@ -423,12 +423,12 @@ export interface ServerContext<P extends PluginDefinition = PluginDefinition> {
 
 export interface ServerPart<P extends PluginDefinition = PluginDefinition> {
   readonly plugin: P;
-  register(ctx: ServerContext<P>): void | Promise<void>;
+  register(ctx: ServerContext<P>): void;
 }
 
 export function defineServer<P extends PluginDefinition>(
   plugin: P,
-  register: (ctx: ServerContext<P>) => void | Promise<void>,
+  register: (ctx: ServerContext<P>) => void,
 ): ServerPart<P> {
   return { plugin, register };
 }

@@ -29,7 +29,7 @@ import type {
   SessionPlugin,
 } from "./plugin";
 import { envSecrets, secretRefs } from "./secrets";
-import type { Store } from "./server";
+import type { ServerPart, Store } from "./server";
 import type { SessionPart } from "./session";
 
 export interface TestPerson {
@@ -42,8 +42,9 @@ export interface TestPluginOptions {
   // The plugin's key in pipoca.json.
   readonly config?: Readonly<Record<string, unknown>>;
   readonly people?: readonly TestPerson[];
-  // More plugins on the same kernel.
-  readonly plugins?: readonly PluginDefinition[];
+  // More plugins on the same kernel, by their server parts or, without one,
+  // their definitions.
+  readonly plugins?: readonly (ServerPart | PluginDefinition)[];
   // Answers the plugins' outbound HTTP; without it, any throws.
   readonly fetch?: (request: Request) => Response | Promise<Response>;
   readonly solo?: boolean;
@@ -129,7 +130,7 @@ export interface PluginTest {
 }
 
 type Kernel = (
-  plugin: PluginDefinition,
+  plugin: ServerPart | PluginDefinition,
   o: TestPluginOptions,
 ) => Promise<PluginTest>;
 
@@ -139,7 +140,7 @@ const kernelKey = Symbol.for("pipoca.test-kernel");
 // The plugin on the real server, its tables in an SQLite database of its
 // own, with a clock that moves only when the test says.
 export async function testPlugin(
-  plugin: PluginDefinition,
+  plugin: ServerPart | PluginDefinition,
   o: TestPluginOptions = {},
 ): Promise<PluginTest> {
   const kernel = (globalThis as Record<symbol, unknown>)[kernelKey] as
@@ -183,7 +184,7 @@ const sessionHostKey = Symbol.for("pipoca.test-session-host");
 // it up. Members of the cloud the test doesn't pass throw when called,
 // except publish, which it records.
 export async function testSession(
-  plugin: SessionPlugin | PluginDefinition,
+  plugin: SessionPlugin | SessionPart,
   cloud: SessionFakes = {},
 ): Promise<SessionTest> {
   const notFaked = (name: string) => (): never => {
@@ -216,28 +217,21 @@ export async function testSession(
     on: () => undefined,
   };
 
-  if ("id" in plugin) {
-    const part = (await plugin.session?.())?.default as SessionPart | undefined;
-
-    if (part?.plugin !== plugin) {
-      throw new Error(
-        `the Session part of ${plugin.id} isn't one defineSession made for it`,
-      );
-    }
-
+  if ("setup" in plugin) {
+    const { config } = plugin.plugin;
     const setUp = await partSetUp();
 
     const { settings: _settings, ...host } = {
       ...given,
       config:
-        plugin.config === undefined
+        config === undefined
           ? {}
-          : sessionConfig(plugin.config, cloud.config ?? {}, given.log),
+          : sessionConfig(config, cloud.config ?? {}, given.log),
       clock: systemClock,
       timer: systemTimer,
     };
 
-    const { tools: direct, extensions } = await setUp(part, host);
+    const { tools: direct, extensions } = await setUp(plugin, host);
 
     for (const { factory } of extensions) {
       await factory(pi as unknown as ExtensionAPI);
@@ -249,7 +243,7 @@ export async function testSession(
     tools.push(...((await plugin.tools?.(given)) ?? []));
   }
 
-  const name = "id" in plugin ? plugin.id : plugin.name;
+  const name = "setup" in plugin ? plugin.plugin.id : plugin.name;
 
   return {
     tool: async (toolName, input) => {

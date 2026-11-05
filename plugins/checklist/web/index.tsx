@@ -11,7 +11,7 @@ import { type Item, toolName } from "../src/items";
 
 // The agent's checklist, pinned above the composer while it has open items
 // (ADR 0056). Its calls show nowhere else.
-export default defineWeb(checklist, {
+export const web = defineWeb(checklist, {
   slots: {
     "session.composer": PinnedList,
     [`session.toolCall:${toolName}`]: Hidden,

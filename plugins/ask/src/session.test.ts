@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
 import type { AskQuestions } from "@pipoca/plugins";
 import { testSession } from "@pipoca/plugins/testing";
-import { ask } from "../plugin";
+import { session as part } from "./session";
 
 async function askedDisk(
   number: Record<string, number>,
 ): Promise<{ asked: boolean; text: string; isError: boolean }> {
   let asked = false;
 
-  const session = await testSession(ask, {
+  const session = await testSession(part, {
     askQuestions: async () => {
       asked = true;
 
@@ -68,7 +68,7 @@ test("asks the named person in team work and tells Pi who answered for them", as
     });
   };
 
-  const session = await testSession(ask, { askQuestions });
+  const session = await testSession(part, { askQuestions });
 
   const answer = await session.tool("ask_user", {
     for: "Ana",

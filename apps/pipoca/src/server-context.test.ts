@@ -6,9 +6,7 @@ import {
   Config,
   definePlugin,
   defineServer,
-  type PluginDefinition,
   Secret,
-  type ServerContext,
   Type,
 } from "@pipoca/plugins";
 import type { Environment, Session } from "@pipoca/protocol";
@@ -23,22 +21,9 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-function served<P extends PluginDefinition>(
-  plugin: P,
-  register: (context: ServerContext<P>) => void,
-): P {
-  const definition: P = {
-    ...plugin,
-    server: async () =>
-      Promise.resolve({ default: defineServer(definition, register) }),
-  };
-
-  return definition;
-}
-
 const text = Type.Object({ text: Type.String() });
 
-const ledger = served(
+const ledger = defineServer(
   definePlugin({
     id: "ledger",
     title: "Ledger",
@@ -177,7 +162,7 @@ beforeEach(async () => {
   server = testServer({
     configDir: join(root, "config"),
     runners: { pollWaitMs: 0 },
-    definitions: [ledger],
+    servers: [ledger],
   });
 });
 

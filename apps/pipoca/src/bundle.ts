@@ -1,15 +1,7 @@
 import { readFile, realpath, rm } from "node:fs/promises";
-import {
-  basename,
-  dirname,
-  isAbsolute,
-  join,
-  relative,
-  resolve,
-  sep,
-} from "node:path";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import * as sdk from "@pipoca/plugins";
-import type { PluginDefinition } from "@pipoca/plugins";
+import type { PluginDefinition, ServerPart } from "@pipoca/plugins";
 
 export interface PluginParts {
   readonly server?: string;
@@ -68,12 +60,12 @@ export async function bundleParts(
   };
 }
 
-// A plugin defined with definePlugin: its definition bundled with its server
-// part, and its web and Session parts each bundled without the others.
+// A plugin defined with definePlugin: its server part, or its definition
+// when it has none, and its web and Session parts, each bundled on its own.
 export async function bundleDefined(
   folder: string,
   entry: string,
-  id: string,
+  { server, web, session }: PluginParts,
 ): Promise<{
   readonly definition: string;
   readonly web?: string;
@@ -84,57 +76,42 @@ export async function bundleDefined(
   const outdir = join(folder, ".build");
   await rm(outdir, { recursive: true, force: true });
 
-  const isEntry = (path: string): boolean => path === entry;
-
-  const paths = await importedDefinition(
-    await bundle(entry, outdir, "parts", [
-      sdkFromServer,
-      partsLeftOut(isEntry),
-    ]),
-    id,
-  );
-
-  const at = async (
-    load: PluginDefinition["server"],
-  ): Promise<string | undefined> =>
-    ((await load?.()) as { readonly path?: string } | undefined)?.path;
-
-  const [server, web, session] = await Promise.all([
-    at(paths.server),
-    at(paths.web),
-    at(paths.session),
-  ]);
-
   return {
-    definition: await bundle(entry, outdir, "server", [
+    definition: await bundle(server ?? entry, outdir, "server", [
       sdkFromServer,
-      partsLeftOut(isEntry, server),
     ]),
     ...(web !== undefined && {
-      web: await bundle(web, outdir, "web", [
-        sharedWithShell,
-        partsLeftOut(isEntry),
-      ]),
+      web: await bundle(web, outdir, "web", [sharedWithShell]),
     }),
     ...(session !== undefined && {
-      session: await bundle(session, outdir, "session", [
-        sdkFromServer,
-        partsLeftOut(isEntry),
-      ]),
+      session: await bundle(session, outdir, "session", [sdkFromServer]),
     }),
   };
 }
 
-// The one definePlugin a bundle exports with the plugin's id.
+// The definition a bundle exports with the plugin's id, as its server part's
+// or as itself.
 export async function importedDefinition(
   path: string,
   id: string,
-): Promise<PluginDefinition> {
+): Promise<{
+  readonly definition: PluginDefinition;
+  readonly server?: ServerPart;
+}> {
   provideSdk();
 
-  const found = Object.values(
-    (await import(path)) as Readonly<Record<string, unknown>>,
-  ).filter(
+  const module = (await import(path)) as Readonly<Record<string, unknown>>;
+  const server = module["server"] as ServerPart | undefined;
+
+  if (server !== undefined) {
+    if (server.plugin.id !== id) {
+      throw new Error(`its server part must be one for ${id}`);
+    }
+
+    return { definition: server.plugin, server };
+  }
+
+  const found = Object.values(module).filter(
     (value): value is PluginDefinition =>
       typeof value === "object" &&
       value !== null &&
@@ -147,37 +124,7 @@ export async function importedDefinition(
     throw new Error(`its entry must export one definePlugin with the id ${id}`);
   }
 
-  return definition;
-}
-
-// A definition loads each part with import(), and a part's bundle has only
-// that part: the other loaders resolve to where their part is, which runs
-// none of its code.
-export function partsLeftOut(
-  isDefinition: (path: string) => boolean,
-  keep?: string,
-): Bun.BunPlugin {
-  return {
-    name: "parts-left-out",
-    setup: (build) => {
-      build.onResolve({ filter: /.*/ }, ({ path, importer, kind }) => {
-        if (kind !== "dynamic-import" || !isDefinition(importer)) {
-          return undefined;
-        }
-
-        const resolved = Bun.resolveSync(path, dirname(importer));
-
-        return resolved === keep
-          ? undefined
-          : { path: resolved, namespace: "pipoca-part" };
-      });
-
-      build.onLoad({ filter: /.*/, namespace: "pipoca-part" }, ({ path }) => ({
-        contents: `export const path = ${JSON.stringify(path)};`,
-        loader: "js",
-      }));
-    },
-  };
+  return { definition };
 }
 
 // A macro runs while the bundle is built, so building a plugin that isn't

@@ -4,7 +4,7 @@ import {
   settingValues,
 } from "@pipoca/plugins";
 import type { Assignment, PluginSettings } from "@pipoca/protocol";
-import { builtInSessions, definedSession } from "./built-in";
+import { builtInSessions } from "./built-in";
 import { provideSdk } from "./bundle";
 
 type Loaded = SessionPlugin | SessionPart;
@@ -56,10 +56,8 @@ export async function sessionParts(
     (part): part is SessionPlugin => !isPart(part),
   );
 
-  const defined = await Promise.all(
-    builtIn.flatMap(({ definition }) =>
-      definition === undefined ? [] : [definedSession(definition)],
-    ),
+  const defined = builtIn.flatMap(({ part }) =>
+    part === undefined ? [] : [part],
   );
 
   return {
@@ -101,9 +99,12 @@ export async function installedPart(
 ): Promise<Loaded> {
   provideSdk();
 
-  const { default: part } = (await import(path)) as {
-    default?: Loaded;
+  const { default: plugin, session } = (await import(path)) as {
+    readonly default?: SessionPlugin;
+    readonly session?: SessionPart;
   };
+
+  const part: Loaded | undefined = session ?? plugin;
 
   if (
     part !== undefined &&
@@ -113,7 +114,7 @@ export async function installedPart(
   }
 
   throw new Error(
-    `the ${name} plugin's Session part must export as default a Session part for ${name}`,
+    `the ${name} plugin's Session part must export a Session part for ${name} as session`,
   );
 }
 

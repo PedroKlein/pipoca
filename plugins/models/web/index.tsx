@@ -16,7 +16,7 @@ import {
   Select,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import { about } from "../about";
+import { models } from "../plugin";
 import {
   aliasesOf,
   gatewayProvider,
@@ -36,12 +36,12 @@ import {
 
 const schedules = ["", "utc-hourly", "utc-midnight", "utc-monthly-1st"];
 
-export default defineWeb(about, {
+export const web = defineWeb(models, {
   settings: { group: "workspace", Section: Page },
 });
 
 function Page(): ReactElement {
-  const api = useApi(about);
+  const api = useApi(models);
 
   const { value, reload } = useLoaded(
     async () =>
@@ -133,7 +133,7 @@ function InThePicker({
 }: {
   readonly environment: Environment;
 }): ReactElement | null {
-  const api = useApi(about);
+  const api = useApi(models);
 
   const { value, reload } = useLoaded(
     async () => api.get<HiddenModels>("hidden"),
@@ -274,7 +274,7 @@ function Aliases({
   readonly onAdding: (adding: boolean) => void;
   readonly onSaved: () => void;
 }): ReactElement {
-  const api = useApi(about);
+  const api = useApi(models);
   const health = saved?.health ?? noHealth;
   const config = saved?.aliases ?? { models: {} };
   const [error, setError] = useState<string>();

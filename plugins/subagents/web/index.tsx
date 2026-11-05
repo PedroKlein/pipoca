@@ -18,7 +18,7 @@ import {
   StatusMark,
 } from "@pipoca/ui";
 import { type ReactElement, useEffect, useMemo, useState } from "react";
-import { about } from "../about";
+import { subagents } from "../plugin";
 import {
   type ChildView,
   elapsed,
@@ -46,7 +46,7 @@ import {
 
 // Subagent runs as cards in the chat, and a fleet panel from the header
 // (ADR 0030, ADR 0057).
-export default defineWeb(about, {
+export const web = defineWeb(subagents, {
   slots: {
     "session.toolCall:subagent": SubagentCall,
     "session.header": FleetButton,

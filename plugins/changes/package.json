@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./plugin.ts"
+    ".": "./plugin.ts",
+    "./session": "./src/session.ts"
   },
   "dependencies": {
     "@pipoca/plugins": "workspace:*",

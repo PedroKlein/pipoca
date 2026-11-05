@@ -87,7 +87,7 @@ const outbound = Object.assign(
 );
 
 export async function pluginTest(
-  plugin: PluginDefinition,
+  tested: ServerPart | PluginDefinition,
   o: TestPluginOptions,
 ): Promise<PluginTest> {
   const root = await mkdtemp(join(tmpdir(), "plugin-test-"));
@@ -96,7 +96,12 @@ export async function pluginTest(
   const people = o.people ?? [];
   const clock = testClock();
 
-  const definitions = [plugin, ...(o.plugins ?? [])];
+  const parts = [tested, ...(o.plugins ?? [])].map((each): ServerPart =>
+    "register" in each ? each : { plugin: each, register: () => undefined },
+  );
+
+  const definitions = parts.map(({ plugin }) => plugin);
+  const plugin = "register" in tested ? tested.plugin : tested;
   const contexts = new Map<string, ServerContext>();
 
   await mkdir(configDir);
@@ -155,33 +160,13 @@ export async function pluginTest(
     },
   };
 
-  const captured = definitions.map((definition): PluginDefinition => {
-    const own: PluginDefinition = {
-      ...definition,
-      server: async () => {
-        const part = (await definition.server?.())?.default as
-          ServerPart | undefined;
-
-        if (part !== undefined && part.plugin !== definition) {
-          throw new Error(
-            `the server part of ${definition.id} isn't one defineServer made for it`,
-          );
-        }
-
-        return {
-          default: {
-            plugin: own,
-            register: async (context: ServerContext) => {
-              contexts.set(definition.id, context);
-              await part?.register(context);
-            },
-          },
-        };
-      },
-    };
-
-    return own;
-  });
+  const captured = parts.map((part): ServerPart => ({
+    plugin: part.plugin,
+    register: (context) => {
+      contexts.set(part.plugin.id, context);
+      part.register(context);
+    },
+  }));
 
   const [soloPerson] = people;
 
@@ -192,7 +177,7 @@ export async function pluginTest(
       clock,
       runners: { pollWaitMs: 0, offlineAfterMs: longest, leaseMs: longest },
       plugins: [],
-      definitions: captured,
+      servers: captured,
       events,
       changes,
       ...(o.solo === true &&

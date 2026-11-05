@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
-import { definePlugin, event, type PluginDefinition } from "./definition";
+import { definePlugin, event } from "./definition";
 import type { SessionPlugin } from "./plugin";
-import { defineServer, type ServerContext } from "./server";
+import { defineServer } from "./server";
 import {
   type PluginTest,
   person,
@@ -26,24 +26,11 @@ async function started(
   return t;
 }
 
-function served<P extends PluginDefinition>(
-  plugin: P,
-  register: (context: ServerContext<P>) => void,
-): P {
-  const definition: P = {
-    ...plugin,
-    server: async () =>
-      Promise.resolve({ default: defineServer(definition, register) }),
-  };
-
-  return definition;
-}
-
 const hour = 60 * 60_000;
 
 // Reminds a Session an hour after it is asked to, and tells it at once that
 // it will.
-const reminders = served(
+const reminders = defineServer(
   definePlugin({
     id: "reminders",
     title: "Reminders",
@@ -150,7 +137,7 @@ test("a restart keeps what waits for an offline Session, and what is scheduled",
 });
 
 // Asks another server for the time.
-const remote = served(
+const remote = defineServer(
   definePlugin({ id: "remote", title: "Remote", description: "Asks away." }),
   ({ routes }) => {
     routes.get("time", { auth: "person" }, async () => {
@@ -193,7 +180,7 @@ const pinged = event({
 });
 
 // A tool that asks first and tells whoever started the Session.
-const pings = served(
+const pings = defineServer(
   definePlugin({
     id: "pings",
     title: "Pings",
@@ -216,7 +203,7 @@ const pings = served(
 );
 
 // Counts the pings it hears from the other plugin.
-const counts = served(
+const counts = defineServer(
   definePlugin({
     id: "counts",
     title: "Counts",
@@ -267,7 +254,7 @@ test("a tool that asks runs only when the person says yes", async () => {
 });
 
 // A tool only team work gets, in the Sessions this plugin owns.
-const huddles = served(
+const huddles = defineServer(
   definePlugin({
     id: "huddles",
     title: "Huddles",

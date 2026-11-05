@@ -11,7 +11,7 @@ function who(caller: Caller): unknown {
   };
 }
 
-export default defineServer(notes, ({ routes, urls }) => {
+export const server = defineServer(notes, ({ routes, urls }) => {
   routes.get("whoami", { auth: "person" }, ({ caller }) => who(caller));
   routes.put("settings", { auth: "admin" }, () => undefined);
   routes.post("beats", { auth: "session" }, ({ caller }) => who(caller));

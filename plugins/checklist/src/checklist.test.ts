@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { testSession } from "@pipoca/plugins/testing";
-import { checklist } from "../plugin";
+import { session as part } from "./session";
 
 const steps = [
   { text: "Read the code", status: "completed" },
@@ -9,7 +9,7 @@ const steps = [
 ];
 
 test("an update_checklist call keeps the whole list in its result's details", async () => {
-  const session = await testSession(checklist);
+  const session = await testSession(part);
 
   expect(await session.tool("update_checklist", { items: steps })).toEqual({
     text: "Checklist updated: 1 of 3 done.",
@@ -19,7 +19,7 @@ test("an update_checklist call keeps the whole list in its result's details", as
 });
 
 test("an empty list clears the checklist", async () => {
-  const session = await testSession(checklist);
+  const session = await testSession(part);
 
   expect(await session.tool("update_checklist", { items: [] })).toEqual({
     text: "Checklist updated: 0 of 0 done.",
@@ -29,7 +29,7 @@ test("an empty list clears the checklist", async () => {
 });
 
 test("an item's status is pending, in_progress or completed", async () => {
-  const session = await testSession(checklist);
+  const session = await testSession(part);
 
   const answer = await session.tool("update_checklist", {
     items: [{ text: "Ship it", status: "shipped" }],

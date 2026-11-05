@@ -9,7 +9,7 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Hidden } = await import("@pipoca/plugins/web");
-const { default: part } = await import("./index");
+const { web: part } = await import("./index");
 
 afterAll(async () => {
   await GlobalRegistrator.unregister();

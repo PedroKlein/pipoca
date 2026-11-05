@@ -7,7 +7,7 @@ import {
   testPlugin,
   until,
 } from "@pipoca/plugins/testing";
-import { ask } from "../plugin";
+import { server } from "./server";
 import type { Votes } from "./votes";
 
 const tests: PluginTest[] = [];
@@ -23,7 +23,7 @@ const people = [
 ];
 
 async function started(o: TestPluginOptions = {}): Promise<PluginTest> {
-  const t = await testPlugin(ask, { people, ...o });
+  const t = await testPlugin(server, { people, ...o });
   tests.push(t);
 
   return t;

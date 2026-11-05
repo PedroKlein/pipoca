@@ -16,7 +16,8 @@ import {
   testServer,
   type TestServer,
 } from "./testdata/harness";
-import { diary, notes } from "./testdata/notes";
+import { server as diary } from "./testdata/diary-server";
+import { server as notes } from "./testdata/notes-server";
 import { runnerCredentials } from "./testdata/runners";
 
 let root: string;
@@ -24,7 +25,7 @@ let server: TestServer;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "plugin-routes-"));
-  server = testServer({ plugins: [], definitions: [notes, diary] });
+  server = testServer({ plugins: [], servers: [notes, diary] });
 });
 
 afterEach(async () => {
@@ -33,7 +34,7 @@ afterEach(async () => {
 });
 
 function as(cookie?: string): ReturnType<typeof pluginClient> {
-  return pluginClient(notes, {
+  return pluginClient(notes.plugin, {
     server: server.url,
     ...(cookie !== undefined && { headers: { cookie } }),
   });
@@ -79,7 +80,7 @@ async function sessionCaller(): Promise<ReturnType<typeof pluginClient>> {
     }),
   );
 
-  return pluginClient(notes, {
+  return pluginClient(notes.plugin, {
     server: server.url,
     session: session.id,
     headers: { authorization: `Bearer ${token}` },
@@ -221,7 +222,7 @@ test("a scoped route serves the caller's own owner and, where the plugin works t
   expect(await as(cookie).get("lists")).toEqual({ owner: `person:${id}` });
   expect(await as(cookie).get("team/lists")).toEqual({ owner: "team" });
 
-  const pages = pluginClient(diary, {
+  const pages = pluginClient(diary.plugin, {
     server: server.url,
     headers: { cookie },
   });
