@@ -1628,8 +1628,15 @@ test("guides an admin from a token-only host to a Connect button", async () => {
   await form.getByLabel("Host").fill("git.example.com");
   await form.getByRole("button", { name: "Add host" }).click();
 
+  // GitHub is listed by default and also has tokens only, so look at
+  // the new host's own row.
   const hosts = page.getByRole("list", { name: "Hosts" });
-  await hosts.getByText("Tokens only").waitFor();
+
+  const added = hosts
+    .getByRole("listitem")
+    .filter({ hasText: "git.example.com" });
+
+  await added.getByText("Tokens only").waitFor();
 
   await page
     .getByRole("button", { name: "Set up Connect for git.example.com" })
@@ -1643,7 +1650,7 @@ test("guides an admin from a token-only host to a Connect button", async () => {
   await setup.getByLabel("Client secret").fill("shh");
   await setup.getByRole("button", { name: "Save" }).click();
 
-  await hosts.getByText("Sign-in ready").waitFor();
+  await added.getByText("Sign-in ready").waitFor();
   await setup.getByRole("button", { name: "Connect your account" }).waitFor();
 
   await setup.getByRole("button", { name: "Done" }).click();
