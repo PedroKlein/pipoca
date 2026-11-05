@@ -42,6 +42,7 @@ export {
   repositoryImport,
   teamNameChange,
   type TeamView,
+  templateEntry,
   uploadedFiles,
   type User,
 } from "./browser";
@@ -140,6 +141,7 @@ export {
   type ForkedSession,
   type ModelRef,
   movable,
+  owner,
   type Owner,
   type Session,
   sessionAccess,

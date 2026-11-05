@@ -4,8 +4,7 @@ import {
   fieldsOf,
   isObject,
   type PluginConfig,
-  type PluginStore,
-  secretRefs,
+  type SecretRefs,
 } from "@pipoca/plugins";
 
 // A Slack bot an admin added, a technical user like a GitHub App
@@ -38,11 +37,10 @@ const namePattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
 // logged and left out.
 export function botStore(
   config: PluginConfig,
-  store: PluginStore,
+  refs: SecretRefs,
   log: Log,
 ): Bots {
   const sealedFor = (name: string): string => `slack bot ${name}`;
-  const refs = secretRefs(store);
 
   const value = (): Readonly<Record<string, unknown>> => {
     const read = config.get();

@@ -71,8 +71,7 @@ export const oidc: ServerPlugin = {
 
     const providers = providerStore(
       context.config,
-      context.store,
-      process.env,
+      context.secretRefs,
       context.log,
     );
 

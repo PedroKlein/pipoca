@@ -5,9 +5,8 @@ import {
   fieldsOf,
   isObject,
   type PluginConfig,
-  type PluginStore,
   type SecretRef,
-  secretRefs,
+  type SecretRefs,
 } from "@pipoca/plugins";
 import { HostRefused, reach } from "./github";
 import type { HostConfig } from "./hosts";
@@ -60,11 +59,10 @@ const namePattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
 // still work.
 export function technicalUsers(
   config: PluginConfig,
-  store: PluginStore,
+  refs: SecretRefs,
   log: Log,
 ): TechnicalUsers {
   const sealedFor = (name: string): string => `technical-user ${name}`;
-  const refs = secretRefs(store);
 
   const read = (): readonly unknown[] => {
     const value = config.get();

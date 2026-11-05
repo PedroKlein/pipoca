@@ -4,9 +4,8 @@ import {
   fieldsOf,
   isObject,
   type PluginConfig,
-  type PluginStore,
   type SecretRef,
-  secretRefs,
+  type SecretRefs,
   type Static,
   Type,
 } from "@pipoca/plugins";
@@ -72,12 +71,9 @@ const defaultLabel = "Sign in with single sign-on";
 // the last one that fit stays in use.
 export function providerStore(
   config: PluginConfig,
-  store: PluginStore,
-  env: NodeJS.ProcessEnv,
+  refs: SecretRefs,
   log: Log,
 ): ProviderStore {
-  const refs = secretRefs(store, env);
-
   const parse = (value: unknown): readonly Entry[] =>
     entriesOf(value, (ref, id) => refs.open(ref, id, "clientSecret"));
 

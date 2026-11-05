@@ -1,41 +1,25 @@
-import { fieldsOf, type PluginConfig } from "@pipoca/plugins";
+import {
+  Config,
+  kernelConfig,
+  type PluginConfig,
+  type Static,
+  Type,
+} from "@pipoca/plugins";
+import type { Log } from "@pipoca/protocol";
 
-export interface ServerConfig {
-  readonly sessionDays: number;
-  readonly runnerTokenDays: number;
-  readonly repositorySyncMinutes: number;
-}
+const serverOptions = Config.object({
+  sessionDays: Type.Number({ exclusiveMinimum: 0, default: 30 }),
+  runnerTokenDays: Type.Number({ exclusiveMinimum: 0, default: 30 }),
+  repositorySyncMinutes: Type.Number({ exclusiveMinimum: 0, default: 15 }),
+});
 
-export const serverDefaults: ServerConfig = {
-  sessionDays: 30,
-  runnerTokenDays: 30,
-  repositorySyncMinutes: 15,
-};
+export type ServerConfig = Static<typeof serverOptions>;
 
 // The server's own options under "server" in pipoca.json, read again when the
-// file changes. One left out, or that isn't a positive number, takes its
-// default.
-export function serverConfig(config: PluginConfig): () => ServerConfig {
-  return () => {
-    const value = config.get();
-    const given = fieldsOf(value);
-
-    return {
-      sessionDays: positive(given["sessionDays"], serverDefaults.sessionDays),
-      runnerTokenDays: positive(
-        given["runnerTokenDays"],
-        serverDefaults.runnerTokenDays,
-      ),
-      repositorySyncMinutes: positive(
-        given["repositorySyncMinutes"],
-        serverDefaults.repositorySyncMinutes,
-      ),
-    };
-  };
-}
-
-export function positive(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0
-    ? value
-    : fallback;
+// file changes.
+export function serverConfig(
+  config: PluginConfig,
+  log: Log,
+): () => ServerConfig {
+  return kernelConfig(config, serverOptions, log);
 }

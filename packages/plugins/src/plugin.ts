@@ -5,6 +5,7 @@ import type {
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { EventBus } from "./events";
+import type { SecretRefs } from "./secrets";
 import type {
   Actor,
   CreateSession,
@@ -452,6 +453,9 @@ export interface ServerPluginContext {
   };
   readonly models: { readonly offer: (offer: ModelOffer) => void };
   readonly store: PluginStore;
+  // Opens the secrets in the plugin's config and seals new ones, reading
+  // the ones named by environment variable through the server's cache.
+  readonly secretRefs: SecretRefs;
   // The plugin's settings as they are now, a default for each it declares
   // (ADR 0036).
   readonly settings: { readonly get: () => PluginSettings };

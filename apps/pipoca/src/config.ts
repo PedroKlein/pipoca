@@ -77,7 +77,10 @@ export function installedTurnedOn(
   log: Log,
   locked?: string,
 ): (id: string) => boolean {
-  const switches = pluginSwitches(configFolder(dir, log, locked)("plugins"));
+  const switches = pluginSwitches(
+    configFolder(dir, log, locked)("plugins"),
+    log,
+  );
 
   return (id) => switches.get(id).personal === true;
 }

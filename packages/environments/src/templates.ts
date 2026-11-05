@@ -1,10 +1,13 @@
 import {
   BadRequest,
   checkBody,
+  Config,
   HttpError,
   isObject,
+  kernelConfig,
   NotFound,
   type PluginConfig,
+  type Static,
 } from "@pipoca/plugins";
 import {
   listedIn,
@@ -19,6 +22,7 @@ import {
   type Log,
   type ManifestEntry,
   type RepositorySource,
+  templateEntry,
 } from "@pipoca/protocol";
 
 export interface Templates {
@@ -52,34 +56,18 @@ const templateFields = new Set([
 
 // Admins keep Environment templates under "templates" in pipoca.json, so a
 // Helm value can set them as well as Settings (ADR 0039, ADR 0049). An entry
-// that doesn't read is left out and logged, and the others still work. An
-// entry also holds a key per plugin, which saves keep.
+// also holds a key per plugin, which saves keep.
 export function environmentTemplates(
   config: PluginConfig,
   log: Log,
 ): Templates {
-  const list = (): readonly EnvironmentTemplate[] => {
-    const value = config.get();
-    if (value === undefined) {
-      return [];
-    }
+  const read = kernelConfig(
+    config,
+    Config.collection({ title: "Templates", key: "id", item: templateEntry }),
+    log,
+  );
 
-    if (!Array.isArray(value)) {
-      log("templates unreadable", { error: "templates must be a list" });
-
-      return [];
-    }
-
-    return value.flatMap((entry: unknown) => {
-      try {
-        return [templateOf(entry)];
-      } catch (error) {
-        log("template unreadable", { error: String(error) });
-
-        return [];
-      }
-    });
-  };
+  const list = (): readonly EnvironmentTemplate[] => read().map(templateOf);
 
   const entries = (): readonly Readonly<Record<string, unknown>>[] => {
     const value = config.get();
@@ -284,28 +272,16 @@ function settingsOf(body: unknown): Partial<Omit<EnvironmentTemplate, "id">> {
   return { ...settings, ...(name !== undefined && { name: name.trim() }) };
 }
 
-function templateOf(entry: unknown): EnvironmentTemplate {
-  const { id, source, aliases } = (entry ?? {}) as {
-    id?: unknown;
-    source?: unknown;
-    aliases?: unknown;
-  };
-
-  if (typeof id !== "string" || id === "") {
-    throw new Error("a template needs an id");
-  }
-
-  const fields = settingsOf(entry);
-
+function templateOf(entry: Static<typeof templateEntry>): EnvironmentTemplate {
   return {
-    id,
-    name: fields.name ?? id,
-    isolation: fields.isolation ?? "process",
-    image: fields.image ?? null,
-    setupScript: fields.setupScript ?? "",
-    variables: fields.variables ?? {},
-    aliases: aliasesOf(aliases),
-    source: sourceOf(source),
+    id: entry.id,
+    name: entry.name?.trim() ?? entry.id,
+    isolation: entry.isolation ?? "process",
+    image: entry.image ?? null,
+    setupScript: entry.setupScript ?? "",
+    variables: entry.variables ?? {},
+    aliases: entry.aliases ?? null,
+    source: entry.source ?? null,
   };
 }
 
@@ -320,16 +296,6 @@ function aliasesOf(value: unknown): Readonly<Record<string, unknown>> | null {
   }
 
   return value as Readonly<Record<string, unknown>>;
-}
-
-function sourceOf(value: unknown): RepositorySource | null {
-  const { url, path, commit } = (value ?? {}) as Record<string, unknown>;
-
-  return typeof url === "string" &&
-    typeof path === "string" &&
-    typeof commit === "string"
-    ? { url, path, commit }
-    : null;
 }
 
 function slug(name: string): string {

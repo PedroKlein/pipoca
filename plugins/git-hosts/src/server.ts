@@ -97,18 +97,18 @@ export const gitHosts: ServerPlugin = {
   name: "git-hosts",
   schema,
   register: (context) => {
-    const hosts = hostStore(
-      context.config,
-      context.store,
-      process.env,
-      context.log,
-    );
+    const hosts = hostStore(context.config, context.secretRefs, context.log);
 
     const connections = connectionStore(context.store);
     const commitAs = commitAsStore(context.store);
     const pending = new Map<string, Pending>();
 
-    const bots = technicalUsers(context.config, context.store, context.log);
+    const bots = technicalUsers(
+      context.config,
+      context.secretRefs,
+      context.log,
+    );
+
     const actingAs = acting(context, hosts, bots);
 
     context.auth.gitLogins((userId, session) => {

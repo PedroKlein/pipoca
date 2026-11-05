@@ -18,16 +18,24 @@ export function checkBody<const Schema extends TSchema>(
   body: unknown,
   schema: Schema,
 ): Static<Schema> {
-  if (Value.Check(schema, body)) {
-    return Value.Clean(schema, structuredClone(body)) as Static<Schema>;
+  return checked(body, schema, "body");
+}
+
+export function checked<const Schema extends TSchema>(
+  value: unknown,
+  schema: Schema,
+  name: string,
+): Static<Schema> {
+  if (Value.Check(schema, value)) {
+    return Value.Clean(schema, structuredClone(value)) as Static<Schema>;
   }
 
-  const { instancePath, message } = misfit([...Value.Errors(schema, body)]);
+  const { instancePath, message } = misfit([...Value.Errors(schema, value)]);
   const field = instancePath.slice(1).replaceAll("/", ".");
 
   throw new HttpError(
     422,
-    `${field === "" ? "body" : field} ${message}`,
+    `${field === "" ? name : field} ${message}`,
     "invalid",
     { field },
   );
