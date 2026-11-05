@@ -1,9 +1,10 @@
 import {
   HttpError,
   NotFound,
-  readJson,
+  readBody,
   type RouteCaller,
   type ServerPlugin,
+  Type,
 } from "@pipoca/plugins";
 import { routinesEngine, routinesSchema, teamRoutines } from "./engine";
 import { wakeUps } from "./wakeups";
@@ -156,7 +157,8 @@ export const routines: ServerPlugin = {
           }
 
           case "PUT":
-            engine.save(userId, id, await readJson(request));
+            // The routine's own check names what is wrong, as for its file.
+            engine.save(userId, id, await readBody(request, Type.Unknown()));
 
             return Response.json(engine.get(userId, id));
           case "DELETE":

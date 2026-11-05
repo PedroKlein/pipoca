@@ -1,10 +1,9 @@
 import {
-  BadRequest,
-  fieldsOf,
   isObject,
   NotFound,
-  readJson,
+  readBody,
   requireAdmin,
+  Type,
   type PluginEvent,
   type PluginStore,
   type RouteCaller,
@@ -44,6 +43,12 @@ interface Budgets {
   readonly team: number | null;
   readonly person: number | null;
 }
+
+const budget = Type.Union([Type.Number({ exclusiveMinimum: 0 }), Type.Null()], {
+  default: null,
+});
+
+const budgetsSet = Type.Object({ team: budget, person: budget });
 
 const shownCalls = 500;
 
@@ -204,7 +209,7 @@ export const usage: ServerPlugin = {
 
         requireAdmin(caller, "Only admins set the team's budgets.");
 
-        const set = budgetsOf(await readJson(request));
+        const set = await readBody(request, budgetsSet);
         const config = context.config.get();
 
         context.config.set({
@@ -338,26 +343,6 @@ function callOf(
         ? null
         : (input * price.input + output * price.output) / 1_000_000,
   };
-}
-
-function budgetsOf(body: unknown): Budgets {
-  const fields = fieldsOf(body);
-
-  const amount = (key: keyof Budgets): number | null => {
-    const value = fields[key];
-
-    if (value === null || value === undefined) {
-      return null;
-    }
-
-    if (typeof value !== "number" || !(value > 0)) {
-      throw new BadRequest(`${key} must be dollars above zero, or null`);
-    }
-
-    return value;
-  };
-
-  return { team: amount("team"), person: amount("person") };
 }
 
 function dollars(value: unknown): number | null {

@@ -6,7 +6,6 @@ import {
   type OfferedModels,
   type PluginStore,
   readBody,
-  readJson,
   requireAdmin,
   type ServerPlugin,
   Type,
@@ -67,6 +66,11 @@ create table models_health (
   check ((quota_spent_micros is null) = (quota_currency is null))
 ) strict, without rowid;
 `;
+
+// A runner's report; healthFrom keeps the entries it understands.
+const healthReport = Type.Object({
+  unhealthyUntil: Type.Record(Type.String(), Type.Unknown()),
+});
 
 export const models: ServerPlugin = {
   name: "models",
@@ -174,7 +178,7 @@ export const models: ServerPlugin = {
         }
 
         if (method === "POST" && path === "health") {
-          const reported = healthFrom(await readJson(request));
+          const reported = healthFrom(await readBody(request, healthReport));
           if (reported === undefined) {
             throw new BadRequest(
               "model health report not understood",

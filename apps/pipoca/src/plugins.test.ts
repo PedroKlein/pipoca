@@ -22,9 +22,10 @@ import {
   HttpError,
   type KernelEvent,
   NotFound,
-  readJson,
+  readBody,
   type ServerPlugin,
   type ServerPluginContext,
+  Type,
 } from "@pipoca/plugins";
 import {
   capabilities,
@@ -666,7 +667,7 @@ test("answers the errors a plugin's route throws as the server's own", async () 
       name: "notes",
       register: ({ routes }) => {
         routes.handle(async (request, path) => {
-          const { text } = fieldsOf(await readJson(request));
+          const { text } = fieldsOf(await readBody(request, Type.Unknown()));
 
           if (typeof text !== "string") {
             throw new BadRequest("text must be text");

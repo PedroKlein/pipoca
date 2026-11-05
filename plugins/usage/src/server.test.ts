@@ -298,7 +298,7 @@ test("only an admin sets the team's monthly budget and each person's cap, and an
     budgets: { team: 80, person: null },
   });
 
-  expect((await put({ team: -1, person: null }, true)).status).toBe(400);
+  expect((await put({ team: -1, person: null }, true)).status).toBe(422);
 });
 
 test("shows everyone what people did lately to the team work they can see", async () => {

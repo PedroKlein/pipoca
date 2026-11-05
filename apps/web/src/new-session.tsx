@@ -99,17 +99,19 @@ function workspaceRequest(
 ): unknown {
   const [only] = where;
 
+  const from = startPoint === "" ? {} : { startPoint };
+
   if (where.length === 1 && only !== undefined) {
     if (isRepository(only)) {
-      return { kind: "clone", repository: only, startPoint };
+      return { kind: "clone", repository: only, ...from };
     }
 
-    return { kind: share ? "folder" : "worktree", path: only, startPoint };
+    return { kind: share ? "folder" : "worktree", path: only, ...from };
   }
 
   return {
     kind: "repositories",
-    repositories: where.map((repository) => ({ repository, startPoint })),
+    repositories: where.map((repository) => ({ repository, ...from })),
   };
 }
 
@@ -346,9 +348,9 @@ export function NewSessionForm({
 
     api("/api/sessions", {
       ...(team && { team }),
-      environment: chosen?.id,
+      ...(chosen && { environment: chosen.id }),
       workspace: workspaceRequest(choices.where, choices.share, startPoint),
-      model,
+      ...(model && { model }),
       ...(profile && { profile: profile.id }),
       ...(choices.thinking !== "" && { thinking: choices.thinking }),
       ...(text.trim() !== "" && { firstMessage: text.trim() }),
