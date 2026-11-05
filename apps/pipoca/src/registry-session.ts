@@ -15,8 +15,6 @@ import metaPackage from "../../../plugins/meta/package.json";
 import * as metaSession from "../../../plugins/meta/src/session";
 import { models } from "../../../plugins/models/plugin";
 import { session as modelsSession } from "../../../plugins/models/src/session";
-import routinesPackage from "../../../plugins/routines/package.json";
-import * as routinesSession from "../../../plugins/routines/src/session";
 import { subagents } from "../../../plugins/subagents/plugin";
 import { session as subagentsSession } from "../../../plugins/subagents/src/session";
 
@@ -29,10 +27,5 @@ export const sessionRegistry = [
   { id: "logins", manifest: loginsPackage.pipoca, session: loginsSession },
   { id: "meta", manifest: metaPackage.pipoca, session: metaSession },
   { id: "models", definition: models, session: modelsSession },
-  {
-    id: "routines",
-    manifest: routinesPackage.pipoca,
-    session: routinesSession,
-  },
   { id: "subagents", definition: subagents, session: subagentsSession },
 ] as const;
