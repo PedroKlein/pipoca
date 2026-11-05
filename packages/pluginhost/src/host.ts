@@ -9,11 +9,14 @@ import {
   type Login,
   type ModelOffer,
   type PluginConfig,
+  type PluginDefinition,
+  pluginEvents,
   type PluginRoute,
   type PluginStore,
   type PublicRoute,
   type RouteCaller,
   type RunnerSource,
+  type ServerContext,
   type ServerPlugin,
   type ServerPluginContext,
   secretRefs,
@@ -21,6 +24,7 @@ import {
   type SessionPlugin,
   settingValues,
   type Toolset,
+  type TypedBus,
   type User,
 } from "@pipoca/plugins";
 import {
@@ -28,6 +32,7 @@ import {
   type Capability,
   capabilities,
   type Command,
+  type DeclaredEvent,
   type GitLogin,
   type PluginInfo,
   type PluginManifest,
@@ -38,11 +43,12 @@ import {
   type ToolSpec,
 } from "@pipoca/protocol";
 import type { Log } from "@pipoca/protocol";
-import type {
-  PluginProfile,
-  Result,
-  SessionPlugins,
-  Sessions,
+import {
+  type PluginProfile,
+  type Result,
+  type SessionPlugins,
+  type Sessions,
+  transcriptReader,
 } from "@pipoca/sessions";
 import {
   routeToolQuestion,
@@ -203,7 +209,7 @@ export function startPlugins(
       readonly token: (environment: string, runner: string) => string;
       readonly revoke: (environment: string, runner: string) => void;
     };
-    readonly events: EventBus;
+    readonly events: TypedBus;
     readonly changes: (topic: string) => void;
     readonly store: (name: string) => PluginStore;
     // Why a plugin's tables can't be used, if they can't.
@@ -254,6 +260,10 @@ export function startPlugins(
   const offers: ModelOffer[] = [];
   const gitLogins: GitLoginsOf[] = [];
   const fromEnv = envSecrets(process.env);
+  const settled = new Set<string>();
+  const used = new Map<string, Set<Capability>>();
+  const definitions = plugins.flatMap(({ definition }) => definition ?? []);
+  const transcript = transcriptReader((id) => deps.sessions.transcript(id));
 
   const starters: {
     readonly plugin: string;
@@ -459,6 +469,30 @@ export function startPlugins(
   const loadsIn = (session: Session, plugin: string | undefined): boolean =>
     session.ownedBy !== "team" || plugin === undefined || inTeamWork(plugin);
 
+  // The events enabled plugins say they publish (ADR 0059).
+  const declaredEvents = (): DeclaredEvent[] =>
+    enabled
+      .filter((name) => !failures.has(name))
+      .flatMap((name) => {
+        const defined = definitions.find(({ id }) => id === name)?.events;
+
+        return defined === undefined
+          ? Object.entries(manifest(name)?.events ?? {}).map(
+              ([event, spec]) => ({
+                ...spec,
+                type: `${name}.${event}` as const,
+              }),
+            )
+          : Object.entries(defined).map(
+              ([event, { title, description, fields }]) => ({
+                title,
+                ...(description !== undefined && { description }),
+                fields: { ...fields },
+                type: `${name}.${event}` as const,
+              }),
+            );
+      });
+
   const register = (plugin: ServerPlugin): void => {
     const log: Log = (message, fields) => {
       deps.log(message, { plugin: plugin.name, ...fields });
@@ -487,7 +521,8 @@ export function startPlugins(
     const stagedTaken = (name: string): boolean =>
       taken(name) || staged.tools.has(name) || staged.routeTools.has(name);
 
-    const declared = manifest(plugin.name)?.capabilities ?? [];
+    const trusted = manifest(plugin.name)?.capabilities ?? [];
+    const touched = new Set<Capability>();
 
     try {
       if (kernelKeys.includes(plugin.name)) {
@@ -496,8 +531,19 @@ export function startPlugins(
         );
       }
 
+      for (const [id, need] of Object.entries(
+        plugin.definition?.requires ?? {},
+      )) {
+        if (need === "required" && !settled.has(id)) {
+          throw new Error(
+            `${plugin.name} needs ${id}, which ${failures.has(id) ? "failed" : "is off"}`,
+          );
+        }
+      }
+
       plugin.register(
-        limited(plugin.name, declared, installedIds.has(plugin.name), {
+        recorded(plugin.name, trusted, installedIds.has(plugin.name), touched, {
+          id: plugin.name,
           tools: {
             register: (tool) => {
               if (stagedTaken(tool.name)) {
@@ -577,18 +623,28 @@ export function startPlugins(
 
               return unsubscribe;
             },
-            declared: () =>
-              enabled
-                .filter((name) => !failures.has(name))
-                .flatMap((name) =>
-                  Object.entries(manifest(name)?.events ?? {}).map(
-                    ([event, spec]) => ({
-                      ...spec,
-                      type: `${name}.${event}` as const,
-                    }),
-                  ),
-                ),
+            declared: declaredEvents,
+            ...pluginEvents(
+              deps.events,
+              plugin.definition ?? {
+                id: plugin.name,
+                title: plugin.name,
+                description: "",
+              },
+              definitions,
+              (stop) => {
+                staged.unsubscribes.push(stop);
+              },
+              log,
+            ),
           },
+          people: {
+            get: (id) => deps.auth.users().find((each) => each.id === id),
+            list: () => deps.auth.users(),
+            byName: (name) =>
+              deps.auth.users().find((each) => each.name === name),
+          },
+          transcript,
           changes: {
             publish: (name) => {
               deps.changes(`${plugin.name}.${name}`);
@@ -723,10 +779,15 @@ export function startPlugins(
       loaded.set(plugin.name, staged.loadOnly);
     }
 
+    settled.add(plugin.name);
+    used.set(plugin.name, touched);
+
     deps.log("plugin registered", { plugin: plugin.name });
   };
 
-  for (const plugin of plugins.filter(({ name }) => enabled.includes(name))) {
+  for (const plugin of inOrder(
+    plugins.filter(({ name }) => enabled.includes(name)),
+  )) {
     register(plugin);
   }
 
@@ -736,10 +797,14 @@ export function startPlugins(
     const error = failures.get(found.id);
     const installed = installedIds.has(found.id);
     const source = sources.get(found.id);
+    const touched = installed ? undefined : used.get(found.id);
 
     // What is in its folder now, which may wait for a restart to run.
     const base = {
       ...(listed(found.id) ?? found),
+      ...(touched !== undefined && {
+        capabilities: capabilities.filter((each) => touched.has(each)),
+      }),
       source: installed ? "installed" : "built-in",
       turnedOn: installed
         ? switchedOn.has(found.id)
@@ -1409,15 +1474,17 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-// A plugin, built-in or installed, reaches only the parts of its context its
-// manifest declares, so a mistake shows when it registers. It isn't a
-// sandbox: the plugin runs in the server's process (ADR 0022).
-function limited(
+// Notes the parts of its context a plugin reaches, which the Plugins page
+// shows. An installed plugin was trusted with what its manifest asked for, so
+// it reaches no further. It isn't a sandbox: the plugin runs in the server's
+// process (ADR 0022).
+function recorded(
   plugin: string,
-  declared: readonly Capability[],
+  trusted: readonly Capability[],
   installed: boolean,
-  context: ServerPluginContext,
-): ServerPluginContext {
+  touched: Set<Capability>,
+  context: ServerContext<PluginDefinition>,
+): ServerContext<PluginDefinition> {
   return new Proxy(context, {
     get: (target, key, receiver) => {
       if (installed && key === "auth") {
@@ -1426,15 +1493,48 @@ function limited(
 
       const capability = capabilities.find((each) => each === key);
 
-      if (capability !== undefined && !declared.includes(capability)) {
-        throw new Error(
-          `${plugin} uses ${capability} without declaring it in pipoca.capabilities`,
-        );
+      if (capability !== undefined) {
+        if (installed && !trusted.includes(capability)) {
+          throw new Error(
+            `${plugin} uses ${capability} without declaring it in pipoca.capabilities`,
+          );
+        }
+
+        touched.add(capability);
       }
 
       return Reflect.get(target, key, receiver) as unknown;
     },
   });
+}
+
+// A plugin registers after the ones it requires.
+function inOrder(plugins: readonly ServerPlugin[]): ServerPlugin[] {
+  const sorted: ServerPlugin[] = [];
+
+  const visit = (plugin: ServerPlugin, seen: readonly string[]): void => {
+    if (sorted.includes(plugin) || seen.includes(plugin.name)) {
+      return;
+    }
+
+    for (const [id, need] of Object.entries(
+      plugin.definition?.requires ?? {},
+    )) {
+      const required = plugins.find(({ name }) => name === id);
+
+      if (need === "required" && required !== undefined) {
+        visit(required, [...seen, plugin.name]);
+      }
+    }
+
+    sorted.push(plugin);
+  };
+
+  for (const plugin of plugins) {
+    visit(plugin, []);
+  }
+
+  return sorted;
 }
 
 // A meta-session's tools act as the person who started it, never as an admin

@@ -13,7 +13,13 @@ export {
   type TConfig,
   type TSecret,
 } from "./definition";
-export { type EventBus, eventBus } from "./events";
+export {
+  type EventBus,
+  eventBus,
+  type KernelEventOf,
+  pluginEvents,
+  type TypedBus,
+} from "./events";
 export {
   BadRequest,
   fieldsOf,
@@ -24,6 +30,15 @@ export {
   readJson,
   requireAdmin,
 } from "./http";
+export {
+  defineServer,
+  type People,
+  type Person,
+  type PluginEvents,
+  type ServerContext,
+  type ToolResultEntry,
+  type Transcript,
+} from "./server";
 export { type Static, Type } from "typebox";
 export { canSee, owners } from "./owners";
 export {

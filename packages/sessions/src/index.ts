@@ -9,3 +9,4 @@ export {
   type SessionEnvironments,
   type StoredSession,
 } from "./sessions";
+export { transcriptReader } from "./transcript";

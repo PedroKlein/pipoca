@@ -4,6 +4,7 @@ import type {
   ExtensionFactory,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import type { PluginDefinition } from "./definition";
 import type { EventBus } from "./events";
 import type { SecretRefs } from "./secrets";
 import type {
@@ -472,6 +473,8 @@ export interface ServerPlugin {
   // written as underscores. A database whose tables came from other SQL
   // fails the plugin and keeps its data.
   readonly schema?: string;
+  // What defineServer made it from.
+  readonly definition?: PluginDefinition;
   readonly register: (context: ServerPluginContext) => void;
 }
 
