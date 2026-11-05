@@ -1103,6 +1103,11 @@ export function startPlugins(
       return;
     }
 
+    // The server stopped while the plugin registered, its database with it.
+    if (deps.signal.aborted) {
+      return;
+    }
+
     for (const [profileId, profile] of staged.profiles) {
       profiles.set(profileId, profile);
     }
@@ -1133,6 +1138,10 @@ export function startPlugins(
     for (const definition of inOrder(
       deps.definitions.filter(({ id }) => enabled.includes(id)),
     )) {
+      if (deps.signal.aborted) {
+        return;
+      }
+
       await load(definition);
     }
   })();

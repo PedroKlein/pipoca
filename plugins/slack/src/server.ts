@@ -1,61 +1,84 @@
 import {
   BadRequest,
+  defineServer,
   NotFound,
-  readBody,
-  requireAdmin,
-  type ServerPlugin,
+  owners,
+  type Person,
+  type Static,
+  ToolError,
   Type,
 } from "@pipoca/plugins";
-import { type Bot, botStore } from "./bots";
-import type { Account, BotView } from "./model";
+import { slack } from "../plugin";
+import type { BotView } from "./model";
 import { botOf, call, SlackRefused } from "./slack";
 import { type Connection, connect } from "./socket";
+
+type Bot = Static<typeof slack.config>["bots"][number];
 
 type Fields = Readonly<Record<string, unknown>>;
 
 const newBot = Type.Object({
-  name: Type.String(),
-  appToken: Type.String(),
-  botToken: Type.String(),
+  name: Type.String({ pattern: "^[a-z0-9][a-z0-9-]{0,62}$" }),
+  appToken: Type.String({ minLength: 1 }),
+  botToken: Type.String({ minLength: 1 }),
 });
+
+const post = Type.Object(
+  {
+    channel: Type.String({
+      description: "The channel's id, such as C0123456, or its name",
+    }),
+    text: Type.String({ description: "Slack mrkdwn" }),
+    thread_ts: Type.Optional(
+      Type.String({
+        description: "The thread to reply in, by its first message's ts",
+      }),
+    ),
+    bot: Type.Optional(
+      Type.String({
+        description: "Which bot, when the user has more than one",
+      }),
+    ),
+  },
+  { additionalProperties: false },
+);
+
+const retryPrefix = "connect:";
 
 // Slack messages as routine triggers, and Sessions that post as a bot, with
 // replies in their threads coming back to them (ADR 0062).
-const schema = `
-create table slack_threads (
-  bot text not null,
-  channel text not null,
-  thread_ts text not null,
-  session_id text not null references sessions (id) on delete cascade,
-  primary key (bot, channel, thread_ts)
-) strict, without rowid;
-create index slack_threads_session on slack_threads (session_id);
-`;
+export default defineServer(
+  slack,
+  ({
+    config,
+    events,
+    log,
+    routes,
+    schedule,
+    sessions,
+    signal,
+    tools,
+    clock,
+  }) => {
+    const bots = config.collection("bots");
 
-export const slack: ServerPlugin = {
-  name: "slack",
-  schema,
-  register: (context) => {
-    const bots = botStore(context.config, context.secretRefs, context.log);
-    const connections = new Map<string, Connection>();
+    const connections = new Map<
+      string,
+      { readonly key: string; readonly connection: Connection }
+    >();
 
-    const sessionOfThread = (
-      bot: string,
-      channel: string,
-      thread: string,
-    ): string | undefined =>
-      (
-        context.store.all(
-          "select session_id from slack_threads where bot = ? and channel = ? and thread_ts = ?",
-          bot,
-          channel,
-          thread,
-        ) as { session_id: string }[]
-      )[0]?.session_id;
+    const threadOf = (bot: string, channel: string, thread: string): string =>
+      `${bot}:${channel}:${thread}`;
 
     // A reply in a thread a Session posted to goes to that Session, so the
     // thread works as a chat with it. Other messages are events.
-    const heard = (bot: Bot, event: Fields): void => {
+    const heard = (name: string, event: Fields): void => {
+      const bot = bots.get(name);
+
+      if (bot === undefined) {
+        return;
+      }
+
       const type = text(event["type"]);
       const user = text(event["user"]);
       const channel = text(event["channel"]);
@@ -70,192 +93,161 @@ export const slack: ServerPlugin = {
       const sessionId =
         threadTs === ""
           ? undefined
-          : sessionOfThread(bot.name, channel, threadTs);
+          : sessions.boundTo(threadOf(bot.name, channel, threadTs));
 
-      if (sessionId !== undefined && type === "message") {
-        const sent = context.sessions.send(
-          sessionId,
-          `A reply in the Slack thread you posted to (channel ${channel}, thread ${threadTs}), from <@${user}>:\n\n${text(event["text"])}`,
-          "plugin:slack",
-          { kind: "slack_reply", data: { user } },
-        );
-
-        if (sent.ok) {
-          return;
-        }
+      if (
+        sessionId !== undefined &&
+        type === "message" &&
+        sessions.send(sessionId, {
+          text: `A reply in the Slack thread you posted to (channel ${channel}, thread ${threadTs}), from <@${user}>:\n\n${text(event["text"])}`,
+          turn: true,
+          notice: { kind: "slack_reply", data: { user } },
+        }) === "queued"
+      ) {
+        return;
       }
 
-      const base = { bot: bot.name, channel, user, ts, userIds: bot.users };
+      const base = { bot: bot.name, channel, user, ts };
+      const to = { to: bot.users };
 
-      switch (type) {
-        case "app_mention":
-          context.events.publish({
-            type: "slack.mention",
-            ...base,
-            text: text(event["text"]),
-            threadTs,
-          });
+      if (type === "app_mention") {
+        events.emit(
+          "mention",
+          { ...base, text: text(event["text"]), threadTs },
+          to,
+        );
+      }
 
-          return;
-        case "message":
-          context.events.publish({
-            type: "slack.message",
+      if (type === "message") {
+        events.emit(
+          "message",
+          {
             ...base,
             text: text(event["text"]),
             threadTs,
             channelType: text(event["channel_type"]),
-          });
+          },
+          to,
+        );
+      }
 
-          return;
-        case "reaction_added": {
-          const item = event["item"] as Fields | undefined;
+      if (type === "reaction_added") {
+        const item = event["item"] as Fields | undefined;
 
-          context.events.publish({
-            type: "slack.reaction",
+        events.emit(
+          "reaction",
+          {
             ...base,
             channel: text(item?.["channel"]),
             ts: text(item?.["ts"]),
             reaction: text(event["reaction"]),
-          });
-
-          return;
-        }
-
-        default:
+          },
+          to,
+        );
       }
     };
 
+    const close = (name: string): void => {
+      connections.get(name)?.connection.close();
+      connections.delete(name);
+      schedule.cancel(`${retryPrefix}${name}`);
+    };
+
+    // One connection per bot, opened again when its token or the API's
+    // address changes, by Settings or by hand.
     const reconcile = (): void => {
+      const { api } = config.get();
       const listed = bots.list();
+      const keyOf = (bot: Bot): string => JSON.stringify([api, bot.appToken]);
 
-      for (const [name, connection] of connections) {
-        if (!listed.some((bot) => bot.name === name)) {
-          connection.close();
-          connections.delete(name);
+      for (const [name, { key }] of connections) {
+        const bot = listed.find((each) => each.name === name);
+
+        if (bot === undefined || keyOf(bot) !== key) {
+          close(name);
         }
       }
 
-      for (const bot of listed) {
-        if (!connections.has(bot.name)) {
-          connections.set(
-            bot.name,
-            connect(
-              bots.api(),
-              bot.appToken,
-              (event) => {
-                heard(bot, event);
-              },
-              (message, fields) => {
-                context.log(message, { bot: bot.name, ...fields });
-              },
-            ),
-          );
-        }
+      for (const bot of listed.filter(({ name }) => !connections.has(name))) {
+        const connection = connect(api, bot.appToken, {
+          onEvent: (event) => {
+            heard(bot.name, event);
+          },
+          retryIn: (ms) => {
+            schedule.at(`${retryPrefix}${bot.name}`, clock.now() + ms);
+          },
+          log: (message, fields) => {
+            log(message, { bot: bot.name, ...fields });
+          },
+        });
+
+        connections.set(bot.name, { key: keyOf(bot), connection });
       }
     };
 
+    schedule.on(retryPrefix, (_payload, key) => {
+      connections.get(key.slice(retryPrefix.length))?.connection.reopen();
+    });
+
+    schedule.cancelPrefix(retryPrefix);
+    config.watch(reconcile);
     reconcile();
 
-    context.signal.addEventListener("abort", () => {
-      for (const connection of connections.values()) {
+    signal.addEventListener("abort", () => {
+      for (const { connection } of connections.values()) {
         connection.close();
       }
     });
 
-    const usable = (userId: string | null): readonly Bot[] =>
-      userId === null
+    const usable = (person: Person | undefined): readonly Bot[] =>
+      person === undefined
         ? []
-        : bots.list().filter((bot) => bot.users.includes(userId));
+        : bots.list().filter((bot) => bot.users.includes(owners.of(person)));
 
-    context.tools.register({
+    tools.define({
       name: "slack_post",
       description:
         "Posts a message to Slack as one of the user's Slack bots, in a channel or as a reply in a thread. Replies people write in that thread come back to this Session as messages.",
-      parameters: {
-        type: "object",
-        properties: {
-          channel: {
-            type: "string",
-            description: "The channel's id, such as C0123456, or its name",
-          },
-          text: { type: "string", description: "Slack mrkdwn" },
-          thread_ts: {
-            type: "string",
-            description: "The thread to reply in, by its first message's ts",
-          },
-          bot: {
-            type: "string",
-            description: "Which bot, when the user has more than one",
-          },
-        },
-        required: ["channel", "text"],
-        additionalProperties: false,
-      },
+      params: post,
       exposure: "direct",
-      annotations: { readOnlyHint: false, destructiveHint: false },
-      appliesTo: (session) => usable(session.startedBy).length > 0,
-      run: async (input, { session }) => {
-        const {
-          channel,
-          text: message,
-          thread_ts: thread,
-          bot: name,
-        } = input as Record<string, unknown>;
+      annotations: { readOnly: false, destructive: false },
+      when: { available: (_session, person) => usable(person).length > 0 },
+      run: async (input, { session, person }) => {
+        const mine = usable(person);
 
-        const mine = usable(session.startedBy);
-        const only = mine.length === 1 ? mine[0] : undefined;
-
-        const bot =
-          typeof name === "string"
-            ? mine.find((each) => each.name === name)
-            : only;
+        const only = mine.length === 1 ? mine[0]?.name : undefined;
+        const bot = mine.find(({ name }) => name === (input.bot ?? only));
 
         if (bot === undefined) {
-          return {
-            text: `name one of these bots: ${mine.map((each) => each.name).join(", ")}`,
-            isError: true,
-          };
-        }
-
-        if (typeof channel !== "string" || typeof message !== "string") {
-          return { text: "give a channel and the text", isError: true };
-        }
-
-        try {
-          const posted = await call(
-            bots.api(),
-            bot.botToken,
-            "chat.postMessage",
-            {
-              channel,
-              text: message,
-              ...(typeof thread === "string" && { thread_ts: thread }),
-            },
+          throw new ToolError(
+            `name one of these bots: ${mine.map(({ name }) => name).join(", ")}`,
           );
-
-          const where = text(posted["channel"]) || channel;
-          const ts = text(posted["ts"]);
-          const threadTs = typeof thread === "string" ? thread : ts;
-
-          context.store.run(
-            "insert into slack_threads (bot, channel, thread_ts, session_id) values (?, ?, ?, ?) on conflict do update set session_id = excluded.session_id",
-            bot.name,
-            where,
-            threadTs,
-            session.id,
-          );
-
-          return {
-            text: `Posted to ${where} as ${bot.name} (ts ${ts}). Replies in thread ${threadTs} come back here.`,
-            isError: false,
-          };
-        } catch (failure) {
-          if (!(failure instanceof SlackRefused)) {
-            throw failure;
-          }
-
-          return { text: failure.message, isError: true };
         }
+
+        const posted = await call(
+          config.get().api,
+          bot.botToken,
+          "chat.postMessage",
+          {
+            channel: input.channel,
+            text: input.text,
+            ...(input.thread_ts !== undefined && {
+              thread_ts: input.thread_ts,
+            }),
+          },
+        ).catch((failure: unknown) => {
+          throw failure instanceof SlackRefused
+            ? new ToolError(failure.message)
+            : failure;
+        });
+
+        const where = text(posted["channel"]) || input.channel;
+        const ts = text(posted["ts"]);
+        const threadTs = input.thread_ts ?? ts;
+
+        sessions.bind(threadOf(bot.name, where, threadTs), session.id);
+
+        return `Posted to ${where} as ${bot.name} (ts ${ts}). Replies in thread ${threadTs} come back here.`;
       },
     });
 
@@ -263,77 +255,57 @@ export const slack: ServerPlugin = {
       name: bot.name,
       team: bot.team,
       botUser: bot.botUser,
-      connected: connections.get(bot.name)?.connected() ?? false,
-      error: connections.get(bot.name)?.error() ?? null,
+      connected: connections.get(bot.name)?.connection.connected() ?? false,
+      error: connections.get(bot.name)?.connection.error() ?? null,
     });
 
-    context.routes.handle(async (request, path, caller) => {
-      const [route, name] = path.split("/");
+    routes.get("bots", { auth: "admin" }, () => bots.list().map(viewOf));
 
-      if (route === "account" && request.method === "GET") {
-        const account: Account = {
-          admin: caller.kind === "user" && caller.admin,
-        };
-
-        return Response.json(account);
-      }
-
-      if (route !== "bots") {
-        throw new NotFound(`no route ${path}`);
-      }
-
-      requireAdmin(caller, "Only admins manage Slack bots.");
-
-      if (name === undefined && request.method === "GET") {
-        return Response.json(bots.list().map(viewOf));
-      }
-
-      if (name === undefined && request.method === "POST") {
-        const input = await readBody(request, newBot);
+    routes.post(
+      "bots",
+      { auth: "admin", body: newBot },
+      async ({ body, caller }) => {
+        if (bots.get(body.name) !== undefined) {
+          throw new BadRequest(`there is a bot ${body.name} already`);
+        }
 
         const { team, userId } = await botOf(
-          bots.api(),
-          input.botToken.trim(),
+          config.get().api,
+          body.botToken.trim(),
         ).catch((failure: unknown) => {
           throw failure instanceof SlackRefused
             ? new BadRequest(failure.message)
             : failure;
         });
 
-        bots.add({
-          name: input.name.trim(),
+        bots.put({
+          name: body.name,
           team,
           botUser: userId,
-          appToken: input.appToken.trim(),
-          botToken: input.botToken.trim(),
-          users:
-            caller.kind === "user" ? [caller.actor.slice("user:".length)] : [],
+          appToken: body.appToken.trim(),
+          botToken: body.botToken.trim(),
+          users: caller.kind === "person" ? [caller.owner] : [],
         });
 
-        reconcile();
-        context.log("slack bot added", { name: input.name.trim(), team });
+        log("slack bot added", { name: body.name, team });
 
-        return Response.json(
-          { name: input.name.trim(), team },
-          { status: 201 },
-        );
+        return Response.json({ name: body.name, team }, { status: 201 });
+      },
+    );
+
+    routes.delete("bots/:name", { auth: "admin" }, ({ params }) => {
+      const name = params["name"] ?? "";
+
+      if (!bots.remove(name)) {
+        throw new NotFound(`no bot ${name}`);
       }
 
-      if (name !== undefined && request.method === "DELETE") {
-        if (!bots.remove(name)) {
-          throw new NotFound(`no bot ${name}`);
-        }
+      log("slack bot removed", { name });
 
-        reconcile();
-        context.log("slack bot removed", { name });
-
-        return Response.json({ removed: name });
-      }
-
-      throw new NotFound(`no route ${path}`);
+      return { removed: name };
     });
   },
-};
+);
 
 function text(value: unknown): string {
   return typeof value === "string" ? value : "";

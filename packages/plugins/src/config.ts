@@ -57,11 +57,11 @@ export function pluginConfig(
   };
 
   const poll = (): void => {
-    if (o.signal.aborted) {
-      return;
-    }
-
     o.timer.after(watchMs, async () => {
+      if (o.signal.aborted) {
+        return Promise.resolve();
+      }
+
       try {
         check();
       } catch (error) {

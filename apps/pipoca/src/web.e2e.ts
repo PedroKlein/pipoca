@@ -3877,6 +3877,11 @@ test("opens Settings as its own page, grouped by who each page is for", async ()
   const tabs = page.getByRole("navigation", { name: "Integrations" });
   await tabs.getByRole("link", { name: "Email" }).click();
   await tabs.locator('a[aria-current="page"]', { hasText: "Email" }).waitFor();
+  await page.getByRole("button", { name: "Add a mailbox" }).waitFor();
+  await page.getByLabel("Seconds between mail checks").waitFor();
+
+  await tabs.getByRole("link", { name: "Slack" }).click();
+  await page.getByRole("button", { name: "Add a Slack bot" }).waitFor();
 
   await menu.getByRole("link", { name: "Back to Pipoca" }).click();
   await page.locator("#plugin-nav").waitFor();
