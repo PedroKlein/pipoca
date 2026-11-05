@@ -128,11 +128,6 @@ export default { name: "greeter", nav: { label: "Greeter", Page } };
 `,
   );
 
-  await writeFile(
-    join(plugins, "enabled.json"),
-    JSON.stringify(["faulty", "greeter"]),
-  );
-
   const logs: string[] = [];
 
   server = serve({
@@ -149,7 +144,11 @@ export default { name: "greeter", nav: { label: "Greeter", Page } };
     },
     installed: {
       root: plugins,
-      plugins: await installedPlugins(plugins, () => undefined),
+      plugins: await installedPlugins(
+        plugins,
+        () => undefined,
+        (id) => id === "faulty" || id === "greeter",
+      ),
     },
     log: (message, fields) => {
       logs.push(`${message} ${JSON.stringify(fields)}`);

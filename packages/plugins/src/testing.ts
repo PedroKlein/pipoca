@@ -90,6 +90,10 @@ export function fakeContext(
       revokeRunner: notFaked("environments.revokeRunner"),
       startsRunners: notFaked("environments.startsRunners"),
       templates: () => [],
+      templateConfig: {
+        get: () => undefined,
+        set: notFaked("environments.templateConfig.set"),
+      },
     },
     profiles: {
       provide: notFaked("profiles.provide"),

@@ -301,7 +301,7 @@ test("signs in through a provider written into the file by hand, with its secret
         {
           ...providerInput(provider.issuer, { label: "Sign in with SAP" }),
           id: "sap",
-          clientSecretEnv: "PIPOCA_TEST_OIDC_SECRET",
+          clientSecret: { env: "PIPOCA_TEST_OIDC_SECRET" },
         },
       ],
     },
@@ -347,7 +347,11 @@ test("fails the plugin, with the reason, when the file's providers don't fit at 
   writeConfig({
     oidc: {
       providers: [
-        { ...providerInput(provider.issuer), id: "ias", clientSecret: "x" },
+        {
+          ...providerInput(provider.issuer),
+          id: "ias",
+          clientSecret: { sealed: "x" },
+        },
       ],
     },
   });
@@ -363,7 +367,7 @@ test("fails the plugin, with the reason, when the file's providers don't fit at 
   expect(listed.find(({ id }) => id === "oidc")).toMatchObject({
     state: "failed",
     error:
-      "oidc.providers[0]: clientSecret must be sealed by Settings; name an environment variable in clientSecretEnv instead",
+      "oidc.providers[0]: clientSecret isn't sealed with this server's key; save it in Settings or name an environment variable",
   });
 });
 
@@ -394,7 +398,11 @@ test("won't save over providers edited by hand into a list that doesn't fit", as
   writeConfig({
     oidc: {
       providers: [
-        { ...providerInput(provider.issuer), id: "ias", clientSecret: "x" },
+        {
+          ...providerInput(provider.issuer),
+          id: "ias",
+          clientSecret: { sealed: "x" },
+        },
       ],
     },
   });
@@ -410,7 +418,7 @@ test("won't save over providers edited by hand into a list that doesn't fit", as
   expect(await added.json()).toEqual({
     error: "bad_request",
     message:
-      "fix oidc in pipoca.json first: oidc.providers[0]: clientSecret must be sealed by Settings; name an environment variable in clientSecretEnv instead",
+      "fix oidc in pipoca.json first: oidc.providers[0]: clientSecret isn't sealed with this server's key; save it in Settings or name an environment variable",
   });
 
   expect(readFileSync(join(configDir, "pipoca.json"), "utf8")).toBe(edited);

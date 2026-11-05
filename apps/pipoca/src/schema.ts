@@ -178,11 +178,6 @@ create table repository_trust (
   decided_at integer not null
 ) strict;
 create unique index repository_trust_key on repository_trust (coalesce(owner_user_id, ''), repository);
-
-create table plugin_settings (
-  plugin text primary key,
-  settings text not null check (json_valid(settings))
-) strict;
 `;
 
 export const kernelSchema: Schema = { owner: "kernel", version: 1, sql };

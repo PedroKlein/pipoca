@@ -21,6 +21,7 @@ import type { Log } from "@pipoca/protocol";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { bundleParts, type PluginParts, provideSdk } from "./bundle";
+import { kernelKeys } from "@pipoca/pluginhost";
 import { builtInPlugins } from "./session-parts";
 import { fetchSource, type PluginSource } from "./sources";
 
@@ -43,19 +44,19 @@ export interface InstalledPlugin {
   readonly digest?: string;
 }
 
-const switchesFile = "enabled.json";
 const sourceFile = ".source.json";
 
 // What the server makes or keeps in a plugin's folder itself.
 const reserved = new Set([sourceFile, ".build", "node_modules", ".git"]);
 const idPattern = /^[a-z][a-z0-9-]*$/;
 
+// Which are on comes from the plugins key in pipoca.json.
 export async function installedPlugins(
   root: string,
   log: Log,
+  isOn: (id: string) => boolean,
 ): Promise<InstalledPlugin[]> {
   const builtIn = new Set(builtInPlugins.map(({ id }) => id));
-  const on = await turnedOn(root);
 
   const folders = await readdir(root).catch((error: unknown) => {
     if (isMissing(error)) {
@@ -100,7 +101,7 @@ export async function installedPlugins(
 
       return [
         {
-          ...(await load(folder, name, on.includes(name))),
+          ...(await load(folder, name, isOn(name))),
           ...(source && { source }),
           digest: await digestOf(folder),
         },
@@ -117,49 +118,6 @@ export async function installedPlugins(
   }
 
   return plugins.flat();
-}
-
-let switching = Promise.resolve();
-
-// Takes effect when the server next starts. Writes go one at a time, so two
-// switches at once both land.
-export async function turnOn(
-  root: string,
-  id: string,
-  on: boolean,
-): Promise<void> {
-  const write = switching.then(async () => {
-    const others = (await turnedOn(root)).filter((each) => each !== id);
-    const next = on ? [...others, id].sort() : others;
-    const temporary = join(root, `.${switchesFile}.${randomUUID()}`);
-
-    await writeFile(temporary, `${JSON.stringify(next, null, 2)}\n`);
-    await rename(temporary, join(root, switchesFile));
-  });
-
-  switching = write.catch(() => undefined);
-
-  return write;
-}
-
-export async function turnedOn(root: string): Promise<string[]> {
-  try {
-    const ids: unknown = JSON.parse(
-      await readFile(join(root, switchesFile), "utf8"),
-    );
-
-    return Array.isArray(ids)
-      ? ids.filter((id): id is string => typeof id === "string")
-      : [];
-  } catch (error) {
-    // A file broken by hand turns every installed plugin off rather than
-    // keeping the server from starting.
-    if (isMissing(error) || error instanceof SyntaxError) {
-      return [];
-    }
-
-    throw error;
-  }
 }
 
 let changing = Promise.resolve();
@@ -196,8 +154,6 @@ export async function install(
         throw new Error(`a plugin with the id ${manifest.id} is already here`);
       }
 
-      // A switch left from a plugin of this id removed by hand.
-      await turnOn(root, manifest.id, false);
       await writeSource(staging, source);
       await rename(staging, join(root, manifest.id));
 
@@ -214,8 +170,8 @@ export async function install(
 }
 
 // Fetches the newest version from where the plugin was installed from, to
-// run when the server restarts. Undefined when it already has it. A version
-// that asks for more than the one turned on is turned off first.
+// run when the server restarts. Undefined when it already has it. It may stay
+// on unless it asks for more than the version turned on.
 export async function update(
   root: string,
   id: string,
@@ -247,10 +203,6 @@ export async function update(
       }
 
       const trusted = await stagedManifest(folder).catch(() => undefined);
-
-      if (trusted === undefined || asksForMore(trusted, manifest)) {
-        await turnOn(root, id, false);
-      }
 
       await writeSource(staging, source);
 
@@ -285,7 +237,7 @@ export async function update(
 
       return {
         manifest,
-        on: (await turnedOn(root)).includes(id),
+        on: trusted !== undefined && !asksForMore(trusted, manifest),
         source,
         digest: await digestOf(folder),
       };
@@ -311,7 +263,6 @@ function asksForMore(trusted: PluginManifest, next: PluginManifest): boolean {
 // A folder that links to a plugin elsewhere loses only the link.
 export async function remove(root: string, id: string): Promise<void> {
   return oneAtATime(async () => {
-    await turnOn(root, id, false);
     await rm(join(root, id), { recursive: true, force: true });
   });
 }
@@ -634,6 +585,10 @@ function skipReason(
 
   if (builtIn.has(name)) {
     return "a built-in plugin has this id";
+  }
+
+  if (kernelKeys.includes(name)) {
+    return "the kernel keeps this id as a key in pipoca.json";
   }
 
   return undefined;

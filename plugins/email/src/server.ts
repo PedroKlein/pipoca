@@ -147,8 +147,7 @@ export const email: ServerPlugin = {
     // Each mailbox is checked once its interval passed since its last check,
     // so a changed interval counts from then on.
     const checkDue = async (): Promise<void> => {
-      const seconds = context.settings.get()["pollSeconds"];
-      const intervalMs = (typeof seconds === "number" ? seconds : 60) * 1000;
+      const intervalMs = Number(context.settings.get()["pollSeconds"]) * 1000;
 
       for (const mailbox of mailboxes.list()) {
         if (Date.now() - (checkedAt.get(mailbox.name) ?? 0) < intervalMs) {

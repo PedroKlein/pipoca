@@ -4,6 +4,8 @@ import {
   isObject,
   type PluginConfig,
   type PluginStore,
+  type SecretRef,
+  secretRefs,
   type Static,
   Type,
 } from "@pipoca/plugins";
@@ -48,11 +50,11 @@ export interface HostStore {
   readonly remove: (host: string) => boolean;
 }
 
-// A host and its client secret as the file holds them, sealed, so a save that
-// keeps the secret writes the same text back.
+// A host and its client secret as the file holds them, so a save that keeps
+// the secret writes the same ref back.
 interface Entry {
   readonly config: HostConfig;
-  readonly sealed: string | undefined;
+  readonly ref: SecretRef | undefined;
 }
 
 const github: HostConfig = {
@@ -72,23 +74,10 @@ export function hostStore(
   env: NodeJS.ProcessEnv,
   log: Log,
 ): HostStore {
-  // Sessions the server starts inherit its environment, so a secret leaves
-  // it once read.
-  const fromEnv = new Map<string, string>();
-
-  const secretIn = (name: string): string | undefined => {
-    const value = fromEnv.get(name) ?? env[name];
-
-    if (value !== undefined && value !== "") {
-      fromEnv.set(name, value);
-      Reflect.deleteProperty(env, name);
-    }
-
-    return fromEnv.get(name);
-  };
+  const refs = secretRefs(store, env);
 
   const parse = (value: unknown): readonly Entry[] =>
-    entriesOf(value, (sealed, host) => store.open(sealed, host), secretIn);
+    entriesOf(value, (ref, host) => refs.open(ref, host, "oauth.clientSecret"));
 
   let read = JSON.stringify(config.get());
   let entries = parse(config.get());
@@ -156,7 +145,7 @@ export function hostStore(
     const base = { ...hostConfig(host, before?.config.api), label };
 
     if (clientId === "") {
-      return { config: { ...base, oauth: undefined }, sealed: undefined };
+      return { config: { ...base, oauth: undefined }, ref: undefined };
     }
 
     if (secret !== undefined && secret !== null && secret.trim() !== "") {
@@ -169,7 +158,7 @@ export function hostStore(
             clientSecretEnv: undefined,
           },
         },
-        sealed: store.seal(secret.trim(), host),
+        ref: refs.seal(secret.trim(), host),
       };
     }
 
@@ -184,7 +173,7 @@ export function hostStore(
           clientSecretEnv: kept?.clientSecretEnv,
         },
       },
-      sealed: secret === null ? undefined : before?.sealed,
+      ref: secret === null ? undefined : before?.ref,
     };
   };
 
@@ -242,13 +231,14 @@ export function viewOf(
   };
 }
 
-function entriesOf(
-  value: unknown,
-  open: (sealed: string, host: string) => string,
-  secretIn: (name: string) => string | undefined,
-): readonly Entry[] {
+type Open = (
+  ref: unknown,
+  host: string,
+) => { readonly ref: SecretRef; readonly secret: string };
+
+function entriesOf(value: unknown, open: Open): readonly Entry[] {
   if (value === undefined) {
-    return [{ config: github, sealed: undefined }];
+    return [{ config: github, ref: undefined }];
   }
 
   if (!isObject(value)) {
@@ -258,7 +248,7 @@ function entriesOf(
   const { hosts } = value;
 
   if (hosts === undefined) {
-    return [{ config: github, sealed: undefined }];
+    return [{ config: github, ref: undefined }];
   }
 
   if (!Array.isArray(hosts)) {
@@ -281,7 +271,7 @@ function entriesOf(
 
       seen.add(host);
 
-      return entryOf(host, item, open, secretIn);
+      return entryOf(host, item, open);
     } catch (failure) {
       if (failure instanceof BadRequest) {
         throw new BadRequest(
@@ -297,8 +287,7 @@ function entriesOf(
 function entryOf(
   host: string,
   item: Readonly<Record<string, unknown>>,
-  open: (sealed: string, host: string) => string,
-  secretIn: (name: string) => string | undefined,
+  open: Open,
 ): Entry {
   const { api, oauth } = item;
 
@@ -312,79 +301,50 @@ function entryOf(
   };
 
   if (oauth === undefined) {
-    return { config: { ...base, oauth: undefined }, sealed: undefined };
+    return { config: { ...base, oauth: undefined }, ref: undefined };
   }
 
   if (!isObject(oauth)) {
     throw new BadRequest("oauth must be an object");
   }
 
-  const { clientId, clientSecret, clientSecretEnv } = oauth;
+  const { clientId, clientSecret } = oauth;
 
   if (typeof clientId !== "string" || clientId.trim() === "") {
     throw new BadRequest("oauth.clientId must be text");
   }
 
-  if (clientSecretEnv !== undefined) {
-    const secret =
-      typeof clientSecretEnv === "string"
-        ? secretIn(clientSecretEnv)
-        : undefined;
-
-    if (typeof clientSecretEnv !== "string" || secret === undefined) {
-      throw new BadRequest(
-        "oauth.clientSecretEnv names no environment variable that is set",
-      );
-    }
-
+  if (clientSecret === undefined) {
     return {
       config: {
         ...base,
-        oauth: { clientId, clientSecret: secret, clientSecretEnv },
+        oauth: {
+          clientId,
+          clientSecret: undefined,
+          clientSecretEnv: undefined,
+        },
       },
-      sealed: undefined,
+      ref: undefined,
     };
   }
 
-  if (clientSecret !== undefined && typeof clientSecret !== "string") {
-    throw new BadRequest("oauth.clientSecret must be text");
-  }
+  const { ref, secret } = open(clientSecret, host);
 
   return {
     config: {
       ...base,
       oauth: {
         clientId,
-        clientSecret:
-          clientSecret === undefined
-            ? undefined
-            : opened(clientSecret, host, open),
-        clientSecretEnv: undefined,
+        clientSecret: secret,
+        clientSecretEnv: "env" in ref ? ref.env : undefined,
       },
     },
-    sealed: clientSecret,
+    ref,
   };
 }
 
-function opened(
-  sealed: string,
-  host: string,
-  open: (sealed: string, host: string) => string,
-): string {
-  try {
-    return open(sealed, host);
-  } catch {
-    throw new BadRequest(
-      "oauth.clientSecret must be sealed by Settings; name an environment variable in oauth.clientSecretEnv instead",
-    );
-  }
-}
-
 // What the file holds for a host, leaving out what is default.
-function fileEntry({
-  config,
-  sealed,
-}: Entry): Readonly<Record<string, unknown>> {
+function fileEntry({ config, ref }: Entry): Readonly<Record<string, unknown>> {
   const { host, label, api, oauth } = config;
 
   return {
@@ -394,9 +354,7 @@ function fileEntry({
     ...(oauth && {
       oauth: {
         clientId: oauth.clientId,
-        ...(oauth.clientSecretEnv !== undefined
-          ? { clientSecretEnv: oauth.clientSecretEnv }
-          : sealed !== undefined && { clientSecret: sealed }),
+        ...(ref !== undefined && { clientSecret: ref }),
       },
     }),
   };

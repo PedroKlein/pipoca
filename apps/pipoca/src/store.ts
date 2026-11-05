@@ -12,7 +12,6 @@ import type {
   WorkspaceRemoval,
 } from "@pipoca/protocol";
 import type { PluginStore, ServerPlugin } from "@pipoca/plugins";
-import type { PluginSettingsStore } from "@pipoca/pluginhost";
 import {
   defaultProfileId as sharedDefault,
   type ProfileFolders,
@@ -27,7 +26,7 @@ import {
   systemClock,
 } from "@pipoca/sessions";
 import type { AuthStore, User } from "./auth";
-import { openDatabase, transaction } from "./database";
+import { openDatabase, resetPlugin, transaction } from "./database";
 import { kernelSchema } from "./schema";
 import { fileSecretKey, SecretBox } from "./secret-box";
 
@@ -124,7 +123,8 @@ export function openStore(
     check: () => void;
     close: () => void;
     plugin: (name: string) => PluginStore;
-    pluginSettings: PluginSettingsStore;
+    // Drops a plugin's tables and makes them again, or says why it couldn't.
+    resetPlugin: (name: string) => string | undefined;
   } {
   if (path !== ":memory:") {
     mkdirSync(dirname(path), { recursive: true });
@@ -621,7 +621,22 @@ export function openStore(
 
       return found;
     },
-    pluginSettings: pluginSettingsStore(db),
+    resetPlugin: (name) => {
+      const declared = plugins.find((each) => each.name === name)?.schema;
+
+      const failure =
+        declared === undefined
+          ? undefined
+          : resetPlugin(db, { owner: name, ...declared }, clock.now());
+
+      if (failure === undefined) {
+        failures.delete(name);
+      } else {
+        failures.set(name, failure);
+      }
+
+      return failure;
+    },
     close: () => {
       db.close();
     },
@@ -1089,30 +1104,6 @@ function authStore(db: DatabaseSync, clock: Clock): AuthStore {
           lastUsed: iso(row.last_used_at),
         }
       );
-    },
-  };
-}
-
-function pluginSettingsStore(db: DatabaseSync): PluginSettingsStore {
-  const select = db.prepare(
-    "select settings from plugin_settings where plugin = ?",
-  );
-
-  const upsert = db.prepare(
-    `insert into plugin_settings (plugin, settings) values (?, ?)
-     on conflict (plugin) do update set settings = excluded.settings`,
-  );
-
-  return {
-    get: (plugin) => {
-      const row = select.get(plugin) as { settings: string } | undefined;
-
-      return row === undefined
-        ? undefined
-        : (JSON.parse(row.settings) as unknown);
-    },
-    set: (plugin, settings) => {
-      upsert.run(plugin, JSON.stringify(settings));
     },
   };
 }

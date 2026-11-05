@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -159,9 +166,14 @@ let root: string;
 let api: ReturnType<typeof fakeApi>;
 let server: TestServer;
 
-function startServer(database = ":memory:", cookie?: string): void {
+function startServer(
+  database = ":memory:",
+  cookie?: string,
+  configDir?: string,
+): void {
   server = testServer({
     database,
+    ...(configDir !== undefined && { configDir }),
     sessions: { pollWaitMs: 100, offlineAfterMs: 1000 },
     plugins: [
       kubernetes(() => ({
@@ -442,6 +454,72 @@ test("lets the runner in a started pod run the Session, and forgets an earlier f
   expect(whileRunning.lastFailure).toBeNull();
   expect(afterStop.lastFailure).toBeNull();
 }, 30_000);
+
+test("reads a template's pod settings from its entry in pipoca.json, and saves them there", async () => {
+  const configDir = join(root, "config");
+  const file = join(configDir, "pipoca.json");
+
+  await mkdir(configDir);
+
+  await writeFile(
+    file,
+    JSON.stringify({
+      templates: [
+        { id: "pods", name: "Pods", kubernetes: { capacity: 2, maxPods: 3 } },
+        { id: "broken", name: "Broken", kubernetes: { capacity: "two" } },
+      ],
+    }),
+  );
+
+  await server.close();
+  startServer(":memory:", undefined, configDir);
+
+  const read = async (id: string): Promise<unknown> =>
+    (
+      (await (await server.api(templatePath(id))).json()) as {
+        readonly settings: unknown;
+      }
+    ).settings;
+
+  const entry = async (): Promise<Record<string, unknown> | undefined> =>
+    (
+      JSON.parse(await readFile(file, "utf8")) as {
+        readonly templates: readonly Record<string, unknown>[];
+      }
+    ).templates[0];
+
+  expect(await read("pods")).toEqual({
+    workspace: "pod",
+    capacity: 2,
+    maxPods: 3,
+    idleSeconds: 300,
+    claimSize: "10Gi",
+    storageClass: null,
+    podPatch: {},
+  });
+
+  expect(await read("broken")).toBeNull();
+
+  await server.api(templatePath("pods"), {
+    body: { settings: { capacity: 4 } },
+  });
+
+  await server.api("/api/templates/pods", {
+    method: "PATCH",
+    body: { name: "Bigger pods" },
+  });
+
+  expect(await entry()).toMatchObject({
+    id: "pods",
+    name: "Bigger pods",
+    kubernetes: { capacity: 4, maxPods: 5 },
+  });
+
+  await server.api(templatePath("pods"), { body: { settings: null } });
+
+  expect(await read("pods")).toBeNull();
+  expect(await entry()).not.toHaveProperty("kubernetes");
+});
 
 test("refuses Kubernetes settings it can't use", async () => {
   const template = (await (

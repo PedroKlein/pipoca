@@ -16,8 +16,9 @@ import type {
   Profile,
   Session,
   Teammate,
-  TeamName,
+  TeamView,
 } from "@pipoca/protocol";
+import { teamMessagesRead } from "@pipoca/protocol";
 import { responseOrder, watchChanges } from "@pipoca/plugins/web";
 import { api } from "./api";
 import { noticeText, settled } from "./notices";
@@ -135,15 +136,19 @@ export function useHubLayout(): {
   return { pages, reload };
 }
 
-// The team's name, or null while admins haven't given it one.
-export function useTeamName(): string | null {
-  const [name, setName] = useState<string | null>(null);
+// The team's name, null while admins haven't given it one, and how many of
+// its messages Pi reads.
+export function useTeam(): TeamView {
+  const [team, setTeam] = useState<TeamView>({
+    name: null,
+    messagesRead: teamMessagesRead,
+  });
 
   useEffect(() => {
     const read = (): void => {
       api("/api/team")
         .then(async (response) => {
-          setName(((await response.json()) as TeamName).name);
+          setTeam((await response.json()) as TeamView);
         })
         .catch(() => undefined);
     };
@@ -153,7 +158,7 @@ export function useTeamName(): string | null {
     return watchChanges(["team"], read);
   }, []);
 
-  return name;
+  return team;
 }
 
 export function useProfiles(): WatchedList<Profile> {

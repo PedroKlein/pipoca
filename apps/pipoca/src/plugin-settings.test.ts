@@ -1,4 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type {
   ServerPlugin,
   ServerPluginContext,
@@ -39,11 +42,15 @@ const broken: PluginManifest = {
   capabilities: ["tools", "events", "routes"],
 };
 
-function start(plugins: readonly ServerPlugin[]): void {
+function start(
+  plugins: readonly ServerPlugin[],
+  config: { readonly configDir?: string; readonly lockedConfig?: string } = {},
+): void {
   server = testServer({
     sessions: { pollWaitMs: 0 },
     plugins,
     manifests: [greeter, broken],
+    ...config,
   });
 
   runners = runnerCredentials(server, server.signedIn);
@@ -159,6 +166,65 @@ test("saves a plugin's settings, refusing values that don't fit", async () => {
     (await server.api("/api/plugins/nobody", { method: "PATCH", body: {} }))
       .status,
   ).toBe(404);
+});
+
+test("keeps a plugin's settings under its key in pipoca.json, beside its own config", async () => {
+  const configDir = mkdtempSync(join(tmpdir(), "pipoca-settings-"));
+  const file = join(configDir, "pipoca.json");
+
+  writeFileSync(file, JSON.stringify({ greeter: { times: 4, own: "kept" } }));
+
+  start([{ name: "greeter", register: () => undefined }], { configDir });
+
+  const values = async (): Promise<PluginInfo["values"] | undefined> =>
+    ((await (await server.api("/api/plugins")).json()) as PluginInfo[]).find(
+      ({ id }) => id === "greeter",
+    )?.values;
+
+  expect(await values()).toEqual({ greeting: "hello", times: 4 });
+
+  const saved = await server.api("/api/plugins/greeter", {
+    method: "PATCH",
+    body: { settings: { greeting: "hi", times: 1 } },
+  });
+
+  expect(saved.status).toBe(200);
+
+  expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({
+    greeter: { own: "kept", greeting: "hi" },
+  });
+
+  writeFileSync(file, JSON.stringify({ greeter: { times: 5 } }));
+
+  expect(await values()).toEqual({ greeting: "hello", times: 5 });
+});
+
+test("refuses settings a locked config file holds", async () => {
+  const configDir = mkdtempSync(join(tmpdir(), "pipoca-settings-"));
+  const lockedConfig = join(configDir, "locked.json");
+
+  writeFileSync(lockedConfig, JSON.stringify({ greeter: { times: 2 } }));
+
+  start([{ name: "greeter", register: () => undefined }], {
+    configDir,
+    lockedConfig,
+  });
+
+  const refused = await server.api("/api/plugins/greeter", {
+    method: "PATCH",
+    body: { settings: { times: 3 } },
+  });
+
+  expect(refused.status).toBe(409);
+
+  const listed = (await (
+    await server.api("/api/plugins")
+  ).json()) as PluginInfo[];
+
+  expect(listed.find(({ id }) => id === "greeter")?.values).toEqual({
+    greeting: "hello",
+    times: 2,
+  });
 });
 
 test("gives a starting Session its plugins' settings", async () => {

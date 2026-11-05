@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -506,6 +513,89 @@ test("routes requests to a plugin that keeps its own tables", async () => {
   ]);
 });
 
+test("resets a plugin whose tables another version made, once an admin asks", async () => {
+  const database = join(root, "server.db");
+
+  const notes = (sql: string): ServerPlugin => ({
+    name: "notes",
+    schema: { version: 1, sql },
+    register: ({ routes, store }) => {
+      routes.handle(async (request) => {
+        if (request.method === "POST") {
+          const { text } = (await request.json()) as { text: string };
+          store.run("insert into notes_items (text) values (?)", text);
+
+          return new Response(null, { status: 204 });
+        }
+
+        return Response.json(store.all("select * from notes_items"));
+      });
+    },
+  });
+
+  const manifests = [
+    { id: "notes", title: "Notes", description: "", capabilities },
+  ];
+
+  server = testServer({
+    database,
+    plugins: [notes("create table notes_items (text text) strict")],
+    manifests,
+  });
+
+  await server.api("/api/plugins/notes/items", { body: { text: "old" } });
+
+  const cookie = await server.signedIn();
+  await server.close();
+
+  server = testServer({
+    database,
+    cookie,
+    plugins: [
+      notes(
+        "create table notes_items (text text, pinned integer not null default 0) strict",
+      ),
+    ],
+    manifests,
+  });
+
+  expect(await (await server.api("/api/plugins")).json()).toMatchObject([
+    {
+      id: "notes",
+      state: "failed",
+      error:
+        "its tables were made by another version of notes; its data is kept until an admin resets it",
+    },
+  ]);
+
+  const reset = await server.api("/api/plugin-resets/notes", {
+    method: "POST",
+  });
+
+  expect(reset.status).toBe(200);
+  expect(await reset.json()).toMatchObject({ id: "notes", state: "on" });
+
+  expect(await (await server.api("/api/plugins/notes/items")).json()).toEqual(
+    [],
+  );
+
+  await server.api("/api/plugins/notes/items", { body: { text: "new" } });
+
+  expect(await (await server.api("/api/plugins/notes/items")).json()).toEqual([
+    { text: "new", pinned: 0 },
+  ]);
+
+  const again = await server.api("/api/plugin-resets/notes", {
+    method: "POST",
+  });
+
+  expect(again.status).toBe(400);
+
+  expect(
+    (await server.api("/api/plugin-resets/nobody", { method: "POST" })).status,
+  ).toBe(404);
+});
+
 test("answers the errors a plugin's route throws as the server's own", async () => {
   await start([
     {
@@ -808,6 +898,75 @@ test("leaves out plugins that are turned off", async () => {
   ]);
 
   expect((await server.api("/api/plugins/off/anything")).status).toBe(404);
+});
+
+test("turns plugins on and off, and in team work, under plugins in pipoca.json", async () => {
+  const registered: string[] = [];
+  const configDir = join(root, "config");
+  const file = join(configDir, "pipoca.json");
+
+  await mkdir(configDir);
+
+  await writeFile(
+    file,
+    JSON.stringify({ plugins: { quiet: { personal: false } } }),
+  );
+
+  const plugin = (name: string): ServerPlugin => ({
+    name,
+    register: () => {
+      registered.push(name);
+    },
+  });
+
+  server = testServer({
+    configDir,
+    plugins: [plugin("quiet"), plugin("chatty"), plugin("team")],
+    manifests: ["quiet", "chatty", "team"].map((id) => ({
+      id,
+      title: id,
+      description: "",
+      works: ["personal", "team"],
+    })),
+  });
+
+  const listed = async (): Promise<unknown> =>
+    (await server.api("/api/plugins")).json();
+
+  expect(await listed()).toMatchObject([
+    { id: "quiet", state: "off", turnedOn: false },
+    { id: "chatty", state: "on", turnedOn: true, teamWork: true },
+    {
+      id: "team",
+      state: "failed",
+      error:
+        "team is a key the kernel keeps in pipoca.json, so no plugin can have it",
+    },
+  ]);
+
+  expect(registered).toEqual(["chatty"]);
+
+  const switched = await server.api("/api/plugins/chatty", {
+    method: "PATCH",
+    body: { teamWork: false },
+  });
+
+  expect(await switched.json()).toMatchObject({ teamWork: false });
+
+  expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
+    plugins: { quiet: { personal: false }, chatty: { team: false } },
+  });
+
+  await writeFile(
+    file,
+    JSON.stringify({ plugins: { chatty: { team: true } } }),
+  );
+
+  expect(await listed()).toMatchObject([
+    { id: "quiet" },
+    { id: "chatty", teamWork: true },
+    { id: "team" },
+  ]);
 });
 
 // A runner a plugin started, such as a pod, with the token the plugin gave it.

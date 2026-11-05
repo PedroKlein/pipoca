@@ -35,7 +35,9 @@ import {
   setupChange,
   teamMessage,
   type Teammate,
+  teamMessagesRead,
   teamNameChange,
+  type TeamView,
   versionHeader,
 } from "@pipoca/protocol";
 import { VERSION as piVersion } from "@earendil-works/pi-coding-agent";
@@ -455,6 +457,19 @@ export function createHandler(
       adminDraft(async (_request, [name = ""]) =>
         Response.json(await refused(plugins.files.build(name))),
       ),
+    ],
+    [
+      "POST",
+      /^\/api\/plugin-resets\/([^/]+)$/,
+      admin((_request, [name = ""]) => {
+        const reset = plugins.resetData(name);
+
+        if (typeof reset === "string") {
+          throw new BadRequest(reset);
+        }
+
+        return reset === undefined ? notFound() : Response.json(reset);
+      }),
     ],
     [
       "DELETE",
@@ -974,7 +989,11 @@ export function createHandler(
     [
       "GET",
       /^\/api\/team$/,
-      () => Response.json(teamName?.get() ?? { name: null }),
+      () =>
+        Response.json({
+          ...(teamName?.get() ?? { name: null }),
+          messagesRead: teamName?.messagesRead() ?? teamMessagesRead,
+        } satisfies TeamView),
     ],
     [
       "PUT",

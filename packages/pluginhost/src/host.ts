@@ -2,6 +2,7 @@ import { basename } from "node:path";
 import {
   checkedSettings,
   type EventBus,
+  isObject,
   type Login,
   type ModelOffer,
   type PluginConfig,
@@ -45,6 +46,7 @@ import {
   type ToolsetTool,
   toolsetTools,
 } from "./toolsets";
+import { kernelKeys, type PluginSwitches } from "./switches";
 
 export type UserActor = `user:${string}`;
 
@@ -64,13 +66,6 @@ export interface OnBehalf {
   readonly mayAdmin: boolean;
 }
 
-// What a plugin's settings were saved as, checked against its schema when
-// read (ADR 0036).
-export interface PluginSettingsStore {
-  readonly get: (plugin: string) => unknown;
-  readonly set: (plugin: string, settings: PluginSettings) => void;
-}
-
 export interface PluginHost {
   // The plugins that are on, without any that failed to register.
   readonly names: readonly string[];
@@ -80,6 +75,10 @@ export interface PluginHost {
   readonly checkUpdates: () => Promise<void>;
   // Tells plugins of something the kernel did.
   readonly publish: EventBus["publish"];
+  // Drops a failed plugin's tables, makes them again and starts it, as it
+  // starts after its schema changed (ADR 0068). Says why it couldn't, or
+  // undefined when no plugin has the name.
+  readonly resetData: (name: string) => PluginInfo | string | undefined;
   // The plugin's new settings, what is wrong with them, or undefined when no
   // plugin has the name.
   readonly saveSettings: (
@@ -161,6 +160,7 @@ function pluginEnvironments(
     readonly revoke: (environment: string, runner: string) => void;
   },
   startsRunners: ServerPluginContext["environments"]["startsRunners"],
+  templateConfig: ServerPluginContext["environments"]["templateConfig"],
 ): ServerPluginContext["environments"] {
   const provider = (environmentId: string): string => {
     const found = sessions
@@ -184,6 +184,7 @@ function pluginEnvironments(
     },
     startsRunners,
     templates: () => sessions.templates(),
+    templateConfig,
   };
 }
 
@@ -201,7 +202,8 @@ export function startPlugins(
     readonly events: EventBus;
     readonly changes: (topic: string) => void;
     readonly store: (name: string) => PluginStore;
-    readonly settings: PluginSettingsStore;
+    // Drops a plugin's tables and makes them again, or says why it couldn't.
+    readonly resetData: (name: string) => string | undefined;
     readonly config: (name: string) => PluginConfig;
     // The kernel's own toolsets (ADR 0035).
     readonly toolsets: readonly Toolset[];
@@ -222,9 +224,16 @@ export function startPlugins(
     // The Session parts built into the binary, besides installed ones.
     readonly sessionParts: readonly SessionPlugin[];
     readonly mcpServers?: ServerPluginContext["profiles"]["mcpServers"];
-    // Which plugins admins turned on or off in team work, by name, in
-    // pipoca.json (ADR 0067).
-    readonly teamPlugins?: PluginConfig;
+    readonly switches: PluginSwitches;
+    // Each plugin's key in a template's entry in pipoca.json.
+    readonly templates?: {
+      readonly config: (templateId: string, plugin: string) => unknown;
+      readonly setConfig: (
+        templateId: string,
+        plugin: string,
+        value: unknown,
+      ) => void;
+    };
     readonly buildsOn?: ServerPluginContext["profiles"]["buildsOn"];
     readonly signal: AbortSignal;
     readonly log: Log;
@@ -311,7 +320,7 @@ export function startPlugins(
   // isn't turned on while a write changes it.
   let changing = Promise.resolve();
 
-  const oneAtATime = async <T>(change: () => Promise<T>): Promise<T> => {
+  const oneAtATime = async <T>(change: () => T | Promise<T>): Promise<T> => {
     const next = changing.then(change);
 
     changing = next.then(
@@ -322,11 +331,8 @@ export function startPlugins(
     return next;
   };
 
-  const turned = async (
-    found: PluginManifest,
-    on: boolean,
-  ): Promise<PluginInfo> => {
-    await folder().turnOn(found.id, on);
+  const turned = (found: PluginManifest, on: boolean): PluginInfo => {
+    deps.switches.set(found.id, { personal: on });
 
     if (on) {
       switchedOn.add(found.id);
@@ -392,8 +398,10 @@ export function startPlugins(
     listed(name) &&
     (deps.manifests.find(({ id }) => id === name) ?? listed(name));
 
+  // A plugin's settings sit under its key in pipoca.json, beside its own
+  // config, and what is left out takes the manifest's default (ADR 0039).
   const values = (name: string): PluginSettings =>
-    settingValues(manifest(name)?.settings, deps.settings.get(name));
+    settingValues(manifest(name)?.settings, deps.config(name).get());
 
   const taken = (name: string): boolean =>
     tools.has(name) || routeTools.has(name);
@@ -429,24 +437,14 @@ export function startPlugins(
   const loadsToolsets = (session: Session): boolean =>
     toolsetUsers.has(deps.sessions.powersOf(session) ?? "");
 
-  const teamSwitches = (): Readonly<Record<string, unknown>> => {
-    const saved = deps.teamPlugins?.get();
-
-    return typeof saved === "object" && saved !== null
-      ? (saved as Readonly<Record<string, unknown>>)
-      : {};
-  };
-
   // A plugin loads in team work only if it says it works there, and then
   // a built-in is on until admins turn it off and an installed one is off
   // until they turn it on (ADR 0067).
   const inTeamWork = (name: string): boolean => {
-    const switched = teamSwitches()[name];
-
     return (
       running.includes(name) &&
       manifest(name)?.works?.includes("team") === true &&
-      (typeof switched === "boolean" ? switched : !installedIds.has(name))
+      (deps.switches.get(name).team ?? !installedIds.has(name))
     );
   };
 
@@ -454,7 +452,7 @@ export function startPlugins(
   const loadsIn = (session: Session, plugin: string | undefined): boolean =>
     session.ownedBy !== "team" || plugin === undefined || inTeamWork(plugin);
 
-  for (const plugin of plugins.filter(({ name }) => enabled.includes(name))) {
+  const register = (plugin: ServerPlugin): void => {
     const log: Log = (message, fields) => {
       deps.log(message, { plugin: plugin.name, ...fields });
     };
@@ -485,6 +483,12 @@ export function startPlugins(
     const declared = manifest(plugin.name)?.capabilities ?? [];
 
     try {
+      if (kernelKeys.includes(plugin.name)) {
+        throw new Error(
+          `${plugin.name} is a key the kernel keeps in pipoca.json, so no plugin can have it`,
+        );
+      }
+
       plugin.register(
         limited(plugin.name, declared, installedIds.has(plugin.name), {
           tools: {
@@ -588,6 +592,17 @@ export function startPlugins(
             (starts) => {
               staged.starters.push({ plugin: plugin.name, starts });
             },
+            {
+              get: (templateId) =>
+                deps.templates?.config(templateId, plugin.name),
+              set: (templateId, value) => {
+                if (deps.templates === undefined) {
+                  throw new Error("this server keeps no templates");
+                }
+
+                deps.templates.setConfig(templateId, plugin.name, value);
+              },
+            },
           ),
           profiles: {
             provide: (key, { name: _name, ...content }, options) => {
@@ -652,7 +667,7 @@ export function startPlugins(
       failures.set(plugin.name, message);
       log("plugin failed to register", { error: message });
 
-      continue;
+      return;
     }
 
     for (const [name, tool] of staged.tools) {
@@ -696,6 +711,10 @@ export function startPlugins(
     }
 
     deps.log("plugin registered", { plugin: plugin.name });
+  };
+
+  for (const plugin of plugins.filter(({ name }) => enabled.includes(name))) {
+    register(plugin);
   }
 
   const running = enabled.filter((name) => !failures.has(name));
@@ -774,6 +793,41 @@ export function startPlugins(
       });
     },
     publish: deps.events.publish,
+    resetData: (name) => {
+      const found = manifest(name);
+      const plugin = plugins.find((each) => each.name === name);
+
+      if (found === undefined) {
+        return undefined;
+      }
+
+      if (
+        plugin === undefined ||
+        !enabled.includes(name) ||
+        !failures.has(name)
+      ) {
+        return "only the data of a plugin that failed to start is reset";
+      }
+
+      const refused = deps.resetData(name);
+
+      if (refused !== undefined) {
+        failures.set(name, refused);
+
+        return refused;
+      }
+
+      deps.log("plugin data reset", { plugin: name });
+
+      failures.delete(name);
+      register(plugin);
+
+      if (!failures.has(name)) {
+        running.push(name);
+      }
+
+      return info(found);
+    },
     saveSettings: (name, settings) => {
       const found = manifest(name);
       if (found === undefined) {
@@ -785,13 +839,31 @@ export function startPlugins(
         return checked;
       }
 
-      deps.settings.set(name, checked);
+      const declared = found.settings ?? {};
+      const config = deps.config(name);
+      const current = config.get();
+
+      const next = {
+        ...Object.fromEntries(
+          Object.entries(isObject(current) ? current : {}).filter(
+            ([key]) => !Object.hasOwn(declared, key),
+          ),
+        ),
+        ...Object.fromEntries(
+          Object.entries(checked).filter(
+            ([key, value]) =>
+              JSON.stringify(value) !== JSON.stringify(declared[key]?.default),
+          ),
+        ),
+      };
+
+      config.set(Object.keys(next).length === 0 ? undefined : next);
       deps.log("plugin settings saved", { plugin: name });
 
       return info(found);
     },
     turnOn: async (name, on, digest) =>
-      oneAtATime(async () => {
+      oneAtATime(() => {
         const found = manifest(name);
         if (found === undefined) {
           return undefined;
@@ -826,6 +898,9 @@ export function startPlugins(
           url,
           (id) => manifest(id) !== undefined,
         );
+
+        // A switch left from a plugin of this id removed by hand.
+        deps.switches.set(found.id, undefined);
 
         manifests = [...manifests, found];
         installedIds.add(found.id);
@@ -875,7 +950,9 @@ export function startPlugins(
         // Why the version before failed doesn't hold for this one.
         failures.delete(name);
 
-        if (!fetched.on) {
+        // A version that asks for more than the one turned on is turned off.
+        if (!fetched.on && deps.switches.get(name).personal === true) {
+          deps.switches.set(name, { personal: false });
           switchedOn.delete(name);
         }
 
@@ -905,6 +982,7 @@ export function startPlugins(
         }
 
         try {
+          deps.switches.set(name, undefined);
           await deps.installed.remove(name);
         } catch (error) {
           return messageOf(error);
@@ -927,7 +1005,15 @@ export function startPlugins(
       read: async (name, path) => folder().read(name, path),
       write: async (name, path, content) =>
         oneAtATime(async () => {
-          await changeable(name).write(name, path, content);
+          const folderOf = changeable(name);
+
+          // A switch left from a plugin of this id removed by hand would
+          // turn the new one on at the next start.
+          if (!installedIds.has(name)) {
+            deps.switches.set(name, undefined);
+          }
+
+          await folderOf.write(name, path, content);
           deps.log("plugin file written", { plugin: name, path });
 
           return reread(name);
@@ -997,11 +1083,7 @@ export function startPlugins(
         return `${name} doesn't say it works in team work`;
       }
 
-      if (deps.teamPlugins === undefined) {
-        return "this server keeps no team work settings";
-      }
-
-      deps.teamPlugins.set({ ...teamSwitches(), [name]: on });
+      deps.switches.set(name, { team: on });
       deps.log("plugin team work set", { plugin: name, on });
 
       return info(listed(name) ?? found);
@@ -1286,7 +1368,6 @@ export interface InstalledPlugins {
     readonly source?: { readonly url: string; readonly pinned: string };
     readonly digest?: string;
   }[];
-  readonly turnOn: (id: string, on: boolean) => Promise<void>;
   readonly install: (
     url: string,
     taken: (id: string) => boolean,

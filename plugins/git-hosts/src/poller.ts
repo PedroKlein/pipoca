@@ -4,7 +4,6 @@ import type { HostStore } from "./hosts";
 import { type Answers, pullStateOf } from "./pulls";
 import { newsOf, rules, viewOf, type Watch, type WatchStore } from "./watch";
 
-const defaultPollSeconds = 60;
 const tickMs = 1000;
 
 interface Account {
@@ -157,15 +156,7 @@ export function startPoller(
   // the next second instead of after the old wait.
   const polledAt = new Map<string, number>();
 
-  const pollEvery = (): number => {
-    const { pollSeconds } = settings.get();
-
-    return (
-      (typeof pollSeconds === "number" && pollSeconds > 0
-        ? pollSeconds
-        : defaultPollSeconds) * 1000
-    );
-  };
+  const pollEvery = (): number => Number(settings.get()["pollSeconds"]) * 1000;
 
   const tick = async (): Promise<void> => {
     const started = Date.now();

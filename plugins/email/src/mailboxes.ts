@@ -4,6 +4,7 @@ import {
   isObject,
   type PluginConfig,
   type PluginStore,
+  secretRefs,
 } from "@pipoca/plugins";
 
 export interface Server {
@@ -36,13 +37,15 @@ export interface Mailboxes {
 const namePattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 // Mailboxes live under the plugin's key in pipoca.json, with their passwords
-// sealed (ADR 0039). One that stops fitting is logged and left out.
+// sealed or named by environment variable (ADR 0039). One that stops fitting
+// is logged and left out.
 export function mailboxStore(
   config: PluginConfig,
   store: PluginStore,
   log: Log,
 ): Mailboxes {
   const sealedFor = (name: string): string => `email mailbox ${name}`;
+  const refs = secretRefs(store);
 
   const value = (): Readonly<Record<string, unknown>> => {
     const read = config.get();
@@ -64,8 +67,9 @@ export function mailboxStore(
       items().flatMap((item, index) => {
         try {
           return [
-            mailboxOf(item, (sealed, name) =>
-              store.open(sealed, sealedFor(name)),
+            mailboxOf(
+              item,
+              (ref, name) => refs.open(ref, sealedFor(name), "password").secret,
             ),
           ];
         } catch (failure) {
@@ -94,7 +98,7 @@ export function mailboxStore(
           ...items(),
           {
             ...mailbox,
-            password: store.seal(mailbox.password, sealedFor(mailbox.name)),
+            password: refs.seal(mailbox.password, sealedFor(mailbox.name)),
           },
         ],
       });
@@ -116,7 +120,7 @@ export function mailboxStore(
 
 function mailboxOf(
   item: unknown,
-  open: (sealed: string, name: string) => string,
+  open: (value: unknown, name: string) => string,
 ): Mailbox {
   if (!isObject(item)) {
     throw new BadRequest("must be an object");
@@ -136,7 +140,7 @@ function mailboxOf(
     name,
     address: text(item["address"], "address"),
     user: text(item["user"], "user"),
-    password: open(text(item["password"], "password"), name),
+    password: open(item["password"], name),
     imap: serverOf(item["imap"], "imap"),
     smtp: serverOf(item["smtp"], "smtp"),
     users,

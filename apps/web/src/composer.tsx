@@ -4,7 +4,6 @@ import {
   imageTypes,
   type ModelRef,
   type Quote,
-  teamMessagesRead,
   teamTalkSince,
 } from "@pipoca/protocol";
 import {
@@ -31,6 +30,7 @@ import {
   useState,
 } from "react";
 import { api, command } from "./api";
+import { useTeam } from "./hooks";
 import { admit, dataUrl } from "./attachments";
 import type { Feed, Settings, ShownWidget } from "./feed";
 import { modelName, modelRef } from "./names";
@@ -745,11 +745,13 @@ function TeamTalk({
   readonly unread: number;
   readonly onFork: (() => void) | undefined;
 }): ReactElement | null {
+  const { messagesRead } = useTeam();
+
   if (unread === 0) {
     return null;
   }
 
-  if (unread <= teamMessagesRead) {
+  if (unread <= messagesRead) {
     return (
       <p className="text-label text-fg-dim">
         Pi also reads the{" "}
@@ -765,9 +767,8 @@ function TeamTalk({
       className="flex flex-wrap items-center gap-x-2 gap-y-1 text-label text-fg-dim"
     >
       <span className="min-w-0 flex-1">
-        Pi reads only the latest {teamMessagesRead} of {unread} team messages
-        since its last turn. Fork to start fresh, and tell Pi where the team
-        landed.
+        Pi reads only the latest {messagesRead} of {unread} team messages since
+        its last turn. Fork to start fresh, and tell Pi where the team landed.
       </span>
       {onFork && (
         <Button variant="ghost" onClick={onFork}>

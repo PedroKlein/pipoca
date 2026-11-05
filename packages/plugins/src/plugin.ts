@@ -388,6 +388,12 @@ export interface ServerPluginContext {
     ) => void;
     // The admins' Environment templates (ADR 0049).
     readonly templates: () => readonly EnvironmentTemplate[];
+    // The plugin's key in a template's entry in pipoca.json, such as its pod
+    // settings. Set throws when no template has the id.
+    readonly templateConfig: {
+      readonly get: (templateId: string) => unknown;
+      readonly set: (templateId: string, value: unknown) => void;
+    };
   };
   readonly profiles: {
     // Returns the id the plugin starts its Sessions with. Every Session on

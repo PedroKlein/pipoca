@@ -11,7 +11,7 @@ export interface Schema {
 export interface Database {
   readonly db: DatabaseSync;
   // Why each plugin's tables can't be used, by plugin id.
-  readonly failures: ReadonlyMap<string, string>;
+  readonly failures: Map<string, string>;
 }
 
 // Statements that create something, and the name they give it.
@@ -138,6 +138,41 @@ function addPlugin(
   }
 
   return undefined;
+}
+
+// Drops a plugin's tables and makes them again from its schema, for an admin
+// to start it fresh after its schema changed (ADR 0068). Says why it couldn't.
+export function resetPlugin(
+  db: DatabaseSync,
+  schema: Schema,
+  now: number,
+): string | undefined {
+  const prefix = `${schema.owner.replaceAll("-", "_")}_`;
+
+  const tables = (
+    db
+      .prepare(
+        "select name from sqlite_master where type = 'table' and substr(name, 1, length(?)) = ?",
+      )
+      .all(prefix, prefix) as { name: string }[]
+  ).map(({ name }) => name);
+
+  try {
+    transaction(db, () => {
+      // The plugin's tables may point at each other.
+      db.exec("pragma defer_foreign_keys = on");
+
+      for (const table of tables) {
+        db.exec(`drop table "${table.replaceAll('"', '""')}"`);
+      }
+
+      db.prepare("delete from schema_owners where owner = ?").run(schema.owner);
+    });
+  } catch (error) {
+    return `its tables could not be dropped: ${error instanceof Error ? error.message : String(error)}`;
+  }
+
+  return addPlugin(db, schema, now);
 }
 
 function record(db: DatabaseSync, schema: Schema, at: number): void {

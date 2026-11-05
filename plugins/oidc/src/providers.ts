@@ -5,6 +5,8 @@ import {
   isObject,
   type PluginConfig,
   type PluginStore,
+  type SecretRef,
+  secretRefs,
   type Static,
   Type,
 } from "@pipoca/plugins";
@@ -55,11 +57,11 @@ export interface ProviderStore {
   readonly remove: (id: string) => boolean;
 }
 
-// A provider and its client secret as the file holds it, sealed, so a save
-// that keeps the secret writes the same text back.
+// A provider and its client secret as the file holds it, so a save that
+// keeps the secret writes the same ref back.
 interface Entry {
   readonly provider: ProviderConfig;
-  readonly sealed: string | undefined;
+  readonly ref: SecretRef | undefined;
 }
 
 const defaultGroupsClaim = "groups";
@@ -74,23 +76,10 @@ export function providerStore(
   env: NodeJS.ProcessEnv,
   log: Log,
 ): ProviderStore {
-  // Sessions the server starts inherit its environment, so a secret leaves
-  // it once read.
-  const fromEnv = new Map<string, string>();
-
-  const secretIn = (name: string): string | undefined => {
-    const value = fromEnv.get(name) ?? env[name];
-
-    if (value !== undefined && value !== "") {
-      fromEnv.set(name, value);
-      Reflect.deleteProperty(env, name);
-    }
-
-    return fromEnv.get(name);
-  };
+  const refs = secretRefs(store, env);
 
   const parse = (value: unknown): readonly Entry[] =>
-    entriesOf(value, (sealed, id) => store.open(sealed, id), secretIn);
+    entriesOf(value, (ref, id) => refs.open(ref, id, "clientSecret"));
 
   let read = JSON.stringify(config.get());
   let entries = parse(config.get());
@@ -156,13 +145,13 @@ export function providerStore(
     const provider = providerFrom(id, input);
 
     if (secret === null) {
-      return { provider, sealed: undefined };
+      return { provider, ref: undefined };
     }
 
     if (secret !== undefined && secret.trim() !== "") {
       return {
         provider: { ...provider, clientSecret: secret.trim() },
-        sealed: store.seal(secret.trim(), id),
+        ref: refs.seal(secret.trim(), id),
       };
     }
 
@@ -172,7 +161,7 @@ export function providerStore(
         clientSecret: before?.provider.clientSecret,
         clientSecretEnv: before?.provider.clientSecretEnv,
       },
-      sealed: before?.sealed,
+      ref: before?.ref,
     };
   };
 
@@ -227,8 +216,10 @@ export function viewOf(
 
 function entriesOf(
   value: unknown,
-  open: (sealed: string, id: string) => string,
-  secretIn: (name: string) => string | undefined,
+  open: (
+    ref: unknown,
+    id: string,
+  ) => { readonly ref: SecretRef; readonly secret: string },
 ): readonly Entry[] {
   if (value === undefined) {
     return [];
@@ -254,7 +245,7 @@ function entriesOf(
         throw new BadRequest("must be an object");
       }
 
-      const { id, clientSecret, clientSecretEnv } = item;
+      const { id, clientSecret } = item;
 
       if (typeof id !== "string" || !/^[\w-]+$/.test(id)) {
         throw new BadRequest("id must be letters, digits, - or _");
@@ -268,35 +259,19 @@ function entriesOf(
 
       const provider = providerFrom(id, item);
 
-      if (clientSecretEnv !== undefined) {
-        const secret =
-          typeof clientSecretEnv === "string"
-            ? secretIn(clientSecretEnv)
-            : undefined;
-
-        if (typeof clientSecretEnv !== "string" || secret === undefined) {
-          throw new BadRequest(
-            "clientSecretEnv names no environment variable that is set",
-          );
-        }
-
-        return {
-          provider: { ...provider, clientSecret: secret, clientSecretEnv },
-          sealed: undefined,
-        };
-      }
-
       if (clientSecret === undefined) {
-        return { provider, sealed: undefined };
+        return { provider, ref: undefined };
       }
 
-      if (typeof clientSecret !== "string") {
-        throw new BadRequest("clientSecret must be text");
-      }
+      const { ref, secret } = open(clientSecret, id);
 
       return {
-        provider: { ...provider, clientSecret: opened(clientSecret, id, open) },
-        sealed: clientSecret,
+        provider: {
+          ...provider,
+          clientSecret: secret,
+          clientSecretEnv: "env" in ref ? ref.env : undefined,
+        },
+        ref,
       };
     } catch (failure) {
       if (failure instanceof BadRequest) {
@@ -308,30 +283,15 @@ function entriesOf(
   });
 }
 
-function opened(
-  sealed: string,
-  id: string,
-  open: (sealed: string, id: string) => string,
-): string {
-  try {
-    return open(sealed, id);
-  } catch {
-    throw new BadRequest(
-      "clientSecret must be sealed by Settings; name an environment variable in clientSecretEnv instead",
-    );
-  }
-}
-
 // What the file holds for a provider, leaving out what is empty or default.
-function fileEntry({ provider, sealed }: Entry): Record<string, unknown> {
+function fileEntry({ provider, ref }: Entry): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries({
       id: provider.id,
       label: provider.label === defaultLabel ? "" : provider.label,
       issuer: provider.issuer,
       clientId: provider.clientId,
-      clientSecret: sealed,
-      clientSecretEnv: provider.clientSecretEnv,
+      clientSecret: ref,
       groupsClaim:
         provider.groupsClaim === defaultGroupsClaim ? "" : provider.groupsClaim,
       accessGroup: provider.accessGroup,

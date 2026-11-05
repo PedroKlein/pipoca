@@ -210,6 +210,8 @@ export interface SessionsOptions {
   ) => readonly GitLogin[];
   // The admins' Environment templates (ADR 0049).
   readonly templates?: () => readonly EnvironmentTemplate[];
+  // How many of the team's messages since its last turn Pi reads.
+  readonly teamMessagesRead?: () => number;
   // The docs every Session gets as files (ADR 0052).
   readonly docs?: ProfileFiles;
   // A user's name, which Pi reads team messages with (ADR 0065).
@@ -258,6 +260,7 @@ export class Sessions {
   readonly #pluginProfile: (id: string) => PluginProfile | undefined;
   readonly #gitLogins: NonNullable<SessionsOptions["gitLogins"]>;
   readonly #templates: () => readonly EnvironmentTemplate[];
+  readonly #teamMessagesRead: () => number;
   readonly #names: (person: string) => string | undefined;
   readonly #docs: ProfileFiles | undefined;
   readonly #watchers = new Map<string, Set<Listener<SessionEvent>>>();
@@ -302,6 +305,10 @@ export class Sessions {
     this.#pluginProfile = options.pluginProfile ?? (() => undefined);
     this.#gitLogins = options.gitLogins ?? (() => []);
     this.#templates = options.templates ?? (() => []);
+
+    this.#teamMessagesRead =
+      options.teamMessagesRead ?? (() => teamMessagesRead);
+
     this.#names = options.names ?? (() => undefined);
   }
 
@@ -775,7 +782,8 @@ export class Sessions {
 
     const said = teamTalkSince(this.#store.voices(session.id));
 
-    const left = said.length - teamMessagesRead;
+    const read = this.#teamMessagesRead();
+    const left = said.length - read;
 
     const lines = [
       ...(said.length === 0 ? [] : ["The team talked since your last turn:"]),
@@ -785,7 +793,7 @@ export class Sessions {
           ]
         : []),
       ...said
-        .slice(-teamMessagesRead)
+        .slice(-read)
         .map(
           (voice) =>
             `${voice.kind === "vote" ? "A vote closed" : this.#said(voice.person, voice.quote)}: ${clipped(voice.text ?? "", teamMessageLength)}`,

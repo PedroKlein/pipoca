@@ -4,6 +4,7 @@ import {
   isObject,
   type PluginConfig,
   type PluginStore,
+  secretRefs,
 } from "@pipoca/plugins";
 
 // A Slack bot an admin added, a technical user like a GitHub App
@@ -32,13 +33,15 @@ export interface Bots {
 const namePattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 // Bots live under the plugin's key in pipoca.json, with their tokens sealed
-// (ADR 0039). One that stops fitting is logged and left out.
+// or named by environment variable (ADR 0039). One that stops fitting is
+// logged and left out.
 export function botStore(
   config: PluginConfig,
   store: PluginStore,
   log: Log,
 ): Bots {
   const sealedFor = (name: string): string => `slack bot ${name}`;
+  const refs = secretRefs(store);
 
   const value = (): Readonly<Record<string, unknown>> => {
     const read = config.get();
@@ -67,7 +70,11 @@ export function botStore(
       items().flatMap((item, index) => {
         try {
           return [
-            botOf(item, (sealed, name) => store.open(sealed, sealedFor(name))),
+            botOf(
+              item,
+              (ref, name, field) =>
+                refs.open(ref, sealedFor(name), field).secret,
+            ),
           ];
         } catch (failure) {
           log("a Slack bot in the config file doesn't fit", {
@@ -97,8 +104,8 @@ export function botStore(
             name: bot.name,
             team: bot.team,
             botUser: bot.botUser,
-            appToken: store.seal(bot.appToken, sealedFor(bot.name)),
-            botToken: store.seal(bot.botToken, sealedFor(bot.name)),
+            appToken: refs.seal(bot.appToken, sealedFor(bot.name)),
+            botToken: refs.seal(bot.botToken, sealedFor(bot.name)),
             users: bot.users,
           },
         ],
@@ -121,7 +128,7 @@ export function botStore(
 
 function botOf(
   item: unknown,
-  open: (sealed: string, name: string) => string,
+  open: (value: unknown, name: string, field: string) => string,
 ): Bot {
   if (!isObject(item)) {
     throw new BadRequest("must be an object");
@@ -141,8 +148,8 @@ function botOf(
     name,
     team: text(item["team"], "team"),
     botUser: text(item["botUser"], "botUser"),
-    appToken: open(text(item["appToken"], "appToken"), name),
-    botToken: open(text(item["botToken"], "botToken"), name),
+    appToken: open(item["appToken"], name, "appToken"),
+    botToken: open(item["botToken"], name, "botToken"),
     users,
   };
 }

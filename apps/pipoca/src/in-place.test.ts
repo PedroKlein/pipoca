@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { $ } from "bun";
 import type { PluginInfo } from "@pipoca/protocol";
+import { installedTurnedOn } from "./config";
 import { installedPlugins } from "./installed";
 import type { ServeOptions } from "./serve";
 import { closeServers, testServer, type TestServer } from "./testdata/harness";
@@ -45,7 +46,11 @@ async function start(
     sessions: { pollWaitMs: 0 },
     installed: {
       root: plugins,
-      plugins: await installedPlugins(plugins, () => undefined),
+      plugins: await installedPlugins(
+        plugins,
+        () => undefined,
+        installedTurnedOn(join(root, "config"), () => undefined),
+      ),
     },
     ...(cookie !== undefined && { cookie }),
   });
@@ -326,7 +331,13 @@ test("shows a plugin's broken manifest once it is written", async () => {
 });
 
 test("writes a new plugin turned off even when a removed one of its id was on", async () => {
-  await writeFile(join(plugins, "enabled.json"), JSON.stringify(["hello"]));
+  await mkdir(join(root, "config"));
+
+  await writeFile(
+    join(root, "config", "pipoca.json"),
+    JSON.stringify({ plugins: { hello: { personal: true } } }),
+  );
+
   await start();
   await write("hello", "package.json", manifest());
   await write("hello", "server.ts", serverPart);

@@ -1,6 +1,7 @@
 import type { Invite, Joined, Person, SetupState } from "@pipoca/protocol";
 import { type Clock, systemClock } from "@pipoca/protocol";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { type ServerConfig, serverDefaults } from "./server-config";
 
 export interface User {
   readonly id: string;
@@ -122,14 +123,14 @@ export interface Credentials {
 
 export class InvalidCredentials extends Error {}
 
+type Lifetimes = Pick<ServerConfig, "sessionDays" | "runnerTokenDays">;
+
 interface Failures {
   count: number;
   readonly since: number;
 }
 
 const cookieName = "pipoca-session";
-const sessionDays = 30;
-const runnerTokenDays = 30;
 // How stale a token's last use may get before it is written again, so a
 // poll seldom writes to the database.
 const lastUsedStepMs = 60 * 60_000;
@@ -161,14 +162,18 @@ export class Auth {
   readonly #soloUser: User | undefined;
   readonly #signInLinks = new Map<string, SignInLink>();
   readonly #lastActive = new Map<string, number>();
+  // How long a browser stays signed in, and a runner token lasts unused.
+  readonly #lifetimes: () => Lifetimes;
 
   constructor(
     store: AuthStore,
     passwordLogin = true,
     clock: Clock = systemClock,
     soloName?: string,
+    lifetimes: () => Lifetimes = () => serverDefaults,
   ) {
     this.#store = store;
+    this.#lifetimes = lifetimes;
     this.#passwordLogin = passwordLogin;
     this.#clock = clock;
 
@@ -519,7 +524,9 @@ export class Auth {
       return stored.agent;
     }
 
-    const usedBefore = now - runnerTokenDays * 24 * 60 * 60_000;
+    const usedBefore =
+      now - this.#lifetimes().runnerTokenDays * 24 * 60 * 60_000;
+
     const expired = lastUsed < usedBefore;
 
     if (!expired) {
@@ -773,6 +780,7 @@ export class Auth {
   // The Set-Cookie value of a new browser session for the user.
   startSession(user: User, request: Request): string {
     const token = randomBytes(32).toString("base64url");
+    const { sessionDays } = this.#lifetimes();
 
     const expires = new Date(
       this.#clock.now() + sessionDays * 24 * 60 * 60_000,
