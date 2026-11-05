@@ -25,10 +25,13 @@ const opening = Type.Object({
 
 const picking = Type.Object({ option: Type.String() });
 
+// A person opens a vote as user:<id>, and Pi as the Session it runs in.
+type Opener = `user:${string}` | `session:${string}`;
+
 interface StoredVote {
   readonly id: string;
   readonly session_id: string;
-  readonly opener: string;
+  readonly opener: Opener;
   readonly question: string;
   readonly closes_at: number;
 }
@@ -37,7 +40,7 @@ const schema = `
 create table ask_votes (
   id text primary key,
   session_id text not null references sessions (id) on delete cascade,
-  opener text not null,
+  opener text not null check (opener like 'user:%' or opener like 'session:%'),
   question text not null,
   opened_at integer not null,
   closes_at integer not null,
@@ -55,10 +58,10 @@ create table ask_vote_options (
 
 create table ask_vote_picks (
   vote_id text not null,
-  person text not null,
+  user_id text not null references users (id) on delete cascade,
   position integer not null,
   picked_at integer not null,
-  primary key (vote_id, person),
+  primary key (vote_id, user_id),
   foreign key (vote_id, position) references ask_vote_options (vote_id, position) on delete cascade
 ) strict;
 `;
@@ -107,7 +110,11 @@ export const askServer: ServerPlugin = {
         await Promise.resolve();
 
         try {
-          const vote = votes.open(session, "pi", checked(input));
+          const vote = votes.open(
+            session,
+            `session:${session.id}`,
+            checked(input),
+          );
 
           return {
             text: `The vote is open until ${vote.closesAt}.`,
@@ -141,7 +148,7 @@ export const askServer: ServerPlugin = {
         if (request.method === "POST") {
           const body = await readBody(request, opening);
 
-          return Response.json(votes.open(session, personOf(caller), body), {
+          return Response.json(votes.open(session, caller.actor, body), {
             status: 201,
           });
         }
@@ -173,10 +180,11 @@ function ballots(context: ServerPluginContext) {
   const { store, sessions } = context;
 
   const name = (person: string): string =>
-    person === "pi"
-      ? "Pi"
-      : (context.auth.users().find(({ id }) => id === person)?.name ??
-        "Someone");
+    context.auth.users().find(({ id }) => id === person)?.name ?? "Someone";
+
+  // Who opened it, as the Session's messages name a person or Pi.
+  const openedBy = (opener: Opener): string =>
+    opener.startsWith("user:") ? opener.slice("user:".length) : "pi";
 
   const stored = (id: string): StoredVote => {
     const [vote] = store.all(
@@ -203,10 +211,10 @@ function ballots(context: ServerPluginContext) {
     Object.fromEntries(
       (
         store.all(
-          "select person, label from ask_vote_picks join ask_vote_options using (vote_id, position) where vote_id = ? order by ask_vote_picks.rowid",
+          "select user_id, label from ask_vote_picks join ask_vote_options using (vote_id, position) where vote_id = ? order by ask_vote_picks.rowid",
           vote.id,
-        ) as { person: string; label: string }[]
-      ).map(({ person, label }) => [person, label]),
+        ) as { user_id: string; label: string }[]
+      ).map(({ user_id, label }) => [user_id, label]),
     );
 
   const session = (id: string, caller: RouteCaller): Session => {
@@ -229,7 +237,11 @@ function ballots(context: ServerPluginContext) {
   ): boolean => {
     const person = personOf(caller);
 
-    return admin(caller) || vote.opener === person || of?.startedBy === person;
+    return (
+      admin(caller) ||
+      vote.opener === `user:${person}` ||
+      of?.startedBy === person
+    );
   };
 
   const finish = (vote: StoredVote, by: string | undefined): void => {
@@ -241,7 +253,7 @@ function ballots(context: ServerPluginContext) {
 
     const told = sessions.voted(
       vote.session_id,
-      vote.opener,
+      openedBy(vote.opener),
       tally(vote, optionsOf(vote), picksOf(vote), name, by),
     );
 
@@ -290,7 +302,7 @@ function ballots(context: ServerPluginContext) {
     },
     open: (
       of: Session,
-      opener: string,
+      opener: Opener,
       { question, options, minutes }: Opening,
     ): { readonly id: string; readonly closesAt: string } => {
       if (of.ownedBy !== "team") {
@@ -348,7 +360,7 @@ function ballots(context: ServerPluginContext) {
       }
 
       store.run(
-        "insert into ask_vote_picks (vote_id, person, position, picked_at) values (?, ?, ?, ?) on conflict (vote_id, person) do update set position = excluded.position, picked_at = excluded.picked_at",
+        "insert into ask_vote_picks (vote_id, user_id, position, picked_at) values (?, ?, ?, ?) on conflict (vote_id, user_id) do update set position = excluded.position, picked_at = excluded.picked_at",
         id,
         personOf(caller),
         position,

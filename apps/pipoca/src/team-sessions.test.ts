@@ -853,7 +853,8 @@ test("Pi hears who answered its question in team work", async () => {
 
 test("the team votes, and Pi reads the result the next time it's asked", async () => {
   const anas = await ana();
-  const bos = await member("bo");
+  const boId = randomUUID();
+  const bos = await member("bo", boId);
   const cys = await member("cy");
   const team = await teamSetup();
 
@@ -895,6 +896,22 @@ test("the team votes, and Pi reads the result the next time it's asked", async (
   expect(await pick(bos, "Wait")).toBe(200);
   expect(await pick(bos, "Ship")).toBe(200);
   expect(await pick(cys, "Later")).toBe(400);
+
+  const db = new DatabaseSync(join(root, "server.db"));
+
+  expect(db.prepare("select opener from ask_votes").all()).toEqual([
+    { opener: `user:${boId}` },
+  ]);
+
+  expect(
+    db
+      .prepare(
+        'select "table", "from" from pragma_foreign_key_list(\'ask_vote_picks\')',
+      )
+      .all(),
+  ).toContainEqual({ table: "users", from: "user_id" });
+
+  db.close();
 
   expect(await json(server.as(cys)(votes))).toMatchObject({
     canOpen: true,
