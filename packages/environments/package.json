@@ -6,6 +6,7 @@
   "dependencies": {
     "@pipoca/people": "workspace:*",
     "@pipoca/plugins": "workspace:*",
-    "@pipoca/protocol": "workspace:*"
+    "@pipoca/protocol": "workspace:*",
+    "@pipoca/repositories": "workspace:*"
   }
 }

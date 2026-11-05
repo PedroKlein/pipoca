@@ -10,3 +10,4 @@ export {
   type Rejection,
   type StoredEnvironment,
 } from "./environments";
+export { environmentTemplates, type Templates } from "./templates";

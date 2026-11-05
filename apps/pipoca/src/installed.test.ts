@@ -28,7 +28,7 @@ import {
 } from "@pipoca/protocol";
 import { installedTurnedOn } from "./config";
 import { installedPlugins } from "./installed";
-import { latestOf } from "./sources";
+import { latestCommit } from "@pipoca/repositories";
 import type { ServeOptions } from "./serve";
 import { readSse } from "./sse";
 import { closeServers, testServer, type TestServer } from "./testdata/harness";
@@ -1030,12 +1030,12 @@ test("follows a tag to its commit when it checks for an update", async () => {
 
   await $`git -C ${folder} -c user.name=t -c user.email=t@t tag -a v1 -m v1`;
 
-  expect(await latestOf(`${url}#v1`)).toBe(
+  expect(await latestCommit(`${url}#v1`)).toBe(
     (await $`git -C ${folder} rev-parse HEAD`.text()).trim(),
   );
 
-  expect(await latestOf(`${url}#nope`)).toBeUndefined();
-  expect(await latestOf("https://example.com/plugin.tgz")).toBeUndefined();
+  expect(await latestCommit(`${url}#nope`)).toBeUndefined();
+  expect(await latestCommit("https://example.com/plugin.tgz")).toBeUndefined();
 });
 
 test("forgets why a plugin failed once an update replaces it", async () => {

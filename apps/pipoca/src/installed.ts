@@ -23,7 +23,14 @@ import { Value } from "typebox/value";
 import { bundleParts, type PluginParts, provideSdk } from "./bundle";
 import { kernelKeys } from "@pipoca/pluginhost";
 import { builtInPlugins } from "./session-parts";
-import { fetchSource, type PluginSource } from "./sources";
+import { fetchSnapshot } from "@pipoca/repositories";
+
+// Where an installed plugin came from, and the exact version fetched: a git
+// commit, or a tarball's SHA-256 (ADR 0022).
+interface PluginSource {
+  readonly url: string;
+  readonly pinned: string;
+}
 
 // A plugin installed into the plugins folder, one folder each, named by its
 // id (ADR 0022). Only the ones turned on are built and imported, since that
@@ -147,7 +154,7 @@ export async function install(
     const staging = join(root, `.install-${randomUUID()}`);
 
     try {
-      const source = { url, pinned: await fetchSource(url, staging) };
+      const source = { url, pinned: await fetchSnapshot(url, staging) };
       const manifest = await stagedManifest(staging);
 
       if (taken(manifest.id) || (await isFolder(join(root, manifest.id)))) {
@@ -189,7 +196,7 @@ export async function update(
     try {
       const source = {
         url: installed.url,
-        pinned: await fetchSource(installed.url, staging),
+        pinned: await fetchSnapshot(installed.url, staging),
       };
 
       if (source.pinned === installed.pinned) {

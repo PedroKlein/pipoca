@@ -19,7 +19,15 @@ import {
   type StoredProfile,
 } from "./folders";
 import { InvalidProfile } from "./invalid";
-import { folderFiles, listedIn, manifestFile, withClone } from "./repository";
+import {
+  listedIn,
+  picked,
+  repositoryFolder,
+  syncFollowers,
+  withClone,
+} from "@pipoca/repositories";
+import { readFileSync } from "node:fs";
+import { folderEntries } from "./files";
 
 export interface ProfileStore {
   readonly defaultProfileId: (ownerId: string) => string;
@@ -412,90 +420,32 @@ export class Profiles {
     url: string,
     paths: readonly string[],
   ): Promise<readonly Profile[]> {
-    return withClone(url, ({ dir, commit }) => {
-      const listed = listedIn(dir, "profiles");
-
-      const picked = paths.map((path) => {
-        const found = listed.find((each) => each.path === path);
-        if (!found) {
-          throw new InvalidProfile(`${manifestFile} doesn't list ${path}`);
-        }
-
-        return found;
-      });
-
-      return picked.map(({ name, path }) =>
+    return withClone(url, ({ dir, commit }) =>
+      picked(listedIn(dir, "profiles"), paths).map(({ name, path }) =>
         this.#createWith(userId, name, folderFiles(dir, path), {
           url,
           path,
           commit,
         }),
-      );
-    });
+      ),
+    );
   }
 
   // Brings every synced Profile, or those from one repository, up to the
   // repository's latest commit.
   async sync(log: Log, url?: string): Promise<void> {
-    const synced = this.#folders
-      .ids()
-      .flatMap((id) => this.#folders.read(id) ?? [])
-      .filter(
-        ({ source }) =>
-          source !== null && (url === undefined || source.url === url),
-      );
-
-    const urls = [...new Set(synced.map(({ source }) => source?.url ?? ""))];
-    let changed = 0;
-    let failed = 0;
-
-    if (synced.length === 0) {
-      return;
-    }
-
-    log("profiles syncing", {
-      profiles: synced.length,
-      repositories: urls.length,
-    });
-
-    for (const each of urls) {
-      await withClone(each, ({ dir, commit }) => {
-        for (const profile of synced) {
-          const { source } = profile;
-          if (source?.url !== each || source.commit === commit) {
-            continue;
-          }
-
-          try {
-            this.#folders.replaceFiles(
-              profile.id,
-              folderFiles(dir, source.path),
-            );
-
-            this.#folders.write(
-              profile.id,
-              { ...profile, source: { ...source, commit } },
-              {},
-            );
-
-            changed++;
-            log("profile synced", { profileId: profile.id, commit });
-          } catch (error) {
-            failed++;
-
-            log("profile sync failed", {
-              profileId: profile.id,
-              error: String(error),
-            });
-          }
-        }
-      }).catch((error: unknown) => {
-        failed++;
-        log("profile sync failed", { url: each, error: String(error) });
-      });
-    }
-
-    log("profiles synced", { checked: synced.length, changed, failed });
+    await syncFollowers(
+      this.#folders.ids().flatMap((id) => this.#folders.read(id) ?? []),
+      {
+        kind: "profile",
+        url,
+        log,
+        update: (profile, { dir }, source) => {
+          this.#folders.replaceFiles(profile.id, folderFiles(dir, source.path));
+          this.#folders.write(profile.id, { ...profile, source }, {});
+        },
+      },
+    );
   }
 
   async syncOne(
@@ -795,4 +745,16 @@ function packageOf(value: unknown): PiPackage {
     ...(autoload !== undefined && { autoload }),
     ...Object.fromEntries(filtered),
   };
+}
+
+// The files of a folder in a clone, which must stay inside it.
+function folderFiles(dir: string, path: string): ReadonlyMap<string, Buffer> {
+  const folder = repositoryFolder(dir, path);
+
+  return new Map(
+    folderEntries(folder).map(({ path: file }) => [
+      file,
+      readFileSync(join(folder, file)),
+    ]),
+  );
 }

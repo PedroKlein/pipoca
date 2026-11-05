@@ -52,6 +52,7 @@
         "@pipoca/protocol": "workspace:*",
         "@pipoca/providers": "workspace:*",
         "@pipoca/push": "workspace:*",
+        "@pipoca/repositories": "workspace:*",
         "@pipoca/routines": "workspace:*",
         "@pipoca/sessionhost": "workspace:*",
         "@pipoca/sessions": "workspace:*",
@@ -119,6 +120,7 @@
         "@pipoca/people": "workspace:*",
         "@pipoca/plugins": "workspace:*",
         "@pipoca/protocol": "workspace:*",
+        "@pipoca/repositories": "workspace:*",
       },
     },
     "packages/people": {
@@ -155,6 +157,7 @@
       "name": "@pipoca/profiles",
       "dependencies": {
         "@pipoca/protocol": "workspace:*",
+        "@pipoca/repositories": "workspace:*",
       },
     },
     "packages/protocol": {
@@ -165,6 +168,12 @@
     },
     "packages/providers": {
       "name": "@pipoca/providers",
+      "dependencies": {
+        "@pipoca/protocol": "workspace:*",
+      },
+    },
+    "packages/repositories": {
+      "name": "@pipoca/repositories",
       "dependencies": {
         "@pipoca/protocol": "workspace:*",
       },
@@ -657,6 +666,8 @@
     "@pipoca/providers": ["@pipoca/providers@workspace:packages/providers"],
 
     "@pipoca/push": ["@pipoca/push@workspace:plugins/push"],
+
+    "@pipoca/repositories": ["@pipoca/repositories@workspace:packages/repositories"],
 
     "@pipoca/routines": ["@pipoca/routines@workspace:plugins/routines"],
 

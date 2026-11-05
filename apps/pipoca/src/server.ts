@@ -55,6 +55,7 @@ import {
   userIdOf,
 } from "@pipoca/pluginhost";
 import { InvalidProfile, ProfileTooBig, type Profiles } from "@pipoca/profiles";
+import { InvalidRepository } from "@pipoca/repositories";
 import type { Result, Sessions } from "@pipoca/sessions";
 import { version as serverVersion } from "../package.json";
 import {
@@ -69,7 +70,11 @@ import {
   type User,
   type Viewer,
 } from "@pipoca/people";
-import type { Environments, RunnerCredentials } from "@pipoca/environments";
+import type {
+  Environments,
+  RunnerCredentials,
+  Templates,
+} from "@pipoca/environments";
 import { type Changes, changedBy } from "./changes";
 import { mcpHandler } from "./mcp";
 import { type AgentRoute, agentRoutes } from "./agent-routes";
@@ -79,7 +84,6 @@ import { lineAfter } from "./requests";
 import { presences } from "./presence";
 import { sseResponse } from "./sse";
 import type { ConfigFiles } from "./config";
-import type { Templates } from "./templates";
 import { type Hub, laidOut } from "./hub";
 import { type NewcomerSetup, newcomersOf } from "./newcomers";
 import { type Team, teamOf } from "./team";
@@ -1424,7 +1428,8 @@ export function createHandler(
           if (
             error instanceof InvalidProfile ||
             error instanceof ProfileTooBig ||
-            error instanceof InvalidCredentials
+            error instanceof InvalidCredentials ||
+            error instanceof InvalidRepository
           ) {
             return errorReply(400, "bad_request", error.message);
           }

@@ -6,7 +6,13 @@ import {
   NotFound,
   type PluginConfig,
 } from "@pipoca/plugins";
-import { listedIn, repositoryFile, withClone } from "@pipoca/profiles";
+import {
+  listedIn,
+  picked,
+  repositoryFile,
+  syncFollowers,
+  withClone,
+} from "@pipoca/repositories";
 import {
   type EnvironmentTemplate,
   environmentUpdate,
@@ -112,62 +118,25 @@ export function environmentTemplates(
   };
 
   const sync = async (url?: string): Promise<void> => {
-    const synced = list().filter(
-      ({ source }) =>
-        source !== null && (url === undefined || source.url === url),
-    );
+    const updated = new Map<string, EnvironmentTemplate>();
 
-    if (synced.length === 0) {
-      return;
-    }
-
-    const urls = [...new Set(synced.map(({ source }) => source?.url ?? ""))];
-    let changed = 0;
-    let failed = 0;
-
-    log("templates syncing", {
-      templates: synced.length,
-      repositories: urls.length,
-    });
-
-    for (const each of urls) {
-      await withClone(each, ({ dir, commit }) => {
-        const updated = new Map<string, EnvironmentTemplate>();
-
-        for (const template of synced) {
-          const { source } = template;
-          if (source?.url !== each || source.commit === commit) {
-            continue;
-          }
-
-          try {
-            updated.set(template.id, {
-              ...fromFile(dir, template.name, { ...source, commit }),
-              id: template.id,
-            });
-
-            changed++;
-            log("template synced", { templateId: template.id, commit });
-          } catch (error) {
-            failed++;
-
-            log("template sync failed", {
-              templateId: template.id,
-              error: String(error),
-            });
-          }
-        }
-
+    await syncFollowers(list(), {
+      kind: "template",
+      url,
+      log,
+      update: (template, { dir }, source) => {
+        updated.set(template.id, {
+          ...fromFile(dir, template.name, source),
+          id: template.id,
+        });
+      },
+      updated: () => {
         if (updated.size > 0) {
           save(list().map((template) => updated.get(template.id) ?? template));
+          updated.clear();
         }
-      }).catch((error: unknown) => {
-        failed++;
-        log("template sync failed", { url: each, error: String(error) });
-      });
-    }
-
-    log("templates synced", { checked: synced.length, changed, failed });
+      },
+    });
   };
 
   return {
@@ -225,24 +194,20 @@ export function environmentTemplates(
       withClone(url, ({ dir }) => listedIn(dir, "templates")),
     importListed: async (url, paths) =>
       withClone(url, ({ dir, commit }) => {
-        const listed = listedIn(dir, "templates");
         const taken = new Set(list().map(({ id }) => id));
 
-        const imported = paths.map((path) => {
-          const found = listed.find((each) => each.path === path);
-          if (!found) {
-            throw new BadRequest(`pipoca.json doesn't list ${path}`);
-          }
+        const imported = picked(listedIn(dir, "templates"), paths).map(
+          ({ name, path }) => {
+            const template = {
+              ...fromFile(dir, name, { url, path, commit }),
+              id: freeId(name, taken),
+            };
 
-          const template = {
-            ...fromFile(dir, found.name, { url, path, commit }),
-            id: freeId(found.name, taken),
-          };
+            taken.add(template.id);
 
-          taken.add(template.id);
-
-          return template;
-        });
+            return template;
+          },
+        );
 
         save([...list(), ...imported]);
 

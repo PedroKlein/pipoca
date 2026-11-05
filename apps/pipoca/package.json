@@ -31,6 +31,7 @@
     "@pipoca/profiles": "workspace:*",
     "@pipoca/projects": "workspace:*",
     "@pipoca/protocol": "workspace:*",
+    "@pipoca/repositories": "workspace:*",
     "@pipoca/providers": "workspace:*",
     "@pipoca/push": "workspace:*",
     "@pipoca/email": "workspace:*",

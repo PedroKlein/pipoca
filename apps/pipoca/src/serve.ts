@@ -32,6 +32,7 @@ import {
 import { ProfileFolders, Profiles } from "@pipoca/profiles";
 import { Sessions } from "@pipoca/sessions";
 import {
+  environmentTemplates,
   Environments,
   type EnvironmentsOptions,
   RunnerCredentials,
@@ -45,7 +46,6 @@ import { hubSettings } from "./hub";
 import { newcomerSetup } from "./newcomers";
 import { serverConfig } from "./server-config";
 import { teamSettings } from "./team";
-import { environmentTemplates } from "./templates";
 import {
   buildPlugin,
   pluginFiles,
@@ -59,7 +59,7 @@ import {
   reread,
   update,
 } from "./installed";
-import { latestOf } from "./sources";
+import { latestCommit } from "@pipoca/repositories";
 import { builtInPlugins, sessionPlugins } from "./session-parts";
 import { errorReply } from "./replies";
 import { previewBroker } from "./previews";
@@ -426,7 +426,7 @@ export function serve(options: ServeOptions): {
         plugins: installed,
         install: async (url, taken) => install(folder.root, url, taken),
         update: async (id) => update(folder.root, id),
-        latest: latestOf,
+        latest: latestCommit,
         remove: async (id) => remove(folder.root, id),
         reread: async (id) => reread(folder.root, id),
         files: async (id) => pluginFiles(folder.root, id),
