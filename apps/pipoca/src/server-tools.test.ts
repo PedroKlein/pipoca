@@ -103,6 +103,28 @@ const keys = served(
       run: () => "wiped",
     });
 
+    tools.define({
+      name: "burn_keys",
+      description: "Burns the keys",
+      params: Type.Object({}),
+      asks: () => {
+        throw new Error("lookup failed");
+      },
+      run: () => "burned",
+    });
+
+    tools.define({
+      name: "hidden_keys",
+      description: "Shows hidden keys",
+      params: Type.Object({}),
+      when: {
+        available: () => {
+          throw new Error("availability broke");
+        },
+      },
+      run: () => "hidden keys",
+    });
+
     const profile = provide.profile("desk", desk, { routeTools: true });
 
     routes.post(
@@ -341,6 +363,38 @@ test("says a tool asks, and what to ask the person, before every call", async ()
 
   expect(await question(token, assigned, "count_keys", { count: 3 })).toBe(
     null,
+  );
+});
+
+test("still asks the person before a tool whose question throws", async () => {
+  const { token, environment } = await laptop();
+  await ordinary(environment);
+  const assigned = await claim(token);
+
+  expect(await question(token, assigned, "burn_keys", {})).toBe(
+    "Run burn_keys?",
+  );
+
+  expect(server.logs.some((line) => line.includes("lookup failed"))).toBe(true);
+});
+
+test("leaves out only the tool whose availability check throws", async () => {
+  const { token, environment } = await laptop();
+  await ordinary(environment);
+  const assigned = await claim(token);
+
+  const names = (await toolsOf(token, assigned)).map(({ name }) => name);
+
+  expect(names).toContain("count_keys");
+  expect(names).not.toContain("hidden_keys");
+
+  expect(await call(token, assigned, "hidden_keys", {})).toEqual({
+    text: "no tool named hidden_keys",
+    isError: true,
+  });
+
+  expect(server.logs.some((line) => line.includes("availability broke"))).toBe(
+    true,
   );
 });
 

@@ -257,18 +257,36 @@ export function definedTool(
       const owner = when?.owner ?? "any";
       const call = callOf(session);
 
+      const available = (): boolean => {
+        try {
+          return when?.available?.(session, call.person) ?? true;
+        } catch (error) {
+          deps.log("tool availability failed", {
+            tool: tool.name,
+            error: messageOf(error),
+          });
+
+          return false;
+        }
+      };
+
       return (
         (owner === "any" || (owner === "team") === (call.owner === "team")) &&
         (when?.ownSessions !== true || session.owner?.plugin === plugin) &&
-        (when?.available?.(session, call.person) ?? true)
+        available()
       );
     },
     ...(asks && {
       question: async (input, session) => {
         try {
           return await asks(valid(input), callOf(session));
-        } catch {
-          return undefined;
+        } catch (error) {
+          deps.log("tool question failed", {
+            tool: tool.name,
+            error: messageOf(error),
+          });
+
+          return `Run ${tool.name}?`;
         }
       },
     }),
