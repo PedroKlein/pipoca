@@ -178,8 +178,6 @@ export function serve(options: ServeOptions): {
 
   const clock = options.clock ?? systemClock;
 
-  const store = openStore(options.database, options.secretKey, profiles, clock);
-
   // A team server's machine holds everyone's data and the sealing key, so
   // only a solo install runs runners on it, and a solo install signs in no
   // one else (ADR 0053).
@@ -224,6 +222,14 @@ export function serve(options: ServeOptions): {
     ...builtIn.map(({ id }) => id).filter((name) => !disabled.includes(name)),
     ...installed.flatMap(({ manifest: { id }, on }) => (on ? [id] : [])),
   ];
+
+  const store = openStore(
+    options.database,
+    options.secretKey,
+    profiles,
+    clock,
+    plugins.filter(({ name }) => enabled.includes(name)),
+  );
 
   // A Session on the server's own runner would share the server pod's files,
   // its sealing key among them, so a server that can start runner pods runs

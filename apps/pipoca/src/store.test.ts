@@ -4,7 +4,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { ProfileFolders } from "@pipoca/profiles";
 import type { StoredSession } from "@pipoca/sessions";
 import { openStore } from "./store";
 
@@ -19,66 +18,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-test("keeps sessions from a database that stored a working directory", () => {
-  const path = join(root, "server.db");
-  const old = new DatabaseSync(path);
-
-  old.exec(`
-    create table sessions (
-      id text primary key,
-      provider text not null,
-      cwd text not null,
-      status text not null,
-      generation integer not null,
-      created_at text not null,
-      interrupted_at text,
-      error text
-    );
-    insert into sessions values ('s1', 'local', '/home/me/repo', 'idle', 2, '2026-10-19T00:00:00.000Z', null, null);
-  `);
-
-  old.close();
-
-  const store = openStore(path);
-  const session = store.get("s1");
-  const environments = store.environments();
-  const defaultProfileId = store.defaultProfileId("local");
-  store.close();
-
-  expect(defaultProfileId).toBe("default");
-
-  expect(environments).toMatchObject([
-    { name: "local", provider: "local", ownerId: "local" },
-  ]);
-
-  expect(session).toEqual({
-    id: "s1",
-    environmentId: environments[0]?.id ?? "",
-    ownerId: "local",
-    owner: null,
-    provider: "local",
-    runner: "local",
-    profileId: defaultProfileId,
-    workspace: { kind: "folder", path: "/home/me/repo" },
-    model: null,
-    thinking: null,
-    systemPrompt: null,
-    firstMessage: null,
-    title: null,
-    status: "idle",
-    generation: 2,
-    createdAt: "2026-10-19T00:00:00.000Z",
-    interruptedAt: null,
-    error: null,
-    archivedAt: null,
-    workspaceRemoval: null,
-    workspaceKeptReason: null,
-    startedBy: null,
-    actsAs: null,
-  });
-});
-
-test("opens a migrated database again", () => {
+test("opens its own database again", () => {
   const path = join(root, "server.db");
   openStore(path).close();
 
@@ -125,85 +65,7 @@ test("opens a migrated database again", () => {
   store.close();
 });
 
-test("counts a runner token from before tokens expired as used when the database opens", () => {
-  const path = join(root, "server.db");
-  const old = new DatabaseSync(path);
-
-  old.exec(`
-    create table agent_tokens (
-      token_hash text primary key,
-      environment text not null,
-      runner text not null,
-      session_id text,
-      joined integer not null default 1
-    );
-    insert into agent_tokens values ('h1', 'pool', 'mac', null, 1);
-  `);
-
-  old.close();
-
-  const opened = new Date().toISOString();
-  const store = openStore(path);
-  const token = store.auth.agentToken("h1");
-  store.close();
-
-  expect(token?.agent).toEqual({
-    environment: "pool",
-    runner: "mac",
-    sessionId: null,
-    joined: true,
-  });
-
-  expect((token?.lastUsed ?? "") >= opened).toBe(true);
-});
-
-test("keeps a join key from before keys had a person for the first user", () => {
-  const path = join(root, "server.db");
-  const old = new DatabaseSync(path);
-
-  old.exec(`
-    create table join_keys (
-      key_hash text primary key,
-      created_at text not null
-    );
-    insert into join_keys values ('h1', '2026-10-01T00:00:00.000Z');
-  `);
-
-  old.close();
-
-  const store = openStore(path);
-  const owner = store.auth.joinKeyOwner("h1");
-  store.close();
-
-  expect(owner).toBe("local");
-});
-
-test("counts people from before the setup wizard as having finished it", () => {
-  const path = join(root, "server.db");
-  const old = new DatabaseSync(path);
-
-  old.exec(`
-    create table users (
-      id text primary key,
-      name text not null unique,
-      password_hash text not null,
-      created_at text not null,
-      admin integer not null default 0,
-      pinned_pages text
-    );
-    insert into users values ('u1', 'ada', 'h', '2026-10-01T00:00:00.000Z', 1, null);
-  `);
-
-  old.close();
-
-  const store = openStore(path);
-  const state = store.auth.setup("u1");
-  store.close();
-
-  expect(state).toEqual({ finished: true, dismissed: [] });
-});
-
-test("lists the Sessions one owner holds and keeps an owner once given", () => {
+test("lists the Sessions one owner holds", () => {
   const store = openStore(":memory:");
   defaultProfile = store.defaultProfileId("local");
   store.ensureEnvironment("vm");
@@ -220,7 +82,7 @@ test("lists the Sessions one owner holds and keeps an owner once given", () => {
   );
 
   store.insert(
-    sessionIn(id, "vm", { id: "old", createdAt: "2026-10-24T00:00:02.000Z" }),
+    sessionIn(id, "vm", { id: "plain", createdAt: "2026-10-24T00:00:02.000Z" }),
   );
 
   store.insert(
@@ -231,11 +93,9 @@ test("lists the Sessions one owner holds and keeps an owner once given", () => {
     }),
   );
 
-  store.setOwner("old", project);
-
   expect(
     store.list({ includeArchived: false, owner: project }).map((s) => s.id),
-  ).toEqual(["old", "owned"]);
+  ).toEqual(["owned"]);
 
   expect(store.get("owned")?.owner).toEqual(project);
   expect(store.list({ includeArchived: false })).toHaveLength(3);
@@ -395,75 +255,16 @@ test("lists a provider's stopped sessions whose workspace is waiting to be remov
   store.close();
 });
 
-test("gives Sessions from before Profiles the default Profile, from before pools their runner, and old Environments no settings", () => {
-  const path = join(root, "server.db");
-  const old = new DatabaseSync(path);
-
-  old.exec(`
-    create table environments (
-      id text primary key,
-      name text not null,
-      provider text not null unique,
-      owner_id text not null,
-      created_at text not null
-    );
-    create table sessions (
-      id text primary key,
-      environment_id text not null references environments (id),
-      owner_id text not null,
-      owner_plugin text,
-      owner_key text,
-      workspace text not null,
-      model text,
-      system_prompt text,
-      first_message text,
-      thinking text,
-      title text,
-      status text not null,
-      generation integer not null,
-      created_at text not null,
-      interrupted_at text,
-      error text,
-      archived_at text,
-      workspace_removal text,
-      workspace_kept_reason text
-    );
-    insert into environments values ('e1', 'vm', 'vm', 'local', '2026-10-23T00:00:00.000Z');
-    insert into sessions (id, environment_id, owner_id, workspace, status, generation, created_at)
-      values ('s1', 'e1', 'local', '{"kind":"folder","path":"/w"}', 'idle', 1, '2026-10-23T00:00:00.000Z');
-    insert into sessions (id, environment_id, owner_id, workspace, status, generation, created_at)
-      values ('s2', 'e1', 'local', '{"kind":"folder","path":"/w"}', 'queued', 0, '2026-10-23T00:00:00.000Z');
-  `);
-
-  old.close();
-
-  const store = openStore(path);
-  const [ran, queued] = [store.get("s1"), store.get("s2")];
-  const defaultProfileId = store.defaultProfileId("local");
-  const [environment] = store.environments();
-  store.close();
-
-  expect(environment).toMatchObject({
-    setupScript: "",
-    variables: {},
-    secrets: {},
-  });
-
-  expect(ran?.profileId).toBe(defaultProfileId);
-  expect(ran?.runner).toBe("vm");
-  expect(queued?.runner).toBeNull();
-});
-
 function rawSecrets(path: string): string[] {
   const db = new DatabaseSync(path);
 
-  const rows = db.prepare("select secrets from environments").all() as {
-    secrets: string;
+  const rows = db.prepare("select secrets_sealed from environments").all() as {
+    secrets_sealed: string;
   }[];
 
   db.close();
 
-  return rows.map(({ secrets }) => secrets);
+  return rows.map(({ secrets_sealed }) => secrets_sealed);
 }
 
 test("stores Environment secrets encrypted and reads them back after a restart", () => {
@@ -486,24 +287,6 @@ test("stores Environment secrets encrypted and reads them back after a restart",
   expect(again.environments()[0]?.secrets).toEqual({ GH_TOKEN: "ghp_1" });
 
   again.close();
-});
-
-test("encrypts secrets a database stored before they were encrypted", () => {
-  const path = join(root, "server.db");
-  const store = openStore(path);
-  store.ensureEnvironment("vm");
-  store.close();
-
-  const old = new DatabaseSync(path);
-  old.exec(`update environments set secrets = '{"GH_TOKEN":"ghp_1"}'`);
-  old.close();
-
-  const again = openStore(path);
-  const [environment] = again.environments();
-  again.close();
-
-  expect(environment?.secrets).toEqual({ GH_TOKEN: "ghp_1" });
-  expect(rawSecrets(path).join()).not.toContain("ghp_1");
 });
 
 test("refuses to open a database's secrets with another key", () => {
@@ -542,158 +325,179 @@ test("seals a plugin's secrets so only that plugin opens them, for that row", ()
   store.close();
 });
 
-test("moves Profiles from the database to folders and points at them", () => {
+test("refuses a database that an older Pipoca made", () => {
   const path = join(root, "server.db");
-  openStore(path, undefined, folders()).close();
-
   const old = new DatabaseSync(path);
-
-  const empty = JSON.stringify({
-    packages: [],
-    agentsMd: "",
-    systemMd: "",
-    appendSystemMd: "",
-    mcpServers: {},
-    settings: {},
-  });
-
-  const work = JSON.stringify({
-    ...(JSON.parse(empty) as object),
-    packages: ["npm:pi-goal-x"],
-    agentsMd: "Be brief.",
-    settings: { defaultThinkingLevel: "high" },
-  });
-
-  old.exec(`
-    create table profiles (
-      id text primary key,
-      owner_id text not null,
-      name text not null,
-      content text not null,
-      created_at text not null
-    );
-    drop table profile_defaults;
-    create table profile_defaults (
-      owner_id text primary key,
-      profile_id text not null references profiles (id)
-    );
-    insert into environments (id, name, provider, owner_id, created_at)
-      values ('e1', 'vm', 'vm', 'local', '2026-10-24T00:00:00.000Z');
-    create table projects_projects (id text primary key, profile_id text);
-    insert into projects_projects values ('p1', 'uuid-work');
-  `);
-
-  const insertProfile = old.prepare(
-    "insert into profiles values (?, 'local', ?, ?, '2026-10-24T00:00:00.000Z')",
-  );
-
-  insertProfile.run("uuid-default", "Default", empty);
-  insertProfile.run("uuid-work", "Work", work);
-
-  const insertSession = old.prepare(
-    `insert into sessions (id, environment_id, owner_id, runner, profile_id, workspace, status, generation, created_at)
-      values (?, 'e1', 'local', 'vm', ?, '{"kind":"folder","path":"/w"}', 'idle', 1, '2026-10-24T00:00:00.000Z')`,
-  );
-
-  insertSession.run("s1", "uuid-default");
-  insertSession.run("s2", "uuid-work");
-
-  old.exec(
-    "insert into profile_defaults (owner_id, profile_id) values ('local', 'uuid-work')",
-  );
-
+  old.exec("create table sessions (id text primary key, cwd text not null)");
   old.close();
 
-  const profiles = folders();
-  const store = openStore(path, undefined, profiles);
-  const sessions = [store.get("s1"), store.get("s2")];
-  const defaultProfileId = store.defaultProfileId("local");
-  store.close();
+  expect(() => openStore(path)).toThrow(
+    "this database was made by another Pipoca version; move it aside to start fresh",
+  );
+});
 
-  expect(sessions.map((session) => session?.profileId)).toEqual([
-    "default",
-    "work",
-  ]);
+test("refuses a database whose kernel tables came from other SQL", () => {
+  const path = join(root, "server.db");
+  openStore(path).close();
 
-  expect(defaultProfileId).toBe("work");
-  expect(profiles.ids()).toEqual(["default", "work"]);
+  const db = new DatabaseSync(path);
+  db.exec("update schema_owners set sql_hash = 'other' where owner = 'kernel'");
+  db.close();
 
-  expect(profiles.read("work")).toMatchObject({
-    name: "Work",
-    ownerId: "local",
-    packages: ["npm:pi-goal-x"],
-    agentsMd: "Be brief.",
-    settings: { defaultThinkingLevel: "high" },
+  expect(() => openStore(path)).toThrow("move it aside to start fresh");
+});
+
+test("fails a plugin whose tables came from other SQL, and keeps its data", () => {
+  const path = join(root, "server.db");
+
+  const notes = (sql: string) => ({
+    name: "notes",
+    schema: { version: 1, sql },
   });
 
-  const migrated = new DatabaseSync(path);
+  const first = openStore(path, undefined, undefined, undefined, [
+    notes("create table notes_items (text text not null) strict"),
+  ]);
 
-  const tables = migrated
-    .prepare("select name from sqlite_master where name = 'profiles'")
-    .all();
+  first.plugin("notes").run("insert into notes_items (text) values ('kept')");
+  first.close();
 
-  const project = migrated
-    .prepare("select profile_id from projects_projects")
-    .get();
-
-  migrated.close();
-
-  expect(tables).toEqual([]);
-  expect(project).toEqual({ profile_id: "work" });
-});
-
-test("gives a sole user the Profiles and default that were everyone's", () => {
-  const { profiles, store } = heldForEveryone(["pedro"]);
-
-  expect(profiles.read("work")?.ownerId).toBe("pedro");
-  expect(store.defaultProfileId("pedro")).toBe("work");
-
-  store.close();
-});
-
-test("shares the Profiles that were everyone's among several users", () => {
-  const { profiles, store } = heldForEveryone(["pedro", "ana"]);
-
-  expect(profiles.read("work")?.ownerId).toBeNull();
-  expect(store.defaultProfileId("pedro")).toBe("work");
-  expect(store.defaultProfileId("ana")).toBe("work");
-
-  store.close();
-});
-
-// Before each user had their own, one server-wide owner held every Profile
-// and the default.
-function heldForEveryone(users: readonly string[]): {
-  readonly profiles: ProfileFolders;
-  readonly store: ReturnType<typeof openStore>;
-} {
-  const path = join(root, "server.db");
-  const profiles = folders();
-
-  profiles.write(
-    "work",
-    { name: "Work", ownerId: "local", createdAt: "2026-10-24T00:00:00.000Z" },
-    {},
+  const changed = notes(
+    "create table notes_items (text text not null, at integer) strict",
   );
 
-  const old = openStore(path, undefined, profiles);
-  old.setDefaultProfile("local", "work");
+  const second = openStore(path, undefined, undefined, undefined, [changed]);
 
-  for (const id of users) {
-    old.auth.insertUser({
+  expect(() => second.plugin("notes")).toThrow(
+    "its tables were made by another version of notes",
+  );
+
+  second.close();
+
+  const same = openStore(path, undefined, undefined, undefined, [
+    notes("create table notes_items (text text not null) strict"),
+  ]);
+
+  expect(same.plugin("notes").all("select text from notes_items")).toEqual([
+    { text: "kept" },
+  ]);
+
+  same.close();
+});
+
+test("makes the tables of a plugin turned on later, and refuses ones outside its name", () => {
+  const path = join(root, "server.db");
+  openStore(path).close();
+
+  const store = openStore(path, undefined, undefined, undefined, [
+    {
+      name: "notes",
+      schema: {
+        version: 1,
+        sql: "create table notes_items (text text) strict",
+      },
+    },
+    {
+      name: "copier",
+      schema: {
+        version: 1,
+        sql: "create table sessions_copy (id text) strict",
+      },
+    },
+  ]);
+
+  store.plugin("notes").run("insert into notes_items (text) values ('hi')");
+
+  expect(store.plugin("notes").all("select text from notes_items")).toEqual([
+    { text: "hi" },
+  ]);
+
+  expect(() => store.plugin("copier")).toThrow(
+    "plugin copier may only create copier_ tables",
+  );
+
+  store.close();
+});
+
+test("removes a plugin's rows with the Session, Environment or person they point at", () => {
+  const path = join(root, "server.db");
+
+  const trail = {
+    name: "trail",
+    schema: {
+      version: 1,
+      sql: `
+        create table trail_by_session (session_id text not null references sessions (id) on delete cascade) strict;
+        create table trail_by_environment (environment_id text not null references environments (id) on delete cascade) strict;
+        create table trail_by_user (user_id text not null references users (id) on delete cascade) strict;
+      `,
+    },
+  };
+
+  const store = openStore(path, undefined, undefined, undefined, [trail]);
+
+  for (const id of ["ana", "bo"]) {
+    store.auth.insertUser({
       id,
       name: id,
       admin: false,
       passwordHash: "",
-      createdAt: new Date().toISOString(),
+      createdAt: "2026-11-01T00:00:00.000Z",
     });
   }
 
-  old.close();
+  store.ensureEnvironment("vm", "ana");
+  store.ensureEnvironment("laptop", "ana");
 
-  return { profiles, store: openStore(path, undefined, profiles) };
-}
+  const environments = new Map(
+    store.environments().map(({ provider, id }) => [provider, id]),
+  );
 
-function folders(): ProfileFolders {
-  return new ProfileFolders(join(root, "profiles"), () => undefined);
-}
+  defaultProfile = store.defaultProfileId("ana");
+  const vm = environments.get("vm") ?? "";
+  const laptop = environments.get("laptop") ?? "";
+
+  store.insert(
+    sessionIn(vm, "vm", { id: "s-vm", createdAt: "2026-11-02T00:00:00.000Z" }),
+  );
+
+  store.insert(
+    sessionIn(laptop, "laptop", {
+      id: "s-laptop",
+      createdAt: "2026-11-02T00:00:00.000Z",
+    }),
+  );
+
+  const rows = store.plugin("trail");
+
+  for (const session of ["s-vm", "s-laptop"]) {
+    rows.run("insert into trail_by_session values (?)", session);
+  }
+
+  for (const environment of [vm, laptop]) {
+    rows.run("insert into trail_by_environment values (?)", environment);
+  }
+
+  for (const user of ["ana", "bo"]) {
+    rows.run("insert into trail_by_user values (?)", user);
+  }
+
+  store.deleteEnvironment(vm);
+  store.close();
+
+  const db = new DatabaseSync(path);
+  db.exec("pragma foreign_keys = on; delete from users where id = 'bo'");
+  db.close();
+
+  const again = openStore(path, undefined, undefined, undefined, [trail]);
+  const left = again.plugin("trail");
+
+  expect([
+    left.all("select session_id as id from trail_by_session"),
+    left.all("select environment_id as id from trail_by_environment"),
+    left.all("select user_id as id from trail_by_user"),
+  ]).toEqual([[{ id: "s-laptop" }], [{ id: laptop }], [{ id: "ana" }]]);
+
+  expect(again.get("s-vm")).toBeUndefined();
+  again.close();
+});

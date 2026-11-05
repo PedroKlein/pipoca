@@ -31,9 +31,8 @@ const assistantProfile = {
   mcpServers: {},
 };
 
-// Every meta-session is owned under one key, the one the server's single
-// owner had before people (ADR 0028).
-const sessionsKey = "local";
+// Every meta-session is owned under one key (ADR 0028).
+const sessionsKey = "meta";
 
 const fileContents = Type.Record(Type.String(), Type.String());
 

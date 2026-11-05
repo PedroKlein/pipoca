@@ -43,7 +43,7 @@ test("runs no runner of its own where it starts runner pods (ADR 0049)", async (
   );
 
   const db = new DatabaseSync(join(root, "server.db"));
-  const environments = db.prepare("select provider from environments").all();
+  const environments = db.prepare("select slug from environments").all();
   db.close();
 
   expect(environments).toEqual([]);

@@ -5,13 +5,14 @@ import {
   type RouteCaller,
   type ServerPlugin,
 } from "@pipoca/plugins";
-import { routinesEngine, teamRoutines } from "./engine";
+import { routinesEngine, routinesSchema, teamRoutines } from "./engine";
 import { wakeUps } from "./wakeups";
 
 const maxHookBody = 1024 * 1024;
 
 export const routines: ServerPlugin = {
   name: "routines",
+  schema: { version: 1, sql: routinesSchema },
   register: (context) => {
     const wakeups = wakeUps(context);
     const engine = routinesEngine(context);

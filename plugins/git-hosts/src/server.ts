@@ -53,8 +53,49 @@ const connection = Type.Object({ host: Type.String(), token: Type.String() });
 
 // Each person connects their own account on each host, and the runner signs
 // git and gh in with it in that person's Sessions (ADR 0043).
+const schema = `
+create table git_hosts_connections (
+  user_id text not null references users (id) on delete cascade,
+  host text not null,
+  login text not null,
+  token text not null,
+  connected_at integer not null,
+  primary key (user_id, host)
+) strict, without rowid;
+
+create table git_hosts_commit_as (
+  user_id text primary key references users (id) on delete cascade,
+  name text not null,
+  email text not null
+) strict, without rowid;
+
+create table git_hosts_watches (
+  id text primary key,
+  session_id text not null references sessions (id) on delete cascade,
+  user_id text not null references users (id) on delete cascade,
+  url text not null,
+  host text not null,
+  repository text not null,
+  number integer not null,
+  auto_fix integer not null check (auto_fix in (0, 1)),
+  briefed integer not null default 0 check (briefed in (0, 1)),
+  seen text check (json_valid(seen)),
+  pending text,
+  view text check (json_valid(view)),
+  unique (session_id, url)
+) strict;
+create index git_hosts_watches_user on git_hosts_watches (user_id);
+
+create table git_hosts_preferences (
+  user_id text primary key references users (id) on delete cascade,
+  auto_fix integer not null check (auto_fix in (0, 1)),
+  reply integer not null check (reply in (0, 1))
+) strict, without rowid;
+`;
+
 export const gitHosts: ServerPlugin = {
   name: "git-hosts",
+  schema: { version: 1, sql: schema },
   register: (context) => {
     const hosts = hostStore(
       context.config,
@@ -586,36 +627,25 @@ interface ConnectionStore {
 // A connection is state people create as they go, so it lives in SQLite,
 // with its token sealed for its user and host (ADR 0039).
 function connectionStore(store: PluginStore): ConnectionStore {
-  store.exec(`
-    create table if not exists "git-hosts_connections" (
-      user_id text not null,
-      host text not null,
-      login text not null,
-      token text not null,
-      connected_at text not null,
-      primary key (user_id, host)
-    )
-  `);
-
   const rows = (
     userId: string,
   ): readonly {
     host: string;
     login: string;
     token: string;
-    connected_at: string;
+    connected_at: number;
   }[] =>
     store.all(
-      `select host, login, token, connected_at from "git-hosts_connections" where user_id = ? order by host`,
+      `select host, login, token, connected_at from git_hosts_connections where user_id = ? order by host`,
       userId,
-    ) as { host: string; login: string; token: string; connected_at: string }[];
+    ) as { host: string; login: string; token: string; connected_at: number }[];
 
   return {
     of: (userId) =>
       rows(userId).map((row) => ({
         host: row.host,
         login: row.login,
-        connectedAt: row.connected_at,
+        connectedAt: new Date(row.connected_at).toISOString(),
       })),
     // A token sealed under another server key can't be opened, and its
     // Sessions go without it, as if it weren't connected.
@@ -631,17 +661,17 @@ function connectionStore(store: PluginStore): ConnectionStore {
       }),
     save: (userId, host, login, token) => {
       store.run(
-        `insert into "git-hosts_connections" (user_id, host, login, token, connected_at) values (?, ?, ?, ?, ?) on conflict (user_id, host) do update set login = excluded.login, token = excluded.token, connected_at = excluded.connected_at`,
+        `insert into git_hosts_connections (user_id, host, login, token, connected_at) values (?, ?, ?, ?, ?) on conflict (user_id, host) do update set login = excluded.login, token = excluded.token, connected_at = excluded.connected_at`,
         userId,
         host,
         login,
         store.seal(token, `${userId} ${host}`),
-        new Date().toISOString(),
+        Date.now(),
       );
     },
     remove: (userId, host) => {
       store.run(
-        `delete from "git-hosts_connections" where user_id = ? and host = ?`,
+        `delete from git_hosts_connections where user_id = ? and host = ?`,
         userId,
         host,
       );
@@ -650,7 +680,7 @@ function connectionStore(store: PluginStore): ConnectionStore {
       new Map(
         (
           store.all(
-            `select host, count(*) as people from "git-hosts_connections" group by host`,
+            `select host, count(*) as people from git_hosts_connections group by host`,
           ) as { host: string; people: number }[]
         ).map(({ host, people }) => [host, people]),
       ),

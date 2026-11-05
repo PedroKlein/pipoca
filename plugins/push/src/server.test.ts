@@ -9,6 +9,7 @@ import {
   fakeContext,
   fakeSession,
   fakeUser,
+  memoryStore,
   served,
 } from "@pipoca/plugins/testing";
 import type { Session } from "@pipoca/protocol";
@@ -173,6 +174,7 @@ function registered(members: Partial<ServerPluginContext> = {}): {
   });
 
   const context = fakeContext({
+    store: memoryStore(push.schema),
     events: { ...events, declared: () => [] },
     auth: {
       ...fakeContext().auth,

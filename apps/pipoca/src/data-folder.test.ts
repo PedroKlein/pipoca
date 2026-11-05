@@ -39,14 +39,9 @@ test("leaves a runner that already ran for that server in agent", () => {
   );
 });
 
-test("keeps what connect runs per SSH host, unless it connected before", () => {
+test("keeps what connect runs per SSH host", () => {
   const root = rootOf();
 
   expect(connectFolder(root, "me@my-vm")).toBe(join(root, "servers", "my-vm"));
-
-  mkdirSync(join(root, "connect"));
-  expect(connectFolder(root, "me@my-vm")).toBe(join(root, "connect"));
-
-  mkdirSync(join(root, "servers", "other"), { recursive: true });
   expect(connectFolder(root, "other")).toBe(join(root, "servers", "other"));
 });

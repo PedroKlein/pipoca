@@ -209,19 +209,29 @@ export interface Login {
   readonly path: string;
 }
 
-type SqlValue = string | number | bigint | null | Uint8Array;
+export type SqlValue = string | number | bigint | null | Uint8Array;
 
-// Tables a plugin creates must be named <plugin>_<table>.
+// Statements on the plugin's own tables, which may also read the kernel's.
 export interface PluginStore {
-  readonly exec: (sql: string) => void;
   readonly all: (sql: string, ...params: readonly SqlValue[]) => unknown[];
   readonly run: (sql: string, ...params: readonly SqlValue[]) => void;
+  // Runs fn in one transaction, rolled back when it throws.
+  readonly transaction: <T>(fn: () => T) => T;
   // Encrypts a secret to keep in a table, with the server's secret key, like
   // Environment secrets (ADR 0034). The context, such as the row's id, keeps
   // a sealed value from being moved to another row, and another plugin can't
   // open it.
   readonly seal: (text: string, context: string) => string;
   readonly open: (sealed: string, context: string) => string;
+}
+
+// The tables a plugin keeps, which the kernel creates before the plugin
+// registers. Each is named <id>_<name>, with the id's hyphens written as
+// underscores. A database whose tables came from other SQL fails the plugin
+// and keeps its data.
+export interface PluginSchema {
+  readonly version: number;
+  readonly sql: string;
 }
 
 // The plugin's part of the server's config folder (ADR 0039).
@@ -323,8 +333,6 @@ export interface ServerPluginContext {
     // The Session plugins that load in the Sessions this plugin owns or that
     // run on its Profiles, by name. All of them load until the plugin says.
     readonly loadOnly: (plugins: readonly string[]) => void;
-    // Takes ownership of a Session started before owners existed.
-    readonly adopt: (id: string, ownerKey: string) => void;
     // Archive or bring back a Session this plugin owns, such as every
     // Session of one owner key at once (ADR 0028).
     readonly archive: (id: string) => void;
@@ -458,6 +466,7 @@ export interface ServerPluginContext {
 
 export interface ServerPlugin {
   readonly name: string;
+  readonly schema?: PluginSchema;
   readonly register: (context: ServerPluginContext) => void;
 }
 

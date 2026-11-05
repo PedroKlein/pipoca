@@ -12,6 +12,7 @@ import {
   fakeContext,
   fakeSession,
   fakeUser,
+  memoryStore,
   served,
 } from "@pipoca/plugins/testing";
 import type { Actor, Session } from "@pipoca/protocol";
@@ -95,6 +96,7 @@ function fakeKernel(): {
   };
 
   const context = fakeContext({
+    store: memoryStore(projects.schema),
     tools: {
       register: (tool) => {
         tools.set(tool.name, tool);
@@ -136,12 +138,6 @@ function fakeKernel(): {
             session.owner?.key === key &&
             (archived || session.archivedAt === null),
         ),
-      adopt: (id, key) => {
-        const session = sessions.get(id);
-        if (session?.owner === null) {
-          sessions.set(id, { ...session, owner: { plugin: "projects", key } });
-        }
-      },
       archive: (id) => {
         if (stuck.has(id)) {
           throw new Error(`${id} is stuck`);
@@ -398,7 +394,7 @@ async function until(done: () => boolean): Promise<void> {
   }
 }
 
-test("owns its coordinator and threads, and those started before owners existed", async () => {
+test("owns its coordinator and threads", async () => {
   const kernel = fakeKernel();
   projects.register(kernel.context);
   const { coordinatorId, threadId } = await startProject(kernel);
@@ -411,13 +407,6 @@ test("owns its coordinator and threads, and those started before owners existed"
 
   const [project] = (await listed.json()) as ProjectView[];
   const owner = { plugin: "projects", key: project?.id ?? "" };
-  expect(kernel.session(coordinatorId).owner).toEqual(owner);
-  expect(kernel.session(threadId).owner).toEqual(owner);
-
-  kernel.update(coordinatorId, { owner: null });
-  kernel.update(threadId, { owner: null });
-  projects.register(kernel.context);
-
   expect(kernel.session(coordinatorId).owner).toEqual(owner);
   expect(kernel.session(threadId).owner).toEqual(owner);
 });

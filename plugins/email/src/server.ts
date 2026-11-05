@@ -32,17 +32,29 @@ interface State {
 
 // New mail as routine triggers, and Sessions that send from a mailbox, with
 // replies to what they sent coming back to them (ADR 0062).
+const schema = `
+create table email_state (
+  mailbox text primary key,
+  uid_validity text not null,
+  last_uid integer not null
+) strict;
+
+create table email_threads (
+  mailbox text not null,
+  message_id text not null,
+  session_id text not null references sessions (id) on delete cascade,
+  primary key (mailbox, message_id)
+) strict, without rowid;
+create index email_threads_session on email_threads (session_id);
+`;
+
 export const email: ServerPlugin = {
   name: "email",
+  schema: { version: 1, sql: schema },
   register: (context) => {
     const mailboxes = mailboxStore(context.config, context.store, context.log);
 
     const errors = new Map<string, string>();
-
-    context.store.exec(`
-      create table if not exists email_state (mailbox text primary key, uid_validity text not null, last_uid integer not null);
-      create table if not exists email_threads (mailbox text not null, message_id text not null, session_id text not null, primary key (mailbox, message_id));
-    `);
 
     const sessionOf = (
       mailbox: string,

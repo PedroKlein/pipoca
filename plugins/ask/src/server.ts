@@ -30,10 +30,38 @@ interface StoredVote {
   readonly session_id: string;
   readonly opener: string;
   readonly question: string;
-  readonly options: string;
-  readonly picks: string;
-  readonly closes_at: string;
+  readonly closes_at: number;
 }
+
+const schema = `
+create table ask_votes (
+  id text primary key,
+  session_id text not null references sessions (id) on delete cascade,
+  opener text not null,
+  question text not null,
+  opened_at integer not null,
+  closes_at integer not null,
+  closed_at integer
+) strict;
+create index ask_votes_session on ask_votes (session_id, opened_at);
+create index ask_votes_open on ask_votes (closes_at) where closed_at is null;
+
+create table ask_vote_options (
+  vote_id text not null references ask_votes (id) on delete cascade,
+  position integer not null,
+  label text not null,
+  primary key (vote_id, position)
+) strict, without rowid;
+
+create table ask_vote_picks (
+  vote_id text not null,
+  person text not null,
+  position integer not null,
+  picked_at integer not null,
+  primary key (vote_id, person),
+  foreign key (vote_id, position) references ask_vote_options (vote_id, position) on delete cascade
+) strict;
+`;
 
 // An open vote as one person sees it: who picked what, their own pick, and
 // whether they may close it.
@@ -62,13 +90,8 @@ export interface Votes {
 // (ADR 0065).
 export const askServer: ServerPlugin = {
   name: "ask",
+  schema: { version: 1, sql: schema },
   register: (context) => {
-    const { store } = context;
-
-    store.exec(
-      "create table if not exists ask_votes (id text primary key, session_id text not null, opener text not null, question text not null, options text not null, picks text not null, opened_at text not null, closes_at text not null, closed_at text)",
-    );
-
     const votes = ballots(context);
 
     const sweep = setInterval(votes.sweep, sweepMs);
@@ -190,8 +213,23 @@ function ballots(context: ServerPluginContext) {
     return vote;
   };
 
+  const optionsOf = (vote: StoredVote): readonly string[] =>
+    (
+      store.all(
+        "select label from ask_vote_options where vote_id = ? order by position",
+        vote.id,
+      ) as { label: string }[]
+    ).map(({ label }) => label);
+
   const picksOf = (vote: StoredVote): Readonly<Record<string, string>> =>
-    JSON.parse(vote.picks) as Record<string, string>;
+    Object.fromEntries(
+      (
+        store.all(
+          "select person, label from ask_vote_picks join ask_vote_options using (vote_id, position) where vote_id = ? order by ask_vote_picks.rowid",
+          vote.id,
+        ) as { person: string; label: string }[]
+      ).map(({ person, label }) => [person, label]),
+    );
 
   const session = (id: string, caller: RouteCaller): Session => {
     const found = sessions.get(id);
@@ -219,14 +257,14 @@ function ballots(context: ServerPluginContext) {
   const finish = (vote: StoredVote, by: string | undefined): void => {
     store.run(
       "update ask_votes set closed_at = ? where id = ?",
-      new Date().toISOString(),
+      Date.now(),
       vote.id,
     );
 
     const told = sessions.voted(
       vote.session_id,
       vote.opener,
-      tally(vote, picksOf(vote), name, by),
+      tally(vote, optionsOf(vote), picksOf(vote), name, by),
     );
 
     if (!told.ok) {
@@ -259,7 +297,7 @@ function ballots(context: ServerPluginContext) {
             id: vote.id,
             opener: vote.opener,
             question: vote.question,
-            options: JSON.parse(vote.options) as string[],
+            options: optionsOf(vote),
             picks: Object.entries(picks).map(([who, option]) => ({
               person: who,
               name: name(who),
@@ -267,7 +305,7 @@ function ballots(context: ServerPluginContext) {
             })),
             mine: picks[person] ?? null,
             canClose: canClose(vote, caller, of),
-            closesAt: vote.closes_at,
+            closesAt: new Date(vote.closes_at).toISOString(),
           };
         }),
       };
@@ -296,35 +334,49 @@ function ballots(context: ServerPluginContext) {
 
       const open = minutes ?? Number(settings["voteMinutes"] ?? 60);
       const id = randomUUID();
-      const closesAt = new Date(now + open * 60_000).toISOString();
+      const closesAt = now + open * 60_000;
 
-      store.run(
-        "insert into ask_votes (id, session_id, opener, question, options, picks, opened_at, closes_at) values (?, ?, ?, ?, ?, '{}', ?, ?)",
-        id,
-        of.id,
-        opener,
-        question.trim(),
-        JSON.stringify(choices),
-        new Date(now).toISOString(),
-        closesAt,
-      );
+      store.transaction(() => {
+        store.run(
+          "insert into ask_votes (id, session_id, opener, question, opened_at, closes_at) values (?, ?, ?, ?, ?, ?)",
+          id,
+          of.id,
+          opener,
+          question.trim(),
+          now,
+          closesAt,
+        );
+
+        choices.forEach((label, position) => {
+          store.run(
+            "insert into ask_vote_options (vote_id, position, label) values (?, ?, ?)",
+            id,
+            position,
+            label,
+          );
+        });
+      });
 
       context.changes.publish("votes");
 
-      return { id, closesAt };
+      return { id, closesAt: new Date(closesAt).toISOString() };
     },
     pick: (id: string, caller: RouteCaller, option: string): void => {
       const vote = stored(id);
       session(vote.session_id, caller);
 
-      if (!(JSON.parse(vote.options) as string[]).includes(option)) {
+      const position = optionsOf(vote).indexOf(option);
+
+      if (position === -1) {
         throw new BadRequest("that is not one of the vote's options");
       }
 
       store.run(
-        "update ask_votes set picks = ? where id = ?",
-        JSON.stringify({ ...picksOf(vote), [personOf(caller)]: option }),
+        "insert into ask_vote_picks (vote_id, person, position, picked_at) values (?, ?, ?, ?) on conflict (vote_id, person) do update set position = excluded.position, picked_at = excluded.picked_at",
         id,
+        personOf(caller),
+        position,
+        Date.now(),
       );
 
       context.changes.publish("votes");
@@ -346,7 +398,7 @@ function ballots(context: ServerPluginContext) {
     sweep: (): void => {
       const due = store.all(
         "select * from ask_votes where closed_at is null and closes_at <= ?",
-        new Date().toISOString(),
+        Date.now(),
       ) as StoredVote[];
 
       for (const vote of due) {
@@ -391,11 +443,11 @@ function checked(input: unknown): Opening {
 // (ana, bo), Wait 0. ana closed it.
 function tally(
   vote: StoredVote,
+  options: readonly string[],
   picks: Readonly<Record<string, string>>,
   name: (person: string) => string,
   by: string | undefined,
 ): string {
-  const options = JSON.parse(vote.options) as string[];
   const voters = Object.entries(picks);
 
   const counts = options.map((option) => {

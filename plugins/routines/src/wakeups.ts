@@ -45,10 +45,6 @@ export function wakeUps(
 ): WakeUps {
   const { store, sessions, changes, log } = context;
 
-  store.exec(
-    "create table if not exists routines_wakeups (id text primary key, session_id text not null, user_id text not null, due_at integer not null, try_at integer not null, reason text not null, message text not null, delivered_at integer)",
-  );
-
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   const pendingRows = (where: string, ...params: string[]): Row[] =>
@@ -179,7 +175,7 @@ export function wakeUps(
       );
     }
 
-    const id = crypto.randomUUID().slice(0, 8);
+    const id = Bun.randomUUIDv7();
 
     store.run(
       "insert into routines_wakeups (id, session_id, user_id, due_at, try_at, reason, message) values (?, ?, ?, ?, ?, ?, ?)",

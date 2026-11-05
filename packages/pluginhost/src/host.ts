@@ -1166,9 +1166,6 @@ function pluginSessions(
     get: (id) => sessions.get(id),
     owned: (key, { archived = false } = {}) =>
       sessions.list({ archived, owner: { plugin, key } }),
-    adopt: (id, key) => {
-      sessions.adopt(id, { plugin, key });
-    },
     archive: (id) => {
       settle(sessions.archive(ownedHere(id)), "archived");
     },

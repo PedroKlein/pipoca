@@ -92,8 +92,6 @@ export function providerStore(
   const parse = (value: unknown): readonly Entry[] =>
     entriesOf(value, (sealed, id) => store.open(sealed, id), secretIn);
 
-  moveTable(config, store);
-
   let read = JSON.stringify(config.get());
   let entries = parse(config.get());
 
@@ -365,63 +363,6 @@ function freeId(label: string | undefined, taken: ReadonlySet<string>): string {
   }
 
   return id;
-}
-
-// Providers from before ADR 0039 lived in a table. Their secrets were sealed
-// for the same id, so they move over as they are.
-function moveTable(config: PluginConfig, store: PluginStore): void {
-  const [table] = store.all(
-    "select name from sqlite_master where type = 'table' and name = 'oidc_providers'",
-  );
-
-  if (table === undefined) {
-    return;
-  }
-
-  const rows = store.all(
-    "select * from oidc_providers order by created_at",
-  ) as {
-    readonly id: string;
-    readonly label: string;
-    readonly issuer: string;
-    readonly client_id: string;
-    readonly client_secret: string | null;
-    readonly groups_claim: string;
-    readonly access_group: string;
-    readonly admin_group: string;
-    readonly allowed_emails: string;
-    readonly allowed_domains: string;
-    readonly admin_emails: string;
-  }[];
-
-  if (rows.length > 0) {
-    const value = config.get();
-    const { providers = [] } = isObject(value) ? value : {};
-
-    config.set({
-      ...(isObject(value) ? value : {}),
-      providers: [
-        ...(Array.isArray(providers) ? (providers as unknown[]) : []),
-        ...rows.map((row) => ({
-          id: row.id,
-          label: row.label,
-          issuer: row.issuer,
-          clientId: row.client_id,
-          ...(row.client_secret !== null && {
-            clientSecret: row.client_secret,
-          }),
-          groupsClaim: row.groups_claim,
-          accessGroup: row.access_group,
-          adminGroup: row.admin_group,
-          allowedEmails: JSON.parse(row.allowed_emails) as unknown,
-          allowedDomains: JSON.parse(row.allowed_domains) as unknown,
-          adminEmails: JSON.parse(row.admin_emails) as unknown,
-        })),
-      ],
-    });
-  }
-
-  store.exec("drop table oidc_providers");
 }
 
 function providerFrom(id: string, input: unknown): ProviderConfig {

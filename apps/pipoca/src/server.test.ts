@@ -567,31 +567,30 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
   );
 
   const plain = sessions.start({ actor: "plugin:keeper", workspace });
-  const adopted = sessions.start({ actor: "plugin:keeper", workspace });
-  if (!owned || !plain.ok || !adopted.ok) {
+
+  const other = context?.sessions.start(
+    { actor: "plugin:keeper", workspace },
+    "k2",
+  );
+
+  if (!owned || !plain.ok || !other) {
     throw new Error("sessions not started");
   }
-
-  context?.sessions.adopt(adopted.value.id, "k1");
-  context?.sessions.adopt(plain.value.id, "k2");
-  context?.sessions.adopt(plain.value.id, "k1");
 
   const ids = (list: readonly Session[]): string[] =>
     list.map(({ id }) => id).toSorted();
 
   expect(owned.owner).toEqual({ plugin: "keeper", key: "k1" });
-  expect(ids(await on("/api/sessions"))).toEqual([]);
+  expect(ids(await on("/api/sessions"))).toEqual(ids([plain.value]));
 
   expect(ids(await on("/api/sessions?owner=all"))).toEqual(
-    ids([owned, plain.value, adopted.value]),
+    ids([owned, plain.value, other]),
   );
 
-  expect(ids(context?.sessions.owned("k1") ?? [])).toEqual(
-    ids([owned, adopted.value]),
-  );
+  expect(ids(context?.sessions.owned("k1") ?? [])).toEqual(ids([owned]));
 
   expect(ids(await handler([])("/api/sessions"))).toEqual(
-    ids([owned, plain.value, adopted.value]),
+    ids([owned, plain.value, other]),
   );
 
   sessions.close();
@@ -623,7 +622,7 @@ test("fails only the Session whose Profile can't be read when a runner claims wo
   const start = (path: string): string => {
     const started = sessions.start({
       workspace: { kind: "clone", repository: `https://example.com/${path}` },
-      actor: "user:local",
+      actor: "plugin:test",
     });
 
     if (!started.ok) {

@@ -273,47 +273,6 @@ test("leaves Profile folders another server wrote in a shared data directory", a
   expect(await stat(folder).then(() => true)).toBe(true);
 });
 
-test("moves a machine's login files into its logins folder", async () => {
-  const dataDir = join(root, "upgraded");
-  await mkdir(dataDir, { recursive: true });
-
-  for (const name of ["auth.json", "models-store.json"]) {
-    await writeFile(join(dataDir, name), "{}");
-  }
-
-  const controller = new AbortController();
-  const polling = Promise.withResolvers<undefined>();
-
-  const done = runAgent({
-    server: server.url.href,
-    provider: "upgraded",
-    credential: { key: await runners.key("upgraded") },
-    dataDir,
-    extensionPaths: [],
-    folders: [],
-    log: (message) => {
-      if (message === "provider polling for work") {
-        polling.resolve(undefined);
-      }
-    },
-    signal: controller.signal,
-  });
-
-  await polling.promise;
-  controller.abort();
-  await done;
-
-  const exists = async (path: string): Promise<boolean> =>
-    stat(path).then(
-      () => true,
-      () => false,
-    );
-
-  expect(await exists(join(dataDir, "logins", "auth.json"))).toBe(true);
-  expect(await exists(join(dataDir, "logins", "models-store.json"))).toBe(true);
-  expect(await exists(join(dataDir, "models-store.json"))).toBe(false);
-});
-
 test("a git package that fails says what git said, and which host to connect", async () => {
   const source = "https://127.0.0.1:1/team/kit";
   const session = await sessionWith({ packages: [source] });

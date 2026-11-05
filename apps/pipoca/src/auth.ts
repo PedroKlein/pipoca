@@ -1,11 +1,6 @@
 import type { Invite, Joined, Person, SetupState } from "@pipoca/protocol";
 import { type Clock, systemClock } from "@pipoca/protocol";
-import {
-  createHash,
-  randomBytes,
-  randomUUID,
-  timingSafeEqual,
-} from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 export interface User {
   readonly id: string;
@@ -318,7 +313,7 @@ export class Auth {
 
     try {
       const user: StoredUser = {
-        id: randomUUID(),
+        id: Bun.randomUUIDv7(),
         name: credentials.name,
         admin: true,
         passwordHash: await Bun.password.hash(credentials.password),
@@ -575,7 +570,7 @@ export class Auth {
     const secret = `pcm_${randomBytes(32).toString("base64url")}`;
 
     const token: McpToken = {
-      id: randomUUID(),
+      id: Bun.randomUUIDv7(),
       userId,
       name: name.trim(),
       createdAt: new Date(this.#clock.now()).toISOString(),
@@ -657,7 +652,7 @@ export class Auth {
       return undefined;
     }
 
-    const user = { id: randomUUID(), name: trimmed, admin };
+    const user = { id: Bun.randomUUIDv7(), name: trimmed, admin };
 
     this.#store.insertUser({
       ...user,
@@ -682,7 +677,7 @@ export class Auth {
       const token = randomBytes(24).toString("base64url");
 
       const invite: Invite = {
-        id: randomUUID(),
+        id: Bun.randomUUIDv7(),
         email,
         admin,
         createdBy,
@@ -750,7 +745,7 @@ export class Auth {
     }
 
     const user: StoredUser = {
-      id: randomUUID(),
+      id: Bun.randomUUIDv7(),
       name,
       admin: invite.admin,
       passwordHash: await Bun.password.hash(credentials.password),

@@ -6,6 +6,7 @@ import {
   fakeContext,
   fakeSession,
   fakeUser,
+  memoryStore,
   served,
 } from "@pipoca/plugins/testing";
 import { models } from "./server";
@@ -24,6 +25,7 @@ function registered(signal: AbortSignal): PluginRoute {
 
   models.register(
     fakeContext({
+      store: memoryStore(models.schema),
       routes: {
         handle: (route) => {
           routes.push(served(route));
@@ -177,6 +179,7 @@ test("an Environment without aliases of its own takes its template's", async () 
 
   models.register(
     fakeContext({
+      store: memoryStore(models.schema),
       routes: {
         handle: (route) => {
           routes.push(served(route));
@@ -222,6 +225,7 @@ test("an admin hides models from the pickers, and every Environment's offer carr
 
   models.register(
     fakeContext({
+      store: memoryStore(models.schema),
       routes: {
         handle: (route) => {
           routes.push(served(route));

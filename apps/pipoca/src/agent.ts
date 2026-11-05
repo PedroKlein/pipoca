@@ -249,22 +249,6 @@ async function runAs(
     modelsPath: join(logins, "models.json"),
   };
 
-  // Pi keeps models-store.json next to models.json.
-  for (const name of ["auth.json", "models.json", "models-store.json"]) {
-    const earlier = join(options.dataDir, name);
-    const path = join(logins, name);
-    if (existsSync(earlier) && !existsSync(path)) {
-      await rename(earlier, path).then(
-        () => {
-          log("login file moved", { from: earlier, to: path });
-        },
-        (error: unknown) => {
-          log("login file not moved", { from: earlier, error: String(error) });
-        },
-      );
-    }
-  }
-
   // The machine's models, and those of providers its Profiles' packages add.
   const listers = new Map<string, Promise<() => Promise<ListedModels>>>();
 
