@@ -67,12 +67,13 @@ const callColumns = [
 const auditColumns = ["at", "actor", "sessionId", "action", "detail"] as const;
 
 // Calls and the audit are history, so they keep the ids of Sessions and
-// people that are gone. Cost is in millionths of a dollar.
+// people that are gone. A call's owner_user_id is NULL for the team's work.
+// Cost is in millionths of a dollar.
 const schema = `
 create table usage_calls (
   id integer primary key,
   at integer not null,
-  owner text not null,
+  owner_user_id text,
   person text,
   session_id text not null,
   provider text not null,
@@ -381,7 +382,7 @@ const microsPerDollar = 1_000_000;
 
 interface CallRow {
   readonly at: number;
-  readonly owner: string;
+  readonly owner_user_id: string | null;
   readonly person: string | null;
   readonly session_id: string;
   readonly provider: string;
@@ -402,9 +403,11 @@ function callStore(store: PluginStore): {
   return {
     add: (call) => {
       store.run(
-        "insert into usage_calls (at, owner, person, session_id, provider, model, input, output, cost_micros) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "insert into usage_calls (at, owner_user_id, person, session_id, provider, model, input, output, cost_micros) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         Date.parse(call.at),
-        call.owner,
+        call.owner.startsWith("person:")
+          ? call.owner.slice("person:".length)
+          : null,
         call.person,
         call.sessionId,
         call.provider,
@@ -426,12 +429,21 @@ function callStore(store: PluginStore): {
               person,
               limit,
             )) as CallRow[]
-      ).map(({ session_id: sessionId, at, cost_micros, ...row }) => ({
-        ...row,
-        at: new Date(at).toISOString(),
-        sessionId,
-        cost: cost_micros === null ? null : cost_micros / microsPerDollar,
-      })),
+      ).map(
+        ({
+          session_id: sessionId,
+          at,
+          cost_micros,
+          owner_user_id,
+          ...row
+        }) => ({
+          ...row,
+          owner: owner_user_id === null ? "team" : `person:${owner_user_id}`,
+          at: new Date(at).toISOString(),
+          sessionId,
+          cost: cost_micros === null ? null : cost_micros / microsPerDollar,
+        }),
+      ),
     totals: (since, person) => {
       const [row] = (
         person === undefined
