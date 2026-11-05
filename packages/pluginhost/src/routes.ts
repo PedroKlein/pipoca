@@ -99,28 +99,9 @@ export function pluginRoutes(
 }
 
 export function pluginUrls(plugin: string, server: () => URL): Urls {
-  const prefix = `/api/ext/${plugin}`;
-  const named = (name: string): string => `${plugin}.${name}`;
-
   return {
-    public: (path) => new URL(`${prefix}/${joined(path)}`, server()).href,
-    cookie: {
-      set: (response, name, value, maxAgeS) => {
-        const cookie = new Bun.Cookie(named(name), value, {
-          path: prefix,
-          maxAge: maxAgeS,
-          httpOnly: true,
-          sameSite: "lax",
-          secure: server().protocol === "https:",
-        });
-
-        response.headers.append("set-cookie", cookie.serialize());
-      },
-      get: (request, name) =>
-        new Bun.CookieMap(request.headers.get("cookie") ?? "").get(
-          named(name),
-        ) ?? undefined,
-    },
+    public: (path) =>
+      new URL(`/api/ext/${plugin}/${joined(path)}`, server()).href,
   };
 }
 

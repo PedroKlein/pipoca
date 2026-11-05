@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import {
   BadRequest,
   defineServer,
@@ -339,12 +338,12 @@ function modelsStore(store: Store): ModelsStore {
 
 // A version per Environment that Sessions wait on. It starts from the clock,
 // so a Session that saw a version before a restart never sees it again. A
-// wait ends after waitMs on the schedule.
+// wait ends after waitMs.
 function changes({
   clock,
-  schedule,
+  timer,
   signal,
-}: Pick<ServerContext, "clock" | "schedule" | "signal">): {
+}: Pick<ServerContext, "clock" | "timer" | "signal">): {
   readonly of: (environmentId: string) => number;
   readonly bump: (environmentId: string) => void;
   readonly changed: (
@@ -356,11 +355,6 @@ function changes({
   const start = clock.now();
   const versions = new Map<string, number>();
   const waiting = new Map<string, Set<() => void>>();
-  const timeouts = new Map<string, () => void>();
-
-  schedule.on("wake:", (_payload, key) => {
-    timeouts.get(key)?.();
-  });
 
   const of = (environmentId: string): number =>
     versions.get(environmentId) ?? start;
@@ -382,19 +376,19 @@ function changes({
       }
 
       await new Promise<void>((resolve) => {
-        const key = `wake:${randomUUID()}`;
-
         const wake = (): void => {
-          schedule.cancel(key);
-          timeouts.delete(key);
+          stop();
           request.removeEventListener("abort", wake);
           signal.removeEventListener("abort", wake);
           waiting.get(environmentId)?.delete(wake);
           resolve();
         };
 
-        schedule.at(key, clock.now() + waitMs);
-        timeouts.set(key, wake);
+        const stop = timer.after(waitMs, async () => {
+          wake();
+
+          await Promise.resolve();
+        });
 
         const set = waiting.get(environmentId) ?? new Set();
         set.add(wake);

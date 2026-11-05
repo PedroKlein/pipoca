@@ -48,7 +48,6 @@ const ledger = defineServer(
     schedule,
     secrets,
     environments,
-    profiles,
     clock,
   }) => {
     const heard: unknown[] = [];
@@ -129,7 +128,6 @@ const ledger = defineServer(
 
     routes.get("secrets", { auth: "person" }, () => {
       const sealed = secrets.seal("ledger_entries", "1", "hush");
-      const token = secrets.token();
 
       return {
         opened: secrets.open("ledger_entries", "1", sealed),
@@ -140,14 +138,11 @@ const ledger = defineServer(
             return "refused";
           }
         })(),
-        token: token.length > 20,
-        hash: secrets.hash(token) === secrets.hash(token),
       };
     });
 
     routes.get("machines", { auth: "person" }, () => ({
       environments: environments.list().map(({ name }) => name),
-      mcpServers: profiles.mcpServers(),
     }));
   },
 );
@@ -262,16 +257,13 @@ test("seals secrets for a row that only that row opens", async () => {
   expect(await api("secrets")).toEqual({
     opened: "hush",
     moved: "refused",
-    token: true,
-    hash: true,
   });
 });
 
-test("reads the Environments and Profile MCP servers", async () => {
+test("reads the Environments", async () => {
   await runnerCredentials(server, server.signedIn).token("laptop");
 
   expect(await api("machines")).toEqual({
     environments: expect.arrayContaining(["laptop"]) as unknown,
-    mcpServers: [],
   });
 });

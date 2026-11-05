@@ -26,7 +26,6 @@ export interface ScheduleStore {
   readonly done: (row: ScheduleRow) => void;
   readonly retry: (row: ScheduleRow, dueAt: number) => void;
   readonly remove: (plugin: string, key: string) => void;
-  readonly removePrefix: (plugin: string, prefix: string) => void;
   readonly pending: (plugin: string, prefix: string) => readonly ScheduleRow[];
 }
 
@@ -251,9 +250,6 @@ export function scheduler(deps: {
         },
         cancel: (key) => {
           deps.store.remove(plugin, key);
-        },
-        cancelPrefix: (prefix) => {
-          deps.store.removePrefix(plugin, prefix);
         },
         pending: (prefix) =>
           deps.store

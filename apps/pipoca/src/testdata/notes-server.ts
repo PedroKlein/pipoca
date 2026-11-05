@@ -17,16 +17,9 @@ export const server = defineServer(notes, ({ routes, urls }) => {
   routes.post("beats", { auth: "session" }, ({ caller }) => who(caller));
   routes.get("hello", { auth: "public" }, ({ caller }) => who(caller));
 
-  routes.get("callback", { auth: "public" }, ({ raw }) => {
-    const response = Response.json({
-      url: urls.public("callback"),
-      state: urls.cookie.get(raw, "state") ?? null,
-    });
-
-    urls.cookie.set(response, "state", "abc", 600);
-
-    return response;
-  });
+  routes.get("callback", { auth: "public" }, () => ({
+    url: urls.public("callback"),
+  }));
 
   routes.post(
     "hooks/:name",

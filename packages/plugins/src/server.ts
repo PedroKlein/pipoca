@@ -4,13 +4,13 @@ import type {
   DeclaredEvent,
   EnvironmentTemplate,
   Environment,
-  GitLogin,
   Log,
   Method,
   Owner,
   RouteToolSpec,
   Session,
   SessionAccess,
+  Timer,
 } from "@pipoca/protocol";
 import type { Static, TObject, TSchema } from "typebox";
 import type { EventDef, Events, PluginDefinition } from "./definition";
@@ -20,10 +20,6 @@ import type {
   KernelEvent,
   ModelOffer,
   PluginProfile,
-  ProfileMcpServer,
-  RunnerSource,
-  SessionCloud,
-  SessionLogins,
   SqlValue,
   StartRequest,
 } from "./plugin";
@@ -211,15 +207,6 @@ export interface Routes {
 
 export interface Urls {
   readonly public: (path: string) => string;
-  readonly cookie: {
-    readonly set: (
-      response: Response,
-      name: string,
-      value: string,
-      maxAgeS: number,
-    ) => void;
-    readonly get: (request: Request, name: string) => string | undefined;
-  };
 }
 
 export interface ToolCall {
@@ -310,9 +297,6 @@ export interface Sessions {
       readonly dedupe?: string;
     },
   ) => "queued" | "gone";
-  readonly bind: (key: string, sessionId: string) => void;
-  readonly boundTo: (key: string) => string | undefined;
-  readonly unbind: (key: string) => void;
 }
 
 export interface Store {
@@ -332,8 +316,6 @@ export interface Store {
 export interface Secrets {
   readonly seal: (table: string, rowId: string, text: string) => string;
   readonly open: (table: string, rowId: string, sealed: string) => string;
-  readonly token: (bytes?: number) => string;
-  readonly hash: (token: string) => string;
 }
 
 type ConfigValue<P extends PluginDefinition> = [P["config"]] extends [TSchema]
@@ -381,60 +363,17 @@ export interface PluginConfig<P extends PluginDefinition = PluginDefinition> {
 
 export interface PluginEnvironments {
   readonly list: () => readonly Environment[];
-  readonly unplaced: (environmentId: string) => readonly Session[];
-  readonly runnerToken: (environmentId: string, runner: string) => string;
-  readonly revokeRunner: (environmentId: string, runner: string) => void;
   readonly templates: () => readonly EnvironmentTemplate[];
-  readonly templateConfig: {
-    readonly get: (templateId: string) => unknown;
-    readonly set: (templateId: string, value: unknown) => void;
-  };
-}
-
-export interface PluginProfiles {
-  readonly mcpServers: () => readonly ProfileMcpServer[];
-  readonly buildsOn: (id: string) => readonly string[];
-}
-
-export interface SignInProvider {
-  readonly logins: () => readonly {
-    readonly label: string;
-    readonly path: string;
-  }[];
 }
 
 export interface Providers {
-  readonly runners: (p: {
-    readonly kind: { readonly label: string; readonly icon: string };
-    readonly starts: (environment: RunnerSource) => boolean;
-    readonly replacesServerRunner?: () => boolean;
-  }) => void;
   readonly models: (offer: ModelOffer) => void;
-  readonly gitCredentials: (
-    fn: (
-      person: string,
-      session: Pick<Session, "actsAs" | "workspace">,
-    ) => readonly GitLogin[],
-  ) => void;
-  readonly modelCredentials: (
-    fn: (cloud: SessionCloud) => Promise<SessionLogins>,
-  ) => void;
-  readonly signIn: (provider: SignInProvider) => void;
   // Sessions on the Profile load every route tool when routeTools is true.
   readonly profile: (
     key: string,
     profile: PluginProfile,
     o?: { readonly team?: boolean; readonly routeTools?: boolean },
   ) => string;
-  readonly runtime: () => {
-    readonly binary: string;
-    readonly serverUrl: string;
-    readonly dataDir: string;
-    readonly solo?: {
-      readonly environmentId: string;
-      readonly folders: readonly string[];
-    };
-  };
 }
 
 export interface ServerContext<P extends PluginDefinition = PluginDefinition> {
@@ -452,8 +391,9 @@ export interface ServerContext<P extends PluginDefinition = PluginDefinition> {
   readonly provide: Providers;
   readonly secrets: Secrets;
   readonly environments: PluginEnvironments;
-  readonly profiles: PluginProfiles;
   readonly clock: Clock;
+  // In-memory time, lost on restart, for waits such as a long poll.
+  readonly timer: Timer;
   readonly log: Log;
   readonly signal: AbortSignal;
 }

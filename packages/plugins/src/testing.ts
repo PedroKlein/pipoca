@@ -128,7 +128,6 @@ export function fakeContext(
       at: notFaked("schedule.at"),
       on: notFaked("schedule.on"),
       cancel: notFaked("schedule.cancel"),
-      cancelPrefix: notFaked("schedule.cancelPrefix"),
       pending: notFaked("schedule.pending"),
     },
     config: {

@@ -156,25 +156,12 @@ test("a public route answers anyone and sees who signed in", async () => {
   expect(await as(cookie).get("hello")).toMatchObject({ person: "pedro" });
 });
 
-test("a public route makes its own URLs and keeps its cookies", async () => {
+test("a public route makes its own URLs", async () => {
   const first = await fetch(new URL("/api/ext/notes/callback", server.url));
-  const cookie = first.headers.get("set-cookie") ?? "";
 
   expect(await first.json()).toEqual({
     url: new URL("/api/ext/notes/callback", server.url).href,
-    state: null,
   });
-
-  expect(cookie).toContain("Path=/api/ext/notes");
-  expect(cookie).toContain("HttpOnly");
-
-  expect(
-    await json(
-      fetch(new URL("/api/ext/notes/callback", server.url), {
-        headers: { cookie: cookie.split(";")[0] ?? "" },
-      }),
-    ),
-  ).toMatchObject({ state: "abc" });
 });
 
 test("a webhook answers 401 to a body it didn't sign and 413 to one over its limit", async () => {

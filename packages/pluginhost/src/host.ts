@@ -292,7 +292,6 @@ export function startPlugins(
   const routeTools = new Map<string, RouteTool>();
   const toolsetUsers = new Set<string>();
   const routeToolProfiles = new Set<string>();
-  let modelCredentials: string | undefined;
   const routes = new Map<string, PluginRoute>();
   const publicRoutes = new Map<string, PublicRoute>();
   const logins: { plugin: string; offered: () => readonly Login[] }[] = [];
@@ -554,17 +553,9 @@ export function startPlugins(
     },
   });
 
-  const environmentsOf = (plugin: string): PluginEnvironments => {
-    const { startsRunners: _startsRunners, ...environments } =
-      pluginEnvironments(
-        deps.sessions,
-        deps.environments,
-        deps.runners,
-        () => undefined,
-        templateConfigOf(plugin),
-      );
-
-    return environments;
+  const environments: PluginEnvironments = {
+    list: () => deps.environments.list(),
+    templates: () => deps.environments.templates(),
   };
 
   // The kernel's own tools have no plugin.
@@ -906,11 +897,7 @@ export function startPlugins(
       }[],
       profiles: new Map<string, PluginProfile>(),
       routeToolProfiles: [] as string[],
-      logins: [] as (() => readonly Login[])[],
       offers: [] as ModelOffer[],
-      gitLogins: [] as GitLoginsOf[],
-      starters: [] as (typeof starters)[number][],
-      modelCredentials: false,
     };
 
     try {
@@ -980,26 +967,8 @@ export function startPlugins(
           transcript,
           urls: pluginUrls(id, deps.url),
           provide: {
-            runners: ({ starts }) => {
-              staged.starters.push({ plugin: id, starts });
-            },
             models: (offer) => {
               staged.offers.push(offer);
-            },
-            gitCredentials: (fn) => {
-              staged.gitLogins.push(fn);
-            },
-            modelCredentials: () => {
-              if (modelCredentials !== undefined) {
-                throw new Error(
-                  `${modelCredentials} already gives the Sessions' logins`,
-                );
-              }
-
-              staged.modelCredentials = true;
-            },
-            signIn: ({ logins: offered }) => {
-              staged.logins.push(offered);
             },
             profile: (key, { name: _name, ...content }, o) => {
               const profileId = `${id}.${key}`;
@@ -1016,17 +985,11 @@ export function startPlugins(
 
               return profileId;
             },
-            runtime: () => {
-              throw new Error("this server gives plugins no runtime");
-            },
           },
           secrets: secretsOf(store),
-          environments: environmentsOf(id),
-          profiles: {
-            mcpServers: deps.mcpServers ?? (() => []),
-            buildsOn: deps.buildsOn ?? (() => []),
-          },
+          environments,
           clock: deps.clock,
+          timer: deps.timer,
           log,
           signal,
         }),
@@ -1097,15 +1060,7 @@ export function startPlugins(
       routeToolProfiles.add(profileId);
     }
 
-    if (staged.modelCredentials) {
-      modelCredentials = id;
-    }
-
-    logins.push(...staged.logins.map((offered) => ({ plugin: id, offered })));
-
     offers.push(...staged.offers);
-    gitLogins.push(...staged.gitLogins);
-    starters.push(...staged.starters);
     scheduled.commit();
     schedules.wake();
     extRoutes.push(...declared.declared);
