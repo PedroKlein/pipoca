@@ -1,14 +1,15 @@
 const heartbeatMs = 15_000;
 
-// A client this far behind is not keeping up. Dropping it bounds server
-// memory, and it reconnects with Last-Event-ID without losing events.
+// A client this far behind is not keeping up. Ending its stream bounds
+// server memory; it still reads what was queued, and reconnects with
+// Last-Event-ID without losing events.
 const maxQueuedBytes = 1024 * 1024;
 
+// False when the event wasn't queued for the client, since its stream ended.
+type SseSend = (data: unknown, id?: string) => boolean;
+
 export function sseResponse(
-  open: (
-    send: (data: unknown, id?: string) => void,
-    end: () => void,
-  ) => () => void,
+  open: (send: SseSend, end: () => void) => () => void,
 ): Response {
   const encoder = new TextEncoder();
   let close = (): void => undefined;
@@ -18,19 +19,21 @@ export function sseResponse(
   const body = new ReadableStream<Uint8Array>(
     {
       start(controller) {
-        const write = (text: string): void => {
+        const write = (text: string): boolean => {
           if (closed) {
-            return;
+            return false;
           }
 
           if (replayed && (controller.desiredSize ?? 0) < 0) {
             close();
-            controller.error(new Error("client fell behind"));
+            controller.close();
 
-            return;
+            return false;
           }
 
           controller.enqueue(encoder.encode(text));
+
+          return true;
         };
 
         write(": open\n\n");
@@ -52,7 +55,8 @@ export function sseResponse(
         stop = open(
           (data, id) => {
             const field = id === undefined ? "" : `id: ${id}\n`;
-            write(`${field}data: ${JSON.stringify(data)}\n\n`);
+
+            return write(`${field}data: ${JSON.stringify(data)}\n\n`);
           },
           () => {
             if (!closed) {

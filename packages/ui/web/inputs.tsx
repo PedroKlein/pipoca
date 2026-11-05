@@ -32,28 +32,37 @@ export function TextArea({
   );
 }
 
-type BoxProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & {
+type BoxProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "size"> & {
   readonly label: ReactNode;
   readonly description?: ReactNode;
+  // A small one in a toolbar, such as Show archived.
+  readonly size?: "sm" | "md";
 };
 
 function Box({
   type,
   label,
   description,
+  size = "md",
   className,
   ...props
 }: BoxProps & { readonly type: "checkbox" | "radio" }): ReactElement {
   return (
     <label
       className={cn(
-        "flex cursor-pointer items-start gap-2.5 text-ui text-fg has-disabled:cursor-default has-disabled:opacity-60",
+        "flex cursor-pointer has-disabled:cursor-default has-disabled:opacity-60",
+        size === "sm"
+          ? "items-center gap-1.5 text-caption text-fg-dim"
+          : "items-start gap-2.5 text-ui text-fg",
         className,
       )}
     >
       <input
         type={type}
-        className="mt-0.5 size-4 shrink-0 cursor-pointer accent-(--accent) disabled:cursor-default"
+        className={cn(
+          "shrink-0 cursor-pointer accent-(--accent) disabled:cursor-default",
+          size === "sm" ? "size-3.5" : "mt-0.5 size-4",
+        )}
         {...props}
       />
       <span className="flex min-w-0 flex-col gap-0.5">

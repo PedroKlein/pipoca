@@ -9,7 +9,3 @@ export interface BotView {
   // Why the bot's connection to Slack fails.
   readonly error: string | null;
 }
-
-export interface Account {
-  readonly admin: boolean;
-}

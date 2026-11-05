@@ -22,7 +22,7 @@ export const webRegistry = [
   { id: "ask", part: askWeb },
   { id: "changes", part: changesWeb },
   { id: "checklist", part: checklistWeb },
-  { id: "email", plugin: emailWeb },
+  { id: "email", part: emailWeb },
   { id: "git-hosts", plugin: gitHostsWeb },
   { id: "kubernetes", plugin: kubernetesWeb },
   { id: "library", plugin: libraryWeb },
@@ -34,7 +34,7 @@ export const webRegistry = [
   { id: "projects", plugin: projectsWeb },
   { id: "push", plugin: pushWeb },
   { id: "routines", plugin: routinesWeb },
-  { id: "slack", plugin: slackWeb },
+  { id: "slack", part: slackWeb },
   { id: "subagents", part: subagentsWeb },
   { id: "usage", plugin: usageWeb },
 ] as const;

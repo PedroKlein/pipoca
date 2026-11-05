@@ -56,7 +56,7 @@ export function SetupShell({
 }): ReactElement {
   return (
     <div className="flex min-h-dvh flex-col bg-bg font-sans text-ui text-fg">
-      <header className="grid grid-cols-[1fr_auto_1fr] items-center px-7 py-5">
+      <header className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 py-5 sm:px-7">
         <Wordmark />
         {steps === undefined ? (
           <span />
@@ -67,14 +67,16 @@ export function SetupShell({
                 key={index}
                 aria-current={index === steps.at ? "step" : undefined}
                 className={cn(
-                  "h-1 w-9 rounded-full",
+                  "h-1 w-5 rounded-full sm:w-9",
                   index <= steps.at ? "bg-accent" : "bg-line",
                 )}
               />
             ))}
           </ol>
         )}
-        <span className="justify-self-end text-label text-fg-dim">{aside}</span>
+        <span className="justify-self-end text-label whitespace-nowrap text-fg-dim">
+          {aside}
+        </span>
       </header>
       {children}
     </div>

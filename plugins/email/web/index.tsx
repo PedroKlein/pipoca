@@ -1,9 +1,10 @@
 import {
-  json,
+  ConfigForm,
+  defineWeb,
   type NoticeProps,
+  useApi,
   useLoaded,
-  type WebContext,
-  type WebPlugin,
+  useViewer,
 } from "@pipoca/plugins/web";
 import {
   Button,
@@ -15,41 +16,33 @@ import {
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import type { Account, MailboxView } from "../src/model";
+import { about } from "../about";
+import type { MailboxView } from "../src/model";
 
-export const email: WebPlugin = {
-  name: "email",
-  SettingsSection,
-  settingsGroup: "integrations",
-  notices: { email_reply: EmailReply },
-};
+export default defineWeb(about, {
+  settings: { group: "integrations", Section },
+  slots: { "notice:email_reply": EmailReply },
+});
 
-function SettingsSection({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement | null {
-  const { value: account } = useLoaded(
-    async () => json<Account>(context.request("account")),
-    "account",
-  );
-
-  if (account?.admin !== true) {
+function Section(): ReactElement | null {
+  if (!useViewer().admin) {
     return null;
   }
 
-  return <Mailboxes context={context} />;
+  return (
+    <div className="flex flex-col gap-4">
+      <Mailboxes />
+      <ConfigForm plugin={about} path="pollSeconds" />
+    </div>
+  );
 }
 
-function Mailboxes({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement {
+function Mailboxes(): ReactElement {
+  const api = useApi(about);
   const [ask, asking] = useConfirm();
 
   const { value, reload } = useLoaded(
-    async () => json<readonly MailboxView[]>(context.request("mailboxes")),
+    async () => api.get<readonly MailboxView[]>("mailboxes"),
     "mailboxes",
   );
 
@@ -68,36 +61,33 @@ function Mailboxes({
 
     const secure = form.get("secure") === "on";
 
-    json(
-      context.request("mailboxes", {
-        method: "POST",
-        body: JSON.stringify({
-          name: field("name"),
-          address: field("address"),
-          user: field("user") || field("address"),
-          password: field("password"),
-          imap: {
-            host: field("imapHost"),
-            port: Number(field("imapPort") || (secure ? 993 : 143)),
-            secure,
-          },
-          smtp: {
-            host: field("smtpHost"),
-            port: Number(field("smtpPort") || (secure ? 465 : 587)),
-            secure,
-          },
-        }),
-      }),
-    ).then(
-      () => {
-        setAdding(false);
-        setError(undefined);
-        reload();
-      },
-      (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
-      },
-    );
+    api
+      .post("mailboxes", {
+        name: field("name"),
+        address: field("address"),
+        user: field("user") || field("address"),
+        password: field("password"),
+        imap: {
+          host: field("imapHost"),
+          port: Number(field("imapPort") || (secure ? 993 : 143)),
+          secure,
+        },
+        smtp: {
+          host: field("smtpHost"),
+          port: Number(field("smtpPort") || (secure ? 465 : 587)),
+          secure,
+        },
+      })
+      .then(
+        () => {
+          setAdding(false);
+          setError(undefined);
+          reload();
+        },
+        (reason: unknown) => {
+          setError(reason instanceof Error ? reason.message : String(reason));
+        },
+      );
   };
 
   const remove = (mailbox: MailboxView): void => {
@@ -111,11 +101,9 @@ function Mailboxes({
         return;
       }
 
-      void json(
-        context.request(`mailboxes/${encodeURIComponent(mailbox.name)}`, {
-          method: "DELETE",
-        }),
-      ).then(reload, reload);
+      void api
+        .delete(`mailboxes/${encodeURIComponent(mailbox.name)}`)
+        .then(reload, reload);
     });
   };
 
@@ -246,7 +234,7 @@ function Mailboxes({
   );
 }
 
-function EmailReply({ text }: NoticeProps): ReactElement {
+function EmailReply({ text }: Omit<NoticeProps, "context">): ReactElement {
   return (
     <div className="flex flex-col gap-1 text-ui">
       <span className="text-label text-fg-dim">Reply by email</span>

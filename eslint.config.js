@@ -104,9 +104,9 @@ export default tseslint.config(
       "apps/pipoca/src/testdata/*-session.ts",
       "apps/pipoca/src/web-parts.ts",
       "plugins/*/src/server.ts",
-      "plugins/*/src/session.ts",
       "plugins/*/web/index.tsx",
       "plugins/*/web.d.ts",
+      "plugins/*/src/session.ts",
     ],
     rules: { "no-restricted-exports": "off" },
   },
@@ -140,8 +140,6 @@ export default tseslint.config(
     ignores: [
       "plugins/*/src/**/*.test.ts",
       // Until these move to the clock and schedule as their plugins port.
-      "plugins/email/src/mail.ts",
-      "plugins/email/src/server.ts",
       "plugins/git-hosts/src/acting.ts",
       "plugins/git-hosts/src/poller.ts",
       "plugins/git-hosts/src/server.ts",
@@ -159,7 +157,6 @@ export default tseslint.config(
       "plugins/push/src/server.ts",
       "plugins/routines/src/engine.ts",
       "plugins/routines/src/wakeups.ts",
-      "plugins/slack/src/socket.ts",
     ],
     rules: {
       "no-restricted-globals": [

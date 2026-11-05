@@ -18,10 +18,13 @@ import {
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
   BadRequest,
+  definePlugin,
+  defineServer,
   fieldsOf,
   HttpError,
   type KernelEvent,
   NotFound,
+  type PluginDefinition,
   readBody,
   type ServerPlugin,
   type ServerPluginContext,
@@ -599,6 +602,76 @@ test("resets a plugin whose tables another version made, once an admin asks", as
   expect(
     (await server.api("/api/plugins/nobody/data", { method: "DELETE" })).status,
   ).toBe(404);
+});
+
+test("resets a plugin made with definePlugin whose tables another version made, and starts it at the restart", async () => {
+  const database = join(root, "server.db");
+
+  const tally = (sql: string): PluginDefinition => {
+    const plugin: PluginDefinition = {
+      ...definePlugin({
+        id: "tally",
+        title: "Tally",
+        description: "",
+        schema: sql,
+      }),
+      server: async () =>
+        Promise.resolve({
+          default: defineServer(plugin, ({ routes, store }) => {
+            routes.post("marks", { auth: "person" }, () => {
+              store.run("insert into tally_marks (n) values (1)");
+
+              return { ok: true };
+            });
+
+            routes.get("marks", { auth: "person" }, () =>
+              store.all("select n from tally_marks"),
+            );
+          }),
+        }),
+    };
+
+    return plugin;
+  };
+
+  const before = tally("create table tally_marks (n integer) strict");
+
+  const after = tally(
+    "create table tally_marks (n integer, m integer not null default 0) strict",
+  );
+
+  server = testServer({ database, plugins: [], definitions: [before] });
+  await server.api("/api/ext/tally/marks", { body: {} });
+
+  const cookie = await server.signedIn();
+  await server.close();
+
+  server = testServer({ database, cookie, plugins: [], definitions: [after] });
+
+  expect(await (await server.api("/api/plugins")).json()).toMatchObject([
+    { id: "tally", state: "failed", resettable: true },
+  ]);
+
+  const reset = await server.api("/api/plugins/tally/data", {
+    method: "DELETE",
+  });
+
+  expect(reset.status).toBe(200);
+
+  expect(await reset.json()).toMatchObject({
+    id: "tally",
+    state: "failed",
+    error: "its data was reset; it starts when the server restarts",
+  });
+
+  await server.close();
+  server = testServer({ database, cookie, plugins: [], definitions: [after] });
+
+  expect(await (await server.api("/api/plugins")).json()).toMatchObject([
+    { id: "tally", state: "on" },
+  ]);
+
+  expect(await (await server.api("/api/ext/tally/marks")).json()).toEqual([]);
 });
 
 test("keeps the data of a plugin that failed for another reason than its tables", async () => {
