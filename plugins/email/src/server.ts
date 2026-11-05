@@ -208,6 +208,7 @@ export default defineServer(
         const mine = usableBy(person);
 
         const only = mine.length === 1 ? mine[0]?.name : undefined;
+
         const mailbox = mine.find(
           ({ name }) => name === (input.mailbox ?? only),
         );
