@@ -190,13 +190,14 @@ export async function pluginTest(
       },
     });
 
-  let server = start();
-
-  const url = (path: string): URL => new URL(path, server.url);
-
+  // Before the server starts, since its plugins register as it does.
   const self: Opened = { fetch: o.fetch };
   opened.add(self);
   globalThis.fetch = outbound;
+
+  let server = start();
+
+  const url = (path: string): URL => new URL(path, server.url);
 
   const ready = async (): Promise<void> => {
     await fetch(url("/healthz"));

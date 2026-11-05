@@ -164,14 +164,9 @@ test("an at that comes due across a restart fires once its plugin has started", 
 
   await t.as("ana").post("alarms", {});
   await t.restart();
+  await t.clock.advance("1s");
 
-  expect(
-    await until(
-      () => rung,
-      (each) => each.length > 0,
-      3000,
-    ),
-  ).toEqual(["ring:soon"]);
+  expect(rung).toEqual(["ring:soon"]);
 });
 
 // Says hello by the greeting in its config.
