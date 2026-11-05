@@ -635,7 +635,7 @@ test("lists a Project's threads for its coordinator", async () => {
   expect(listing).toContain(`${threadId} · `);
 
   expect(listing).toContain(
-    ` · work: in_progress · environment: ${environment?.id ?? ""} · branch: pipoca/${threadId.slice(0, 8)} · last activity: `,
+    ` · work: in_progress · environment: ${environment?.id ?? ""} · branch: pipoca/${threadId.slice(-8)} · last activity: `,
   );
 }, 30_000);
 

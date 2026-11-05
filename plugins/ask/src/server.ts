@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import {
   BadRequest,
   HttpError,
@@ -10,6 +9,7 @@ import {
   Type,
 } from "@pipoca/plugins";
 import type { Session } from "@pipoca/protocol";
+import type { Votes } from "./votes";
 
 const sweepMs = 30_000;
 const maxOptions = 8;
@@ -62,28 +62,6 @@ create table ask_vote_picks (
   foreign key (vote_id, position) references ask_vote_options (vote_id, position) on delete cascade
 ) strict;
 `;
-
-// An open vote as one person sees it: who picked what, their own pick, and
-// whether they may close it.
-export interface Vote {
-  readonly id: string;
-  readonly opener: string;
-  readonly question: string;
-  readonly options: readonly string[];
-  readonly picks: readonly {
-    readonly person: string;
-    readonly name: string;
-    readonly option: string;
-  }[];
-  readonly mine: string | null;
-  readonly canClose: boolean;
-  readonly closesAt: string;
-}
-
-export interface Votes {
-  readonly canOpen: boolean;
-  readonly votes: readonly Vote[];
-}
 
 // Anyone in team work opens a vote, Pi too. The opener or the starter closes
 // it, or it closes on time, and Pi reads the result on its next turn
@@ -331,7 +309,7 @@ function ballots(context: ServerPluginContext) {
 
       const now = Date.now();
       const open = minutes ?? Number(context.settings.get()["voteMinutes"]);
-      const id = randomUUID();
+      const id = Bun.randomUUIDv7();
       const closesAt = now + open * 60_000;
 
       store.transaction(() => {

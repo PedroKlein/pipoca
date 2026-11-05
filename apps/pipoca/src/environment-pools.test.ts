@@ -510,7 +510,7 @@ test("forks a started clone from its branch, or from its restore point once arch
 
   expect(live.workspace).toMatchObject({
     kind: "clone",
-    startPoint: `pipoca/${id.slice(0, 8)}`,
+    startPoint: `pipoca/${id.slice(-8)}`,
     forked: true,
   });
 

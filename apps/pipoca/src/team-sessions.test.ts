@@ -881,6 +881,8 @@ test("the team votes, and Pi reads the result the next time it's asked", async (
 
   const { id } = (await opened.json()) as { id: string };
 
+  expect(id.charAt(14)).toBe("7");
+
   const pick = async (cookie: string, option: string): Promise<number> =>
     (
       await server.as(cookie)(`/api/plugins/ask/votes/${id}/pick`, {

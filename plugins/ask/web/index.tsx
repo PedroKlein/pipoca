@@ -8,7 +8,7 @@ import {
 } from "@pipoca/plugins/web";
 import { Button, cn, Field, fieldClass, Icon, ListInput } from "@pipoca/ui";
 import { type ReactElement, useEffect, useRef, useState } from "react";
-import type { Vote, Votes } from "../src/server";
+import type { Vote, Votes } from "../src/votes";
 
 // Open votes sit above the composer of team work, and anyone following it
 // opens one from the header (ADR 0065).

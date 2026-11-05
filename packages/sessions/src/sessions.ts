@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { KernelEvent, ModelOffer, StartRequest } from "@pipoca/plugins";
 import {
   type Actor,
@@ -365,7 +364,7 @@ export class Sessions {
       return { ok: false, reason: "unknown_profile" };
     }
 
-    const id = randomUUID();
+    const id = Bun.randomUUIDv7();
 
     const session: StoredSession = {
       id,
@@ -378,7 +377,7 @@ export class Sessions {
       workspace:
         request.workspace.kind === "folder"
           ? request.workspace
-          : { ...request.workspace, branch: `pipoca/${id.slice(0, 8)}` },
+          : { ...request.workspace, branch: `pipoca/${id.slice(-8)}` },
       model: request.model ?? this.#offeredModels(environment).default ?? null,
       thinking: request.thinking ?? null,
       systemPrompt: request.systemPrompt ?? null,
