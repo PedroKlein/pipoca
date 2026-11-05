@@ -3,15 +3,20 @@ import type { Wire } from "./wire";
 
 // Who may call a route. A person signs in with a cookie or an access token;
 // a runner and its Sessions' hosts carry the tokens the server gave them
-// (ADR 0033). A webhook proves itself with a signature, which plugins get
-// in slice 6.
+// (ADR 0033). A webhook signs its body with HMAC-SHA256 under a secret its
+// route knows.
 export type Auth =
   | "public"
   | "person"
   | "admin"
   | "runner"
   | "session"
-  | { readonly webhook: { readonly header?: string } };
+  | {
+      readonly webhook: {
+        readonly header?: string;
+        readonly maxBytes?: number;
+      };
+    };
 
 export type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "ANY";
 

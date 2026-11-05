@@ -22,7 +22,11 @@ import {
   pluginSwitches,
   startPlugins,
 } from "@pipoca/pluginhost";
-import { eventBus, type ServerPlugin } from "@pipoca/plugins";
+import {
+  eventBus,
+  type PluginDefinition,
+  type ServerPlugin,
+} from "@pipoca/plugins";
 import {
   apiPath,
   type Clock,
@@ -138,6 +142,8 @@ export interface ServeOptions {
   // Replaces the built-in plugins. A plugin without a manifest gets one with
   // just its name.
   readonly plugins?: readonly ServerPlugin[];
+  // Plugins defined with definePlugin, besides the ones above.
+  readonly definitions?: readonly PluginDefinition[];
   readonly manifests?: readonly PluginManifest[];
   readonly disabledPlugins?: readonly string[];
   // The plugins folder and what was found in it (ADR 0022).
@@ -217,15 +223,43 @@ export function serve(options: ServeOptions): {
         },
     ) ?? builtInPlugins;
 
-  const known = [...builtIn, ...installed.map(({ manifest }) => manifest)];
+  const definitions = options.definitions ?? [];
+
+  const defined = definitions.map(
+    ({ id, title, description, works }): PluginManifest => ({
+      id,
+      title,
+      description,
+      ...(works !== undefined && { works: [...works] }),
+    }),
+  );
+
+  const known = [
+    ...builtIn,
+    ...defined,
+    ...installed.map(({ manifest }) => manifest),
+  ];
+
+  const onByDefault = (name: string): boolean => {
+    const defaultOn = definitions.find(({ id }) => id === name)?.defaultOn;
+
+    if (defaultOn === undefined) {
+      return !offByDefault.includes(name);
+    }
+
+    return (
+      defaultOn === "always" ||
+      (defaultOn === "solo") === (options.solo !== undefined)
+    );
+  };
 
   const enabled = [
-    ...builtIn
+    ...[...builtIn, ...defined]
       .map(({ id }) => id)
       .filter(
         (name) =>
           options.disabledPlugins?.includes(name) !== true &&
-          (switches.get(name).personal ?? !offByDefault.includes(name)),
+          (switches.get(name).personal ?? onByDefault(name)),
       ),
     ...installed.flatMap(({ manifest: { id }, on }) => (on ? [id] : [])),
   ];
@@ -378,6 +412,8 @@ export function serve(options: ServeOptions): {
   syncLater();
 
   const pluginHost = startPlugins(plugins, enabled, {
+    definitions,
+    url: () => options.url ?? server.url,
     manifests: known,
     sessions,
     environments,
@@ -394,7 +430,8 @@ export function serve(options: ServeOptions): {
     resetData: store.resetPlugin,
     config,
     toolsets: kernelToolsets,
-    api: async (onBehalf, request) => handler(onBehalfOf(onBehalf, request)),
+    api: async (onBehalf, request) =>
+      (await api).handle(onBehalfOf(onBehalf, request)),
     auth: {
       userOf: (request) => signIn.userOf(request),
       users: () => people.users(),
@@ -452,37 +489,38 @@ export function serve(options: ServeOptions): {
     sessions.flushOutbox();
   }, outboxSweepMs);
 
-  const api = createApi({
-    people,
-    signIn,
-    runners,
-    sessions,
-    environments,
-    profiles: userProfiles,
-    plugins: pluginHost,
-    changes,
-    checkStore: store.check,
-    log: options.log,
-    restart: options.restart && {
-      busy: () =>
-        sessions
-          .list()
-          .filter(
-            ({ provider, runner, status }) =>
-              provider === ownAgent?.provider &&
-              runner === ownAgent.provider &&
-              (status === "starting" || status === "running"),
-          ).length,
-      now: options.restart,
-    },
-    templates,
-    config: configFiles(configDir, options.lockedConfig),
-    hub: hubSettings(config("hub"), options.log),
-    newcomers: newcomerSetup(config("newcomers"), options.log),
-    team,
-  });
-
-  const handler = api.handle;
+  // Requests wait for the plugins' routes, which load in the background.
+  const api = pluginHost.ready.then(() =>
+    createApi({
+      people,
+      signIn,
+      runners,
+      sessions,
+      environments,
+      profiles: userProfiles,
+      plugins: pluginHost,
+      changes,
+      checkStore: store.check,
+      log: options.log,
+      restart: options.restart && {
+        busy: () =>
+          sessions
+            .list()
+            .filter(
+              ({ provider, runner, status }) =>
+                provider === ownAgent?.provider &&
+                runner === ownAgent.provider &&
+                (status === "starting" || status === "running"),
+            ).length,
+        now: options.restart,
+      },
+      templates,
+      config: configFiles(configDir, options.lockedConfig),
+      hub: hubSettings(config("hub"), options.log),
+      newcomers: newcomerSetup(config("newcomers"), options.log),
+      team,
+    }),
+  );
 
   const terminals = terminalBroker(sessions, auth, options.log);
 
@@ -546,14 +584,16 @@ export function serve(options: ServeOptions): {
         return undefined;
       }
 
-      if (api.takesLong(request)) {
+      const router = await api;
+
+      if (router.takesLong(request)) {
         bunServer.timeout(request, 0);
       }
 
       return (
         upgraded ??
         previews.open(request) ??
-        handler(
+        router.handle(
           fromAddress(
             clientAddress(request, bunServer, options.trustProxy === true),
             request,
