@@ -158,3 +158,13 @@ export {
   type WorkspaceRemoval,
   type WorkspaceRequest,
 } from "./session";
+export {
+  type Auth,
+  type BodyOf,
+  type Method,
+  type ParamsOf,
+  type QueryOf,
+  type ReplyOf,
+  type RouteSpec,
+} from "./route";
+export { type RouteKey, type Routes, routes } from "./routes";

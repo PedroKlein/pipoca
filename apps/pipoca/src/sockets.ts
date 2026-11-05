@@ -1,7 +1,7 @@
 import type { Server, ServerWebSocket } from "bun";
 import { protocolVersion, versionHeader } from "@pipoca/protocol";
 import type { Sessions } from "@pipoca/sessions";
-import type { Auth } from "./server";
+import type { Auth } from "./server/http/deps";
 
 // The server's WebSockets: terminals, keyed by Session and terminal id, and
 // the Session host's end of a preview request.

@@ -5,8 +5,8 @@ import type { PreviewRequest, PreviewResponse } from "@pipoca/protocol";
 import type { Log } from "@pipoca/protocol";
 import { canSteer } from "@pipoca/people";
 import type { Sessions } from "@pipoca/sessions";
-import type { Auth } from "./server";
-import { errorReply, notFound } from "./replies";
+import type { Auth } from "./server/http/deps";
+import { errorReply, notFound } from "./server/http/replies";
 import {
   fromSessionHost,
   type PreviewData,

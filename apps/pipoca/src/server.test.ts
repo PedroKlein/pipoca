@@ -13,7 +13,7 @@ import {
   type WorkPoll,
 } from "@pipoca/protocol";
 import type { Log } from "@pipoca/protocol";
-import { startPlugins } from "@pipoca/pluginhost";
+import { type PluginHost, startPlugins } from "@pipoca/pluginhost";
 import { ProfileFolders, Profiles } from "@pipoca/profiles";
 import { Sessions, type SessionStore } from "@pipoca/sessions";
 import {
@@ -22,8 +22,9 @@ import {
   RunnerCredentials,
 } from "@pipoca/environments";
 import { People, SignIn } from "@pipoca/people";
-import { changeFeed } from "./changes";
-import { type Auth, createHandler } from "./server";
+import { type Changes, changeFeed } from "./changes";
+import { createApi } from "./server/http/api";
+import type { Auth } from "./server/http/deps";
 import { readSse } from "@pipoca/protocol";
 import { openStore, type Store } from "./sqlite/store";
 import { firstUserCookie } from "./testdata/sign-in";
@@ -62,6 +63,28 @@ function authOf(store: Store): Auth {
     signIn: new SignIn(people, store.people),
     runners: new RunnerCredentials(store.credentials),
   };
+}
+
+function createHandler(
+  auth: Auth,
+  sessions: Sessions,
+  environments: Environments,
+  profiles: Profiles,
+  plugins: PluginHost,
+  changes: Changes,
+  checkStore: () => void,
+  log: Log,
+): (request: Request) => Promise<Response> {
+  return createApi({
+    ...auth,
+    sessions,
+    environments,
+    profiles,
+    plugins,
+    changes,
+    checkStore,
+    log,
+  }).handle;
 }
 
 test("reports unhealthy when the database can't be read, keeping why in the log", async () => {

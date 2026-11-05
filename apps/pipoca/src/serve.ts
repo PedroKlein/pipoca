@@ -62,11 +62,12 @@ import {
 } from "./installed";
 import { latestCommit } from "@pipoca/repositories";
 import { builtInPlugins, sessionPlugins } from "./session-parts";
-import { errorReply } from "./replies";
+import { errorReply } from "./server/http/replies";
 import { previewBroker } from "./previews";
 import { webAppFile } from "./web-app";
 import { changeFeed } from "./changes";
-import { createHandler, fromAddress, onBehalfOf } from "./server";
+import { createApi } from "./server/http/api";
+import { fromAddress, onBehalfOf } from "./server/http/router";
 import type { PreviewData, SocketData, TerminalData } from "./sockets";
 import { openStore, type Store } from "./sqlite/store";
 import { terminalBroker } from "./terminals";
@@ -148,23 +149,6 @@ export interface ServeOptions {
   // The clock leases, tokens and stored times follow; the system's when unset.
   readonly clock?: Clock;
   readonly log: Log;
-}
-
-// Installing, updating or building a plugin, or importing a Profile from
-// git, can take minutes with nothing sent until it is done.
-const longRoutes = [
-  ["POST", /^\/api\/plugins$/],
-  ["PATCH", /^\/api\/plugins\/[^/]+$/],
-  ["POST", /^\/api\/plugin-builds\/[^/]+$/],
-  ["POST", /^\/api\/profiles\/import$/],
-] as const;
-
-function takesLong(request: Request): boolean {
-  const { pathname } = new URL(request.url);
-
-  return longRoutes.some(
-    ([method, path]) => request.method === method && path.test(pathname),
-  );
 }
 
 export function serve(options: ServeOptions): {
@@ -453,16 +437,18 @@ export function serve(options: ServeOptions): {
     void pluginHost.checkUpdates();
   }, updateCheckMs);
 
-  const handler = createHandler(
-    auth,
+  const api = createApi({
+    people,
+    signIn,
+    runners,
     sessions,
     environments,
-    userProfiles,
-    pluginHost,
+    profiles: userProfiles,
+    plugins: pluginHost,
     changes,
-    store.check,
-    options.log,
-    options.restart && {
+    checkStore: store.check,
+    log: options.log,
+    restart: options.restart && {
       busy: () =>
         sessions
           .list()
@@ -475,11 +461,13 @@ export function serve(options: ServeOptions): {
       now: options.restart,
     },
     templates,
-    configFiles(configDir, options.lockedConfig),
-    hubSettings(config("hub")),
-    newcomerSetup(config("newcomers")),
+    config: configFiles(configDir, options.lockedConfig),
+    hub: hubSettings(config("hub")),
+    newcomers: newcomerSetup(config("newcomers")),
     team,
-  );
+  });
+
+  const handler = api.handle;
 
   const terminals = terminalBroker(sessions, auth, options.log);
 
@@ -543,7 +531,7 @@ export function serve(options: ServeOptions): {
         return undefined;
       }
 
-      if (takesLong(request)) {
+      if (api.takesLong(request)) {
         bunServer.timeout(request, 0);
       }
 

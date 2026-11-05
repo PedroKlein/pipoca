@@ -4,8 +4,8 @@ import { type TerminalControl, terminalTakenOver } from "@pipoca/protocol";
 import type { Log } from "@pipoca/protocol";
 import { canSteer } from "@pipoca/people";
 import type { Sessions } from "@pipoca/sessions";
-import type { Auth } from "./server";
-import { errorReply, notFound, rejected } from "./replies";
+import type { Auth } from "./server/http/deps";
+import { errorReply, notFound, rejected } from "./server/http/replies";
 import {
   fromSessionHost,
   type SocketHandler,
