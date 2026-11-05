@@ -125,6 +125,57 @@ export default tseslint.config(
     },
   },
   {
+    // Screens build from @pipoca/ui instead of copying its classes and
+    // elements (docs/design-system.md).
+    files: [
+      "apps/web/src/**/*.ts",
+      "apps/web/src/**/*.tsx",
+      "plugins/*/web/**/*.ts",
+      "plugins/*/web/**/*.tsx",
+    ],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...[
+          [
+            "rounded-lg border border-line bg-elevated",
+            "Use Card, cardClass, linkCardClass or popClass from @pipoca/ui.",
+          ],
+          [
+            "\\bbg-black\\b",
+            "Use bg-scrim behind a dialog; the palette has no black.",
+          ],
+          [
+            // Three digits only inside [..] or after a colon, so an
+            // anchor such as #add still passes.
+            "(^|[\\s\\[:])#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})\\b|(\\[|:\\s?)#[0-9a-fA-F]{3}\\b",
+            "Use a colour token from theme.css instead of a hex colour.",
+          ],
+          [
+            "\\buppercase\\b",
+            "Labels stay in sentence case (docs/design-system.md).",
+          ],
+        ].flatMap(([pattern, message]) => [
+          { selector: `Literal[value=/${pattern}/]`, message },
+          { selector: `TemplateElement[value.raw=/${pattern}/]`, message },
+        ]),
+        {
+          selector: "JSXOpeningElement[name.name='select']",
+          message: "Use Select from @pipoca/ui.",
+        },
+        {
+          selector: "JSXOpeningElement[name.name='dialog']",
+          message: "Use Dialog or useConfirm from @pipoca/ui.",
+        },
+        {
+          selector:
+            "JSXOpeningElement[name.name='input']:has(JSXAttribute[name.name='type'][value.value='file'])",
+          message: "Use FileButton from @pipoca/ui.",
+        },
+      ],
+    },
+  },
+  {
     files: ["**/*.js"],
     extends: [tseslint.configs.disableTypeChecked],
   },

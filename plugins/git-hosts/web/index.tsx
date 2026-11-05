@@ -617,6 +617,7 @@ function Hosts({
   readonly onChange: () => void;
 }): ReactElement {
   const [ask, asking] = useConfirm();
+
   const { value, reload } = useLoaded(
     async () => json<readonly HostView[]>(context.request("hosts")),
     "hosts",
@@ -1050,6 +1051,7 @@ function Bots({
   readonly hosts: readonly string[];
 }): ReactElement {
   const [ask, asking] = useConfirm();
+
   const { value, reload } = useLoaded(
     async () =>
       json<readonly TechnicalUserView[]>(context.request("technical-users")),

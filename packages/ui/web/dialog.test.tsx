@@ -67,9 +67,11 @@ test("confirm resolves with the person's answer", async () => {
   const page = render(<Asking answers={answers} />);
 
   click(byRole(page, "button", "Ask"));
+
   click(
     byRole(byRole(page, "dialog", "Delete the routine?"), "button", "Delete"),
   );
+
   await act(async () => Promise.resolve());
 
   click(byRole(page, "button", "Asked"));

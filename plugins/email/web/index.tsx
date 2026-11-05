@@ -47,6 +47,7 @@ function Mailboxes({
   readonly context: WebContext;
 }): ReactElement {
   const [ask, asking] = useConfirm();
+
   const { value, reload } = useLoaded(
     async () => json<readonly MailboxView[]>(context.request("mailboxes")),
     "mailboxes",

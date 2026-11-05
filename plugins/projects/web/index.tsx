@@ -1542,29 +1542,32 @@ function ArchiveProject({
           : "Archiving stops the coordinator and every thread, and removes their clean checkouts. Memory and settings stay."}
       </p>
       <Button
-        onClick={async () => {
-          if (
-            !archived &&
-            !(await ask({
-              title: `Archive ${project.name} and all its threads?`,
-              confirm: "Archive",
-              danger: true,
-            }))
-          ) {
-            return;
-          }
+        onClick={() => {
+          void (
+            archived
+              ? Promise.resolve(true)
+              : ask({
+                  title: `Archive ${project.name} and all its threads?`,
+                  confirm: "Archive",
+                  danger: true,
+                })
+          ).then((yes) => {
+            if (!yes) {
+              return;
+            }
 
-          setError("");
+            setError("");
 
-          ok(
-            context.request(
-              `/api/sessions/${encodeURIComponent(project.coordinatorId)}/${archived ? "unarchive" : "archive"}`,
-              { method: "POST" },
-            ),
-          ).then(onDone, (failure: unknown) => {
-            setError(
-              failure instanceof Error ? failure.message : String(failure),
-            );
+            ok(
+              context.request(
+                `/api/sessions/${encodeURIComponent(project.coordinatorId)}/${archived ? "unarchive" : "archive"}`,
+                { method: "POST" },
+              ),
+            ).then(onDone, (failure: unknown) => {
+              setError(
+                failure instanceof Error ? failure.message : String(failure),
+              );
+            });
           });
         }}
       >

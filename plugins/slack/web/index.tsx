@@ -74,6 +74,7 @@ function SettingsSection({
 
 function Bots({ context }: { readonly context: WebContext }): ReactElement {
   const [ask, asking] = useConfirm();
+
   const { value, reload } = useLoaded(
     async () => json<readonly BotView[]>(context.request("bots")),
     "bots",
