@@ -39,7 +39,7 @@ export const server = defineServer(notes, ({ routes, urls }) => {
       },
       body: note,
     },
-    ({ params, body }) => ({ name: params["name"], text: body.text }),
+    ({ params, body }) => ({ name: params.name, text: body.text }),
   );
 
   routes.post(
@@ -56,7 +56,7 @@ export const server = defineServer(notes, ({ routes, urls }) => {
 
   routes.post("marks", { auth: "person", changes: ["marks"] }, () => undefined);
 
-  routes.scoped("lists", (scoped) => {
-    scoped.get("", {}, ({ owner }) => ({ owner }));
-  });
+  routes.get("lists", { auth: "person", team: true }, ({ caller }) => ({
+    owner: caller.owner,
+  }));
 });

@@ -216,7 +216,7 @@ test("a body that doesn't fit the route's schema answers 422 naming the field", 
   });
 });
 
-test("a scoped route serves the caller's own owner and, where the plugin works there, the team", async () => {
+test("a team route serves the caller's own owner and, where the plugin works there, the team", async () => {
   const cookie = await server.signedIn();
   const { user } = await json<SignInStatus>(server.api("/api/auth"));
   const id = user?.id ?? "";

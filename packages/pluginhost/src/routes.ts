@@ -2,12 +2,12 @@ import {
   type Caller,
   NotFound,
   type Params,
+  type PersonCaller,
   type Routes,
   type RouteSpec,
-  type ScopedRoutes,
   type Urls,
 } from "@pipoca/plugins";
-import type { Method, Owner } from "@pipoca/protocol";
+import type { Method } from "@pipoca/protocol";
 
 export interface ExtInput {
   readonly caller: Caller;
@@ -25,8 +25,6 @@ export interface ExtRoute {
   readonly spec: RouteSpec;
   readonly handler: (input: ExtInput) => unknown;
 }
-
-type Scoped = (input: ExtInput & { readonly owner: Owner }) => unknown;
 
 export function pluginRoutes(
   plugin: string,
@@ -53,26 +51,17 @@ export function pluginRoutes(
   const route =
     (method: ExtRoute["method"]) =>
     (path: string, spec: RouteSpec, handler: unknown): void => {
-      declare({
-        method,
-        path: joined(path),
-        spec,
-        handler: handler as ExtRoute["handler"],
-      });
-    };
+      const run = handler as ExtRoute["handler"];
 
-  const scoped =
-    (base: string, method: ExtRoute["method"]) =>
-    (path: string, spec: Omit<RouteSpec, "auth">, handler: unknown): void => {
-      const run = handler as Scoped;
-      const own = joined(base, path);
+      declare({ method, path: joined(path), spec, handler: run });
 
-      declare({
-        method,
-        path: own,
-        spec: { ...spec, auth: "person" },
-        handler: (input) => run({ ...input, owner: ownerOf(input.caller) }),
-      });
+      if (spec.team !== true) {
+        return;
+      }
+
+      if (spec.auth !== "person") {
+        throw new Error(`${path} answers the team, so it needs auth person`);
+      }
 
       if (!o.team) {
         return;
@@ -80,14 +69,16 @@ export function pluginRoutes(
 
       declare({
         method,
-        path: joined("team", own),
-        spec: { ...spec, auth: "person" },
+        path: joined("team", path),
+        spec,
         handler: (input) => {
           if (!o.inTeamWork()) {
             throw new NotFound("Not found.");
           }
 
-          return run({ ...input, owner: "team" });
+          const caller = input.caller as PersonCaller;
+
+          return run({ ...input, caller: { ...caller, owner: "team" } });
         },
       });
     };
@@ -99,17 +90,6 @@ export function pluginRoutes(
       put: route("PUT"),
       patch: route("PATCH"),
       delete: route("DELETE"),
-      scoped: (base, define) => {
-        const routes: ScopedRoutes = {
-          get: scoped(base, "GET"),
-          post: scoped(base, "POST"),
-          put: scoped(base, "PUT"),
-          patch: scoped(base, "PATCH"),
-          delete: scoped(base, "DELETE"),
-        };
-
-        define(routes);
-      },
       topic: (name) => {
         o.publish(`${plugin}.${name}`);
       },
@@ -142,14 +122,6 @@ export function pluginUrls(plugin: string, server: () => URL): Urls {
         ) ?? undefined,
     },
   };
-}
-
-function ownerOf(caller: Caller): Owner {
-  if (caller.kind === "public") {
-    throw new Error("a scoped route serves only people and Sessions");
-  }
-
-  return caller.owner;
 }
 
 function joined(...paths: readonly string[]): string {

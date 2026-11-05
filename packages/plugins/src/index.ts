@@ -51,7 +51,6 @@ export {
   type RouteInput,
   type Routes,
   type RouteSpec,
-  type ScopedRoutes,
   type Secrets,
   type ServerTools,
   type Sessions,

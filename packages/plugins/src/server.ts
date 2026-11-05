@@ -144,6 +144,9 @@ export interface RouteSpec<
   readonly response?: R;
   // What a reply other than 200 answers with.
   readonly status?: 201 | 202;
+  // A person route that also answers at team/<path>, with the team as the
+  // caller's owner, while the plugin is in team work.
+  readonly team?: A extends "person" ? boolean : never;
   readonly changes?: readonly string[];
   readonly long?: boolean;
   readonly tool?: RouteToolSpec;
@@ -197,46 +200,12 @@ type Write = <
   handler: Handler<P, A, B, Q, R>,
 ) => void;
 
-type ScopedRead = <
-  P extends string,
-  Q extends Schema = undefined,
-  R extends Schema = undefined,
->(
-  path: P,
-  spec: Omit<RouteSpec<"person", undefined, Q, R>, "auth">,
-  handler: (
-    request: RouteInput<P, "person", undefined, Q> & { readonly owner: Owner },
-  ) => Reply<R> | Promise<Reply<R>>,
-) => void;
-
-type ScopedWrite = <
-  P extends string,
-  B extends Schema = undefined,
-  Q extends Schema = undefined,
-  R extends Schema = undefined,
->(
-  path: P,
-  spec: Omit<RouteSpec<"person", B, Q, R>, "auth">,
-  handler: (
-    request: RouteInput<P, "person", B, Q> & { readonly owner: Owner },
-  ) => Reply<R> | Promise<Reply<R>>,
-) => void;
-
-export interface ScopedRoutes {
-  readonly get: ScopedRead;
-  readonly post: ScopedWrite;
-  readonly put: ScopedWrite;
-  readonly patch: ScopedWrite;
-  readonly delete: ScopedRead;
-}
-
 export interface Routes {
   readonly get: Read;
   readonly post: Write;
   readonly put: Write;
   readonly patch: Write;
   readonly delete: Read;
-  readonly scoped: (path: string, routes: (r: ScopedRoutes) => void) => void;
   readonly topic: (name: string) => void;
 }
 
