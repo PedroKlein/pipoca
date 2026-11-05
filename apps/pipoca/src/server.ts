@@ -82,7 +82,7 @@ import { profileRoutes } from "./profile-routes";
 import { errorReply, notFound, rejected, reply, thrown } from "./replies";
 import { lineAfter } from "./requests";
 import { presences } from "./presence";
-import { sseResponse } from "./sse";
+import { sseResponse } from "@pipoca/protocol";
 import type { ConfigFiles } from "./config";
 import { type Hub, laidOut } from "./hub";
 import { type NewcomerSetup, newcomersOf } from "./newcomers";

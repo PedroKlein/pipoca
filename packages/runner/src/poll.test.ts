@@ -7,7 +7,7 @@ import type {
   Work,
   WorkPoll,
 } from "@pipoca/protocol";
-import { runProvider } from "./index";
+import { pollForWork } from "./poll";
 
 const assignment: SessionStart = {
   token: "pct_test",
@@ -69,7 +69,7 @@ test("starts, unloads and removes what the server asks, passes on its Profiles a
   const logs: string[] = [];
   const fields: unknown[] = [];
 
-  await runProvider({
+  await pollForWork({
     controlPlane: {
       work: async () => {
         await Promise.resolve();
@@ -120,7 +120,7 @@ test("stops while waiting to retry", async () => {
   const controller = new AbortController();
   const logs: string[] = [];
 
-  const stopped = runProvider({
+  const stopped = pollForWork({
     controlPlane: {
       work: async () => Promise.reject(new Error("down")),
     },
@@ -148,7 +148,7 @@ test("reports the running attempts, folders and current models with every poll",
   const running = [{ sessionId: "s1", generation: 2 }];
   const mini = { provider: "openai", id: "gpt-5-mini" };
 
-  await runProvider({
+  await pollForWork({
     controlPlane: {
       work: async (poll) => {
         await Promise.resolve();
@@ -195,7 +195,7 @@ test("stops Sessions whose Workspace can move once polls fail for half a lease",
   const unloaded: Attempt[] = [];
   let polls = 0;
 
-  const stopped = runProvider({
+  const stopped = pollForWork({
     controlPlane: {
       work: async () => {
         polls++;

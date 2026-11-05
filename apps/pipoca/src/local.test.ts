@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Environment, Session, SessionEvent } from "@pipoca/protocol";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 import { testServer } from "./testdata/harness";
 import { until } from "@pipoca/plugins/testing";
 

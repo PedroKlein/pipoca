@@ -21,9 +21,13 @@ apps/                 thin entry points that wire packages together
   web/                the browser UI
 packages/             domain packages
   protocol/           the wire contract
+  people/             users, roles, invites, sign-in, tokens and the access policy
+  environments/       Environments, templates, join keys and the runner pool
   sessions/           Sessions, attempts, generation rules
+  profiles/           Profiles and their files
+  repositories/       trusted clones, manifests and syncing what follows a repository
   workspaces/         clone and worktree drivers
-  providers/          work poll loop and the local and VM providers
+  runner/             the agent: joins a pool, polls for work, hosts Sessions
   sessionhost/        runs one Pi session and streams it to the server
 pi-extensions/        Pi packages loaded into hosted Sessions
   cloud-bridge/       mandatory: status, approvals and checkpoints

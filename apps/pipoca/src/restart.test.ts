@@ -15,10 +15,11 @@ import type {
   Session,
   SessionEvent,
 } from "@pipoca/protocol";
-import { runAgent } from "./agent";
+import { runAgent } from "@pipoca/runner";
+import { binary } from "./binary";
 import { supervised } from "./restart";
 import type { ServeOptions } from "./serve";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 import { runnerCredentials } from "./testdata/runners";
 import { closeServers, testServer, type TestServer } from "./testdata/harness";
 import { until } from "@pipoca/plugins/testing";
@@ -218,6 +219,7 @@ test("counts a Session its own runner is starting, and none of another runner's"
   const stopOther = new AbortController();
 
   const otherRunner = runAgent({
+    binary,
     server: server.url.href,
     provider: "other",
     credential: { key },
@@ -309,6 +311,7 @@ test("shows a waiting Session's open prompt again after the server restarts", as
   const stopAgent = new AbortController();
 
   const agent = runAgent({
+    binary,
     server: server.url.href,
     provider: "laptop",
     credential: { key: await runners.key("laptop") },

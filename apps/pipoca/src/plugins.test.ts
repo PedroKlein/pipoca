@@ -35,11 +35,12 @@ import {
   type Session,
   type SessionEvent,
 } from "@pipoca/protocol";
-import { runAgent } from "./agent";
+import { runAgent } from "@pipoca/runner";
+import { binary } from "./binary";
 import { sessionParts } from "./session-parts";
 import { closeServers, testServer, type TestServer } from "./testdata/harness";
 import { until } from "@pipoca/plugins/testing";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 
 let root: string;
 let faux: ReturnType<typeof fauxProvider>;
@@ -1043,6 +1044,7 @@ function startRunner(
   const logs: string[] = [];
 
   const done = runAgent({
+    binary,
     server: server.url.href,
     provider: name,
     credential: { token },

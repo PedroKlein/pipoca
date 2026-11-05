@@ -8,7 +8,6 @@
     "@pipoca/people": "workspace:*",
     "@pipoca/plugins": "workspace:*",
     "@pipoca/protocol": "workspace:*",
-    "@pipoca/providers": "workspace:*",
     "@pipoca/sessions": "workspace:*"
   }
 }

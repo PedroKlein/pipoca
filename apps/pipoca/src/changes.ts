@@ -1,4 +1,4 @@
-import { sseResponse } from "./sse";
+import { sseResponse } from "@pipoca/protocol";
 
 // Tells open pages that something of a kind changed, never what, so each
 // fetches it as usual (ADR 0038).

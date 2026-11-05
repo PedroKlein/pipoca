@@ -20,7 +20,7 @@ import type {
 import { json, testServer, type TestServer } from "./testdata/harness";
 import { until } from "@pipoca/plugins/testing";
 import { runnerCredentials } from "./testdata/runners";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 
 let root: string;
 let faux: ReturnType<typeof fauxProvider>;

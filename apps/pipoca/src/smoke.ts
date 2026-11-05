@@ -12,7 +12,7 @@ import type {
   SessionEvent,
 } from "@pipoca/protocol";
 import { serve } from "./serve";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 
 interface AssistantEntry {
   readonly message?: {

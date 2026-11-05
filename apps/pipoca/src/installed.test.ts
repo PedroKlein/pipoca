@@ -30,7 +30,7 @@ import { installedTurnedOn } from "./config";
 import { installedPlugins } from "./installed";
 import { latestCommit } from "@pipoca/repositories";
 import type { ServeOptions } from "./serve";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 import { closeServers, testServer, type TestServer } from "./testdata/harness";
 import { until } from "@pipoca/plugins/testing";
 

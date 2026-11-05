@@ -17,7 +17,7 @@ import type { Log } from "@pipoca/protocol";
 import type { Sessions } from "@pipoca/sessions";
 import type { RunnerCaller, RunnerCredentials } from "@pipoca/environments";
 import { errorReply, notFound, rejected, reply } from "./replies";
-import { sseResponse } from "./sse";
+import { sseResponse } from "@pipoca/protocol";
 
 export type AgentRoute = (
   request: Request,

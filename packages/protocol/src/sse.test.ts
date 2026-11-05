@@ -1,8 +1,7 @@
 import { expect, test } from "bun:test";
 import { once } from "node:events";
 import { connect } from "node:net";
-import { readSse, sseResponse } from "./sse";
-import { until } from "@pipoca/plugins/testing";
+import { readSse, sseResponse } from "./index";
 
 function chunked(text: string, size: number): Response {
   const bytes = new TextEncoder().encode(text);
@@ -77,7 +76,9 @@ test("drops a client that stops reading while others keep receiving", async () =
   stalled.pause();
 
   const healthy = readSse(await fetch(server.url));
-  await until(() => sends.length === 2);
+  while (sends.length < 2) {
+    await Bun.sleep(5);
+  }
 
   const chunk = "x".repeat(64 * 1024);
   let received = 0;

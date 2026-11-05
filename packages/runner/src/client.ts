@@ -19,20 +19,21 @@ import {
   type TranscriptAck,
   type TranscriptBatch,
   liveSurface,
+  type Log,
+  readSse,
   versionHeader,
   type Work,
 } from "@pipoca/protocol";
-import type { Log } from "@pipoca/protocol";
-import type { ControlPlane } from "@pipoca/providers";
 import type {
   PreviewExchange,
   SessionStream,
   TerminalChannel,
   TerminalPeer,
 } from "@pipoca/sessionhost";
-import { readSse } from "./sse";
+import { backoff } from "./backoff";
+import type { ControlPlane } from "./poll";
 
-const reconnectMs = { initial: 500, max: 20_000 };
+const reconnect = { initialMs: 500, maxMs: 20_000 };
 const pollTimeoutMs = 30_000;
 const requestTimeoutMs = 30_000;
 
@@ -61,7 +62,7 @@ export class UnsupportedVersion extends Error {}
 export class JoinRefused extends Error {}
 
 // A runner's token, or one of its Sessions' (ADR 0033).
-interface Agent {
+export interface Agent {
   readonly server: string;
   readonly token: string;
 }
@@ -83,7 +84,7 @@ export async function joinPool(
   log: Log,
   signal: AbortSignal,
 ): Promise<Joined | undefined> {
-  let delayMs = reconnectMs.initial;
+  const retry = backoff(reconnect.initialMs, reconnect.maxMs);
 
   while (!signal.aborted) {
     try {
@@ -117,11 +118,13 @@ export async function joinPool(
         return undefined;
       }
 
-      log("join failed", { error: String(error), retryInMs: delayMs });
+      log("join failed", {
+        error: String(error),
+        retryInMs: retry.delayMs(),
+      });
     }
 
-    await sleep(delayMs, undefined, { signal }).catch(() => undefined);
-    delayMs = Math.min(delayMs * 2, reconnectMs.max);
+    await retry.wait(signal);
   }
 
   return undefined;
@@ -610,12 +613,12 @@ async function followCommands(
   log: Log,
   signal: AbortSignal,
 ): Promise<boolean> {
-  let delayMs = reconnectMs.initial;
+  const retry = backoff(reconnect.initialMs, reconnect.maxMs);
   let connected = false;
   while (!signal.aborted) {
     try {
       const response = await call(agent, path, { signal });
-      delayMs = reconnectMs.initial;
+      retry.reset();
       if (connected) {
         reconnected();
       }
@@ -639,12 +642,11 @@ async function followCommands(
       log("command stream failed", {
         path,
         error: String(error),
-        retryInMs: delayMs,
+        retryInMs: retry.delayMs(),
       });
     }
 
-    await sleep(delayMs, undefined, { signal }).catch(() => undefined);
-    delayMs = Math.min(delayMs * 2, reconnectMs.max);
+    await retry.wait(signal);
   }
 
   return false;

@@ -32,7 +32,7 @@
     "@pipoca/projects": "workspace:*",
     "@pipoca/protocol": "workspace:*",
     "@pipoca/repositories": "workspace:*",
-    "@pipoca/providers": "workspace:*",
+    "@pipoca/runner": "workspace:*",
     "@pipoca/push": "workspace:*",
     "@pipoca/email": "workspace:*",
     "@pipoca/routines": "workspace:*",

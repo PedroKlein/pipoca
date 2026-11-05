@@ -2,7 +2,8 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { Log } from "@pipoca/protocol";
 import { version } from "../package.json";
-import { runAgent } from "./agent";
+import { runAgent } from "@pipoca/runner";
+import { binary } from "./binary";
 import { openInBrowser } from "./browser";
 
 export interface ConnectOptions {
@@ -62,6 +63,7 @@ export async function connect(given: ConnectOptions): Promise<void> {
     }
 
     await runAgent({
+      binary,
       server: local,
       provider: options.name,
       credential: { token },

@@ -30,8 +30,9 @@ import {
   type SessionEvent,
   type Work,
 } from "@pipoca/protocol";
-import { runAgent } from "./agent";
-import { readSse } from "./sse";
+import { runAgent } from "@pipoca/runner";
+import { binary } from "./binary";
+import { readSse } from "@pipoca/protocol";
 import { testServer, type TestServer } from "./testdata/harness";
 import { until } from "@pipoca/plugins/testing";
 import { runnerCredentials } from "./testdata/runners";
@@ -54,6 +55,7 @@ async function startAgent(
   const controller = new AbortController();
 
   const done = runAgent({
+    binary,
     server: serverUrl.href,
     provider,
     credential: { token: await runners.token(provider, environment) },
@@ -1751,6 +1753,7 @@ test("stops a runner the server let go when its Environment got a new key", asyn
   const polling = Promise.withResolvers<undefined>();
 
   const done = runAgent({
+    binary,
     server: server.url.href,
     provider: "mac",
     credential: { key: await runners.key("pool") },
@@ -1790,6 +1793,7 @@ function startMac(key: string, logs: string[]): () => Promise<void> {
   const controller = new AbortController();
 
   const done = runAgent({
+    binary,
     server: server.url.href,
     provider: "mac",
     credential: { key },
@@ -1906,6 +1910,7 @@ test("stops a runner whose server speaks another protocol version instead of ret
     credential: { readonly key: string } | { readonly token: string },
   ): Promise<unknown> =>
     runAgent({
+      binary,
       server: older.url.href,
       provider: "mac",
       credential,
@@ -3842,6 +3847,7 @@ async function startProcessAgent(
   const controller = new AbortController();
 
   const done = runAgent({
+    binary,
     server: server.url.href,
     provider: "process",
     credential: { key: await runners.key("process") },

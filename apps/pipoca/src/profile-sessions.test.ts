@@ -23,9 +23,10 @@ import type {
   Session,
   SessionEvent,
 } from "@pipoca/protocol";
-import { runAgent } from "./agent";
+import { runAgent } from "@pipoca/runner";
+import { binary } from "./binary";
 import { runnerCredentials } from "./testdata/runners";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 import { json, testServer, type TestServer } from "./testdata/harness";
 import { until } from "@pipoca/plugins/testing";
 
@@ -56,6 +57,7 @@ beforeEach(async () => {
   const controller = new AbortController();
 
   const done = runAgent({
+    binary,
     server: server.url.href,
     provider: "laptop",
     credential: { key: await runners.key("laptop") },
@@ -250,6 +252,7 @@ test("leaves Profile folders another server wrote in a shared data directory", a
   let polls = 0;
 
   const done = runAgent({
+    binary,
     server: server.url.href,
     provider: "shared",
     credential: { key: await runners.key("shared") },

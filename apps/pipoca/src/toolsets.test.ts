@@ -27,7 +27,7 @@ import type {
 } from "@pipoca/protocol";
 import type { ServeOptions } from "./serve";
 import { builtInPlugins } from "./session-parts";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 import { json, testServer, type TestServer } from "./testdata/harness";
 import { until } from "@pipoca/plugins/testing";
 

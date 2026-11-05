@@ -39,7 +39,8 @@ import {
 } from "@pipoca/environments";
 import { People, SignIn } from "@pipoca/people";
 import web from "@pipoca/web/index.html";
-import { type AgentOptions, runAgent } from "./agent";
+import { type AgentOptions, runAgent } from "@pipoca/runner";
+import { binary, pipoca } from "./binary";
 import { configFiles, configFolder } from "./config";
 import { sessionDocs } from "./docs";
 import { hubSettings } from "./hub";
@@ -67,7 +68,6 @@ import { webAppFile } from "./web-app";
 import { changeFeed } from "./changes";
 import { createHandler, fromAddress, onBehalfOf } from "./server";
 import type { PreviewData, SocketData, TerminalData } from "./sockets";
-import { pipoca } from "./session-process";
 import { openStore, type Store } from "./sqlite/store";
 import { terminalBroker } from "./terminals";
 
@@ -127,7 +127,7 @@ export interface ServeOptions {
   >;
   readonly agent?: Omit<
     AgentOptions,
-    "server" | "credential" | "log" | "signal"
+    "server" | "credential" | "binary" | "log" | "signal"
   >;
   // Replaces the built-in plugins. A plugin without a manifest gets one with
   // just its name.
@@ -623,6 +623,7 @@ export function serve(options: ServeOptions): {
   const agent =
     ownAgent &&
     runAgent({
+      binary,
       ...ownAgent,
       server: server.url.href,
       credential: {

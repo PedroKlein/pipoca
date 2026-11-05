@@ -89,6 +89,7 @@ export {
   type Voice,
 } from "./events";
 export { type Clock, type Log, systemClock } from "./log";
+export { readSse, sseResponse } from "./sse";
 export {
   capabilities,
   type Capability,

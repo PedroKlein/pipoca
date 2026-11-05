@@ -9,7 +9,7 @@ import {
   type WorkPoll,
 } from "@pipoca/protocol";
 import type { ServerWebSocket } from "bun";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 import { runnerCredentials } from "./testdata/runners";
 import { testServer, type TestServer } from "./testdata/harness";
 

@@ -17,7 +17,7 @@ import type { Readable } from "node:stream";
 import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
 import type { Environment, Session, SessionEvent } from "@pipoca/protocol";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 import { runnerCredentials } from "./testdata/runners";
 import { firstUserCookie, setupTokenOf } from "./testdata/sign-in";
 

@@ -6,8 +6,8 @@ import { parseArgs } from "node:util";
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { main as piMain } from "@earendil-works/pi-coding-agent";
 import { installPackage } from "@pipoca/sessionhost";
-import { runAgent } from "./agent";
-import { JoinRefused } from "./client";
+import { JoinRefused, runAgent, runSessionProcess } from "@pipoca/runner";
+import { binary, pipoca } from "./binary";
 import { connectFolder, dataFolder, runnerFolder } from "./data-folder";
 import { fauxModels } from "./faux";
 import { help, overview, version } from "./help";
@@ -20,7 +20,6 @@ import { openInBrowser } from "./browser";
 import { connect } from "./connect";
 import { serve } from "./serve";
 import { installService, uninstallService } from "./service";
-import { pipoca, runSessionProcess } from "./session-process";
 
 const dataRoot = dataFolder();
 
@@ -279,6 +278,7 @@ switch (command) {
     const fauxReply = process.env["PIPOCA_FAUX_REPLY"];
 
     await runAgent({
+      binary,
       server: values.server,
       provider: name,
       credential,
@@ -395,7 +395,7 @@ switch (command) {
   }
 
   case "session":
-    await runSessionProcess();
+    await runSessionProcess(binary, stderrLog("session"));
     break;
 
   // A solo server signs its person in through a one-time link that only the

@@ -24,7 +24,7 @@ import {
 import { People, SignIn } from "@pipoca/people";
 import { changeFeed } from "./changes";
 import { type Auth, createHandler } from "./server";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 import { openStore, type Store } from "./sqlite/store";
 import { firstUserCookie } from "./testdata/sign-in";
 

@@ -15,7 +15,8 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { ServerPluginContext } from "@pipoca/plugins";
 import type { ProjectView } from "@pipoca/projects/model";
 import type { Environment, Session, ToolSpec } from "@pipoca/protocol";
-import { runAgent } from "./agent";
+import { runAgent } from "@pipoca/runner";
+import { binary } from "./binary";
 import { runnerCredentials } from "./testdata/runners";
 import { closeServers, testServer, type TestServer } from "./testdata/harness";
 import { until } from "@pipoca/plugins/testing";
@@ -1098,6 +1099,7 @@ test("runs a Project's threads across two machines and two repositories", async 
   const laptop = new AbortController();
 
   const laptopDone = runAgent({
+    binary,
     server: server.url.href,
     provider: "laptop",
     credential: { key: await runners.key("laptop") },
@@ -1270,6 +1272,7 @@ test("holds a thread's turn notice while the coordinator's machine is offline", 
 
   const startLaptop = async (signal: AbortSignal): Promise<void> =>
     runAgent({
+      binary,
       server: server.url.href,
       provider: "laptop",
       credential: { key: await runners.key("laptop") },
