@@ -3,7 +3,7 @@ import {
   BadRequest,
   fieldsOf,
   isObject,
-  type PluginConfig,
+  type ConfigKey,
   type SecretRef,
   type SecretRefs,
   type Static,
@@ -69,7 +69,7 @@ const github: HostConfig = {
 // one host (ADR 0043). A list that stops fitting is logged, and the last one
 // that fit stays in use.
 export function hostStore(
-  config: PluginConfig,
+  config: ConfigKey,
   refs: SecretRefs,
   log: Log,
 ): HostStore {

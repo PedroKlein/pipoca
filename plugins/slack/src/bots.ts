@@ -3,7 +3,7 @@ import {
   BadRequest,
   fieldsOf,
   isObject,
-  type PluginConfig,
+  type ConfigKey,
   type SecretRefs,
 } from "@pipoca/plugins";
 
@@ -35,11 +35,7 @@ const namePattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
 // Bots live under the plugin's key in pipoca.json, with their tokens sealed
 // or named by environment variable (ADR 0039). One that stops fitting is
 // logged and left out.
-export function botStore(
-  config: PluginConfig,
-  refs: SecretRefs,
-  log: Log,
-): Bots {
+export function botStore(config: ConfigKey, refs: SecretRefs, log: Log): Bots {
   const sealedFor = (name: string): string => `slack bot ${name}`;
 
   const value = (): Readonly<Record<string, unknown>> => {

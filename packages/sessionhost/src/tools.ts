@@ -22,6 +22,12 @@ const resultTimeoutMs = 5 * 60_000;
 export function serverTools(
   specs: readonly ToolSpec[],
   call: (id: string, name: string, input: unknown) => Promise<void>,
+  // Whether the person lets a call of a tool that asks run.
+  allowed: (
+    name: string,
+    input: unknown,
+    signal: AbortSignal | undefined,
+  ) => Promise<boolean>,
   timeoutMs = resultTimeoutMs,
 ): ServerToolCalls {
   const pending = new Map<
@@ -32,7 +38,7 @@ export function serverTools(
   const tools = specs.map((spec) =>
     defineTool({
       name: spec.name,
-      label: spec.name,
+      label: spec.label ?? spec.name,
       description: spec.description,
       parameters: Type.Unsafe<unknown>(spec.parameters),
       prepareArguments: (args) => repairArguments(args, spec.parameters),
@@ -45,6 +51,10 @@ export function serverTools(
       }),
       ...(spec.annotations && { annotations: spec.annotations }),
       async execute(_toolCallId, input, signal) {
+        if (spec.asks === true && !(await allowed(spec.name, input, signal))) {
+          throw new Error("The person said no.");
+        }
+
         const id = randomUUID();
 
         const abort = () => {
@@ -81,7 +91,9 @@ export function serverTools(
 
           return {
             content: [{ type: "text", text: result.text }],
-            details: result.opened ? { opened: result.opened } : {},
+            details: result.opened
+              ? { opened: result.opened }
+              : (result.details ?? {}),
           };
         } finally {
           clearTimeout(timer);

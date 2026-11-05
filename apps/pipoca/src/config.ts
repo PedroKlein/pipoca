@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { pluginSwitches } from "@pipoca/pluginhost";
-import { HttpError, type PluginConfig } from "@pipoca/plugins";
+import { HttpError, type ConfigKey } from "@pipoca/plugins";
 import type { Log } from "@pipoca/protocol";
 
 // The config folder's pipoca.json, a key per plugin (ADR 0039). People edit
@@ -20,7 +20,7 @@ export function configFolder(
   dir: string,
   log: Log,
   locked?: string,
-): (plugin: string) => PluginConfig {
+): (plugin: string) => ConfigKey {
   const file = join(dir, "pipoca.json");
 
   const own = watched(file, log);

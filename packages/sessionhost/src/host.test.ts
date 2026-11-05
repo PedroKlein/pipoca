@@ -66,6 +66,7 @@ function fakeStream(
     failPublishes?: number;
     failToolCalls?: boolean;
     tools?: readonly ToolSpec[];
+    questions?: Readonly<Record<string, string>>;
   } = {},
 ): {
   stream: SessionStream;
@@ -149,6 +150,7 @@ function fakeStream(
         throw new Error("the connection closed before the server answered");
       }
     },
+    toolQuestion: async (name) => Promise.resolve(options.questions?.[name]),
     answerTrust: async (trusted) => {
       await Promise.resolve();
       trustAnswers.push(trusted);
@@ -2833,6 +2835,51 @@ test("runs server tools through the stream and gives the model their result", as
 
   expect(call).toMatchObject({ name: "lookup", input: { key: "answer" } });
   expect(fake.lines.join()).toContain("the server said forty-two");
+});
+
+test("asks the person the server's question before a server tool that asks, and refuses it when they say no", async () => {
+  const { faux, models } = await fauxModels(root);
+
+  faux.setResponses([
+    fauxAssistantMessage([fauxToolCall("wipe", {})], {
+      stopReason: "toolUse",
+    }),
+    fauxAssistantMessage([fauxText("left it")]),
+  ]);
+
+  const fake = fakeStream({
+    tools: [
+      {
+        name: "wipe",
+        description: "Wipes the disk",
+        parameters: { type: "object", properties: {} },
+        asks: true,
+      },
+    ],
+    questions: { wipe: "Wipe the disk?" },
+  });
+
+  const hosted = await hostSession(
+    sessionOptions(root, { models }),
+    fake.stream,
+    () => undefined,
+    noTerminal,
+  );
+
+  fake.send({ actor: "user:local", type: "message", text: "wipe it" });
+  await fake.waitFor(() => fake.events.some((e) => e.type === "prompt"));
+  const prompt = fake.events.find((e) => e.type === "prompt");
+  const id = prompt?.type === "prompt" ? prompt.prompt.id : "";
+  fake.send({ actor: "user:local", type: "answer", id, value: "deny" });
+  await fake.waitFor(() => fake.lines.join().includes("left it"));
+  await hosted.stop();
+
+  expect(prompt?.type === "prompt" && prompt.prompt.title).toBe(
+    "Wipe the disk?",
+  );
+
+  expect(fake.toolCalls).toEqual([]);
+  expect(fake.lines.join()).toContain("The person said no.");
 });
 
 test("declares a deferred server tool once tool_search finds it", async () => {

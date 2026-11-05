@@ -380,6 +380,15 @@ export function httpSessionStream(
         }),
       );
     },
+    toolQuestion: async (name, input) => {
+      const { question } = await call(agent, "runner.toolQuestions.create", {
+        params,
+        body: { generation, name, input },
+        signal: AbortSignal.timeout(requestTimeoutMs),
+      });
+
+      return question ?? undefined;
+    },
     answerTrust: async (trusted) => {
       const answer: TrustAnswer = { generation, trusted };
 

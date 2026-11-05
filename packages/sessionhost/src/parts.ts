@@ -7,11 +7,11 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
   isHttpError,
+  isToolError,
   pluginClient,
   type SessionContext,
   type SessionPart,
   type SessionTool,
-  ToolError,
   type ToolOutput,
 } from "@pipoca/plugins";
 import type { Log } from "@pipoca/protocol";
@@ -151,7 +151,7 @@ async function ran(
   try {
     return await tool.run(input, call);
   } catch (error) {
-    if (error instanceof ToolError || isHttpError(error)) {
+    if (isToolError(error) || isHttpError(error)) {
       throw new Error(error.message, { cause: error });
     }
 

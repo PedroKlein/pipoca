@@ -4,6 +4,7 @@ export {
   type ConfigSecrets,
   configOf,
   kernelConfig,
+  pluginConfig,
   sealedConfig,
   sessionConfig,
 } from "./config";
@@ -34,6 +35,7 @@ export {
   HttpError,
   isHttpError,
   isObject,
+  isToolError,
   NotFound,
   readJson,
   requireAdmin,
@@ -51,21 +53,35 @@ export {
 export {
   type Auth,
   type Caller,
+  type Collection,
   defineServer,
   type Handler,
   type Params,
   type People,
+  type PluginConfig,
+  type PluginEnvironments,
+  type PluginProfiles,
   type Person,
   type PluginEvents,
+  type Providers,
   type RouteInput,
   type Routes,
   type RouteSpec,
   type ScopedRoutes,
+  type Secrets,
+  type ServerTools,
+  type Sessions,
+  type SignInProvider,
+  type Store,
+  type ToolCall,
+  type ToolDef,
+  type ToolOutput,
   type ServerContext,
   type ServerPart,
   type ToolResultEntry,
   type Transcript,
   type Urls,
+  type When,
 } from "./server";
 export type { Schedule, Scheduled } from "./schedule";
 export { transcriptReader } from "./transcript";
@@ -76,7 +92,6 @@ export {
   type SessionPart,
   type SessionTool,
   type SessionToolCall,
-  type ToolOutput,
 } from "./session";
 export { checkedSettings, settingSpecs, settingValues } from "./settings";
 export type {
@@ -91,7 +106,8 @@ export type {
   McpLoginStore,
   ModelOffer,
   OfferedModels,
-  PluginConfig,
+  ConfigKey,
+  PluginProfile,
   PluginEvent,
   PluginNotice,
   PluginRoute,
@@ -115,3 +131,4 @@ export type {
   Toolset,
   User,
 } from "./plugin";
+export type { RouteToolSpec } from "@pipoca/protocol";

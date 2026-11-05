@@ -60,6 +60,8 @@ export interface SessionStream {
   preview: (connectionId: string) => PreviewExchange;
   tools: () => Promise<readonly ToolSpec[]>;
   callTool: (id: string, name: string, input: unknown) => Promise<void>;
+  // What to ask the person before a call of a tool that asks, if anything.
+  toolQuestion: (name: string, input: unknown) => Promise<string | undefined>;
   // Keeps the user's answer for the repository the Session works in.
   answerTrust: (trusted: boolean) => Promise<void>;
   pluginRequest: (
@@ -337,6 +339,14 @@ export async function hostSession(
   const calls = serverTools(
     await stream.tools(),
     stream.callTool,
+    async (name, input, signal) => {
+      const question = await stream.toolQuestion(name, input);
+
+      return (
+        question === undefined ||
+        (await prompts.permission(question, [], signal)) !== "deny"
+      );
+    },
     options.serverToolTimeoutMs,
   );
 

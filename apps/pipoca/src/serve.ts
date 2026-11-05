@@ -2,11 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ServerWebSocket } from "bun";
-import {
-  kernelToolsets,
-  pluginSwitches,
-  startPlugins,
-} from "@pipoca/pluginhost";
+import { pluginSwitches, startPlugins } from "@pipoca/pluginhost";
 import {
   eventBus,
   type PluginDefinition,
@@ -416,7 +412,6 @@ export function serve(options: ServeOptions): {
     dataFailure: store.pluginFailure,
     resetData: store.resetPlugin,
     config,
-    toolsets: kernelToolsets,
     api: async (onBehalf, request) =>
       (await api).handle(onBehalfOf(onBehalf, request)),
     auth: {

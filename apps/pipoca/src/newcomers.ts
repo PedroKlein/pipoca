@@ -1,4 +1,4 @@
-import { Config, kernelConfig, type PluginConfig } from "@pipoca/plugins";
+import { Config, kernelConfig, type ConfigKey } from "@pipoca/plugins";
 import { type Log, type Newcomers, newcomersChange } from "@pipoca/protocol";
 
 export interface NewcomerSetup {
@@ -8,7 +8,7 @@ export interface NewcomerSetup {
 
 // What admins set up for the people who join, in pipoca.json under
 // "newcomers" (ADR 0063).
-export function newcomerSetup(config: PluginConfig, log: Log): NewcomerSetup {
+export function newcomerSetup(config: ConfigKey, log: Log): NewcomerSetup {
   const read = kernelConfig(
     config,
     Config.object(newcomersChange.properties),

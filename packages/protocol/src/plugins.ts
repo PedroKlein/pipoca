@@ -218,11 +218,14 @@ export type ToolAnnotations = Wire<typeof toolAnnotations>;
 
 export const toolSpec = Type.Object({
   name: Type.String(),
+  label: Type.Optional(Type.String()),
   description: Type.String(),
   parameters: anyMap,
   exposure: Type.Optional(toolExposure),
   namespace: Type.Optional(toolNamespace),
   annotations: Type.Optional(toolAnnotations),
+  // The Session asks the server what to ask the person before each call.
+  asks: Type.Optional(Type.Boolean()),
 });
 
 export type ToolSpec = Wire<typeof toolSpec>;

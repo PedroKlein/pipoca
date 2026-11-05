@@ -6,7 +6,7 @@ import {
   isObject,
   kernelConfig,
   NotFound,
-  type PluginConfig,
+  type ConfigKey,
   type Static,
 } from "@pipoca/plugins";
 import {
@@ -57,10 +57,7 @@ const templateFields = new Set([
 // Admins keep Environment templates under "templates" in pipoca.json, so a
 // Helm value can set them as well as Settings (ADR 0039, ADR 0049). An entry
 // also holds a key per plugin, which saves keep.
-export function environmentTemplates(
-  config: PluginConfig,
-  log: Log,
-): Templates {
+export function environmentTemplates(config: ConfigKey, log: Log): Templates {
   const read = kernelConfig(
     config,
     Config.collection({ title: "Templates", key: "id", item: templateEntry }),

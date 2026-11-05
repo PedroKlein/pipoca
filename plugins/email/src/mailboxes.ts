@@ -3,7 +3,7 @@ import {
   BadRequest,
   fieldsOf,
   isObject,
-  type PluginConfig,
+  type ConfigKey,
   type SecretRefs,
 } from "@pipoca/plugins";
 
@@ -40,7 +40,7 @@ const namePattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
 // sealed or named by environment variable (ADR 0039). One that stops fitting
 // is logged and left out.
 export function mailboxStore(
-  config: PluginConfig,
+  config: ConfigKey,
   refs: SecretRefs,
   log: Log,
 ): Mailboxes {

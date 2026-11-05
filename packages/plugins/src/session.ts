@@ -6,15 +6,13 @@ import type { Clock, Log } from "@pipoca/protocol";
 import type { Static, TSchema } from "typebox";
 import type { TypedClient } from "./client";
 import type { PluginDefinition } from "./definition";
+import type { ToolOutput } from "./server";
 import type {
   AskPermission,
   AskQuestions,
   Checkout,
   ChildOptions,
 } from "./plugin";
-
-export type ToolOutput =
-  string | { readonly text: string; readonly details?: unknown };
 
 export interface SessionToolCall {
   readonly id: string;
