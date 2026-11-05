@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { ServerWebSocket } from "bun";
 import { type TerminalControl, terminalTakenOver } from "@pipoca/protocol";
 import type { Log } from "@pipoca/protocol";
+import { canSteer } from "@pipoca/people";
 import type { Sessions } from "@pipoca/sessions";
-import type { Auth } from "./auth";
+import type { Auth } from "./server";
 import { errorReply, notFound, rejected } from "./replies";
 import {
   fromSessionHost,
@@ -61,12 +62,12 @@ export function terminalBroker(
     server: SocketServer,
     sessionId: string,
   ): Response | "upgraded" => {
-    const user = auth.userOf(request);
+    const user = auth.signIn.userOf(request);
     if (user === undefined) {
       return errorReply(401, "signed_out", "Sign in again.");
     }
 
-    if (!sessions.belongsTo(sessionId, user.id)) {
+    if (!canSteer({ id: user.id, admin: false }, sessions.owned(sessionId))) {
       return notFound();
     }
 

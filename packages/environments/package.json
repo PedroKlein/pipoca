@@ -1,0 +1,10 @@
+{
+  "name": "@pipoca/environments",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@pipoca/people": "workspace:*",
+    "@pipoca/protocol": "workspace:*"
+  }
+}

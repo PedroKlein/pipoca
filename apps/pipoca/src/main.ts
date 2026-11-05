@@ -15,7 +15,7 @@ import { installedTurnedOn } from "./config";
 import { installedPlugins } from "./installed";
 import { restartExitCode, supervise, supervised } from "./restart";
 import { stderrLog } from "./log";
-import { parseSecretKey } from "./secret-box";
+import { parseSecretKey } from "./sqlite/secret-box";
 import { openInBrowser } from "./browser";
 import { connect } from "./connect";
 import { serve } from "./serve";

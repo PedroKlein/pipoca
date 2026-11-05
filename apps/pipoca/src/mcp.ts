@@ -1,7 +1,7 @@
 import type { PluginHost } from "@pipoca/pluginhost";
 import { fieldsOf } from "@pipoca/plugins";
 import type { Log } from "@pipoca/protocol";
-import type { Auth } from "./auth";
+import type { People } from "@pipoca/people";
 import { errorReply } from "./replies";
 
 // Pipoca's meta toolsets over MCP's streamable HTTP transport (ADR 0035):
@@ -19,7 +19,7 @@ interface Message {
 }
 
 export function mcpHandler(
-  auth: Auth,
+  people: People,
   plugins: PluginHost,
   serverVersion: string,
   log: Log,
@@ -98,7 +98,7 @@ export function mcpHandler(
       );
     }
 
-    const user = auth.mcpUserOf(request);
+    const user = people.userOfAccessToken(request);
     if (user === undefined) {
       const refused = errorReply(
         401,

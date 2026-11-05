@@ -16,26 +16,42 @@ import type { Log } from "@pipoca/protocol";
 import { startPlugins } from "@pipoca/pluginhost";
 import { ProfileFolders, Profiles } from "@pipoca/profiles";
 import { Sessions } from "@pipoca/sessions";
-import { Auth } from "./auth";
+import { RunnerCredentials } from "@pipoca/environments";
+import { People, SignIn } from "@pipoca/people";
 import { changeFeed } from "./changes";
-import { createHandler } from "./server";
+import { type Auth, createHandler } from "./server";
 import { readSse } from "./sse";
-import { openStore } from "./store";
+import { openStore, type Store } from "./sqlite/store";
 import { firstUserCookie } from "./testdata/sign-in";
 
 // No folder: only the shared default Profile, which is plain Pi.
 const noProfiles = new ProfileFolders("/nonexistent/profiles", () => undefined);
 
+function authOf(store: Store): Auth {
+  const people = new People(store.people);
+
+  return {
+    people,
+    signIn: new SignIn(people, store.people),
+    runners: new RunnerCredentials(store.credentials),
+  };
+}
+
 test("reports unhealthy when the database can't be read, keeping why in the log", async () => {
   const store = openStore(":memory:", undefined, noProfiles);
   const logged: string[] = [];
 
-  const sessions = new Sessions(store);
+  const sessions = new Sessions(store.sessions);
+  const people = new People(store.people);
 
   const handler = createHandler(
-    new Auth(store.auth),
+    {
+      people,
+      signIn: new SignIn(people, store.people),
+      runners: new RunnerCredentials(store.credentials),
+    },
     sessions,
-    new Profiles(noProfiles, store),
+    new Profiles(noProfiles, store.profiles),
     startPlugins([], [], {
       sessions,
       sessionParts: [],
@@ -116,14 +132,19 @@ function startServer(
   readonly stop: () => void;
 } {
   const store = openStore(":memory:", undefined, noProfiles);
-  const sessions = new Sessions(store, { pollWaitMs: 0, offlineAfterMs });
+
+  const sessions = new Sessions(store.sessions, {
+    pollWaitMs: 0,
+    offlineAfterMs,
+  });
+
   const stopped = new AbortController();
-  const auth = new Auth(store.auth);
+  const auth = authOf(store);
 
   const handler = createHandler(
     auth,
     sessions,
-    new Profiles(noProfiles, store),
+    new Profiles(noProfiles, store.profiles),
     startPlugins([plugin], [plugin.name], {
       sessions,
       sessionParts: [],
@@ -168,14 +189,17 @@ function startServer(
   const cookie = firstUserCookie(
     handler,
     "http://127.0.0.1",
-    auth.setupToken ?? "",
+    auth.signIn.setupToken ?? "",
   ).then((signedIn) => {
-    store.ensureEnvironment("local", store.auth.users()[0]?.id ?? "");
+    store.sessions.ensureEnvironment(
+      "local",
+      store.people.users()[0]?.id ?? "",
+    );
 
     return signedIn;
   });
 
-  const token = auth.ownRunnerToken("local", "local");
+  const token = auth.runners.ownRunnerToken("local", "local");
 
   const call = async (path: string, body?: unknown): Promise<Response> =>
     handler(
@@ -485,7 +509,7 @@ test("delivers a server tool's result that finished while the provider was offli
 
 test("lists a plugin's own Sessions only while the plugin is on", async () => {
   const store = openStore(":memory:", undefined, noProfiles);
-  const sessions = new Sessions(store, { pollWaitMs: 0 });
+  const sessions = new Sessions(store.sessions, { pollWaitMs: 0 });
   let context: ServerPluginContext | undefined;
 
   const keeper: ServerPlugin = {
@@ -495,7 +519,7 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
     },
   };
 
-  const auth = new Auth(store.auth);
+  const auth = authOf(store);
   let cookie: Promise<string> | undefined;
 
   const handler = (
@@ -504,7 +528,7 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
     const handle = createHandler(
       auth,
       sessions,
-      new Profiles(noProfiles, store),
+      new Profiles(noProfiles, store.profiles),
       startPlugins([keeper], enabled, {
         sessions,
         sessionParts: [],
@@ -554,7 +578,7 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
     const signedIn = (cookie ??= firstUserCookie(
       handle,
       "http://127.0.0.1",
-      auth.setupToken ?? "",
+      auth.signIn.setupToken ?? "",
     ));
 
     return async (path) =>
@@ -571,7 +595,7 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
   const workspace = { kind: "folder", path: "/srv/app" } as const;
 
   await on("/api/sessions");
-  store.ensureEnvironment("local", store.auth.users()[0]?.id ?? "");
+  store.sessions.ensureEnvironment("local", store.people.users()[0]?.id ?? "");
 
   const owned = context?.sessions.start(
     { actor: "plugin:keeper", workspace },
@@ -615,14 +639,14 @@ test("fails only the Session whose Profile can't be read when a runner claims wo
 
   const sessions = new Sessions(
     {
-      ...store,
+      ...store.sessions,
       profileFiles: (id, personId) => {
         reads++;
         if (reads === 1) {
           throw new Error("EIO: i/o error, read");
         }
 
-        return store.profileFiles(id, personId);
+        return store.sessions.profileFiles(id, personId);
       },
     },
     { pollWaitMs: 0 },
@@ -630,7 +654,7 @@ test("fails only the Session whose Profile can't be read when a runner claims wo
 
   const runner = { name: "vm", environment: "local" };
 
-  store.auth.insertUser({
+  store.people.insertUser({
     id: "ana",
     name: "ana",
     admin: true,
@@ -638,7 +662,7 @@ test("fails only the Session whose Profile can't be read when a runner claims wo
     createdAt: new Date().toISOString(),
   });
 
-  store.ensureEnvironment("local", "ana");
+  store.sessions.ensureEnvironment("local", "ana");
 
   const start = (path: string): string => {
     const started = sessions.start({

@@ -1,7 +1,7 @@
 import type { Server, ServerWebSocket } from "bun";
 import { protocolVersion, versionHeader } from "@pipoca/protocol";
 import type { Sessions } from "@pipoca/sessions";
-import type { Auth } from "./auth";
+import type { Auth } from "./server";
 
 // The server's WebSockets: terminals, keyed by Session and terminal id, and
 // the Session host's end of a preview request.
@@ -46,7 +46,7 @@ export function fromSessionHost(
     new URL(request.url).searchParams.get("generation"),
   );
 
-  const caller = auth.agentOf(request);
+  const caller = auth.runners.callerOf(request);
   const session = sessions.get(sessionId);
 
   return (

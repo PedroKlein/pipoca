@@ -15,18 +15,18 @@ import type { PluginHost } from "@pipoca/pluginhost";
 import type { Profiles } from "@pipoca/profiles";
 import type { Log } from "@pipoca/protocol";
 import type { Sessions } from "@pipoca/sessions";
-import type { Agent, Auth } from "./auth";
+import type { RunnerCaller, RunnerCredentials } from "@pipoca/environments";
 import { errorReply, notFound, rejected, reply } from "./replies";
 import { sseResponse } from "./sse";
 
 export type AgentRoute = (
   request: Request,
   params: readonly string[],
-  caller: Agent,
+  caller: RunnerCaller,
 ) => Response | Promise<Response>;
 
 export function agentRoutes(
-  auth: Auth,
+  runners: RunnerCredentials,
   sessions: Sessions,
   profiles: Profiles,
   plugins: PluginHost,
@@ -133,7 +133,7 @@ export function agentRoutes(
 
         // The plugin that started the runner may have revoked it during the
         // poll, and a revoked runner must not get Session tokens.
-        if (auth.agentOf(request) === undefined) {
+        if (runners.callerOf(request) === undefined) {
           return errorReply(
             401,
             "unknown_token",
@@ -161,7 +161,7 @@ export function agentRoutes(
         const work: Work = {
           start: start.map((assignment) => ({
             ...assignment,
-            token: auth.sessionToken(caller, assignment.sessionId),
+            token: runners.sessionToken(caller, assignment.sessionId),
           })),
           unload,
           remove,

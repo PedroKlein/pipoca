@@ -35,6 +35,7 @@
         "@pipoca/changes": "workspace:*",
         "@pipoca/checklist": "workspace:*",
         "@pipoca/email": "workspace:*",
+        "@pipoca/environments": "workspace:*",
         "@pipoca/git-hosts": "workspace:*",
         "@pipoca/kubernetes": "workspace:*",
         "@pipoca/library": "workspace:*",
@@ -43,6 +44,7 @@
         "@pipoca/meta": "workspace:*",
         "@pipoca/models": "workspace:*",
         "@pipoca/oidc": "workspace:*",
+        "@pipoca/people": "workspace:*",
         "@pipoca/pluginhost": "workspace:*",
         "@pipoca/plugins": "workspace:*",
         "@pipoca/profiles": "workspace:*",
@@ -111,9 +113,23 @@
         "react": "19.3.1",
       },
     },
+    "packages/environments": {
+      "name": "@pipoca/environments",
+      "dependencies": {
+        "@pipoca/people": "workspace:*",
+        "@pipoca/protocol": "workspace:*",
+      },
+    },
+    "packages/people": {
+      "name": "@pipoca/people",
+      "dependencies": {
+        "@pipoca/protocol": "workspace:*",
+      },
+    },
     "packages/pluginhost": {
       "name": "@pipoca/pluginhost",
       "dependencies": {
+        "@pipoca/people": "workspace:*",
         "@pipoca/plugins": "workspace:*",
         "@pipoca/protocol": "workspace:*",
         "@pipoca/providers": "workspace:*",
@@ -172,6 +188,7 @@
     "packages/sessions": {
       "name": "@pipoca/sessions",
       "dependencies": {
+        "@pipoca/people": "workspace:*",
         "@pipoca/plugins": "workspace:*",
         "@pipoca/profiles": "workspace:*",
         "@pipoca/protocol": "workspace:*",
@@ -601,6 +618,8 @@
 
     "@pipoca/email": ["@pipoca/email@workspace:plugins/email"],
 
+    "@pipoca/environments": ["@pipoca/environments@workspace:packages/environments"],
+
     "@pipoca/examples": ["@pipoca/examples@workspace:examples"],
 
     "@pipoca/git-hosts": ["@pipoca/git-hosts@workspace:plugins/git-hosts"],
@@ -618,6 +637,8 @@
     "@pipoca/models": ["@pipoca/models@workspace:plugins/models"],
 
     "@pipoca/oidc": ["@pipoca/oidc@workspace:plugins/oidc"],
+
+    "@pipoca/people": ["@pipoca/people@workspace:packages/people"],
 
     "@pipoca/pipoca": ["@pipoca/pipoca@workspace:apps/pipoca"],
 

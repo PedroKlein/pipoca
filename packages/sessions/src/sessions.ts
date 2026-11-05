@@ -44,6 +44,7 @@ import {
   overBaseExtensions,
   defaultProfileId as sharedProfileId,
 } from "@pipoca/profiles";
+import { canSee, canSteer, type Owned } from "@pipoca/people";
 import { placesOn, placesOnNewRunner, uniqueModels } from "./placement";
 import { type Clock, systemClock } from "@pipoca/protocol";
 import { RunnerPolls } from "./runner-polls";
@@ -524,7 +525,7 @@ export class Sessions {
     if (
       source === undefined ||
       person === undefined ||
-      this.#reach(source, person) !== "steers"
+      !canSteer({ id: person, admin: false }, this.#owned(source))
     ) {
       return { ok: false, reason: "not_found" };
     }
@@ -589,26 +590,20 @@ export class Sessions {
       .filter((session) =>
         team
           ? this.#team(session) &&
-            (person === undefined || this.#reach(session, person) !== null)
+            (person === undefined ||
+              canSee({ id: person, admin: false }, this.#owned(session)))
           : person === undefined ||
             (!this.#team(session) && this.#person(session) === person),
       )
       .map((session) => this.#view(session));
   }
 
-  // Whether the person may open and steer the Session: their own (ADR 0049)
-  // or the team's, unless its starter limited it (ADR 0064).
-  belongsTo(id: string, person: string): boolean {
+  // Who may open and steer the Session: its person (ADR 0049), or the
+  // team, unless its starter limited it (ADR 0064).
+  owned(id: string): Owned | undefined {
     const session = this.#store.get(id);
 
-    return session !== undefined && this.#reach(session, person) === "steers";
-  }
-
-  // Whether the person may open the Session, if only to watch it.
-  sees(id: string, person: string): boolean {
-    const session = this.#store.get(id);
-
-    return session !== undefined && this.#reach(session, person) !== null;
+    return session && this.#owned(session);
   }
 
   // Whoever started team work, or an admin, makes it view-only for everyone
@@ -622,7 +617,8 @@ export class Sessions {
 
     if (
       session === undefined ||
-      (!by.admin && this.#reach(session, by.person) === null)
+      (!by.admin &&
+        !canSee({ id: by.person, admin: false }, this.#owned(session)))
     ) {
       return { ok: false, reason: "not_found" };
     }
@@ -823,22 +819,14 @@ export class Sessions {
       : `${name}, replying to ${quote.from === "pi" ? "you" : (this.#names(quote.from) ?? "someone")} ("${clipped(quote.text, quoteLength)}")`;
   }
 
-  #reach(session: StoredSession, person: string): "steers" | "sees" | null {
-    if (!this.#team(session)) {
-      return this.#person(session) === person ? "steers" : null;
-    }
-
-    const access = this.#store.access(session.id) ?? { kind: "team" };
-
-    if (access.kind === "team" || session.startedBy === person) {
-      return "steers";
-    }
-
-    if (access.kind === "view") {
-      return "sees";
-    }
-
-    return access.people.includes(person) ? "steers" : null;
+  #owned(session: StoredSession): Owned {
+    return this.#team(session)
+      ? {
+          owner: teamOwner,
+          startedBy: session.startedBy,
+          access: this.#store.access(session.id) ?? { kind: "team" },
+        }
+      : { owner: this.#person(session) ?? "" };
   }
 
   #team(session: Pick<StoredSession, "environmentId">): boolean {

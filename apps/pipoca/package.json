@@ -24,6 +24,8 @@
     "@pipoca/meta": "workspace:*",
     "@pipoca/models": "workspace:*",
     "@pipoca/oidc": "workspace:*",
+    "@pipoca/environments": "workspace:*",
+    "@pipoca/people": "workspace:*",
     "@pipoca/pluginhost": "workspace:*",
     "@pipoca/plugins": "workspace:*",
     "@pipoca/profiles": "workspace:*",

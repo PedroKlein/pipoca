@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import { canSee } from "@pipoca/people";
 import {
   checkedSettings,
   type EventBus,
@@ -1294,7 +1295,8 @@ function pluginSessions(
       ),
     transcript: (id) => sessions.transcript(id),
     transcriptLength: (id) => sessions.transcriptLength(id),
-    sees: (id, person) => sessions.sees(id, person),
+    sees: (id, person) =>
+      canSee({ id: person, admin: false }, sessions.owned(id)),
     voted: (id, opener, text) => sessions.voted(id, { opener, text }),
   };
 }
