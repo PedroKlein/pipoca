@@ -8,11 +8,11 @@ import {
   type RepositorySource,
   emptyProfile,
   profilePath,
+  type Log,
 } from "@pipoca/protocol";
 import {
   defaultProfileId,
   isRecord,
-  type Log,
   maxBuildsOn,
   type ProfileFolders,
   type ProfileLayer,

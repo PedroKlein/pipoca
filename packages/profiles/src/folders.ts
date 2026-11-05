@@ -1,3 +1,4 @@
+import type { Log } from "@pipoca/protocol";
 import {
   type Dirent,
   lstatSync,
@@ -30,8 +31,6 @@ import {
 import { InvalidProfile } from "./invalid";
 
 export type StoredProfile = Omit<Profile, "isDefault">;
-
-export type Log = (message: string, fields?: Record<string, unknown>) => void;
 
 // Every user has this shared Profile. Until an admin edits it, its folder
 // doesn't exist and it is plain Pi (ADR 0041).

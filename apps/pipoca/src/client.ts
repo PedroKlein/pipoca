@@ -22,7 +22,8 @@ import {
   versionHeader,
   type Work,
 } from "@pipoca/protocol";
-import type { ControlPlane, Log } from "@pipoca/providers";
+import type { Log } from "@pipoca/protocol";
+import type { ControlPlane } from "@pipoca/providers";
 import type {
   PreviewExchange,
   SessionStream,

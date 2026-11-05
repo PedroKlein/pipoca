@@ -1,5 +1,5 @@
 import type { WorkPoll } from "@pipoca/protocol";
-import { type Clock, systemClock } from "./clock";
+import { type Clock, systemClock } from "@pipoca/protocol";
 
 type Inventory = Pick<WorkPoll, "folders" | "models" | "session">;
 

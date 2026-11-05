@@ -1,5 +1,5 @@
 import type { Invite, Joined, Person, SetupState } from "@pipoca/protocol";
-import { type Clock, systemClock } from "@pipoca/sessions";
+import { type Clock, systemClock } from "@pipoca/protocol";
 import {
   createHash,
   randomBytes,

@@ -1,3 +1,4 @@
+import type { Log } from "@pipoca/protocol";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, normalize, sep } from "node:path";
 import {
@@ -5,8 +6,6 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { PiPackage, ProfileFiles } from "@pipoca/protocol";
-
-type Log = (message: string, fields?: Record<string, unknown>) => void;
 
 // The package sources installed so far, so a start installs only new ones.
 const installedFile = ".pipoca-packages.json";

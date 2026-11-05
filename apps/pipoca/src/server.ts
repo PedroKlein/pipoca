@@ -26,7 +26,7 @@ import {
   userIdOf,
 } from "@pipoca/pluginhost";
 import { InvalidProfile, ProfileTooBig, type Profiles } from "@pipoca/profiles";
-import type { Log } from "@pipoca/providers";
+import type { Log } from "@pipoca/protocol";
 import type { Result, Sessions } from "@pipoca/sessions";
 import { version as serverVersion } from "../package.json";
 import {

@@ -12,6 +12,7 @@ import type {
   Environment,
   EnvironmentTemplate,
   GitLogin,
+  Log,
   ModelRef,
   Permission,
   PermissionDetail,
@@ -452,10 +453,7 @@ export interface ServerPluginContext {
   readonly config: PluginConfig;
   // Aborted when the server stops, or when the plugin fails to register.
   readonly signal: AbortSignal;
-  readonly log: (
-    message: string,
-    fields?: Readonly<Record<string, unknown>>,
-  ) => void;
+  readonly log: Log;
 }
 
 export interface ServerPlugin {
@@ -508,10 +506,7 @@ export interface SessionCloud {
   readonly settings: PluginSettings;
   // Sends a request to the plugin's own server routes as this Session.
   readonly request: (path: string, init?: RequestInit) => Promise<Response>;
-  readonly log: (
-    message: string,
-    fields?: Readonly<Record<string, unknown>>,
-  ) => void;
+  readonly log: Log;
   // Starts a Pi session in the Session's process, on its model runtime and
   // logins, such as a subagent's (ADR 0057). It has only the given tools and
   // no extensions, skills or prompt templates.

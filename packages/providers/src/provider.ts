@@ -1,3 +1,4 @@
+import type { Log } from "@pipoca/protocol";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
   type SessionStart,
@@ -15,11 +16,6 @@ import {
 export interface ControlPlane {
   work: (poll: WorkPoll, signal: AbortSignal) => Promise<Work>;
 }
-
-export type Log = (
-  message: string,
-  fields?: Readonly<Record<string, unknown>>,
-) => void;
 
 export interface ProviderOptions {
   readonly controlPlane: ControlPlane;

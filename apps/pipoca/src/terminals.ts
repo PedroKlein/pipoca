@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ServerWebSocket } from "bun";
 import { type TerminalControl, terminalTakenOver } from "@pipoca/protocol";
-import type { Log } from "@pipoca/providers";
+import type { Log } from "@pipoca/protocol";
 import type { Sessions } from "@pipoca/sessions";
 import type { Auth } from "./auth";
 import { errorReply, notFound, rejected } from "./replies";

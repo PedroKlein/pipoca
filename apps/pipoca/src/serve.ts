@@ -20,7 +20,7 @@ import { slack } from "@pipoca/slack/server";
 import { kernelToolsets, startPlugins } from "@pipoca/pluginhost";
 import { eventBus, type ServerPlugin } from "@pipoca/plugins";
 import type { PluginManifest } from "@pipoca/protocol";
-import type { Log } from "@pipoca/providers";
+import type { Log } from "@pipoca/protocol";
 import { ProfileFolders, Profiles } from "@pipoca/profiles";
 import {
   type Clock,

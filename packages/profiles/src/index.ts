@@ -7,7 +7,6 @@ export {
 } from "./files";
 export {
   defaultProfileId,
-  type Log,
   ProfileFolders,
   type StoredProfile,
 } from "./folders";

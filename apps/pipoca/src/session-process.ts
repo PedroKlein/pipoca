@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { SessionStart } from "@pipoca/protocol";
-import type { Log } from "@pipoca/providers";
+import type { Log } from "@pipoca/protocol";
 import {
   type HostedSession,
   hostSession,

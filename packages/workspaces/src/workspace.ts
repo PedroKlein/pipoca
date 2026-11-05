@@ -1,3 +1,4 @@
+import type { Log } from "@pipoca/protocol";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -20,11 +21,6 @@ import {
 } from "@pipoca/protocol";
 
 const run = promisify(execFile);
-
-export type Log = (
-  message: string,
-  fields?: Readonly<Record<string, unknown>>,
-) => void;
 
 // A git checkout in a workspace and the commit its session branch started
 // from, if it has one.

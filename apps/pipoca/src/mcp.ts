@@ -1,6 +1,6 @@
 import type { PluginHost } from "@pipoca/pluginhost";
 import { fieldsOf } from "@pipoca/plugins";
-import type { Log } from "@pipoca/providers";
+import type { Log } from "@pipoca/protocol";
 import type { Auth } from "./auth";
 import { errorReply } from "./replies";
 
