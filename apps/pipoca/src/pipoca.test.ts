@@ -1910,16 +1910,16 @@ test("refuses a runner token nobody used for 30 days, but not one used since", a
 
   expect(await poll()).toBe(200);
 
-  server.clock.advance(29 * day);
+  await server.clock.advance(29 * day);
   expect(await poll()).toBe(200);
 
-  server.clock.advance(29 * day);
+  await server.clock.advance(29 * day);
   expect(await poll()).toBe(200);
 
-  server.clock.advance(31 * day);
+  await server.clock.advance(31 * day);
   expect(await poll()).toBe(401);
 
-  server.clock.advance(-31 * day);
+  await server.clock.advance(-31 * day);
   expect(await poll()).toBe(401);
 });
 
@@ -1935,7 +1935,7 @@ test("joins again with its key when its saved token expired", async () => {
   await stop();
   await untilMacOnline(false);
 
-  server.clock.advance(31 * day);
+  await server.clock.advance(31 * day);
   await server.signIn();
   startMac(key, logs);
   await untilMacOnline(true);

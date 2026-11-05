@@ -36,7 +36,7 @@ import {
   type ToolResult,
   type ToolSpec,
 } from "@pipoca/protocol";
-import type { Log } from "@pipoca/protocol";
+import type { Clock, Log, Timer } from "@pipoca/protocol";
 import type { PluginProfile, SessionPlugins, Sessions } from "@pipoca/sessions";
 import {
   routeToolQuestion,
@@ -44,6 +44,7 @@ import {
   type ToolsetTool,
   toolsetTools,
 } from "./toolsets";
+import { scheduler, type ScheduleStore } from "./scheduler";
 import { kernelKeys, type PluginSwitches } from "./switches";
 
 export type UserActor = `user:${string}`;
@@ -235,6 +236,9 @@ export function startPlugins(
       ) => void;
     };
     readonly buildsOn?: ServerPluginContext["profiles"]["buildsOn"];
+    readonly schedules: ScheduleStore;
+    readonly clock: Clock;
+    readonly timer: Timer;
     readonly signal: AbortSignal;
     readonly log: Log;
   },
@@ -248,6 +252,16 @@ export function startPlugins(
   const offers: ModelOffer[] = [];
   const gitLogins: GitLoginsOf[] = [];
   const fromEnv = envSecrets(process.env);
+  const running: string[] = [];
+
+  const schedules = scheduler({
+    store: deps.schedules,
+    clock: deps.clock,
+    timer: deps.timer,
+    on: () => running,
+    signal: deps.signal,
+    log: deps.log,
+  });
 
   const starters: {
     readonly plugin: string;
@@ -482,6 +496,7 @@ export function startPlugins(
       taken(name) || staged.tools.has(name) || staged.routeTools.has(name);
 
     const declared = manifest(plugin.name)?.capabilities ?? [];
+    const scheduled = schedules.part(plugin.name);
 
     try {
       if (kernelKeys.includes(plugin.name)) {
@@ -659,6 +674,8 @@ export function startPlugins(
           secretRefs: secretRefs(deps.store(plugin.name), fromEnv),
           settings: { get: () => values(plugin.name) },
           config: deps.config(plugin.name),
+          schedule: scheduled.schedule,
+          clock: deps.clock,
           signal: AbortSignal.any([deps.signal, failed.signal]),
           log,
         }),
@@ -717,6 +734,8 @@ export function startPlugins(
       loaded.set(plugin.name, staged.loadOnly);
     }
 
+    scheduled.commit();
+
     deps.log("plugin registered", { plugin: plugin.name });
   };
 
@@ -724,7 +743,8 @@ export function startPlugins(
     register(plugin);
   }
 
-  const running = enabled.filter((name) => !failures.has(name));
+  running.push(...enabled.filter((name) => !failures.has(name)));
+  schedules.wake();
 
   const info = (found: PluginManifest): PluginInfo => {
     const error = failures.get(found.id);
@@ -837,6 +857,7 @@ export function startPlugins(
 
       if (!failures.has(name)) {
         running.push(name);
+        schedules.wake();
       }
 
       return info(found);

@@ -1,5 +1,5 @@
 import type { PluginStore } from "@pipoca/plugins";
-import type { Actor } from "@pipoca/protocol";
+import type { Actor, Clock } from "@pipoca/protocol";
 import type { LibraryFile, LibraryWrite } from "./model";
 
 interface FileRow {
@@ -61,7 +61,7 @@ create table library_log (
 create index library_log_project on library_log (project_id, id);
 `;
 
-export function libraryStore(store: PluginStore): LibraryStore {
+export function libraryStore(store: PluginStore, clock: Clock): LibraryStore {
   return {
     addMember: (sessionId, projectId) => {
       store.run(
@@ -105,7 +105,7 @@ export function libraryStore(store: PluginStore): LibraryStore {
         )[0] as { content: Uint8Array } | undefined
       )?.content,
     write: (projectId, name, content, actor) => {
-      const at = Date.now();
+      const at = clock.now();
 
       store.transaction(() => {
         store.run(

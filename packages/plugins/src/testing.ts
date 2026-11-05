@@ -1,5 +1,5 @@
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import type { Session } from "@pipoca/protocol";
+import { type Session, systemClock } from "@pipoca/protocol";
 import { eventBus } from "./events";
 import { isHttpError } from "./http";
 import type {
@@ -121,12 +121,21 @@ export function fakeContext(
     store: memoryStore(),
     secretRefs: secretRefs(memoryStore(), envSecrets({})),
     settings: { get: () => ({}) },
+    schedule: {
+      every: notFaked("schedule.every"),
+      at: notFaked("schedule.at"),
+      on: notFaked("schedule.on"),
+      cancel: notFaked("schedule.cancel"),
+      cancelPrefix: notFaked("schedule.cancelPrefix"),
+      pending: notFaked("schedule.pending"),
+    },
     config: {
       get: () => undefined,
       set: () => undefined,
       lockedIn: () => undefined,
       dir: "",
     },
+    clock: systemClock,
     signal: new AbortController().signal,
     log: () => undefined,
     ...members,

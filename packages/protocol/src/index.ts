@@ -84,7 +84,13 @@ export {
   type UiAction,
   type Voice,
 } from "./events";
-export { type Clock, type Log, systemClock } from "./log";
+export {
+  type Clock,
+  type Log,
+  systemClock,
+  systemTimer,
+  type Timer,
+} from "./log";
 export { readSse, sseResponse } from "./sse";
 export {
   capabilities,

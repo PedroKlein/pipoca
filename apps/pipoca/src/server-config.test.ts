@@ -41,14 +41,14 @@ test("signs browsers out and refuses idle runner tokens after the days pipoca.js
 
   expect(await signedIn()).toBe(true);
 
-  server.clock.advance(1.5 * day);
+  await server.clock.advance(1.5 * day);
   expect(await signedIn()).toBe(true);
   expect(await polled()).toBe(200);
 
-  server.clock.advance(1.5 * day);
+  await server.clock.advance(1.5 * day);
   expect(await signedIn()).toBe(false);
   expect(await polled()).toBe(200);
 
-  server.clock.advance(3.5 * day);
+  await server.clock.advance(3.5 * day);
   expect(await polled()).toBe(401);
 });

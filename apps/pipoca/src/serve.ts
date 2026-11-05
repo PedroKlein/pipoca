@@ -29,6 +29,8 @@ import {
   type Log,
   type PluginManifest,
   systemClock,
+  systemTimer,
+  type Timer,
 } from "@pipoca/protocol";
 import { ProfileFolders, Profiles } from "@pipoca/profiles";
 import { Sessions } from "@pipoca/sessions";
@@ -149,8 +151,10 @@ export interface ServeOptions {
   // Seconds a connection may go quiet before the server closes it; 30 when
   // unset.
   readonly idleTimeout?: number;
-  // The clock leases, tokens and stored times follow; the system's when unset.
+  // The clock leases, tokens and stored times follow, and the timer plugins'
+  // schedules wake by; the system's when unset.
   readonly clock?: Clock;
+  readonly timer?: Timer;
   readonly log: Log;
 }
 
@@ -429,6 +433,9 @@ export function serve(options: ServeOptions): {
     switches,
     templates,
     buildsOn: (id) => profiles.buildsOn(id),
+    schedules: store.schedules,
+    clock,
+    timer: options.timer ?? systemTimer,
     signal: pluginsStop.signal,
     log: options.log,
   });

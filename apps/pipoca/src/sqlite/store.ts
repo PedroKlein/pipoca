@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { type Clock, systemClock } from "@pipoca/protocol";
 import type { CredentialStore, EnvironmentStore } from "@pipoca/environments";
 import type { PeopleStore } from "@pipoca/people";
+import type { ScheduleStore } from "@pipoca/pluginhost";
 import type { PluginStore, ServerPlugin } from "@pipoca/plugins";
 import type { ProfileFolders, ProfileStore } from "@pipoca/profiles";
 import type { SessionStore } from "@pipoca/sessions";
@@ -11,6 +12,7 @@ import { credentialStore, environmentStore } from "./environments";
 import { openDatabase, resetPlugin } from "./database";
 import { peopleStore } from "./people";
 import { pluginStore } from "./plugin-data";
+import { scheduleStore } from "./schedules";
 import { kernelSchema } from "./schema";
 import { fileSecretKey, SecretBox } from "./secret-box";
 import { profileStore, sessionStore } from "./sessions";
@@ -22,6 +24,7 @@ export interface Store {
   readonly people: PeopleStore;
   readonly credentials: CredentialStore;
   readonly plugin: (name: string) => PluginStore;
+  readonly schedules: ScheduleStore;
   // Why a plugin's tables can't be used, if they can't.
   readonly pluginFailure: (name: string) => string | undefined;
   // Drops a plugin's tables and makes them again, or says why it couldn't.
@@ -87,6 +90,7 @@ export function openStore(
 
       return found;
     },
+    schedules: scheduleStore(db),
     pluginFailure: (name) => failures.get(name),
     resetPlugin: (name) => {
       const declared = plugins.find((each) => each.name === name)?.schema;

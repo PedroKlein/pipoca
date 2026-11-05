@@ -7,6 +7,7 @@ import {
   type ServerPlugin,
   type User,
 } from "@pipoca/plugins";
+import type { Clock } from "@pipoca/protocol";
 import type {
   Account,
   LinkedIdentity,
@@ -67,7 +68,7 @@ export const oidc: ServerPlugin = {
   name: "oidc",
   schema,
   register: (context) => {
-    const identities = identityStore(context.store);
+    const identities = identityStore(context.store, context.clock);
 
     const providers = providerStore(
       context.config,
@@ -104,7 +105,7 @@ export const oidc: ServerPlugin = {
         return page("This server has no such sign-in.", 404);
       }
 
-      const now = Date.now();
+      const now = context.clock.now();
       for (const [state, each] of pending) {
         if (each.expires < now) {
           pending.delete(state);
@@ -175,7 +176,7 @@ export const oidc: ServerPlugin = {
       if (
         attempt === undefined ||
         config === undefined ||
-        attempt.expires < Date.now() ||
+        attempt.expires < context.clock.now() ||
         browser === null ||
         hash(browser) !== attempt.browser
       ) {
@@ -332,7 +333,7 @@ export const oidc: ServerPlugin = {
           config,
           identities.signedInSince(
             config.issuer,
-            new Date(Date.now() - weekMs).toISOString(),
+            new Date(context.clock.now() - weekMs).toISOString(),
           ),
         );
 
@@ -581,7 +582,7 @@ interface IdentityStore {
   readonly unlink: (userId: string, issuer: string) => void;
 }
 
-function identityStore(store: PluginStore): IdentityStore {
+function identityStore(store: PluginStore, clock: Clock): IdentityStore {
   return {
     find: ({ issuer, subject }) => {
       const [row] = store.all(
@@ -606,7 +607,7 @@ function identityStore(store: PluginStore): IdentityStore {
         userId,
         email,
         created ? 1 : 0,
-        Date.now(),
+        clock.now(),
         invited ? 1 : 0,
       );
     },
@@ -630,7 +631,7 @@ function identityStore(store: PluginStore): IdentityStore {
     signedIn: ({ issuer, subject }) => {
       store.run(
         "update oidc_identities set signed_in_at = ? where issuer = ? and subject = ?",
-        Date.now(),
+        clock.now(),
         issuer,
         subject,
       );
