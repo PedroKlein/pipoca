@@ -1,6 +1,6 @@
 # 0036: Plugin Settings and Load Failures
 
-- Status: accepted
+- Status: accepted; declared `capabilities` superseded by [ADR 0069](0069-plugin-sdk-v2.md), which infers them
 - Date: 2026-10-25
 
 ## Context

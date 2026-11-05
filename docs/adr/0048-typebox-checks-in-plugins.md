@@ -1,6 +1,6 @@
 # 0048: TypeBox Checks in Plugins
 
-- Status: accepted
+- Status: accepted; `readJson` in the SDK and the 400 for a bad body superseded by [ADR 0069](0069-plugin-sdk-v2.md), where a route's `body` schema answers 422
 - Date: 2026-10-29
 
 ## Context
