@@ -22,7 +22,7 @@ export async function api(path: string, body?: unknown): Promise<Response> {
 
 export async function send(
   path: string,
-  method: "PUT" | "PATCH" | "DELETE",
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
   body?: unknown,
 ): Promise<Response> {
   return await ok(

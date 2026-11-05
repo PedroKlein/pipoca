@@ -75,6 +75,10 @@ export interface PluginHost {
   readonly checkUpdates: () => Promise<void>;
   // Tells plugins of something the kernel did.
   readonly publish: EventBus["publish"];
+  // Drops a failed plugin's tables, makes them again and starts it, as it
+  // starts after its schema changed (ADR 0068). Says why it couldn't, or
+  // undefined when no plugin has the name.
+  readonly resetData: (name: string) => PluginInfo | string | undefined;
   // The plugin's new settings, what is wrong with them, or undefined when no
   // plugin has the name.
   readonly saveSettings: (
@@ -198,6 +202,8 @@ export function startPlugins(
     readonly events: EventBus;
     readonly changes: (topic: string) => void;
     readonly store: (name: string) => PluginStore;
+    // Drops a plugin's tables and makes them again, or says why it couldn't.
+    readonly resetData: (name: string) => string | undefined;
     readonly config: (name: string) => PluginConfig;
     // The kernel's own toolsets (ADR 0035).
     readonly toolsets: readonly Toolset[];
@@ -446,7 +452,7 @@ export function startPlugins(
   const loadsIn = (session: Session, plugin: string | undefined): boolean =>
     session.ownedBy !== "team" || plugin === undefined || inTeamWork(plugin);
 
-  for (const plugin of plugins.filter(({ name }) => enabled.includes(name))) {
+  const register = (plugin: ServerPlugin): void => {
     const log: Log = (message, fields) => {
       deps.log(message, { plugin: plugin.name, ...fields });
     };
@@ -661,7 +667,7 @@ export function startPlugins(
       failures.set(plugin.name, message);
       log("plugin failed to register", { error: message });
 
-      continue;
+      return;
     }
 
     for (const [name, tool] of staged.tools) {
@@ -705,6 +711,10 @@ export function startPlugins(
     }
 
     deps.log("plugin registered", { plugin: plugin.name });
+  };
+
+  for (const plugin of plugins.filter(({ name }) => enabled.includes(name))) {
+    register(plugin);
   }
 
   const running = enabled.filter((name) => !failures.has(name));
@@ -783,6 +793,41 @@ export function startPlugins(
       });
     },
     publish: deps.events.publish,
+    resetData: (name) => {
+      const found = manifest(name);
+      const plugin = plugins.find((each) => each.name === name);
+
+      if (found === undefined) {
+        return undefined;
+      }
+
+      if (
+        plugin === undefined ||
+        !enabled.includes(name) ||
+        !failures.has(name)
+      ) {
+        return "only the data of a plugin that failed to start is reset";
+      }
+
+      const refused = deps.resetData(name);
+
+      if (refused !== undefined) {
+        failures.set(name, refused);
+
+        return refused;
+      }
+
+      deps.log("plugin data reset", { plugin: name });
+
+      failures.delete(name);
+      register(plugin);
+
+      if (!failures.has(name)) {
+        running.push(name);
+      }
+
+      return info(found);
+    },
     saveSettings: (name, settings) => {
       const found = manifest(name);
       if (found === undefined) {

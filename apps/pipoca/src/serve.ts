@@ -336,6 +336,7 @@ export function serve(options: ServeOptions): {
     events,
     changes: changes.publish,
     store: store.plugin,
+    resetData: store.resetPlugin,
     config,
     toolsets: kernelToolsets,
     api: async (onBehalf, request) => handler(onBehalfOf(onBehalf, request)),

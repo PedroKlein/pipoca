@@ -513,6 +513,89 @@ test("routes requests to a plugin that keeps its own tables", async () => {
   ]);
 });
 
+test("resets a plugin whose tables another version made, once an admin asks", async () => {
+  const database = join(root, "server.db");
+
+  const notes = (sql: string): ServerPlugin => ({
+    name: "notes",
+    schema: { version: 1, sql },
+    register: ({ routes, store }) => {
+      routes.handle(async (request) => {
+        if (request.method === "POST") {
+          const { text } = (await request.json()) as { text: string };
+          store.run("insert into notes_items (text) values (?)", text);
+
+          return new Response(null, { status: 204 });
+        }
+
+        return Response.json(store.all("select * from notes_items"));
+      });
+    },
+  });
+
+  const manifests = [
+    { id: "notes", title: "Notes", description: "", capabilities },
+  ];
+
+  server = testServer({
+    database,
+    plugins: [notes("create table notes_items (text text) strict")],
+    manifests,
+  });
+
+  await server.api("/api/plugins/notes/items", { body: { text: "old" } });
+
+  const cookie = await server.signedIn();
+  await server.close();
+
+  server = testServer({
+    database,
+    cookie,
+    plugins: [
+      notes(
+        "create table notes_items (text text, pinned integer not null default 0) strict",
+      ),
+    ],
+    manifests,
+  });
+
+  expect(await (await server.api("/api/plugins")).json()).toMatchObject([
+    {
+      id: "notes",
+      state: "failed",
+      error:
+        "its tables were made by another version of notes; its data is kept until an admin resets it",
+    },
+  ]);
+
+  const reset = await server.api("/api/plugin-resets/notes", {
+    method: "POST",
+  });
+
+  expect(reset.status).toBe(200);
+  expect(await reset.json()).toMatchObject({ id: "notes", state: "on" });
+
+  expect(await (await server.api("/api/plugins/notes/items")).json()).toEqual(
+    [],
+  );
+
+  await server.api("/api/plugins/notes/items", { body: { text: "new" } });
+
+  expect(await (await server.api("/api/plugins/notes/items")).json()).toEqual([
+    { text: "new", pinned: 0 },
+  ]);
+
+  const again = await server.api("/api/plugin-resets/notes", {
+    method: "POST",
+  });
+
+  expect(again.status).toBe(400);
+
+  expect(
+    (await server.api("/api/plugin-resets/nobody", { method: "POST" })).status,
+  ).toBe(404);
+});
+
 test("answers the errors a plugin's route throws as the server's own", async () => {
   await start([
     {

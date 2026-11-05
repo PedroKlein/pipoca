@@ -184,6 +184,22 @@ function PluginCard({
     });
   };
 
+  const reset = (): void => {
+    if (
+      !confirm(
+        `Reset ${plugin.title}'s data? Its tables are dropped and made again empty, and everything it kept there is gone.`,
+      )
+    ) {
+      return;
+    }
+
+    run(async () => {
+      await send(`/api/plugin-resets/${plugin.id}`, "POST");
+
+      return undefined;
+    });
+  };
+
   const meta = [
     installed ? "Installed" : "Built in",
     plugin.version,
@@ -286,9 +302,16 @@ function PluginCard({
         </p>
       )}
       {plugin.error !== undefined && (
-        <p className="text-label text-failed">
-          It failed to start: {plugin.error}
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="min-w-0 flex-1 text-label text-failed">
+            It failed to start: {plugin.error}
+          </p>
+          {plugin.state === "failed" && (
+            <Button variant="ghost" onClick={reset}>
+              Reset data
+            </Button>
+          )}
+        </div>
       )}
       {failure !== undefined && (
         <p className="text-label text-failed">

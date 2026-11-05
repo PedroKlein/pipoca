@@ -26,7 +26,7 @@ import {
   systemClock,
 } from "@pipoca/sessions";
 import type { AuthStore, User } from "./auth";
-import { openDatabase, transaction } from "./database";
+import { openDatabase, resetPlugin, transaction } from "./database";
 import { kernelSchema } from "./schema";
 import { fileSecretKey, SecretBox } from "./secret-box";
 
@@ -123,6 +123,8 @@ export function openStore(
     check: () => void;
     close: () => void;
     plugin: (name: string) => PluginStore;
+    // Drops a plugin's tables and makes them again, or says why it couldn't.
+    resetPlugin: (name: string) => string | undefined;
   } {
   if (path !== ":memory:") {
     mkdirSync(dirname(path), { recursive: true });
@@ -618,6 +620,22 @@ export function openStore(
       pluginStores.set(name, found);
 
       return found;
+    },
+    resetPlugin: (name) => {
+      const declared = plugins.find((each) => each.name === name)?.schema;
+
+      const failure =
+        declared === undefined
+          ? undefined
+          : resetPlugin(db, { owner: name, ...declared }, clock.now());
+
+      if (failure === undefined) {
+        failures.delete(name);
+      } else {
+        failures.set(name, failure);
+      }
+
+      return failure;
     },
     close: () => {
       db.close();

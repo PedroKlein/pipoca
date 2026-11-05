@@ -459,6 +459,19 @@ export function createHandler(
       ),
     ],
     [
+      "POST",
+      /^\/api\/plugin-resets\/([^/]+)$/,
+      admin((_request, [name = ""]) => {
+        const reset = plugins.resetData(name);
+
+        if (typeof reset === "string") {
+          throw new BadRequest(reset);
+        }
+
+        return reset === undefined ? notFound() : Response.json(reset);
+      }),
+    ],
+    [
       "DELETE",
       /^\/api\/plugins\/([^/]+)$/,
       admin(async (_request, [name = ""]) => {
