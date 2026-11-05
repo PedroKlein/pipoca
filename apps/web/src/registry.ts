@@ -29,7 +29,7 @@ export const webRegistry = [
   { id: "local", plugin: localWeb },
   { id: "logins", plugin: loginsWeb },
   { id: "meta", plugin: metaWeb },
-  { id: "models", plugin: modelsWeb },
+  { id: "models", part: modelsWeb },
   { id: "oidc", plugin: oidcWeb },
   { id: "projects", plugin: projectsWeb },
   { id: "push", plugin: pushWeb },

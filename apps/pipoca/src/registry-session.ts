@@ -10,8 +10,7 @@ import loginsPackage from "../../../plugins/logins/package.json";
 import * as loginsSession from "../../../plugins/logins/src/session";
 import metaPackage from "../../../plugins/meta/package.json";
 import * as metaSession from "../../../plugins/meta/src/session";
-import modelsPackage from "../../../plugins/models/package.json";
-import * as modelsSession from "../../../plugins/models/src/session";
+import { models } from "../../../plugins/models/plugin";
 import routinesPackage from "../../../plugins/routines/package.json";
 import * as routinesSession from "../../../plugins/routines/src/session";
 import { subagents } from "../../../plugins/subagents/plugin";
@@ -28,7 +27,7 @@ export const sessionRegistry = [
   { id: "library", manifest: libraryPackage.pipoca, session: librarySession },
   { id: "logins", manifest: loginsPackage.pipoca, session: loginsSession },
   { id: "meta", manifest: metaPackage.pipoca, session: metaSession },
-  { id: "models", manifest: modelsPackage.pipoca, session: modelsSession },
+  { id: "models", definition: models },
   {
     id: "routines",
     manifest: routinesPackage.pipoca,

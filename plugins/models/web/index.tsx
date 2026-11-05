@@ -1,9 +1,4 @@
-import {
-  json,
-  useLoaded,
-  type WebContext,
-  type WebPlugin,
-} from "@pipoca/plugins/web";
+import { defineWeb, json, useApi, useLoaded } from "@pipoca/plugins/web";
 import type { Environment, ModelRef } from "@pipoca/protocol";
 import {
   Badge,
@@ -21,6 +16,7 @@ import {
   Select,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
+import { about } from "../about";
 import {
   aliasesOf,
   gatewayProvider,
@@ -40,18 +36,18 @@ import {
 
 const schedules = ["", "utc-hourly", "utc-midnight", "utc-monthly-1st"];
 
-export const models: WebPlugin = {
-  name: "models",
-  SettingsSection: Page,
-  settingsGroup: "workspace",
-};
+export default defineWeb(about, {
+  settings: { group: "workspace", Section: Page },
+});
 
-function Page({ context }: { readonly context: WebContext }): ReactElement {
+function Page(): ReactElement {
+  const api = useApi(about);
+
   const { value, reload } = useLoaded(
     async () =>
       Promise.all([
-        json<Environment[]>(context.request("/api/environments")),
-        json<EnvironmentModels[]>(context.request("environments")),
+        json<Environment[]>(fetch("/api/environments")),
+        api.get<EnvironmentModels[]>("environments"),
       ]),
     "models",
   );
@@ -112,7 +108,6 @@ function Page({ context }: { readonly context: WebContext }): ReactElement {
       {environment !== undefined && (
         <Aliases
           key={environment.id}
-          context={context}
           environment={environment}
           saved={configs.find(
             ({ environmentId }) => environmentId === environment.id,
@@ -122,9 +117,7 @@ function Page({ context }: { readonly context: WebContext }): ReactElement {
           onSaved={reload}
         />
       )}
-      {environment !== undefined && (
-        <InThePicker context={context} environment={environment} />
-      )}
+      {environment !== undefined && <InThePicker environment={environment} />}
     </>
   );
 }
@@ -136,14 +129,14 @@ interface HiddenModels {
 
 // Admins hide the models nobody here should use from every model picker.
 function InThePicker({
-  context,
   environment,
 }: {
-  readonly context: WebContext;
   readonly environment: Environment;
 }): ReactElement | null {
+  const api = useApi(about);
+
   const { value, reload } = useLoaded(
-    async () => json<HiddenModels>(context.request("hidden")),
+    async () => api.get<HiddenModels>("hidden"),
     "models.hidden",
   );
 
@@ -175,12 +168,7 @@ function InThePicker({
   const save = (next: readonly string[]): void => {
     setSaving(next);
 
-    json(
-      context.request("hidden", {
-        method: "POST",
-        body: JSON.stringify({ hidden: next }),
-      }),
-    ).then(
+    api.post("hidden", { hidden: next }).then(
       () => {
         setError(undefined);
         reload();
@@ -274,40 +262,36 @@ function InThePicker({
 }
 
 function Aliases({
-  context,
   environment,
   saved,
   adding,
   onAdding,
   onSaved,
 }: {
-  readonly context: WebContext;
   readonly environment: Environment;
   readonly saved: EnvironmentModels | undefined;
   readonly adding: boolean;
   readonly onAdding: (adding: boolean) => void;
   readonly onSaved: () => void;
 }): ReactElement {
+  const api = useApi(about);
   const health = saved?.health ?? noHealth;
   const config = saved?.aliases ?? { models: {} };
   const [error, setError] = useState<string>();
   const list = `models-${environment.id}`;
 
   const save = (aliases: AliasConfig | null): void => {
-    json(
-      context.request(`environments/${encodeURIComponent(environment.id)}`, {
-        method: "POST",
-        body: JSON.stringify({ aliases }),
-      }),
-    ).then(
-      () => {
-        setError(undefined);
-        onSaved();
-      },
-      (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
-      },
-    );
+    api
+      .post(`environments/${encodeURIComponent(environment.id)}`, { aliases })
+      .then(
+        () => {
+          setError(undefined);
+          onSaved();
+        },
+        (reason: unknown) => {
+          setError(reason instanceof Error ? reason.message : String(reason));
+        },
+      );
   };
 
   const setModels = (

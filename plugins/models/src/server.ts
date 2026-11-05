@@ -1,15 +1,17 @@
+import { randomUUID } from "node:crypto";
 import {
   BadRequest,
-  fieldsOf,
+  type Caller,
+  defineServer,
+  Forbidden,
   HttpError,
-  NotFound,
   type OfferedModels,
-  type PluginStore,
-  readBody,
-  requireAdmin,
-  type ServerPlugin,
+  type ServerContext,
+  type Store,
   Type,
 } from "@pipoca/plugins";
+import type { Session } from "@pipoca/protocol";
+import { models } from "../plugin";
 import { aliasesOf, gatewayProvider } from "./gateway";
 import {
   type AliasConfig,
@@ -44,227 +46,182 @@ const aliasesChange = Type.Object({
 
 const hiddenChange = Type.Object({ hidden: Type.Array(Type.String()) });
 
-// Below the server's 30 second idle timeout.
-const waitMs = 20_000;
-
-// Benched models and providers are keyed by a provider, or a provider/id.
-const schema = `
-create table models_environments (
-  environment_id text primary key references environments (id) on delete cascade,
-  aliases text check (json_valid(aliases))
-) strict;
-
-create table models_health (
-  environment_id text not null references environments (id) on delete cascade,
-  target text not null,
-  until integer not null,
-  reason text not null,
-  quota_spent_micros integer,
-  quota_cap_micros integer,
-  quota_currency text,
-  primary key (environment_id, target),
-  check ((quota_spent_micros is null) = (quota_currency is null))
-) strict, without rowid;
-`;
+const configQuery = Type.Object({ after: Type.Optional(Type.Number()) });
 
 // A runner's report; healthFrom keeps the entries it understands.
 const healthReport = Type.Object({
   unhealthyUntil: Type.Record(Type.String(), Type.Unknown()),
 });
 
-export const models: ServerPlugin = {
-  name: "models",
-  schema,
-  register: (context) => {
-    const store = modelsStore(context.store);
-    const versions = changes(context.signal);
+// Below the server's 30 second idle timeout.
+const waitMs = 20_000;
 
-    // An Environment without aliases of its own takes its template's
-    // (ADR 0063).
-    const templateAliases = (templateId: string | null): AliasConfig | null => {
-      const aliases = context.environments
-        .templates()
-        .find(({ id }) => id === templateId)?.aliases;
+export default defineServer(models, (context) => {
+  const { routes, environments, config, clock, log } = context;
+  const store = modelsStore(context.store);
+  const versions = changes(context);
 
-      if (!aliases) {
-        return null;
+  // An Environment without aliases of its own takes its template's
+  // (ADR 0063).
+  const templateAliases = (templateId: string | null): AliasConfig | null => {
+    const aliases = environments
+      .templates()
+      .find(({ id }) => id === templateId)?.aliases;
+
+    if (!aliases) {
+      return null;
+    }
+
+    const stored = storedAliases(aliases);
+
+    const problem =
+      typeof stored.models === "object"
+        ? aliasProblem(stored)
+        : "aliases need models";
+
+    if (problem !== undefined) {
+      log("template aliases unreadable", { templateId, problem });
+
+      return null;
+    }
+
+    return stored;
+  };
+
+  // The template is looked up only when it can matter, since listing
+  // Environments asks for this offer.
+  const effective = (
+    environmentId: string,
+    templateId: () => string | null,
+  ): EnvironmentModels => {
+    const saved = store.get(environmentId);
+
+    return saved.aliases === null &&
+      environments.templates().some(({ aliases }) => aliases)
+      ? { ...saved, aliases: templateAliases(templateId()) }
+      : saved;
+  };
+
+  // Admins keep models nobody here should use out of the pickers.
+  const hidden = (): readonly string[] => config.get().hidden;
+
+  context.provide.models(({ id, templateId }) => ({
+    ...offered(effective(id, () => templateId).aliases),
+    hidden: hidden(),
+  }));
+
+  routes.get(
+    "config",
+    { auth: "session", query: configQuery, long: true },
+    async ({ caller, query, raw }) => {
+      const { environmentId } = sessionOf(caller);
+
+      // A Session polls again at once after any answer, and backs off only
+      // after an error.
+      if (query.after !== undefined) {
+        if (context.signal.aborted) {
+          throw new HttpError(503, "the server is stopping", "stopping");
+        }
+
+        await versions.changed(environmentId, query.after, raw.signal);
       }
 
-      const config = storedAliases(aliases);
+      return {
+        version: versions.of(environmentId),
+        ...effective(
+          environmentId,
+          () =>
+            environments.list().find(({ id }) => id === environmentId)
+              ?.templateId ?? null,
+        ),
+      } satisfies SessionConfig;
+    },
+  );
 
-      const problem =
-        typeof config.models === "object"
-          ? aliasProblem(config)
-          : "aliases need models";
+  routes.post(
+    "health",
+    { auth: "session", body: healthReport },
+    ({ caller, body }) => {
+      const session = sessionOf(caller);
+      const reported = healthFrom(body);
+      if (reported === undefined) {
+        throw new BadRequest(
+          "model health report not understood",
+          "invalid_health",
+        );
+      }
+
+      const { environmentId } = session;
+      const current = store.get(environmentId).health;
+      const health = mergeHealth(current, reported, new Date(clock.now()));
+
+      if (JSON.stringify(health) !== JSON.stringify(current)) {
+        store.setHealth(environmentId, health);
+        versions.bump(environmentId);
+
+        log("model health changed", {
+          environmentId,
+          unhealthy: Object.keys(health.unhealthyUntil),
+          session: session.id,
+        });
+      }
+
+      return new Response(null, { status: 204 });
+    },
+  );
+
+  routes.get("hidden", { auth: "person" }, ({ caller }) => ({
+    hidden: hidden(),
+    mayChange: caller.kind === "person" && caller.person.admin,
+  }));
+
+  routes.post(
+    "hidden",
+    { auth: "admin", body: hiddenChange, changes: ["hidden"] },
+    ({ body }) => {
+      const invalid = body.hidden.find((each) => modelRef(each) === undefined);
+
+      if (invalid !== undefined) {
+        throw new BadRequest(`${invalid} must be provider/id`);
+      }
+
+      config.set({ hidden: [...new Set(body.hidden)] });
+      log("hidden models changed", { count: body.hidden.length });
+
+      return { hidden: hidden(), mayChange: true };
+    },
+  );
+
+  routes.get("environments", { auth: "person" }, () => store.all());
+
+  routes.post(
+    "environments/:id",
+    { auth: "admin", body: aliasesChange },
+    ({ params, body: { aliases } }) => {
+      const environmentId = params["id"] ?? "";
+      const problem = aliases === null ? undefined : aliasProblem(aliases);
 
       if (problem !== undefined) {
-        context.log("template aliases unreadable", { templateId, problem });
-
-        return null;
+        throw new BadRequest(problem);
       }
 
-      return config;
-    };
+      store.setAliases(environmentId, aliases);
+      versions.bump(environmentId);
+      log("aliases changed", { environmentId });
 
-    // The template is looked up only when it can matter, since listing
-    // Environments asks for this offer.
-    const effective = (
-      environmentId: string,
-      templateId: () => string | null,
-    ): EnvironmentModels => {
-      const saved = store.get(environmentId);
+      return store.get(environmentId);
+    },
+  );
+});
 
-      return saved.aliases === null &&
-        context.environments.templates().some(({ aliases }) => aliases)
-        ? { ...saved, aliases: templateAliases(templateId()) }
-        : saved;
-    };
+// The Session a session route's caller is, which the router guarantees.
+function sessionOf(caller: Caller): Session {
+  if (caller.kind !== "session") {
+    throw new Forbidden("Only the plugin's Sessions call this.");
+  }
 
-    // Admins keep models nobody here should use out of the pickers, under
-    // `hidden` in the plugin's key of pipoca.json.
-    const settings = (): Record<string, unknown> => {
-      const value = context.config.get();
-
-      return fieldsOf(value);
-    };
-
-    const hidden = (): readonly string[] => {
-      const { hidden: list } = settings();
-
-      return Array.isArray(list)
-        ? list.filter((each): each is string => typeof each === "string")
-        : [];
-    };
-
-    context.models.offer(({ id, templateId }) => ({
-      ...offered(effective(id, () => templateId).aliases),
-      hidden: hidden(),
-    }));
-
-    context.routes.handle(async (request, path, caller) => {
-      const method = request.method;
-
-      if (caller.kind === "session") {
-        const { environmentId } = caller.session;
-
-        if (method === "GET" && path === "config") {
-          const after = new URL(request.url).searchParams.get("after");
-          if (after !== null) {
-            // A Session polls again at once after any answer, and backs off
-            // only after an error.
-            if (context.signal.aborted) {
-              throw new HttpError(503, "the server is stopping", "stopping");
-            }
-
-            await versions.changed(
-              environmentId,
-              Number(after),
-              request.signal,
-            );
-          }
-
-          const config = {
-            version: versions.of(environmentId),
-            ...effective(
-              environmentId,
-              () =>
-                context.environments
-                  .list()
-                  .find(({ id }) => id === environmentId)?.templateId ?? null,
-            ),
-          } satisfies SessionConfig;
-
-          return Response.json(config);
-        }
-
-        if (method === "POST" && path === "health") {
-          const reported = healthFrom(await readBody(request, healthReport));
-          if (reported === undefined) {
-            throw new BadRequest(
-              "model health report not understood",
-              "invalid_health",
-            );
-          }
-
-          const current = store.get(environmentId).health;
-          const health = mergeHealth(current, reported, new Date());
-          if (JSON.stringify(health) !== JSON.stringify(current)) {
-            store.setHealth(environmentId, health);
-            versions.bump(environmentId);
-
-            context.log("model health changed", {
-              environmentId,
-              unhealthy: Object.keys(health.unhealthyUntil),
-              session: caller.session.id,
-            });
-          }
-
-          return new Response(null, { status: 204 });
-        }
-
-        throw new NotFound(`no route ${path}`);
-      }
-
-      if (path === "hidden") {
-        if (method === "GET") {
-          return Response.json({
-            hidden: hidden(),
-            mayChange: caller.admin,
-          });
-        }
-
-        if (method === "POST") {
-          requireAdmin(caller, "only admins hide models");
-
-          const { hidden: next } = await readBody(request, hiddenChange);
-          const invalid = next.find((each) => modelRef(each) === undefined);
-
-          if (invalid !== undefined) {
-            throw new BadRequest(`${invalid} must be provider/id`);
-          }
-
-          const { hidden: _, ...rest } = settings();
-
-          context.config.set(
-            next.length === 0 ? rest : { ...rest, hidden: [...new Set(next)] },
-          );
-
-          context.changes.publish("hidden");
-          context.log("hidden models changed", { count: next.length });
-
-          return Response.json({ hidden: hidden(), mayChange: true });
-        }
-      }
-
-      const [resource, environmentId] = path.split("/");
-      if (resource !== "environments") {
-        throw new NotFound(`no route ${path}`);
-      }
-
-      if (method === "GET" && environmentId === undefined) {
-        return Response.json(store.all());
-      }
-
-      if (method === "POST" && environmentId !== undefined) {
-        requireAdmin(caller, "only admins change model aliases");
-
-        const { aliases } = await readBody(request, aliasesChange);
-        const problem = aliases === null ? undefined : aliasProblem(aliases);
-        if (problem !== undefined) {
-          throw new BadRequest(problem);
-        }
-
-        store.setAliases(environmentId, aliases);
-        versions.bump(environmentId);
-        context.log("aliases changed", { environmentId });
-
-        return Response.json(store.get(environmentId));
-      }
-
-      throw new NotFound(`no route ${path}`);
-    });
-  },
-};
+  return caller.session;
+}
 
 function offered(aliases: AliasConfig | null): OfferedModels {
   if (aliases === null) {
@@ -307,12 +264,12 @@ function micros(amount: number | undefined): number | null {
   return amount === undefined ? null : Math.round(amount * microsPerUnit);
 }
 
-function modelsStore(store: PluginStore): ModelsStore {
+function modelsStore(store: Store): ModelsStore {
   const savedAliases = (environmentId: string): AliasConfig | null => {
-    const [row] = store.all(
+    const row = store.get<{ aliases: string | null }>(
       "select aliases from models_environments where environment_id = ?",
       environmentId,
-    ) as { aliases: string | null }[];
+    );
 
     return row === undefined || row.aliases === null
       ? null
@@ -322,26 +279,26 @@ function modelsStore(store: PluginStore): ModelsStore {
   const healthOf = (environmentId: string): Health => ({
     version: 1,
     unhealthyUntil: Object.fromEntries(
-      (
-        store.all(
+      store
+        .all<HealthRow>(
           "select target, until, reason, quota_spent_micros, quota_cap_micros, quota_currency from models_health where environment_id = ? order by target",
           environmentId,
-        ) as HealthRow[]
-      ).map((row) => [
-        row.target,
-        {
-          until: new Date(row.until).toISOString(),
-          reason: row.reason,
-          ...(row.quota_spent_micros !== null &&
-            row.quota_currency !== null && {
-              quota: {
-                spent: row.quota_spent_micros / microsPerUnit,
-                cap: (row.quota_cap_micros ?? 0) / microsPerUnit,
-                currency: row.quota_currency,
-              },
-            }),
-        },
-      ]),
+        )
+        .map((row) => [
+          row.target,
+          {
+            until: new Date(row.until).toISOString(),
+            reason: row.reason,
+            ...(row.quota_spent_micros !== null &&
+              row.quota_currency !== null && {
+                quota: {
+                  spent: row.quota_spent_micros / microsPerUnit,
+                  cap: (row.quota_cap_micros ?? 0) / microsPerUnit,
+                  currency: row.quota_currency,
+                },
+              }),
+          },
+        ]),
     ),
   });
 
@@ -353,11 +310,11 @@ function modelsStore(store: PluginStore): ModelsStore {
 
   return {
     all: () =>
-      (
-        store.all(
+      store
+        .all<{ environment_id: string }>(
           "select environment_id from models_environments union select environment_id from models_health",
-        ) as { environment_id: string }[]
-      ).map(({ environment_id }) => get(environment_id)),
+        )
+        .map(({ environment_id }) => get(environment_id)),
     get,
     setAliases: (environmentId, aliases) => {
       store.run(
@@ -394,8 +351,13 @@ function modelsStore(store: PluginStore): ModelsStore {
 }
 
 // A version per Environment that Sessions wait on. It starts from the clock,
-// so a Session that saw a version before a restart never sees it again.
-function changes(signal: AbortSignal): {
+// so a Session that saw a version before a restart never sees it again. A
+// wait ends after waitMs on the schedule.
+function changes({
+  clock,
+  schedule,
+  signal,
+}: Pick<ServerContext, "clock" | "schedule" | "signal">): {
   readonly of: (environmentId: string) => number;
   readonly bump: (environmentId: string) => void;
   readonly changed: (
@@ -404,9 +366,14 @@ function changes(signal: AbortSignal): {
     request: AbortSignal,
   ) => Promise<void>;
 } {
-  const start = Date.now();
+  const start = clock.now();
   const versions = new Map<string, number>();
   const waiting = new Map<string, Set<() => void>>();
+  const timeouts = new Map<string, () => void>();
+
+  schedule.on("wake:", (_payload, key) => {
+    timeouts.get(key)?.();
+  });
 
   const of = (environmentId: string): number =>
     versions.get(environmentId) ?? start;
@@ -428,15 +395,20 @@ function changes(signal: AbortSignal): {
       }
 
       await new Promise<void>((resolve) => {
+        const key = `wake:${randomUUID()}`;
+
         const wake = (): void => {
-          clearTimeout(timer);
+          schedule.cancel(key);
+          timeouts.delete(key);
           request.removeEventListener("abort", wake);
           signal.removeEventListener("abort", wake);
           waiting.get(environmentId)?.delete(wake);
           resolve();
         };
 
-        const timer = setTimeout(wake, waitMs);
+        schedule.at(key, clock.now() + waitMs);
+        timeouts.set(key, wake);
+
         const set = waiting.get(environmentId) ?? new Set();
         set.add(wake);
         waiting.set(environmentId, set);

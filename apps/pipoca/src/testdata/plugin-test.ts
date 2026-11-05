@@ -518,6 +518,12 @@ export async function pluginTest(
 
       return {
         id: host.id,
+        environmentId: environment.id,
+        api: pluginClient(plugin, {
+          session: host.id,
+          headers: { authorization: `Bearer ${host.token}` },
+          fetch: async (path, init) => request(path, init),
+        }),
         online: async (on) => {
           if (on && host.stream === undefined) {
             await connect(host);

@@ -152,8 +152,6 @@ export default tseslint.config(
       "plugins/local/src/server.ts",
       "plugins/logins/src/connect.ts",
       "plugins/logins/src/locks.ts",
-      "plugins/models/src/server.ts",
-      "plugins/models/src/session.ts",
       "plugins/oidc/src/oidc.ts",
       "plugins/projects/src/projects.ts",
       "plugins/projects/src/server.ts",

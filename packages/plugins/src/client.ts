@@ -4,12 +4,28 @@ import { HttpError } from "./http";
 
 type Query = Readonly<Record<string, string | number | boolean | undefined>>;
 
+interface CallOptions {
+  readonly signal?: AbortSignal;
+}
+
+type Read = <R = unknown>(
+  path: string,
+  query?: Query,
+  o?: CallOptions,
+) => Promise<R>;
+
+type Write = <R = unknown>(
+  path: string,
+  body?: unknown,
+  o?: CallOptions,
+) => Promise<R>;
+
 export interface TypedClient {
-  readonly get: <R = unknown>(path: string, query?: Query) => Promise<R>;
-  readonly post: <R = unknown>(path: string, body?: unknown) => Promise<R>;
-  readonly put: <R = unknown>(path: string, body?: unknown) => Promise<R>;
-  readonly patch: <R = unknown>(path: string, body?: unknown) => Promise<R>;
-  readonly delete: <R = unknown>(path: string, query?: Query) => Promise<R>;
+  readonly get: Read;
+  readonly post: Write;
+  readonly put: Write;
+  readonly patch: Write;
+  readonly delete: Read;
 }
 
 export interface ClientOptions {
@@ -35,6 +51,7 @@ export function pluginClient(
     path: string,
     query: Query | undefined,
     body: unknown,
+    { signal }: CallOptions = {},
   ): Promise<R> => {
     const search = new URLSearchParams();
 
@@ -58,6 +75,7 @@ export function pluginClient(
           ...(body !== undefined && { "content-type": "application/json" }),
         },
         ...(body !== undefined && { body: JSON.stringify(body) }),
+        ...(signal !== undefined && { signal }),
       },
     );
 
@@ -81,11 +99,11 @@ export function pluginClient(
   };
 
   return {
-    get: async (path, query) => call("GET", path, query, undefined),
-    post: async (path, body) => call("POST", path, undefined, body),
-    put: async (path, body) => call("PUT", path, undefined, body),
-    patch: async (path, body) => call("PATCH", path, undefined, body),
-    delete: async (path, query) => call("DELETE", path, query, undefined),
+    get: async (path, query, o) => call("GET", path, query, undefined, o),
+    post: async (path, body, o) => call("POST", path, undefined, body, o),
+    put: async (path, body, o) => call("PUT", path, undefined, body, o),
+    patch: async (path, body, o) => call("PATCH", path, undefined, body, o),
+    delete: async (path, query, o) => call("DELETE", path, query, undefined, o),
   };
 }
 

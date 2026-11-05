@@ -59,6 +59,9 @@ export type Duration = number | `${number}${"s" | "m" | "h" | "d"}`;
 
 export interface TestSession {
   readonly id: string;
+  readonly environmentId: string;
+  // The plugin's routes, called as its Session part calls them.
+  readonly api: TypedClient;
   // Connects or drops its host, which takes what the outbox holds.
   readonly online: (on: boolean) => Promise<void>;
   // What reached its host, which arrives a moment after it is sent.
