@@ -1,10 +1,8 @@
 import {
-  json,
-  ok,
-  type SessionPartProps,
+  defineWeb,
+  type MountedSession,
+  useApi,
   useLoaded,
-  type WebContext,
-  type WebPlugin,
 } from "@pipoca/plugins/web";
 import {
   Button,
@@ -17,28 +15,32 @@ import {
   ListInput,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
+import { ask } from "../plugin";
 import type { Vote, Votes } from "../src/votes";
+
+interface Props {
+  readonly session: MountedSession;
+}
 
 // Open votes sit above the composer of team work, and anyone following it
 // opens one from the header (ADR 0065).
-export const ask: WebPlugin = {
-  name: "ask",
-  Composer: OpenVotes,
-  SessionHeader: VoteButton,
-};
+export default defineWeb(ask, {
+  settings: { group: "server", form: "auto" },
+  slots: { "session.composer": OpenVotes, "session.header": VoteButton },
+});
 
-function useVotes({ context, session }: SessionPartProps): Votes | undefined {
+function useVotes({ session }: Props): Votes | undefined {
+  const api = useApi(ask);
+
   return useLoaded(
     async () =>
-      json<Votes>(
-        context.request(`sessions/${encodeURIComponent(session.id)}/votes`),
-      ),
+      api.get<Votes>(`sessions/${encodeURIComponent(session.id)}/votes`),
     session.id,
     { topics: ["ask.votes"] },
   ).value;
 }
 
-function OpenVotes(props: SessionPartProps): ReactElement | null {
+function OpenVotes(props: Props): ReactElement | null {
   const votes = useVotes(props);
 
   if (votes === undefined || votes.votes.length === 0) {
@@ -48,33 +50,20 @@ function OpenVotes(props: SessionPartProps): ReactElement | null {
   return (
     <div className="flex flex-col gap-2">
       {votes.votes.map((vote) => (
-        <VoteCard key={vote.id} context={props.context} vote={vote} />
+        <VoteCard key={vote.id} vote={vote} />
       ))}
     </div>
   );
 }
 
-function VoteCard({
-  context,
-  vote,
-}: {
-  readonly context: WebContext;
-  readonly vote: Vote;
-}): ReactElement {
+function VoteCard({ vote }: { readonly vote: Vote }): ReactElement {
+  const api = useApi(ask);
   const [error, setError] = useState<string>();
 
-  const act = (path: string, method: string, body?: unknown): void => {
+  const act = (sent: Promise<unknown>): void => {
     setError(undefined);
 
-    ok(
-      context.request(path, {
-        method,
-        ...(body !== undefined && {
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
-        }),
-      }),
-    ).catch((failure: unknown) => {
+    sent.catch((failure: unknown) => {
       setError(failure instanceof Error ? failure.message : String(failure));
     });
   };
@@ -103,7 +92,7 @@ function VoteCard({
             variant="ghost"
             className="shrink-0"
             onClick={() => {
-              act(`votes/${vote.id}/close`, "POST");
+              act(api.post(`votes/${vote.id}/close`));
             }}
           >
             Close vote
@@ -122,7 +111,7 @@ function VoteCard({
                 type="button"
                 aria-pressed={vote.mine === option}
                 onClick={() => {
-                  act(`votes/${vote.id}/pick`, "PUT", { option });
+                  act(api.put(`votes/${vote.id}/pick`, { option }));
                 }}
                 className={cn(
                   "flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-label",
@@ -151,7 +140,7 @@ function VoteCard({
   );
 }
 
-function VoteButton(props: SessionPartProps): ReactElement | null {
+function VoteButton(props: Props): ReactElement | null {
   const votes = useVotes(props);
   const [open, setOpen] = useState(false);
 
@@ -182,43 +171,37 @@ function VoteButton(props: SessionPartProps): ReactElement | null {
 }
 
 function OpenVoteDialog({
-  context,
   session,
   open,
   onClose,
-}: SessionPartProps & {
+}: Props & {
   readonly open: boolean;
   readonly onClose: () => void;
 }): ReactElement {
   return (
     <Dialog open={open} onClose={onClose} labelledBy="vote-title" size="sm">
-      <VoteForm context={context} session={session} onDone={onClose} />
+      <VoteForm session={session} onDone={onClose} />
     </Dialog>
   );
 }
 
 function VoteForm({
-  context,
   session,
   onDone,
-}: SessionPartProps & { readonly onDone: () => void }): ReactElement {
+}: Props & { readonly onDone: () => void }): ReactElement {
+  const api = useApi(ask);
   const [question, setQuestion] = useState("");
   const [options, setOptions] = useState<readonly string[]>([]);
   const [minutes, setMinutes] = useState("");
   const [error, setError] = useState<string>();
 
   const submit = (): void => {
-    json(
-      context.request(`sessions/${encodeURIComponent(session.id)}/votes`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          question,
-          options,
-          ...(minutes.trim() !== "" && { minutes: Number(minutes) }),
-        }),
-      }),
-    )
+    api
+      .post(`sessions/${encodeURIComponent(session.id)}/votes`, {
+        question,
+        options,
+        ...(minutes.trim() !== "" && { minutes: Number(minutes) }),
+      })
       .then(onDone)
       .catch((failure: unknown) => {
         setError(failure instanceof Error ? failure.message : String(failure));

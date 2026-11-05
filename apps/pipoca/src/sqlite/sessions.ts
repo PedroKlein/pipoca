@@ -57,6 +57,8 @@ interface VoiceRow {
   text: string | null;
   quote_from: string | null;
   quote_text: string | null;
+  plugin: string | null;
+  notice: string | null;
   at: number;
 }
 
@@ -129,11 +131,11 @@ export function sessionStore(
   );
 
   const selectVoices = db.prepare(
-    "select kind, actor, text, quote_from, quote_text, at from session_messages where session_id = ? order by seq",
+    "select kind, actor, text, quote_from, quote_text, plugin, notice, at from session_messages where session_id = ? order by seq",
   );
 
   const insertVoice = db.prepare(
-    "insert into session_messages (session_id, seq, kind, actor, user_id, request_id, text, quote_from, quote_text, at) values (?1, (select coalesce(max(seq), 0) + 1 from session_messages where session_id = ?1), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) on conflict (session_id, request_id) do nothing",
+    "insert into session_messages (session_id, seq, kind, actor, user_id, request_id, text, quote_from, quote_text, plugin, notice, at) values (?1, (select coalesce(max(seq), 0) + 1 from session_messages where session_id = ?1), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) on conflict (session_id, request_id) do nothing",
   );
 
   const insertBinding = db.prepare(
@@ -310,6 +312,13 @@ export function sessionStore(
           row.quote_text !== null && {
             quote: { from: row.quote_from, text: row.quote_text },
           }),
+        ...(row.plugin !== null &&
+          row.notice !== null && {
+            notice: {
+              plugin: row.plugin,
+              ...(JSON.parse(row.notice) as { kind: string; data?: unknown }),
+            },
+          }),
       })),
     addVoice: (id, voice) =>
       insertVoice.run(
@@ -323,6 +332,13 @@ export function sessionStore(
         voice.text ?? null,
         voice.quote?.from ?? null,
         voice.quote?.text ?? null,
+        voice.notice?.plugin ?? null,
+        voice.notice === undefined
+          ? null
+          : JSON.stringify({
+              kind: voice.notice.kind,
+              data: voice.notice.data,
+            }),
         ms(voice.at),
       ).changes > 0,
     outbox: outboxStore(db),

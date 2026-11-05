@@ -139,8 +139,6 @@ export default tseslint.config(
     ignores: [
       "plugins/*/src/**/*.test.ts",
       // Until these move to the clock and schedule as their plugins port.
-      "plugins/ask/src/ask.ts",
-      "plugins/ask/src/server.ts",
       "plugins/changes/src/pull-request.ts",
       "plugins/changes/src/session.ts",
       "plugins/email/src/mail.ts",

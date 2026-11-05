@@ -67,6 +67,8 @@ export interface TestSession {
     readonly notice?: unknown;
   }[];
   readonly queued: () => readonly { readonly text: string }[];
+  // A person's message to Pi, as one of the test's people sends it.
+  readonly send: (personId: string, text: string) => Promise<void>;
   readonly transcript: (lines: readonly unknown[]) => Promise<void>;
   readonly archive: () => Promise<void>;
 }
@@ -373,7 +375,6 @@ export function fakeContext(
       transcript: notFaked("sessions.transcript"),
       transcriptLength: notFaked("sessions.transcriptLength"),
       sees: notFaked("sessions.sees"),
-      voted: notFaked("sessions.voted"),
     },
     environments: {
       list: notFaked("environments.list"),

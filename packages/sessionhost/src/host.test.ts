@@ -21,10 +21,11 @@ import { Type } from "@earendil-works/pi-ai";
 import {
   definePlugin,
   defineSession,
+  type SessionPart,
   type SessionPlugin,
 } from "@pipoca/plugins";
 import type { Command, LiveEvent, ToolSpec } from "@pipoca/protocol";
-import { ask } from "@pipoca/ask/session";
+import { ask } from "@pipoca/ask";
 import {
   type CheckoutChanges,
   changes,
@@ -39,6 +40,8 @@ import {
 import { fetchingProviderExtension } from "./testdata/fetching-provider";
 import { fauxModels } from "./testdata/models";
 import { sessionOptions } from "./testdata/options";
+
+const askPart = (await ask.session()).default as SessionPart;
 
 let root: string;
 
@@ -1307,7 +1310,7 @@ test("asks structured questions with the ask plugin's ask_user tool", async () =
   const fake = fakeStream();
 
   const hosted = await hostSession(
-    sessionOptions(root, { models, plugins: [ask] }),
+    sessionOptions(root, { models, parts: [askPart] }),
     fake.stream,
     () => undefined,
     noTerminal,
@@ -1481,7 +1484,7 @@ export default (pi) => {
     sessionOptions(root, {
       extensionPaths: [extension],
       models,
-      plugins: [ask],
+      parts: [askPart],
     }),
     fake.stream,
     () => undefined,
@@ -1540,7 +1543,7 @@ test("explains an option with the session's model while the form is open", async
   const fake = fakeStream();
 
   const hosted = await hostSession(
-    sessionOptions(root, { models, plugins: [ask] }),
+    sessionOptions(root, { models, parts: [askPart] }),
     fake.stream,
     () => undefined,
     noTerminal,
@@ -1610,7 +1613,7 @@ test.each([
     const fake = fakeStream();
 
     const hosted = await hostSession(
-      sessionOptions(root, { models, plugins: [ask] }),
+      sessionOptions(root, { models, parts: [askPart] }),
       fake.stream,
       () => undefined,
       noTerminal,
@@ -1683,7 +1686,7 @@ test("takes a queued message back and keeps the rest queued with their images", 
   const fake = fakeStream();
 
   const hosted = await hostSession(
-    sessionOptions(root, { models, plugins: [ask] }),
+    sessionOptions(root, { models, parts: [askPart] }),
     fake.stream,
     () => undefined,
     noTerminal,
@@ -2024,7 +2027,7 @@ test("leaves a message Pi already read when asked to take it back", async () => 
   const fake = fakeStream();
 
   const hosted = await hostSession(
-    sessionOptions(root, { models, plugins: [ask] }),
+    sessionOptions(root, { models, parts: [askPart] }),
     fake.stream,
     () => undefined,
     noTerminal,

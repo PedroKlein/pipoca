@@ -591,16 +591,18 @@ export const previewResponse = Type.Object({ status: Type.Number(), headers });
 
 export type PreviewResponse = Wire<typeof previewResponse>;
 
-// What a person said in a team Session (ADR 0054, ADR 0065), which Pi's
+// What was said in a team Session (ADR 0054, ADR 0065), which Pi's
 // transcript doesn't keep: a message to Pi, a stop, a message to the team
-// that Pi reads only when next asked, or one off the record that Pi never
-// reads. A vote's result is told by whoever opened it, a person's id or "pi".
+// that Pi reads only when next asked, one off the record that Pi never
+// reads, or a plugin's notice that Pi reads like the team's messages.
+// person is "pi" for what isn't a person's.
 const voice = Type.Object({
-  kind: Type.Enum(["message", "stop", "team", "aside", "vote"]),
+  kind: Type.Enum(["message", "stop", "team", "aside", "notice"]),
   person: Type.String(),
   at: Type.String(),
   text: Type.Optional(Type.String()),
   quote: Type.Optional(quote),
+  notice: Type.Optional(noticeTag),
 });
 
 export type Voice = Wire<typeof voice>;
@@ -616,7 +618,7 @@ export function teamTalkSince(voices: readonly Voice[]): readonly Voice[] {
 
   return voices
     .slice(since + 1)
-    .filter(({ kind }) => kind === "team" || kind === "vote");
+    .filter(({ kind }) => kind === "team" || kind === "notice");
 }
 
 // Someone looking at a team Session, and whether they are typing in it.

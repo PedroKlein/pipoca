@@ -17,7 +17,7 @@ import type {
   SessionEvent,
   Voice,
 } from "@pipoca/protocol";
-import { askServer } from "@pipoca/ask/server";
+import { ask } from "@pipoca/ask";
 import { gitHosts } from "@pipoca/git-hosts/server";
 import type { ServerPluginContext } from "@pipoca/plugins";
 import { builtInPlugins } from "./built-in";
@@ -69,7 +69,6 @@ beforeEach(async () => {
         },
       },
       gitHosts,
-      askServer,
       {
         name: "notes",
         register: (context) => {
@@ -98,8 +97,9 @@ beforeEach(async () => {
         description: "",
         capabilities: ["tools"],
       },
-      ...builtInPlugins.filter(({ id }) => id === "git-hosts" || id === "ask"),
+      ...builtInPlugins.filter(({ id }) => id === "git-hosts"),
     ],
+    definitions: [ask],
   });
 });
 
@@ -863,186 +863,6 @@ test("Pi hears who answered its question in team work", async () => {
   }
 });
 
-test("the team votes, and Pi reads the result the next time it's asked", async () => {
-  const anas = await ana();
-  const boId = randomUUID();
-  const bos = await member("bo", boId);
-  const cys = await member("cy");
-  const team = await teamSetup();
-
-  const session = await json<Session>(
-    server.as(anas)("/api/sessions", {
-      body: {
-        team: true,
-        environment: team.environment,
-        profile: team.profile,
-        workspace: workspace(),
-      },
-    }),
-  );
-
-  const votes = `/api/ext/ask/sessions/${session.id}/votes`;
-
-  const opened = await server.as(bos)(votes, {
-    body: {
-      question: "Ship it today?",
-      options: ["Ship", "Wait"],
-    },
-  });
-
-  expect(opened.status).toBe(201);
-
-  const { id } = (await opened.json()) as { id: string };
-
-  expect(id.charAt(14)).toBe("7");
-
-  const pick = async (cookie: string, option: string): Promise<number> =>
-    (
-      await server.as(cookie)(`/api/ext/ask/votes/${id}/pick`, {
-        method: "PUT",
-        body: { option },
-      })
-    ).status;
-
-  expect(await pick(anas, "Ship")).toBe(200);
-  expect(await pick(bos, "Wait")).toBe(200);
-  expect(await pick(bos, "Ship")).toBe(200);
-  expect(await pick(cys, "Later")).toBe(400);
-
-  const db = new DatabaseSync(join(root, "server.db"));
-
-  expect(db.prepare("select opener from ask_votes").all()).toEqual([
-    { opener: `user:${boId}` },
-  ]);
-
-  expect(
-    db
-      .prepare(
-        'select "table", "from" from pragma_foreign_key_list(\'ask_vote_picks\')',
-      )
-      .all(),
-  ).toContainEqual({ table: "users", from: "user_id" });
-
-  db.close();
-
-  expect(await json(server.as(cys)(votes))).toMatchObject({
-    canOpen: true,
-    votes: [
-      {
-        question: "Ship it today?",
-        options: ["Ship", "Wait"],
-        picks: [
-          { name: "ana", option: "Ship" },
-          { name: "bo", option: "Ship" },
-        ],
-        mine: null,
-        canClose: false,
-      },
-    ],
-  });
-
-  const close = `/api/ext/ask/votes/${id}/close`;
-
-  expect((await server.as(cys)(close, { body: {} })).status).toBe(403);
-  expect((await server.as(anas)(close, { body: {} })).status).toBe(200);
-
-  expect(await json(server.as(anas)(votes))).toEqual({
-    canOpen: true,
-    votes: [],
-  });
-
-  const [assigned] = await poll(team.runner);
-
-  const commands = readSse(
-    await fetch(
-      new URL(
-        `/runner/sessions/${session.id}/commands?generation=${String(assigned?.generation)}`,
-        server.url,
-      ),
-      {
-        headers: {
-          "pipoca-protocol": "4",
-          "content-type": "application/json",
-          authorization: `Bearer ${team.runner}`,
-        },
-      },
-    ),
-  );
-
-  await server.as(anas)(`/api/sessions/${session.id}/commands`, {
-    body: {
-      type: "message",
-      text: "Go on",
-    },
-  });
-
-  for await (const command of commands) {
-    expect(command).toMatchObject({
-      type: "context",
-      text: [
-        "The team talked since your last turn:",
-        'A vote closed: "Ship it today?": Ship 2 (ana, bo), Wait 0. ana closed it.',
-        "",
-        "ana sends the next message.",
-      ].join("\n"),
-    });
-
-    break;
-  }
-});
-
-test("a vote closes on time, even with nobody voting", async () => {
-  const anas = await ana();
-  const team = await teamSetup();
-
-  const session = await json<Session>(
-    server.as(anas)("/api/sessions", {
-      body: {
-        team: true,
-        environment: team.environment,
-        profile: team.profile,
-        workspace: workspace(),
-      },
-    }),
-  );
-
-  const votes = `/api/ext/ask/sessions/${session.id}/votes`;
-
-  expect(
-    (
-      await server.as(anas)(votes, {
-        body: {
-          question: "Lunch?",
-          options: ["Yes", "No"],
-          minutes: 1,
-        },
-      })
-    ).status,
-  ).toBe(201);
-
-  setSystemTime(new Date(Date.now() + 61_000));
-
-  expect(await json(server.as(anas)(votes))).toEqual({
-    canOpen: true,
-    votes: [],
-  });
-
-  const events = await server.as(anas)(`/api/sessions/${session.id}/events`);
-
-  for await (const event of readSse(events)) {
-    const replayed = event as SessionEvent;
-
-    if (replayed.type === "voice") {
-      expect(replayed.voice).toMatchObject({
-        kind: "vote",
-        text: '"Lunch?": nobody voted. It closed on time.',
-      });
-
-      break;
-    }
-  }
-});
-
 test("nobody opens a vote in team work they can't see", async () => {
   const anas = await ana();
   const bos = await member("bo");
@@ -1381,8 +1201,8 @@ test("team work loads only plugins that say they work there and that admins leav
       .filter(({ id }) => id === "ask" || id === "notes")
       .map(({ id, teamWork }) => ({ id, teamWork })),
   ).toEqual([
-    { id: "ask", teamWork: true },
     { id: "notes", teamWork: false },
+    { id: "ask", teamWork: true },
   ]);
 
   expect(

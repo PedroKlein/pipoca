@@ -1,21 +1,18 @@
-import {
-  type Api,
-  type Model,
-  StringEnum,
-  Type,
-  type Static,
-} from "@earendil-works/pi-ai";
-import {
-  defineTool,
-  type ExtensionToolContext,
-  type ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import { StringEnum } from "@earendil-works/pi-ai";
 import type {
   Question,
   QuestionAnswer,
   QuestionsAnswer,
 } from "@pipoca/protocol";
-import type { AskQuestions, Explain } from "@pipoca/plugins";
+import {
+  type AskQuestions,
+  type Explain,
+  type SessionTool,
+  type SessionToolCall,
+  type Static,
+  ToolError,
+  Type,
+} from "@pipoca/plugins";
 
 const OptionSchema = Type.Object({
   value: Type.String({ description: "Value identifier for this option" }),
@@ -85,8 +82,8 @@ const AskUserParams = Type.Object({
 
 type RawQuestion = Static<typeof QuestionSchema>;
 
-export function askUserTool(ask: AskQuestions): ToolDefinition {
-  return defineTool({
+export function askUser(ask: AskQuestions): SessionTool<typeof AskUserParams> {
+  return {
     name: "ask_user",
     label: "Ask User",
     description:
@@ -96,39 +93,39 @@ export function askUserTool(ask: AskQuestions): ToolDefinition {
       "Users can annotate their choices, add their own option, and ask about an option before answering. " +
       "Always provide a description for each option: it is shown in the detail panel when the option is highlighted.",
     // Asking changes nothing, so a meta-session never asks before it.
-    annotations: { readOnlyHint: true },
-    promptSnippet:
-      "Ask the user structured questions in a form (single/multi choice, scale, rank, text, number)",
-    promptGuidelines: [
-      "ALWAYS use ask_user when you need user input on choices or decisions. Never list options as plain text and ask the user to pick.",
-      "Provide a meaningful 'description' for EVERY option, it is shown in a detail panel and helps the user decide.",
-      "Use 'recommended: true' on options you think are best, or 'recommendedValue' for numbers, with reasoning in the description or context.",
-      "Use 'multi' when several options could apply, 'single' when exactly one must be chosen, 'scale' for a point on an ordered range, 'rank' to order options, 'number' for a quantity, and 'text' for open-ended questions.",
-      "For questions that need context or explanation, present the context in your chat message before calling ask_user. Keep the 'prompt' field short (one line).",
-    ],
-    parameters: AskUserParams,
-    executionMode: "sequential",
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+    annotations: { readOnly: true },
+    prompt: {
+      snippet:
+        "Ask the user structured questions in a form (single/multi choice, scale, rank, text, number)",
+      guidelines: [
+        "ALWAYS use ask_user when you need user input on choices or decisions. Never list options as plain text and ask the user to pick.",
+        "Provide a meaningful 'description' for EVERY option, it is shown in a detail panel and helps the user decide.",
+        "Use 'recommended: true' on options you think are best, or 'recommendedValue' for numbers, with reasoning in the description or context.",
+        "Use 'multi' when several options could apply, 'single' when exactly one must be chosen, 'scale' for a point on an ordered range, 'rank' to order options, 'number' for a quantity, and 'text' for open-ended questions.",
+        "For questions that need context or explanation, present the context in your chat message before calling ask_user. Keep the 'prompt' field short (one line).",
+      ],
+    },
+    params: AskUserParams,
+    sequential: true,
+    run: async (params, call) => {
       const questions = params.questions.map(normalize);
       if (questions.length === 0) {
-        throw new Error("No questions provided.");
+        throw new ToolError("No questions provided.");
       }
 
       const answer = await ask(
         questions,
-        explainer(ctx, questions),
-        signal,
+        explainer(call, questions),
+        call.signal,
         params.for,
       );
 
       return {
-        content: [
-          { type: "text", text: describe(questions, answer, params.for) },
-        ],
+        text: describe(questions, answer, params.for),
         details: { questions, answer },
       };
     },
-  });
+  };
 }
 
 function normalize(raw: RawQuestion, index: number): Question {
@@ -146,7 +143,7 @@ function normalize(raw: RawQuestion, index: number): Question {
     case "rank": {
       const options = raw.options ?? [];
       if (options.length === 0) {
-        throw new Error(
+        throw new ToolError(
           `Question "${raw.id}" is type "${raw.type}" but has no options.`,
         );
       }
@@ -167,7 +164,7 @@ function normalize(raw: RawQuestion, index: number): Question {
       return { ...base, type: "text", placeholder: raw.placeholder ?? null };
     case "number": {
       if (raw.min === undefined || raw.max === undefined) {
-        throw new Error(
+        throw new ToolError(
           `Question "${raw.id}" is type "number" but has no min or max.`,
         );
       }
@@ -175,13 +172,13 @@ function normalize(raw: RawQuestion, index: number): Question {
       const step = raw.step ?? 1;
 
       if (step <= 0) {
-        throw new Error(
+        throw new ToolError(
           `Question "${raw.id}" has step ${String(step)}; step must be above 0.`,
         );
       }
 
       if (raw.min > raw.max) {
-        throw new Error(
+        throw new ToolError(
           `Question "${raw.id}" has min ${String(raw.min)} above max ${String(raw.max)}.`,
         );
       }
@@ -200,11 +197,10 @@ function normalize(raw: RawQuestion, index: number): Question {
 }
 
 function explainer(
-  ctx: ExtensionToolContext,
+  { complete }: SessionToolCall,
   questions: readonly Question[],
 ): Explain | undefined {
-  const model: Model<Api> | undefined = ctx.model;
-  if (model === undefined) {
+  if (complete === undefined) {
     return undefined;
   }
 
@@ -238,28 +234,11 @@ function explainer(
       .filter((line, i, lines) => line !== "" || lines[i - 1] !== "")
       .join("\n");
 
-    const response = await ctx.modelRegistry
-      .streamSimple(model, {
-        systemPrompt:
-          "You explain options for decision-making. Be concise and practical. No markdown formatting.",
-        messages: [
-          {
-            role: "user",
-            content: [{ type: "text", text: prompt }],
-            timestamp: Date.now(),
-          },
-        ],
-      })
-      .result();
-
-    if (response.stopReason === "error" || response.stopReason === "aborted") {
-      throw new Error(response.errorMessage ?? "the model did not answer");
-    }
-
-    return response.content
-      .flatMap((part) => (part.type === "text" ? [part.text] : []))
-      .join("\n")
-      .trim();
+    return complete({
+      system:
+        "You explain options for decision-making. Be concise and practical. No markdown formatting.",
+      prompt,
+    });
   };
 }
 

@@ -1,6 +1,5 @@
 // Written by `bun run registries` from plugins/*/package.json. Don't edit.
-import askPackage from "../../../plugins/ask/package.json";
-import * as askServer from "../../../plugins/ask/src/server";
+import { ask } from "../../../plugins/ask/plugin";
 import changesPackage from "../../../plugins/changes/package.json";
 import { checklist } from "../../../plugins/checklist/plugin";
 import emailPackage from "../../../plugins/email/package.json";
@@ -34,7 +33,7 @@ import usagePackage from "../../../plugins/usage/package.json";
 import * as usageServer from "../../../plugins/usage/src/server";
 
 export const serverRegistry = [
-  { id: "ask", manifest: askPackage.pipoca, server: askServer },
+  { id: "ask", definition: ask },
   { id: "changes", manifest: changesPackage.pipoca },
   { id: "checklist", definition: checklist },
   { id: "email", manifest: emailPackage.pipoca, server: emailServer },
