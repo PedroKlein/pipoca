@@ -21,7 +21,7 @@ import {
   sessionHref,
 } from "./plugins";
 import { SessionView } from "./session-view";
-import { isSettingsRoute, SettingsLayout } from "./settings-layout";
+import { isSettingsRoute, SettingsLayout } from "./settings/layout";
 import { SetupReminders, SetupWizard } from "./setup";
 import { Sidebar } from "./sidebar";
 import { isTeamRoute, TeamHub } from "./team-hub";

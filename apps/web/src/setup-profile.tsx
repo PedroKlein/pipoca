@@ -10,7 +10,7 @@ import {
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { api } from "./api";
-import { base64 } from "./profile-files";
+import { base64 } from "./settings/profiles/upload";
 
 // One thing in a picked Pi agent folder that the person can leave out.
 interface Item {

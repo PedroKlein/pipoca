@@ -1,7 +1,7 @@
 import { Page, PageTitle } from "@pipoca/ui";
 import type { ReactElement } from "react";
-import { PluginBoundary } from "./plugin-boundary";
-import { enabledPlugins, pluginContext } from "./plugins";
+import { PluginBoundary } from "../../plugin-boundary";
+import { enabledPlugins, pluginContext } from "../../plugins";
 
 // Everything Pi signs in to for the person, gathered from the plugins that
 // keep it (ADR 0063).

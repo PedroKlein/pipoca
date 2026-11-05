@@ -31,7 +31,7 @@ import {
   useSessions,
   useTemplates,
 } from "./hooks";
-import { useNewcomers } from "./newcomers";
+import { useNewcomers } from "./settings/people/newcomers";
 import { NewSessionForm } from "./new-session";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext } from "./plugins";

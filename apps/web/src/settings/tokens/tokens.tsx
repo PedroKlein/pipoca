@@ -9,10 +9,10 @@ import {
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import { api } from "./api";
-import { useAccessTokens } from "./hooks";
+import { api } from "../../api";
+import { useAccessTokens } from "../../hooks";
 
-export function SettingsPage(): ReactElement {
+export function TokensPage(): ReactElement {
   const { value: tokens, reload } = useAccessTokens();
 
   // A token shows once, right after it is made, like an Environment's key.
@@ -50,7 +50,7 @@ export function SettingsPage(): ReactElement {
 
   return (
     <Page
-      id="settings-page"
+      id="tokens-page"
       title="Access tokens"
       description="An MCP client, such as Pi or Claude Code on your laptop, can use the assistant's tools to manage Sessions, Environments, Profiles and Projects as you. It asks for a token, and you can revoke one at any time."
     >

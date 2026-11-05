@@ -1,29 +1,17 @@
 import { json, ok, useLoaded } from "@pipoca/plugins/web";
-import { profilePath } from "@pipoca/protocol";
 import {
   Button,
   Card,
-  cn,
   ErrorText,
   Field,
-  fieldClass,
   FileButton,
   Section,
+  TextArea,
+  TextInput,
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-
-const errors: Readonly<Record<string, string>> = {
-  default: "Make another Profile the default before deleting this one.",
-  in_use: "Sessions still use this Profile. Archive them first.",
-  admin_only: "Only admins change shared Profiles.",
-};
-
-export function messageOf(reason: unknown): string {
-  const code = reason instanceof Error ? reason.message : String(reason);
-
-  return errors[code] ?? code;
-}
+import { messageOf, upload } from "./upload";
 
 interface ProfileFile {
   readonly path: string;
@@ -53,49 +41,7 @@ function sizeText(bytes: number): string {
     : `${(bytes / 1024).toFixed(1)} KB`;
 }
 
-export function base64(bytes: Uint8Array): string {
-  let text = "";
-  for (let at = 0; at < bytes.length; at += 0x8000) {
-    text += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
-  }
-
-  return btoa(text);
-}
-
-// What machines keep for themselves, such as auth.json, is never sent
-// (ADR 0041).
-export async function upload(
-  url: string,
-  picked: readonly File[],
-  { folder, picked: pickedFolder }: { folder?: string; picked: boolean },
-): Promise<void> {
-  const files: Record<string, string> = {};
-
-  for (const file of picked) {
-    const relative = pickedFolder
-      ? file.webkitRelativePath
-          .split("/")
-          .slice(folder === undefined ? 1 : 0)
-          .join("/")
-      : file.name;
-
-    const path = `${folder ?? ""}${relative}`;
-
-    if (profilePath(path)) {
-      files[path] = base64(new Uint8Array(await file.arrayBuffer()));
-    }
-  }
-
-  await ok(
-    fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ files }),
-    }),
-  );
-}
-
-function useRun(
+export function useRun(
   reload: () => void,
 ): readonly [string | undefined, (action: () => Promise<void>) => void] {
   const [error, setError] = useState<string>();
@@ -204,11 +150,11 @@ export function KindFiles({
           }}
           className="flex flex-wrap gap-2"
         >
-          <input
+          <TextInput
             name="name"
             aria-label={`New in ${kind.title}`}
             placeholder={kind.placeholder}
-            className={cn(fieldClass, "min-w-48 flex-1 font-mono")}
+            className="min-w-48 flex-1 font-mono"
           />
           <Button type="submit">New</Button>
           {picker(false)}
@@ -259,13 +205,13 @@ function FileEditor({
   return (
     <div className="flex flex-col gap-2">
       <Field label={file.path}>
-        <textarea
+        <TextArea
           value={text}
           rows={12}
           onChange={(event) => {
             setText(event.target.value);
           }}
-          className={cn(fieldClass, "min-h-48 resize-y font-mono text-mono-sm")}
+          className="min-h-48 resize-y font-mono text-mono-sm"
         />
       </Field>
       <div className="flex flex-wrap gap-2">
@@ -296,118 +242,6 @@ function FileEditor({
         </Button>
       </div>
       {asking}
-    </div>
-  );
-}
-
-export interface OneFile {
-  readonly path: string;
-  readonly about: string;
-  readonly example: string;
-}
-
-// Files Pi reads by a fixed name, such as mcp.json. Saving one empty deletes
-// it.
-export function NamedFiles({
-  url,
-  title,
-  files,
-}: {
-  readonly url: string;
-  readonly title: string;
-  readonly files: readonly OneFile[];
-}): ReactElement {
-  const { value: texts, reload } = useLoaded(
-    async () =>
-      Promise.all(
-        files.map(async ({ path }) => {
-          const response = await fetch(`${url}/${encodeURIComponent(path)}`);
-
-          return response.ok ? response.text() : "";
-        }),
-      ),
-    `${url}:${files.map(({ path }) => path).join()}`,
-    { topics: ["profiles"] },
-  );
-
-  return (
-    <Section title={title}>
-      <Card padding="none" className="flex flex-col gap-6 p-5">
-        {texts &&
-          files.map((file, n) => (
-            <NamedFile
-              key={`${file.path}:${texts[n] ?? ""}`}
-              url={`${url}/${encodeURIComponent(file.path)}`}
-              file={file}
-              text={texts[n] ?? ""}
-              onSaved={reload}
-            />
-          ))}
-      </Card>
-    </Section>
-  );
-}
-
-function NamedFile({
-  url,
-  file,
-  text: saved,
-  onSaved,
-}: {
-  readonly url: string;
-  readonly file: OneFile;
-  readonly text: string;
-  readonly onSaved: () => void;
-}): ReactElement {
-  const [text, setText] = useState(saved);
-  const [error, run] = useRun(onSaved);
-
-  const save = async (): Promise<void> => {
-    if (text.trim() === "") {
-      if (saved !== "") {
-        await ok(fetch(url, { method: "DELETE" }));
-      }
-
-      return;
-    }
-
-    if (file.path.endsWith(".json")) {
-      try {
-        JSON.parse(text);
-      } catch {
-        throw new Error(`${file.path} isn't valid JSON.`);
-      }
-    }
-
-    await ok(fetch(url, { method: "PUT", body: text }));
-  };
-
-  return (
-    <div className="flex flex-col gap-2">
-      <Field label={file.path}>
-        <textarea
-          value={text}
-          rows={8}
-          placeholder={file.example}
-          onChange={(event) => {
-            setText(event.target.value);
-          }}
-          className={cn(fieldClass, "min-h-32 resize-y font-mono text-mono-sm")}
-        />
-      </Field>
-      <p className="text-caption text-fg-dim">{file.about}</p>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          variant="primary"
-          disabled={text === saved}
-          onClick={() => {
-            run(save);
-          }}
-        >
-          Save
-        </Button>
-        <ErrorText size="caption">{error}</ErrorText>
-      </div>
     </div>
   );
 }

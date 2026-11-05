@@ -1,19 +1,23 @@
 import {
   Badge,
   Button,
+  Card,
+  Code,
+  initialsOf,
   Page,
   PageTitle,
   Row,
   Rows,
   Section,
   Segmented,
+  StatusMark,
 } from "@pipoca/ui";
 import type { ReactElement } from "react";
-import { api } from "./api";
-import { PluginBoundary } from "./plugin-boundary";
-import { enabledPlugins, pluginContext } from "./plugins";
-import { useTheme } from "./theme";
-import { useVerbosity, verbosities } from "./verbosity";
+import { api } from "../../api";
+import { PluginBoundary } from "../../plugin-boundary";
+import { enabledPlugins, pluginContext } from "../../plugins";
+import { useTheme } from "../../theme";
+import { useVerbosity, type Verbosity, verbosities } from "../../verbosity";
 
 const verbosityLabels = {
   quiet: "Quiet",
@@ -38,7 +42,7 @@ export function GeneralPage({
       </PageTitle>
       <Rows label="You">
         <Row
-          initials={user.slice(0, 1).toUpperCase()}
+          initials={initialsOf(user)}
           round
           title={
             <>
@@ -76,6 +80,7 @@ export function GeneralPage({
               }))}
               onChange={setVerbosity}
             />
+            <Preview verbosity={verbosity} />
           </Row>
         </Rows>
       </Section>
@@ -102,5 +107,50 @@ export function GeneralPage({
         </Button>
       </div>
     </Page>
+  );
+}
+
+const previewSteps = [
+  "Read plugins/routines/schedule.ts",
+  "Ran bun test plugins/routines",
+] as const;
+
+// What a turn looks like at the chosen level, so the choice is clear
+// before opening a Session.
+function Preview({
+  verbosity,
+}: {
+  readonly verbosity: Verbosity;
+}): ReactElement {
+  return (
+    <Card
+      padding="sm"
+      aria-label="Preview"
+      className="flex basis-full flex-col gap-2 bg-bg shadow-none"
+    >
+      <span className="text-caption text-fg-dim">Preview</span>
+      {verbosity === "quiet" ? (
+        <span className="flex items-center gap-2 text-label text-fg-dim">
+          <StatusMark status="done" label="" />
+          Ran the tests in plugins/routines
+        </span>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {previewSteps.map((step) => (
+            <li
+              key={step}
+              className="flex items-center gap-2 text-label text-fg-dim"
+            >
+              <StatusMark status="done" label="" />
+              {step}
+            </li>
+          ))}
+        </ul>
+      )}
+      {verbosity === "verbose" && <Code>48 pass, 0 fail</Code>}
+      <span className="text-ui text-fg">
+        All 48 tests pass. I pushed the fix to the branch.
+      </span>
+    </Card>
   );
 }

@@ -24,7 +24,7 @@ export function Page({
       id={id}
       aria-label={label}
       className={cn(
-        "mx-auto flex w-full max-w-chat flex-col px-4 py-8 md:px-12 md:py-11",
+        "mx-auto flex w-full max-w-page flex-col px-4 pt-8 pb-12 md:px-12 md:pt-11 md:pb-18",
         className,
       )}
     >
@@ -55,7 +55,7 @@ export function PageTitle({
           {children}
         </h1>
         {description !== undefined && (
-          <p className="max-w-chat text-ui text-fg-dim">{description}</p>
+          <p className="max-w-145 text-ui text-fg-dim">{description}</p>
         )}
       </div>
       {actions !== undefined && (

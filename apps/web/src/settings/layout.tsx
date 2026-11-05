@@ -1,46 +1,29 @@
-import type { SettingsGroup } from "@pipoca/plugins/web";
 import type { Environment, Profile } from "@pipoca/protocol";
-import {
-  AreaLayout,
-  Avatar,
-  cn,
-  Icon,
-  linkCardClass,
-  Page,
-  PageTitle,
-  Tabs,
-} from "@pipoca/ui";
+import { AreaLayout, Avatar, cn, Icon, linkCardClass, Page } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
-import { AccountsPage } from "./accounts";
-import { EnvironmentsPage } from "./environments";
-import { GeneralPage } from "./general";
-import { PeoplePage } from "./people";
-import { PluginBoundary } from "./plugin-boundary";
-import { enabledPlugins, pluginContext, pluginTitle } from "./plugins";
-import { ConfigurationPage } from "./configuration";
-import { PluginsPage } from "./plugins-page";
-import { ProfilesPage } from "./profiles";
-import { SettingsPage } from "./settings";
-
-interface Entry {
-  readonly path: string;
-  readonly label: string;
-}
+import { AccountsPage } from "./accounts/accounts";
+import { EnvironmentsPage } from "./environments/environments";
+import { GeneralPage } from "./general/general";
+import { PeoplePage } from "./people/people";
+import { PluginBoundary } from "../plugin-boundary";
+import { enabledPlugins, pluginContext } from "../plugins";
+import { ConfigurationPage } from "./configuration/configuration";
+import { PluginsPage } from "./plugins/plugins";
+import { ProfilesPage } from "./profiles/profiles";
+import { TokensPage } from "./tokens/tokens";
+import {
+  type Entry,
+  pluginPages,
+  integrationsPath,
+  serverPages,
+  SharedNote,
+} from "./server-pages";
+import { IntegrationsPage } from "./integrations/integrations";
 
 interface Group {
   readonly label: string;
   readonly entries: readonly Entry[];
 }
-
-function pluginPages(group: SettingsGroup): readonly Entry[] {
-  return enabledPlugins().flatMap(({ name, SettingsSection, settingsGroup }) =>
-    SettingsSection && (settingsGroup ?? "you") === group
-      ? [{ path: `settings/${name}`, label: pluginTitle(name) }]
-      : [],
-  );
-}
-
-const integrationsPath = "settings/integrations";
 
 // Settings is grouped by who it is for, and only admins see the server's
 // pages (ADR 0063).
@@ -82,88 +65,6 @@ function opens(route: string, path: string): boolean {
     route === path ||
     route.startsWith(`${path}/`) ||
     (route === "settings" && path === "settings/general")
-  );
-}
-
-export interface ServerPage {
-  readonly key: string;
-  readonly path: string;
-  readonly label: string;
-}
-
-// The pages the whole server shares, which Team setup shows too (ADR 0064).
-export function serverPages(people: boolean): readonly ServerPage[] {
-  return [
-    ...(people ? [{ key: "people", path: "people", label: "People" }] : []),
-    ...pluginPages("server").map(({ path, label }) => ({
-      key: path.slice("settings/".length),
-      path,
-      label,
-    })),
-    ...(pluginPages("integrations").length > 0
-      ? [{ key: "integrations", path: integrationsPath, label: "Integrations" }]
-      : []),
-    { key: "plugins", path: "plugins", label: "Plugins" },
-    {
-      key: "configuration",
-      path: "settings/configuration",
-      label: "Configuration",
-    },
-  ];
-}
-
-// Says a page is the server's, the same one the other area shows.
-export function SharedNote({
-  children,
-}: {
-  readonly children: ReactNode;
-}): ReactElement {
-  return (
-    <p
-      role="note"
-      className="mx-auto mt-4 flex w-full max-w-chat items-center gap-2 px-4 text-caption text-fg-dim md:px-12"
-    >
-      <Icon name="settings" />
-      <span>{children}</span>
-    </p>
-  );
-}
-
-// One of the server's pages, at its key, under base in the address.
-export function ServerPageView({
-  page,
-  route,
-  base,
-  user,
-}: {
-  readonly page: ServerPage;
-  readonly route: string;
-  readonly base: string;
-  readonly user: string;
-}): ReactElement {
-  switch (page.key) {
-    case "people":
-      return <PeoplePage user={user} />;
-    case "plugins":
-      return <PluginsPage />;
-    case "configuration":
-      return <ConfigurationPage />;
-    case "integrations":
-      return <IntegrationsPage route={route} base={base} />;
-  }
-
-  const Section = enabledPlugins().find(
-    (plugin) => plugin.name === page.key,
-  )?.SettingsSection;
-
-  return (
-    <Page>
-      {Section && (
-        <PluginBoundary name={page.key}>
-          <Section context={pluginContext(page.key)} />
-        </PluginBoundary>
-      )}
-    </Page>
   );
 }
 
@@ -239,7 +140,7 @@ export function SettingsLayout({
     }
 
     if (route === "settings/tokens") {
-      return <SettingsPage />;
+      return <TokensPage />;
     }
 
     if (opens(route, integrationsPath)) {
@@ -311,47 +212,5 @@ export function SettingsLayout({
       )}
       {page()}
     </AreaLayout>
-  );
-}
-
-// Plugins that start routines from outside, such as Slack and Email, share
-// one page with a tab each (ADR 0063).
-function IntegrationsPage({
-  route,
-  base,
-}: {
-  readonly route: string;
-  readonly base: string;
-}): ReactElement {
-  const tabs = enabledPlugins().filter(
-    ({ SettingsSection, settingsGroup }) =>
-      SettingsSection !== undefined && settingsGroup === "integrations",
-  );
-
-  const chosen = route.slice(base.length + 1);
-  const open = tabs.find(({ name }) => name === chosen) ?? tabs[0];
-  const Section = open?.SettingsSection;
-
-  return (
-    <Page>
-      <PageTitle description="Services that start your routines from outside Pipoca and that Sessions can answer through.">
-        Integrations
-      </PageTitle>
-      <Tabs
-        label="Integrations"
-        className="mb-2"
-        value={open?.name}
-        tabs={tabs.map(({ name }) => ({
-          value: name,
-          label: pluginTitle(name),
-          href: `#${base}/${name}`,
-        }))}
-      />
-      {open && Section && (
-        <PluginBoundary name={open.name}>
-          <Section context={pluginContext(open.name)} />
-        </PluginBoundary>
-      )}
-    </Page>
   );
 }

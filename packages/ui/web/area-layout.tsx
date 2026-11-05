@@ -64,7 +64,7 @@ export function AreaLayout({
       <nav
         aria-label={label}
         className={cn(
-          "flex w-62 shrink-0 flex-col gap-px overflow-y-auto border-r border-line bg-panel px-3 pt-4 pb-6",
+          "flex w-58 shrink-0 flex-col gap-px overflow-y-auto border-r border-line bg-panel px-3 pt-4 pb-6",
           bar
             ? "max-md:w-full max-md:flex-row max-md:flex-wrap max-md:items-center max-md:border-r-0 max-md:border-b max-md:py-2"
             : "max-md:hidden",

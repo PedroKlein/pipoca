@@ -19,12 +19,16 @@ import {
   useState,
 } from "react";
 import { api } from "./api";
-import { EnvironmentsPage } from "./environments";
+import { EnvironmentsPage } from "./settings/environments/environments";
 import { usePlugins, useTeamEnvironments, useTeamProfiles } from "./hooks";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext } from "./plugins";
-import { ProfilesPage } from "./profiles";
-import { ServerPageView, serverPages, SharedNote } from "./settings-layout";
+import { ProfilesPage } from "./settings/profiles/profiles";
+import {
+  ServerPageView,
+  serverPages,
+  SharedNote,
+} from "./settings/server-pages";
 
 interface Entry {
   readonly path: string;
