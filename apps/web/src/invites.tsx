@@ -1,13 +1,6 @@
 import type { Invite } from "@pipoca/protocol";
-import { Badge, Button, cn, Icon, Segmented, Select } from "@pipoca/ui";
-import {
-  type ClipboardEvent,
-  type KeyboardEvent,
-  type ReactElement,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { Badge, Button, cn, Dialog, Icon, Segmented, Select } from "@pipoca/ui";
+import { type ClipboardEvent, type KeyboardEvent, type ReactElement, useState } from "react";
 import { api, send } from "./api";
 import { TheirSetup } from "./newcomers";
 
@@ -116,25 +109,15 @@ export function InviteDialog({
   readonly onClose: () => void;
   readonly onChangeSetup: () => void;
 }): ReactElement {
-  const dialog = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    if (open) {
-      dialog.current?.showModal();
-    } else {
-      dialog.current?.close();
-    }
-  }, [open]);
-
   return (
-    <dialog
-      ref={dialog}
+    <Dialog
+      open={open}
       onClose={onClose}
-      aria-labelledby="invite-title"
-      className="m-auto w-[min(600px,calc(100vw-32px))] rounded-xl border border-line bg-elevated p-0 text-fg shadow-pop backdrop:bg-black/30 backdrop:backdrop-blur-[2px] open:animate-pop-in"
+      labelledBy="invite-title"
+      size="md"
     >
-      {open && <InviteForm onClose={onClose} onChangeSetup={onChangeSetup} />}
-    </dialog>
+      <InviteForm onClose={onClose} onChangeSetup={onChangeSetup} />
+    </Dialog>
   );
 }
 

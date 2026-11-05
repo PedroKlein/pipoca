@@ -1,17 +1,5 @@
 import type { PluginInfo, SettingSpec, SettingValue } from "@pipoca/protocol";
-import {
-  Badge,
-  Button,
-  cn,
-  Field,
-  fieldClass,
-  Icon,
-  PageTitle,
-  Section,
-  Segmented,
-  Select,
-  Switch,
-} from "@pipoca/ui";
+import { Badge, Button, cn, Field, fieldClass, Icon, PageTitle, plural, Section, Segmented, Select, Switch, useConfirm } from "@pipoca/ui";
 import { ok } from "@pipoca/plugins/web";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import { api, send } from "./api";
@@ -121,6 +109,7 @@ function PluginCard({
   const [note, setNote] = useState<string>();
   const installed = plugin.source === "installed";
   const hasSettings = Object.keys(plugin.settings ?? {}).length > 0;
+  const [ask, asking] = useConfirm();
 
   const run = (change: () => Promise<string | undefined>): void => {
     change().then(
@@ -136,17 +125,27 @@ function PluginCard({
   };
 
   const turn = (): void => {
-    if (!plugin.turnedOn && !confirm(trustQuestion(plugin))) {
-      return;
-    }
+    const trusted = plugin.turnedOn
+      ? Promise.resolve(true)
+      : ask({
+          title: `Turn on ${plugin.title}?`,
+          description: trustQuestion(plugin),
+          confirm: "Turn on",
+        });
 
-    run(async () => {
-      await send(`/api/plugins/${plugin.id}`, "PATCH", {
-        enabled: !plugin.turnedOn,
-        digest: plugin.digest,
+    void trusted.then((yes) => {
+      if (!yes) {
+        return;
+      }
+
+      run(async () => {
+        await send(`/api/plugins/${plugin.id}`, "PATCH", {
+          enabled: !plugin.turnedOn,
+          digest: plugin.digest,
+        });
+
+        return undefined;
       });
-
-      return undefined;
     });
   };
 
@@ -173,30 +172,40 @@ function PluginCard({
   };
 
   const remove = (): void => {
-    if (!confirm(`Remove ${plugin.title} from this server?`)) {
-      return;
-    }
+    void ask({
+      title: `Remove ${plugin.title} from this server?`,
+      confirm: "Remove",
+      danger: true,
+    }).then((yes) => {
+      if (!yes) {
+        return;
+      }
 
-    run(async () => {
-      await send(`/api/plugins/${plugin.id}`, "DELETE");
+      run(async () => {
+        await send(`/api/plugins/${plugin.id}`, "DELETE");
 
-      return undefined;
+        return undefined;
+      });
     });
   };
 
   const reset = (): void => {
-    if (
-      !confirm(
-        `Reset ${plugin.title}'s data? Its tables are dropped and made again empty, and everything it kept there is gone.`,
-      )
-    ) {
-      return;
-    }
+    void ask({
+      title: `Reset ${plugin.title}'s data?`,
+      description:
+        "Its tables are dropped and made again empty, and everything it kept there is gone.",
+      confirm: "Reset data",
+      danger: true,
+    }).then((yes) => {
+      if (!yes) {
+        return;
+      }
 
-    run(async () => {
-      await send(`/api/plugin-resets/${plugin.id}`, "POST");
+      run(async () => {
+        await send(`/api/plugin-resets/${plugin.id}`, "POST");
 
-      return undefined;
+        return undefined;
+      });
     });
   };
 
@@ -325,6 +334,7 @@ function PluginCard({
           onChange={onChange}
         />
       )}
+      {asking}
     </li>
   );
 }
@@ -450,7 +460,6 @@ function trustQuestion(plugin: PluginInfo): string {
   const parts = plugin.parts ?? {};
 
   return [
-    `Turn on ${plugin.title}?`,
     `Its code runs inside the Pipoca server, with the server's access. It asks for ${declared.length > 0 ? declared.join(", ") : "nothing more"}.`,
     ...(parts.web === undefined
       ? []
@@ -463,7 +472,7 @@ function trustQuestion(plugin: PluginInfo): string {
             : "Its Session part runs in every Session, on every machine that runs one, laptops included.",
         ]),
     "Turn on only plugins you trust.",
-  ].join("\n\n");
+  ].join(" ");
 }
 
 // Sessions on the server's own runner stop with it, so a restart asks first
@@ -472,6 +481,7 @@ function trustQuestion(plugin: PluginInfo): string {
 function Restart(): ReactElement {
   const [state, setState] = useState<"idle" | "restarting">("idle");
   const [error, setError] = useState<string>();
+  const [ask, asking] = useConfirm();
 
   const restart = async (force: boolean): Promise<void> => {
     const before = await startedAt();
@@ -486,9 +496,12 @@ function Restart(): ReactElement {
       const { sessions } = (await response.json()) as { sessions: number };
 
       if (
-        confirm(
-          `${String(sessions)} ${sessions === 1 ? "Session is" : "Sessions are"} mid-turn on the server's own runner and will be interrupted. Restart anyway?`,
-        )
+        await ask({
+          title: "Restart anyway?",
+          description: `${plural(sessions, "Session is", "Sessions are")} mid-turn on the server's own runner and will be interrupted.`,
+          confirm: "Restart",
+          danger: true,
+        })
       ) {
         await restart(true);
       }
@@ -527,6 +540,7 @@ function Restart(): ReactElement {
           {error}
         </p>
       )}
+      {asking}
     </div>
   );
 }

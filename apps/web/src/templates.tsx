@@ -1,14 +1,5 @@
 import type { EnvironmentTemplate, ManifestEntry } from "@pipoca/protocol";
-import {
-  Button,
-  cn,
-  Field,
-  fieldClass,
-  KeyValues,
-  Section,
-  Select,
-  type KeyValue,
-} from "@pipoca/ui";
+import { Button, cn, Field, fieldClass, type KeyValue, KeyValues, Section, Select, useConfirm } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import { api, send } from "./api";
 import { PluginBoundary } from "./plugin-boundary";
@@ -219,6 +210,7 @@ function TemplateEditor({
 }): ReactElement {
   const [error, setError] = useState<string>();
   const [saved, setSaved] = useState(false);
+  const [ask, asking] = useConfirm();
 
   const [rows, setRows] = useState<readonly KeyValue[]>(() =>
     Object.entries(template.variables).map(([name, value]) => ({
@@ -272,15 +264,16 @@ function TemplateEditor({
   };
 
   const remove = (): void => {
-    if (
-      !confirm(
-        `Environments made from ${template.name} keep running with their own settings.`,
-      )
-    ) {
-      return;
-    }
-
-    send(`/api/templates/${template.id}`, "DELETE").then(onChange, failed);
+    void ask({
+      title: `Delete ${template.name}?`,
+      description: `Environments made from ${template.name} keep running with their own settings.`,
+      confirm: "Delete",
+      danger: true,
+    }).then((yes) => {
+      if (yes) {
+        send(`/api/templates/${template.id}`, "DELETE").then(onChange, failed);
+      }
+    });
   };
 
   return (
@@ -385,6 +378,7 @@ function TemplateEditor({
             ),
         )}
       </div>
+      {asking}
     </details>
   );
 }

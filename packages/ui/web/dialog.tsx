@@ -28,6 +28,7 @@ export function Dialog({
   labelledBy,
   size = "md",
   sheet = false,
+  initialFocus,
   className,
   children,
 }: {
@@ -41,6 +42,8 @@ export function Dialog({
   readonly size?: keyof typeof sizes;
   // On a phone, a sheet from the bottom edge.
   readonly sheet?: boolean;
+  // A selector for what takes focus on opening, instead of the first control.
+  readonly initialFocus?: string;
   readonly className?: string;
   readonly children: ReactNode;
 }): ReactElement {
@@ -56,10 +59,14 @@ export function Dialog({
 
     if (open && !element.open) {
       element.showModal();
+
+      if (initialFocus !== undefined) {
+        element.querySelector<HTMLElement>(initialFocus)?.focus();
+      }
     } else if (!open && element.open) {
       element.close();
     }
-  }, [open]);
+  }, [open, initialFocus]);
 
   return (
     <dialog

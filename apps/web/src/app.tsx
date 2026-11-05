@@ -234,7 +234,7 @@ export function App({
           setDrawer(false);
         }}
         className={cn(
-          "fixed inset-0 z-10 bg-black/55 md:hidden",
+          "fixed inset-0 z-10 bg-scrim md:hidden",
           !drawer && "hidden",
         )}
       />

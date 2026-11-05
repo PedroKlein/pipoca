@@ -6,8 +6,8 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, cn, Field, fieldClass, Icon, ListInput } from "@pipoca/ui";
-import { type ReactElement, useEffect, useRef, useState } from "react";
+import { Button, cn, Dialog, Field, fieldClass, Icon, ListInput } from "@pipoca/ui";
+import { type ReactElement, useState } from "react";
 import type { Vote, Votes } from "../src/votes";
 
 // Open votes sit above the composer of team work, and anyone following it
@@ -185,27 +185,15 @@ function OpenVoteDialog({
   readonly open: boolean;
   readonly onClose: () => void;
 }): ReactElement {
-  const dialog = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    if (open) {
-      dialog.current?.showModal();
-    } else {
-      dialog.current?.close();
-    }
-  }, [open]);
-
   return (
-    <dialog
-      ref={dialog}
+    <Dialog
+      open={open}
       onClose={onClose}
-      aria-labelledby="vote-title"
-      className="m-auto w-[min(480px,calc(100vw-32px))] overflow-visible rounded-xl border border-line bg-elevated p-0 text-fg shadow-pop backdrop:bg-black/30 backdrop:backdrop-blur-[2px] open:animate-pop-in"
+      labelledBy="vote-title"
+      size="sm"
     >
-      {open && (
-        <VoteForm context={context} session={session} onDone={onClose} />
-      )}
-    </dialog>
+      <VoteForm context={context} session={session} onDone={onClose} />
+    </Dialog>
   );
 }
 

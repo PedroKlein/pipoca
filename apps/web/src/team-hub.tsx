@@ -1,17 +1,6 @@
 import type { HubPanel, HubScreen } from "@pipoca/plugins/web";
 import type { HubPage, Session } from "@pipoca/protocol";
-import {
-  Badge,
-  Button,
-  fieldClass,
-  Icon,
-  type IconName,
-  PageTitle,
-  Row,
-  Rows,
-  Section,
-  Select,
-} from "@pipoca/ui";
+import { AreaLayout, Badge, Button, fieldClass, Icon, type IconName, PageTitle, plural, Row, Rows, Section, Select } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useState } from "react";
 import { send } from "./api";
 import {
@@ -206,57 +195,39 @@ export function TeamHub({
   };
 
   return (
-    <div className="flex min-h-0 flex-1 max-md:flex-col">
-      <nav
-        aria-label="Team"
-        className="flex w-62 shrink-0 flex-col gap-px border-r border-line bg-panel px-3 pt-4 pb-6 max-md:w-full max-md:flex-row max-md:flex-wrap max-md:items-center max-md:border-r-0 max-md:border-b max-md:py-2"
-      >
-        <a
-          href="#"
-          className="mb-2.5 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-label text-fg-dim hover:bg-hover max-md:mb-0"
-        >
-          <Icon name="chevron-left" />
-          My work
-        </a>
-        <div className="px-2.5 pt-0.5 pb-2 max-md:hidden">
-          <h2 className="truncate font-serif text-wordmark font-light text-fg-strong">
-            {name ?? "Team"}
-          </h2>
-          {people.loaded && (
-            <p className="text-caption text-fg-dim">
-              {people.value.length === 1
-                ? "1 person"
-                : `${String(people.value.length)} people`}
-            </p>
-          )}
-        </div>
-        {entries.map(({ path, label, icon }) => (
-          <a
-            key={path}
-            href={`#${path}`}
-            aria-current={
-              route === path ||
-              (route === "team/" && path === "team") ||
-              (opened !== undefined && path === "team/sessions")
-                ? "page"
-                : undefined
-            }
-            className="flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-ui text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:font-medium aria-[current=page]:text-fg-strong"
-          >
-            <Icon name={icon} />
-            {label}
-          </a>
-        ))}
-        {admin && (
-          <a
-            href="#team/setup"
-            className="flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-ui text-fg hover:bg-hover"
-          >
-            <Icon name="settings" />
-            Team setup
-          </a>
-        )}
-        {admin && (
+    <AreaLayout
+      label="Team"
+      back={{ href: "#", label: "My work" }}
+      heading={name ?? "Team"}
+      detail={
+        people.loaded ? plural(people.value.length, "person", "people") : undefined
+      }
+      groups={[
+        {
+          items: [
+            ...entries.map(({ path, label, icon }) => ({
+              href: `#${path}`,
+              label,
+              icon,
+              current:
+                route === path ||
+                (route === "team/" && path === "team") ||
+                (opened !== undefined && path === "team/sessions"),
+            })),
+            ...(admin
+              ? [
+                  {
+                    href: "#team/setup",
+                    label: "Team setup",
+                    icon: "settings" as const,
+                  },
+                ]
+              : []),
+          ],
+        },
+      ]}
+      footer={
+        admin && (
           <AddPage
             onAdd={(title) => {
               const page = { id: newPageId(title, pages), title, panels: [] };
@@ -265,17 +236,11 @@ export function TeamHub({
               location.assign(`#${pathOf(page)}`);
             }}
           />
-        )}
-      </nav>
-      <div
-        className={
-          opened === undefined
-            ? "min-h-0 min-w-0 flex-1 overflow-y-auto"
-            : "flex min-h-0 min-w-0 flex-1 flex-col"
-        }
-      >
-        {content()}
-      </div>
+        )
+      }
+      fill={opened !== undefined}
+    >
+      {content()}
       <NewSessionDialog
         open={starting}
         team
@@ -286,7 +251,7 @@ export function TeamHub({
           setStarting(false);
         }}
       />
-    </div>
+    </AreaLayout>
   );
 }
 

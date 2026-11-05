@@ -881,11 +881,8 @@ test("turns an installed plugin on for the next start", async () => {
   const hello = page.getByRole("listitem", { name: "Hello" });
   await hello.getByText(/^Installed/).waitFor();
 
-  page.once("dialog", (dialog) => {
-    void dialog.accept();
-  });
-
   await hello.getByRole("switch", { name: "On" }).click();
+  await confirmIn("Turn on");
   await hello.getByText("It turns on when the server restarts.").waitFor();
   await hello.getByText("Off until restart").waitFor();
 
@@ -940,22 +937,17 @@ test("installs a plugin from a git repository, asks before turning it on, and re
   const weather = page.getByRole("listitem", { name: "Weather" });
   await weather.getByText(`file://${source} at`).waitFor();
 
-  const asked = new Promise<string>((resolve) => {
-    page.once("dialog", (dialog) => {
-      resolve(dialog.message());
-      void dialog.accept();
-    });
-  });
-
   await weather.getByRole("switch", { name: "On" }).click();
-  expect(await asked).toContain("It asks for routes");
+
+  expect(
+    await page.getByRole("dialog", { name: "Turn on Weather?" }).textContent(),
+  ).toContain("It asks for routes");
+
+  await confirmIn("Turn on");
   await weather.getByRole("switch", { name: "On", checked: true }).click();
 
-  page.once("dialog", (dialog) => {
-    void dialog.accept();
-  });
-
   await weather.getByRole("button", { name: "Remove" }).click();
+  await confirmIn("Remove");
   await weather.waitFor({ state: "detached" });
 });
 
@@ -1126,8 +1118,8 @@ test("gives a Profile its own login, then lets it inherit again", async () => {
 
   await logins.getByText("From My defaults").waitFor();
 
-  page.once("dialog", async (dialog) => dialog.accept());
   await editor.getByRole("button", { name: "Delete" }).click();
+  await confirmIn("Delete");
   await page.getByRole("link", { name: "Accounts" }).click();
 
   await page
@@ -1247,9 +1239,8 @@ test("makes an MCP token that works once shown, and revokes it", async () => {
   await page.getByLabel("Add command").waitFor({ state: "detached" });
   expect(await page.content()).not.toContain(secret);
 
-  page.once("dialog", async (dialog) => dialog.accept());
-
   await page.getByRole("button", { name: "Revoke My laptop" }).click();
+  await confirmIn("Revoke");
   await page.getByText("No client has a token.").waitFor();
   expect(await ping()).toBe(401);
 });
@@ -1269,13 +1260,13 @@ test("says why an MCP token wasn't revoked", async () => {
     }),
   );
 
-  page.once("dialog", async (dialog) => dialog.accept());
   await revoke.click();
+  await confirmIn("Revoke");
   await page.getByRole("alert").getByText("token store is locked").waitFor();
   await page.unroute("**/api/mcp-tokens/*");
 
-  page.once("dialog", async (dialog) => dialog.accept());
   await revoke.click();
+  await confirmIn("Revoke");
   await page.getByText("No client has a token.").waitFor();
   expect(await page.getByRole("alert").count()).toBe(0);
 });
@@ -1450,11 +1441,8 @@ test("deletes an Environment from its page", async () => {
 
   await page.goto(`${server.url.href}#environments/${environment.id}`);
 
-  page.once("dialog", (dialog) => {
-    void dialog.accept();
-  });
-
   await page.getByRole("button", { name: "Delete throwaway" }).click();
+  await confirmIn("Delete");
 
   await page.getByRole("link", { name: /^throwaway/ }).waitFor({
     state: "detached",
@@ -1499,12 +1487,9 @@ test("adds company sign-in from a preset, tests it, and removes it", async () =>
   await providers.getByRole("button", { name: "Test Okta" }).click();
   await providers.getByText("Can't reach it").waitFor();
 
-  page.once("dialog", (dialog) => {
-    void dialog.accept();
-  });
-
   await providers.getByRole("button", { name: "Edit Okta" }).click();
   await page.getByRole("button", { name: "Remove Okta" }).click();
+  await confirmIn("Remove");
   await providers.waitFor({ state: "detached" });
 });
 
@@ -1538,8 +1523,8 @@ test("guides an admin from a token-only host to a Connect button", async () => {
 
   await setup.getByRole("button", { name: "Done" }).click();
   await page.getByRole("button", { name: "Edit git.example.com" }).click();
-  page.once("dialog", (dialog) => void dialog.accept());
   await page.getByRole("button", { name: "Remove git.example.com" }).click();
+  await confirmIn("Remove");
   await hosts.getByText("git.example.com").waitFor({ state: "detached" });
 });
 
@@ -1871,8 +1856,8 @@ test("lists a Profile's packages as chips and edits its folder's files", async (
     { source: "./tools", extensions: [], skills: [], prompts: [], themes: [] },
   ]);
 
-  page.once("dialog", async (dialog) => dialog.accept());
   await editor.getByRole("button", { name: "Delete" }).click();
+  await confirmIn("Delete");
 
   await page
     .getByRole("link", { name: "Tools" })
@@ -1913,8 +1898,8 @@ test("builds a Profile on another, over My defaults", async () => {
     await page.getByRole("button", { name: "Builds on" }).textContent(),
   ).toContain("Default");
 
-  page.once("dialog", async (dialog) => dialog.accept());
   await editor.getByRole("button", { name: "Delete" }).click();
+  await confirmIn("Delete");
 
   await profiles
     .getByRole("link", { name: "Deep" })
@@ -2672,8 +2657,8 @@ test("creates a Project and shares a file through its library", async () => {
     .getByText(/^Archived · /)
     .waitFor({ state: "detached" });
 
-  page.once("dialog", async (dialog) => dialog.accept());
   await settings.getByRole("button", { name: "Archive Project" }).click();
+  await confirmIn("Archive");
   await nav.waitFor({ state: "detached" });
 }, 30_000);
 
@@ -3763,8 +3748,9 @@ test("opens Settings as its own page, grouped by who each page is for", async ()
   ).toEqual(["You", "Workspace", "Server, for admins"]);
 
   await menu.getByRole("link", { name: "Integrations" }).click();
-  await page.getByRole("tab", { name: "Email" }).click();
-  await page.getByRole("tab", { name: "Email", selected: true }).waitFor();
+  const tabs = page.getByRole("navigation", { name: "Integrations" });
+  await tabs.getByRole("link", { name: "Email" }).click();
+  await tabs.locator('a[aria-current="page"]', { hasText: "Email" }).waitFor();
 
   await menu.getByRole("link", { name: "Back to Pipoca" }).click();
   await page.locator("#plugin-nav").waitFor();
@@ -4600,3 +4586,11 @@ test("keeps team work inside the team's area, with the server's pages shared fro
     .getByRole("link", { name: "open it there" })
     .waitFor();
 }, 30_000);
+
+// Answers the confirm dialog that the last click opened.
+async function confirmIn(name: string): Promise<void> {
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name, exact: true })
+    .click();
+}

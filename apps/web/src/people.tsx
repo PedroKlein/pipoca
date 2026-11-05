@@ -5,16 +5,7 @@ import {
   type Person,
   type Session,
 } from "@pipoca/protocol";
-import {
-  Badge,
-  Button,
-  Icon,
-  initialsOf,
-  PageTitle,
-  Row,
-  Rows,
-  Select,
-} from "@pipoca/ui";
+import { Badge, Button, Icon, initialsOf, PageTitle, Row, Rows, Select, Tabs, useConfirm } from "@pipoca/ui";
 import { Fragment, type ReactElement, type ReactNode, useState } from "react";
 import { api, command, send } from "./api";
 import { ago } from "./chat";
@@ -47,6 +38,7 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
   const [editingNewcomers, setEditingNewcomers] = useState(false);
   const [open, setOpen] = useState<string>();
   const [error, setError] = useState<string>();
+  const [ask, asking] = useConfirm();
 
   const act = (run: Promise<unknown>): void => {
     run.then(
@@ -108,31 +100,22 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
           {error}
         </p>
       )}
-      <div
-        role="tablist"
-        aria-label="People"
-        className="mt-6 flex gap-1 border-b border-line"
-      >
-        {(
-          [
-            ["members", `Members · ${String(people.value.length)}`],
-            ["invites", `Invites · ${String(invites.value.length)}`],
-          ] as const
-        ).map(([name, label]) => (
-          <button
-            key={name}
-            type="button"
-            role="tab"
-            aria-selected={tab === name}
-            onClick={() => {
-              setTab(name);
-            }}
-            className="-mb-px cursor-pointer border-b-2 border-transparent px-3 py-2 text-ui text-fg-dim hover:text-fg aria-selected:border-fg-strong aria-selected:font-medium aria-selected:text-fg-strong"
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        label="People"
+        className="mt-6"
+        value={tab}
+        onSelect={setTab}
+        tabs={[
+          {
+            value: "members",
+            label: `Members · ${String(people.value.length)}`,
+          },
+          {
+            value: "invites",
+            label: `Invites · ${String(invites.value.length)}`,
+          },
+        ]}
+      />
       <div
         role="tabpanel"
         className="mt-1.5 overflow-x-auto rounded-lg border border-line bg-elevated shadow-xs"
@@ -252,7 +235,7 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
                             }}
                             onDelete={(environment) => {
                               act(
-                                deleteEnvironment(environment).then(
+                                deleteEnvironment(environment, ask).then(
                                   environments.reload,
                                 ),
                               );
@@ -268,6 +251,7 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
           </table>
         )}
       </div>
+      {asking}
     </div>
   );
 }

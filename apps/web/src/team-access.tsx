@@ -1,6 +1,6 @@
 import type { Session, SessionAccess } from "@pipoca/protocol";
-import { Button, Icon, Picker, Segmented } from "@pipoca/ui";
-import { type ReactElement, useEffect, useRef, useState } from "react";
+import { Button, Dialog, Icon, Picker, Segmented } from "@pipoca/ui";
+import { type ReactElement, useState } from "react";
 import { send } from "./api";
 import { useTeammates } from "./hooks";
 
@@ -37,25 +37,15 @@ export function AccessDialog({
   readonly open: boolean;
   readonly onClose: () => void;
 }): ReactElement {
-  const dialog = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    if (open) {
-      dialog.current?.showModal();
-    } else {
-      dialog.current?.close();
-    }
-  }, [open]);
-
   return (
-    <dialog
-      ref={dialog}
+    <Dialog
+      open={open}
       onClose={onClose}
-      aria-labelledby="access-title"
-      className="m-auto w-[min(480px,calc(100vw-32px))] overflow-visible rounded-xl border border-line bg-elevated p-0 text-fg shadow-pop backdrop:bg-black/30 backdrop:backdrop-blur-[2px] open:animate-pop-in"
+      labelledBy="access-title"
+      size="sm"
     >
-      {open && <AccessForm session={session} onDone={onClose} />}
-    </dialog>
+      <AccessForm session={session} onDone={onClose} />
+    </Dialog>
   );
 }
 

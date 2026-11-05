@@ -4,20 +4,7 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import {
-  Badge,
-  Button,
-  Field,
-  fieldClass,
-  Icon,
-  initialsOf,
-  PageTitle,
-  Row,
-  Rows,
-  Section,
-  Segmented,
-  Switch,
-} from "@pipoca/ui";
+import { Badge, Button, Field, fieldClass, Icon, initialsOf, PageTitle, Row, Rows, Section, Segmented, Switch, useConfirm } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type {
   Account,
@@ -232,6 +219,7 @@ function Providers({
   readonly locked: boolean;
   readonly onChange: () => void;
 }): ReactElement {
+  const [ask, asking] = useConfirm();
   const [editing, setEditing] = useState<ProviderView | Preset>();
 
   const changed = (): void => {
@@ -240,15 +228,22 @@ function Providers({
   };
 
   const remove = (provider: ProviderView): void => {
-    if (!confirm(`People won't be able to sign in with ${provider.label}.`)) {
-      return;
-    }
+    void ask({
+      title: `Remove ${provider.label}?`,
+      description: `People won't be able to sign in with ${provider.label}.`,
+      confirm: "Remove",
+      danger: true,
+    }).then((yes) => {
+      if (!yes) {
+        return;
+      }
 
-    void json(
-      context.request(`providers/${encodeURIComponent(provider.id)}`, {
-        method: "DELETE",
-      }),
-    ).then(changed, changed);
+      void json(
+        context.request(`providers/${encodeURIComponent(provider.id)}`, {
+          method: "DELETE",
+        }),
+      ).then(changed, changed);
+    });
   };
 
   const existing =
@@ -256,6 +251,7 @@ function Providers({
 
   return (
     <Section title="Company sign-in">
+      {asking}
       {providers !== undefined && providers.length > 0 && (
         <Rows label="Providers">
           {providers.map((provider) => (

@@ -8,15 +8,7 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import {
-  Badge,
-  type BadgeState,
-  Button,
-  fieldClass,
-  Icon,
-  PageTitle,
-  Section,
-} from "@pipoca/ui";
+import { Badge, type BadgeState, Button, fieldClass, Icon, PageTitle, Section, useConfirm } from "@pipoca/ui";
 import type { DeclaredEvent } from "@pipoca/protocol";
 import { type ReactElement, useState } from "react";
 import type {
@@ -182,6 +174,7 @@ function RoutinePage({
   readonly scope: Scope;
   readonly name: string;
 }): ReactElement {
+  const [ask, asking] = useConfirm();
   const creating = name === "new";
   const [editing, setEditing] = useState(creating);
   const [failure, setFailure] = useState<string>();
@@ -208,6 +201,7 @@ function RoutinePage({
 
   return (
     <>
+      {asking}
       <PageTitle
         description={
           <a href={context.href("")} className="hover:underline">
@@ -252,15 +246,23 @@ function RoutinePage({
             <Button
               variant="danger"
               onClick={() => {
-                if (confirm(`Delete the routine “${routine.title}”?`)) {
-                  void ok(
+                void ask({
+                  title: `Delete the routine “${routine.title}”?`,
+                  confirm: "Delete",
+                  danger: true,
+                }).then(async (yes) => {
+                  if (!yes) {
+                    return;
+                  }
+
+                  await ok(
                     context.request(`${scope.api}/${name}`, {
                       method: "DELETE",
                     }),
-                  ).then(() => {
-                    location.hash = context.href("");
-                  });
-                }
+                  );
+
+                  location.hash = context.href("");
+                });
               }}
             >
               Delete

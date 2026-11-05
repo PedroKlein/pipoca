@@ -1,15 +1,5 @@
 import type { SetupScreen } from "@pipoca/plugins/web";
-import {
-  Badge,
-  Button,
-  Field,
-  fieldClass,
-  Icon,
-  PageTitle,
-  Row,
-  Rows,
-  Switch,
-} from "@pipoca/ui";
+import { AreaLayout, Badge, Button, Field, fieldClass, PageTitle, Row, Rows, Switch } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -179,48 +169,22 @@ export function TeamSetup({
     (path === "team/setup/profiles" && route === "team/setup");
 
   return (
-    <div className="flex min-h-0 flex-1 max-md:flex-col">
-      <nav
-        aria-label="Team setup"
-        className="flex w-62 shrink-0 flex-col gap-px overflow-y-auto border-r border-line bg-panel px-3 pt-4 pb-6 max-md:w-full max-md:flex-row max-md:flex-wrap max-md:items-center max-md:border-r-0 max-md:border-b max-md:py-2"
-      >
-        <a
-          href="#team"
-          className="mb-2.5 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-label text-fg-dim hover:bg-hover max-md:mb-0"
-        >
-          <Icon name="chevron-left" />
-          Team home
-        </a>
-        <h2 className="px-2.5 pt-0.5 pb-1.5 font-serif text-wordmark font-light text-fg-strong max-md:hidden">
-          Team setup
-        </h2>
-        {groups
-          .filter(([, entries]) => entries.length > 0)
-          .map(([label, entries]) => (
-            <div key={label} className="flex flex-col gap-px max-md:contents">
-              <h3 className="px-2.5 pt-4 pb-1 text-caption text-fg-dim max-md:hidden">
-                {label}
-              </h3>
-              {entries.map(({ path, label: name, count }) => (
-                <a
-                  key={path}
-                  href={`#${path}`}
-                  aria-current={current(path) ? "page" : undefined}
-                  className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-ui text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:font-medium aria-[current=page]:text-fg-strong"
-                >
-                  <span className="flex-1">{name}</span>
-                  {count !== undefined && (
-                    <span className="text-caption text-fg-dim tabular-nums">
-                      {count}
-                    </span>
-                  )}
-                </a>
-              ))}
-            </div>
-          ))}
-      </nav>
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">{content()}</div>
-    </div>
+    <AreaLayout
+      label="Team setup"
+      back={{ href: "#team", label: "Team home" }}
+      heading="Team setup"
+      groups={groups.map(([label, entries]) => ({
+        label,
+        items: entries.map(({ path, label: name, count }) => ({
+          href: `#${path}`,
+          label: name,
+          current: current(path),
+          ...(count !== undefined && { count }),
+        })),
+      }))}
+    >
+      {content()}
+    </AreaLayout>
   );
 }
 

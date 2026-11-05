@@ -18,21 +18,7 @@ import {
   type Profile,
   type Session,
 } from "@pipoca/protocol";
-import {
-  Badge,
-  Button,
-  cn,
-  Field,
-  fieldClass,
-  Icon,
-  PageTitle,
-  Picker,
-  Section,
-  Segmented,
-  Select,
-  type BadgeState,
-  type PickerOption,
-} from "@pipoca/ui";
+import { Badge, type BadgeState, Button, cn, Field, fieldClass, Icon, PageTitle, Picker, type PickerOption, Section, Segmented, Select, useConfirm } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -1596,21 +1582,27 @@ function ArchiveProject({
   readonly project: ProjectView;
   readonly onDone: () => void;
 }): ReactElement {
+  const [ask, asking] = useConfirm();
   const archived = project.coordinatorState === "archived";
   const [error, setError] = useState("");
 
   return (
     <section aria-label="Archive" className="flex flex-col items-start gap-2">
+      {asking}
       <p className="text-caption text-fg-dim">
         {archived
           ? "Unarchiving brings back the coordinator and the threads archived with it."
           : "Archiving stops the coordinator and every thread, and removes their clean checkouts. Memory and settings stay."}
       </p>
       <Button
-        onClick={() => {
+        onClick={async () => {
           if (
             !archived &&
-            !confirm(`Archive ${project.name} and all its threads?`)
+            !(await ask({
+              title: `Archive ${project.name} and all its threads?`,
+              confirm: "Archive",
+              danger: true,
+            }))
           ) {
             return;
           }

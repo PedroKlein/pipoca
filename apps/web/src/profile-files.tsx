@@ -1,6 +1,6 @@
 import { json, ok, useLoaded } from "@pipoca/plugins/web";
 import { profilePath } from "@pipoca/protocol";
-import { Button, cn, Field, FileButton, fieldClass, Section } from "@pipoca/ui";
+import { Button, cn, Field, fieldClass, FileButton, Section, useConfirm } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { api, send } from "./api";
 
@@ -241,6 +241,7 @@ function FileEditor({
   readonly onClose: () => void;
 }): ReactElement {
   const [text, setText] = useState(file.text);
+  const [ask, asking] = useConfirm();
 
   return (
     <div className="flex flex-col gap-2">
@@ -267,14 +268,21 @@ function FileEditor({
         <Button
           variant="danger"
           onClick={() => {
-            if (confirm(`Delete ${file.path}?`)) {
-              onDelete();
-            }
+            void ask({
+              title: `Delete ${file.path}?`,
+              confirm: "Delete file",
+              danger: true,
+            }).then((yes) => {
+              if (yes) {
+                onDelete();
+              }
+            });
           }}
         >
           Delete file
         </Button>
       </div>
+      {asking}
     </div>
   );
 }

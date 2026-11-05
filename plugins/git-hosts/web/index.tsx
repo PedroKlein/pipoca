@@ -6,20 +6,7 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import {
-  Badge,
-  Button,
-  Field,
-  fieldClass,
-  Icon,
-  initialsOf,
-  PageTitle,
-  Picker,
-  Row,
-  Rows,
-  Section,
-  Switch,
-} from "@pipoca/ui";
+import { Badge, Button, Field, fieldClass, Icon, initialsOf, PageTitle, Picker, Row, Rows, Section, Switch, useConfirm } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -621,6 +608,7 @@ function Hosts({
   readonly onAdding: (adding: boolean) => void;
   readonly onChange: () => void;
 }): ReactElement {
+  const [ask, asking] = useConfirm();
   const { value, reload } = useLoaded(
     async () => json<readonly HostView[]>(context.request("hosts")),
     "hosts",
@@ -646,15 +634,22 @@ function Hosts({
   };
 
   const remove = (host: HostView): void => {
-    if (!confirm(`Sessions will stop signing in to ${host.host}.`)) {
-      return;
-    }
+    void ask({
+      title: `Remove ${host.host}?`,
+      description: `Sessions will stop signing in to ${host.host}.`,
+      confirm: "Remove",
+      danger: true,
+    }).then((yes) => {
+      if (!yes) {
+        return;
+      }
 
-    void json(
-      context.request(`hosts/${encodeURIComponent(host.host)}`, {
-        method: "DELETE",
-      }),
-    ).then(changed, changed);
+      void json(
+        context.request(`hosts/${encodeURIComponent(host.host)}`, {
+          method: "DELETE",
+        }),
+      ).then(changed, changed);
+    });
   };
 
   const form = adding ? "new" : editing;
@@ -662,6 +657,7 @@ function Hosts({
 
   return (
     <Section title="Hosts">
+      {asking}
       {form !== undefined && (
         <HostForm
           key={form === "new" ? "new" : form.host}
@@ -1096,6 +1092,7 @@ function Bots({
   readonly context: WebContext;
   readonly hosts: readonly string[];
 }): ReactElement {
+  const [ask, asking] = useConfirm();
   const { value, reload } = useLoaded(
     async () =>
       json<readonly TechnicalUserView[]>(context.request("technical-users")),
@@ -1153,15 +1150,22 @@ function Bots({
   };
 
   const remove = (user: TechnicalUserView): void => {
-    if (!confirm(`Routines acting as ${user.name} will stop.`)) {
-      return;
-    }
+    void ask({
+      title: `Remove ${user.name}?`,
+      description: `Routines acting as ${user.name} will stop.`,
+      confirm: "Remove",
+      danger: true,
+    }).then((yes) => {
+      if (!yes) {
+        return;
+      }
 
-    void json(
-      context.request(`technical-users/${encodeURIComponent(user.name)}`, {
-        method: "DELETE",
-      }),
-    ).then(reload, reload);
+      void json(
+        context.request(`technical-users/${encodeURIComponent(user.name)}`, {
+          method: "DELETE",
+        }),
+      ).then(reload, reload);
+    });
   };
 
   const setTeam = (user: TechnicalUserView, team: boolean): void => {
@@ -1190,6 +1194,7 @@ function Bots({
       title="Bots"
       description="Routines can open pull requests and comment as a bot instead of a person. Team work signs in to each host as the bot chosen for it."
     >
+      {asking}
       <Rows label="Bots">
         {value?.length === 0 && (
           <Row

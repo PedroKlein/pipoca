@@ -1,4 +1,4 @@
-import { Badge, Button, cn, Icon, PageTitle } from "@pipoca/ui";
+import { Badge, Button, cn, Icon, PageTitle, useConfirm } from "@pipoca/ui";
 import { type ReactElement, useEffect, useState } from "react";
 import { api, send } from "./api";
 import { settingsPageClass } from "./page-class";
@@ -27,6 +27,7 @@ export function ConfigurationPage(): ReactElement {
   const [file, setFile] = useState<ConfigText>();
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string>();
+  const [ask, asking] = useConfirm();
 
   const failed = (reason: unknown): void => {
     setError(reason instanceof Error ? reason.message : String(reason));
@@ -59,14 +60,23 @@ export function ConfigurationPage(): ReactElement {
     : undefined;
 
   const choose = (name: string): void => {
-    if (
-      name === chosen ||
-      (edited && !confirm(`Discard your changes to ${chosen}?`))
-    ) {
+    if (name === chosen) {
       return;
     }
 
-    setChosen(name);
+    const discard = edited
+      ? ask({
+          title: `Discard your changes to ${chosen}?`,
+          confirm: "Discard",
+          danger: true,
+        })
+      : Promise.resolve(true);
+
+    void discard.then((yes) => {
+      if (yes) {
+        setChosen(name);
+      }
+    });
   };
 
   const download = (): void => {
@@ -224,6 +234,7 @@ export function ConfigurationPage(): ReactElement {
           </footer>
         </section>
       </div>
+      {asking}
     </div>
   );
 }

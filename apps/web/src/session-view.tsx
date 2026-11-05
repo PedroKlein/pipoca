@@ -10,15 +10,7 @@ import {
   terminalTakenOver,
 } from "@pipoca/protocol";
 import type { EmbeddedSessionProps } from "@pipoca/plugins/web";
-import {
-  Badge,
-  Button,
-  cn,
-  Icon,
-  type IconName,
-  Picker,
-  type PickerOption,
-} from "@pipoca/ui";
+import { Badge, Button, cn, Icon, type IconName, Picker, type PickerOption, useConfirm } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -80,6 +72,7 @@ export function SessionView({
   const [forkedAt, setForkedAt] = useState(0);
   const [limiting, setLimiting] = useState(false);
   const [moving, setMoving] = useState(false);
+  const [ask, asking] = useConfirm();
   const me = useContext(Me);
   const report = useRef<(error: unknown) => void>(() => undefined);
   const [channel] = useState(() => sessionChannel(sessionId));
@@ -362,13 +355,16 @@ export function SessionView({
                         icon: "trash",
                         danger: true,
                         run: () => {
-                          if (
-                            confirm(
-                              `The workspace was kept: ${session.workspaceKeptReason ?? "unpushed work"}. Delete it for good?`,
-                            )
-                          ) {
-                            action("remove-workspace");
-                          }
+                          void ask({
+                            title: "Delete the workspace for good?",
+                            description: `It was kept: ${session.workspaceKeptReason ?? "unpushed work"}.`,
+                            confirm: "Delete workspace",
+                            danger: true,
+                          }).then((yes) => {
+                            if (yes) {
+                              action("remove-workspace");
+                            }
+                          });
                         },
                       } as const,
                     ]
@@ -494,6 +490,7 @@ export function SessionView({
             }}
           />
         )}
+        {asking}
       </section>
     </PrimaryView>
   );

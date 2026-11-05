@@ -5,20 +5,7 @@ import {
   type EnvironmentTemplate,
   kindOf,
 } from "@pipoca/protocol";
-import {
-  Badge,
-  Button,
-  cn,
-  fieldClass,
-  Icon,
-  KeyValues,
-  PageTitle,
-  Row,
-  Rows,
-  Section,
-  Select,
-  type KeyValue,
-} from "@pipoca/ui";
+import { Badge, Button, cn, type ConfirmOptions, fieldClass, Icon, type KeyValue, KeyValues, PageTitle, Row, Rows, Section, Select, useConfirm } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -322,13 +309,17 @@ function JoinKey({
   readonly onKey: (key: string) => void;
 }): ReactElement {
   const [error, setError] = useState<string>();
+  const [ask, asking] = useConfirm();
 
-  const replace = (): void => {
+  const replace = async (): Promise<void> => {
     if (
       environment.hasKey &&
-      !confirm(
-        "Agents that joined with the current key will have to join again with the new one.",
-      )
+      !(await ask({
+        title: "Replace the key?",
+        description:
+          "Agents that joined with the current key will have to join again with the new one.",
+        confirm: "Replace key",
+      }))
     ) {
       return;
     }
@@ -364,7 +355,11 @@ function JoinKey({
         </>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={replace}>
+        <Button
+          onClick={() => {
+            void replace();
+          }}
+        >
           {environment.hasKey ? "Replace key" : "Make key"}
         </Button>
         {error !== undefined && (
@@ -373,6 +368,7 @@ function JoinKey({
           </p>
         )}
       </div>
+      {asking}
     </div>
   );
 }
@@ -392,6 +388,7 @@ function Editor({
 }): ReactElement {
   const [error, setError] = useState<string>();
   const [saved, setSaved] = useState(false);
+  const [ask, asking] = useConfirm();
 
   // What the form's fields started from. Only fields edited since are sent,
   // so a save keeps changes made elsewhere meanwhile.
@@ -669,7 +666,7 @@ function Editor({
             variant="danger"
             aria-label={`Delete ${environment.name}`}
             onClick={() => {
-              deleteEnvironment(environment).then(
+              deleteEnvironment(environment, ask).then(
                 (deleted) => {
                   if (deleted) {
                     location.hash = `#${environmentsPath(environment.ownerId === "team")}`;
@@ -706,6 +703,7 @@ function Editor({
             </PluginBoundary>
           ),
       )}
+      {asking}
     </>
   );
 }
@@ -729,11 +727,16 @@ function Note({
 // Sessions isn't archived.
 export async function deleteEnvironment(
   environment: Environment,
+  ask: (options: ConfirmOptions) => Promise<boolean>,
 ): Promise<boolean> {
   if (
-    !confirm(
-      `Delete ${environment.name}? Its runners stop working, and its archived Sessions go with it.`,
-    )
+    !(await ask({
+      title: `Delete ${environment.name}?`,
+      description:
+        "Its runners stop working, and its archived Sessions go with it.",
+      confirm: "Delete",
+      danger: true,
+    }))
   ) {
     return false;
   }

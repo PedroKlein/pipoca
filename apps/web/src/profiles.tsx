@@ -6,22 +6,7 @@ import type {
   ProfileContent,
   RepositorySource,
 } from "@pipoca/protocol";
-import {
-  Badge,
-  Button,
-  cn,
-  Field,
-  FileButton,
-  fieldClass,
-  Icon,
-  ListInput,
-  PageTitle,
-  initialsOf,
-  Picker,
-  Row,
-  Rows,
-  Section,
-} from "@pipoca/ui";
+import { Badge, Button, cn, Field, fieldClass, FileButton, Icon, initialsOf, ListInput, PageTitle, Picker, Row, Rows, Section, Tabs, useConfirm } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import { api, send } from "./api";
 import {
@@ -276,6 +261,7 @@ function Editor({
   readonly onChange: () => void;
 }): ReactElement {
   const [error, setError] = useState<string>();
+  const [ask, asking] = useConfirm();
 
   const [packages, setPackages] = useState<readonly string[]>(() =>
     (profile?.packages ?? []).map(packageText),
@@ -409,13 +395,19 @@ function Editor({
             <Button
               variant="danger"
               onClick={() => {
-                if (!confirm(`Delete the Profile "${profile.name}"?`)) {
-                  return;
-                }
+                void ask({
+                  title: `Delete the Profile "${profile.name}"?`,
+                  confirm: "Delete",
+                  danger: true,
+                }).then((yes) => {
+                  if (!yes) {
+                    return;
+                  }
 
-                run(async () => {
-                  await send(`/api/profiles/${profile.id}`, "DELETE");
-                  location.hash = profilesPath(profile.ownerId === "team");
+                  run(async () => {
+                    await send(`/api/profiles/${profile.id}`, "DELETE");
+                    location.hash = profilesPath(profile.ownerId === "team");
+                  });
                 });
               }}
             >
@@ -431,6 +423,7 @@ function Editor({
           </p>
         </div>
       </form>
+      {asking}
     </Section>
   );
 }
@@ -581,21 +574,16 @@ function ProfileTabs({
           Open as files
         </a>
       ) : (
-        <nav
-          aria-label="Profile"
-          className="mt-6 flex gap-1 overflow-x-auto border-b border-line"
-        >
-          {tabs.map(([key, label]) => (
-            <a
-              key={key}
-              href={`#${hash}/${key}`}
-              aria-current={key === tab ? "page" : undefined}
-              className="-mb-px shrink-0 border-b-2 border-transparent px-2 py-2 text-ui text-fg-dim hover:text-fg aria-[current=page]:border-accent aria-[current=page]:text-fg-strong"
-            >
-              {label}
-            </a>
-          ))}
-        </nav>
+        <Tabs
+          label="Profile"
+          className="mt-6"
+          value={tab}
+          tabs={tabs.map(([key, label]) => ({
+            value: key,
+            label,
+            href: `#${hash}/${key}`,
+          }))}
+        />
       )}
       {overviewShown && overview}
       {kind && <KindFiles key={`${url}:${tab}`} url={url} kind={kind} />}
