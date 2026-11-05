@@ -1041,6 +1041,51 @@ test("turns plugins on and off, and in team work, under plugins in pipoca.json",
   ]);
 });
 
+test("a switch in pipoca.json that doesn't fit is logged and leaves the others alone", async () => {
+  const configDir = join(root, "config");
+
+  await mkdir(configDir);
+
+  await writeFile(
+    join(configDir, "pipoca.json"),
+    JSON.stringify({
+      plugins: {
+        quiet: { personal: false },
+        broken: { personal: "yes" },
+        chatty: { team: false },
+      },
+    }),
+  );
+
+  const plugin = (name: string): ServerPlugin => ({
+    name,
+    register: () => undefined,
+  });
+
+  server = testServer({
+    configDir,
+    plugins: [plugin("quiet"), plugin("broken"), plugin("chatty")],
+    manifests: ["quiet", "broken", "chatty"].map((id) => ({
+      id,
+      title: id,
+      description: "",
+      works: ["personal", "team"],
+    })),
+  });
+
+  expect(await (await server.api("/api/plugins")).json()).toMatchObject([
+    { id: "quiet", state: "off", turnedOn: false },
+    { id: "broken", state: "on", turnedOn: true },
+    { id: "chatty", state: "on", turnedOn: true, teamWork: false },
+  ]);
+
+  expect(
+    server.logs.filter((line) => line.startsWith("config field skipped")),
+  ).toEqual([
+    'config field skipped {"field":"broken","error":"personal must be boolean"}',
+  ]);
+});
+
 // A runner a plugin started, such as a pod, with the token the plugin gave it.
 function startRunner(
   name: string,

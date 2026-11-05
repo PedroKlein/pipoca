@@ -29,7 +29,8 @@ const noSecrets: ConfigSecrets = {
   },
 };
 
-// A key that doesn't fit is logged once and read as if it were left out.
+// A field or entry that doesn't fit is logged once and takes its default,
+// and the others keep their values.
 export function kernelConfig<const S extends TSchema>(
   config: PluginConfig,
   schema: S,
@@ -39,7 +40,7 @@ export function kernelConfig<const S extends TSchema>(
 
   const read = (raw: unknown): Static<S> => {
     try {
-      return configOf(schema, raw, noSecrets, log);
+      return configOf(schema, fitting(schema, raw, log), noSecrets, log);
     } catch (error) {
       log("config unreadable", { error: messageOf(error) });
 
@@ -56,6 +57,40 @@ export function kernelConfig<const S extends TSchema>(
 
     return last.value;
   };
+}
+
+function fitting(schema: TSchema, raw: unknown, log: Log): unknown {
+  if (!isObject(raw)) {
+    return raw;
+  }
+
+  const fieldOf = (name: string): TSchema | undefined => {
+    if (Type.IsRecord(schema)) {
+      return Type.RecordValue(schema);
+    }
+
+    return Type.IsObject(schema) ? propertyOf(schema, name) : undefined;
+  };
+
+  return Object.fromEntries(
+    Object.entries(raw).filter(([name, value]) => {
+      const field = fieldOf(name);
+
+      if (field === undefined) {
+        return true;
+      }
+
+      try {
+        checked(Value.Default(field, structuredClone(value)), field, name);
+
+        return true;
+      } catch (error) {
+        log("config field skipped", { field: name, error: messageOf(error) });
+
+        return false;
+      }
+    }),
+  );
 }
 
 function pruned(

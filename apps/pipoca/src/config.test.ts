@@ -186,7 +186,7 @@ test("a locked file's keys win, show read-only, and can't be changed from Settin
   expect(await labels()).toEqual(["Sign in with IAS"]);
 });
 
-test("reads the team from pipoca.json, and a team key that doesn't fit is logged and read as left out", async () => {
+test("reads the team from pipoca.json, and a team field that doesn't fit takes its default while the name stays", async () => {
   const file = join(root, "config", "pipoca.json");
 
   await mkdir(join(root, "config"), { recursive: true });
@@ -217,12 +217,14 @@ test("reads the team from pipoca.json, and a team key that doesn't fit is logged
     JSON.stringify({ team: { name: "Beta", messagesRead: 0 } }),
   );
 
-  expect(await team()).toEqual({ name: null, messagesRead: 40 });
-  expect(await team()).toEqual({ name: null, messagesRead: 40 });
+  expect(await team()).toEqual({ name: "Beta", messagesRead: 40 });
+  expect(await team()).toEqual({ name: "Beta", messagesRead: 40 });
 
   expect(
-    server.logs.filter((line) => line.startsWith("config unreadable")),
-  ).toEqual(['config unreadable {"error":"messagesRead must be >= 1"}']);
+    server.logs.filter((line) => line.startsWith("config field skipped")),
+  ).toEqual([
+    'config field skipped {"field":"messagesRead","error":"messagesRead must be >= 1"}',
+  ]);
 });
 
 test("keeps the files to admins", async () => {
