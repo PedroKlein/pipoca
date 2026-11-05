@@ -284,6 +284,17 @@ const environmentTemplate = Type.Object({
 
 export type EnvironmentTemplate = Wire<typeof environmentTemplate>;
 
+const { secrets: _, ...templateSettings } = environmentUpdate.properties;
+
+// A template as admins write it into pipoca.json. A template holds no
+// secrets: they belong to each person's Environment.
+export const templateEntry = Type.Object({
+  ...templateSettings,
+  id: Type.String(),
+  aliases: Type.Optional(environmentTemplate.properties.aliases),
+  source: Type.Optional(environmentTemplate.properties.source),
+});
+
 // A template as the server lists it, with the plugin that starts runners for
 // Environments made from it, if any.
 export const listedTemplate = Type.Object({

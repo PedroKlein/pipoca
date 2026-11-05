@@ -8,6 +8,7 @@ import type {
   RouteCaller,
   ServerPluginContext,
 } from "./plugin";
+import { envSecrets, secretRefs } from "./secrets";
 
 // A store in memory with the plugin's tables, for a plugin's tests. It seals
 // nothing, and has no kernel tables for the plugin's to reference.
@@ -115,6 +116,7 @@ export function fakeContext(
     },
     models: { offer: notFaked("models.offer") },
     store: memoryStore(),
+    secretRefs: secretRefs(memoryStore(), envSecrets({})),
     settings: { get: () => ({}) },
     config: {
       get: () => undefined,

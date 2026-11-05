@@ -16,28 +16,42 @@ export interface SecretRefs {
   readonly seal: (secret: string, context: string) => SecretRef;
 }
 
+export type EnvSecrets = (name: string) => string | undefined;
+
 // Sessions the server starts inherit its environment, so a secret leaves it
-// once read, and later reads find it here.
-const fromEnv = new Map<string, string>();
+// once read, and later reads find it here. One per server.
+export function envSecrets(env: NodeJS.ProcessEnv): EnvSecrets {
+  const read = new Map<string, string>();
+
+  return (name) => {
+    const secret = env[name] ?? read.get(name);
+
+    if (secret === undefined || secret === "") {
+      return undefined;
+    }
+
+    read.set(name, secret);
+    Reflect.deleteProperty(env, name);
+
+    return secret;
+  };
+}
 
 export function secretRefs(
   store: Pick<PluginStore, "seal" | "open">,
-  env: NodeJS.ProcessEnv = process.env,
+  fromEnv: EnvSecrets,
 ): SecretRefs {
   return {
     open: (value, context, field) => {
       if (isObject(value) && typeof value["env"] === "string") {
         const name = value["env"];
-        const secret = env[name] ?? fromEnv.get(name);
+        const secret = fromEnv(name);
 
-        if (secret === undefined || secret === "") {
+        if (secret === undefined) {
           throw new BadRequest(
             `${field} names the environment variable ${name}, which isn't set`,
           );
         }
-
-        fromEnv.set(name, secret);
-        Reflect.deleteProperty(env, name);
 
         return { ref: { env: name }, secret };
       }

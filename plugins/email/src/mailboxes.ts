@@ -4,8 +4,7 @@ import {
   fieldsOf,
   isObject,
   type PluginConfig,
-  type PluginStore,
-  secretRefs,
+  type SecretRefs,
 } from "@pipoca/plugins";
 
 export interface Server {
@@ -42,11 +41,10 @@ const namePattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
 // is logged and left out.
 export function mailboxStore(
   config: PluginConfig,
-  store: PluginStore,
+  refs: SecretRefs,
   log: Log,
 ): Mailboxes {
   const sealedFor = (name: string): string => `email mailbox ${name}`;
-  const refs = secretRefs(store);
 
   const value = (): Readonly<Record<string, unknown>> => {
     const read = config.get();

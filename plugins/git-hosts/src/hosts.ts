@@ -4,9 +4,8 @@ import {
   fieldsOf,
   isObject,
   type PluginConfig,
-  type PluginStore,
   type SecretRef,
-  secretRefs,
+  type SecretRefs,
   type Static,
   Type,
 } from "@pipoca/plugins";
@@ -71,12 +70,9 @@ const github: HostConfig = {
 // that fit stays in use.
 export function hostStore(
   config: PluginConfig,
-  store: PluginStore,
-  env: NodeJS.ProcessEnv,
+  refs: SecretRefs,
   log: Log,
 ): HostStore {
-  const refs = secretRefs(store, env);
-
   const parse = (value: unknown): readonly Entry[] =>
     entriesOf(value, (ref, host) => refs.open(ref, host, "oauth.clientSecret"));
 

@@ -3,6 +3,7 @@ import type { Environments } from "@pipoca/environments";
 import { canSee } from "@pipoca/people";
 import {
   checkedSettings,
+  envSecrets,
   type EventBus,
   fieldsOf,
   type Login,
@@ -15,6 +16,7 @@ import {
   type RunnerSource,
   type ServerPlugin,
   type ServerPluginContext,
+  secretRefs,
   type ServerTool,
   type SessionPlugin,
   settingValues,
@@ -251,6 +253,7 @@ export function startPlugins(
   const logins: { plugin: string; offered: () => readonly Login[] }[] = [];
   const offers: ModelOffer[] = [];
   const gitLogins: GitLoginsOf[] = [];
+  const fromEnv = envSecrets(process.env);
 
   const starters: {
     readonly plugin: string;
@@ -659,6 +662,7 @@ export function startPlugins(
             },
           },
           store: deps.store(plugin.name),
+          secretRefs: secretRefs(deps.store(plugin.name), fromEnv),
           settings: { get: () => values(plugin.name) },
           config: deps.config(plugin.name),
           signal: AbortSignal.any([deps.signal, failed.signal]),

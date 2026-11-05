@@ -52,7 +52,11 @@ export const email: ServerPlugin = {
   name: "email",
   schema,
   register: (context) => {
-    const mailboxes = mailboxStore(context.config, context.store, context.log);
+    const mailboxes = mailboxStore(
+      context.config,
+      context.secretRefs,
+      context.log,
+    );
 
     const errors = new Map<string, string>();
 

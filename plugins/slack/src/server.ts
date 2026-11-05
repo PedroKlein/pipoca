@@ -36,7 +36,7 @@ export const slack: ServerPlugin = {
   name: "slack",
   schema,
   register: (context) => {
-    const bots = botStore(context.config, context.store, context.log);
+    const bots = botStore(context.config, context.secretRefs, context.log);
     const connections = new Map<string, Connection>();
 
     const sessionOfThread = (

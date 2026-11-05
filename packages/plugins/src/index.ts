@@ -1,4 +1,18 @@
 export { checkBody, readBody } from "./body";
+export { type ConfigSecrets, configOf, kernelConfig } from "./config";
+export {
+  Config,
+  definePlugin,
+  event,
+  type EventDef,
+  type Events,
+  type PluginDefinition,
+  Secret,
+  type TAudience,
+  type TCollection,
+  type TConfig,
+  type TSecret,
+} from "./definition";
 export { type EventBus, eventBus } from "./events";
 export {
   BadRequest,
@@ -11,8 +25,14 @@ export {
   requireAdmin,
 } from "./http";
 export { type Static, Type } from "typebox";
-export { canSee } from "./owners";
-export { type SecretRef, secretRefs } from "./secrets";
+export { canSee, owners } from "./owners";
+export {
+  envSecrets,
+  type EnvSecrets,
+  type SecretRef,
+  type SecretRefs,
+  secretRefs,
+} from "./secrets";
 export { checkedSettings, settingSpecs, settingValues } from "./settings";
 export type {
   AskPermission,
