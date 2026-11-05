@@ -1,14 +1,13 @@
-import { PageTitle } from "@pipoca/ui";
+import { Page, PageTitle } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext } from "./plugins";
-import { settingsPageClass } from "./page-class";
 
 // Everything Pi signs in to for the person, gathered from the plugins that
 // keep it (ADR 0063).
 export function AccountsPage(): ReactElement {
   return (
-    <div id="accounts-page" className={settingsPageClass}>
+    <Page id="accounts-page">
       <PageTitle description="Everything Pi signs in to on your behalf. Your Sessions use these accounts on every runner.">
         Accounts
       </PageTitle>
@@ -23,6 +22,6 @@ export function AccountsPage(): ReactElement {
           )
         );
       })}
-    </div>
+    </Page>
   );
 }

@@ -1,10 +1,18 @@
 import { ThemeSwitch } from "./theme";
 import { availability, type Environment, type Session } from "@pipoca/protocol";
-import { Badge, Button, cn, fieldClass, Icon } from "@pipoca/ui";
+import {
+  Avatar,
+  Button,
+  cn,
+  fieldClass,
+  Icon,
+  Mark,
+  popClass,
+  SessionRow,
+} from "@pipoca/ui";
 import { type ReactElement, useEffect, useState } from "react";
 import { useNow } from "@pipoca/plugins/web";
 import { api } from "./api";
-import { Mark } from "./mark";
 import { matches } from "./notices";
 import {
   ago,
@@ -156,7 +164,7 @@ export function Sidebar({
           </li>
         )}
         {shown.map((session) => (
-          <SessionRow
+          <SidebarSession
             key={session.id}
             session={session}
             environment={environments.find(
@@ -180,7 +188,7 @@ function ownedByEnabled({ owner }: Session): boolean {
   );
 }
 
-function SessionRow({
+function SidebarSession({
   session,
   environment,
   current,
@@ -201,27 +209,15 @@ function SessionRow({
   ].join(" · ");
 
   return (
-    <li data-id={session.id}>
-      <a
-        href={sessionHref(session)}
-        aria-current={current ? "page" : undefined}
-        className="relative grid grid-cols-[1fr_auto] items-center gap-x-2 gap-y-0.5 rounded-md px-3 py-2 text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:before:absolute aria-[current=page]:before:inset-y-2 aria-[current=page]:before:left-0 aria-[current=page]:before:w-0.5 aria-[current=page]:before:rounded-full aria-[current=page]:before:bg-accent"
-      >
-        <span
-          title={workspaceName(session.workspace)}
-          className={cn(
-            "truncate text-ui font-medium",
-            current && "text-fg-strong",
-          )}
-        >
-          {session.title ?? shortName(session.workspace)}
-        </span>
-        {badge ? <Badge state={badge.state}>{badge.label}</Badge> : <span />}
-        <span className="col-span-2 truncate text-caption text-fg-dim">
-          {meta}
-        </span>
-      </a>
-    </li>
+    <SessionRow
+      id={session.id}
+      href={sessionHref(session)}
+      title={session.title ?? shortName(session.workspace)}
+      titleHint={workspaceName(session.workspace)}
+      meta={meta}
+      current={current}
+      {...(badge && { badge })}
+    />
   );
 }
 
@@ -311,7 +307,10 @@ function AccountMenu({ user }: { readonly user: string }): ReactElement {
         <div
           role="menu"
           aria-label="Account"
-          className="absolute right-2 bottom-full left-2 mb-1 flex flex-col rounded-lg border border-line bg-elevated p-1 shadow-pop"
+          className={cn(
+            popClass,
+            "absolute right-2 bottom-full left-2 mb-1 flex flex-col",
+          )}
         >
           <a
             role="menuitem"
@@ -348,12 +347,9 @@ function AccountMenu({ user }: { readonly user: string }): ReactElement {
         }}
         className="w-full justify-start text-label"
       >
-        <span
-          aria-hidden="true"
-          className="grid size-6 place-items-center rounded-full bg-accent-tint text-caption font-semibold text-accent uppercase"
-        >
-          {user.slice(0, 1)}
-        </span>
+        <Avatar name={user} size="xs" className="bg-accent-tint text-accent">
+          {user.slice(0, 1).toUpperCase()}
+        </Avatar>
         <span className="flex-1 truncate text-left">{user}</span>
         <Icon name="settings" className="text-fg-dim" />
       </Button>
@@ -414,12 +410,14 @@ function PluginNav({
           aria-current={route === `plugin/${entry.name}` ? "page" : undefined}
           className="group/nav flex items-center gap-2.5 rounded-md px-2 py-1.5 text-ui text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:text-fg-strong"
         >
-          <span
-            aria-hidden="true"
-            className="grid size-6 place-items-center rounded-md border border-line bg-elevated text-caption font-semibold text-fg-dim uppercase group-aria-[current=page]/nav:border-accent group-aria-[current=page]/nav:text-accent"
+          <Avatar
+            name={entry.label}
+            size="xs"
+            square
+            className="bg-elevated text-fg-dim group-aria-[current=page]/nav:border-accent group-aria-[current=page]/nav:text-accent"
           >
-            {entry.label.slice(0, 1)}
-          </span>
+            {entry.label.slice(0, 1).toUpperCase()}
+          </Avatar>
           {entry.label}
         </a>
         <button

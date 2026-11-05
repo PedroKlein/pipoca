@@ -1,6 +1,16 @@
 import { json, ok, useLoaded } from "@pipoca/plugins/web";
 import { profilePath } from "@pipoca/protocol";
-import { Button, cn, Field, FileButton, fieldClass, Section } from "@pipoca/ui";
+import {
+  Button,
+  Card,
+  cn,
+  ErrorText,
+  Field,
+  fieldClass,
+  FileButton,
+  Section,
+  useConfirm,
+} from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 
 const errors: Readonly<Record<string, string>> = {
@@ -150,7 +160,7 @@ export function KindFiles({
 
   return (
     <Section title={kind.title}>
-      <div className="flex flex-col gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5">
+      <Card padding="none" className="flex flex-col gap-4 p-5">
         <p className="text-caption text-fg-dim">{kind.about}</p>
         <ul className="flex flex-col divide-y divide-line">
           {listed.map(({ path, size, name }) => (
@@ -226,10 +236,8 @@ export function KindFiles({
             }}
           />
         )}
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      </div>
+        <ErrorText size="caption">{error}</ErrorText>
+      </Card>
     </Section>
   );
 }
@@ -246,6 +254,7 @@ function FileEditor({
   readonly onClose: () => void;
 }): ReactElement {
   const [text, setText] = useState(file.text);
+  const [ask, asking] = useConfirm();
 
   return (
     <div className="flex flex-col gap-2">
@@ -272,14 +281,21 @@ function FileEditor({
         <Button
           variant="danger"
           onClick={() => {
-            if (confirm(`Delete ${file.path}?`)) {
-              onDelete();
-            }
+            void ask({
+              title: `Delete ${file.path}?`,
+              confirm: "Delete file",
+              danger: true,
+            }).then((yes) => {
+              if (yes) {
+                onDelete();
+              }
+            });
           }}
         >
           Delete file
         </Button>
       </div>
+      {asking}
     </div>
   );
 }
@@ -316,7 +332,7 @@ export function NamedFiles({
 
   return (
     <Section title={title}>
-      <div className="flex flex-col gap-6 rounded-lg border border-line bg-elevated shadow-xs p-5">
+      <Card padding="none" className="flex flex-col gap-6 p-5">
         {texts &&
           files.map((file, n) => (
             <NamedFile
@@ -327,7 +343,7 @@ export function NamedFiles({
               onSaved={reload}
             />
           ))}
-      </div>
+      </Card>
     </Section>
   );
 }
@@ -390,9 +406,7 @@ function NamedFile({
         >
           Save
         </Button>
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
+        <ErrorText size="caption">{error}</ErrorText>
       </div>
     </div>
   );

@@ -1,20 +1,27 @@
 import type { Invite } from "@pipoca/protocol";
-import { Badge, Button, cn, Icon, Segmented, Select } from "@pipoca/ui";
+import {
+  Badge,
+  Button,
+  Cell,
+  cn,
+  CopyButton,
+  Dialog,
+  ErrorText,
+  Icon,
+  Segmented,
+  Select,
+  Table,
+} from "@pipoca/ui";
 import {
   type ClipboardEvent,
   type KeyboardEvent,
   type ReactElement,
-  useEffect,
-  useRef,
   useState,
 } from "react";
 import { api } from "./api";
 import { TheirSetup } from "./newcomers";
 
 export type Made = Invite & { readonly token: string };
-
-const headClass = "px-4 py-2.5 text-left text-caption font-medium text-fg-dim";
-const cellClass = "border-t border-line px-4 py-3 align-middle";
 
 export function linkOf(token: string): string {
   return `${location.origin}/#join/${token}`;
@@ -44,59 +51,55 @@ export function InvitesTable({
   }
 
   return (
-    <table className="w-full min-w-xl border-collapse text-ui">
-      <thead>
-        <tr>
-          <th className={headClass}>Invite</th>
-          <th className={headClass}>Role</th>
-          <th className={headClass}>Expires</th>
-          <th className={headClass}>
-            <span className="sr-only">Revoke</span>
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {invites.map((invite) => {
-          const name = invite.email ?? "Link anyone can join with";
+    <Table
+      bare
+      columns={[
+        "Invite",
+        "Role",
+        "Expires",
+        <span key="revoke" className="sr-only">
+          Revoke
+        </span>,
+      ]}
+    >
+      {invites.map((invite) => {
+        const name = invite.email ?? "Link anyone can join with";
 
-          return (
-            <tr key={invite.id} aria-label={name}>
-              <td className={cellClass}>
-                <span className="flex flex-col">
-                  <span className="text-fg-strong">{name}</span>
-                  {invite.email === null && (
-                    <span className="text-label text-fg-dim">
-                      {invite.uses === 1
-                        ? "1 person joined"
-                        : `${String(invite.uses)} people joined`}
-                    </span>
-                  )}
-                </span>
-              </td>
-              <td className={cellClass}>
-                <Badge state="offline">
-                  {invite.admin ? "Admin" : "Member"}
-                </Badge>
-              </td>
-              <td className={`${cellClass} text-label text-fg-dim`}>
-                {dateOf(invite.expiresAt)}
-              </td>
-              <td className={`${cellClass} text-right`}>
-                <Button
-                  variant="ghost"
-                  aria-label={`Revoke ${name}`}
-                  onClick={() => {
-                    onRevoke(invite);
-                  }}
-                >
-                  Revoke
-                </Button>
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+        return (
+          <tr key={invite.id} aria-label={name}>
+            <Cell>
+              <span className="flex flex-col">
+                <span className="text-fg-strong">{name}</span>
+                {invite.email === null && (
+                  <span className="text-label text-fg-dim">
+                    {invite.uses === 1
+                      ? "1 person joined"
+                      : `${String(invite.uses)} people joined`}
+                  </span>
+                )}
+              </span>
+            </Cell>
+            <Cell>
+              <Badge state="offline">{invite.admin ? "Admin" : "Member"}</Badge>
+            </Cell>
+            <Cell className="text-label text-fg-dim">
+              {dateOf(invite.expiresAt)}
+            </Cell>
+            <Cell className="text-right">
+              <Button
+                variant="ghost"
+                aria-label={`Revoke ${name}`}
+                onClick={() => {
+                  onRevoke(invite);
+                }}
+              >
+                Revoke
+              </Button>
+            </Cell>
+          </tr>
+        );
+      })}
+    </Table>
   );
 }
 
@@ -116,25 +119,10 @@ export function InviteDialog({
   readonly onClose: () => void;
   readonly onChangeSetup: () => void;
 }): ReactElement {
-  const dialog = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    if (open) {
-      dialog.current?.showModal();
-    } else {
-      dialog.current?.close();
-    }
-  }, [open]);
-
   return (
-    <dialog
-      ref={dialog}
-      onClose={onClose}
-      aria-labelledby="invite-title"
-      className="m-auto w-[min(600px,calc(100vw-32px))] rounded-xl border border-line bg-elevated p-0 text-fg shadow-pop backdrop:bg-black/30 backdrop:backdrop-blur-[2px] open:animate-pop-in"
-    >
-      {open && <InviteForm onClose={onClose} onChangeSetup={onChangeSetup} />}
-    </dialog>
+    <Dialog open={open} onClose={onClose} labelledBy="invite-title" size="md">
+      <InviteForm onClose={onClose} onChangeSetup={onChangeSetup} />
+    </Dialog>
   );
 }
 
@@ -334,11 +322,7 @@ function InviteForm({
             ))}
           </ul>
         )}
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
       </div>
       <footer className="flex flex-wrap items-center gap-2 border-t border-line px-6 py-4">
         <span className="flex-1 text-caption text-fg-dim">
@@ -366,21 +350,5 @@ function InviteForm({
         )}
       </footer>
     </div>
-  );
-}
-
-function CopyButton({ text }: { readonly text: string }): ReactElement {
-  const [copied, setCopied] = useState(false);
-
-  return (
-    <Button
-      onClick={() => {
-        void navigator.clipboard.writeText(text).then(() => {
-          setCopied(true);
-        });
-      }}
-    >
-      {copied ? "Copied" : "Copy"}
-    </Button>
   );
 }

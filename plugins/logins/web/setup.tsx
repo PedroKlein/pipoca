@@ -5,9 +5,13 @@ import {
   type WebContext,
 } from "@pipoca/plugins/web";
 import {
+  Avatar,
   Badge,
   Button,
+  cardClass,
+  ChoiceTiles,
   cn,
+  ErrorText,
   initialsOf,
   Picker,
   Row,
@@ -103,39 +107,20 @@ function ModelStep({
 
   return (
     <div className="flex flex-col gap-4">
-      <ul
-        aria-label="Model providers"
-        className="grid grid-cols-2 gap-2.5 md:grid-cols-4"
+      <ChoiceTiles
+        label="Model providers"
+        name="provider"
+        columns={4}
+        value={chosen}
+        onChange={choose}
+        tiles={shown.map((each) => ({
+          value: each.id,
+          title: each.name,
+          description: each.methods.map(({ label }) => label).join(" or "),
+          leading: <Avatar name={each.name} square size="md" />,
+        }))}
       >
-        {shown.map((each) => (
-          <li key={each.id}>
-            <button
-              type="button"
-              aria-pressed={each.id === chosen}
-              onClick={() => {
-                choose(each.id);
-              }}
-              className={cn(
-                "flex h-full w-full cursor-pointer flex-col items-start gap-2 rounded-lg border border-line bg-elevated p-3.5 text-left hover:border-line-strong",
-                "aria-pressed:border-fg-strong aria-pressed:shadow-xs",
-              )}
-            >
-              <span
-                aria-hidden="true"
-                className="grid size-8.5 place-items-center rounded-md border border-line bg-hover text-label font-semibold text-fg-strong"
-              >
-                {initialsOf(each.name)}
-              </span>
-              <span className="text-ui font-medium text-fg-strong">
-                {each.name}
-              </span>
-              <span className="text-label text-fg-dim">
-                {each.methods.map(({ label }) => label).join(" or ")}
-              </span>
-            </button>
-          </li>
-        ))}
-        <li className="flex flex-col items-start justify-center gap-2 rounded-lg border border-dashed border-line-strong p-3.5">
+        <div className="flex flex-col items-start justify-center gap-2 rounded-lg border border-dashed border-line-strong p-3.5">
           <span className="text-ui font-medium text-fg-strong">
             Another provider
           </span>
@@ -155,8 +140,8 @@ function ModelStep({
           >
             All {providers.length} providers
           </Picker>
-        </li>
-      </ul>
+        </div>
+      </ChoiceTiles>
       <p className="text-caption text-fg-dim">
         Every sign-in happens right here, with no Session needed. You can
         connect more than one.
@@ -167,7 +152,7 @@ function ModelStep({
       {account.connection === undefined && provider !== undefined && (
         <section
           aria-label={`Connect ${provider.name}`}
-          className="flex flex-col items-start gap-3 rounded-lg border border-line bg-elevated p-5 shadow-xs"
+          className={cn(cardClass, "flex flex-col items-start gap-3 p-5")}
         >
           {provider.methods.length > 1 && (
             <Segmented
@@ -193,11 +178,7 @@ function ModelStep({
           </Button>
         </section>
       )}
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
       {account.logins.length > 0 && (
         <Rows label="Your model logins">
           {account.logins.map((login) => (

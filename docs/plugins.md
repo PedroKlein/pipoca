@@ -100,7 +100,7 @@ Name a route for the thing it serves and let the method say what happens to it: 
 
 | Capability     | What it gives                                                                                     |
 | -------------- | ------------------------------------------------------------------------------------------------- |
-| `routes`       | Answer HTTP requests under `/api/ext/<id>/`, from browsers and from the plugin's Session part |
+| `routes`       | Answer HTTP requests under `/api/ext/<id>/`, from browsers and from the plugin's Session part     |
 | `tools`        | Register tools that the Sessions you pick can call                                                |
 | `toolsets`     | Register a meta toolset for the assistant and MCP clients ([ADR 0035](adr/0035-meta-sessions.md)) |
 | `events`       | Listen to Session events and publish the plugin's own                                             |

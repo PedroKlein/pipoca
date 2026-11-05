@@ -1,4 +1,42 @@
 import type { ReactElement, ReactNode } from "react";
+import { cn } from "./cn";
+
+// The column a Settings or plugin page sits in, with its title when given.
+export function Page({
+  id,
+  title,
+  description,
+  actions,
+  label,
+  className,
+  children,
+}: {
+  readonly id?: string;
+  readonly title?: ReactNode;
+  readonly description?: ReactNode;
+  readonly actions?: ReactNode;
+  readonly label?: string;
+  readonly className?: string;
+  readonly children: ReactNode;
+}): ReactElement {
+  return (
+    <div
+      id={id}
+      aria-label={label}
+      className={cn(
+        "mx-auto flex w-full max-w-chat flex-col px-4 py-8 md:px-12 md:py-11",
+        className,
+      )}
+    >
+      {title !== undefined && (
+        <PageTitle description={description} actions={actions}>
+          {title}
+        </PageTitle>
+      )}
+      {children}
+    </div>
+  );
+}
 
 export function PageTitle({
   children,

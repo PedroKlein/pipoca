@@ -3,10 +3,14 @@ import { apiPath, type PiPackage, type Profile } from "@pipoca/protocol";
 import {
   Badge,
   Button,
+  Card,
+  cardClass,
   cn,
+  ErrorText,
   fieldClass,
   Icon,
   initialsOf,
+  plural,
   Row,
   Rows,
   Section,
@@ -126,11 +130,9 @@ export function ProfileOverview({
 
   return (
     <>
-      {error !== undefined && (
-        <p role="alert" className="mt-4 text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption" className="mt-4">
+        {error}
+      </ErrorText>
       <Instructions text={profile.agentsMd} edit={tab("instructions")} />
       <SystemPromptCard
         key={`${profile.systemMd}:${profile.appendSystemMd}`}
@@ -224,7 +226,7 @@ function Instructions({
         </a>
       }
     >
-      <div className="rounded-lg border border-line bg-elevated px-5 py-4 text-ui text-fg shadow-xs">
+      <Card padding="none" className="px-5 py-4 text-ui text-fg">
         {lines.length === 0 ? (
           <span className="text-fg-dim">
             No instructions yet. Sessions get only the repository&apos;s
@@ -250,7 +252,7 @@ function Instructions({
             )}
           </>
         )}
-      </div>
+      </Card>
     </Section>
   );
 }
@@ -378,7 +380,8 @@ function Skills({
             <li
               key={folder}
               className={cn(
-                "flex min-w-0 items-center gap-3 rounded-lg border border-line bg-elevated px-4 py-3 shadow-xs",
+                cardClass,
+                "flex min-w-0 items-center gap-3 px-4 py-3",
                 from !== undefined && "bg-panel",
               )}
             >
@@ -749,8 +752,4 @@ function systemPromptOf(profile: Profile): SystemPrompt {
   }
 
   return profile.appendSystemMd.trim() === "" ? "own" : "add";
-}
-
-function plural(count: number, noun: string): string {
-  return `${String(count)} ${noun}${count === 1 ? "" : "s"}`;
 }

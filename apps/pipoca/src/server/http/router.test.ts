@@ -84,6 +84,7 @@ test("refuses a body that isn't JSON with 415", async () => {
   });
 
   expect(response.status).toBe(415);
+
   expect(await response.json()).toMatchObject({
     error: "unsupported_media_type",
   });
@@ -96,6 +97,7 @@ test("refuses a body that doesn't fit with 422, naming the field", async () => {
   });
 
   expect(response.status).toBe(422);
+
   expect(await response.json()).toMatchObject({
     error: "invalid",
     field: "name",

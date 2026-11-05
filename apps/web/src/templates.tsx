@@ -1,13 +1,16 @@
 import type { EnvironmentTemplate, ManifestEntry } from "@pipoca/protocol";
 import {
   Button,
+  Card,
   cn,
+  ErrorText,
   Field,
   fieldClass,
+  type KeyValue,
   KeyValues,
   Section,
   Select,
-  type KeyValue,
+  useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import { api } from "./api";
@@ -93,15 +96,11 @@ export function Templates({
             className={cn(fieldClass, "w-48")}
           />
           <Button type="submit">Create</Button>
-          {error !== undefined && (
-            <p role="alert" className="text-caption text-failed">
-              {error}
-            </p>
-          )}
+          <ErrorText size="caption">{error}</ErrorText>
         </form>
       )}
       {templates.length > 0 && (
-        <div className="divide-y divide-line overflow-hidden rounded-lg border border-line bg-elevated shadow-xs">
+        <Card padding="none" className="divide-y divide-line overflow-hidden">
           {templates.map((template) => (
             <TemplateEditor
               key={template.id}
@@ -109,7 +108,7 @@ export function Templates({
               onChange={onChange}
             />
           ))}
-        </div>
+        </Card>
       )}
     </Section>
   );
@@ -172,7 +171,7 @@ function FromRepository({
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-line bg-elevated p-4 shadow-xs">
+    <Card padding="none" className="flex flex-col gap-3 p-4">
       <form
         onSubmit={list}
         aria-label="Templates from a repository"
@@ -206,12 +205,8 @@ function FromRepository({
           </span>
         </form>
       )}
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
-    </div>
+      <ErrorText size="caption">{error}</ErrorText>
+    </Card>
   );
 }
 
@@ -224,6 +219,7 @@ function TemplateEditor({
 }): ReactElement {
   const [error, setError] = useState<string>();
   const [saved, setSaved] = useState(false);
+  const [ask, asking] = useConfirm();
 
   const [rows, setRows] = useState<readonly KeyValue[]>(() =>
     Object.entries(template.variables).map(([name, value]) => ({
@@ -280,18 +276,18 @@ function TemplateEditor({
   };
 
   const remove = (): void => {
-    if (
-      !confirm(
-        `Environments made from ${template.name} keep running with their own settings.`,
-      )
-    ) {
-      return;
-    }
-
-    api("environmentTemplates.remove", { params: { id: template.id } }).then(
-      onChange,
-      failed,
-    );
+    void ask({
+      title: `Delete ${template.name}?`,
+      description: `Environments made from ${template.name} keep running with their own settings.`,
+      confirm: "Delete",
+      danger: true,
+    }).then((yes) => {
+      if (yes) {
+        api("environmentTemplates.remove", {
+          params: { id: template.id },
+        }).then(onChange, failed);
+      }
+    });
   };
 
   return (
@@ -395,6 +391,7 @@ function TemplateEditor({
             ),
         )}
       </div>
+      {asking}
     </details>
   );
 }

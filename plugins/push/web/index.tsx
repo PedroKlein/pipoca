@@ -4,7 +4,7 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, PageTitle, Row, Rows } from "@pipoca/ui";
+import { Button, ErrorText, PageTitle, Row, Rows } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 
 export const push: WebPlugin = {
@@ -124,11 +124,9 @@ function SettingsSection({
           )}
         </Row>
       </Rows>
-      {error !== undefined && (
-        <p role="alert" className="mt-2 text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption" className="mt-2">
+        {error}
+      </ErrorText>
     </>
   );
 }

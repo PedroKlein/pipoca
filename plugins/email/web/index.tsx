@@ -5,7 +5,15 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, Field, fieldClass } from "@pipoca/ui";
+import {
+  Button,
+  cardClass,
+  cn,
+  ErrorText,
+  Field,
+  fieldClass,
+  useConfirm,
+} from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type { Account, MailboxView } from "../src/model";
 
@@ -38,6 +46,8 @@ function Mailboxes({
 }: {
   readonly context: WebContext;
 }): ReactElement {
+  const [ask, asking] = useConfirm();
+
   const { value, reload } = useLoaded(
     async () => json<readonly MailboxView[]>(context.request("mailboxes")),
     "mailboxes",
@@ -91,30 +101,34 @@ function Mailboxes({
   };
 
   const remove = (mailbox: MailboxView): void => {
-    if (
-      !confirm(
-        `Routines stop hearing ${mailbox.address}, and Sessions can't send from it.`,
-      )
-    ) {
-      return;
-    }
+    void ask({
+      title: `Remove ${mailbox.address}?`,
+      description: `Routines stop hearing ${mailbox.address}, and Sessions can't send from it.`,
+      confirm: "Remove",
+      danger: true,
+    }).then((yes) => {
+      if (!yes) {
+        return;
+      }
 
-    void json(
-      context.request(`mailboxes/${encodeURIComponent(mailbox.name)}`, {
-        method: "DELETE",
-      }),
-    ).then(reload, reload);
+      void json(
+        context.request(`mailboxes/${encodeURIComponent(mailbox.name)}`, {
+          method: "DELETE",
+        }),
+      ).then(reload, reload);
+    });
   };
 
   return (
     <div className="flex flex-col gap-2 text-ui">
+      {asking}
       <p className="text-fg-dim">
         Mailboxes whose new mail becomes routine triggers, and that Sessions
         send from. The server checks them over IMAP and sends over SMTP.
       </p>
       <ul
         aria-label="Mailboxes"
-        className="flex flex-col gap-1 rounded-lg border border-line bg-elevated shadow-xs p-3"
+        className={cn(cardClass, "flex flex-col gap-1 p-3")}
       >
         {value?.length === 0 && (
           <li className="text-fg-dim">No mailboxes yet.</li>
@@ -145,7 +159,7 @@ function Mailboxes({
         <form
           onSubmit={add}
           aria-label="New mailbox"
-          className="grid gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 md:grid-cols-2"
+          className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
         >
           <Field label="Name">
             <input
@@ -214,11 +228,7 @@ function Mailboxes({
             >
               Cancel
             </Button>
-            {error !== undefined && (
-              <p role="alert" className="text-caption text-failed">
-                {error}
-              </p>
-            )}
+            <ErrorText size="caption">{error}</ErrorText>
           </div>
         </form>
       ) : (

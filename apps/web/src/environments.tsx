@@ -9,16 +9,24 @@ import {
 import {
   Badge,
   Button,
+  ChoiceTiles,
   cn,
+  Command,
+  type ConfirmOptions,
+  ErrorText,
   fieldClass,
   Icon,
+  type KeyValue,
   KeyValues,
+  linkCardClass,
+  Page,
   PageTitle,
+  plural,
   Row,
   Rows,
   Section,
   Select,
-  type KeyValue,
+  useConfirm,
 } from "@pipoca/ui";
 import {
   type ReactElement,
@@ -32,7 +40,6 @@ import { useTemplates } from "./hooks";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext } from "./plugins";
 import { Templates } from "./templates";
-import { settingsPageClass } from "./page-class";
 
 function environmentsPath(team: boolean): string {
   return team ? "team/setup/environments" : "environments";
@@ -79,7 +86,7 @@ export function EnvironmentsPage({
 
   if (environment) {
     return (
-      <div id="environments-page" className={settingsPageClass}>
+      <Page id="environments-page">
         <a
           href={`#${root}`}
           className="mb-3 inline-flex items-center gap-1 text-label text-fg-dim hover:text-fg"
@@ -102,12 +109,12 @@ export function EnvironmentsPage({
           }}
           onChange={onChange}
         />
-      </div>
+      </Page>
     );
   }
 
   return (
-    <div id="environments-page" className={settingsPageClass}>
+    <Page id="environments-page">
       <div className="flex items-start justify-between gap-6">
         <div className="min-w-0 flex-1">
           {team ? (
@@ -168,7 +175,7 @@ export function EnvironmentsPage({
       {!team && (
         <Templates templates={templates.value} onChange={templates.reload} />
       )}
-    </div>
+    </Page>
   );
 }
 
@@ -201,7 +208,7 @@ function EnvironmentCard({
   return (
     <a
       href={`#${environmentsPath(environment.ownerId === "team")}/${environment.id}`}
-      className="flex items-center gap-4 rounded-lg border border-line bg-elevated p-4 shadow-xs hover:border-line-strong"
+      className={cn(linkCardClass, "flex items-center gap-4 p-4")}
     >
       <span
         aria-hidden="true"
@@ -215,8 +222,8 @@ function EnvironmentCard({
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="flex flex-wrap items-center gap-2 text-prose font-medium text-fg-strong">
           {environment.name}
-          {kind !== "machine" && <Tag>{kindNames[kind]}</Tag>}
-          {template !== undefined && <Tag>From a template</Tag>}
+          {kind !== "machine" && <Badge>{kindNames[kind]}</Badge>}
+          {template !== undefined && <Badge>From a template</Badge>}
         </span>
         <span className="truncate text-label text-fg-dim">{summary}</span>
       </span>
@@ -229,18 +236,6 @@ function EnvironmentCard({
       <Icon name="chevron-right" className="size-4 text-fg-dim" />
     </a>
   );
-}
-
-function Tag({ children }: { readonly children: ReactNode }): ReactElement {
-  return (
-    <span className="inline-flex h-5 items-center rounded-full bg-hover px-2 text-caption font-medium text-fg">
-      {children}
-    </span>
-  );
-}
-
-function plural(count: number, noun: string): string {
-  return `${String(count)} ${noun}${count === 1 ? "" : "s"}`;
 }
 
 function NewEnvironment({
@@ -302,11 +297,7 @@ function NewEnvironment({
         </Select>
       )}
       <Button type="submit">Create</Button>
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
     </form>
   );
 }
@@ -321,13 +312,17 @@ function JoinKey({
   readonly onKey: (key: string) => void;
 }): ReactElement {
   const [error, setError] = useState<string>();
+  const [ask, asking] = useConfirm();
 
-  const replace = (): void => {
+  const replace = async (): Promise<void> => {
     if (
       environment.hasKey &&
-      !confirm(
-        "Agents that joined with the current key will have to join again with the new one.",
-      )
+      !(await ask({
+        title: "Replace the key?",
+        description:
+          "Agents that joined with the current key will have to join again with the new one.",
+        confirm: "Replace key",
+      }))
     ) {
       return;
     }
@@ -354,24 +349,22 @@ function JoinKey({
           <p className="text-fg-dim">
             Start an agent with this key. It is shown only now.
           </p>
-          <pre
-            aria-label="Join command"
-            className="overflow-x-auto rounded-md border border-line bg-elevated p-3 font-mono text-mono-sm"
-          >
+          <Command label="Join command">
             {`PIPOCA_KEY=${madeKey} pipoca agent --server ${location.origin}`}
-          </pre>
+          </Command>
         </>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={replace}>
+        <Button
+          onClick={() => {
+            void replace();
+          }}
+        >
           {environment.hasKey ? "Replace key" : "Make key"}
         </Button>
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
       </div>
+      {asking}
     </div>
   );
 }
@@ -391,6 +384,7 @@ function Editor({
 }): ReactElement {
   const [error, setError] = useState<string>();
   const [saved, setSaved] = useState(false);
+  const [ask, asking] = useConfirm();
 
   // What the form's fields started from. Only fields edited since are sent,
   // so a save keeps changes made elsewhere meanwhile.
@@ -475,7 +469,7 @@ function Editor({
   return (
     <>
       <div className="flex flex-wrap items-center gap-2.5">
-        <h1 className="text-display font-medium tracking-tight text-fg-strong">
+        <h1 className="text-display font-medium text-fg-strong">
           {environment.name}
         </h1>
         <Badge state={status === "Offline" ? "offline" : "done"}>
@@ -577,42 +571,26 @@ function Editor({
         </Section>
         {template === undefined && kind !== "kubernetes" && (
           <Section title="Each Session runs">
-            <div className="grid gap-2.5 sm:grid-cols-2">
-              {(
-                [
-                  [
-                    "process",
-                    "On the machine",
+            <ChoiceTiles
+              label="Each Session runs"
+              name="isolation"
+              value={isolation}
+              onChange={setIsolation}
+              tiles={[
+                {
+                  value: "process",
+                  title: "On the machine",
+                  description:
                     "With what's installed there. Fast, nothing to set up.",
-                  ],
-                  [
-                    "container",
-                    "In a container",
+                },
+                {
+                  value: "container",
+                  title: "In a container",
+                  description:
                     "One container from an image, shared by its Sessions. Needs Docker.",
-                  ],
-                ] as const
-              ).map(([value, title, about]) => (
-                <label
-                  key={value}
-                  className="flex cursor-pointer flex-col gap-1 rounded-lg border border-line bg-elevated p-4 has-checked:border-fg-strong has-checked:shadow-xs"
-                >
-                  <span className="flex items-center gap-2 text-ui font-medium text-fg-strong">
-                    <input
-                      type="radio"
-                      name="isolation"
-                      value={value}
-                      checked={isolation === value}
-                      onChange={() => {
-                        setIsolation(value);
-                      }}
-                      className="accent-(--accent)"
-                    />
-                    {title}
-                  </span>
-                  <span className="text-label text-fg-dim">{about}</span>
-                </label>
-              ))}
-            </div>
+                },
+              ]}
+            />
             {isolation === "process" && (
               <Note icon="terminal">
                 Sessions here use what&apos;s already installed on the machine.
@@ -671,7 +649,7 @@ function Editor({
             variant="danger"
             aria-label={`Delete ${environment.name}`}
             onClick={() => {
-              deleteEnvironment(environment).then(
+              deleteEnvironment(environment, ask).then(
                 (deleted) => {
                   if (deleted) {
                     location.hash = `#${environmentsPath(environment.ownerId === "team")}`;
@@ -708,6 +686,7 @@ function Editor({
             </PluginBoundary>
           ),
       )}
+      {asking}
     </>
   );
 }
@@ -731,11 +710,16 @@ function Note({
 // Sessions isn't archived.
 export async function deleteEnvironment(
   environment: Environment,
+  ask: (options: ConfirmOptions) => Promise<boolean>,
 ): Promise<boolean> {
   if (
-    !confirm(
-      `Delete ${environment.name}? Its runners stop working, and its archived Sessions go with it.`,
-    )
+    !(await ask({
+      title: `Delete ${environment.name}?`,
+      description:
+        "Its runners stop working, and its archived Sessions go with it.",
+      confirm: "Delete",
+      danger: true,
+    }))
   ) {
     return false;
   }

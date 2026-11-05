@@ -7,22 +7,27 @@ import {
 import {
   Badge,
   Button,
+  Card,
+  cardClass,
   cn,
+  ErrorText,
   Field,
   fieldClass,
   Icon,
+  Page,
   PageTitle,
+  plural,
   Section,
   Segmented,
   Select,
   Switch,
+  useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import { api } from "./api";
 import { usePlugins } from "./hooks";
 import { settingsOf } from "./plugin-settings";
 import { webPartError } from "./plugins";
-import { settingsPageClass } from "./page-class";
 
 export function PluginsPage(): ReactElement {
   const { value: plugins, reload } = usePlugins();
@@ -42,7 +47,7 @@ export function PluginsPage(): ReactElement {
   );
 
   return (
-    <div id="plugins-page" className={settingsPageClass}>
+    <Page id="plugins-page">
       <PageTitle
         description="Features for everyone on this server. A plugin with settings adds its own page to this menu."
         actions={
@@ -108,7 +113,7 @@ export function PluginsPage(): ReactElement {
         Turning a plugin on or off applies when the server restarts, to open
         pages after a reload, and to Sessions the next time they start.
       </p>
-    </div>
+    </Page>
   );
 }
 
@@ -125,6 +130,7 @@ function PluginCard({
   const [note, setNote] = useState<string>();
   const installed = plugin.source === "installed";
   const hasSettings = Object.keys(plugin.settings ?? {}).length > 0;
+  const [ask, asking] = useConfirm();
 
   const run = (change: () => Promise<string | undefined>): void => {
     change().then(
@@ -140,17 +146,27 @@ function PluginCard({
   };
 
   const turn = (): void => {
-    if (!plugin.turnedOn && !confirm(trustQuestion(plugin))) {
-      return;
-    }
+    const trusted = plugin.turnedOn
+      ? Promise.resolve(true)
+      : ask({
+          title: `Turn on ${plugin.title}?`,
+          description: trustQuestion(plugin),
+          confirm: "Turn on",
+        });
 
-    run(async () => {
-      await api("plugins.update", {
-        params: { plugin: plugin.id },
-        body: { enabled: !plugin.turnedOn, digest: plugin.digest },
+    void trusted.then((yes) => {
+      if (!yes) {
+        return;
+      }
+
+      run(async () => {
+        await api("plugins.update", {
+          params: { plugin: plugin.id },
+          body: { enabled: !plugin.turnedOn, digest: plugin.digest },
+        });
+
+        return undefined;
       });
-
-      return undefined;
     });
   };
 
@@ -176,30 +192,40 @@ function PluginCard({
   };
 
   const remove = (): void => {
-    if (!confirm(`Remove ${plugin.title} from this server?`)) {
-      return;
-    }
+    void ask({
+      title: `Remove ${plugin.title} from this server?`,
+      confirm: "Remove",
+      danger: true,
+    }).then((yes) => {
+      if (!yes) {
+        return;
+      }
 
-    run(async () => {
-      await api("plugins.remove", { params: { plugin: plugin.id } });
+      run(async () => {
+        await api("plugins.remove", { params: { plugin: plugin.id } });
 
-      return undefined;
+        return undefined;
+      });
     });
   };
 
   const reset = (): void => {
-    if (
-      !confirm(
-        `Reset ${plugin.title}'s data? Its tables are dropped and made again empty, and everything it kept there is gone.`,
-      )
-    ) {
-      return;
-    }
+    void ask({
+      title: `Reset ${plugin.title}'s data?`,
+      description:
+        "Its tables are dropped and made again empty, and everything it kept there is gone.",
+      confirm: "Reset data",
+      danger: true,
+    }).then((yes) => {
+      if (!yes) {
+        return;
+      }
 
-    run(async () => {
-      await api("plugins.data.remove", { params: { plugin: plugin.id } });
+      run(async () => {
+        await api("plugins.data.remove", { params: { plugin: plugin.id } });
 
-      return undefined;
+        return undefined;
+      });
     });
   };
 
@@ -213,7 +239,8 @@ function PluginCard({
     <li
       aria-label={plugin.title}
       className={cn(
-        "flex flex-col gap-2 rounded-lg border border-line bg-elevated p-4 shadow-xs",
+        cardClass,
+        "flex flex-col gap-2 p-4",
         open && "md:col-span-2",
       )}
     >
@@ -228,9 +255,7 @@ function PluginCard({
           )}
           {plugin.updated === true && <Badge state="waiting">Updated</Badge>}
           {plugin.updateAvailable === true && plugin.updated !== true && (
-            <span className="inline-flex h-5 items-center rounded-full bg-working-tint px-2 text-caption font-medium text-working">
-              Update
-            </span>
+            <Badge>Update</Badge>
           )}
         </span>
         <span
@@ -299,11 +324,7 @@ function PluginCard({
       {(pendingNote(plugin) ?? note) !== undefined && (
         <p className="text-label text-fg-dim">{pendingNote(plugin) ?? note}</p>
       )}
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
       {plugin.error !== undefined && (
         <div className="flex flex-wrap items-center gap-2">
           <p className="min-w-0 flex-1 text-label text-failed">
@@ -328,6 +349,7 @@ function PluginCard({
           onChange={onChange}
         />
       )}
+      {asking}
     </li>
   );
 }
@@ -433,11 +455,7 @@ function Install({
           A git repository or a .tgz URL. A branch, tag or commit after # pins
           it.
         </p>
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
         {installed !== undefined && (
           <p role="status" className="text-caption text-fg-dim">
             {installed}
@@ -454,7 +472,6 @@ function trustQuestion(plugin: PluginInfo): string {
   const parts = plugin.parts ?? {};
 
   return [
-    `Turn on ${plugin.title}?`,
     `Its code runs inside the Pipoca server, with the server's access. It asks for ${declared.length > 0 ? declared.join(", ") : "nothing more"}.`,
     ...(parts.web === undefined
       ? []
@@ -467,7 +484,7 @@ function trustQuestion(plugin: PluginInfo): string {
             : "Its Session part runs in every Session, on every machine that runs one, laptops included.",
         ]),
     "Turn on only plugins you trust.",
-  ].join("\n\n");
+  ].join(" ");
 }
 
 // Sessions on the server's own runner stop with it, so a restart asks first
@@ -476,6 +493,7 @@ function trustQuestion(plugin: PluginInfo): string {
 function Restart(): ReactElement {
   const [state, setState] = useState<"idle" | "restarting">("idle");
   const [error, setError] = useState<string>();
+  const [ask, asking] = useConfirm();
 
   const restart = async (force: boolean): Promise<void> => {
     const before = await startedAt();
@@ -495,9 +513,12 @@ function Restart(): ReactElement {
       const { sessions } = refused.body as { readonly sessions: number };
 
       if (
-        confirm(
-          `${String(sessions)} ${sessions === 1 ? "Session is" : "Sessions are"} mid-turn on the server's own runner and will be interrupted. Restart anyway?`,
-        )
+        await ask({
+          title: "Restart anyway?",
+          description: `${plural(sessions, "Session is", "Sessions are")} mid-turn on the server's own runner and will be interrupted.`,
+          confirm: "Restart",
+          danger: true,
+        })
       ) {
         await restart(true);
       }
@@ -511,7 +532,10 @@ function Restart(): ReactElement {
   };
 
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-line bg-elevated shadow-xs p-4 text-ui">
+    <Card
+      padding="none"
+      className="mb-4 flex flex-wrap items-center gap-3 p-4 text-ui"
+    >
       <span className="text-fg">
         {state === "restarting"
           ? "Restarting the server…"
@@ -530,12 +554,9 @@ function Restart(): ReactElement {
           Restart now
         </Button>
       )}
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
-    </div>
+      <ErrorText size="caption">{error}</ErrorText>
+      {asking}
+    </Card>
   );
 }
 

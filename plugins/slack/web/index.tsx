@@ -5,7 +5,15 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, Field, fieldClass } from "@pipoca/ui";
+import {
+  Button,
+  cardClass,
+  cn,
+  ErrorText,
+  Field,
+  fieldClass,
+  useConfirm,
+} from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type { Account, BotView } from "../src/model";
 
@@ -65,6 +73,8 @@ function SettingsSection({
 }
 
 function Bots({ context }: { readonly context: WebContext }): ReactElement {
+  const [ask, asking] = useConfirm();
+
   const { value, reload } = useLoaded(
     async () => json<readonly BotView[]>(context.request("bots")),
     "bots",
@@ -105,23 +115,27 @@ function Bots({ context }: { readonly context: WebContext }): ReactElement {
   };
 
   const remove = (bot: BotView): void => {
-    if (
-      !confirm(
-        `Routines stop hearing ${bot.name}, and Sessions can't post as it.`,
-      )
-    ) {
-      return;
-    }
+    void ask({
+      title: `Remove ${bot.name}?`,
+      description: `Routines stop hearing ${bot.name}, and Sessions can't post as it.`,
+      confirm: "Remove",
+      danger: true,
+    }).then((yes) => {
+      if (!yes) {
+        return;
+      }
 
-    void json(
-      context.request(`bots/${encodeURIComponent(bot.name)}`, {
-        method: "DELETE",
-      }),
-    ).then(reload, reload);
+      void json(
+        context.request(`bots/${encodeURIComponent(bot.name)}`, {
+          method: "DELETE",
+        }),
+      ).then(reload, reload);
+    });
   };
 
   return (
     <div className="flex flex-col gap-2 text-ui">
+      {asking}
       <p className="text-fg-dim">
         Bots whose messages, mentions and reactions become routine triggers, and
         that Sessions post as. They connect with Socket Mode, so Slack needs no
@@ -139,7 +153,7 @@ function Bots({ context }: { readonly context: WebContext }): ReactElement {
       </p>
       <ul
         aria-label="Slack bots"
-        className="flex flex-col gap-1 rounded-lg border border-line bg-elevated shadow-xs p-3"
+        className={cn(cardClass, "flex flex-col gap-1 p-3")}
       >
         {value?.length === 0 && <li className="text-fg-dim">No bots yet.</li>}
         {value?.map((bot) => (
@@ -171,7 +185,7 @@ function Bots({ context }: { readonly context: WebContext }): ReactElement {
         <form
           onSubmit={add}
           aria-label="New Slack bot"
-          className="grid gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 md:grid-cols-2"
+          className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
         >
           <Field label="Name">
             <input
@@ -211,11 +225,7 @@ function Bots({ context }: { readonly context: WebContext }): ReactElement {
             >
               Cancel
             </Button>
-            {error !== undefined && (
-              <p role="alert" className="text-caption text-failed">
-                {error}
-              </p>
-            )}
+            <ErrorText size="caption">{error}</ErrorText>
           </div>
         </form>
       ) : (

@@ -6,7 +6,18 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, cn, Field, fieldClass, Section, Select } from "@pipoca/ui";
+import {
+  Button,
+  Card,
+  cn,
+  Code,
+  ErrorText,
+  Field,
+  fieldClass,
+  Section,
+  Select,
+  TextInput,
+} from "@pipoca/ui";
 import { Fragment, type ReactElement, type SubmitEvent, useState } from "react";
 import {
   defaultSettings,
@@ -73,9 +84,10 @@ function Pods({
 
   return (
     <Section title="Kubernetes">
-      <div
+      <Card
+        padding="none"
         aria-label="Kubernetes"
-        className="flex flex-col gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 text-ui"
+        className="flex flex-col gap-4 p-5 text-ui"
       >
         {value === undefined ? (
           <p className="text-fg-dim">Loading…</p>
@@ -105,7 +117,7 @@ function Pods({
             )}
           </>
         )}
-      </div>
+      </Card>
     </Section>
   );
 }
@@ -157,9 +169,7 @@ function Failure({ failure }: { readonly failure: PodFailure }): ReactElement {
         starts after {time(failure.retryAt)}, and each failure in a row doubles
         the wait.
       </p>
-      <pre className="overflow-x-auto rounded-md border border-line bg-elevated p-3 font-mono text-mono-sm whitespace-pre-wrap text-fg">
-        {failure.problem}
-      </pre>
+      <Code wrap>{failure.problem}</Code>
     </div>
   );
 }
@@ -235,18 +245,34 @@ function Settings({
       </Field>
       <div className="grid gap-4 sm:grid-cols-3">
         {workspace === "pod" && (
-          <NumberField
-            label="Sessions per pod"
-            name="capacity"
-            value={shown.capacity}
-          />
+          <Field label="Sessions per pod">
+            <TextInput
+              name="capacity"
+              type="number"
+              min={1}
+              required
+              defaultValue={shown.capacity}
+            />
+          </Field>
         )}
-        <NumberField label="Most pods" name="maxPods" value={shown.maxPods} />
-        <NumberField
-          label="Seconds idle before a pod stops"
-          name="idleSeconds"
-          value={shown.idleSeconds}
-        />
+        <Field label="Most pods">
+          <TextInput
+            name="maxPods"
+            type="number"
+            min={1}
+            required
+            defaultValue={shown.maxPods}
+          />
+        </Field>
+        <Field label="Seconds idle before a pod stops">
+          <TextInput
+            name="idleSeconds"
+            type="number"
+            min={1}
+            required
+            defaultValue={shown.idleSeconds}
+          />
+        </Field>
       </div>
       {workspace === "claim" && (
         <div className="grid gap-4 sm:grid-cols-2">
@@ -290,36 +316,9 @@ function Settings({
             Stop runner pods
           </Button>
         )}
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
       </div>
     </form>
-  );
-}
-
-function NumberField({
-  label,
-  name,
-  value,
-}: {
-  readonly label: string;
-  readonly name: string;
-  readonly value: number;
-}): ReactElement {
-  return (
-    <Field label={label}>
-      <input
-        name={name}
-        type="number"
-        min={1}
-        required
-        defaultValue={value}
-        className={fieldClass}
-      />
-    </Field>
   );
 }
 

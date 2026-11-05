@@ -14,6 +14,7 @@ import {
 } from "@pipoca/plugins/web";
 import {
   Button,
+  FileButton,
   Icon,
   isComposing,
   Picker,
@@ -455,23 +456,17 @@ export function Composer({
             className="max-h-72 min-h-12 resize-none field-sizing-content bg-transparent pt-1 text-prose text-fg placeholder:text-fg-dim focus:outline-none"
           />
           <div className="flex items-center gap-2">
-            <label
+            <FileButton
+              variant="ghost"
+              iconOnly
+              icon="paperclip"
               title="Attach images"
-              className="-ml-2 flex size-8 cursor-pointer items-center justify-center rounded-full text-fg-dim hover:bg-hover hover:text-fg has-focus-visible:outline-2 has-focus-visible:outline-line-focus"
-            >
-              <Icon name="paperclip" />
-              <input
-                type="file"
-                multiple
-                accept={imageTypes.join(",")}
-                aria-label="Attach images"
-                onChange={(event) => {
-                  attach([...(event.target.files ?? [])]);
-                  event.target.value = "";
-                }}
-                className="sr-only"
-              />
-            </label>
+              aria-label="Attach images"
+              multiple
+              accept={imageTypes.join(",")}
+              onFiles={attach}
+              className="-ml-2"
+            />
             {feed.settings && (
               <ModelMenu
                 settings={feed.settings}

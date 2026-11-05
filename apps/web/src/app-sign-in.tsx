@@ -1,4 +1,4 @@
-import { Button } from "@pipoca/ui";
+import { Button, ErrorText } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { api } from "./api";
 import { Welcome } from "./sign-in";
@@ -78,11 +78,7 @@ export function AppSignIn({
       description={`The app on this computer asked to sign in as ${user}.`}
     >
       <div className="flex flex-col gap-2">
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
         <Button variant="primary" className="h-10 w-full" onClick={open}>
           Open Pipoca
         </Button>

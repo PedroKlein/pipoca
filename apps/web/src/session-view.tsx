@@ -15,8 +15,11 @@ import {
   cn,
   Icon,
   type IconName,
+  Menu,
   Picker,
   type PickerOption,
+  Segmented,
+  useConfirm,
 } from "@pipoca/ui";
 import {
   type ReactElement,
@@ -79,6 +82,7 @@ export function SessionView({
   const [forkedAt, setForkedAt] = useState(0);
   const [limiting, setLimiting] = useState(false);
   const [moving, setMoving] = useState(false);
+  const [ask, asking] = useConfirm();
   const me = useContext(Me);
   const report = useRef<(error: unknown) => void>(() => undefined);
   const [channel] = useState(() => sessionChannel(sessionId));
@@ -365,13 +369,16 @@ export function SessionView({
                         icon: "trash",
                         danger: true,
                         run: () => {
-                          if (
-                            confirm(
-                              `The workspace was kept: ${session.workspaceKeptReason ?? "unpushed work"}. Delete it for good?`,
-                            )
-                          ) {
-                            removeWorkspace();
-                          }
+                          void ask({
+                            title: "Delete the workspace for good?",
+                            description: `It was kept: ${session.workspaceKeptReason ?? "unpushed work"}.`,
+                            confirm: "Delete workspace",
+                            danger: true,
+                          }).then((yes) => {
+                            if (yes) {
+                              removeWorkspace();
+                            }
+                          });
                         },
                       } as const,
                     ]
@@ -497,6 +504,7 @@ export function SessionView({
             }}
           />
         )}
+        {asking}
       </section>
     </PrimaryView>
   );
@@ -603,74 +611,10 @@ function SessionMenu({
   // A list an item opens where the menu was.
   readonly popover?: ReactNode;
 }): ReactElement {
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) {
-      return undefined;
-    }
-
-    const close = (event: Event): void => {
-      if (
-        event instanceof KeyboardEvent
-          ? event.key === "Escape"
-          : box.current?.contains(event.target as Node) !== true
-      ) {
-        setOpen(false);
-      }
-    };
-
-    document.addEventListener("pointerdown", close);
-    document.addEventListener("keydown", close);
-
-    return () => {
-      document.removeEventListener("pointerdown", close);
-      document.removeEventListener("keydown", close);
-    };
-  }, [open]);
-
   return (
-    <div ref={box} className="relative">
+    <div className="relative">
       <div className="absolute top-full right-0">{popover}</div>
-      <Button
-        variant="ghost"
-        iconOnly
-        aria-label="Session actions"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => {
-          setOpen(!open);
-        }}
-      >
-        <Icon name="more" />
-      </Button>
-      {open && (
-        <div
-          role="menu"
-          aria-label="Session actions"
-          className="absolute top-full right-0 z-30 mt-1 flex min-w-48 flex-col rounded-lg border border-line bg-elevated p-1 shadow-pop"
-        >
-          {items.map(({ label, icon, danger, run }) => (
-            <button
-              key={label}
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                run();
-              }}
-              className={cn(
-                "flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-ui hover:bg-hover",
-                danger === true ? "text-failed" : "text-fg",
-              )}
-            >
-              <Icon name={icon} className="size-4" />
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
+      <Menu label="Session actions" items={items} />
     </div>
   );
 }
@@ -682,33 +626,18 @@ function ViewSwitch({
   readonly view: View;
   readonly onChange: (view: View) => void;
 }): ReactElement {
-  const option = (value: View, label: string, icon: IconName): ReactElement => (
-    <button
-      type="button"
-      aria-pressed={view === value}
-      onClick={() => {
-        onChange(value);
-      }}
-      className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-full px-3 text-label font-medium text-fg-dim aria-pressed:bg-accent-tint aria-pressed:text-fg-strong pointer-coarse:h-9"
-    >
-      <Icon
-        name={icon}
-        className={cn("size-3.5", view === value && "text-accent")}
-      />
-      <span className="max-sm:sr-only">{label}</span>
-    </button>
-  );
-
   return (
-    <div
-      role="group"
-      aria-label="View"
-      className="inline-flex gap-0.5 rounded-full border border-line bg-panel p-0.5"
-    >
-      {option("chat", "Chat", "chat")}
-      {option("pi", "Pi", "monitor")}
-      {option("terminal", "Terminal", "terminal")}
-    </div>
+    <Segmented
+      label="View"
+      compact
+      value={view}
+      onChange={onChange}
+      options={[
+        { value: "chat", label: "Chat", icon: "chat" },
+        { value: "pi", label: "Pi", icon: "monitor" },
+        { value: "terminal", label: "Terminal", icon: "terminal" },
+      ]}
+    />
   );
 }
 

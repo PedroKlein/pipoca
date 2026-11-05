@@ -4,14 +4,26 @@ import {
   type WebContext,
 } from "@pipoca/plugins/web";
 import type { Environment, Profile, SetupState } from "@pipoca/protocol";
-import { Badge, Button, cn, Icon, Row, Rows } from "@pipoca/ui";
 import {
-  type ReactElement,
-  type ReactNode,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+  Badge,
+  Button,
+  cardClass,
+  ChoiceCard,
+  cn,
+  Command,
+  ErrorText,
+  Hero,
+  Icon,
+  linkCardClass,
+  Row,
+  Rows,
+  SetupShell,
+  Spinner,
+  Step,
+  Stepper,
+  type StepState,
+} from "@pipoca/ui";
+import { type ReactElement, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import {
   useEnvironments,
@@ -19,7 +31,6 @@ import {
   useSessions,
   useTemplates,
 } from "./hooks";
-import { Mark } from "./mark";
 import { useNewcomers } from "./newcomers";
 import { NewSessionForm } from "./new-session";
 import { PluginBoundary } from "./plugin-boundary";
@@ -123,7 +134,9 @@ function OfferedProfiles({
           );
 
           return (
-            <Choice
+            <ChoiceCard
+              type="checkbox"
+              as="li"
               key={shared.id}
               title={shared.name}
               description={offeredDescription(shared)}
@@ -142,11 +155,7 @@ function OfferedProfiles({
           );
         })}
       </ul>
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
       <p className="pt-2 text-label font-medium text-fg">Or bring your own</p>
     </div>
   );
@@ -242,38 +251,22 @@ export function SetupWizard({
   };
 
   return (
-    <div className="flex min-h-dvh flex-col bg-bg font-sans text-ui text-fg">
-      <header className="grid grid-cols-[1fr_auto_1fr] items-center px-7 py-5">
-        <span className="flex items-center gap-2 font-serif text-wordmark font-light text-fg-strong">
-          <Mark className="size-7" />
-          pipoca
-        </span>
-        <ol aria-label="Setup steps" className="flex gap-1.5">
-          {Array.from({ length: total }, (_, index) => (
-            <li
-              key={index}
-              aria-current={index === at + 1 ? "step" : undefined}
-              className={cn(
-                "h-0.75 w-9 rounded-full",
-                index <= at + 1 ? "bg-fg-strong" : "bg-line",
-              )}
-            />
-          ))}
-        </ol>
-        <span className="justify-self-end text-label text-fg-dim">
-          {step === undefined ? (
-            <button
-              type="button"
-              onClick={leave}
-              className="cursor-pointer hover:text-fg"
-            >
-              Done
-            </button>
-          ) : (
-            `Step ${String(at + 2)} of ${String(total)}`
-          )}
-        </span>
-      </header>
+    <SetupShell
+      steps={{ total, at: at + 1 }}
+      aside={
+        step === undefined ? (
+          <button
+            type="button"
+            onClick={leave}
+            className="cursor-pointer hover:text-fg"
+          >
+            Done
+          </button>
+        ) : (
+          `Step ${String(at + 2)} of ${String(total)}`
+        )
+      }
+    >
       <div
         className={cn(
           !admin &&
@@ -316,7 +309,7 @@ export function SetupWizard({
           )}
         </main>
       </div>
-    </div>
+    </SetupShell>
   );
 }
 
@@ -342,36 +335,17 @@ function JoinSteps({
 
   return (
     <aside className="flex shrink-0 flex-col gap-5 pt-8 md:w-55 md:pt-11">
-      <ol aria-label="Your setup" className="flex flex-col gap-4">
-        {rows.map((row, index) => {
-          const done = index <= at;
-
-          return (
-            <li
-              key={row.id}
-              aria-current={index === at + 1 ? "step" : undefined}
-              className="flex items-start gap-3"
-            >
-              <span
-                className={cn(
-                  "grid size-6 shrink-0 place-items-center rounded-full text-caption",
-                  done
-                    ? "bg-done text-bg"
-                    : "border border-fg-strong text-fg-strong",
-                )}
-              >
-                {done ? <Icon name="check" /> : index + 1}
-              </span>
-              <span className="flex min-w-0 flex-col">
-                <span className="text-ui text-fg-strong">{row.title}</span>
-                <span className="truncate text-label text-fg-dim">
-                  {row.summary}
-                </span>
-              </span>
-            </li>
-          );
-        })}
-      </ol>
+      <Stepper label="Your setup">
+        {rows.map((row, index) => (
+          <Step
+            key={row.id}
+            number={index + 1}
+            state={stepState(index, at + 1)}
+            title={row.title}
+            description={row.summary}
+          />
+        ))}
+      </Stepper>
       <p className="border-t border-line pt-4 text-caption text-fg-dim">
         What your team shares, such as machines, models and sign-in, is set up
         already. You can see it in Settings.
@@ -408,6 +382,14 @@ function useNewcomerEnvironment(template: string | null): void {
   }, [template, name, environments]);
 }
 
+function stepState(index: number, current: number): StepState {
+  if (index < current) {
+    return "done";
+  }
+
+  return index === current ? "current" : "next";
+}
+
 function Heading({
   title,
   description,
@@ -418,12 +400,9 @@ function Heading({
   readonly centered?: boolean;
 }): ReactElement {
   return (
-    <div className={cn("flex flex-col gap-2", centered && "text-center")}>
-      <h1 className="font-serif text-hero leading-tight font-light text-fg-strong">
-        {title}
-      </h1>
-      <p className="max-w-chat text-prose text-fg-dim">{description}</p>
-    </div>
+    <Hero title={title} centered={centered}>
+      {description}
+    </Hero>
   );
 }
 
@@ -491,7 +470,9 @@ function WhereStep(): ReactElement {
   return (
     <ul className="flex flex-col gap-2.5">
       {ready.map((environment) => (
-        <Choice
+        <ChoiceCard
+          type="checkbox"
+          as="li"
           key={environment.id}
           title={environment.name}
           badge={<Badge state="done">Ready</Badge>}
@@ -519,10 +500,12 @@ function WhereStep(): ReactElement {
               </span>
             </div>
           )}
-        </Choice>
+        </ChoiceCard>
       ))}
       {clusters.map((template) => (
-        <Choice
+        <ChoiceCard
+          type="checkbox"
+          as="li"
           key={template.id}
           title="A Kubernetes cluster"
           badge={<Badge state="offline">{template.name}</Badge>}
@@ -537,67 +520,18 @@ function WhereStep(): ReactElement {
           }}
         />
       ))}
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
-      <Choice
+      <ErrorText size="caption">{error}</ErrorText>
+      <ChoiceCard
+        type="checkbox"
+        as="li"
         title="Another machine"
         description="A Linux VM, a workstation or a second laptop. Run one command on it."
         checked={machine}
         onChange={setMachine}
       >
         <ConnectMachine />
-      </Choice>
+      </ChoiceCard>
     </ul>
-  );
-}
-
-function Choice({
-  title,
-  badge,
-  description,
-  checked,
-  onChange,
-  children,
-}: {
-  readonly title: string;
-  readonly badge?: ReactNode;
-  readonly description: string;
-  readonly checked: boolean;
-  readonly onChange?: (checked: boolean) => void;
-  readonly children?: ReactNode;
-}): ReactElement {
-  return (
-    <li
-      className={cn(
-        "flex flex-col gap-3 rounded-lg border border-line bg-elevated p-4",
-        checked && "border-fg-strong shadow-xs",
-      )}
-    >
-      <label className="flex items-start gap-3">
-        <input
-          type="checkbox"
-          checked={checked}
-          disabled={onChange === undefined}
-          onChange={(event) => {
-            onChange?.(event.target.checked);
-          }}
-          className="mt-1 size-4 accent-(--accent)"
-        />
-        <span className="flex flex-col gap-0.5">
-          <span className="flex items-center gap-2 text-ui font-medium text-fg-strong">
-            {title}
-            {badge}
-          </span>
-          <span className="text-label text-fg-dim">{description}</span>
-        </span>
-      </label>
-      {checked && children !== undefined && (
-        <div className="pl-7">{children}</div>
-      )}
-    </li>
   );
 }
 
@@ -621,11 +555,7 @@ function ConnectMachine(): ReactElement {
         >
           Show the command
         </Button>
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
       </div>
     );
   }
@@ -637,23 +567,9 @@ function ConnectMachine(): ReactElement {
       <p className="text-label text-fg-dim">
         Run it in the folder Pi should work in. The key is shown only now.
       </p>
-      <div className="flex items-start gap-2">
-        <pre
-          aria-label="Join command"
-          className="min-w-0 flex-1 rounded-md border border-line bg-panel p-3 font-mono text-mono-sm break-all whitespace-pre-wrap"
-        >
-          {command}
-        </pre>
-        <Button
-          onClick={() => {
-            void navigator.clipboard.writeText(command);
-          }}
-        >
-          Copy
-        </Button>
-      </div>
-      <p className="text-caption text-fg-dim" aria-live="polite">
-        Waiting for the machine to connect…
+      <Command label="Join command">{command}</Command>
+      <p aria-live="polite">
+        <Spinner label="Waiting for the machine to connect…" />
       </p>
     </div>
   );
@@ -727,7 +643,10 @@ function DoneStep({
               <a
                 href={href}
                 onClick={onLeave}
-                className="flex h-full flex-col gap-1 rounded-lg border border-line bg-elevated p-3.5 hover:border-line-strong"
+                className={cn(
+                  linkCardClass,
+                  "flex h-full flex-col gap-1 p-3.5",
+                )}
               >
                 <span className="text-ui font-medium text-fg-strong">
                   {title}
@@ -746,7 +665,7 @@ function Summary({ step }: { readonly step: Step }): ReactElement {
   const done = useDone(step);
 
   return (
-    <li className="flex items-center gap-3 rounded-lg border border-line bg-elevated p-3.5">
+    <li className={cn(cardClass, "flex items-center gap-3 p-3.5")}>
       <span
         aria-hidden="true"
         className={cn(

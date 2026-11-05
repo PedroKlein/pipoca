@@ -1,8 +1,17 @@
-import { Badge, Button, cn, Icon, PageTitle } from "@pipoca/ui";
 import type { ApiReply, ConfigFile } from "@pipoca/protocol";
+import {
+  Badge,
+  Button,
+  cardClass,
+  cn,
+  ErrorText,
+  Icon,
+  Page,
+  PageTitle,
+  useConfirm,
+} from "@pipoca/ui";
 import { type ReactElement, useEffect, useState } from "react";
 import { api } from "./api";
-import { settingsPageClass } from "./page-class";
 
 type ConfigText = ConfigFile;
 type ConfigList = ApiReply<"settings.config">;
@@ -17,6 +26,7 @@ export function ConfigurationPage(): ReactElement {
   const [file, setFile] = useState<ConfigText>();
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string>();
+  const [ask, asking] = useConfirm();
 
   const failed = (reason: unknown): void => {
     setError(reason instanceof Error ? reason.message : String(reason));
@@ -48,14 +58,23 @@ export function ConfigurationPage(): ReactElement {
     : undefined;
 
   const choose = (name: string): void => {
-    if (
-      name === chosen ||
-      (edited && !confirm(`Discard your changes to ${chosen}?`))
-    ) {
+    if (name === chosen) {
       return;
     }
 
-    setChosen(name);
+    const discard = edited
+      ? ask({
+          title: `Discard your changes to ${chosen}?`,
+          confirm: "Discard",
+          danger: true,
+        })
+      : Promise.resolve(true);
+
+    void discard.then((yes) => {
+      if (yes) {
+        setChosen(name);
+      }
+    });
   };
 
   const download = (): void => {
@@ -71,7 +90,7 @@ export function ConfigurationPage(): ReactElement {
   };
 
   return (
-    <div className={settingsPageClass}>
+    <Page>
       <PageTitle
         description="Every page in Settings reads and writes these files. Edit them here, keep them in git, or let Helm write them."
         actions={
@@ -90,7 +109,7 @@ export function ConfigurationPage(): ReactElement {
       <div className="mt-6 grid gap-4 md:grid-cols-[15rem_1fr]">
         <nav
           aria-label="Config files"
-          className="self-start rounded-lg border border-line bg-elevated p-2 shadow-xs"
+          className={cn(cardClass, "self-start p-2")}
         >
           <ul className="flex flex-col">
             {shownOf(treeOf(list?.files ?? []), folders).map((item) =>
@@ -141,7 +160,10 @@ export function ConfigurationPage(): ReactElement {
         </nav>
         <section
           aria-label={chosen}
-          className="flex min-w-0 flex-col self-start overflow-hidden rounded-lg border border-line bg-elevated shadow-xs"
+          className={cn(
+            cardClass,
+            "flex min-w-0 flex-col self-start overflow-hidden",
+          )}
         >
           <header className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2.5">
             <span className="truncate font-mono text-mono-sm text-fg-strong">
@@ -196,9 +218,7 @@ export function ConfigurationPage(): ReactElement {
           />
           <footer className="flex flex-col gap-1 border-t border-line px-4 py-2.5 text-caption text-fg-dim">
             {(error ?? invalid) !== undefined && (
-              <p role="alert" className="text-failed">
-                {error ?? invalid}
-              </p>
+              <ErrorText size="inherit">{error ?? invalid}</ErrorText>
             )}
             <p>
               Secrets never appear here in plain text: they&apos;re sealed on
@@ -207,7 +227,8 @@ export function ConfigurationPage(): ReactElement {
           </footer>
         </section>
       </div>
-    </div>
+      {asking}
+    </Page>
   );
 }
 

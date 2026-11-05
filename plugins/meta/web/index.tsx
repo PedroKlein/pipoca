@@ -10,7 +10,15 @@ import {
   type WebPlugin,
 } from "@pipoca/plugins/web";
 import type { Environment, ModelRef, Session } from "@pipoca/protocol";
-import { Button, cn, Icon, isComposing, PageTitle, Picker } from "@pipoca/ui";
+import {
+  Button,
+  cn,
+  ErrorText,
+  Icon,
+  isComposing,
+  PageTitle,
+  Picker,
+} from "@pipoca/ui";
 import {
   type ReactElement,
   type SubmitEvent,
@@ -225,9 +233,9 @@ function Composer({
             Enter sends · the assistant asks before anything destructive
           </span>
         ) : (
-          <p role="alert" className="flex-1 text-caption text-failed">
+          <ErrorText size="caption" className="flex-1">
             {error}
-          </p>
+          </ErrorText>
         )}
         {picksModel && (
           <Picker
