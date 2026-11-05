@@ -23,15 +23,14 @@ import {
   startPlugins,
 } from "@pipoca/pluginhost";
 import { eventBus, type ServerPlugin } from "@pipoca/plugins";
-import type { PluginManifest } from "@pipoca/protocol";
-import type { Log } from "@pipoca/protocol";
-import { ProfileFolders, Profiles } from "@pipoca/profiles";
 import {
   type Clock,
-  Sessions,
-  type SessionsOptions,
+  type Log,
+  type PluginManifest,
   systemClock,
-} from "@pipoca/sessions";
+} from "@pipoca/protocol";
+import { ProfileFolders, Profiles } from "@pipoca/profiles";
+import { Sessions, type SessionsOptions } from "@pipoca/sessions";
 import web from "@pipoca/web/index.html";
 import { type AgentOptions, runAgent } from "./agent";
 import { Auth } from "./auth";

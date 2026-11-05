@@ -2,14 +2,16 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { DatabaseSync, SQLInputValue, StatementSync } from "node:sqlite";
-import type {
-  Invite,
-  SessionAccess,
-  SessionStatus,
-  ThinkingLevel,
-  Voice,
-  Workspace,
-  WorkspaceRemoval,
+import {
+  type Clock,
+  type Invite,
+  type SessionAccess,
+  type SessionStatus,
+  systemClock,
+  type ThinkingLevel,
+  type Voice,
+  type Workspace,
+  type WorkspaceRemoval,
 } from "@pipoca/protocol";
 import type { PluginStore, ServerPlugin } from "@pipoca/plugins";
 import {
@@ -17,12 +19,10 @@ import {
   type ProfileFolders,
   type ProfileStore,
 } from "@pipoca/profiles";
-import {
-  type Clock,
-  type SessionStore,
-  type StoredEnvironment,
-  type StoredSession,
-  systemClock,
+import type {
+  SessionStore,
+  StoredEnvironment,
+  StoredSession,
 } from "@pipoca/sessions";
 import type { AuthStore, User } from "./auth";
 import { openDatabase, resetPlugin, transaction } from "./database";
