@@ -20,7 +20,7 @@ import type {
 import { json, testServer, type TestServer } from "./testdata/harness";
 import { until } from "@pipoca/plugins/testing";
 import { runnerCredentials } from "./testdata/runners";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 
 let root: string;
 let faux: ReturnType<typeof fauxProvider>;
@@ -39,7 +39,7 @@ beforeEach(async () => {
   runtime.registerNativeProvider(faux.provider);
 
   server = testServer({
-    sessions: { pollWaitMs: 100, offlineAfterMs: 1000 },
+    runners: { pollWaitMs: 100, offlineAfterMs: 1000 },
     agent: {
       provider: "local",
       dataDir: join(root, "local"),
@@ -438,7 +438,7 @@ test("stops a turn that waits on a confirm", async () => {
 });
 
 test("hands a runner only the allowed Session parts and requires the meta one", async () => {
-  const bare = testServer({ sessions: { pollWaitMs: 0 } });
+  const bare = testServer({ runners: { pollWaitMs: 0 } });
 
   try {
     const runners = runnerCredentials(bare, bare.signedIn);

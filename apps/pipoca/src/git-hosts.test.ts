@@ -11,7 +11,7 @@ import {
   type Work,
   type WorkPoll,
 } from "@pipoca/protocol";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 import { testServer, type TestServer } from "./testdata/harness";
 import { until } from "@pipoca/plugins/testing";
 import { runnerCredentials } from "./testdata/runners";
@@ -240,7 +240,7 @@ beforeEach(() => {
 
   server = testServer({
     configDir,
-    sessions: { pollWaitMs: 0 },
+    runners: { pollWaitMs: 0 },
   });
 });
 

@@ -47,7 +47,7 @@ function start(
   config: { readonly configDir?: string; readonly lockedConfig?: string } = {},
 ): void {
   server = testServer({
-    sessions: { pollWaitMs: 0 },
+    runners: { pollWaitMs: 0 },
     plugins,
     manifests: [greeter, broken],
     ...config,

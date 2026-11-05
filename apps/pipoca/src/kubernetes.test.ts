@@ -25,7 +25,8 @@ import {
   type Session,
   versionHeader,
 } from "@pipoca/protocol";
-import { runAgent } from "./agent";
+import { runAgent } from "@pipoca/runner";
+import { binary } from "./binary";
 import { builtInPlugins } from "./session-parts";
 import { testServer, type TestServer } from "./testdata/harness";
 import { until } from "@pipoca/plugins/testing";
@@ -174,7 +175,7 @@ function startServer(
   server = testServer({
     database,
     ...(configDir !== undefined && { configDir }),
-    sessions: { pollWaitMs: 100, offlineAfterMs: 1000 },
+    runners: { pollWaitMs: 100, offlineAfterMs: 1000 },
     plugins: [
       kubernetes(() => ({
         api: { url: api.url, namespace: "pi", token: () => "t" },
@@ -405,6 +406,7 @@ test("lets the runner in a started pod run the Session, and forgets an earlier f
   runtime.registerNativeProvider(faux.provider);
 
   const agent = runAgent({
+    binary,
     server: server.url.href,
     provider: name,
     credential: { token },
@@ -921,6 +923,7 @@ async function startRunner(
     runtime.registerNativeProvider(faux.provider);
 
     await runAgent({
+      binary,
       server: server.url.href,
       provider: name,
       credential: { token: api.secrets.get(name)?.stringData["token"] ?? "" },

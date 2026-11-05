@@ -1,5 +1,5 @@
 {
-  "name": "@pipoca/providers",
+  "name": "@pipoca/repositories",
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",

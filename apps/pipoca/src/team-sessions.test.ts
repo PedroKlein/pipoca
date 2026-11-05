@@ -21,7 +21,7 @@ import { askServer } from "@pipoca/ask/server";
 import { gitHosts } from "@pipoca/git-hosts/server";
 import type { ServerPluginContext } from "@pipoca/plugins";
 import { builtInPlugins } from "./session-parts";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 import { json, testServer, type TestServer } from "./testdata/harness";
 
 let root: string;
@@ -35,7 +35,7 @@ beforeEach(async () => {
   server = testServer({
     database: join(root, "server.db"),
     configDir: join(root, "config"),
-    sessions: { pollWaitMs: 0 },
+    runners: { pollWaitMs: 0 },
     plugins: [
       {
         name: "starter",

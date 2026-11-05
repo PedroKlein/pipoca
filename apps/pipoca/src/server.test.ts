@@ -15,29 +15,74 @@ import {
 import type { Log } from "@pipoca/protocol";
 import { startPlugins } from "@pipoca/pluginhost";
 import { ProfileFolders, Profiles } from "@pipoca/profiles";
-import { Sessions } from "@pipoca/sessions";
-import { Auth } from "./auth";
+import { Sessions, type SessionStore } from "@pipoca/sessions";
+import {
+  Environments,
+  type EnvironmentsOptions,
+  RunnerCredentials,
+} from "@pipoca/environments";
+import { People, SignIn } from "@pipoca/people";
 import { changeFeed } from "./changes";
-import { createHandler } from "./server";
-import { readSse } from "./sse";
-import { openStore } from "./store";
+import { type Auth, createHandler } from "./server";
+import { readSse } from "@pipoca/protocol";
+import { openStore, type Store } from "./sqlite/store";
 import { firstUserCookie } from "./testdata/sign-in";
 
 // No folder: only the shared default Profile, which is plain Pi.
 const noProfiles = new ProfileFolders("/nonexistent/profiles", () => undefined);
 
+// Sessions and their Environments, wired as serve wires them.
+function domainsOf(
+  store: Store,
+  timing: Pick<EnvironmentsOptions, "pollWaitMs" | "offlineAfterMs"> = {},
+  sessionStore: SessionStore = store.sessions,
+): { readonly sessions: Sessions; readonly environments: Environments } {
+  const environments: Environments = new Environments(store.environments, {
+    ...timing,
+    sessions: () => ({
+      running: (provider, runner) => sessions.running(provider, runner),
+      inUse: (id) => sessions.inUse(id),
+      removed: () => undefined,
+    }),
+    onlineChanged: (provider, runner) => {
+      sessions.runnerChanged(provider, runner);
+    },
+  });
+
+  const sessions: Sessions = new Sessions(sessionStore, environments);
+
+  return { sessions, environments };
+}
+
+function authOf(store: Store): Auth {
+  const people = new People(store.people);
+
+  return {
+    people,
+    signIn: new SignIn(people, store.people),
+    runners: new RunnerCredentials(store.credentials),
+  };
+}
+
 test("reports unhealthy when the database can't be read, keeping why in the log", async () => {
   const store = openStore(":memory:", undefined, noProfiles);
   const logged: string[] = [];
 
-  const sessions = new Sessions(store);
+  const { sessions, environments } = domainsOf(store);
+  const people = new People(store.people);
 
   const handler = createHandler(
-    new Auth(store.auth),
+    {
+      people,
+      signIn: new SignIn(people, store.people),
+      runners: new RunnerCredentials(store.credentials),
+    },
     sessions,
-    new Profiles(noProfiles, store),
+    environments,
+    new Profiles(noProfiles, store.profiles),
     startPlugins([], [], {
       sessions,
+      environments,
       sessionParts: [],
       runners: { token: () => "pct_test", revoke: () => undefined },
       events: eventBus(() => undefined),
@@ -116,16 +161,23 @@ function startServer(
   readonly stop: () => void;
 } {
   const store = openStore(":memory:", undefined, noProfiles);
-  const sessions = new Sessions(store, { pollWaitMs: 0, offlineAfterMs });
+
+  const { sessions, environments } = domainsOf(store, {
+    pollWaitMs: 0,
+    offlineAfterMs,
+  });
+
   const stopped = new AbortController();
-  const auth = new Auth(store.auth);
+  const auth = authOf(store);
 
   const handler = createHandler(
     auth,
     sessions,
-    new Profiles(noProfiles, store),
+    environments,
+    new Profiles(noProfiles, store.profiles),
     startPlugins([plugin], [plugin.name], {
       sessions,
+      environments,
       sessionParts: [],
       runners: { token: () => "pct_test", revoke: () => undefined },
       events: eventBus(() => undefined),
@@ -168,14 +220,17 @@ function startServer(
   const cookie = firstUserCookie(
     handler,
     "http://127.0.0.1",
-    auth.setupToken ?? "",
+    auth.signIn.setupToken ?? "",
   ).then((signedIn) => {
-    store.ensureEnvironment("local", store.auth.users()[0]?.id ?? "");
+    store.environments.ensureEnvironment(
+      "local",
+      store.people.users()[0]?.id ?? "",
+    );
 
     return signedIn;
   });
 
-  const token = auth.ownRunnerToken("local", "local");
+  const token = auth.runners.ownRunnerToken("local", "local");
 
   const call = async (path: string, body?: unknown): Promise<Response> =>
     handler(
@@ -213,7 +268,7 @@ function startServer(
     },
     stop: () => {
       stopped.abort();
-      sessions.close();
+      environments.close();
       store.close();
     },
   };
@@ -485,7 +540,7 @@ test("delivers a server tool's result that finished while the provider was offli
 
 test("lists a plugin's own Sessions only while the plugin is on", async () => {
   const store = openStore(":memory:", undefined, noProfiles);
-  const sessions = new Sessions(store, { pollWaitMs: 0 });
+  const { sessions, environments } = domainsOf(store, { pollWaitMs: 0 });
   let context: ServerPluginContext | undefined;
 
   const keeper: ServerPlugin = {
@@ -495,7 +550,7 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
     },
   };
 
-  const auth = new Auth(store.auth);
+  const auth = authOf(store);
   let cookie: Promise<string> | undefined;
 
   const handler = (
@@ -504,9 +559,11 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
     const handle = createHandler(
       auth,
       sessions,
-      new Profiles(noProfiles, store),
+      environments,
+      new Profiles(noProfiles, store.profiles),
       startPlugins([keeper], enabled, {
         sessions,
+        environments,
         sessionParts: [],
         runners: { token: () => "pct_test", revoke: () => undefined },
         events: eventBus(() => undefined),
@@ -554,7 +611,7 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
     const signedIn = (cookie ??= firstUserCookie(
       handle,
       "http://127.0.0.1",
-      auth.setupToken ?? "",
+      auth.signIn.setupToken ?? "",
     ));
 
     return async (path) =>
@@ -571,7 +628,11 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
   const workspace = { kind: "folder", path: "/srv/app" } as const;
 
   await on("/api/sessions");
-  store.ensureEnvironment("local", store.auth.users()[0]?.id ?? "");
+
+  store.environments.ensureEnvironment(
+    "local",
+    store.people.users()[0]?.id ?? "",
+  );
 
   const owned = context?.sessions.start(
     { actor: "plugin:keeper", workspace },
@@ -605,7 +666,7 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
     ids([owned, plain.value, other]),
   );
 
-  sessions.close();
+  environments.close();
   store.close();
 });
 
@@ -613,24 +674,25 @@ test("fails only the Session whose Profile can't be read when a runner claims wo
   const store = openStore(":memory:", undefined, noProfiles);
   let reads = 0;
 
-  const sessions = new Sessions(
+  const { sessions, environments } = domainsOf(
+    store,
+    { pollWaitMs: 0 },
     {
-      ...store,
+      ...store.sessions,
       profileFiles: (id, personId) => {
         reads++;
         if (reads === 1) {
           throw new Error("EIO: i/o error, read");
         }
 
-        return store.profileFiles(id, personId);
+        return store.sessions.profileFiles(id, personId);
       },
     },
-    { pollWaitMs: 0 },
   );
 
   const runner = { name: "vm", environment: "local" };
 
-  store.auth.insertUser({
+  store.people.insertUser({
     id: "ana",
     name: "ana",
     admin: true,
@@ -638,7 +700,7 @@ test("fails only the Session whose Profile can't be read when a runner claims wo
     createdAt: new Date().toISOString(),
   });
 
-  store.ensureEnvironment("local", "ana");
+  store.environments.ensureEnvironment("local", "ana");
 
   const start = (path: string): string => {
     const started = sessions.start({
@@ -663,7 +725,7 @@ test("fails only the Session whose Profile can't be read when a runner claims wo
   );
 
   const failed = sessions.get(broken);
-  sessions.close();
+  environments.close();
   store.close();
 
   expect(claimed.start.map(({ sessionId }) => sessionId)).toEqual([fine]);

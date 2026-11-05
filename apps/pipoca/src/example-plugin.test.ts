@@ -20,7 +20,7 @@ beforeEach(async () => {
 
   server = testServer({
     database: join(root, "server.db"),
-    sessions: { pollWaitMs: 0 },
+    runners: { pollWaitMs: 0 },
     installed: {
       root: plugins,
       plugins: await installedPlugins(

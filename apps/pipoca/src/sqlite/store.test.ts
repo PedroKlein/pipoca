@@ -23,17 +23,17 @@ test("opens its own database again", () => {
   openStore(path).close();
 
   const store = openStore(path);
-  store.ensureEnvironment("vm", "team");
-  store.ensureEnvironment("vm", "team");
-  const [environment] = store.environments();
+  store.environments.ensureEnvironment("vm", "team");
+  store.environments.ensureEnvironment("vm", "team");
+  const [environment] = store.environments.environments();
 
-  store.insert({
+  store.sessions.insert({
     id: "s1",
     environmentId: environment?.id ?? "",
     owner: null,
     provider: "vm",
     runner: null,
-    profileId: store.defaultProfileId("local"),
+    profileId: store.sessions.defaultProfileId("local"),
     workspace: { kind: "clone", repository: "r", branch: "b" },
     model: { provider: "openai", id: "gpt-5-mini" },
     thinking: "high",
@@ -52,9 +52,9 @@ test("opens its own database again", () => {
     actsAs: null,
   });
 
-  expect(store.environments()).toHaveLength(1);
+  expect(store.environments.environments()).toHaveLength(1);
 
-  expect(store.get("s1")).toMatchObject({
+  expect(store.sessions.get("s1")).toMatchObject({
     provider: "vm",
     thinking: "high",
     workspace: { kind: "clone", repository: "r", branch: "b" },
@@ -66,13 +66,13 @@ test("opens its own database again", () => {
 
 test("lists the Sessions one owner holds", () => {
   const store = openStore(":memory:");
-  defaultProfile = store.defaultProfileId("local");
-  store.ensureEnvironment("vm", "team");
-  const [environment] = store.environments();
+  defaultProfile = store.sessions.defaultProfileId("local");
+  store.environments.ensureEnvironment("vm", "team");
+  const [environment] = store.environments.environments();
   const id = environment?.id ?? "";
   const project = { plugin: "projects", key: "p1" };
 
-  store.insert(
+  store.sessions.insert(
     sessionIn(id, "vm", {
       id: "owned",
       createdAt: "2026-10-24T00:00:01.000Z",
@@ -80,11 +80,11 @@ test("lists the Sessions one owner holds", () => {
     }),
   );
 
-  store.insert(
+  store.sessions.insert(
     sessionIn(id, "vm", { id: "plain", createdAt: "2026-10-24T00:00:02.000Z" }),
   );
 
-  store.insert(
+  store.sessions.insert(
     sessionIn(id, "vm", {
       id: "other",
       createdAt: "2026-10-24T00:00:03.000Z",
@@ -93,11 +93,13 @@ test("lists the Sessions one owner holds", () => {
   );
 
   expect(
-    store.list({ includeArchived: false, owner: project }).map((s) => s.id),
+    store.sessions
+      .list({ includeArchived: false, owner: project })
+      .map((s) => s.id),
   ).toEqual(["owned"]);
 
-  expect(store.get("owned")?.owner).toEqual(project);
-  expect(store.list({ includeArchived: false })).toHaveLength(3);
+  expect(store.sessions.get("owned")?.owner).toEqual(project);
+  expect(store.sessions.list({ includeArchived: false })).toHaveLength(3);
 
   store.close();
 });
@@ -134,9 +136,9 @@ function sessionIn(
 
 test("lists sessions newest first and leaves archived ones out unless asked", () => {
   const store = openStore(join(root, "server.db"));
-  defaultProfile = store.defaultProfileId("local");
-  store.ensureEnvironment("vm", "team");
-  const vm = store.environments()[0]?.id ?? "";
+  defaultProfile = store.sessions.defaultProfileId("local");
+  store.environments.ensureEnvironment("vm", "team");
+  const vm = store.environments.environments()[0]?.id ?? "";
 
   for (const session of [
     sessionIn(vm, "vm", {
@@ -155,11 +157,11 @@ test("lists sessions newest first and leaves archived ones out unless asked", ()
       status: "queued",
     }),
   ]) {
-    store.insert(session);
+    store.sessions.insert(session);
   }
 
   const ids = (includeArchived: boolean): string[] =>
-    store.list({ includeArchived }).map(({ id }) => id);
+    store.sessions.list({ includeArchived }).map(({ id }) => id);
 
   expect(ids(false)).toEqual(["new", "old"]);
   expect(ids(true)).toEqual(["new", "archived", "old"]);
@@ -169,12 +171,12 @@ test("lists sessions newest first and leaves archived ones out unless asked", ()
 
 test("lists a provider's stopped sessions whose workspace is waiting to be removed, oldest first", () => {
   const store = openStore(join(root, "server.db"));
-  defaultProfile = store.defaultProfileId("local");
-  store.ensureEnvironment("vm", "team");
-  store.ensureEnvironment("laptop", "team");
+  defaultProfile = store.sessions.defaultProfileId("local");
+  store.environments.ensureEnvironment("vm", "team");
+  store.environments.ensureEnvironment("laptop", "team");
 
   const environments = new Map(
-    store.environments().map(({ provider, id }) => [provider, id]),
+    store.environments.environments().map(({ provider, id }) => [provider, id]),
   );
 
   const vm = environments.get("vm") ?? "";
@@ -233,22 +235,21 @@ test("lists a provider's stopped sessions whose workspace is waiting to be remov
       workspaceRemoval: "pending",
     }),
   ]) {
-    store.insert(session);
+    store.sessions.insert(session);
   }
 
-  const removals = store.pendingRemovals("vm", "vm");
+  const removals = store.sessions.pendingRemovals("vm", "vm");
 
   expect(removals.map(({ id }) => id)).toEqual(["pending", "forced"]);
   expect(removals[1]).toEqual(forced);
 
-  expect(store.pendingRemovals("laptop", "laptop").map(({ id }) => id)).toEqual(
-    ["elsewhere"],
-  );
+  expect(
+    store.sessions.pendingRemovals("laptop", "laptop").map(({ id }) => id),
+  ).toEqual(["elsewhere"]);
 
-  expect(store.pendingRemovals("vm", "vm-2").map(({ id }) => id)).toEqual([
-    "pending",
-    "on another runner",
-  ]);
+  expect(
+    store.sessions.pendingRemovals("vm", "vm-2").map(({ id }) => id),
+  ).toEqual(["pending", "on another runner"]);
 
   store.close();
 });
@@ -268,21 +269,27 @@ function rawSecrets(path: string): string[] {
 test("stores Environment secrets encrypted and reads them back after a restart", () => {
   const path = join(root, "server.db");
   const store = openStore(path);
-  store.ensureEnvironment("vm", "team");
-  const [environment] = store.environments();
+  store.environments.ensureEnvironment("vm", "team");
+  const [environment] = store.environments.environments();
 
   if (environment === undefined) {
     throw new Error("no Environment");
   }
 
-  store.updateEnvironment({ ...environment, secrets: { GH_TOKEN: "ghp_1" } });
+  store.environments.updateEnvironment({
+    ...environment,
+    secrets: { GH_TOKEN: "ghp_1" },
+  });
+
   store.close();
 
   expect(rawSecrets(path).join()).not.toContain("ghp_1");
 
   const again = openStore(path);
 
-  expect(again.environments()[0]?.secrets).toEqual({ GH_TOKEN: "ghp_1" });
+  expect(again.environments.environments()[0]?.secrets).toEqual({
+    GH_TOKEN: "ghp_1",
+  });
 
   again.close();
 });
@@ -290,11 +297,14 @@ test("stores Environment secrets encrypted and reads them back after a restart",
 test("keeps no setup of its own for an Environment made from a template", () => {
   const path = join(root, "server.db");
   const store = openStore(path);
-  store.ensureEnvironment("vm", "team", "python");
-  store.ensureEnvironment("laptop", "team");
+  store.environments.ensureEnvironment("vm", "team", "python");
+  store.environments.ensureEnvironment("laptop", "team");
 
-  for (const environment of store.environments()) {
-    store.updateEnvironment({ ...environment, name: `${environment.name}!` });
+  for (const environment of store.environments.environments()) {
+    store.environments.updateEnvironment({
+      ...environment,
+      name: `${environment.name}!`,
+    });
   }
 
   store.close();
@@ -321,9 +331,9 @@ test("keeps no setup of its own for an Environment made from a template", () => 
 
 test("keeps the team's Environments the team's when the first person signs up", () => {
   const store = openStore(":memory:");
-  store.ensureEnvironment("shared", "team");
+  store.environments.ensureEnvironment("shared", "team");
 
-  store.auth.insertUser({
+  store.people.insertUser({
     id: "ana",
     name: "ana",
     admin: true,
@@ -331,7 +341,9 @@ test("keeps the team's Environments the team's when the first person signs up", 
     createdAt: new Date().toISOString(),
   });
 
-  expect(store.environments().map(({ ownerId }) => ownerId)).toEqual(["team"]);
+  expect(
+    store.environments.environments().map(({ ownerId }) => ownerId),
+  ).toEqual(["team"]);
 
   store.close();
 });
@@ -339,14 +351,18 @@ test("keeps the team's Environments the team's when the first person signs up", 
 test("refuses to open a database's secrets with another key", () => {
   const path = join(root, "server.db");
   const store = openStore(path, randomBytes(32));
-  store.ensureEnvironment("vm", "team");
-  const [environment] = store.environments();
+  store.environments.ensureEnvironment("vm", "team");
+  const [environment] = store.environments.environments();
 
   if (environment === undefined) {
     throw new Error("no Environment");
   }
 
-  store.updateEnvironment({ ...environment, secrets: { GH_TOKEN: "ghp_1" } });
+  store.environments.updateEnvironment({
+    ...environment,
+    secrets: { GH_TOKEN: "ghp_1" },
+  });
+
   store.close();
 
   expect(() => openStore(path, randomBytes(32))).toThrow(
@@ -558,7 +574,7 @@ test("removes a plugin's rows with the Session, Environment or person they point
   const store = openStore(path, undefined, undefined, undefined, [trail]);
 
   for (const id of ["ana", "bo"]) {
-    store.auth.insertUser({
+    store.people.insertUser({
       id,
       name: id,
       admin: false,
@@ -567,22 +583,22 @@ test("removes a plugin's rows with the Session, Environment or person they point
     });
   }
 
-  store.ensureEnvironment("vm", "ana");
-  store.ensureEnvironment("laptop", "ana");
+  store.environments.ensureEnvironment("vm", "ana");
+  store.environments.ensureEnvironment("laptop", "ana");
 
   const environments = new Map(
-    store.environments().map(({ provider, id }) => [provider, id]),
+    store.environments.environments().map(({ provider, id }) => [provider, id]),
   );
 
-  defaultProfile = store.defaultProfileId("ana");
+  defaultProfile = store.sessions.defaultProfileId("ana");
   const vm = environments.get("vm") ?? "";
   const laptop = environments.get("laptop") ?? "";
 
-  store.insert(
+  store.sessions.insert(
     sessionIn(vm, "vm", { id: "s-vm", createdAt: "2026-11-02T00:00:00.000Z" }),
   );
 
-  store.insert(
+  store.sessions.insert(
     sessionIn(laptop, "laptop", {
       id: "s-laptop",
       createdAt: "2026-11-02T00:00:00.000Z",
@@ -603,7 +619,7 @@ test("removes a plugin's rows with the Session, Environment or person they point
     rows.run("insert into trail_by_user values (?)", user);
   }
 
-  store.deleteEnvironment(vm);
+  store.environments.deleteEnvironment(vm);
   store.close();
 
   const db = new DatabaseSync(path);
@@ -619,6 +635,6 @@ test("removes a plugin's rows with the Session, Environment or person they point
     left.all("select user_id as id from trail_by_user"),
   ]).toEqual([[{ id: "s-laptop" }], [{ id: laptop }], [{ id: "ana" }]]);
 
-  expect(again.get("s-vm")).toBeUndefined();
+  expect(again.sessions.get("s-vm")).toBeUndefined();
   again.close();
 });

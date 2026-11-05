@@ -55,15 +55,26 @@ import {
   userIdOf,
 } from "@pipoca/pluginhost";
 import { InvalidProfile, ProfileTooBig, type Profiles } from "@pipoca/profiles";
+import { InvalidRepository } from "@pipoca/repositories";
 import type { Result, Sessions } from "@pipoca/sessions";
 import { version as serverVersion } from "../package.json";
 import {
-  type Auth,
+  type AccessToken,
+  canManage,
+  canSee,
+  canSteer,
   type Credentials,
   InvalidCredentials,
-  type McpToken,
+  type People,
+  type SignIn,
   type User,
-} from "./auth";
+  type Viewer,
+} from "@pipoca/people";
+import type {
+  Environments,
+  RunnerCredentials,
+  Templates,
+} from "@pipoca/environments";
 import { type Changes, changedBy } from "./changes";
 import { mcpHandler } from "./mcp";
 import { type AgentRoute, agentRoutes } from "./agent-routes";
@@ -71,9 +82,8 @@ import { profileRoutes } from "./profile-routes";
 import { errorReply, notFound, rejected, reply, thrown } from "./replies";
 import { lineAfter } from "./requests";
 import { presences } from "./presence";
-import { sseResponse } from "./sse";
+import { sseResponse } from "@pipoca/protocol";
 import type { ConfigFiles } from "./config";
-import type { Templates } from "./templates";
 import { type Hub, laidOut } from "./hub";
 import { type NewcomerSetup, newcomersOf } from "./newcomers";
 import { type Team, teamOf } from "./team";
@@ -122,9 +132,17 @@ export interface ServerRestart {
   readonly now: () => void;
 }
 
+// Who calls the server: people signed in, and runners with their tokens.
+export interface Auth {
+  readonly people: People;
+  readonly signIn: SignIn;
+  readonly runners: RunnerCredentials;
+}
+
 export function createHandler(
   auth: Auth,
   sessions: Sessions,
+  environments: Environments,
   profiles: Profiles,
   plugins: PluginHost,
   changes: Changes,
@@ -146,7 +164,7 @@ export function createHandler(
         return unsupported;
       }
 
-      const caller = auth.agentOf(request);
+      const caller = auth.runners.callerOf(request);
       if (caller === undefined) {
         return errorReply(
           401,
@@ -182,7 +200,7 @@ export function createHandler(
 
   const signedIn = (route: BrowserRoute): Route => {
     return async (request, params) => {
-      const user = auth.userOf(request);
+      const user = auth.signIn.userOf(request);
       const behalf = onBehalf.get(request);
 
       const actor =
@@ -195,7 +213,7 @@ export function createHandler(
 
       const admin =
         behalf?.mayAdmin !== false &&
-        auth.userById(userIdOf(actor))?.admin === true;
+        auth.people.userById(userIdOf(actor))?.admin === true;
 
       const response = await route(request, params, actor, admin);
       const topic = changedBy(request, response);
@@ -224,7 +242,7 @@ export function createHandler(
   const adminDraft =
     (route: BrowserRoute): BrowserRoute =>
     async (request, params, actor, isAdmin) =>
-      auth.userById(userIdOf(actor))?.admin === true
+      auth.people.userById(userIdOf(actor))?.admin === true
         ? await route(request, params, actor, isAdmin)
         : errorReply(403, "admin_only", "Only admins write and build plugins.");
 
@@ -258,22 +276,21 @@ export function createHandler(
   const own =
     (route: BrowserRoute): BrowserRoute =>
     async (request, params, actor, isAdmin) =>
-      sessions.sees(params[0] ?? "", userIdOf(actor))
+      canSee(viewerOf(actor), sessions.owned(params[0] ?? ""))
         ? await route(request, params, actor, isAdmin)
         : notFound();
 
   const steer =
     (route: BrowserRoute): BrowserRoute =>
     async (request, params, actor, isAdmin) => {
-      const id = params[0] ?? "";
+      const owned = sessions.owned(params[0] ?? "");
+      const viewer = viewerOf(actor, isAdmin);
 
-      if (isAdmin || sessions.belongsTo(id, userIdOf(actor))) {
+      if (canManage(viewer, owned)) {
         return await route(request, params, actor, isAdmin);
       }
 
-      return sessions.sees(id, userIdOf(actor))
-        ? rejected("view_only")
-        : notFound();
+      return canSee(viewer, owned) ? rejected("view_only") : notFound();
     };
 
   const sessionAction =
@@ -290,37 +307,12 @@ export function createHandler(
       return reply(result, 200);
     };
 
-  // A runner that joins with a join key gets an Environment of its own name,
-  // numbered when another Environment has it.
   const environmentFor = (runner: string, ownerId: string): string => {
-    const taken = new Set(
-      sessions.environments().map(({ provider }) => provider),
-    );
+    const created = environments.createForRunner(runner, ownerId);
+    log("environment created", { environmentId: created.id, runner });
 
-    let provider = runner;
-    for (let n = 2; taken.has(provider); n++) {
-      provider = `${runner.slice(0, 60)}-${String(n)}`;
-    }
-
-    const created = sessions.createEnvironment(provider, ownerId);
-    if (!created.ok) {
-      throw new Error(`environment ${provider} was not made`);
-    }
-
-    log("environment created", { environmentId: created.value.id, runner });
-    changes.publish("environments");
-
-    return provider;
+    return created.provider;
   };
-
-  const runnerOnline = (environment: string, runner: string): boolean =>
-    sessions
-      .environments()
-      .some(
-        ({ provider, runners }) =>
-          provider === environment &&
-          runners.some(({ name, online }) => name === runner && online),
-      );
 
   const publicRoutes: RouteTable = [
     [
@@ -358,7 +350,11 @@ export function createHandler(
             })) ?? notFound(),
         )(request, [name, path]),
     ],
-    ["ANY", /^\/api\/mcp$/, mcpHandler(auth, plugins, serverVersion, log)],
+    [
+      "ANY",
+      /^\/api\/mcp$/,
+      mcpHandler(auth.people, plugins, serverVersion, log),
+    ],
     [
       "POST",
       /^\/agent\/join$/,
@@ -376,9 +372,10 @@ export function createHandler(
 
         const joined =
           scheme === "Bearer" && key !== undefined
-            ? auth.join(key, name, {
+            ? auth.runners.join(key, name, {
                 create: environmentFor,
-                online: runnerOnline,
+                online: (environment, runner) =>
+                  environments.online(environment, runner),
               })
             : undefined;
 
@@ -535,7 +532,8 @@ export function createHandler(
     [
       "GET",
       /^\/api\/setup$/,
-      (_request, _params, actor) => Response.json(auth.setup(userIdOf(actor))),
+      (_request, _params, actor) =>
+        Response.json(auth.people.setup(userIdOf(actor))),
     ],
     [
       "POST",
@@ -544,9 +542,9 @@ export function createHandler(
         const change = await readBody(request, setupChange);
 
         if ("finished" in change) {
-          auth.finishSetup(userIdOf(actor));
+          auth.people.finishSetup(userIdOf(actor));
         } else {
-          auth.dismissSetupStep(userIdOf(actor), change.dismiss);
+          auth.people.dismissSetupStep(userIdOf(actor), change.dismiss);
         }
 
         return new Response(null, { status: 204 });
@@ -556,7 +554,7 @@ export function createHandler(
       "GET",
       /^\/api\/pinned-pages$/,
       (_request, _params, actor) =>
-        Response.json({ pages: auth.pinnedPages(userIdOf(actor)) }),
+        Response.json({ pages: auth.people.pinnedPages(userIdOf(actor)) }),
     ],
     [
       "PUT",
@@ -564,7 +562,7 @@ export function createHandler(
       async (request, _params, actor) => {
         const { pages } = await readBody(request, pinnedPages);
 
-        auth.pinPages(userIdOf(actor), pages);
+        auth.people.pinPages(userIdOf(actor), pages);
 
         return new Response(null, { status: 204 });
       },
@@ -573,19 +571,23 @@ export function createHandler(
       "GET",
       /^\/api\/mcp-tokens$/,
       (_request, _params, actor) =>
-        Response.json(auth.mcpTokens(userIdOf(actor)).map(mcpTokenView)),
+        Response.json(auth.people.accessTokens(userIdOf(actor)).map(tokenView)),
     ],
     [
       "POST",
       /^\/api\/mcp-tokens$/,
       async (request, _params, actor) => {
         const { name } = await readBody(request, mcpTokenRequest);
-        const { token, secret } = auth.newMcpToken(userIdOf(actor), name);
+
+        const { token, secret } = auth.people.newAccessToken(
+          userIdOf(actor),
+          name,
+        );
 
         log("mcp token created", { tokenId: token.id });
 
         return Response.json(
-          { token: mcpTokenView(token), secret },
+          { token: tokenView(token), secret },
           { status: 201 },
         );
       },
@@ -594,7 +596,7 @@ export function createHandler(
       "DELETE",
       /^\/api\/mcp-tokens\/([^/]+)$/,
       (_request, [id = ""], actor) => {
-        if (!auth.revokeMcpToken(userIdOf(actor), id)) {
+        if (!auth.people.revokeAccessToken(userIdOf(actor), id)) {
           return notFound();
         }
 
@@ -645,8 +647,8 @@ export function createHandler(
 
         if (new URL(request.url).searchParams.get("owner") === teamOwner) {
           return Response.json(
-            sessions
-              .environments(person)
+            environments
+              .list(person)
               .filter(({ ownerId }) => ownerId === teamOwner)
               // Anyone can start team work, so they see its folders and
               // models; only its variables stay with admins.
@@ -657,8 +659,8 @@ export function createHandler(
         }
 
         return Response.json(
-          sessions
-            .environments(person)
+          environments
+            .list(person)
             .filter(({ ownerId }) => everyone || ownerId === person)
             .map((environment) =>
               environment.ownerId === person
@@ -685,7 +687,7 @@ export function createHandler(
           );
         }
 
-        const created = sessions.createEnvironment(
+        const created = environments.create(
           name,
           team === true ? teamOwner : userIdOf(actor),
           template,
@@ -695,7 +697,7 @@ export function createHandler(
           return reply(created, 201);
         }
 
-        const key = auth.newEnvironmentKey(created.value.provider);
+        const key = auth.runners.newKey(created.value.provider);
         log("environment created", { environmentId: created.value.id });
 
         return Response.json(
@@ -711,7 +713,7 @@ export function createHandler(
         log("join key made", {});
 
         return Response.json(
-          { key: auth.newJoinKey(userIdOf(actor)) },
+          { key: auth.runners.newJoinKey(userIdOf(actor)) },
           { status: 201 },
         );
       },
@@ -720,16 +722,20 @@ export function createHandler(
       "POST",
       /^\/api\/environments\/([^/]+)\/key$/,
       (_request, [id = ""], actor, isAdmin) => {
-        const environment = sessions
-          .environments()
-          .find((each) => each.id === id && manages(each, actor, isAdmin));
+        const environment = environments
+          .list()
+          .find(
+            (each) =>
+              each.id === id &&
+              canSteer(viewerOf(actor, isAdmin), ownedEnvironment(each)),
+          );
 
         if (!environment) {
           return notFound();
         }
 
         const key: EnvironmentKey = {
-          key: auth.newEnvironmentKey(environment.provider),
+          key: auth.runners.newKey(environment.provider),
         };
 
         log("environment key replaced", { environmentId: id });
@@ -742,16 +748,20 @@ export function createHandler(
       /^\/api\/environments\/([^/]+)$/,
       async (request, [id = ""], actor, isAdmin) => {
         if (
-          !sessions
-            .environments()
-            .some((each) => each.id === id && manages(each, actor, isAdmin))
+          !environments
+            .all()
+            .some(
+              (each) =>
+                each.id === id &&
+                canSteer(viewerOf(actor, isAdmin), ownedEnvironment(each)),
+            )
         ) {
           return notFound();
         }
 
         const { name, ...update } = await readBody(request, environmentUpdate);
 
-        const updated = sessions.updateEnvironment(id, {
+        const updated = environments.update(id, {
           ...update,
           ...(name !== undefined && { name: name.trim() }),
         });
@@ -768,17 +778,18 @@ export function createHandler(
       /^\/api\/environments\/([^/]+)$/,
       (_request, [id = ""], actor, isAdmin) => {
         if (
-          !sessions
-            .environments()
+          !environments
+            .all()
             .some(
               (each) =>
-                each.id === id && (isAdmin || each.ownerId === userIdOf(actor)),
+                each.id === id &&
+                canManage(viewerOf(actor, isAdmin), ownedEnvironment(each)),
             )
         ) {
           return notFound();
         }
 
-        const deleted = sessions.deleteEnvironment(id);
+        const deleted = environments.remove(id);
         if (deleted.ok) {
           log("environment deleted", { environmentId: id });
         }
@@ -791,7 +802,7 @@ export function createHandler(
       /^\/api\/people$/,
       (_request, _params, _actor, isAdmin) =>
         isAdmin
-          ? Response.json(auth.people())
+          ? Response.json(auth.people.people())
           : errorReply(403, "admin_only", "Only admins list everyone."),
     ],
     [
@@ -799,7 +810,7 @@ export function createHandler(
       /^\/api\/teammates$/,
       () =>
         Response.json(
-          auth.users().map(({ id, name }): Teammate => ({ id, name })),
+          auth.people.users().map(({ id, name }): Teammate => ({ id, name })),
         ),
     ],
     [
@@ -807,7 +818,7 @@ export function createHandler(
       /^\/api\/invites$/,
       (_request, _params, _actor, isAdmin) =>
         isAdmin
-          ? Response.json(auth.invites())
+          ? Response.json(auth.people.invites())
           : errorReply(403, "admin_only", "Only admins invite people."),
     ],
     [
@@ -819,18 +830,14 @@ export function createHandler(
         }
 
         const {
-          emails: listed = [],
+          emails = [],
           admin: asAdmin = false,
           days = 7,
         } = await readBody(request, inviteRequest);
 
-        const emails = [
-          ...new Set(listed.map((email) => email.trim().toLowerCase())),
-        ];
-
         const by = userIdOf(actor);
-        const made = auth.invite(by, emails, asAdmin, days);
-        const name = auth.userById(by)?.name ?? "An admin";
+        const made = auth.people.invite(by, emails, asAdmin, days);
+        const name = auth.people.userById(by)?.name ?? "An admin";
 
         for (const invite of made) {
           if (invite.email !== null) {
@@ -847,7 +854,7 @@ export function createHandler(
 
         log("people invited", {
           invites: made.length,
-          link: emails.length === 0,
+          link: made.some((invite) => invite.email === null),
           admin: asAdmin,
         });
 
@@ -862,7 +869,7 @@ export function createHandler(
           return errorReply(403, "admin_only", "Only admins invite people.");
         }
 
-        return auth.revokeInvite(id)
+        return auth.people.revokeInvite(id)
           ? new Response(null, { status: 204 })
           : notFound();
       },
@@ -936,15 +943,13 @@ export function createHandler(
 
         const { admin: makeAdmin } = await readBody(request, personUpdate);
 
-        const people = auth.people();
-        if (!people.some((person) => person.id === id)) {
+        const changed = auth.people.changeRole(id, makeAdmin);
+
+        if (changed === "not_found") {
           return notFound();
         }
 
-        if (
-          !makeAdmin &&
-          !people.some((person) => person.admin && person.id !== id)
-        ) {
+        if (changed === "last_admin") {
           return errorReply(
             409,
             "last_admin",
@@ -952,10 +957,9 @@ export function createHandler(
           );
         }
 
-        auth.setAdmin(id, makeAdmin);
         log("role changed", { userId: id, admin: makeAdmin });
 
-        return Response.json(auth.people().find((person) => person.id === id));
+        return Response.json(changed);
       },
     ],
     ...profileRoutes(profiles, log),
@@ -1251,7 +1255,7 @@ export function createHandler(
       /^\/api\/sessions\/([^/]+)$/,
       (_request, [id = ""], actor, isAdmin) => {
         const session = sessions.get(id);
-        const sees = sessions.sees(id, userIdOf(actor));
+        const sees = canSee(viewerOf(actor), sessions.owned(id));
         if (session === undefined || !(sees || isAdmin)) {
           return notFound();
         }
@@ -1358,7 +1362,7 @@ export function createHandler(
             ? { kind: body.kind, people: [...new Set(body.people)] }
             : body;
 
-        const users = new Set(auth.users().map((user) => user.id));
+        const users = new Set(auth.people.users().map((user) => user.id));
         if (
           access.kind === "named" &&
           !access.people.every((person) => users.has(person))
@@ -1384,16 +1388,17 @@ export function createHandler(
       async (request, [id = ""], actor, isAdmin) => {
         const { quote, ...sent } = await readBody(request, browserCommand);
         const command = { ...sent, actor };
-        const person = userIdOf(actor);
+        const owned = sessions.owned(id);
+        const viewer = viewerOf(actor, isAdmin);
 
         if (
-          sessions.belongsTo(id, person) ||
-          (isAdmin && command.type === "abort")
+          canSteer(viewer, owned) ||
+          (command.type === "abort" && canManage(viewer, owned))
         ) {
           return reply(sessions.send(id, command, quote), 202);
         }
 
-        return sessions.sees(id, person) ? rejected("view_only") : notFound();
+        return canSee(viewer, owned) ? rejected("view_only") : notFound();
       },
     ],
   ];
@@ -1403,7 +1408,7 @@ export function createHandler(
     ...browserRoutes.map(
       ([method, pattern, route]) => [method, pattern, signedIn(route)] as const,
     ),
-    ...agentRoutes(auth, sessions, profiles, plugins, log).map(
+    ...agentRoutes(auth.runners, sessions, profiles, plugins, log).map(
       ([method, pattern, route]) => [method, pattern, agent(route)] as const,
     ),
   ];
@@ -1423,7 +1428,8 @@ export function createHandler(
           if (
             error instanceof InvalidProfile ||
             error instanceof ProfileTooBig ||
-            error instanceof InvalidCredentials
+            error instanceof InvalidCredentials ||
+            error instanceof InvalidRepository
           ) {
             return errorReply(400, "bad_request", error.message);
           }
@@ -1458,14 +1464,17 @@ function authRoutes(
       "GET",
       /^\/api\/auth$/,
       (request) =>
-        Response.json({ ...auth.status(request), logins: plugins.logins() }),
+        Response.json({
+          ...auth.signIn.status(request),
+          logins: plugins.logins(),
+        }),
     ],
     [
       "POST",
       /^\/api\/auth\/setup$/,
       async (request) => {
         const { token, ...given } = await readBody(request, firstUser);
-        const user = await auth.setUp(token, credentialsOf(given));
+        const user = await auth.signIn.setUp(token, credentialsOf(given));
 
         if (user === undefined) {
           return errorReply(
@@ -1484,7 +1493,7 @@ function authRoutes(
       "GET",
       /^\/api\/auth\/join\/([\w-]+)$/,
       (_request, [token = ""]) => {
-        const invite = auth.inviteFor(token, undefined);
+        const invite = auth.people.inviteFor(token, undefined);
         if (invite === undefined) {
           return expiredInvite();
         }
@@ -1492,9 +1501,9 @@ function authRoutes(
         return Response.json({
           email: invite.email,
           admin: invite.admin,
-          invitedBy: auth.userById(invite.createdBy)?.name ?? "An admin",
+          invitedBy: auth.people.userById(invite.createdBy)?.name ?? "An admin",
           expiresAt: invite.expiresAt,
-          passwordLogin: auth.passwordLogin,
+          passwordLogin: auth.signIn.passwordLogin,
           logins: plugins.logins().map((login) => ({
             ...login,
             path: `${login.path}?join=${token}`,
@@ -1506,7 +1515,7 @@ function authRoutes(
       "POST",
       /^\/api\/auth\/join\/([\w-]+)$/,
       async (request, [token = ""]) => {
-        const joined = await auth.joinWithInvite(
+        const joined = await auth.signIn.joinWithInvite(
           token,
           credentialsOf(await readBody(request, credentials)),
         );
@@ -1540,7 +1549,7 @@ function authRoutes(
         const verifier =
           new URL(request.url).searchParams.get("verifier") ?? undefined;
 
-        const user = auth.redeemSignInLink(token, verifier);
+        const user = auth.signIn.redeemLink(token, verifier);
 
         if (user === undefined) {
           return errorReply(
@@ -1556,7 +1565,7 @@ function authRoutes(
           status: 303,
           headers: {
             location: "/",
-            "set-cookie": auth.startSession(user, request),
+            "set-cookie": auth.signIn.startSession(user, request),
           },
         });
       },
@@ -1565,7 +1574,7 @@ function authRoutes(
       "POST",
       /^\/api\/auth\/app$/,
       async (request) => {
-        const user = auth.userOf(request);
+        const user = auth.signIn.userOf(request);
         if (user === undefined) {
           return errorReply(401, "signed_out", "Sign in first.");
         }
@@ -1584,7 +1593,7 @@ function authRoutes(
 
         const link = new URL("pipoca://signed-in");
         link.searchParams.set("challenge", challenge);
-        link.searchParams.set("link", auth.appSignInLink(user, challenge));
+        link.searchParams.set("link", auth.signIn.appLink(user, challenge));
 
         return Response.json({ link: link.href });
       },
@@ -1595,7 +1604,7 @@ function authRoutes(
       async (request) => {
         const given = credentialsOf(await readBody(request, credentials));
         const address = addresses.get(request) ?? "";
-        const user = await auth.signIn(given, address);
+        const user = await auth.signIn.signIn(given, address);
 
         if (user === "off") {
           return errorReply(
@@ -1632,7 +1641,7 @@ function authRoutes(
       (request) =>
         new Response(null, {
           status: 204,
-          headers: { "set-cookie": auth.endSession(request) },
+          headers: { "set-cookie": auth.signIn.endSession(request) },
         }),
     ],
   ];
@@ -1646,7 +1655,7 @@ function signedInAs(
 ): Response {
   return Response.json(user, {
     status,
-    headers: { "set-cookie": auth.startSession(user, request) },
+    headers: { "set-cookie": auth.signIn.startSession(user, request) },
   });
 }
 
@@ -1681,11 +1690,11 @@ async function pluginChange(
     : plugins.turnOn(name, change.enabled, change.digest);
 }
 
-function mcpTokenView({
+function tokenView({
   id,
   name,
   createdAt,
-}: McpToken): Omit<McpToken, "userId"> {
+}: AccessToken): Omit<AccessToken, "userId"> {
   return { id, name, createdAt };
 }
 
@@ -1717,16 +1726,16 @@ function unsupportedVersion(request: Request): Response | undefined {
 // The owner of what the team owns, rather than one person (ADR 0064).
 const teamOwner = "team";
 
-// A person changes their own Environments, and admins the team's.
-function manages(
-  environment: Environment,
-  actor: UserActor,
-  isAdmin: boolean,
-): boolean {
-  return (
-    environment.ownerId === userIdOf(actor) ||
-    (environment.ownerId === teamOwner && isAdmin)
-  );
+// Sessions and Environments decide only for people; an admin's rights come
+// from the route.
+function viewerOf(actor: UserActor, admin = false): Viewer {
+  return { id: userIdOf(actor), admin };
+}
+
+function ownedEnvironment(environment: Pick<Environment, "ownerId">): {
+  owner: string;
+} {
+  return { owner: environment.ownerId };
 }
 
 function peopleAll(request: Request): boolean {

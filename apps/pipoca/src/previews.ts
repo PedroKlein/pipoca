@@ -3,8 +3,9 @@ import { isIP } from "node:net";
 import type { ServerWebSocket } from "bun";
 import type { PreviewRequest, PreviewResponse } from "@pipoca/protocol";
 import type { Log } from "@pipoca/protocol";
+import { canSteer } from "@pipoca/people";
 import type { Sessions } from "@pipoca/sessions";
-import type { Auth } from "./auth";
+import type { Auth } from "./server";
 import { errorReply, notFound } from "./replies";
 import {
   fromSessionHost,
@@ -274,7 +275,7 @@ export function previewBroker(options: {
         visit === undefined ||
         visit.expiresAt <= Date.now() ||
         !same(visit, target) ||
-        auth.userOfSession(visit.browserSession)?.id !== visit.userId
+        auth.signIn.userOfSession(visit.browserSession)?.id !== visit.userId
       ) {
         return refused();
       }
@@ -294,12 +295,12 @@ export function previewBroker(options: {
         return undefined;
       }
 
-      const browserSession = auth.browserSessionOf(request);
+      const browserSession = auth.signIn.browserSessionOf(request);
 
       const user =
         browserSession === undefined
           ? undefined
-          : auth.userOfSession(browserSession);
+          : auth.signIn.userOfSession(browserSession);
 
       if (browserSession === undefined || user === undefined) {
         return errorReply(401, "signed_out", "Sign in again.");
@@ -307,7 +308,11 @@ export function previewBroker(options: {
 
       const sessionId = match[1] ?? "";
       const port = Number(match[2]);
-      if (!sessions.belongsTo(sessionId, user.id) || port < 1 || port > 65535) {
+      if (
+        !canSteer({ id: user.id, admin: false }, sessions.owned(sessionId)) ||
+        port < 1 ||
+        port > 65535
+      ) {
         return notFound();
       }
 

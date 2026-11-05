@@ -14,7 +14,7 @@ import {
   type WorkPoll,
 } from "@pipoca/protocol";
 import type { ServerPluginContext } from "@pipoca/plugins";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 import { runnerCredentials } from "./testdata/runners";
 import { json, testServer, type TestServer } from "./testdata/harness";
 
@@ -33,7 +33,7 @@ function startServer({
   readonly offlineAfterMs?: number;
 } = {}): void {
   server = testServer({
-    sessions: { pollWaitMs, offlineAfterMs, leaseMs },
+    runners: { pollWaitMs, offlineAfterMs, leaseMs },
     plugins: [
       {
         name: "machines",

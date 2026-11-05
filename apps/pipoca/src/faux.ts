@@ -5,7 +5,7 @@ import {
   fauxText,
 } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { AgentOptions } from "./agent";
+import type { AgentOptions } from "@pipoca/runner";
 
 // Tests of the built binary, as on kind, run Sessions without a model
 // provider: every turn answers with the same text.

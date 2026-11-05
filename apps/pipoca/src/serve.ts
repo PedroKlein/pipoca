@@ -30,17 +30,23 @@ import {
   systemClock,
 } from "@pipoca/protocol";
 import { ProfileFolders, Profiles } from "@pipoca/profiles";
-import { Sessions, type SessionsOptions } from "@pipoca/sessions";
+import { Sessions } from "@pipoca/sessions";
+import {
+  environmentTemplates,
+  Environments,
+  type EnvironmentsOptions,
+  RunnerCredentials,
+} from "@pipoca/environments";
+import { People, SignIn } from "@pipoca/people";
 import web from "@pipoca/web/index.html";
-import { type AgentOptions, runAgent } from "./agent";
-import { Auth } from "./auth";
+import { type AgentOptions, runAgent } from "@pipoca/runner";
+import { binary, pipoca } from "./binary";
 import { configFiles, configFolder } from "./config";
 import { sessionDocs } from "./docs";
 import { hubSettings } from "./hub";
 import { newcomerSetup } from "./newcomers";
 import { serverConfig } from "./server-config";
 import { teamSettings } from "./team";
-import { environmentTemplates } from "./templates";
 import {
   buildPlugin,
   pluginFiles,
@@ -54,7 +60,7 @@ import {
   reread,
   update,
 } from "./installed";
-import { latestOf } from "./sources";
+import { latestCommit } from "@pipoca/repositories";
 import { builtInPlugins, sessionPlugins } from "./session-parts";
 import { errorReply } from "./replies";
 import { previewBroker } from "./previews";
@@ -62,8 +68,7 @@ import { webAppFile } from "./web-app";
 import { changeFeed } from "./changes";
 import { createHandler, fromAddress, onBehalfOf } from "./server";
 import type { PreviewData, SocketData, TerminalData } from "./sockets";
-import { pipoca } from "./session-process";
-import { openStore } from "./store";
+import { openStore, type Store } from "./sqlite/store";
 import { terminalBroker } from "./terminals";
 
 const serverPlugins: readonly ServerPlugin[] = [
@@ -115,10 +120,14 @@ export interface ServeOptions {
   // front added. Only behind one, since without it anyone can send that
   // header and pick the address their failed sign-ins count against.
   readonly trustProxy?: boolean;
-  readonly sessions?: SessionsOptions;
+  // How the runner pool times polls, going offline and leases.
+  readonly runners?: Pick<
+    EnvironmentsOptions,
+    "pollWaitMs" | "offlineAfterMs" | "leaseMs"
+  >;
   readonly agent?: Omit<
     AgentOptions,
-    "server" | "credential" | "log" | "signal"
+    "server" | "credential" | "binary" | "log" | "signal"
   >;
   // Replaces the built-in plugins. A plugin without a manifest gets one with
   // just its name.
@@ -266,25 +275,41 @@ export function serve(options: ServeOptions): {
   const ownConfig = serverConfig(config("server"));
   const team = teamSettings(config("team"));
 
-  const sessions = new Sessions(store, {
-    ...options.sessions,
+  const environments: Environments = new Environments(store.environments, {
+    ...options.runners,
+    clock,
+    templates: () => templates.list(),
+    offeredModels: (environment, userId) =>
+      pluginHost.offeredModels(environment, userId),
+    startsRunners: (environment) => pluginHost.startsRunners(environment),
+    sessions: () => ({
+      running: (provider, runner) => sessions.running(provider, runner),
+      inUse: (id) => sessions.inUse(id),
+      removed: () => {
+        changes.publish("sessions");
+      },
+    }),
+    onlineChanged: (provider, runner) => {
+      sessions.runnerChanged(provider, runner);
+    },
+    changed: () => {
+      changes.publish("environments");
+    },
+  });
+
+  const sessions: Sessions = new Sessions(store.sessions, environments, {
     clock,
     events: events.publish,
     changed: () => {
       changes.publish("sessions");
     },
-    runnersChanged: () => {
-      changes.publish("environments");
-    },
     sessionPlugins: () => pluginHost.sessionPlugins(),
     offeredModels: (environment, userId) =>
       pluginHost.offeredModels(environment, userId),
-    startsRunners: (environment) => pluginHost.startsRunners(environment),
     pluginProfile: (id) => pluginHost.profile(id),
     gitLogins: (userId, session) => pluginHost.gitLogins(userId, session),
-    templates: () => templates.list(),
     teamMessagesRead: team.messagesRead,
-    names: (person) => auth.userById(person)?.name,
+    names: (person) => people.userById(person)?.name,
     docs: sessionDocs(
       folder === undefined
         ? []
@@ -303,32 +328,49 @@ export function serve(options: ServeOptions): {
 
   const ownEnvironment = (person: string): void => {
     if (ownRunner !== undefined) {
-      store.ensureEnvironment(ownRunner, person);
+      store.environments.ensureEnvironment(ownRunner, person);
     }
   };
 
-  const auth = new Auth(
-    {
-      ...store.auth,
-      insertUser: (user) => {
-        store.auth.insertUser(user);
+  const peopleStore = {
+    ...store.people,
+    insertUser: (user: Parameters<typeof store.people.insertUser>[0]) => {
+      store.people.insertUser(user);
 
-        if (store.auth.userCount() === 1) {
-          ownEnvironment(user.id);
-        }
-      },
+      if (store.people.userCount() === 1) {
+        ownEnvironment(user.id);
+      }
     },
-    options.passwordLogin,
-    clock,
-    options.solo?.name,
-    ownConfig,
-  );
+  };
 
-  if (options.solo !== undefined && store.environments().length === 0) {
+  const people = new People(peopleStore, {
+    clock,
+    ...(options.solo && { solo: options.solo.name }),
+  });
+
+  const signIn = new SignIn(people, peopleStore, {
+    clock,
+    ...(options.passwordLogin !== undefined && {
+      passwordLogin: options.passwordLogin,
+    }),
+    sessionDays: () => ownConfig().sessionDays,
+  });
+
+  const runners = new RunnerCredentials(store.credentials, {
+    clock,
+    runnerTokenDays: () => ownConfig().runnerTokenDays,
+  });
+
+  const auth = { people, signIn, runners };
+
+  if (
+    options.solo !== undefined &&
+    store.environments.environments().length === 0
+  ) {
     seed = thisMachineEnvironment(store, options.solo.folders ?? []);
   }
 
-  const userProfiles = new Profiles(profiles, store);
+  const userProfiles = new Profiles(profiles, store.profiles);
 
   // Profiles and templates that follow a repository keep up with it
   // (ADR 0063).
@@ -346,10 +388,11 @@ export function serve(options: ServeOptions): {
   const pluginHost = startPlugins(plugins, enabled, {
     manifests: known,
     sessions,
+    environments,
     runners: {
-      token: (environment, runner) => auth.runnerToken(environment, runner),
+      token: (environment, runner) => runners.runnerToken(environment, runner),
       revoke: (environment, runner) => {
-        auth.revokeRunner(environment, runner);
+        runners.revokeRunner(environment, runner);
       },
     },
     events,
@@ -361,21 +404,21 @@ export function serve(options: ServeOptions): {
     toolsets: kernelToolsets,
     api: async (onBehalf, request) => handler(onBehalfOf(onBehalf, request)),
     auth: {
-      userOf: (request) => auth.userOf(request),
-      users: () => auth.users(),
-      createUser: (name, admin) => auth.createUser(name, admin),
+      userOf: (request) => signIn.userOf(request),
+      users: () => people.users(),
+      createUser: (name, admin) => people.createUser(name, admin),
       setAdmin: (userId, admin) => {
-        auth.setAdmin(userId, admin);
+        people.setAdmin(userId, admin);
       },
-      invited: (token, address) => auth.inviteFor(token, address),
+      invited: (token, address) => people.inviteFor(token, address),
       acceptInvite: (id) => {
-        auth.acceptInvite(id);
+        people.acceptInvite(id);
       },
-      passwordLogin: () => auth.passwordLogin,
+      passwordLogin: () => signIn.passwordLogin,
       startSession: (userId, request) => {
-        const user = auth.userById(userId);
+        const user = people.userById(userId);
 
-        return user && auth.startSession(user, request);
+        return user && signIn.startSession(user, request);
       },
     },
     ...(folder && {
@@ -383,7 +426,7 @@ export function serve(options: ServeOptions): {
         plugins: installed,
         install: async (url, taken) => install(folder.root, url, taken),
         update: async (id) => update(folder.root, id),
-        latest: latestOf,
+        latest: latestCommit,
         remove: async (id) => remove(folder.root, id),
         reread: async (id) => reread(folder.root, id),
         files: async (id) => pluginFiles(folder.root, id),
@@ -413,6 +456,7 @@ export function serve(options: ServeOptions): {
   const handler = createHandler(
     auth,
     sessions,
+    environments,
     userProfiles,
     pluginHost,
     changes,
@@ -545,33 +589,30 @@ export function serve(options: ServeOptions): {
     options.solo &&
     soloSocket(options.solo.socket, {
       link: () =>
-        new URL(
-          `/api/auth/link/${auth.signInLink()}`,
-          options.url ?? server.url,
-        ),
+        new URL(`/api/auth/link/${signIn.link()}`, options.url ?? server.url),
       runner: (name) => {
-        const [owner] = store.auth.users();
+        const [owner] = people.users();
 
         if (owner === undefined) {
           throw new Error("a solo install has no user yet");
         }
 
-        store.ensureEnvironment(name, owner.id);
+        store.environments.ensureEnvironment(name, owner.id);
 
-        return auth.runnerToken(name, name);
+        return runners.runnerToken(name, name);
       },
     });
 
-  if (auth.setupToken !== undefined) {
+  if (signIn.setupToken !== undefined) {
     options.log("open the setup link to create the first user", {
-      link: new URL(`/#setup/${auth.setupToken}`, options.url ?? server.url)
+      link: new URL(`/#setup/${signIn.setupToken}`, options.url ?? server.url)
         .href,
     });
   }
 
   const agentStop = new AbortController();
 
-  const [firstPerson] = store.auth.users();
+  const [firstPerson] = people.users();
 
   if (firstPerson !== undefined) {
     ownEnvironment(firstPerson.id);
@@ -582,10 +623,11 @@ export function serve(options: ServeOptions): {
   const agent =
     ownAgent &&
     runAgent({
+      binary,
       ...ownAgent,
       server: server.url.href,
       credential: {
-        token: auth.ownRunnerToken(ownAgent.provider, ownAgent.provider),
+        token: runners.ownRunnerToken(ownAgent.provider, ownAgent.provider),
       },
       log: options.log,
       signal: agentStop.signal,
@@ -601,7 +643,7 @@ export function serve(options: ServeOptions): {
       await agent;
       await links?.stop(true);
       await server.stop(true);
-      sessions.close();
+      environments.close();
       store.close();
       options.log("server stopped");
     },
@@ -715,19 +757,19 @@ function fromThisSite(request: Request, hosts: ReadonlySet<string>): boolean {
 
 // The Environment a new solo install starts with, its runner on this machine.
 function thisMachineEnvironment(
-  store: ReturnType<typeof openStore>,
+  store: Store,
   folders: readonly string[],
 ): LocalOptions["seed"] {
   const provider = "this-machine";
-  const [owner] = store.auth.users();
+  const [owner] = store.people.users();
 
   if (owner === undefined) {
     return undefined;
   }
 
-  store.ensureEnvironment(provider, owner.id);
+  store.environments.ensureEnvironment(provider, owner.id);
 
-  const created = store
+  const created = store.environments
     .environments()
     .find((environment) => environment.provider === provider);
 
@@ -735,7 +777,7 @@ function thisMachineEnvironment(
     return undefined;
   }
 
-  store.updateEnvironment({ ...created, name: "This machine" });
+  store.environments.updateEnvironment({ ...created, name: "This machine" });
 
   return { environmentId: created.id, folders };
 }

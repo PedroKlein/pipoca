@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pipoca } from "./session-process";
+import { pipoca } from "./binary";
 
 const folder = mkdtempSync(join(tmpdir(), "pipoca-source-"));
 

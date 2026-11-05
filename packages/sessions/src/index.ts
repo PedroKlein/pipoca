@@ -6,6 +6,6 @@ export {
   type SessionPlugins,
   type SessionsOptions,
   type SessionStore,
-  type StoredEnvironment,
+  type SessionEnvironments,
   type StoredSession,
 } from "./sessions";

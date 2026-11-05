@@ -35,6 +35,7 @@
         "@pipoca/changes": "workspace:*",
         "@pipoca/checklist": "workspace:*",
         "@pipoca/email": "workspace:*",
+        "@pipoca/environments": "workspace:*",
         "@pipoca/git-hosts": "workspace:*",
         "@pipoca/kubernetes": "workspace:*",
         "@pipoca/library": "workspace:*",
@@ -43,14 +44,16 @@
         "@pipoca/meta": "workspace:*",
         "@pipoca/models": "workspace:*",
         "@pipoca/oidc": "workspace:*",
+        "@pipoca/people": "workspace:*",
         "@pipoca/pluginhost": "workspace:*",
         "@pipoca/plugins": "workspace:*",
         "@pipoca/profiles": "workspace:*",
         "@pipoca/projects": "workspace:*",
         "@pipoca/protocol": "workspace:*",
-        "@pipoca/providers": "workspace:*",
         "@pipoca/push": "workspace:*",
+        "@pipoca/repositories": "workspace:*",
         "@pipoca/routines": "workspace:*",
+        "@pipoca/runner": "workspace:*",
         "@pipoca/sessionhost": "workspace:*",
         "@pipoca/sessions": "workspace:*",
         "@pipoca/slack": "workspace:*",
@@ -111,12 +114,28 @@
         "react": "19.3.1",
       },
     },
+    "packages/environments": {
+      "name": "@pipoca/environments",
+      "dependencies": {
+        "@pipoca/people": "workspace:*",
+        "@pipoca/plugins": "workspace:*",
+        "@pipoca/protocol": "workspace:*",
+        "@pipoca/repositories": "workspace:*",
+      },
+    },
+    "packages/people": {
+      "name": "@pipoca/people",
+      "dependencies": {
+        "@pipoca/protocol": "workspace:*",
+      },
+    },
     "packages/pluginhost": {
       "name": "@pipoca/pluginhost",
       "dependencies": {
+        "@pipoca/environments": "workspace:*",
+        "@pipoca/people": "workspace:*",
         "@pipoca/plugins": "workspace:*",
         "@pipoca/protocol": "workspace:*",
-        "@pipoca/providers": "workspace:*",
         "@pipoca/sessions": "workspace:*",
       },
     },
@@ -137,6 +156,7 @@
       "name": "@pipoca/profiles",
       "dependencies": {
         "@pipoca/protocol": "workspace:*",
+        "@pipoca/repositories": "workspace:*",
       },
     },
     "packages/protocol": {
@@ -145,10 +165,19 @@
         "typebox": "1.3.27",
       },
     },
-    "packages/providers": {
-      "name": "@pipoca/providers",
+    "packages/repositories": {
+      "name": "@pipoca/repositories",
       "dependencies": {
         "@pipoca/protocol": "workspace:*",
+      },
+    },
+    "packages/runner": {
+      "name": "@pipoca/runner",
+      "dependencies": {
+        "@pipoca/plugins": "workspace:*",
+        "@pipoca/protocol": "workspace:*",
+        "@pipoca/sessionhost": "workspace:*",
+        "@pipoca/workspaces": "workspace:*",
       },
     },
     "packages/sessionhost": {
@@ -172,6 +201,7 @@
     "packages/sessions": {
       "name": "@pipoca/sessions",
       "dependencies": {
+        "@pipoca/people": "workspace:*",
         "@pipoca/plugins": "workspace:*",
         "@pipoca/profiles": "workspace:*",
         "@pipoca/protocol": "workspace:*",
@@ -601,6 +631,8 @@
 
     "@pipoca/email": ["@pipoca/email@workspace:plugins/email"],
 
+    "@pipoca/environments": ["@pipoca/environments@workspace:packages/environments"],
+
     "@pipoca/examples": ["@pipoca/examples@workspace:examples"],
 
     "@pipoca/git-hosts": ["@pipoca/git-hosts@workspace:plugins/git-hosts"],
@@ -619,6 +651,8 @@
 
     "@pipoca/oidc": ["@pipoca/oidc@workspace:plugins/oidc"],
 
+    "@pipoca/people": ["@pipoca/people@workspace:packages/people"],
+
     "@pipoca/pipoca": ["@pipoca/pipoca@workspace:apps/pipoca"],
 
     "@pipoca/pluginhost": ["@pipoca/pluginhost@workspace:packages/pluginhost"],
@@ -631,11 +665,13 @@
 
     "@pipoca/protocol": ["@pipoca/protocol@workspace:packages/protocol"],
 
-    "@pipoca/providers": ["@pipoca/providers@workspace:packages/providers"],
-
     "@pipoca/push": ["@pipoca/push@workspace:plugins/push"],
 
+    "@pipoca/repositories": ["@pipoca/repositories@workspace:packages/repositories"],
+
     "@pipoca/routines": ["@pipoca/routines@workspace:plugins/routines"],
+
+    "@pipoca/runner": ["@pipoca/runner@workspace:packages/runner"],
 
     "@pipoca/sessionhost": ["@pipoca/sessionhost@workspace:packages/sessionhost"],
 

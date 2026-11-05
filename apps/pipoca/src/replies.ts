@@ -1,6 +1,13 @@
 import { HttpError } from "@pipoca/plugins";
 import type { ErrorCode } from "@pipoca/protocol";
-import type { Rejection, Result } from "@pipoca/sessions";
+import type { Rejection as EnvironmentRejection } from "@pipoca/environments";
+import type { Rejection as SessionRejection } from "@pipoca/sessions";
+
+type Rejection = SessionRejection | EnvironmentRejection;
+
+type Result<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly reason: Rejection };
 
 const rejections = {
   not_found: [404, "Not found."],

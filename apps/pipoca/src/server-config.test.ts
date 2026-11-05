@@ -18,7 +18,7 @@ test("signs browsers out and refuses idle runner tokens after the days pipoca.js
     JSON.stringify({ server: { sessionDays: 2, runnerTokenDays: 3 } }),
   );
 
-  const server = testServer({ configDir, sessions: { pollWaitMs: 0 } });
+  const server = testServer({ configDir, runners: { pollWaitMs: 0 } });
   const runners = runnerCredentials(server, server.signedIn);
   const token = await runners.token("laptop");
 

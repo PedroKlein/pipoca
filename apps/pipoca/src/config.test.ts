@@ -32,7 +32,7 @@ function start(lockedConfig?: string): void {
   server = testServer({
     configDir: join(root, "config"),
     ...(lockedConfig !== undefined && { lockedConfig }),
-    sessions: { pollWaitMs: 0 },
+    runners: { pollWaitMs: 0 },
   });
 }
 

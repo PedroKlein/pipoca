@@ -10,7 +10,7 @@ import {
 } from "@pipoca/protocol";
 import type { TCPSocketListener } from "bun";
 import { SMTPServer } from "smtp-server";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 import { testServer, type TestServer } from "./testdata/harness";
 import { until } from "@pipoca/plugins/testing";
 import { runnerCredentials } from "./testdata/runners";
@@ -166,7 +166,7 @@ beforeEach(async () => {
 
   server = testServer({
     configDir,
-    sessions: { pollWaitMs: 0 },
+    runners: { pollWaitMs: 0 },
   });
 });
 

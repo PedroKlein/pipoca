@@ -10,7 +10,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { Environment, Session, SessionEvent } from "@pipoca/protocol";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 import { firstUserCookie, setupTokenOf } from "./testdata/sign-in";
 
 const run = promisify(execFile);

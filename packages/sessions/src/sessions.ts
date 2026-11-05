@@ -4,12 +4,8 @@ import {
   type Assignment,
   type Attempt,
   type Command,
-  type Environment,
-  type EnvironmentTemplate,
-  type EnvironmentUpdate,
   type ForkedSession,
   type GitLogin,
-  leaseMs,
   type LiveEvent,
   movable,
   type LivePost,
@@ -20,7 +16,6 @@ import {
   type Removal,
   type RemovalPost,
   type Session,
-  type SessionEnvironment,
   type SessionAccess,
   type SessionEvent,
   type SessionOwner,
@@ -35,7 +30,6 @@ import {
   type Quote,
   type Voice,
   type Work,
-  type WorkPoll,
   type Workspace,
   type WorkspaceRequest,
 } from "@pipoca/protocol";
@@ -44,27 +38,56 @@ import {
   overBaseExtensions,
   defaultProfileId as sharedProfileId,
 } from "@pipoca/profiles";
-import { placesOn, placesOnNewRunner, uniqueModels } from "./placement";
+import type { SessionEnvironment, WorkPoll } from "@pipoca/protocol";
+import { canSee, canSteer, type Owned } from "@pipoca/people";
 import { type Clock, systemClock } from "@pipoca/protocol";
-import { RunnerPolls } from "./runner-polls";
 
 export type StoredSession = Omit<
   Session,
   "online" | "waiting" | "ownedBy" | "access"
 >;
 
-export type StoredEnvironment = Omit<
-  Environment,
-  | "online"
-  | "onDemand"
-  | "runnersFrom"
-  | "runners"
-  | "folders"
-  | "models"
-  | "hiddenModels"
-  | "registeredModels"
-  | "secrets"
-> & { readonly secrets: Readonly<Record<string, string>> };
+// Where Sessions run, which the server's Environments are (ADR 0032).
+export interface SessionEnvironments {
+  readonly all: () => readonly {
+    readonly id: string;
+    readonly provider: string;
+    readonly ownerId: string;
+    readonly templateId: string | null;
+  }[];
+  readonly sessionEnvironment: (id: string) => SessionEnvironment;
+  readonly beginPoll: (
+    runner: { readonly name: string; readonly environment: string },
+    poll: {
+      readonly capacity: number | null;
+      readonly inventory: Pick<WorkPoll, "folders" | "models" | "session">;
+      readonly registeredModels?: readonly ModelRef[] | undefined;
+    },
+  ) => () => void;
+  readonly waitForWork: (
+    provider: string,
+    runner: string,
+    signal: AbortSignal,
+  ) => Promise<void>;
+  readonly wake: (provider: string) => void;
+  readonly runners: (provider: string) => readonly {
+    readonly name: string;
+    readonly online: boolean;
+    readonly capacity: number | null;
+    readonly inventory: { readonly session?: string | undefined };
+  }[];
+  readonly online: (provider: string, runner: string) => boolean;
+  readonly leaseLapsed: (provider: string, runner: string) => boolean;
+  readonly mayTake: (
+    provider: string,
+    session: StoredSession,
+    runner: string,
+  ) => boolean;
+  readonly placesOnNewRunner: (
+    provider: string,
+    session: StoredSession,
+  ) => boolean;
+}
 
 // The owner of what the team owns, rather than one person (ADR 0064).
 const teamOwner = "team";
@@ -92,23 +115,6 @@ export interface SessionStore {
     repository: string,
     trusted: boolean,
   ) => void;
-  // Its owner is a person's id or "team".
-  ensureEnvironment: (
-    provider: string,
-    ownerId: string,
-    templateId?: string | null,
-  ) => void;
-  // The models each runner of an Environment last reported (ADR 0044).
-  registeredModels: (provider: string) => readonly ModelRef[];
-  setRegisteredModels: (
-    provider: string,
-    runner: string,
-    models: readonly ModelRef[],
-  ) => void;
-  environments: () => readonly StoredEnvironment[];
-  updateEnvironment: (environment: StoredEnvironment) => void;
-  // With its runners' tokens and its Sessions, transcripts included.
-  deleteEnvironment: (id: string) => void;
   insert: (session: StoredSession) => void;
   update: (session: StoredSession) => void;
   get: (id: string) => StoredSession | undefined;
@@ -154,10 +160,6 @@ export type Rejection =
   | "archived"
   | "not_kept"
   | "unknown_environment"
-  | "environment_exists"
-  | "unknown_template"
-  | "from_template"
-  | "environment_in_use"
   | "unknown_profile"
   | "not_movable"
   | "unknown_entry"
@@ -185,23 +187,14 @@ export type SessionPlugins = Required<
 };
 
 export interface SessionsOptions {
-  readonly pollWaitMs?: number;
-  readonly offlineAfterMs?: number;
-  readonly leaseMs?: number;
   readonly clock?: Clock;
   readonly events?: (event: KernelEvent) => void;
   // Called whenever a Session starts or its view changes (ADR 0038).
   readonly changed?: () => void;
-  // Called whenever a runner comes online or goes offline.
-  readonly runnersChanged?: () => void;
   // The plugins whose Session parts a Session gets when it starts, and their
   // settings.
   readonly sessionPlugins?: () => SessionPlugins;
   readonly offeredModels?: ModelOffer;
-  // The plugin that starts runners for the Environment on demand, if any.
-  readonly startsRunners?: (
-    environment: Pick<Environment, "id" | "templateId">,
-  ) => string | undefined;
   // A Profile a plugin provides, which only the plugin's own Sessions run on.
   readonly pluginProfile?: (id: string) => PluginProfile | undefined;
   // The git hosts a user connected (ADR 0043).
@@ -209,8 +202,6 @@ export interface SessionsOptions {
     userId: string,
     session: Pick<Session, "actsAs" | "workspace">,
   ) => readonly GitLogin[];
-  // The admins' Environment templates (ADR 0049).
-  readonly templates?: () => readonly EnvironmentTemplate[];
   // How many of the team's messages since its last turn Pi reads.
   readonly teamMessagesRead?: () => number;
   // The docs every Session gets as files (ADR 0052).
@@ -249,18 +240,13 @@ const unhosted: readonly SessionStatus[] = ["queued", "starting"];
 export class Sessions {
   readonly #store: SessionStore;
   readonly #clock: Clock;
-  readonly #polls: RunnerPolls;
+  readonly #environments: SessionEnvironments;
   readonly #events: (event: KernelEvent) => void;
   readonly #changed: () => void;
-  readonly #runnersChanged: () => void;
   readonly #sessionPlugins: () => SessionPlugins;
   readonly #offeredModels: ModelOffer;
-  readonly #startsRunners: (
-    environment: Pick<Environment, "id" | "templateId">,
-  ) => string | undefined;
   readonly #pluginProfile: (id: string) => PluginProfile | undefined;
   readonly #gitLogins: NonNullable<SessionsOptions["gitLogins"]>;
-  readonly #templates: () => readonly EnvironmentTemplate[];
   readonly #teamMessagesRead: () => number;
   readonly #names: (person: string) => string | undefined;
   readonly #docs: ProfileFiles | undefined;
@@ -272,29 +258,21 @@ export class Sessions {
   readonly #requestIds = new Map<string, Set<string>>();
   readonly #held = new Map<string, Command[]>();
   readonly #hostedGeneration = new Map<string, number>();
-  readonly #reported = new Map<string, string>();
   readonly #surfaces = new Map<
     string,
     { readonly generation: number; readonly events: Map<string, LiveEvent> }
   >();
 
-  constructor(store: SessionStore, options: SessionsOptions = {}) {
+  constructor(
+    store: SessionStore,
+    environments: SessionEnvironments,
+    options: SessionsOptions = {},
+  ) {
     this.#store = store;
+    this.#environments = environments;
     this.#clock = options.clock ?? systemClock;
-
-    this.#polls = new RunnerPolls({
-      clock: this.#clock,
-      pollWaitMs: options.pollWaitMs ?? 10_000,
-      offlineAfterMs: options.offlineAfterMs ?? 30_000,
-      leaseMs: options.leaseMs ?? leaseMs,
-      onlineChanged: (environment, runner) => {
-        this.#onlineChanged(environment, runner);
-      },
-    });
-
     this.#events = options.events ?? (() => undefined);
     this.#changed = options.changed ?? (() => undefined);
-    this.#runnersChanged = options.runnersChanged ?? (() => undefined);
 
     this.#sessionPlugins =
       options.sessionPlugins ?? (() => ({ plugins: [], pluginSettings: {} }));
@@ -302,10 +280,8 @@ export class Sessions {
     this.#docs = options.docs;
 
     this.#offeredModels = options.offeredModels ?? (() => ({ models: [] }));
-    this.#startsRunners = options.startsRunners ?? (() => undefined);
     this.#pluginProfile = options.pluginProfile ?? (() => undefined);
     this.#gitLogins = options.gitLogins ?? (() => []);
-    this.#templates = options.templates ?? (() => []);
 
     this.#teamMessagesRead =
       options.teamMessagesRead ?? (() => teamMessagesRead);
@@ -323,8 +299,8 @@ export class Sessions {
     // Session runs reaches its starter's own runners or logins.
     const team = request.team === true || this.#fromTeam(request.actor);
 
-    const environments = this.#store
-      .environments()
+    const environments = this.#environments
+      .all()
       .filter(({ ownerId }) =>
         team
           ? ownerId === teamOwner
@@ -405,7 +381,7 @@ export class Sessions {
       this.#store.setAccess(id, request.access);
     }
 
-    this.#polls.wake(session.provider);
+    this.#environments.wake(session.provider);
     const view = this.#view(session);
     this.#changed();
 
@@ -524,7 +500,7 @@ export class Sessions {
     if (
       source === undefined ||
       person === undefined ||
-      this.#reach(source, person) !== "steers"
+      !canSteer({ id: person, admin: false }, this.#owned(source))
     ) {
       return { ok: false, reason: "not_found" };
     }
@@ -589,26 +565,20 @@ export class Sessions {
       .filter((session) =>
         team
           ? this.#team(session) &&
-            (person === undefined || this.#reach(session, person) !== null)
+            (person === undefined ||
+              canSee({ id: person, admin: false }, this.#owned(session)))
           : person === undefined ||
             (!this.#team(session) && this.#person(session) === person),
       )
       .map((session) => this.#view(session));
   }
 
-  // Whether the person may open and steer the Session: their own (ADR 0049)
-  // or the team's, unless its starter limited it (ADR 0064).
-  belongsTo(id: string, person: string): boolean {
+  // Who may open and steer the Session: its person (ADR 0049), or the
+  // team, unless its starter limited it (ADR 0064).
+  owned(id: string): Owned | undefined {
     const session = this.#store.get(id);
 
-    return session !== undefined && this.#reach(session, person) === "steers";
-  }
-
-  // Whether the person may open the Session, if only to watch it.
-  sees(id: string, person: string): boolean {
-    const session = this.#store.get(id);
-
-    return session !== undefined && this.#reach(session, person) !== null;
+    return session && this.#owned(session);
   }
 
   // Whoever started team work, or an admin, makes it view-only for everyone
@@ -622,7 +592,8 @@ export class Sessions {
 
     if (
       session === undefined ||
-      (!by.admin && this.#reach(session, by.person) === null)
+      (!by.admin &&
+        !canSee({ id: by.person, admin: false }, this.#owned(session)))
     ) {
       return { ok: false, reason: "not_found" };
     }
@@ -823,29 +794,23 @@ export class Sessions {
       : `${name}, replying to ${quote.from === "pi" ? "you" : (this.#names(quote.from) ?? "someone")} ("${clipped(quote.text, quoteLength)}")`;
   }
 
-  #reach(session: StoredSession, person: string): "steers" | "sees" | null {
-    if (!this.#team(session)) {
-      return this.#person(session) === person ? "steers" : null;
-    }
-
-    const access = this.#store.access(session.id) ?? { kind: "team" };
-
-    if (access.kind === "team" || session.startedBy === person) {
-      return "steers";
-    }
-
-    if (access.kind === "view") {
-      return "sees";
-    }
-
-    return access.people.includes(person) ? "steers" : null;
+  #owned(session: StoredSession): Owned {
+    return this.#team(session)
+      ? {
+          owner: teamOwner,
+          startedBy: session.startedBy,
+          access: this.#store.access(session.id) ?? { kind: "team" },
+        }
+      : { owner: this.#person(session) ?? "" };
   }
 
   #team(session: Pick<StoredSession, "environmentId">): boolean {
-    return (
-      this.#store.environments().find(({ id }) => id === session.environmentId)
-        ?.ownerId === teamOwner
-    );
+    return this.#ownerOf(session.environmentId) === teamOwner;
+  }
+
+  #ownerOf(environmentId: string): string | undefined {
+    return this.#environments.all().find(({ id }) => id === environmentId)
+      ?.ownerId;
   }
 
   // A Session that a team Session starts, directly or further down.
@@ -858,12 +823,7 @@ export class Sessions {
 
   // Who started a Session, or else whose Environment it runs in.
   #person(session: StoredSession): string | null {
-    return (
-      session.startedBy ??
-      this.#store.environments().find(({ id }) => id === session.environmentId)
-        ?.ownerId ??
-      null
-    );
+    return session.startedBy ?? this.#ownerOf(session.environmentId) ?? null;
   }
 
   archive(id: string, actor?: Actor): Result<Session> {
@@ -887,7 +847,7 @@ export class Sessions {
     this.#hosts.get(id)?.end();
     this.#requestIds.delete(id);
     this.#update(archived);
-    this.#polls.wake(session.provider);
+    this.#environments.wake(session.provider);
 
     this.#events({
       type: "SessionArchived",
@@ -923,7 +883,7 @@ export class Sessions {
     };
 
     this.#update(unarchived);
-    this.#polls.wake(session.provider);
+    this.#environments.wake(session.provider);
 
     this.#events({
       type: "SessionUnarchived",
@@ -952,7 +912,7 @@ export class Sessions {
     };
 
     this.#update(forced);
-    this.#polls.wake(session.provider);
+    this.#environments.wake(session.provider);
 
     return { ok: true, value: this.#view(forced) };
   }
@@ -987,176 +947,38 @@ export class Sessions {
     return session && this.#view(session);
   }
 
-  createEnvironment(
-    provider: string,
-    ownerId: string,
-    templateId?: string,
-  ): Result<Environment, "environment_exists" | "unknown_template"> {
-    if (this.#store.environments().some((each) => each.provider === provider)) {
-      return { ok: false, reason: "environment_exists" };
-    }
-
-    if (templateId !== undefined && this.#template(templateId) === undefined) {
-      return { ok: false, reason: "unknown_template" };
-    }
-
-    this.#store.ensureEnvironment(provider, ownerId, templateId);
-
-    const created = this.environments().find(
-      (each) => each.provider === provider,
-    );
-
-    if (!created) {
-      throw new Error(`environment ${provider} was not stored`);
-    }
-
-    return { ok: true, value: created };
-  }
-
-  updateEnvironment(
-    id: string,
-    update: EnvironmentUpdate,
-  ): Result<Environment, "unknown_environment" | "from_template"> {
-    const environment = this.#store
-      .environments()
-      .find((each) => each.id === id);
-
-    if (!environment) {
-      return { ok: false, reason: "unknown_environment" };
-    }
-
-    if (
-      this.#template(environment.templateId) !== undefined &&
-      (update.isolation !== undefined ||
-        update.image !== undefined ||
-        update.setupScript !== undefined)
-    ) {
-      return { ok: false, reason: "from_template" };
-    }
-
-    const secrets = Object.fromEntries(
-      Object.entries({ ...environment.secrets, ...update.secrets }).filter(
-        (entry): entry is [string, string] => entry[1] !== null,
-      ),
-    );
-
-    this.#store.updateEnvironment({
-      ...environment,
-      name: update.name ?? environment.name,
-      isolation: update.isolation ?? environment.isolation,
-      image: update.image === undefined ? environment.image : update.image,
-      setupScript: update.setupScript ?? environment.setupScript,
-      variables: update.variables ?? environment.variables,
-      secrets,
-    });
-
-    const updated = this.environments().find((each) => each.id === id);
-
-    return updated
-      ? { ok: true, value: updated }
-      : { ok: false, reason: "unknown_environment" };
-  }
-
-  // Only once every Session in it is archived, so nothing still runs there.
-  deleteEnvironment(
-    id: string,
-  ): Result<undefined, "unknown_environment" | "environment_in_use"> {
-    if (!this.#store.environments().some((each) => each.id === id)) {
-      return { ok: false, reason: "unknown_environment" };
-    }
-
-    const active = this.#store
-      .list({ includeArchived: false })
-      .some(({ environmentId }) => environmentId === id);
-
-    if (active) {
-      return { ok: false, reason: "environment_in_use" };
-    }
-
-    this.#store.deleteEnvironment(id);
-    this.#changed();
-    this.#runnersChanged();
-
-    return { ok: true, value: undefined };
-  }
-
-  templates(): readonly EnvironmentTemplate[] {
-    return this.#templates();
-  }
-
-  // A user sees the models plugins offer them, such as those their own
-  // logins reach (ADR 0045).
-  environments(userId?: string): readonly Environment[] {
-    return this.#store.environments().map((environment) => {
-      const runners = this.#polls.runners(environment.provider);
-      const offer = this.#offeredModels(environment, userId);
-      const offered = offer.models;
-
-      return {
-        ...environment,
-        ...this.#templated(environment),
-        secrets: Object.keys(environment.secrets),
-        online: runners.some(({ online }) => online),
-        ...runnersFrom(this.#startsRunners(environment)),
-        runners: runners.map(({ name, online, capacity }) => ({
-          name,
-          online,
-          capacity,
-          running: this.#store.byRunner(environment.provider, name, attempting)
-            .length,
-        })),
-        folders: [
-          ...new Set(runners.flatMap(({ inventory }) => inventory.folders)),
-        ],
-        models: uniqueModels([
-          ...offered,
-          ...runners
-            .filter(({ online }) => online)
-            .flatMap(({ inventory }) => inventory.models),
-          ...this.#store.registeredModels(environment.provider),
-        ]),
-        hiddenModels: offer.hidden ?? [],
-      };
-    });
-  }
-
   // Sessions no online runner in the pool can take now, for a plugin that
   // starts runners on demand (ADR 0032): those beyond the room its runners
   // have, and those held by a runner that went away. A Session that only an
   // online runner can take waits for it, since a new runner never gets it,
   // and one that can move waits for its runner's lease to lapse.
   unplaced(environmentId: string): readonly Session[] {
-    const environment = this.#store
-      .environments()
+    const environment = this.#environments
+      .all()
       .find(({ id }) => id === environmentId);
 
     if (environment === undefined) {
       return [];
     }
 
-    const runners = this.#polls.runners(environment.provider);
+    const { provider } = environment;
+    const runners = this.#environments.runners(provider);
     const online = runners.filter((runner) => runner.online);
-
-    const pool = {
-      runners,
-      leaseLapsed: (name: string) =>
-        this.#polls.leaseLapsed(environment.provider, name),
-    };
 
     const room = new Map(
       online.map(({ name, capacity }) => [
         name,
         capacity === null
           ? Infinity
-          : capacity -
-            this.#store.byRunner(environment.provider, name, attempting).length,
+          : capacity - this.#store.byRunner(provider, name, attempting).length,
       ]),
     );
 
     const takesSlot = (session: StoredSession): boolean => {
       const runner = online.find(
         ({ name }) =>
-          (room.get(name) ?? 0) > 0 && this.#mayTake(session, name, pool),
+          (room.get(name) ?? 0) > 0 &&
+          this.#environments.mayTake(provider, session, name),
       );
 
       if (runner !== undefined) {
@@ -1170,15 +992,13 @@ export class Sessions {
       !online.some(({ name }) => name === session.runner) &&
       !takesSlot(session) &&
       (session.runner === null
-        ? placesOnNewRunner(session, pool)
-        : !movable(session.workspace) || pool.leaseLapsed(session.runner));
+        ? this.#environments.placesOnNewRunner(provider, session)
+        : !movable(session.workspace) ||
+          this.#environments.leaseLapsed(provider, session.runner));
 
     // A Session with a runner of its own waits for it while it is online.
     return this.#store
-      .byEnvironment(environment.provider, [
-        ...claimableStatuses,
-        ...attempting,
-      ])
+      .byEnvironment(provider, [...claimableStatuses, ...attempting])
       .filter((session) =>
         runners.some(({ inventory }) => inventory.session === session.id)
           ? !online.some(({ inventory }) => inventory.session === session.id)
@@ -1187,46 +1007,16 @@ export class Sessions {
       .map((session) => this.#view(session));
   }
 
-  // A runner started for one Session takes only that Session, and that
-  // Session goes only to such a runner while one is known.
-  #mayTake(
-    session: StoredSession,
-    runner: string,
-    pool: Parameters<typeof placesOn>[2],
-  ): boolean {
-    const dedicated = pool.runners.find(({ name }) => name === runner)
-      ?.inventory.session;
-
-    if (dedicated !== undefined) {
-      return dedicated === session.id;
-    }
-
-    return (
-      !pool.runners.some(({ inventory }) => inventory.session === session.id) &&
-      placesOn(session, runner, pool)
-    );
-  }
-
   // A runner polls for the Environment whose pool it joins (ADR 0032).
   async claim(
     runner: { readonly name: string; readonly environment: string },
     { running, folders, models, registeredModels, capacity, session }: WorkPoll,
     signal: AbortSignal,
   ): Promise<Claim> {
-    // A runner's Environment is made before it gets a token, except the
-    // built-in runner's, which waits for the first person (ADR 0049).
-    const known = this.#store
-      .environments()
-      .some(({ provider }) => provider === runner.environment);
-
-    if (known && registeredModels !== undefined) {
-      this.#rememberModels(runner, registeredModels);
-    }
-
-    const endPoll = this.#polls.begin(runner.name, {
-      environment: runner.environment,
+    const endPoll = this.#environments.beginPoll(runner, {
       capacity: capacity ?? null,
       inventory: { folders, models, ...(session !== undefined && { session }) },
+      registeredModels,
     });
 
     const work = (): Omit<Claim, "interrupted"> => ({
@@ -1244,28 +1034,16 @@ export class Sessions {
         return { ...first, interrupted };
       }
 
-      await this.#polls.waitForWork(runner.environment, runner.name, signal);
+      await this.#environments.waitForWork(
+        runner.environment,
+        runner.name,
+        signal,
+      );
 
       return { ...work(), interrupted };
     } finally {
       endPoll();
     }
-  }
-
-  // Written only when they change, since runners poll all the time.
-  #rememberModels(
-    runner: { readonly name: string; readonly environment: string },
-    models: readonly ModelRef[],
-  ): void {
-    const key = JSON.stringify(models);
-    const reporter = JSON.stringify([runner.environment, runner.name]);
-    if (this.#reported.get(reporter) === key) {
-      return;
-    }
-
-    this.#reported.set(reporter, key);
-    this.#store.setRegisteredModels(runner.environment, runner.name, models);
-    this.#runnersChanged();
   }
 
   // Kept for the repository, so later Sessions in it don't ask again.
@@ -1580,8 +1358,16 @@ export class Sessions {
     return this.#current(id, generation).ok;
   }
 
-  close(): void {
-    this.#polls.close();
+  // How many Sessions a runner is running now.
+  running(provider: string, runner: string): number {
+    return this.#store.byRunner(provider, runner, attempting).length;
+  }
+
+  // Whether an unarchived Session still runs in the Environment.
+  inUse(environmentId: string): boolean {
+    return this.#store
+      .list({ includeArchived: false })
+      .some((session) => session.environmentId === environmentId);
   }
 
   #interruptMissing(
@@ -1643,12 +1429,6 @@ export class Sessions {
   ): Assignment[] {
     const free = capacity === undefined ? Infinity : capacity - running;
 
-    const pool = {
-      runners: this.#polls.runners(runner.environment),
-      leaseLapsed: (name: string) =>
-        this.#polls.leaseLapsed(runner.environment, name),
-    };
-
     // A Session still attempting on another runner is claimable only once
     // that runner's lease lapsed.
     const claimable = this.#store
@@ -1657,7 +1437,7 @@ export class Sessions {
         (session) =>
           (claimableStatuses.includes(session.status) ||
             session.runner !== runner.name) &&
-          this.#mayTake(session, runner.name, pool),
+          this.#environments.mayTake(runner.environment, session, runner.name),
       )
       .slice(0, Math.max(free, 0));
 
@@ -1709,7 +1489,9 @@ export class Sessions {
           systemPrompt: session.systemPrompt,
           firstMessage: session.firstMessage,
           ...this.#pluginsOf(session),
-          environment: this.#sessionEnvironment(session.environmentId),
+          environment: this.#environments.sessionEnvironment(
+            session.environmentId,
+          ),
           ...this.#gitLoginsOf(session),
           // What this runner kept from an earlier run is older than what the
           // other runner pushed and uploaded since.
@@ -1826,43 +1608,6 @@ export class Sessions {
     return this.#pluginProfile(id)?.profile ?? this.#store.profile(id);
   }
 
-  #sessionEnvironment(id: string): SessionEnvironment {
-    const environment = this.#store
-      .environments()
-      .find((each) => each.id === id);
-
-    const template = this.#template(environment?.templateId ?? null);
-    const own = environment && this.#templated(environment);
-
-    return {
-      isolation: own?.isolation ?? "process",
-      image: own?.image ?? null,
-      setupScript: own?.setupScript ?? "",
-      variables: {
-        ...template?.variables,
-        ...environment?.variables,
-        ...environment?.secrets,
-      },
-    };
-  }
-
-  #template(id: string | null): EnvironmentTemplate | undefined {
-    return id === null
-      ? undefined
-      : this.#templates().find((each) => each.id === id);
-  }
-
-  // An Environment made from a template runs as the template says, and with
-  // the defaults once its template is gone.
-  #templated(
-    environment: StoredEnvironment,
-  ): Pick<Environment, "isolation" | "image" | "setupScript"> {
-    const { isolation, image, setupScript } =
-      this.#template(environment.templateId) ?? environment;
-
-    return { isolation, image, setupScript };
-  }
-
   // A turn running on a runner whose lease lapsed is reported as interrupted,
   // as after an agent restart.
   #moveOff(session: StoredSession): StoredSession {
@@ -1885,9 +1630,8 @@ export class Sessions {
 
   // A command stream whose tunnel died can stay open for minutes, so an
   // offline runner's streams are ended and the agent opens new ones.
-  #onlineChanged(environment: string, runner: string): void {
-    const online = this.#polls.online(environment, runner);
-    this.#runnersChanged();
+  runnerChanged(environment: string, runner: string): void {
+    const online = this.#environments.online(environment, runner);
 
     const sessions = this.#store
       .list({ includeArchived: true })
@@ -1975,7 +1719,7 @@ export class Sessions {
   // A Session no runner claimed yet is online while its Environment is, and
   // one that ran is online while its runner is still in that Environment.
   #online(session: StoredSession): boolean {
-    return this.#polls
+    return this.#environments
       .runners(session.provider)
       .some(
         ({ name, online }) =>
@@ -2238,10 +1982,4 @@ function freshWorkspace(workspace: Workspace): WorkspaceRequest | undefined {
     case "worktree":
       return undefined;
   }
-}
-
-function runnersFrom(
-  plugin: string | undefined,
-): Pick<Environment, "onDemand" | "runnersFrom"> {
-  return { onDemand: plugin !== undefined, runnersFrom: plugin ?? null };
 }

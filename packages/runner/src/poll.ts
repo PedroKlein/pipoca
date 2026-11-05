@@ -1,23 +1,23 @@
-import type { Log } from "@pipoca/protocol";
-import { setTimeout as sleep } from "node:timers/promises";
 import {
-  type SessionStart,
   type Attempt,
   leaseMs,
+  type Log,
   loggedStart,
   type ModelRef,
   movable,
   type Removal,
+  type SessionStart,
   type Work,
   type WorkPoll,
   type Workspace,
 } from "@pipoca/protocol";
+import { backoff } from "./backoff";
 
 export interface ControlPlane {
   work: (poll: WorkPoll, signal: AbortSignal) => Promise<Work>;
 }
 
-export interface ProviderOptions {
+export interface PollOptions {
   readonly controlPlane: ControlPlane;
   readonly start: (assignment: SessionStart) => void;
   readonly unload: (attempt: Attempt) => void;
@@ -36,7 +36,7 @@ export interface ProviderOptions {
   readonly leaseMs?: number;
 }
 
-export async function runProvider(options: ProviderOptions): Promise<void> {
+export async function pollForWork(options: PollOptions): Promise<void> {
   const {
     controlPlane,
     start,
@@ -55,6 +55,8 @@ export async function runProvider(options: ProviderOptions): Promise<void> {
     maxMs: 20_000,
   };
 
+  const retry = backoff(initialMs, maxMs);
+
   const workspaces = new Map<string, Workspace>();
 
   // Half the server's lease, so these Sessions stop before the server can
@@ -72,7 +74,6 @@ export async function runProvider(options: ProviderOptions): Promise<void> {
   };
 
   let leaseTimer = setTimeout(stopMovable, stopMovableAfterMs);
-  let delayMs = initialMs;
   let polls = 0;
   let started = 0;
   log("provider polling for work");
@@ -95,7 +96,7 @@ export async function runProvider(options: ProviderOptions): Promise<void> {
       );
 
       polls++;
-      delayMs = initialMs;
+      retry.reset();
       clearTimeout(leaseTimer);
       leaseTimer = setTimeout(stopMovable, stopMovableAfterMs);
 
@@ -129,9 +130,12 @@ export async function runProvider(options: ProviderOptions): Promise<void> {
         break;
       }
 
-      log("work poll failed", { error: String(error), retryInMs: delayMs });
-      await sleep(delayMs, undefined, { signal }).catch(() => undefined);
-      delayMs = Math.min(delayMs * 2, maxMs);
+      log("work poll failed", {
+        error: String(error),
+        retryInMs: retry.delayMs(),
+      });
+
+      await retry.wait(signal);
     }
   }
 

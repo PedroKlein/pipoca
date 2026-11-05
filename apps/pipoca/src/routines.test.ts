@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Prompt, Session, SessionEvent } from "@pipoca/protocol";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 import { json, testServer, type TestServer } from "./testdata/harness";
 import { until } from "@pipoca/plugins/testing";
 
@@ -32,7 +32,7 @@ beforeEach(async () => {
   runtime.registerNativeProvider(faux.provider);
 
   server = testServer({
-    sessions: { pollWaitMs: 100, offlineAfterMs: 1000 },
+    runners: { pollWaitMs: 100, offlineAfterMs: 1000 },
     agent: {
       provider: "local",
       dataDir: join(root, "local"),

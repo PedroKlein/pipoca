@@ -1,9 +1,8 @@
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { join } from "node:path";
 import { createInterface } from "node:readline";
-import type { SessionStart } from "@pipoca/protocol";
-import type { Log } from "@pipoca/protocol";
+import type { SessionPlugin } from "@pipoca/plugins";
+import type { Log, PluginSettings, SessionStart } from "@pipoca/protocol";
 import {
   type HostedSession,
   hostSession,
@@ -12,8 +11,37 @@ import {
 } from "@pipoca/sessionhost";
 import { httpSessionStream } from "./client";
 import { type ContainerSession, serverInContainer } from "./container";
-import { stderrLog } from "./log";
-import { installedSessionParts, sessionParts } from "./session-parts";
+import { installedParts } from "./parts";
+
+interface SessionParts {
+  readonly plugins: readonly SessionPlugin[];
+  readonly pluginSettings: Readonly<Record<string, PluginSettings>>;
+}
+
+// The binary the runner is part of, which it starts again for each Session
+// and each Profile package install.
+export interface Binary {
+  readonly command: readonly string[];
+  readonly version: string;
+  // The Session parts an assignment names, an installed plugin's loaded from
+  // the file the runner fetched it into.
+  readonly parts: (
+    assignment: SessionStart,
+    installed: (name: string, hash: string) => Promise<string>,
+  ) => Promise<SessionParts>;
+}
+
+export async function sessionParts(
+  binary: Binary,
+  server: string,
+  assignment: SessionStart,
+  sessionDir: string,
+): Promise<SessionParts> {
+  return binary.parts(
+    assignment,
+    installedParts(server, assignment, sessionDir),
+  );
+}
 
 export interface SessionSpec {
   readonly server: string;
@@ -28,25 +56,15 @@ type ChildMessage =
 
 const stopTimeoutMs = 10_000;
 
-// A compiled binary is its own entry point. From source, Bun runs main.ts
-// with the repository's bunfig.toml, which builds the web UI's styles and
-// which Bun only finds by itself in the folder it starts in.
-export const pipoca = import.meta.dirname.startsWith("/$bunfs")
-  ? [process.execPath]
-  : [
-      process.execPath,
-      `--config=${join(import.meta.dirname, "..", "..", "..", "bunfig.toml")}`,
-      join(import.meta.dirname, "main.ts"),
-    ];
-
-const sessionCommand = [...pipoca, "session"];
-
 // What the Session's BROWSER runs, from inside its container too.
-export const pageOpener = [...pipoca, "open"];
+export function pageOpener(binary: Binary): readonly string[] {
+  return [...binary.command, "open"];
+}
 
 // Runs one Session in a child process (ADR 0017). The child asks the agent to
 // open its terminals, since the agent keeps them.
 export async function spawnSession(
+  binary: Binary,
   spec: SessionSpec,
   log: Log,
   openTerminal: (command: TerminalCommand) => void,
@@ -58,8 +76,10 @@ export async function spawnSession(
     readonly exited: Promise<number | null>;
   }
 > {
-  const [executable = process.execPath, ...args] =
-    container?.run ?? sessionCommand;
+  const [executable = process.execPath, ...args] = container?.run ?? [
+    ...binary.command,
+    "session",
+  ];
 
   // Pi's tools inherit the Environment's variables from the process, and a
   // container gets them from the docker client's.
@@ -132,11 +152,12 @@ export async function spawnSession(
 // Session owner's logins without them reaching this process's environment.
 // git's own words end the error, since its exit code alone says little.
 export async function installPackageApart(
+  binary: Binary,
   dir: string,
   source: string,
   env: Readonly<Record<string, string | undefined>>,
 ): Promise<void> {
-  const [executable = process.execPath, ...args] = pipoca;
+  const [executable = process.execPath, ...args] = binary.command;
 
   const child = spawn(executable, [...args, "install-package", dir, source], {
     env: { ...env, GIT_TERMINAL_PROMPT: "0" },
@@ -157,7 +178,10 @@ export async function installPackageApart(
   }
 }
 
-export async function runSessionProcess(): Promise<void> {
+export async function runSessionProcess(
+  binary: Binary,
+  base: Log,
+): Promise<void> {
   // The agent sends SIGTERM when it is going down itself. Killing the tools
   // and exiting in one step leaves no turn of the event loop to save a killed
   // tool's result, so the reload records the call as interrupted rather than
@@ -182,7 +206,6 @@ export async function runSessionProcess(): Promise<void> {
 
   // Parts of Pi, such as its MCP extension, find the agent folder only here.
   process.env["PI_CODING_AGENT_DIR"] = spec.options.agentDir;
-  const base = stderrLog("session");
 
   const log: Log = (message, fields) => {
     base(message, { sessionId, ...fields });
@@ -211,14 +234,12 @@ export async function runSessionProcess(): Promise<void> {
         ...spec.options,
         firstMessage: spec.assignment.firstMessage,
         ...(await sessionParts(
+          binary,
+          spec.server,
           spec.assignment,
-          installedSessionParts(
-            spec.server,
-            spec.assignment,
-            spec.options.sessionDir,
-          ),
+          spec.options.sessionDir,
         )),
-        opener: pageOpener,
+        opener: pageOpener(binary),
       },
       httpSessionStream(spec.server, spec.assignment, log, () => {
         void stop();

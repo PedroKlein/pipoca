@@ -27,7 +27,7 @@ import type {
 } from "@pipoca/protocol";
 import type { ServeOptions } from "./serve";
 import { builtInPlugins } from "./session-parts";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 import { json, testServer, type TestServer } from "./testdata/harness";
 import { until } from "@pipoca/plugins/testing";
 
@@ -68,7 +68,7 @@ function start(
       ),
     }),
     ...(installed && { installed }),
-    sessions: { pollWaitMs: 100, offlineAfterMs: 1000 },
+    runners: { pollWaitMs: 100, offlineAfterMs: 1000 },
     agent: {
       provider: "local",
       dataDir: join(root, "local"),

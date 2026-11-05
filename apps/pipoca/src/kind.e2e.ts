@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import type { Environment, Session, SessionEvent } from "@pipoca/protocol";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 import { setupTokenOf } from "./testdata/sign-in";
 
 // Runs against the Helm chart installed in the current kubectl context, as
