@@ -64,6 +64,13 @@ export function sessionsFor(
       }).ok
         ? "queued"
         : "gone",
+    bind: (key, sessionId) => {
+      settle(sessions.bind(plugin, key, sessionId), "bound");
+    },
+    boundTo: (key) => sessions.boundTo(plugin, key),
+    unbind: (key) => {
+      sessions.unbind(plugin, key);
+    },
   };
 }
 

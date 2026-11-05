@@ -1,8 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
 import {
+  Config,
   definePlugin,
   defineServer,
   event,
+  type PluginDefinition,
   type SessionPlugin,
   Type,
 } from "@pipoca/plugins";
@@ -20,8 +22,8 @@ afterEach(async () => {
   await Promise.all(tests.splice(0).map(async (each) => each.close()));
 });
 
-async function started(
-  ...args: Parameters<typeof testPlugin>
+async function started<P extends PluginDefinition>(
+  ...args: Parameters<typeof testPlugin<P>>
 ): Promise<PluginTest> {
   const t = await testPlugin(...args);
   tests.push(t);
@@ -137,6 +139,64 @@ test("a restart keeps what waits for an offline Session, and what is scheduled",
   ]);
 
   expect(session.queued()).toEqual([]);
+});
+
+const rung: string[] = [];
+
+// Rings at a time a person picks.
+const alarms = defineServer(
+  definePlugin({ id: "alarms", title: "Alarms", description: "Rings." }),
+  ({ routes, schedule, clock }) => {
+    schedule.on("ring:", (_payload, key) => {
+      rung.push(key);
+    });
+
+    routes.post("alarms", { auth: "person" }, () => {
+      schedule.at("ring:soon", clock.now() + 100, undefined);
+
+      return { ok: true };
+    });
+  },
+);
+
+test("an at that comes due across a restart fires once its plugin has started", async () => {
+  const t = await started(alarms, { people });
+
+  await t.as("ana").post("alarms", {});
+  await t.restart();
+  await t.clock.advance("1s");
+
+  expect(rung).toEqual(["ring:soon"]);
+});
+
+// Says hello by the greeting in its config.
+const greeter = defineServer(
+  definePlugin({
+    id: "greeter",
+    title: "Greeter",
+    description: "Greets.",
+    config: Config.object({
+      greeting: Config.string({ title: "Greeting", default: "Hello" }),
+    }),
+  }),
+  ({ config, routes }) => {
+    const heard: string[] = [];
+
+    config.watch((next) => {
+      heard.push(next.greeting);
+    });
+
+    routes.get("heard", { auth: "person" }, () => heard);
+  },
+);
+
+test("a hand edit of the plugin's config reaches it", async () => {
+  const t = await started(greeter, { people, config: { greeting: "Hi" } });
+
+  await t.editConfig({ greeting: "Howdy" });
+  await t.clock.advance("2s");
+
+  expect(await t.as("ana").get("heard")).toEqual(["Howdy"]);
 });
 
 // Asks another server for the time.

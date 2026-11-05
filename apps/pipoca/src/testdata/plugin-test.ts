@@ -52,15 +52,15 @@ interface Host {
 }
 
 interface Opened {
-  readonly origin: () => string;
   readonly fetch: TestPluginOptions["fetch"];
 }
 
 const realFetch = globalThis.fetch;
 const opened = new Set<Opened>();
 
-// Requests to a test's own server go out; any other is the plugins' and
-// goes to the newest test's fetch.
+// Requests to this machine go out, such as to a test's own server or one
+// another test left running; any other is the plugins' and goes to the
+// newest test's fetch.
 const outbound = Object.assign(
   async (input: string | URL | Request, init?: RequestInit) => {
     const request =
@@ -68,9 +68,7 @@ const outbound = Object.assign(
         ? new Request(input, init)
         : new Request(input.toString(), init);
 
-    const { origin } = new URL(request.url);
-
-    if ([...opened].some((each) => each.origin() === origin)) {
+    if (["127.0.0.1", "localhost"].includes(new URL(request.url).hostname)) {
       return realFetch(request);
     }
 
@@ -105,10 +103,12 @@ export async function pluginTest(
   const plugin = "register" in tested ? tested.plugin : tested;
   const contexts = new Map<string, ServerContext>();
 
+  const configFile = join(configDir, "pipoca.json");
+
   await mkdir(configDir);
 
   await writeFile(
-    join(configDir, "pipoca.json"),
+    configFile,
     JSON.stringify({
       ...(o.config !== undefined && { [plugin.id]: o.config }),
       plugins: Object.fromEntries(
@@ -193,13 +193,14 @@ export async function pluginTest(
       },
     });
 
+  // Before the server starts, since its plugins register as it does.
+  const self: Opened = { fetch: o.fetch };
+  opened.add(self);
+  globalThis.fetch = outbound;
+
   let server = start();
 
   const url = (path: string): URL => new URL(path, server.url);
-
-  const self: Opened = { origin: () => server.url.origin, fetch: o.fetch };
-  opened.add(self);
-  globalThis.fetch = outbound;
 
   const ready = async (): Promise<void> => {
     await fetch(url("/healthz"));
@@ -775,6 +776,16 @@ export async function pluginTest(
           left -= step;
         } while (left > 0);
       },
+    },
+    editConfig: async (config) => {
+      const file = JSON.parse(await readFile(configFile, "utf8")) as Readonly<
+        Record<string, unknown>
+      >;
+
+      await writeFile(
+        configFile,
+        JSON.stringify({ ...file, [plugin.id]: config }),
+      );
     },
     restart: async () => {
       await server.close();

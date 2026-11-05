@@ -1,4 +1,10 @@
-import type { Invite, Person, SetupState } from "@pipoca/protocol";
+import type {
+  Account,
+  AccountChange,
+  Invite,
+  Person,
+  SetupState,
+} from "@pipoca/protocol";
 import { type Clock, systemClock } from "@pipoca/protocol";
 import { secretToken, tokenHash } from "./tokens";
 
@@ -13,6 +19,8 @@ export interface StoredUser extends User {
   // Empty for a user who signs in only through a plugin, such as OIDC.
   readonly passwordHash: string;
   readonly createdAt: string;
+  // The name people see, such as "Pedro Klein", when it isn't the username.
+  readonly displayName?: string;
 }
 
 // A token an MCP client such as Claude Code uses to act as its user
@@ -29,6 +37,12 @@ export interface PeopleStore {
   readonly userByName: (name: string) => StoredUser | undefined;
   readonly userById: (id: string) => User | undefined;
   readonly users: () => readonly User[];
+  readonly account: (id: string) => Account | undefined;
+  readonly setDisplayName: (id: string, name: string | null) => void;
+  readonly setDefaultEnvironment: (
+    id: string,
+    environment: string | null,
+  ) => void;
   readonly insertUser: (user: StoredUser) => void;
   readonly setAdmin: (id: string, admin: boolean) => void;
   readonly people: () => readonly Person[];
@@ -44,6 +58,8 @@ export interface PeopleStore {
     now: string,
   ) => User | undefined;
   readonly deleteBrowserSession: (tokenHash: string) => void;
+  // Every browser session and access token of the user.
+  readonly deleteSignIns: (userId: string) => void;
   readonly insertInvite: (invite: Invite, tokenHash: string) => void;
   // Unexpired invites that can still be used.
   readonly invites: (now: string) => readonly Invite[];
@@ -115,6 +131,26 @@ export class People {
 
   users(): readonly User[] {
     return this.#store.users();
+  }
+
+  account(id: string): Account | undefined {
+    return this.#store.account(id);
+  }
+
+  // The caller checks that a default Environment is the person's own.
+  changeAccount(id: string, change: AccountChange): Account | undefined {
+    if (change.displayName !== undefined) {
+      this.#store.setDisplayName(
+        id,
+        checkedDisplayName(change.displayName) ?? null,
+      );
+    }
+
+    if (change.defaultEnvironment !== undefined) {
+      this.#store.setDefaultEnvironment(id, change.defaultEnvironment);
+    }
+
+    return this.#store.account(id);
   }
 
   people(): readonly Person[] {
@@ -308,6 +344,19 @@ export class People {
   #iso(): string {
     return new Date(this.#clock.now()).toISOString();
   }
+}
+
+// Undefined for a name that is only spaces.
+export function checkedDisplayName(name: string): string | undefined {
+  const trimmed = name.trim();
+
+  if (trimmed.length > maxNameLength) {
+    throw new InvalidCredentials(
+      `display name must be at most ${String(maxNameLength)} characters`,
+    );
+  }
+
+  return trimmed === "" ? undefined : trimmed;
 }
 
 export function checkedName(name: string): string {

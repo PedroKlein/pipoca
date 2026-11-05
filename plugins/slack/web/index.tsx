@@ -1,9 +1,9 @@
 import {
-  json,
+  defineWeb,
   type NoticeProps,
+  useApi,
   useLoaded,
-  type WebContext,
-  type WebPlugin,
+  useViewer,
 } from "@pipoca/plugins/web";
 import {
   Button,
@@ -15,7 +15,8 @@ import {
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import type { Account, BotView } from "../src/model";
+import { slack } from "../plugin";
+import type { BotView } from "../src/model";
 
 // A Slack app with Socket Mode and the scopes the plugin's events and posts
 // need, for Slack's "create from manifest".
@@ -48,35 +49,21 @@ const manifest = {
   },
 };
 
-export const slack: WebPlugin = {
-  name: "slack",
-  SettingsSection,
-  settingsGroup: "integrations",
-  notices: { slack_reply: SlackReply },
-};
+export const web = defineWeb(slack, {
+  settings: { group: "integrations", Section },
+  slots: { "notice:slack_reply": SlackReply },
+});
 
-function SettingsSection({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement | null {
-  const { value: account } = useLoaded(
-    async () => json<Account>(context.request("account")),
-    "account",
-  );
-
-  if (account?.admin !== true) {
-    return null;
-  }
-
-  return <Bots context={context} />;
+function Section(): ReactElement | null {
+  return useViewer().admin ? <Bots /> : null;
 }
 
-function Bots({ context }: { readonly context: WebContext }): ReactElement {
+function Bots(): ReactElement {
+  const api = useApi(slack);
   const [ask, asking] = useConfirm();
 
   const { value, reload } = useLoaded(
-    async () => json<readonly BotView[]>(context.request("bots")),
+    async () => api.get<readonly BotView[]>("bots"),
     "bots",
   );
 
@@ -93,25 +80,22 @@ function Bots({ context }: { readonly context: WebContext }): ReactElement {
       return typeof entry === "string" ? entry.trim() : "";
     };
 
-    json(
-      context.request("bots", {
-        method: "POST",
-        body: JSON.stringify({
-          name: field("name"),
-          appToken: field("appToken"),
-          botToken: field("botToken"),
-        }),
-      }),
-    ).then(
-      () => {
-        setAdding(false);
-        setError(undefined);
-        reload();
-      },
-      (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
-      },
-    );
+    api
+      .post("bots", {
+        name: field("name"),
+        appToken: field("appToken"),
+        botToken: field("botToken"),
+      })
+      .then(
+        () => {
+          setAdding(false);
+          setError(undefined);
+          reload();
+        },
+        (reason: unknown) => {
+          setError(reason instanceof Error ? reason.message : String(reason));
+        },
+      );
   };
 
   const remove = (bot: BotView): void => {
@@ -125,11 +109,9 @@ function Bots({ context }: { readonly context: WebContext }): ReactElement {
         return;
       }
 
-      void json(
-        context.request(`bots/${encodeURIComponent(bot.name)}`, {
-          method: "DELETE",
-        }),
-      ).then(reload, reload);
+      void api
+        .delete(`bots/${encodeURIComponent(bot.name)}`)
+        .then(reload, reload);
     });
   };
 
@@ -243,7 +225,7 @@ function Bots({ context }: { readonly context: WebContext }): ReactElement {
   );
 }
 
-function SlackReply({ text }: NoticeProps): ReactElement {
+function SlackReply({ text }: Omit<NoticeProps, "context">): ReactElement {
   return (
     <div className="flex flex-col gap-1 text-ui">
       <span className="text-label text-fg-dim">Reply in Slack</span>

@@ -134,6 +134,8 @@ export interface SessionStore {
   // there are any.
   baseProfileFiles: (personId: string | null) => ProfileFiles | undefined;
   defaultProfileId: (userId: string) => string;
+  // Where the person's Sessions start when they don't pick, if they chose.
+  defaultEnvironmentId: (userId: string) => string | null;
   repositoryTrust: (ownerId: string, repository: string) => boolean | null;
   setRepositoryTrust: (
     ownerId: string,
@@ -258,6 +260,9 @@ export interface Claim extends Omit<Work, "profiles" | "start"> {
 
 type Listener<T> = (value: T) => void;
 
+// False when the host's stream ended before it took the command.
+type HostSend = (command: Command) => boolean;
+
 // Enough to catch a browser retrying a send; ids only need to outlive retries.
 const maxRequestIds = 100;
 const claimableStatuses: readonly SessionStatus[] = ["queued", "interrupted"];
@@ -283,7 +288,7 @@ export class Sessions {
   readonly #watchers = new Map<string, Set<Listener<SessionEvent>>>();
   readonly #hosts = new Map<
     string,
-    { readonly send: Listener<Command>; readonly end: () => void }
+    { readonly send: HostSend; readonly end: () => void }
   >();
   readonly #requestIds = new Map<string, Set<string>>();
   readonly #held = new Map<string, Command[]>();
@@ -346,10 +351,16 @@ export class Sessions {
             (startedBy === null || ownerId === startedBy),
       );
 
+    const picked =
+      request.environment ??
+      (team || startedBy === null
+        ? undefined
+        : (this.#store.defaultEnvironmentId(startedBy) ?? undefined));
+
     const environment =
-      request.environment === undefined
+      picked === undefined
         ? environments[0]
-        : environments.find(({ id }) => id === request.environment);
+        : environments.find(({ id }) => id === picked);
 
     if (!environment) {
       return { ok: false, reason: "unknown_environment" };
@@ -1309,10 +1320,8 @@ export class Sessions {
 
     if (held) {
       this.#held.set(id, [...(this.#held.get(id) ?? []), ...told]);
-    } else {
-      for (const each of told) {
-        host?.send(each);
-      }
+    } else if (!told.every((each) => host?.send(each) === true)) {
+      return { ok: false, reason: "offline" };
     }
 
     if (command.type === "abort") {
@@ -1433,7 +1442,7 @@ export class Sessions {
   attach(
     id: string,
     generation: number,
-    send: Listener<Command>,
+    send: HostSend,
     end: () => void,
   ): Result<() => void> {
     const current = this.#current(id, generation);

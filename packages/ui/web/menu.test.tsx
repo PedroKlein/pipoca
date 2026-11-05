@@ -38,6 +38,24 @@ test("opens its actions, runs one and closes", () => {
   expect(page.querySelector('[role="menu"]')).toBeNull();
 });
 
+test("a button drawn with its own content is still named by the label", () => {
+  const page = render(
+    <Menu
+      label="Account"
+      side="above"
+      align="stretch"
+      trigger={<span>pedro</span>}
+      items={[{ label: "Settings", run: () => undefined }]}
+    />,
+  );
+
+  click(byRole(page, "button", "Account"));
+
+  expect(
+    byRole(byRole(page, "menu", "Account"), "menuitem", "Settings"),
+  ).toBeDefined();
+});
+
 test("Escape closes it", () => {
   const page = render(
     <Menu label="More" items={[{ label: "Copy", run: () => undefined }]} />,
