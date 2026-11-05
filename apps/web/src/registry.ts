@@ -20,7 +20,7 @@ import * as usageWeb from "../../../plugins/usage/web/index";
 
 export const webRegistry = [
   { id: "ask", part: askWeb },
-  { id: "changes", plugin: changesWeb },
+  { id: "changes", part: changesWeb },
   { id: "checklist", part: checklistWeb },
   { id: "email", plugin: emailWeb },
   { id: "git-hosts", plugin: gitHostsWeb },

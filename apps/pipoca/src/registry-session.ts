@@ -1,7 +1,6 @@
 // Written by `bun run registries` from plugins/*/package.json. Don't edit.
 import { ask } from "../../../plugins/ask/plugin";
-import changesPackage from "../../../plugins/changes/package.json";
-import * as changesSession from "../../../plugins/changes/src/session";
+import { changes } from "../../../plugins/changes/plugin";
 import { checklist } from "../../../plugins/checklist/plugin";
 import gitHostsPackage from "../../../plugins/git-hosts/package.json";
 import * as gitHostsSession from "../../../plugins/git-hosts/src/session";
@@ -20,7 +19,7 @@ import * as subagentsSession from "../../../plugins/subagents/src/session";
 
 export const sessionRegistry = [
   { id: "ask", definition: ask },
-  { id: "changes", manifest: changesPackage.pipoca, session: changesSession },
+  { id: "changes", definition: changes },
   { id: "checklist", definition: checklist },
   {
     id: "git-hosts",

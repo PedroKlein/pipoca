@@ -106,6 +106,7 @@ export default tseslint.config(
       "plugins/*/src/server.ts",
       "plugins/*/src/session.ts",
       "plugins/*/web/index.tsx",
+      "plugins/*/web.d.ts",
     ],
     rules: { "no-restricted-exports": "off" },
   },
@@ -119,7 +120,7 @@ export default tseslint.config(
           patterns: [
             {
               regex:
-                "^@pipoca/(?!(plugins|plugins/testing|plugins/web|protocol|ui)$)",
+                "^@pipoca/(?!(plugins|plugins/testing|plugins/web|plugins/web/testing|protocol|ui)$)",
               message:
                 "Plugins import only @pipoca/plugins, @pipoca/protocol and @pipoca/ui.",
             },
@@ -139,8 +140,6 @@ export default tseslint.config(
     ignores: [
       "plugins/*/src/**/*.test.ts",
       // Until these move to the clock and schedule as their plugins port.
-      "plugins/changes/src/pull-request.ts",
-      "plugins/changes/src/session.ts",
       "plugins/email/src/mail.ts",
       "plugins/email/src/server.ts",
       "plugins/git-hosts/src/acting.ts",

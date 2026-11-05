@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { relative } from "node:path";
 import { promisify } from "node:util";
-import type { SessionCloud } from "@pipoca/plugins";
+import type { SessionContext } from "@pipoca/plugins";
 import { workspaceChanges } from "./changes";
 import type { PullRequest } from "./report";
 
@@ -42,7 +42,12 @@ const pullRequestKey = (branch: string): string =>
 // publishes where each stands under "pull-requests". start is false when no
 // checkout on its own session branch matches.
 export function pullRequestCommand(
-  { publish, checkouts, log }: SessionCloud,
+  {
+    publish,
+    checkouts,
+    log,
+    clock,
+  }: Pick<SessionContext, "publish" | "checkouts" | "log" | "clock">,
   refresh: (cwd: string) => void,
 ): {
   readonly start: (args: string, cwd: string, complete: Complete) => boolean;
@@ -80,7 +85,7 @@ export function pullRequestCommand(
         for (const { path, base, name } of targets) {
           show({ name, status: "working" });
 
-          const started = Date.now();
+          const started = clock.now();
 
           const outcome = await openPullRequest(
             path,
@@ -98,7 +103,7 @@ export function pullRequestCommand(
             name,
             mode,
             status: outcome.status,
-            ms: Date.now() - started,
+            ms: clock.now() - started,
           });
         }
 

@@ -244,11 +244,16 @@
       "name": "@pipoca/changes",
       "dependencies": {
         "@pipoca/plugins": "workspace:*",
+        "@pipoca/protocol": "workspace:*",
         "@pipoca/ui": "workspace:*",
         "react": "19.3.1",
       },
       "devDependencies": {
+        "@happy-dom/global-registrator": "20.0.0",
+        "@types/node": "26.6.5",
         "@types/react": "19.3.0",
+        "@types/react-dom": "19.3.0",
+        "react-dom": "19.3.1",
       },
     },
     "plugins/checklist": {

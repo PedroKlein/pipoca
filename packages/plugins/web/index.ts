@@ -63,18 +63,12 @@ export interface WebContext {
   // The plugin's settings when the page loaded (ADR 0036).
   readonly settings: PluginSettings;
   readonly SessionView: ComponentType<EmbeddedSessionProps>;
-  // What every enabled plugin shows about a pull request, such as its checks
-  // on the git host (ADR 0051).
-  readonly PullRequestStatus: ComponentType<PullRequestStatusProps>;
 }
 
-export interface PullRequestStatusProps {
+export interface PullRequestProps {
+  readonly context: WebContext;
   readonly session: MountedSession;
   readonly url: string;
-}
-
-export interface PullRequestProps extends PullRequestStatusProps {
-  readonly context: WebContext;
 }
 
 export interface MountedSession {
