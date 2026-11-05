@@ -3727,7 +3727,6 @@ test("creates a session in the first Environment unless the request names one", 
   expect(first).toMatchObject({
     environmentId: laptopEnvironment,
     provider: "laptop",
-    ownerId: "local",
   });
 
   expect(unknown.status).toBe(400);

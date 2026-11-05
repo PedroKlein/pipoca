@@ -297,8 +297,28 @@ export function serve(options: ServeOptions): {
 
   const pluginsStop = new AbortController();
 
+  // Outside a cluster, the built-in runner's Environment is the first
+  // person's (ADR 0049): made when the setup link, a sign-in or a solo
+  // install makes them, and until then its runner polls for nothing.
+  const ownRunner = ownAgent?.provider;
+
+  const ownEnvironment = (person: string): void => {
+    if (ownRunner !== undefined) {
+      store.ensureEnvironment(ownRunner, person);
+    }
+  };
+
   const auth = new Auth(
-    store.auth,
+    {
+      ...store.auth,
+      insertUser: (user) => {
+        store.auth.insertUser(user);
+
+        if (store.auth.userCount() === 1) {
+          ownEnvironment(user.id);
+        }
+      },
+    },
     options.passwordLogin,
     clock,
     options.solo?.name,
@@ -532,7 +552,12 @@ export function serve(options: ServeOptions): {
         ),
       runner: (name) => {
         const [owner] = store.auth.users();
-        store.ensureEnvironment(name, owner?.id);
+
+        if (owner === undefined) {
+          throw new Error("a solo install has no user yet");
+        }
+
+        store.ensureEnvironment(name, owner.id);
 
         return auth.runnerToken(name, name);
       },
@@ -547,13 +572,14 @@ export function serve(options: ServeOptions): {
 
   const agentStop = new AbortController();
 
-  // The built-in provider is the same agent a laptop runs, talking to this
-  // server over loopback, so both providers share one tested path.
-  const ownRunner = ownAgent?.provider;
-  if (ownRunner !== undefined) {
-    store.ensureEnvironment(ownRunner);
+  const [firstPerson] = store.auth.users();
+
+  if (firstPerson !== undefined) {
+    ownEnvironment(firstPerson.id);
   }
 
+  // The built-in provider is the same agent a laptop runs, talking to this
+  // server over loopback, so both providers share one tested path.
   const agent =
     ownAgent &&
     runAgent({
@@ -696,7 +722,11 @@ function thisMachineEnvironment(
   const provider = "this-machine";
   const [owner] = store.auth.users();
 
-  store.ensureEnvironment(provider, owner?.id);
+  if (owner === undefined) {
+    return undefined;
+  }
+
+  store.ensureEnvironment(provider, owner.id);
 
   const created = store
     .environments()

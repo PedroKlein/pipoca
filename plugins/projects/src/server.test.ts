@@ -112,7 +112,6 @@ function fakeKernel(): {
         const session = fakeSession({
           id,
           environmentId: request.environment ?? "laptop",
-          ownerId: "pedro",
           owner:
             ownerKey === undefined
               ? null

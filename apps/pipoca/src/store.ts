@@ -19,7 +19,6 @@ import {
 } from "@pipoca/profiles";
 import {
   type Clock,
-  owner,
   type SessionStore,
   type StoredEnvironment,
   type StoredSession,
@@ -106,7 +105,7 @@ function ownerOf(userId: string | null): string {
 }
 
 function userOf(ownerId: string): string | null {
-  return ownerId === teamOwner || ownerId === owner ? null : ownerId;
+  return ownerId === teamOwner ? null : ownerId;
 }
 
 const monthMs = 30 * 24 * 60 * 60 * 1000;
@@ -160,7 +159,6 @@ export function openStore(
   const toSession = (row: SessionRow): StoredSession => ({
     id: row.id,
     environmentId: row.environment_id,
-    ownerId: owner,
     owner:
       row.plugin === null || row.plugin_key === null
         ? null
@@ -261,27 +259,11 @@ export function openStore(
     `${withProvider} where environments.slug = ? and (runner = ? or runner is null) and status = ? and workspace_removal in (?, ?) order by sessions.created_at`,
   );
 
-  const selectFirstUser = db.prepare(
-    "select id from users order by created_at limit 1",
-  );
-
-  const firstUser = (): string | null =>
-    (selectFirstUser.get() as { id: string } | undefined)?.id ?? null;
-
-  // Environments made before anyone signed up, such as the server's own
-  // runner's, are the first person's (ADR 0049).
-  const environmentOwner = (ownerId: string | undefined): string | null =>
-    ownerId === undefined || ownerId === owner ? firstUser() : userOf(ownerId);
-
-  const toEnvironment = (
-    row: EnvironmentRow,
-    nobody: boolean,
-  ): StoredEnvironment => ({
+  const toEnvironment = (row: EnvironmentRow): StoredEnvironment => ({
     id: row.id,
     name: row.name,
     provider: row.slug,
-    ownerId:
-      row.owner_user_id === null && nobody ? owner : ownerOf(row.owner_user_id),
+    ownerId: ownerOf(row.owner_user_id),
     createdAt: iso(row.created_at),
     isolation: row.isolation === "container" ? "container" : "process",
     image: row.image,
@@ -502,20 +484,17 @@ export function openStore(
         Bun.randomUUIDv7(),
         provider,
         provider,
-        environmentOwner(ownerId),
+        userOf(ownerId),
         templateId,
         templateId === null ? "process" : null,
         templateId === null ? "" : null,
         clock.now(),
       );
     },
-    environments: () => {
-      const nobody = firstUser() === null;
-
-      return (selectEnvironments.all() as unknown as EnvironmentRow[]).map(
-        (row) => toEnvironment(row, nobody),
-      );
-    },
+    environments: () =>
+      (selectEnvironments.all() as unknown as EnvironmentRow[]).map(
+        toEnvironment,
+      ),
     registeredModels: (provider) =>
       (
         selectRunnerModels.all(provider) as {
@@ -699,10 +678,6 @@ function authStore(db: DatabaseSync, clock: Clock): AuthStore {
 
   const insertUser = db.prepare(
     "insert into users (id, name, password_hash, created_at, admin) values (?, ?, ?, ?, ?)",
-  );
-
-  const giveEnvironments = db.prepare(
-    "update environments set owner_user_id = ? where owner_user_id is null",
   );
 
   const updateAdmin = db.prepare("update users set admin = ? where id = ?");
@@ -897,19 +872,13 @@ function authStore(db: DatabaseSync, clock: Clock): AuthStore {
         (row) => userOfRow(row) ?? [],
       ),
     insertUser: (user) => {
-      transaction(db, () => {
-        insertUser.run(
-          user.id,
-          user.name,
-          user.passwordHash === "" ? null : user.passwordHash,
-          ms(user.createdAt),
-          user.admin ? 1 : 0,
-        );
-
-        if ((countUsers.get() as { n: number }).n === 1) {
-          giveEnvironments.run(user.id);
-        }
-      });
+      insertUser.run(
+        user.id,
+        user.name,
+        user.passwordHash === "" ? null : user.passwordHash,
+        ms(user.createdAt),
+        user.admin ? 1 : 0,
+      );
     },
     setAdmin: (id, admin) => {
       updateAdmin.run(admin ? 1 : 0, id);

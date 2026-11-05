@@ -132,7 +132,6 @@ export function fakeSession(fields: Partial<Session> = {}): Session {
   return {
     id: "session-1",
     environmentId: "environment-1",
-    ownerId: "owner",
     owner: null,
     provider: "local",
     runner: null,

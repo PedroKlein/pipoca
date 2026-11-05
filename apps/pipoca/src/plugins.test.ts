@@ -312,7 +312,9 @@ test("tells open pages which kind of thing changed, never what", async () => {
   expect(topics).toContain("sessions");
   expect(topics.at(-1)).toBe("notes.entries");
 
-  expect(new Set(topics)).toEqual(
+  // The built-in runner's Environment, made at sign-up, may hear from its
+  // runner meanwhile.
+  expect(new Set(topics.filter((topic) => topic !== "environments"))).toEqual(
     new Set(["mcp-tokens", "sessions", "notes.entries"]),
   );
 });
@@ -607,7 +609,7 @@ test("keeps the data of a plugin that failed for another reason than its tables"
         throw new Error("notes needs a folder");
       }
 
-      routes.handle(async (request) => {
+      routes.handle((request) => {
         if (request.method === "POST") {
           store.run("insert into notes_items (text) values ('kept')");
 
@@ -649,6 +651,7 @@ test("keeps the data of a plugin that failed for another reason than its tables"
     state: "failed",
     error: "notes needs a folder",
   });
+
   expect(listed?.resettable).toBeUndefined();
   expect(reset.status).toBe(400);
 

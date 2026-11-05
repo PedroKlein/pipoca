@@ -5,6 +5,7 @@ import {
 } from "@pipoca/plugins";
 import type { Session, ToolResult } from "@pipoca/protocol";
 import type { WakeUp } from "./model";
+import { teamRoutines } from "./engine";
 
 const minuteMs = 60_000;
 const dayMs = 24 * 60 * minuteMs;
@@ -181,7 +182,7 @@ export function wakeUps(
       "insert into routines_wakeups (id, session_id, user_id, due_at, try_at, reason, message) values (?, ?, ?, ?, ?, ?, ?)",
       id,
       session.id,
-      session.startedBy ?? session.ownerId,
+      session.startedBy ?? teamRoutines,
       dueAt,
       dueAt,
       reason,

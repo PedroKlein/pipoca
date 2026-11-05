@@ -1,7 +1,6 @@
 // The store reads the clock from here too.
 export { type Clock, systemClock } from "@pipoca/protocol";
 export {
-  owner,
   type PluginProfile,
   Sessions,
   type Rejection,

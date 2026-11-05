@@ -23,14 +23,13 @@ test("opens its own database again", () => {
   openStore(path).close();
 
   const store = openStore(path);
-  store.ensureEnvironment("vm");
-  store.ensureEnvironment("vm");
+  store.ensureEnvironment("vm", "team");
+  store.ensureEnvironment("vm", "team");
   const [environment] = store.environments();
 
   store.insert({
     id: "s1",
     environmentId: environment?.id ?? "",
-    ownerId: "local",
     owner: null,
     provider: "vm",
     runner: null,
@@ -68,7 +67,7 @@ test("opens its own database again", () => {
 test("lists the Sessions one owner holds", () => {
   const store = openStore(":memory:");
   defaultProfile = store.defaultProfileId("local");
-  store.ensureEnvironment("vm");
+  store.ensureEnvironment("vm", "team");
   const [environment] = store.environments();
   const id = environment?.id ?? "";
   const project = { plugin: "projects", key: "p1" };
@@ -110,7 +109,6 @@ function sessionIn(
 ): StoredSession {
   return {
     environmentId,
-    ownerId: "local",
     owner: null,
     provider,
     runner: null,
@@ -137,7 +135,7 @@ function sessionIn(
 test("lists sessions newest first and leaves archived ones out unless asked", () => {
   const store = openStore(join(root, "server.db"));
   defaultProfile = store.defaultProfileId("local");
-  store.ensureEnvironment("vm");
+  store.ensureEnvironment("vm", "team");
   const vm = store.environments()[0]?.id ?? "";
 
   for (const session of [
@@ -172,8 +170,8 @@ test("lists sessions newest first and leaves archived ones out unless asked", ()
 test("lists a provider's stopped sessions whose workspace is waiting to be removed, oldest first", () => {
   const store = openStore(join(root, "server.db"));
   defaultProfile = store.defaultProfileId("local");
-  store.ensureEnvironment("vm");
-  store.ensureEnvironment("laptop");
+  store.ensureEnvironment("vm", "team");
+  store.ensureEnvironment("laptop", "team");
 
   const environments = new Map(
     store.environments().map(({ provider, id }) => [provider, id]),
@@ -270,7 +268,7 @@ function rawSecrets(path: string): string[] {
 test("stores Environment secrets encrypted and reads them back after a restart", () => {
   const path = join(root, "server.db");
   const store = openStore(path);
-  store.ensureEnvironment("vm");
+  store.ensureEnvironment("vm", "team");
   const [environment] = store.environments();
 
   if (environment === undefined) {
@@ -292,8 +290,8 @@ test("stores Environment secrets encrypted and reads them back after a restart",
 test("keeps no setup of its own for an Environment made from a template", () => {
   const path = join(root, "server.db");
   const store = openStore(path);
-  store.ensureEnvironment("vm", undefined, "python");
-  store.ensureEnvironment("laptop");
+  store.ensureEnvironment("vm", "team", "python");
+  store.ensureEnvironment("laptop", "team");
 
   for (const environment of store.environments()) {
     store.updateEnvironment({ ...environment, name: `${environment.name}!` });
@@ -321,10 +319,27 @@ test("keeps no setup of its own for an Environment made from a template", () => 
   db.close();
 });
 
+test("keeps the team's Environments the team's when the first person signs up", () => {
+  const store = openStore(":memory:");
+  store.ensureEnvironment("shared", "team");
+
+  store.auth.insertUser({
+    id: "ana",
+    name: "ana",
+    admin: true,
+    passwordHash: "",
+    createdAt: new Date().toISOString(),
+  });
+
+  expect(store.environments().map(({ ownerId }) => ownerId)).toEqual(["team"]);
+
+  store.close();
+});
+
 test("refuses to open a database's secrets with another key", () => {
   const path = join(root, "server.db");
   const store = openStore(path, randomBytes(32));
-  store.ensureEnvironment("vm");
+  store.ensureEnvironment("vm", "team");
   const [environment] = store.environments();
 
   if (environment === undefined) {
