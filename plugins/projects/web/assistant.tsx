@@ -48,7 +48,8 @@ function useAssistant(team = false): ProjectView | null | undefined {
   ).value;
 }
 
-function useModels(scope: "" | "team"): readonly string[] | undefined {
+// Undefined while loading, null when there is no Environment to run on.
+function useModels(scope: "" | "team"): readonly string[] | null | undefined {
   const environments = useLoaded(
     async () =>
       json<Environment[]>(
@@ -63,7 +64,8 @@ function useModels(scope: "" | "team"): readonly string[] | undefined {
   ).value;
 
   return (
-    environments && (environments.length === 0 ? [] : modelNames(environments))
+    environments &&
+    (environments.length === 0 ? null : modelNames(environments))
   );
 }
 
@@ -82,7 +84,7 @@ export function Home({
       <h1 className="text-center font-serif text-hero font-light text-fg-strong">
         What do you want to build today?
       </h1>
-      {models !== undefined && models.length > 0 && (
+      {models !== undefined && models !== null && (
         <Composer models={models} picksModel={assistant === null} />
       )}
       <Continue assistant={assistant === null ? null : assistant?.id} />
@@ -189,7 +191,7 @@ export function TeamAssistant(): ReactElement {
       <PageTitle description="Ask it to start team work, look up what the team is doing, or set up a routine for the team. Its chat is yours alone; what it starts belongs to the team, on the team's key.">
         Team assistant
       </PageTitle>
-      {models !== undefined && models.length > 0 ? (
+      {models !== undefined && models !== null ? (
         <Composer models={models} picksModel team />
       ) : (
         <p className="text-fg-dim">

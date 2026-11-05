@@ -801,24 +801,26 @@ test("changes a plugin's setting on the Plugins page", async () => {
   await page.goto(server.url.href);
   await openSettings("Plugins");
 
-  const library = page.getByRole("listitem", { name: "Library" });
-  await library.getByRole("switch", { name: "On", checked: true }).waitFor();
-  await library.getByRole("button", { name: "Settings" }).click();
+  const push = page.getByRole("listitem", { name: "Notifications" });
+  await push.getByRole("switch", { name: "On", checked: true }).waitFor();
+  await push.getByRole("button", { name: "Settings" }).click();
 
-  const limit = library.getByLabel(/^File size limit in MB/);
+  const limit = push.getByLabel(
+    /^Minutes before a question goes to the starter/,
+  );
   expect(await limit.inputValue()).toBe("10");
 
   await limit.fill("25");
-  await library.getByRole("button", { name: "Save" }).click();
-  await library.getByText("Saved").waitFor();
+  await push.getByRole("button", { name: "Save" }).click();
+  await push.getByText("Saved").waitFor();
 
   await page.reload();
-  await library.getByRole("button", { name: "Settings" }).click();
+  await push.getByRole("button", { name: "Settings" }).click();
   expect(await limit.inputValue()).toBe("25");
 
   await limit.fill("10");
-  await library.getByRole("button", { name: "Save" }).click();
-  await library.getByText("Saved").waitFor();
+  await push.getByRole("button", { name: "Save" }).click();
+  await push.getByText("Saved").waitFor();
 });
 
 test("finds a plugin by a word of its name or description", async () => {
@@ -826,12 +828,12 @@ test("finds a plugin by a word of its name or description", async () => {
   await openSettings("Plugins");
 
   const plugins = page.getByRole("list", { name: "Plugins" });
-  await plugins.getByRole("listitem", { name: "Library" }).waitFor();
+  await plugins.getByRole("listitem", { name: "Routines" }).waitFor();
 
   await page.getByLabel("Search plugins").fill("subagents");
 
   await plugins
-    .getByRole("listitem", { name: "Library" })
+    .getByRole("listitem", { name: "Routines" })
     .waitFor({ state: "detached" });
 
   expect(await plugins.getByRole("listitem").count()).toBe(1);
@@ -1056,7 +1058,7 @@ test("draws a defined plugin's page and slots, pinned for someone who never chan
     const nav = page.locator("#plugin-nav");
 
     await nav.getByRole("link", { name: "Projects" }).waitFor();
-    expect(await nav.getByRole("link", { name: "Library" }).count()).toBe(0);
+    expect(await nav.getByRole("link", { name: "Routines" }).count()).toBe(0);
 
     await nav.getByRole("link", { name: "Vault" }).click();
     await page.getByRole("heading", { name: "Vault" }).waitFor();
@@ -1119,23 +1121,23 @@ test("says why an installed plugin's web part didn't load, and draws the rest", 
 test("pins a plugin page to the sidebar and keeps the rest under More", async () => {
   await page.goto(server.url.href);
   const nav = page.locator("#plugin-nav");
-  const library = nav.getByRole("link", { name: "Library" });
+  const routines = nav.getByRole("link", { name: "Routines" });
 
   await nav.getByRole("link", { name: "Projects" }).waitFor();
-  expect(await library.count()).toBe(0);
+  expect(await routines.count()).toBe(0);
 
   await nav.getByRole("button", { name: "More" }).click();
-  await nav.getByRole("button", { name: "Pin Library" }).click();
-  await nav.getByRole("button", { name: "Unpin Library" }).waitFor();
+  await nav.getByRole("button", { name: "Pin Routines" }).click();
+  await nav.getByRole("button", { name: "Unpin Routines" }).waitFor();
 
   await page.reload();
-  await library.waitFor();
+  await routines.waitFor();
   expect(await nav.getByRole("button", { name: "More" }).count()).toBe(1);
 
-  await nav.getByRole("button", { name: "Unpin Library" }).click();
+  await nav.getByRole("button", { name: "Unpin Routines" }).click();
   await page.reload();
   await nav.getByRole("link", { name: "Projects" }).waitFor();
-  expect(await library.count()).toBe(0);
+  expect(await routines.count()).toBe(0);
 });
 
 test("puts a pin back when the server doesn't save it", async () => {
@@ -1160,12 +1162,12 @@ test("puts a pin back when the server doesn't save it", async () => {
   const nav = page.locator("#plugin-nav");
 
   await nav.getByRole("button", { name: "More" }).click();
-  await nav.getByRole("button", { name: "Pin Library" }).click();
-  await nav.getByRole("button", { name: "Unpin Library" }).waitFor();
+  await nav.getByRole("button", { name: "Pin Routines" }).click();
+  await nav.getByRole("button", { name: "Unpin Routines" }).waitFor();
   refuse(undefined);
 
   await nav
-    .getByRole("button", { name: "Pin Library", exact: true })
+    .getByRole("button", { name: "Pin Routines", exact: true })
     .waitFor({ timeout: 2000 });
 
   await page.unroute("**/api/me/pinned-pages");
