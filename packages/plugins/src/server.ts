@@ -73,6 +73,20 @@ export interface PluginEvents<P extends PluginDefinition> {
 
 export type Params = Readonly<Record<string, string>>;
 
+type ParamName<S extends string> = S extends `:${infer N}` | `*${infer N}`
+  ? N
+  : never;
+
+type ParamNames<P extends string> = P extends `${infer S}/${infer Rest}`
+  ? ParamName<S> | ParamNames<Rest>
+  : ParamName<P>;
+
+// A route's params by the names its path gives them, such as id for
+// "votes/:id/pick".
+export type ParamsOf<P extends string> = string extends P
+  ? Params
+  : Readonly<Record<ParamNames<P>, string>>;
+
 export type Auth =
   | "person"
   | "admin"
@@ -86,37 +100,63 @@ export type Auth =
       };
     };
 
-export type Caller =
-  | { readonly kind: "person"; readonly person: Person; readonly owner: Owner }
-  | {
-      readonly kind: "session";
-      readonly session: Session;
-      readonly person?: Person;
-      readonly owner: Owner;
-    }
-  | { readonly kind: "public"; readonly person?: Person };
+export interface PersonCaller {
+  readonly kind: "person";
+  readonly person: Person;
+  readonly owner: Owner;
+}
+
+export interface SessionCaller {
+  readonly kind: "session";
+  readonly session: Session;
+  readonly person?: Person;
+  readonly owner: Owner;
+}
+
+export interface PublicCaller {
+  readonly kind: "public";
+  readonly person?: Person;
+}
+
+export type Caller = PersonCaller | SessionCaller | PublicCaller;
+
+// A person route takes only people: a Session reaches it through a route
+// tool, which calls it as the person.
+export type CallerOf<A extends Auth> = A extends "person" | "admin"
+  ? PersonCaller
+  : A extends "session"
+    ? SessionCaller
+    : PublicCaller;
 
 type Schema = TSchema | undefined;
 
 type StaticOf<S extends Schema> = [S] extends [TSchema] ? Static<S> : undefined;
 
 export interface RouteSpec<
+  A extends Auth = Auth,
   B extends Schema = Schema,
   Q extends Schema = Schema,
   R extends Schema = Schema,
 > {
-  readonly auth: Auth;
+  readonly auth: A;
   readonly body?: B;
   readonly query?: Q;
   readonly response?: R;
+  // What a reply other than 200 answers with.
+  readonly status?: 201 | 202;
   readonly changes?: readonly string[];
   readonly long?: boolean;
   readonly tool?: RouteToolSpec;
 }
 
-export interface RouteInput<B extends Schema, Q extends Schema> {
-  readonly caller: Caller;
-  readonly params: Params;
+export interface RouteInput<
+  P extends string,
+  A extends Auth,
+  B extends Schema,
+  Q extends Schema,
+> {
+  readonly caller: CallerOf<A>;
+  readonly params: ParamsOf<P>;
   readonly body: StaticOf<B>;
   readonly query: StaticOf<Q>;
   readonly raw: Request;
@@ -126,43 +166,59 @@ type Reply<R extends Schema> = [R] extends [TSchema]
   ? Static<R> | Response
   : unknown;
 
-export type Handler<B extends Schema, Q extends Schema, R extends Schema> = (
-  request: RouteInput<B, Q>,
-) => Reply<R> | Promise<Reply<R>>;
+export type Handler<
+  P extends string,
+  A extends Auth,
+  B extends Schema,
+  Q extends Schema,
+  R extends Schema,
+> = (request: RouteInput<P, A, B, Q>) => Reply<R> | Promise<Reply<R>>;
 
-type Read = <Q extends Schema = undefined, R extends Schema = undefined>(
-  path: string,
-  spec: RouteSpec<undefined, Q, R>,
-  handler: Handler<undefined, Q, R>,
+type Read = <
+  P extends string,
+  A extends Auth,
+  Q extends Schema = undefined,
+  R extends Schema = undefined,
+>(
+  path: P,
+  spec: RouteSpec<A, undefined, Q, R>,
+  handler: Handler<P, A, undefined, Q, R>,
 ) => void;
 
 type Write = <
+  P extends string,
+  A extends Auth,
   B extends Schema = undefined,
   Q extends Schema = undefined,
   R extends Schema = undefined,
 >(
-  path: string,
-  spec: RouteSpec<B, Q, R>,
-  handler: Handler<B, Q, R>,
+  path: P,
+  spec: RouteSpec<A, B, Q, R>,
+  handler: Handler<P, A, B, Q, R>,
 ) => void;
 
-type ScopedRead = <Q extends Schema = undefined, R extends Schema = undefined>(
-  path: string,
-  spec: Omit<RouteSpec<undefined, Q, R>, "auth">,
+type ScopedRead = <
+  P extends string,
+  Q extends Schema = undefined,
+  R extends Schema = undefined,
+>(
+  path: P,
+  spec: Omit<RouteSpec<"person", undefined, Q, R>, "auth">,
   handler: (
-    request: RouteInput<undefined, Q> & { readonly owner: Owner },
+    request: RouteInput<P, "person", undefined, Q> & { readonly owner: Owner },
   ) => Reply<R> | Promise<Reply<R>>,
 ) => void;
 
 type ScopedWrite = <
+  P extends string,
   B extends Schema = undefined,
   Q extends Schema = undefined,
   R extends Schema = undefined,
 >(
-  path: string,
-  spec: Omit<RouteSpec<B, Q, R>, "auth">,
+  path: P,
+  spec: Omit<RouteSpec<"person", B, Q, R>, "auth">,
   handler: (
-    request: RouteInput<B, Q> & { readonly owner: Owner },
+    request: RouteInput<P, "person", B, Q> & { readonly owner: Owner },
   ) => Reply<R> | Promise<Reply<R>>,
 ) => void;
 

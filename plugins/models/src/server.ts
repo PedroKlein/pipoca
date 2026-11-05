@@ -1,13 +1,10 @@
 import { randomUUID } from "node:crypto";
 import {
   BadRequest,
-  type Caller,
   defineServer,
-  Forbidden,
   HttpError,
   type OfferedModels,
   type ServerContext,
-  type Session,
   type Store,
   Type,
 } from "@pipoca/plugins";
@@ -114,7 +111,7 @@ export const server = defineServer(models, (context) => {
     "config",
     { auth: "session", query: configQuery, long: true },
     async ({ caller, query, raw }) => {
-      const { environmentId } = sessionOf(caller);
+      const { environmentId } = caller.session;
 
       // A Session polls again at once after any answer, and backs off only
       // after an error.
@@ -141,8 +138,7 @@ export const server = defineServer(models, (context) => {
   routes.post(
     "health",
     { auth: "session", body: healthReport },
-    ({ caller, body }) => {
-      const session = sessionOf(caller);
+    ({ caller: { session }, body }) => {
       const reported = healthFrom(body);
       if (reported === undefined) {
         throw new BadRequest(
@@ -172,7 +168,7 @@ export const server = defineServer(models, (context) => {
 
   routes.get("hidden", { auth: "person" }, ({ caller }) => ({
     hidden: hidden(),
-    mayChange: caller.kind === "person" && caller.person.admin,
+    mayChange: caller.person.admin,
   }));
 
   routes.post(
@@ -198,7 +194,7 @@ export const server = defineServer(models, (context) => {
     "environments/:id",
     { auth: "admin", body: aliasesChange },
     ({ params, body: { aliases } }) => {
-      const environmentId = params["id"] ?? "";
+      const environmentId = params.id;
       const problem = aliases === null ? undefined : aliasProblem(aliases);
 
       if (problem !== undefined) {
@@ -213,15 +209,6 @@ export const server = defineServer(models, (context) => {
     },
   );
 });
-
-// The Session a session route's caller is, which the router guarantees.
-function sessionOf(caller: Caller): Session {
-  if (caller.kind !== "session") {
-    throw new Forbidden("Only the plugin's Sessions call this.");
-  }
-
-  return caller.session;
-}
 
 function offered(aliases: AliasConfig | null): OfferedModels {
   if (aliases === null) {

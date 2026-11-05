@@ -136,11 +136,12 @@ test("a Session route answers 403 to a browser and serves the plugin's Session",
 
   expect(await status(as(cookie).post("beats", {}))).toBe(403);
   expect(await session.post("beats", {})).toMatchObject({ kind: "session" });
+});
 
-  expect(await session.get("whoami")).toMatchObject({
-    kind: "session",
-    person: "pedro",
-  });
+test("a person route answers 403 to a Session, even one a person started", async () => {
+  const session = await sessionCaller();
+
+  expect(await status(session.get("whoami"))).toBe(403);
 });
 
 test("a public route answers anyone and sees who signed in", async () => {

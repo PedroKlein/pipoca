@@ -1,8 +1,6 @@
 import {
   BadRequest,
-  type Caller,
   defineServer,
-  Forbidden,
   HttpError,
   NotFound,
   type Person,
@@ -72,30 +70,25 @@ export const server = defineServer(ask, (context) => {
     },
   });
 
-  routes.get("sessions/:id/votes", { auth: "person" }, ({ params, caller }) => {
-    const person = personOf(caller);
-
-    return votes.of(votes.session(params["id"] ?? "", person), person);
-  });
+  routes.get(
+    "sessions/:id/votes",
+    { auth: "person" },
+    ({ params, caller: { person } }) =>
+      votes.of(votes.session(params.id, person), person),
+  );
 
   routes.post(
     "sessions/:id/votes",
-    { auth: "person", body: opening, changes: ["votes"] },
-    ({ params, caller, body }) => {
-      const person = personOf(caller);
-      const session = votes.session(params["id"] ?? "", person);
-
-      return Response.json(votes.open(session, `user:${person.id}`, body), {
-        status: 201,
-      });
-    },
+    { auth: "person", body: opening, status: 201, changes: ["votes"] },
+    ({ params, caller: { person }, body }) =>
+      votes.open(votes.session(params.id, person), `user:${person.id}`, body),
   );
 
   routes.put(
     "votes/:id/pick",
     { auth: "person", body: picking, changes: ["votes"] },
     ({ params, caller, body }) => {
-      votes.pick(params["id"] ?? "", personOf(caller), body.option);
+      votes.pick(params.id, caller.person, body.option);
 
       return { ok: true };
     },
@@ -105,7 +98,7 @@ export const server = defineServer(ask, (context) => {
     "votes/:id/close",
     { auth: "person", changes: ["votes"] },
     ({ params, caller }) => {
-      votes.close(params["id"] ?? "", personOf(caller));
+      votes.close(params.id, caller.person);
 
       return { ok: true };
     },
@@ -318,16 +311,6 @@ function ballots(context: ServerContext<typeof ask>) {
       }
     },
   };
-}
-
-// Votes are people's, so only a signed-in person, not a Session, calls the
-// routes.
-function personOf(caller: Caller): Person {
-  if (caller.kind !== "person") {
-    throw new Forbidden("only a person votes", "people_only");
-  }
-
-  return caller.person;
 }
 
 // The result as the team and Pi read it, such as "Ship it today?": Ship 2

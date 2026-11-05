@@ -72,10 +72,8 @@ const ledger = defineServer(
 
     routes.get("entries/:id", { auth: "person" }, ({ params }) => ({
       one:
-        store.get(
-          "select text from ledger_entries where id = ?",
-          params["id"] ?? "",
-        ) ?? null,
+        store.get("select text from ledger_entries where id = ?", params.id) ??
+        null,
       all: store.all("select text from ledger_entries order by id"),
     }));
 
@@ -98,16 +96,14 @@ const ledger = defineServer(
       "books/:name",
       { auth: "admin", body: Type.Object({ key: Type.String() }) },
       ({ params, body }) => {
-        config
-          .collection("books")
-          .put({ name: params["name"] ?? "", key: body.key });
+        config.collection("books").put({ name: params.name, key: body.key });
 
         return config.collection("books").list();
       },
     );
 
     routes.delete("books/:name", { auth: "admin" }, ({ params }) => ({
-      removed: config.collection("books").remove(params["name"] ?? ""),
+      removed: config.collection("books").remove(params.name),
     }));
 
     routes.get("watched", { auth: "person" }, () => heard);
@@ -116,7 +112,7 @@ const ledger = defineServer(
       "sessions/:id/notes",
       { auth: "person", body: text },
       ({ params, body }) => ({
-        sent: sessions.send(params["id"] ?? "", {
+        sent: sessions.send(params.id, {
           text: body.text,
           turn: false,
         }),

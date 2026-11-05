@@ -97,7 +97,15 @@ export function extRoutes(
     });
 
     if (auth === "person") {
-      return [serve(api, "person"), serve(runner, "session")];
+      return [
+        serve(api, "person"),
+        {
+          spec: { method: route.method, path: runner, auth: "session" },
+          handler: () => {
+            throw new Forbidden("Only people call this.", "people_only");
+          },
+        },
+      ];
     }
 
     if (auth === "session") {
@@ -133,7 +141,7 @@ export function extRoutes(
 }
 
 function specOf(route: ExtRoute, path: string, auth: Auth): RouteSpec {
-  const { body, query, response, changes, long } = route.spec;
+  const { body, query, response, status, changes, long } = route.spec;
 
   return {
     method: route.method,
@@ -142,6 +150,7 @@ function specOf(route: ExtRoute, path: string, auth: Auth): RouteSpec {
     ...(body !== undefined && { body }),
     ...(query !== undefined && { query }),
     ...(response !== undefined && { response }),
+    ...(status !== undefined && { status }),
     ...(changes !== undefined && {
       changes: changes.map((name) => `${route.plugin}.${name}`),
     }),

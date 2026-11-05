@@ -102,9 +102,9 @@ const keys = defineServer(
         },
       },
       ({ params, body, caller }) => ({
-        name: params["name"],
+        name: params.name,
         value: body.value,
-        by: caller.kind === "person" ? caller.person.name : caller.kind,
+        by: caller.person.name,
       }),
     );
 
@@ -121,7 +121,7 @@ const keys = defineServer(
       { auth: "person", body: Type.Object({ environment: Type.String() }) },
       ({ caller, body }) =>
         sessions.start({
-          actor: `user:${caller.kind === "person" ? caller.person.id : ""}`,
+          actor: `user:${caller.person.id}`,
           environment: body.environment,
           profile,
           workspace: { kind: "folder", path: root },
