@@ -10,7 +10,7 @@ import {
   terminalTakenOver,
 } from "@pipoca/protocol";
 import type { EmbeddedSessionProps } from "@pipoca/plugins/web";
-import { Badge, Button, cn, Icon, type IconName, Picker, type PickerOption, Segmented, useConfirm } from "@pipoca/ui";
+import { Badge, Button, cn, Icon, type IconName, Menu, Picker, type PickerOption, Segmented, useConfirm } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -597,74 +597,10 @@ function SessionMenu({
   // A list an item opens where the menu was.
   readonly popover?: ReactNode;
 }): ReactElement {
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) {
-      return undefined;
-    }
-
-    const close = (event: Event): void => {
-      if (
-        event instanceof KeyboardEvent
-          ? event.key === "Escape"
-          : box.current?.contains(event.target as Node) !== true
-      ) {
-        setOpen(false);
-      }
-    };
-
-    document.addEventListener("pointerdown", close);
-    document.addEventListener("keydown", close);
-
-    return () => {
-      document.removeEventListener("pointerdown", close);
-      document.removeEventListener("keydown", close);
-    };
-  }, [open]);
-
   return (
-    <div ref={box} className="relative">
+    <div className="relative">
       <div className="absolute top-full right-0">{popover}</div>
-      <Button
-        variant="ghost"
-        iconOnly
-        aria-label="Session actions"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => {
-          setOpen(!open);
-        }}
-      >
-        <Icon name="more" />
-      </Button>
-      {open && (
-        <div
-          role="menu"
-          aria-label="Session actions"
-          className="absolute top-full right-0 z-30 mt-1 flex min-w-48 flex-col rounded-lg border border-line bg-elevated p-1 shadow-pop"
-        >
-          {items.map(({ label, icon, danger, run }) => (
-            <button
-              key={label}
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                run();
-              }}
-              className={cn(
-                "flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-ui hover:bg-hover",
-                danger === true ? "text-failed" : "text-fg",
-              )}
-            >
-              <Icon name={icon} className="size-4" />
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
+      <Menu label="Session actions" items={items} />
     </div>
   );
 }

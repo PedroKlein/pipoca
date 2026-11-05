@@ -1,7 +1,7 @@
 import { useNow } from "@pipoca/plugins/web";
 import type { MountedSession } from "@pipoca/plugins/web";
 import type { Quote, UiAction } from "@pipoca/protocol";
-import { cn, Icon, Mark, type MarkStatus, StatusMark } from "@pipoca/ui";
+import { cn, Code, Icon, Mark, type MarkStatus, StatusMark } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -592,14 +592,13 @@ function StepRow({
       >
         {line}
       </summary>
-      <pre
-        className={cn(
-          "mx-2 mt-1 mb-2 max-h-80 overflow-auto rounded-md border border-line bg-code px-3 py-2 font-mono text-mono-sm whitespace-pre-wrap",
-          step.result.failed ? "text-failed" : "text-fg",
-        )}
+      <Code
+        wrap
+        failed={step.result.failed}
+        className="mx-2 mt-1 mb-2 max-h-80 overflow-auto"
       >
         {step.result.text}
-      </pre>
+      </Code>
     </details>
   );
 }

@@ -1,6 +1,6 @@
 import { ThemeSwitch } from "./theme";
 import { availability, type Environment, type Session } from "@pipoca/protocol";
-import { Avatar, Badge, Button, cn, fieldClass, Icon, Mark } from "@pipoca/ui";
+import { Avatar, Button, cn, fieldClass, Icon, Mark, SessionRow } from "@pipoca/ui";
 import { type ReactElement, useEffect, useState } from "react";
 import { json, useNow } from "@pipoca/plugins/web";
 import { api, send } from "./api";
@@ -155,7 +155,7 @@ export function Sidebar({
           </li>
         )}
         {shown.map((session) => (
-          <SessionRow
+          <SidebarSession
             key={session.id}
             session={session}
             environment={environments.find(
@@ -179,7 +179,7 @@ function ownedByEnabled({ owner }: Session): boolean {
   );
 }
 
-function SessionRow({
+function SidebarSession({
   session,
   environment,
   current,
@@ -200,27 +200,15 @@ function SessionRow({
   ].join(" · ");
 
   return (
-    <li data-id={session.id}>
-      <a
-        href={sessionHref(session)}
-        aria-current={current ? "page" : undefined}
-        className="relative grid grid-cols-[1fr_auto] items-center gap-x-2 gap-y-0.5 rounded-md px-3 py-2 text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:before:absolute aria-[current=page]:before:inset-y-2 aria-[current=page]:before:left-0 aria-[current=page]:before:w-0.5 aria-[current=page]:before:rounded-full aria-[current=page]:before:bg-accent"
-      >
-        <span
-          title={workspaceName(session.workspace)}
-          className={cn(
-            "truncate text-ui font-medium",
-            current && "text-fg-strong",
-          )}
-        >
-          {session.title ?? shortName(session.workspace)}
-        </span>
-        {badge ? <Badge state={badge.state}>{badge.label}</Badge> : <span />}
-        <span className="col-span-2 truncate text-caption text-fg-dim">
-          {meta}
-        </span>
-      </a>
-    </li>
+    <SessionRow
+      id={session.id}
+      href={sessionHref(session)}
+      title={session.title ?? shortName(session.workspace)}
+      titleHint={workspaceName(session.workspace)}
+      meta={meta}
+      current={current}
+      {...(badge && { badge })}
+    />
   );
 }
 

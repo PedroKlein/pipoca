@@ -5,7 +5,7 @@ import {
   type WebContext,
 } from "@pipoca/plugins/web";
 import type { Environment, Profile, SetupState } from "@pipoca/protocol";
-import { Badge, Button, cn, Icon, Mark, Row, Rows } from "@pipoca/ui";
+import { Badge, Button, cn, Command, Icon, Mark, Row, Rows, Spinner } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -642,23 +642,9 @@ function ConnectMachine(): ReactElement {
       <p className="text-label text-fg-dim">
         Run it in the folder Pi should work in. The key is shown only now.
       </p>
-      <div className="flex items-start gap-2">
-        <pre
-          aria-label="Join command"
-          className="min-w-0 flex-1 rounded-md border border-line bg-panel p-3 font-mono text-mono-sm break-all whitespace-pre-wrap"
-        >
-          {command}
-        </pre>
-        <Button
-          onClick={() => {
-            void navigator.clipboard.writeText(command);
-          }}
-        >
-          Copy
-        </Button>
-      </div>
-      <p className="text-caption text-fg-dim" aria-live="polite">
-        Waiting for the machine to connect…
+      <Command label="Join command">{command}</Command>
+      <p aria-live="polite">
+        <Spinner label="Waiting for the machine to connect…" />
       </p>
     </div>
   );

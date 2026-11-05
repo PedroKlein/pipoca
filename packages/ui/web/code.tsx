@@ -6,12 +6,15 @@ import { cn } from "./cn";
 export function Code({
   label,
   wrap = false,
+  failed = false,
   className,
   children,
 }: {
   readonly label?: string;
   // Wraps long lines instead of scrolling them.
   readonly wrap?: boolean;
+  // Output of something that failed.
+  readonly failed?: boolean;
   readonly className?: string;
   readonly children: ReactNode;
 }): ReactElement {
@@ -19,7 +22,8 @@ export function Code({
     <pre
       aria-label={label}
       className={cn(
-        "overflow-x-auto rounded-[10px] border border-line bg-code px-3.5 py-3 font-mono text-mono-sm text-fg",
+        "overflow-x-auto rounded-[10px] border border-line bg-code px-3.5 py-3 font-mono text-mono-sm",
+        failed ? "text-failed" : "text-fg",
         wrap && "break-words whitespace-pre-wrap",
         className,
       )}

@@ -7,7 +7,7 @@ import type {
   WebPlugin,
 } from "@pipoca/plugins/web";
 import { useNow } from "@pipoca/plugins/web";
-import { Button, cn, Icon, isComposing, StatusMark } from "@pipoca/ui";
+import { Button, cn, Code, Icon, isComposing, StatusMark } from "@pipoca/ui";
 import { type ReactElement, useEffect, useState } from "react";
 import {
   type ChildView,
@@ -364,14 +364,9 @@ function Output({
   }
 
   return (
-    <pre
-      className={cn(
-        "max-h-80 overflow-auto rounded-md border border-line bg-code px-3 py-2 font-mono text-mono-sm whitespace-pre-wrap",
-        failed ? "text-failed" : "text-fg",
-      )}
-    >
+    <Code wrap failed={failed} className="max-h-80 overflow-auto">
       {text}
-    </pre>
+    </Code>
   );
 }
 

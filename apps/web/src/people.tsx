@@ -6,7 +6,7 @@ import {
   type Person,
   type Session,
 } from "@pipoca/protocol";
-import { Badge, Button, Icon, initialsOf, PageTitle, plural, Row, Rows, Select, Tabs, useConfirm } from "@pipoca/ui";
+import { Badge, Button, Card, Cell, Icon, initialsOf, PageTitle, plural, Row, Rows, Select, Table, Tabs, useConfirm } from "@pipoca/ui";
 import { Fragment, type ReactElement, type ReactNode, useState } from "react";
 import { api, command, send } from "./api";
 import { ago } from "./chat";
@@ -18,8 +18,6 @@ import { settingsPageClass } from "./page-class";
 
 const busy = new Set(["queued", "starting", "running"]);
 
-const headClass = "px-4 py-2.5 text-left text-caption font-medium text-fg-dim";
-const cellClass = "border-t border-line px-4 py-3 align-middle";
 
 // Who can use the server, and what an admin sees of their work: names and
 // states, never transcripts, files or variable values (ADR 0049).
@@ -111,10 +109,7 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
           },
         ]}
       />
-      <div
-        role="tabpanel"
-        className="mt-1.5 overflow-x-auto rounded-lg border border-line bg-elevated shadow-xs"
-      >
+      <Card role="tabpanel" padding="none" className="mt-1.5 overflow-x-auto">
         {tab === "invites" && (
           <InvitesTable
             invites={invites.value}
@@ -124,19 +119,18 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
           />
         )}
         {tab === "members" && (
-          <table className="w-full min-w-xl border-collapse text-ui">
-            <thead>
-              <tr>
-                <th className={headClass}>Name</th>
-                <th className={headClass}>Role</th>
-                <th className={headClass}>Now</th>
-                <th className={headClass}>Last active</th>
-                <th className={headClass}>
-                  <span className="sr-only">More</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table
+            bare
+            columns={[
+              "Name",
+              "Role",
+              "Now",
+              "Last active",
+              <span key="more" className="sr-only">
+                More
+              </span>,
+            ]}
+          >
               {people.value.map((person) => {
                 const theirs = sessions.value.filter(
                   (session) => personOf(session) === person.id,
@@ -149,7 +143,7 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
                 return (
                   <Fragment key={person.id}>
                     <tr aria-label={person.name}>
-                      <td className={cellClass}>
+                      <Cell>
                         <span className="flex items-center gap-2.5">
                           <span
                             aria-hidden="true"
@@ -171,8 +165,8 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
                             </span>
                           </span>
                         </span>
-                      </td>
-                      <td className={cellClass}>
+                      </Cell>
+                      <Cell>
                         <Select
                           aria-label={`Role of ${person.name}`}
                           className="w-32"
@@ -190,14 +184,14 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
                           <option value="admin">Admin</option>
                           <option value="member">Member</option>
                         </Select>
-                      </td>
-                      <td className={cellClass}>
+                      </Cell>
+                      <Cell>
                         <Doing person={person} sessions={theirs} />
-                      </td>
-                      <td className={`${cellClass} text-label text-fg-dim`}>
+                      </Cell>
+                      <Cell className="text-label text-fg-dim">
                         {lastActive(person.lastActive, now)}
-                      </td>
-                      <td className={`${cellClass} w-11 text-right`}>
+                      </Cell>
+                      <Cell className="w-11 text-right">
                         <Button
                           variant="ghost"
                           aria-label={`More for ${person.name}`}
@@ -208,11 +202,11 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
                         >
                           ···
                         </Button>
-                      </td>
+                      </Cell>
                     </tr>
                     {open === person.id && (
                       <tr>
-                        <td colSpan={5} className={`${cellClass} bg-panel`}>
+                        <Cell colSpan={5} className="bg-panel">
                           <Work
                             person={person}
                             environments={own}
@@ -236,16 +230,15 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
                               );
                             }}
                           />
-                        </td>
+                        </Cell>
                       </tr>
                     )}
                   </Fragment>
                 );
               })}
-            </tbody>
-          </table>
+          </Table>
         )}
-      </div>
+      </Card>
       {asking}
     </div>
   );

@@ -5,7 +5,7 @@ import {
   type EnvironmentTemplate,
   kindOf,
 } from "@pipoca/protocol";
-import { Badge, Button, cn, type ConfirmOptions, fieldClass, Icon, type KeyValue, KeyValues, PageTitle, plural, Row, Rows, Section, Select, useConfirm } from "@pipoca/ui";
+import { Badge, Button, cn, Command, type ConfirmOptions, fieldClass, Icon, type KeyValue, KeyValues, PageTitle, plural, Row, Rows, Section, Select, useConfirm } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -334,12 +334,9 @@ function JoinKey({
           <p className="text-fg-dim">
             Start an agent with this key. It is shown only now.
           </p>
-          <pre
-            aria-label="Join command"
-            className="overflow-x-auto rounded-md border border-line bg-elevated p-3 font-mono text-mono-sm"
-          >
+          <Command label="Join command">
             {`PIPOCA_KEY=${madeKey} pipoca agent --server ${location.origin}`}
-          </pre>
+          </Command>
         </>
       )}
       <div className="flex flex-wrap items-center gap-2">

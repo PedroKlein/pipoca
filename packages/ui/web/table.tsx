@@ -7,6 +7,7 @@ export function Table({
   label,
   columns,
   minWidth = true,
+  bare = false,
   className,
   children,
 }: {
@@ -15,12 +16,13 @@ export function Table({
   readonly columns: readonly ReactNode[];
   // Keeps the columns wide enough to read and scrolls instead.
   readonly minWidth?: boolean;
+  // Leaves out the card, for a table inside one.
+  readonly bare?: boolean;
   readonly className?: string;
   readonly children: ReactNode;
 }): ReactElement {
-  return (
-    <div className={cn("overflow-x-auto", cardClass, className)}>
-      <table
+  const table = (
+    <table
         aria-label={label}
         className={cn("w-full border-collapse text-ui", minWidth && "min-w-xl")}
       >
@@ -39,7 +41,12 @@ export function Table({
         </thead>
         <tbody>{children}</tbody>
       </table>
-    </div>
+  );
+
+  return bare ? (
+    table
+  ) : (
+    <div className={cn("overflow-x-auto", cardClass, className)}>{table}</div>
   );
 }
 

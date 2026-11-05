@@ -6,7 +6,7 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, cn, Field, fieldClass, Section, Select, TextInput } from "@pipoca/ui";
+import { Button, cn, Code, Field, fieldClass, Section, Select, TextInput } from "@pipoca/ui";
 import { Fragment, type ReactElement, type SubmitEvent, useState } from "react";
 import {
   defaultSettings,
@@ -157,9 +157,7 @@ function Failure({ failure }: { readonly failure: PodFailure }): ReactElement {
         starts after {time(failure.retryAt)}, and each failure in a row doubles
         the wait.
       </p>
-      <pre className="overflow-x-auto rounded-md border border-line bg-elevated p-3 font-mono text-mono-sm whitespace-pre-wrap text-fg">
-        {failure.problem}
-      </pre>
+      <Code wrap>{failure.problem}</Code>
     </div>
   );
 }
