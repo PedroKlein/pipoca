@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { checkBody, HttpError, isHttpError, readJson } from "@pipoca/plugins";
 import type { OnBehalf, UserActor } from "@pipoca/pluginhost";
 import {
@@ -27,7 +28,7 @@ export interface PublicCaller {
   readonly kind: "public";
 }
 
-type AnyCaller = PersonCaller | RunnerCaller | PublicCaller;
+export type AnyCaller = PersonCaller | RunnerCaller | PublicCaller;
 
 type CallerOf<Spec extends RouteSpec> = Spec["auth"] extends "person" | "admin"
   ? PersonCaller
@@ -60,6 +61,10 @@ export type Handlers<Key extends RouteKey = RouteKey> = {
 export interface Route {
   readonly spec: RouteSpec;
   readonly handler: Handler<RouteSpec>;
+  // The secret a webhook route's body is signed with.
+  readonly secret?: (
+    params: Readonly<Record<string, string>>,
+  ) => string | undefined;
 }
 
 // How the router knows who calls.
@@ -84,6 +89,8 @@ interface Compiled extends Route {
 }
 
 const runnerPrefix = "/runner/";
+
+const webhookMaxBytes = 1024 * 1024;
 
 const kindOrder = { static: 0, param: 1, rest: 2 } as const;
 
@@ -165,7 +172,7 @@ export function createRouter(
       }
     }
 
-    if (auth === "public") {
+    if (auth === "public" || typeof auth === "object") {
       return { kind: "public" };
     }
 
@@ -183,30 +190,26 @@ export function createRouter(
       return person;
     }
 
-    if (auth === "runner" || auth === "session") {
-      const runner = deps.callers.runner(request);
+    const runner = deps.callers.runner(request);
 
-      if (runner === undefined) {
-        throw new HttpError(
-          401,
-          "The server doesn't know this token.",
-          "unknown_token",
-        );
-      }
-
-      const reaches =
-        auth === "runner"
-          ? runner.sessionId === null
-          : deps.callers.hosts(runner, params["id"] ?? "");
-
-      if (!reaches) {
-        throw new HttpError(404, "Not found.", "not_found");
-      }
-
-      return runner;
+    if (runner === undefined) {
+      throw new HttpError(
+        401,
+        "The server doesn't know this token.",
+        "unknown_token",
+      );
     }
 
-    throw new HttpError(401, "Webhooks aren't served yet.", "unauthorized");
+    const reaches =
+      auth === "runner"
+        ? runner.sessionId === null
+        : deps.callers.hosts(runner, params["id"] ?? "");
+
+    if (!reaches) {
+      throw new HttpError(404, "Not found.", "not_found");
+    }
+
+    return runner;
   };
 
   const answer = async (
@@ -216,6 +219,10 @@ export function createRouter(
   ): Promise<{ readonly response: Response; readonly actor?: string }> => {
     const { spec } = route;
     const caller = callerOf(spec, request, params);
+
+    if (typeof spec.auth === "object") {
+      await signed(request, spec.auth.webhook, route.secret?.(params));
+    }
 
     const query =
       spec.query === undefined
@@ -338,6 +345,54 @@ export function createRouter(
       );
     },
   };
+}
+
+// A webhook's body, signed as sha256=<hex> in its header or in GitHub's.
+async function signed(
+  request: Request,
+  webhook: { readonly header?: string; readonly maxBytes?: number },
+  secret: string | undefined,
+): Promise<void> {
+  const limit = webhook.maxBytes ?? webhookMaxBytes;
+
+  const tooLarge = new HttpError(
+    413,
+    `The body is over ${String(limit)} bytes.`,
+    "too_large",
+  );
+
+  if (Number(request.headers.get("content-length") ?? 0) > limit) {
+    throw tooLarge;
+  }
+
+  const body = new Uint8Array(await request.clone().arrayBuffer());
+
+  if (body.length > limit) {
+    throw tooLarge;
+  }
+
+  const sent = (
+    request.headers.get(webhook.header ?? "x-pipoca-signature") ??
+    request.headers.get("x-hub-signature-256") ??
+    ""
+  ).replace(/^sha256=/, "");
+
+  const expected =
+    secret === undefined
+      ? ""
+      : createHmac("sha256", secret).update(body).digest("hex");
+
+  if (
+    expected === "" ||
+    sent.length !== expected.length ||
+    !timingSafeEqual(Buffer.from(sent), Buffer.from(expected))
+  ) {
+    throw new HttpError(
+      401,
+      "The signature doesn't match the body.",
+      "bad_signature",
+    );
+  }
 }
 
 function sentJson(request: Request): boolean {

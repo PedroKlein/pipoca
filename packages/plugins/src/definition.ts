@@ -42,6 +42,9 @@ export interface PluginDefinition<
   readonly config?: C;
   readonly schema?: string;
   readonly events?: E;
+  // A part's module imports its definition, so typing it here would be a
+  // cycle; the host checks it is the part defineServer made for the plugin.
+  readonly server?: () => Promise<{ readonly default: unknown }>;
 }
 
 const idPattern = /^[a-z][a-z0-9-]*$/;

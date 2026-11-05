@@ -12,7 +12,7 @@ import {
   versionHeader,
   type WorkPoll,
 } from "@pipoca/protocol";
-import type { Log } from "@pipoca/protocol";
+import { type Log, systemClock } from "@pipoca/protocol";
 import { type PluginHost, startPlugins } from "@pipoca/pluginhost";
 import { ProfileFolders, Profiles } from "@pipoca/profiles";
 import { Sessions, type SessionStore } from "@pipoca/sessions";
@@ -135,6 +135,9 @@ test("reports unhealthy when the database can't be read, keeping why in the log"
         passwordLogin: () => true,
         startSession: () => undefined,
       },
+      definitions: [],
+      url: () => new URL("http://pipoca"),
+      clock: systemClock,
       signal: new AbortController().signal,
       log: () => undefined,
     }),
@@ -236,6 +239,9 @@ function startServer(
         passwordLogin: () => true,
         startSession: () => undefined,
       },
+      definitions: [],
+      url: () => new URL("http://pipoca"),
+      clock: systemClock,
       signal: stopped.signal,
       log,
     }),
@@ -633,6 +639,9 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
           passwordLogin: () => true,
           startSession: () => undefined,
         },
+        definitions: [],
+        url: () => new URL("http://pipoca"),
+        clock: systemClock,
         signal: new AbortController().signal,
         log: () => undefined,
       }),

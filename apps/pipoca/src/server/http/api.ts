@@ -4,6 +4,7 @@ import { InvalidRepository } from "@pipoca/repositories";
 import { InvalidCredentials } from "@pipoca/people";
 import { routes } from "@pipoca/protocol";
 import type { ApiDeps } from "./deps";
+import { extRoutes } from "./ext";
 import { authRoutes } from "./routes/auth";
 import { environmentRoutes, templateRoutes } from "./routes/environments";
 import { meRoutes, peopleRoutes } from "./routes/people";
@@ -80,10 +81,13 @@ export function createApi(deps: Omit<ApiDeps, "callers">): Router {
   };
 
   return createRouter(
-    Object.entries(routes).map(([key, spec]) => ({
-      spec,
-      handler: handlers[key as keyof Handlers],
-    })),
+    [
+      ...Object.entries(routes).map(([key, spec]) => ({
+        spec,
+        handler: handlers[key as keyof Handlers],
+      })),
+      ...extRoutes(deps.plugins.extRoutes(), { people, sessions, callers }),
+    ],
     {
       callers,
       publish: deps.changes.publish,

@@ -96,9 +96,12 @@ export default tseslint.config(
     },
   },
   {
-    // An installed plugin's parts are loaded by their default export
-    // (docs/plugins.md).
-    files: ["examples/plugins/**/*.ts", "examples/plugins/**/*.tsx"],
+    // A plugin's parts are loaded by their default export (docs/plugins.md).
+    files: [
+      "examples/plugins/**/*.ts",
+      "examples/plugins/**/*.tsx",
+      "apps/pipoca/src/testdata/*-server.ts",
+    ],
     rules: { "no-restricted-exports": "off" },
   },
   {

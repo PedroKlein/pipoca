@@ -9,11 +9,13 @@ import {
   type Login,
   type ModelOffer,
   type PluginConfig,
+  type PluginDefinition,
   type PluginRoute,
   type PluginStore,
   type PublicRoute,
   type RouteCaller,
   type RunnerSource,
+  type ServerPart,
   type ServerPlugin,
   type ServerPluginContext,
   secretRefs,
@@ -37,7 +39,7 @@ import {
   type ToolResult,
   type ToolSpec,
 } from "@pipoca/protocol";
-import type { Log } from "@pipoca/protocol";
+import type { Clock, Log } from "@pipoca/protocol";
 import type {
   PluginProfile,
   Result,
@@ -51,6 +53,7 @@ import {
   toolsetTools,
 } from "./toolsets";
 import { kernelKeys, type PluginSwitches } from "./switches";
+import { type ExtRoute, pluginRoutes, pluginUrls } from "./routes";
 
 export type UserActor = `user:${string}`;
 
@@ -155,6 +158,9 @@ export interface PluginHost {
   // The links the sign-in page shows besides the password form, each with
   // its path from the server's root.
   readonly logins: () => readonly Login[];
+  // Settles once every plugin defined with definePlugin registered or failed.
+  readonly ready: Promise<void>;
+  readonly extRoutes: () => readonly ExtRoute[];
 }
 
 function pluginEnvironments(
@@ -195,6 +201,10 @@ export function startPlugins(
   plugins: readonly ServerPlugin[],
   enabled: readonly string[],
   deps: {
+    readonly definitions: readonly PluginDefinition[];
+    // Where people open the server, for plugins' public URLs.
+    readonly url: () => URL;
+    readonly clock: Clock;
     // What the Plugins page lists, on or not.
     readonly manifests: readonly PluginManifest[];
     readonly sessions: Sessions;
@@ -732,6 +742,59 @@ export function startPlugins(
 
   const running = enabled.filter((name) => !failures.has(name));
 
+  const extRoutes: ExtRoute[] = [];
+
+  const load = async (definition: PluginDefinition): Promise<void> => {
+    const { id } = definition;
+
+    const log: Log = (message, fields) => {
+      deps.log(message, { plugin: id, ...fields });
+    };
+
+    const failed = new AbortController();
+
+    const recorded = pluginRoutes(id, {
+      team: definition.works?.includes("team") === true,
+      inTeamWork: () => inTeamWork(id),
+      publish: deps.changes,
+    });
+
+    try {
+      if (kernelKeys.includes(id)) {
+        throw new Error(
+          `${id} is a key the kernel keeps in pipoca.json, so no plugin can have it`,
+        );
+      }
+
+      const part = await serverPart(definition);
+
+      await part?.register({
+        id,
+        routes: recorded.routes,
+        urls: pluginUrls(id, deps.url),
+        clock: deps.clock,
+        log,
+        signal: AbortSignal.any([deps.signal, failed.signal]),
+      });
+    } catch (error) {
+      failed.abort();
+
+      const message = messageOf(error);
+      failures.set(id, message);
+      running.splice(running.indexOf(id), 1);
+      log("plugin failed to register", { error: message });
+
+      return;
+    }
+
+    extRoutes.push(...recorded.declared);
+    deps.log("plugin registered", { plugin: id });
+  };
+
+  const ready = Promise.all(
+    deps.definitions.filter(({ id }) => enabled.includes(id)).map(load),
+  ).then(() => undefined);
+
   const info = (found: PluginManifest): PluginInfo => {
     const error = failures.get(found.id);
     const installed = installedIds.has(found.id);
@@ -779,6 +842,8 @@ export function startPlugins(
 
   return {
     names: running,
+    ready,
+    extRoutes: () => extRoutes,
     list: () => manifests.map(info),
     checkUpdates: async () => {
       const latest = deps.installed?.latest;
@@ -1403,6 +1468,29 @@ export interface InstalledPlugins {
   readonly read: (id: string, path: string) => Promise<string>;
   readonly write: (id: string, path: string, content: string) => Promise<void>;
   readonly build: (id: string) => Promise<void>;
+}
+
+async function serverPart(
+  definition: PluginDefinition,
+): Promise<ServerPart | undefined> {
+  const loaded = (await definition.server?.())?.default;
+
+  if (loaded === undefined) {
+    return undefined;
+  }
+
+  if (
+    typeof loaded !== "object" ||
+    loaded === null ||
+    !("plugin" in loaded) ||
+    loaded.plugin !== definition
+  ) {
+    throw new Error(
+      `the server part of ${definition.id} isn't one defineServer made for it`,
+    );
+  }
+
+  return loaded as ServerPart;
 }
 
 function messageOf(error: unknown): string {
