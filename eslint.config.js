@@ -125,6 +125,47 @@ export default tseslint.config(
     },
   },
   {
+    // No plugin is special: the kernel reaches plugins only through the
+    // plugin registries.
+    files: [
+      "apps/**/*.ts",
+      "apps/**/*.tsx",
+      "packages/**/*.ts",
+      "packages/**/*.tsx",
+    ],
+    ignores: [
+      "apps/pipoca/src/serve.ts",
+      "apps/pipoca/src/session-parts.ts",
+      "apps/web/src/plugins.ts",
+      // Until these plugins' tests move into the plugins.
+      "apps/pipoca/src/kubernetes.test.ts",
+      "apps/pipoca/src/models.test.ts",
+      "apps/pipoca/src/projects.test.ts",
+      "apps/pipoca/src/team-sessions.test.ts",
+      "apps/pipoca/src/toolsets.test.ts",
+      "packages/sessionhost/src/host.test.ts",
+      "packages/sessionhost/src/subagents.test.ts",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex:
+                "^@pipoca/(?!(environments|people|pluginhost|plugins|profiles|protocol|repositories|runner|sessionhost|sessions|ui|workspaces)(/|$))",
+              message: "Only the plugin registries import plugins.",
+            },
+            {
+              regex: "^(\\.\\./)+plugins/",
+              message: "Only the plugin registries import plugins.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // Screens build from @pipoca/ui instead of copying its classes and
     // elements (docs/design-system.md).
     files: [
