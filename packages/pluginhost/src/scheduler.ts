@@ -202,10 +202,7 @@ export function scheduler(deps: {
       return;
     }
 
-    const runs = deps.store
-      .due(deps.clock.now(), on())
-      .filter(idle)
-      .map(run);
+    const runs = deps.store.due(deps.clock.now(), on()).filter(idle).map(run);
 
     arm();
     await Promise.all(runs);
