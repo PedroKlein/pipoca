@@ -33,7 +33,7 @@ import { type AgentOptions, runAgent } from "./agent";
 import { Auth } from "./auth";
 import { configFiles, configFolder } from "./config";
 import { sessionDocs } from "./docs";
-import { hubLayout } from "./hub";
+import { hubSettings } from "./hub";
 import { newcomerSetup } from "./newcomers";
 import { teamSettings } from "./team";
 import { environmentTemplates } from "./templates";
@@ -387,7 +387,7 @@ export function serve(options: ServeOptions): {
     },
     templates,
     configFiles(configDir, options.lockedConfig),
-    hubLayout(config("hub")),
+    hubSettings(config("hub")),
     newcomerSetup(config("newcomers")),
     teamSettings(config("team")),
   );

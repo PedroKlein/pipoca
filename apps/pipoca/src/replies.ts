@@ -1,3 +1,5 @@
+import { HttpError } from "@pipoca/plugins";
+import type { ErrorCode } from "@pipoca/protocol";
 import type { Rejection, Result } from "@pipoca/sessions";
 
 const rejections = {
@@ -39,11 +41,26 @@ const rejections = {
 // the message a person reads (ADR 0047).
 export function errorReply(
   status: number,
-  code: string,
+  code: ErrorCode,
   message: string,
   details?: Readonly<Record<string, unknown>>,
 ): Response {
   return Response.json({ ...details, error: code, message }, { status });
+}
+
+// What a route or plugin threw. A plugin that bundles an SDK from before
+// codes throws none (ADR 0046), so its status gives one.
+export function thrown(error: HttpError): Response {
+  const { status, code, message } = new HttpError(
+    error.status,
+    error.message,
+    (error as Partial<HttpError>).code,
+  );
+
+  return Response.json(
+    { ...(error as Partial<HttpError>).details, error: code, message },
+    { status },
+  );
 }
 
 export function rejected(reason: Rejection): Response {

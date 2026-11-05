@@ -533,8 +533,9 @@ test("imports from git only over https or ssh", async () => {
   });
 
   expect(await notText.json()).toEqual({
-    error: "bad_request",
-    message: "url must be a string",
+    error: "invalid",
+    message: "url must be string",
+    field: "url",
   });
 });
 

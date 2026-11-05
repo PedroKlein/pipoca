@@ -40,7 +40,10 @@ export const owner = Type.Union([
 export type Owner = Wire<typeof owner>;
 
 // A leading dash would reach git as an option.
-const startPoint = Type.String({ pattern: "^[^-]" });
+const startPoint = Type.String({
+  pattern: "^[^-]",
+  description: "A branch, tag or commit",
+});
 
 const repositoryUrl = Type.Refine(
   nonEmpty,
@@ -63,9 +66,6 @@ function holdsCredentials(repository: string): boolean {
 export const repositoryCheckout = Type.Object({
   repository: repositoryUrl,
   startPoint: Type.Optional(startPoint),
-  // startPoint is the branch of the Session this one forked from, which a
-  // fresh clone gets only from the remote. Only the server sets it.
-  forked: Type.Optional(Type.Boolean()),
 });
 
 export type RepositoryCheckout = Wire<typeof repositoryCheckout>;
@@ -95,6 +95,11 @@ const restorable = {
   branchConfig: Type.Optional(Type.Record(Type.String(), Type.String())),
 };
 
+// startPoint is the branch of the Session this one forked from, which a
+// fresh clone gets only from the remote. Only the server sets it, so no
+// request has it.
+const forked = { forked: Type.Optional(Type.Boolean()) };
+
 const folder = Type.Object({ kind: Type.Literal("folder"), path: nonEmpty });
 
 export const workspace = Type.Union([
@@ -111,7 +116,7 @@ export const workspace = Type.Union([
     repository: Type.String(),
     branch: Type.String(),
     startPoint: Type.Optional(Type.String()),
-    forked: Type.Optional(Type.Boolean()),
+    ...forked,
     ...restorable,
   }),
   Type.Object({
@@ -120,7 +125,7 @@ export const workspace = Type.Union([
       Type.Object({
         repository: Type.String(),
         startPoint: Type.Optional(Type.String()),
-        forked: Type.Optional(Type.Boolean()),
+        ...forked,
         ...restorable,
       }),
     ),
@@ -152,7 +157,6 @@ export const workspaceRequest = Type.Union(
       kind: Type.Literal("clone"),
       repository: repositoryUrl,
       startPoint: Type.Optional(startPoint),
-      forked: Type.Optional(Type.Boolean()),
     }),
     Type.Object({
       kind: Type.Literal("repositories"),

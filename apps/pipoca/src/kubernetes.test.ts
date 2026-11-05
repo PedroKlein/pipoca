@@ -472,7 +472,7 @@ test("refuses Kubernetes settings it can't use", async () => {
   const inContainers = await server.api(path, { body: { settings: {} } });
 
   expect(responses.map(({ status }) => status)).toEqual([
-    400, 400, 400, 400, 400, 404,
+    422, 422, 422, 400, 422, 404,
   ]);
 
   expect(unsaved).toEqual({

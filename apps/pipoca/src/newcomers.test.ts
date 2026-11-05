@@ -53,8 +53,8 @@ test("an admin keeps what new people get in pipoca.json", async () => {
 });
 
 test("refuses what new people get when it doesn't fit", async () => {
-  expect((await newcomers({ profiles: "backend" })).status).toBe(400);
-  expect((await newcomers({ template: 3 })).status).toBe(400);
+  expect((await newcomers({ profiles: "backend" })).status).toBe(422);
+  expect((await newcomers({ template: 3 })).status).toBe(422);
 });
 
 test("keeps what new people get to signed-in people", async () => {

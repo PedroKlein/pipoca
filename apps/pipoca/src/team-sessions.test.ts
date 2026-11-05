@@ -444,7 +444,7 @@ test("only an admin lays out the team hub, and everyone reads the layout", async
   expect(before).toEqual({ pages: null });
 
   expect([refused.status, laid.status, invalid.status]).toEqual([
-    403, 200, 400,
+    403, 200, 422,
   ]);
 
   expect(await json<unknown>(server.as(anas)("/api/hub"))).toEqual(layout);
@@ -657,7 +657,7 @@ test("Pi reads what the team said since its last turn, with names and replies, b
     201,
   );
 
-  expect(await say(bos, { to: "pi", text: "hi" })).toBe(400);
+  expect(await say(bos, { to: "pi", text: "hi" })).toBe(422);
 
   const [assigned] = await poll(team.runner);
 
@@ -1055,7 +1055,7 @@ test("personal work moves to the team from a summary, leaving its transcript beh
   expect((await server.as(bos)(move, { body: { summary } })).status).toBe(404);
 
   expect((await server.as(anas)(move, { body: { summary: " " } })).status).toBe(
-    400,
+    422,
   );
 
   const moved = await server.as(anas)(move, {
@@ -1303,7 +1303,7 @@ test("an admin names the team, and everyone reads the name", async () => {
         body: { name: "x".repeat(61) },
       })
     ).status,
-  ).toBe(400);
+  ).toBe(422);
 
   expect(
     await json(

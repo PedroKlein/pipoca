@@ -776,7 +776,7 @@ test("refuses a null body and a file name that does not decode", async () => {
     await server.api(`/api/plugins/library/projects/${id}/files/%zz`),
   ];
 
-  expect(responses.map(({ status }) => status)).toEqual([400, 400, 400, 400]);
+  expect(responses.map(({ status }) => status)).toEqual([422, 422, 400, 400]);
 });
 
 test("answers a method the Project list has no route for as not found", async () => {

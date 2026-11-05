@@ -1,20 +1,22 @@
-import { type Command, loggedStart, type Work } from "@pipoca/protocol";
-import { BadRequest, readJson } from "@pipoca/plugins";
+import {
+  type Command,
+  livePost,
+  loggedStart,
+  removalPost,
+  startFailure,
+  toolCall,
+  transcriptBatch,
+  trustAnswer,
+  type Work,
+  workPoll,
+} from "@pipoca/protocol";
+import { BadRequest, readBody } from "@pipoca/plugins";
 import type { PluginHost } from "@pipoca/pluginhost";
 import type { Profiles } from "@pipoca/profiles";
 import type { Log } from "@pipoca/protocol";
 import type { Sessions } from "@pipoca/sessions";
 import type { Agent, Auth } from "./auth";
 import { errorReply, notFound, rejected, reply } from "./replies";
-import {
-  livePost,
-  removalPost,
-  startFailure,
-  toolCall,
-  transcriptBatch,
-  trustAnswer,
-  workPoll,
-} from "./requests";
 import { sseResponse } from "./sse";
 
 export type AgentRoute = (
@@ -105,7 +107,7 @@ export function agentRoutes(
       "POST",
       /^\/agent\/sessions\/([^/]+)\/tool-calls$/,
       async (request, [id = ""]) => {
-        const call = toolCall(await readJson(request));
+        const call = await readBody(request, toolCall);
         const session = sessions.get(id);
         if (!session || !sessions.isCurrent(id, call.generation)) {
           return rejected("stale_generation");
@@ -121,7 +123,7 @@ export function agentRoutes(
       /^\/agent\/work$/,
       async (request, _params, caller) => {
         const runner = { name: caller.runner, environment: caller.environment };
-        const poll = workPoll(await readJson(request));
+        const poll = await readBody(request, workPoll);
 
         const { start, unload, remove, interrupted } = await sessions.claim(
           runner,
@@ -179,7 +181,7 @@ export function agentRoutes(
       "POST",
       /^\/agent\/sessions\/([^/]+)\/transcript$/,
       async (request, [id = ""]) => {
-        const batch = transcriptBatch(await readJson(request));
+        const batch = await readBody(request, transcriptBatch);
 
         return reply(sessions.appendTranscript(id, batch), 200);
       },
@@ -188,7 +190,7 @@ export function agentRoutes(
       "POST",
       /^\/agent\/sessions\/([^/]+)\/failed$/,
       async (request, [id = ""]) => {
-        const failure = startFailure(await readJson(request));
+        const failure = await readBody(request, startFailure);
         log("session failed to start", { sessionId: id, ...failure });
 
         return reply(sessions.fail(id, failure), 204);
@@ -198,7 +200,7 @@ export function agentRoutes(
       "POST",
       /^\/agent\/sessions\/([^/]+)\/trust$/,
       async (request, [id = ""]) => {
-        const answer = trustAnswer(await readJson(request));
+        const answer = await readBody(request, trustAnswer);
         log("repository trust answered", { sessionId: id, ...answer });
 
         return reply(sessions.trust(id, answer), 204);
@@ -208,7 +210,7 @@ export function agentRoutes(
       "POST",
       /^\/agent\/sessions\/([^/]+)\/workspace$/,
       async (request, [id = ""]) => {
-        const report = removalPost(await readJson(request));
+        const report = await readBody(request, removalPost);
         log("workspace removal reported", { sessionId: id, ...report });
 
         return reply(sessions.reportRemoval(id, report), 204);
@@ -218,7 +220,7 @@ export function agentRoutes(
       "POST",
       /^\/agent\/sessions\/([^/]+)\/live$/,
       async (request, [id = ""]) =>
-        reply(sessions.publish(id, livePost(await readJson(request))), 204),
+        reply(sessions.publish(id, await readBody(request, livePost)), 204),
     ],
     [
       "GET",

@@ -1,4 +1,4 @@
-import { Type } from "typebox";
+import { type TRecord, type TRefine, type TSchema, Type } from "typebox";
 import { quote } from "./events";
 import { runnerName } from "./runner";
 import {
@@ -21,23 +21,23 @@ export const createSession = Type.Object({
   // belongs to the team (ADR 0064).
   team: Type.Optional(Type.Boolean()),
   environment: Type.Optional(
-    nullable(Type.String({ minLength: 1, description: "Environment id" })),
+    Type.String({ minLength: 1, description: "Environment id" }),
   ),
   profile: Type.Optional(
-    nullable(Type.String({ minLength: 1, description: "Profile id" })),
+    Type.String({ minLength: 1, description: "Profile id" }),
   ),
   workspace: workspaceRequest,
-  model: Type.Optional(nullable(modelRef)),
-  thinking: Type.Optional(nullable(thinkingLevel)),
-  systemPrompt: Type.Optional(nullable(Type.String())),
-  firstMessage: Type.Optional(nullable(Type.String())),
+  model: Type.Optional(modelRef),
+  thinking: Type.Optional(thinkingLevel),
+  systemPrompt: Type.Optional(Type.String()),
+  firstMessage: Type.Optional(Type.String()),
 });
 
 export type CreateSession = Wire<typeof createSession>;
 
 export const createFork = Type.Object({
-  environment: Type.Optional(nullable(nonEmpty)),
-  entry: Type.Optional(nullable(nonEmpty)),
+  environment: Type.Optional(nonEmpty),
+  entry: Type.Optional(nonEmpty),
   personal: Type.Optional(Type.Boolean()),
 });
 
@@ -68,7 +68,7 @@ export const teamMessage = Type.Object({
 
 export type TeamMessage = Wire<typeof teamMessage>;
 
-const variableName = "^[A-Za-z_][A-Za-z0-9_]*$";
+const variableName = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 // Well under Linux's limit on one environment string, so spawns don't fail.
 const maxVariableBytes = 32 * 1024;
@@ -81,7 +81,17 @@ const variableValue = Type.Refine(
     `must be a string of at most ${String(maxVariableBytes)} bytes without NUL`,
 );
 
-const maxVariables = 200;
+// Variables by name, such as API_URL.
+function variables<Value extends TSchema>(
+  value: Value,
+): TRefine<TRecord<"^.*$", Value>> {
+  return Type.Refine(
+    Type.Record(Type.String(), value, { maxProperties: 200 }),
+    (named) => Object.keys(named).every((name) => variableName.test(name)),
+    (named) =>
+      `has an invalid name: ${Object.keys(named).find((name) => !variableName.test(name)) ?? ""}`,
+  );
+}
 
 export const createEnvironment = Type.Object({
   name: runnerName,
@@ -107,20 +117,8 @@ export const environmentUpdate = Type.Object({
     ),
   ),
   setupScript: Type.Optional(Type.String()),
-  variables: Type.Optional(
-    Type.Record(Type.String({ pattern: variableName }), variableValue, {
-      maxProperties: maxVariables,
-    }),
-  ),
-  secrets: Type.Optional(
-    Type.Record(
-      Type.String({ pattern: variableName }),
-      nullable(variableValue),
-      {
-        maxProperties: maxVariables,
-      },
-    ),
-  ),
+  variables: Type.Optional(variables(variableValue)),
+  secrets: Type.Optional(variables(nullable(variableValue))),
 });
 
 export type EnvironmentUpdate = Wire<typeof environmentUpdate>;
@@ -443,7 +441,7 @@ export const firstUser = Type.Object({
 });
 
 export const appSignIn = Type.Object({
-  challenge: Type.String({ pattern: "^[\\w-]{43}$" }),
+  challenge: Type.String(),
 });
 
 // Where a person is in the first-run setup (ADR 0063). Steps they dismissed

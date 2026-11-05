@@ -1,4 +1,15 @@
-import { BadRequest, fieldsOf, readJson } from "@pipoca/plugins";
+import {
+  BadRequest,
+  checkBody,
+  readBody,
+  readJson,
+  Type,
+} from "@pipoca/plugins";
+import {
+  repositoryImport,
+  repositoryListing,
+  uploadedFiles,
+} from "@pipoca/protocol";
 import type { Layer, Profiles } from "@pipoca/profiles";
 import type { Log } from "@pipoca/protocol";
 import { userIdOf } from "@pipoca/pluginhost";
@@ -86,7 +97,7 @@ export function profileRoutes(
         "POST",
         at("/files"),
         async (request, _params, actor, admin) => {
-          const files = uploadedFiles(await readJson(request));
+          const files = decoded(await readBody(request, uploadedFiles));
 
           const written = profiles.writeLayerFiles(
             userIdOf(actor),
@@ -204,18 +215,10 @@ export function profileRoutes(
 
         const body = await readJson(request);
 
-        const { url, paths } = (body ?? {}) as Record<string, unknown>;
-
-        if (url !== undefined && typeof url !== "string") {
-          throw new BadRequest("url must be a string");
-        }
+        const { url, paths } = checkBody(body, importSource);
 
         if (paths !== undefined) {
-          if (
-            url === undefined ||
-            !Array.isArray(paths) ||
-            !paths.every((path) => typeof path === "string")
-          ) {
+          if (url === undefined) {
             throw new BadRequest("paths must be a list with a url");
           }
 
@@ -286,11 +289,7 @@ export function profileRoutes(
       "POST",
       /^\/api\/profiles\/listed$/,
       async (request) => {
-        const { url } = fieldsOf(await readJson(request));
-
-        if (typeof url !== "string") {
-          throw new BadRequest("url must be a string");
-        }
+        const { url } = await readBody(request, repositoryListing);
 
         return Response.json({ profiles: await profiles.listed(url) });
       },
@@ -356,19 +355,14 @@ export function profileRoutes(
       "POST",
       /^\/api\/profiles\/([^/]+)\/files$/,
       async (request, [id = ""], actor, admin) => {
-        const decoded = uploadedFiles(await readJson(request));
+        const files = decoded(await readBody(request, uploadedFiles));
 
-        const written = profiles.writeFiles(
-          userIdOf(actor),
-          id,
-          decoded,
-          admin,
-        );
+        const written = profiles.writeFiles(userIdOf(actor), id, files, admin);
 
         if (written.ok) {
           log("profile files uploaded", {
             profileId: id,
-            files: decoded.size,
+            files: files.size,
           });
         }
 
@@ -423,18 +417,17 @@ export function profileRoutes(
   ];
 }
 
-function uploadedFiles(body: unknown): Map<string, Buffer> {
-  const { files } = fieldsOf(body);
-  if (
-    typeof files !== "object" ||
-    files === null ||
-    Object.values(files).some((content) => typeof content !== "string")
-  ) {
-    throw new BadRequest("files must map paths to base64 contents");
-  }
+// A Profile comes from an exported file, from a repository's root, or from
+// the folders its pipoca.json lists.
+const importSource = Type.Partial(repositoryImport);
 
+function decoded({
+  files,
+}: {
+  readonly files: Readonly<Record<string, string>>;
+}): Map<string, Buffer> {
   return new Map(
-    Object.entries(files as Record<string, string>).map(([path, content]) => [
+    Object.entries(files).map(([path, content]) => [
       path,
       Buffer.from(content, "base64"),
     ]),
