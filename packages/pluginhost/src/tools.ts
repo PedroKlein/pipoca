@@ -45,6 +45,9 @@ export interface RouteTool {
   readonly plugin: string | undefined;
   readonly spec: ToolSpec;
   readonly internal: boolean;
+  // Its route is a scoped route's personal half, so a team Session's call
+  // goes to the team half.
+  readonly teamTwin?: true;
   readonly request: (input: Input) => RouteRequest;
   readonly asks?: RouteToolSpec["asks"];
   readonly result?: RouteToolSpec["result"];
@@ -68,6 +71,7 @@ export function routeTools(
     readonly path: string;
     readonly query?: TSchema | undefined;
     readonly body?: TSchema | "bytes" | undefined;
+    readonly teamTwin?: true | undefined;
   },
   tools: RouteToolSpec | readonly RouteToolSpec[] | undefined,
 ): RouteTool[] {
@@ -102,6 +106,7 @@ export function routeTools(
         ...(annotations && { annotations }),
       },
       request: requestOf(route, names, Object.keys(query), tool.body),
+      ...(route.teamTwin && { teamTwin: true }),
       ...(tool.asks && { asks: tool.asks }),
       ...(tool.result && { result: tool.result }),
       ...(tool.opens && { opens: tool.opens }),

@@ -168,13 +168,52 @@ const keys = served(
   },
 );
 
+// A list for each person and one for the team, read by a route tool.
+const lists = served(
+  definePlugin({
+    id: "lists",
+    title: "Lists",
+    description: "Keeps lists.",
+    works: ["personal", "team"],
+  }),
+  ({ routes, sessions, provide }) => {
+    const profile = provide.profile(
+      "planner",
+      { ...desk, name: "Planner" },
+      { team: true, routeTools: true },
+    );
+
+    routes.scoped("lists", (scoped) => {
+      scoped.get(
+        "",
+        { tool: { name: "lists_read", description: "Reads the list" } },
+        ({ owner }) => ({ owner }),
+      );
+    });
+
+    routes.post(
+      "planners",
+      { auth: "person", body: Type.Object({ environment: Type.String() }) },
+      ({ caller, body }) =>
+        sessions.start({
+          actor: `user:${caller.kind === "person" ? caller.person.id : ""}`,
+          environment: body.environment,
+          profile,
+          team: true,
+          key: "planner",
+          workspace: { kind: "folder", path: root },
+        }),
+    );
+  },
+);
+
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "server-tools-"));
   ran.length = 0;
 
   server = testServer({
     runners: { pollWaitMs: 0 },
-    definitions: [keys],
+    definitions: [keys, lists],
   });
 });
 
@@ -396,6 +435,39 @@ test("leaves out only the tool whose availability check throws", async () => {
   expect(server.logs.some((line) => line.includes("availability broke"))).toBe(
     true,
   );
+});
+
+test("runs a scoped route's tool on the team's half in a team Session", async () => {
+  const office = await json<{ id: string; key: string }>(
+    server.api("/api/environments", { body: { name: "office", team: true } }),
+  );
+
+  const { token } = await json<{ token: string }>(
+    fetch(new URL("/runner/join", server.url), {
+      method: "POST",
+      headers: runnerHeaders(office.key),
+      body: JSON.stringify({ name: "office" }),
+    }),
+  );
+
+  const session = await json<Session>(
+    server.api("/api/ext/lists/planners", { body: { environment: office.id } }),
+  );
+
+  expect(session.ownedBy).toBe("team");
+
+  const assigned = await claim(token, session.id);
+
+  expect(
+    (await toolsOf(token, assigned)).filter(
+      ({ name }) => name === "lists_read",
+    ),
+  ).toHaveLength(1);
+
+  expect(await call(token, assigned, "lists_read", {})).toEqual({
+    text: JSON.stringify({ owner: "team" }),
+    isError: false,
+  });
 });
 
 test("loads every route tool only in Sessions on a Profile that asks for them", async () => {
