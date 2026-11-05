@@ -166,6 +166,32 @@ test("keeps a user's name without the spaces around it, and signs in with or wit
   expect(signedIn.map(({ status }) => status)).toEqual([200, 200]);
 });
 
+test("keeps the first user's display name beside their username", async () => {
+  const created = await server.as()("/api/auth/setup", {
+    body: {
+      ...pedro,
+      displayName: "  Pedro Klein ",
+      token: setupTokenOf(server.logs),
+    },
+  });
+
+  expect(await (await server.as(cookieOf(created))("/api/me")).json()).toEqual({
+    id: expect.any(String) as string,
+    name: "pedro",
+    displayName: "Pedro Klein",
+    admin: true,
+  });
+});
+
+test("leaves the display name empty when setup gives none", async () => {
+  const cookie = await setUp();
+
+  expect(await (await server.as(cookie)("/api/me")).json()).toMatchObject({
+    name: "pedro",
+    displayName: null,
+  });
+});
+
 async function behindProxy(): Promise<void> {
   await server.close();
   server = testServer({ trustProxy: true });

@@ -225,6 +225,7 @@ export default defineWeb(vault, {
 
   await page.goto(new URL(`/#setup/${setupTokenOf(logs)}`, server.url).href);
   await page.getByRole("heading", { name: "Welcome to Pipoca" }).waitFor();
+  await page.getByLabel("Your name").fill("Pedro Klein");
   await page.getByLabel("Username").fill("pedro");
   await page.getByLabel("Password").fill("correct horse");
 
@@ -1039,6 +1040,15 @@ test("shows an installed plugin's page with the app's React and components", asy
   const button = page.getByRole("button", { name: "Hellos: 0" });
   await button.click();
   await page.getByRole("button", { name: "Hellos: 1" }).waitFor();
+});
+
+test("shows the name given at setup on General, beside the username", async () => {
+  await page.goto(server.url.href);
+  await openSettings("General");
+
+  const you = page.getByRole("list", { name: "You" });
+  await you.getByText("Pedro Klein").waitFor();
+  await you.getByText(/^@pedro · /).waitFor();
 });
 
 test("draws a defined plugin's page and slots, pinned for someone who never changed their pins", async () => {

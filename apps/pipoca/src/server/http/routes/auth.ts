@@ -16,8 +16,11 @@ export function authRoutes({
       ...signIn.status(request),
       logins: plugins.logins(),
     }),
-    "auth.setup": async ({ request, body: { token, ...given } }) => {
-      const user = await signIn.setUp(token, credentialsOf(given));
+    "auth.setup": async ({
+      request,
+      body: { token, displayName, ...given },
+    }) => {
+      const user = await signIn.setUp(token, credentialsOf(given), displayName);
 
       if (user === undefined) {
         throw new HttpError(

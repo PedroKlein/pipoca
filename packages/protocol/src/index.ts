@@ -1,5 +1,6 @@
 export {
   type AccessToken,
+  type Account,
   availability,
   type ConfigFile,
   createEnvironment,

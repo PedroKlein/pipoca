@@ -529,6 +529,7 @@ export const appLink = Type.Object({ link: Type.String() });
 export const firstUser = Type.Object({
   ...credentials.properties,
   token: Type.String(),
+  displayName: Type.Optional(Type.String()),
 });
 
 export const appSignIn = Type.Object({
@@ -667,6 +668,15 @@ export const teamView = Type.Object({
 });
 
 export type TeamView = Wire<typeof teamView>;
+
+// The signed-in person's own account: the name people see, beside the
+// username they sign in with.
+export const account = Type.Object({
+  ...user.properties,
+  displayName: nullable(Type.String()),
+});
+
+export type Account = Wire<typeof account>;
 
 // What admins set up for people who join (ADR 0063): the Environment
 // template they get one from, the shared Profiles they pick from, and the

@@ -77,6 +77,15 @@ export function meRoutes({
   log,
 }: ApiDeps): Handlers<Exclude<Group<"me">, Group<"me.profileDefaults">>> {
   return {
+    me: ({ caller }) => {
+      const account = people.account(caller.id);
+
+      if (account === undefined) {
+        throw new HttpError(401, "Sign in again.", "signed_out");
+      }
+
+      return account;
+    },
     "me.setup": ({ caller }) => people.setup(caller.id),
     "me.setup.update": ({ body, caller }) => {
       if ("finished" in body) {

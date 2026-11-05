@@ -14,6 +14,7 @@ import {
 } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { api } from "../../api";
+import { useAccount } from "../../hooks";
 import { PluginBoundary } from "../../plugin-boundary";
 import { enabledPlugins, pluginContext } from "../../plugins";
 import { useTheme } from "../../theme";
@@ -34,6 +35,7 @@ export function GeneralPage({
 }): ReactElement {
   const [theme, setTheme] = useTheme();
   const [verbosity, setVerbosity] = useVerbosity();
+  const shown = useAccount()?.displayName ?? user;
 
   return (
     <Page id="general-page">
@@ -42,15 +44,15 @@ export function GeneralPage({
       </PageTitle>
       <Rows label="You">
         <Row
-          initials={initialsOf(user)}
+          initials={initialsOf(shown)}
           round
           title={
             <>
-              {user}
+              {shown}
               {admin && <Badge>Admin</Badge>}
             </>
           }
-          description={`Signed in to ${location.host}`}
+          description={`@${user} · signed in to ${location.host}`}
         />
       </Rows>
       <Section title="Appearance">

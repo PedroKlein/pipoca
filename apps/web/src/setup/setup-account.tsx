@@ -77,6 +77,9 @@ export function SetupAccount({
             onSubmit={onSubmit}
             className="flex flex-col gap-5 rounded-xl border border-line bg-elevated p-6 shadow-card"
           >
+            <Field label="Your name">
+              <TextInput name="displayName" autoComplete="name" autoFocus />
+            </Field>
             <Field
               label="Username"
               hint="Shown on Sessions and Projects you start."

@@ -51,8 +51,12 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
     "select id, name, admin from users order by created_at",
   );
 
+  const selectAccount = db.prepare(
+    "select id, name, admin, display_name from users where id = ?",
+  );
+
   const insertUser = db.prepare(
-    "insert into users (id, name, password_hash, created_at, admin) values (?, ?, ?, ?, ?)",
+    "insert into users (id, name, display_name, password_hash, created_at, admin) values (?, ?, ?, ?, ?, ?)",
   );
 
   const updateAdmin = db.prepare("update users set admin = ? where id = ?");
@@ -189,10 +193,27 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
       (selectUsers.all() as unknown as UserRow[]).flatMap(
         (row) => userOfRow(row) ?? [],
       ),
+    account: (id) => {
+      const row = selectAccount.get(id) as
+        | (UserRow & {
+            readonly display_name: string | null;
+          })
+        | undefined;
+
+      return (
+        row && {
+          id: row.id,
+          name: row.name,
+          admin: row.admin === 1,
+          displayName: row.display_name,
+        }
+      );
+    },
     insertUser: (user) => {
       insertUser.run(
         user.id,
         user.name,
+        user.displayName ?? null,
         user.passwordHash === "" ? null : user.passwordHash,
         ms(user.createdAt),
         user.admin ? 1 : 0,

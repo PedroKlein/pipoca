@@ -23,6 +23,18 @@ export function memoryStore(): PeopleStore {
     userByName: (name) => users.find((each) => each.name === name),
     userById: user,
     users: () => users.flatMap(({ id }) => user(id) ?? []),
+    account: (id) => {
+      const found = users.find((each) => each.id === id);
+
+      return (
+        found && {
+          id: found.id,
+          name: found.name,
+          admin: found.admin,
+          displayName: found.displayName ?? null,
+        }
+      );
+    },
     insertUser: (stored) => {
       users.push(stored);
     },

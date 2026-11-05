@@ -1,5 +1,6 @@
 import { type TObject, type TProperties, Type } from "typebox";
 import {
+  account,
   accessToken,
   accessTokenRequest,
   appLink,
@@ -243,6 +244,7 @@ export const routes = {
     response: appLink,
   },
 
+  me: { method: "GET", path: "/api/me", auth: "person", response: account },
   "me.setup": {
     method: "GET",
     path: "/api/me/setup",

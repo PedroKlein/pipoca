@@ -1,6 +1,7 @@
 import { type Clock, systemClock } from "@pipoca/protocol";
 import { createHash } from "node:crypto";
 import {
+  checkedDisplayName,
   checkedName,
   InvalidCredentials,
   maxNameLength,
@@ -190,6 +191,7 @@ export class SignIn {
   async setUp(
     token: string,
     credentials: Credentials,
+    displayName = "",
   ): Promise<User | undefined> {
     const expected = this.#setupToken;
     if (expected === undefined || !sameText(token, expected)) {
@@ -197,10 +199,11 @@ export class SignIn {
     }
 
     checkCredentials(credentials);
+    const shown = checkedDisplayName(displayName);
     this.#setupToken = undefined;
 
     try {
-      return await this.#insert(credentials, true);
+      return await this.#insert(credentials, true, shown);
     } catch (error) {
       this.#setupToken = expected;
       throw error;
@@ -234,13 +237,18 @@ export class SignIn {
     return user;
   }
 
-  async #insert(credentials: Credentials, admin: boolean): Promise<User> {
+  async #insert(
+    credentials: Credentials,
+    admin: boolean,
+    displayName?: string,
+  ): Promise<User> {
     const user: StoredUser = {
       id: Bun.randomUUIDv7(),
       name: credentials.name.trim(),
       admin,
       passwordHash: await Bun.password.hash(credentials.password),
       createdAt: this.#iso(),
+      ...(displayName !== undefined && { displayName }),
     };
 
     this.#store.insertUser(user);
