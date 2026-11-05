@@ -9,18 +9,24 @@ import type {
 import {
   Badge,
   Button,
+  Card,
+  cardClass,
   cn,
+  ErrorText,
   Field,
-  FileButton,
   fieldClass,
+  FileButton,
   Icon,
-  ListInput,
-  PageTitle,
   initialsOf,
+  ListInput,
+  Page,
+  PageTitle,
   Picker,
   Row,
   Rows,
   Section,
+  Tabs,
+  useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import { api, send } from "./api";
@@ -32,7 +38,6 @@ import {
   type OneFile,
   upload,
 } from "./profile-files";
-import { settingsPageClass } from "./page-class";
 import { ProfileOverview, profilesPath } from "./profile-overview";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext } from "./plugins";
@@ -88,7 +93,7 @@ export function ProfilesPage({
   const [savedId, setSavedId] = useState<string>();
 
   return (
-    <div id="profiles-page" className={settingsPageClass}>
+    <Page id="profiles-page">
       <div className="flex items-start justify-between gap-6">
         <div className="min-w-0 flex-1">
           {team ? (
@@ -233,7 +238,7 @@ export function ProfilesPage({
           No team Profile yet. Team work can't start until there is one.
         </p>
       )}
-    </div>
+    </Page>
   );
 }
 
@@ -276,6 +281,7 @@ function Editor({
   readonly onChange: () => void;
 }): ReactElement {
   const [error, setError] = useState<string>();
+  const [ask, asking] = useConfirm();
 
   const [packages, setPackages] = useState<readonly string[]>(() =>
     (profile?.packages ?? []).map(packageText),
@@ -346,7 +352,7 @@ function Editor({
     >
       <form
         onSubmit={submit}
-        className="flex flex-col gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5"
+        className={cn(cardClass, "flex flex-col gap-4 p-5")}
       >
         <Field label="Name">
           <input
@@ -409,13 +415,19 @@ function Editor({
             <Button
               variant="danger"
               onClick={() => {
-                if (!confirm(`Delete the Profile "${profile.name}"?`)) {
-                  return;
-                }
+                void ask({
+                  title: `Delete the Profile "${profile.name}"?`,
+                  confirm: "Delete",
+                  danger: true,
+                }).then((yes) => {
+                  if (!yes) {
+                    return;
+                  }
 
-                run(async () => {
-                  await send(`/api/profiles/${profile.id}`, "DELETE");
-                  location.hash = profilesPath(profile.ownerId === "team");
+                  run(async () => {
+                    await send(`/api/profiles/${profile.id}`, "DELETE");
+                    location.hash = profilesPath(profile.ownerId === "team");
+                  });
                 });
               }}
             >
@@ -431,6 +443,7 @@ function Editor({
           </p>
         </div>
       </form>
+      {asking}
     </Section>
   );
 }
@@ -581,21 +594,16 @@ function ProfileTabs({
           Open as files
         </a>
       ) : (
-        <nav
-          aria-label="Profile"
-          className="mt-6 flex gap-1 overflow-x-auto border-b border-line"
-        >
-          {tabs.map(([key, label]) => (
-            <a
-              key={key}
-              href={`#${hash}/${key}`}
-              aria-current={key === tab ? "page" : undefined}
-              className="-mb-px shrink-0 border-b-2 border-transparent px-2 py-2 text-ui text-fg-dim hover:text-fg aria-[current=page]:border-accent aria-[current=page]:text-fg-strong"
-            >
-              {label}
-            </a>
-          ))}
-        </nav>
+        <Tabs
+          label="Profile"
+          className="mt-6"
+          value={tab}
+          tabs={tabs.map(([key, label]) => ({
+            value: key,
+            label,
+            href: `#${hash}/${key}`,
+          }))}
+        />
       )}
       {overviewShown && overview}
       {kind && <KindFiles key={`${url}:${tab}`} url={url} kind={kind} />}
@@ -743,7 +751,7 @@ function LayerForm({
     <Section title={layerNames[layer]}>
       <form
         onSubmit={submit}
-        className="flex flex-col gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5"
+        className={cn(cardClass, "flex flex-col gap-4 p-5")}
       >
         <p className="text-caption text-fg-dim">{layerAbout[layer]}</p>
         <ListInput
@@ -839,11 +847,9 @@ function Synced({
         >
           Make a copy
         </Button>
-        {error !== undefined && (
-          <span role="alert" className="text-caption text-failed">
-            {error}
-          </span>
-        )}
+        <ErrorText inline size="caption">
+          {error}
+        </ErrorText>
       </div>
     </div>
   );
@@ -904,7 +910,7 @@ function Import({ onChange }: { readonly onChange: () => void }): ReactElement {
 
   return (
     <Section title="Import a Profile">
-      <div className="flex flex-col gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5">
+      <Card padding="none" className="flex flex-col gap-4 p-5">
         <div className="flex items-center justify-between gap-4">
           <div className="flex min-w-0 flex-col gap-0.5">
             <span className="text-label font-medium text-fg">
@@ -1025,10 +1031,8 @@ function Import({ onChange }: { readonly onChange: () => void }): ReactElement {
             </span>
           </form>
         )}
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      </div>
+        <ErrorText size="caption">{error}</ErrorText>
+      </Card>
     </Section>
   );
 }

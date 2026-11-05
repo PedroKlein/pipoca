@@ -1,5 +1,14 @@
 import { json, ok, useLoaded, type WebContext } from "@pipoca/plugins/web";
-import { Button, Field, fieldClass, PageTitle, Section } from "@pipoca/ui";
+import {
+  Button,
+  Card,
+  cardClass,
+  cn,
+  Field,
+  fieldClass,
+  PageTitle,
+  Section,
+} from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import { Spend, type Totals } from "./spend";
 
@@ -71,7 +80,7 @@ export function Budgets({
           <form
             key={JSON.stringify(totals.budgets)}
             onSubmit={submit}
-            className="flex flex-col gap-4 rounded-lg border border-line bg-elevated p-5 shadow-xs"
+            className={cn(cardClass, "flex flex-col gap-4 p-5")}
           >
             <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
               <Field
@@ -188,7 +197,7 @@ export function AuditLog({
         </p>
       )}
       {entries !== undefined && entries.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border border-line bg-elevated shadow-xs">
+        <Card padding="none" className="overflow-x-auto">
           <table aria-label="Audit log" className="w-full text-left text-label">
             <thead className="text-caption text-fg-dim">
               <tr className="border-b border-line">
@@ -228,7 +237,7 @@ export function AuditLog({
               ))}
             </tbody>
           </table>
-        </div>
+        </Card>
       )}
     </>
   );

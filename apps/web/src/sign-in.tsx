@@ -1,4 +1,18 @@
-import { Button, Field, fieldClass } from "@pipoca/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  cn,
+  ErrorText,
+  Field,
+  fieldClass,
+  Hero,
+  Mark,
+  raisedCardClass,
+  SetupShell,
+  Step,
+  Stepper,
+} from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -6,7 +20,6 @@ import {
   useState,
 } from "react";
 import { api } from "./api";
-import { Mark } from "./mark";
 
 // Another way in that a plugin offers, such as single sign-on (ADR 0038).
 export interface Login {
@@ -117,7 +130,7 @@ export function SignInPage({
       {passwordLogin && (
         <form
           onSubmit={submit}
-          className="flex flex-col gap-4 rounded-lg border border-line bg-elevated p-6 shadow-card"
+          className={cn(raisedCardClass, "flex flex-col gap-4 p-6")}
         >
           <Field label="Name">
             <input
@@ -136,11 +149,7 @@ export function SignInPage({
               className={fieldClass}
             />
           </Field>
-          {error !== undefined && (
-            <p role="alert" className="text-caption text-failed">
-              {error}
-            </p>
-          )}
+          <ErrorText size="caption">{error}</ErrorText>
           <Button variant="primary" type="submit" className="h-10 w-full">
             Sign in
           </Button>
@@ -203,36 +212,13 @@ function SetupAccount({
   readonly error: string | undefined;
 }): ReactElement {
   return (
-    <div className="flex min-h-dvh flex-col">
-      <header className="grid grid-cols-[1fr_auto_1fr] items-center px-7 py-5">
-        <span className="flex items-center gap-2 font-serif text-wordmark font-light text-fg-strong">
-          <Mark className="size-7" />
-          pipoca
-        </span>
-        <ol aria-label="Setup steps" className="flex gap-1.5">
-          {[0, 1, 2, 3, 4, 5].map((index) => (
-            <li
-              key={index}
-              aria-current={index === 0 ? "step" : undefined}
-              className={`h-0.75 w-9 rounded-full ${index === 0 ? "bg-fg-strong" : "bg-line"}`}
-            />
-          ))}
-        </ol>
-        <span className="justify-self-end text-label text-fg-dim">
-          Step 1 of 6
-        </span>
-      </header>
+    <SetupShell steps={{ total: 6, at: 0 }} aside="Step 1 of 6">
       <main className="mx-auto grid w-full max-w-250 animate-rise-in gap-14 px-4 pt-8 pb-16 md:grid-cols-[1.5fr_1fr] md:pt-11">
         <div className="flex flex-col gap-8">
-          <div className="flex flex-col gap-2">
-            <h1 className="font-serif text-hero leading-tight font-light text-fg-strong">
-              Welcome to Pipoca
-            </h1>
-            <p className="text-prose text-fg-dim">
-              This server is brand new. Make your account first. It becomes the
-              admin, so you can invite people later.
-            </p>
-          </div>
+          <Hero title="Welcome to Pipoca">
+            This server is brand new. Make your account first. It becomes the
+            admin, so you can invite people later.
+          </Hero>
           <form
             onSubmit={onSubmit}
             className="flex flex-col gap-5 rounded-xl border border-line bg-elevated p-6 shadow-card"
@@ -258,11 +244,7 @@ function SetupAccount({
                 className={fieldClass}
               />
             </Field>
-            {error !== undefined && (
-              <p role="alert" className="text-caption text-failed">
-                {error}
-              </p>
-            )}
+            <ErrorText size="caption">{error}</ErrorText>
             <Button
               variant="primary"
               type="submit"
@@ -276,34 +258,29 @@ function SetupAccount({
           <h2 className="text-label text-fg-dim">
             What we'll set up, about 3 minutes
           </h2>
-          <ol className="flex flex-col gap-1 rounded-xl border border-line bg-elevated p-4">
-            {comingSteps.map(({ title, summary, optional }, index) => (
-              <li key={title} className="flex items-center gap-3 py-2.5">
-                <span
-                  aria-hidden="true"
-                  className={`grid size-6 shrink-0 place-items-center rounded-full border text-caption ${index === 0 ? "border-fg-strong text-fg-strong" : "border-line text-fg-dim"}`}
-                >
-                  {index + 1}
-                </span>
-                <span className="flex flex-col">
-                  <span className="flex items-center gap-2 text-ui font-medium text-fg-strong">
-                    {title}
-                    {optional === true && (
-                      <span className="inline-flex h-5 items-center rounded-full bg-hover px-2 text-caption font-medium text-fg-dim">
-                        Optional
-                      </span>
-                    )}
-                  </span>
-                  <span className="text-label text-fg-dim">{summary}</span>
-                </span>
-              </li>
-            ))}
-          </ol>
+          <Card>
+            <Stepper>
+              {comingSteps.map(({ title, summary, optional }, index) => (
+                <Step
+                  key={title}
+                  number={index + 1}
+                  state={index === 0 ? "current" : "next"}
+                  title={
+                    <span className="flex items-center gap-2">
+                      {title}
+                      {optional === true && <Badge>Optional</Badge>}
+                    </span>
+                  }
+                  description={summary}
+                />
+              ))}
+            </Stepper>
+          </Card>
           <p className="px-1 text-caption text-fg-dim">
             Everything here can be changed later in Settings.
           </p>
         </aside>
       </main>
-    </div>
+    </SetupShell>
   );
 }

@@ -1,6 +1,14 @@
 import { json, useLoaded, type WebContext } from "@pipoca/plugins/web";
 import type { Profile } from "@pipoca/protocol";
-import { Badge, initialsOf, Row, Rows, Section, Segmented } from "@pipoca/ui";
+import {
+  Badge,
+  ErrorText,
+  initialsOf,
+  Row,
+  Rows,
+  Section,
+  Segmented,
+} from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import type { Account, Connectable, LoginLayer } from "../src/model";
 import { ConnectForm, ConnectionCard } from "./connect";
@@ -169,11 +177,7 @@ export function ProfileLogins({
           }}
         />
       )}
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
       <Rows label="This Profile's logins">
         {lines.length === 0 && (
           <Row

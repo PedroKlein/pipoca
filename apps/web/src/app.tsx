@@ -1,4 +1,4 @@
-import { Button, cn, Icon } from "@pipoca/ui";
+import { Button, cn, Icon, Mark } from "@pipoca/ui";
 import type { SetupState } from "@pipoca/protocol";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import {
@@ -22,7 +22,6 @@ import {
 } from "./plugins";
 import { SessionView } from "./session-view";
 import { isSettingsRoute, SettingsLayout } from "./settings-layout";
-import { Mark } from "./mark";
 import { SetupReminders, SetupWizard } from "./setup";
 import { Sidebar } from "./sidebar";
 import { isTeamRoute, TeamHub } from "./team-hub";
@@ -234,7 +233,7 @@ export function App({
           setDrawer(false);
         }}
         className={cn(
-          "fixed inset-0 z-10 bg-black/55 md:hidden",
+          "fixed inset-0 z-10 bg-scrim md:hidden",
           !drawer && "hidden",
         )}
       />

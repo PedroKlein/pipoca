@@ -16,25 +16,12 @@ export interface TextStyle {
   readonly inverse?: true;
 }
 
-// xterm.js's default colours, which the Pi view's terminal uses too.
-const basic = [
-  "#2e3436",
-  "#cc0000",
-  "#4e9a06",
-  "#c4a000",
-  "#3465a4",
-  "#75507b",
-  "#06989a",
-  "#d3d7cf",
-  "#555753",
-  "#ef2929",
-  "#8ae234",
-  "#fce94f",
-  "#729fcf",
-  "#ad7fa8",
-  "#34e2e2",
-  "#eeeeec",
-];
+// The theme's terminal colours (--ansi-0 to --ansi-15), which the Pi view's
+// terminal uses too.
+const basic = Array.from(
+  { length: 16 },
+  (_, index) => `var(--ansi-${String(index)})`,
+);
 
 const cube = [0, 95, 135, 175, 215, 255];
 

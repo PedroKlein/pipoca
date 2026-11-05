@@ -1,9 +1,17 @@
-import { Button, PageTitle, Row, Rows, Section, Segmented } from "@pipoca/ui";
+import {
+  Badge,
+  Button,
+  Page,
+  PageTitle,
+  Row,
+  Rows,
+  Section,
+  Segmented,
+} from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { api } from "./api";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext } from "./plugins";
-import { settingsPageClass } from "./page-class";
 import { useTheme } from "./theme";
 import { useVerbosity, verbosities } from "./verbosity";
 
@@ -24,7 +32,7 @@ export function GeneralPage({
   const [verbosity, setVerbosity] = useVerbosity();
 
   return (
-    <div id="general-page" className={settingsPageClass}>
+    <Page id="general-page">
       <PageTitle description="You, and how Pipoca looks and behaves for you. Changes save as you make them.">
         General
       </PageTitle>
@@ -35,11 +43,7 @@ export function GeneralPage({
           title={
             <>
               {user}
-              {admin && (
-                <span className="inline-flex h-5 items-center rounded-full bg-hover px-2 text-caption font-medium text-fg-dim">
-                  Admin
-                </span>
-              )}
+              {admin && <Badge>Admin</Badge>}
             </>
           }
           description={`Signed in to ${location.host}`}
@@ -97,6 +101,6 @@ export function GeneralPage({
           Sign out
         </Button>
       </div>
-    </div>
+    </Page>
   );
 }

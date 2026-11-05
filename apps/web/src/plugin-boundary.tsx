@@ -1,4 +1,4 @@
-import { Button } from "@pipoca/ui";
+import { Button, ErrorText } from "@pipoca/ui";
 import { Component, type ReactNode } from "react";
 
 interface Props {
@@ -27,10 +27,7 @@ export class PluginBoundary extends Component<Props, State> {
     const { error } = this.state;
 
     return (
-      <span
-        role="alert"
-        className="inline-flex flex-wrap items-center gap-2 text-label text-failed"
-      >
+      <ErrorText inline className="inline-flex flex-wrap items-center gap-2">
         The {this.props.name} plugin failed:{" "}
         {error instanceof Error ? error.message : String(error)}
         <Button
@@ -41,7 +38,7 @@ export class PluginBoundary extends Component<Props, State> {
         >
           Try again
         </Button>
-      </span>
+      </ErrorText>
     );
   }
 }

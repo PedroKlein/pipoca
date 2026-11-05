@@ -7,16 +7,21 @@ import {
 import {
   Badge,
   Button,
+  cardClass,
+  cn,
+  ErrorText,
   Field,
   fieldClass,
   Icon,
   initialsOf,
+  linkCardClass,
   PageTitle,
   Row,
   Rows,
   Section,
   Segmented,
   Switch,
+  useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type {
@@ -232,6 +237,7 @@ function Providers({
   readonly locked: boolean;
   readonly onChange: () => void;
 }): ReactElement {
+  const [ask, asking] = useConfirm();
   const [editing, setEditing] = useState<ProviderView | Preset>();
 
   const changed = (): void => {
@@ -240,15 +246,22 @@ function Providers({
   };
 
   const remove = (provider: ProviderView): void => {
-    if (!confirm(`People won't be able to sign in with ${provider.label}.`)) {
-      return;
-    }
+    void ask({
+      title: `Remove ${provider.label}?`,
+      description: `People won't be able to sign in with ${provider.label}.`,
+      confirm: "Remove",
+      danger: true,
+    }).then((yes) => {
+      if (!yes) {
+        return;
+      }
 
-    void json(
-      context.request(`providers/${encodeURIComponent(provider.id)}`, {
-        method: "DELETE",
-      }),
-    ).then(changed, changed);
+      void json(
+        context.request(`providers/${encodeURIComponent(provider.id)}`, {
+          method: "DELETE",
+        }),
+      ).then(changed, changed);
+    });
   };
 
   const existing =
@@ -256,6 +269,7 @@ function Providers({
 
   return (
     <Section title="Company sign-in">
+      {asking}
       {providers !== undefined && providers.length > 0 && (
         <Rows label="Providers">
           {providers.map((provider) => (
@@ -311,7 +325,10 @@ function Providers({
                 onClick={() => {
                   setEditing(preset);
                 }}
-                className="flex h-full w-full cursor-pointer flex-col items-start gap-1 rounded-lg border border-line bg-elevated px-4 py-3.5 text-left shadow-xs hover:border-line-strong"
+                className={cn(
+                  linkCardClass,
+                  "flex h-full w-full cursor-pointer flex-col items-start gap-1 px-4 py-3.5 text-left",
+                )}
               >
                 <span className="text-ui font-medium text-fg-strong">
                   {preset.name}
@@ -361,11 +378,7 @@ function ProviderRow({
         <>
           {provider.label}
           {badge()}
-          {locked && (
-            <span className="inline-flex h-5 items-center rounded-full bg-hover px-2 text-caption font-medium text-fg-muted">
-              Config file
-            </span>
-          )}
+          {locked && <Badge>Config file</Badge>}
         </>
       }
       description={
@@ -375,9 +388,9 @@ function ProviderRow({
             signed in this week
           </span>
           {typeof test === "object" && test.error !== null && (
-            <span role="alert" className="text-failed">
+            <ErrorText inline size="inherit">
               {test.error}
-            </span>
+            </ErrorText>
           )}
         </span>
       }
@@ -514,11 +527,9 @@ function Rules({
           description={
             <>
               {whoMayJoin(providers ?? [])}
-              {error !== undefined && (
-                <span role="alert" className="block text-failed">
-                  {error}
-                </span>
-              )}
+              <ErrorText inline size="inherit" className="block">
+                {error}
+              </ErrorText>
             </>
           }
         >
@@ -655,7 +666,7 @@ function ProviderForm({
           ? `Edit ${provider.label}`
           : `New ${preset?.name ?? ""} sign-in`
       }
-      className="grid gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 md:grid-cols-2"
+      className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
     >
       {textField("label", "Button label", "Sign in with SAP IAS")}
       {textField(
@@ -699,11 +710,7 @@ function ProviderForm({
             Remove
           </Button>
         )}
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
       </div>
       <p className="text-caption text-fg-dim md:col-span-2">
         Register{" "}

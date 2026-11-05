@@ -1,10 +1,12 @@
 import type { SetupScreen } from "@pipoca/plugins/web";
 import {
+  AreaLayout,
   Badge,
   Button,
+  ErrorText,
   Field,
   fieldClass,
-  Icon,
+  Page,
   PageTitle,
   Row,
   Rows,
@@ -19,7 +21,6 @@ import {
 import { send } from "./api";
 import { EnvironmentsPage } from "./environments";
 import { usePlugins, useTeamEnvironments, useTeamProfiles } from "./hooks";
-import { settingsPageClass } from "./page-class";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext } from "./plugins";
 import { ProfilesPage } from "./profiles";
@@ -154,11 +155,11 @@ export function TeamSetup({
 
     if (screen !== undefined) {
       return (
-        <div className={settingsPageClass}>
+        <Page>
           <PluginBoundary name={screen.plugin}>
             <screen.Page context={pluginContext(screen.plugin)} />
           </PluginBoundary>
-        </div>
+        </Page>
       );
     }
 
@@ -179,48 +180,22 @@ export function TeamSetup({
     (path === "team/setup/profiles" && route === "team/setup");
 
   return (
-    <div className="flex min-h-0 flex-1 max-md:flex-col">
-      <nav
-        aria-label="Team setup"
-        className="flex w-62 shrink-0 flex-col gap-px overflow-y-auto border-r border-line bg-panel px-3 pt-4 pb-6 max-md:w-full max-md:flex-row max-md:flex-wrap max-md:items-center max-md:border-r-0 max-md:border-b max-md:py-2"
-      >
-        <a
-          href="#team"
-          className="mb-2.5 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-label text-fg-dim hover:bg-hover max-md:mb-0"
-        >
-          <Icon name="chevron-left" />
-          Team home
-        </a>
-        <h2 className="px-2.5 pt-0.5 pb-1.5 font-serif text-wordmark font-light text-fg-strong max-md:hidden">
-          Team setup
-        </h2>
-        {groups
-          .filter(([, entries]) => entries.length > 0)
-          .map(([label, entries]) => (
-            <div key={label} className="flex flex-col gap-px max-md:contents">
-              <h3 className="px-2.5 pt-4 pb-1 text-caption text-fg-dim max-md:hidden">
-                {label}
-              </h3>
-              {entries.map(({ path, label: name, count }) => (
-                <a
-                  key={path}
-                  href={`#${path}`}
-                  aria-current={current(path) ? "page" : undefined}
-                  className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-ui text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:font-medium aria-[current=page]:text-fg-strong"
-                >
-                  <span className="flex-1">{name}</span>
-                  {count !== undefined && (
-                    <span className="text-caption text-fg-dim tabular-nums">
-                      {count}
-                    </span>
-                  )}
-                </a>
-              ))}
-            </div>
-          ))}
-      </nav>
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">{content()}</div>
-    </div>
+    <AreaLayout
+      label="Team setup"
+      back={{ href: "#team", label: "Team home" }}
+      heading="Team setup"
+      groups={groups.map(([label, entries]) => ({
+        label,
+        items: entries.map(({ path, label: name, count }) => ({
+          href: `#${path}`,
+          label: name,
+          current: current(path),
+          ...(count !== undefined && { count }),
+        })),
+      }))}
+    >
+      {content()}
+    </AreaLayout>
   );
 }
 
@@ -246,7 +221,7 @@ function TeamNaming({ name }: { readonly name: string | null }): ReactElement {
   };
 
   return (
-    <div className={settingsPageClass}>
+    <Page>
       <PageTitle description="Shown on the team hub and in everyone's sidebar.">
         Name
       </PageTitle>
@@ -273,13 +248,9 @@ function TeamNaming({ name }: { readonly name: string | null }): ReactElement {
             </span>
           )}
         </div>
-        {error !== undefined && (
-          <p role="alert" className="text-label text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText>{error}</ErrorText>
       </form>
-    </div>
+    </Page>
   );
 }
 
@@ -304,15 +275,11 @@ function TeamPlugins(): ReactElement {
   };
 
   return (
-    <div className={settingsPageClass}>
+    <Page>
       <PageTitle description="A plugin loads in team Sessions only if it says it works in team work and you leave it on. Built-in ones start on, installed ones start off. New team Sessions pick up a change.">
         Plugins in team work
       </PageTitle>
-      {error !== undefined && (
-        <p role="alert" className="mb-4 text-label text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText className="mb-4">{error}</ErrorText>
       <Rows label="Plugins in team work">
         {plugins
           .filter(({ state }) => state === "on")
@@ -337,6 +304,6 @@ function TeamPlugins(): ReactElement {
             );
           })}
       </Rows>
-    </div>
+    </Page>
   );
 }

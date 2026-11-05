@@ -9,6 +9,9 @@ import {
 import {
   Badge,
   Button,
+  cardClass,
+  cn,
+  ErrorText,
   Field,
   fieldClass,
   Icon,
@@ -18,14 +21,14 @@ import {
   Row,
   Rows,
   Section,
+  Select,
+  Step,
+  Stepper,
+  type StepState,
   Switch,
+  useConfirm,
 } from "@pipoca/ui";
-import {
-  type ReactElement,
-  type ReactNode,
-  type SubmitEvent,
-  useState,
-} from "react";
+import { type ReactElement, type SubmitEvent, useState } from "react";
 import type {
   Account,
   HostInput,
@@ -332,11 +335,7 @@ function PullRequestChoices({
           />
         </Row>
       </Rows>
-      {error !== undefined && (
-        <p role="alert" className="text-label text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText>{error}</ErrorText>
     </Section>
   );
 }
@@ -409,9 +408,7 @@ function PullRequest({
         <Icon name="more" className="size-3.5" />
       </Picker>
       {problem !== null && (
-        <p role="alert" className="w-full text-right text-label text-failed">
-          {problem}
-        </p>
+        <ErrorText className="w-full text-right">{problem}</ErrorText>
       )}
     </div>
   );
@@ -599,11 +596,9 @@ function HostRow({
           >
             Cancel
           </Button>
-          {error !== undefined && (
-            <p role="alert" className="w-full text-caption text-failed">
-              {error}
-            </p>
-          )}
+          <ErrorText size="caption" className="w-full">
+            {error}
+          </ErrorText>
         </form>
       )}
     </Row>
@@ -621,6 +616,8 @@ function Hosts({
   readonly onAdding: (adding: boolean) => void;
   readonly onChange: () => void;
 }): ReactElement {
+  const [ask, asking] = useConfirm();
+
   const { value, reload } = useLoaded(
     async () => json<readonly HostView[]>(context.request("hosts")),
     "hosts",
@@ -646,15 +643,22 @@ function Hosts({
   };
 
   const remove = (host: HostView): void => {
-    if (!confirm(`Sessions will stop signing in to ${host.host}.`)) {
-      return;
-    }
+    void ask({
+      title: `Remove ${host.host}?`,
+      description: `Sessions will stop signing in to ${host.host}.`,
+      confirm: "Remove",
+      danger: true,
+    }).then((yes) => {
+      if (!yes) {
+        return;
+      }
 
-    void json(
-      context.request(`hosts/${encodeURIComponent(host.host)}`, {
-        method: "DELETE",
-      }),
-    ).then(changed, changed);
+      void json(
+        context.request(`hosts/${encodeURIComponent(host.host)}`, {
+          method: "DELETE",
+        }),
+      ).then(changed, changed);
+    });
   };
 
   const form = adding ? "new" : editing;
@@ -662,6 +666,7 @@ function Hosts({
 
   return (
     <Section title="Hosts">
+      {asking}
       {form !== undefined && (
         <HostForm
           key={form === "new" ? "new" : form.host}
@@ -811,7 +816,7 @@ function ConnectSetup({
       return "done";
     }
 
-    return step === at ? "on" : "next";
+    return step === at ? "current" : "next";
   };
 
   return (
@@ -827,7 +832,7 @@ function ConnectSetup({
           {saved ? "Done" : "Cancel"}
         </Button>
       </div>
-      <ol className="flex flex-col">
+      <Stepper>
         <Step
           number={1}
           state={stepState(1)}
@@ -885,14 +890,9 @@ function ConnectSetup({
               <Button variant="primary" type="submit">
                 Save
               </Button>
-              {error !== undefined && (
-                <p
-                  role="alert"
-                  className="text-caption text-failed sm:col-span-3"
-                >
-                  {error}
-                </p>
-              )}
+              <ErrorText size="caption" className="sm:col-span-3">
+                {error}
+              </ErrorText>
             </form>
           )}
         </Step>
@@ -915,50 +915,8 @@ function ConnectSetup({
             </Button>
           )}
         </Step>
-      </ol>
+      </Stepper>
     </section>
-  );
-}
-
-type StepState = "done" | "on" | "next";
-
-function Step({
-  number,
-  state,
-  title,
-  description,
-  children,
-}: {
-  readonly number: number;
-  readonly state: StepState;
-  readonly title: ReactNode;
-  readonly description?: string;
-  readonly children?: ReactNode;
-}): ReactElement {
-  const marks: Record<StepState, string> = {
-    done: "border-done bg-done text-bg",
-    on: "border-fg-strong text-fg-strong",
-    next: "border-line-strong text-fg-dim",
-  };
-
-  return (
-    <li
-      aria-current={state === "on" ? "step" : undefined}
-      className="relative flex gap-3.5 pb-5 last:pb-0 before:absolute before:top-7 before:bottom-1 before:left-3 before:w-px before:bg-line last:before:hidden"
-    >
-      <span
-        className={`grid size-6 shrink-0 place-items-center rounded-full border-[1.5px] bg-elevated text-caption font-semibold ${marks[state]}`}
-      >
-        {state === "done" ? <Icon name="check" /> : number}
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="text-ui text-fg-strong">{title}</span>
-        {description !== undefined && (
-          <span className="text-label text-fg-dim">{description}</span>
-        )}
-        <span className="flex flex-col text-label text-fg-dim">{children}</span>
-      </span>
-    </li>
   );
 }
 
@@ -1000,7 +958,7 @@ function HostForm({
     <form
       onSubmit={submit}
       aria-label={host ? `Edit ${host.host}` : "New host"}
-      className="grid gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 md:grid-cols-2"
+      className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
     >
       <Field label="Host">
         <input
@@ -1055,11 +1013,7 @@ function HostForm({
             Remove host
           </Button>
         )}
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
       </div>
     </form>
   );
@@ -1096,6 +1050,8 @@ function Bots({
   readonly context: WebContext;
   readonly hosts: readonly string[];
 }): ReactElement {
+  const [ask, asking] = useConfirm();
+
   const { value, reload } = useLoaded(
     async () =>
       json<readonly TechnicalUserView[]>(context.request("technical-users")),
@@ -1153,15 +1109,22 @@ function Bots({
   };
 
   const remove = (user: TechnicalUserView): void => {
-    if (!confirm(`Routines acting as ${user.name} will stop.`)) {
-      return;
-    }
+    void ask({
+      title: `Remove ${user.name}?`,
+      description: `Routines acting as ${user.name} will stop.`,
+      confirm: "Remove",
+      danger: true,
+    }).then((yes) => {
+      if (!yes) {
+        return;
+      }
 
-    void json(
-      context.request(`technical-users/${encodeURIComponent(user.name)}`, {
-        method: "DELETE",
-      }),
-    ).then(reload, reload);
+      void json(
+        context.request(`technical-users/${encodeURIComponent(user.name)}`, {
+          method: "DELETE",
+        }),
+      ).then(reload, reload);
+    });
   };
 
   const setTeam = (user: TechnicalUserView, team: boolean): void => {
@@ -1175,13 +1138,13 @@ function Bots({
 
   const hostField = (
     <Field label="Host">
-      <select name="host" className={fieldClass}>
+      <Select name="host">
         {hosts.map((host) => (
           <option key={host} value={host}>
             {host}
           </option>
         ))}
-      </select>
+      </Select>
     </Field>
   );
 
@@ -1190,6 +1153,7 @@ function Bots({
       title="Bots"
       description="Routines can open pull requests and comment as a bot instead of a person. Team work signs in to each host as the bot chosen for it."
     >
+      {asking}
       <Rows label="Bots">
         {value?.length === 0 && (
           <Row
@@ -1296,7 +1260,7 @@ function Bots({
         <form
           onSubmit={createApp}
           aria-label="New GitHub App"
-          className="grid gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 md:grid-cols-2"
+          className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
         >
           {hostField}
           <Field label="App name">
@@ -1332,7 +1296,7 @@ function Bots({
         <form
           onSubmit={addMachineUser}
           aria-label="New machine user"
-          className="grid gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 md:grid-cols-2"
+          className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
         >
           {hostField}
           <Field label="Name">
@@ -1364,11 +1328,7 @@ function Bots({
             >
               Cancel
             </Button>
-            {error !== undefined && (
-              <p role="alert" className="text-caption text-failed">
-                {error}
-              </p>
-            )}
+            <ErrorText size="caption">{error}</ErrorText>
           </div>
         </form>
       )}

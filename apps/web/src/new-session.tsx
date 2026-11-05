@@ -9,6 +9,8 @@ import {
 } from "@pipoca/protocol";
 import {
   Button,
+  Dialog,
+  ErrorText,
   Icon,
   isComposing,
   Picker,
@@ -157,56 +159,40 @@ export function NewSessionDialog({
   readonly team?: boolean;
   readonly onClose: () => void;
 }): ReactElement {
-  const dialog = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    if (open) {
-      dialog.current?.showModal();
-      dialog.current?.querySelector("textarea")?.focus();
-    } else {
-      dialog.current?.close();
-    }
-  }, [open]);
-
   return (
-    <dialog
-      ref={dialog}
+    <Dialog
+      open={open}
       onClose={onClose}
-      aria-labelledby="new-session-title"
-      className="m-auto w-[min(680px,calc(100vw-32px))] overflow-visible rounded-xl border border-line bg-elevated p-0 text-fg shadow-pop backdrop:bg-black/30 backdrop:backdrop-blur-[2px] open:animate-pop-in max-sm:mb-0 max-sm:w-full max-sm:rounded-b-none"
+      labelledBy="new-session-title"
+      size="lg"
+      sheet
+      initialFocus="textarea"
     >
-      {open && (
-        <NewSessionForm
-          environments={environments}
-          profiles={profiles}
-          sessions={sessions}
-          team={team}
-          placeholder={
-            team
-              ? "What should the team's Pi do? Anyone on the team can follow it."
-              : "What should Pi do? Leave it empty to start idle."
-          }
-          onStarted={onClose}
-        >
-          <header className="flex items-center gap-2 pt-3 pr-3 pb-1 pl-5">
-            <h2
-              id="new-session-title"
-              className="flex-1 text-ui font-semibold text-fg-strong"
-            >
-              {team ? "Start team work" : "New session"}
-            </h2>
-            <Button
-              variant="ghost"
-              iconOnly
-              aria-label="Close"
-              onClick={onClose}
-            >
-              <Icon name="x" />
-            </Button>
-          </header>
-        </NewSessionForm>
-      )}
-    </dialog>
+      <NewSessionForm
+        environments={environments}
+        profiles={profiles}
+        sessions={sessions}
+        team={team}
+        placeholder={
+          team
+            ? "What should the team's Pi do? Anyone on the team can follow it."
+            : "What should Pi do? Leave it empty to start idle."
+        }
+        onStarted={onClose}
+      >
+        <header className="flex items-center gap-2 pt-3 pr-3 pb-1 pl-5">
+          <h2
+            id="new-session-title"
+            className="flex-1 text-ui font-semibold text-fg-strong"
+          >
+            {team ? "Start team work" : "New session"}
+          </h2>
+          <Button variant="ghost" iconOnly aria-label="Close" onClick={onClose}>
+            <Icon name="x" />
+          </Button>
+        </header>
+      </NewSessionForm>
+    </Dialog>
   );
 }
 
@@ -540,14 +526,9 @@ export function NewSessionForm({
         </Button>
       </div>
 
-      {error !== undefined && (
-        <p
-          role="alert"
-          className="border-t border-line px-5 py-2 text-caption text-failed"
-        >
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption" className="border-t border-line px-5 py-2">
+        {error}
+      </ErrorText>
     </form>
   );
 }

@@ -7,6 +7,7 @@ import {
 import {
   Badge,
   Button,
+  ErrorText,
   Icon,
   initialsOf,
   Row,
@@ -138,11 +139,7 @@ function Accounts({
             }}
           />
         )}
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
         <Rows label="Your model logins">
           {value.logins.length === 0 && (
             <Row

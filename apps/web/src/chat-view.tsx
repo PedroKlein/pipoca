@@ -1,6 +1,7 @@
+import { useNow } from "@pipoca/plugins/web";
 import type { MountedSession } from "@pipoca/plugins/web";
 import type { Quote, UiAction } from "@pipoca/protocol";
-import { cn, Icon } from "@pipoca/ui";
+import { cn, Code, Icon, Mark, type MarkStatus, StatusMark } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -28,8 +29,7 @@ import {
   type Work,
 } from "./chat";
 import type { Feed } from "./feed";
-import { Mark } from "./mark";
-import { useNow, useTeammates } from "./hooks";
+import { useTeammates } from "./hooks";
 import { renderMarkdown } from "./markdown";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext, toolRenderer } from "./plugins";
@@ -565,7 +565,10 @@ function StepRow({
 
   const line = (
     <>
-      <StepMark running={running} failed={step.result?.failed === true} />
+      <StatusMark
+        status={stepStatus(running, step.result?.failed === true)}
+        label=""
+      />
       <span className="shrink-0 font-medium text-fg">{verb}</span>
       <span className="truncate font-mono text-mono-sm text-fg-dim">
         {object}
@@ -589,38 +592,23 @@ function StepRow({
       >
         {line}
       </summary>
-      <pre
-        className={cn(
-          "mx-2 mt-1 mb-2 max-h-80 overflow-auto rounded-md border border-line bg-code px-3 py-2 font-mono text-mono-sm whitespace-pre-wrap",
-          step.result.failed ? "text-failed" : "text-fg",
-        )}
+      <Code
+        wrap
+        failed={step.result.failed}
+        className="mx-2 mt-1 mb-2 max-h-80 overflow-auto"
       >
         {step.result.text}
-      </pre>
+      </Code>
     </details>
   );
 }
 
-function StepMark({
-  running,
-  failed,
-}: {
-  readonly running: boolean;
-  readonly failed: boolean;
-}): ReactElement {
+function stepStatus(running: boolean, failed: boolean): MarkStatus {
   if (running) {
-    return (
-      <span className="grid size-4 shrink-0 place-items-center">
-        <span className="size-1.5 animate-pulse rounded-full bg-working" />
-      </span>
-    );
+    return "running";
   }
 
-  return failed ? (
-    <Icon name="x" className="size-4 shrink-0 text-failed" />
-  ) : (
-    <Icon name="check" className="size-4 shrink-0 text-done" />
-  );
+  return failed ? "failed" : "done";
 }
 
 function Notice({

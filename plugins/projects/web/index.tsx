@@ -20,25 +20,32 @@ import {
 } from "@pipoca/protocol";
 import {
   Badge,
+  type BadgeState,
   Button,
+  Card,
+  cardClass,
   cn,
+  Code,
+  ErrorText,
   Field,
   fieldClass,
   Icon,
+  linkCardClass,
+  Menu,
   PageTitle,
   Picker,
+  type PickerOption,
+  popClass,
   Section,
   Segmented,
   Select,
-  type BadgeState,
-  type PickerOption,
+  SessionRow,
+  useConfirm,
 } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
   type SubmitEvent,
-  useEffect,
-  useRef,
   useState,
 } from "react";
 import {
@@ -145,9 +152,10 @@ function StartThreadCard({ context, call }: ToolCallProps): ReactElement {
     thread && context.href(`${thread.projectId}/${thread.sessionId}`);
 
   return (
-    <div
+    <Card
+      padding="none"
       aria-label={`Thread ${title}`}
-      className="flex items-center gap-3 rounded-lg border border-line bg-elevated shadow-xs px-3 py-2"
+      className="flex items-center gap-3 px-3 py-2"
     >
       <StateDot thread={thread} />
       <div className="flex min-w-0 flex-1 flex-col">
@@ -181,7 +189,7 @@ function StartThreadCard({ context, call }: ToolCallProps): ReactElement {
           </a>
         </>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -462,7 +470,10 @@ function ProjectCards({
             onClick={() => {
               onOpen(project.id);
             }}
-            className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg border border-line bg-elevated shadow-xs px-4 py-3 text-left hover:border-line-strong hover:bg-hover"
+            className={cn(
+              linkCardClass,
+              "flex w-full cursor-pointer items-center justify-between gap-3 px-4 py-3 text-left hover:bg-hover",
+            )}
           >
             <span className="flex min-w-0 items-center gap-2 font-medium text-fg-strong">
               {project.name}
@@ -642,7 +653,7 @@ function CreateForm({
   return (
     <form
       onSubmit={submit}
-      className="project-create grid max-w-xl gap-3 rounded-lg border border-line bg-elevated shadow-xs p-5"
+      className={cn(cardClass, "project-create grid max-w-xl gap-3 p-5")}
     >
       {teamEnvironments.length > 0 && teamProfile !== undefined && (
         <Segmented
@@ -1215,40 +1226,27 @@ function ThreadRow({
   const group = groupOf(thread);
 
   return (
-    <li
-      aria-label={thread.title}
-      className="group relative flex items-start rounded-md hover:bg-hover has-aria-[current=page]:bg-hover"
-    >
-      <a
-        href={href}
-        aria-current={current ? "page" : undefined}
-        className="flex min-w-0 flex-1 flex-col gap-0.5 py-1.5 pr-1 pl-2"
-      >
-        <span className="flex min-w-0 items-center gap-2">
-          <span
-            aria-hidden="true"
-            className={cn(
-              "size-2 shrink-0 rounded-full",
-              thread.workState === "failed" ? "bg-failed" : dots[group],
-            )}
-          />
-          <span
-            className={cn(
-              "truncate text-label font-medium",
-              current ? "text-fg-strong" : "text-fg",
-            )}
-          >
-            {thread.title}
-          </span>
-        </span>
-        <span className="truncate pl-4 text-caption text-fg-dim">
-          {thread.runState === "working" || thread.runState === "idle"
-            ? meta
-            : `${runBadges[thread.runState]?.label ?? thread.runState} · ${meta}`}
-        </span>
-      </a>
-      <ThreadMenu context={context} thread={thread} />
-    </li>
+    <SessionRow
+      label={thread.title}
+      href={href}
+      current={current}
+      title={thread.title}
+      leading={
+        <span
+          aria-hidden="true"
+          className={cn(
+            "size-2 shrink-0 rounded-full",
+            thread.workState === "failed" ? "bg-failed" : dots[group],
+          )}
+        />
+      }
+      meta={
+        thread.runState === "working" || thread.runState === "idle"
+          ? meta
+          : `${runBadges[thread.runState]?.label ?? thread.runState} · ${meta}`
+      }
+      actions={<ThreadMenu context={context} thread={thread} />}
+    />
   );
 }
 
@@ -1259,36 +1257,9 @@ function ThreadMenu({
   readonly context: WebContext;
   readonly thread: ThreadView;
 }): ReactElement {
-  const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
-  const box = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) {
-      return undefined;
-    }
-
-    const close = (event: Event): void => {
-      if (
-        event instanceof KeyboardEvent
-          ? event.key === "Escape"
-          : box.current?.contains(event.target as Node) !== true
-      ) {
-        setOpen(false);
-      }
-    };
-
-    document.addEventListener("pointerdown", close);
-    document.addEventListener("keydown", close);
-
-    return () => {
-      document.removeEventListener("pointerdown", close);
-      document.removeEventListener("keydown", close);
-    };
-  }, [open]);
 
   const run = (request: Promise<Response>): void => {
-    setOpen(false);
     setError("");
 
     ok(request).catch((failure: unknown) => {
@@ -1297,78 +1268,48 @@ function ThreadMenu({
   };
 
   return (
-    <div ref={box} className="relative">
-      <Button
-        variant="ghost"
-        iconOnly
-        aria-label={`Actions for ${thread.title}`}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => {
-          setOpen(!open);
-        }}
-        className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 pointer-coarse:opacity-100"
-      >
-        <Icon name="more" />
-      </Button>
-      {error !== "" && (
-        <p
-          role="alert"
-          className="absolute top-full right-0 z-30 w-48 rounded-md border border-line bg-elevated p-2 text-caption text-failed shadow-pop"
-        >
-          {error}
-        </p>
-      )}
-      {open && (
-        <div
-          role="menu"
-          aria-label={`Actions for ${thread.title}`}
-          className="absolute top-full right-0 z-30 mt-1 flex min-w-44 flex-col rounded-lg border border-line bg-elevated p-1 shadow-pop"
-        >
-          {workStates.map((state) => (
-            <button
-              key={state}
-              type="button"
-              role="menuitemradio"
-              aria-checked={thread.workState === state}
-              onClick={() => {
-                run(
-                  context.request(
-                    `threads/${encodeURIComponent(thread.sessionId)}/state`,
-                    { method: "POST", body: JSON.stringify({ state }) },
-                  ),
-                );
-              }}
-              className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-ui text-fg hover:bg-hover"
-            >
-              <Icon
-                name="check"
-                className={cn(
-                  "size-4",
-                  thread.workState !== state && "invisible",
-                )}
-              />
-              {workStateNames[state]}
-            </button>
-          ))}
-          <hr className="my-1 border-line" />
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
+    <div className="relative">
+      <Menu
+        label={`Actions for ${thread.title}`}
+        triggerClassName="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 pointer-coarse:opacity-100"
+        items={[
+          ...workStates.map((state) => ({
+            label: workStateNames[state],
+            checked: thread.workState === state,
+            run: () => {
+              run(
+                context.request(
+                  `threads/${encodeURIComponent(thread.sessionId)}/state`,
+                  { method: "POST", body: JSON.stringify({ state }) },
+                ),
+              );
+            },
+          })),
+          {
+            label: "Archive",
+            icon: "archive" as const,
+            divided: true,
+            run: () => {
               run(
                 context.request(
                   `/api/sessions/${encodeURIComponent(thread.sessionId)}/archive`,
                   { method: "POST" },
                 ),
               );
-            }}
-            className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-ui text-fg hover:bg-hover"
-          >
-            <Icon name="archive" className="size-4" />
-            Archive
-          </button>
-        </div>
+            },
+          },
+        ]}
+      />
+      {error !== "" && (
+        <p
+          role="alert"
+          className={cn(
+            "absolute top-full right-0 z-30 w-48 p-2 text-caption text-failed",
+            popClass,
+          )}
+        >
+          {error}
+        </p>
       )}
     </div>
   );
@@ -1509,11 +1450,7 @@ function Settings({
       >
         Save settings
       </Button>
-      {error !== "" && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
     </form>
   );
 }
@@ -1578,11 +1515,7 @@ function StartFresh({
           ))}
         </ul>
       )}
-      {error !== "" && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
     </section>
   );
 }
@@ -1596,11 +1529,13 @@ function ArchiveProject({
   readonly project: ProjectView;
   readonly onDone: () => void;
 }): ReactElement {
+  const [ask, asking] = useConfirm();
   const archived = project.coordinatorState === "archived";
   const [error, setError] = useState("");
 
   return (
     <section aria-label="Archive" className="flex flex-col items-start gap-2">
+      {asking}
       <p className="text-caption text-fg-dim">
         {archived
           ? "Unarchiving brings back the coordinator and the threads archived with it."
@@ -1608,35 +1543,38 @@ function ArchiveProject({
       </p>
       <Button
         onClick={() => {
-          if (
-            !archived &&
-            !confirm(`Archive ${project.name} and all its threads?`)
-          ) {
-            return;
-          }
+          void (
+            archived
+              ? Promise.resolve(true)
+              : ask({
+                  title: `Archive ${project.name} and all its threads?`,
+                  confirm: "Archive",
+                  danger: true,
+                })
+          ).then((yes) => {
+            if (!yes) {
+              return;
+            }
 
-          setError("");
+            setError("");
 
-          ok(
-            context.request(
-              `/api/sessions/${encodeURIComponent(project.coordinatorId)}/${archived ? "unarchive" : "archive"}`,
-              { method: "POST" },
-            ),
-          ).then(onDone, (failure: unknown) => {
-            setError(
-              failure instanceof Error ? failure.message : String(failure),
-            );
+            ok(
+              context.request(
+                `/api/sessions/${encodeURIComponent(project.coordinatorId)}/${archived ? "unarchive" : "archive"}`,
+                { method: "POST" },
+              ),
+            ).then(onDone, (failure: unknown) => {
+              setError(
+                failure instanceof Error ? failure.message : String(failure),
+              );
+            });
           });
         }}
       >
         <Icon name="archive" />
         {archived ? "Unarchive Project" : "Archive Project"}
       </Button>
-      {error !== "" && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
     </section>
   );
 }
@@ -1696,9 +1634,9 @@ function Memory({
         ))}
       </ul>
       {shown !== undefined && (
-        <pre className="max-h-[60vh] overflow-auto rounded-md border border-line bg-code px-3 py-2 font-mono text-mono-sm whitespace-pre-wrap">
+        <Code wrap className="max-h-[60vh] overflow-auto">
           {content}
-        </pre>
+        </Code>
       )}
     </div>
   );

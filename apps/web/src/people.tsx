@@ -1,3 +1,4 @@
+import { useNow } from "@pipoca/plugins/web";
 import {
   availability,
   type Environment,
@@ -8,12 +9,20 @@ import {
 import {
   Badge,
   Button,
+  Card,
+  Cell,
+  ErrorText,
   Icon,
   initialsOf,
+  Page,
   PageTitle,
+  plural,
   Row,
   Rows,
   Select,
+  Table,
+  Tabs,
+  useConfirm,
 } from "@pipoca/ui";
 import { Fragment, type ReactElement, type ReactNode, useState } from "react";
 import { api, command, send } from "./api";
@@ -25,15 +34,10 @@ import {
   useEveryonesEnvironments,
   useEveryonesSessions,
   useInvites,
-  useNow,
   usePeople,
 } from "./hooks";
-import { settingsPageClass } from "./page-class";
 
 const busy = new Set(["queued", "starting", "running"]);
-
-const headClass = "px-4 py-2.5 text-left text-caption font-medium text-fg-dim";
-const cellClass = "border-t border-line px-4 py-3 align-middle";
 
 // Who can use the server, and what an admin sees of their work: names and
 // states, never transcripts, files or variable values (ADR 0049).
@@ -47,6 +51,7 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
   const [editingNewcomers, setEditingNewcomers] = useState(false);
   const [open, setOpen] = useState<string>();
   const [error, setError] = useState<string>();
+  const [ask, asking] = useConfirm();
 
   const act = (run: Promise<unknown>): void => {
     run.then(
@@ -71,7 +76,7 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
   const now = useNow();
 
   return (
-    <div className={settingsPageClass}>
+    <Page>
       <PageTitle
         description="Who can use this server. Admins see names and states, never transcripts, files or secret values."
         actions={
@@ -103,40 +108,26 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
         editing={editingNewcomers}
         onEditing={setEditingNewcomers}
       />
-      {error !== undefined && (
-        <p role="alert" className="mb-3 text-caption text-failed">
-          {error}
-        </p>
-      )}
-      <div
-        role="tablist"
-        aria-label="People"
-        className="mt-6 flex gap-1 border-b border-line"
-      >
-        {(
-          [
-            ["members", `Members · ${String(people.value.length)}`],
-            ["invites", `Invites · ${String(invites.value.length)}`],
-          ] as const
-        ).map(([name, label]) => (
-          <button
-            key={name}
-            type="button"
-            role="tab"
-            aria-selected={tab === name}
-            onClick={() => {
-              setTab(name);
-            }}
-            className="-mb-px cursor-pointer border-b-2 border-transparent px-3 py-2 text-ui text-fg-dim hover:text-fg aria-selected:border-fg-strong aria-selected:font-medium aria-selected:text-fg-strong"
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <div
-        role="tabpanel"
-        className="mt-1.5 overflow-x-auto rounded-lg border border-line bg-elevated shadow-xs"
-      >
+      <ErrorText size="caption" className="mb-3">
+        {error}
+      </ErrorText>
+      <Tabs
+        label="People"
+        className="mt-6"
+        value={tab}
+        onSelect={setTab}
+        tabs={[
+          {
+            value: "members",
+            label: `Members · ${String(people.value.length)}`,
+          },
+          {
+            value: "invites",
+            label: `Invites · ${String(invites.value.length)}`,
+          },
+        ]}
+      />
+      <Card role="tabpanel" padding="none" className="mt-1.5 overflow-x-auto">
         {tab === "invites" && (
           <InvitesTable
             invites={invites.value}
@@ -146,129 +137,128 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
           />
         )}
         {tab === "members" && (
-          <table className="w-full min-w-xl border-collapse text-ui">
-            <thead>
-              <tr>
-                <th className={headClass}>Name</th>
-                <th className={headClass}>Role</th>
-                <th className={headClass}>Now</th>
-                <th className={headClass}>Last active</th>
-                <th className={headClass}>
-                  <span className="sr-only">More</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {people.value.map((person) => {
-                const theirs = sessions.value.filter(
-                  (session) => personOf(session) === person.id,
-                );
+          <Table
+            bare
+            columns={[
+              "Name",
+              "Role",
+              "Now",
+              "Last active",
+              <span key="more" className="sr-only">
+                More
+              </span>,
+            ]}
+          >
+            {people.value.map((person) => {
+              const theirs = sessions.value.filter(
+                (session) => personOf(session) === person.id,
+              );
 
-                const own = environments.value.filter(
-                  ({ ownerId }) => ownerId === person.id,
-                );
+              const own = environments.value.filter(
+                ({ ownerId }) => ownerId === person.id,
+              );
 
-                return (
-                  <Fragment key={person.id}>
-                    <tr aria-label={person.name}>
-                      <td className={cellClass}>
-                        <span className="flex items-center gap-2.5">
-                          <span
-                            aria-hidden="true"
-                            className="grid size-7 shrink-0 place-items-center rounded-full bg-hover text-caption font-semibold text-fg-strong"
-                          >
-                            {initialsOf(person.name)}
+              return (
+                <Fragment key={person.id}>
+                  <tr aria-label={person.name}>
+                    <Cell>
+                      <span className="flex items-center gap-2.5">
+                        <span
+                          aria-hidden="true"
+                          className="grid size-7 shrink-0 place-items-center rounded-full bg-hover text-caption font-semibold text-fg-strong"
+                        >
+                          {initialsOf(person.name)}
+                        </span>
+                        <span className="flex min-w-0 flex-col">
+                          <span className="truncate text-fg-strong">
+                            {person.name}
                           </span>
-                          <span className="flex min-w-0 flex-col">
-                            <span className="truncate text-fg-strong">
-                              {person.name}
-                            </span>
-                            <span className="text-label text-fg-dim">
-                              {[
-                                person.name === user && "you",
-                                person.settingUp && "setting up",
-                              ]
-                                .filter(Boolean)
-                                .join(" · ")}
-                            </span>
+                          <span className="text-label text-fg-dim">
+                            {[
+                              person.name === user && "you",
+                              person.settingUp && "setting up",
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
                           </span>
                         </span>
-                      </td>
-                      <td className={cellClass}>
-                        <Select
-                          aria-label={`Role of ${person.name}`}
-                          className="w-32"
-                          value={person.admin ? "admin" : "member"}
-                          onChange={(event) => {
+                      </span>
+                    </Cell>
+                    <Cell>
+                      <Select
+                        aria-label={`Role of ${person.name}`}
+                        className="w-32"
+                        value={person.admin ? "admin" : "member"}
+                        onChange={(event) => {
+                          act(
+                            send(
+                              `/api/people/${encodeURIComponent(person.id)}`,
+                              "PATCH",
+                              { admin: event.target.value === "admin" },
+                            ),
+                          );
+                        }}
+                      >
+                        <option value="admin">Admin</option>
+                        <option value="member">Member</option>
+                      </Select>
+                    </Cell>
+                    <Cell>
+                      <Doing person={person} sessions={theirs} />
+                    </Cell>
+                    <Cell className="text-label text-fg-dim">
+                      {lastActive(person.lastActive, now)}
+                    </Cell>
+                    <Cell className="w-11 text-right">
+                      <Button
+                        variant="ghost"
+                        aria-label={`More for ${person.name}`}
+                        aria-expanded={open === person.id}
+                        onClick={() => {
+                          setOpen(open === person.id ? undefined : person.id);
+                        }}
+                      >
+                        ···
+                      </Button>
+                    </Cell>
+                  </tr>
+                  {open === person.id && (
+                    <tr>
+                      <Cell colSpan={5} className="bg-panel">
+                        <Work
+                          person={person}
+                          environments={own}
+                          sessions={theirs}
+                          onStop={(session) => {
+                            act(command(session.id, { type: "abort" }));
+                          }}
+                          onArchive={(session) => {
                             act(
-                              send(
-                                `/api/people/${encodeURIComponent(person.id)}`,
-                                "PATCH",
-                                { admin: event.target.value === "admin" },
+                              api(
+                                `/api/sessions/${encodeURIComponent(session.id)}/archive`,
+                                {},
                               ),
                             );
                           }}
-                        >
-                          <option value="admin">Admin</option>
-                          <option value="member">Member</option>
-                        </Select>
-                      </td>
-                      <td className={cellClass}>
-                        <Doing person={person} sessions={theirs} />
-                      </td>
-                      <td className={`${cellClass} text-label text-fg-dim`}>
-                        {lastActive(person.lastActive, now)}
-                      </td>
-                      <td className={`${cellClass} w-11 text-right`}>
-                        <Button
-                          variant="ghost"
-                          aria-label={`More for ${person.name}`}
-                          aria-expanded={open === person.id}
-                          onClick={() => {
-                            setOpen(open === person.id ? undefined : person.id);
+                          onDelete={(environment) => {
+                            act(
+                              deleteEnvironment(environment, ask).then(
+                                environments.reload,
+                              ),
+                            );
                           }}
-                        >
-                          ···
-                        </Button>
-                      </td>
+                        />
+                      </Cell>
                     </tr>
-                    {open === person.id && (
-                      <tr>
-                        <td colSpan={5} className={`${cellClass} bg-panel`}>
-                          <Work
-                            person={person}
-                            environments={own}
-                            sessions={theirs}
-                            onStop={(session) => {
-                              act(command(session.id, { type: "abort" }));
-                            }}
-                            onArchive={(session) => {
-                              act(
-                                api(
-                                  `/api/sessions/${encodeURIComponent(session.id)}/archive`,
-                                  {},
-                                ),
-                              );
-                            }}
-                            onDelete={(environment) => {
-                              act(
-                                deleteEnvironment(environment).then(
-                                  environments.reload,
-                                ),
-                              );
-                            }}
-                          />
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
+                  )}
+                </Fragment>
+              );
+            })}
+          </Table>
         )}
-      </div>
-    </div>
+      </Card>
+      {asking}
+    </Page>
   );
 }
 
@@ -418,8 +408,4 @@ function Work({
       )}
     </div>
   );
-}
-
-function plural(count: number, noun: string): string {
-  return `${String(count)} ${noun}${count === 1 ? "" : "s"}`;
 }
