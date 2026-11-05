@@ -105,6 +105,7 @@ export {
   pluginUpdate,
   type SettingSpec,
   type SettingValue,
+  type ToolAnnotations,
   type ToolNamespace,
   type ToolSpec,
 } from "./plugins";
@@ -169,6 +170,7 @@ export {
   type QueryOf,
   type ReplyOf,
   type RouteSpec,
+  type RouteToolSpec,
 } from "./route";
 export { type RouteKey, type Routes, routes } from "./routes";
 export {

@@ -3,7 +3,7 @@ import {
   BadRequest,
   fieldsOf,
   isObject,
-  type PluginConfig,
+  type ConfigKey,
   type SecretRef,
   type SecretRefs,
   type Static,
@@ -70,7 +70,7 @@ const defaultLabel = "Sign in with single sign-on";
 // and people both edit (ADR 0039). A list that stops fitting is logged, and
 // the last one that fit stays in use.
 export function providerStore(
-  config: PluginConfig,
+  config: ConfigKey,
   refs: SecretRefs,
   log: Log,
 ): ProviderStore {

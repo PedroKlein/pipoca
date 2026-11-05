@@ -1,7 +1,7 @@
 import {
   Config,
   kernelConfig,
-  type PluginConfig,
+  type ConfigKey,
   type Static,
   Type,
 } from "@pipoca/plugins";
@@ -17,9 +17,6 @@ export type ServerConfig = Static<typeof serverOptions>;
 
 // The server's own options under "server" in pipoca.json, read again when the
 // file changes.
-export function serverConfig(
-  config: PluginConfig,
-  log: Log,
-): () => ServerConfig {
+export function serverConfig(config: ConfigKey, log: Log): () => ServerConfig {
   return kernelConfig(config, serverOptions, log);
 }

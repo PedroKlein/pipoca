@@ -1,13 +1,186 @@
-import type { Log } from "@pipoca/protocol";
+import type { Log, Timer } from "@pipoca/protocol";
 import { type Static, type TObject, type TSchema, Type } from "typebox";
 import { Value } from "typebox/value";
 import { checked } from "./body";
 import { annotation } from "./definition";
-import { isObject } from "./http";
-import type { PluginConfig } from "./plugin";
+import { fieldsOf, isObject } from "./http";
+import type { ConfigKey } from "./plugin";
 import type { SecretRefs } from "./secrets";
+import type { PluginConfig } from "./server";
 
 export type ConfigSecrets = Pick<SecretRefs, "open">;
+
+const watchMs = 2000;
+
+// A plugin's typed config, its key in pipoca.json read through its schema.
+// Watchers hear what set changes and hand edits alike.
+export function pluginConfig(
+  schema: TObject,
+  key: ConfigKey,
+  secrets: SecretRefs,
+  o: { readonly timer: Timer; readonly signal: AbortSignal; readonly log: Log },
+): PluginConfig {
+  const read = (): Readonly<Record<string, unknown>> =>
+    fieldsOf(configOf(schema, key.get(), secrets, o.log));
+
+  const watchers: ((next: never, previous: never) => void)[] = [];
+  let last: { readonly raw: string; readonly value: unknown } | undefined;
+
+  const check = (): void => {
+    const raw = JSON.stringify(key.get() ?? null);
+
+    if (last === undefined || raw === last.raw) {
+      return;
+    }
+
+    const previous = last.value;
+    const next = read();
+    last = { raw, value: next };
+
+    for (const fn of watchers) {
+      fn(next as never, previous as never);
+    }
+  };
+
+  const poll = (): void => {
+    if (o.signal.aborted) {
+      return;
+    }
+
+    o.timer.after(watchMs, async () => {
+      check();
+      poll();
+
+      return Promise.resolve();
+    });
+  };
+
+  const write = (raw: unknown): void => {
+    const next = sealed(schema, raw, [], secrets);
+
+    configOf(schema, next, secrets, o.log);
+    key.set(next);
+    check();
+  };
+
+  const stored = (name: string): readonly unknown[] => {
+    const raw = fieldsOf(key.get())[name];
+
+    return Array.isArray(raw) ? raw : [];
+  };
+
+  return {
+    get: read as PluginConfig["get"],
+    set: (change) => {
+      write(merged(key.get(), change));
+    },
+    watch: (fn) => {
+      if (last === undefined) {
+        last = { raw: JSON.stringify(key.get() ?? null), value: read() };
+        poll();
+      }
+
+      watchers.push(fn);
+    },
+    lockedIn: key.lockedIn,
+    collection: (name) => {
+      const field = propertyOf(schema, name);
+      const itemKey = field && collectionKey(field);
+
+      if (itemKey === undefined) {
+        throw new Error(`${name} isn't a collection of the config`);
+      }
+
+      const keyOf = (item: unknown): unknown => fieldsOf(item)[itemKey];
+
+      const items = (): readonly unknown[] => {
+        const found = read()[name];
+
+        return Array.isArray(found) ? found : [];
+      };
+
+      const keep = (list: readonly unknown[]): void => {
+        write({ ...fieldsOf(key.get()), [name]: list });
+      };
+
+      return {
+        list: items,
+        get: (wanted) => items().find((item) => keyOf(item) === wanted),
+        put: (item) => {
+          const list = stored(name);
+          const at = list.findIndex((each) => keyOf(each) === keyOf(item));
+
+          keep(at === -1 ? [...list, item] : list.with(at, item));
+        },
+        remove: (wanted) => {
+          const list = stored(name);
+          const others = list.filter((each) => keyOf(each) !== wanted);
+
+          if (others.length === list.length) {
+            return false;
+          }
+
+          keep(others);
+
+          return true;
+        },
+      };
+    },
+    dir: key.dir,
+  };
+}
+
+function merged(base: unknown, change: unknown): unknown {
+  if (!isObject(base) || !isObject(change)) {
+    return change === undefined ? base : change;
+  }
+
+  return {
+    ...base,
+    ...Object.fromEntries(
+      Object.entries(change).map(([name, value]) => [
+        name,
+        merged(base[name], value),
+      ]),
+    ),
+  };
+}
+
+function sealed(
+  schema: TSchema,
+  value: unknown,
+  path: readonly string[],
+  secrets: SecretRefs,
+): unknown {
+  if (marks(schema)["secret"] !== undefined) {
+    return typeof value === "string"
+      ? secrets.seal(value, path.join("."))
+      : value;
+  }
+
+  if (collectionKey(schema) !== undefined && Type.IsArray(schema)) {
+    return Array.isArray(value)
+      ? value.map((item: unknown) => sealed(schema.items, item, path, secrets))
+      : value;
+  }
+
+  if (Type.IsObject(schema) && isObject(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([name, field]) => {
+        const property = propertyOf(schema, name);
+
+        return [
+          name,
+          property === undefined
+            ? field
+            : sealed(property, field, [...path, name], secrets),
+        ];
+      }),
+    );
+  }
+
+  return value;
+}
 
 const slug = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -32,7 +205,7 @@ const noSecrets: ConfigSecrets = {
 // A field or entry that doesn't fit is logged once and takes its default,
 // and the others keep their values.
 export function kernelConfig<const S extends TSchema>(
-  config: PluginConfig,
+  config: ConfigKey,
   schema: S,
   log: Log,
 ): () => Static<S> {

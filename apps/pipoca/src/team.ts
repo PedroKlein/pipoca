@@ -2,7 +2,7 @@ import {
   Config,
   fieldsOf,
   kernelConfig,
-  type PluginConfig,
+  type ConfigKey,
   Type,
 } from "@pipoca/plugins";
 import {
@@ -25,7 +25,7 @@ const teamOptions = Config.object({
 });
 
 // The team's name and options in pipoca.json, under "team".
-export function teamSettings(config: PluginConfig, log: Log): Team {
+export function teamSettings(config: ConfigKey, log: Log): Team {
   const read = kernelConfig(config, teamOptions, log);
 
   return {

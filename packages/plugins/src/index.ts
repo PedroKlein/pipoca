@@ -1,6 +1,11 @@
 export { checkBody, readBody } from "./body";
 export { type ClientOptions, pluginClient, type TypedClient } from "./client";
-export { type ConfigSecrets, configOf, kernelConfig } from "./config";
+export {
+  type ConfigSecrets,
+  configOf,
+  kernelConfig,
+  pluginConfig,
+} from "./config";
 export {
   Config,
   definePlugin,
@@ -28,9 +33,11 @@ export {
   HttpError,
   isHttpError,
   isObject,
+  isToolError,
   NotFound,
   readJson,
   requireAdmin,
+  ToolError,
 } from "./http";
 export { type Static, Type } from "typebox";
 export { canSee, owners } from "./owners";
@@ -44,21 +51,35 @@ export {
 export {
   type Auth,
   type Caller,
+  type Collection,
   defineServer,
   type Handler,
   type Params,
   type People,
+  type PluginConfig,
+  type PluginEnvironments,
+  type PluginProfiles,
   type Person,
   type PluginEvents,
+  type Providers,
   type RouteInput,
   type Routes,
   type RouteSpec,
   type ScopedRoutes,
+  type Secrets,
+  type ServerTools,
+  type Sessions,
+  type SignInProvider,
+  type Store,
+  type ToolCall,
+  type ToolDef,
+  type ToolOutput,
   type ServerContext,
   type ServerPart,
   type ToolResultEntry,
   type Transcript,
   type Urls,
+  type When,
 } from "./server";
 export type { Schedule, Scheduled } from "./schedule";
 export { checkedSettings, settingSpecs, settingValues } from "./settings";
@@ -74,7 +95,8 @@ export type {
   McpLoginStore,
   ModelOffer,
   OfferedModels,
-  PluginConfig,
+  ConfigKey,
+  PluginProfile,
   PluginEvent,
   PluginNotice,
   PluginRoute,
@@ -98,3 +120,4 @@ export type {
   Toolset,
   User,
 } from "./plugin";
+export type { RouteToolSpec } from "@pipoca/protocol";

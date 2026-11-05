@@ -1,4 +1,4 @@
-import { Config, kernelConfig, type PluginConfig } from "@pipoca/plugins";
+import { Config, kernelConfig, type ConfigKey } from "@pipoca/plugins";
 import { type HubLayout, hubLayout, type Log } from "@pipoca/protocol";
 
 export interface Hub {
@@ -11,7 +11,7 @@ const hubOptions = Config.object({
 });
 
 // The hub's layout in pipoca.json, under "hub".
-export function hubSettings(config: PluginConfig, log: Log): Hub {
+export function hubSettings(config: ConfigKey, log: Log): Hub {
   const read = kernelConfig(config, hubOptions, log);
 
   return {

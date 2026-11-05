@@ -128,6 +128,34 @@ test("serves the meta toolsets to an MCP client with a token", async () => {
   ).toBe(true);
 });
 
+test("lists the kernel's route tools by the names the meta toolsets had, and none that only plugins call", async () => {
+  const { secret } = await newToken();
+  const { tools } = await result<ToolsList>(rpc(secret, "tools/list"));
+
+  expect(tools.map(({ name }) => name).sort()).toEqual([
+    "environments_create",
+    "environments_list",
+    "environments_update",
+    "plugins_files",
+    "plugins_list",
+    "plugins_read_file",
+    "profiles_create",
+    "profiles_get",
+    "profiles_list",
+    "profiles_make_default",
+    "profiles_update",
+    "projects_create",
+    "projects_get",
+    "projects_list",
+    "projects_update",
+    "sessions_archive",
+    "sessions_get",
+    "sessions_list",
+    "sessions_open",
+    "sessions_start",
+  ]);
+});
+
 test("runs a tool as the token's user, through the same route", async () => {
   const { secret } = await newToken();
 

@@ -124,7 +124,6 @@ test("reports unhealthy when the database can't be read, keeping why in the log"
         lockedIn: () => undefined,
         dir: name,
       }),
-      toolsets: [],
       api: () => {
         throw new Error("no toolsets here");
       },
@@ -232,7 +231,6 @@ function startServer(
         lockedIn: () => undefined,
         dir: name,
       }),
-      toolsets: [],
       api: () => {
         throw new Error("no toolsets here");
       },
@@ -635,7 +633,6 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
           lockedIn: () => undefined,
           dir: name,
         }),
-        toolsets: [],
         api: () => {
           throw new Error("no toolsets here");
         },

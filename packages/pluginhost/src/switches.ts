@@ -1,7 +1,7 @@
 import {
   fieldsOf,
   kernelConfig,
-  type PluginConfig,
+  type ConfigKey,
   type Static,
   Type,
 } from "@pipoca/plugins";
@@ -35,7 +35,7 @@ export interface PluginSwitches {
 const switches = Type.Record(Type.String(), pluginSwitch, { default: {} });
 
 // Every plugin's switch, by id, under "plugins" in pipoca.json.
-export function pluginSwitches(config: PluginConfig, log: Log): PluginSwitches {
+export function pluginSwitches(config: ConfigKey, log: Log): PluginSwitches {
   const read = kernelConfig(config, switches, log);
 
   const get = (id: string): PluginSwitch => {

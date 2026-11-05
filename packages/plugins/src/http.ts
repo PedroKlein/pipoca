@@ -91,6 +91,24 @@ export function isObject(
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const toolBrand = Symbol.for("pipoca.tool-error");
+
+// Thrown from a tool's run, the model reads its message as the tool's error.
+export class ToolError extends Error {
+  constructor(message: string) {
+    super(message);
+    Object.defineProperty(this, toolBrand, { value: true });
+  }
+}
+
+export function isToolError(error: unknown): error is ToolError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    Reflect.get(error, toolBrand) === true
+  );
+}
+
 // A body's fields, or none when it isn't an object, for each field to check.
 export function fieldsOf(value: unknown): Readonly<Record<string, unknown>> {
   return isObject(value) ? value : {};

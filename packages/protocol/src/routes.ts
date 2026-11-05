@@ -1,4 +1,4 @@
-import { Type } from "typebox";
+import { type TObject, type TProperties, Type } from "typebox";
 import {
   accessToken,
   accessTokenRequest,
@@ -8,6 +8,7 @@ import {
   configFiles,
   configFileWrite,
   createdAccessToken,
+  createSession,
   createdEnvironment,
   createEnvironment,
   credentials,
@@ -31,6 +32,7 @@ import {
   pinnedPages,
   pinnedPagesChange,
   profile,
+  type Profile,
   profileContent,
   profileEntry,
   repositoryManifest,
@@ -48,8 +50,23 @@ import {
 } from "./browser";
 import { browserCommand } from "./events";
 import {
+  at,
+  environmentTools,
+  named,
+  pluginSummary,
+  pluginTools,
+  profileTools,
+  profileView,
+  sessionSummary,
+  sessionTools,
+  titleOf,
+  withoutKey,
+} from "./kernel-tools";
+import {
   pluginFileContent,
+  pluginFileWrite,
   pluginInfo,
+  type PluginInfo,
   pluginInstall,
   pluginUpdate,
   toolSpec,
@@ -69,11 +86,26 @@ import {
   work,
   workPoll,
 } from "./runner";
-import { forkedSession, session } from "./session";
+import { forkedSession, session, type Session } from "./session";
 import { strings } from "./wire";
 
 const any = Type.Unknown();
 const generation = Type.Object({ generation: Type.Integer() });
+
+const id = { id: Type.String() };
+
+const toolParams = (properties: TProperties): TObject =>
+  Type.Object(properties, { additionalProperties: false });
+
+const profileFields = Type.Partial(
+  Type.Pick(profileContent, [
+    "packages",
+    "agentsMd",
+    "systemMd",
+    "appendSystemMd",
+    "settings",
+  ]),
+).properties;
 
 // Mine are a person's own, the team's are everyone's, and all is everyone's
 // own as well, for admins.
@@ -377,6 +409,14 @@ export const routes = {
     path: "/api/plugins",
     auth: "person",
     response: Type.Array(pluginInfo),
+    tool: {
+      name: "plugins_list",
+      namespace: pluginTools,
+      description:
+        "List the plugins with their state, whether they are turned on, and where installed ones came from.",
+      annotations: { readOnlyHint: true },
+      result: (body) => (body as readonly PluginInfo[]).map(pluginSummary),
+    },
   },
   "plugins.install": {
     method: "POST",
@@ -410,12 +450,24 @@ export const routes = {
     path: "/api/plugins/:plugin/files",
     auth: "person",
     response: strings,
+    tool: {
+      name: "plugins_files",
+      namespace: pluginTools,
+      description: "List the files of an installed plugin.",
+      annotations: { readOnlyHint: true },
+    },
   },
   "plugins.file": {
     method: "GET",
     path: "/api/plugins/:plugin/files/*path",
     auth: "person",
     response: Type.Object({ path: Type.String(), content: Type.String() }),
+    tool: {
+      name: "plugins_read_file",
+      namespace: pluginTools,
+      description: "Read a file of an installed plugin.",
+      annotations: { readOnlyHint: true },
+    },
   },
   "plugins.file.write": {
     method: "PUT",
@@ -424,6 +476,19 @@ export const routes = {
     body: pluginFileContent,
     response: pluginInfo,
     changes: ["plugins"],
+    tool: {
+      name: "plugins_write_file",
+      namespace: pluginTools,
+      internal: true,
+      description:
+        "Write a file of an in-place plugin, making the plugin when it doesn't exist yet. Nothing in it runs until the user turns it on.",
+      params: toolParams({
+        plugin: Type.String({ description: "The plugin's id" }),
+        ...pluginFileWrite.properties,
+      }),
+      annotations: { destructiveHint: false, openWorldHint: false },
+      result: (body) => pluginSummary(body as PluginInfo),
+    },
   },
   "plugins.builds.create": {
     method: "POST",
@@ -433,6 +498,19 @@ export const routes = {
     status: 201,
     changes: ["plugins"],
     long: true,
+    tool: {
+      name: "plugins_build",
+      namespace: pluginTools,
+      internal: true,
+      description:
+        "Install an in-place plugin's dependencies and bundle its parts, to see whether it builds. None of its code runs.",
+      annotations: { destructiveHint: false, openWorldHint: true },
+      result: (body) => ({
+        ...pluginSummary(body as PluginInfo),
+        note: "It builds. The user turns it on on the Plugins page, then restarts the server.",
+      }),
+      opens: () => ({ route: "plugins", label: "the Plugins page" }),
+    },
   },
   // Its tables, emptied when its schema changed (ADR 0068).
   "plugins.data.remove": {
@@ -458,6 +536,14 @@ export const routes = {
     auth: "person",
     query: Type.Object({ scope }),
     response: Type.Array(environment),
+    tool: {
+      name: "environments_list",
+      namespace: environmentTools,
+      description:
+        "List Environments with their runners, isolation, image, setup script, variables and secret names.",
+      params: toolParams({}),
+      annotations: { readOnlyHint: true },
+    },
   },
   "environments.create": {
     method: "POST",
@@ -467,6 +553,17 @@ export const routes = {
     response: createdEnvironment,
     status: 201,
     changes: ["environments"],
+    tool: {
+      name: "environments_create",
+      namespace: environmentTools,
+      description: "Create an Environment with a name.",
+      params: toolParams({ name: createEnvironment.properties.name }),
+      annotations: { destructiveHint: false, openWorldHint: false },
+      result: (body) => ({
+        environment: withoutKey(body),
+        note: "Its runner key isn't shown here. The user gets one with Replace key on the Environments page.",
+      }),
+    },
   },
   "environments.update": {
     method: "PATCH",
@@ -475,6 +572,28 @@ export const routes = {
     body: environmentUpdate,
     response: environment,
     changes: ["environments"],
+    tool: {
+      name: "environments_update",
+      namespace: environmentTools,
+      description:
+        "Change an Environment. Only the fields given change; variables replaces all of its variables.",
+      params: toolParams({
+        ...id,
+        ...Type.Pick(environmentUpdate, [
+          "name",
+          "isolation",
+          "image",
+          "setupScript",
+          "variables",
+        ]).properties,
+      }),
+      annotations: { destructiveHint: true },
+      asks: {
+        lookup: () => "/api/environments",
+        text: (input, found) =>
+          `Change ${named(found, input, "the Environment", "this Environment")}?`,
+      },
+    },
   },
   "environments.remove": {
     method: "DELETE",
@@ -557,6 +676,14 @@ export const routes = {
     auth: "person",
     query: Type.Object({ scope: Type.Optional(Type.Enum(["mine", "team"])) }),
     response: Type.Array(profile),
+    tool: {
+      name: "profiles_list",
+      namespace: profileTools,
+      description: "List the user's Profiles.",
+      params: toolParams({}),
+      annotations: { readOnlyHint: true },
+      result: (body) => (body as readonly Profile[]).map(profileView),
+    },
   },
   // A Profile's content, an exported Profile file, { from } to copy a
   // Profile, or { source } to import one from a repository.
@@ -569,6 +696,15 @@ export const routes = {
     status: 201,
     changes: ["profiles"],
     long: true,
+    tool: {
+      name: "profiles_create",
+      namespace: profileTools,
+      description: "Create a Profile.",
+      params: toolParams({ name: Type.String(), ...profileFields }),
+      // Its packages are installed and run in every Session that uses it.
+      annotations: { destructiveHint: false, openWorldHint: true },
+      result: (body) => profileView(body as Profile),
+    },
   },
   // An exported archive, as GET /api/profiles/:id/archive gives it.
   "profiles.archives.create": {
@@ -586,6 +722,13 @@ export const routes = {
     path: "/api/profiles/:id",
     auth: "person",
     response: profile,
+    tool: {
+      name: "profiles_get",
+      namespace: profileTools,
+      description: "Get one Profile by id.",
+      annotations: { readOnlyHint: true },
+      result: (body) => profileView(body as Profile),
+    },
   },
   // Its content, and isDefault: true to make it the default.
   "profiles.update": {
@@ -595,6 +738,39 @@ export const routes = {
     body: any,
     response: profile,
     changes: ["profiles"],
+    tool: [
+      {
+        name: "profiles_update",
+        namespace: profileTools,
+        description:
+          "Change a Profile. Only the fields given change. Sessions pick it up the next time their Pi starts.",
+        params: toolParams({
+          ...id,
+          name: Type.Optional(Type.String()),
+          ...profileFields,
+        }),
+        annotations: { destructiveHint: true },
+        asks: {
+          lookup: (input) => at("/api/profiles/:id", input),
+          text: (input, found) =>
+            `Change ${named(found, input, "the Profile", "this Profile")}?`,
+        },
+        result: (body) => profileView(body as Profile),
+      },
+      {
+        name: "profiles_make_default",
+        namespace: profileTools,
+        description: "Make a Profile the one new Sessions use by default.",
+        params: toolParams(id),
+        body: { isDefault: true },
+        annotations: { destructiveHint: true },
+        asks: {
+          lookup: (input) => at("/api/profiles/:id", input),
+          text: (input, found) =>
+            `Make ${named(found, input, "the Profile", "this Profile")} the default for new Sessions?`,
+        },
+      },
+    ],
   },
   "profiles.remove": {
     method: "DELETE",
@@ -633,6 +809,14 @@ export const routes = {
     body: uploadedFiles,
     status: 204,
     changes: ["profiles"],
+    tool: {
+      name: "profiles_upload",
+      namespace: profileTools,
+      description:
+        "Write files into a Profile's folder, as { path: base64 content }.",
+      internal: true,
+      annotations: { destructiveHint: true },
+    },
   },
   "profiles.file": {
     method: "GET",
@@ -668,6 +852,16 @@ export const routes = {
       plugins: Type.Optional(Type.Boolean()),
     }),
     response: Type.Array(session),
+    tool: {
+      name: "sessions_list",
+      namespace: sessionTools,
+      description:
+        "List the user's Sessions, newest first, with their status. Archived ones only when archived is true.",
+      params: toolParams({ archived: Type.Optional(Type.Boolean()) }),
+      exposure: "direct",
+      annotations: { readOnlyHint: true },
+      result: (body) => (body as readonly Session[]).map(sessionSummary),
+    },
   },
   "sessions.create": {
     method: "POST",
@@ -676,12 +870,57 @@ export const routes = {
     body: newSession,
     response: forkedSession,
     status: 201,
+    tool: {
+      name: "sessions_start",
+      namespace: sessionTools,
+      description:
+        "Start a Session. Without an environment or profile it uses the defaults. firstMessage is what the Session's agent is asked to do first.",
+      params: toolParams(
+        Type.Pick(createSession, [
+          "environment",
+          "profile",
+          "workspace",
+          "model",
+          "firstMessage",
+        ]).properties,
+      ),
+      exposure: "direct",
+      // The new Session's agent runs whatever firstMessage says without a
+      // confirm of its own, so starting one is open-world.
+      annotations: { destructiveHint: false, openWorldHint: true },
+      result: (body) => sessionSummary(body as Session),
+      opens: (body) => ({
+        route: (body as Session).id,
+        label: "the new Session",
+      }),
+    },
   },
   "sessions.get": {
     method: "GET",
     path: "/api/sessions/:id",
     auth: "person",
     response: session,
+    tool: [
+      {
+        name: "sessions_get",
+        namespace: sessionTools,
+        description: "Get one Session by id.",
+        annotations: { readOnlyHint: true },
+      },
+      {
+        name: "sessions_open",
+        namespace: sessionTools,
+        description: "Open a Session for the user to watch or take over.",
+        exposure: "direct",
+        annotations: { readOnlyHint: true },
+        result: () =>
+          "Offered it to the user in the browsers that show this chat.",
+        opens: (body) => ({
+          route: (body as Session).id,
+          label: titleOf(body as Session),
+        }),
+      },
+    ],
   },
   "sessions.update": {
     method: "PATCH",
@@ -689,6 +928,20 @@ export const routes = {
     auth: "person",
     body: sessionChange,
     response: session,
+    tool: {
+      name: "sessions_archive",
+      namespace: sessionTools,
+      description:
+        "Archive a Session. Its workspace is removed when nothing would lose work.",
+      params: toolParams(id),
+      body: { archived: true },
+      annotations: { destructiveHint: true },
+      asks: {
+        lookup: (input) => at("/api/sessions/:id", input),
+        text: (_input, found) =>
+          `Archive ${found === undefined ? "this Session" : titleOf(found as Session)}?`,
+      },
+    },
   },
   // Removes a workspace the runner kept, even when it would lose work.
   "sessions.workspace.remove": {
@@ -808,6 +1061,16 @@ export const routes = {
     auth: "session",
     body: toolCall,
     status: 202,
+  },
+  // What to ask the person before a call of a tool that asks.
+  "runner.toolQuestions.create": {
+    method: "POST",
+    path: "/runner/sessions/:id/tool-questions",
+    auth: "session",
+    body: Type.Omit(toolCall, ["id"]),
+    response: Type.Object({
+      question: Type.Union([Type.String(), Type.Null()]),
+    }),
   },
   // The files of the Session's Profile, which the runner downloads when its
   // copy's hash differs (ADR 0041).

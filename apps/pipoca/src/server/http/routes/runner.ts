@@ -200,6 +200,19 @@ export function runnerRoutes({
 
       return undefined;
     },
+    "runner.toolQuestions.create": async ({
+      params: { id },
+      body: { generation, name, input },
+    }) => {
+      current(id, generation);
+
+      const session = sessions.get(id);
+
+      return {
+        question:
+          (session && (await plugins.question(session, name, input))) ?? null,
+      };
+    },
     // The files of the Session's Profile, which the runner downloads when
     // its copy's hash differs (ADR 0041).
     "runner.profile": ({ params: { id } }) => {

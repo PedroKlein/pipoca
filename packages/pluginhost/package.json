@@ -8,6 +8,7 @@
     "@pipoca/people": "workspace:*",
     "@pipoca/plugins": "workspace:*",
     "@pipoca/protocol": "workspace:*",
-    "@pipoca/sessions": "workspace:*"
+    "@pipoca/sessions": "workspace:*",
+    "typebox": "1.3.27"
   }
 }
