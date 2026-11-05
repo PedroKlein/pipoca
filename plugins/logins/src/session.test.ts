@@ -11,6 +11,7 @@ import {
   fakeSession,
   memoryStore,
   served,
+  until,
 } from "@pipoca/plugins/testing";
 import { logins as server } from "./server";
 import { logins } from "./session";
@@ -168,18 +169,10 @@ const linear = ["linear", "https://mcp.linear.app/mcp"] as const;
 
 // Writes go back to the server in the background, so another runner sees
 // them a moment later.
-async function eventually<T>(read: () => Promise<T>, wanted: T): Promise<T> {
-  for (let tries = 0; tries < 50; tries++) {
-    const value = await read();
-    if (Bun.deepEquals(value, wanted)) {
-      return value;
-    }
-
-    await Bun.sleep(10);
-  }
-
-  return read();
-}
+const is =
+  (wanted: unknown) =>
+  (value: unknown): boolean =>
+    Bun.deepEquals(value, wanted);
 
 test("an MCP sign-in on one runner is there on another, for its owner only", async () => {
   const route = serverRoute();
@@ -188,7 +181,7 @@ test("an MCP sign-in on one runner is there on another, for its owner only", asy
   const loaded = async (userId: string) =>
     (await runner(route, userId)).mcp.forServer(...linear).load();
 
-  expect(await eventually(async () => loaded("ana"), mcpState("m1"))).toEqual(
+  expect(await until(async () => loaded("ana"), is(mcpState("m1")))).toEqual(
     mcpState("m1"),
   );
 
@@ -201,9 +194,9 @@ test("runners refresh one MCP login one at a time, each seeing the last write", 
   const first = await runner(route, "ana");
   const second = await runner(route, "ana");
 
-  await eventually(
+  await until(
     async () => (await runner(route, "ana")).mcp.forServer(...linear).load(),
-    mcpState("t0"),
+    is(mcpState("t0")),
   );
 
   const seen: string[] = [];
@@ -238,9 +231,9 @@ test("an MCP logout reaches every runner", async () => {
   expect(mcp.remove(...linear)).toBe(true);
 
   expect(
-    await eventually(
+    await until(
       async () => (await runner(route, "ana")).mcp.tokens(...linear),
-      undefined,
+      (tokens) => tokens === undefined,
     ),
   ).toBeUndefined();
 });

@@ -40,7 +40,7 @@ afterEach(() => {
 
 function start(
   outcome: () => SendOutcome = () => ({ ok: true }),
-  store: PluginStore = memoryStore({ version: 1, sql: routinesSchema }),
+  store: PluginStore = memoryStore(routinesSchema),
 ) {
   const sent: Sent[] = [];
   const tools: ServerTool[] = [];
@@ -326,7 +326,7 @@ test("the person sees and cancels their Session's wake-ups", async () => {
 });
 
 test("pending wake-ups survive a restart", async () => {
-  const store = memoryStore({ version: 1, sql: routinesSchema });
+  const store = memoryStore(routinesSchema);
   const before = start(undefined, store);
 
   await before.call({ delay_minutes: 5, reason: "Later", message: "Go on." });

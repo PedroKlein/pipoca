@@ -853,7 +853,8 @@ test("Pi hears who answered its question in team work", async () => {
 
 test("the team votes, and Pi reads the result the next time it's asked", async () => {
   const anas = await ana();
-  const bos = await member("bo");
+  const boId = randomUUID();
+  const bos = await member("bo", boId);
   const cys = await member("cy");
   const team = await teamSetup();
 
@@ -881,6 +882,8 @@ test("the team votes, and Pi reads the result the next time it's asked", async (
 
   const { id } = (await opened.json()) as { id: string };
 
+  expect(id.charAt(14)).toBe("7");
+
   const pick = async (cookie: string, option: string): Promise<number> =>
     (
       await server.as(cookie)(`/api/plugins/ask/votes/${id}/pick`, {
@@ -893,6 +896,22 @@ test("the team votes, and Pi reads the result the next time it's asked", async (
   expect(await pick(bos, "Wait")).toBe(200);
   expect(await pick(bos, "Ship")).toBe(200);
   expect(await pick(cys, "Later")).toBe(400);
+
+  const db = new DatabaseSync(join(root, "server.db"));
+
+  expect(db.prepare("select opener from ask_votes").all()).toEqual([
+    { opener: `user:${boId}` },
+  ]);
+
+  expect(
+    db
+      .prepare(
+        'select "table", "from" from pragma_foreign_key_list(\'ask_vote_picks\')',
+      )
+      .all(),
+  ).toContainEqual({ table: "users", from: "user_id" });
+
+  db.close();
 
   expect(await json(server.as(cys)(votes))).toMatchObject({
     canOpen: true,
@@ -1282,6 +1301,36 @@ test("a Team assistant runs as team work only its person steers, with tools that
       "own",
     ),
   ).toThrow();
+});
+
+test("team work nobody started uses no toolset tool, since it has no person to act as", async () => {
+  await server.signedIn();
+  const team = await teamSetup();
+
+  const routine = starter?.start(
+    {
+      team: true,
+      actor: "plugin:routines",
+      environment: team.environment,
+      profile: "starter.helper",
+      workspace: workspace(),
+    },
+    "nightly",
+  );
+
+  const renamed =
+    routine &&
+    (await toolsets?.call(routine, "profiles_update", {
+      id: team.profile,
+      name: "Nightly",
+    }));
+
+  expect(routine?.startedBy).toBeNull();
+
+  expect(renamed).toEqual({
+    text: "nobody started this Session, so it can't act as a person",
+    isError: true,
+  });
 });
 
 test("team work loads only plugins that say they work there and that admins leave on", async () => {

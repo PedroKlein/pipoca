@@ -1,6 +1,7 @@
 import type { Log } from "@pipoca/protocol";
 import {
   BadRequest,
+  fieldsOf,
   isObject,
   type PluginConfig,
   type PluginStore,
@@ -50,7 +51,7 @@ export function mailboxStore(
   const value = (): Readonly<Record<string, unknown>> => {
     const read = config.get();
 
-    return isObject(read) ? read : {};
+    return fieldsOf(read);
   };
 
   const items = (): readonly unknown[] => {

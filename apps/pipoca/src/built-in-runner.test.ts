@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import type { Environment } from "@pipoca/protocol";
 import { testServer } from "./testdata/harness";
 
 let root: string;
@@ -47,4 +48,31 @@ test("runs no runner of its own where it starts runner pods (ADR 0049)", async (
   db.close();
 
   expect(environments).toEqual([]);
+});
+
+test("makes its own runner's Environment for the first person, once they sign up (ADR 0049)", async () => {
+  delete process.env["KUBERNETES_SERVICE_HOST"];
+
+  const server = testServer({
+    agent: {
+      provider: "server",
+      dataDir: join(root, "server"),
+      extensionPaths: [],
+      folders: [],
+    },
+  });
+
+  const { user } = (await (await server.api("/api/auth")).json()) as {
+    user: { id: string };
+  };
+
+  const environments = (await (
+    await server.api("/api/environments")
+  ).json()) as Environment[];
+
+  await server.close();
+
+  expect(
+    environments.map(({ provider, ownerId }) => [provider, ownerId]),
+  ).toEqual([["server", user.id]]);
 });

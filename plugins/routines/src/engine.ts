@@ -125,23 +125,23 @@ export interface Routines {
   ) => "accepted" | "unknown" | "unsigned";
 }
 
-// A routine's user_id is the folder its file is in: a person's id, or team
-// (ADR 0067). Its file can outlive the person, so it references no user.
+// A routine's owner is the folder its file is in: a person's id, or the
+// team's folder, kept as NULL (ADR 0067). Code reads it back as the folder.
 export const routinesSchema = `
 create table routines_state (
-  user_id text not null,
+  owner_user_id text references users (id) on delete cascade,
   name text not null,
   version text not null,
   next_at integer,
   paused text,
-  failures integer not null default 0,
-  primary key (user_id, name)
-) strict, without rowid;
+  failures integer not null default 0
+) strict;
+create unique index routines_state_key on routines_state (coalesce(owner_user_id, ''), name);
 create index routines_state_next on routines_state (next_at) where next_at is not null and paused is null;
 
 create table routines_runs (
   id text primary key,
-  user_id text not null,
+  owner_user_id text references users (id) on delete cascade,
   name text not null,
   key text not null default '',
   cause text not null,
@@ -152,31 +152,31 @@ create table routines_runs (
   fired_at integer not null,
   ended_at integer
 ) strict;
-create index routines_runs_routine on routines_runs (user_id, name, fired_at);
+create index routines_runs_routine on routines_runs (owner_user_id, name, fired_at);
 create index routines_runs_session on routines_runs (session_id) where session_id is not null;
 
 create table routines_hooks (
   id text primary key,
-  user_id text not null,
+  owner_user_id text references users (id) on delete cascade,
   name text not null,
-  secret text not null,
-  unique (user_id, name)
+  secret text not null
 ) strict;
+create unique index routines_hooks_key on routines_hooks (coalesce(owner_user_id, ''), name);
 
 create table routines_pending (
-  user_id text not null,
+  owner_user_id text references users (id) on delete cascade,
   name text not null,
   key text not null,
   events text not null check (json_valid(events)),
   first_at integer not null,
-  last_at integer not null,
-  primary key (user_id, name, key)
-) strict, without rowid;
+  last_at integer not null
+) strict;
+create unique index routines_pending_key on routines_pending (coalesce(owner_user_id, ''), name, key);
 
 create table routines_wakeups (
   id text primary key,
   session_id text not null references sessions (id) on delete cascade,
-  user_id text not null,
+  owner_user_id text references users (id) on delete cascade,
   due_at integer not null,
   try_at integer not null,
   reason text not null,
@@ -223,7 +223,7 @@ export function routinesEngine(
   const stateOf = (userId: string, name: string): StateRow | undefined =>
     (
       store.all(
-        "select * from routines_state where user_id = ? and name = ?",
+        "select *, coalesce(owner_user_id, 'team') as user_id from routines_state where owner_user_id is nullif(?, 'team') and name = ?",
         userId,
         name,
       ) as StateRow[]
@@ -231,7 +231,7 @@ export function routinesEngine(
 
   const runsOf = (where: string, ...params: (string | number)[]): RunRow[] =>
     store.all(
-      `select * from routines_runs where ${where} order by fired_at desc, rowid desc`,
+      `select *, coalesce(owner_user_id, 'team') as user_id from routines_runs where ${where} order by fired_at desc, rowid desc`,
       ...params,
     ) as RunRow[];
 
@@ -299,13 +299,26 @@ export function routinesEngine(
       const next =
         each.routine === undefined ? null : nextOf(each.routine, Date.now());
 
-      store.run(
-        "insert into routines_state (user_id, name, version, next_at) values (?, ?, ?, ?) on conflict (user_id, name) do update set version = excluded.version, next_at = excluded.next_at",
-        each.userId,
-        each.name,
-        each.version,
-        next,
-      );
+      try {
+        store.run(
+          "insert into routines_state (owner_user_id, name, version, next_at) values (nullif(?, 'team'), ?, ?, ?) on conflict (coalesce(owner_user_id, ''), name) do update set version = excluded.version, next_at = excluded.next_at",
+          each.userId,
+          each.name,
+          each.version,
+          next,
+        );
+      } catch (error) {
+        // A folder left by a person who is gone, or one no person has.
+        loaded.delete(key(each.userId, each.name));
+
+        log("routine skipped", {
+          userId: each.userId,
+          name: each.name,
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        continue;
+      }
 
       log("routine loaded", {
         userId: each.userId,
@@ -316,11 +329,11 @@ export function routinesEngine(
     }
 
     for (const state of store.all(
-      "select * from routines_state",
+      "select *, coalesce(owner_user_id, 'team') as user_id from routines_state",
     ) as StateRow[]) {
       if (!loaded.has(key(state.user_id, state.name))) {
         store.run(
-          "delete from routines_state where user_id = ? and name = ?",
+          "delete from routines_state where owner_user_id is nullif(?, 'team') and name = ?",
           state.user_id,
           state.name,
         );
@@ -388,7 +401,7 @@ export function routinesEngine(
     const eventKey = keyOf(event, each.routine.key);
 
     const [pending] = store.all(
-      "select * from routines_pending where user_id = ? and name = ? and key = ?",
+      "select *, coalesce(owner_user_id, 'team') as user_id from routines_pending where owner_user_id is nullif(?, 'team') and name = ? and key = ?",
       each.userId,
       each.name,
       eventKey,
@@ -400,7 +413,7 @@ export function routinesEngine(
     ].slice(-maxBatch);
 
     store.run(
-      "insert into routines_pending (user_id, name, key, events, first_at, last_at) values (?, ?, ?, ?, ?, ?) on conflict (user_id, name, key) do update set events = excluded.events, last_at = excluded.last_at",
+      "insert into routines_pending (owner_user_id, name, key, events, first_at, last_at) values (nullif(?, 'team'), ?, ?, ?, ?, ?) on conflict (coalesce(owner_user_id, ''), name, key) do update set events = excluded.events, last_at = excluded.last_at",
       each.userId,
       each.name,
       eventKey,
@@ -421,7 +434,7 @@ export function routinesEngine(
   const hookOf = (userId: string, name: string): HookRow | undefined =>
     (
       store.all(
-        "select * from routines_hooks where user_id = ? and name = ?",
+        "select *, coalesce(owner_user_id, 'team') as user_id from routines_hooks where owner_user_id is nullif(?, 'team') and name = ?",
         userId,
         name,
       ) as HookRow[]
@@ -439,7 +452,7 @@ export function routinesEngine(
         const id = randomBytes(18).toString("base64url");
 
         store.run(
-          "insert into routines_hooks (id, user_id, name, secret) values (?, ?, ?, ?)",
+          "insert into routines_hooks (id, owner_user_id, name, secret) values (?, nullif(?, 'team'), ?, ?)",
           id,
           each.userId,
           each.name,
@@ -450,7 +463,9 @@ export function routinesEngine(
       }
     }
 
-    for (const hook of store.all("select * from routines_hooks") as HookRow[]) {
+    for (const hook of store.all(
+      "select *, coalesce(owner_user_id, 'team') as user_id from routines_hooks",
+    ) as HookRow[]) {
       if (!loaded.has(key(hook.user_id, hook.name))) {
         store.run("delete from routines_hooks where id = ?", hook.id);
       }
@@ -468,7 +483,9 @@ export function routinesEngine(
     ) as { next_at: number }[];
 
     const pending = (
-      store.all("select * from routines_pending") as PendingRow[]
+      store.all(
+        "select *, coalesce(owner_user_id, 'team') as user_id from routines_pending",
+      ) as PendingRow[]
     ).map(pendingDue);
 
     const soonest = Math.min(
@@ -513,7 +530,7 @@ export function routinesEngine(
     };
 
     store.run(
-      "insert into routines_runs (id, user_id, name, fired_at, cause, session_id, outcome, reason, ended_at, key, events) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "insert into routines_runs (id, owner_user_id, name, fired_at, cause, session_id, outcome, reason, ended_at, key, events) values (?, nullif(?, 'team'), ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       row.id,
       userId,
       name,
@@ -528,7 +545,7 @@ export function routinesEngine(
     );
 
     store.run(
-      "delete from routines_runs where user_id = ? and name = ? and id not in (select id from routines_runs where user_id = ? and name = ? order by fired_at desc, rowid desc limit ?)",
+      "delete from routines_runs where owner_user_id is nullif(?, 'team') and name = ? and id not in (select id from routines_runs where owner_user_id is nullif(?, 'team') and name = ? order by fired_at desc, rowid desc limit ?)",
       userId,
       name,
       userId,
@@ -559,7 +576,7 @@ export function routinesEngine(
 
     if (failure) {
       store.run(
-        "update routines_state set failures = failures + 1 where user_id = ? and name = ?",
+        "update routines_state set failures = failures + 1 where owner_user_id is nullif(?, 'team') and name = ?",
         run.user_id,
         run.name,
       );
@@ -568,7 +585,7 @@ export function routinesEngine(
 
       if (state !== undefined && state.failures >= failuresToPause) {
         store.run(
-          "update routines_state set paused = ? where user_id = ? and name = ?",
+          "update routines_state set paused = ? where owner_user_id is nullif(?, 'team') and name = ?",
           `Paused after ${String(failuresToPause)} failed runs in a row. The last: ${reason ?? outcome}`,
           run.user_id,
           run.name,
@@ -581,7 +598,7 @@ export function routinesEngine(
       }
     } else {
       store.run(
-        "update routines_state set failures = 0 where user_id = ? and name = ?",
+        "update routines_state set failures = 0 where owner_user_id is nullif(?, 'team') and name = ?",
         run.user_id,
         run.name,
       );
@@ -590,7 +607,7 @@ export function routinesEngine(
     changes.publish("routines");
 
     const queued = runsOf(
-      "user_id = ? and name = ? and outcome = 'queued'",
+      "owner_user_id is nullif(?, 'team') and name = ? and outcome = 'queued'",
       run.user_id,
       run.name,
     ).at(-1);
@@ -608,16 +625,22 @@ export function routinesEngine(
   };
 
   const running = (userId: string, name: string): number =>
-    runsOf("user_id = ? and name = ? and outcome = 'running'", userId, name)
-      .length;
+    runsOf(
+      "owner_user_id is nullif(?, 'team') and name = ? and outcome = 'running'",
+      userId,
+      name,
+    ).length;
 
   const hasRoom = (userId: string, name: string): boolean =>
     running(userId, name) <
     (loaded.get(key(userId, name))?.routine?.maxRunning ?? defaultMaxRunning);
 
   const busy = (userId: string, name: string): boolean =>
-    runsOf("user_id = ? and name = ? and outcome = 'running'", userId, name)
-      .length > 0;
+    runsOf(
+      "owner_user_id is nullif(?, 'team') and name = ? and outcome = 'running'",
+      userId,
+      name,
+    ).length > 0;
 
   const deliver = (run: RunRow): void => {
     const routine = loaded.get(key(run.user_id, run.name))?.routine;
@@ -736,8 +759,11 @@ export function routinesEngine(
     if (routine !== undefined && runKey === "" && busy(userId, name)) {
       const queued =
         (routine.overlap ?? "skip") === "queue" &&
-        runsOf("user_id = ? and name = ? and outcome = 'queued'", userId, name)
-          .length === 0;
+        runsOf(
+          "owner_user_id is nullif(?, 'team') and name = ? and outcome = 'queued'",
+          userId,
+          name,
+        ).length === 0;
 
       const row = queued
         ? record(userId, name, cause, "queued", null, runKey, events)
@@ -773,7 +799,7 @@ export function routinesEngine(
   // as a message, instead of a run of its own.
   const flush = (pending: PendingRow): void => {
     store.run(
-      "delete from routines_pending where user_id = ? and name = ? and key = ?",
+      "delete from routines_pending where owner_user_id is nullif(?, 'team') and name = ? and key = ?",
       pending.user_id,
       pending.name,
       pending.key,
@@ -787,7 +813,7 @@ export function routinesEngine(
     }
 
     const [waiting] = runsOf(
-      "user_id = ? and name = ? and key = ? and outcome = 'queued'",
+      "owner_user_id is nullif(?, 'team') and name = ? and key = ? and outcome = 'queued'",
       pending.user_id,
       pending.name,
       pending.key,
@@ -811,7 +837,7 @@ export function routinesEngine(
       pending.key === "" || "session" in routine.run
         ? []
         : runsOf(
-            "user_id = ? and name = ? and key = ? and session_id is not null",
+            "owner_user_id is nullif(?, 'team') and name = ? and key = ? and session_id is not null",
             pending.user_id,
             pending.name,
             pending.key,
@@ -859,7 +885,7 @@ export function routinesEngine(
 
   function fire(): void {
     for (const pending of store.all(
-      "select * from routines_pending",
+      "select *, coalesce(owner_user_id, 'team') as user_id from routines_pending",
     ) as PendingRow[]) {
       if (pendingDue(pending) <= Date.now()) {
         flush(pending);
@@ -867,7 +893,7 @@ export function routinesEngine(
     }
 
     const due = store.all(
-      "select * from routines_state where next_at is not null and next_at <= ? and paused is null",
+      "select *, coalesce(owner_user_id, 'team') as user_id from routines_state where next_at is not null and next_at <= ? and paused is null",
       Date.now(),
     ) as StateRow[];
 
@@ -875,7 +901,7 @@ export function routinesEngine(
       const routine = loaded.get(key(state.user_id, state.name))?.routine;
 
       store.run(
-        "update routines_state set next_at = ? where user_id = ? and name = ?",
+        "update routines_state set next_at = ? where owner_user_id is nullif(?, 'team') and name = ?",
         routine === undefined ? null : nextOf(routine, Date.now()),
         state.user_id,
         state.name,
@@ -942,7 +968,12 @@ export function routinesEngine(
 
   const viewOf = (each: Loaded): RoutineView => {
     const state = stateOf(each.userId, each.name);
-    const [last] = runsOf("user_id = ? and name = ?", each.userId, each.name);
+
+    const [last] = runsOf(
+      "owner_user_id is nullif(?, 'team') and name = ?",
+      each.userId,
+      each.name,
+    );
 
     return {
       name: each.name,
@@ -986,7 +1017,11 @@ export function routinesEngine(
         ...viewOf(each),
         file: readFileSync(fileOf(userId, name), "utf8"),
         ...webhookOf(userId, name),
-        runs: runsOf("user_id = ? and name = ?", userId, name).map(runView),
+        runs: runsOf(
+          "owner_user_id is nullif(?, 'team') and name = ?",
+          userId,
+          name,
+        ).map(runView),
       };
     },
     save: (userId, name, value) => {
@@ -1039,7 +1074,7 @@ export function routinesEngine(
       owned(userId, name);
 
       store.run(
-        "update routines_state set paused = ?, failures = 0 where user_id = ? and name = ?",
+        "update routines_state set paused = ?, failures = 0 where owner_user_id is nullif(?, 'team') and name = ?",
         paused ? "Paused by you" : null,
         userId,
         name,
@@ -1050,7 +1085,7 @@ export function routinesEngine(
     },
     hook: (id, body, signature) => {
       const [hook] = store.all(
-        "select * from routines_hooks where id = ?",
+        "select *, coalesce(owner_user_id, 'team') as user_id from routines_hooks where id = ?",
         id,
       ) as HookRow[];
 

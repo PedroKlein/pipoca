@@ -88,6 +88,50 @@ async function get(
   ).json();
 }
 
+test("keeps the team's calls with no owner and a person's with their id", async () => {
+  const store = memoryStore(usage.schema);
+
+  const events = eventBus((_type, error) => {
+    throw error;
+  });
+
+  let route: PluginRoute | undefined;
+
+  usage.register(
+    fakeContext({
+      store,
+      events: { ...events, declared: () => [] },
+      routes: {
+        handle: (handler) => {
+          route = served(handler);
+        },
+      },
+    }),
+  );
+
+  for (const owner of ["team", "person:ana"]) {
+    events.publish({
+      type: "logins.model_called",
+      sessionId: "s1",
+      owner,
+      person: "ana",
+      provider: "anthropic",
+      input: 1,
+      output: 1,
+    });
+  }
+
+  expect(
+    store.all("select owner_user_id from usage_calls order by id"),
+  ).toEqual([{ owner_user_id: null }, { owner_user_id: "ana" }]);
+
+  expect(
+    route === undefined
+      ? []
+      : await get(route, "calls", fakeUser({ admin: true })),
+  ).toMatchObject([{ owner: "person:ana" }, { owner: "team" }]);
+});
+
 test("prices each team model call from the admins' table, and leaves an unpriced model's cost out", async () => {
   const { route, called } = registered({
     "anthropic/claude-sonnet-4-5": { input: 3, output: 15 },
@@ -254,7 +298,7 @@ test("only an admin sets the team's monthly budget and each person's cap, and an
     budgets: { team: 80, person: null },
   });
 
-  expect((await put({ team: -1, person: null }, true)).status).toBe(400);
+  expect((await put({ team: -1, person: null }, true)).status).toBe(422);
 });
 
 test("shows everyone what people did lately to the team work they can see", async () => {

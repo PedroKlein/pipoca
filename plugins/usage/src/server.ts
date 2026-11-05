@@ -1,14 +1,14 @@
 import {
-  BadRequest,
   fieldsOf,
   isObject,
   NotFound,
-  readJson,
-  requireAdmin,
   type PluginEvent,
   type PluginStore,
+  readBody,
+  requireAdmin,
   type RouteCaller,
   type ServerPlugin,
+  Type,
 } from "@pipoca/plugins";
 import { auditedAction, auditLog, csv } from "./audit";
 
@@ -45,6 +45,12 @@ interface Budgets {
   readonly person: number | null;
 }
 
+const budget = Type.Union([Type.Number({ exclusiveMinimum: 0 }), Type.Null()], {
+  default: null,
+});
+
+const budgetsSet = Type.Object({ team: budget, person: budget });
+
 const shownCalls = 500;
 
 const activityRead = 100;
@@ -67,12 +73,13 @@ const callColumns = [
 const auditColumns = ["at", "actor", "sessionId", "action", "detail"] as const;
 
 // Calls and the audit are history, so they keep the ids of Sessions and
-// people that are gone. Cost is in millionths of a dollar.
+// people that are gone. A call's owner_user_id is NULL for the team's work.
+// Cost is in millionths of a dollar.
 const schema = `
 create table usage_calls (
   id integer primary key,
   at integer not null,
-  owner text not null,
+  owner_user_id text,
   person text,
   session_id text not null,
   provider text not null,
@@ -100,7 +107,7 @@ create index usage_audit_actor on usage_audit (actor, id);
 // own and the team's totals (ADR 0066).
 export const usage: ServerPlugin = {
   name: "usage",
-  schema: { version: 1, sql: schema },
+  schema,
   register: (context) => {
     const calls = callStore(context.store);
     const audit = auditLog(context.store);
@@ -203,11 +210,11 @@ export const usage: ServerPlugin = {
 
         requireAdmin(caller, "Only admins set the team's budgets.");
 
-        const set = budgetsOf(await readJson(request));
+        const set = await readBody(request, budgetsSet);
         const config = context.config.get();
 
         context.config.set({
-          ...(isObject(config) ? config : {}),
+          ...fieldsOf(config),
           budgets: set,
         });
 
@@ -339,26 +346,6 @@ function callOf(
   };
 }
 
-function budgetsOf(body: unknown): Budgets {
-  const fields = fieldsOf(body);
-
-  const amount = (key: keyof Budgets): number | null => {
-    const value = fields[key];
-
-    if (value === null || value === undefined) {
-      return null;
-    }
-
-    if (typeof value !== "number" || !(value > 0)) {
-      throw new BadRequest(`${key} must be dollars above zero, or null`);
-    }
-
-    return value;
-  };
-
-  return { team: amount("team"), person: amount("person") };
-}
-
 function dollars(value: unknown): number | null {
   return typeof value === "number" && value > 0 ? value : null;
 }
@@ -374,14 +361,14 @@ function isPrice(value: unknown): value is Price {
 function objectAt(value: unknown, key: string): Record<string, unknown> {
   const inner = isObject(value) ? value[key] : undefined;
 
-  return isObject(inner) ? inner : {};
+  return fieldsOf(inner);
 }
 
 const microsPerDollar = 1_000_000;
 
 interface CallRow {
   readonly at: number;
-  readonly owner: string;
+  readonly owner_user_id: string | null;
   readonly person: string | null;
   readonly session_id: string;
   readonly provider: string;
@@ -402,9 +389,11 @@ function callStore(store: PluginStore): {
   return {
     add: (call) => {
       store.run(
-        "insert into usage_calls (at, owner, person, session_id, provider, model, input, output, cost_micros) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "insert into usage_calls (at, owner_user_id, person, session_id, provider, model, input, output, cost_micros) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         Date.parse(call.at),
-        call.owner,
+        call.owner.startsWith("person:")
+          ? call.owner.slice("person:".length)
+          : null,
         call.person,
         call.sessionId,
         call.provider,
@@ -426,12 +415,21 @@ function callStore(store: PluginStore): {
               person,
               limit,
             )) as CallRow[]
-      ).map(({ session_id: sessionId, at, cost_micros, ...row }) => ({
-        ...row,
-        at: new Date(at).toISOString(),
-        sessionId,
-        cost: cost_micros === null ? null : cost_micros / microsPerDollar,
-      })),
+      ).map(
+        ({
+          session_id: sessionId,
+          at,
+          cost_micros,
+          owner_user_id,
+          ...row
+        }) => ({
+          ...row,
+          owner: owner_user_id === null ? "team" : `person:${owner_user_id}`,
+          at: new Date(at).toISOString(),
+          sessionId,
+          cost: cost_micros === null ? null : cost_micros / microsPerDollar,
+        }),
+      ),
     totals: (since, person) => {
       const [row] = (
         person === undefined

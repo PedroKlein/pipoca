@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import {
   fauxAssistantMessage,
   fauxProvider,
@@ -12,7 +13,7 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Prompt, Session, SessionEvent } from "@pipoca/protocol";
 import { readSse } from "./sse";
 import { json, testServer, type TestServer } from "./testdata/harness";
-import { until } from "./testdata/until";
+import { until } from "@pipoca/plugins/testing";
 
 let root: string;
 let faux: ReturnType<typeof fauxProvider>;
@@ -168,6 +169,49 @@ test("a Session makes a routine after the user allows it, and the routine runs o
     entriesInclude("two new issues"),
   );
 }, 30_000);
+
+test("keeps the team's routines as owned by no person, and a person's as theirs", async () => {
+  const database = join(root, "server.db");
+  await server.close();
+  server = testServer({ database, configDir: join(root, "config") });
+
+  const routine = {
+    title: "Nightly",
+    triggers: [{ cron: "0 3 * * *", timeZone: "UTC" }],
+    run: {
+      prompt: "Check the build.",
+      workspace: { kind: "clone", repository: "https://example.com/r.git" },
+    },
+  };
+
+  const { user } = await json<{ user: { id: string } }>(
+    server.api("/api/auth"),
+  );
+
+  for (const route of ["routines", "team-routines"]) {
+    const saved = await server.api(`/api/plugins/routines/${route}/nightly`, {
+      method: "PUT",
+      body: routine,
+    });
+
+    expect(saved.status).toBe(200);
+  }
+
+  await server.close();
+
+  const db = new DatabaseSync(database);
+
+  expect(
+    db
+      .prepare(
+        "select owner_user_id from routines_state order by owner_user_id nulls first",
+      )
+      .all()
+      .map(({ owner_user_id }) => owner_user_id),
+  ).toEqual([null, user.id]);
+
+  db.close();
+});
 
 test("a Session can't make a routine the user doesn't allow", async () => {
   faux.setResponses([

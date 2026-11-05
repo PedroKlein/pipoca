@@ -27,7 +27,7 @@ import { runAgent } from "./agent";
 import { runnerCredentials } from "./testdata/runners";
 import { readSse } from "./sse";
 import { json, testServer, type TestServer } from "./testdata/harness";
-import { until } from "./testdata/until";
+import { until } from "@pipoca/plugins/testing";
 
 let root: string;
 let server: TestServer;

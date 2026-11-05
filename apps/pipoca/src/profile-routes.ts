@@ -1,10 +1,4 @@
-import {
-  BadRequest,
-  checkBody,
-  readBody,
-  readJson,
-  Type,
-} from "@pipoca/plugins";
+import { BadRequest, checkBody, readBody, Type } from "@pipoca/plugins";
 import {
   repositoryImport,
   repositoryListing,
@@ -76,7 +70,7 @@ export function profileRoutes(
           const updated = profiles.updateLayer(
             userIdOf(actor),
             which,
-            await readJson(request),
+            await readBody(request, Type.Unknown()),
             admin,
           );
 
@@ -182,7 +176,7 @@ export function profileRoutes(
       async (request, _params, actor, admin) => {
         const created = profiles.create(
           userIdOf(actor),
-          await readJson(request),
+          await readBody(request, Type.Unknown()),
           admin,
         );
 
@@ -213,7 +207,7 @@ export function profileRoutes(
           return Response.json(imported, { status: 201 });
         }
 
-        const body = await readJson(request);
+        const body = await readBody(request, Type.Unknown());
 
         const { url, paths } = checkBody(body, importSource);
 
@@ -261,7 +255,7 @@ export function profileRoutes(
         const updated = profiles.update(
           userIdOf(actor),
           id,
-          await readJson(request),
+          await readBody(request, Type.Unknown()),
           admin,
         );
 

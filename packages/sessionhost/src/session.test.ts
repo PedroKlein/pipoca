@@ -31,6 +31,7 @@ import {
   stopSession,
 } from "./session";
 import type { McpLoginState, McpLoginStore } from "@pipoca/plugins";
+import { until } from "@pipoca/plugins/testing";
 import { fetchingProviderExtension } from "./testdata/fetching-provider";
 import { fauxModels } from "./testdata/models";
 import { sessionOptions } from "./testdata/options";
@@ -449,9 +450,7 @@ test("connects to an MCP server with the sign-in the host's logins keep", async 
     },
   );
 
-  for (let tries = 0; tries < 100 && seen.length === 0; tries++) {
-    await Bun.sleep(20);
-  }
+  await until(() => seen.length > 0);
 
   await stopSession(session);
   await mcp.stop(true);
@@ -643,18 +642,6 @@ test("starts a new session on a model its provider lists only from the network",
     process.env["PI_OFFLINE"] = "1";
   }
 }, 20_000);
-
-async function until(condition: () => boolean): Promise<void> {
-  const deadline = Date.now() + 5000;
-
-  while (!condition()) {
-    if (Date.now() > deadline) {
-      throw new Error("timed out");
-    }
-
-    await Bun.sleep(20);
-  }
-}
 
 test("records an interrupted result for a tool call cut off by a crash", async () => {
   const crashing = spawn(

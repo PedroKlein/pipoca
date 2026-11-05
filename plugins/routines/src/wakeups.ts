@@ -5,6 +5,7 @@ import {
 } from "@pipoca/plugins";
 import type { Session, ToolResult } from "@pipoca/protocol";
 import type { WakeUp } from "./model";
+import { teamRoutines } from "./engine";
 
 const minuteMs = 60_000;
 const dayMs = 24 * 60 * minuteMs;
@@ -49,7 +50,7 @@ export function wakeUps(
 
   const pendingRows = (where: string, ...params: string[]): Row[] =>
     store.all(
-      `select id, session_id, user_id, due_at, reason, message from routines_wakeups where delivered_at is null and ${where} order by due_at`,
+      `select id, session_id, coalesce(owner_user_id, 'team') as user_id, due_at, reason, message from routines_wakeups where delivered_at is null and ${where} order by due_at`,
       ...params,
     ) as Row[];
 
@@ -116,7 +117,7 @@ export function wakeUps(
 
   function fire(): void {
     const due = store.all(
-      "select id, session_id, user_id, due_at, reason, message from routines_wakeups where delivered_at is null and try_at <= ? order by due_at",
+      "select id, session_id, coalesce(owner_user_id, 'team') as user_id, due_at, reason, message from routines_wakeups where delivered_at is null and try_at <= ? order by due_at",
       Date.now(),
     ) as Row[];
 
@@ -178,10 +179,10 @@ export function wakeUps(
     const id = Bun.randomUUIDv7();
 
     store.run(
-      "insert into routines_wakeups (id, session_id, user_id, due_at, try_at, reason, message) values (?, ?, ?, ?, ?, ?, ?)",
+      "insert into routines_wakeups (id, session_id, owner_user_id, due_at, try_at, reason, message) values (?, ?, nullif(?, 'team'), ?, ?, ?, ?)",
       id,
       session.id,
-      session.startedBy ?? session.ownerId,
+      session.startedBy ?? teamRoutines,
       dueAt,
       dueAt,
       reason,
@@ -300,17 +301,22 @@ export function wakeUps(
 
   return {
     pending: (userId, sessionId) =>
-      pendingRows("user_id = ? and session_id = ?", userId, sessionId).map(
-        (row) => ({
-          id: row.id,
-          sessionId: row.session_id,
-          dueAt: new Date(row.due_at).toISOString(),
-          reason: row.reason,
-          message: row.message,
-        }),
-      ),
+      pendingRows(
+        "owner_user_id is nullif(?, 'team') and session_id = ?",
+        userId,
+        sessionId,
+      ).map((row) => ({
+        id: row.id,
+        sessionId: row.session_id,
+        dueAt: new Date(row.due_at).toISOString(),
+        reason: row.reason,
+        message: row.message,
+      })),
     cancel: (userId, id) => {
-      if (pendingRows("id = ? and user_id = ?", id, userId).length === 0) {
+      if (
+        pendingRows("id = ? and owner_user_id is nullif(?, 'team')", id, userId)
+          .length === 0
+      ) {
         throw new NotFound(`no pending wake-up ${id}`);
       }
 

@@ -2,6 +2,7 @@ import type { Log } from "@pipoca/protocol";
 import { createSign } from "node:crypto";
 import {
   BadRequest,
+  fieldsOf,
   isObject,
   type PluginConfig,
   type PluginStore,
@@ -96,7 +97,7 @@ export function technicalUsers(
     const value = config.get();
 
     config.set({
-      ...(isObject(value) ? value : {}),
+      ...fieldsOf(value),
       technicalUsers: items,
     });
   };

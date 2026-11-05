@@ -76,7 +76,7 @@ const errorLimit = 300;
 
 export const projects: ServerPlugin = {
   name: "projects",
-  schema: { version: 1, sql: projectsSchema },
+  schema: projectsSchema,
   register: (context) => {
     // Other plugins, like the library, follow who is in which Project.
     // Every write can change what an open Project shows (ADR 0038).

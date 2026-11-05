@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { once } from "node:events";
 import { connect } from "node:net";
 import { readSse, sseResponse } from "./sse";
-import { until } from "./testdata/until";
+import { until } from "@pipoca/plugins/testing";
 
 function chunked(text: string, size: number): Response {
   const bytes = new TextEncoder().encode(text);

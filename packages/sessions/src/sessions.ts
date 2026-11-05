@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { KernelEvent, ModelOffer, StartRequest } from "@pipoca/plugins";
 import {
   type Actor,
@@ -40,7 +39,11 @@ import {
   type Workspace,
   type WorkspaceRequest,
 } from "@pipoca/protocol";
-import { contentFiles, overBaseExtensions } from "@pipoca/profiles";
+import {
+  contentFiles,
+  overBaseExtensions,
+  defaultProfileId as sharedProfileId,
+} from "@pipoca/profiles";
 import { placesOn, placesOnNewRunner, uniqueModels } from "./placement";
 import { type Clock, systemClock } from "@pipoca/protocol";
 import { RunnerPolls } from "./runner-polls";
@@ -63,9 +66,6 @@ export type StoredEnvironment = Omit<
   | "secrets"
 > & { readonly secrets: Readonly<Record<string, string>> };
 
-// v1 has one user, who owns every record (ADR 0015).
-export const owner = "local";
-
 // The owner of what the team owns, rather than one person (ADR 0064).
 const teamOwner = "team";
 
@@ -85,16 +85,17 @@ export interface SessionStore {
   // The admin's base Profile (ADR 0044) and the person's My defaults, if
   // there are any.
   baseProfileFiles: (personId: string | null) => ProfileFiles | undefined;
-  defaultProfileId: (ownerId: string) => string;
+  defaultProfileId: (userId: string) => string;
   repositoryTrust: (ownerId: string, repository: string) => boolean | null;
   setRepositoryTrust: (
     ownerId: string,
     repository: string,
     trusted: boolean,
   ) => void;
+  // Its owner is a person's id or "team".
   ensureEnvironment: (
     provider: string,
-    ownerId?: string,
+    ownerId: string,
     templateId?: string | null,
   ) => void;
   // The models each runner of an Environment last reported (ADR 0044).
@@ -340,9 +341,12 @@ export class Sessions {
       return { ok: false, reason: "unknown_environment" };
     }
 
-    const profileId =
-      request.profile ??
-      (team ? "" : this.#store.defaultProfileId(startedBy ?? owner));
+    const ownDefault =
+      startedBy === null
+        ? sharedProfileId
+        : this.#store.defaultProfileId(startedBy);
+
+    const profileId = request.profile ?? (team ? "" : ownDefault);
 
     const provided = this.#pluginProfile(profileId);
 
@@ -365,12 +369,11 @@ export class Sessions {
       return { ok: false, reason: "unknown_profile" };
     }
 
-    const id = randomUUID();
+    const id = Bun.randomUUIDv7();
 
     const session: StoredSession = {
       id,
       environmentId: environment.id,
-      ownerId: owner,
       owner: ownedBy ?? null,
       provider: environment.provider,
       runner: null,
@@ -378,7 +381,7 @@ export class Sessions {
       workspace:
         request.workspace.kind === "folder"
           ? request.workspace
-          : { ...request.workspace, branch: `pipoca/${id.slice(0, 8)}` },
+          : { ...request.workspace, branch: `pipoca/${id.slice(-8)}` },
       model: request.model ?? this.#offeredModels(environment).default ?? null,
       thinking: request.thinking ?? null,
       systemPrompt: request.systemPrompt ?? null,
@@ -986,7 +989,7 @@ export class Sessions {
 
   createEnvironment(
     provider: string,
-    ownerId?: string,
+    ownerId: string,
     templateId?: string,
   ): Result<Environment, "environment_exists" | "unknown_template"> {
     if (this.#store.environments().some((each) => each.provider === provider)) {
@@ -1210,9 +1213,13 @@ export class Sessions {
     { running, folders, models, registeredModels, capacity, session }: WorkPoll,
     signal: AbortSignal,
   ): Promise<Claim> {
-    this.#store.ensureEnvironment(runner.environment);
+    // A runner's Environment is made before it gets a token, except the
+    // built-in runner's, which waits for the first person (ADR 0049).
+    const known = this.#store
+      .environments()
+      .some(({ provider }) => provider === runner.environment);
 
-    if (registeredModels !== undefined) {
+    if (known && registeredModels !== undefined) {
       this.#rememberModels(runner, registeredModels);
     }
 
@@ -1271,7 +1278,7 @@ export class Sessions {
     const repository = trustedRepository(current.value.workspace);
     if (repository !== undefined) {
       this.#store.setRepositoryTrust(
-        current.value.ownerId,
+        this.#person(current.value) ?? teamOwner,
         repository,
         answer.trusted,
       );
@@ -1285,7 +1292,10 @@ export class Sessions {
 
     return repository === undefined
       ? null
-      : this.#store.repositoryTrust(session.ownerId, repository);
+      : this.#store.repositoryTrust(
+          this.#person(session) ?? teamOwner,
+          repository,
+        );
   }
 
   fail(id: string, failure: StartFailure): Result<undefined> {
@@ -1842,8 +1852,8 @@ export class Sessions {
       : this.#templates().find((each) => each.id === id);
   }
 
-  // An Environment made from a template runs as the template says. One whose
-  // template is gone keeps its own settings.
+  // An Environment made from a template runs as the template says, and with
+  // the defaults once its template is gone.
   #templated(
     environment: StoredEnvironment,
   ): Pick<Environment, "isolation" | "image" | "setupScript"> {
@@ -1974,11 +1984,12 @@ export class Sessions {
   }
 
   #view(session: StoredSession): Session {
+    const person = this.#person(session);
+
     return {
       ...session,
-      ownedBy: this.#team(session)
-        ? teamOwner
-        : `person:${this.#person(session) ?? owner}`,
+      ownedBy:
+        this.#team(session) || person === null ? teamOwner : `person:${person}`,
       access: this.#store.access(session.id) ?? { kind: "team" },
       online: this.#online(session),
       waiting: this.#waiting(session),

@@ -23,14 +23,13 @@ test("opens its own database again", () => {
   openStore(path).close();
 
   const store = openStore(path);
-  store.ensureEnvironment("vm");
-  store.ensureEnvironment("vm");
+  store.ensureEnvironment("vm", "team");
+  store.ensureEnvironment("vm", "team");
   const [environment] = store.environments();
 
   store.insert({
     id: "s1",
     environmentId: environment?.id ?? "",
-    ownerId: "local",
     owner: null,
     provider: "vm",
     runner: null,
@@ -68,7 +67,7 @@ test("opens its own database again", () => {
 test("lists the Sessions one owner holds", () => {
   const store = openStore(":memory:");
   defaultProfile = store.defaultProfileId("local");
-  store.ensureEnvironment("vm");
+  store.ensureEnvironment("vm", "team");
   const [environment] = store.environments();
   const id = environment?.id ?? "";
   const project = { plugin: "projects", key: "p1" };
@@ -110,7 +109,6 @@ function sessionIn(
 ): StoredSession {
   return {
     environmentId,
-    ownerId: "local",
     owner: null,
     provider,
     runner: null,
@@ -137,7 +135,7 @@ function sessionIn(
 test("lists sessions newest first and leaves archived ones out unless asked", () => {
   const store = openStore(join(root, "server.db"));
   defaultProfile = store.defaultProfileId("local");
-  store.ensureEnvironment("vm");
+  store.ensureEnvironment("vm", "team");
   const vm = store.environments()[0]?.id ?? "";
 
   for (const session of [
@@ -172,8 +170,8 @@ test("lists sessions newest first and leaves archived ones out unless asked", ()
 test("lists a provider's stopped sessions whose workspace is waiting to be removed, oldest first", () => {
   const store = openStore(join(root, "server.db"));
   defaultProfile = store.defaultProfileId("local");
-  store.ensureEnvironment("vm");
-  store.ensureEnvironment("laptop");
+  store.ensureEnvironment("vm", "team");
+  store.ensureEnvironment("laptop", "team");
 
   const environments = new Map(
     store.environments().map(({ provider, id }) => [provider, id]),
@@ -270,7 +268,7 @@ function rawSecrets(path: string): string[] {
 test("stores Environment secrets encrypted and reads them back after a restart", () => {
   const path = join(root, "server.db");
   const store = openStore(path);
-  store.ensureEnvironment("vm");
+  store.ensureEnvironment("vm", "team");
   const [environment] = store.environments();
 
   if (environment === undefined) {
@@ -289,10 +287,59 @@ test("stores Environment secrets encrypted and reads them back after a restart",
   again.close();
 });
 
+test("keeps no setup of its own for an Environment made from a template", () => {
+  const path = join(root, "server.db");
+  const store = openStore(path);
+  store.ensureEnvironment("vm", "team", "python");
+  store.ensureEnvironment("laptop", "team");
+
+  for (const environment of store.environments()) {
+    store.updateEnvironment({ ...environment, name: `${environment.name}!` });
+  }
+
+  store.close();
+
+  const db = new DatabaseSync(path);
+
+  expect(
+    db
+      .prepare(
+        "select slug, isolation, image, setup_script from environments order by slug",
+      )
+      .all(),
+  ).toEqual([
+    { slug: "laptop", isolation: "process", image: null, setup_script: "" },
+    { slug: "vm", isolation: null, image: null, setup_script: null },
+  ]);
+
+  expect(() => {
+    db.exec("update environments set setup_script = 'make' where slug = 'vm'");
+  }).toThrow("CHECK constraint failed");
+
+  db.close();
+});
+
+test("keeps the team's Environments the team's when the first person signs up", () => {
+  const store = openStore(":memory:");
+  store.ensureEnvironment("shared", "team");
+
+  store.auth.insertUser({
+    id: "ana",
+    name: "ana",
+    admin: true,
+    passwordHash: "",
+    createdAt: new Date().toISOString(),
+  });
+
+  expect(store.environments().map(({ ownerId }) => ownerId)).toEqual(["team"]);
+
+  store.close();
+});
+
 test("refuses to open a database's secrets with another key", () => {
   const path = join(root, "server.db");
   const store = openStore(path, randomBytes(32));
-  store.ensureEnvironment("vm");
+  store.ensureEnvironment("vm", "team");
   const [environment] = store.environments();
 
   if (environment === undefined) {
@@ -352,7 +399,7 @@ test("fails a plugin whose tables came from other SQL, and keeps its data", () =
 
   const notes = (sql: string) => ({
     name: "notes",
-    schema: { version: 1, sql },
+    schema: sql,
   });
 
   const first = openStore(path, undefined, undefined, undefined, [
@@ -392,17 +439,11 @@ test("makes the tables of a plugin turned on later, and refuses ones outside its
   const store = openStore(path, undefined, undefined, undefined, [
     {
       name: "notes",
-      schema: {
-        version: 1,
-        sql: "create table notes_items (text text) strict",
-      },
+      schema: "create table notes_items (text text) strict",
     },
     {
       name: "copier",
-      schema: {
-        version: 1,
-        sql: "create table sessions_copy (id text) strict",
-      },
+      schema: "create table sessions_copy (id text) strict",
     },
   ]);
 
@@ -419,19 +460,99 @@ test("makes the tables of a plugin turned on later, and refuses ones outside its
   store.close();
 });
 
+test("refuses a plugin whose tables' names would run into the kernel's or another plugin's", () => {
+  const path = join(root, "server.db");
+
+  const store = openStore(path, undefined, undefined, undefined, [
+    {
+      name: "git-hosts",
+      schema: "create table git_hosts_watches (id text) strict",
+    },
+    { name: "git", schema: "create table git_items (id text) strict" },
+    { name: "session", schema: "create table session_notes (id text) strict" },
+    { name: "notes", schema: "create table notes_items (id text) strict" },
+    { name: "notes-x", schema: "create table notes_x_items (id text) strict" },
+  ]);
+
+  store
+    .plugin("git-hosts")
+    .run("insert into git_hosts_watches (id) values ('kept')");
+
+  expect(() => store.plugin("git")).toThrow(
+    "plugin git can't keep git_ tables: git_hosts_watches belongs to another owner",
+  );
+
+  expect(() => store.plugin("session")).toThrow(
+    "plugin session can't keep session_ tables: session_access_people belongs to another owner",
+  );
+
+  expect(() => store.plugin("notes-x")).toThrow(
+    "plugin notes-x can't keep notes_x_ tables: they would start with notes_, the tables of plugin notes",
+  );
+
+  expect(store.resetPlugin("git")).toBe(
+    "plugin git can't keep git_ tables: git_hosts_watches belongs to another owner",
+  );
+
+  expect(
+    store.plugin("git-hosts").all("select id from git_hosts_watches"),
+  ).toEqual([{ id: "kept" }]);
+
+  store.close();
+});
+
+test("a reset drops only the tables the plugin's schema made", () => {
+  const path = join(root, "server.db");
+
+  const notes = (sql: string) => ({ name: "notes", schema: sql });
+
+  openStore(path, undefined, undefined, undefined, [
+    notes("create table notes_items (id text) strict"),
+  ]).close();
+
+  const db = new DatabaseSync(path);
+
+  db.exec(
+    "create table notes_by_hand (id text); insert into notes_by_hand values ('kept')",
+  );
+
+  db.close();
+
+  const store = openStore(path, undefined, undefined, undefined, [
+    notes("create table notes_items (id text, at integer) strict"),
+  ]);
+
+  expect(store.resetPlugin("notes")).toBe(
+    "plugin notes can't keep notes_ tables: notes_by_hand belongs to another owner",
+  );
+
+  store.close();
+
+  const after = new DatabaseSync(path);
+
+  expect(after.prepare("select id from notes_by_hand").all()).toEqual([
+    { id: "kept" },
+  ]);
+
+  expect(
+    after
+      .prepare("select name from sqlite_master where name = 'notes_items'")
+      .all(),
+  ).toEqual([]);
+
+  after.close();
+});
+
 test("removes a plugin's rows with the Session, Environment or person they point at", () => {
   const path = join(root, "server.db");
 
   const trail = {
     name: "trail",
-    schema: {
-      version: 1,
-      sql: `
+    schema: `
         create table trail_by_session (session_id text not null references sessions (id) on delete cascade) strict;
         create table trail_by_environment (environment_id text not null references environments (id) on delete cascade) strict;
         create table trail_by_user (user_id text not null references users (id) on delete cascade) strict;
       `,
-    },
   };
 
   const store = openStore(path, undefined, undefined, undefined, [trail]);

@@ -248,7 +248,6 @@ export type SessionAccess = Wire<typeof sessionAccess>;
 export const session = Type.Object({
   id: Type.String(),
   environmentId: Type.String(),
-  ownerId: Type.String(),
   owner: nullable(sessionOwner),
   provider: Type.String(),
   // The runner that claimed the Session last, null until one does.

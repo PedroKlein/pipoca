@@ -12,7 +12,7 @@ import { fileLimit, nameRule, sizeRule, validName } from "./model";
 
 export const library: ServerPlugin = {
   name: "library",
-  schema: { version: 1, sql: librarySchema },
+  schema: librarySchema,
   register: (context) => {
     const store = libraryStore(context.store);
 

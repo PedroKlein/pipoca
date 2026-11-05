@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { isObject } from "@pipoca/plugins";
+import { fieldsOf, isObject } from "@pipoca/plugins";
 
 type Fields = Readonly<Record<string, unknown>>;
 
@@ -163,7 +163,7 @@ function login(value: unknown): string {
 }
 
 function record(value: unknown): Fields {
-  return isObject(value) ? value : {};
+  return fieldsOf(value);
 }
 
 function text(value: unknown): string {

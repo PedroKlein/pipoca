@@ -5,7 +5,7 @@ import type {
 } from "@pipoca/protocol";
 import { type TSchema, Type } from "typebox";
 import { Value } from "typebox/value";
-import { isObject } from "./http";
+import { fieldsOf, isObject } from "./http";
 
 type Schema = Readonly<Record<string, SettingSpec>>;
 
@@ -52,7 +52,7 @@ export function settingValues(
   schema: Schema | undefined,
   stored: unknown,
 ): PluginSettings {
-  const given = isObject(stored) ? stored : {};
+  const given = fieldsOf(stored);
 
   return Object.fromEntries(
     Object.entries(schema ?? {}).map(([name, spec]) => {

@@ -5,7 +5,6 @@ import { matches, noticeText, settled } from "./notices";
 const session = (change: Partial<Session>): Session => ({
   id: "s",
   environmentId: "e",
-  ownerId: "o",
   owner: null,
   provider: "laptop",
   runner: null,

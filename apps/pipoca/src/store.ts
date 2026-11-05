@@ -2,14 +2,16 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { DatabaseSync, SQLInputValue, StatementSync } from "node:sqlite";
-import type {
-  Invite,
-  SessionAccess,
-  SessionStatus,
-  ThinkingLevel,
-  Voice,
-  Workspace,
-  WorkspaceRemoval,
+import {
+  type Clock,
+  type Invite,
+  type SessionAccess,
+  type SessionStatus,
+  systemClock,
+  type ThinkingLevel,
+  type Voice,
+  type Workspace,
+  type WorkspaceRemoval,
 } from "@pipoca/protocol";
 import type { PluginStore, ServerPlugin } from "@pipoca/plugins";
 import {
@@ -17,13 +19,10 @@ import {
   type ProfileFolders,
   type ProfileStore,
 } from "@pipoca/profiles";
-import {
-  type Clock,
-  owner,
-  type SessionStore,
-  type StoredEnvironment,
-  type StoredSession,
-  systemClock,
+import type {
+  SessionStore,
+  StoredEnvironment,
+  StoredSession,
 } from "@pipoca/sessions";
 import type { AuthStore, User } from "./auth";
 import { openDatabase, resetPlugin, transaction } from "./database";
@@ -63,9 +62,9 @@ interface EnvironmentRow {
   name: string;
   owner_user_id: string | null;
   template_id: string | null;
-  isolation: string;
+  isolation: string | null;
   image: string | null;
-  setup_script: string;
+  setup_script: string | null;
   variables: string;
   secrets_sealed: string | null;
   key_hash: string | null;
@@ -106,7 +105,7 @@ function ownerOf(userId: string | null): string {
 }
 
 function userOf(ownerId: string): string | null {
-  return ownerId === teamOwner || ownerId === owner ? null : ownerId;
+  return ownerId === teamOwner ? null : ownerId;
 }
 
 const monthMs = 30 * 24 * 60 * 60 * 1000;
@@ -123,6 +122,8 @@ export function openStore(
     check: () => void;
     close: () => void;
     plugin: (name: string) => PluginStore;
+    // Why a plugin's tables can't be used, if they can't.
+    pluginFailure: (name: string) => string | undefined;
     // Drops a plugin's tables and makes them again, or says why it couldn't.
     resetPlugin: (name: string) => string | undefined;
   } {
@@ -139,7 +140,7 @@ export function openStore(
     path,
     kernelSchema,
     plugins.flatMap(({ name, schema }) =>
-      schema === undefined ? [] : [{ owner: name, ...schema }],
+      schema === undefined ? [] : [{ owner: name, sql: schema }],
     ),
     clock.now,
   );
@@ -158,7 +159,6 @@ export function openStore(
   const toSession = (row: SessionRow): StoredSession => ({
     id: row.id,
     environmentId: row.environment_id,
-    ownerId: owner,
     owner:
       row.plugin === null || row.plugin_key === null
         ? null
@@ -259,31 +259,15 @@ export function openStore(
     `${withProvider} where environments.slug = ? and (runner = ? or runner is null) and status = ? and workspace_removal in (?, ?) order by sessions.created_at`,
   );
 
-  const selectFirstUser = db.prepare(
-    "select id from users order by created_at limit 1",
-  );
-
-  const firstUser = (): string | null =>
-    (selectFirstUser.get() as { id: string } | undefined)?.id ?? null;
-
-  // Environments made before anyone signed up, such as the server's own
-  // runner's, are the first person's (ADR 0049).
-  const environmentOwner = (ownerId: string | undefined): string | null =>
-    ownerId === undefined || ownerId === owner ? firstUser() : userOf(ownerId);
-
-  const toEnvironment = (
-    row: EnvironmentRow,
-    nobody: boolean,
-  ): StoredEnvironment => ({
+  const toEnvironment = (row: EnvironmentRow): StoredEnvironment => ({
     id: row.id,
     name: row.name,
     provider: row.slug,
-    ownerId:
-      row.owner_user_id === null && nobody ? owner : ownerOf(row.owner_user_id),
+    ownerId: ownerOf(row.owner_user_id),
     createdAt: iso(row.created_at),
     isolation: row.isolation === "container" ? "container" : "process",
     image: row.image,
-    setupScript: row.setup_script,
+    setupScript: row.setup_script ?? "",
     variables: JSON.parse(row.variables) as Record<string, string>,
     secrets:
       row.secrets_sealed === null
@@ -297,7 +281,7 @@ export function openStore(
   });
 
   const insertEnvironment = db.prepare(
-    "insert into environments (id, slug, name, owner_user_id, template_id, created_at) values (?, ?, ?, ?, ?, ?) on conflict (slug) do nothing",
+    "insert into environments (id, slug, name, owner_user_id, template_id, isolation, setup_script, created_at) values (?, ?, ?, ?, ?, ?, ?, ?) on conflict (slug) do nothing",
   );
 
   const updateEnvironment = db.prepare(
@@ -500,18 +484,17 @@ export function openStore(
         Bun.randomUUIDv7(),
         provider,
         provider,
-        environmentOwner(ownerId),
+        userOf(ownerId),
         templateId,
+        templateId === null ? "process" : null,
+        templateId === null ? "" : null,
         clock.now(),
       );
     },
-    environments: () => {
-      const nobody = firstUser() === null;
-
-      return (selectEnvironments.all() as unknown as EnvironmentRow[]).map(
-        (row) => toEnvironment(row, nobody),
-      );
-    },
+    environments: () =>
+      (selectEnvironments.all() as unknown as EnvironmentRow[]).map(
+        toEnvironment,
+      ),
     registeredModels: (provider) =>
       (
         selectRunnerModels.all(provider) as {
@@ -540,11 +523,13 @@ export function openStore(
       });
     },
     updateEnvironment: (environment) => {
+      const own = environment.templateId === null;
+
       updateEnvironment.run(
         environment.name,
-        environment.isolation,
-        environment.image,
-        environment.setupScript,
+        own ? environment.isolation : null,
+        own ? environment.image : null,
+        own ? environment.setupScript : null,
         JSON.stringify(environment.variables),
         Object.keys(environment.secrets).length === 0
           ? null
@@ -621,13 +606,14 @@ export function openStore(
 
       return found;
     },
+    pluginFailure: (name) => failures.get(name),
     resetPlugin: (name) => {
       const declared = plugins.find((each) => each.name === name)?.schema;
 
       const failure =
         declared === undefined
           ? undefined
-          : resetPlugin(db, { owner: name, ...declared }, clock.now());
+          : resetPlugin(db, { owner: name, sql: declared }, clock.now());
 
       if (failure === undefined) {
         failures.delete(name);
@@ -692,10 +678,6 @@ function authStore(db: DatabaseSync, clock: Clock): AuthStore {
 
   const insertUser = db.prepare(
     "insert into users (id, name, password_hash, created_at, admin) values (?, ?, ?, ?, ?)",
-  );
-
-  const giveEnvironments = db.prepare(
-    "update environments set owner_user_id = ? where owner_user_id is null",
   );
 
   const updateAdmin = db.prepare("update users set admin = ? where id = ?");
@@ -890,19 +872,13 @@ function authStore(db: DatabaseSync, clock: Clock): AuthStore {
         (row) => userOfRow(row) ?? [],
       ),
     insertUser: (user) => {
-      transaction(db, () => {
-        insertUser.run(
-          user.id,
-          user.name,
-          user.passwordHash === "" ? null : user.passwordHash,
-          ms(user.createdAt),
-          user.admin ? 1 : 0,
-        );
-
-        if ((countUsers.get() as { n: number }).n === 1) {
-          giveEnvironments.run(user.id);
-        }
-      });
+      insertUser.run(
+        user.id,
+        user.name,
+        user.passwordHash === "" ? null : user.passwordHash,
+        ms(user.createdAt),
+        user.admin ? 1 : 0,
+      );
     },
     setAdmin: (id, admin) => {
       updateAdmin.run(admin ? 1 : 0, id);

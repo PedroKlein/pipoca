@@ -5,10 +5,10 @@ import {
   HttpError,
   isHttpError,
   NotFound,
-  readJson,
   requireAdmin,
 } from "@pipoca/plugins";
 import { fakeSession, fakeUser } from "@pipoca/plugins/testing";
+import { readJson } from "./http";
 
 const post = (body: string): Request =>
   new Request("http://plugin/items", { method: "POST", body });

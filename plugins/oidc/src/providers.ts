@@ -120,7 +120,7 @@ export function providerStore(
 
     try {
       config.set({
-        ...(isObject(value) ? value : {}),
+        ...fieldsOf(value),
         providers: next.map(fileEntry),
       });
     } catch (failure) {

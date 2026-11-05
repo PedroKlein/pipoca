@@ -11,6 +11,7 @@ import {
   fakeUser,
   memoryStore,
   served,
+  until,
 } from "@pipoca/plugins/testing";
 import type { Session } from "@pipoca/protocol";
 import { push } from "./server";
@@ -221,9 +222,7 @@ async function call(
 // Waits until the push service got this many messages. Each delivery
 // handles the service's answer before the next timer runs.
 async function delivered(count: number): Promise<void> {
-  while (sent.length < count) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
+  await until(() => sent.length >= count);
 
   await new Promise((resolve) => setTimeout(resolve, 0));
 }

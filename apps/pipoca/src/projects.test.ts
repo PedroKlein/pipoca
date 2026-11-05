@@ -18,7 +18,7 @@ import type { Environment, Session, ToolSpec } from "@pipoca/protocol";
 import { runAgent } from "./agent";
 import { runnerCredentials } from "./testdata/runners";
 import { closeServers, testServer, type TestServer } from "./testdata/harness";
-import { until } from "./testdata/until";
+import { until } from "@pipoca/plugins/testing";
 
 const run = promisify(execFile);
 
@@ -635,7 +635,7 @@ test("lists a Project's threads for its coordinator", async () => {
   expect(listing).toContain(`${threadId} · `);
 
   expect(listing).toContain(
-    ` · work: in_progress · environment: ${environment?.id ?? ""} · branch: pipoca/${threadId.slice(0, 8)} · last activity: `,
+    ` · work: in_progress · environment: ${environment?.id ?? ""} · branch: pipoca/${threadId.slice(-8)} · last activity: `,
   );
 }, 30_000);
 

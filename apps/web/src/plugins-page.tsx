@@ -306,7 +306,7 @@ function PluginCard({
           <p className="min-w-0 flex-1 text-label text-failed">
             It failed to start: {plugin.error}
           </p>
-          {plugin.state === "failed" && (
+          {plugin.resettable === true && (
             <Button variant="ghost" onClick={reset}>
               Reset data
             </Button>

@@ -13,7 +13,6 @@ import {
   type SqlValue,
   readBody,
   requireAdmin,
-  type RouteCaller,
   type ServerPlugin,
   type ServerPluginContext,
   Type,
@@ -111,7 +110,7 @@ create index logins_proxy_tokens_session on logins_proxy_tokens (session_id);
 
 export const logins: ServerPlugin = {
   name: "logins",
-  schema: { version: 1, sql: schema },
+  schema,
   register: (context) => {
     const leases = locks(holdMs, waitMs);
 
@@ -331,7 +330,6 @@ export const logins: ServerPlugin = {
     });
 
     context.routes.handle(async (request, path, caller) => {
-      const userId = userOf(caller);
       const [route = "", key = "", action] = path.split("/");
       const kind = [models, mcp].find(({ name }) => name === route);
 
@@ -381,18 +379,26 @@ export const logins: ServerPlugin = {
           );
         }
 
-        const { profileId } = caller.session;
+        // A Session uses the logins of the person who started it, or who
+        // started the Session that started it, as git hosts do (ADR 0043).
+        const { profileId, startedBy: person } = caller.session;
 
         const owners = [
-          ...[profileId, ...context.profiles.buildsOn(profileId)].map((id) =>
-            profileOwner(userId, id),
-          ),
-          userId,
+          ...(person === null
+            ? []
+            : [
+                ...[profileId, ...context.profiles.buildsOn(profileId)].map(
+                  (id) => profileOwner(person, id),
+                ),
+                person,
+              ]),
           baseOwner,
         ];
 
         return await kind.sessionRoute(request, owners, key, action);
       }
+
+      const userId = caller.actor.slice("user:".length);
 
       // Only admins put a login on the base, and only an API key: a
       // subscription stays its person's (ADR 0063).
@@ -643,14 +649,6 @@ function layerOf(userId: string, owner: string): LoginLayer {
 // Another Session of the person's holds the login, so the caller asks again.
 function busy(): HttpError {
   return new HttpError(409, "another Session is changing this login", "busy");
-}
-
-// A Session uses the logins of the person who started it, or who started the
-// Session that started it, as git hosts do (ADR 0043).
-function userOf(caller: RouteCaller): string {
-  return caller.kind === "session"
-    ? (caller.session.startedBy ?? caller.session.ownerId)
-    : caller.actor.slice("user:".length);
 }
 
 interface KindSpec<T> {

@@ -65,7 +65,7 @@ create index oidc_identities_signed_in on oidc_identities (issuer, signed_in_at)
 
 export const oidc: ServerPlugin = {
   name: "oidc",
-  schema: { version: 1, sql: schema },
+  schema,
   register: (context) => {
     const identities = identityStore(context.store);
 

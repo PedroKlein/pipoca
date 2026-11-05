@@ -59,7 +59,7 @@ interface Started {
 }
 
 function start({
-  store = memoryStore({ version: 1, sql: routinesSchema }),
+  store = memoryStore(routinesSchema),
   send = (): SendOutcome => ({ ok: true }),
 }: { store?: PluginStore; send?: () => SendOutcome } = {}) {
   const started: Started[] = [];
@@ -358,7 +358,7 @@ test("pauses a routine after three failed runs in a row, until the person resume
 });
 
 test("missed firings while the server was down become one catch-up run, after it starts", async () => {
-  const store = memoryStore({ version: 1, sql: routinesSchema });
+  const store = memoryStore(routinesSchema);
   const before = start({ store });
 
   await before.request("routines/hourly", "PUT", {
@@ -572,7 +572,7 @@ test("a key that keeps getting events still gets through after five minutes", as
 });
 
 test("waiting events survive a restart", async () => {
-  const store = memoryStore({ version: 1, sql: routinesSchema });
+  const store = memoryStore(routinesSchema);
   const before = start({ store });
 
   await before.request("routines/pulls", "PUT", onPulls);

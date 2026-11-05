@@ -2,7 +2,7 @@ import { basename } from "node:path";
 import {
   checkedSettings,
   type EventBus,
-  isObject,
+  fieldsOf,
   type Login,
   type ModelOffer,
   type PluginConfig,
@@ -75,7 +75,7 @@ export interface PluginHost {
   readonly checkUpdates: () => Promise<void>;
   // Tells plugins of something the kernel did.
   readonly publish: EventBus["publish"];
-  // Drops a failed plugin's tables, makes them again and starts it, as it
+  // Drops the tables of a plugin that failed because of them, makes them again and starts it, as it
   // starts after its schema changed (ADR 0068). Says why it couldn't, or
   // undefined when no plugin has the name.
   readonly resetData: (name: string) => PluginInfo | string | undefined;
@@ -202,6 +202,8 @@ export function startPlugins(
     readonly events: EventBus;
     readonly changes: (topic: string) => void;
     readonly store: (name: string) => PluginStore;
+    // Why a plugin's tables can't be used, if they can't.
+    readonly dataFailure: (name: string) => string | undefined;
     // Drops a plugin's tables and makes them again, or says why it couldn't.
     readonly resetData: (name: string) => string | undefined;
     readonly config: (name: string) => PluginConfig;
@@ -529,14 +531,12 @@ export function startPlugins(
                 ? routeTools.get(name)
                 : undefined;
 
+              const onBehalf = ownerOf(session, deps.auth.users());
+
               return (
                 found &&
-                routeToolQuestion(
-                  found,
-                  input,
-                  ownerOf(session, deps.auth.users()),
-                  deps,
-                )
+                onBehalf &&
+                routeToolQuestion(found, input, onBehalf, deps)
               );
             },
             call: async (session, name, input) => {
@@ -544,12 +544,18 @@ export function startPlugins(
                 ? routeTools.get(name)
                 : undefined;
 
-              return found === undefined
-                ? { text: `no tool named ${name}`, isError: true }
+              const onBehalf = ownerOf(session, deps.auth.users());
+
+              if (found === undefined) {
+                return { text: `no tool named ${name}`, isError: true };
+              }
+
+              return onBehalf === undefined
+                ? nobodyToActAs
                 : runRouteTool(
                     found,
                     input,
-                    ownerOf(session, deps.auth.users()),
+                    onBehalf,
                     deps,
                     () => undefined,
                   ).catch((error: unknown) => ({
@@ -743,7 +749,12 @@ export function startPlugins(
     } as const;
 
     if (error !== undefined) {
-      return { ...base, state: "failed", error };
+      return {
+        ...base,
+        state: "failed",
+        error,
+        ...(deps.dataFailure(found.id) !== undefined && { resettable: true }),
+      };
     }
 
     const web = webParts.get(found.id);
@@ -804,9 +815,10 @@ export function startPlugins(
       if (
         plugin === undefined ||
         !enabled.includes(name) ||
-        !failures.has(name)
+        !failures.has(name) ||
+        deps.dataFailure(name) === undefined
       ) {
-        return "only the data of a plugin that failed to start is reset";
+        return "only the data of a plugin whose tables can't be used is reset";
       }
 
       const refused = deps.resetData(name);
@@ -845,7 +857,7 @@ export function startPlugins(
 
       const next = {
         ...Object.fromEntries(
-          Object.entries(isObject(current) ? current : {}).filter(
+          Object.entries(fieldsOf(current)).filter(
             ([key]) => !Object.hasOwn(declared, key),
           ),
         ),
@@ -1129,18 +1141,18 @@ export function startPlugins(
 
       const result = async (): Promise<ToolResult> => {
         if (routed !== undefined) {
-          return runRouteTool(
-            routed,
-            call.input,
-            ownerOf(session, deps.auth.users()),
-            deps,
-            (action) => {
-              deps.sessions.publish(session.id, {
-                generation: call.generation,
-                events: [{ type: "ui_action", action }],
-              });
-            },
-          );
+          const onBehalf = ownerOf(session, deps.auth.users());
+
+          if (onBehalf === undefined) {
+            return nobodyToActAs;
+          }
+
+          return runRouteTool(routed, call.input, onBehalf, deps, (action) => {
+            deps.sessions.publish(session.id, {
+              generation: call.generation,
+              events: [{ type: "ui_action", action }],
+            });
+          });
         }
 
         return found?.tool.appliesTo(session) === true
@@ -1420,13 +1432,25 @@ function limited(
 // A meta-session's tools act as the person who started it, never as an admin
 // (ADR 0035). An admin's Team assistant changes team setup too, so its
 // tools follow the person's role (ADR 0067).
-function ownerOf(session: Session, users: readonly User[]): OnBehalf {
-  const person = session.startedBy ?? session.ownerId;
+// Undefined for a Session nobody started, such as a routine's team work,
+// which has no person to act as.
+function ownerOf(
+  session: Session,
+  users: readonly User[],
+): OnBehalf | undefined {
+  const person = session.startedBy;
 
-  return {
-    actor: `user:${person}`,
-    mayAdmin:
-      session.ownedBy === "team" &&
-      users.some(({ id, admin }) => id === person && admin),
-  };
+  return person === null
+    ? undefined
+    : {
+        actor: `user:${person}`,
+        mayAdmin:
+          session.ownedBy === "team" &&
+          users.some(({ id, admin }) => id === person && admin),
+      };
 }
+
+const nobodyToActAs: ToolResult = {
+  text: "nobody started this Session, so it can't act as a person",
+  isError: true,
+};

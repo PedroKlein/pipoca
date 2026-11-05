@@ -44,6 +44,7 @@ test("reports unhealthy when the database can't be read, keeping why in the log"
       changes: () => undefined,
       manifests: [],
       store: store.plugin,
+      dataFailure: store.pluginFailure,
       resetData: store.resetPlugin,
       switches: { get: () => ({}), set: () => undefined },
       config: (name) => ({
@@ -133,6 +134,7 @@ function startServer(
         { id: "echo", title: "Echo", description: "", capabilities: ["tools"] },
       ],
       store: store.plugin,
+      dataFailure: store.pluginFailure,
       resetData: store.resetPlugin,
       switches: { get: () => ({}), set: () => undefined },
       config: (name) => ({
@@ -167,7 +169,11 @@ function startServer(
     handler,
     "http://127.0.0.1",
     auth.setupToken ?? "",
-  );
+  ).then((signedIn) => {
+    store.ensureEnvironment("local", store.auth.users()[0]?.id ?? "");
+
+    return signedIn;
+  });
 
   const token = auth.ownRunnerToken("local", "local");
 
@@ -480,7 +486,6 @@ test("delivers a server tool's result that finished while the provider was offli
 test("lists a plugin's own Sessions only while the plugin is on", async () => {
   const store = openStore(":memory:", undefined, noProfiles);
   const sessions = new Sessions(store, { pollWaitMs: 0 });
-  store.ensureEnvironment("local");
   let context: ServerPluginContext | undefined;
 
   const keeper: ServerPlugin = {
@@ -515,6 +520,7 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
           },
         ],
         store: store.plugin,
+        dataFailure: store.pluginFailure,
         resetData: store.resetPlugin,
         switches: { get: () => ({}), set: () => undefined },
         config: (name) => ({
@@ -563,6 +569,9 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
 
   const on = handler(["keeper"]);
   const workspace = { kind: "folder", path: "/srv/app" } as const;
+
+  await on("/api/sessions");
+  store.ensureEnvironment("local", store.auth.users()[0]?.id ?? "");
 
   const owned = context?.sessions.start(
     { actor: "plugin:keeper", workspace },
@@ -620,7 +629,16 @@ test("fails only the Session whose Profile can't be read when a runner claims wo
   );
 
   const runner = { name: "vm", environment: "local" };
-  store.ensureEnvironment("local");
+
+  store.auth.insertUser({
+    id: "ana",
+    name: "ana",
+    admin: true,
+    passwordHash: "",
+    createdAt: new Date().toISOString(),
+  });
+
+  store.ensureEnvironment("local", "ana");
 
   const start = (path: string): string => {
     const started = sessions.start({

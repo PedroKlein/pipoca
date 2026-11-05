@@ -133,6 +133,9 @@ export const pluginInfo = Type.Object({
   state: Type.Enum(["on", "off", "failed"]),
   turnedOn: Type.Boolean(),
   error: Type.Optional(Type.String()),
+  // It failed because its tables can't be used, which resetting its data
+  // fixes (ADR 0068).
+  resettable: Type.Optional(Type.Boolean()),
   values: pluginSettings,
   // Where the shell loads an installed plugin's web part from.
   webPart: Type.Optional(Type.String()),

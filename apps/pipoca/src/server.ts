@@ -43,11 +43,10 @@ import {
 import { VERSION as piVersion } from "@earendil-works/pi-coding-agent";
 import {
   BadRequest,
-  checkBody,
   isHttpError,
   NotFound,
   readBody,
-  readJson,
+  Type,
 } from "@pipoca/plugins";
 import {
   type OnBehalf,
@@ -70,7 +69,7 @@ import { mcpHandler } from "./mcp";
 import { type AgentRoute, agentRoutes } from "./agent-routes";
 import { profileRoutes } from "./profile-routes";
 import { errorReply, notFound, rejected, reply, thrown } from "./replies";
-import { blanksDropped, lineAfter } from "./requests";
+import { lineAfter } from "./requests";
 import { presences } from "./presence";
 import { sseResponse } from "./sse";
 import type { ConfigFiles } from "./config";
@@ -1072,7 +1071,7 @@ export function createHandler(
       "POST",
       /^\/api\/templates$/,
       templateChange(async (request, _params, made) => {
-        const created = made.create(await readJson(request));
+        const created = made.create(await readBody(request, Type.Unknown()));
         log("template created", { templateId: created.id });
 
         return Response.json(created, { status: 201 });
@@ -1122,7 +1121,11 @@ export function createHandler(
       "PATCH",
       /^\/api\/templates\/([^/]+)$/,
       templateChange(async (request, [id = ""], made) => {
-        const updated = made.update(id, await readJson(request));
+        const updated = made.update(
+          id,
+          await readBody(request, Type.Unknown()),
+        );
+
         log("template updated", { templateId: id });
 
         return Response.json(updated);
@@ -1180,10 +1183,7 @@ export function createHandler(
       "POST",
       /^\/api\/sessions\/([^/]+)\/fork$/,
       own(async (request, [id = ""], actor) => {
-        const { personal, ...fork } = checkBody(
-          blanksDropped(await readJson(request)),
-          createFork,
-        );
+        const { personal, ...fork } = await readBody(request, createFork);
 
         const forked = sessions.fork(id, {
           ...fork,
@@ -1231,7 +1231,7 @@ export function createHandler(
       /^\/api\/sessions$/,
       async (request, _params, actor) => {
         const created = sessions.start({
-          ...checkBody(blanksDropped(await readJson(request)), createSession),
+          ...(await readBody(request, createSession)),
           actor,
         });
 

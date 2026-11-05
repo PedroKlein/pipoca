@@ -33,7 +33,7 @@ import {
 import { runAgent } from "./agent";
 import { readSse } from "./sse";
 import { testServer, type TestServer } from "./testdata/harness";
-import { until } from "./testdata/until";
+import { until } from "@pipoca/plugins/testing";
 import { runnerCredentials } from "./testdata/runners";
 
 let root: string;
@@ -1658,12 +1658,33 @@ async function gitRepository(): Promise<string> {
   return repository;
 }
 
+test("names Sessions by time and their branches by the random rest of the id", async () => {
+  const workspace = {
+    kind: "clone",
+    repository: "https://example.com/r.git",
+  } as const;
+
+  const sessions = await Promise.all(
+    Array.from({ length: 5 }, async () => createSession("laptop", workspace)),
+  );
+
+  const branches = sessions.map((session) =>
+    session.workspace.kind === "clone" ? session.workspace.branch : "",
+  );
+
+  expect(sessions.map(({ id }) => id.charAt(14))).toEqual(
+    sessions.map(() => "7"),
+  );
+
+  expect(new Set(branches).size).toBe(sessions.length);
+});
+
 test("runs a session in a fresh clone on the server's own provider", async () => {
   await server.close();
   server = startServer("cloud");
   const repository = await gitRepository();
   const session = await createSession("cloud", { kind: "clone", repository });
-  const branch = `pipoca/${session.id.slice(0, 8)}`;
+  const branch = `pipoca/${session.id.slice(-8)}`;
 
   expect(session.workspace).toEqual({ kind: "clone", repository, branch });
 
@@ -2063,7 +2084,7 @@ test("runs a laptop session in its own worktree of a listed checkout", async () 
     path: checkout,
   });
 
-  const branch = `pipoca/${session.id.slice(0, 8)}`;
+  const branch = `pipoca/${session.id.slice(-8)}`;
 
   expect(session.workspace).toEqual({
     kind: "worktree",
@@ -2154,8 +2175,8 @@ test("forks a session into a new one that remembers its chat and starts from its
   expect(fork.workspace).toEqual({
     kind: "worktree",
     path: checkout,
-    branch: `pipoca/${fork.id.slice(0, 8)}`,
-    startPoint: `pipoca/${source.id.slice(0, 8)}`,
+    branch: `pipoca/${fork.id.slice(-8)}`,
+    startPoint: `pipoca/${source.id.slice(-8)}`,
   });
 
   expect(
@@ -3019,7 +3040,7 @@ test("removes a clean worktree on archive and brings its pushed work back on una
     path: checkout,
   });
 
-  const branch = `pipoca/${session.id.slice(0, 8)}`;
+  const branch = `pipoca/${session.id.slice(-8)}`;
   const dir = join(root, "laptop", "workspaces", session.id);
   await follow(session.id, status("idle"));
   await writeFile(join(dir, "work.txt"), "work\n");
@@ -3058,7 +3079,7 @@ test("brings pushed work back when unarchived while its worktree is being remove
     path: checkout,
   });
 
-  const branch = `pipoca/${session.id.slice(0, 8)}`;
+  const branch = `pipoca/${session.id.slice(-8)}`;
   const dir = join(root, "laptop", "workspaces", session.id);
   await follow(session.id, status("idle"));
   await writeFile(join(dir, "work.txt"), "work\n");
@@ -3143,7 +3164,7 @@ async function archivedWithPushedWork(): Promise<{
     path: checkout,
   });
 
-  const branch = `pipoca/${session.id.slice(0, 8)}`;
+  const branch = `pipoca/${session.id.slice(-8)}`;
   const dir = join(root, "laptop", "workspaces", session.id);
   await follow(session.id, status("idle"));
   await writeFile(join(dir, "work.txt"), "work\n");
@@ -3251,7 +3272,7 @@ test("leaves no worktree behind when archived again while its first removal runs
     path: checkout,
   });
 
-  const branch = `pipoca/${session.id.slice(0, 8)}`;
+  const branch = `pipoca/${session.id.slice(-8)}`;
   const dir = join(root, "laptop", "workspaces", session.id);
   await follow(session.id, status("idle"));
 
@@ -3706,7 +3727,6 @@ test("creates a session in the first Environment unless the request names one", 
   expect(first).toMatchObject({
     environmentId: laptopEnvironment,
     provider: "laptop",
-    ownerId: "local",
   });
 
   expect(unknown.status).toBe(400);

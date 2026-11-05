@@ -1,12 +1,11 @@
 import {
   BadRequest,
+  fieldsOf,
   HttpError,
-  isObject,
   NotFound,
   type OfferedModels,
   type PluginStore,
   readBody,
-  readJson,
   requireAdmin,
   type ServerPlugin,
   Type,
@@ -60,17 +59,22 @@ create table models_health (
   target text not null,
   until integer not null,
   reason text not null,
-  quota_spent real,
-  quota_cap real,
+  quota_spent_micros integer,
+  quota_cap_micros integer,
   quota_currency text,
   primary key (environment_id, target),
-  check ((quota_spent is null) = (quota_currency is null))
+  check ((quota_spent_micros is null) = (quota_currency is null))
 ) strict, without rowid;
 `;
 
+// A runner's report; healthFrom keeps the entries it understands.
+const healthReport = Type.Object({
+  unhealthyUntil: Type.Record(Type.String(), Type.Unknown()),
+});
+
 export const models: ServerPlugin = {
   name: "models",
-  schema: { version: 1, sql: schema },
+  schema,
   register: (context) => {
     const store = modelsStore(context.store);
     const versions = changes(context.signal);
@@ -121,7 +125,7 @@ export const models: ServerPlugin = {
     const settings = (): Record<string, unknown> => {
       const value = context.config.get();
 
-      return isObject(value) ? value : {};
+      return fieldsOf(value);
     };
 
     const hidden = (): readonly string[] => {
@@ -174,7 +178,7 @@ export const models: ServerPlugin = {
         }
 
         if (method === "POST" && path === "health") {
-          const reported = healthFrom(await readJson(request));
+          const reported = healthFrom(await readBody(request, healthReport));
           if (reported === undefined) {
             throw new BadRequest(
               "model health report not understood",
@@ -291,9 +295,16 @@ interface HealthRow {
   readonly target: string;
   readonly until: number;
   readonly reason: string;
-  readonly quota_spent: number | null;
-  readonly quota_cap: number | null;
+  readonly quota_spent_micros: number | null;
+  readonly quota_cap_micros: number | null;
   readonly quota_currency: string | null;
+}
+
+// Money is kept in millionths of the currency, as whole numbers.
+const microsPerUnit = 1_000_000;
+
+function micros(amount: number | undefined): number | null {
+  return amount === undefined ? null : Math.round(amount * microsPerUnit);
 }
 
 function modelsStore(store: PluginStore): ModelsStore {
@@ -313,7 +324,7 @@ function modelsStore(store: PluginStore): ModelsStore {
     unhealthyUntil: Object.fromEntries(
       (
         store.all(
-          "select target, until, reason, quota_spent, quota_cap, quota_currency from models_health where environment_id = ? order by target",
+          "select target, until, reason, quota_spent_micros, quota_cap_micros, quota_currency from models_health where environment_id = ? order by target",
           environmentId,
         ) as HealthRow[]
       ).map((row) => [
@@ -321,11 +332,11 @@ function modelsStore(store: PluginStore): ModelsStore {
         {
           until: new Date(row.until).toISOString(),
           reason: row.reason,
-          ...(row.quota_spent !== null &&
+          ...(row.quota_spent_micros !== null &&
             row.quota_currency !== null && {
               quota: {
-                spent: row.quota_spent,
-                cap: row.quota_cap ?? 0,
+                spent: row.quota_spent_micros / microsPerUnit,
+                cap: (row.quota_cap_micros ?? 0) / microsPerUnit,
                 currency: row.quota_currency,
               },
             }),
@@ -367,13 +378,13 @@ function modelsStore(store: PluginStore): ModelsStore {
           health.unhealthyUntil,
         )) {
           store.run(
-            "insert into models_health (environment_id, target, until, reason, quota_spent, quota_cap, quota_currency) values (?, ?, ?, ?, ?, ?, ?)",
+            "insert into models_health (environment_id, target, until, reason, quota_spent_micros, quota_cap_micros, quota_currency) values (?, ?, ?, ?, ?, ?, ?)",
             environmentId,
             target,
             Date.parse(unhealthy.until),
             unhealthy.reason,
-            unhealthy.quota?.spent ?? null,
-            unhealthy.quota?.cap ?? null,
+            micros(unhealthy.quota?.spent),
+            micros(unhealthy.quota?.cap),
             unhealthy.quota?.currency ?? null,
           );
         }

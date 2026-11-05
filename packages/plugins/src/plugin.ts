@@ -225,15 +225,6 @@ export interface PluginStore {
   readonly open: (sealed: string, context: string) => string;
 }
 
-// The tables a plugin keeps, which the kernel creates before the plugin
-// registers. Each is named <id>_<name>, with the id's hyphens written as
-// underscores. A database whose tables came from other SQL fails the plugin
-// and keeps its data.
-export interface PluginSchema {
-  readonly version: number;
-  readonly sql: string;
-}
-
 // The plugin's part of the server's config folder (ADR 0039).
 export interface PluginConfig {
   // The plugin's key in the folder's pipoca.json, read again when the file
@@ -472,7 +463,11 @@ export interface ServerPluginContext {
 
 export interface ServerPlugin {
   readonly name: string;
-  readonly schema?: PluginSchema;
+  // The SQL of the tables the plugin keeps, which the kernel runs before the
+  // plugin registers. Each is named <id>_<name>, with the id's hyphens
+  // written as underscores. A database whose tables came from other SQL
+  // fails the plugin and keeps its data.
+  readonly schema?: string;
   readonly register: (context: ServerPluginContext) => void;
 }
 

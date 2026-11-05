@@ -7,7 +7,6 @@ export {
   isHttpError,
   isObject,
   NotFound,
-  readJson,
   requireAdmin,
 } from "./http";
 export { type Static, Type } from "typebox";
@@ -30,7 +29,6 @@ export type {
   PluginEvent,
   PluginNotice,
   PluginRoute,
-  PluginSchema,
   PluginStore,
   SqlValue,
   ProfileMcpServer,

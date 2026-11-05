@@ -4,7 +4,6 @@ import { eventBus } from "./events";
 import { isHttpError } from "./http";
 import type {
   PluginRoute,
-  PluginSchema,
   PluginStore,
   RouteCaller,
   ServerPluginContext,
@@ -12,12 +11,12 @@ import type {
 
 // A store in memory with the plugin's tables, for a plugin's tests. It seals
 // nothing, and has no kernel tables for the plugin's to reference.
-export function memoryStore(schema?: PluginSchema): PluginStore {
+export function memoryStore(schema?: string): PluginStore {
   const db = new DatabaseSync(":memory:");
   db.exec("pragma foreign_keys = off");
 
   if (schema !== undefined) {
-    db.exec(schema.sql);
+    db.exec(schema);
   }
 
   return {
@@ -133,7 +132,6 @@ export function fakeSession(fields: Partial<Session> = {}): Session {
   return {
     id: "session-1",
     environmentId: "environment-1",
-    ownerId: "owner",
     owner: null,
     provider: "local",
     runner: null,
@@ -188,4 +186,26 @@ export function served(route: PluginRoute): PluginRoute {
       throw error;
     }
   };
+}
+
+// Reads until done says the value is ready, for what a test waits on.
+export async function until<T>(
+  read: () => T | Promise<T>,
+  done: (value: T) => boolean = Boolean,
+  timeoutMs = 10_000,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+
+  for (;;) {
+    const value = await read();
+    if (done(value)) {
+      return value;
+    }
+
+    if (Date.now() > deadline) {
+      throw new Error(`not done after ${String(timeoutMs)} ms`);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
