@@ -125,6 +125,74 @@ export default tseslint.config(
     },
   },
   {
+    // Plugins tell time by their context's clock and wait through its
+    // schedule, so a test's clock moves them too.
+    files: ["plugins/*/src/**/*.ts", "plugins/*/src/**/*.tsx"],
+    ignores: [
+      "plugins/*/src/**/*.test.ts",
+      // Until these move to the clock and schedule as their plugins port.
+      "plugins/ask/src/ask.ts",
+      "plugins/ask/src/server.ts",
+      "plugins/changes/src/pull-request.ts",
+      "plugins/changes/src/session.ts",
+      "plugins/email/src/mail.ts",
+      "plugins/email/src/server.ts",
+      "plugins/git-hosts/src/acting.ts",
+      "plugins/git-hosts/src/poller.ts",
+      "plugins/git-hosts/src/server.ts",
+      "plugins/git-hosts/src/technical-user-routes.ts",
+      "plugins/git-hosts/src/technical-users.ts",
+      "plugins/kubernetes/src/cluster.ts",
+      "plugins/kubernetes/src/server.ts",
+      "plugins/local/src/server.ts",
+      "plugins/logins/src/connect.ts",
+      "plugins/logins/src/locks.ts",
+      "plugins/models/src/server.ts",
+      "plugins/models/src/session.ts",
+      "plugins/oidc/src/oidc.ts",
+      "plugins/projects/src/projects.ts",
+      "plugins/projects/src/server.ts",
+      "plugins/projects/src/tools.ts",
+      "plugins/push/src/server.ts",
+      "plugins/routines/src/engine.ts",
+      "plugins/routines/src/wakeups.ts",
+      "plugins/slack/src/socket.ts",
+      "plugins/subagents/src/fleet.ts",
+      "plugins/subagents/src/missions.ts",
+      "plugins/subagents/src/session.ts",
+      "plugins/subagents/src/workflow.ts",
+    ],
+    rules: {
+      "no-restricted-globals": [
+        "error",
+        ...["setTimeout", "setInterval"].map((name) => ({
+          name,
+          message: "Use schedule.at or schedule.every.",
+        })),
+      ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "MemberExpression[object.name='Date'][property.name='now']",
+          message: "Use clock.now().",
+        },
+        {
+          selector: "NewExpression[callee.name='Date'][arguments.length=0]",
+          message: "Use new Date(clock.now()).",
+        },
+        {
+          selector:
+            "MemberExpression[object.name='Bun'][property.name='sleep']",
+          message: "Use schedule.at or schedule.every.",
+        },
+        {
+          selector: "ImportSpecifier[imported.name=/^set(Timeout|Interval)$/]",
+          message: "Use schedule.at or schedule.every.",
+        },
+      ],
+    },
+  },
+  {
     // No plugin is special: the kernel reaches plugins only through the
     // plugin registries.
     files: [

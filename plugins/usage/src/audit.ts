@@ -1,5 +1,5 @@
 import type { KernelEvent, PluginStore } from "@pipoca/plugins";
-import type { Actor, Session, SessionAccess } from "@pipoca/protocol";
+import type { Actor, Clock, Session, SessionAccess } from "@pipoca/protocol";
 
 // One kernel action on team work, or one use of the team's key (ADR 0066).
 export interface AuditEntry {
@@ -21,7 +21,7 @@ export interface AuditLog {
   readonly actions: (limit: number) => readonly AuditEntry[];
 }
 
-export function auditLog(store: PluginStore): AuditLog {
+export function auditLog(store: PluginStore, clock: Clock): AuditLog {
   const rows = (found: unknown[]): readonly AuditEntry[] =>
     (
       found as (Omit<AuditEntry, "sessionId" | "at"> & {
@@ -38,7 +38,7 @@ export function auditLog(store: PluginStore): AuditLog {
     add: ({ actor, sessionId, action, detail }) => {
       store.run(
         "insert into usage_audit (at, actor, session_id, action, detail) values (?, ?, ?, ?, ?)",
-        Date.now(),
+        clock.now(),
         actor,
         sessionId,
         action,
