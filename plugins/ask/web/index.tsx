@@ -36,7 +36,7 @@ function useVotes({ session }: Props): Votes | undefined {
     async () =>
       api.get<Votes>(`sessions/${encodeURIComponent(session.id)}/votes`),
     session.id,
-    { topics: ["ask.votes"] },
+    { changes: ["votes"] },
   ).value;
 }
 
