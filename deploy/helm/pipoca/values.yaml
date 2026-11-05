@@ -74,7 +74,7 @@ extraEnvFrom: []
 # The first pipoca.json of the server's config folder, a key per plugin
 # (ADR 0039). It is written to the data volume only when no file is there
 # yet; after that Settings edits the file, and so can you. Secrets don't go
-# here: name an environment variable instead, such as oidc's clientSecretEnv.
+# here: name an environment variable instead, as { "env": "NAME" }.
 config: {}
 #  oidc:
 #    providers:
