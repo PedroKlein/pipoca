@@ -232,7 +232,12 @@ test("a machine deletes a deleted Profile's folder once its Sessions stop", asyn
 
   expect(await exists()).toBe(true);
 
-  await json(server.api(`/api/sessions/${session.id}/archive`, { body: {} }));
+  await json(
+    server.api(`/api/sessions/${session.id}`, {
+      method: "PATCH",
+      body: { archived: true },
+    }),
+  );
 
   await server.api(`/api/profiles/${session.profileId}`, { method: "DELETE" });
 

@@ -1,4 +1,9 @@
-import type { PluginInfo, SettingSpec, SettingValue } from "@pipoca/protocol";
+import {
+  ApiError,
+  type PluginInfo,
+  type SettingSpec,
+  type SettingValue,
+} from "@pipoca/protocol";
 import {
   Badge,
   Button,
@@ -18,9 +23,8 @@ import {
   Switch,
   useConfirm,
 } from "@pipoca/ui";
-import { ok } from "@pipoca/plugins/web";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import { api, send } from "./api";
+import { api } from "./api";
 import { usePlugins } from "./hooks";
 import { settingsOf } from "./plugin-settings";
 import { webPartError } from "./plugins";
@@ -156,9 +160,9 @@ function PluginCard({
       }
 
       run(async () => {
-        await send(`/api/plugins/${plugin.id}`, "PATCH", {
-          enabled: !plugin.turnedOn,
-          digest: plugin.digest,
+        await api("plugins.update", {
+          params: { plugin: plugin.id },
+          body: { enabled: !plugin.turnedOn, digest: plugin.digest },
         });
 
         return undefined;
@@ -168,11 +172,10 @@ function PluginCard({
 
   const update = (): void => {
     run(async () => {
-      const response = await send(`/api/plugins/${plugin.id}`, "PATCH", {
-        update: true,
+      const next = await api("plugins.update", {
+        params: { plugin: plugin.id },
+        body: { update: true },
       });
-
-      const next = (await response.json()) as PluginInfo;
 
       if (next.installedFrom?.pinned === plugin.installedFrom?.pinned) {
         return "It already has the newest version.";
@@ -199,7 +202,7 @@ function PluginCard({
       }
 
       run(async () => {
-        await send(`/api/plugins/${plugin.id}`, "DELETE");
+        await api("plugins.remove", { params: { plugin: plugin.id } });
 
         return undefined;
       });
@@ -219,7 +222,7 @@ function PluginCard({
       }
 
       run(async () => {
-        await send(`/api/plugin-resets/${plugin.id}`, "POST");
+        await api("plugins.data.remove", { params: { plugin: plugin.id } });
 
         return undefined;
       });
@@ -397,8 +400,9 @@ function Install({
     setInstalling(true);
     setInstalled(undefined);
 
-    api("/api/plugins", { url: typeof url === "string" ? url.trim() : "" })
-      .then(async (response) => (await response.json()) as PluginInfo)
+    api("plugins.install", {
+      body: { url: typeof url === "string" ? url.trim() : "" },
+    })
       .then(
         (plugin) => {
           setError(undefined);
@@ -494,14 +498,19 @@ function Restart(): ReactElement {
   const restart = async (force: boolean): Promise<void> => {
     const before = await startedAt();
 
-    const response = await fetch("/api/restart", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ force }),
-    });
+    const refused = await api("server.restart", { body: { force } }).then(
+      () => undefined,
+      (reason: unknown) => {
+        if (reason instanceof ApiError && reason.status === 409) {
+          return reason;
+        }
 
-    if (response.status === 409) {
-      const { sessions } = (await response.json()) as { sessions: number };
+        throw reason;
+      },
+    );
+
+    if (refused) {
+      const { sessions } = refused.body as { readonly sessions: number };
 
       if (
         await ask({
@@ -517,7 +526,6 @@ function Restart(): ReactElement {
       return;
     }
 
-    await ok(Promise.resolve(response));
     setState("restarting");
     await back(before);
     location.reload();
@@ -567,11 +575,8 @@ async function back(before: string | undefined): Promise<void> {
 }
 
 async function startedAt(): Promise<string | undefined> {
-  return fetch("/healthz").then(
-    async (response) =>
-      response.ok
-        ? ((await response.json()) as { started: string }).started
-        : undefined,
+  return api("health").then(
+    ({ started }) => started,
     () => undefined,
   );
 }
@@ -604,8 +609,11 @@ function SettingsForm({
     event.preventDefault();
     setSaved(false);
 
-    send(`/api/plugins/${plugin.id}`, "PATCH", {
-      settings: settingsOf(settings, new FormData(event.currentTarget)),
+    api("plugins.update", {
+      params: { plugin: plugin.id },
+      body: {
+        settings: settingsOf(settings, new FormData(event.currentTarget)),
+      },
     }).then(
       () => {
         setError(undefined);

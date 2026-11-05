@@ -33,7 +33,7 @@ export function Activity({
   const { value: teammates = [] } = useLoaded(
     async () =>
       json<readonly { id: string; name: string }[]>(
-        context.request("/api/teammates"),
+        context.request("/api/people"),
       ),
     "teammates",
   );

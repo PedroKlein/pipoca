@@ -30,10 +30,10 @@ export function TeamCredentials({
   const { value: loaded } = useLoaded(
     async () => {
       const [profiles, base, environments] = await Promise.all([
-        json<readonly Profile[]>(context.request("/api/profiles?owner=team")),
-        json<ProfileContent>(context.request("/api/base")),
+        json<readonly Profile[]>(context.request("/api/profiles?scope=team")),
+        json<ProfileContent>(context.request("/api/settings/base-profile")),
         json<readonly Environment[]>(
-          context.request("/api/environments?owner=team"),
+          context.request("/api/environments?scope=team"),
         ),
       ]);
 

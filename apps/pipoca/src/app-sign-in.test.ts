@@ -22,7 +22,7 @@ function pair(): { verifier: string; challenge: string } {
 }
 
 async function handoff(cookie: string, challenge: string): Promise<Response> {
-  return server.as(cookie)("/api/auth/app", { body: { challenge } });
+  return server.as(cookie)("/api/auth/app-links", { body: { challenge } });
 }
 
 async function linkOf(response: Response): Promise<URL> {
@@ -32,7 +32,7 @@ async function linkOf(response: Response): Promise<URL> {
 }
 
 async function redeem(token: string, verifier?: string): Promise<Response> {
-  const url = new URL(`/api/auth/link/${token}`, server.url);
+  const url = new URL(`/api/auth/links/${token}`, server.url);
   if (verifier !== undefined) {
     url.searchParams.set("verifier", verifier);
   }

@@ -69,7 +69,7 @@ const settled = (value: Session): boolean =>
 
 async function aliases(environmentId: string): Promise<void> {
   const response = await server.api(
-    `/api/plugins/models/environments/${environmentId}`,
+    `/api/ext/models/environments/${environmentId}`,
     {
       body: {
         aliases: {
@@ -142,7 +142,7 @@ test("takes a provider that hit its cap out of routing for the whole Environment
   const [models] = await until(
     async () =>
       (await (
-        await server.api("/api/plugins/models/environments")
+        await server.api("/api/ext/models/environments")
       ).json()) as EnvironmentModels[],
     ([found]) =>
       found !== undefined && "primary" in found.health.unhealthyUntil,
@@ -186,7 +186,7 @@ test("refuses an alias config without aliases or with a malformed one", async ()
     { models: { "medium-1": ["primary/m"] }, defaultAlias: "heavy-1" },
   ]) {
     const response = await server.api(
-      `/api/plugins/models/environments/${environmentId}`,
+      `/api/ext/models/environments/${environmentId}`,
       { body: { aliases: config } },
     );
 
@@ -203,7 +203,7 @@ test("refuses provider settings with the wrong types", async () => {
     { resetSchedule: 1 },
   ]) {
     const response = await server.api(
-      `/api/plugins/models/environments/${environmentId}`,
+      `/api/ext/models/environments/${environmentId}`,
       {
         body: {
           aliases: {
@@ -221,7 +221,7 @@ test("refuses provider settings with the wrong types", async () => {
 test("lists an Environment's aliases first and gives a session with no model its default alias", async () => {
   const { id: environmentId } = await environment();
 
-  await server.api(`/api/plugins/models/environments/${environmentId}`, {
+  await server.api(`/api/ext/models/environments/${environmentId}`, {
     body: {
       aliases: {
         defaultAlias: "medium-1",
@@ -270,7 +270,7 @@ test("routes an alias set after its Session started", async () => {
 
   const { id: environmentId } = await environment();
 
-  await server.api(`/api/plugins/models/environments/${environmentId}`, {
+  await server.api(`/api/ext/models/environments/${environmentId}`, {
     body: {
       aliases: {
         models: { "medium-1": [`fallback/${fallback.getModel().id}`] },

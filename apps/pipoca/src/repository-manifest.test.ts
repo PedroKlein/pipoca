@@ -91,7 +91,7 @@ test("imports the Profiles a repository's pipoca.json lists and follows the repo
   });
 
   const listed = await json<{ readonly profiles: ManifestEntry[] }>(
-    server.api("/api/profiles/listed", { body: { url } }),
+    server.api(`/api/repositories/manifest?url=${encodeURIComponent(url)}`),
   );
 
   expect(listed.profiles).toEqual([
@@ -99,24 +99,23 @@ test("imports the Profiles a repository's pipoca.json lists and follows the repo
     { name: "Team docs", path: "profiles/docs" },
   ]);
 
-  const imported = await json<{ readonly profiles: Profile[] }>(
-    server.api("/api/profiles/import", {
-      body: { url, paths: ["profiles/review"] },
+  const review = await json<Profile>(
+    server.api("/api/profiles", {
+      body: { source: { url, path: "profiles/review" } },
     }),
   );
 
-  const [review] = imported.profiles;
+  expect([review.name, review.agentsMd]).toEqual([
+    "Team review",
+    "Review carefully.",
+  ]);
 
-  expect(
-    imported.profiles.map(({ name, agentsMd }) => [name, agentsMd]),
-  ).toEqual([["Team review", "Review carefully."]]);
+  expect(review.source).toMatchObject({ url, path: "profiles/review" });
 
-  expect(review?.source).toMatchObject({ url, path: "profiles/review" });
-
-  const id = review?.id ?? "";
+  const id = review.id;
 
   const edited = await server.api(`/api/profiles/${id}`, {
-    method: "PUT",
+    method: "PATCH",
     body: { agentsMd: "Mine now." },
   });
 
@@ -128,11 +127,11 @@ test("imports the Profiles a repository's pipoca.json lists and follows the repo
   });
 
   const synced = await json<Profile>(
-    server.api(`/api/profiles/${id}/sync`, { body: {} }),
+    server.api(`/api/profiles/${id}/syncs`, { body: {} }),
   );
 
   expect(synced.agentsMd).toBe("Review twice.");
-  expect(synced.source?.commit).not.toBe(review?.source?.commit);
+  expect(synced.source?.commit).not.toBe(review.source?.commit);
 
   expect(
     (
@@ -141,7 +140,7 @@ test("imports the Profiles a repository's pipoca.json lists and follows the repo
   ).not.toContain("skills/lint/SKILL.md");
 
   const copy = await json<Profile>(
-    server.api(`/api/profiles/${id}/copy`, { body: {} }),
+    server.api("/api/profiles", { body: { from: id } }),
   );
 
   expect([copy.name, copy.agentsMd, copy.source]).toEqual([
@@ -153,7 +152,7 @@ test("imports the Profiles a repository's pipoca.json lists and follows the repo
   expect(
     (
       await server.api(`/api/profiles/${copy.id}`, {
-        method: "PUT",
+        method: "PATCH",
         body: { agentsMd: "Mine now." },
       })
     ).status,
@@ -167,7 +166,9 @@ test("refuses a folder the manifest doesn't list or that leaves the repository",
     }),
   });
 
-  const listed = await server.api("/api/profiles/listed", { body: { url } });
+  const listed = await server.api(
+    `/api/repositories/manifest?url=${encodeURIComponent(url)}`,
+  );
 
   expect(listed.status).toBe(400);
 
@@ -182,8 +183,8 @@ test("refuses a folder the manifest doesn't list or that leaves the repository",
     "other",
   );
 
-  const unlisted = await server.api("/api/profiles/import", {
-    body: { url: other, paths: ["secret"] },
+  const unlisted = await server.api("/api/profiles", {
+    body: { source: { url: other, path: "secret" } },
   });
 
   expect(unlisted.status).toBe(400);
@@ -207,20 +208,18 @@ test("imports the templates a repository's pipoca.json lists and follows the rep
   );
 
   const listed = await json<{ readonly templates: ManifestEntry[] }>(
-    server.api("/api/templates/listed", { body: { url } }),
+    server.api(`/api/repositories/manifest?url=${encodeURIComponent(url)}`),
   );
 
   expect(listed.templates).toEqual([
     { name: "Go services", path: "environments/go.json" },
   ]);
 
-  const imported = await json<{ readonly templates: EnvironmentTemplate[] }>(
-    server.api("/api/templates/import", {
-      body: { url, paths: ["environments/go.json"] },
+  const go = await json<EnvironmentTemplate>(
+    server.api("/api/environment-templates", {
+      body: { source: { url, path: "environments/go.json" } },
     }),
   );
-
-  const [go] = imported.templates;
 
   expect(go).toMatchObject({
     id: "go-services",
@@ -232,7 +231,7 @@ test("imports the templates a repository's pipoca.json lists and follows the rep
     source: { url, path: "environments/go.json" },
   });
 
-  const edited = await server.api("/api/templates/go-services", {
+  const edited = await server.api("/api/environment-templates/go-services", {
     method: "PATCH",
     body: { image: "golang:1.26" },
   });
@@ -247,7 +246,7 @@ test("imports the templates a repository's pipoca.json lists and follows the rep
   });
 
   const synced = await json<EnvironmentTemplate>(
-    server.api("/api/templates/go-services/sync", { body: {} }),
+    server.api("/api/environment-templates/go-services/syncs", { body: {} }),
   );
 
   expect([synced.image, synced.variables, synced.setupScript]).toEqual([
@@ -256,7 +255,7 @@ test("imports the templates a repository's pipoca.json lists and follows the rep
     "",
   ]);
 
-  expect(synced.source?.commit).not.toBe(go?.source?.commit);
+  expect(synced.source?.commit).not.toBe(go.source?.commit);
 });
 
 test("refuses a template file that holds secrets", async () => {
@@ -270,14 +269,14 @@ test("refuses a template file that holds secrets", async () => {
     "leaky",
   );
 
-  const imported = await server.api("/api/templates/import", {
-    body: { url, paths: ["leaky.json"] },
+  const imported = await server.api("/api/environment-templates", {
+    body: { source: { url, path: "leaky.json" } },
   });
 
   expect(imported.status).toBe(400);
 
   expect(
-    await json<EnvironmentTemplate[]>(server.api("/api/templates")),
+    await json<EnvironmentTemplate[]>(server.api("/api/environment-templates")),
   ).toEqual([]);
 });
 

@@ -44,7 +44,7 @@ async function ana(): Promise<string> {
 
   db.close();
 
-  const response = await fetch(new URL("/api/auth/login", server.url), {
+  const response = await fetch(new URL("/api/auth/session", server.url), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name: "ana", password: "battery staple" }),
@@ -54,11 +54,11 @@ async function ana(): Promise<string> {
 }
 
 async function environment(cookie: string, name: string): Promise<string> {
-  const created = await json<{ environment: Environment }>(
+  const created = await json<Environment>(
     server.as(cookie)("/api/environments", { body: { name } }),
   );
 
-  return created.environment.id;
+  return created.id;
 }
 
 async function session(
@@ -100,7 +100,7 @@ test("a person sees, changes and starts Sessions only in their own Environments"
   ).toBe(404);
 
   expect(
-    (await server.as(anas)(`/api/environments/${mac}/key`, { body: {} }))
+    (await server.as(anas)(`/api/environments/${mac}/keys`, { body: {} }))
       .status,
   ).toBe(404);
 
@@ -130,15 +130,13 @@ test("only admins make and change team Environments, which users list apart", as
 
   expect(created.status).toBe(201);
 
-  const { environment: team } = (await created.json()) as {
-    environment: Environment;
-  };
+  const team = (await created.json()) as Environment;
 
   expect(team.ownerId).toBe("team");
   expect(names(await json(server.as(anas)("/api/environments")))).toEqual([]);
 
   const listed = await json<Environment[]>(
-    server.as(anas)("/api/environments?owner=team"),
+    server.as(anas)("/api/environments?scope=team"),
   );
 
   expect(names(listed)).toEqual(["team-pods"]);
@@ -152,7 +150,7 @@ test("only admins make and change team Environments, which users list apart", as
       method: "PATCH",
       body: { name: "x" },
     }),
-    server.as(anas)(`/api/environments/${team.id}/key`, { body: {} }),
+    server.as(anas)(`/api/environments/${team.id}/keys`, { body: {} }),
     server.as(anas)(`/api/environments/${team.id}`, { method: "DELETE" }),
   ]);
 
@@ -163,14 +161,14 @@ test("only admins make and change team Environments, which users list apart", as
       method: "PATCH",
       body: { variables: { REGION: "eu" } },
     }),
-    server.api(`/api/environments/${team.id}/key`, { body: {} }),
+    server.api(`/api/environments/${team.id}/keys`, { body: {} }),
   ]);
 
-  expect(changed.map(({ status }) => status)).toEqual([200, 200]);
+  expect(changed.map(({ status }) => status)).toEqual([200, 201]);
 });
 
 test("a personal Session never runs in a team Environment", async () => {
-  const { environment: team } = await json<{ environment: Environment }>(
+  const team = await json<Environment>(
     server.api("/api/environments", {
       body: { name: "team-pods", team: true },
     }),
@@ -190,11 +188,11 @@ test("an Environment a runner makes with a join key is the key maker's", async (
   const anas = await ana();
 
   const { key } = await json<{ key: string }>(
-    server.as(anas)("/api/join-key", { body: {} }),
+    server.as(anas)("/api/join-keys", { body: {} }),
   );
 
   await json<Joined>(
-    fetch(new URL("/agent/join", server.url), {
+    fetch(new URL("/runner/join", server.url), {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -225,9 +223,9 @@ test("a person sees and drives only their own Sessions", async () => {
 
   expect(ids(await json(server.as(anas)("/api/sessions")))).toEqual([hers.id]);
 
-  expect(ids(await json(server.as(anas)("/api/sessions?owner=all")))).toEqual([
-    hers.id,
-  ]);
+  expect(
+    ids(await json(server.as(anas)("/api/sessions?plugins=true"))),
+  ).toEqual([hers.id]);
 
   const refused = [
     server.as(anas)(`/api/sessions/${his.id}`),
@@ -235,8 +233,13 @@ test("a person sees and drives only their own Sessions", async () => {
     server.as(anas)(`/api/sessions/${his.id}/commands`, {
       body: { type: "abort" },
     }),
-    server.as(anas)(`/api/sessions/${his.id}/fork`, { body: {} }),
-    server.as(anas)(`/api/sessions/${his.id}/archive`, { body: {} }),
+    server.as(anas)("/api/sessions", {
+      body: { from: { session: his.id } },
+    }),
+    server.as(anas)(`/api/sessions/${his.id}`, {
+      method: "PATCH",
+      body: { archived: true },
+    }),
     server.as(anas)(`/api/sessions/${his.id}/terminal`),
   ];
 
@@ -258,15 +261,13 @@ test("an admin sees everyone's Environments and Sessions as an outline and can s
   const hers = await session(anas);
 
   const everyone = await json<Environment[]>(
-    server.api("/api/environments?people=all"),
+    server.api("/api/environments?scope=all"),
   );
 
   expect(names(everyone).toSorted()).toEqual(["laptop", "mac"]);
   expect(everyone.find(({ id }) => id === laptop)?.variables).toEqual({});
 
-  const sessions = await json<Session[]>(
-    server.api("/api/sessions?people=all"),
-  );
+  const sessions = await json<Session[]>(server.api("/api/sessions?scope=all"));
 
   expect(sessions.map(({ id }) => id)).toContain(hers.id);
 
@@ -302,24 +303,28 @@ test("an admin sees everyone's Environments and Sessions as an outline and can s
   ).toBe(409);
 
   expect(
-    (await server.api(`/api/sessions/${hers.id}/archive`, { body: {} })).status,
+    (
+      await server.api(`/api/sessions/${hers.id}`, {
+        method: "PATCH",
+        body: { archived: true },
+      })
+    ).status,
   ).toBe(200);
 
-  expect(
-    names(await json(server.as(anas)("/api/environments?people=all"))),
-  ).toEqual(["laptop"]);
+  expect((await server.as(anas)("/api/environments?scope=all")).status).toBe(
+    403,
+  );
 });
 
 test("an owner or an admin deletes an Environment once its Sessions are archived", async () => {
   const anas = await ana();
 
-  const { environment: laptop, key } = await json<{
-    environment: Environment;
-    key: string;
-  }>(server.as(anas)("/api/environments", { body: { name: "laptop" } }));
+  const { key, ...laptop } = await json<Environment & { key: string }>(
+    server.as(anas)("/api/environments", { body: { name: "laptop" } }),
+  );
 
   const { token } = await json<Joined>(
-    fetch(new URL("/agent/join", server.url), {
+    fetch(new URL("/runner/join", server.url), {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -334,7 +339,11 @@ test("an owner or an admin deletes an Environment once its Sessions are archived
   const path = `/api/environments/${laptop.id}`;
 
   const whileActive = await server.as(anas)(path, { method: "DELETE" });
-  await server.as(anas)(`/api/sessions/${hers.id}/archive`, { body: {} });
+
+  await server.as(anas)(`/api/sessions/${hers.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
   const theirs = await environment(await server.signedIn(), "mac");
 
@@ -344,7 +353,7 @@ test("an owner or an admin deletes an Environment once its Sessions are archived
 
   const byAdmin = await server.api(path, { method: "DELETE" });
 
-  const work = await fetch(new URL("/agent/work", server.url), {
+  const work = await fetch(new URL("/runner/work", server.url), {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -363,10 +372,10 @@ test("an owner or an admin deletes an Environment once its Sessions are archived
   expect(work.status).toBe(401);
 });
 
-test("only an admin lists everyone", async () => {
+test("only an admin lists everyone in full; others see names", async () => {
   const anas = await ana();
 
-  const everyone = await json<{ name: string; admin: boolean }[]>(
+  const everyone = await json<{ id: string; name: string; admin: boolean }[]>(
     server.api("/api/people"),
   );
 
@@ -375,7 +384,9 @@ test("only an admin lists everyone", async () => {
     ["ana", false],
   ]);
 
-  expect((await server.as(anas)("/api/people")).status).toBe(403);
+  expect(await json(server.as(anas)("/api/people"))).toEqual(
+    everyone.map(({ id, name }) => ({ id, name })),
+  );
 });
 
 test("an admin changes roles, but never leaves the server without an admin", async () => {
@@ -434,7 +445,10 @@ test("lists who is still setting up and when each person was last active", async
 
   await server.as(anas)("/api/environments");
 
-  await server.as(pedros)("/api/setup", { body: { finished: true } });
+  await server.as(pedros)("/api/me/setup", {
+    method: "PATCH",
+    body: { finished: true },
+  });
 
   const people = await json<Person[]>(server.as(pedros)("/api/people"));
 
@@ -449,7 +463,7 @@ test("lists who is still setting up and when each person was last active", async
 });
 
 async function joinWith(token: string, name: string): Promise<Response> {
-  return fetch(new URL(`/api/auth/join/${token}`, server.url), {
+  return fetch(new URL(`/api/auth/invites/${token}`, server.url), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name, password: "correct horse" }),
@@ -469,7 +483,7 @@ test("lets anyone with an invite link join with a password, as the role it names
   const token = link?.token ?? "";
 
   const info = await json<JoinInfo>(
-    fetch(new URL(`/api/auth/join/${token}`, server.url)),
+    fetch(new URL(`/api/auth/invites/${token}`, server.url)),
   );
 
   const bea = await joinWith(token, "bea");
@@ -486,7 +500,7 @@ test("lets anyone with an invite link join with a password, as the role it names
   });
 
   expect([bea.status, cid.status, taken.status]).toEqual([201, 201, 409]);
-  expect((await server.as(beas)("/api/people")).status).toBe(403);
+  expect((await server.as(beas)("/api/invites")).status).toBe(403);
 
   expect(await json(server.as(pedros)("/api/invites"))).toEqual([
     { ...link, token: undefined, uses: 2 },
@@ -534,7 +548,7 @@ test("a person lists only the meta-sessions they started", async () => {
   const anas = await ana();
   await environment(await server.signedIn(), "mac");
 
-  const started = await server.api("/api/plugins/meta/sessions", {
+  const started = await server.api("/api/ext/meta/sessions", {
     body: {
       text: "what can you do?",
     },
@@ -543,8 +557,8 @@ test("a person lists only the meta-sessions they started", async () => {
   expect(started.status).toBe(201);
 
   expect(
-    await json<Session[]>(server.api("/api/plugins/meta/sessions")),
+    await json<Session[]>(server.api("/api/ext/meta/sessions")),
   ).toHaveLength(1);
 
-  expect(await json(server.as(anas)("/api/plugins/meta/sessions"))).toEqual([]);
+  expect(await json(server.as(anas)("/api/ext/meta/sessions"))).toEqual([]);
 });

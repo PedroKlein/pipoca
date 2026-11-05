@@ -47,7 +47,7 @@ afterEach(async () => {
 
 async function open(name: string): Promise<ConfigText> {
   return (await (
-    await server.api(`/api/config/file?name=${encodeURIComponent(name)}`)
+    await server.api(`/api/settings/config/files/${encodeURIComponent(name)}`)
   ).json()) as ConfigText;
 }
 
@@ -56,15 +56,15 @@ async function save(
   text: string,
   version: string | null,
 ): Promise<Response> {
-  return server.api("/api/config/file", {
+  return server.api(`/api/settings/config/files/${encodeURIComponent(name)}`, {
     method: "PUT",
-    body: { name, text, version },
+    body: { text, version },
   });
 }
 
 async function labels(): Promise<readonly string[]> {
   const providers = (await (
-    await server.api("/api/plugins/oidc/providers")
+    await server.api("/api/ext/oidc/providers")
   ).json()) as { label: string }[];
 
   return providers.map(({ label }) => label);
@@ -113,7 +113,7 @@ test("lists shared Profiles to edit, and leaves people's own folders out", async
   await writeFile(join(config, "profiles", "default", "AGENTS.md"), "Hi\n");
   await writeFile(join(config, "people", "someone", "AGENTS.md"), "Mine\n");
 
-  const listed = (await (await server.api("/api/config")).json()) as {
+  const listed = (await (await server.api("/api/settings/config")).json()) as {
     files: ConfigEntry[];
   };
 
@@ -137,8 +137,11 @@ test("lists shared Profiles to edit, and leaves people's own folders out", async
   expect((await save("../escape.json", "{}", null)).status).toBe(400);
 
   expect(
-    (await server.api("/api/config/file?name=people%2Fsomeone%2FAGENTS.md"))
-      .status,
+    (
+      await server.api(
+        "/api/settings/config/files/people%2Fsomeone%2FAGENTS.md",
+      )
+    ).status,
   ).toBe(404);
 });
 
@@ -157,12 +160,12 @@ test("a locked file's keys win, show read-only, and can't be changed from Settin
   expect(await labels()).toEqual(["Sign in with IAS"]);
 
   const account = (await (
-    await server.api("/api/plugins/oidc/account")
+    await server.api("/api/ext/oidc/account")
   ).json()) as { lockedIn: string | null };
 
   expect(account.lockedIn).toBe(locked);
 
-  const listed = (await (await server.api("/api/config")).json()) as {
+  const listed = (await (await server.api("/api/settings/config")).json()) as {
     files: ConfigEntry[];
   };
 
@@ -170,7 +173,7 @@ test("a locked file's keys win, show read-only, and can't be changed from Settin
   expect((await open(locked)).locked).toBe(true);
   expect((await save(locked, "{}", null)).status).toBe(400);
 
-  const added = await server.api("/api/plugins/oidc/providers", {
+  const added = await server.api("/api/ext/oidc/providers", {
     body: {
       label: "Another",
       issuer: "https://other.example.com",
@@ -186,10 +189,12 @@ test("a locked file's keys win, show read-only, and can't be changed from Settin
 test("keeps the files to admins", async () => {
   start();
 
-  expect((await fetch(new URL("/api/config", server.url))).status).toBe(401);
+  expect(
+    (await fetch(new URL("/api/settings/config", server.url))).status,
+  ).toBe(401);
 
   expect(
-    (await fetch(new URL("/api/config/file?name=pipoca.json", server.url)))
+    (await fetch(new URL("/api/settings/config/files/pipoca.json", server.url)))
       .status,
   ).toBe(401);
 });

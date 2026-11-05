@@ -283,13 +283,13 @@ export const gitHosts: ServerPlugin = {
           location: authorizationUrl(
             host,
             oauth,
-            `${originOf(request)}/api/plugins/git-hosts/callback`,
+            `${originOf(request)}/api/ext/git-hosts/callback`,
             state,
           ),
           // Lax, since the host's redirect back is a cross-site navigation,
           // which leaves Strict cookies out.
           "set-cookie": new Bun.Cookie(browserCookie, browser, {
-            path: "/api/plugins/git-hosts/",
+            path: "/api/ext/git-hosts/",
             httpOnly: true,
             sameSite: "lax",
             secure: secure(request),
@@ -334,7 +334,7 @@ export const gitHosts: ServerPlugin = {
         const token = await redeem(
           host,
           host.oauth,
-          `${originOf(request)}/api/plugins/git-hosts/callback`,
+          `${originOf(request)}/api/ext/git-hosts/callback`,
           params.get("code") ?? "",
         );
 

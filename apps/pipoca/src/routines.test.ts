@@ -160,7 +160,7 @@ test("a Session makes a routine after the user allows it, and the routine runs o
 
   const [listed] = await json<
     { name: string; lastRun: { sessionId: string } }[]
-  >(server.api("/api/plugins/routines/routines"));
+  >(server.api("/api/ext/routines/routines"));
 
   expect(listed?.name).toBe("daily-issues");
 
@@ -189,7 +189,7 @@ test("keeps the team's routines as owned by no person, and a person's as theirs"
   );
 
   for (const route of ["routines", "team-routines"]) {
-    const saved = await server.api(`/api/plugins/routines/${route}/nightly`, {
+    const saved = await server.api(`/api/ext/routines/${route}/nightly`, {
       method: "PUT",
       body: routine,
     });
@@ -256,5 +256,5 @@ test("a Session can't make a routine the user doesn't allow", async () => {
     entriesInclude("The user didn't allow creating the routine.")(events),
   ).toBe(true);
 
-  expect(await json(server.api("/api/plugins/routines/routines"))).toEqual([]);
+  expect(await json(server.api("/api/ext/routines/routines"))).toEqual([]);
 }, 30_000);

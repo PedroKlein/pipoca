@@ -100,7 +100,7 @@ async function repository(name: string): Promise<string> {
 
 async function project(id: string): Promise<ProjectView> {
   return (await (
-    await server.api(`/api/plugins/projects/projects/${id}`)
+    await server.api(`/api/ext/projects/projects/${id}`)
   ).json()) as ProjectView;
 }
 
@@ -211,7 +211,7 @@ test("runs a Project: a coordinator starts a thread, hears about its turns and s
     (environments) => environments.length > 0,
   );
 
-  const created = await server.api("/api/plugins/projects/projects", {
+  const created = await server.api("/api/ext/projects/projects", {
     body: {
       name: "Release",
       instructions: "Keep commits small.",
@@ -297,12 +297,13 @@ test("runs a Project: a coordinator starts a thread, hears about its turns and s
       (await (
         await fetch(
           new URL(
-            `/agent/sessions/${sessionId}/tools?generation=1`,
+            `/runner/sessions/${sessionId}/tools?generation=1`,
             server.url,
           ),
           {
             headers: {
               "pipoca-protocol": "4",
+              "content-type": "application/json",
               authorization: `Bearer ${token ?? ""}`,
             },
           },
@@ -377,7 +378,7 @@ test("wakes the coordinator once for each thread turn", async () => {
   );
 
   const { coordinatorId } = (await (
-    await server.api("/api/plugins/projects/projects", {
+    await server.api("/api/ext/projects/projects", {
       body: {
         name: "Split",
         repositories: [a],
@@ -451,7 +452,7 @@ test("tells the coordinator about a failed thread turn without waking it", async
   );
 
   const { coordinatorId } = (await (
-    await server.api("/api/plugins/projects/projects", {
+    await server.api("/api/ext/projects/projects", {
       body: {
         name: "Failing",
         repositories: [a],
@@ -534,7 +535,7 @@ test("reads a thread page by page and finds nothing past the last page", async (
   );
 
   const { coordinatorId } = (await (
-    await server.api("/api/plugins/projects/projects", {
+    await server.api("/api/ext/projects/projects", {
       body: {
         name: "Pages",
         repositories: [a],
@@ -602,7 +603,7 @@ test("lists a Project's threads for its coordinator", async () => {
   );
 
   const { id, coordinatorId } = (await (
-    await server.api("/api/plugins/projects/projects", {
+    await server.api("/api/ext/projects/projects", {
       body: {
         name: "Listed",
         repositories: [a],
@@ -678,7 +679,7 @@ test("checks out a repository once when start_thread lists it twice", async () =
   );
 
   const { id, coordinatorId } = (await (
-    await server.api("/api/plugins/projects/projects", {
+    await server.api("/api/ext/projects/projects", {
       body: {
         name: "Twice",
         repositories: [a],
@@ -725,7 +726,7 @@ test("checks out a repository once when start_thread lists it twice", async () =
 }, 30_000);
 
 test("refuses a Project without repositories", async () => {
-  const response = await server.api("/api/plugins/projects/projects", {
+  const response = await server.api("/api/ext/projects/projects", {
     body: {
       name: "Empty",
       repositories: [],
@@ -736,7 +737,7 @@ test("refuses a Project without repositories", async () => {
 });
 
 test("refuses a Project repository whose URL leaves no name for its folder", async () => {
-  const response = await server.api("/api/plugins/projects/projects", {
+  const response = await server.api("/api/ext/projects/projects", {
     body: {
       name: "Unnamed",
       repositories: [join(await repository("app"), ".git")],
@@ -756,7 +757,7 @@ test("refuses a null body and a file name that does not decode", async () => {
   );
 
   const { id, coordinatorId } = (await (
-    await server.api("/api/plugins/projects/projects", {
+    await server.api("/api/ext/projects/projects", {
       body: {
         name: "Bad input",
         repositories: [a],
@@ -764,7 +765,7 @@ test("refuses a null body and a file name that does not decode", async () => {
     })
   ).json()) as ProjectView;
 
-  const projects = "/api/plugins/projects";
+  const projects = "/api/ext/projects";
 
   const responses = [
     await server.api(`${projects}/projects/${id}/settings`, {
@@ -774,14 +775,14 @@ test("refuses a null body and a file name that does not decode", async () => {
       body: null,
     }),
     await server.api(`${projects}/projects/${id}/memory/%zz`),
-    await server.api(`/api/plugins/library/projects/${id}/files/%zz`),
+    await server.api(`/api/ext/library/projects/${id}/files/%zz`),
   ];
 
   expect(responses.map(({ status }) => status)).toEqual([422, 422, 400, 400]);
 });
 
 test("answers a method the Project list has no route for as not found", async () => {
-  const response = await server.api("/api/plugins/projects/projects", {
+  const response = await server.api("/api/ext/projects/projects", {
     method: "DELETE",
   });
 
@@ -816,7 +817,7 @@ test("lists memory file sizes in UTF-8 bytes", async () => {
   );
 
   const { id, coordinatorId } = (await (
-    await server.api("/api/plugins/projects/projects", {
+    await server.api("/api/ext/projects/projects", {
       body: {
         name: "Notes",
         repositories: [a],
@@ -876,7 +877,7 @@ test("shares files between the user and Project sessions through the library", a
   );
 
   const { id, coordinatorId } = (await (
-    await server.api("/api/plugins/projects/projects", {
+    await server.api("/api/ext/projects/projects", {
       body: {
         name: "Docs",
         repositories: [a],
@@ -884,7 +885,7 @@ test("shares files between the user and Project sessions through the library", a
     })
   ).json()) as ProjectView;
 
-  const files = `/api/plugins/library/projects/${id}/files`;
+  const files = `/api/ext/library/projects/${id}/files`;
 
   const uploaded = await fetch(new URL(`${files}/brief.txt`, server.url), {
     method: "PUT",
@@ -954,7 +955,7 @@ test("refuses library file names made only of dots", async () => {
   );
 
   const { id, coordinatorId } = (await (
-    await server.api("/api/plugins/projects/projects", {
+    await server.api("/api/ext/projects/projects", {
       body: {
         name: "Docs",
         repositories: [a],
@@ -962,7 +963,7 @@ test("refuses library file names made only of dots", async () => {
     })
   ).json()) as ProjectView;
 
-  const files = `/api/plugins/library/projects/${id}/files`;
+  const files = `/api/ext/library/projects/${id}/files`;
 
   const dot = await fetch(new URL(`${files}/.`, server.url), {
     method: "PUT",
@@ -1029,7 +1030,7 @@ test("accepts library file names with letters from any script", async () => {
   );
 
   const { id, coordinatorId } = (await (
-    await server.api("/api/plugins/projects/projects", {
+    await server.api("/api/ext/projects/projects", {
       body: {
         name: "Docs",
         repositories: [a],
@@ -1037,7 +1038,7 @@ test("accepts library file names with letters from any script", async () => {
     })
   ).json()) as ProjectView;
 
-  const files = `/api/plugins/library/projects/${id}/files`;
+  const files = `/api/ext/library/projects/${id}/files`;
 
   const put = async (name: string): Promise<number> =>
     (
@@ -1187,7 +1188,7 @@ test("runs a Project's threads across two machines and two repositories", async 
   faux.setResponses(Array.from({ length: 30 }, () => reply));
 
   const { id, coordinatorId } = (await (
-    await server.api("/api/plugins/projects/projects", {
+    await server.api("/api/ext/projects/projects", {
       body: {
         name: "Release",
         environment: local?.id,
@@ -1334,7 +1335,7 @@ test("holds a thread's turn notice while the coordinator's machine is offline", 
   faux.setResponses(Array.from({ length: 20 }, () => reply));
 
   const { id, coordinatorId } = (await (
-    await server.api("/api/plugins/projects/projects", {
+    await server.api("/api/ext/projects/projects", {
       body: {
         name: "Release",
         environment: onLaptop?.id,

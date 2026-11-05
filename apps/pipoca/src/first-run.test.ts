@@ -14,7 +14,10 @@ afterEach(async () => {
 });
 
 async function setup(body?: unknown): Promise<Response> {
-  return server.api("/api/setup", { body });
+  return server.api(
+    "/api/me/setup",
+    body === undefined ? {} : { method: "PATCH", body },
+  );
 }
 
 test("a new person has the setup ahead of them until they finish it", async () => {
@@ -23,7 +26,7 @@ test("a new person has the setup ahead of them until they finish it", async () =
     dismissed: [],
   });
 
-  expect((await setup({ finished: true })).status).toBe(204);
+  expect((await setup({ finished: true })).status).toBe(200);
 
   expect(await (await setup()).json()).toEqual({
     finished: true,
@@ -48,5 +51,5 @@ test("refuses a change that isn't finishing or a step's name", async () => {
 });
 
 test("needs a signed-in user", async () => {
-  expect((await fetch(new URL("/api/setup", server.url))).status).toBe(401);
+  expect((await fetch(new URL("/api/me/setup", server.url))).status).toBe(401);
 });

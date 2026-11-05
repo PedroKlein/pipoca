@@ -1,7 +1,7 @@
 import type { Session, SessionAccess } from "@pipoca/protocol";
 import { Button, Dialog, ErrorText, Icon, Picker, Segmented } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import { send } from "./api";
+import { api } from "./api";
 import { useTeammates } from "./hooks";
 
 type Kind = SessionAccess["kind"];
@@ -67,11 +67,7 @@ function AccessForm({
     const access: SessionAccess =
       kind === "named" ? { kind, people } : { kind };
 
-    send(
-      `/api/sessions/${encodeURIComponent(session.id)}/access`,
-      "PUT",
-      access,
-    )
+    api("sessions.update", { params: { id: session.id }, body: { access } })
       .then(onDone)
       .catch((failure: unknown) => {
         setError(failure instanceof Error ? failure.message : String(failure));

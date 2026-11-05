@@ -215,7 +215,7 @@ test("only opens a new link when a solo server already runs", async () => {
 
     expect({
       code,
-      link: lines.some((line) => line.includes("/api/auth/link/")),
+      link: lines.some((line) => line.includes("/api/auth/links/")),
       listening: lines.some((line) => line.includes("server listening")),
     }).toEqual({ code: 0, link: true, listening: false });
   } finally {
@@ -268,7 +268,7 @@ test("runs runners on its own machine only in a solo install, which signs no one
     ).json()) as Environment[];
 
     const refused = await solo.as(cookie)(
-      `/api/plugins/local/environments/${environment?.id ?? ""}`,
+      `/api/ext/local/environments/${environment?.id ?? ""}`,
       {
         body: {
           settings: { folders: [join(root, "missing")] },

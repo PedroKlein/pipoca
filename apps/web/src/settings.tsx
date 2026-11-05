@@ -9,11 +9,11 @@ import {
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import { api, send } from "./api";
-import { useMcpTokens } from "./hooks";
+import { api } from "./api";
+import { useAccessTokens } from "./hooks";
 
 export function SettingsPage(): ReactElement {
-  const { value: tokens, reload } = useMcpTokens();
+  const { value: tokens, reload } = useAccessTokens();
 
   // A token shows once, right after it is made, like an Environment's key.
   const [made, setMade] = useState<{
@@ -36,7 +36,7 @@ export function SettingsPage(): ReactElement {
       return;
     }
 
-    send(`/api/mcp-tokens/${encodeURIComponent(id)}`, "DELETE").then(
+    api("me.accessTokens.remove", { params: { id } }).then(
       () => {
         setError(undefined);
         reload();
@@ -115,16 +115,13 @@ function NewToken({
     const form = event.currentTarget;
     const name = new FormData(form).get("name");
 
-    void api("/api/mcp-tokens", { name })
-      .then(async (response) => {
-        const created = (await response.json()) as {
-          readonly token: { readonly name: string };
-          readonly secret: string;
-        };
-
+    void api("me.accessTokens.create", {
+      body: { name: typeof name === "string" ? name : "" },
+    })
+      .then((created) => {
         setError(undefined);
         form.reset();
-        onCreated(created.token.name, created.secret);
+        onCreated(created.name, created.secret);
       })
       .catch((reason: unknown) => {
         setError(reason instanceof Error ? reason.message : String(reason));

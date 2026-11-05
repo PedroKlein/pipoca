@@ -76,6 +76,21 @@ export function rejected(reason: Rejection): Response {
   return errorReply(status, reason, message);
 }
 
+export function rejection(reason: Rejection): HttpError {
+  const [status, message] = rejections[reason];
+
+  return new HttpError(status, message, reason);
+}
+
+// A domain's result, or the error its reason answers with.
+export function ok<T>(result: Result<T>): T {
+  if (!result.ok) {
+    throw rejection(result.reason);
+  }
+
+  return result.value;
+}
+
 export function reply(result: Result<unknown>, status: number): Response {
   if (!result.ok) {
     return rejected(result.reason);

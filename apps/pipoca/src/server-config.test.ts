@@ -28,7 +28,7 @@ test("signs browsers out and refuses idle runner tokens after the days pipoca.js
 
   const polled = async (): Promise<number> =>
     (
-      await fetch(new URL("/agent/work", server.url), {
+      await fetch(new URL("/runner/work", server.url), {
         method: "POST",
         headers: {
           [versionHeader]: String(protocolVersion),

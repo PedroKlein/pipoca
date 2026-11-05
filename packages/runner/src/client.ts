@@ -1,6 +1,13 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import {
+  type ApiArgs,
+  apiClient,
+  ApiError,
+  type ApiInput,
+  apiPath,
+  type ApiReply,
   type JoinRequest,
+  type RouteKey,
   type Joined,
   type SessionStart,
   type Command,
@@ -13,16 +20,13 @@ import {
   type StartFailure,
   type ToolCall,
   type TrustAnswer,
-  type ToolSpec,
   protocolVersion,
   type TerminalControl,
-  type TranscriptAck,
   type TranscriptBatch,
   liveSurface,
   type Log,
   readSse,
   versionHeader,
-  type Work,
 } from "@pipoca/protocol";
 import type {
   PreviewExchange,
@@ -42,17 +46,6 @@ const requestTimeoutMs = 30_000;
 // provider shares the server's event loop, where tens of MB can queue for a
 // moment while everything is healthy, so the limit sits well above that.
 const maxTerminalBufferedBytes = 64 * 1024 * 1024;
-
-class HttpError extends Error {
-  readonly status: number;
-  readonly body: string;
-
-  constructor(status: number, message: string, body: string) {
-    super(message);
-    this.status = status;
-    this.body = body;
-  }
-}
 
 // A runner and a server of other protocol versions can't work together, so
 // retrying never helps.
@@ -88,25 +81,22 @@ export async function joinPool(
 
   while (!signal.aborted) {
     try {
-      const joined = await call({ server, token: key }, "/agent/join", {
-        method: "POST",
+      return await call({ server, token: key }, "runner.join", {
         body: request,
         signal: AbortSignal.any([
           signal,
           AbortSignal.timeout(requestTimeoutMs),
         ]),
       });
-
-      return (await joined.json()) as Joined;
     } catch (error) {
-      if (error instanceof HttpError && error.status === 401) {
+      if (error instanceof ApiError && error.status === 401) {
         throw new Error("the server refused the Environment key", {
           cause: error,
         });
       }
 
-      if (error instanceof HttpError && error.status === 409) {
-        throw new JoinRefused(reasonOf(error.body), { cause: error });
+      if (error instanceof ApiError && error.status === 409) {
+        throw new JoinRefused(error.message, { cause: error });
       }
 
       if (error instanceof UnsupportedVersion) {
@@ -130,51 +120,34 @@ export async function joinPool(
   return undefined;
 }
 
-function reasonOf(body: string): string {
-  try {
-    const { message } = JSON.parse(body) as { message?: unknown };
-
-    return typeof message === "string" ? message : body;
-  } catch {
-    return body;
-  }
-}
-
-async function call(
+// A call to the server as a runner or a Session host. A server of another
+// protocol version answers none of them, in this version's words or in its
+// own.
+async function call<Key extends RouteKey>(
   agent: Agent,
-  path: string,
-  init: { method?: string; body?: unknown; signal?: AbortSignal } = {},
-): Promise<Response> {
-  const response = await fetch(new URL(path, agent.server), {
-    method: init.method ?? "GET",
-    headers: {
-      ...agentHeaders(agent),
-      ...(init.body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(init.body !== undefined && { body: JSON.stringify(init.body) }),
-    ...(init.signal && { signal: init.signal }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-
+  key: Key,
+  ...input: ApiArgs<Key>
+): Promise<ApiReply<Key>> {
+  try {
+    return await apiClient({
+      server: agent.server,
+      headers: agentHeaders(agent),
+    })(key, ...input);
+  } catch (error) {
     if (
-      response.status === 400 &&
-      text.includes("unsupported protocol version")
+      error instanceof ApiError &&
+      error.status === 400 &&
+      (error.code === "unsupported_version" ||
+        error.code.startsWith("unsupported protocol version"))
     ) {
       throw new UnsupportedVersion(
         `the server at ${agent.server} doesn't speak this runner's protocol version ${String(protocolVersion)}; run the same Pipoca version on both`,
+        { cause: error },
       );
     }
 
-    throw new HttpError(
-      response.status,
-      `${init.method ?? "GET"} ${path}: ${String(response.status)} ${text}`,
-      text,
-    );
+    throw error;
   }
-
-  return response;
 }
 
 export function httpControlPlane(
@@ -184,15 +157,12 @@ export function httpControlPlane(
   return {
     work: async (poll, signal) => {
       try {
-        const response = await call(agent, "/agent/work", {
-          method: "POST",
+        return await call(agent, "runner.work", {
           body: poll,
           signal: AbortSignal.any([signal, AbortSignal.timeout(pollTimeoutMs)]),
         });
-
-        return (await response.json()) as Work;
       } catch (error) {
-        if (error instanceof HttpError && error.status === 401) {
+        if (error instanceof ApiError && error.status === 401) {
           letGo();
         }
 
@@ -211,8 +181,8 @@ export async function reportStartFailure(
   sessionId: string,
   failure: StartFailure,
 ): Promise<void> {
-  await call(agent, `/agent/sessions/${sessionId}/failed`, {
-    method: "POST",
+  await call(agent, "runner.startFailure", {
+    params: { id: sessionId },
     body: failure,
     signal: AbortSignal.timeout(requestTimeoutMs),
   });
@@ -224,15 +194,12 @@ export async function fetchTranscript(
   agent: Agent,
   sessionId: string,
 ): Promise<readonly string[]> {
-  const response = await call(
-    agent,
-    `/agent/sessions/${sessionId}/transcript`,
-    {
-      signal: AbortSignal.timeout(requestTimeoutMs),
-    },
-  );
+  const { entries } = await call(agent, "runner.transcript", {
+    params: { id: sessionId },
+    signal: AbortSignal.timeout(requestTimeoutMs),
+  });
 
-  return ((await response.json()) as { entries: readonly string[] }).entries;
+  return entries;
 }
 
 // An installed plugin's Session part, asked for by its bundle's hash (ADR
@@ -245,8 +212,11 @@ export async function fetchSessionPart(
 ): Promise<Uint8Array> {
   const response = await call(
     { server, token: assignment.token },
-    `/agent/sessions/${assignment.sessionId}/plugin-parts/${name}/${hash}`,
-    { signal: AbortSignal.timeout(requestTimeoutMs) },
+    "runner.part",
+    {
+      params: { id: assignment.sessionId, plugin: name, hash },
+      signal: AbortSignal.timeout(requestTimeoutMs),
+    },
   );
 
   return new Uint8Array(await response.arrayBuffer());
@@ -259,13 +229,14 @@ export async function fetchFolder(
   assignment: SessionStart,
   folder: "profile" | "docs",
 ): Promise<ProfileFiles> {
-  const response = await call(
+  return call(
     { server, token: assignment.token },
-    `/agent/sessions/${assignment.sessionId}/${folder}`,
-    { signal: AbortSignal.timeout(requestTimeoutMs) },
+    folder === "profile" ? "runner.profile" : "runner.docs",
+    {
+      params: { id: assignment.sessionId },
+      signal: AbortSignal.timeout(requestTimeoutMs),
+    },
   );
-
-  return (await response.json()) as ProfileFiles;
 }
 
 export async function reportRemoval(
@@ -273,8 +244,8 @@ export async function reportRemoval(
   sessionId: string,
   report: RemovalPost,
 ): Promise<void> {
-  await call(agent, `/agent/sessions/${sessionId}/workspace`, {
-    method: "POST",
+  await call(agent, "runner.workspaceRemoval", {
+    params: { id: sessionId },
     body: report,
     signal: AbortSignal.timeout(requestTimeoutMs),
   });
@@ -288,15 +259,12 @@ export function httpSessionStream(
 ): SessionStream {
   const { sessionId, generation } = assignment;
   const agent = { server, token: assignment.token };
-  const base = `/agent/sessions/${sessionId}`;
+  const params = { id: sessionId };
 
-  const post = async (path: string, body: unknown): Promise<Response> => {
+  // A rejected post means the server moved on from this attempt.
+  const fencing = async <T>(posted: Promise<T>): Promise<T> => {
     try {
-      return await call(agent, `${base}/${path}`, {
-        method: "POST",
-        body,
-        signal: AbortSignal.timeout(requestTimeoutMs),
-      });
+      return await posted;
     } catch (error) {
       if (rejected(error)) {
         fenced();
@@ -322,7 +290,13 @@ export function httpSessionStream(
         return;
       }
 
-      await post("live", live).catch((error: unknown) => {
+      await fencing(
+        call(agent, "runner.events", {
+          params,
+          body: live,
+          signal: AbortSignal.timeout(requestTimeoutMs),
+        }),
+      ).catch((error: unknown) => {
         if (!rejected(error)) {
           throw error;
         }
@@ -337,9 +311,16 @@ export function httpSessionStream(
   return {
     uploadTranscript: async (start, lines) => {
       const batch: TranscriptBatch = { generation, start, lines };
-      const response = await post("transcript", batch);
 
-      return ((await response.json()) as TranscriptAck).acked;
+      const { acked } = await fencing(
+        call(agent, "runner.transcript.append", {
+          params,
+          body: batch,
+          signal: AbortSignal.timeout(requestTimeoutMs),
+        }),
+      );
+
+      return acked;
     },
     publish: async (events) => {
       for (const event of events) {
@@ -367,7 +348,7 @@ export function httpSessionStream(
 
       void followCommands(
         agent,
-        `${base}/commands?generation=${String(generation)}`,
+        { params, query: { generation } },
         listener,
         republish,
         log,
@@ -383,21 +364,39 @@ export function httpSessionStream(
       };
     },
     tools: async () =>
-      (await (
-        await call(agent, `${base}/tools?generation=${String(generation)}`, {
-          signal: AbortSignal.timeout(requestTimeoutMs),
-        })
-      ).json()) as ToolSpec[],
+      call(agent, "runner.tools", {
+        params,
+        query: { generation },
+        signal: AbortSignal.timeout(requestTimeoutMs),
+      }),
     callTool: async (id, name, input) => {
       const toolCall: ToolCall = { generation, id, name, input };
-      await post("tool-calls", toolCall);
+
+      await fencing(
+        call(agent, "runner.toolCalls.create", {
+          params,
+          body: toolCall,
+          signal: AbortSignal.timeout(requestTimeoutMs),
+        }),
+      );
     },
     answerTrust: async (trusted) => {
       const answer: TrustAnswer = { generation, trusted };
-      await post("trust", answer);
+
+      await fencing(
+        call(agent, "runner.trust", {
+          params,
+          body: answer,
+          signal: AbortSignal.timeout(requestTimeoutMs),
+        }),
+      );
     },
     pluginRequest: async (plugin, path, init = {}) => {
-      const url = new URL(`${base}/plugins/${plugin}/${path}`, agent.server);
+      const url = new URL(
+        apiPath("runner.ext", { params: { id: sessionId, plugin, path } }),
+        agent.server,
+      );
+
       url.searchParams.set("generation", String(generation));
 
       const headers = new Headers(init.headers);
@@ -410,14 +409,14 @@ export function httpSessionStream(
     terminal: (terminalId, peer) =>
       openTerminalSocket(
         agent,
-        `${base}/terminals/${terminalId}?generation=${String(generation)}`,
+        `/runner/sessions/${sessionId}/terminals/${terminalId}?generation=${String(generation)}`,
         peer,
         log,
       ),
     preview: (connectionId) =>
       openPreviewSocket(
         agent,
-        `${base}/previews/${connectionId}?generation=${String(generation)}`,
+        `/runner/sessions/${sessionId}/previews/${connectionId}?generation=${String(generation)}`,
       ),
   };
 }
@@ -601,13 +600,13 @@ function openTerminalSocket(
 
 function rejected(error: unknown): boolean {
   return (
-    error instanceof HttpError && (error.status === 404 || error.status === 409)
+    error instanceof ApiError && (error.status === 404 || error.status === 409)
   );
 }
 
 async function followCommands(
   agent: Agent,
-  path: string,
+  input: ApiInput<"runner.commands">,
   listener: (command: Command) => void,
   reconnected: () => void,
   log: Log,
@@ -617,7 +616,11 @@ async function followCommands(
   let connected = false;
   while (!signal.aborted) {
     try {
-      const response = await call(agent, path, { signal });
+      const response = await call(agent, "runner.commands", {
+        ...input,
+        signal,
+      });
+
       retry.reset();
       if (connected) {
         reconnected();
@@ -634,13 +637,16 @@ async function followCommands(
       }
 
       if (rejected(error)) {
-        log("command stream rejected", { path, error: String(error) });
+        log("command stream rejected", {
+          sessionId: input.params.id,
+          error: String(error),
+        });
 
         return true;
       }
 
       log("command stream failed", {
-        path,
+        sessionId: input.params.id,
         error: String(error),
         retryInMs: retry.delayMs(),
       });

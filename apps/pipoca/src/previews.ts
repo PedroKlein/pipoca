@@ -5,8 +5,8 @@ import type { PreviewRequest, PreviewResponse } from "@pipoca/protocol";
 import type { Log } from "@pipoca/protocol";
 import { canSteer } from "@pipoca/people";
 import type { Sessions } from "@pipoca/sessions";
-import type { Auth } from "./server";
-import { errorReply, notFound } from "./replies";
+import type { Auth } from "./server/http/deps";
+import { errorReply, notFound } from "./server/http/replies";
 import {
   fromSessionHost,
   type PreviewData,
@@ -51,7 +51,7 @@ const admitPath = "/__pipoca/open";
 
 const previewHost = /^(\d{1,5})--([0-9a-f-]{36})\.(.+)$/;
 const openPath = /^\/api\/sessions\/([^/]+)\/previews\/(\d{1,5})$/;
-const hostPath = /^\/agent\/sessions\/([^/]+)\/previews\/([\w-]{1,64})$/;
+const hostPath = /^\/runner\/sessions\/([^/]+)\/previews\/([\w-]{1,64})$/;
 
 const hopByHop = new Set([
   "connection",

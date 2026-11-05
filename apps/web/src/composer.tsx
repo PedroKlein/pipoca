@@ -229,16 +229,15 @@ export function Composer({
     };
 
     if (toPeople) {
-      api(`/api/sessions/${encodeURIComponent(sessionId)}/say`, {
-        to: target,
-        text: message,
-        ...(quote && { quote }),
+      api("sessions.messages.create", {
+        params: { id: sessionId },
+        body: { to: target, text: message, ...(quote && { quote }) },
       }).catch(restore);
 
       return;
     }
 
-    api(`/api/sessions/${encodeURIComponent(sessionId)}/commands`, {
+    command(sessionId, {
       ...(quote && { quote }),
       type: "message",
       text: message,

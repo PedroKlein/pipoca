@@ -204,10 +204,11 @@ test("serves a plugin's tools to the sessions they apply to and returns their re
   const token = machines?.runnerToken(toolless.environmentId, "local");
 
   const tools = await fetch(
-    new URL(`/agent/sessions/${toolless.id}/tools?generation=1`, server.url),
+    new URL(`/runner/sessions/${toolless.id}/tools?generation=1`, server.url),
     {
       headers: {
         "pipoca-protocol": "4",
+        "content-type": "application/json",
         authorization: `Bearer ${token ?? ""}`,
       },
     },
@@ -305,19 +306,19 @@ test("tells open pages which kind of thing changed, never what", async () => {
     }
   })();
 
-  await server.api("/api/mcp-tokens", { body: { name: "laptop" } });
+  await server.api("/api/me/access-tokens", { body: { name: "laptop" } });
   await createSession();
-  await server.api("/api/plugins/notes/add", { body: {} });
+  await server.api("/api/ext/notes/add", { body: {} });
   await reading;
 
-  expect(topics).toContain("mcp-tokens");
+  expect(topics).toContain("access-tokens");
   expect(topics).toContain("sessions");
   expect(topics.at(-1)).toBe("notes.entries");
 
   // The built-in runner's Environment, made at sign-up, may hear from its
   // runner meanwhile.
   expect(new Set(topics.filter((topic) => topic !== "environments"))).toEqual(
-    new Set(["mcp-tokens", "sessions", "notes.entries"]),
+    new Set(["access-tokens", "sessions", "notes.entries"]),
   );
 });
 
@@ -352,10 +353,11 @@ test("serves a tool's exposure, namespace and hints to its sessions", async () =
   const token = machines?.runnerToken(session.environmentId, "local");
 
   const tools = await fetch(
-    new URL(`/agent/sessions/${session.id}/tools?generation=1`, server.url),
+    new URL(`/runner/sessions/${session.id}/tools?generation=1`, server.url),
     {
       headers: {
         "pipoca-protocol": "4",
+        "content-type": "application/json",
         authorization: `Bearer ${token ?? ""}`,
       },
     },
@@ -422,7 +424,7 @@ test("starts a plugin's own Sessions on the Profile it provides, and no others",
   await environmentReady();
 
   const owned = (await (
-    await server.api("/api/plugins/meta/start", { body: {} })
+    await server.api("/api/ext/meta/start", { body: {} })
   ).json()) as Session;
 
   await follow(owned.id, idle);
@@ -448,10 +450,12 @@ test("starts a plugin's own Sessions on the Profile it provides, and no others",
   }[];
 
   const again = (await (
-    await server.api("/api/plugins/meta/again", { body: {} })
+    await server.api("/api/ext/meta/again", { body: {} })
   ).json()) as Session;
 
-  const fork = await server.api(`/api/sessions/${owned.id}/fork`, { body: {} });
+  const fork = await server.api("/api/sessions", {
+    body: { from: { session: owned.id } },
+  });
 
   const profiles = (await (await server.api("/api/profiles")).json()) as {
     id: string;
@@ -494,12 +498,12 @@ test("routes requests to a plugin that keeps its own tables", async () => {
     },
   ]);
 
-  const added = await server.api("/api/plugins/notes/items", {
+  const added = await server.api("/api/ext/notes/items", {
     body: { text: "hello" },
   });
 
-  const items = await server.api("/api/plugins/notes/items");
-  const unknown = await server.api("/api/plugins/nobody/items");
+  const items = await server.api("/api/ext/notes/items");
+  const unknown = await server.api("/api/ext/nobody/items");
 
   expect(added.status).toBe(204);
   expect(await items.json()).toEqual([{ text: "hello" }]);
@@ -545,7 +549,7 @@ test("resets a plugin whose tables another version made, once an admin asks", as
     manifests,
   });
 
-  await server.api("/api/plugins/notes/items", { body: { text: "old" } });
+  await server.api("/api/ext/notes/items", { body: { text: "old" } });
 
   const cookie = await server.signedIn();
   await server.close();
@@ -571,31 +575,29 @@ test("resets a plugin whose tables another version made, once an admin asks", as
     },
   ]);
 
-  const reset = await server.api("/api/plugin-resets/notes", {
-    method: "POST",
+  const reset = await server.api("/api/plugins/notes/data", {
+    method: "DELETE",
   });
 
   expect(reset.status).toBe(200);
   expect(await reset.json()).toMatchObject({ id: "notes", state: "on" });
 
-  expect(await (await server.api("/api/plugins/notes/items")).json()).toEqual(
-    [],
-  );
+  expect(await (await server.api("/api/ext/notes/items")).json()).toEqual([]);
 
-  await server.api("/api/plugins/notes/items", { body: { text: "new" } });
+  await server.api("/api/ext/notes/items", { body: { text: "new" } });
 
-  expect(await (await server.api("/api/plugins/notes/items")).json()).toEqual([
+  expect(await (await server.api("/api/ext/notes/items")).json()).toEqual([
     { text: "new", pinned: 0 },
   ]);
 
-  const again = await server.api("/api/plugin-resets/notes", {
-    method: "POST",
+  const again = await server.api("/api/plugins/notes/data", {
+    method: "DELETE",
   });
 
   expect(again.status).toBe(400);
 
   expect(
-    (await server.api("/api/plugin-resets/nobody", { method: "POST" })).status,
+    (await server.api("/api/plugins/nobody/data", { method: "DELETE" })).status,
   ).toBe(404);
 });
 
@@ -628,7 +630,7 @@ test("keeps the data of a plugin that failed for another reason than its tables"
   ];
 
   server = testServer({ database, plugins: [notes], manifests });
-  await server.api("/api/plugins/notes/items", { body: {} });
+  await server.api("/api/ext/notes/items", { body: {} });
 
   const cookie = await server.signedIn();
   await server.close();
@@ -640,8 +642,8 @@ test("keeps the data of a plugin that failed for another reason than its tables"
     await server.api("/api/plugins")
   ).json()) as PluginInfo[];
 
-  const reset = await server.api("/api/plugin-resets/notes", {
-    method: "POST",
+  const reset = await server.api("/api/plugins/notes/data", {
+    method: "DELETE",
   });
 
   await server.close();
@@ -657,7 +659,7 @@ test("keeps the data of a plugin that failed for another reason than its tables"
   expect(listed?.resettable).toBeUndefined();
   expect(reset.status).toBe(400);
 
-  expect(await (await server.api("/api/plugins/notes/items")).json()).toEqual([
+  expect(await (await server.api("/api/ext/notes/items")).json()).toEqual([
     { text: "kept" },
   ]);
 });
@@ -691,15 +693,11 @@ test("answers the errors a plugin's route throws as the server's own", async () 
   };
 
   const answers = [
-    await answer(server.api("/api/plugins/notes/items", { body: { text: 1 } })),
+    await answer(server.api("/api/ext/notes/items", { body: { text: 1 } })),
+    await answer(server.api("/api/ext/notes/items", { body: { text: "a" } })),
+    await answer(server.api("/api/ext/notes/full", { body: { text: "a" } })),
     await answer(
-      server.api("/api/plugins/notes/items", { body: { text: "a" } }),
-    ),
-    await answer(
-      server.api("/api/plugins/notes/full", { body: { text: "a" } }),
-    ),
-    await answer(
-      fetch(new URL("/api/plugins/notes/items", server.url), {
+      fetch(new URL("/api/ext/notes/items", server.url), {
         method: "POST",
         headers: { cookie: await server.signedIn() },
         body: "{not json",
@@ -758,12 +756,16 @@ test("publishes kernel events and starts sessions for plugins", async () => {
   faux.setResponses([fauxAssistantMessage([fauxText("working on it")])]);
   await environmentReady();
 
-  await server.api("/api/plugins/starter/start", { body: {} });
+  await server.api("/api/ext/starter/start", { body: {} });
   const id = started?.id ?? "";
   const events = await follow(id, entriesInclude("working on it"));
   await follow(id, idle);
   await server.api(`/api/sessions/${id}/commands`, { body: { type: "abort" } });
-  await server.api(`/api/sessions/${id}/archive`, { body: {} });
+
+  await server.api(`/api/sessions/${id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
   expect(entriesInclude("begin the work")(events)).toBe(true);
 
@@ -834,7 +836,11 @@ test("tells a plugin why a message did not reach a session", async () => {
   await follow(session.id, idle);
   const reached = sessions?.notify(session.id, "a note", "plugin:sender");
 
-  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
+
   const archived = sessions?.send(session.id, "hello", "plugin:sender");
   const unknown = sessions?.send("missing", "hello", "plugin:sender");
 
@@ -963,7 +969,7 @@ test("leaves out plugins that are turned off", async () => {
     { id: "off", state: "off" },
   ]);
 
-  expect((await server.api("/api/plugins/off/anything")).status).toBe(404);
+  expect((await server.api("/api/ext/off/anything")).status).toBe(404);
 });
 
 test("turns plugins on and off, and in team work, under plugins in pipoca.json", async () => {
@@ -1065,13 +1071,9 @@ function startRunner(
 async function poolEnvironment(): Promise<Environment> {
   await environmentReady();
 
-  return (
-    (await (
-      await server.api("/api/environments", { body: { name: "pool" } })
-    ).json()) as {
-      environment: Environment;
-    }
-  ).environment;
+  return (await (
+    await server.api("/api/environments", { body: { name: "pool" } })
+  ).json()) as Environment;
 }
 
 test("lets a plugin start a runner for a Session no runner can take, until it revokes it", async () => {
@@ -1112,7 +1114,7 @@ test("lets a plugin start a runner for a Session no runner can take, until it re
 
   expect(context?.environments.unplaced(environment.id)).toEqual([]);
 
-  await server.api(`/api/environments/${environment.id}/key`, { body: {} });
+  await server.api(`/api/environments/${environment.id}/keys`, { body: {} });
 
   await new Promise((resolve) => setTimeout(resolve, 500));
 
@@ -1167,7 +1169,11 @@ test("stops a runner started to exit when idle once it runs no Session", async (
 
   expect(pod.logs).not.toContain("no sessions for a while; stopping");
 
-  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
+
   await pod.done;
 
   expect(pod.logs).toContain("no sessions for a while; stopping");

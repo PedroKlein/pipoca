@@ -2,7 +2,7 @@ import type { PluginHost } from "@pipoca/pluginhost";
 import { fieldsOf } from "@pipoca/plugins";
 import type { Log } from "@pipoca/protocol";
 import type { People } from "@pipoca/people";
-import { errorReply } from "./replies";
+import { errorReply } from "./server/http/replies";
 
 // Pipoca's meta toolsets over MCP's streamable HTTP transport (ADR 0035):
 // one JSON reply per request and no server-sent stream, which the transport

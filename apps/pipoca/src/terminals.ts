@@ -4,8 +4,8 @@ import { type TerminalControl, terminalTakenOver } from "@pipoca/protocol";
 import type { Log } from "@pipoca/protocol";
 import { canSteer } from "@pipoca/people";
 import type { Sessions } from "@pipoca/sessions";
-import type { Auth } from "./server";
-import { errorReply, notFound, rejected } from "./replies";
+import type { Auth } from "./server/http/deps";
+import { errorReply, notFound, rejected } from "./server/http/replies";
 import {
   fromSessionHost,
   type SocketHandler,
@@ -29,7 +29,7 @@ const hostTimeoutMs = 10_000;
 const maxBufferedBytes = 1024 * 1024;
 const browserPath = /^\/api\/sessions\/([^/]+)\/terminal$/;
 const terminalIdPattern = /^[\w-]{1,64}$/;
-const hostPath = /^\/agent\/sessions\/([^/]+)\/terminals\/([^/]+)$/;
+const hostPath = /^\/runner\/sessions\/([^/]+)\/terminals\/([^/]+)$/;
 
 export function terminalBroker(
   sessions: Sessions,

@@ -6,6 +6,7 @@ import {
   Type,
 } from "@pipoca/plugins";
 import {
+  apiPath,
   createEnvironment,
   createSession,
   environmentUpdate,
@@ -48,7 +49,7 @@ Its package.json has "type": "module", any npm "dependencies" its parts import, 
 Type each part with types from @pipoca/plugins (ServerPlugin, SessionPlugin) or @pipoca/plugins/web (WebPlugin) and check its default export with satisfies. The server and Session parts import @pipoca/plugins from the running server, so it needs no dependency: HttpError(status, message, code?), BadRequest and NotFound, thrown from a route, answer with that status and { error: code, message }, where code is a snake_case string that defaults to one for the status, such as bad_request or not_found; requireAdmin(caller, message) throws a 403 unless the caller is an admin; readBody(request, schema) reads a JSON body that fits a TypeBox schema built with Type, or throws a 422 that names the field (a 400 when the body isn't JSON).
 
 The server part's default export is a ServerPlugin { name: <id>, register(context) }. Reaching a context member whose capability isn't declared fails the plugin when it registers.
-- context.routes.handle((request, path, caller) => Response | Promise<Response>) answers /api/plugins/<id>/<path>, so it needs no web framework such as Express. caller is { kind: "user", actor, admin } for a signed-in user, also through a toolset tool (admin is false from a meta-session), or { kind: "session", session, actor } when its Session part sent the request. A route acts as its caller: a Session it starts for a user takes actor: caller.actor. A route that changes config every user shares calls requireAdmin(caller, message) first. A route that returns records checks canSee(caller, owner) from @pipoca/plugins, where owner is "person:<user id>" or "team", and a Session's is session.ownedBy. The method says what a route does: GET reads, POST adds or changes, DELETE removes, so DELETE items/<id> rather than POST items/<id>/remove.
+- context.routes.handle((request, path, caller) => Response | Promise<Response>) answers /api/ext/<id>/<path>, so it needs no web framework such as Express. caller is { kind: "user", actor, admin } for a signed-in user, also through a toolset tool (admin is false from a meta-session), or { kind: "session", session, actor } when its Session part sent the request. A route acts as its caller: a Session it starts for a user takes actor: caller.actor. A route that changes config every user shares calls requireAdmin(caller, message) first. A route that returns records checks canSee(caller, owner) from @pipoca/plugins, where owner is "person:<user id>" or "team", and a Session's is session.ownedBy. The method says what a route does: GET reads, POST adds or changes, DELETE removes, so DELETE items/<id> rather than POST items/<id>/remove.
 - context.store is its SQLite database: exec(sql), all(sql, ...params), run(sql, ...params), and seal(text, context)/open(sealed, context) for secrets. Name its tables <id>_<table>.
 - context.settings.get() returns its settings, which sit in its key in the server's pipoca.json. context.config.get() and set(value) read and replace that key, keeping its settings when set keeps their fields, and context.config.dir is a folder of its own.
 - context.changes.publish(name) tells open pages that something changed; they hear the topic "<id>.<name>".
@@ -75,10 +76,9 @@ export const kernelToolsets: readonly Toolset[] = [
         annotations: { readOnlyHint: true },
         request: (input) => ({
           method: "GET",
-          path:
-            input["archived"] === true
-              ? "/api/sessions?archived=true"
-              : "/api/sessions",
+          path: apiPath("sessions.list", {
+            query: input["archived"] === true ? { archived: true } : {},
+          }),
         }),
         result: (body) => (body as readonly Session[]).map(summary),
       },
@@ -89,7 +89,9 @@ export const kernelToolsets: readonly Toolset[] = [
         annotations: { readOnlyHint: true },
         request: (input) => ({
           method: "GET",
-          path: `/api/sessions/${idOf(input)}`,
+          path: apiPath("sessions.get", {
+            params: { id: textIn(input, "id") },
+          }),
         }),
       },
       {
@@ -111,7 +113,7 @@ export const kernelToolsets: readonly Toolset[] = [
         annotations: { destructiveHint: false, openWorldHint: true },
         request: (input) => ({
           method: "POST",
-          path: "/api/sessions",
+          path: apiPath("sessions.list"),
           body: picked(input, [
             "environment",
             "profile",
@@ -134,7 +136,9 @@ export const kernelToolsets: readonly Toolset[] = [
         annotations: { readOnlyHint: true },
         request: (input) => ({
           method: "GET",
-          path: `/api/sessions/${idOf(input)}`,
+          path: apiPath("sessions.get", {
+            params: { id: textIn(input, "id") },
+          }),
         }),
         result: () =>
           "Offered it to the user in the browsers that show this chat.",
@@ -150,13 +154,17 @@ export const kernelToolsets: readonly Toolset[] = [
         parameters: object(id),
         annotations: { destructiveHint: true },
         asks: {
-          lookup: (input) => `/api/sessions/${idOf(input)}`,
+          lookup: (input) =>
+            apiPath("sessions.get", { params: { id: textIn(input, "id") } }),
           text: (_input, found) =>
             `Archive ${found === undefined ? "this Session" : titleOf(found as Session)}?`,
         },
         request: (input) => ({
-          method: "POST",
-          path: `/api/sessions/${idOf(input)}/archive`,
+          method: "PATCH",
+          path: apiPath("sessions.get", {
+            params: { id: textIn(input, "id") },
+          }),
+          body: { archived: true },
         }),
       },
     ],
@@ -176,7 +184,7 @@ export const kernelToolsets: readonly Toolset[] = [
           "List Environments with their runners, isolation, image, setup script, variables and secret names.",
         parameters: object({}),
         annotations: { readOnlyHint: true },
-        request: () => ({ method: "GET", path: "/api/environments" }),
+        request: () => ({ method: "GET", path: apiPath("environments.list") }),
       },
       {
         name: "create",
@@ -185,11 +193,11 @@ export const kernelToolsets: readonly Toolset[] = [
         annotations: { destructiveHint: false, openWorldHint: false },
         request: (input) => ({
           method: "POST",
-          path: "/api/environments",
+          path: apiPath("environments.list"),
           body: picked(input, ["name"]),
         }),
         result: (body) => ({
-          environment: (body as { environment: unknown }).environment,
+          environment: withoutKey(body),
           note: "Its runner key isn't shown here. The user gets one with Replace key on the Environments page.",
         }),
       },
@@ -209,13 +217,15 @@ export const kernelToolsets: readonly Toolset[] = [
         }),
         annotations: { destructiveHint: true },
         asks: {
-          lookup: () => "/api/environments",
+          lookup: () => apiPath("environments.list"),
           text: (input, found) =>
             `Change ${named(found, input, "the Environment", "this Environment")}?`,
         },
         request: (input) => ({
           method: "PATCH",
-          path: `/api/environments/${idOf(input)}`,
+          path: apiPath("environments.update", {
+            params: { id: textIn(input, "id") },
+          }),
           body: picked(input, [
             "name",
             "isolation",
@@ -239,7 +249,7 @@ export const kernelToolsets: readonly Toolset[] = [
         description: "List the user's Profiles.",
         parameters: object({}),
         annotations: { readOnlyHint: true },
-        request: () => ({ method: "GET", path: "/api/profiles" }),
+        request: () => ({ method: "GET", path: apiPath("profiles.list") }),
         result: (body) => (body as readonly Profile[]).map(profileView),
       },
       {
@@ -249,7 +259,9 @@ export const kernelToolsets: readonly Toolset[] = [
         annotations: { readOnlyHint: true },
         request: (input) => ({
           method: "GET",
-          path: `/api/profiles/${idOf(input)}`,
+          path: apiPath("profiles.get", {
+            params: { id: textIn(input, "id") },
+          }),
         }),
         result: (body) => profileView(body as Profile),
       },
@@ -261,7 +273,7 @@ export const kernelToolsets: readonly Toolset[] = [
         annotations: { destructiveHint: false, openWorldHint: true },
         request: (input) => ({
           method: "POST",
-          path: "/api/profiles",
+          path: apiPath("profiles.list"),
           body: picked(input, ["name", ...Object.keys(profileFields)]),
         }),
         result: (body) => profileView(body as Profile),
@@ -277,13 +289,16 @@ export const kernelToolsets: readonly Toolset[] = [
         }),
         annotations: { destructiveHint: true },
         asks: {
-          lookup: (input) => `/api/profiles/${idOf(input)}`,
+          lookup: (input) =>
+            apiPath("profiles.get", { params: { id: textIn(input, "id") } }),
           text: (input, found) =>
             `Change ${named(found, input, "the Profile", "this Profile")}?`,
         },
         request: (input) => ({
-          method: "PUT",
-          path: `/api/profiles/${idOf(input)}`,
+          method: "PATCH",
+          path: apiPath("profiles.get", {
+            params: { id: textIn(input, "id") },
+          }),
           body: picked(input, ["name", ...Object.keys(profileFields)]),
         }),
         result: (body) => profileView(body as Profile),
@@ -297,7 +312,9 @@ export const kernelToolsets: readonly Toolset[] = [
         annotations: { destructiveHint: true },
         request: (input) => ({
           method: "POST",
-          path: `/api/profiles/${idOf(input)}/files`,
+          path: apiPath("profiles.files", {
+            params: { id: textIn(input, "id") },
+          }),
           body: picked(input, ["files"]),
         }),
       },
@@ -307,13 +324,17 @@ export const kernelToolsets: readonly Toolset[] = [
         parameters: object(id),
         annotations: { destructiveHint: true },
         asks: {
-          lookup: (input) => `/api/profiles/${idOf(input)}`,
+          lookup: (input) =>
+            apiPath("profiles.get", { params: { id: textIn(input, "id") } }),
           text: (input, found) =>
             `Make ${named(found, input, "the Profile", "this Profile")} the default for new Sessions?`,
         },
         request: (input) => ({
-          method: "POST",
-          path: `/api/profiles/${idOf(input)}/default`,
+          method: "PATCH",
+          path: apiPath("profiles.get", {
+            params: { id: textIn(input, "id") },
+          }),
+          body: { isDefault: true },
         }),
       },
     ],
@@ -332,7 +353,7 @@ export const kernelToolsets: readonly Toolset[] = [
           "List the plugins with their state, whether they are turned on, and where installed ones came from.",
         parameters: object({}),
         annotations: { readOnlyHint: true },
-        request: () => ({ method: "GET", path: "/api/plugins" }),
+        request: () => ({ method: "GET", path: apiPath("plugins.list") }),
         result: (body) => (body as readonly PluginInfo[]).map(pluginSummary),
       },
       {
@@ -342,7 +363,9 @@ export const kernelToolsets: readonly Toolset[] = [
         annotations: { readOnlyHint: true },
         request: (input) => ({
           method: "GET",
-          path: `/api/plugin-files/${pluginOf(input)}`,
+          path: apiPath("plugins.files", {
+            params: { plugin: textIn(input, "plugin") },
+          }),
         }),
       },
       {
@@ -352,7 +375,7 @@ export const kernelToolsets: readonly Toolset[] = [
         annotations: { readOnlyHint: true },
         request: (input) => ({
           method: "GET",
-          path: `/api/plugin-files/${pluginOf(input)}?path=${encodeURIComponent(textIn(input, "path"))}`,
+          path: filePath(input),
         }),
       },
       {
@@ -367,8 +390,8 @@ export const kernelToolsets: readonly Toolset[] = [
         annotations: { destructiveHint: false, openWorldHint: false },
         request: (input) => ({
           method: "PUT",
-          path: `/api/plugin-files/${pluginOf(input)}`,
-          body: picked(input, ["path", "content"]),
+          path: filePath(input),
+          body: picked(input, ["content"]),
         }),
         result: (body) => pluginSummary(body as PluginInfo),
       },
@@ -381,7 +404,9 @@ export const kernelToolsets: readonly Toolset[] = [
         annotations: { destructiveHint: false, openWorldHint: true },
         request: (input) => ({
           method: "POST",
-          path: `/api/plugin-builds/${pluginOf(input)}`,
+          path: apiPath("plugins.builds.create", {
+            params: { plugin: textIn(input, "plugin") },
+          }),
         }),
         result: (body) => ({
           ...pluginSummary(body as PluginInfo),
@@ -393,15 +418,33 @@ export const kernelToolsets: readonly Toolset[] = [
   },
 ];
 
+// A plugin file's route, its path encoded whole, so a .. in it stays in
+// it for the server to refuse.
+function filePath(input: Readonly<Record<string, unknown>>): string {
+  return apiPath("plugins.file", {
+    params: {
+      plugin: textIn(input, "plugin"),
+      path: encodeURIComponent(textIn(input, "path")),
+    },
+  });
+}
+
+// A new Environment without its runner key, which a transcript keeps.
+function withoutKey(body: unknown): unknown {
+  if (!isObject(body)) {
+    return body;
+  }
+
+  const { key: _key, ...environment } = body;
+
+  return environment;
+}
+
 // A tool's input: the fields of the route's body, and the ids in its path.
 function object(
   properties: Parameters<typeof Type.Object>[0],
 ): Readonly<Record<string, unknown>> {
   return { ...Type.Object(properties, { additionalProperties: false }) };
-}
-
-function pluginOf(input: Readonly<Record<string, unknown>>): string {
-  return encodeURIComponent(textIn(input, "plugin"));
 }
 
 function textIn(input: Readonly<Record<string, unknown>>, key: string): string {
@@ -422,10 +465,6 @@ function pluginSummary(plugin: PluginInfo): Record<string, unknown> {
       installedFrom: plugin.installedFrom.url,
     }),
   };
-}
-
-function idOf(input: Readonly<Record<string, unknown>>): string {
-  return encodeURIComponent(typeof input["id"] === "string" ? input["id"] : "");
 }
 
 function picked(
@@ -648,7 +687,7 @@ export async function routeToolQuestion(
 }
 
 function baseOf(found: ToolsetTool): string {
-  return found.plugin === undefined ? "/api/" : `/api/plugins/${found.plugin}/`;
+  return found.plugin === undefined ? "/api/" : `/api/ext/${found.plugin}/`;
 }
 
 // A tool's path stays under its own routes: dot segments, plain or

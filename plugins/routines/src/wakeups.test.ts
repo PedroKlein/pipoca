@@ -98,7 +98,7 @@ function start(
 
   const request = async (path: string, method = "GET", user = "owner") =>
     route?.(
-      new Request(`http://pipoca/api/plugins/routines/${path}`, { method }),
+      new Request(`http://pipoca/api/ext/routines/${path}`, { method }),
       path.split("?")[0] ?? "",
       fakeUser({ id: user }),
     ) as Promise<Response>;

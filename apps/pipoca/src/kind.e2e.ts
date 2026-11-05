@@ -48,22 +48,28 @@ async function podEnvironment(
   name: string,
   settings: object,
 ): Promise<Environment> {
-  const template = (await (await api("/api/templates", { name })).json()) as {
+  const template = (await (
+    await api("/api/environment-templates", { name })
+  ).json()) as {
     readonly id: string;
   };
 
-  await api(`/api/plugins/kubernetes/templates/${template.id}`, { settings });
+  await api(`/api/ext/kubernetes/templates/${template.id}`, { settings });
 
-  const { environment } = (await (
+  const environment = (await (
     await api("/api/environments", { name, template: template.id })
-  ).json()) as { environment: Environment };
+  ).json()) as Environment;
 
   return environment;
 }
 
-async function api(path: string, body?: unknown): Promise<Response> {
+async function api(
+  path: string,
+  body?: unknown,
+  method = body === undefined ? "GET" : "POST",
+): Promise<Response> {
   const response = await fetch(new URL(path, server), {
-    method: body === undefined ? "GET" : "POST",
+    method,
     headers: {
       cookie,
       ...(body !== undefined && { "content-type": "application/json" }),
@@ -127,14 +133,14 @@ test("offers the sign-in the chart's config value seeded into pipoca.json", asyn
   };
 
   expect(status.logins).toEqual([
-    { label: "Sign in with kind", path: "/api/plugins/oidc/start/kind" },
+    { label: "Sign in with kind", path: "/api/ext/oidc/start/kind" },
   ]);
 });
 
 test("runs a Session from an agent pod that joined with its Environment's key", async () => {
-  const { environment, key } = (await (
+  const { key, ...environment } = (await (
     await api("/api/environments", { name: "kind" })
-  ).json()) as { environment: Environment; key: string };
+  ).json()) as Environment & { key: string };
 
   kubectl(
     "run",
@@ -216,7 +222,7 @@ test("runs a Session in a runner pod the kubernetes plugin starts, and removes t
     ),
   );
 
-  await api(`/api/sessions/${session.id}/archive`, {});
+  await api(`/api/sessions/${session.id}`, { archived: true }, "PATCH");
 
   const selector = `pipoca.dev/environment=${environment.id}`;
   for (let attempt = 0; attempt < 120; attempt++) {
@@ -288,7 +294,7 @@ test("brings back a Session's own pod, with its claim, after the pod is deleted"
     `persistentvolumeclaim/${pod}`,
   );
 
-  await api(`/api/sessions/${session.id}/archive`, {});
+  await api(`/api/sessions/${session.id}`, { archived: true }, "PATCH");
 
   for (let attempt = 0; attempt < 120; attempt++) {
     const left = kubectl(

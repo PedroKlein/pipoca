@@ -9,6 +9,8 @@ export const errorCodes = [
   "unauthorized",
   "forbidden",
   "not_found",
+  "method_not_allowed",
+  "unsupported_media_type",
   "conflict",
   "too_large",
   "too_many_requests",

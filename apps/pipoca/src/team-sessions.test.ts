@@ -121,7 +121,7 @@ async function member(name: string, id = randomUUID()): Promise<string> {
 
   db.close();
 
-  const response = await fetch(new URL("/api/auth/login", server.url), {
+  const response = await fetch(new URL("/api/auth/session", server.url), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name, password: "battery staple" }),
@@ -141,10 +141,9 @@ async function teamSetup(): Promise<{
   readonly profile: string;
   readonly runner: string;
 }> {
-  const { environment, key } = await json<{
-    environment: Environment;
-    key: string;
-  }>(server.api("/api/environments", { body: { name: "pods", team: true } }));
+  const { key, ...environment } = await json<Environment & { key: string }>(
+    server.api("/api/environments", { body: { name: "pods", team: true } }),
+  );
 
   const profile = await json<Profile>(
     server.api("/api/profiles", {
@@ -157,7 +156,7 @@ async function teamSetup(): Promise<{
   );
 
   const joined = await json<Joined>(
-    fetch(new URL("/agent/join", server.url), {
+    fetch(new URL("/runner/join", server.url), {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -177,7 +176,7 @@ async function teamSetup(): Promise<{
 
 async function poll(token: string): Promise<readonly Assignment[]> {
   const { start } = await json<{ start: readonly Assignment[] }>(
-    fetch(new URL("/agent/work", server.url), {
+    fetch(new URL("/runner/work", server.url), {
       method: "POST",
       headers: {
         "pipoca-protocol": "4",
@@ -200,7 +199,7 @@ test("a team Session starts only in a team Environment, on a team Profile", asyn
   const anas = await ana();
   const team = await teamSetup();
 
-  const { environment: laptop } = await json<{ environment: Environment }>(
+  const laptop = await json<Environment>(
     server.as(anas)("/api/environments", { body: { name: "laptop" } }),
   );
 
@@ -265,7 +264,7 @@ test("every user can open and list team work, and it stays out of their own list
 
   const teams = await Promise.all(
     [anas, await server.signedIn()].map(async (cookie) =>
-      json<Session[]>(server.as(cookie)("/api/sessions?owner=team")),
+      json<Session[]>(server.as(cookie)("/api/sessions?scope=team")),
     ),
   );
 
@@ -281,8 +280,8 @@ test("a team Session's runner gets the team Profile on the base, never anyone's 
   const cookie = await server.signedIn();
 
   for (const [layer, text] of [
-    ["base", "Team."],
-    ["defaults", "Mine."],
+    ["settings/base-profile", "Team."],
+    ["me/profile-defaults", "Mine."],
   ] as const) {
     await fetch(new URL(`/api/${layer}/files/AGENTS.md`, server.url), {
       method: "PUT",
@@ -310,9 +309,10 @@ test("a team Session's runner gets the team Profile on the base, never anyone's 
   expect(assigned[0]?.gitLogins).toBeUndefined();
 
   const files = await json<ProfileFiles>(
-    fetch(new URL(`/agent/sessions/${session.id}/profile`, server.url), {
+    fetch(new URL(`/runner/sessions/${session.id}/profile`, server.url), {
       headers: {
         "pipoca-protocol": "4",
+        "content-type": "application/json",
         authorization: `Bearer ${team.runner}`,
       },
     }),
@@ -355,12 +355,13 @@ async function toolsOf(token: string): Promise<readonly string[]> {
   const tools = await json<readonly { name: string }[]>(
     fetch(
       new URL(
-        `/agent/sessions/${assigned?.sessionId ?? ""}/tools?generation=${String(assigned?.generation ?? 0)}`,
+        `/runner/sessions/${assigned?.sessionId ?? ""}/tools?generation=${String(assigned?.generation ?? 0)}`,
         server.url,
       ),
       {
         headers: {
           "pipoca-protocol": "4",
+          "content-type": "application/json",
           authorization: `Bearer ${token}`,
         },
       },
@@ -378,7 +379,7 @@ test("a team Session gets no tools that use a person's git accounts", async () =
   );
 
   const mac = await json<Joined>(
-    fetch(new URL("/agent/join", server.url), {
+    fetch(new URL("/runner/join", server.url), {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -422,16 +423,19 @@ test("only an admin lays out the team hub, and everyone reads the layout", async
     ],
   };
 
-  const before = await json<unknown>(server.as(anas)("/api/hub"));
+  const before = await json<unknown>(server.as(anas)("/api/settings/hub"));
 
-  const refused = await server.as(anas)("/api/hub", {
+  const refused = await server.as(anas)("/api/settings/hub", {
     method: "PUT",
     body: layout,
   });
 
-  const laid = await server.api("/api/hub", { method: "PUT", body: layout });
+  const laid = await server.api("/api/settings/hub", {
+    method: "PUT",
+    body: layout,
+  });
 
-  const invalid = await server.api("/api/hub", {
+  const invalid = await server.api("/api/settings/hub", {
     method: "PUT",
     body: { pages: [{ id: "ops", title: "Ops", panels: [] }] },
   });
@@ -442,7 +446,9 @@ test("only an admin lays out the team hub, and everyone reads the layout", async
     403, 200, 422,
   ]);
 
-  expect(await json<unknown>(server.as(anas)("/api/hub"))).toEqual(layout);
+  expect(await json<unknown>(server.as(anas)("/api/settings/hub"))).toEqual(
+    layout,
+  );
 });
 
 test("whoever started team work makes it view-only or limits it to named people", async () => {
@@ -466,7 +472,7 @@ test("whoever started team work makes it view-only or limits it to named people"
   expect(session.access).toEqual({ kind: "team" });
 
   const teammates = await json<{ id: string; name: string }[]>(
-    server.as(bos)("/api/teammates"),
+    server.as(bos)("/api/people"),
   );
 
   expect(teammates.map(({ name }) => name).toSorted()).toEqual(
@@ -483,13 +489,13 @@ test("whoever started team work makes it view-only or limits it to named people"
     ).status;
 
   const limit = async (cookie: string, access: unknown): Promise<Response> =>
-    server.as(cookie)(`/api/sessions/${session.id}/access`, {
-      method: "PUT",
-      body: access,
+    server.as(cookie)(`/api/sessions/${session.id}`, {
+      method: "PATCH",
+      body: { access },
     });
 
   const listed = async (cookie: string): Promise<readonly string[]> =>
-    (await json<Session[]>(server.as(cookie)("/api/sessions?owner=team"))).map(
+    (await json<Session[]>(server.as(cookie)("/api/sessions?scope=team"))).map(
       ({ id }) => id,
     );
 
@@ -643,7 +649,7 @@ test("Pi reads what the team said since its last turn, with names and replies, b
   );
 
   const say = async (cookie: string, body: unknown): Promise<number> =>
-    (await server.as(cookie)(`/api/sessions/${session.id}/say`, { body }))
+    (await server.as(cookie)(`/api/sessions/${session.id}/messages`, { body }))
       .status;
 
   expect(await say(bos, { to: "team", text: "Ship it today?" })).toBe(201);
@@ -669,12 +675,13 @@ test("Pi reads what the team said since its last turn, with names and replies, b
   const commands = readSse(
     await fetch(
       new URL(
-        `/agent/sessions/${session.id}/commands?generation=${String(assigned?.generation)}`,
+        `/runner/sessions/${session.id}/commands?generation=${String(assigned?.generation)}`,
         server.url,
       ),
       {
         headers: {
           "pipoca-protocol": "4",
+          "content-type": "application/json",
           authorization: `Bearer ${team.runner}`,
         },
       },
@@ -733,7 +740,7 @@ test("Pi reads only as many of the team's messages as pipoca.json says", async (
     JSON.stringify({ team: { name: "Acme", messagesRead: 1 } }),
   );
 
-  expect(await json(server.api("/api/team"))).toEqual({
+  expect(await json(server.api("/api/settings/team"))).toEqual({
     name: "Acme",
     messagesRead: 1,
   });
@@ -750,7 +757,7 @@ test("Pi reads only as many of the team's messages as pipoca.json says", async (
   );
 
   for (const text of ["First", "Second"]) {
-    await server.as(bos)(`/api/sessions/${session.id}/say`, {
+    await server.as(bos)(`/api/sessions/${session.id}/messages`, {
       body: { to: "team", text },
     });
   }
@@ -764,12 +771,13 @@ test("Pi reads only as many of the team's messages as pipoca.json says", async (
   const commands = readSse(
     await fetch(
       new URL(
-        `/agent/sessions/${session.id}/commands?generation=${String(assigned?.generation)}`,
+        `/runner/sessions/${session.id}/commands?generation=${String(assigned?.generation)}`,
         server.url,
       ),
       {
         headers: {
           "pipoca-protocol": "4",
+          "content-type": "application/json",
           authorization: `Bearer ${team.runner}`,
         },
       },
@@ -791,7 +799,10 @@ test("Pi reads only as many of the team's messages as pipoca.json says", async (
     break;
   }
 
-  await server.api("/api/team", { method: "PUT", body: { name: "Beta" } });
+  await server.api("/api/settings/team", {
+    method: "PUT",
+    body: { name: "Beta" },
+  });
 
   expect(
     JSON.parse(await readFile(join(root, "config", "pipoca.json"), "utf8")),
@@ -819,12 +830,13 @@ test("Pi hears who answered its question in team work", async () => {
   const commands = readSse(
     await fetch(
       new URL(
-        `/agent/sessions/${session.id}/commands?generation=${String(assigned?.generation)}`,
+        `/runner/sessions/${session.id}/commands?generation=${String(assigned?.generation)}`,
         server.url,
       ),
       {
         headers: {
           "pipoca-protocol": "4",
+          "content-type": "application/json",
           authorization: `Bearer ${team.runner}`,
         },
       },
@@ -869,7 +881,7 @@ test("the team votes, and Pi reads the result the next time it's asked", async (
     }),
   );
 
-  const votes = `/api/plugins/ask/sessions/${session.id}/votes`;
+  const votes = `/api/ext/ask/sessions/${session.id}/votes`;
 
   const opened = await server.as(bos)(votes, {
     body: {
@@ -886,7 +898,7 @@ test("the team votes, and Pi reads the result the next time it's asked", async (
 
   const pick = async (cookie: string, option: string): Promise<number> =>
     (
-      await server.as(cookie)(`/api/plugins/ask/votes/${id}/pick`, {
+      await server.as(cookie)(`/api/ext/ask/votes/${id}/pick`, {
         method: "PUT",
         body: { option },
       })
@@ -929,7 +941,7 @@ test("the team votes, and Pi reads the result the next time it's asked", async (
     ],
   });
 
-  const close = `/api/plugins/ask/votes/${id}/close`;
+  const close = `/api/ext/ask/votes/${id}/close`;
 
   expect((await server.as(cys)(close, { body: {} })).status).toBe(403);
   expect((await server.as(anas)(close, { body: {} })).status).toBe(200);
@@ -944,12 +956,13 @@ test("the team votes, and Pi reads the result the next time it's asked", async (
   const commands = readSse(
     await fetch(
       new URL(
-        `/agent/sessions/${session.id}/commands?generation=${String(assigned?.generation)}`,
+        `/runner/sessions/${session.id}/commands?generation=${String(assigned?.generation)}`,
         server.url,
       ),
       {
         headers: {
           "pipoca-protocol": "4",
+          "content-type": "application/json",
           authorization: `Bearer ${team.runner}`,
         },
       },
@@ -993,7 +1006,7 @@ test("a vote closes on time, even with nobody voting", async () => {
     }),
   );
 
-  const votes = `/api/plugins/ask/sessions/${session.id}/votes`;
+  const votes = `/api/ext/ask/sessions/${session.id}/votes`;
 
   expect(
     (
@@ -1046,14 +1059,14 @@ test("nobody opens a vote in team work they can't see", async () => {
     }),
   );
 
-  await server.as(anas)(`/api/sessions/${shared.id}/access`, {
-    method: "PUT",
-    body: { kind: "named", people: [] },
+  await server.as(anas)(`/api/sessions/${shared.id}`, {
+    method: "PATCH",
+    body: { access: { kind: "named", people: [] } },
   });
 
   expect(
     (
-      await server.as(bos)(`/api/plugins/ask/sessions/${shared.id}/votes`, {
+      await server.as(bos)(`/api/ext/ask/sessions/${shared.id}/votes`, {
         body: {
           question: "Ship?",
           options: ["Yes", "No"],
@@ -1073,7 +1086,7 @@ test("team work forks as team work, or to a person's own side with its transcrip
   const anas = await ana();
   const team = await teamSetup();
 
-  const { environment: laptop } = await json<{ environment: Environment }>(
+  const laptop = await json<Environment>(
     server.as(anas)("/api/environments", { body: { name: "laptop" } }),
   );
 
@@ -1092,7 +1105,7 @@ test("team work forks as team work, or to a person's own side with its transcrip
   const lines = ['{"type":"session","id":"pi-1"}'];
 
   const appended = await fetch(
-    new URL(`/agent/sessions/${session.id}/transcript`, server.url),
+    new URL(`/runner/sessions/${session.id}/transcript`, server.url),
     {
       method: "POST",
       headers: {
@@ -1110,8 +1123,11 @@ test("team work forks as team work, or to a person's own side with its transcrip
 
   expect(appended.status).toBe(200);
 
-  const fork = `/api/sessions/${session.id}/fork`;
-  const teamFork = await json<Session>(server.as(anas)(fork, { body: {} }));
+  const from = { session: session.id };
+
+  const teamFork = await json<Session>(
+    server.as(anas)("/api/sessions", { body: { from } }),
+  );
 
   expect(teamFork).toMatchObject({
     ownedBy: "team",
@@ -1120,7 +1136,7 @@ test("team work forks as team work, or to a person's own side with its transcrip
   });
 
   const mine = await json<Session>(
-    server.as(anas)(fork, { body: { personal: true } }),
+    server.as(anas)("/api/sessions", { body: { from, personal: true } }),
   );
 
   expect(mine.ownedBy).toBe(`person:${mine.startedBy ?? ""}`);
@@ -1140,17 +1156,22 @@ test("personal work moves to the team from a summary, leaving its transcript beh
     server.as(anas)("/api/sessions", { body: { workspace: clone } }),
   );
 
-  const move = `/api/sessions/${mine.id}/move`;
   const summary = "Goal: fix the docs build. Done: found the broken link.";
 
-  expect((await server.as(bos)(move, { body: { summary } })).status).toBe(404);
+  const move = (said: string): { body: unknown } => ({
+    body: { from: { session: mine.id }, owner: "team", summary: said },
+  });
 
-  expect((await server.as(anas)(move, { body: { summary: " " } })).status).toBe(
-    422,
+  expect((await server.as(bos)("/api/sessions", move(summary))).status).toBe(
+    404,
   );
 
-  const moved = await server.as(anas)(move, {
+  expect((await server.as(anas)("/api/sessions", move(" "))).status).toBe(422);
+
+  const moved = await server.as(anas)("/api/sessions", {
     body: {
+      from: { session: mine.id },
+      owner: "team",
       summary,
       environment: team.environment,
       profile: team.profile,
@@ -1179,10 +1200,8 @@ test("personal work moves to the team from a summary, leaving its transcript beh
 
   expect(starter?.transcript(teamWork.id)).toEqual([]);
 
-  const again = await server.as(anas)(`/api/sessions/${teamWork.id}/move`, {
-    body: {
-      summary,
-    },
+  const again = await server.as(anas)("/api/sessions", {
+    body: { from: { session: teamWork.id }, owner: "team", summary },
   });
 
   expect(await again.json()).toMatchObject({ error: "not_personal" });
@@ -1191,8 +1210,10 @@ test("personal work moves to the team from a summary, leaving its transcript beh
     server.as(anas)("/api/sessions", { body: { workspace: workspace() } }),
   );
 
-  const stuck = await server.as(anas)(`/api/sessions/${folder.id}/move`, {
+  const stuck = await server.as(anas)("/api/sessions", {
     body: {
+      from: { session: folder.id },
+      owner: "team",
       summary,
       environment: team.environment,
       profile: team.profile,
@@ -1406,14 +1427,14 @@ test("team work loads only plugins that say they work there and that admins leav
 test("an admin names the team, and everyone reads the name", async () => {
   const anas = await ana();
 
-  expect(await json(server.as(anas)("/api/team"))).toEqual({
+  expect(await json(server.as(anas)("/api/settings/team"))).toEqual({
     name: null,
     messagesRead: 40,
   });
 
   expect(
     (
-      await server.as(anas)("/api/team", {
+      await server.as(anas)("/api/settings/team", {
         method: "PUT",
         body: { name: "Acme" },
       })
@@ -1422,7 +1443,7 @@ test("an admin names the team, and everyone reads the name", async () => {
 
   expect(
     (
-      await server.api("/api/team", {
+      await server.api("/api/settings/team", {
         method: "PUT",
         body: { name: "x".repeat(61) },
       })
@@ -1431,11 +1452,14 @@ test("an admin names the team, and everyone reads the name", async () => {
 
   expect(
     await json(
-      server.api("/api/team", { method: "PUT", body: { name: "  Acme  " } }),
+      server.api("/api/settings/team", {
+        method: "PUT",
+        body: { name: "  Acme  " },
+      }),
     ),
   ).toEqual({ name: "Acme" });
 
-  expect(await json(server.as(anas)("/api/team"))).toEqual({
+  expect(await json(server.as(anas)("/api/settings/team"))).toEqual({
     name: "Acme",
     messagesRead: 40,
   });
@@ -1445,6 +1469,8 @@ test("an admin names the team, and everyone reads the name", async () => {
   ).toMatchObject({ team: { name: "Acme" } });
 
   expect(
-    await json(server.api("/api/team", { method: "PUT", body: { name: "" } })),
+    await json(
+      server.api("/api/settings/team", { method: "PUT", body: { name: "" } }),
+    ),
   ).toEqual({ name: null });
 });

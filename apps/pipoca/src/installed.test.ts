@@ -161,7 +161,7 @@ test("lists an installed plugin turned off, without running its code", async () 
   });
 
   expect(await exists(join(plugins, "hello", "imported"))).toBe(false);
-  expect((await server.api("/api/plugins/hello/")).status).toBe(404);
+  expect((await server.api("/api/ext/hello/")).status).toBe(404);
 });
 
 test("turns an installed plugin on for the next start", async () => {
@@ -179,7 +179,7 @@ test("turns an installed plugin on for the next start", async () => {
 
   await start();
 
-  const route = await server.api("/api/plugins/hello/");
+  const route = await server.api("/api/ext/hello/");
 
   expect(await listed("hello")).toMatchObject({ state: "on", turnedOn: true });
   expect(await route.text()).toBe("hi from hello");
@@ -364,7 +364,7 @@ test("loads a plugin whose folder is a link to one elsewhere", async () => {
   await turnOnInConfig("linked");
   await start();
 
-  expect(await (await server.api("/api/plugins/linked/")).text()).toBe(
+  expect(await (await server.api("/api/ext/linked/")).text()).toBe(
     "hi from linked",
   );
 });
@@ -436,7 +436,7 @@ export default {
   await turnOnInConfig("greeter");
   await start();
 
-  expect(await (await server.api("/api/plugins/greeter/")).text()).toBe(
+  expect(await (await server.api("/api/ext/greeter/")).text()).toBe(
     "hi from a dependency",
   );
 });
@@ -452,7 +452,7 @@ test("runs a plugin's source as it is at each start", async () => {
   await writeFile(part, source.replace("hi from hello", "hello again"));
   await start();
 
-  expect(await (await server.api("/api/plugins/hello/")).text()).toBe(
+  expect(await (await server.api("/api/ext/hello/")).text()).toBe(
     "hello again",
   );
 });
@@ -501,7 +501,7 @@ test("answers the errors a plugin throws from the server's plugin SDK", async ()
   await writeRefusingPlugin("strict", "@pipoca/plugins");
   await start();
 
-  const refused = await server.api("/api/plugins/strict/hi", {
+  const refused = await server.api("/api/ext/strict/hi", {
     method: "POST",
   });
 
@@ -519,14 +519,14 @@ test("lets only an admin through a plugin's route that requires one", async () =
   await start();
 
   expect(
-    (await server.api("/api/plugins/strict/names", { method: "POST" })).status,
+    (await server.api("/api/ext/strict/names", { method: "POST" })).status,
   ).toBe(400);
 
   const db = new DatabaseSync(join(root, "server.db"));
   db.exec("update users set admin = 0");
   db.close();
 
-  const refused = await server.api("/api/plugins/strict/names", {
+  const refused = await server.api("/api/ext/strict/names", {
     method: "POST",
   });
 
@@ -561,13 +561,13 @@ export default {
   await turnOnInConfig("names");
   await start();
 
-  const named = await server.api("/api/plugins/names/rename", {
+  const named = await server.api("/api/ext/names/rename", {
     body: { name: "a" },
   });
 
   expect(await named.json()).toEqual({ name: "a" });
 
-  const refused = await server.api("/api/plugins/names/rename", {
+  const refused = await server.api("/api/ext/names/rename", {
     body: { name: 7 },
   });
 
@@ -592,7 +592,7 @@ test("answers the errors of a plugin that bundles its own copy of the SDK", asyn
 
   await start();
 
-  const refused = await server.api("/api/plugins/vendored/hi", {
+  const refused = await server.api("/api/ext/vendored/hi", {
     method: "POST",
   });
 
@@ -621,11 +621,11 @@ export default { name: "pages", hook: useState };
   const webPart = (await listed("pages"))?.webPart ?? "";
   const served = await server.api(webPart);
 
-  expect(webPart).toMatch(/^\/api\/plugin-parts\/pages\/web-\w+\.js$/);
+  expect(webPart).toMatch(/^\/api\/plugins\/pages\/parts\/web-\w+\.js$/);
   expect(served.headers.get("content-type")).toContain("javascript");
   expect(await served.text()).toContain('globalThis.pipocaShared["react"]');
 
-  expect((await server.api("/api/plugin-parts/pages/server.ts")).status).toBe(
+  expect((await server.api("/api/plugins/pages/parts/server.ts")).status).toBe(
     404,
   );
 });
@@ -864,7 +864,7 @@ test("installs a plugin from a git repository turned off, pinned to its commit",
 
   await start();
 
-  expect(await (await server.api("/api/plugins/hello/")).text()).toBe(
+  expect(await (await server.api("/api/ext/hello/")).text()).toBe(
     "hi from hello",
   );
 
@@ -987,15 +987,13 @@ test("updates a plugin to its repository's newest commit for the next start", as
     installedFrom: { pinned: newest },
   });
 
-  expect(await (await server.api("/api/plugins/hello/")).text()).toBe(
+  expect(await (await server.api("/api/ext/hello/")).text()).toBe(
     "hi from hello",
   );
 
   await start();
 
-  expect(await (await server.api("/api/plugins/hello/")).text()).toBe(
-    "hi again",
-  );
+  expect(await (await server.api("/api/ext/hello/")).text()).toBe("hi again");
 });
 
 test("offers an update once the plugin's repository moves past it, and stops once it updates", async () => {
@@ -1251,7 +1249,7 @@ test("keeps the running version's settings until the server restarts", async () 
     body: { update: true },
   });
 
-  expect(await (await server.api("/api/plugins/hello/")).json()).toEqual({
+  expect(await (await server.api("/api/ext/hello/")).json()).toEqual({
     greeting: "hi",
   });
 
@@ -1259,7 +1257,7 @@ test("keeps the running version's settings until the server restarts", async () 
 
   await start();
 
-  expect(await (await server.api("/api/plugins/hello/")).json()).toEqual({
+  expect(await (await server.api("/api/ext/hello/")).json()).toEqual({
     salute: "yo",
   });
 });

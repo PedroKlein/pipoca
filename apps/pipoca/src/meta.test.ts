@@ -67,7 +67,7 @@ async function startMeta(text: string): Promise<Session> {
   await environmentReady();
 
   return json<Session>(
-    server.api("/api/plugins/meta/sessions", { body: { text } }),
+    server.api("/api/ext/meta/sessions", { body: { text } }),
   );
 }
 
@@ -114,7 +114,7 @@ test("starts a meta-session on the meta Profile and keeps it out of the Session 
   await follow(session.id, entriesInclude("the assistant answers"));
 
   const listed = await json<Session[]>(server.api("/api/sessions"));
-  const owned = await json<Session[]>(server.api("/api/plugins/meta/sessions"));
+  const owned = await json<Session[]>(server.api("/api/ext/meta/sessions"));
 
   expect(listed.map(({ id }) => id)).not.toContain(session.id);
   expect(owned.map(({ id }) => id)).toEqual([session.id]);
@@ -147,7 +147,7 @@ test("a meta-session belongs to the person who asked for it", async () => {
 test("refuses a meta-session without a first message", async () => {
   await environmentReady();
 
-  const response = await server.api("/api/plugins/meta/sessions", {
+  const response = await server.api("/api/ext/meta/sessions", {
     body: { text: " " },
   });
 
@@ -155,7 +155,7 @@ test("refuses a meta-session without a first message", async () => {
 });
 
 test("answers a method the meta-session list has no route for as not found", async () => {
-  const response = await server.api("/api/plugins/meta/sessions", {
+  const response = await server.api("/api/ext/meta/sessions", {
     method: "DELETE",
   });
 
@@ -447,7 +447,7 @@ test("hands a runner only the allowed Session parts and requires the meta one", 
     const post = async (path: string, body: unknown): Promise<Session> =>
       json<Session>(bare.api(path, { body }));
 
-    const metaSession = await post("/api/plugins/meta/sessions", {
+    const metaSession = await post("/api/ext/meta/sessions", {
       text: "Hello",
     });
 
@@ -456,7 +456,7 @@ test("hands a runner only the allowed Session parts and requires the meta one", 
     });
 
     const work = await json<{ start: Assignment[] }>(
-      fetch(new URL("/agent/work", bare.url), {
+      fetch(new URL("/runner/work", bare.url), {
         method: "POST",
         headers: {
           "pipoca-protocol": "4",

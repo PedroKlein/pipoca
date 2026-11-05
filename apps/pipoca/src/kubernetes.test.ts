@@ -211,7 +211,7 @@ async function kubernetesEnvironment(
   name = "pods",
 ): Promise<Environment> {
   const template = (await (
-    await server.api("/api/templates", { body: { name } })
+    await server.api("/api/environment-templates", { body: { name } })
   ).json()) as EnvironmentTemplate;
 
   const saved = await server.api(templatePath(template.id), {
@@ -220,20 +220,20 @@ async function kubernetesEnvironment(
 
   expect(saved.status).toBe(200);
 
-  const { environment } = (await (
+  const environment = (await (
     await server.api("/api/environments", {
       body: {
         name,
         template: template.id,
       },
     })
-  ).json()) as { environment: Environment };
+  ).json()) as Environment;
 
   return environment;
 }
 
 function templatePath(id: string | null): string {
-  return `/api/plugins/kubernetes/templates/${id ?? ""}`;
+  return `/api/ext/kubernetes/templates/${id ?? ""}`;
 }
 
 async function startSession(environment: Environment): Promise<Session> {
@@ -251,7 +251,7 @@ async function lastFailure(
   environment: Environment,
 ): Promise<{ readonly problem: string } | null> {
   const answer = (await (
-    await server.api(`/api/plugins/kubernetes/environments/${environment.id}`)
+    await server.api(`/api/ext/kubernetes/environments/${environment.id}`)
   ).json()) as { readonly lastFailure: { readonly problem: string } | null };
 
   return answer.lastFailure;
@@ -267,9 +267,9 @@ test("reads an Environment that starts runner pods as on demand, not offline", a
   const environments = async (): Promise<readonly Environment[]> =>
     (await (await server.api("/api/environments")).json()) as Environment[];
 
-  const { environment: plain } = (await (
+  const plain = (await (
     await server.api("/api/environments", { body: { name: "plain" } })
-  ).json()) as { environment: Environment };
+  ).json()) as Environment;
 
   const pods = await kubernetesEnvironment({ capacity: 1, maxPods: 2 });
 
@@ -291,13 +291,13 @@ test("reads an Environment that starts runner pods as on demand, not offline", a
 
 test("says which templates have runner pods started for them", async () => {
   const plain = (await (
-    await server.api("/api/templates", { body: { name: "plain" } })
+    await server.api("/api/environment-templates", { body: { name: "plain" } })
   ).json()) as EnvironmentTemplate;
 
   const pods = await kubernetesEnvironment({ capacity: 1, maxPods: 2 });
 
   const listed = (await (
-    await server.api("/api/templates")
+    await server.api("/api/environment-templates")
   ).json()) as ListedTemplate[];
 
   expect(listed.find(({ id }) => id === pods.templateId)?.runnersFrom).toBe(
@@ -379,7 +379,7 @@ test("starts one runner pod per Session no runner can take, up to the most allow
 
 test("lets the runner in a started pod run the Session, and forgets an earlier failed pod once it joins", async () => {
   const environment = await kubernetesEnvironment({});
-  const path = `/api/plugins/kubernetes/environments/${environment.id}`;
+  const path = `/api/ext/kubernetes/environments/${environment.id}`;
   const session = await startSession(environment);
   await until(() => api.pods.size === 1);
 
@@ -506,7 +506,7 @@ test("reads a template's pod settings from its entry in pipoca.json, and saves t
     body: { settings: { capacity: 4 } },
   });
 
-  await server.api("/api/templates/pods", {
+  await server.api("/api/environment-templates/pods", {
     method: "PATCH",
     body: { name: "Bigger pods" },
   });
@@ -525,7 +525,7 @@ test("reads a template's pod settings from its entry in pipoca.json, and saves t
 
 test("refuses Kubernetes settings it can't use", async () => {
   const template = (await (
-    await server.api("/api/templates", { body: { name: "pods" } })
+    await server.api("/api/environment-templates", { body: { name: "pods" } })
   ).json()) as EnvironmentTemplate;
 
   const path = templatePath(template.id);
@@ -541,7 +541,7 @@ test("refuses Kubernetes settings it can't use", async () => {
 
   const unsaved = await (await server.api(path)).json();
 
-  await server.api(`/api/templates/${template.id}`, {
+  await server.api(`/api/environment-templates/${template.id}`, {
     method: "PATCH",
     body: {
       isolation: "container",
@@ -565,22 +565,22 @@ test("refuses Kubernetes settings it can't use", async () => {
 });
 
 test("takes runner pods from a pod template, never from an Environment's own settings", async () => {
-  const { environment: laptop } = (await (
+  const laptop = (await (
     await server.api("/api/environments", { body: { name: "laptop" } })
-  ).json()) as { environment: Environment };
+  ).json()) as Environment;
 
-  const path = `/api/plugins/kubernetes/environments/${laptop.id}`;
+  const path = `/api/ext/kubernetes/environments/${laptop.id}`;
   const refused = await server.api(path, { body: { settings: {} } });
 
   const pods = await kubernetesEnvironment({ maxPods: 2 });
 
   const fromTemplate = await server.api(
-    `/api/plugins/kubernetes/environments/${pods.id}`,
+    `/api/ext/kubernetes/environments/${pods.id}`,
     { body: { settings: {} } },
   );
 
   const shown = await (
-    await server.api(`/api/plugins/kubernetes/environments/${pods.id}`)
+    await server.api(`/api/ext/kubernetes/environments/${pods.id}`)
   ).json();
 
   expect([refused.status, fromTemplate.status]).toEqual([409, 409]);
@@ -828,7 +828,7 @@ test("revokes the token of a runner pod deleted from outside, and deletes its Se
 
   await until(() => !api.secrets.has(name) && api.pods.size === 1);
 
-  const work = await fetch(new URL("/agent/work", server.url), {
+  const work = await fetch(new URL("/runner/work", server.url), {
     method: "POST",
     headers: {
       [versionHeader]: String(protocolVersion),
@@ -1001,7 +1001,10 @@ test("gives each Session a pod of its own that mounts its claim, and brings it b
   expect(heldFirst).toMatchObject({ runner: null, status: "queued" });
   expect(await sessionOf(second.id)).toMatchObject({ runner: name });
 
-  await server.api(`/api/sessions/${second.id}/archive`, { body: {} });
+  await server.api(`/api/sessions/${second.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
   const back = api.pods.get(name);
   if (back) {
@@ -1029,11 +1032,14 @@ test("keeps an archived Session's claim while its workspace is kept, until force
   await until(() => api.pods.has(name) && api.claims.has(name));
 
   const archived = (await (
-    await server.api(`/api/sessions/${session.id}/archive`, { body: {} })
+    await server.api(`/api/sessions/${session.id}`, {
+      method: "PATCH",
+      body: { archived: true },
+    })
   ).json()) as Session;
 
   const reported = await fetch(
-    new URL(`/agent/sessions/${session.id}/workspace`, server.url),
+    new URL(`/runner/sessions/${session.id}/workspace-removal`, server.url),
     {
       method: "POST",
       headers: {
@@ -1061,8 +1067,8 @@ test("keeps an archived Session's claim while its workspace is kept, until force
   expect((await sessionOf(session.id)).workspaceRemoval).toBe("kept");
   expect(api.claims.has(name)).toBe(true);
 
-  await server.api(`/api/sessions/${session.id}/remove-workspace`, {
-    body: {},
+  await server.api(`/api/sessions/${session.id}/workspace`, {
+    method: "DELETE",
   });
 
   await until(() => !api.claims.has(name));
@@ -1103,7 +1109,7 @@ test("replaces a runner pod whose spec names an older Pipoca image, keeping its 
 
   await sleep(200);
 
-  const work = await fetch(new URL("/agent/work", server.url), {
+  const work = await fetch(new URL("/runner/work", server.url), {
     method: "POST",
     headers: {
       [versionHeader]: String(protocolVersion),

@@ -341,7 +341,7 @@ export const logins: ServerPlugin = {
           providers: team
             ? teamProviders().map((provider) => ({
                 provider,
-                baseUrl: `${origin}/api/plugins/logins/proxy/${provider}`,
+                baseUrl: `${origin}/api/ext/logins/proxy/${provider}`,
               }))
             : [],
           ...(team && { token: tokens.issue(caller.session.id) }),

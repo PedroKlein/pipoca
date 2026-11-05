@@ -1,4 +1,5 @@
 import {
+  apiPath,
   type LiveEvent,
   liveSurface,
   type OpenedPage,
@@ -465,7 +466,7 @@ export function followEvents(
   reader: FeedReader,
   connect: (url: string) => EventStream,
 ): () => void {
-  const path = `/api/sessions/${encodeURIComponent(sessionId)}`;
+  const path = apiPath("sessions.get", { params: { id: sessionId } });
   let events: EventStream | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
   let failures = 0;
@@ -500,7 +501,10 @@ export function followEvents(
   };
 
   const follow = (): void => {
-    const stream = connect(`${path}/events`);
+    const stream = connect(
+      apiPath("sessions.events", { params: { id: sessionId } }),
+    );
+
     events = stream;
 
     stream.addEventListener("error", () => {

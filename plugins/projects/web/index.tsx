@@ -520,7 +520,7 @@ function ProfileSelect({
     useLoaded(
       async () =>
         json<Profile[]>(
-          context.request(team ? "/api/profiles?owner=team" : "/api/profiles"),
+          context.request(team ? "/api/profiles?scope=team" : "/api/profiles"),
         ),
       team ? "team-profiles" : "profiles",
       {
@@ -589,14 +589,14 @@ function CreateForm({
   const teamEnvironments =
     useLoaded(
       async () =>
-        json<Environment[]>(context.request("/api/environments?owner=team")),
+        json<Environment[]>(context.request("/api/environments?scope=team")),
       "team-environments",
       { topics: ["environments"] },
     ).value ?? [];
 
   const [teamProfile] =
     useLoaded(
-      async () => json<Profile[]>(context.request("/api/profiles?owner=team")),
+      async () => json<Profile[]>(context.request("/api/profiles?scope=team")),
       "team-profiles",
       { topics: ["profiles"] },
     ).value ?? [];
@@ -1292,8 +1292,12 @@ function ThreadMenu({
             run: () => {
               run(
                 context.request(
-                  `/api/sessions/${encodeURIComponent(thread.sessionId)}/archive`,
-                  { method: "POST" },
+                  `/api/sessions/${encodeURIComponent(thread.sessionId)}`,
+                  {
+                    method: "PATCH",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ archived: true }),
+                  },
                 ),
               );
             },
@@ -1560,8 +1564,12 @@ function ArchiveProject({
 
             ok(
               context.request(
-                `/api/sessions/${encodeURIComponent(project.coordinatorId)}/${archived ? "unarchive" : "archive"}`,
-                { method: "POST" },
+                `/api/sessions/${encodeURIComponent(project.coordinatorId)}`,
+                {
+                  method: "PATCH",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ archived: !archived }),
+                },
               ),
             ).then(onDone, (failure: unknown) => {
               setError(

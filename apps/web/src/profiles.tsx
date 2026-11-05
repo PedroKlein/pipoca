@@ -1,10 +1,11 @@
-import { json, useLoaded } from "@pipoca/plugins/web";
-import type {
-  ManifestEntry,
-  PiPackage,
-  Profile,
-  ProfileContent,
-  RepositorySource,
+import { useLoaded } from "@pipoca/plugins/web";
+import {
+  apiPath,
+  type ManifestEntry,
+  type PiPackage,
+  type Profile,
+  type ProfileContent,
+  type RepositorySource,
 } from "@pipoca/protocol";
 import {
   Badge,
@@ -29,7 +30,7 @@ import {
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import { api, send } from "./api";
+import { api } from "./api";
 import {
   type Kind,
   KindFiles,
@@ -56,6 +57,12 @@ function packageOf(text: string): unknown {
 const layerHashes = { base: ":base", defaults: ":defaults" } as const;
 
 type Layer = keyof typeof layerHashes;
+
+// Each layer's routes: the admin's base and each person's own.
+const layerRoutes = {
+  base: "settings.baseProfile",
+  defaults: "me.profileDefaults",
+} as const;
 
 const layerNames: Readonly<Record<Layer, string>> = {
   base: "Server base",
@@ -153,12 +160,12 @@ export function ProfilesPage({
                 team={team}
                 disabled={profile.source !== null}
                 onChange={(buildsOn) => {
-                  send(`/api/profiles/${profile.id}`, "PUT", { buildsOn }).then(
-                    onChange,
-                    (reason: unknown) => {
-                      alert(messageOf(reason));
-                    },
-                  );
+                  api("profiles.update", {
+                    params: { id: profile.id },
+                    body: { buildsOn },
+                  }).then(onChange, (reason: unknown) => {
+                    alert(messageOf(reason));
+                  });
                 }}
               />
             </span>
@@ -167,7 +174,7 @@ export function ProfilesPage({
       )}
       {profile && (
         <ProfileTabs
-          url={`/api/profiles/${profile.id}/files`}
+          url={apiPath("profiles.files", { params: { id: profile.id } })}
           hash={`${root}/${profile.id}`}
           tab={tab}
           overview={
@@ -204,7 +211,7 @@ export function ProfilesPage({
       {layer && (
         <ProfileTabs
           key={layer}
-          url={`/api/${layer}/files`}
+          url={apiPath(`${layerRoutes[layer]}.files`)}
           hash={`profiles/${layerHashes[layer]}`}
           tab={tab}
           overview={<LayerEditor layer={layer} />}
@@ -329,18 +336,22 @@ function Editor({
           ),
         );
 
-        await send(`/api/profiles/${profile.id}`, "PUT", changed);
+        await api("profiles.update", {
+          params: { id: profile.id },
+          body: changed,
+        });
+
         onSaved?.();
 
         return;
       }
 
-      const created = (await (
-        await api("/api/profiles", {
+      const created = await api("profiles.create", {
+        body: {
           ...body,
           ...(team ? { team: true } : { shared: form.get("shared") === "on" }),
-        })
-      ).json()) as Profile;
+        },
+      });
 
       location.hash = `${profilesPath(team)}/${created.id}`;
     });
@@ -395,7 +406,10 @@ function Editor({
             <Button
               onClick={() => {
                 run(async () => {
-                  await api(`/api/profiles/${profile.id}/default`, {});
+                  await api("profiles.update", {
+                    params: { id: profile.id },
+                    body: { isDefault: true },
+                  });
                 });
               }}
             >
@@ -404,7 +418,9 @@ function Editor({
           )}
           {profile && (
             <a
-              href={`/api/profiles/${profile.id}/export`}
+              href={apiPath("profiles.archive", {
+                params: { id: profile.id },
+              })}
               download
               className="inline-flex h-control items-center rounded-md px-3 text-ui font-medium text-fg-dim hover:bg-hover hover:text-fg"
             >
@@ -425,7 +441,10 @@ function Editor({
                   }
 
                   run(async () => {
-                    await send(`/api/profiles/${profile.id}`, "DELETE");
+                    await api("profiles.remove", {
+                      params: { id: profile.id },
+                    });
+
                     location.hash = profilesPath(profile.ownerId === "team");
                   });
                 });
@@ -694,7 +713,7 @@ function LayerEditor({
   readonly layer: Layer;
 }): ReactElement | null {
   const { value: content, reload } = useLoaded(
-    async () => json<ProfileContent>(fetch(`/api/${layer}`)),
+    async () => api(layerRoutes[layer]),
     layer,
     { topics: ["profiles"] },
   );
@@ -736,7 +755,9 @@ function LayerForm({
   const submit = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
 
-    send(`/api/${layer}`, "PUT", { packages: packages.map(packageOf) }).then(
+    api(`${layerRoutes[layer]}.update`, {
+      body: { packages: packages.map(packageOf) },
+    }).then(
       () => {
         setError(undefined);
         onSaved();
@@ -827,7 +848,9 @@ function Synced({
           disabled={busy}
           onClick={() => {
             act(async () => {
-              await api(`/api/profiles/${profile.id}/sync`, {});
+              await api("profiles.syncs.create", {
+                params: { id: profile.id },
+              });
             });
           }}
         >
@@ -837,9 +860,9 @@ function Synced({
           disabled={busy}
           onClick={() => {
             act(async () => {
-              const copy = await json<Profile>(
-                api(`/api/profiles/${profile.id}/copy`, {}),
-              );
+              const copy = await api("profiles.create", {
+                body: { from: profile.id },
+              });
 
               location.hash = `profiles/${copy.id}`;
             });
@@ -881,29 +904,29 @@ function Import({ onChange }: { readonly onChange: () => void }): ReactElement {
 
   const fromFile = async (file: File): Promise<Profile> => {
     if (file.name.endsWith(".json")) {
-      return json<Profile>(
-        api("/api/profiles/import", JSON.parse(await file.text())),
-      );
+      return api("profiles.create", { body: JSON.parse(await file.text()) });
     }
 
     const name = file.name.replace(/\.(tar\.gz|tgz)$/, "");
 
-    return json<Profile>(
-      fetch(`/api/profiles/import?name=${encodeURIComponent(name)}`, {
-        method: "POST",
-        headers: { "content-type": "application/gzip" },
-        body: file,
-      }),
-    );
+    return api("profiles.archives.create", {
+      query: { name },
+      headers: { "content-type": "application/gzip" },
+      body: file,
+    });
   };
 
   const fromFolder = async (picked: readonly File[]): Promise<Profile> => {
     const name = picked[0]?.webkitRelativePath.split("/")[0] ?? "Imported";
-    const profile = await json<Profile>(api("/api/profiles", { name }));
+    const profile = await api("profiles.create", { body: { name } });
 
-    await upload(`/api/profiles/${profile.id}/files`, picked, {
-      picked: true,
-    });
+    await upload(
+      apiPath("profiles.files", { params: { id: profile.id } }),
+      picked,
+      {
+        picked: true,
+      },
+    );
 
     return profile;
   };
@@ -953,9 +976,9 @@ function Import({ onChange }: { readonly onChange: () => void }): ReactElement {
             const repository = typeof url === "string" ? url.trim() : "";
 
             imported(async () => {
-              const { profiles } = await json<{
-                readonly profiles: readonly ManifestEntry[];
-              }>(api("/api/profiles/listed", { url: repository }));
+              const { profiles } = await api("repositories.manifest", {
+                query: { url: repository },
+              });
 
               if (profiles.length > 0) {
                 setListed({ url: repository, profiles });
@@ -963,9 +986,9 @@ function Import({ onChange }: { readonly onChange: () => void }): ReactElement {
                 return undefined;
               }
 
-              return json<Profile>(
-                api("/api/profiles/import", { url: repository }),
-              );
+              return api("profiles.create", {
+                body: { source: { url: repository } },
+              });
             });
           }}
           className="flex flex-col gap-1.5"
@@ -990,18 +1013,23 @@ function Import({ onChange }: { readonly onChange: () => void }): ReactElement {
               const paths = new FormData(event.currentTarget).getAll("path");
 
               imported(async () => {
-                const { profiles } = await json<{
-                  readonly profiles: readonly Profile[];
-                }>(api("/api/profiles/import", { url: listed.url, paths }));
-
-                setListed(undefined);
-
-                const [first] = profiles;
-                if (!first) {
+                if (paths.length === 0) {
                   throw new Error("Pick at least one Profile.");
                 }
 
-                return first;
+                const profiles = await Promise.all(
+                  paths
+                    .flatMap((path) => (typeof path === "string" ? [path] : []))
+                    .map(async (path) =>
+                      api("profiles.create", {
+                        body: { source: { url: listed.url, path } },
+                      }),
+                    ),
+                );
+
+                setListed(undefined);
+
+                return profiles[0];
               });
             }}
             className="flex flex-col gap-2"

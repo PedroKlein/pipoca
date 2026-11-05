@@ -1,5 +1,6 @@
-import type { Presence } from "@pipoca/protocol";
+import { apiPath, type Presence } from "@pipoca/protocol";
 import { type ReactElement, useEffect, useRef, useState } from "react";
+import { api } from "./api";
 import { useTeammates } from "./hooks";
 
 const typingEveryMs = 3000;
@@ -18,7 +19,7 @@ export function usePresence(
     }
 
     const stream = new EventSource(
-      `/api/sessions/${encodeURIComponent(sessionId)}/presence`,
+      apiPath("sessions.presence", { params: { id: sessionId } }),
     );
 
     stream.addEventListener("message", (event: MessageEvent<string>) => {
@@ -47,8 +48,8 @@ export function useTyping(sessionId: string, team: boolean): () => void {
 
     last.current = now;
 
-    void fetch(`/api/sessions/${encodeURIComponent(sessionId)}/presence`, {
-      method: "POST",
+    void api("sessions.presence.typing", {
+      params: { id: sessionId },
     }).catch(() => undefined);
   };
 }

@@ -119,7 +119,7 @@ test("a compiled server sends requests with a Copilot OAuth login", async () => 
   );
 
   try {
-    const saved = await fetch(new URL("/api/plugins/logins/save", url), {
+    const saved = await fetch(new URL("/api/ext/logins/save", url), {
       method: "POST",
       headers: { "content-type": "application/json", cookie },
       body: JSON.stringify({

@@ -45,9 +45,9 @@ test("runs the guide's example plugin with all three parts", async () => {
   expect(greeter?.error).toBeUndefined();
   expect((await server.api(greeter?.webPart ?? "/missing")).status).toBe(200);
 
-  expect(
-    await (await server.api("/api/plugins/greeter/greeting")).json(),
-  ).toEqual({ greeting: "Hello" });
+  expect(await (await server.api("/api/ext/greeter/greeting")).json()).toEqual({
+    greeting: "Hello",
+  });
 
   await server.api("/api/plugins/greeter", {
     method: "PATCH",
@@ -56,13 +56,13 @@ test("runs the guide's example plugin with all three parts", async () => {
     },
   });
 
-  expect(
-    await (await server.api("/api/plugins/greeter/greeting")).json(),
-  ).toEqual({ greeting: "Hi" });
+  expect(await (await server.api("/api/ext/greeter/greeting")).json()).toEqual({
+    greeting: "Hi",
+  });
 });
 
 test("answers the example's unknown routes with the server's 404", async () => {
-  const missing = await server.api("/api/plugins/greeter/farewell");
+  const missing = await server.api("/api/ext/greeter/farewell");
 
   expect(missing.status).toBe(404);
 

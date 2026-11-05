@@ -63,10 +63,10 @@ async function write(
   path: string,
   content: string,
 ): Promise<Response> {
-  return server.api(`/api/plugin-files/${plugin}`, {
-    method: "PUT",
-    body: { path, content },
-  });
+  return server.api(
+    `/api/plugins/${plugin}/files/${encodeURIComponent(path)}`,
+    { method: "PUT", body: { content } },
+  );
 }
 
 async function errorOf(response: Promise<Response>): Promise<string> {
@@ -125,15 +125,13 @@ test("writes a new plugin turned off, and lists and reads its files", async () =
 
   await write("hello", "src/util.ts", "export const two = 2;\n");
 
-  expect(await (await server.api("/api/plugin-files/hello")).json()).toEqual([
+  expect(await (await server.api("/api/plugins/hello/files")).json()).toEqual([
     "package.json",
     "src/util.ts",
   ]);
 
   expect(
-    await (
-      await server.api("/api/plugin-files/hello?path=src%2Futil.ts")
-    ).json(),
+    await (await server.api("/api/plugins/hello/files/src%2Futil.ts")).json(),
   ).toEqual({ path: "src/util.ts", content: "export const two = 2;\n" });
 });
 
@@ -147,19 +145,19 @@ test("builds a plugin turned off without running it, and says why one doesn't bu
     `${serverPart}\nawait Bun.write(${JSON.stringify(join(root, "ran"))}, "");`,
   );
 
-  const built = await server.api("/api/plugin-builds/hello", {
+  const built = await server.api("/api/plugins/hello/builds", {
     method: "POST",
   });
 
-  expect(built.status).toBe(200);
+  expect(built.status).toBe(201);
   expect(await exists(join(plugins, "hello", ".build"))).toBe(true);
   expect(await exists(join(root, "ran"))).toBe(false);
-  expect((await server.api("/api/plugins/hello/")).status).toBe(404);
+  expect((await server.api("/api/ext/hello/")).status).toBe(404);
 
   await write("hello", "server.ts", "export default {");
 
   expect(
-    await errorOf(server.api("/api/plugin-builds/hello", { method: "POST" })),
+    await errorOf(server.api("/api/plugins/hello/builds", { method: "POST" })),
   ).toContain("doesn't build");
 });
 
@@ -197,11 +195,11 @@ test("finishes a build that takes longer than the server's idle timeout", async 
 
   await write("hello", "server.ts", serverPart);
 
-  const built = await server.api("/api/plugin-builds/hello", {
+  const built = await server.api("/api/plugins/hello/builds", {
     method: "POST",
   });
 
-  expect(built.status).toBe(200);
+  expect(built.status).toBe(201);
 }, 30_000);
 
 test("won't build a plugin with no parts, since it would do nothing", async () => {
@@ -209,7 +207,7 @@ test("won't build a plugin with no parts, since it would do nothing", async () =
   await write("hello", "package.json", manifest({}));
 
   expect(
-    await errorOf(server.api("/api/plugin-builds/hello", { method: "POST" })),
+    await errorOf(server.api("/api/plugins/hello/builds", { method: "POST" })),
   ).toContain("no parts");
 });
 
@@ -232,7 +230,7 @@ test("builds without running a macro, which would run the plugin's code", async 
   );
 
   expect(
-    await errorOf(server.api("/api/plugin-builds/hello", { method: "POST" })),
+    await errorOf(server.api("/api/plugins/hello/builds", { method: "POST" })),
   ).toContain("Macros are disabled");
 
   await new Promise((resolve) => setTimeout(resolve, 100));
@@ -293,7 +291,7 @@ test("changes only plugins turned off that are its own to change", async () => {
   });
 
   expect(
-    await errorOf(server.api("/api/plugin-builds/hello", { method: "POST" })),
+    await errorOf(server.api("/api/plugins/hello/builds", { method: "POST" })),
   ).toContain("running");
 
   expect(await errorOf(write("projects", "x.ts", "x"))).toContain("built-in");
@@ -343,7 +341,7 @@ test("writes a new plugin turned off even when a removed one of its id was on", 
   await write("hello", "server.ts", serverPart);
   await start();
 
-  expect((await server.api("/api/plugins/hello/")).status).toBe(404);
+  expect((await server.api("/api/ext/hello/")).status).toBe(404);
 });
 
 test("won't turn on a plugin that changed since the user saw it", async () => {
@@ -438,7 +436,9 @@ test("won't build a plugin whose install would reach outside its folder", async 
     );
 
     expect(
-      await errorOf(server.api("/api/plugin-builds/hello", { method: "POST" })),
+      await errorOf(
+        server.api("/api/plugins/hello/builds", { method: "POST" }),
+      ),
     ).toMatch(/can't have|not from elsewhere/);
   }
 
@@ -446,7 +446,7 @@ test("won't build a plugin whose install would reach outside its folder", async 
   await write("hello", "bunfig.toml", "[install]\n");
 
   expect(
-    await errorOf(server.api("/api/plugin-builds/hello", { method: "POST" })),
+    await errorOf(server.api("/api/plugins/hello/builds", { method: "POST" })),
   ).toContain("bunfig.toml");
 });
 
@@ -465,11 +465,11 @@ test("builds only plugins of its own folder", async () => {
   await start();
 
   expect(
-    await errorOf(server.api("/api/plugin-builds/linked", { method: "POST" })),
+    await errorOf(server.api("/api/plugins/linked/builds", { method: "POST" })),
   ).toContain("elsewhere");
 
   expect(
-    await errorOf(server.api("/api/plugin-builds/pinned", { method: "POST" })),
+    await errorOf(server.api("/api/plugins/pinned/builds", { method: "POST" })),
   ).toContain("updating");
 
   expect(await exists(join(root, "elsewhere", ".build"))).toBe(false);
@@ -482,7 +482,7 @@ test("leaves no folder behind for a write it refuses, nor reads one that isn't a
   expect((await write("fresh", "../x", "x")).status).toBe(400);
   expect(await exists(join(plugins, "fresh"))).toBe(false);
 
-  expect((await server.api("/api/plugin-files/.install-left")).status).toBe(
+  expect((await server.api("/api/plugins/.install-left/files")).status).toBe(
     400,
   );
 });
@@ -493,10 +493,10 @@ test("answers not found for a plugin or file that isn't there", async () => {
 
   const statuses = await Promise.all(
     [
-      ["GET", "/api/plugin-files/nope"],
-      ["GET", "/api/plugin-files/nope?path=server.ts"],
-      ["POST", "/api/plugin-builds/nope"],
-      ["GET", "/api/plugin-files/hello?path=server.ts"],
+      ["GET", "/api/plugins/nope/files"],
+      ["GET", "/api/plugins/nope/files/server.ts"],
+      ["POST", "/api/plugins/nope/builds"],
+      ["GET", "/api/plugins/hello/files/server.ts"],
     ].map(
       async ([method = "", path = ""]) =>
         (await server.api(path, { method })).status,
@@ -517,7 +517,7 @@ test("lets only an admin write or build a plugin's files", async () => {
 
   const refused = await Promise.all([
     write("hello", "server.ts", "export default {};"),
-    server.api("/api/plugin-builds/hello", { method: "POST" }),
+    server.api("/api/plugins/hello/builds", { method: "POST" }),
   ]);
 
   expect(refused.map(({ status }) => status)).toEqual([403, 403]);

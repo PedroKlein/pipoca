@@ -1,4 +1,4 @@
-import type { JoinInfo } from "@pipoca/protocol";
+import { ApiError, type JoinInfo } from "@pipoca/protocol";
 import {
   Avatar,
   Button,
@@ -25,16 +25,14 @@ export function JoinPage({ token }: { readonly token: string }): ReactElement {
   const [error, setError] = useState<string>();
 
   useEffect(() => {
-    fetch(`/api/auth/join/${encodeURIComponent(token)}`)
-      .then(async (response) => {
-        const body = (await response.json()) as JoinInfo & {
-          readonly message?: string;
-        };
-
-        setInfo(response.ok ? body : (body.message ?? "This invite is gone."));
-      })
-      .catch(() => {
-        setInfo("The server can't be reached. Reload to try again.");
+    api("auth.invite", { params: { token } })
+      .then(setInfo)
+      .catch((reason: unknown) => {
+        setInfo(
+          reason instanceof ApiError
+            ? reason.message
+            : "The server can't be reached. Reload to try again.",
+        );
       });
   }, [token]);
 
@@ -48,9 +46,9 @@ export function JoinPage({ token }: { readonly token: string }): ReactElement {
       return typeof value === "string" ? value : "";
     };
 
-    api(`/api/auth/join/${encodeURIComponent(token)}`, {
-      name: text("name"),
-      password: text("password"),
+    api("auth.invite.accept", {
+      params: { token },
+      body: { name: text("name"), password: text("password") },
     }).then(
       () => {
         location.replace("/");

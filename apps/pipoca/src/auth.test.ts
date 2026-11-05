@@ -96,7 +96,7 @@ test("refuses the API and terminals without a signed-in browser", async () => {
   const others = [
     (await server.as()("/api/sessions/any/events")).status,
     (await server.as()("/api/profiles")).status,
-    (await server.as()("/api/plugins/projects/projects")).status,
+    (await server.as()("/api/ext/projects/projects")).status,
     (await server.as()("/api/sessions", { body: {} })).status,
   ];
 
@@ -121,15 +121,15 @@ test("refuses the API and terminals without a signed-in browser", async () => {
 test("signs in with a password and out again", async () => {
   await setUp();
 
-  const wrong = await server.as()("/api/auth/login", {
+  const wrong = await server.as()("/api/auth/session", {
     body: { ...pedro, password: "nope" },
   });
 
-  const unknown = await server.as()("/api/auth/login", {
+  const unknown = await server.as()("/api/auth/session", {
     body: { ...pedro, name: "ana" },
   });
 
-  const signedIn = await server.as()("/api/auth/login", { body: pedro });
+  const signedIn = await server.as()("/api/auth/session", { body: pedro });
   const cookie = cookieOf(signedIn);
 
   expect([wrong.status, unknown.status, signedIn.status]).toEqual([
@@ -138,8 +138,8 @@ test("signs in with a password and out again", async () => {
 
   expect((await server.as(cookie)("/api/sessions")).status).toBe(200);
 
-  const out = await server.as()("/api/auth/logout", {
-    body: {},
+  const out = await server.as()("/api/auth/session", {
+    method: "DELETE",
     headers: { cookie },
   });
 
@@ -158,7 +158,7 @@ test("keeps a user's name without the spaces around it, and signs in with or wit
 
   const signedIn = await Promise.all(
     ["pedro", " pedro "].map(async (name) =>
-      server.as()("/api/auth/login", { body: { ...pedro, name } }),
+      server.as()("/api/auth/session", { body: { ...pedro, name } }),
     ),
   );
 
@@ -180,13 +180,13 @@ test("locks a name after repeated failed sign-ins from one address, but not from
   await behindProxy();
 
   for (let attempt = 0; attempt < 10; attempt++) {
-    await server.as()("/api/auth/login", {
+    await server.as()("/api/auth/session", {
       body: { ...pedro, password: "nope" },
       headers: from("203.0.113.1"),
     });
   }
 
-  const here = await server.as()("/api/auth/login", {
+  const here = await server.as()("/api/auth/session", {
     body: pedro,
     headers: from("203.0.113.1"),
   });
@@ -198,7 +198,7 @@ test("locks a name after repeated failed sign-ins from one address, but not from
     message: "Too many failed sign-ins. Try again in 15 minutes.",
   });
 
-  const elsewhere = await server.as()("/api/auth/login", {
+  const elsewhere = await server.as()("/api/auth/session", {
     body: pedro,
     headers: from("203.0.113.2"),
   });
@@ -211,7 +211,7 @@ test("locks an address after failed sign-ins for many names", async () => {
 
   const guesses = await Promise.all(
     Array.from({ length: 50 }, async (_, attempt) =>
-      server.as()("/api/auth/login", {
+      server.as()("/api/auth/session", {
         body: { name: `guess-${String(attempt)}`, password: "nope" },
         headers: from("203.0.113.1"),
       }),
@@ -224,7 +224,7 @@ test("locks an address after failed sign-ins for many names", async () => {
 
   expect(
     (
-      await server.as()("/api/auth/login", {
+      await server.as()("/api/auth/session", {
         body: pedro,
         headers: from("203.0.113.1"),
       })
@@ -233,7 +233,7 @@ test("locks an address after failed sign-ins for many names", async () => {
 
   expect(
     (
-      await server.as()("/api/auth/login", {
+      await server.as()("/api/auth/session", {
         body: pedro,
         headers: from("203.0.113.2"),
       })
@@ -245,7 +245,7 @@ test("ignores a forwarded address unless the server trusts its proxy", async () 
   await setUp();
 
   for (let attempt = 0; attempt < 10; attempt++) {
-    await server.as()("/api/auth/login", {
+    await server.as()("/api/auth/session", {
       body: { ...pedro, password: "nope" },
       headers: from(`203.0.113.${String(attempt)}`),
     });
@@ -253,7 +253,7 @@ test("ignores a forwarded address unless the server trusts its proxy", async () 
 
   expect(
     (
-      await server.as()("/api/auth/login", {
+      await server.as()("/api/auth/session", {
         body: pedro,
         headers: from("203.0.113.99"),
       })
@@ -266,7 +266,7 @@ test("locks a name after failed sign-ins sent all at once", async () => {
 
   const guesses = await Promise.all(
     Array.from({ length: 30 }, async (_, attempt) =>
-      server.as()("/api/auth/login", {
+      server.as()("/api/auth/session", {
         body: attempt < 29 ? { ...pedro, password: "nope" } : pedro,
       }),
     ),
@@ -280,10 +280,10 @@ test("doesn't lock a user over failed sign-ins for other names", async () => {
   await setUp();
 
   for (let attempt = 0; attempt < 10; attempt++) {
-    await server.as()("/api/auth/login", { body: { ...pedro, name: "ana" } });
+    await server.as()("/api/auth/session", { body: { ...pedro, name: "ana" } });
   }
 
-  expect((await server.as()("/api/auth/login", { body: pedro })).status).toBe(
+  expect((await server.as()("/api/auth/session", { body: pedro })).status).toBe(
     200,
   );
 });
@@ -291,7 +291,7 @@ test("doesn't lock a user over failed sign-ins for other names", async () => {
 test("marks the cookie Secure behind an HTTPS gateway", async () => {
   await setUp();
 
-  const signedIn = await server.as()("/api/auth/login", {
+  const signedIn = await server.as()("/api/auth/session", {
     body: pedro,
     headers: {
       "x-forwarded-proto": "https",
@@ -343,7 +343,7 @@ test("refuses passwords when only single sign-on is on, but keeps the setup link
     },
   });
 
-  const login = await server.as()("/api/auth/login", { body: pedro });
+  const login = await server.as()("/api/auth/session", { body: pedro });
 
   expect([created.status, login.status]).toEqual([201, 403]);
 

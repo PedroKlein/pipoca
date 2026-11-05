@@ -52,7 +52,7 @@ async function addProvider(
   issuer: string,
   more: Record<string, unknown> = {},
 ): Promise<string> {
-  const added = await server.api("/api/plugins/oidc/providers", {
+  const added = await server.api("/api/ext/oidc/providers", {
     body: providerInput(issuer, more),
   });
 
@@ -62,7 +62,7 @@ async function addProvider(
 }
 
 async function configure(more: Record<string, unknown>): Promise<Response> {
-  const saved = await server.api(`/api/plugins/oidc/providers/${providerId}`, {
+  const saved = await server.api(`/api/ext/oidc/providers/${providerId}`, {
     body: providerInput(provider.issuer, more),
   });
 
@@ -90,7 +90,7 @@ async function signIn(
   options: { start?: string; cookie?: string; browser?: string } = {},
 ): Promise<{ readonly response: Response; readonly cookie: string }> {
   const started = await server.as(options.cookie ?? "")(
-    options.start ?? `/api/plugins/oidc/start/${providerId}`,
+    options.start ?? `/api/ext/oidc/start/${providerId}`,
     { redirect: "manual" },
   );
 
@@ -128,7 +128,7 @@ test("offers the provider on the sign-in page once it is set up", async () => {
   expect(status.logins).toEqual([
     {
       label: "Sign in with IAS",
-      path: `/api/plugins/oidc/start/${providerId}`,
+      path: `/api/ext/oidc/start/${providerId}`,
     },
   ]);
 });
@@ -149,7 +149,7 @@ test("offers a button for each provider and signs in through any of them", async
     google.next = { ...ana, sub: "google-ana", email_verified: true };
 
     const started = await fetch(
-      new URL(`/api/plugins/oidc/start/${googleId}`, server.url),
+      new URL(`/api/ext/oidc/start/${googleId}`, server.url),
       { redirect: "manual" },
     );
 
@@ -180,7 +180,7 @@ test("offers a button for each provider and signs in through any of them", async
 test("keeps a client secret out of the page, sends it to the provider, and takes it away", async () => {
   const set = await configure({ clientSecret: "s3cret value" });
   const file = readFileSync(join(configDir, "pipoca.json"), "utf8");
-  const listed = await server.api("/api/plugins/oidc/providers");
+  const listed = await server.api("/api/ext/oidc/providers");
 
   await signIn(ana);
   const kept = await configure({ clientSecret: "" });
@@ -207,14 +207,14 @@ test("lets only admins see and change providers", async () => {
   const { cookie } = await signIn(ana);
 
   const statuses = [
-    (await server.as(cookie)("/api/plugins/oidc/providers")).status,
+    (await server.as(cookie)("/api/ext/oidc/providers")).status,
     (
-      await server.as(cookie)("/api/plugins/oidc/providers", {
+      await server.as(cookie)("/api/ext/oidc/providers", {
         body: providerInput(provider.issuer),
       })
     ).status,
     (
-      await server.as(cookie)(`/api/plugins/oidc/providers/${providerId}`, {
+      await server.as(cookie)(`/api/ext/oidc/providers/${providerId}`, {
         method: "DELETE",
       })
     ).status,
@@ -228,7 +228,7 @@ test("refuses a provider without an issuer URL or a client ID", async () => {
     [{ issuer: "not a url" }, { clientId: "" }].map(
       async (more) =>
         (
-          await server.api("/api/plugins/oidc/providers", {
+          await server.api("/api/ext/oidc/providers", {
             body: providerInput(provider.issuer, more),
           })
         ).status,
@@ -239,17 +239,16 @@ test("refuses a provider without an issuer URL or a client ID", async () => {
 });
 
 test("stops offering a provider once it is removed", async () => {
-  const removed = await server.api(
-    `/api/plugins/oidc/providers/${providerId}`,
-    { method: "DELETE" },
-  );
+  const removed = await server.api(`/api/ext/oidc/providers/${providerId}`, {
+    method: "DELETE",
+  });
 
   const status = (await (
     await fetch(new URL("/api/auth", server.url))
   ).json()) as { logins: unknown[] };
 
   const start = await fetch(
-    new URL(`/api/plugins/oidc/start/${providerId}`, server.url),
+    new URL(`/api/ext/oidc/start/${providerId}`, server.url),
     { redirect: "manual" },
   );
 
@@ -312,14 +311,14 @@ test("signs in through a provider written into the file by hand, with its secret
   ).json()) as { logins: unknown };
 
   const { cookie } = await signIn(ana, {
-    start: "/api/plugins/oidc/start/sap",
+    start: "/api/ext/oidc/start/sap",
   });
 
-  const listed = await server.api("/api/plugins/oidc/providers");
+  const listed = await server.api("/api/ext/oidc/providers");
 
   expect(status.logins).toEqual([
-    { label: "Sign in with IAS", path: "/api/plugins/oidc/start/ias" },
-    { label: "Sign in with SAP", path: "/api/plugins/oidc/start/sap" },
+    { label: "Sign in with IAS", path: "/api/ext/oidc/start/ias" },
+    { label: "Sign in with SAP", path: "/api/ext/oidc/start/sap" },
   ]);
 
   expect(await userOf(cookie)).toMatchObject({ name: "ana@example.com" });
@@ -378,7 +377,7 @@ test("keeps the last providers that fit while the file is broken, and won't over
     await fetch(new URL("/api/auth", server.url))
   ).json()) as { logins: unknown[] };
 
-  const added = await server.api("/api/plugins/oidc/providers", {
+  const added = await server.api("/api/ext/oidc/providers", {
     body: providerInput(provider.issuer, { label: "Sign in with Google" }),
   });
 
@@ -409,7 +408,7 @@ test("won't save over providers edited by hand into a list that doesn't fit", as
 
   const edited = readFileSync(join(configDir, "pipoca.json"), "utf8");
 
-  const added = await server.api("/api/plugins/oidc/providers", {
+  const added = await server.api("/api/ext/oidc/providers", {
     body: providerInput(provider.issuer, { label: "Sign in with Google" }),
   });
 
@@ -526,7 +525,7 @@ test("reads the admin group again on every sign-in", async () => {
   const first = await signIn(account);
 
   const save = async (cookie: string): Promise<number> =>
-    (await server.as(cookie)("/api/plugins/oidc/providers")).status;
+    (await server.as(cookie)("/api/ext/oidc/providers")).status;
 
   const asAdmin = await save(first.cookie);
 
@@ -600,7 +599,7 @@ test("lets in whoever follows an invite link through the provider", async () => 
   ).json()) as { token: string }[];
 
   const joining = (await (
-    await fetch(new URL(`/api/auth/join/${link?.token ?? ""}`, server.url))
+    await fetch(new URL(`/api/auth/invites/${link?.token ?? ""}`, server.url))
   ).json()) as { logins: { path: string }[] };
 
   const { cookie } = await signIn(outsider, {
@@ -608,7 +607,7 @@ test("lets in whoever follows an invite link through the provider", async () => 
   });
 
   expect(joining.logins[0]?.path).toBe(
-    `/api/plugins/oidc/start/${providerId}?join=${link?.token ?? ""}`,
+    `/api/ext/oidc/start/${providerId}?join=${link?.token ?? ""}`,
   );
 
   expect(await userOf(cookie)).toMatchObject({ admin: false });
@@ -630,7 +629,7 @@ test("only admins change plugins or restart the server", async () => {
       })
     ).status,
     (await server.as(cookie)("/api/plugins/oidc", { method: "DELETE" })).status,
-    (await server.as(cookie)("/api/restart", { body: {} })).status,
+    (await server.as(cookie)("/api/server/restart", { body: {} })).status,
   ];
 
   expect(statuses).toEqual([403, 403, 403, 403]);
@@ -640,10 +639,10 @@ test("only admins change a template's Kubernetes settings", async () => {
   const { cookie } = await signIn(ana);
 
   const template = (await (
-    await server.api("/api/templates", { body: { name: "pods" } })
+    await server.api("/api/environment-templates", { body: { name: "pods" } })
   ).json()) as { id: string };
 
-  const path = `/api/plugins/kubernetes/templates/${template.id}`;
+  const path = `/api/ext/kubernetes/templates/${template.id}`;
   const patch = { spec: { volumes: [{ name: "key", secret: {} }] } };
 
   const statuses = [
@@ -661,12 +660,12 @@ test("only admins change a template's Kubernetes settings", async () => {
 test("only admins change model aliases, and anyone changes a Project's goal", async () => {
   const { cookie } = await signIn(ana);
 
-  const { environment } = (await (
+  const environment = (await (
     await server.as(cookie)("/api/environments", { body: { name: "laptop" } })
-  ).json()) as { environment: { id: string } };
+  ).json()) as { id: string };
 
   const project = (await (
-    await server.as(cookie)("/api/plugins/projects/projects", {
+    await server.as(cookie)("/api/ext/projects/projects", {
       body: {
         name: "Release",
         repositories: ["https://example.com/app.git"],
@@ -674,8 +673,8 @@ test("only admins change model aliases, and anyone changes a Project's goal", as
     })
   ).json()) as { id: string };
 
-  const aliases = `/api/plugins/models/environments/${environment.id}`;
-  const settings = `/api/plugins/projects/projects/${project.id}/settings`;
+  const aliases = `/api/ext/models/environments/${environment.id}`;
+  const settings = `/api/ext/projects/projects/${project.id}/settings`;
 
   const statuses = [
     (await server.as(cookie)(aliases, { body: { aliases: null } })).status,
@@ -697,7 +696,7 @@ test("lets a password user link their account and sign in with it", async () => 
   const linked = await signIn(
     { ...ana, email: "pedro@example.com" },
     {
-      start: `/api/plugins/oidc/link/${providerId}`,
+      start: `/api/ext/oidc/link/${providerId}`,
       cookie: await server.signedIn(),
     },
   );
@@ -710,7 +709,7 @@ test("lets a password user link their account and sign in with it", async () => 
     user: unknown;
   };
 
-  const account = await server.api("/api/plugins/oidc/account");
+  const account = await server.api("/api/ext/oidc/account");
 
   expect(status.user).toMatchObject({ name: "pedro", admin: true });
 
@@ -732,7 +731,7 @@ test("lets a password user link their account and sign in with it", async () => 
   });
 
   const unlinked = await server.api(
-    `/api/plugins/oidc/identities/${encodeURIComponent(provider.issuer)}`,
+    `/api/ext/oidc/identities/${encodeURIComponent(provider.issuer)}`,
     { method: "DELETE" },
   );
 
@@ -751,7 +750,7 @@ test("fails a sign-in with a page while discovery isn't JSON, and discovers agai
   provider.broken = true;
 
   const failed = await fetch(
-    new URL(`/api/plugins/oidc/start/${providerId}`, server.url),
+    new URL(`/api/ext/oidc/start/${providerId}`, server.url),
     { redirect: "manual" },
   );
 
@@ -766,7 +765,7 @@ test("fails a sign-in with a page while discovery isn't JSON, and discovers agai
 
 test("fails a sign-in with a page when the token endpoint can't be reached", async () => {
   const started = await fetch(
-    new URL(`/api/plugins/oidc/start/${providerId}`, server.url),
+    new URL(`/api/ext/oidc/start/${providerId}`, server.url),
     { redirect: "manual" },
   );
 
@@ -789,7 +788,7 @@ test("fails a sign-in with a page when the provider can't be reached", async () 
   await provider.stop();
 
   const failed = await fetch(
-    new URL(`/api/plugins/oidc/start/${providerId}`, server.url),
+    new URL(`/api/ext/oidc/start/${providerId}`, server.url),
     { redirect: "manual" },
   );
 
@@ -899,7 +898,7 @@ function fakeProvider(): {
 test("tells admins how many people signed in with each provider this week", async () => {
   const listed = async (): Promise<unknown> =>
     (
-      (await (await server.api("/api/plugins/oidc/providers")).json()) as {
+      (await (await server.api("/api/ext/oidc/providers")).json()) as {
         signedInThisWeek: number;
       }[]
     )[0]?.signedInThisWeek;
@@ -915,7 +914,7 @@ test("tells admins how many people signed in with each provider this week", asyn
 test("tests whether the server reaches a provider", async () => {
   const tested = async (id: string): Promise<unknown> =>
     (
-      await server.api(`/api/plugins/oidc/providers/${id}/test`, {
+      await server.api(`/api/ext/oidc/providers/${id}/test`, {
         method: "POST",
       })
     ).json();
@@ -932,7 +931,7 @@ test("tests whether the server reaches a provider", async () => {
 
 test("tells admins whether passwords still sign people in", async () => {
   const account = (await (
-    await server.api("/api/plugins/oidc/account")
+    await server.api("/api/ext/oidc/account")
   ).json()) as { passwordLogin: boolean };
 
   expect(account.passwordLogin).toBe(true);

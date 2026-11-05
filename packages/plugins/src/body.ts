@@ -123,6 +123,35 @@ function misfit(errors: readonly Failure[]): Misfit {
     )
     .map(({ params }) => String(Reflect.get(params, "type")));
 
+  // Fields a shape doesn't take, for shapes that take only their own.
+  const unknown = branches.map((branch) =>
+    inside
+      .filter(
+        (error) =>
+          branchOf(error) === branch &&
+          error.keyword === "additionalProperties" &&
+          error.instancePath === union.instancePath,
+      )
+      .flatMap(({ params }) => {
+        const names: unknown = Reflect.get(params, "additionalProperties");
+
+        return Array.isArray(names) ? (names as unknown[]) : [names];
+      }),
+  );
+
+  // With no field that tells the shapes apart, the body meant the first
+  // shape it misses the fewest fields of and has the fewest fields too many
+  // for.
+  const distances = branches.map(
+    (_, at) => (missing[at]?.length ?? 0) + (unknown[at]?.length ?? 0),
+  );
+
+  const closest = branches[distances.indexOf(Math.min(...distances))];
+
+  if (tags.length === 0 && types.length === 0 && closest !== undefined) {
+    return misfit(inside.filter((error) => branchOf(error) === closest));
+  }
+
   return {
     instancePath: union.instancePath,
     message:

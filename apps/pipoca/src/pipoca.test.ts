@@ -148,7 +148,7 @@ async function environmentOf(provider: string): Promise<string> {
 
   let found = await find();
   if (!found) {
-    await asAgent(provider, "/agent/work", {
+    await asAgent(provider, "/runner/work", {
       running: [],
       folders: [],
       models: [],
@@ -687,13 +687,17 @@ test("keeps transcript lines once and in order across resends", async () => {
   const session = await createSession("vm");
 
   const work = (await (
-    await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] })
+    await asAgent("vm", "/runner/work", {
+      running: [],
+      folders: [],
+      models: [],
+    })
   ).json()) as {
     start: { generation: number }[];
   };
 
   const generation = work.start[0]?.generation;
-  const path = `/agent/sessions/${session.id}/transcript`;
+  const path = `/runner/sessions/${session.id}/transcript`;
 
   const first = await asAgent("vm", path, {
     generation,
@@ -729,13 +733,17 @@ test("titles a session with its first user message until Pi names it", async () 
   const session = await createSession("vm");
 
   const work = (await (
-    await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] })
+    await asAgent("vm", "/runner/work", {
+      running: [],
+      folders: [],
+      models: [],
+    })
   ).json()) as {
     start: { generation: number }[];
   };
 
   const generation = work.start[0]?.generation;
-  const path = `/agent/sessions/${session.id}/transcript`;
+  const path = `/runner/sessions/${session.id}/transcript`;
 
   const titled = async (): Promise<string | null> =>
     (
@@ -785,7 +793,11 @@ test("follows the model Pi switches a session to", async () => {
   const session = await createSession("vm");
 
   const work = (await (
-    await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] })
+    await asAgent("vm", "/runner/work", {
+      running: [],
+      folders: [],
+      models: [],
+    })
   ).json()) as {
     start: { generation: number }[];
   };
@@ -799,7 +811,7 @@ test("follows the model Pi switches a session to", async () => {
 
   const before = await model();
 
-  await asAgent("vm", `/agent/sessions/${session.id}/transcript`, {
+  await asAgent("vm", `/runner/sessions/${session.id}/transcript`, {
     generation: work.start[0]?.generation,
     start: 0,
     lines: [
@@ -827,13 +839,17 @@ test("keeps the last character whole when it shortens a long title", async () =>
   const session = await createSession("vm");
 
   const work = (await (
-    await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] })
+    await asAgent("vm", "/runner/work", {
+      running: [],
+      folders: [],
+      models: [],
+    })
   ).json()) as {
     start: { generation: number }[];
   };
 
   const generation = work.start[0]?.generation;
-  const path = `/agent/sessions/${session.id}/transcript`;
+  const path = `/runner/sessions/${session.id}/transcript`;
 
   const titled = async (): Promise<string | null> =>
     (
@@ -881,11 +897,11 @@ test("keeps the last character whole when it shortens a long title", async () =>
 
 test("drops messages from an older generation", async () => {
   const session = await createSession("vm");
-  await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] });
+  await asAgent("vm", "/runner/work", { running: [], folders: [], models: [] });
 
   const stale = await asAgent(
     "vm",
-    `/agent/sessions/${session.id}/transcript`,
+    `/runner/sessions/${session.id}/transcript`,
     {
       generation: 0,
       start: 0,
@@ -906,7 +922,7 @@ test("drops transcript lines for a session no attempt has claimed", async () => 
 
   const early = await asAgent(
     "vm",
-    `/agent/sessions/${session.id}/transcript`,
+    `/runner/sessions/${session.id}/transcript`,
     { generation: 0, start: 0, lines: ["early"] },
   );
 
@@ -917,15 +933,23 @@ test("keeps transcript lines the current attempt sends after its session is arch
   const session = await createSession("vm");
 
   const work = (await (
-    await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] })
+    await asAgent("vm", "/runner/work", {
+      running: [],
+      folders: [],
+      models: [],
+    })
   ).json()) as {
     start: { generation: number }[];
   };
 
   const generation = work.start[0]?.generation ?? 0;
-  const path = `/agent/sessions/${session.id}/transcript`;
+  const path = `/runner/sessions/${session.id}/transcript`;
   await asAgent("vm", path, { generation, start: 0, lines: ["a"] });
-  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
   const late = await asAgent("vm", path, {
     generation,
@@ -959,14 +983,14 @@ test("rejects agent requests with another protocol version or provider", async (
 
   const version = await asAgent(
     "vm",
-    "/agent/work",
+    "/runner/work",
     { running: [], folders: [], models: [] },
     "99",
   );
 
   const provider = await asAgent(
     "laptop-2",
-    `/agent/sessions/${session.id}/live`,
+    `/runner/sessions/${session.id}/events`,
     {
       generation: 0,
       events: [],
@@ -982,13 +1006,22 @@ test("rejects malformed requests", async () => {
 
   const malformed = await fetch(new URL("/api/sessions", server.url), {
     method: "POST",
-    headers: { cookie: await server.signedIn() },
+    headers: {
+      cookie: await server.signedIn(),
+      "content-type": "application/json",
+    },
     body: "{not json",
+  });
+
+  const notJson = await fetch(new URL("/api/sessions", server.url), {
+    method: "POST",
+    headers: { cookie: await server.signedIn() },
+    body: "{}",
   });
 
   const noGeneration = await asAgent(
     "vm",
-    `/agent/sessions/${session.id}/commands`,
+    `/runner/sessions/${session.id}/commands`,
   );
 
   const environment = await environmentOf("vm");
@@ -1017,7 +1050,7 @@ test("rejects malformed requests", async () => {
 
   const negativeStart = await asAgent(
     "vm",
-    `/agent/sessions/${session.id}/transcript`,
+    `/runner/sessions/${session.id}/transcript`,
     {
       generation: 0,
       start: -1,
@@ -1026,10 +1059,11 @@ test("rejects malformed requests", async () => {
   );
 
   expect(malformed.status).toBe(400);
+  expect(notJson.status).toBe(415);
   expect(noWorkspace.status).toBe(422);
   expect(unknownWorkspace.status).toBe(422);
   expect(optionStartPoint.status).toBe(422);
-  expect(noGeneration.status).toBe(400);
+  expect(noGeneration.status).toBe(422);
   expect(negativeStart.status).toBe(422);
 });
 
@@ -1037,13 +1071,17 @@ test("rejects agent bodies outside the protocol", async () => {
   const session = await createSession("vm");
 
   const work = (await (
-    await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] })
+    await asAgent("vm", "/runner/work", {
+      running: [],
+      folders: [],
+      models: [],
+    })
   ).json()) as {
     start: { generation: number }[];
   };
 
   const generation = work.start[0]?.generation;
-  const base = `/agent/sessions/${session.id}`;
+  const base = `/runner/sessions/${session.id}`;
 
   const claimed = (await (
     await server.api(`/api/sessions/${session.id}`)
@@ -1051,12 +1089,12 @@ test("rejects agent bodies outside the protocol", async () => {
 
   const statuses = await Promise.all(
     [
-      asAgent("vm", `${base}/live`, {
+      asAgent("vm", `${base}/events`, {
         generation,
         events: [{ type: "status", status: "bogus" }],
       }),
-      asAgent("vm", `${base}/live`, { generation, events: [null] }),
-      asAgent("vm", `${base}/live`, {
+      asAgent("vm", `${base}/events`, { generation, events: [null] }),
+      asAgent("vm", `${base}/events`, {
         generation,
         events: [
           {
@@ -1065,23 +1103,32 @@ test("rejects agent bodies outside the protocol", async () => {
           },
         ],
       }),
-      asAgent("vm", `${base}/live`, { events: [] }),
-      asAgent("vm", `${base}/live`, {
+      asAgent("vm", `${base}/events`, { events: [] }),
+      asAgent("vm", `${base}/events`, {
         generation,
         events: [{ type: "status", status: "idle", transcriptLength: -1 }],
       }),
-      asAgent("vm", `${base}/live`, {
+      asAgent("vm", `${base}/events`, {
         generation,
         events: [{ type: "status", status: "idle", transcriptLength: "3" }],
       }),
       asAgent("vm", `${base}/transcript`, { generation, start: 0, lines: [1] }),
-      asAgent("vm", `${base}/failed`, { generation, error: 5 }),
-      asAgent("vm", `${base}/workspace`, { generation, outcome: "lost" }),
-      asAgent("vm", `${base}/workspace`, { generation, outcome: "removed" }),
-      asAgent("vm", `${base}/workspace`, { outcome: "kept", reason: "dirty" }),
+      asAgent("vm", `${base}/start-failure`, { generation, error: 5 }),
+      asAgent("vm", `${base}/workspace-removal`, {
+        generation,
+        outcome: "lost",
+      }),
+      asAgent("vm", `${base}/workspace-removal`, {
+        generation,
+        outcome: "removed",
+      }),
+      asAgent("vm", `${base}/workspace-removal`, {
+        outcome: "kept",
+        reason: "dirty",
+      }),
       asAgent("vm", `${base}/tool-calls`, { generation, name: "lookup" }),
-      asAgent("vm", "/agent/work", {}),
-      asAgent("vm", "/agent/work", {
+      asAgent("vm", "/runner/work", {}),
+      asAgent("vm", "/runner/work", {
         running: [{ sessionId: session.id }],
         folders: [],
         models: [],
@@ -1338,13 +1385,13 @@ test("marks a session failed when its host cannot start", async () => {
 test("keeps a session running through a provider outage", async () => {
   const session = await createSession("vm");
   const running = [{ sessionId: session.id, generation: 1 }];
-  await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] });
+  await asAgent("vm", "/runner/work", { running: [], folders: [], models: [] });
 
   const offline = await follow(session.id, (events) =>
     events.some((e) => e.type === "session" && !e.session.online),
   );
 
-  await asAgent("vm", "/agent/work", { running, folders: [], models: [] });
+  await asAgent("vm", "/runner/work", { running, folders: [], models: [] });
 
   const stored = (await (
     await server.api(`/api/sessions/${session.id}`)
@@ -1367,7 +1414,7 @@ test("takes a session back when another poll claims it", async () => {
   const session = await createSession("laptop");
   await follow(session.id, status("idle"));
 
-  await asAgent("laptop", "/agent/work", {
+  await asAgent("laptop", "/runner/work", {
     running: [],
     folders: [],
     models: [],
@@ -1393,14 +1440,14 @@ test("takes a session back when another poll claims it", async () => {
 
 test("closes the command stream of an interrupted attempt", async () => {
   const session = await createSession("vm");
-  await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] });
+  await asAgent("vm", "/runner/work", { running: [], folders: [], models: [] });
 
   const commands = await asAgent(
     "vm",
-    `/agent/sessions/${session.id}/commands?generation=1`,
+    `/runner/sessions/${session.id}/commands?generation=1`,
   );
 
-  await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] });
+  await asAgent("vm", "/runner/work", { running: [], folders: [], models: [] });
   const received: unknown[] = [];
   for await (const command of readSse(commands)) {
     received.push(command);
@@ -1716,8 +1763,8 @@ test("fails a fork of a clone session whose branch isn't pushed", async () => {
 
   await follow(source.id, status("idle"));
 
-  const response = await server.api(`/api/sessions/${source.id}/fork`, {
-    body: {},
+  const response = await server.api("/api/sessions", {
+    body: { from: { session: source.id } },
   });
 
   const fork = (await response.json()) as Session;
@@ -1776,7 +1823,7 @@ test("stops a runner the server let go when its Environment got a new key", asyn
 
   await polling.promise;
 
-  await server.api(`/api/environments/${await environmentOf("pool")}/key`, {
+  await server.api(`/api/environments/${await environmentOf("pool")}/keys`, {
     body: {},
   });
 
@@ -1854,7 +1901,7 @@ test("refuses a runner token nobody used for 30 days, but not one used since", a
 
   const poll = async (): Promise<number> =>
     (
-      await asAgent("mac", "/agent/work", {
+      await asAgent("mac", "/runner/work", {
         running: [],
         folders: [],
         models: [],
@@ -2149,8 +2196,8 @@ test("forks a session into a new one that remembers its chat and starts from its
 
   await follow(source.id, (events) => roles(events).includes("assistant"));
 
-  const response = await server.api(`/api/sessions/${source.id}/fork`, {
-    body: {},
+  const response = await server.api("/api/sessions", {
+    body: { from: { session: source.id } },
   });
 
   const fork = (await response.json()) as Session;
@@ -2240,10 +2287,8 @@ test("forks from a user message into a session that remembers only what came bef
       : [];
   });
 
-  const response = await server.api(`/api/sessions/${source.id}/fork`, {
-    body: {
-      entry: second[0],
-    },
+  const response = await server.api("/api/sessions", {
+    body: { from: { session: source.id, entry: second[0] } },
   });
 
   const fork = (await response.json()) as ForkedSession;
@@ -2263,8 +2308,8 @@ test("forks from a user message into a session that remembers only what came bef
     ),
   );
 
-  const invalid = await server.api(`/api/sessions/${source.id}/fork`, {
-    body: { entry: 5 },
+  const invalid = await server.api("/api/sessions", {
+    body: { from: { session: source.id, entry: 5 } },
   });
 
   expect(response.status).toBe(201);
@@ -2419,14 +2464,14 @@ test("serves the web UI with its bundled script", async () => {
 
 test("replays open prompts to a client that connects later", async () => {
   const session = await createSession("vm");
-  await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] });
+  await asAgent("vm", "/runner/work", { running: [], folders: [], models: [] });
 
   const prompt = {
     type: "prompt",
     prompt: { id: "p1", kind: "confirm", title: "Deploy?", message: "Sure?" },
   } as const;
 
-  await asAgent("vm", `/agent/sessions/${session.id}/live`, {
+  await asAgent("vm", `/runner/sessions/${session.id}/events`, {
     generation: 1,
     events: [prompt],
   });
@@ -2435,14 +2480,14 @@ test("replays open prompts to a client that connects later", async () => {
     events.some((e) => e.type === "live"),
   );
 
-  await asAgent("vm", `/agent/sessions/${session.id}/live`, {
+  await asAgent("vm", `/runner/sessions/${session.id}/events`, {
     generation: 1,
     events: [{ type: "prompt_end", id: "p1" }],
   });
 
   const later = await watch(session.id);
 
-  await asAgent("vm", `/agent/sessions/${session.id}/live`, {
+  await asAgent("vm", `/runner/sessions/${session.id}/events`, {
     generation: 1,
     events: [{ type: "status", status: "idle" }],
   });
@@ -2460,7 +2505,7 @@ test("replays open prompts to a client that connects later", async () => {
 
 test("marks a session as waiting on a person while one of its prompts is open", async () => {
   const session = await createSession("vm");
-  await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] });
+  await asAgent("vm", "/runner/work", { running: [], folders: [], models: [] });
 
   const waiting = async (): Promise<boolean> =>
     (
@@ -2471,7 +2516,7 @@ test("marks a session as waiting on a person while one of its prompts is open", 
 
   const prompted = await watch(session.id);
 
-  await asAgent("vm", `/agent/sessions/${session.id}/live`, {
+  await asAgent("vm", `/runner/sessions/${session.id}/events`, {
     generation: 1,
     events: [
       {
@@ -2492,7 +2537,7 @@ test("marks a session as waiting on a person while one of its prompts is open", 
 
   expect(await waiting()).toBe(true);
 
-  await asAgent("vm", `/agent/sessions/${session.id}/live`, {
+  await asAgent("vm", `/runner/sessions/${session.id}/events`, {
     generation: 1,
     events: [{ type: "prompt_end", id: "p1" }],
   });
@@ -2502,7 +2547,7 @@ test("marks a session as waiting on a person while one of its prompts is open", 
 
 test("marks a session as waiting on a person while a plugin's data waits on them", async () => {
   const session = await createSession("vm");
-  await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] });
+  await asAgent("vm", "/runner/work", { running: [], folders: [], models: [] });
 
   const waiting = async (): Promise<boolean> =>
     (
@@ -2519,14 +2564,14 @@ test("marks a session as waiting on a person while a plugin's data waits on them
     ...(open && { waiting: true }),
   });
 
-  await asAgent("vm", `/agent/sessions/${session.id}/live`, {
+  await asAgent("vm", `/runner/sessions/${session.id}/events`, {
     generation: 1,
     events: [published(true)],
   });
 
   expect(await waiting()).toBe(true);
 
-  await asAgent("vm", `/agent/sessions/${session.id}/live`, {
+  await asAgent("vm", `/runner/sessions/${session.id}/events`, {
     generation: 1,
     events: [published(false)],
   });
@@ -2556,7 +2601,7 @@ test("tells a person's subscribed browser when one of their sessions starts wait
   try {
     const session = await createSession("vm");
 
-    await asAgent("vm", "/agent/work", {
+    await asAgent("vm", "/runner/work", {
       running: [],
       folders: [],
       models: [],
@@ -2569,7 +2614,7 @@ test("tells a person's subscribed browser when one of their sessions starts wait
     );
 
     const subscribed = await fetch(
-      new URL("/api/plugins/push/subscriptions", server.url),
+      new URL("/api/ext/push/subscriptions", server.url),
       {
         method: "PUT",
         headers: { cookie: await server.signedIn() },
@@ -2587,7 +2632,7 @@ test("tells a person's subscribed browser when one of their sessions starts wait
       },
     );
 
-    await asAgent("vm", `/agent/sessions/${session.id}/live`, {
+    await asAgent("vm", `/runner/sessions/${session.id}/events`, {
       generation: 1,
       events: [
         {
@@ -2613,9 +2658,9 @@ test("tells a person's subscribed browser when one of their sessions starts wait
 
 test("replays the current extension status, widgets and title to a client that connects later", async () => {
   const session = await createSession("vm");
-  await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] });
+  await asAgent("vm", "/runner/work", { running: [], folders: [], models: [] });
 
-  await asAgent("vm", `/agent/sessions/${session.id}/live`, {
+  await asAgent("vm", `/runner/sessions/${session.id}/events`, {
     generation: 1,
     events: [
       { type: "extension_status", key: "build", text: "1 running" },
@@ -2712,12 +2757,13 @@ test("accepts a runner's calls under Docker's host name with its token alone", a
         headers: {
           host,
           "pipoca-protocol": "4",
+          "content-type": "application/json",
           ...(token !== undefined && { authorization: `Bearer ${token}` }),
         },
       })
     ).status;
 
-  const transcript = `/agent/sessions/${session.id}/transcript`;
+  const transcript = `/runner/sessions/${session.id}/transcript`;
 
   expect(await reached(transcript, await runners.token("laptop"))).toBe(200);
   expect(await reached(transcript)).toBe(401);
@@ -2795,13 +2841,14 @@ test("does not let a host take another session's terminal", async () => {
   const terminalId = /"terminalId":"([^"]+)"/.exec(line ?? "")?.[1] ?? "";
 
   const url = new URL(
-    `/agent/sessions/${second.id}/terminals/${terminalId}?generation=${String(generation?.type === "session" ? generation.session.generation : 0)}`,
+    `/runner/sessions/${second.id}/terminals/${terminalId}?generation=${String(generation?.type === "session" ? generation.session.generation : 0)}`,
     server.url,
   );
 
   const response = await fetch(url, {
     headers: {
       "pipoca-protocol": "4",
+      "content-type": "application/json",
       authorization: `Bearer ${await runners.token("laptop")}`,
       ...webSocketUpgrade,
     },
@@ -2908,8 +2955,9 @@ test("archives a session: unloads it, hides it, refuses messages and replays it"
 
   await follow(session.id, (events) => roles(events).includes("assistant"));
 
-  const archived = await server.api(`/api/sessions/${session.id}/archive`, {
-    body: {},
+  const archived = await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
   });
 
   expect(archived.status).toBe(200);
@@ -2974,7 +3022,11 @@ test("keeps the end of a turn that was running when its session was archived", a
   });
 
   await watching(status("running"));
-  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
   const replay = await follow(session.id, (events) =>
     roles(events).includes("assistant"),
@@ -3010,8 +3062,16 @@ test("unarchives a session and reloads it idle with its transcript", async () =>
   });
 
   await follow(session.id, (events) => roles(events).includes("assistant"));
-  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
-  await server.api(`/api/sessions/${session.id}/unarchive`, { body: {} });
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: false },
+  });
 
   await sessionWhere(
     session.id,
@@ -3053,7 +3113,10 @@ test("removes a clean worktree on archive and brings its pushed work back on una
   await inRepository(dir, "commit", "--quiet", "-m", "work");
   await inRepository(dir, "push", "--quiet", "origin", branch);
 
-  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
   const removed = await sessionWhere(
     session.id,
@@ -3066,7 +3129,10 @@ test("removes a clean worktree on archive and brings its pushed work back on una
 
   expect(stat(dir)).rejects.toThrow();
 
-  await server.api(`/api/sessions/${session.id}/unarchive`, { body: {} });
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: false },
+  });
 
   await sessionWhere(
     session.id,
@@ -3092,13 +3158,19 @@ test("brings pushed work back when unarchived while its worktree is being remove
   await inRepository(dir, "commit", "--quiet", "-m", "work");
   await inRepository(dir, "push", "--quiet", "origin", branch);
 
-  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
   await until(() =>
     agentLogs.some((line) => line.startsWith("unloading session")),
   );
 
-  await server.api(`/api/sessions/${session.id}/unarchive`, { body: {} });
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: false },
+  });
 
   const restarted = await sessionWhere(
     session.id,
@@ -3132,7 +3204,7 @@ function reportLosingProxy(
       const url = new URL(request.url);
 
       const loss =
-        request.method === "POST" && url.pathname.endsWith("/workspace")
+        request.method === "POST" && url.pathname.endsWith("/workspace-removal")
           ? lose(++reports)
           : undefined;
 
@@ -3176,7 +3248,11 @@ async function archivedWithPushedWork(): Promise<{
   await inRepository(dir, "add", ".");
   await inRepository(dir, "commit", "--quiet", "-m", "work");
   await inRepository(dir, "push", "--quiet", "origin", branch);
-  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
   return { session, dir };
 }
@@ -3191,7 +3267,11 @@ test("sends a lost removal report again instead of removing the worktree twice",
   try {
     const { session, dir } = await archivedWithPushedWork();
     await sessionWhere(session.id, (s) => s.workspaceRemoval === "removed");
-    await server.api(`/api/sessions/${session.id}/unarchive`, { body: {} });
+
+    await server.api(`/api/sessions/${session.id}`, {
+      method: "PATCH",
+      body: { archived: false },
+    });
 
     await sessionWhere(
       session.id,
@@ -3218,7 +3298,10 @@ test("brings pushed work back when unarchived before a lost removal report gets 
       ),
     );
 
-    await server.api(`/api/sessions/${session.id}/unarchive`, { body: {} });
+    await server.api(`/api/sessions/${session.id}`, {
+      method: "PATCH",
+      body: { archived: false },
+    });
 
     await sessionWhere(
       session.id,
@@ -3252,11 +3335,16 @@ test("forces a removal whose kept report reached the server but not its reply", 
     await writeFile(join(dir, "work.txt"), "work\n");
     await inRepository(dir, "add", ".");
     await inRepository(dir, "commit", "--quiet", "-m", "work");
-    await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
+
+    await server.api(`/api/sessions/${session.id}`, {
+      method: "PATCH",
+      body: { archived: true },
+    });
+
     await sessionWhere(session.id, (s) => s.workspaceRemoval === "kept");
 
-    await server.api(`/api/sessions/${session.id}/remove-workspace`, {
-      body: {},
+    await server.api(`/api/sessions/${session.id}/workspace`, {
+      method: "DELETE",
     });
 
     await sessionWhere(session.id, (s) => s.workspaceRemoval === "removed");
@@ -3305,11 +3393,26 @@ test("leaves no worktree behind when archived again while its first removal runs
   });
 
   await watching(status("running"));
-  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
+
   await agentLogged("unloading session", 1);
-  await server.api(`/api/sessions/${session.id}/unarchive`, { body: {} });
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: false },
+  });
+
   await agentLogged("starting session", 2);
-  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
+
   await agentLogged("unloading session", 2);
   answer();
   await sessionWhere(session.id, (s) => s.workspaceRemoval === "removed");
@@ -3333,10 +3436,13 @@ test("stores the restore point of a removal reported after unarchive", async () 
     path: root,
   });
 
-  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
   const work = (await (
-    await asAgent("vm", "/agent/work", {
+    await asAgent("vm", "/runner/work", {
       running: [],
       folders: [],
       models: [],
@@ -3345,7 +3451,10 @@ test("stores the restore point of a removal reported after unarchive", async () 
 
   expect(work).toMatchObject({ remove: [{ sessionId: session.id }] });
 
-  await server.api(`/api/sessions/${session.id}/unarchive`, { body: {} });
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: false },
+  });
 
   const restore = {
     ...session.workspace,
@@ -3354,7 +3463,7 @@ test("stores the restore point of a removal reported after unarchive", async () 
 
   const reported = await asAgent(
     "vm",
-    `/agent/sessions/${session.id}/workspace`,
+    `/runner/sessions/${session.id}/workspace-removal`,
     { generation: work.remove[0]?.generation, outcome: "removed", restore },
   );
 
@@ -3376,7 +3485,7 @@ test("settles a removal only with the report for the archive it was handed out f
 
   const poll = async (generation?: number): Promise<Work> =>
     (await (
-      await asAgent("vm", "/agent/work", {
+      await asAgent("vm", "/runner/work", {
         running:
           generation === undefined
             ? []
@@ -3389,7 +3498,7 @@ test("settles a removal only with the report for the archive it was handed out f
   const report = async (
     removal: Work["remove"][number] | undefined,
   ): Promise<Session> => {
-    await asAgent("vm", `/agent/sessions/${session.id}/workspace`, {
+    await asAgent("vm", `/runner/sessions/${session.id}/workspace-removal`, {
       generation: removal?.generation,
       outcome: "removed",
       restore: {
@@ -3404,11 +3513,26 @@ test("settles a removal only with the report for the archive it was handed out f
   };
 
   await poll();
-  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
+
   const [first] = (await poll(1)).remove;
-  await server.api(`/api/sessions/${session.id}/unarchive`, { body: {} });
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: false },
+  });
+
   await poll();
-  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
+
   const overtaken = await report(first);
   const [second] = (await poll(2)).remove;
   const settled = await report(second);
@@ -3430,7 +3554,7 @@ test("keeps a session's workspace when a removal report's restore has no kind", 
 
   const reported = await asAgent(
     "vm",
-    `/agent/sessions/${session.id}/workspace`,
+    `/runner/sessions/${session.id}/workspace-removal`,
     {
       generation: 0,
       outcome: "removed",
@@ -3452,10 +3576,13 @@ test("keeps the restore points a partly failed removal reports", async () => {
     path: root,
   });
 
-  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
   const work = (await (
-    await asAgent("vm", "/agent/work", {
+    await asAgent("vm", "/runner/work", {
       running: [],
       folders: [],
       models: [],
@@ -3467,7 +3594,7 @@ test("keeps the restore points a partly failed removal reports", async () => {
     restorePoint: "origin/pipoca/restored",
   };
 
-  await asAgent("vm", `/agent/sessions/${session.id}/workspace`, {
+  await asAgent("vm", `/runner/sessions/${session.id}/workspace-removal`, {
     generation: work.remove[0]?.generation,
     outcome: "kept",
     reason: "git failed",
@@ -3534,7 +3661,10 @@ test("checks several repositories out in one workspace and shows each one's chan
     { name: "tools", files: [{ status: "A", path: "draft.txt" }] },
   ]);
 
-  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
   const kept = await sessionWhere(
     session.id,
@@ -3629,12 +3759,15 @@ test("keeps a worktree with unpushed work on archive until the user forces remov
   await inRepository(dir, "add", ".");
   await inRepository(dir, "commit", "--quiet", "-m", "work");
 
-  const early = await server.api(
-    `/api/sessions/${session.id}/remove-workspace`,
-    { body: {} },
-  );
+  const early = await server.api(`/api/sessions/${session.id}/workspace`, {
+    method: "DELETE",
+  });
 
-  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
+
   await sessionWhere(session.id, (s) => s.workspaceRemoval === "kept");
 
   const kept = (await (
@@ -3645,10 +3778,9 @@ test("keeps a worktree with unpushed work on archive until the user forces remov
   expect(kept.workspaceKeptReason).toBe("unpushed commits");
   expect(await readFile(join(dir, "work.txt"), "utf8")).toBe("work\n");
 
-  const forced = await server.api(
-    `/api/sessions/${session.id}/remove-workspace`,
-    { body: {} },
-  );
+  const forced = await server.api(`/api/sessions/${session.id}/workspace`, {
+    method: "DELETE",
+  });
 
   await sessionWhere(session.id, (s) => s.workspaceRemoval === "removed");
 
@@ -3673,15 +3805,18 @@ test("keeps a workspace whose removal fails until the user forces removal", asyn
   await follow(session.id, status("idle"));
   await rm(join(checkout, ".git"), { recursive: true, force: true });
 
-  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
+
   await sessionWhere(session.id, (s) => s.workspaceRemoval === "kept");
 
   expect((await stat(dir)).isDirectory()).toBe(true);
 
-  const forced = await server.api(
-    `/api/sessions/${session.id}/remove-workspace`,
-    { body: {} },
-  );
+  const forced = await server.api(`/api/sessions/${session.id}/workspace`, {
+    method: "DELETE",
+  });
 
   await sessionWhere(session.id, (s) => s.workspaceRemoval === "removed");
 
@@ -3701,7 +3836,12 @@ test("removes an archived session's workspace when its provider comes back", asy
   await follow(session.id, status("idle"));
 
   await laptop();
-  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
+
   const pending = await server.api(`/api/sessions/${session.id}`);
 
   expect(await pending.json()).toMatchObject({ workspaceRemoval: "pending" });
@@ -3959,7 +4099,11 @@ test("runs each session in its own process and reloads it when the process dies"
 
     expect(await terminal.output("sum=42")).toContain(`dir=${root}`);
 
-    await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
+    await server.api(`/api/sessions/${session.id}`, {
+      method: "PATCH",
+      body: { archived: true },
+    });
+
     await until(() => second === undefined || !alive(second));
   } finally {
     await model.stop(true);
@@ -4276,7 +4420,7 @@ test("ends a preview's visit when its user signs out", async () => {
 
   const before = await fetch(new URL("/", server.url), { headers });
 
-  const signedOut = await server.api("/api/auth/logout", { method: "POST" });
+  const signedOut = await server.api("/api/auth/session", { method: "DELETE" });
 
   const after = await fetch(new URL("/", server.url), { headers });
 

@@ -549,7 +549,7 @@ function HostRow({
             <Button
               onClick={() => {
                 location.assign(
-                  `/api/plugins/git-hosts/sign-in/${encodeURIComponent(host.host)}`,
+                  `/api/ext/git-hosts/sign-in/${encodeURIComponent(host.host)}`,
                 );
               }}
             >
@@ -787,7 +787,7 @@ function ConnectSetup({
   const [opened, setOpened] = useState(false);
   const [error, setError] = useState<string>();
   const saved = host.clientId !== "";
-  const callback = `${location.origin}/api/plugins/git-hosts/callback`;
+  const callback = `${location.origin}/api/ext/git-hosts/callback`;
 
   const submit = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -907,7 +907,7 @@ function ConnectSetup({
               className="mt-2 self-start"
               onClick={() => {
                 location.assign(
-                  `/api/plugins/git-hosts/sign-in/${encodeURIComponent(host.host)}`,
+                  `/api/ext/git-hosts/sign-in/${encodeURIComponent(host.host)}`,
                 );
               }}
             >
@@ -1079,7 +1079,7 @@ function Bots({
     });
 
     location.assign(
-      `/api/plugins/git-hosts/technical-users/new-app?${params.toString()}`,
+      `/api/ext/git-hosts/technical-users/new-app?${params.toString()}`,
     );
   };
 

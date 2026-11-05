@@ -91,7 +91,7 @@ function registered(
       try {
         return await publicRoute(
           request,
-          new URL(request.url).pathname.replace("/api/plugins/logins/", ""),
+          new URL(request.url).pathname.replace("/api/ext/logins/", ""),
         );
       } catch (error) {
         if (isHttpError(error)) {
@@ -723,7 +723,7 @@ test("a person signs in to an MCP server of their Profiles from Settings, and th
 
     const page = new URL(event?.type === "auth_url" ? event.url : "");
     const back = new URL(page.searchParams.get("redirect_uri") ?? "");
-    expect(back.href).toBe("http://logins/api/plugins/logins/callback");
+    expect(back.href).toBe("http://logins/api/ext/logins/callback");
 
     back.search = new URLSearchParams({
       code: "granted",
@@ -874,7 +874,7 @@ test("a team Session calls the team's provider through the proxy, with a token i
 
   expect(providers).toContainEqual({
     provider: "anthropic",
-    baseUrl: "http://logins/api/plugins/logins/proxy/anthropic",
+    baseUrl: "http://logins/api/ext/logins/proxy/anthropic",
   });
 
   const upstream: Request[] = [];
@@ -900,7 +900,7 @@ test("a team Session calls the team's provider through the proxy, with a token i
   try {
     const answer = await proxy(
       new Request(
-        "http://logins/api/plugins/logins/proxy/anthropic/v1/messages?beta=true",
+        "http://logins/api/ext/logins/proxy/anthropic/v1/messages?beta=true",
         {
           method: "POST",
           headers: { "x-api-key": token, "content-type": "application/json" },
@@ -952,7 +952,7 @@ test("the proxy refuses a token that isn't a live team Session's", async () => {
     (
       await proxy(
         new Request(
-          "http://logins/api/plugins/logins/proxy/anthropic/v1/messages",
+          "http://logins/api/ext/logins/proxy/anthropic/v1/messages",
           {
             method: "POST",
             headers: { "x-api-key": token },
@@ -1010,7 +1010,7 @@ async function proxiedWith(
 
   try {
     const response = await proxy(
-      new Request(`http://logins/api/plugins/logins/proxy/${path}`, {
+      new Request(`http://logins/api/ext/logins/proxy/${path}`, {
         method: "POST",
         headers: {
           "x-api-key": token,

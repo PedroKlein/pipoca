@@ -210,7 +210,7 @@ async function call(
   user = "owner",
 ): Promise<Response> {
   return route(
-    new Request(`http://pipoca.test/api/plugins/push/${path}`, {
+    new Request(`http://pipoca.test/api/ext/push/${path}`, {
       method,
       ...(body !== undefined && { body: JSON.stringify(body) }),
     }),

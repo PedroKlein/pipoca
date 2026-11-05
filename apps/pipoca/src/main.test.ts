@@ -118,7 +118,7 @@ test("restarts a supervised server in place and stops it through the server on S
   try {
     const { url, cookie } = await signedIn(supervisor);
 
-    const restart = await fetch(new URL("/api/restart", url), {
+    const restart = await fetch(new URL("/api/server/restart", url), {
       method: "POST",
       headers: { cookie, "content-type": "application/json" },
       body: "{}",
@@ -276,7 +276,7 @@ test("joins an agent started with only a join key under its host's name, sharing
   try {
     const { url, cookie } = await signedIn(server);
 
-    const made = await fetch(new URL("/api/join-key", url), {
+    const made = await fetch(new URL("/api/join-keys", url), {
       method: "POST",
       headers: { cookie },
     });

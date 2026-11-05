@@ -25,7 +25,7 @@ import {
   useConfirm,
 } from "@pipoca/ui";
 import { Fragment, type ReactElement, type ReactNode, useState } from "react";
-import { api, command, send } from "./api";
+import { api, command } from "./api";
 import { ago } from "./chat";
 import { deleteEnvironment, kindNames } from "./environments";
 import { InviteDialog, InvitesTable, revoke } from "./invites";
@@ -191,11 +191,10 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
                         value={person.admin ? "admin" : "member"}
                         onChange={(event) => {
                           act(
-                            send(
-                              `/api/people/${encodeURIComponent(person.id)}`,
-                              "PATCH",
-                              { admin: event.target.value === "admin" },
-                            ),
+                            api("people.update", {
+                              params: { id: person.id },
+                              body: { admin: event.target.value === "admin" },
+                            }),
                           );
                         }}
                       >
@@ -234,10 +233,10 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
                           }}
                           onArchive={(session) => {
                             act(
-                              api(
-                                `/api/sessions/${encodeURIComponent(session.id)}/archive`,
-                                {},
-                              ),
+                              api("sessions.update", {
+                                params: { id: session.id },
+                                body: { archived: true },
+                              }),
                             );
                           }}
                           onDelete={(environment) => {
