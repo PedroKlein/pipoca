@@ -1,17 +1,18 @@
 import {
   BadRequest,
+  checkBody,
   HttpError,
   NotFound,
   type PluginConfig,
 } from "@pipoca/plugins";
 import { listedIn, repositoryFile, withClone } from "@pipoca/profiles";
-import type {
-  EnvironmentTemplate,
-  ManifestEntry,
-  RepositorySource,
+import {
+  type EnvironmentTemplate,
+  environmentUpdate,
+  type Log,
+  type ManifestEntry,
+  type RepositorySource,
 } from "@pipoca/protocol";
-import type { Log } from "@pipoca/providers";
-import { environmentUpdate } from "./requests";
 
 export interface Templates {
   readonly list: () => readonly EnvironmentTemplate[];
@@ -245,12 +246,12 @@ function fromFile(
 
 // A template holds no secrets: they belong to each person's Environment.
 function settingsOf(body: unknown): Partial<Omit<EnvironmentTemplate, "id">> {
-  const { secrets, ...settings } = environmentUpdate(body);
+  const { secrets, name, ...settings } = checkBody(body, environmentUpdate);
   if (secrets !== undefined) {
     throw new BadRequest("a template holds no secrets");
   }
 
-  return settings;
+  return { ...settings, ...(name !== undefined && { name: name.trim() }) };
 }
 
 function templateOf(entry: unknown): EnvironmentTemplate {

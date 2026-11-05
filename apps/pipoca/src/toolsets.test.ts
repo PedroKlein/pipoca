@@ -183,14 +183,19 @@ test("starts a Session from a meta-session through the Sessions route without as
 
 test("hands the route's own validation error back to the model", async () => {
   faux.setResponses([
-    call("sessions_start", { workspace: { kind: "folder" } }),
+    call("sessions_start", {
+      workspace: { kind: "clone", repository: "https://me:secret@host/r.git" },
+    }),
     fauxAssistantMessage([fauxText("that failed")]),
   ]);
 
   const metaSession = await startMeta("Start a Session");
   const events = await follow(metaSession.id, entriesInclude("that failed"));
 
-  expect(transcriptOf(events)).toContain("workspace must be a folder");
+  expect(transcriptOf(events)).toContain(
+    "workspace.repository can't hold credentials",
+  );
+
   expect(await json<Session[]>(server.api("/api/sessions"))).toEqual([]);
 });
 

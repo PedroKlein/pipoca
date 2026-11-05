@@ -598,7 +598,7 @@ test("rejects commands a browser may not send", async () => {
     }),
   );
 
-  expect(statuses).toEqual(statuses.map(() => 400));
+  expect(statuses).toEqual(statuses.map(() => 422));
 });
 
 test("takes only answers shaped like a prompt's answer", async () => {
@@ -661,7 +661,7 @@ test("takes only answers shaped like a prompt's answer", async () => {
   );
 
   expect(accepted).toEqual([202, 202, 202, 202]);
-  expect(rejected).toEqual(Array.from({ length: 8 }, () => 400));
+  expect(rejected).toEqual(Array.from({ length: 8 }, () => 422));
 });
 
 async function asAgent(
@@ -975,7 +975,7 @@ test("rejects agent requests with another protocol version or provider", async (
   expect(provider.status).toBe(404);
 });
 
-test("rejects malformed requests with 400", async () => {
+test("rejects malformed requests", async () => {
   const session = await createSession("vm");
 
   const malformed = await fetch(new URL("/api/sessions", server.url), {
@@ -1024,14 +1024,14 @@ test("rejects malformed requests with 400", async () => {
   );
 
   expect(malformed.status).toBe(400);
-  expect(noWorkspace.status).toBe(400);
-  expect(unknownWorkspace.status).toBe(400);
-  expect(optionStartPoint.status).toBe(400);
+  expect(noWorkspace.status).toBe(422);
+  expect(unknownWorkspace.status).toBe(422);
+  expect(optionStartPoint.status).toBe(422);
   expect(noGeneration.status).toBe(400);
-  expect(negativeStart.status).toBe(400);
+  expect(negativeStart.status).toBe(422);
 });
 
-test("rejects agent bodies outside the protocol with 400", async () => {
+test("rejects agent bodies outside the protocol", async () => {
   const session = await createSession("vm");
 
   const work = (await (
@@ -1091,7 +1091,7 @@ test("rejects agent bodies outside the protocol with 400", async () => {
     await server.api(`/api/sessions/${session.id}`)
   ).json()) as Session;
 
-  expect(statuses).toEqual(Array.from({ length: 14 }, () => 400));
+  expect(statuses).toEqual(Array.from({ length: 14 }, () => 422));
   expect(after.status).toBe(claimed.status);
 });
 
@@ -1630,10 +1630,10 @@ test("rejects an Environment update with a malformed or huge variable", async ()
   const badIsolation = await updateEnvironment("laptop", { isolation: "vm" });
   const badImage = await updateEnvironment("laptop", { image: "--privileged" });
 
-  expect(badName.status).toBe(400);
-  expect(badIsolation.status).toBe(400);
-  expect(badImage.status).toBe(400);
-  expect(tooLarge.status).toBe(400);
+  expect(badName.status).toBe(422);
+  expect(badIsolation.status).toBe(422);
+  expect(badImage.status).toBe(422);
+  expect(tooLarge.status).toBe(422);
 });
 
 async function gitRepository(): Promise<string> {
@@ -2013,7 +2013,13 @@ test("rejects a session request with a malformed model", async () => {
     },
   });
 
-  expect(response.status).toBe(400);
+  expect(response.status).toBe(422);
+
+  expect(await response.json()).toEqual({
+    error: "invalid",
+    message: "model must be object",
+    field: "model",
+  });
 });
 
 test("starts a session at the reasoning level it was created with", async () => {
@@ -2046,7 +2052,7 @@ test("starts a session at the reasoning level it was created with", async () => 
     },
   });
 
-  expect(unknown.status).toBe(400);
+  expect(unknown.status).toBe(422);
 });
 
 test("runs a laptop session in its own worktree of a listed checkout", async () => {
@@ -2246,7 +2252,7 @@ test("forks from a user message into a session that remembers only what came bef
     "assistant",
   ]);
 
-  expect(invalid.status).toBe(400);
+  expect(invalid.status).toBe(422);
 });
 
 test("marks a session failed when its folder is not listed", async () => {
@@ -3410,7 +3416,7 @@ test("keeps a session's workspace when a removal report's restore has no kind", 
     await server.api(`/api/sessions/${session.id}`)
   ).json()) as Session;
 
-  expect(reported.status).toBe(400);
+  expect(reported.status).toBe(422);
   expect(stored.workspace).toEqual(session.workspace);
 });
 
@@ -3527,11 +3533,12 @@ test("rejects repositories that would share a folder", async () => {
     },
   });
 
-  expect(response.status).toBe(400);
+  expect(response.status).toBe(422);
 
   expect(await response.json()).toEqual({
-    error: "bad_request",
-    message: "repositories need different names",
+    error: "invalid",
+    message: "workspace.repositories need different names",
+    field: "workspace.repositories",
   });
 });
 
@@ -3548,7 +3555,7 @@ test("rejects a repository whose URL leaves no name for its folder", async () =>
       },
     });
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(422);
   }
 });
 
@@ -3567,12 +3574,17 @@ test("rejects a repository URL that carries credentials", async () => {
       body: { environment, workspace },
     });
 
-    expect(response.status).toBe(400);
+    const field =
+      workspace.kind === "clone"
+        ? "workspace.repository"
+        : "workspace.repositories.0.repository";
+
+    expect(response.status).toBe(422);
 
     expect(await response.json()).toEqual({
-      error: "bad_request",
-      message:
-        "repository URLs can't hold credentials: connect the git host instead",
+      error: "invalid",
+      message: `${field} can't hold credentials: connect the git host instead`,
+      field,
     });
   }
 });

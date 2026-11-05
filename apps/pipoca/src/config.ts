@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { HttpError, type PluginConfig } from "@pipoca/plugins";
-import type { Log } from "@pipoca/providers";
+import type { Log } from "@pipoca/protocol";
 
 // The config folder's pipoca.json, a key per plugin (ADR 0039). People edit
 // it by hand and plugins through their UI, so it is read again whenever it

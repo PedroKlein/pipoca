@@ -42,7 +42,7 @@ import {
 } from "@pipoca/protocol";
 import { contentFiles, overBaseExtensions } from "@pipoca/profiles";
 import { placesOn, placesOnNewRunner, uniqueModels } from "./placement";
-import { type Clock, systemClock } from "./clock";
+import { type Clock, systemClock } from "@pipoca/protocol";
 import { RunnerPolls } from "./runner-polls";
 
 export type StoredSession = Omit<

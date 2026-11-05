@@ -11,22 +11,31 @@ const codes: Readonly<Partial<Record<number, string>>> = {
   404: "not_found",
   409: "conflict",
   413: "too_large",
+  422: "invalid",
   429: "too_many_requests",
   500: "internal",
   503: "unavailable",
 };
 
 // Thrown from a route, the server answers it with its status and
-// { error: code, message }, as it does for its own routes (ADR 0047). The
-// code defaults to one for the status, such as not_found for 404.
+// { error: code, message, ...details }, as it does for its own routes
+// (ADR 0047). The code defaults to one for the status, such as not_found
+// for 404.
 export class HttpError extends Error {
   readonly status: number;
   readonly code: string;
+  readonly details: Readonly<Record<string, unknown>> | undefined;
 
-  constructor(status: number, message: string, code?: string) {
+  constructor(
+    status: number,
+    message: string,
+    code?: string,
+    details?: Readonly<Record<string, unknown>>,
+  ) {
     super(message);
     this.status = status;
     this.code = code ?? codes[status] ?? "error";
+    this.details = details;
     Object.defineProperty(this, brand, { value: true });
   }
 }

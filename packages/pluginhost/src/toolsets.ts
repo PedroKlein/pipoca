@@ -3,9 +3,13 @@ import {
   isObject,
   type RouteTool,
   type Toolset,
+  Type,
 } from "@pipoca/plugins";
 import {
-  isolations,
+  createEnvironment,
+  createSession,
+  environmentUpdate,
+  pluginFileWrite,
   type PluginInfo,
   type Profile,
   type Session,
@@ -13,59 +17,23 @@ import {
   type ToolResult,
   type ToolSpec,
   type UiAction,
+  uploadedFiles,
+  profileContent,
 } from "@pipoca/protocol";
 import type { OnBehalf } from "./host";
 
-const workspaceSchema = {
-  type: "object",
-  description:
-    "A folder or worktree on a runner's machine (path), a clone of one repository, or several repositories side by side",
-  properties: {
-    kind: {
-      type: "string",
-      enum: ["folder", "worktree", "clone", "repositories"],
-    },
-    path: { type: "string" },
-    repository: { type: "string" },
-    repositories: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: { repository: { type: "string" } },
-        required: ["repository"],
-      },
-    },
-  },
-  required: ["kind"],
-};
+const id = { id: Type.String() };
+const pluginId = { plugin: Type.String() };
 
-const profileFields = {
-  packages: {
-    type: "array",
-    description: "Pi packages, such as npm:pi-subagents",
-    items: {
-      anyOf: [
-        { type: "string" },
-        {
-          type: "object",
-          properties: {
-            source: { type: "string" },
-            autoload: { type: "boolean" },
-            extensions: { type: "array", items: { type: "string" } },
-            skills: { type: "array", items: { type: "string" } },
-            prompts: { type: "array", items: { type: "string" } },
-            themes: { type: "array", items: { type: "string" } },
-          },
-          required: ["source"],
-        },
-      ],
-    },
-  },
-  agentsMd: { type: "string", description: "AGENTS.md" },
-  systemMd: { type: "string", description: "SYSTEM.md, replacing Pi's" },
-  appendSystemMd: { type: "string", description: "APPEND_SYSTEM.md" },
-  settings: { type: "object", description: "Pi settings" },
-};
+const profileFields = Type.Partial(
+  Type.Pick(profileContent, [
+    "packages",
+    "agentsMd",
+    "systemMd",
+    "appendSystemMd",
+    "settings",
+  ]),
+).properties;
 
 const pluginInstructions = `An in-place plugin is a folder in the server's plugins folder, named by its id (lowercase letters, digits and dashes). Write its files in a folder of your workspace, then install it with install_plugin, which writes them and builds the plugin. You never turn a plugin on: tell the user to turn it on on the Plugins page and restart the server, since its code then runs in the server and on runners. A plugin that is turned on can't be changed until the user turns it off. After installing, tell the user in a sentence what you wrote, whether it builds, and that they turn it on on the Plugins page; if a tool refuses, say why.
 
@@ -77,7 +45,7 @@ Its package.json has "type": "module", any npm "dependencies" its parts import, 
 - works: ["personal", "team"] for a plugin that works in team work; without "team" its tools and Session and web parts never load in team Sessions, and admins turn it on there in Team setup;
 - settings: optional, by name, each { type: "string" | "number" | "boolean" | "choice" | "strings", title, description?, default, options? for choice, min?/max? for number }.
 
-Type each part with types from @pipoca/plugins (ServerPlugin, SessionPlugin) or @pipoca/plugins/web (WebPlugin) and check its default export with satisfies. The server and Session parts import @pipoca/plugins from the running server, so it needs no dependency: HttpError(status, message, code?), BadRequest and NotFound, thrown from a route, answer with that status and { error: code, message }, where code is a snake_case string that defaults to one for the status, such as bad_request or not_found; requireAdmin(caller, message) throws a 403 unless the caller is an admin; readJson(request) reads a JSON body or throws a 400; fieldsOf(body) gives a body's fields to check.
+Type each part with types from @pipoca/plugins (ServerPlugin, SessionPlugin) or @pipoca/plugins/web (WebPlugin) and check its default export with satisfies. The server and Session parts import @pipoca/plugins from the running server, so it needs no dependency: HttpError(status, message, code?), BadRequest and NotFound, thrown from a route, answer with that status and { error: code, message }, where code is a snake_case string that defaults to one for the status, such as bad_request or not_found; requireAdmin(caller, message) throws a 403 unless the caller is an admin; readBody(request, schema) reads a JSON body that fits a TypeBox schema built with Type, or throws a 422 that names the field; readJson(request) reads any JSON body or throws a 400.
 
 The server part's default export is a ServerPlugin { name: <id>, register(context) }. Reaching a context member whose capability isn't declared fails the plugin when it registers.
 - context.routes.handle((request, path, caller) => Response | Promise<Response>) answers /api/plugins/<id>/<path>, so it needs no web framework such as Express. caller is { kind: "user", actor, admin } for a signed-in user, also through a toolset tool (admin is false from a meta-session), or { kind: "session", session, actor } when its Session part sent the request. A route acts as its caller: a Session it starts for a user takes actor: caller.actor. A route that changes config every user shares calls requireAdmin(caller, message) first. A route that returns records checks canSee(caller, owner) from @pipoca/plugins, where owner is "person:<user id>" or "team", and a Session's is session.ownedBy. The method says what a route does: GET reads, POST adds or changes, DELETE removes, so DELETE items/<id> rather than POST items/<id>/remove.
@@ -102,7 +70,7 @@ export const kernelToolsets: readonly Toolset[] = [
         name: "list",
         description:
           "List the user's Sessions, newest first, with their status. Archived ones only when archived is true.",
-        parameters: object({ archived: { type: "boolean" } }),
+        parameters: object({ archived: Type.Optional(Type.Boolean()) }),
         exposure: "direct",
         annotations: { readOnlyHint: true },
         request: (input) => ({
@@ -117,7 +85,7 @@ export const kernelToolsets: readonly Toolset[] = [
       {
         name: "get",
         description: "Get one Session by id.",
-        parameters: object({ id: { type: "string" } }, ["id"]),
+        parameters: object(id),
         annotations: { readOnlyHint: true },
         request: (input) => ({
           method: "GET",
@@ -129,21 +97,13 @@ export const kernelToolsets: readonly Toolset[] = [
         description:
           "Start a Session. Without an environment or profile it uses the defaults. firstMessage is what the Session's agent is asked to do first.",
         parameters: object(
-          {
-            environment: { type: "string", description: "Environment id" },
-            profile: { type: "string", description: "Profile id" },
-            workspace: workspaceSchema,
-            model: {
-              type: "object",
-              properties: {
-                provider: { type: "string" },
-                id: { type: "string" },
-              },
-              required: ["provider", "id"],
-            },
-            firstMessage: { type: "string" },
-          },
-          ["workspace"],
+          Type.Pick(createSession, [
+            "environment",
+            "profile",
+            "workspace",
+            "model",
+            "firstMessage",
+          ]).properties,
         ),
         exposure: "direct",
         // The new Session's agent runs whatever firstMessage says without a
@@ -169,7 +129,7 @@ export const kernelToolsets: readonly Toolset[] = [
       {
         name: "open",
         description: "Open a Session for the user to watch or take over.",
-        parameters: object({ id: { type: "string" } }, ["id"]),
+        parameters: object(id),
         exposure: "direct",
         annotations: { readOnlyHint: true },
         request: (input) => ({
@@ -187,7 +147,7 @@ export const kernelToolsets: readonly Toolset[] = [
         name: "archive",
         description:
           "Archive a Session. Its workspace is removed when nothing would lose work.",
-        parameters: object({ id: { type: "string" } }, ["id"]),
+        parameters: object(id),
         annotations: { destructiveHint: true },
         asks: {
           lookup: (input) => `/api/sessions/${idOf(input)}`,
@@ -221,7 +181,7 @@ export const kernelToolsets: readonly Toolset[] = [
       {
         name: "create",
         description: "Create an Environment with a name.",
-        parameters: object({ name: { type: "string" } }, ["name"]),
+        parameters: object({ name: createEnvironment.properties.name }),
         annotations: { destructiveHint: false, openWorldHint: false },
         request: (input) => ({
           method: "POST",
@@ -237,23 +197,16 @@ export const kernelToolsets: readonly Toolset[] = [
         name: "update",
         description:
           "Change an Environment. Only the fields given change; variables replaces all of its variables.",
-        parameters: object(
-          {
-            id: { type: "string" },
-            name: { type: "string" },
-            isolation: { type: "string", enum: isolations },
-            image: {
-              type: ["string", "null"],
-              description: "Container image, or null for the default one",
-            },
-            setupScript: { type: "string" },
-            variables: {
-              type: "object",
-              additionalProperties: { type: "string" },
-            },
-          },
-          ["id"],
-        ),
+        parameters: object({
+          ...id,
+          ...Type.Pick(environmentUpdate, [
+            "name",
+            "isolation",
+            "image",
+            "setupScript",
+            "variables",
+          ]).properties,
+        }),
         annotations: { destructiveHint: true },
         asks: {
           lookup: () => "/api/environments",
@@ -292,7 +245,7 @@ export const kernelToolsets: readonly Toolset[] = [
       {
         name: "get",
         description: "Get one Profile by id.",
-        parameters: object({ id: { type: "string" } }, ["id"]),
+        parameters: object(id),
         annotations: { readOnlyHint: true },
         request: (input) => ({
           method: "GET",
@@ -303,9 +256,7 @@ export const kernelToolsets: readonly Toolset[] = [
       {
         name: "create",
         description: "Create a Profile.",
-        parameters: object({ name: { type: "string" }, ...profileFields }, [
-          "name",
-        ]),
+        parameters: object({ name: Type.String(), ...profileFields }),
         // Its packages are installed and run in every Session that uses it.
         annotations: { destructiveHint: false, openWorldHint: true },
         request: (input) => ({
@@ -319,14 +270,11 @@ export const kernelToolsets: readonly Toolset[] = [
         name: "update",
         description:
           "Change a Profile. Only the fields given change. Sessions pick it up the next time their Pi starts.",
-        parameters: object(
-          {
-            id: { type: "string" },
-            name: { type: "string" },
-            ...profileFields,
-          },
-          ["id"],
-        ),
+        parameters: object({
+          ...id,
+          name: Type.Optional(Type.String()),
+          ...profileFields,
+        }),
         annotations: { destructiveHint: true },
         asks: {
           lookup: (input) => `/api/profiles/${idOf(input)}`,
@@ -345,10 +293,7 @@ export const kernelToolsets: readonly Toolset[] = [
         description:
           "Write files into a Profile's folder, as { path: base64 content }.",
         internal: true,
-        parameters: object(
-          { id: { type: "string" }, files: { type: "object" } },
-          ["id", "files"],
-        ),
+        parameters: object({ ...id, ...uploadedFiles.properties }),
         annotations: { destructiveHint: true },
         request: (input) => ({
           method: "POST",
@@ -359,7 +304,7 @@ export const kernelToolsets: readonly Toolset[] = [
       {
         name: "make_default",
         description: "Make a Profile the one new Sessions use by default.",
-        parameters: object({ id: { type: "string" } }, ["id"]),
+        parameters: object(id),
         annotations: { destructiveHint: true },
         asks: {
           lookup: (input) => `/api/profiles/${idOf(input)}`,
@@ -393,7 +338,7 @@ export const kernelToolsets: readonly Toolset[] = [
       {
         name: "files",
         description: "List the files of an installed plugin.",
-        parameters: object({ plugin: { type: "string" } }, ["plugin"]),
+        parameters: object(pluginId),
         annotations: { readOnlyHint: true },
         request: (input) => ({
           method: "GET",
@@ -403,10 +348,7 @@ export const kernelToolsets: readonly Toolset[] = [
       {
         name: "read_file",
         description: "Read a file of an installed plugin.",
-        parameters: object(
-          { plugin: { type: "string" }, path: { type: "string" } },
-          ["plugin", "path"],
-        ),
+        parameters: object({ ...pluginId, path: Type.String() }),
         annotations: { readOnlyHint: true },
         request: (input) => ({
           method: "GET",
@@ -418,17 +360,10 @@ export const kernelToolsets: readonly Toolset[] = [
         internal: true,
         description:
           "Write a file of an in-place plugin, making the plugin when it doesn't exist yet. Nothing in it runs until the user turns it on.",
-        parameters: object(
-          {
-            plugin: { type: "string", description: "The plugin's id" },
-            path: {
-              type: "string",
-              description: "Relative to the plugin's folder, such as server.ts",
-            },
-            content: { type: "string" },
-          },
-          ["plugin", "path", "content"],
-        ),
+        parameters: object({
+          plugin: Type.String({ description: "The plugin's id" }),
+          ...pluginFileWrite.properties,
+        }),
         annotations: { destructiveHint: false, openWorldHint: false },
         request: (input) => ({
           method: "PUT",
@@ -442,7 +377,7 @@ export const kernelToolsets: readonly Toolset[] = [
         internal: true,
         description:
           "Install an in-place plugin's dependencies and bundle its parts, to see whether it builds. None of its code runs.",
-        parameters: object({ plugin: { type: "string" } }, ["plugin"]),
+        parameters: object(pluginId),
         annotations: { destructiveHint: false, openWorldHint: true },
         request: (input) => ({
           method: "POST",
@@ -458,16 +393,11 @@ export const kernelToolsets: readonly Toolset[] = [
   },
 ];
 
+// A tool's input: the fields of the route's body, and the ids in its path.
 function object(
-  properties: Readonly<Record<string, unknown>>,
-  required: readonly string[] = [],
+  properties: Parameters<typeof Type.Object>[0],
 ): Readonly<Record<string, unknown>> {
-  return {
-    type: "object",
-    properties,
-    required,
-    additionalProperties: false,
-  };
+  return { ...Type.Object(properties, { additionalProperties: false }) };
 }
 
 function pluginOf(input: Readonly<Record<string, unknown>>): string {

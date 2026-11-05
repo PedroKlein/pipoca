@@ -518,7 +518,7 @@ test("lets an email invite in once, and not after an admin revokes it", async ()
   const twice = await joinWith(dan?.token ?? "", "dan2");
   const afterRevoke = await joinWith(eve?.token ?? "", "eve");
 
-  expect(badEmail.status).toBe(400);
+  expect(badEmail.status).toBe(422);
   expect(dan?.email).toBe("dan@example.com");
   expect(revoked.status).toBe(204);
 

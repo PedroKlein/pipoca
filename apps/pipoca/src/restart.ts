@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { constants } from "node:os";
-import type { Log } from "@pipoca/providers";
+import type { Log } from "@pipoca/protocol";
 
 // The server exits with this when it restarts, and whatever runs it starts it
 // again: systemd's Restart=on-failure, `pipoca server --supervise` in the

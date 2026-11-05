@@ -1,22 +1,50 @@
 import {
+  appSignIn,
+  browserCommand,
+  configFileWrite,
+  createEnvironment,
+  createFork,
+  createSession,
+  credentials,
   type Environment,
-  type JoinInfo,
-  type ListedTemplate,
-  type PluginInfo,
-  type Session,
-  type SessionEvent,
-  type Teammate,
-  protocolVersion,
+  environmentUpdate,
   type EnvironmentKey,
+  firstUser,
+  hubLayout,
+  inviteRequest,
+  type JoinInfo,
+  joinRequest,
+  type ListedTemplate,
+  type Log,
+  mcpTokenRequest,
+  moveToTeam,
+  newcomersChange,
+  personUpdate,
+  pinnedPages,
+  pluginFileWrite,
+  type PluginInfo,
+  pluginInstall,
+  pluginUpdate,
+  protocolVersion,
+  repositoryImport,
+  repositoryListing,
+  restartRequest,
+  type Session,
+  sessionAccess,
+  type SessionEvent,
+  setupChange,
+  teamMessage,
+  type Teammate,
+  teamNameChange,
   versionHeader,
 } from "@pipoca/protocol";
 import { VERSION as piVersion } from "@earendil-works/pi-coding-agent";
 import {
   BadRequest,
-  fieldsOf,
-  HttpError,
+  checkBody,
   isHttpError,
   NotFound,
+  readBody,
   readJson,
 } from "@pipoca/plugins";
 import {
@@ -26,7 +54,6 @@ import {
   userIdOf,
 } from "@pipoca/pluginhost";
 import { InvalidProfile, ProfileTooBig, type Profiles } from "@pipoca/profiles";
-import type { Log } from "@pipoca/providers";
 import type { Result, Sessions } from "@pipoca/sessions";
 import { version as serverVersion } from "../package.json";
 import {
@@ -40,28 +67,13 @@ import { type Changes, changedBy } from "./changes";
 import { mcpHandler } from "./mcp";
 import { type AgentRoute, agentRoutes } from "./agent-routes";
 import { profileRoutes } from "./profile-routes";
-import { errorReply, notFound, rejected, reply } from "./replies";
-import {
-  browserCommand,
-  createEnvironment,
-  createFork,
-  moveToTeam,
-  createSession,
-  environmentUpdate,
-  joinRequest,
-  lineAfter,
-  listOf,
-  quoteOf,
-  sessionAccess,
-  teamMessage,
-  setupChangeOf,
-  textOf,
-} from "./requests";
+import { errorReply, notFound, rejected, reply, thrown } from "./replies";
+import { blanksDropped, lineAfter } from "./requests";
 import { presences } from "./presence";
 import { sseResponse } from "./sse";
 import type { ConfigFiles } from "./config";
 import type { Templates } from "./templates";
-import { type Hub, layoutOf } from "./hub";
+import { type Hub, laidOut } from "./hub";
 import { type NewcomerSetup, newcomersOf } from "./newcomers";
 import { type Team, teamOf } from "./team";
 
@@ -359,7 +371,7 @@ export function createHandler(
           request.headers.get("authorization") ?? ""
         ).split(" ");
 
-        const { name } = joinRequest(await readJson(request));
+        const { name } = await readBody(request, joinRequest);
 
         const joined =
           scheme === "Bearer" && key !== undefined
@@ -382,10 +394,10 @@ export function createHandler(
         if (joined === "online") {
           log("runner refused", { runner: name, reason: "online" });
 
-          throw new HttpError(
+          return errorReply(
             409,
-            `a runner named ${name} is online here`,
             "runner_online",
+            `a runner named ${name} is online here`,
           );
         }
 
@@ -403,8 +415,8 @@ export function createHandler(
       "POST",
       /^\/api\/plugins$/,
       admin(async (request) => {
-        const { url } = fieldsOf(await readJson(request));
-        const installed = await plugins.install(textOf("url", url));
+        const { url } = await readBody(request, pluginInstall);
+        const installed = await plugins.install(url);
 
         if (typeof installed === "string") {
           throw new BadRequest(installed);
@@ -430,16 +442,10 @@ export function createHandler(
       "PUT",
       /^\/api\/plugin-files\/([^/]+)$/,
       adminDraft(async (request, [name = ""]) => {
-        const { path, content } = fieldsOf(await readJson(request));
-
-        if (typeof content !== "string") {
-          throw new BadRequest("content must be text");
-        }
+        const { path, content } = await readBody(request, pluginFileWrite);
 
         return Response.json(
-          await refused(
-            plugins.files.write(name, textOf("path", path), content),
-          ),
+          await refused(plugins.files.write(name, path, content)),
         );
       }),
     ],
@@ -473,7 +479,7 @@ export function createHandler(
           );
         }
 
-        const { force } = fieldsOf(await readJson(request));
+        const { force } = await readBody(request, restartRequest);
         const busy = restart.busy();
 
         // Sessions on the server's own runner stop with it mid-turn
@@ -521,7 +527,7 @@ export function createHandler(
       "POST",
       /^\/api\/setup$/,
       async (request, _params, actor) => {
-        const change = setupChangeOf(await readJson(request));
+        const change = await readBody(request, setupChange);
 
         if ("finished" in change) {
           auth.finishSetup(userIdOf(actor));
@@ -542,12 +548,9 @@ export function createHandler(
       "PUT",
       /^\/api\/pinned-pages$/,
       async (request, _params, actor) => {
-        const { pages } = fieldsOf(await readJson(request));
+        const { pages } = await readBody(request, pinnedPages);
 
-        auth.pinPages(
-          userIdOf(actor),
-          listOf("pages", pages, (page) => textOf("page", page)),
-        );
+        auth.pinPages(userIdOf(actor), pages);
 
         return new Response(null, { status: 204 });
       },
@@ -562,12 +565,8 @@ export function createHandler(
       "POST",
       /^\/api\/mcp-tokens$/,
       async (request, _params, actor) => {
-        const { name } = fieldsOf(await readJson(request));
-
-        const { token, secret } = auth.newMcpToken(
-          userIdOf(actor),
-          textOf("name", name),
-        );
+        const { name } = await readBody(request, mcpTokenRequest);
+        const { token, secret } = auth.newMcpToken(userIdOf(actor), name);
 
         log("mcp token created", { tokenId: token.id });
 
@@ -594,19 +593,12 @@ export function createHandler(
       "PATCH",
       /^\/api\/plugins\/([^/]+)$/,
       admin(async (request, [name = ""]) => {
-        const { settings, enabled, update, digest, teamWork } = fieldsOf(
-          await readJson(request),
+        const { settings, enabled, update, digest, teamWork } = await readBody(
+          request,
+          pluginUpdate,
         );
 
-        if (enabled !== undefined && typeof enabled !== "boolean") {
-          throw new BadRequest("enabled must be true or false");
-        }
-
         if (teamWork !== undefined) {
-          if (typeof teamWork !== "boolean") {
-            throw new BadRequest("teamWork must be true or false");
-          }
-
           const switched = plugins.setTeamWork(name, teamWork);
 
           if (typeof switched === "string") {
@@ -620,7 +612,7 @@ export function createHandler(
           settings,
           enabled,
           update: update === true,
-          ...(typeof digest === "string" && { digest }),
+          ...(digest !== undefined && { digest }),
         });
 
         if (typeof saved === "string") {
@@ -666,8 +658,9 @@ export function createHandler(
       "POST",
       /^\/api\/environments$/,
       async (request, _params, actor, isAdmin) => {
-        const { name, template, team } = createEnvironment(
-          await readJson(request),
+        const { name, template, team } = await readBody(
+          request,
+          createEnvironment,
         );
 
         if (team === true && !isAdmin) {
@@ -742,10 +735,12 @@ export function createHandler(
           return notFound();
         }
 
-        const updated = sessions.updateEnvironment(
-          id,
-          environmentUpdate(await readJson(request)),
-        );
+        const { name, ...update } = await readBody(request, environmentUpdate);
+
+        const updated = sessions.updateEnvironment(id, {
+          ...update,
+          ...(name !== undefined && { name: name.trim() }),
+        });
 
         if (updated.ok) {
           log("environment updated", { environmentId: id });
@@ -810,10 +805,14 @@ export function createHandler(
         }
 
         const {
-          emails,
-          admin: asAdmin,
-          days,
-        } = inviteOf(fieldsOf(await readJson(request)));
+          emails: listed = [],
+          admin: asAdmin = false,
+          days = 7,
+        } = await readBody(request, inviteRequest);
+
+        const emails = [
+          ...new Set(listed.map((email) => email.trim().toLowerCase())),
+        ];
 
         const by = userIdOf(actor);
         const made = auth.invite(by, emails, asAdmin, days);
@@ -893,19 +892,10 @@ export function createHandler(
           return notFound();
         }
 
-        const { name, text, version } = fieldsOf(await readJson(request));
-
-        if (
-          typeof name !== "string" ||
-          typeof text !== "string" ||
-          (version !== null && typeof version !== "string")
-        ) {
-          return errorReply(
-            400,
-            "invalid_config",
-            "Send name, text and version.",
-          );
-        }
+        const { name, text, version } = await readBody(
+          request,
+          configFileWrite,
+        );
 
         const failure = config.write(name, text, version);
 
@@ -930,11 +920,7 @@ export function createHandler(
           return errorReply(403, "admin_only", "Only admins change roles.");
         }
 
-        const { admin: makeAdmin } = fieldsOf(await readJson(request));
-
-        if (typeof makeAdmin !== "boolean") {
-          throw new BadRequest("admin must be true or false");
-        }
+        const { admin: makeAdmin } = await readBody(request, personUpdate);
 
         const people = auth.people();
         if (!people.some((person) => person.id === id)) {
@@ -972,7 +958,7 @@ export function createHandler(
           return errorReply(403, "admin_only", "Only admins lay out the hub.");
         }
 
-        const layout = layoutOf(await readJson(request));
+        const layout = laidOut(await readBody(request, hubLayout));
 
         if (hub === undefined) {
           return notFound();
@@ -998,7 +984,7 @@ export function createHandler(
           return errorReply(403, "admin_only", "Only admins name the team.");
         }
 
-        const next = teamOf(await readJson(request));
+        const next = teamOf(await readBody(request, teamNameChange));
 
         if (teamName === undefined) {
           return notFound();
@@ -1031,7 +1017,7 @@ export function createHandler(
           );
         }
 
-        const next = newcomersOf(await readJson(request));
+        const next = newcomersOf(await readBody(request, newcomersChange));
 
         if (newcomers === undefined) {
           return notFound();
@@ -1077,10 +1063,7 @@ export function createHandler(
       "POST",
       /^\/api\/templates\/listed$/,
       templateChange(async (request, _params, made) => {
-        const { url } = fieldsOf(await readJson(request));
-        if (typeof url !== "string") {
-          throw new BadRequest("url must be a string");
-        }
+        const { url } = await readBody(request, repositoryListing);
 
         return Response.json({ templates: await made.listed(url) });
       }),
@@ -1089,15 +1072,7 @@ export function createHandler(
       "POST",
       /^\/api\/templates\/import$/,
       templateChange(async (request, _params, made) => {
-        const { url, paths } = fieldsOf(await readJson(request));
-        if (
-          typeof url !== "string" ||
-          !Array.isArray(paths) ||
-          !paths.every((path) => typeof path === "string")
-        ) {
-          throw new BadRequest("url must be a string and paths a list");
-        }
-
+        const { url, paths } = await readBody(request, repositoryImport);
         const imported = await made.importListed(url, paths);
 
         log("templates imported", {
@@ -1186,8 +1161,14 @@ export function createHandler(
       "POST",
       /^\/api\/sessions\/([^/]+)\/fork$/,
       own(async (request, [id = ""], actor) => {
+        const { personal, ...fork } = checkBody(
+          blanksDropped(await readJson(request)),
+          createFork,
+        );
+
         const forked = sessions.fork(id, {
-          ...createFork(await readJson(request)),
+          ...fork,
+          ...(personal === true && { personal }),
           actor,
         });
 
@@ -1207,8 +1188,11 @@ export function createHandler(
       "POST",
       /^\/api\/sessions\/([^/]+)\/move$/,
       own(async (request, [id = ""], actor) => {
+        const { summary, ...move } = await readBody(request, moveToTeam);
+
         const moved = sessions.move(id, {
-          ...moveToTeam(await readJson(request)),
+          ...move,
+          summary: summary.trim(),
           actor,
         });
 
@@ -1228,7 +1212,7 @@ export function createHandler(
       /^\/api\/sessions$/,
       async (request, _params, actor) => {
         const created = sessions.start({
-          ...createSession(await readJson(request)),
+          ...checkBody(blanksDropped(await readJson(request)), createSession),
           actor,
         });
 
@@ -1315,12 +1299,14 @@ export function createHandler(
     [
       "POST",
       /^\/api\/sessions\/([^/]+)\/say$/,
-      steer(async (request, [id = ""], actor) =>
-        reply(
-          sessions.say(id, { ...teamMessage(await readJson(request)), actor }),
+      steer(async (request, [id = ""], actor) => {
+        const { text, ...message } = await readBody(request, teamMessage);
+
+        return reply(
+          sessions.say(id, { ...message, text: text.trim(), actor }),
           201,
-        ),
-      ),
+        );
+      }),
     ],
     [
       "GET",
@@ -1346,7 +1332,12 @@ export function createHandler(
       "PUT",
       /^\/api\/sessions\/([^/]+)\/access$/,
       async (request, [id = ""], actor, isAdmin) => {
-        const access = sessionAccess(await readJson(request));
+        const body = await readBody(request, sessionAccess);
+
+        const access =
+          body.kind === "named"
+            ? { kind: body.kind, people: [...new Set(body.people)] }
+            : body;
 
         const users = new Set(auth.users().map((user) => user.id));
         if (
@@ -1372,18 +1363,15 @@ export function createHandler(
       "POST",
       /^\/api\/sessions\/([^/]+)\/commands$/,
       async (request, [id = ""], actor, isAdmin) => {
-        const body = await readJson(request);
-        const command = browserCommand(body, actor);
+        const { quote, ...sent } = await readBody(request, browserCommand);
+        const command = { ...sent, actor };
         const person = userIdOf(actor);
 
         if (
           sessions.belongsTo(id, person) ||
           (isAdmin && command.type === "abort")
         ) {
-          return reply(
-            sessions.send(id, command, quoteOf(fieldsOf(body)["quote"])),
-            202,
-          );
+          return reply(sessions.send(id, command, quote), 202);
         }
 
         return sessions.sees(id, person) ? rejected("view_only") : notFound();
@@ -1410,15 +1398,7 @@ export function createHandler(
           return await route(request, match.slice(1));
         } catch (error) {
           if (isHttpError(error)) {
-            // A plugin that bundles an SDK from before codes throws none
-            // (ADR 0046), so its status gives one.
-            const { status, code, message } = new HttpError(
-              error.status,
-              error.message,
-              (error as Partial<HttpError>).code,
-            );
-
-            return errorReply(status, code, message);
+            return thrown(error);
           }
 
           if (
@@ -1465,12 +1445,8 @@ function authRoutes(
       "POST",
       /^\/api\/auth\/setup$/,
       async (request) => {
-        const fields = fieldsOf(await readJson(request));
-
-        const user = await auth.setUp(
-          textOf("token", fields["token"]),
-          credentialsOf(fields),
-        );
+        const { token, ...given } = await readBody(request, firstUser);
+        const user = await auth.setUp(token, credentialsOf(given));
 
         if (user === undefined) {
           return errorReply(
@@ -1513,7 +1489,7 @@ function authRoutes(
       async (request, [token = ""]) => {
         const joined = await auth.joinWithInvite(
           token,
-          credentialsOf(fieldsOf(await readJson(request))),
+          credentialsOf(await readBody(request, credentials)),
         );
 
         if (joined === "off") {
@@ -1575,10 +1551,7 @@ function authRoutes(
           return errorReply(401, "signed_out", "Sign in first.");
         }
 
-        const challenge = textOf(
-          "challenge",
-          fieldsOf(await readJson(request))["challenge"],
-        );
+        const { challenge } = await readBody(request, appSignIn);
 
         if (!/^[\w-]{43}$/.test(challenge)) {
           return errorReply(
@@ -1601,9 +1574,9 @@ function authRoutes(
       "POST",
       /^\/api\/auth\/login$/,
       async (request) => {
-        const credentials = credentialsOf(fieldsOf(await readJson(request)));
+        const given = credentialsOf(await readBody(request, credentials));
         const address = addresses.get(request) ?? "";
-        const user = await auth.signIn(credentials, address);
+        const user = await auth.signIn(given, address);
 
         if (user === "off") {
           return errorReply(
@@ -1614,7 +1587,7 @@ function authRoutes(
         }
 
         if (user === "locked") {
-          log("sign-in locked", { name: credentials.name, address });
+          log("sign-in locked", { name: given.name, address });
 
           return errorReply(
             429,
@@ -1624,7 +1597,7 @@ function authRoutes(
         }
 
         if (user === "wrong") {
-          log("sign-in failed", { name: credentials.name, address });
+          log("sign-in failed", { name: given.name, address });
 
           return errorReply(401, "wrong_password", "Wrong name or password.");
         }
@@ -1658,49 +1631,6 @@ function signedInAs(
   });
 }
 
-const maxInvites = 100;
-const emailPattern = /^[^\s@]+@[^\s@]+$/;
-
-function inviteOf(fields: Record<string, unknown>): {
-  readonly emails: readonly string[];
-  readonly admin: boolean;
-  readonly days: number;
-} {
-  const { emails = [], admin = false, days = 7 } = fields;
-
-  if (
-    !Array.isArray(emails) ||
-    emails.length > maxInvites ||
-    !emails.every(
-      (email): email is string =>
-        typeof email === "string" && emailPattern.test(email.trim()),
-    )
-  ) {
-    throw new BadRequest(
-      `emails must be a list of up to ${String(maxInvites)} email addresses`,
-    );
-  }
-
-  if (typeof admin !== "boolean") {
-    throw new BadRequest("admin must be true or false");
-  }
-
-  if (
-    typeof days !== "number" ||
-    !Number.isInteger(days) ||
-    days < 1 ||
-    days > 30
-  ) {
-    throw new BadRequest("days must be a whole number from 1 to 30");
-  }
-
-  return {
-    emails: [...new Set(emails.map((email) => email.trim().toLowerCase()))],
-    admin,
-    days,
-  };
-}
-
 function expiredInvite(): Response {
   return errorReply(
     404,
@@ -1709,11 +1639,8 @@ function expiredInvite(): Response {
   );
 }
 
-function credentialsOf(fields: Record<string, unknown>): Credentials {
-  return {
-    name: textOf("name", fields["name"]).trim(),
-    password: textOf("password", fields["password"]),
-  };
+function credentialsOf({ name, password }: Credentials): Credentials {
+  return { name: name.trim(), password };
 }
 
 async function pluginChange(

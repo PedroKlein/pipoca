@@ -1,9 +1,6 @@
-import { BadRequest, fieldsOf, type PluginConfig } from "@pipoca/plugins";
-import type { Newcomers } from "@pipoca/protocol";
-import { listOf, textOf } from "./requests";
-
-const noNewcomers: Newcomers = { template: null, profiles: [], required: [] };
-const maxProfiles = 20;
+import type { PluginConfig } from "@pipoca/plugins";
+import { type Newcomers, newcomersChange } from "@pipoca/protocol";
+import { Value } from "typebox/value";
 
 export interface NewcomerSetup {
   readonly get: () => Newcomers;
@@ -15,17 +12,9 @@ export interface NewcomerSetup {
 export function newcomerSetup(config: PluginConfig): NewcomerSetup {
   return {
     get: () => {
-      const value = config.get();
+      const value = config.get() ?? {};
 
-      if (value === undefined) {
-        return noNewcomers;
-      }
-
-      try {
-        return newcomersOf(value);
-      } catch {
-        return noNewcomers;
-      }
+      return newcomersOf(Value.Check(newcomersChange, value) ? value : {});
     },
     set: (newcomers) => {
       config.set(newcomers);
@@ -33,29 +22,14 @@ export function newcomerSetup(config: PluginConfig): NewcomerSetup {
   };
 }
 
-export function newcomersOf(value: unknown): Newcomers {
-  const { template, profiles, required } = fieldsOf(value);
-
-  const offered = listOf("profiles", profiles ?? [], (profile) =>
-    textOf("profile", profile),
-  );
-
-  if (offered.length > maxProfiles) {
-    throw new BadRequest(
-      `new people are offered at most ${String(maxProfiles)} Profiles`,
-    );
-  }
-
+export function newcomersOf({
+  template,
+  profiles = [],
+  required = [],
+}: Partial<Newcomers>): Newcomers {
   return {
-    template:
-      template === null || template === undefined
-        ? null
-        : textOf("template", template),
-    profiles: [...new Set(offered)],
-    required: [
-      ...new Set(
-        listOf("required", required ?? [], (step) => textOf("step", step)),
-      ),
-    ],
+    template: template ?? null,
+    profiles: [...new Set(profiles)],
+    required: [...new Set(required)],
   };
 }

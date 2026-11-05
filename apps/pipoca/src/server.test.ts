@@ -12,7 +12,7 @@ import {
   versionHeader,
   type WorkPoll,
 } from "@pipoca/protocol";
-import type { Log } from "@pipoca/providers";
+import type { Log } from "@pipoca/protocol";
 import { startPlugins } from "@pipoca/pluginhost";
 import { ProfileFolders, Profiles } from "@pipoca/profiles";
 import { Sessions } from "@pipoca/sessions";

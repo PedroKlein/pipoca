@@ -43,8 +43,8 @@ test("keeps the reminders a person dismissed, once each", async () => {
 });
 
 test("refuses a change that isn't finishing or a step's name", async () => {
-  expect((await setup({ finished: "yes" })).status).toBe(400);
-  expect((await setup({ dismiss: "" })).status).toBe(400);
+  expect((await setup({ finished: "yes" })).status).toBe(422);
+  expect((await setup({ dismiss: "" })).status).toBe(422);
 });
 
 test("needs a signed-in user", async () => {

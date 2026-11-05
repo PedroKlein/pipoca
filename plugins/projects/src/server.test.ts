@@ -990,7 +990,7 @@ test("keeps a Project's goal in the context of the coordinator and its threads w
 
   expect(kernel.session(threadId).systemPrompt).toContain("Ship version 3.");
   expect((await projectView(kernel)).goal).toBe("Ship version 3.");
-  expect((await editProject(kernel, { goal: 3 })).status).toBe(400);
+  expect((await editProject(kernel, { goal: 3 })).status).toBe(422);
 });
 
 test("starts the coordinator and new threads with the Project's Profile", async () => {
@@ -1035,7 +1035,7 @@ test("starts the coordinator and new threads with the Project's Profile", async 
 
   expect((await projectView(kernel)).profileId).toBeNull();
   expect(await thread({})).toBe("profile-1");
-  expect((await editProject(kernel, { profile: 3 })).status).toBe(400);
+  expect((await editProject(kernel, { profile: 3 })).status).toBe(422);
 });
 
 test("lists each Project with its repositories, coordinator state and the threads that need you", async () => {

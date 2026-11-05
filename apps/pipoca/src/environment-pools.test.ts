@@ -663,7 +663,7 @@ test("makes an Environment once, with a key, under a name runners can use", asyn
   expect(body.environment).toMatchObject({ name: "builders", hasKey: true });
   expect(body.key).toStartWith("pck_");
   expect((await create("builders")).status).toBe(409);
-  expect((await create("no spaces")).status).toBe(400);
+  expect((await create("no spaces")).status).toBe(422);
 });
 
 test("makes an Environment named after the first runner that joins with a join key", async () => {

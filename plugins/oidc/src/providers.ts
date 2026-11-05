@@ -1,3 +1,4 @@
+import type { Log } from "@pipoca/protocol";
 import {
   BadRequest,
   fieldsOf,
@@ -71,7 +72,7 @@ export function providerStore(
   config: PluginConfig,
   store: PluginStore,
   env: NodeJS.ProcessEnv,
-  log: (message: string, fields?: Readonly<Record<string, unknown>>) => void,
+  log: Log,
 ): ProviderStore {
   // Sessions the server starts inherit its environment, so a secret leaves
   // it once read.

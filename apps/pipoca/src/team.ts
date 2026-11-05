@@ -1,7 +1,6 @@
-import { BadRequest, fieldsOf, type PluginConfig } from "@pipoca/plugins";
-import type { TeamName } from "@pipoca/protocol";
-
-const maxName = 60;
+import type { PluginConfig } from "@pipoca/plugins";
+import { type TeamName, teamNameChange } from "@pipoca/protocol";
+import { Value } from "typebox/value";
 
 export interface Team {
   readonly get: () => TeamName;
@@ -12,11 +11,11 @@ export interface Team {
 export function teamSettings(config: PluginConfig): Team {
   return {
     get: () => {
-      try {
-        return teamOf(config.get() ?? { name: null });
-      } catch {
-        return { name: null };
-      }
+      const value = config.get() ?? {};
+
+      return Value.Check(teamNameChange, value)
+        ? teamOf(value)
+        : { name: null };
     },
     set: (team) => {
       config.set(team);
@@ -24,24 +23,8 @@ export function teamSettings(config: PluginConfig): Team {
   };
 }
 
-export function teamOf(value: unknown): TeamName {
-  const { name } = fieldsOf(value);
-
-  if (name === null || name === undefined) {
-    return { name: null };
-  }
-
-  if (typeof name !== "string") {
-    throw new BadRequest("name must be a string or null");
-  }
-
-  const trimmed = name.trim();
-
-  if (trimmed.length > maxName) {
-    throw new BadRequest(
-      `a team name is at most ${String(maxName)} characters`,
-    );
-  }
+export function teamOf({ name }: { readonly name?: string | null }): TeamName {
+  const trimmed = name?.trim() ?? "";
 
   return { name: trimmed === "" ? null : trimmed };
 }

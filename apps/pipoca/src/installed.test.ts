@@ -548,11 +548,12 @@ export default {
     body: { name: 7 },
   });
 
-  expect(refused.status).toBe(400);
+  expect(refused.status).toBe(422);
 
   expect(await refused.json()).toEqual({
-    error: "bad_request",
+    error: "invalid",
     message: "name must be string",
+    field: "name",
   });
 });
 

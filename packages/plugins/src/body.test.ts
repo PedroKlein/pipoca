@@ -22,25 +22,68 @@ test("reads a body that fits its schema", async () => {
 
 test("refuses a body that doesn't fit, naming the field", async () => {
   expect(await refusal('{"size":2}')).toMatchObject({
-    status: 400,
-    code: "bad_request",
+    status: 422,
+    code: "invalid",
     message: "body must have required properties name",
+    details: { field: "" },
   });
 
   expect(await refusal('{"name":7}')).toMatchObject({
-    status: 400,
+    status: 422,
     message: "name must be string",
+    details: { field: "name" },
   });
 
   expect(await refusal('{"name":"a","owner":{"id":1}}')).toMatchObject({
-    status: 400,
+    status: 422,
     message: "owner.id must be string",
+    details: { field: "owner.id" },
   });
 
   expect(await refusal("[]")).toMatchObject({
-    status: 400,
+    status: 422,
     message: "body must be object",
   });
+});
+
+test("leaves out fields the schema doesn't name", async () => {
+  expect(await readBody(post('{"name":"a","admin":true}'), item)).toEqual({
+    name: "a",
+  });
+});
+
+const shape = Type.Object({
+  shape: Type.Union([
+    Type.Object({ kind: Type.Literal("circle"), radius: Type.Number() }),
+    Type.Object({ kind: Type.Literal("square"), side: Type.Number() }),
+  ]),
+  size: Type.Optional(Type.Enum(["small", "large"])),
+});
+
+const shapeRefusal = async (body: unknown): Promise<unknown> =>
+  readBody(post(JSON.stringify(body)), shape).catch((error: unknown) => error);
+
+test("names what is wrong with the shape a body picks", async () => {
+  expect(
+    await shapeRefusal({ shape: { kind: "square", radius: 1 } }),
+  ).toMatchObject({ message: "shape must have required properties side" });
+
+  expect(
+    await shapeRefusal({ shape: { kind: "square", side: "1" } }),
+  ).toMatchObject({ message: "shape.side must be number" });
+
+  expect(await shapeRefusal({ shape: { kind: "star" } })).toMatchObject({
+    message: "shape.kind must be one of circle, square",
+    details: { field: "shape.kind" },
+  });
+
+  expect(await shapeRefusal({ shape: {} })).toMatchObject({
+    message: "shape must have required properties kind",
+  });
+
+  expect(
+    await shapeRefusal({ shape: { kind: "circle", radius: 1 }, size: "huge" }),
+  ).toMatchObject({ message: "size must be one of small, large" });
 });
 
 test("refuses a body to check that isn't JSON", async () => {

@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import type { Log } from "@pipoca/providers";
+import type { Log } from "@pipoca/protocol";
 import { version } from "../package.json";
 import { runAgent } from "./agent";
 import { openInBrowser } from "./browser";

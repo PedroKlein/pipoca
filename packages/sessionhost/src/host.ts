@@ -1,3 +1,4 @@
+import type { Log } from "@pipoca/protocol";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -88,11 +89,6 @@ export interface TerminalChannel {
   send: (data: Uint8Array) => void;
   close: () => void;
 }
-
-export type Log = (
-  message: string,
-  fields?: Readonly<Record<string, unknown>>,
-) => void;
 
 export interface HostedSession {
   readonly stop: () => Promise<void>;

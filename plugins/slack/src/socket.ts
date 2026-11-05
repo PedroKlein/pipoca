@@ -1,3 +1,4 @@
+import type { Log } from "@pipoca/protocol";
 import { call, SlackRefused } from "./slack";
 
 const firstRetryMs = 1_000;
@@ -16,7 +17,7 @@ export function connect(
   api: string,
   appToken: string,
   onEvent: (event: Readonly<Record<string, unknown>>) => void,
-  log: (message: string, fields?: Readonly<Record<string, unknown>>) => void,
+  log: Log,
 ): Connection {
   let socket: WebSocket | undefined;
   let open = false;

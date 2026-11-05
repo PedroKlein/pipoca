@@ -32,7 +32,7 @@ import {
   type ToolResult,
   type ToolSpec,
 } from "@pipoca/protocol";
-import type { Log } from "@pipoca/providers";
+import type { Log } from "@pipoca/protocol";
 import type {
   PluginProfile,
   Result,

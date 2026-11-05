@@ -17,7 +17,7 @@ import {
   type PluginManifest,
   pluginEngine,
 } from "@pipoca/protocol";
-import type { Log } from "@pipoca/providers";
+import type { Log } from "@pipoca/protocol";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { bundleParts, type PluginParts, provideSdk } from "./bundle";

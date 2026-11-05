@@ -1,3 +1,4 @@
+import type { Log } from "@pipoca/protocol";
 import {
   BadRequest,
   isObject,
@@ -35,7 +36,7 @@ const namePattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
 export function botStore(
   config: PluginConfig,
   store: PluginStore,
-  log: (message: string, fields?: Readonly<Record<string, unknown>>) => void,
+  log: Log,
 ): Bots {
   const sealedFor = (name: string): string => `slack bot ${name}`;
 

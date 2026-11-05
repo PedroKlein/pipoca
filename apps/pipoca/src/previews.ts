@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 import type { ServerWebSocket } from "bun";
 import type { PreviewRequest, PreviewResponse } from "@pipoca/protocol";
-import type { Log } from "@pipoca/providers";
+import type { Log } from "@pipoca/protocol";
 import type { Sessions } from "@pipoca/sessions";
 import type { Auth } from "./auth";
 import { errorReply, notFound } from "./replies";

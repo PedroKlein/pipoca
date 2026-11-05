@@ -36,7 +36,7 @@ test("keeps the plugin pages a user pins, with none chosen until they pin one", 
 test("refuses pinned pages that aren't a list of names", async () => {
   const refused = await pinned({ pages: "projects" });
 
-  expect(refused.status).toBe(400);
+  expect(refused.status).toBe(422);
   expect(await (await pinned()).json()).toEqual({ pages: null });
 });
 

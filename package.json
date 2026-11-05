@@ -14,7 +14,7 @@
     "smoke": "bun run --cwd apps/pipoca smoke",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "eslint . --max-warnings 0",
+    "lint": "NODE_OPTIONS=--max-old-space-size=4096 eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p apps/web && tsc --noEmit -p examples",
     "test:e2e": "bun test ./apps/pipoca/src/web.e2e.ts"
   },

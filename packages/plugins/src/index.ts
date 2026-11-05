@@ -1,4 +1,4 @@
-export { readBody } from "./body";
+export { checkBody, readBody } from "./body";
 export { type EventBus, eventBus } from "./events";
 export {
   BadRequest,

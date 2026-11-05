@@ -18,7 +18,8 @@ import type {
   Removal,
   RemovalReport,
 } from "@pipoca/protocol";
-import { runProvider, type Log } from "@pipoca/providers";
+import type { Log } from "@pipoca/protocol";
+import { runProvider } from "@pipoca/providers";
 import {
   type HostedSession,
   hostSession,

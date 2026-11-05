@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { systemClock } from "@pipoca/sessions";
+import { systemClock } from "@pipoca/protocol";
 import { Auth, InvalidCredentials } from "./auth";
 import { openStore } from "./store";
 import { testServer, type TestServer } from "./testdata/harness";
