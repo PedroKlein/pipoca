@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import { Type } from "typebox";
 import type { Environments } from "@pipoca/environments";
 import { canSee } from "@pipoca/people";
 import {
@@ -8,22 +9,24 @@ import {
   fieldsOf,
   type Login,
   type ModelOffer,
-  type PluginConfig,
+  type ConfigKey,
+  pluginConfig,
+  type PluginEnvironments,
   type PluginDefinition,
   pluginEvents,
   type PluginRoute,
   type PluginStore,
   type PublicRoute,
   type RouteCaller,
+  type RouteToolSpec,
   type RunnerSource,
   type ServerPart,
   type ServerPlugin,
   type ServerPluginContext,
   secretRefs,
-  type ServerTool,
   type SessionPlugin,
   settingValues,
-  type Toolset,
+  type ToolDef,
   type TypedBus,
   type User,
 } from "@pipoca/plugins";
@@ -48,12 +51,18 @@ import {
   type Sessions,
   transcriptReader,
 } from "@pipoca/sessions";
+import { secretsOf, sessionsFor, storeOf } from "./context";
 import {
+  definedTool,
+  kernelRouteTools,
+  registeredTool,
+  type RouteTool,
+  routeTools as routeToolsOf,
   routeToolQuestion,
   runRouteTool,
-  type ToolsetTool,
+  type ServedTool,
   toolsetTools,
-} from "./toolsets";
+} from "./tools";
 import { scheduler, type ScheduleStore } from "./scheduler";
 import { kernelKeys, type PluginSwitches } from "./switches";
 import { type ExtRoute, pluginRoutes, pluginUrls } from "./routes";
@@ -136,9 +145,15 @@ export interface PluginHost {
   readonly profileIds: () => readonly string[];
   readonly tools: (session: Session) => readonly ToolSpec[];
   readonly call: (session: Session, call: ToolCall) => void;
-  // Every toolset's tools, and a call to one as a user, for MCP clients.
-  readonly toolsetTools: () => readonly ToolSpec[];
-  readonly callToolset: (
+  // What to ask the person before the Session's call, if anything.
+  readonly question: (
+    session: Session,
+    name: string,
+    input: unknown,
+  ) => Promise<string | undefined>;
+  // Every route tool, and a call to one as a person, for MCP clients.
+  readonly routeTools: () => readonly ToolSpec[];
+  readonly callRouteTool: (
     name: string,
     input: unknown,
     actor: UserActor,
@@ -222,10 +237,8 @@ export function startPlugins(
     readonly dataFailure: (name: string) => string | undefined;
     // Drops a plugin's tables and makes them again, or says why it couldn't.
     readonly resetData: (name: string) => string | undefined;
-    readonly config: (name: string) => PluginConfig;
-    // The kernel's own toolsets (ADR 0035).
-    readonly toolsets: readonly Toolset[];
-    // Handles a toolset tool's request as the user.
+    readonly config: (name: string) => ConfigKey;
+    // Handles a route tool's request as the person.
     readonly api: (onBehalf: OnBehalf, request: Request) => Promise<Response>;
     readonly auth: Pick<
       ServerPluginContext["auth"],
@@ -260,9 +273,11 @@ export function startPlugins(
     readonly log: Log;
   },
 ): PluginHost {
-  const tools = new Map<string, { plugin: string; tool: ServerTool }>();
-  const routeTools = new Map<string, ToolsetTool>();
+  const tools = new Map<string, ServedTool>();
+  const routeTools = new Map<string, RouteTool>();
   const toolsetUsers = new Set<string>();
+  const routeToolProfiles = new Set<string>();
+  let modelCredentials: string | undefined;
   const routes = new Map<string, PluginRoute>();
   const publicRoutes = new Map<string, PublicRoute>();
   const logins: { plugin: string; offered: () => readonly Login[] }[] = [];
@@ -453,24 +468,52 @@ export function startPlugins(
     namespaces.set(namespace, claimant);
   };
 
-  for (const { name } of deps.toolsets.map(({ namespace }) => namespace)) {
-    claim(name, "kernel");
-  }
-
-  for (const tool of deps.toolsets.flatMap((each) => toolsetTools(each))) {
+  for (const tool of kernelRouteTools()) {
     if (taken(tool.spec.name)) {
       throw new Error(`tool ${tool.spec.name} is already registered`);
+    }
+
+    if (tool.spec.namespace !== undefined) {
+      claim(tool.spec.namespace.name, "kernel");
     }
 
     routeTools.set(tool.spec.name, tool);
   }
 
   // What the model and MCP clients see; internal tools are for plugins.
-  const modelTools = (): ToolsetTool[] =>
-    [...routeTools.values()].filter(({ tool }) => tool.internal !== true);
+  const modelTools = (): RouteTool[] =>
+    [...routeTools.values()].filter(({ internal }) => !internal);
 
+  // v1: Sessions of a plugin that loads toolsets in its own Sessions, whose
+  // Session part asks before calls itself.
   const loadsToolsets = (session: Session): boolean =>
     toolsetUsers.has(deps.sessions.powersOf(session) ?? "");
+
+  const loadsRouteTools = (session: Session): boolean =>
+    loadsToolsets(session) || routeToolProfiles.has(session.profileId);
+
+  const personOf = (id: string): User | undefined =>
+    deps.auth.users().find((each) => each.id === id);
+
+  const servedTool = (
+    session: Session,
+    name: string,
+  ): ServedTool | undefined => {
+    const found = tools.get(name);
+
+    return found !== undefined &&
+      loadsIn(session, found.plugin) &&
+      found.applies(session)
+      ? found
+      : undefined;
+  };
+
+  const routedTool = (session: Session, name: string): RouteTool | undefined =>
+    loadsRouteTools(session)
+      ? modelTools().find(
+          ({ spec, plugin }) => spec.name === name && loadsIn(session, plugin),
+        )
+      : undefined;
 
   // A plugin loads in team work only if it says it works there, and then
   // a built-in is on until admins turn it off and an installed one is off
@@ -483,7 +526,33 @@ export function startPlugins(
     );
   };
 
-  // The kernel's own toolsets have no plugin.
+  const templateConfigOf = (
+    plugin: string,
+  ): ServerPluginContext["environments"]["templateConfig"] => ({
+    get: (templateId) => deps.templates?.config(templateId, plugin),
+    set: (templateId, value) => {
+      if (deps.templates === undefined) {
+        throw new Error("this server keeps no templates");
+      }
+
+      deps.templates.setConfig(templateId, plugin, value);
+    },
+  });
+
+  const environmentsOf = (plugin: string): PluginEnvironments => {
+    const { startsRunners: _startsRunners, ...environments } =
+      pluginEnvironments(
+        deps.sessions,
+        deps.environments,
+        deps.runners,
+        () => undefined,
+        templateConfigOf(plugin),
+      );
+
+    return environments;
+  };
+
+  // The kernel's own tools have no plugin.
   const loadsIn = (session: Session, plugin: string | undefined): boolean =>
     session.ownedBy !== "team" || plugin === undefined || inTeamWork(plugin);
 
@@ -519,8 +588,8 @@ export function startPlugins(
     // What the plugin registers is kept aside until register returns, so a
     // plugin that throws leaves nothing behind in the host (ADR 0036).
     const staged = {
-      tools: new Map<string, ServerTool>(),
-      routeTools: new Map<string, ToolsetTool>(),
+      tools: new Map<string, ServedTool>(),
+      routeTools: new Map<string, RouteTool>(),
       namespaces: new Set<string>(),
       loadsToolsets: false,
       route: undefined as PluginRoute | undefined,
@@ -558,7 +627,7 @@ export function startPlugins(
                 throw new Error(`tool ${tool.name} is already registered`);
               }
 
-              staged.tools.set(tool.name, tool);
+              staged.tools.set(tool.name, registeredTool(plugin.name, tool));
             },
           },
           toolsets: {
@@ -595,7 +664,7 @@ export function startPlugins(
               return (
                 found &&
                 onBehalf &&
-                routeToolQuestion(found, input, onBehalf, deps)
+                routeToolQuestion(found, input, onBehalf, deps.api)
               );
             },
             call: async (session, name, input) => {
@@ -615,7 +684,7 @@ export function startPlugins(
                     found,
                     input,
                     onBehalf,
-                    deps,
+                    deps.api,
                     () => undefined,
                   ).catch((error: unknown) => ({
                     text: String(error),
@@ -648,17 +717,7 @@ export function startPlugins(
             (starts) => {
               staged.starters.push({ plugin: plugin.name, starts });
             },
-            {
-              get: (templateId) =>
-                deps.templates?.config(templateId, plugin.name),
-              set: (templateId, value) => {
-                if (deps.templates === undefined) {
-                  throw new Error("this server keeps no templates");
-                }
-
-                deps.templates.setConfig(templateId, plugin.name, value);
-              },
-            },
+            templateConfigOf(plugin.name),
           ),
           profiles: {
             provide: (key, { name: _name, ...content }, options) => {
@@ -730,7 +789,7 @@ export function startPlugins(
     }
 
     for (const [name, tool] of staged.tools) {
-      tools.set(name, { plugin: plugin.name, tool });
+      tools.set(name, tool);
     }
 
     for (const namespace of staged.namespaces) {
@@ -802,6 +861,24 @@ export function startPlugins(
       publish: deps.changes,
     });
 
+    const scheduled = schedules.part(id);
+
+    const staged = {
+      defined: [] as ToolDef[],
+      fromRoutes: [] as {
+        readonly method: ExtRoute["method"];
+        readonly path: string;
+        readonly spec: RouteToolSpec;
+      }[],
+      profiles: new Map<string, PluginProfile>(),
+      routeToolProfiles: [] as string[],
+      logins: [] as (() => readonly Login[])[],
+      offers: [] as ModelOffer[],
+      gitLogins: [] as GitLoginsOf[],
+      starters: [] as (typeof starters)[number][],
+      modelCredentials: false,
+    };
+
     try {
       if (kernelKeys.includes(id)) {
         throw new Error(
@@ -824,18 +901,29 @@ export function startPlugins(
       }
 
       const part = await serverPart(definition);
+      const store = deps.store(id);
+      const signal = AbortSignal.any([deps.signal, failed.signal]);
 
       await part?.register(
         recorded(id, [], false, touched, {
           id,
           people: {
-            get: (person) =>
-              deps.auth.users().find((each) => each.id === person),
+            get: personOf,
             list: () => deps.auth.users(),
             byName: (name) =>
               deps.auth.users().find((each) => each.name === name),
           },
+          sessions: sessionsFor(deps.sessions, id),
           routes: declared.routes,
+          tools: {
+            define: (tool) => {
+              staged.defined.push(tool);
+            },
+            fromRoute: (method, path, spec) => {
+              staged.fromRoutes.push({ method, path, spec });
+            },
+          },
+          schedule: scheduled.schedule,
           events: {
             ...pluginEvents(
               deps.events,
@@ -848,13 +936,110 @@ export function startPlugins(
             ),
             declared: declaredEvents,
           },
+          config: pluginConfig(
+            definition.config ?? Type.Object({}),
+            deps.config(id),
+            secretRefs(store, fromEnv),
+            { timer: deps.timer, signal, log },
+          ),
+          store: storeOf(store),
           transcript,
           urls: pluginUrls(id, deps.url),
+          provide: {
+            runners: ({ starts }) => {
+              staged.starters.push({ plugin: id, starts });
+            },
+            models: (offer) => {
+              staged.offers.push(offer);
+            },
+            gitCredentials: (fn) => {
+              staged.gitLogins.push(fn);
+            },
+            modelCredentials: () => {
+              if (modelCredentials !== undefined) {
+                throw new Error(
+                  `${modelCredentials} already gives the Sessions' logins`,
+                );
+              }
+
+              staged.modelCredentials = true;
+            },
+            signIn: ({ logins: offered }) => {
+              staged.logins.push(offered);
+            },
+            profile: (key, { name: _name, ...content }, o) => {
+              const profileId = `${id}.${key}`;
+
+              staged.profiles.set(profileId, {
+                plugin: id,
+                profile: { id: profileId, ...content },
+                ...(o?.team === true && { team: true }),
+              });
+
+              if (o?.routeTools === true) {
+                staged.routeToolProfiles.push(profileId);
+              }
+
+              return profileId;
+            },
+            runtime: () => {
+              throw new Error("this server gives plugins no runtime");
+            },
+          },
+          secrets: secretsOf(store),
+          environments: environmentsOf(id),
+          profiles: {
+            mcpServers: deps.mcpServers ?? (() => []),
+            buildsOn: deps.buildsOn ?? (() => []),
+          },
           clock: deps.clock,
           log,
-          signal: AbortSignal.any([deps.signal, failed.signal]),
+          signal,
         }),
       );
+
+      const served = [
+        ...staged.defined.map((tool) =>
+          definedTool(id, tool, { person: personOf, log }),
+        ),
+      ];
+
+      const routed = [
+        ...declared.declared.flatMap((route) =>
+          routeToolsOf(id, routeOf(route), route.spec.tool),
+        ),
+        ...staged.fromRoutes.flatMap(({ method, path, spec }) => {
+          const route = declared.declared.find(
+            (each) => each.method === method && each.path === trimmed(path),
+          );
+
+          if (route === undefined) {
+            throw new Error(
+              `tool ${spec.name} names no route ${method} ${path}`,
+            );
+          }
+
+          return routeToolsOf(id, routeOf(route), spec);
+        }),
+      ];
+
+      const names = new Set<string>();
+
+      for (const { spec } of [...served, ...routed]) {
+        if (taken(spec.name) || names.has(spec.name)) {
+          throw new Error(`tool ${spec.name} is already registered`);
+        }
+
+        names.add(spec.name);
+      }
+
+      for (const tool of served) {
+        tools.set(tool.spec.name, tool);
+      }
+
+      for (const tool of routed) {
+        routeTools.set(tool.spec.name, tool);
+      }
     } catch (error) {
       for (const unsubscribe of unsubscribes) {
         unsubscribe();
@@ -870,6 +1055,25 @@ export function startPlugins(
       return;
     }
 
+    for (const [profileId, profile] of staged.profiles) {
+      profiles.set(profileId, profile);
+    }
+
+    for (const profileId of staged.routeToolProfiles) {
+      routeToolProfiles.add(profileId);
+    }
+
+    if (staged.modelCredentials) {
+      modelCredentials = id;
+    }
+
+    logins.push(...staged.logins.map((offered) => ({ plugin: id, offered })));
+
+    offers.push(...staged.offers);
+    gitLogins.push(...staged.gitLogins);
+    starters.push(...staged.starters);
+    scheduled.commit();
+    schedules.wake();
     extRoutes.push(...declared.declared);
     settled.add(id);
     used.set(id, touched);
@@ -1271,17 +1475,31 @@ export function startPlugins(
     profileIds: () => [...profiles.keys()],
     tools: (session) => [
       ...[...tools.values()]
-        .filter(
-          ({ plugin, tool }) =>
-            loadsIn(session, plugin) && tool.appliesTo(session),
-        )
-        .map(({ tool: { appliesTo: _appliesTo, run: _run, ...spec } }) => spec),
-      ...(loadsToolsets(session)
+        .filter(({ spec }) => servedTool(session, spec.name) !== undefined)
+        .map(({ spec, question }) => ({
+          ...spec,
+          ...(question && { asks: true }),
+        })),
+      ...(loadsRouteTools(session)
         ? modelTools()
             .filter(({ plugin }) => loadsIn(session, plugin))
-            .map(({ spec }) => spec)
+            .map(({ spec, asks }) => ({
+              ...spec,
+              ...(asks && !loadsToolsets(session) && { asks: true }),
+            }))
         : []),
     ],
+    question: async (session, name, input) => {
+      const routed = routedTool(session, name);
+
+      if (routed !== undefined) {
+        const onBehalf = ownerOf(session, deps.auth.users());
+
+        return onBehalf && routeToolQuestion(routed, input, onBehalf, deps.api);
+      }
+
+      return servedTool(session, name)?.question?.(input, session);
+    },
     call: (session, call) => {
       const actor: Actor = `session:${session.id}`;
 
@@ -1292,19 +1510,8 @@ export function startPlugins(
         actor,
       });
 
-      const routed = loadsToolsets(session)
-        ? modelTools().find(
-            ({ spec, plugin }) =>
-              spec.name === call.name && loadsIn(session, plugin),
-          )
-        : undefined;
-
-      const registered = tools.get(call.name);
-
-      const found =
-        registered !== undefined && loadsIn(session, registered.plugin)
-          ? registered
-          : undefined;
+      const routed = routedTool(session, call.name);
+      const found = servedTool(session, call.name);
 
       const result = async (): Promise<ToolResult> => {
         if (routed !== undefined) {
@@ -1314,20 +1521,23 @@ export function startPlugins(
             return nobodyToActAs;
           }
 
-          return runRouteTool(routed, call.input, onBehalf, deps, (action) => {
-            deps.sessions.publish(session.id, {
-              generation: call.generation,
-              events: [{ type: "ui_action", action }],
-            });
-          });
+          return runRouteTool(
+            routed,
+            call.input,
+            onBehalf,
+            deps.api,
+            (action) => {
+              deps.sessions.publish(session.id, {
+                generation: call.generation,
+                events: [{ type: "ui_action", action }],
+              });
+            },
+          );
         }
 
-        return found?.tool.appliesTo(session) === true
-          ? found.tool.run(call.input, { session, actor })
-          : Promise.resolve({
-              text: `no tool named ${call.name}`,
-              isError: true,
-            });
+        return found === undefined
+          ? { text: `no tool named ${call.name}`, isError: true }
+          : found.run(call.input, session);
       };
 
       const plugin = routed === undefined ? found?.plugin : routed.plugin;
@@ -1355,8 +1565,8 @@ export function startPlugins(
           }
         });
     },
-    toolsetTools: () => modelTools().map(({ spec }) => spec),
-    callToolset: async (name, input, actor) => {
+    routeTools: () => modelTools().map(({ spec }) => spec),
+    callRouteTool: async (name, input, actor) => {
       const found = modelTools().find(({ spec }) => spec.name === name);
 
       return found === undefined
@@ -1365,7 +1575,7 @@ export function startPlugins(
             found,
             input,
             { actor, mayAdmin: true },
-            deps,
+            deps.api,
             () => undefined,
           ).catch((error: unknown) => ({ text: String(error), isError: true }));
     },
@@ -1526,6 +1736,22 @@ async function serverPart(
   }
 
   return loaded as ServerPart;
+}
+
+function routeOf(route: ExtRoute): Parameters<typeof routeToolsOf>[1] {
+  return {
+    method: route.method,
+    path: route.path,
+    query: route.spec.query,
+    body: route.spec.body,
+  };
+}
+
+function trimmed(path: string): string {
+  return path
+    .split("/")
+    .filter((part) => part !== "")
+    .join("/");
 }
 
 function messageOf(error: unknown): string {

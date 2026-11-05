@@ -139,7 +139,7 @@ export interface Toolset {
 }
 
 // Its full name is <namespace>_<name>, since Pi tool names are global.
-export interface RouteTool extends Omit<ToolSpec, "namespace"> {
+export interface RouteTool extends Omit<ToolSpec, "namespace" | "asks"> {
   readonly request: (input: Readonly<Record<string, unknown>>) => RouteRequest;
   // What the model sees of a successful reply's body, such as a list without
   // the fields it doesn't need.
@@ -229,7 +229,7 @@ export interface PluginStore {
 }
 
 // The plugin's part of the server's config folder (ADR 0039).
-export interface PluginConfig {
+export interface ConfigKey {
   // The plugin's key in the folder's pipoca.json, read again when the file
   // changes, for the plugin to check.
   readonly get: () => unknown;
@@ -466,7 +466,7 @@ export interface ServerPluginContext {
   // The plugin's settings as they are now, a default for each it declares
   // (ADR 0036).
   readonly settings: { readonly get: () => PluginSettings };
-  readonly config: PluginConfig;
+  readonly config: ConfigKey;
   readonly schedule: Schedule;
   readonly clock: Clock;
   // Aborted when the server stops, or when the plugin fails to register.

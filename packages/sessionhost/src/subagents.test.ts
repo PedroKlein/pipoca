@@ -194,6 +194,7 @@ async function hosted(
     },
     tools: async () => Promise.resolve([]),
     callTool: async () => Promise.resolve(),
+    toolQuestion: async () => Promise.resolve(undefined),
     answerTrust: async () => Promise.resolve(),
     pluginRequest: async () => Promise.resolve(Response.json({})),
   };

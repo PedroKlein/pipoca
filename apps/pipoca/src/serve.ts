@@ -17,11 +17,7 @@ import { email } from "@pipoca/email/server";
 import { routines } from "@pipoca/routines/server";
 import { usage } from "@pipoca/usage/server";
 import { slack } from "@pipoca/slack/server";
-import {
-  kernelToolsets,
-  pluginSwitches,
-  startPlugins,
-} from "@pipoca/pluginhost";
+import { pluginSwitches, startPlugins } from "@pipoca/pluginhost";
 import {
   eventBus,
   type PluginDefinition,
@@ -435,7 +431,6 @@ export function serve(options: ServeOptions): {
     dataFailure: store.pluginFailure,
     resetData: store.resetPlugin,
     config,
-    toolsets: kernelToolsets,
     api: async (onBehalf, request) =>
       (await api).handle(onBehalfOf(onBehalf, request)),
     auth: {

@@ -4,7 +4,7 @@ import {
   BadRequest,
   fieldsOf,
   isObject,
-  type PluginConfig,
+  type ConfigKey,
   type SecretRef,
   type SecretRefs,
 } from "@pipoca/plugins";
@@ -58,7 +58,7 @@ const namePattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
 // (ADR 0039). One that stops fitting is logged and left out, and the others
 // still work.
 export function technicalUsers(
-  config: PluginConfig,
+  config: ConfigKey,
   refs: SecretRefs,
   log: Log,
 ): TechnicalUsers {

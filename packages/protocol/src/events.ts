@@ -384,6 +384,7 @@ export const toolResult = Type.Object({
   // What the tool opened, kept in its result so the chat can draw a card
   // for it after a reload (ADR 0052).
   opened: Type.Optional(uiAction),
+  details: Type.Optional(Type.Unknown()),
 });
 
 export type ToolResult = Wire<typeof toolResult>;

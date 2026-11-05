@@ -1,4 +1,5 @@
-import type { Static, TSchema } from "typebox";
+import type { Static, TObject, TSchema } from "typebox";
+import type { ToolAnnotations, ToolNamespace } from "./plugins";
 import type { Wire } from "./wire";
 
 // Who may call a route. A person signs in with a cookie or an access token;
@@ -37,6 +38,36 @@ export interface RouteSpec {
   // Takes minutes with nothing sent, such as building a plugin, so no idle
   // timeout ends it.
   readonly long?: boolean;
+  readonly tool?: RouteToolSpec | readonly RouteToolSpec[];
+}
+
+type Input = Readonly<Record<string, unknown>>;
+
+// A tool that is a request to the route, made as the person a Session acts
+// for, or an MCP client's (ADR 0035). Its params default to the route's path
+// parameters, query and body; body holds fields every call sends.
+export interface RouteToolSpec {
+  readonly name: string;
+  readonly description: string;
+  readonly params?: TObject;
+  readonly body?: Input;
+  readonly namespace?: ToolNamespace;
+  readonly exposure?: "direct" | "deferred";
+  readonly annotations?: ToolAnnotations;
+  // lookup is a GET path whose reply text gets, to name what the call
+  // changes; text gets undefined when that fails.
+  readonly asks?: {
+    readonly lookup?: (input: Input) => string;
+    readonly text: (input: Input, found: unknown) => string;
+  };
+  // What the model sees of a successful reply's body.
+  readonly result?: (body: unknown) => unknown;
+  // What to open for the person after a successful call.
+  readonly opens?: (
+    body: unknown,
+  ) => { readonly route: string; readonly label: string } | undefined;
+  // Only plugins call it, never the model or an MCP client.
+  readonly internal?: boolean;
 }
 
 type Segments<Path extends string> = Path extends `${infer Head}/${infer Rest}`
