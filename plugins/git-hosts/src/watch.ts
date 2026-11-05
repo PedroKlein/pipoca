@@ -19,8 +19,6 @@ export interface Watch extends PullRef {
   readonly autoFix: boolean;
   readonly briefed: boolean;
   readonly seen: Seen | null;
-  // News a Session that was offline hasn't had yet.
-  readonly pending: string | null;
   readonly view: PullWatch;
 }
 
@@ -52,7 +50,6 @@ interface Row {
   auto_fix: number;
   briefed: number;
   seen: string | null;
-  pending: string | null;
   view: string | null;
 }
 
@@ -78,7 +75,6 @@ export function watchStore(store: PluginStore): WatchStore {
       ...base,
       briefed: row.briefed === 1,
       seen: row.seen === null ? null : (JSON.parse(row.seen) as Seen),
-      pending: row.pending,
       view:
         row.view === null
           ? {
@@ -147,9 +143,6 @@ export function watchStore(store: PluginStore): WatchStore {
                 change.seen === null ? null : JSON.stringify(change.seen),
               ] as [string, string | null],
             ]),
-        ...(change.pending === undefined
-          ? []
-          : [["pending", change.pending] as [string, string | null]]),
         ...(change.view === undefined
           ? []
           : [["view", JSON.stringify(change.view)] as [string, string]]),

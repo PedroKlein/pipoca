@@ -37,6 +37,7 @@ function domainsOf(
   store: Store,
   timing: Pick<EnvironmentsOptions, "pollWaitMs" | "offlineAfterMs"> = {},
   sessionStore: SessionStore = store.sessions,
+  log: Log = () => undefined,
 ): { readonly sessions: Sessions; readonly environments: Environments } {
   const environments: Environments = new Environments(store.environments, {
     ...timing,
@@ -50,7 +51,9 @@ function domainsOf(
     },
   });
 
-  const sessions: Sessions = new Sessions(sessionStore, environments);
+  const sessions: Sessions = new Sessions(sessionStore, environments, {
+    log,
+  });
 
   return { sessions, environments };
 }
@@ -192,10 +195,12 @@ function startServer(
 } {
   const store = openStore(":memory:", undefined, noProfiles);
 
-  const { sessions, environments } = domainsOf(store, {
-    pollWaitMs: 0,
-    offlineAfterMs,
-  });
+  const { sessions, environments } = domainsOf(
+    store,
+    { pollWaitMs: 0, offlineAfterMs },
+    store.sessions,
+    log,
+  );
 
   const stopped = new AbortController();
   const auth = authOf(store);
@@ -349,12 +354,12 @@ test("delivers a server tool's result that finished while the command stream was
   ]);
 });
 
-test("drops and logs a waiting tool result once its attempt is no longer current", async () => {
+test("drops and logs a waiting tool result once its Session is archived", async () => {
   const { promise: dropped, resolve } =
     Promise.withResolvers<Readonly<Record<string, unknown>>>();
 
   const server = startServer((message, fields) => {
-    if (message === "tool result dropped") {
+    if (message === "message to a Session dropped") {
       resolve(fields ?? {});
     }
   });
@@ -373,10 +378,11 @@ test("drops and logs a waiting tool result once its attempt is no longer current
 
   expect(await dropped).toEqual({
     sessionId,
+    plugin: "echo",
+    kind: "tool_result",
     generation,
-    tool: "echo",
     callId: "call-1",
-    reason: "stale_generation",
+    reason: "archived",
   });
 
   server.stop();

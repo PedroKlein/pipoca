@@ -84,10 +84,12 @@ export const sessionChange = Type.Object({
 });
 
 // A team Session message for people, not Pi (ADR 0065).
+// A retried POST with the same requestId is kept once.
 export const teamMessage = Type.Object({
   text: said,
   to: Type.Enum(["team", "aside"]),
   quote: Type.Optional(quote),
+  requestId: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
 });
 
 export type TeamMessage = Wire<typeof teamMessage>;

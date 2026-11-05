@@ -56,8 +56,6 @@ function fakeKernel(): {
   readonly tool: (name: string) => ServerTool;
   readonly session: (id: string) => Session;
   readonly update: (id: string, changes: Partial<Session>) => void;
-  readonly offline: Set<string>;
-  readonly refused: string[];
   readonly unreadable: Set<string>;
   readonly stuck: Set<string>;
   readonly logged: Logged[];
@@ -69,8 +67,6 @@ function fakeKernel(): {
   const briefs: string[] = [];
   const briefed = new Set<string>();
   const notices: (PluginNotice | undefined)[] = [];
-  const offline = new Set<string>();
-  const refused: string[] = [];
   const unreadable = new Set<string>();
   const stuck = new Set<string>();
   const logged: Logged[] = [];
@@ -80,17 +76,7 @@ function fakeKernel(): {
     throw error;
   });
 
-  const deliver = (
-    kind: Delivered["kind"],
-    sessionId: string,
-    text: string,
-  ): SendOutcome => {
-    if (offline.has(sessionId)) {
-      refused.push(text);
-
-      return { ok: false, reason: "offline" };
-    }
-
+  const deliver = (kind: Delivered["kind"], text: string): SendOutcome => {
     delivered.push({ kind, text });
 
     return { ok: true };
@@ -190,12 +176,12 @@ function fakeKernel(): {
         briefed.add(id);
         notices.push(notice);
 
-        return deliver("send", id, text);
+        return deliver("send", text);
       },
-      notify: (id, text, _actor, notice) => {
+      notify: (_id, text, _actor, notice) => {
         notices.push(notice);
 
-        return deliver("notify", id, text);
+        return deliver("notify", text);
       },
       transcript: (id) => {
         if (unreadable.has(id)) {
@@ -259,8 +245,6 @@ function fakeKernel(): {
         sessions.set(id, { ...found, ...changes });
       }
     },
-    offline,
-    refused,
     unreadable,
     stuck,
     logged,
@@ -459,12 +443,10 @@ test("tags each notice and message with what the chat draws for it", async () =>
   ]);
 }, 10_000);
 
-test("delivers each thread turn held for an offline coordinator with its own reply", async () => {
+test("delivers each thread turn with its own reply", async () => {
   const kernel = fakeKernel();
   projects.register(kernel.context);
-  const { coordinatorId, threadId } = await startProject(kernel);
-
-  kernel.offline.add(coordinatorId);
+  const { threadId } = await startProject(kernel);
 
   turn(kernel, threadId, [
     userLine("bump the version"),
@@ -476,9 +458,6 @@ test("delivers each thread turn held for an offline coordinator with its own rep
     replyLine("second result"),
   ]);
 
-  await until(() => kernel.refused.length > 0);
-  kernel.offline.delete(coordinatorId);
-
   await until(() => kernel.delivered.length >= 2);
 
   expect(kernel.delivered.map(({ kind }) => kind)).toEqual(["send", "send"]);
@@ -486,12 +465,10 @@ test("delivers each thread turn held for an offline coordinator with its own rep
   expect(kernel.delivered[1]?.text).toContain("Its last reply: second result");
 }, 10_000);
 
-test("wakes an offline coordinator only for the held thread turns that ended well", async () => {
+test("wakes the coordinator only for the thread turns that ended well", async () => {
   const kernel = fakeKernel();
   projects.register(kernel.context);
-  const { coordinatorId, threadId } = await startProject(kernel);
-
-  kernel.offline.add(coordinatorId);
+  const { threadId } = await startProject(kernel);
 
   turn(kernel, threadId, [
     userLine("bump the version"),
@@ -499,9 +476,6 @@ test("wakes an offline coordinator only for the held thread turns that ended wel
   ]);
 
   turn(kernel, threadId, [userLine("check the tag"), errorLine("429 quota")]);
-
-  await until(() => kernel.refused.length > 0);
-  kernel.offline.delete(coordinatorId);
 
   await until(() => kernel.delivered.length >= 2);
 

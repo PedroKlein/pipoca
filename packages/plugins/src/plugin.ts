@@ -269,14 +269,11 @@ export type ModelOffer = (
   userId?: string,
 ) => OfferedModels;
 
-// offline means the Session's host isn't connected right now, so a later send
-// can still reach it.
+// ok means queued: the Session gets it in order once its host takes
+// commands, even after a restart of the server.
 export type SendOutcome =
   | { readonly ok: true }
-  | {
-      readonly ok: false;
-      readonly reason: "not_found" | "archived" | "offline";
-    };
+  | { readonly ok: false; readonly reason: "not_found" | "archived" };
 
 export interface PluginNotice {
   readonly kind: string;
@@ -333,12 +330,14 @@ export interface ServerPluginContext {
     readonly unarchive: (id: string) => void;
     // Starts a turn, or queues as a follow-up when the Session is busy.
     // With a notice, the web draws it with this plugin's renderer for the
-    // notice's kind (ADR 0028).
+    // notice's kind (ADR 0028). A repeat with the dedupe key of one still
+    // queued is a no-op.
     readonly send: (
       id: string,
       text: string,
       actor: Actor,
       notice?: PluginNotice,
+      dedupe?: string,
     ) => SendOutcome;
     // Adds context the Session reads on its next turn, without starting one.
     readonly notify: (
@@ -346,7 +345,13 @@ export interface ServerPluginContext {
       text: string,
       actor: Actor,
       notice?: PluginNotice,
+      dedupe?: string,
     ) => SendOutcome;
+    // An external thread, such as a Slack thread, that talks to a Session.
+    // One per key for this plugin, gone with the Session.
+    readonly bind: (key: string, sessionId: string) => void;
+    readonly boundTo: (key: string) => string | undefined;
+    readonly unbind: (key: string) => void;
     readonly transcript: (id: string) => readonly string[];
     readonly transcriptLength: (id: string) => number;
     // Whether the person may open the Session, if only to watch it.

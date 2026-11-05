@@ -219,7 +219,7 @@ export function pullRequests(
       const found = owned(id, userId);
       const { on } = await readBody(request, autoFixBody);
 
-      watches.update(found.id, { autoFix: on, pending: null });
+      watches.update(found.id, { autoFix: on });
       context.changes.publish("pull-requests");
 
       return Response.json({ ...found.view, autoFix: on });

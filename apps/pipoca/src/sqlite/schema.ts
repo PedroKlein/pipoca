@@ -148,14 +148,52 @@ create table session_messages (
   session_id text not null references sessions (id) on delete cascade,
   seq integer not null,
   kind text not null check (kind in ('message', 'stop', 'team', 'aside', 'vote')),
-  person text not null,
+  actor text not null check (actor like 'user:_%' or actor like 'session:_%' or actor like 'plugin:_%'),
+  user_id text references users (id) on delete set null,
+  request_id text,
   text text,
   quote_from text,
   quote_text text,
   at integer not null,
   primary key (session_id, seq),
+  unique (session_id, request_id),
+  check (user_id is null or actor = 'user:' || user_id),
   check ((quote_from is null) = (quote_text is null))
 ) strict, without rowid;
+
+-- What plugins and the kernel send a Session, kept until its host takes it.
+-- Ids are UUIDv7, so id order is send order.
+create table session_outbox (
+  id text primary key,
+  session_id text not null references sessions (id) on delete cascade,
+  plugin text,
+  actor text not null check (actor like 'user:_%' or actor like 'session:_%' or actor like 'plugin:_%'),
+  kind text not null check (kind in ('message', 'context', 'notice', 'tool_result')),
+  text text,
+  notice text check (notice is null or json_valid(notice)),
+  turn integer not null check (turn in (0, 1)),
+  generation integer,
+  payload text check (payload is null or json_valid(payload)),
+  dedupe text,
+  created_at integer not null,
+  unique (session_id, plugin, dedupe),
+  check ((kind = 'tool_result') = (generation is not null and payload is not null)),
+  check ((kind = 'tool_result') = (text is null)),
+  check ((kind = 'notice') = (notice is not null)),
+  check (kind <> 'notice' or plugin is not null)
+) strict;
+create index session_outbox_session on session_outbox (session_id, id);
+
+-- An external thread a plugin follows, such as a Slack thread, and the
+-- Session it talks to.
+create table session_bindings (
+  plugin text not null,
+  key text not null,
+  session_id text not null references sessions (id) on delete cascade,
+  created_at integer not null,
+  primary key (plugin, key)
+) strict, without rowid;
+create index session_bindings_session on session_bindings (session_id);
 
 create table transcript_lines (
   session_id text not null references sessions (id) on delete cascade,
