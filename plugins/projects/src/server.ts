@@ -202,8 +202,8 @@ export const projects: ServerPlugin = {
       }
     });
 
-    // Notices and messages wait here until their Session can take them, so
-    // none are lost while a provider is offline, and they arrive in order.
+    // A turn notice waits here for its thread's transcript, and what was
+    // queued after it waits behind it, before they go to the kernel's outbox.
     const timer = setInterval(() => {
       deliver(store, context);
     }, deliveryMs);
@@ -260,24 +260,13 @@ function deliverQueued(
       continue;
     }
 
-    // A turn notice reads the thread's whole transcript, so don't build one
-    // every second for a Session that can't take it.
-    const state = runState(target);
-    if (
-      state === "offline" ||
-      state === "interrupted" ||
-      awaitsTranscript(queued.delivery, sessions)
-    ) {
+    if (awaitsTranscript(queued.delivery, sessions)) {
       blocked.add(sessionId);
       continue;
     }
 
     try {
       const sent = sendQueued(queued, store, sessions, log);
-      if (!sent.ok && sent.reason === "offline") {
-        blocked.add(sessionId);
-        continue;
-      }
 
       if (!sent.ok) {
         log("dropped a delivery to a session that is gone", {

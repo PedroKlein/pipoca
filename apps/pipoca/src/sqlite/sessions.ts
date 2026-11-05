@@ -1,10 +1,11 @@
 import type { DatabaseSync, SQLInputValue, StatementSync } from "node:sqlite";
 import type {
+  Actor,
   Clock,
   SessionAccess,
   SessionStatus,
   ThinkingLevel,
-  Voice,
+  ToolResult,
   Workspace,
   WorkspaceRemoval,
 } from "@pipoca/protocol";
@@ -13,7 +14,13 @@ import {
   type ProfileFolders,
   type ProfileStore,
 } from "@pipoca/profiles";
-import type { SessionStore, StoredSession } from "@pipoca/sessions";
+import type {
+  OutboxStore,
+  Queued,
+  SessionStore,
+  StoredSession,
+  StoredVoice,
+} from "@pipoca/sessions";
 import { transaction } from "./database";
 import { iso, isoOrNull, ms, msOrNull, userOf } from "./rows";
 
@@ -45,8 +52,8 @@ interface SessionRow {
 }
 
 interface VoiceRow {
-  kind: Voice["kind"];
-  person: string;
+  kind: StoredVoice["kind"];
+  actor: Actor;
   text: string | null;
   quote_from: string | null;
   quote_text: string | null;
@@ -122,11 +129,23 @@ export function sessionStore(
   );
 
   const selectVoices = db.prepare(
-    "select kind, person, text, quote_from, quote_text, at from session_messages where session_id = ? order by seq",
+    "select kind, actor, text, quote_from, quote_text, at from session_messages where session_id = ? order by seq",
   );
 
   const insertVoice = db.prepare(
-    "insert into session_messages (session_id, seq, kind, person, text, quote_from, quote_text, at) values (?1, (select coalesce(max(seq), 0) + 1 from session_messages where session_id = ?1), ?2, ?3, ?4, ?5, ?6, ?7)",
+    "insert into session_messages (session_id, seq, kind, actor, user_id, request_id, text, quote_from, quote_text, at) values (?1, (select coalesce(max(seq), 0) + 1 from session_messages where session_id = ?1), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) on conflict (session_id, request_id) do nothing",
+  );
+
+  const insertBinding = db.prepare(
+    "insert into session_bindings (plugin, key, session_id, created_at) values (?, ?, ?, ?) on conflict (plugin, key) do update set session_id = excluded.session_id, created_at = excluded.created_at",
+  );
+
+  const selectBinding = db.prepare(
+    "select session_id from session_bindings where plugin = ? and key = ?",
+  );
+
+  const deleteBinding = db.prepare(
+    "delete from session_bindings where plugin = ? and key = ?",
   );
 
   const selectAccess = db.prepare("select access from sessions where id = ?");
@@ -284,7 +303,7 @@ export function sessionStore(
     voices: (id) =>
       (selectVoices.all(id) as unknown as VoiceRow[]).map((row) => ({
         kind: row.kind,
-        person: row.person,
+        actor: row.actor,
         at: iso(row.at),
         ...(row.text !== null && { text: row.text }),
         ...(row.quote_from !== null &&
@@ -292,16 +311,31 @@ export function sessionStore(
             quote: { from: row.quote_from, text: row.quote_text },
           }),
       })),
-    addVoice: (id, voice) => {
+    addVoice: (id, voice) =>
       insertVoice.run(
         id,
         voice.kind,
-        voice.person,
+        voice.actor,
+        voice.actor.startsWith("user:")
+          ? voice.actor.slice("user:".length)
+          : null,
+        voice.requestId ?? null,
         voice.text ?? null,
         voice.quote?.from ?? null,
         voice.quote?.text ?? null,
         ms(voice.at),
-      );
+      ).changes > 0,
+    outbox: outboxStore(db),
+    bindings: {
+      bind: (plugin, key, sessionId, at) => {
+        insertBinding.run(plugin, key, sessionId, at);
+      },
+      boundTo: (plugin, key) =>
+        (selectBinding.get(plugin, key) as { session_id: string } | undefined)
+          ?.session_id,
+      unbind: (plugin, key) => {
+        deleteBinding.run(plugin, key);
+      },
     },
     byEnvironment: (provider, statuses) =>
       sessionRows(selectByEnvironment, provider, JSON.stringify(statuses)),
@@ -391,4 +425,132 @@ export function profileStore(db: DatabaseSync): ProfileStore {
     },
     profileInUse: (id) => selectProfileUse.get(id) !== undefined,
   };
+}
+
+interface OutboxRow {
+  id: string;
+  session_id: string;
+  plugin: string | null;
+  actor: Actor;
+  kind: Queued["kind"];
+  text: string | null;
+  notice: string | null;
+  turn: number;
+  generation: number | null;
+  payload: string | null;
+  dedupe: string | null;
+  created_at: number;
+}
+
+function outboxStore(db: DatabaseSync): OutboxStore {
+  const insert = db.prepare(
+    "insert into session_outbox (id, session_id, plugin, actor, kind, text, notice, turn, generation, payload, dedupe, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict (session_id, plugin, dedupe) do nothing",
+  );
+
+  const selectFirst = db.prepare(
+    "select * from session_outbox where session_id = ? order by id limit 1",
+  );
+
+  const deleteOne = db.prepare("delete from session_outbox where id = ?");
+
+  const deleteAll = db.prepare(
+    "delete from session_outbox where session_id = ? returning *",
+  );
+
+  const selectSessions = db.prepare(
+    "select distinct session_id from session_outbox",
+  );
+
+  return {
+    add: (message) => {
+      const toolResult =
+        message.kind === "tool_result"
+          ? {
+              generation: message.generation,
+              payload: JSON.stringify({
+                call: message.call,
+                result: message.result,
+              }),
+            }
+          : { generation: null, payload: null };
+
+      return (
+        insert.run(
+          message.id,
+          message.sessionId,
+          message.plugin,
+          message.actor,
+          message.kind,
+          message.kind === "tool_result" ? null : message.text,
+          message.kind === "notice" ? JSON.stringify(message.notice) : null,
+          message.kind === "message" ||
+            (message.kind === "notice" && message.turn)
+            ? 1
+            : 0,
+          toolResult.generation,
+          toolResult.payload,
+          message.dedupe,
+          message.createdAt,
+        ).changes > 0
+      );
+    },
+    first: (sessionId) => {
+      const row = selectFirst.get(sessionId) as OutboxRow | undefined;
+
+      return row && queuedOf(row);
+    },
+    remove: (id) => {
+      deleteOne.run(id);
+    },
+    removeAll: (sessionId) =>
+      (deleteAll.all(sessionId) as unknown as OutboxRow[])
+        .map(queuedOf)
+        .toSorted((a, b) => a.id.localeCompare(b.id)),
+    sessions: () =>
+      (selectSessions.all() as { session_id: string }[]).map(
+        ({ session_id }) => session_id,
+      ),
+  };
+}
+
+function queuedOf(row: OutboxRow): Queued {
+  const base = {
+    id: row.id,
+    sessionId: row.session_id,
+    plugin: row.plugin,
+    actor: row.actor,
+    dedupe: row.dedupe,
+    createdAt: row.created_at,
+  };
+
+  switch (row.kind) {
+    case "message":
+    case "context":
+      return { ...base, kind: row.kind, text: row.text ?? "" };
+    case "notice":
+      return {
+        ...base,
+        kind: row.kind,
+        text: row.text ?? "",
+        notice: JSON.parse(row.notice ?? "{}") as {
+          kind: string;
+          data?: unknown;
+        },
+        turn: row.turn === 1,
+      };
+    case "tool_result": {
+      const { call, result } = JSON.parse(row.payload ?? "{}") as {
+        call: string;
+        result: ToolResult;
+      };
+
+      return {
+        ...base,
+        kind: row.kind,
+        generation: row.generation ?? 0,
+        call,
+        result,
+      };
+    }
+  }
 }

@@ -37,8 +37,7 @@ export function startPoller(
   const answers: Answers = new Map();
 
   const deliver = (watch: Watch, news: readonly string[], ends: boolean) => {
-    const waiting = watch.pending === null ? [] : [watch.pending];
-    const lines = [...waiting, ...news.map((line) => `- ${line}`)];
+    const lines = news.map((line) => `- ${line}`);
 
     if (lines.length === 0) {
       return;
@@ -56,19 +55,13 @@ export function startPoller(
       : sessions.send(watch.sessionId, text, "plugin:git-hosts", notice);
 
     if (sent.ok) {
-      watches.update(watch.id, { briefed: true, pending: null });
+      watches.update(watch.id, { briefed: true });
 
       log("pull request news sent", {
         sessionId: watch.sessionId,
         url: watch.url,
         items: lines.length,
       });
-
-      return;
-    }
-
-    if (sent.reason === "offline") {
-      watches.update(watch.id, { pending: lines.join("\n") });
 
       return;
     }

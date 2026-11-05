@@ -80,7 +80,6 @@ create table git_hosts_watches (
   auto_fix integer not null check (auto_fix in (0, 1)),
   briefed integer not null default 0 check (briefed in (0, 1)),
   seen text check (json_valid(seen)),
-  pending text,
   view text check (json_valid(view)),
   unique (session_id, url)
 ) strict;
