@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { api } from "./api";
+import { api, command } from "./api";
 
 const realFetch = globalThis.fetch;
 
@@ -66,4 +66,58 @@ test("api sends the route's method, path, query and JSON body", async () => {
     ["PATCH", "/api/sessions/a%20b", JSON.stringify({ archived: true })],
     ["GET", "/api/sessions?scope=team&archived=true", undefined],
   ]);
+});
+
+test("command sends a Session's commands one after another, in order", async () => {
+  const bodies: unknown[] = [];
+  let open = 0;
+  let most = 0;
+
+  globalThis.fetch = Object.assign(async (_url: string, init?: RequestInit) => {
+    open += 1;
+    most = Math.max(most, open);
+    bodies.push(JSON.parse(init?.body as string));
+
+    await new Promise((resolve) =>
+      setTimeout(resolve, bodies.length === 1 ? 20 : 0),
+    );
+
+    open -= 1;
+
+    return Response.json({});
+  }, realFetch);
+
+  await Promise.all([
+    command("s1", { type: "set_thinking", level: "high" }),
+    command("s1", { type: "set_thinking", level: "medium" }),
+    command("s1", { type: "set_thinking", level: "high" }),
+  ]);
+
+  expect(most).toBe(1);
+
+  expect(bodies).toEqual([
+    { type: "set_thinking", level: "high" },
+    { type: "set_thinking", level: "medium" },
+    { type: "set_thinking", level: "high" },
+  ]);
+});
+
+test("a failed command doesn't hold back the next one", async () => {
+  let calls = 0;
+
+  globalThis.fetch = Object.assign(async () => {
+    calls += 1;
+    await Promise.resolve();
+
+    return calls === 1
+      ? Response.json({ error: "invalid", message: "No." }, { status: 422 })
+      : Response.json({});
+  }, realFetch);
+
+  const first = command("s1", { type: "set_thinking", level: "high" });
+  const second = command("s1", { type: "set_thinking", level: "low" });
+
+  expect(await first.catch(String)).toBe("Error: No.");
+  await second;
+  expect(calls).toBe(2);
 });
