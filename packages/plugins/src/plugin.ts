@@ -6,9 +6,11 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { PluginDefinition } from "./definition";
 import type { EventBus } from "./events";
+import type { Schedule } from "./schedule";
 import type { SecretRefs } from "./secrets";
 import type {
   Actor,
+  Clock,
   CreateSession,
   DeclaredEvent,
   Environment,
@@ -461,6 +463,8 @@ export interface ServerPluginContext {
   // (ADR 0036).
   readonly settings: { readonly get: () => PluginSettings };
   readonly config: PluginConfig;
+  readonly schedule: Schedule;
+  readonly clock: Clock;
   // Aborted when the server stops, or when the plugin fails to register.
   readonly signal: AbortSignal;
   readonly log: Log;

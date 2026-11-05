@@ -48,6 +48,7 @@ export {
   type SecretRefs,
   secretRefs,
 } from "./secrets";
+export type { Schedule, Scheduled } from "./schedule";
 export { checkedSettings, settingSpecs, settingValues } from "./settings";
 export type {
   AskPermission,
