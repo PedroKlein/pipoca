@@ -2,7 +2,6 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
   fauxAssistantMessage,
@@ -517,41 +516,6 @@ test("takes runner pods from a pod template, never from an Environment's own set
 
   await startSession(pods);
   await until(() => api.pods.size === 1);
-});
-
-test("keeps starting pods for an Environment's settings from before templates, until removed", async () => {
-  const database = join(root, "server.db");
-  await server.close();
-  startServer(database);
-
-  const { environment } = (await (
-    await server.api("/api/environments", { body: { name: "old-pods" } })
-  ).json()) as { environment: Environment };
-
-  const cookie = await server.signedIn();
-  await server.close();
-
-  const db = new DatabaseSync(database);
-
-  db.prepare(
-    "insert into kubernetes_environments (environment_id, settings) values (?, ?)",
-  ).run(environment.id, JSON.stringify({ maxPods: 1 }));
-
-  db.close();
-
-  startServer(database, cookie);
-
-  const path = `/api/plugins/kubernetes/environments/${environment.id}`;
-  const shown = await (await server.api(path)).json();
-
-  await startSession(environment);
-  await until(() => api.pods.size === 1);
-
-  const removed = await server.api(path, { body: { settings: null } });
-  const again = await server.api(path, { body: { settings: {} } });
-
-  expect(shown).toMatchObject({ settings: { maxPods: 1 }, editable: true });
-  expect([removed.status, again.status]).toEqual([200, 409]);
 });
 
 test("keeps a pod patch from giving runner pods a service account token", async () => {

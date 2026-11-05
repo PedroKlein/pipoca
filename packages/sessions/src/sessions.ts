@@ -115,7 +115,6 @@ export interface SessionStore {
     readonly includeArchived: boolean;
     readonly owner?: SessionOwner;
   }) => readonly StoredSession[];
-  setOwner: (id: string, owner: SessionOwner) => void;
   // Undefined while the Session is open to the whole team.
   access: (id: string) => SessionAccess | undefined;
   setAccess: (id: string, access: SessionAccess) => void;
@@ -854,25 +853,6 @@ export class Sessions {
         ?.ownerId ??
       null
     );
-  }
-
-  // Gives an owner to a Session started before it had one. A Session's owner
-  // never changes once set.
-  adopt(id: string, ownedBy: SessionOwner): Result<Session> {
-    const session = this.#store.get(id);
-    if (!session) {
-      return { ok: false, reason: "not_found" };
-    }
-
-    if (session.owner !== null) {
-      return { ok: true, value: this.#view(session) };
-    }
-
-    this.#store.setOwner(id, ownedBy);
-    const adopted = this.#view({ ...session, owner: ownedBy });
-    this.#emit(id, { type: "session", session: adopted });
-
-    return { ok: true, value: adopted };
   }
 
   archive(id: string, actor?: Actor): Result<Session> {

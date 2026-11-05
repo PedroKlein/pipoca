@@ -17,6 +17,7 @@ import {
   memoryStore,
   served,
 } from "@pipoca/plugins/testing";
+import { routinesSchema } from "./engine";
 import type { ToolResult } from "@pipoca/protocol";
 import { routines } from "./server";
 
@@ -39,7 +40,7 @@ afterEach(() => {
 
 function start(
   outcome: () => SendOutcome = () => ({ ok: true }),
-  store: PluginStore = memoryStore(),
+  store: PluginStore = memoryStore({ version: 1, sql: routinesSchema }),
 ) {
   const sent: Sent[] = [];
   const tools: ServerTool[] = [];
@@ -325,7 +326,7 @@ test("the person sees and cancels their Session's wake-ups", async () => {
 });
 
 test("pending wake-ups survive a restart", async () => {
-  const store = memoryStore();
+  const store = memoryStore({ version: 1, sql: routinesSchema });
   const before = start(undefined, store);
 
   await before.call({ delay_minutes: 5, reason: "Later", message: "Go on." });

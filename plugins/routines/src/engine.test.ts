@@ -25,6 +25,7 @@ import {
   memoryStore,
   served,
 } from "@pipoca/plugins/testing";
+import { routinesSchema } from "./engine";
 import type { Session } from "@pipoca/protocol";
 import type { RoutineDetail, RoutineView, Run } from "./model";
 import { routines as plugin } from "./server";
@@ -58,7 +59,7 @@ interface Started {
 }
 
 function start({
-  store = memoryStore(),
+  store = memoryStore({ version: 1, sql: routinesSchema }),
   send = (): SendOutcome => ({ ok: true }),
 }: { store?: PluginStore; send?: () => SendOutcome } = {}) {
   const started: Started[] = [];
@@ -357,7 +358,7 @@ test("pauses a routine after three failed runs in a row, until the person resume
 });
 
 test("missed firings while the server was down become one catch-up run, after it starts", async () => {
-  const store = memoryStore();
+  const store = memoryStore({ version: 1, sql: routinesSchema });
   const before = start({ store });
 
   await before.request("routines/hourly", "PUT", {
@@ -571,7 +572,7 @@ test("a key that keeps getting events still gets through after five minutes", as
 });
 
 test("waiting events survive a restart", async () => {
-  const store = memoryStore();
+  const store = memoryStore({ version: 1, sql: routinesSchema });
   const before = start({ store });
 
   await before.request("routines/pulls", "PUT", onPulls);

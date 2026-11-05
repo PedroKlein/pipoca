@@ -15,6 +15,7 @@ import {
   type LocalEnvironment,
   type LocalSettings,
   type RunnerFailure,
+  localSchema,
   settingsStore,
 } from "./settings";
 
@@ -68,6 +69,7 @@ interface Failure extends RunnerFailure {
 export function local(options: () => LocalOptions): ServerPlugin {
   return {
     name: "local",
+    schema: { version: 1, sql: localSchema },
     register: (context) => {
       const settings = settingsStore(context.store);
       const failures = new Map<string, Failure>();

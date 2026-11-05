@@ -46,8 +46,26 @@ interface Pending extends Attempt {
   readonly expires: number;
 }
 
+// A person may link one identity per subject of each issuer.
+const schema = `
+create table oidc_identities (
+  issuer text not null,
+  subject text not null,
+  user_id text not null references users (id) on delete cascade,
+  email text,
+  created integer not null check (created in (0, 1)),
+  invited integer not null check (invited in (0, 1)),
+  linked_at integer not null,
+  signed_in_at integer,
+  primary key (issuer, subject)
+) strict, without rowid;
+create index oidc_identities_user on oidc_identities (user_id);
+create index oidc_identities_signed_in on oidc_identities (issuer, signed_in_at);
+`;
+
 export const oidc: ServerPlugin = {
   name: "oidc",
+  schema: { version: 1, sql: schema },
   register: (context) => {
     const identities = identityStore(context.store);
 
@@ -565,33 +583,6 @@ interface IdentityStore {
 }
 
 function identityStore(store: PluginStore): IdentityStore {
-  store.exec(`
-    create table if not exists oidc_identities (
-      issuer text not null,
-      subject text not null,
-      user_id text not null,
-      email text,
-      created integer not null,
-      linked_at text not null,
-      invited integer not null default 0,
-      primary key (issuer, subject)
-    )
-  `);
-
-  const columns = store.all(
-    "select name from pragma_table_info('oidc_identities')",
-  ) as { name: string }[];
-
-  if (!columns.some(({ name }) => name === "invited")) {
-    store.exec(
-      "alter table oidc_identities add column invited integer not null default 0",
-    );
-  }
-
-  if (!columns.some(({ name }) => name === "signed_in_at")) {
-    store.exec("alter table oidc_identities add column signed_in_at text");
-  }
-
   return {
     find: ({ issuer, subject }) => {
       const [row] = store.all(
@@ -616,7 +607,7 @@ function identityStore(store: PluginStore): IdentityStore {
         userId,
         email,
         created ? 1 : 0,
-        new Date().toISOString(),
+        Date.now(),
         invited ? 1 : 0,
       );
     },
@@ -628,19 +619,19 @@ function identityStore(store: PluginStore): IdentityStore {
         ) as {
           issuer: string;
           email: string | null;
-          linked_at: string;
+          linked_at: number;
           created: number;
         }[]
       ).map((row) => ({
         issuer: row.issuer,
         email: row.email,
-        linkedAt: row.linked_at,
+        linkedAt: new Date(row.linked_at).toISOString(),
         created: row.created === 1,
       })),
     signedIn: ({ issuer, subject }) => {
       store.run(
         "update oidc_identities set signed_in_at = ? where issuer = ? and subject = ?",
-        new Date().toISOString(),
+        Date.now(),
         issuer,
         subject,
       );
@@ -649,7 +640,7 @@ function identityStore(store: PluginStore): IdentityStore {
       const [row] = store.all(
         "select count(distinct user_id) as people from oidc_identities where issuer = ? and signed_in_at >= ?",
         issuer,
-        since,
+        Date.parse(since),
       ) as { people: number }[];
 
       return row?.people ?? 0;

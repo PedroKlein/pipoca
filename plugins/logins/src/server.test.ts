@@ -11,6 +11,7 @@ import {
   fakeContext,
   fakeSession,
   fakeUser,
+  memoryStore,
   served,
 } from "@pipoca/plugins/testing";
 import { isHttpError } from "@pipoca/plugins";
@@ -38,6 +39,7 @@ function registered(
 
   logins.register(
     fakeContext({
+      store: memoryStore(logins.schema),
       auth: {
         ...faked.auth,
         handlePublic: (route) => {

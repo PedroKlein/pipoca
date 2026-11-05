@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import {
   BadRequest,
   canSee,
@@ -26,6 +25,7 @@ import {
   type Member,
   type Project,
   type ProjectStore,
+  projectsSchema,
   projectStore,
   type Queued,
 } from "./projects";
@@ -76,6 +76,7 @@ const errorLimit = 300;
 
 export const projects: ServerPlugin = {
   name: "projects",
+  schema: { version: 1, sql: projectsSchema },
   register: (context) => {
     // Other plugins, like the library, follow who is in which Project.
     // Every write can change what an open Project shows (ADR 0038).
@@ -94,16 +95,6 @@ export const projects: ServerPlugin = {
         projectId: member.projectId,
       });
     });
-
-    // Projects from before Sessions had owners (ADR 0028).
-    for (const project of store.list()) {
-      for (const sessionId of [
-        project.coordinatorId,
-        ...store.threads(project.id).map((thread) => thread.sessionId),
-      ]) {
-        context.sessions.adopt(sessionId, project.id);
-      }
-    }
 
     for (const tool of projectTools(store, context)) {
       context.tools.register(tool);
@@ -585,7 +576,7 @@ function create(
   }
 
   const draft: Project = {
-    id: randomUUID(),
+    id: Bun.randomUUIDv7(),
     ownerId: user.slice("user:".length),
     name: name.trim(),
     goal: goal?.trim() ?? "",
@@ -627,7 +618,7 @@ function ask(
   if (found === undefined) {
     return begin(
       {
-        id: randomUUID(),
+        id: Bun.randomUUIDv7(),
         ownerId: user.slice("user:".length),
         name: team === true ? "Team assistant" : "Assistant",
         goal: "",
@@ -811,23 +802,19 @@ function startFresh(
 }
 
 // A Project is its starter's alone (ADR 0049), or the whole team's
-// (ADR 0067). One from before Projects had a person is an admin's.
+// (ADR 0067).
 function theirs(
   project: Project | undefined,
   caller: RouteCaller & { readonly kind: "user" },
 ): Project | undefined {
   return project !== undefined &&
-    (canSee(
+    canSee(
       caller,
       project.team && !project.assistant ? "team" : `person:${project.ownerId}`,
-    ) ||
-      (project.ownerId === beforePeople && caller.admin))
+    )
     ? project
     : undefined;
 }
-
-// The owner every record had while a server had one user.
-const beforePeople = "local";
 
 function summaries(
   store: ProjectStore,

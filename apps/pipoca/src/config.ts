@@ -21,13 +21,6 @@ export function configFolder(
   locked?: string,
 ): (plugin: string) => PluginConfig {
   const file = join(dir, "pipoca.json");
-  const oldFile = join(dir, "pi-cloud.json");
-
-  // The product was called Pi Cloud before ADR 0042.
-  if (!existsSync(file) && existsSync(oldFile)) {
-    renameSync(oldFile, file);
-    log("config file renamed", { from: oldFile, to: file });
-  }
 
   const own = watched(file, log);
   const fixed = locked === undefined ? undefined : watched(locked, log);

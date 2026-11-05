@@ -6,7 +6,7 @@ interface FileRow {
   readonly name: string;
   readonly size: number;
   readonly actor: string;
-  readonly updated_at: string;
+  readonly updated_at: number;
 }
 
 export interface LibraryStore {
@@ -24,34 +24,44 @@ export interface LibraryStore {
   readonly writes: (projectId: string) => readonly LibraryWrite[];
 }
 
+// Project ids come from the projects plugin, whose tables the library
+// doesn't reference, so it works without them.
+export const librarySchema = `
+create table library_members (
+  session_id text primary key references sessions (id) on delete cascade,
+  project_id text not null
+) strict;
+create index library_members_project on library_members (project_id);
+
+create table library_files (
+  project_id text not null,
+  name text not null,
+  size integer not null,
+  actor text not null,
+  updated_at integer not null,
+  primary key (project_id, name)
+) strict, without rowid;
+
+create table library_contents (
+  project_id text not null,
+  name text not null,
+  content blob not null,
+  primary key (project_id, name),
+  foreign key (project_id, name) references library_files (project_id, name) on delete cascade
+) strict;
+
+create table library_log (
+  id integer primary key,
+  project_id text not null,
+  name text not null,
+  size integer not null,
+  actor text not null,
+  at integer not null
+) strict;
+create index library_log_project on library_log (project_id, id);
+`;
+
 export function libraryStore(store: PluginStore): LibraryStore {
-  store.exec(`create table if not exists library_members (
-    session_id text primary key,
-    project_id text not null
-  )`);
-
-  store.exec(`create table if not exists library_files (
-    project_id text not null,
-    name text not null,
-    content blob not null,
-    size integer not null,
-    actor text not null,
-    updated_at text not null,
-    primary key (project_id, name)
-  )`);
-
-  store.exec(
-    "create index if not exists library_files_listing on library_files (project_id, name, size, actor, updated_at)",
-  );
-
-  store.exec(`create table if not exists library_log (
-    project_id text not null,
-    name text not null,
-    size integer not null,
-    actor text not null,
-    at text not null
-  )`);
-
   return {
     addMember: (sessionId, projectId) => {
       store.run(
@@ -84,44 +94,55 @@ export function libraryStore(store: PluginStore): LibraryStore {
         name: row.name,
         size: row.size,
         actor: row.actor,
-        updatedAt: row.updated_at,
+        updatedAt: new Date(row.updated_at).toISOString(),
       })),
     read: (projectId, name) =>
       (
         store.all(
-          "select content from library_files where project_id = ? and name = ?",
+          "select content from library_contents where project_id = ? and name = ?",
           projectId,
           name,
         )[0] as { content: Uint8Array } | undefined
       )?.content,
     write: (projectId, name, content, actor) => {
-      const at = new Date().toISOString();
+      const at = Date.now();
 
-      store.run(
-        `insert or replace into library_files
-          (project_id, name, content, size, actor, updated_at)
-          values (?, ?, ?, ?, ?, ?)`,
-        projectId,
-        name,
-        content,
-        content.length,
-        actor,
-        at,
-      );
+      store.transaction(() => {
+        store.run(
+          `insert into library_files (project_id, name, size, actor, updated_at)
+            values (?, ?, ?, ?, ?)
+            on conflict (project_id, name) do update set size = excluded.size, actor = excluded.actor, updated_at = excluded.updated_at`,
+          projectId,
+          name,
+          content.length,
+          actor,
+          at,
+        );
 
-      store.run(
-        "insert into library_log (project_id, name, size, actor, at) values (?, ?, ?, ?, ?)",
-        projectId,
-        name,
-        content.length,
-        actor,
-        at,
-      );
+        store.run(
+          `insert into library_contents (project_id, name, content) values (?, ?, ?)
+            on conflict (project_id, name) do update set content = excluded.content`,
+          projectId,
+          name,
+          content,
+        );
+
+        store.run(
+          "insert into library_log (project_id, name, size, actor, at) values (?, ?, ?, ?, ?)",
+          projectId,
+          name,
+          content.length,
+          actor,
+          at,
+        );
+      });
     },
     writes: (projectId) =>
-      store.all(
-        "select name, size, actor, at from library_log where project_id = ? order by rowid desc limit 50",
-        projectId,
-      ) as LibraryWrite[],
+      (
+        store.all(
+          "select name, size, actor, at from library_log where project_id = ? order by id desc limit 50",
+          projectId,
+        ) as (Omit<LibraryWrite, "at"> & { readonly at: number })[]
+      ).map((row) => ({ ...row, at: new Date(row.at).toISOString() })),
   };
 }

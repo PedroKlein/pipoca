@@ -3790,10 +3790,11 @@ async function startProcessAgent(
   extensionPaths: readonly string[] = [],
 ): Promise<() => Promise<void>> {
   const dataDir = join(root, "process");
-  await mkdir(dataDir, { recursive: true });
+  const logins = join(dataDir, "logins");
+  await mkdir(logins, { recursive: true });
 
   await writeFile(
-    join(dataDir, "models.json"),
+    join(logins, "models.json"),
     JSON.stringify({
       providers: {
         fake: {

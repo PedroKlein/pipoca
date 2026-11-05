@@ -22,20 +22,23 @@ export interface AuditLog {
 }
 
 export function auditLog(store: PluginStore): AuditLog {
-  store.exec(
-    "create table if not exists usage_audit (id integer primary key, at text not null, actor text, session_id text not null, action text not null, detail text)",
-  );
-
   const rows = (found: unknown[]): readonly AuditEntry[] =>
-    (found as (Omit<AuditEntry, "sessionId"> & { session_id: string })[]).map(
-      ({ session_id: sessionId, ...row }) => ({ ...row, sessionId }),
-    );
+    (
+      found as (Omit<AuditEntry, "sessionId" | "at"> & {
+        session_id: string;
+        at: number;
+      })[]
+    ).map(({ session_id: sessionId, at, ...row }) => ({
+      ...row,
+      at: new Date(at).toISOString(),
+      sessionId,
+    }));
 
   return {
     add: ({ actor, sessionId, action, detail }) => {
       store.run(
         "insert into usage_audit (at, actor, session_id, action, detail) values (?, ?, ?, ?, ?)",
-        new Date().toISOString(),
+        Date.now(),
         actor,
         sessionId,
         action,

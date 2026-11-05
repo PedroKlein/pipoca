@@ -1,15 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { createHash, randomUUID } from "node:crypto";
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { testServer, type TestServer } from "./testdata/harness";
 
 const clientId = "pipoca-test";
@@ -295,18 +288,6 @@ test("keeps the providers Settings adds in pipoca.json", () => {
   });
 });
 
-test("moves a config file under the product's old name to pipoca.json", async () => {
-  const settings = configFile();
-  renameSync(join(configDir, "pipoca.json"), join(configDir, "pi-cloud.json"));
-
-  await restart();
-
-  expect([configFile(), existsSync(join(configDir, "pi-cloud.json"))]).toEqual([
-    settings,
-    false,
-  ]);
-});
-
 test("signs in through a provider written into the file by hand, with its secret from the environment", async () => {
   process.env["PIPOCA_TEST_OIDC_SECRET"] = "from the env";
 
@@ -433,50 +414,6 @@ test("won't save over providers edited by hand into a list that doesn't fit", as
   });
 
   expect(readFileSync(join(configDir, "pipoca.json"), "utf8")).toBe(edited);
-});
-
-test("moves the providers of the table from before the config file into it", async () => {
-  const database = join(configDir, "server.db");
-  const db = new DatabaseSync(database);
-
-  db.exec(
-    "create table oidc_providers (id text primary key, label text not null, issuer text not null, client_id text not null, client_secret text, groups_claim text not null, access_group text not null, admin_group text not null, allowed_emails text not null, allowed_domains text not null, admin_emails text not null, created_at text not null)",
-  );
-
-  db.prepare(
-    "insert into oidc_providers values (?, ?, ?, ?, null, ?, ?, ?, ?, ?, ?, ?)",
-  ).run(
-    "old-id",
-    "Sign in with Okta",
-    provider.issuer,
-    clientId,
-    "groups",
-    "pipoca-users",
-    "",
-    "[]",
-    "[]",
-    "[]",
-    new Date().toISOString(),
-  );
-
-  db.close();
-
-  await restart(database);
-
-  const status = (await (
-    await fetch(new URL("/api/auth", server.url))
-  ).json()) as { logins: { label: string }[] };
-
-  expect(status.logins.map(({ label }) => label)).toEqual([
-    "Sign in with IAS",
-    "Sign in with Okta",
-  ]);
-
-  await restart(database);
-
-  expect(
-    (configFile() as { oidc: { providers: unknown[] } }).oidc.providers,
-  ).toHaveLength(2);
 });
 
 test("makes a user for a member of the access group and signs them in", async () => {

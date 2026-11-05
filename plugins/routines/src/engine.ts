@@ -125,6 +125,68 @@ export interface Routines {
   ) => "accepted" | "unknown" | "unsigned";
 }
 
+// A routine's user_id is the folder its file is in: a person's id, or team
+// (ADR 0067). Its file can outlive the person, so it references no user.
+export const routinesSchema = `
+create table routines_state (
+  user_id text not null,
+  name text not null,
+  version text not null,
+  next_at integer,
+  paused text,
+  failures integer not null default 0,
+  primary key (user_id, name)
+) strict, without rowid;
+create index routines_state_next on routines_state (next_at) where next_at is not null and paused is null;
+
+create table routines_runs (
+  id text primary key,
+  user_id text not null,
+  name text not null,
+  key text not null default '',
+  cause text not null,
+  session_id text references sessions (id) on delete set null,
+  outcome text not null,
+  reason text,
+  events text check (json_valid(events)),
+  fired_at integer not null,
+  ended_at integer
+) strict;
+create index routines_runs_routine on routines_runs (user_id, name, fired_at);
+create index routines_runs_session on routines_runs (session_id) where session_id is not null;
+
+create table routines_hooks (
+  id text primary key,
+  user_id text not null,
+  name text not null,
+  secret text not null,
+  unique (user_id, name)
+) strict;
+
+create table routines_pending (
+  user_id text not null,
+  name text not null,
+  key text not null,
+  events text not null check (json_valid(events)),
+  first_at integer not null,
+  last_at integer not null,
+  primary key (user_id, name, key)
+) strict, without rowid;
+
+create table routines_wakeups (
+  id text primary key,
+  session_id text not null references sessions (id) on delete cascade,
+  user_id text not null,
+  due_at integer not null,
+  try_at integer not null,
+  reason text not null,
+  message text not null,
+  delivered_at integer
+) strict;
+create index routines_wakeups_due on routines_wakeups (try_at) where delivered_at is null;
+create index routines_wakeups_session on routines_wakeups (session_id);
+`;
+
 export const ownerPrefix = (userId: string, name: string): string =>
   `${userId}:${name}`;
 
@@ -151,36 +213,6 @@ export function routinesEngine(
   const startedAt = Date.now();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let loaded = new Map<string, Loaded>();
-
-  store.exec(
-    "create table if not exists routines_state (user_id text not null, name text not null, version text not null, next_at integer, paused text, failures integer not null default 0, primary key (user_id, name))",
-  );
-
-  store.exec(
-    "create table if not exists routines_runs (id text primary key, user_id text not null, name text not null, fired_at integer not null, cause text not null, session_id text, outcome text not null, reason text, ended_at integer)",
-  );
-
-  const columns = (
-    store.all("pragma table_info(routines_runs)") as { name: string }[]
-  ).map(({ name }) => name);
-
-  if (!columns.includes("key")) {
-    store.exec(
-      "alter table routines_runs add column key text not null default ''",
-    );
-  }
-
-  if (!columns.includes("events")) {
-    store.exec("alter table routines_runs add column events text");
-  }
-
-  store.exec(
-    "create table if not exists routines_hooks (id text primary key, user_id text not null, name text not null, secret text not null, unique (user_id, name))",
-  );
-
-  store.exec(
-    "create table if not exists routines_pending (user_id text not null, name text not null, key text not null, events text not null, first_at integer not null, last_at integer not null, primary key (user_id, name, key))",
-  );
 
   const key = (userId: string, name: string) => ownerPrefix(userId, name);
   const listening = new Map<string, () => void>();
@@ -466,7 +498,7 @@ export function routinesEngine(
     events: readonly Event[] = [],
   ): RunRow => {
     const row: RunRow = {
-      id: crypto.randomUUID(),
+      id: Bun.randomUUIDv7(),
       user_id: userId,
       name,
       fired_at: Date.now(),

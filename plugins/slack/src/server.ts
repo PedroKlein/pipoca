@@ -21,15 +21,23 @@ const newBot = Type.Object({
 
 // Slack messages as routine triggers, and Sessions that post as a bot, with
 // replies in their threads coming back to them (ADR 0062).
+const schema = `
+create table slack_threads (
+  bot text not null,
+  channel text not null,
+  thread_ts text not null,
+  session_id text not null references sessions (id) on delete cascade,
+  primary key (bot, channel, thread_ts)
+) strict, without rowid;
+create index slack_threads_session on slack_threads (session_id);
+`;
+
 export const slack: ServerPlugin = {
   name: "slack",
+  schema: { version: 1, sql: schema },
   register: (context) => {
     const bots = botStore(context.config, context.store, context.log);
     const connections = new Map<string, Connection>();
-
-    context.store.exec(
-      `create table if not exists slack_threads (bot text not null, channel text not null, thread_ts text not null, session_id text not null, primary key (bot, channel, thread_ts))`,
-    );
 
     const sessionOfThread = (
       bot: string,

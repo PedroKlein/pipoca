@@ -40,7 +40,7 @@ spec:
           command:
             - sh
             - -c
-            - mkdir -p /data/config && { test -e /data/config/pipoca.json || test -e /data/config/pi-cloud.json || cp /seed/pipoca.json /data/config/pipoca.json; }
+            - mkdir -p /data/config && { test -e /data/config/pipoca.json || cp /seed/pipoca.json /data/config/pipoca.json; }
           volumeMounts:
             - name: data
               mountPath: /data

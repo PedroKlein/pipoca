@@ -456,19 +456,14 @@ test("starts a plugin's own Sessions on the Profile it provides, and no others",
 });
 
 test("routes requests to a plugin that keeps its own tables", async () => {
-  let refused = "";
-
   await start([
     {
       name: "notes",
+      schema: {
+        version: 1,
+        sql: "create table notes_items (text text) strict",
+      },
       register: ({ routes, store }) => {
-        store.exec("create table if not exists notes_items (text text)");
-        try {
-          store.exec("create table sessions_copy (id text)");
-        } catch (error) {
-          refused = String(error);
-        }
-
         routes.handle(async (request, path) => {
           if (request.method === "POST" && path === "items") {
             const { text } = (await request.json()) as { text: string };
@@ -483,6 +478,11 @@ test("routes requests to a plugin that keeps its own tables", async () => {
         });
       },
     },
+    {
+      name: "copier",
+      schema: { version: 1, sql: "create table sessions_copy (id text)" },
+      register: () => undefined,
+    },
   ]);
 
   const added = await server.api("/api/plugins/notes/items", {
@@ -495,10 +495,14 @@ test("routes requests to a plugin that keeps its own tables", async () => {
   expect(added.status).toBe(204);
   expect(await items.json()).toEqual([{ text: "hello" }]);
   expect(unknown.status).toBe(404);
-  expect(refused).toContain("plugin notes may only create notes_ tables");
 
   expect(await (await server.api("/api/plugins")).json()).toMatchObject([
     { id: "notes", state: "on" },
+    {
+      id: "copier",
+      state: "failed",
+      error: "plugin copier may only create copier_ tables",
+    },
   ]);
 });
 
