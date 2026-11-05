@@ -302,7 +302,9 @@ describe("pluginConfig", () => {
       token: { env: "UNSET" },
     });
 
-    expect(config.get()).toEqual({ minutes: 5, greeting: "Hi" });
+    const read: unknown = config.get();
+
+    expect(read).toEqual({ minutes: 5, greeting: "Hi" });
     expect(logs).toEqual(["config field skipped", "config field skipped"]);
   });
 

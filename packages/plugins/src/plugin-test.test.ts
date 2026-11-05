@@ -28,7 +28,7 @@ async function started(
 
 function served<P extends PluginDefinition>(
   plugin: P,
-  register: (context: ServerContext<P>) => void,
+  register: (context: ServerContext<P>) => void | Promise<void>,
 ): P {
   const definition: P = {
     ...plugin,
@@ -181,9 +181,13 @@ test("an at that comes due while its plugin starts fires once it has started", a
   await t.as("ana").post("alarms", {});
   await t.restart();
 
-  expect(await until(() => rung, (each) => each.length > 0, 3000)).toEqual([
-    "ring:soon",
-  ]);
+  expect(
+    await until(
+      () => rung,
+      (each) => each.length > 0,
+      3000,
+    ),
+  ).toEqual(["ring:soon"]);
 });
 
 // Asks another server for the time.
