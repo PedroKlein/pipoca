@@ -153,11 +153,10 @@ function addPlugin(
   try {
     transaction(db, () => {
       const created = made(db, schema.sql);
+      const refusal = checked(db, schema.owner, created);
 
-      if (created.some(({ name }) => !name.startsWith(prefix))) {
-        throw new Refused(
-          `plugin ${schema.owner} may only create ${prefix} tables`,
-        );
+      if (refusal !== undefined) {
+        throw new Refused(refusal);
       }
 
       record(db, schema, created, at);
@@ -166,6 +165,65 @@ function addPlugin(
     return error instanceof Refused
       ? error.message
       : `its tables could not be made: ${error instanceof Error ? error.message : String(error)}`;
+  }
+
+  return undefined;
+}
+
+const kernelTargets = ["users", "sessions", "environments"];
+
+// What is wrong with what a plugin's schema made: only STRICT tables and
+// indexes named for it, pointing only at each other and at people, Sessions
+// and Environments.
+function checked(
+  db: DatabaseSync,
+  owner: string,
+  created: readonly Made[],
+): string | undefined {
+  const prefix = prefixOf(owner);
+
+  const tables = created.flatMap(({ type, name }) =>
+    type === "table" ? [name] : [],
+  );
+
+  const other = created.find(
+    ({ type }) => type !== "table" && type !== "index",
+  );
+
+  if (other !== undefined) {
+    return `plugin ${owner} may only create tables and indexes, not the ${other.type} ${other.name}`;
+  }
+
+  if (created.some(({ name }) => !name.startsWith(prefix))) {
+    return `plugin ${owner} may only create ${prefix} tables`;
+  }
+
+  const loose = tables.find(
+    (table) =>
+      (
+        db
+          .prepare("select strict from pragma_table_list where name = ?")
+          .get(table) as { strict: number }
+      ).strict !== 1,
+  );
+
+  if (loose !== undefined) {
+    return `plugin ${owner} may only create STRICT tables, and ${loose} isn't`;
+  }
+
+  for (const table of tables) {
+    const target = (
+      db
+        .prepare('select "table" from pragma_foreign_key_list(?)')
+        .all(table) as { table: string }[]
+    ).find(
+      (key) =>
+        !tables.includes(key.table) && !kernelTargets.includes(key.table),
+    )?.table;
+
+    if (target !== undefined) {
+      return `plugin ${owner}'s table ${table} points at ${target}, but only its own tables, users, sessions and environments may be pointed at`;
+    }
   }
 
   return undefined;
@@ -213,7 +271,7 @@ function record(
   at: number,
 ): void {
   const tables = created
-    .filter(({ type }) => type === "table" || type === "view")
+    .filter(({ type }) => type === "table")
     .map(({ name }) => name);
 
   db.prepare(
