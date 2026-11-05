@@ -34,11 +34,21 @@ export interface TestPerson {
   readonly admin?: boolean;
 }
 
+// A config value as pipoca.json holds it: any field may be left to its
+// default, and a secret may name an environment variable.
+type InFile<T> = T extends string
+  ? T | { readonly env: string }
+  : T extends readonly (infer I)[]
+    ? readonly InFile<I>[]
+    : T extends object
+      ? { readonly [K in keyof T]?: InFile<T[K]> }
+      : T;
+
 export interface TestPluginOptions<
   P extends PluginDefinition = PluginDefinition,
 > {
   // The plugin's key in pipoca.json.
-  readonly config?: Partial<ConfigValue<P>>;
+  readonly config?: InFile<ConfigValue<P>>;
   readonly people?: readonly TestPerson[];
   // More plugins on the same kernel, by their server parts or, without one,
   // their definitions.

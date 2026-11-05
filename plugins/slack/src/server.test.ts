@@ -2,11 +2,13 @@ import { afterEach, expect, test } from "bun:test";
 import {
   type PluginTest,
   person,
+  type TestPluginOptions,
   testPlugin,
   until,
-} from "@pipoca/plugins/testing";
+} from "@pipoca/testing";
 import type { ServerWebSocket } from "bun";
-import { slack } from "../plugin";
+import type { slack } from "../plugin";
+import { server } from "./server";
 
 const people = [
   { id: "ana", name: "Ana", admin: true },
@@ -30,7 +32,7 @@ function fakeSlack() {
   const acknowledged: string[] = [];
   const posted: unknown[] = [];
 
-  const server = Bun.serve<string>({
+  const socketServer = Bun.serve<string>({
     port: 0,
     fetch: (request, served) =>
       served.upgrade(request, {
@@ -53,7 +55,7 @@ function fakeSlack() {
     },
   });
 
-  opened.push(async () => server.stop(true));
+  opened.push(async () => socketServer.stop(true));
 
   const fetch = async (request: Request): Promise<Response> => {
     const method = new URL(request.url).pathname.replace("/api/", "");
@@ -74,7 +76,7 @@ function fakeSlack() {
         token.startsWith("xapp-")
           ? {
               ok: true,
-              url: `ws://127.0.0.1:${String(server.port)}/?app=${token}`,
+              url: `ws://127.0.0.1:${String(socketServer.port)}/?app=${token}`,
             }
           : { ok: false, error: "invalid_auth" },
       );
@@ -114,17 +116,13 @@ function fakeSlack() {
 
 async function started(
   fake: ReturnType<typeof fakeSlack>,
-  config?: Readonly<Record<string, unknown>>,
+  config?: TestPluginOptions<typeof slack>["config"],
 ): Promise<PluginTest> {
-  const t = await testPlugin(slack, {
+  return testPlugin(server, {
     people,
     fetch: fake.fetch,
     ...(config !== undefined && { config }),
   });
-
-  opened.push(t.close);
-
-  return t;
 }
 
 async function addBot(t: PluginTest, name: string): Promise<void> {
@@ -137,7 +135,7 @@ async function addBot(t: PluginTest, name: string): Promise<void> {
 
 test("an admin adds a bot whose token Slack knows, and it connects", async () => {
   const fake = fakeSlack();
-  const t = await started(fake);
+  await using t = await started(fake);
 
   const refused = await t.as("ana").raw("POST", "bots", {
     headers: { "content-type": "application/json" },
@@ -183,7 +181,7 @@ test("an admin adds a bot whose token Slack knows, and it connects", async () =>
 
 test("what a bot hears is an event for the people who use it, except its own", async () => {
   const fake = fakeSlack();
-  const t = await started(fake);
+  await using t = await started(fake);
 
   await addBot(t, "team-bot");
   await until(() => fake.sockets.length === 1);
@@ -251,7 +249,7 @@ test("what a bot hears is an event for the people who use it, except its own", a
 
 test("a dropped connection is opened again, a second later at first", async () => {
   const fake = fakeSlack();
-  const t = await started(fake);
+  await using t = await started(fake);
 
   await addBot(t, "team-bot");
   await until(() => fake.sockets.length === 1);
@@ -285,7 +283,7 @@ test("a bot edited by hand in pipoca.json connects again with its new token", as
   };
 
   const fake = fakeSlack();
-  const t = await started(fake, { bots: [bot] });
+  await using t = await started(fake, { bots: [bot] });
 
   await until(() => fake.sockets.length === 1);
 
@@ -309,7 +307,7 @@ test("a bot edited by hand in pipoca.json connects again with its new token", as
 
 test("a reply in a thread a Session posted to reaches it, even while it is offline", async () => {
   const fake = fakeSlack();
-  const t = await started(fake);
+  await using t = await started(fake);
 
   await addBot(t, "team-bot");
   await until(() => fake.sockets.length === 1);
@@ -362,7 +360,7 @@ test("a reply in a thread a Session posted to reaches it, even while it is offli
 
 test("slack_post names the bots the person may post as when it can't tell which", async () => {
   const fake = fakeSlack();
-  const t = await started(fake);
+  await using t = await started(fake);
 
   await addBot(t, "alerts");
   await addBot(t, "team-bot");

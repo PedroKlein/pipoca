@@ -19,7 +19,7 @@ import {
 } from "./mail";
 import type { MailboxView } from "./model";
 
-const server = Type.Object({
+const mailServer = Type.Object({
   host: Type.String({ minLength: 1 }),
   port: Type.Integer({ minimum: 1, maximum: 65_535 }),
   secure: Type.Boolean(),
@@ -30,8 +30,8 @@ const newMailbox = Type.Object({
   address: Type.String({ minLength: 3 }),
   user: Type.String({ minLength: 1 }),
   password: Type.String({ minLength: 1 }),
-  imap: server,
-  smtp: server,
+  imap: mailServer,
+  smtp: mailServer,
 });
 
 const sendMail = Type.Object(
@@ -60,7 +60,7 @@ interface State {
 
 // New mail as routine triggers, and Sessions that send from a mailbox, with
 // replies to what they sent coming back to them (ADR 0062).
-export default defineServer(
+export const server = defineServer(
   email,
   ({
     config,
@@ -250,7 +250,7 @@ export default defineServer(
 
     routes.post(
       "mailboxes",
-      { auth: "admin", body: newMailbox },
+      { auth: "admin", body: newMailbox, status: 201 },
       async ({ body, caller }) => {
         if (mailboxes.get(body.name) !== undefined) {
           throw new BadRequest(`there is a mailbox ${body.name} already`);
@@ -259,7 +259,7 @@ export default defineServer(
         const mailbox: Mailbox = {
           ...body,
           address: body.address.trim(),
-          users: caller.kind === "person" ? [caller.owner] : [],
+          users: [caller.owner],
         };
 
         await verify(mailbox).catch((failure: unknown) => {
@@ -272,12 +272,12 @@ export default defineServer(
         log("mailbox added", { name: mailbox.name });
         await checkOne(mailbox);
 
-        return Response.json(viewOf(mailbox), { status: 201 });
+        return viewOf(mailbox);
       },
     );
 
     routes.delete("mailboxes/:name", { auth: "admin" }, ({ params }) => {
-      const name = params["name"] ?? "";
+      const { name } = params;
 
       if (!mailboxes.remove(name)) {
         throw new NotFound(`no mailbox ${name}`);
