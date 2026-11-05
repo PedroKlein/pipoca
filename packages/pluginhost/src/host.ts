@@ -1210,13 +1210,14 @@ export function startPlugins(
     resetData: (name) => {
       const found = manifest(name);
       const plugin = plugins.find((each) => each.name === name);
+      const defined = deps.definitions.some(({ id }) => id === name);
 
       if (found === undefined) {
         return undefined;
       }
 
       if (
-        plugin === undefined ||
+        (plugin === undefined && !defined) ||
         !enabled.includes(name) ||
         !failures.has(name) ||
         deps.dataFailure(name) === undefined
@@ -1233,6 +1234,16 @@ export function startPlugins(
       }
 
       deps.log("plugin data reset", { plugin: name });
+
+      // The server's routes are set at start, so a definition's wait for it.
+      if (plugin === undefined) {
+        failures.set(
+          name,
+          "its data was reset; it starts when the server restarts",
+        );
+
+        return info(found);
+      }
 
       failures.delete(name);
       register(plugin);
