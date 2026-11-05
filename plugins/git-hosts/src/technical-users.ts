@@ -5,6 +5,8 @@ import {
   isObject,
   type PluginConfig,
   type PluginStore,
+  type SecretRef,
+  secretRefs,
 } from "@pipoca/plugins";
 import { HostRefused, reach } from "./github";
 import type { HostConfig } from "./hosts";
@@ -52,14 +54,16 @@ export interface TechnicalUsers {
 const namePattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 // Technical users live under the plugin's key in pipoca.json, beside the
-// hosts, with their secrets sealed (ADR 0039). One that stops fitting is
-// logged and left out, and the others still work.
+// hosts, with their secrets sealed or named by environment variable
+// (ADR 0039). One that stops fitting is logged and left out, and the others
+// still work.
 export function technicalUsers(
   config: PluginConfig,
   store: PluginStore,
   log: Log,
 ): TechnicalUsers {
   const sealedFor = (name: string): string => `technical-user ${name}`;
+  const refs = secretRefs(store);
 
   const read = (): readonly unknown[] => {
     const value = config.get();
@@ -72,7 +76,11 @@ export function technicalUsers(
     read().flatMap((item, index) => {
       try {
         return [
-          userOf(item, (sealed, name) => store.open(sealed, sealedFor(name))),
+          userOf(
+            item,
+            (value, name, field) =>
+              refs.open(value, sealedFor(name), field).secret,
+          ),
         ];
       } catch (failure) {
         log("a technical user in the config file doesn't fit", {
@@ -110,8 +118,8 @@ export function technicalUsers(
         throw new BadRequest(`there is a technical user ${user.name} already`);
       }
 
-      const seal = (secret: string): string =>
-        store.seal(secret, sealedFor(user.name));
+      const seal = (secret: string): SecretRef =>
+        refs.seal(secret, sealedFor(user.name));
 
       write([
         ...read(),
@@ -184,7 +192,7 @@ export function technicalUsers(
 
 function userOf(
   item: unknown,
-  open: (sealed: string, name: string) => string,
+  open: (value: unknown, name: string, field: string) => string,
 ): TechnicalUser {
   if (!isObject(item)) {
     throw new BadRequest("must be an object");
@@ -207,7 +215,7 @@ function userOf(
       host,
       users,
       login: text(item["login"], "login"),
-      token: open(text(item["token"], "token"), name),
+      token: open(item["token"], name, "token"),
     };
   }
 
@@ -225,11 +233,11 @@ function userOf(
       id: app["id"],
       slug: text(app["slug"], "app.slug"),
       url: text(app["url"], "app.url"),
-      privateKey: open(text(app["privateKey"], "app.privateKey"), name),
+      privateKey: open(app["privateKey"], name, "app.privateKey"),
       webhookSecret:
         secret === undefined
           ? undefined
-          : open(text(secret, "app.webhookSecret"), name),
+          : open(secret, name, "app.webhookSecret"),
       hook: text(app["hook"], "app.hook"),
     },
   };

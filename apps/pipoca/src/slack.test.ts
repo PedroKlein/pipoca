@@ -211,6 +211,50 @@ test("an admin adds a Slack bot, and its mentions reach routines", async () => {
   expect(heard()[0]).toContain('"key":"C1/3.0"');
 });
 
+test("a bot written into pipoca.json by hand takes its tokens from the environment", async () => {
+  await server.close();
+
+  process.env["PIPOCA_TEST_SLACK_APP"] = "xapp-good";
+  process.env["PIPOCA_TEST_SLACK_BOT"] = "xoxb-good";
+
+  writeFileSync(
+    join(configDir, "pipoca.json"),
+    JSON.stringify({
+      slack: {
+        api: `http://127.0.0.1:${String(slack.port)}/api`,
+        bots: [
+          {
+            name: "team-bot",
+            team: "Acme",
+            botUser: "UBOT",
+            appToken: { env: "PIPOCA_TEST_SLACK_APP" },
+            botToken: { env: "PIPOCA_TEST_SLACK_BOT" },
+            users: [],
+          },
+        ],
+      },
+    }),
+  );
+
+  server = testServer({ configDir, sessions: { pollWaitMs: 0 } });
+
+  for (let tries = 0; tries < 100 && socket === undefined; tries++) {
+    await Bun.sleep(20);
+  }
+
+  expect(await (await server.api("/api/plugins/slack/bots")).json()).toEqual([
+    {
+      name: "team-bot",
+      team: "Acme",
+      botUser: "UBOT",
+      connected: true,
+      error: null,
+    },
+  ]);
+
+  expect(process.env["PIPOCA_TEST_SLACK_BOT"]).toBeUndefined();
+});
+
 test("a Session posts as the bot, and replies in its thread come back to it", async () => {
   await addBot();
 

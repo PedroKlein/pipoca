@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -239,6 +239,42 @@ test("an admin adds a mailbox, and its new mail reaches routines", async () => {
   expect(heard()).toHaveLength(1);
   expect(heard()[0]).toContain('"key":"<new@example.com>"');
 }, 15_000);
+
+test("a mailbox written into pipoca.json by hand takes its password from the environment", async () => {
+  process.env["PIPOCA_TEST_MAIL_PASSWORD"] = "right";
+
+  writeFileSync(
+    join(configDir, "pipoca.json"),
+    JSON.stringify({
+      email: {
+        pollSeconds: 1,
+        mailboxes: [
+          {
+            name: "support",
+            address: "support@example.com",
+            user: "support@example.com",
+            password: { env: "PIPOCA_TEST_MAIL_PASSWORD" },
+            imap: { host: "127.0.0.1", port: imap.port, secure: false },
+            smtp: { host: "127.0.0.1", port: smtpPort, secure: false },
+            users: [],
+          },
+        ],
+      },
+    }),
+  );
+
+  await until(() => selected > 0);
+
+  expect(
+    (
+      (await (await server.api("/api/plugins/email/mailboxes")).json()) as {
+        readonly name: string;
+      }[]
+    ).map(({ name }) => name),
+  ).toEqual(["support"]);
+
+  expect(process.env["PIPOCA_TEST_MAIL_PASSWORD"]).toBeUndefined();
+});
 
 test("a Session sends mail from the mailbox, and replies to it come back to it", async () => {
   await addMailbox();

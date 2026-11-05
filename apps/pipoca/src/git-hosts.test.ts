@@ -593,7 +593,10 @@ test("sends a sign-in to the host's authorize page, and refuses a callback in an
         hosts: [
           {
             host: enterprise,
-            oauth: { clientId: "Iv1.abc", clientSecretEnv: "SAP_SECRET" },
+            oauth: {
+              clientId: "Iv1.abc",
+              clientSecret: { env: "SAP_SECRET" },
+            },
           },
         ],
       },
