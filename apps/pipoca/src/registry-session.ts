@@ -3,8 +3,7 @@ import askPackage from "../../../plugins/ask/package.json";
 import * as askSession from "../../../plugins/ask/src/session";
 import changesPackage from "../../../plugins/changes/package.json";
 import * as changesSession from "../../../plugins/changes/src/session";
-import checklistPackage from "../../../plugins/checklist/package.json";
-import * as checklistSession from "../../../plugins/checklist/src/session";
+import { checklist } from "../../../plugins/checklist/plugin";
 import gitHostsPackage from "../../../plugins/git-hosts/package.json";
 import * as gitHostsSession from "../../../plugins/git-hosts/src/session";
 import libraryPackage from "../../../plugins/library/package.json";
@@ -23,11 +22,7 @@ import * as subagentsSession from "../../../plugins/subagents/src/session";
 export const sessionRegistry = [
   { id: "ask", manifest: askPackage.pipoca, session: askSession },
   { id: "changes", manifest: changesPackage.pipoca, session: changesSession },
-  {
-    id: "checklist",
-    manifest: checklistPackage.pipoca,
-    session: checklistSession,
-  },
+  { id: "checklist", definition: checklist },
   {
     id: "git-hosts",
     manifest: gitHostsPackage.pipoca,

@@ -2,7 +2,7 @@
 import askPackage from "../../../plugins/ask/package.json";
 import * as askServer from "../../../plugins/ask/src/server";
 import changesPackage from "../../../plugins/changes/package.json";
-import checklistPackage from "../../../plugins/checklist/package.json";
+import { checklist } from "../../../plugins/checklist/plugin";
 import emailPackage from "../../../plugins/email/package.json";
 import * as emailServer from "../../../plugins/email/src/server";
 import gitHostsPackage from "../../../plugins/git-hosts/package.json";
@@ -36,7 +36,7 @@ import * as usageServer from "../../../plugins/usage/src/server";
 export const serverRegistry = [
   { id: "ask", manifest: askPackage.pipoca, server: askServer },
   { id: "changes", manifest: changesPackage.pipoca },
-  { id: "checklist", manifest: checklistPackage.pipoca },
+  { id: "checklist", definition: checklist },
   { id: "email", manifest: emailPackage.pipoca, server: emailServer },
   { id: "git-hosts", manifest: gitHostsPackage.pipoca, server: gitHostsServer },
   {

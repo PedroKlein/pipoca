@@ -15,9 +15,11 @@ process.env["PI_OFFLINE"] = "1";
 // ~/.pi/agent.
 process.env["PI_CODING_AGENT_DIR"] = join(tmpdir(), "pipoca-test-agent");
 
-// testPlugin from @pipoca/plugins/testing runs plugins on the server, which
-// the plugins package can't import.
+// testPlugin and testSession from @pipoca/plugins/testing run plugins on the
+// server and the Session host, which the plugins package can't import.
 Object.assign(globalThis, {
   [Symbol.for("pipoca.test-kernel")]: async () =>
     (await import("./apps/pipoca/src/testdata/plugin-test")).pluginTest,
+  [Symbol.for("pipoca.test-session-host")]: async () =>
+    (await import("./packages/sessionhost/src/parts")).setUpPart,
 });

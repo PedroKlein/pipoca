@@ -21,7 +21,7 @@ import * as usageWeb from "../../../plugins/usage/web/index";
 export const webRegistry = [
   { id: "ask", plugin: askWeb },
   { id: "changes", plugin: changesWeb },
-  { id: "checklist", plugin: checklistWeb },
+  { id: "checklist", part: checklistWeb },
   { id: "email", plugin: emailWeb },
   { id: "git-hosts", plugin: gitHostsWeb },
   { id: "kubernetes", plugin: kubernetesWeb },

@@ -1,6 +1,8 @@
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import { validateToolArguments } from "@earendil-works/pi-ai";
 import type {
   ExtensionAPI,
+  ExtensionFactory,
   ExtensionToolContext,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -11,6 +13,7 @@ import {
   systemClock,
 } from "@pipoca/protocol";
 import type { TypedClient } from "./client";
+import { sessionConfig } from "./config";
 import type { PluginDefinition } from "./definition";
 import { eventBus } from "./events";
 import { isHttpError } from "./http";
@@ -26,6 +29,7 @@ import type {
 } from "./plugin";
 import { envSecrets, secretRefs } from "./secrets";
 import type { Store } from "./server";
+import type { SessionPart } from "./session";
 
 export interface TestPerson {
   readonly id: string;
@@ -153,11 +157,28 @@ export interface SessionTest {
   readonly published: (key: string) => unknown;
 }
 
-// A Session part against a stand-in for Pi. Members of the cloud the test
-// doesn't pass throw when called, except publish, which it records.
+export type SessionFakes = Partial<SessionCloud> & {
+  // The plugin's key in pipoca.json, for a part defineSession made.
+  readonly config?: Readonly<Record<string, unknown>>;
+};
+
+type PartSetUp = (
+  part: SessionPart,
+  host: unknown,
+) => Promise<{
+  readonly tools: readonly ToolDefinition[];
+  readonly extensions: readonly { readonly factory: ExtensionFactory }[];
+}>;
+
+// Set by the repository's test setup, since the Session host sets parts up.
+const sessionHostKey = Symbol.for("pipoca.test-session-host");
+
+// A Session part against a stand-in for Pi, set up as the Session host sets
+// it up. Members of the cloud the test doesn't pass throw when called,
+// except publish, which it records.
 export async function testSession(
-  plugin: SessionPlugin,
-  cloud: Partial<SessionCloud> = {},
+  plugin: SessionPlugin | PluginDefinition,
+  cloud: SessionFakes = {},
 ): Promise<SessionTest> {
   const notFaked = (name: string) => (): never => {
     throw new Error(`${name} is not faked; pass it to testSession`);
@@ -189,21 +210,59 @@ export async function testSession(
     on: () => undefined,
   };
 
-  await plugin.extension?.(given)(pi as unknown as ExtensionAPI);
-  tools.push(...((await plugin.tools?.(given)) ?? []));
+  if ("id" in plugin) {
+    const part = (await plugin.session?.())?.default as SessionPart | undefined;
+
+    if (part?.plugin !== plugin) {
+      throw new Error(
+        `the Session part of ${plugin.id} isn't one defineSession made for it`,
+      );
+    }
+
+    const setUp = await partSetUp();
+
+    const { settings: _settings, ...host } = {
+      ...given,
+      config:
+        plugin.config === undefined
+          ? {}
+          : sessionConfig(plugin.config, cloud.config ?? {}, given.log),
+      clock: systemClock,
+    };
+
+    const { tools: direct, extensions } = await setUp(part, host);
+
+    for (const { factory } of extensions) {
+      await factory(pi as unknown as ExtensionAPI);
+    }
+
+    tools.push(...direct);
+  } else {
+    await plugin.extension?.(given)(pi as unknown as ExtensionAPI);
+    tools.push(...((await plugin.tools?.(given)) ?? []));
+  }
+
+  const name = "id" in plugin ? plugin.id : plugin.name;
 
   return {
-    tool: async (name, input) => {
-      const tool = tools.findLast((each) => each.name === name);
+    tool: async (toolName, input) => {
+      const tool = tools.findLast((each) => each.name === toolName);
 
       if (tool === undefined) {
-        throw new Error(`${plugin.name} has no tool ${name}`);
+        throw new Error(`${name} has no tool ${toolName}`);
       }
 
       try {
+        const args: unknown = validateToolArguments(tool, {
+          type: "toolCall",
+          id: "call-1",
+          name: toolName,
+          arguments: (tool.prepareArguments?.(input) ?? input) as never,
+        });
+
         const { content, details } = await tool.execute(
           "call-1",
-          input,
+          args,
           undefined,
           undefined,
           {} as ExtensionToolContext,
@@ -225,6 +284,19 @@ export async function testSession(
     },
     published: (key) => published.get(key),
   };
+}
+
+async function partSetUp(): Promise<PartSetUp> {
+  const load = (globalThis as Record<symbol, unknown>)[sessionHostKey] as
+    (() => Promise<PartSetUp>) | undefined;
+
+  if (load === undefined) {
+    throw new Error(
+      "testSession needs the Session host; run bun test from the repository's root",
+    );
+  }
+
+  return load();
 }
 
 // A store in memory with the plugin's tables, for a plugin's tests. It seals
