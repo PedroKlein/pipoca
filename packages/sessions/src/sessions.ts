@@ -201,17 +201,18 @@ export type Result<T, R extends Rejection = Rejection> =
 
 export type SessionPlugins = Required<
   Pick<Assignment, "plugins" | "pluginSettings">
-> & {
-  // Session plugins that load only in the Sessions their plugin owns.
-  readonly ownSessionsOnly?: readonly string[];
-  // The Session plugins that load in a plugin's own Sessions, for plugins
-  // that limit them.
-  readonly loadOnly?: Readonly<Record<string, readonly string[]>>;
-  // The installed plugins' Session parts, by name, with their bundles' hash.
-  readonly installedParts?: Readonly<Record<string, string>>;
-  // The Session plugins that load in team work (ADR 0067).
-  readonly teamWork?: readonly string[];
-};
+> &
+  Pick<Assignment, "pluginConfig"> & {
+    // Session plugins that load only in the Sessions their plugin owns.
+    readonly ownSessionsOnly?: readonly string[];
+    // The Session plugins that load in a plugin's own Sessions, for plugins
+    // that limit them.
+    readonly loadOnly?: Readonly<Record<string, readonly string[]>>;
+    // The installed plugins' Session parts, by name, with their bundles' hash.
+    readonly installedParts?: Readonly<Record<string, string>>;
+    // The Session plugins that load in team work (ADR 0067).
+    readonly teamWork?: readonly string[];
+  };
 
 export interface SessionsOptions {
   readonly clock?: Clock;
@@ -1637,10 +1638,11 @@ export class Sessions {
   ): Required<
     Pick<Assignment, "plugins" | "pluginSettings" | "requiredPlugins">
   > &
-    Pick<Assignment, "installedParts"> {
+    Pick<Assignment, "installedParts" | "pluginConfig"> {
     const {
       plugins,
       pluginSettings,
+      pluginConfig,
       ownSessionsOnly,
       loadOnly,
       installedParts,
@@ -1677,6 +1679,13 @@ export class Sessions {
           loaded.includes(name),
         ),
       ),
+      ...(pluginConfig !== undefined && {
+        pluginConfig: Object.fromEntries(
+          Object.entries(pluginConfig).filter(([name]) =>
+            loaded.includes(name),
+          ),
+        ),
+      }),
     };
   }
 

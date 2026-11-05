@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { createInterface } from "node:readline";
-import type { SessionPlugin } from "@pipoca/plugins";
+import type { SessionPart, SessionPlugin } from "@pipoca/plugins";
 import type { Log, PluginSettings, SessionStart } from "@pipoca/protocol";
 import {
   type HostedSession,
@@ -16,6 +16,8 @@ import { installedParts } from "./parts";
 interface SessionParts {
   readonly plugins: readonly SessionPlugin[];
   readonly pluginSettings: Readonly<Record<string, PluginSettings>>;
+  readonly parts: readonly SessionPart[];
+  readonly pluginConfig: Readonly<Record<string, unknown>>;
 }
 
 // The binary the runner is part of, which it starts again for each Session

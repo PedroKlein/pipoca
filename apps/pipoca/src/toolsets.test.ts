@@ -26,7 +26,7 @@ import type {
   UiAction,
 } from "@pipoca/protocol";
 import type { ServeOptions } from "./serve";
-import { builtInPlugins } from "./session-parts";
+import { builtInPlugins } from "./built-in";
 import { readSse } from "@pipoca/protocol";
 import { json, testServer, type TestServer } from "./testdata/harness";
 import { until } from "@pipoca/plugins/testing";

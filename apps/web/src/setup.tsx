@@ -171,17 +171,20 @@ function offeredDescription(profile: Profile): string {
 }
 
 // The kernel's steps around the ones plugins add, such as a model and code
-// hosts (ADR 0063).
+// hosts (ADR 0063). The steps people can't skip come first.
 function setupSteps(): readonly Step[] {
   const kernel = pluginContext("setup");
 
+  const added = enabledPlugins().flatMap(({ name, setupStep }) =>
+    setupStep
+      ? [{ id: name, step: setupStep, context: pluginContext(name) }]
+      : [],
+  );
+
   return [
     { id: "where", step: whereStep, context: kernel },
-    ...enabledPlugins().flatMap(({ name, setupStep }) =>
-      setupStep
-        ? [{ id: name, step: setupStep, context: pluginContext(name) }]
-        : [],
-    ),
+    ...added.filter(({ step }) => step.optional !== true),
+    ...added.filter(({ step }) => step.optional === true),
     { id: "profile", step: profileStep, context: kernel },
   ];
 }
