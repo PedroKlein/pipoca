@@ -110,7 +110,7 @@ export const usage: ServerPlugin = {
   schema,
   register: (context) => {
     const calls = callStore(context.store);
-    const audit = auditLog(context.store);
+    const audit = auditLog(context.store, context.clock);
 
     const record = (event: Parameters<typeof auditedAction>[0]) => {
       const entry = auditedAction(event);
@@ -163,7 +163,7 @@ export const usage: ServerPlugin = {
     };
 
     context.events.subscribe("logins.model_called", (event) => {
-      const call = callOf(event, priceOf);
+      const call = callOf(event, priceOf, context.clock.now());
 
       if (call === undefined) {
         return;
@@ -185,7 +185,7 @@ export const usage: ServerPlugin = {
         return;
       }
 
-      const since = monthStart(new Date());
+      const since = monthStart(new Date(context.clock.now()));
       const { team, person } = budgets();
 
       if (team !== null) {
@@ -277,7 +277,7 @@ export const usage: ServerPlugin = {
       }
 
       if (path === "totals") {
-        const since = monthStart(new Date());
+        const since = monthStart(new Date(context.clock.now()));
 
         return Response.json({
           since,
@@ -314,6 +314,7 @@ function monthStart(now: Date): string {
 function callOf(
   event: PluginEvent,
   priceOf: (provider: string, model: string | null) => Price | undefined,
+  now: number,
 ): Call | undefined {
   const { sessionId, owner, person, provider, model, input, output } = event;
 
@@ -331,7 +332,7 @@ function callOf(
   const price = priceOf(provider, named);
 
   return {
-    at: new Date().toISOString(),
+    at: new Date(now).toISOString(),
     owner,
     person: typeof person === "string" ? person : null,
     sessionId,

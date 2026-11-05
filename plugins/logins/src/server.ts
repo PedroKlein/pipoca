@@ -17,7 +17,7 @@ import {
   type ServerPluginContext,
   Type,
 } from "@pipoca/plugins";
-import type { ModelRef } from "@pipoca/protocol";
+import type { Clock, ModelRef } from "@pipoca/protocol";
 import { callbacks, callbackUrl } from "./callback";
 import { connections, modelSignIn } from "./connect";
 import {
@@ -196,7 +196,7 @@ export const logins: ServerPlugin = {
 
     const returns = callbacks();
 
-    const tokens = proxyTokens(context.store);
+    const tokens = proxyTokens(context.store, context.clock);
 
     // The team's API keys on the base, which team Sessions reach only
     // through the proxy.
@@ -698,11 +698,11 @@ interface Owned extends Stored {
 }
 
 function loginKind<T>(
-  context: Pick<ServerPluginContext, "store" | "changes" | "log">,
+  context: Pick<ServerPluginContext, "store" | "changes" | "clock" | "log">,
   leases: Locks,
   spec: KindSpec<T>,
 ): LoginKind<T> {
-  const rows = sealedRows(context.store, spec);
+  const rows = sealedRows(context.store, context.clock, spec);
 
   const leaseKey = (userId: string, key: string): string =>
     `${spec.name}\u0000${userId}\u0000${key}`;
@@ -931,6 +931,7 @@ const ownerMatch =
 // for its user and key (ADR 0039).
 function sealedRows<T>(
   store: PluginStore,
+  clock: Clock,
   { kind, valid, typeOf }: KindSpec<T>,
 ): SealedRows<T> {
   const sealedFor = (userId: string, key: string): string => `${userId} ${key}`;
@@ -990,7 +991,7 @@ function sealedRows<T>(
         key,
         typeOf(value),
         store.seal(JSON.stringify(value), sealedFor(userId, key)),
-        Date.now(),
+        clock.now(),
       );
     },
     remove: (userId, key) => {
