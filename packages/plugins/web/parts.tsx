@@ -13,6 +13,7 @@ import { pluginClient, type TypedClient } from "../src/client";
 import type { PluginDefinition } from "../src/definition";
 import { transcriptReader } from "../src/transcript";
 import type {
+  EmbeddedSessionProps,
   EnvironmentSectionProps,
   HomeProps,
   LinkProps,
@@ -106,6 +107,17 @@ export function Slot<K extends keyof Slots>(
       ))}
     </>
   );
+}
+
+// The app's Session view: chat, composer, prompts and header, inside a
+// plugin's page (ADR 0028).
+export function SessionView(props: EmbeddedSessionProps): ReactElement {
+  return createElement(useShell().SessionView, props);
+}
+
+// The address of a path inside a plugin's page, such as a Project.
+export function href(plugin: Pick<PluginDefinition, "id">, path: string): string {
+  return `#plugin/${plugin.id}/${path}`;
 }
 
 // Fills a tool's call slot to leave its calls out of the chat.

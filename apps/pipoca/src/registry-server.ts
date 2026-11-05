@@ -9,20 +9,16 @@ import gitHostsPackage from "../../../plugins/git-hosts/package.json";
 import * as gitHostsServer from "../../../plugins/git-hosts/src/server";
 import kubernetesPackage from "../../../plugins/kubernetes/package.json";
 import * as kubernetesServer from "../../../plugins/kubernetes/src/server";
-import libraryPackage from "../../../plugins/library/package.json";
-import * as libraryServer from "../../../plugins/library/src/server";
 import localPackage from "../../../plugins/local/package.json";
 import * as localServer from "../../../plugins/local/src/server";
 import loginsPackage from "../../../plugins/logins/package.json";
 import * as loginsServer from "../../../plugins/logins/src/server";
-import metaPackage from "../../../plugins/meta/package.json";
-import * as metaServer from "../../../plugins/meta/src/server";
 import { models } from "../../../plugins/models/plugin";
 import { server as modelsServer } from "../../../plugins/models/src/server";
 import oidcPackage from "../../../plugins/oidc/package.json";
 import * as oidcServer from "../../../plugins/oidc/src/server";
-import projectsPackage from "../../../plugins/projects/package.json";
-import * as projectsServer from "../../../plugins/projects/src/server";
+import { projects } from "../../../plugins/projects/plugin";
+import { server as projectsServer } from "../../../plugins/projects/src/server";
 import pushPackage from "../../../plugins/push/package.json";
 import * as pushServer from "../../../plugins/push/src/server";
 import routinesPackage from "../../../plugins/routines/package.json";
@@ -44,13 +40,11 @@ export const serverRegistry = [
     manifest: kubernetesPackage.pipoca,
     server: kubernetesServer,
   },
-  { id: "library", manifest: libraryPackage.pipoca, server: libraryServer },
   { id: "local", manifest: localPackage.pipoca, server: localServer },
   { id: "logins", manifest: loginsPackage.pipoca, server: loginsServer },
-  { id: "meta", manifest: metaPackage.pipoca, server: metaServer },
   { id: "models", definition: models, server: modelsServer },
   { id: "oidc", manifest: oidcPackage.pipoca, server: oidcServer },
-  { id: "projects", manifest: projectsPackage.pipoca, server: projectsServer },
+  { id: "projects", definition: projects, server: projectsServer },
   { id: "push", manifest: pushPackage.pipoca, server: pushServer },
   { id: "routines", manifest: routinesPackage.pipoca, server: routinesServer },
   { id: "slack", manifest: slackPackage.pipoca, server: slackServer },

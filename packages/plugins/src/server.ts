@@ -11,6 +11,7 @@ import type {
   Session,
   SessionAccess,
   Timer,
+  ToolResult,
 } from "@pipoca/protocol";
 import type { Static, TObject, TSchema } from "typebox";
 import type { EventDef, Events, PluginDefinition } from "./definition";
@@ -270,6 +271,15 @@ export interface ServerTools {
     path: string,
     spec: RouteToolSpec,
   ) => void;
+  // Runs a route tool, a kernel one or a plugin's, as the person a Session
+  // acts for, in a Session on a Profile that loads route tools. It is how a
+  // plugin's tool does what other tools already do, such as writing a
+  // Profile's files.
+  readonly call: (
+    name: string,
+    input: unknown,
+    o: { readonly session: string },
+  ) => Promise<ToolResult>;
 }
 
 export interface Sessions {

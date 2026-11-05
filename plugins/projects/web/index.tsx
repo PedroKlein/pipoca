@@ -9,8 +9,9 @@ import {
   type PageProps,
   useLoaded,
   useNow,
-  type WebContext,
-  type WebPlugin,
+  defineWeb,
+  href,
+  SessionView,
 } from "@pipoca/plugins/web";
 import {
   checkoutName,
@@ -48,6 +49,9 @@ import {
   type SubmitEvent,
   useState,
 } from "react";
+import { projects } from "../plugin";
+import { Earlier, earlier, Home, TeamAssistant } from "./assistant";
+import { Library } from "./library";
 import {
   type ProjectNotices,
   type ProjectSummary,
@@ -62,27 +66,63 @@ import {
 // Thread states follow their Sessions.
 const watched = { topics: ["sessions", "projects.projects"] };
 
-export const projects: WebPlugin = {
-  name: "projects",
-  nav: {
-    label: "Projects",
-    Page,
-    Items,
-    fills: (path) => path !== "",
-    pinned: true,
-  },
+export const web = defineWeb(projects, {
+  pages: [
+    {
+      path: "",
+      label: "Projects",
+      Page,
+      nav: { Items, fills: (path) => path !== "", pinned: true },
+    },
+    { path: "team-assistant", label: "Team assistant", Page: TeamAssistant, area: "hub" },
+  ],
   sessionPath: (session) => `${session.owner?.key ?? ""}/${session.id}`,
-  notices: {
-    thread: ThreadNotice,
-    thread_message: ThreadMessageNotice,
-    coordinator_message: CoordinatorMessageNotice,
+  slots: {
+    home: Home,
+    "notice:thread": ThreadNotice,
+    "notice:thread_message": ThreadMessageNotice,
+    "notice:coordinator_message": CoordinatorMessageNotice,
+    "link:thread": ThreadLink,
+    "session.toolCall:start_thread": StartThreadCard,
+    "session.toolCall:message_thread": MessageThreadCard,
   },
-  links: { thread: ThreadLink },
-  tools: { start_thread: StartThreadCard, message_thread: MessageThreadCard },
-};
+});
+
+type Own<T> = Omit<T, "context">;
+
+const base = `/api/ext/${projects.id}/`;
+
+// The plugin's own routes by their path, the server's by an absolute one.
+async function request(path: string, init?: RequestInit): Promise<Response> {
+  return fetch(path.startsWith("/") ? path : `${base}${path}`, {
+    ...init,
+    headers: {
+      ...(typeof init?.body === "string" && {
+        "content-type": "application/json",
+      }),
+      ...(init?.headers as Readonly<Record<string, string>> | undefined),
+    },
+  });
+}
+
+// The person's own Projects, then the team's. A person outside team work
+// gets none of the team's.
+async function allProjects(): Promise<ProjectSummary[]> {
+  const [own, team] = await Promise.all([
+    json<ProjectSummary[]>(request("projects")),
+    request("team/projects").then(async (response) =>
+      response.ok ? ((await response.json()) as ProjectSummary[]) : [],
+    ),
+  ]);
+
+  return [...own, ...team];
+}
+
+function link(path: string): string {
+  return href(projects, path);
+}
 
 function useThread(
-  context: WebContext,
   id: string | undefined,
 ): ThreadLinkView | undefined {
   return useLoaded(
@@ -90,7 +130,7 @@ function useThread(
       id === undefined
         ? undefined
         : json<ThreadLinkView>(
-            context.request(`threads/${encodeURIComponent(id)}`),
+            request(`threads/${encodeURIComponent(id)}`),
           ),
     id ?? "",
     watched,
@@ -118,14 +158,14 @@ function StateDot({
   );
 }
 
-function ThreadLink({ context, target, label }: LinkProps): ReactElement {
-  const thread = useThread(context, target);
+function ThreadLink({ target, label }: Own<LinkProps>): ReactElement {
+  const thread = useThread(target);
 
   return (
     <a
       href={
         thread
-          ? context.href(`${thread.projectId}/${thread.sessionId}`)
+          ? link(`${thread.projectId}/${thread.sessionId}`)
           : `#${target}`
       }
       className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line bg-elevated px-2 align-baseline text-label leading-relaxed font-medium text-fg no-underline hover:bg-hover"
@@ -147,15 +187,15 @@ function argument(args: unknown, name: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-function StartThreadCard({ context, call }: ToolCallProps): ReactElement {
+function StartThreadCard({ call }: Own<ToolCallProps>): ReactElement {
   const threadId = /as (\S+)\.$/.exec(call.result?.text ?? "")?.[1];
-  const thread = useThread(context, threadId);
+  const thread = useThread(threadId);
   const title = thread?.title ?? argument(call.args, "title") ?? "Thread";
 
   const status = startStatus(call, thread);
 
   const open =
-    thread && context.href(`${thread.projectId}/${thread.sessionId}`);
+    thread && link(`${thread.projectId}/${thread.sessionId}`);
 
   return (
     <Card
@@ -223,9 +263,9 @@ function startStatus(call: ToolCall, thread: ThreadView | undefined): string {
     .join(" · ");
 }
 
-function MessageThreadCard({ context, call }: ToolCallProps): ReactElement {
+function MessageThreadCard({ call }: Own<ToolCallProps>): ReactElement {
   const threadId = argument(call.args, "thread");
-  const thread = useThread(context, threadId);
+  const thread = useThread(threadId);
 
   return (
     <MessageNotice
@@ -234,7 +274,6 @@ function MessageThreadCard({ context, call }: ToolCallProps): ReactElement {
           To
           {thread ? (
             <ThreadLink
-              context={context}
               target={thread.sessionId}
               label={thread.title}
             />
@@ -253,13 +292,13 @@ function MessageThreadCard({ context, call }: ToolCallProps): ReactElement {
 
 // The server tags each notice it sends with the data its kind draws.
 function noticeData<K extends keyof ProjectNotices>(
-  { data }: NoticeProps,
+  { data }: Own<NoticeProps>,
   _kind: K,
 ): ProjectNotices[K] {
   return data as ProjectNotices[K];
 }
 
-function ThreadNotice(props: NoticeProps): ReactElement {
+function ThreadNotice(props: Own<NoticeProps>): ReactElement {
   const { threadId, title, event, workState, runState, reply } = noticeData(
     props,
     "thread",
@@ -305,7 +344,7 @@ function ThreadNotice(props: NoticeProps): ReactElement {
   );
 }
 
-function ThreadMessageNotice(props: NoticeProps): ReactElement {
+function ThreadMessageNotice(props: Own<NoticeProps>): ReactElement {
   const { threadId, title, text } = noticeData(props, "thread_message");
 
   return (
@@ -320,7 +359,7 @@ function ThreadMessageNotice(props: NoticeProps): ReactElement {
   );
 }
 
-function CoordinatorMessageNotice(props: NoticeProps): ReactElement {
+function CoordinatorMessageNotice(props: Own<NoticeProps>): ReactElement {
   const { text } = noticeData(props, "coordinator_message");
 
   return <MessageNotice from="Coordinator" text={text} />;
@@ -344,9 +383,9 @@ function MessageNotice({
   );
 }
 
-function Items({ context, path }: NavItemsProps): ReactElement {
+function Items({ path }: Own<NavItemsProps>): ReactElement {
   const list = useLoaded(
-    async () => json<ProjectSummary[]>(context.request("projects")),
+    async () => allProjects(),
     "projects",
     watched,
   ).value;
@@ -358,7 +397,7 @@ function Items({ context, path }: NavItemsProps): ReactElement {
         .map((project) => (
           <li key={project.id}>
             <a
-              href={context.href(project.id)}
+              href={link(project.id)}
               aria-current={
                 path?.split("/")[0] === project.id ? "page" : undefined
               }
@@ -387,26 +426,29 @@ function counted(count: number, one: string, many: string): string {
   return `${String(count)} ${count === 1 ? one : many}`;
 }
 
-function Page({ context, path }: PageProps): ReactElement {
+function Page({ path }: Own<PageProps>): ReactElement {
   const [open = "", ...rest] = path.split("/");
 
   const go = (to: string): void => {
-    location.hash = context.href(to);
+    location.hash = link(to);
   };
 
   const environments =
     useLoaded(
-      async () => json<Environment[]>(context.request("/api/environments")),
+      async () => json<Environment[]>(request("/api/environments")),
       "environments",
       { topics: ["environments"] },
     ).value ?? [];
 
+  if (open === earlier) {
+    return <Earlier path={rest.join("/")} />;
+  }
+
   return open === "" ? (
-    <ProjectList context={context} environments={environments} onOpen={go} />
+    <ProjectList environments={environments} onOpen={go} />
   ) : (
     <ProjectPage
       key={open}
-      context={context}
       id={open}
       rest={rest.join("/")}
       environments={environments}
@@ -415,16 +457,14 @@ function Page({ context, path }: PageProps): ReactElement {
 }
 
 function ProjectList({
-  context,
   environments,
   onOpen,
 }: {
-  readonly context: WebContext;
   readonly environments: readonly Environment[];
   readonly onOpen: (id: string) => void;
 }): ReactElement {
   const list = useLoaded(
-    async () => json<ProjectSummary[]>(context.request("projects")),
+    async () => allProjects(),
     "projects",
     watched,
   ).value;
@@ -451,7 +491,6 @@ function ProjectList({
       )}
       <Section title="New Project">
         <CreateForm
-          context={context}
           environments={environments}
           onCreated={onOpen}
         />
@@ -510,12 +549,10 @@ function modelNames(environments: readonly Environment[]): string[] {
 }
 
 function ProfileSelect({
-  context,
   team,
   value,
   onChange,
 }: {
-  readonly context: WebContext;
   readonly team: boolean;
   readonly value: string;
   readonly onChange: (event: {
@@ -526,7 +563,7 @@ function ProfileSelect({
     useLoaded(
       async () =>
         json<Profile[]>(
-          context.request(team ? "/api/profiles?scope=team" : "/api/profiles"),
+          request(team ? "/api/profiles?scope=team" : "/api/profiles"),
         ),
       team ? "team-profiles" : "profiles",
       {
@@ -575,17 +612,15 @@ function repositoryOption(repository: string): PickerOption {
 // A name, the repositories and a goal; the rest takes its defaults and is
 // changed behind the Project's gear (ADR 0040).
 function CreateForm({
-  context,
   environments,
   onCreated,
 }: {
-  readonly context: WebContext;
   readonly environments: readonly Environment[];
   readonly onCreated: (id: string) => void;
 }): ReactElement {
   const sessions =
     useLoaded(
-      async () => json<Session[]>(context.request("/api/sessions")),
+      async () => json<Session[]>(request("/api/sessions")),
       "sessions",
       {
         topics: ["sessions"],
@@ -595,14 +630,14 @@ function CreateForm({
   const teamEnvironments =
     useLoaded(
       async () =>
-        json<Environment[]>(context.request("/api/environments?scope=team")),
+        json<Environment[]>(request("/api/environments?scope=team")),
       "team-environments",
       { topics: ["environments"] },
     ).value ?? [];
 
   const [teamProfile] =
     useLoaded(
-      async () => json<Profile[]>(context.request("/api/profiles?scope=team")),
+      async () => json<Profile[]>(request("/api/profiles?scope=team")),
       "team-profiles",
       { topics: ["profiles"] },
     ).value ?? [];
@@ -635,14 +670,14 @@ function CreateForm({
     setCreating(true);
 
     json<ProjectView>(
-      context.request("projects", {
+      request(forTeam ? "team/projects" : "projects", {
         method: "POST",
         body: JSON.stringify({
           name: field("name"),
           goal: field("goal"),
           repositories,
           environment: chosen?.id ?? offered[0]?.id ?? "",
-          ...(forTeam && { team: true, profile: teamProfile?.id ?? "" }),
+          ...(forTeam && { profile: teamProfile?.id ?? "" }),
         }),
       }),
     ).then(
@@ -740,6 +775,7 @@ function CreateForm({
 type Panel =
   | { readonly kind: "none" }
   | { readonly kind: "settings" }
+  | { readonly kind: "library" }
   | { readonly kind: "thread"; readonly id: string; readonly full: boolean };
 
 // "" is the coordinator alone, "settings" its settings beside it, and a
@@ -747,8 +783,8 @@ type Panel =
 function panelOf(rest: string, project: ProjectView): Panel {
   const [first = "", second] = rest.split("/");
 
-  if (first === "settings") {
-    return { kind: "settings" };
+  if (first === "settings" || first === "library") {
+    return { kind: first };
   }
 
   if (first === "" || first === project.coordinatorId) {
@@ -789,23 +825,20 @@ function useRail(): readonly [boolean, (open: boolean) => void] {
 }
 
 function ProjectPage({
-  context,
   id,
   rest,
   environments,
 }: {
-  readonly context: WebContext;
   readonly id: string;
   readonly rest: string;
   readonly environments: readonly Environment[];
 }): ReactElement {
   const path = `projects/${encodeURIComponent(id)}`;
   const [railOpen, setRailOpen] = useRail();
-  const { SessionView } = context;
 
   const { value: project, reload } = useLoaded(
     async () => {
-      const response = context.request(path);
+      const response = request(path);
 
       if ((await response).status === 404) {
         return null;
@@ -825,7 +858,7 @@ function ProjectPage({
     return (
       <div className="m-auto flex flex-col items-center gap-3 p-8">
         <p className="text-fg-dim">Project not found.</p>
-        <a href={context.href("")} className="text-accent hover:underline">
+        <a href={link("")} className="text-accent hover:underline">
           All Projects
         </a>
       </div>
@@ -835,7 +868,7 @@ function ProjectPage({
   const panel = panelOf(rest, project);
 
   const to = (where: string): string =>
-    context.href(where === "" ? id : `${id}/${where}`);
+    link(where === "" ? id : `${id}/${where}`);
 
   const go = (where: string): void => {
     location.hash = to(where);
@@ -857,7 +890,7 @@ function ProjectPage({
       onClick={() => {
         setRailOpen(beside === undefined);
 
-        if (beside === "settings" || beside === "thread") {
+        if (beside === "settings" || beside === "library" || beside === "thread") {
           go("");
         }
       }}
@@ -919,6 +952,17 @@ function ProjectPage({
             title={project.name}
             actions={
               <>
+                <Button
+                  variant="ghost"
+                  iconOnly
+                  aria-label="Project library"
+                  aria-pressed={panel.kind === "library"}
+                  onClick={() => {
+                    go(panel.kind === "library" ? "" : "library");
+                  }}
+                >
+                  <Icon name="paperclip" />
+                </Button>
                 <Button
                   variant="ghost"
                   iconOnly
@@ -1005,7 +1049,6 @@ function ProjectPage({
               ))}
             </ul>
             <Settings
-              context={context}
               path={path}
               project={project}
               onSaved={reload}
@@ -1019,10 +1062,9 @@ function ProjectPage({
             />
             <section aria-label="Memory" className="flex flex-col gap-2">
               <h3 className="text-label font-medium text-fg-dim">Memory</h3>
-              <Memory context={context} path={path} project={project} />
+              <Memory path={path} project={project} />
             </section>
             <StartFresh
-              context={context}
               path={path}
               project={project}
               href={to}
@@ -1032,7 +1074,6 @@ function ProjectPage({
               }}
             />
             <ArchiveProject
-              context={context}
               project={project}
               onDone={reload}
             />
@@ -1040,9 +1081,34 @@ function ProjectPage({
         </aside>
       )}
 
+      {beside === "library" && (
+        <aside
+          aria-label="Project library"
+          className={cn(column, "w-[min(30rem,45%)] bg-bg")}
+        >
+          <header className="flex min-h-14 items-center gap-2 border-b border-line px-4">
+            <h2 className="flex-1 text-title font-semibold text-fg-strong">
+              Library
+            </h2>
+            <Button
+              variant="ghost"
+              iconOnly
+              aria-label="Close library"
+              onClick={() => {
+                go("");
+              }}
+            >
+              <Icon name="x" />
+            </Button>
+          </header>
+          <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-4">
+            <Library path={path} />
+          </div>
+        </aside>
+      )}
+
       {beside === "list" && (
         <Rail
-          context={context}
           project={project}
           environments={environments}
           current={panel.kind === "thread" ? panel.id : undefined}
@@ -1062,8 +1128,12 @@ function ProjectPage({
 function besideOf(
   panel: Panel,
   railOpen: boolean,
-): "thread" | "settings" | "list" | undefined {
-  if (panel.kind === "settings" || (panel.kind === "thread" && !panel.full)) {
+): "thread" | "settings" | "library" | "list" | undefined {
+  if (
+    panel.kind === "settings" ||
+    panel.kind === "library" ||
+    (panel.kind === "thread" && !panel.full)
+  ) {
     return panel.kind;
   }
 
@@ -1108,7 +1178,6 @@ const dots: Readonly<Record<Group, string>> = {
 };
 
 function Rail({
-  context,
   project,
   environments,
   current,
@@ -1116,7 +1185,6 @@ function Rail({
   className,
   onClose,
 }: {
-  readonly context: WebContext;
   readonly project: ProjectView;
   readonly environments: readonly Environment[];
   readonly current: string | undefined;
@@ -1135,7 +1203,6 @@ function Rail({
       {threads.map((thread) => (
         <ThreadRow
           key={thread.sessionId}
-          context={context}
           thread={thread}
           current={thread.sessionId === current}
           href={href(thread.sessionId)}
@@ -1217,13 +1284,11 @@ function since(time: string, now: number): string {
 }
 
 function ThreadRow({
-  context,
   thread,
   current,
   href,
   meta,
 }: {
-  readonly context: WebContext;
   readonly thread: ThreadView;
   readonly current: boolean;
   readonly href: string;
@@ -1251,24 +1316,22 @@ function ThreadRow({
           ? meta
           : `${runBadges[thread.runState]?.label ?? thread.runState} · ${meta}`
       }
-      actions={<ThreadMenu context={context} thread={thread} />}
+      actions={<ThreadMenu thread={thread} />}
     />
   );
 }
 
 function ThreadMenu({
-  context,
   thread,
 }: {
-  readonly context: WebContext;
   readonly thread: ThreadView;
 }): ReactElement {
   const [error, setError] = useState("");
 
-  const run = (request: Promise<Response>): void => {
+  const run = (sent: Promise<Response>): void => {
     setError("");
 
-    ok(request).catch((failure: unknown) => {
+    ok(sent).catch((failure: unknown) => {
       setError(failure instanceof Error ? failure.message : String(failure));
     });
   };
@@ -1284,7 +1347,7 @@ function ThreadMenu({
             checked: thread.workState === state,
             run: () => {
               run(
-                context.request(
+                request(
                   `threads/${encodeURIComponent(thread.sessionId)}/state`,
                   { method: "POST", body: JSON.stringify({ state }) },
                 ),
@@ -1297,7 +1360,7 @@ function ThreadMenu({
             divided: true,
             run: () => {
               run(
-                context.request(
+                request(
                   `/api/sessions/${encodeURIComponent(thread.sessionId)}`,
                   {
                     method: "PATCH",
@@ -1345,13 +1408,11 @@ const runBadges: Readonly<
 };
 
 function Settings({
-  context,
   path,
   project,
   onSaved,
   models,
 }: {
-  readonly context: WebContext;
   readonly path: string;
   readonly project: ProjectView;
   readonly onSaved: () => void;
@@ -1387,7 +1448,7 @@ function Settings({
         setSaving(true);
 
         ok(
-          context.request(`${path}/settings`, {
+          request(`${path}/settings`, {
             method: "POST",
             body: JSON.stringify(draft),
           }),
@@ -1430,7 +1491,6 @@ function Settings({
       </Field>
       <Field label="Profile">
         <ProfileSelect
-          context={context}
           team={project.team}
           value={draft.profile}
           onChange={edit("profile")}
@@ -1466,13 +1526,11 @@ function Settings({
 }
 
 function StartFresh({
-  context,
   path,
   project,
   href,
   onDone,
 }: {
-  readonly context: WebContext;
   readonly path: string;
   readonly project: ProjectView;
   readonly href: (where: string) => string;
@@ -1497,7 +1555,7 @@ function StartFresh({
           setError("");
           setBusy(true);
 
-          ok(context.request(`${path}/fresh`, { method: "POST" }))
+          ok(request(`${path}/fresh`, { method: "POST" }))
             .then(onDone, (failure: unknown) => {
               setError(
                 failure instanceof Error ? failure.message : String(failure),
@@ -1531,11 +1589,9 @@ function StartFresh({
 }
 
 function ArchiveProject({
-  context,
   project,
   onDone,
 }: {
-  readonly context: WebContext;
   readonly project: ProjectView;
   readonly onDone: () => void;
 }): ReactElement {
@@ -1569,7 +1625,7 @@ function ArchiveProject({
             setError("");
 
             ok(
-              context.request(
+              request(
                 `/api/sessions/${encodeURIComponent(project.coordinatorId)}`,
                 {
                   method: "PATCH",
@@ -1594,11 +1650,9 @@ function ArchiveProject({
 }
 
 function Memory({
-  context,
   path,
   project,
 }: {
-  readonly context: WebContext;
   readonly path: string;
   readonly project: ProjectView;
 }): ReactElement {
@@ -1611,7 +1665,7 @@ function Memory({
       return "";
     }
 
-    const reply = await context.request(
+    const reply = await request(
       `${path}/memory/${encodeURIComponent(shown)}`,
     );
 

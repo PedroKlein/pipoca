@@ -943,6 +943,33 @@ export function startPlugins(
             fromRoute: (method, path, spec) => {
               staged.fromRoutes.push({ method, path, spec });
             },
+            call: async (name, input, { session: sessionId }) => {
+              const session = deps.sessions.get(sessionId);
+              const found = routeTools.get(name);
+
+              if (
+                session === undefined ||
+                found === undefined ||
+                !loadsRouteTools(session)
+              ) {
+                return { text: `no tool named ${name}`, isError: true };
+              }
+
+              const onBehalf = ownerOf(session, deps.auth.users());
+
+              return onBehalf === undefined
+                ? nobodyToActAs
+                : runRouteTool(
+                    found,
+                    input,
+                    onBehalf,
+                    deps.api,
+                    () => undefined,
+                  ).catch((error: unknown) => ({
+                    text: messageOf(error),
+                    isError: true,
+                  }));
+            },
           },
           schedule: scheduled.schedule,
           events: {

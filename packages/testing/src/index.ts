@@ -74,6 +74,13 @@ export interface TestSession {
   // reached the host, when the host is online, once this settles.
   readonly send: (personId: string, text: string) => Promise<void>;
   readonly transcript: (lines: readonly unknown[]) => Promise<void>;
+  // A turn of Pi's that writes these lines and ends. Its host says where the
+  // turn ended, and with uploaded false, the lines reach the server only
+  // with a later transcript call.
+  readonly turn: (
+    lines: readonly unknown[],
+    o?: { readonly uploaded?: boolean },
+  ) => Promise<void>;
   readonly archive: () => Promise<void>;
 }
 
@@ -103,6 +110,13 @@ export interface PluginTest {
     readonly key?: string;
     readonly plugin?: string;
   }) => Promise<TestSession>;
+  // An Environment whose runner hosts the Sessions started in it, such as
+  // the ones the plugin starts itself.
+  readonly environment: (o: {
+    readonly owner: Owner;
+  }) => Promise<{ readonly id: string }>;
+  // Hosts a Session the plugin started in one of the test's Environments.
+  readonly attach: (sessionId: string) => Promise<TestSession>;
   readonly tool: (
     name: string,
     input: unknown,
@@ -150,6 +164,8 @@ export interface SessionTest {
 export type SessionFakes = Partial<SessionCloud> & {
   // The plugin's key in pipoca.json, for a part defineSession made.
   readonly config?: Readonly<Record<string, unknown>>;
+  // Pi's working directory for the part's tools.
+  readonly cwd?: string;
 };
 
 // A Session part against a stand-in for Pi, set up as the Session host sets
@@ -239,7 +255,7 @@ export async function testSession(
           args,
           undefined,
           undefined,
-          {} as ExtensionToolContext,
+          { cwd: cloud.cwd ?? process.cwd() } as ExtensionToolContext,
         );
 
         return {
