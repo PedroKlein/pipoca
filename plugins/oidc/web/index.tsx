@@ -358,9 +358,7 @@ function ProviderRow({
           {provider.label}
           {badge()}
           {locked && (
-            <span className="inline-flex h-5 items-center rounded-full bg-hover px-2 text-caption font-medium text-fg-muted">
-              Config file
-            </span>
+            <Badge>Config file</Badge>
           )}
         </>
       }

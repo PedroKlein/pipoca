@@ -1,4 +1,4 @@
-import { Button, Field, fieldClass } from "@pipoca/ui";
+import { Badge, Button, Field, fieldClass, Mark } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -6,7 +6,6 @@ import {
   useState,
 } from "react";
 import { api } from "./api";
-import { Mark } from "./mark";
 
 // Another way in that a plugin offers, such as single sign-on (ADR 0038).
 export interface Login {
@@ -289,9 +288,7 @@ function SetupAccount({
                   <span className="flex items-center gap-2 text-ui font-medium text-fg-strong">
                     {title}
                     {optional === true && (
-                      <span className="inline-flex h-5 items-center rounded-full bg-hover px-2 text-caption font-medium text-fg-dim">
-                        Optional
-                      </span>
+                      <Badge>Optional</Badge>
                     )}
                   </span>
                   <span className="text-label text-fg-dim">{summary}</span>

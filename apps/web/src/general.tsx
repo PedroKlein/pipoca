@@ -1,4 +1,4 @@
-import { Button, PageTitle, Row, Rows, Section, Segmented } from "@pipoca/ui";
+import { Badge, Button, PageTitle, Row, Rows, Section, Segmented } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { api } from "./api";
 import { PluginBoundary } from "./plugin-boundary";
@@ -36,9 +36,7 @@ export function GeneralPage({
             <>
               {user}
               {admin && (
-                <span className="inline-flex h-5 items-center rounded-full bg-hover px-2 text-caption font-medium text-fg-dim">
-                  Admin
-                </span>
+                <Badge>Admin</Badge>
               )}
             </>
           }

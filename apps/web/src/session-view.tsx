@@ -10,7 +10,7 @@ import {
   terminalTakenOver,
 } from "@pipoca/protocol";
 import type { EmbeddedSessionProps } from "@pipoca/plugins/web";
-import { Badge, Button, cn, Icon, type IconName, Picker, type PickerOption, useConfirm } from "@pipoca/ui";
+import { Badge, Button, cn, Icon, type IconName, Picker, type PickerOption, Segmented, useConfirm } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -676,33 +676,18 @@ function ViewSwitch({
   readonly view: View;
   readonly onChange: (view: View) => void;
 }): ReactElement {
-  const option = (value: View, label: string, icon: IconName): ReactElement => (
-    <button
-      type="button"
-      aria-pressed={view === value}
-      onClick={() => {
-        onChange(value);
-      }}
-      className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-full px-3 text-label font-medium text-fg-dim aria-pressed:bg-accent-tint aria-pressed:text-fg-strong pointer-coarse:h-9"
-    >
-      <Icon
-        name={icon}
-        className={cn("size-3.5", view === value && "text-accent")}
-      />
-      <span className="max-sm:sr-only">{label}</span>
-    </button>
-  );
-
   return (
-    <div
-      role="group"
-      aria-label="View"
-      className="inline-flex gap-0.5 rounded-full border border-line bg-panel p-0.5"
-    >
-      {option("chat", "Chat", "chat")}
-      {option("pi", "Pi", "monitor")}
-      {option("terminal", "Terminal", "terminal")}
-    </div>
+    <Segmented
+      label="View"
+      compact
+      value={view}
+      onChange={onChange}
+      options={[
+        { value: "chat", label: "Chat", icon: "chat" },
+        { value: "pi", label: "Pi", icon: "monitor" },
+        { value: "terminal", label: "Terminal", icon: "terminal" },
+      ]}
+    />
   );
 }
 

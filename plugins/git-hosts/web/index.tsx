@@ -6,13 +6,8 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Badge, Button, Field, fieldClass, Icon, initialsOf, PageTitle, Picker, Row, Rows, Section, Switch, useConfirm } from "@pipoca/ui";
-import {
-  type ReactElement,
-  type ReactNode,
-  type SubmitEvent,
-  useState,
-} from "react";
+import { Badge, Button, Field, fieldClass, Icon, initialsOf, PageTitle, Picker, Row, Rows, Section, Select, Step, Stepper, type StepState, Switch, useConfirm } from "@pipoca/ui";
+import { type ReactElement, type SubmitEvent, useState } from "react";
 import type {
   Account,
   HostInput,
@@ -807,7 +802,7 @@ function ConnectSetup({
       return "done";
     }
 
-    return step === at ? "on" : "next";
+    return step === at ? "current" : "next";
   };
 
   return (
@@ -823,7 +818,7 @@ function ConnectSetup({
           {saved ? "Done" : "Cancel"}
         </Button>
       </div>
-      <ol className="flex flex-col">
+      <Stepper>
         <Step
           number={1}
           state={stepState(1)}
@@ -911,50 +906,8 @@ function ConnectSetup({
             </Button>
           )}
         </Step>
-      </ol>
+      </Stepper>
     </section>
-  );
-}
-
-type StepState = "done" | "on" | "next";
-
-function Step({
-  number,
-  state,
-  title,
-  description,
-  children,
-}: {
-  readonly number: number;
-  readonly state: StepState;
-  readonly title: ReactNode;
-  readonly description?: string;
-  readonly children?: ReactNode;
-}): ReactElement {
-  const marks: Record<StepState, string> = {
-    done: "border-done bg-done text-bg",
-    on: "border-fg-strong text-fg-strong",
-    next: "border-line-strong text-fg-dim",
-  };
-
-  return (
-    <li
-      aria-current={state === "on" ? "step" : undefined}
-      className="relative flex gap-3.5 pb-5 last:pb-0 before:absolute before:top-7 before:bottom-1 before:left-3 before:w-px before:bg-line last:before:hidden"
-    >
-      <span
-        className={`grid size-6 shrink-0 place-items-center rounded-full border-[1.5px] bg-elevated text-caption font-semibold ${marks[state]}`}
-      >
-        {state === "done" ? <Icon name="check" /> : number}
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="text-ui text-fg-strong">{title}</span>
-        {description !== undefined && (
-          <span className="text-label text-fg-dim">{description}</span>
-        )}
-        <span className="flex flex-col text-label text-fg-dim">{children}</span>
-      </span>
-    </li>
   );
 }
 
@@ -1179,13 +1132,13 @@ function Bots({
 
   const hostField = (
     <Field label="Host">
-      <select name="host" className={fieldClass}>
+      <Select name="host">
         {hosts.map((host) => (
           <option key={host} value={host}>
             {host}
           </option>
         ))}
-      </select>
+      </Select>
     </Field>
   );
 

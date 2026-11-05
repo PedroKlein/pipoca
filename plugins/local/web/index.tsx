@@ -4,7 +4,7 @@ import {
   useLoaded,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, cn, Field, fieldClass, Section } from "@pipoca/ui";
+import { Button, cn, Field, fieldClass, Section, TextInput } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import {
   defaultSettings,
@@ -130,16 +130,12 @@ function Settings({
           : "Off. The server can start a runner on its own machine when a Session here needs one."}
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
-        <NumberField
-          label="Sessions at once"
-          name="capacity"
-          value={shown.capacity}
-        />
-        <NumberField
-          label="Seconds idle before it stops"
-          name="idleSeconds"
-          value={shown.idleSeconds}
-        />
+        <Field label="Sessions at once">
+<TextInput name="capacity" type="number" min={1} required defaultValue={shown.capacity} />
+</Field>
+        <Field label="Seconds idle before it stops">
+<TextInput name="idleSeconds" type="number" min={1} required defaultValue={shown.idleSeconds} />
+</Field>
       </div>
       <Field label="Folders Sessions can work in, one per line">
         <textarea
@@ -173,25 +169,3 @@ function Settings({
   );
 }
 
-function NumberField({
-  label,
-  name,
-  value,
-}: {
-  readonly label: string;
-  readonly name: string;
-  readonly value: number;
-}): ReactElement {
-  return (
-    <Field label={label}>
-      <input
-        name={name}
-        type="number"
-        min={1}
-        required
-        defaultValue={value}
-        className={fieldClass}
-      />
-    </Field>
-  );
-}

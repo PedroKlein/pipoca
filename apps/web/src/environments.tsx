@@ -5,7 +5,7 @@ import {
   type EnvironmentTemplate,
   kindOf,
 } from "@pipoca/protocol";
-import { Badge, Button, cn, type ConfirmOptions, fieldClass, Icon, type KeyValue, KeyValues, PageTitle, Row, Rows, Section, Select, useConfirm } from "@pipoca/ui";
+import { Badge, Button, cn, type ConfirmOptions, fieldClass, Icon, type KeyValue, KeyValues, PageTitle, plural, Row, Rows, Section, Select, useConfirm } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -201,8 +201,8 @@ function EnvironmentCard({
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="flex flex-wrap items-center gap-2 text-prose font-medium text-fg-strong">
           {environment.name}
-          {kind !== "machine" && <Tag>{kindNames[kind]}</Tag>}
-          {template !== undefined && <Tag>From a template</Tag>}
+          {kind !== "machine" && <Badge>{kindNames[kind]}</Badge>}
+          {template !== undefined && <Badge>From a template</Badge>}
         </span>
         <span className="truncate text-label text-fg-dim">{summary}</span>
       </span>
@@ -215,18 +215,6 @@ function EnvironmentCard({
       <Icon name="chevron-right" className="size-4 text-fg-dim" />
     </a>
   );
-}
-
-function Tag({ children }: { readonly children: ReactNode }): ReactElement {
-  return (
-    <span className="inline-flex h-5 items-center rounded-full bg-hover px-2 text-caption font-medium text-fg">
-      {children}
-    </span>
-  );
-}
-
-function plural(count: number, noun: string): string {
-  return `${String(count)} ${noun}${count === 1 ? "" : "s"}`;
 }
 
 function NewEnvironment({
@@ -470,7 +458,7 @@ function Editor({
   return (
     <>
       <div className="flex flex-wrap items-center gap-2.5">
-        <h1 className="text-display font-medium tracking-tight text-fg-strong">
+        <h1 className="text-display font-medium text-fg-strong">
           {environment.name}
         </h1>
         <Badge state={status === "Offline" ? "offline" : "done"}>

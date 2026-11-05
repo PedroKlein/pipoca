@@ -6,7 +6,7 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, cn, Field, fieldClass, Section, Select } from "@pipoca/ui";
+import { Button, cn, Field, fieldClass, Section, Select, TextInput } from "@pipoca/ui";
 import { Fragment, type ReactElement, type SubmitEvent, useState } from "react";
 import {
   defaultSettings,
@@ -235,18 +235,16 @@ function Settings({
       </Field>
       <div className="grid gap-4 sm:grid-cols-3">
         {workspace === "pod" && (
-          <NumberField
-            label="Sessions per pod"
-            name="capacity"
-            value={shown.capacity}
-          />
+          <Field label="Sessions per pod">
+<TextInput name="capacity" type="number" min={1} required defaultValue={shown.capacity} />
+</Field>
         )}
-        <NumberField label="Most pods" name="maxPods" value={shown.maxPods} />
-        <NumberField
-          label="Seconds idle before a pod stops"
-          name="idleSeconds"
-          value={shown.idleSeconds}
-        />
+        <Field label="Most pods">
+<TextInput name="maxPods" type="number" min={1} required defaultValue={shown.maxPods} />
+</Field>
+        <Field label="Seconds idle before a pod stops">
+<TextInput name="idleSeconds" type="number" min={1} required defaultValue={shown.idleSeconds} />
+</Field>
       </div>
       {workspace === "claim" && (
         <div className="grid gap-4 sm:grid-cols-2">
@@ -300,28 +298,6 @@ function Settings({
   );
 }
 
-function NumberField({
-  label,
-  name,
-  value,
-}: {
-  readonly label: string;
-  readonly name: string;
-  readonly value: number;
-}): ReactElement {
-  return (
-    <Field label={label}>
-      <input
-        name={name}
-        type="number"
-        min={1}
-        required
-        defaultValue={value}
-        className={fieldClass}
-      />
-    </Field>
-  );
-}
 
 // The form's fields as the settings the server checks. Fields the form
 // doesn't show keep what they were.

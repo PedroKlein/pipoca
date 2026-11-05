@@ -1,5 +1,5 @@
 import type { SessionPartProps, WebPlugin } from "@pipoca/plugins/web";
-import { cn, Icon } from "@pipoca/ui";
+import { cn, Icon, type MarkStatus, StatusMark } from "@pipoca/ui";
 import { type ReactElement, useEffect, useId, useState } from "react";
 import { isOpen, type Item, listOf, toolName } from "../src/list";
 
@@ -88,31 +88,14 @@ function useList(session: SessionPartProps["session"]): readonly Item[] {
   return items;
 }
 
+const marks = {
+  completed: ["done", "Done"],
+  in_progress: ["running", "In progress"],
+  pending: ["pending", "Not started"],
+} as const satisfies Record<Item["status"], readonly [MarkStatus, string]>;
+
 function Mark({ status }: { readonly status: Item["status"] }): ReactElement {
-  switch (status) {
-    case "completed":
-      return (
-        <span aria-label="Done" className="shrink-0">
-          <Icon name="check" className="size-4 text-done" />
-        </span>
-      );
-    case "in_progress":
-      return (
-        <span
-          aria-label="In progress"
-          className="grid size-4 shrink-0 place-items-center"
-        >
-          <span className="size-1.5 animate-pulse rounded-full bg-working" />
-        </span>
-      );
-    case "pending":
-      return (
-        <span
-          aria-label="Not started"
-          className="grid size-4 shrink-0 place-items-center"
-        >
-          <span className="size-2.5 rounded-full border border-line-strong" />
-        </span>
-      );
-  }
+  const [mark, label] = marks[status];
+
+  return <StatusMark status={mark} label={label} />;
 }

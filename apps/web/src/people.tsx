@@ -1,3 +1,4 @@
+import { useNow } from "@pipoca/plugins/web";
 import {
   availability,
   type Environment,
@@ -5,20 +6,14 @@ import {
   type Person,
   type Session,
 } from "@pipoca/protocol";
-import { Badge, Button, Icon, initialsOf, PageTitle, Row, Rows, Select, Tabs, useConfirm } from "@pipoca/ui";
+import { Badge, Button, Icon, initialsOf, PageTitle, plural, Row, Rows, Select, Tabs, useConfirm } from "@pipoca/ui";
 import { Fragment, type ReactElement, type ReactNode, useState } from "react";
 import { api, command, send } from "./api";
 import { ago } from "./chat";
 import { deleteEnvironment, kindNames } from "./environments";
 import { InviteDialog, InvitesTable, revoke } from "./invites";
 import { NewcomersCard } from "./newcomers";
-import {
-  useEveryonesEnvironments,
-  useEveryonesSessions,
-  useInvites,
-  useNow,
-  usePeople,
-} from "./hooks";
+import { useEveryonesEnvironments, useEveryonesSessions, useInvites, usePeople } from "./hooks";
 import { settingsPageClass } from "./page-class";
 
 const busy = new Set(["queued", "starting", "running"]);
@@ -404,6 +399,3 @@ function Work({
   );
 }
 
-function plural(count: number, noun: string): string {
-  return `${String(count)} ${noun}${count === 1 ? "" : "s"}`;
-}

@@ -5,7 +5,7 @@ import {
   type WebContext,
 } from "@pipoca/plugins/web";
 import type { Environment, Profile, SetupState } from "@pipoca/protocol";
-import { Badge, Button, cn, Icon, Row, Rows } from "@pipoca/ui";
+import { Badge, Button, cn, Icon, Mark, Row, Rows } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -20,7 +20,6 @@ import {
   useSessions,
   useTemplates,
 } from "./hooks";
-import { Mark } from "./mark";
 import { useNewcomers } from "./newcomers";
 import { NewSessionForm } from "./new-session";
 import { PluginBoundary } from "./plugin-boundary";

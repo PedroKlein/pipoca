@@ -234,9 +234,7 @@ function PluginCard({
           )}
           {plugin.updated === true && <Badge state="waiting">Updated</Badge>}
           {plugin.updateAvailable === true && plugin.updated !== true && (
-            <span className="inline-flex h-5 items-center rounded-full bg-working-tint px-2 text-caption font-medium text-working">
-              Update
-            </span>
+            <Badge>Update</Badge>
           )}
         </span>
         <span

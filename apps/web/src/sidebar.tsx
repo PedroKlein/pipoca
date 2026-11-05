@@ -1,10 +1,9 @@
 import { ThemeSwitch } from "./theme";
 import { availability, type Environment, type Session } from "@pipoca/protocol";
-import { Badge, Button, cn, fieldClass, Icon } from "@pipoca/ui";
+import { Avatar, Badge, Button, cn, fieldClass, Icon, Mark } from "@pipoca/ui";
 import { type ReactElement, useEffect, useState } from "react";
 import { json, useNow } from "@pipoca/plugins/web";
 import { api, send } from "./api";
-import { Mark } from "./mark";
 import { matches } from "./notices";
 import {
   ago,
@@ -348,12 +347,13 @@ function AccountMenu({ user }: { readonly user: string }): ReactElement {
         }}
         className="w-full justify-start text-label"
       >
-        <span
-          aria-hidden="true"
-          className="grid size-6 place-items-center rounded-full bg-accent-tint text-caption font-semibold text-accent uppercase"
+        <Avatar
+          name={user}
+          size="xs"
+          className="bg-accent-tint text-accent"
         >
-          {user.slice(0, 1)}
-        </span>
+          {user.slice(0, 1).toUpperCase()}
+        </Avatar>
         <span className="flex-1 truncate text-left">{user}</span>
         <Icon name="settings" className="text-fg-dim" />
       </Button>
@@ -414,12 +414,14 @@ function PluginNav({
           aria-current={route === `plugin/${entry.name}` ? "page" : undefined}
           className="group/nav flex items-center gap-2.5 rounded-md px-2 py-1.5 text-ui text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:text-fg-strong"
         >
-          <span
-            aria-hidden="true"
-            className="grid size-6 place-items-center rounded-md border border-line bg-elevated text-caption font-semibold text-fg-dim uppercase group-aria-[current=page]/nav:border-accent group-aria-[current=page]/nav:text-accent"
+          <Avatar
+            name={entry.label}
+            size="xs"
+            square
+            className="bg-elevated text-fg-dim group-aria-[current=page]/nav:border-accent group-aria-[current=page]/nav:text-accent"
           >
-            {entry.label.slice(0, 1)}
-          </span>
+            {entry.label.slice(0, 1).toUpperCase()}
+          </Avatar>
           {entry.label}
         </a>
         <button

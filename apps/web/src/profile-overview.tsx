@@ -1,18 +1,6 @@
 import { json, useLoaded } from "@pipoca/plugins/web";
 import type { PiPackage, Profile } from "@pipoca/protocol";
-import {
-  Badge,
-  Button,
-  cn,
-  fieldClass,
-  Icon,
-  initialsOf,
-  Row,
-  Rows,
-  Section,
-  Segmented,
-  Switch,
-} from "@pipoca/ui";
+import { Badge, Button, cn, fieldClass, Icon, initialsOf, plural, Row, Rows, Section, Segmented, Switch } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useEffect, useState } from "react";
 import { send } from "./api";
 import { messageOf } from "./profile-files";
@@ -751,6 +739,3 @@ function systemPromptOf(profile: Profile): SystemPrompt {
   return profile.appendSystemMd.trim() === "" ? "own" : "add";
 }
 
-function plural(count: number, noun: string): string {
-  return `${String(count)} ${noun}${count === 1 ? "" : "s"}`;
-}

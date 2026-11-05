@@ -1,5 +1,5 @@
 import type { JoinInfo } from "@pipoca/protocol";
-import { Button, Field, fieldClass, initialsOf } from "@pipoca/ui";
+import { Button, Field, fieldClass, initialsOf, Mark } from "@pipoca/ui";
 import {
   type ReactElement,
   type SubmitEvent,
@@ -7,7 +7,6 @@ import {
   useState,
 } from "react";
 import { api } from "./api";
-import { Mark } from "./mark";
 
 // Where an invite's link lands someone who isn't signed in (ADR 0063).
 export function JoinPage({ token }: { readonly token: string }): ReactElement {
