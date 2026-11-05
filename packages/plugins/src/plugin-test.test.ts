@@ -1,5 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
-import { definePlugin, event, type PluginDefinition } from "./definition";
+import {
+  Config,
+  definePlugin,
+  event,
+  type PluginDefinition,
+} from "./definition";
 import type { SessionPlugin } from "./plugin";
 import { defineServer, type ServerContext } from "./server";
 import {
@@ -147,6 +152,36 @@ test("a restart keeps what waits for an offline Session, and what is scheduled",
   ]);
 
   expect(session.queued()).toEqual([]);
+});
+
+// Says hello by the greeting in its config.
+const greeter = served(
+  definePlugin({
+    id: "greeter",
+    title: "Greeter",
+    description: "Greets.",
+    config: Config.object({
+      greeting: Config.string({ title: "Greeting", default: "Hello" }),
+    }),
+  }),
+  ({ config, routes }) => {
+    const heard: string[] = [];
+
+    config.watch((next) => {
+      heard.push(next.greeting);
+    });
+
+    routes.get("heard", { auth: "person" }, () => heard);
+  },
+);
+
+test("a hand edit of the plugin's config reaches it", async () => {
+  const t = await started(greeter, { people, config: { greeting: "Hi" } });
+
+  await t.editConfig({ greeting: "Howdy" });
+  await t.clock.advance("2s");
+
+  expect(await t.as("ana").get("heard")).toEqual(["Howdy"]);
 });
 
 // Asks another server for the time.
