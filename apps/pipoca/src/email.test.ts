@@ -10,10 +10,9 @@ import {
 } from "@pipoca/protocol";
 import type { TCPSocketListener } from "bun";
 import { SMTPServer } from "smtp-server";
-import { serve } from "./serve";
 import { readSse } from "./sse";
+import { testServer, type TestServer, until } from "./testdata/harness";
 import { runnerCredentials } from "./testdata/runners";
-import { firstUser } from "./testdata/sign-in";
 
 interface Message {
   readonly uid: number;
@@ -24,9 +23,7 @@ interface Message {
   readonly body: string;
 }
 
-let logs: string[];
-let server: ReturnType<typeof serve>;
-let pedro: () => Promise<string>;
+let server: TestServer;
 let imap: TCPSocketListener;
 let smtp: SMTPServer;
 let smtpPort: number;
@@ -104,7 +101,6 @@ function answer(line: string): string {
 }
 
 beforeEach(async () => {
-  logs = [];
   selected = 0;
   sent = [];
   streams = [];
@@ -167,22 +163,15 @@ beforeEach(async () => {
 
   configDir = mkdtempSync(join(tmpdir(), "pipoca-config-"));
 
-  server = serve({
-    port: 0,
-    database: ":memory:",
+  server = testServer({
     configDir,
     sessions: { pollWaitMs: 0 },
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
   });
-
-  pedro = firstUser(server, logs);
 });
 
 afterEach(async () => {
   await Promise.all(streams.map(async (stream) => stream.return(undefined)));
-  await server.stop();
+  await server.close();
   imap.stop(true);
 
   await new Promise<void>((resolve) => {
@@ -190,36 +179,17 @@ afterEach(async () => {
   });
 });
 
-async function api(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<Response> {
-  return fetch(new URL(path, server.url), {
-    method,
-    headers: {
-      cookie: await pedro(),
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
-}
-
 async function addMailbox(password = "right"): Promise<Response> {
-  return api("POST", "/api/plugins/email/mailboxes", {
-    name: "support",
-    address: "support@example.com",
-    user: "support@example.com",
-    password,
-    imap: { host: "127.0.0.1", port: imap.port, secure: false },
-    smtp: { host: "127.0.0.1", port: smtpPort, secure: false },
+  return server.api("/api/plugins/email/mailboxes", {
+    body: {
+      name: "support",
+      address: "support@example.com",
+      user: "support@example.com",
+      password,
+      imap: { host: "127.0.0.1", port: imap.port, secure: false },
+      smtp: { host: "127.0.0.1", port: smtpPort, secure: false },
+    },
   });
-}
-
-async function until(done: () => boolean): Promise<void> {
-  for (let tries = 0; tries < 300 && !done(); tries++) {
-    await Bun.sleep(20);
-  }
 }
 
 test("an admin adds a mailbox, and its new mail reaches routines", async () => {
@@ -230,19 +200,25 @@ test("an admin adds a mailbox, and its new mail reaches routines", async () => {
     '"right"',
   );
 
-  await api("PATCH", "/api/plugins/email", { settings: { pollSeconds: 1 } });
+  await server.api("/api/plugins/email", {
+    method: "PATCH",
+    body: { settings: { pollSeconds: 1 } },
+  });
 
   // The first check only learns where the mailbox is.
   await until(() => selected > 0);
 
-  await api("PUT", "/api/plugins/routines/routines/support", {
-    title: "Answer support mail",
-    triggers: [{ event: "email.received", filter: { mailbox: "support" } }],
-    run: {
-      prompt: "Answer the mail.",
-      workspace: { kind: "folder", path: "/srv/a" },
+  await server.api("/api/plugins/routines/routines/support", {
+    method: "PUT",
+    body: {
+      title: "Answer support mail",
+      triggers: [{ event: "email.received", filter: { mailbox: "support" } }],
+      run: {
+        prompt: "Answer the mail.",
+        workspace: { kind: "folder", path: "/srv/a" },
+      },
+      key: ["messageId"],
     },
-    key: ["messageId"],
   });
 
   inbox.push({
@@ -255,7 +231,7 @@ test("an admin adds a mailbox, and its new mail reaches routines", async () => {
   });
 
   const heard = (): readonly string[] =>
-    logs.filter((line) => line.startsWith("routine heard an event"));
+    server.logs.filter((line) => line.startsWith("routine heard an event"));
 
   await until(() => heard().length > 0);
 
@@ -265,16 +241,23 @@ test("an admin adds a mailbox, and its new mail reaches routines", async () => {
 
 test("a Session sends mail from the mailbox, and replies to it come back to it", async () => {
   await addMailbox();
-  await api("PATCH", "/api/plugins/email", { settings: { pollSeconds: 1 } });
+
+  await server.api("/api/plugins/email", {
+    method: "PATCH",
+    body: { settings: { pollSeconds: 1 } },
+  });
+
   await until(() => selected > 0);
 
-  const token = await runnerCredentials(server, pedro).token(
+  const token = await runnerCredentials(server, server.signedIn).token(
     "laptop",
     "laptops",
   );
 
-  await api("POST", "/api/sessions", {
-    workspace: { kind: "folder", path: "/srv/a" },
+  await server.api("/api/sessions", {
+    body: {
+      workspace: { kind: "folder", path: "/srv/a" },
+    },
   });
 
   const agent = async (path: string, body?: unknown): Promise<Response> =>
@@ -364,10 +347,12 @@ test("a Session sends mail from the mailbox, and replies to it come back to it",
 test("an invite by email goes out from a mailbox the admin sends from", async () => {
   await addMailbox();
 
-  const invited = await api("POST", "/api/invites", {
-    emails: ["ana@example.com"],
-    admin: false,
-    days: 7,
+  const invited = await server.api("/api/invites", {
+    body: {
+      emails: ["ana@example.com"],
+      admin: false,
+      days: 7,
+    },
   });
 
   const [made] = (await invited.json()) as { token: string }[];

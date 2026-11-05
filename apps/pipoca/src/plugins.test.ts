@@ -28,14 +28,17 @@ import {
 } from "@pipoca/protocol";
 import { runAgent } from "./agent";
 import { sessionParts } from "./session-parts";
-import { serve } from "./serve";
-import { firstUser } from "./testdata/sign-in";
+import {
+  closeServers,
+  testServer,
+  type TestServer,
+  until,
+} from "./testdata/harness";
 import { readSse } from "./sse";
 
 let root: string;
 let faux: ReturnType<typeof fauxProvider>;
-let server: ReturnType<typeof serve> | undefined;
-let signedIn: () => Promise<string>;
+let server: TestServer;
 let runtime: ModelRuntime;
 
 beforeEach(async () => {
@@ -44,8 +47,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await server?.stop();
-  server = undefined;
+  await closeServers();
   await rm(root, { recursive: true, force: true });
 });
 
@@ -61,11 +63,8 @@ async function start(
   });
 
   runtime.registerNativeProvider(faux.provider);
-  const logs: string[] = [];
 
-  server = serve({
-    port: 0,
-    database: ":memory:",
+  server = testServer({
     sessions: { pollWaitMs: 100, offlineAfterMs: 1000 },
     agent: {
       provider: "local",
@@ -83,58 +82,40 @@ async function start(
       ...(events[name] !== undefined && { events: events[name] }),
     })),
     disabledPlugins,
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
-  });
-
-  signedIn = firstUser(server, logs);
-}
-
-async function api(path: string, body?: unknown): Promise<Response> {
-  if (!server) {
-    throw new Error("server not started");
-  }
-
-  return fetch(new URL(path, server.url), {
-    method: body === undefined ? "GET" : "POST",
-    headers: {
-      cookie: await signedIn(),
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
   });
 }
 
 async function environmentReady(): Promise<void> {
-  while (
-    ((await (await api("/api/environments")).json()) as unknown[]).length === 0
-  ) {
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
+  await until(
+    async () =>
+      ((await (await server.api("/api/environments")).json()) as unknown[])
+        .length > 0,
+  );
 }
 
 async function createSession(body: object = {}): Promise<Session> {
   await environmentReady();
 
   return (await (
-    await api("/api/sessions", {
-      workspace: { kind: "folder", path: root },
-      ...body,
+    await server.api("/api/sessions", {
+      body: {
+        workspace: { kind: "folder", path: root },
+        ...body,
+      },
     })
   ).json()) as Session;
 }
 
 async function follow(
   sessionId: string,
-  until: (events: readonly SessionEvent[]) => boolean,
+  done: (events: readonly SessionEvent[]) => boolean,
 ): Promise<SessionEvent[]> {
   const controller = new AbortController();
-  const response = await api(`/api/sessions/${sessionId}/events`);
+  const response = await server.api(`/api/sessions/${sessionId}/events`);
   const events: SessionEvent[] = [];
   for await (const event of readSse(response)) {
     events.push(event as SessionEvent);
-    if (until(events)) {
+    if (done(events)) {
       break;
     }
   }
@@ -196,9 +177,11 @@ test("serves a plugin's tools to the sessions they apply to and returns their re
   const session = await createSession();
   await follow(session.id, idle);
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "look it up",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "look it up",
+    },
   });
 
   const events = await follow(session.id, entriesInclude('"done"'));
@@ -215,7 +198,7 @@ test("serves a plugin's tools to the sessions they apply to and returns their re
   const token = machines?.runnerToken(toolless.environmentId, "local");
 
   const tools = await fetch(
-    new URL(`/agent/sessions/${toolless.id}/tools?generation=1`, server?.url),
+    new URL(`/agent/sessions/${toolless.id}/tools?generation=1`, server.url),
     {
       headers: {
         "pipoca-protocol": "4",
@@ -272,9 +255,11 @@ test("repairs JSON-encoded tool arguments and names the allowed choices", async 
   const session = await createSession();
   await follow(session.id, idle);
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "set it",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "set it",
+    },
   });
 
   const events = await follow(session.id, entriesInclude('"finished"'));
@@ -302,7 +287,7 @@ test("tells open pages which kind of thing changed, never what", async () => {
     },
   ]);
 
-  const response = await api("/api/changes");
+  const response = await server.api("/api/changes");
   const topics: string[] = [];
 
   const reading = (async () => {
@@ -314,9 +299,9 @@ test("tells open pages which kind of thing changed, never what", async () => {
     }
   })();
 
-  await api("/api/mcp-tokens", { name: "laptop" });
+  await server.api("/api/mcp-tokens", { body: { name: "laptop" } });
   await createSession();
-  await api("/api/plugins/notes/add", {});
+  await server.api("/api/plugins/notes/add", { body: {} });
   await reading;
 
   expect(topics).toContain("mcp-tokens");
@@ -359,7 +344,7 @@ test("serves a tool's exposure, namespace and hints to its sessions", async () =
   const token = machines?.runnerToken(session.environmentId, "local");
 
   const tools = await fetch(
-    new URL(`/agent/sessions/${session.id}/tools?generation=1`, server?.url),
+    new URL(`/agent/sessions/${session.id}/tools?generation=1`, server.url),
     {
       headers: {
         "pipoca-protocol": "4",
@@ -429,34 +414,38 @@ test("starts a plugin's own Sessions on the Profile it provides, and no others",
   await environmentReady();
 
   const owned = (await (
-    await api("/api/plugins/meta/start", {})
+    await server.api("/api/plugins/meta/start", { body: {} })
   ).json()) as Session;
 
   await follow(owned.id, idle);
 
-  await api(`/api/sessions/${owned.id}/commands`, {
-    type: "message",
-    text: "hello",
+  await server.api(`/api/sessions/${owned.id}/commands`, {
+    body: {
+      type: "message",
+      text: "hello",
+    },
   });
 
   await follow(owned.id, entriesInclude("on the assistant Profile"));
 
-  const anyone = await api("/api/sessions", {
-    workspace: { kind: "folder", path: root },
-    profile: owned.profileId,
+  const anyone = await server.api("/api/sessions", {
+    body: {
+      workspace: { kind: "folder", path: root },
+      profile: owned.profileId,
+    },
   });
 
-  const listed = (await (await api("/api/profiles")).json()) as {
+  const listed = (await (await server.api("/api/profiles")).json()) as {
     id: string;
   }[];
 
   const again = (await (
-    await api("/api/plugins/meta/again", {})
+    await server.api("/api/plugins/meta/again", { body: {} })
   ).json()) as Session;
 
-  const fork = await api(`/api/sessions/${owned.id}/fork`, {});
+  const fork = await server.api(`/api/sessions/${owned.id}/fork`, { body: {} });
 
-  const profiles = (await (await api("/api/profiles")).json()) as {
+  const profiles = (await (await server.api("/api/profiles")).json()) as {
     id: string;
     isDefault: boolean;
   }[];
@@ -500,16 +489,19 @@ test("routes requests to a plugin that keeps its own tables", async () => {
     },
   ]);
 
-  const added = await api("/api/plugins/notes/items", { text: "hello" });
-  const items = await api("/api/plugins/notes/items");
-  const unknown = await api("/api/plugins/nobody/items");
+  const added = await server.api("/api/plugins/notes/items", {
+    body: { text: "hello" },
+  });
+
+  const items = await server.api("/api/plugins/notes/items");
+  const unknown = await server.api("/api/plugins/nobody/items");
 
   expect(added.status).toBe(204);
   expect(await items.json()).toEqual([{ text: "hello" }]);
   expect(unknown.status).toBe(404);
   expect(refused).toContain("plugin notes may only create notes_ tables");
 
-  expect(await (await api("/api/plugins")).json()).toMatchObject([
+  expect(await (await server.api("/api/plugins")).json()).toMatchObject([
     { id: "notes", state: "on" },
   ]);
 });
@@ -543,13 +535,17 @@ test("answers the errors a plugin's route throws as the server's own", async () 
   };
 
   const answers = [
-    await answer(api("/api/plugins/notes/items", { text: 1 })),
-    await answer(api("/api/plugins/notes/items", { text: "a" })),
-    await answer(api("/api/plugins/notes/full", { text: "a" })),
+    await answer(server.api("/api/plugins/notes/items", { body: { text: 1 } })),
     await answer(
-      fetch(new URL("/api/plugins/notes/items", server?.url), {
+      server.api("/api/plugins/notes/items", { body: { text: "a" } }),
+    ),
+    await answer(
+      server.api("/api/plugins/notes/full", { body: { text: "a" } }),
+    ),
+    await answer(
+      fetch(new URL("/api/plugins/notes/items", server.url), {
         method: "POST",
-        headers: { cookie: await signedIn() },
+        headers: { cookie: await server.signedIn() },
         body: "{not json",
       }),
     ),
@@ -606,12 +602,12 @@ test("publishes kernel events and starts sessions for plugins", async () => {
   faux.setResponses([fauxAssistantMessage([fauxText("working on it")])]);
   await environmentReady();
 
-  await api("/api/plugins/starter/start", {});
+  await server.api("/api/plugins/starter/start", { body: {} });
   const id = started?.id ?? "";
   const events = await follow(id, entriesInclude("working on it"));
   await follow(id, idle);
-  await api(`/api/sessions/${id}/commands`, { type: "abort" });
-  await api(`/api/sessions/${id}/archive`, {});
+  await server.api(`/api/sessions/${id}/commands`, { body: { type: "abort" } });
+  await server.api(`/api/sessions/${id}/archive`, { body: {} });
 
   expect(entriesInclude("begin the work")(events)).toBe(true);
 
@@ -682,7 +678,7 @@ test("tells a plugin why a message did not reach a session", async () => {
   await follow(session.id, idle);
   const reached = sessions?.notify(session.id, "a note", "plugin:sender");
 
-  await api(`/api/sessions/${session.id}/archive`, {});
+  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
   const archived = sessions?.send(session.id, "hello", "plugin:sender");
   const unknown = sessions?.send("missing", "hello", "plugin:sender");
 
@@ -710,9 +706,11 @@ test("tells a plugin how many lines a session's transcript has", async () => {
   const session = await createSession();
   await follow(session.id, idle);
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "count with me",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "count with me",
+    },
   });
 
   await follow(session.id, entriesInclude('"counted"'));
@@ -745,9 +743,11 @@ test("tells a plugin how many transcript lines a turn ended with", async () => {
   const session = await createSession();
   await follow(session.id, idle);
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "finish up",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "finish up",
+    },
   });
 
   await follow(session.id, entriesInclude('"all done"'));
@@ -803,11 +803,11 @@ test("leaves out plugins that are turned off", async () => {
 
   expect(registered).toBe(false);
 
-  expect(await (await api("/api/plugins")).json()).toMatchObject([
+  expect(await (await server.api("/api/plugins")).json()).toMatchObject([
     { id: "off", state: "off" },
   ]);
 
-  expect((await api("/api/plugins/off/anything")).status).toBe(404);
+  expect((await server.api("/api/plugins/off/anything")).status).toBe(404);
 });
 
 // A runner a plugin started, such as a pod, with the token the plugin gave it.
@@ -819,7 +819,7 @@ function startRunner(
   const logs: string[] = [];
 
   const done = runAgent({
-    server: server?.url.href ?? "",
+    server: server.url.href,
     provider: name,
     credential: { token },
     ...(exitWhenIdleMs !== undefined && { exitWhenIdleMs }),
@@ -840,7 +840,9 @@ async function poolEnvironment(): Promise<Environment> {
   await environmentReady();
 
   return (
-    (await (await api("/api/environments", { name: "pool" })).json()) as {
+    (await (
+      await server.api("/api/environments", { body: { name: "pool" } })
+    ).json()) as {
       environment: Environment;
     }
   ).environment;
@@ -884,7 +886,7 @@ test("lets a plugin start a runner for a Session no runner can take, until it re
 
   expect(context?.environments.unplaced(environment.id)).toEqual([]);
 
-  await api(`/api/environments/${environment.id}/key`, {});
+  await server.api(`/api/environments/${environment.id}/key`, { body: {} });
 
   await new Promise((resolve) => setTimeout(resolve, 500));
 
@@ -939,7 +941,7 @@ test("stops a runner started to exit when idle once it runs no Session", async (
 
   expect(pod.logs).not.toContain("no sessions for a while; stopping");
 
-  await api(`/api/sessions/${session.id}/archive`, {});
+  await server.api(`/api/sessions/${session.id}/archive`, { body: {} });
   await pod.done;
 
   expect(pod.logs).toContain("no sessions for a while; stopping");

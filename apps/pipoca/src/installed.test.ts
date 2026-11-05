@@ -28,26 +28,29 @@ import {
 } from "@pipoca/protocol";
 import { installedPlugins } from "./installed";
 import { latestOf } from "./sources";
-import { serve, type ServeOptions } from "./serve";
+import type { ServeOptions } from "./serve";
 import { readSse } from "./sse";
-import { firstUser } from "./testdata/sign-in";
+import {
+  closeServers,
+  testServer,
+  type TestServer,
+  until,
+} from "./testdata/harness";
 
 let root: string;
 let plugins: string;
-let server: ReturnType<typeof serve> | undefined;
-let cookie: string;
-let logs: string[] = [];
+let server: TestServer;
+let cookie: string | undefined;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "pipoca-installed-"));
   plugins = join(root, "plugins");
-  cookie = "";
+  cookie = undefined;
   await mkdir(plugins);
 });
 
 afterEach(async () => {
-  await server?.stop();
-  server = undefined;
+  await closeServers();
   await rm(root, { recursive: true, force: true });
 });
 
@@ -96,12 +99,9 @@ export default {
 
 // Starts the server the way the CLI does, so a restart reads the folder again.
 async function start(agent?: ServeOptions["agent"]): Promise<void> {
-  await server?.stop();
+  await closeServers();
 
-  logs = [];
-
-  server = serve({
-    port: 0,
+  server = testServer({
     database: join(root, "server.db"),
     sessions: { pollWaitMs: agent ? 100 : 0 },
     ...(agent && { agent }),
@@ -109,34 +109,15 @@ async function start(agent?: ServeOptions["agent"]): Promise<void> {
       root: plugins,
       plugins: await installedPlugins(plugins, noLog),
     },
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
+    ...(cookie !== undefined && { cookie }),
   });
 
   // The database outlives a restart, and the first user's cookie with it.
-  if (cookie === "") {
-    cookie = await firstUser(server, logs)();
-  }
-}
-
-async function api(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<Response> {
-  return fetch(new URL(path, server?.url), {
-    method,
-    headers: {
-      cookie,
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
+  cookie = await server.signedIn();
 }
 
 async function listed(id: string): Promise<PluginInfo | undefined> {
-  const all = (await (await api("GET", "/api/plugins")).json()) as PluginInfo[];
+  const all = (await (await server.api("/api/plugins")).json()) as PluginInfo[];
 
   return all.find((plugin) => plugin.id === id);
 }
@@ -160,14 +141,17 @@ test("lists an installed plugin turned off, without running its code", async () 
   });
 
   expect(await exists(join(plugins, "hello", "imported"))).toBe(false);
-  expect((await api("GET", "/api/plugins/hello/")).status).toBe(404);
+  expect((await server.api("/api/plugins/hello/")).status).toBe(404);
 });
 
 test("turns an installed plugin on for the next start", async () => {
   await writePlugin("hello");
   await start();
 
-  const turned = await api("PATCH", "/api/plugins/hello", { enabled: true });
+  const turned = await server.api("/api/plugins/hello", {
+    method: "PATCH",
+    body: { enabled: true },
+  });
 
   expect(await turned.json()).toMatchObject({ state: "off", turnedOn: true });
 
@@ -177,12 +161,16 @@ test("turns an installed plugin on for the next start", async () => {
 
   await start();
 
-  const route = await api("GET", "/api/plugins/hello/");
+  const route = await server.api("/api/plugins/hello/");
 
   expect(await listed("hello")).toMatchObject({ state: "on", turnedOn: true });
   expect(await route.text()).toBe("hi from hello");
 
-  await api("PATCH", "/api/plugins/hello", { enabled: false });
+  await server.api("/api/plugins/hello", {
+    method: "PATCH",
+    body: { enabled: false },
+  });
+
   await start();
 
   expect(await listed("hello")).toMatchObject({
@@ -194,13 +182,21 @@ test("turns an installed plugin on for the next start", async () => {
 test("keeps an installed plugin out of team work until an admin turns it on there", async () => {
   await writePlugin("board", { works: ["personal", "team"] });
   await start();
-  await api("PATCH", "/api/plugins/board", { enabled: true });
+
+  await server.api("/api/plugins/board", {
+    method: "PATCH",
+    body: { enabled: true },
+  });
+
   await start();
 
   expect(await listed("board")).toMatchObject({ state: "on", teamWork: false });
   expect(await listed("usage")).toMatchObject({ teamWork: true });
 
-  await api("PATCH", "/api/plugins/board", { teamWork: true });
+  await server.api("/api/plugins/board", {
+    method: "PATCH",
+    body: { teamWork: true },
+  });
 
   expect(await listed("board")).toMatchObject({ teamWork: true });
 });
@@ -280,8 +276,11 @@ test("fails only the plugin whose settings are malformed", async () => {
 test("turns built-in plugins on or off only through the server's options", async () => {
   await start();
 
-  const refused = await api("PATCH", "/api/plugins/projects", {
-    enabled: false,
+  const refused = await server.api("/api/plugins/projects", {
+    method: "PATCH",
+    body: {
+      enabled: false,
+    },
   });
 
   expect(refused.status).toBe(400);
@@ -293,7 +292,7 @@ test("keeps a built-in plugin when a folder takes its id", async () => {
   await writeFile(join(plugins, "enabled.json"), JSON.stringify(["projects"]));
   await start();
 
-  const all = (await (await api("GET", "/api/plugins")).json()) as PluginInfo[];
+  const all = (await (await server.api("/api/plugins")).json()) as PluginInfo[];
 
   expect(all.filter(({ id }) => id === "projects")).toMatchObject([
     { source: "built-in", state: "on" },
@@ -313,7 +312,10 @@ test("keeps every switch when several are turned at once", async () => {
 
   const turned = await Promise.all(
     ids.map(async (id) =>
-      api("PATCH", `/api/plugins/${id}`, { enabled: true }),
+      server.api(`/api/plugins/${id}`, {
+        method: "PATCH",
+        body: { enabled: true },
+      }),
     ),
   );
 
@@ -328,7 +330,10 @@ test("won't turn on a plugin whose manifest is broken", async () => {
   await writePlugin("future", { engine: 2 });
   await start();
 
-  const refused = await api("PATCH", "/api/plugins/future", { enabled: true });
+  const refused = await server.api("/api/plugins/future", {
+    method: "PATCH",
+    body: { enabled: true },
+  });
 
   expect(refused.status).toBe(400);
   expect(await exists(join(plugins, "enabled.json"))).toBe(false);
@@ -341,7 +346,7 @@ test("loads a plugin whose folder is a link to one elsewhere", async () => {
   await writeFile(join(plugins, "enabled.json"), JSON.stringify(["linked"]));
   await start();
 
-  expect(await (await api("GET", "/api/plugins/linked/")).text()).toBe(
+  expect(await (await server.api("/api/plugins/linked/")).text()).toBe(
     "hi from linked",
   );
 });
@@ -412,7 +417,7 @@ export default {
   await writeFile(join(plugins, "enabled.json"), JSON.stringify(["greeter"]));
   await start();
 
-  expect(await (await api("GET", "/api/plugins/greeter/")).text()).toBe(
+  expect(await (await server.api("/api/plugins/greeter/")).text()).toBe(
     "hi from a dependency",
   );
 });
@@ -428,7 +433,7 @@ test("runs a plugin's source as it is at each start", async () => {
   await writeFile(part, source.replace("hi from hello", "hello again"));
   await start();
 
-  expect(await (await api("GET", "/api/plugins/hello/")).text()).toBe(
+  expect(await (await server.api("/api/plugins/hello/")).text()).toBe(
     "hello again",
   );
 });
@@ -477,7 +482,9 @@ test("answers the errors a plugin throws from the server's plugin SDK", async ()
   await writeRefusingPlugin("strict", "@pipoca/plugins");
   await start();
 
-  const refused = await api("POST", "/api/plugins/strict/hi");
+  const refused = await server.api("/api/plugins/strict/hi", {
+    method: "POST",
+  });
 
   expect(await listed("strict")).toMatchObject({ state: "on" });
   expect(refused.status).toBe(400);
@@ -492,13 +499,17 @@ test("lets only an admin through a plugin's route that requires one", async () =
   await writeRefusingPlugin("strict", "@pipoca/plugins");
   await start();
 
-  expect((await api("POST", "/api/plugins/strict/names")).status).toBe(400);
+  expect(
+    (await server.api("/api/plugins/strict/names", { method: "POST" })).status,
+  ).toBe(400);
 
   const db = new DatabaseSync(join(root, "server.db"));
   db.exec("update users set admin = 0");
   db.close();
 
-  const refused = await api("POST", "/api/plugins/strict/names");
+  const refused = await server.api("/api/plugins/strict/names", {
+    method: "POST",
+  });
 
   expect(refused.status).toBe(403);
 
@@ -531,11 +542,15 @@ export default {
   await writeFile(join(plugins, "enabled.json"), JSON.stringify(["names"]));
   await start();
 
-  const named = await api("POST", "/api/plugins/names/rename", { name: "a" });
+  const named = await server.api("/api/plugins/names/rename", {
+    body: { name: "a" },
+  });
 
   expect(await named.json()).toEqual({ name: "a" });
 
-  const refused = await api("POST", "/api/plugins/names/rename", { name: 7 });
+  const refused = await server.api("/api/plugins/names/rename", {
+    body: { name: 7 },
+  });
 
   expect(refused.status).toBe(400);
 
@@ -557,7 +572,9 @@ test("answers the errors of a plugin that bundles its own copy of the SDK", asyn
 
   await start();
 
-  const refused = await api("POST", "/api/plugins/vendored/hi");
+  const refused = await server.api("/api/plugins/vendored/hi", {
+    method: "POST",
+  });
 
   expect(refused.status).toBe(400);
 
@@ -582,13 +599,13 @@ export default { name: "pages", hook: useState };
   await start();
 
   const webPart = (await listed("pages"))?.webPart ?? "";
-  const served = await api("GET", webPart);
+  const served = await server.api(webPart);
 
   expect(webPart).toMatch(/^\/api\/plugin-parts\/pages\/web-\w+\.js$/);
   expect(served.headers.get("content-type")).toContain("javascript");
   expect(await served.text()).toContain('globalThis.pipocaShared["react"]');
 
-  expect((await api("GET", "/api/plugin-parts/pages/server.ts")).status).toBe(
+  expect((await server.api("/api/plugin-parts/pages/server.ts")).status).toBe(
     404,
   );
 });
@@ -606,7 +623,7 @@ test("names a web part's bundle so its URL needs no escaping", async () => {
 
   const webPart = (await listed("spaced"))?.webPart ?? "";
 
-  expect((await api("GET", webPart)).status).toBe(200);
+  expect((await server.api(webPart)).status).toBe(200);
 });
 
 test("fails a web part that imports CSS the page would never load", async () => {
@@ -668,22 +685,23 @@ async function startSession(): Promise<Session> {
     models: { runtime, model: faux.getModel() },
   });
 
-  while (
-    ((await (await api("GET", "/api/environments")).json()) as unknown[])
-      .length === 0
-  ) {
-    await Bun.sleep(10);
-  }
+  await until(
+    async () =>
+      ((await (await server.api("/api/environments")).json()) as unknown[])
+        .length > 0,
+  );
 
   return (await (
-    await api("POST", "/api/sessions", {
-      workspace: { kind: "folder", path: root },
+    await server.api("/api/sessions", {
+      body: {
+        workspace: { kind: "folder", path: root },
+      },
     })
   ).json()) as Session;
 }
 
 async function commandsOf(session: Session): Promise<readonly string[]> {
-  const events = await api("GET", `/api/sessions/${session.id}/events`);
+  const events = await server.api(`/api/sessions/${session.id}/events`);
 
   for await (const event of readSse(events)) {
     const sent = event as SessionEvent;
@@ -786,19 +804,13 @@ async function commit(folder: string): Promise<string> {
 
 // The check a server starts with runs in the background; it logs when done.
 async function checked(): Promise<void> {
-  for (let tries = 0; tries < 100; tries += 1) {
-    if (logs.some((line) => line.startsWith("plugin updates checked"))) {
-      return;
-    }
-
-    await Bun.sleep(20);
-  }
-
-  throw new Error("the server never checked for plugin updates");
+  await until(() =>
+    server.logs.some((line) => line.startsWith("plugin updates checked")),
+  );
 }
 
 async function install(url: string): Promise<Response> {
-  return api("POST", "/api/plugins", { url });
+  return server.api("/api/plugins", { body: { url } });
 }
 
 test("installs a plugin from a git repository turned off, pinned to its commit", async () => {
@@ -825,10 +837,14 @@ test("installs a plugin from a git repository turned off, pinned to its commit",
   expect(await exists(join(plugins, "hello", ".git"))).toBe(false);
   expect(await exists(join(plugins, "hello", "imported"))).toBe(false);
 
-  await api("PATCH", "/api/plugins/hello", { enabled: true });
+  await server.api("/api/plugins/hello", {
+    method: "PATCH",
+    body: { enabled: true },
+  });
+
   await start();
 
-  expect(await (await api("GET", "/api/plugins/hello/")).text()).toBe(
+  expect(await (await server.api("/api/plugins/hello/")).text()).toBe(
     "hi from hello",
   );
 
@@ -911,10 +927,18 @@ test("updates a plugin to its repository's newest commit for the next start", as
 
   await start();
   await install(url);
-  await api("PATCH", "/api/plugins/hello", { enabled: true });
+
+  await server.api("/api/plugins/hello", {
+    method: "PATCH",
+    body: { enabled: true },
+  });
+
   await start();
 
-  const same = await api("PATCH", "/api/plugins/hello", { update: true });
+  const same = await server.api("/api/plugins/hello", {
+    method: "PATCH",
+    body: { update: true },
+  });
 
   expect(await same.json()).not.toHaveProperty("updated");
 
@@ -931,7 +955,10 @@ test("updates a plugin to its repository's newest commit for the next start", as
 
   const newest = await commit(folder);
 
-  const updated = await api("PATCH", "/api/plugins/hello", { update: true });
+  const updated = await server.api("/api/plugins/hello", {
+    method: "PATCH",
+    body: { update: true },
+  });
 
   expect(await updated.json()).toMatchObject({
     state: "on",
@@ -940,13 +967,13 @@ test("updates a plugin to its repository's newest commit for the next start", as
     installedFrom: { pinned: newest },
   });
 
-  expect(await (await api("GET", "/api/plugins/hello/")).text()).toBe(
+  expect(await (await server.api("/api/plugins/hello/")).text()).toBe(
     "hi from hello",
   );
 
   await start();
 
-  expect(await (await api("GET", "/api/plugins/hello/")).text()).toBe(
+  expect(await (await server.api("/api/plugins/hello/")).text()).toBe(
     "hi again",
   );
 });
@@ -969,7 +996,10 @@ test("offers an update once the plugin's repository moves past it, and stops onc
 
   expect(await listed("hello")).toMatchObject({ updateAvailable: true });
 
-  await api("PATCH", "/api/plugins/hello", { update: true });
+  await server.api("/api/plugins/hello", {
+    method: "PATCH",
+    body: { update: true },
+  });
 
   expect(await listed("hello")).not.toHaveProperty("updateAvailable");
 });
@@ -994,7 +1024,12 @@ test("forgets why a plugin failed once an update replaces it", async () => {
 
   await start();
   await install(url);
-  await api("PATCH", "/api/plugins/hello", { enabled: true });
+
+  await server.api("/api/plugins/hello", {
+    method: "PATCH",
+    body: { enabled: true },
+  });
+
   await start();
 
   expect((await listed("hello"))?.error).toContain("broken");
@@ -1012,7 +1047,10 @@ test("forgets why a plugin failed once an update replaces it", async () => {
 
   await commit(folder);
 
-  const updated = await api("PATCH", "/api/plugins/hello", { update: true });
+  const updated = await server.api("/api/plugins/hello", {
+    method: "PATCH",
+    body: { update: true },
+  });
 
   expect(await updated.json()).not.toHaveProperty("error");
   expect(await listed("hello")).toMatchObject({ state: "off", updated: true });
@@ -1024,7 +1062,11 @@ test("turns off an update that asks for more than was trusted", async () => {
 
   await start();
   await install(url);
-  await api("PATCH", "/api/plugins/hello", { enabled: true });
+
+  await server.api("/api/plugins/hello", {
+    method: "PATCH",
+    body: { enabled: true },
+  });
 
   const manifest = JSON.parse(
     await readFile(join(folder, "package.json"), "utf8"),
@@ -1034,7 +1076,10 @@ test("turns off an update that asks for more than was trusted", async () => {
   await writeFile(join(folder, "package.json"), JSON.stringify(manifest));
   await commit(folder);
 
-  const updated = await api("PATCH", "/api/plugins/hello", { update: true });
+  const updated = await server.api("/api/plugins/hello", {
+    method: "PATCH",
+    body: { update: true },
+  });
 
   expect(await updated.json()).toMatchObject({
     turnedOn: false,
@@ -1050,7 +1095,10 @@ test("won't update a plugin put in the folder by hand", async () => {
   await writePlugin("hello");
   await start();
 
-  const refused = await api("PATCH", "/api/plugins/hello", { update: true });
+  const refused = await server.api("/api/plugins/hello", {
+    method: "PATCH",
+    body: { update: true },
+  });
 
   expect(refused.status).toBe(400);
 });
@@ -1060,20 +1108,30 @@ test("removes an installed plugin only once it isn't running", async () => {
   await writeFile(join(plugins, "enabled.json"), JSON.stringify(["hello"]));
   await start();
 
-  const running = await api("DELETE", "/api/plugins/hello");
+  const running = await server.api("/api/plugins/hello", { method: "DELETE" });
 
   expect(running.status).toBe(400);
 
-  await api("PATCH", "/api/plugins/hello", { enabled: false });
+  await server.api("/api/plugins/hello", {
+    method: "PATCH",
+    body: { enabled: false },
+  });
+
   await start();
 
-  const removed = await api("DELETE", "/api/plugins/hello");
+  const removed = await server.api("/api/plugins/hello", { method: "DELETE" });
 
   expect(removed.status).toBe(204);
   expect(await listed("hello")).toBeUndefined();
   expect(await exists(join(plugins, "hello"))).toBe(false);
-  expect((await api("DELETE", "/api/plugins/hello")).status).toBe(404);
-  expect((await api("DELETE", "/api/plugins/projects")).status).toBe(400);
+
+  expect(
+    (await server.api("/api/plugins/hello", { method: "DELETE" })).status,
+  ).toBe(404);
+
+  expect(
+    (await server.api("/api/plugins/projects", { method: "DELETE" })).status,
+  ).toBe(400);
 });
 
 test("says why a plugin couldn't be removed", async () => {
@@ -1081,7 +1139,7 @@ test("says why a plugin couldn't be removed", async () => {
   await start();
   await mkdir(join(plugins, "enabled.json"));
 
-  const refused = await api("DELETE", "/api/plugins/hello");
+  const refused = await server.api("/api/plugins/hello", { method: "DELETE" });
 
   expect(refused.status).toBe(400);
 
@@ -1098,7 +1156,7 @@ test("removes only the link to a plugin developed elsewhere", async () => {
   await symlink(join(root, "linked"), join(plugins, "linked"));
   await start();
 
-  await api("DELETE", "/api/plugins/linked");
+  await server.api("/api/plugins/linked", { method: "DELETE" });
 
   expect(await exists(join(plugins, "linked"))).toBe(false);
   expect(await exists(join(root, "linked", "package.json"))).toBe(true);
@@ -1151,7 +1209,12 @@ test("keeps the running version's settings until the server restarts", async () 
 
   await start();
   await install(url);
-  await api("PATCH", "/api/plugins/hello", { enabled: true });
+
+  await server.api("/api/plugins/hello", {
+    method: "PATCH",
+    body: { enabled: true },
+  });
+
   await start();
 
   const manifest = JSON.parse(
@@ -1164,9 +1227,13 @@ test("keeps the running version's settings until the server restarts", async () 
 
   await writeFile(join(folder, "package.json"), JSON.stringify(manifest));
   await commit(folder);
-  await api("PATCH", "/api/plugins/hello", { update: true });
 
-  expect(await (await api("GET", "/api/plugins/hello/")).json()).toEqual({
+  await server.api("/api/plugins/hello", {
+    method: "PATCH",
+    body: { update: true },
+  });
+
+  expect(await (await server.api("/api/plugins/hello/")).json()).toEqual({
     greeting: "hi",
   });
 
@@ -1174,7 +1241,7 @@ test("keeps the running version's settings until the server restarts", async () 
 
   await start();
 
-  expect(await (await api("GET", "/api/plugins/hello/")).json()).toEqual({
+  expect(await (await server.api("/api/plugins/hello/")).json()).toEqual({
     salute: "yo",
   });
 });
@@ -1185,7 +1252,11 @@ test("turns off an update that adds a part running somewhere new", async () => {
 
   await start();
   await install(url);
-  await api("PATCH", "/api/plugins/hello", { enabled: true });
+
+  await server.api("/api/plugins/hello", {
+    method: "PATCH",
+    body: { enabled: true },
+  });
 
   const manifest = JSON.parse(
     await readFile(join(folder, "package.json"), "utf8"),
@@ -1201,7 +1272,10 @@ test("turns off an update that adds a part running somewhere new", async () => {
 
   await commit(folder);
 
-  const updated = await api("PATCH", "/api/plugins/hello", { update: true });
+  const updated = await server.api("/api/plugins/hello", {
+    method: "PATCH",
+    body: { update: true },
+  });
 
   expect(await updated.json()).toMatchObject({ turnedOn: false });
 });

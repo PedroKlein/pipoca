@@ -22,7 +22,12 @@ import { eventBus, type ServerPlugin } from "@pipoca/plugins";
 import type { PluginManifest } from "@pipoca/protocol";
 import type { Log } from "@pipoca/providers";
 import { ProfileFolders, Profiles } from "@pipoca/profiles";
-import { Sessions, type SessionsOptions } from "@pipoca/sessions";
+import {
+  type Clock,
+  Sessions,
+  type SessionsOptions,
+  systemClock,
+} from "@pipoca/sessions";
 import web from "@pipoca/web/index.html";
 import { type AgentOptions, runAgent } from "./agent";
 import { Auth } from "./auth";
@@ -129,8 +134,8 @@ export interface ServeOptions {
   // Seconds a connection may go quiet before the server closes it; 30 when
   // unset.
   readonly idleTimeout?: number;
-  // The clock runner tokens expire by; the system's when unset.
-  readonly now?: () => number;
+  // The clock leases, tokens and stored times follow; the system's when unset.
+  readonly clock?: Clock;
   readonly log: Log;
 }
 
@@ -171,7 +176,9 @@ export function serve(options: ServeOptions): {
     join(configDir, "people"),
   );
 
-  const store = openStore(options.database, options.secretKey, profiles);
+  const clock = options.clock ?? systemClock;
+
+  const store = openStore(options.database, options.secretKey, profiles, clock);
 
   // A team server's machine holds everyone's data and the sealing key, so
   // only a solo install runs runners on it, and a solo install signs in no
@@ -246,6 +253,7 @@ export function serve(options: ServeOptions): {
 
   const sessions = new Sessions(store, {
     ...options.sessions,
+    clock,
     events: events.publish,
     changed: () => {
       changes.publish("sessions");
@@ -275,7 +283,7 @@ export function serve(options: ServeOptions): {
   const auth = new Auth(
     store.auth,
     options.passwordLogin,
-    options.now,
+    clock,
     options.solo?.name,
   );
 

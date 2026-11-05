@@ -13,18 +13,13 @@ import {
   type WorkPoll,
 } from "@pipoca/protocol";
 import { sessionParts } from "./session-parts";
-import { serve } from "./serve";
+import { closeServers, testServer, type TestServer } from "./testdata/harness";
 import { runnerCredentials } from "./testdata/runners";
-import { firstUser } from "./testdata/sign-in";
 
-let server: ReturnType<typeof serve> | undefined;
-let signedIn: () => Promise<string>;
+let server: TestServer;
 let runners: ReturnType<typeof runnerCredentials>;
 
-afterEach(async () => {
-  await server?.stop();
-  server = undefined;
-});
+afterEach(closeServers);
 
 const greeter: PluginManifest = {
   id: "greeter",
@@ -45,40 +40,17 @@ const broken: PluginManifest = {
 };
 
 function start(plugins: readonly ServerPlugin[]): void {
-  const logs: string[] = [];
-
-  server = serve({
-    port: 0,
-    database: ":memory:",
+  server = testServer({
     sessions: { pollWaitMs: 0 },
     plugins,
     manifests: [greeter, broken],
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
   });
 
-  signedIn = firstUser(server, logs);
-  runners = runnerCredentials(server, signedIn);
-}
-
-async function api(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<Response> {
-  return fetch(new URL(path, server?.url), {
-    method,
-    headers: {
-      cookie: await signedIn(),
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
+  runners = runnerCredentials(server, server.signedIn);
 }
 
 async function asRunner(path: string, body?: WorkPoll): Promise<Response> {
-  return fetch(new URL(path, server?.url), {
+  return fetch(new URL(path, server.url), {
     method: body === undefined ? "GET" : "POST",
     headers: {
       [versionHeader]: String(protocolVersion),
@@ -93,8 +65,10 @@ async function claimSession(): Promise<Assignment> {
   await runners.token("laptop");
 
   const created = (await (
-    await api("POST", "/api/sessions", {
-      workspace: { kind: "folder", path: "/work" },
+    await server.api("/api/sessions", {
+      body: {
+        workspace: { kind: "folder", path: "/work" },
+      },
     })
   ).json()) as { readonly id: string };
 
@@ -138,7 +112,7 @@ test("saves a plugin's settings, refusing values that don't fit", async () => {
   ]);
 
   const listed = (await (
-    await api("GET", "/api/plugins")
+    await server.api("/api/plugins")
   ).json()) as PluginInfo[];
 
   expect(listed).toEqual([
@@ -153,8 +127,11 @@ test("saves a plugin's settings, refusing values that don't fit", async () => {
     },
   ]);
 
-  const refused = await api("PATCH", "/api/plugins/greeter", {
-    settings: { times: 9 },
+  const refused = await server.api("/api/plugins/greeter", {
+    method: "PATCH",
+    body: {
+      settings: { times: 9 },
+    },
   });
 
   expect(refused.status).toBe(400);
@@ -164,8 +141,11 @@ test("saves a plugin's settings, refusing values that don't fit", async () => {
     message: "Times must be a number, at least 1, at most 5",
   });
 
-  const saved = await api("PATCH", "/api/plugins/greeter", {
-    settings: { greeting: "hi", times: 3 },
+  const saved = await server.api("/api/plugins/greeter", {
+    method: "PATCH",
+    body: {
+      settings: { greeting: "hi", times: 3 },
+    },
   });
 
   expect(((await saved.json()) as PluginInfo).values).toEqual({
@@ -174,13 +154,20 @@ test("saves a plugin's settings, refusing values that don't fit", async () => {
   });
 
   expect(context?.settings.get()).toEqual({ greeting: "hi", times: 3 });
-  expect((await api("PATCH", "/api/plugins/nobody", {})).status).toBe(404);
+
+  expect(
+    (await server.api("/api/plugins/nobody", { method: "PATCH", body: {} }))
+      .status,
+  ).toBe(404);
 });
 
 test("gives a starting Session its plugins' settings", async () => {
   start([{ name: "greeter", register: () => undefined }]);
 
-  await api("PATCH", "/api/plugins/greeter", { settings: { times: 2 } });
+  await server.api("/api/plugins/greeter", {
+    method: "PATCH",
+    body: { settings: { times: 2 } },
+  });
 
   const assignment = await claimSession();
 
@@ -229,7 +216,7 @@ test("turns off a plugin that throws while it registers and keeps the rest", asy
   ]);
 
   const listed = (await (
-    await api("GET", "/api/plugins")
+    await server.api("/api/plugins")
   ).json()) as PluginInfo[];
 
   expect(listed.map(({ id, state, error }) => ({ id, state, error }))).toEqual([
@@ -237,8 +224,8 @@ test("turns off a plugin that throws while it registers and keeps the rest", asy
     { id: "greeter", state: "on", error: undefined },
   ]);
 
-  expect((await api("GET", "/api/plugins/broken/anything")).status).toBe(404);
-  expect((await api("GET", "/api/plugins/greeter/ping")).status).toBe(200);
+  expect((await server.api("/api/plugins/broken/anything")).status).toBe(404);
+  expect((await server.api("/api/plugins/greeter/ping")).status).toBe(200);
   expect(heard).toEqual(["greeter"]);
   expect(signal?.aborted).toBe(true);
 
@@ -274,7 +261,7 @@ test("fails a built-in plugin that reaches past the capabilities it declared, as
   ]);
 
   const listed = (await (
-    await api("GET", "/api/plugins")
+    await server.api("/api/plugins")
   ).json()) as PluginInfo[];
 
   expect(listed.map(({ id, state, error }) => ({ id, state, error }))).toEqual([
@@ -291,7 +278,7 @@ test("fails a built-in plugin that reaches past the capabilities it declared, as
     },
   ]);
 
-  expect((await api("GET", "/api/plugins/unlisted/anything")).status).toBe(404);
+  expect((await server.api("/api/plugins/unlisted/anything")).status).toBe(404);
 });
 
 test("gives a Session part its defaults when the server sends no settings", async () => {

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { systemClock } from "@pipoca/sessions";
 import { Auth, InvalidCredentials } from "./auth";
 import { serve } from "./serve";
 import { openStore } from "./store";
@@ -89,7 +90,7 @@ test("refuses a made-up sign-in link", async () => {
 // can't gain a second person that way.
 test("adds no second user to a solo install", () => {
   const store = openStore(":memory:");
-  const auth = new Auth(store.auth, true, () => Date.now(), "pedro");
+  const auth = new Auth(store.auth, true, systemClock, "pedro");
 
   expect(() => auth.createUser("ana", false)).toThrow(InvalidCredentials);
   expect(auth.users().map(({ name }) => name)).toEqual(["pedro"]);

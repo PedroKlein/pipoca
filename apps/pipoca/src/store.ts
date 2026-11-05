@@ -25,10 +25,12 @@ import {
 import type { AuthStore, User } from "./auth";
 import { fileSecretKey, SecretBox } from "./secret-box";
 import {
+  type Clock,
   owner,
   type SessionStore,
   type StoredEnvironment,
   type StoredSession,
+  systemClock,
 } from "@pipoca/sessions";
 
 interface SessionRow {
@@ -554,17 +556,11 @@ function insertEnvironment(
   provider: string,
   ownerId: string,
   templateId: string | null = null,
+  createdAt = new Date().toISOString(),
 ): void {
   db.prepare(
     "insert into environments (id, name, provider, owner_id, created_at, template_id) values (?, ?, ?, ?, ?, ?) on conflict (provider) do nothing",
-  ).run(
-    randomUUID(),
-    provider,
-    provider,
-    ownerId,
-    new Date().toISOString(),
-    templateId,
-  );
+  ).run(randomUUID(), provider, provider, ownerId, createdAt, templateId);
 }
 
 // Seals secrets stored before they were encrypted, and fails the start when
@@ -603,6 +599,7 @@ export function openStore(
   path: string,
   secretKey?: Buffer,
   profiles?: ProfileFolders,
+  clock: Clock = systemClock,
 ): SessionStore &
   ProfileStore & {
     auth: AuthStore;
@@ -915,7 +912,13 @@ export function openStore(
         ) as unknown as SessionRow[]
       ).map(toSession),
     ensureEnvironment: (provider, ownerId = owner, templateId = null) => {
-      insertEnvironment(db, provider, ownerId, templateId);
+      insertEnvironment(
+        db,
+        provider,
+        ownerId,
+        templateId,
+        new Date(clock.now()).toISOString(),
+      );
     },
     environments: () =>
       (selectEnvironments.all() as unknown as EnvironmentRow[]).map(
@@ -926,7 +929,7 @@ export function openStore(
         ({ models }) => JSON.parse(models) as ModelRef[],
       ),
     setRegisteredModels: (provider, runner, models) => {
-      const now = new Date();
+      const now = new Date(clock.now());
 
       upsertRunnerModels.run(
         provider,
@@ -995,7 +998,7 @@ export function openStore(
       upsertTrust.run(ownerId, repository, trusted ? 1 : 0);
     },
     profileInUse: (id) => selectProfileUse.get(id) !== undefined,
-    auth: authStore(db),
+    auth: authStore(db, clock),
     plugin: (name) => pluginStore(db, name, box),
     pluginSettings: pluginSettingsStore(db),
     close: () => {
@@ -1036,7 +1039,7 @@ function inviteOf(row: InviteRow): Invite {
   };
 }
 
-function authStore(db: DatabaseSync): AuthStore {
+function authStore(db: DatabaseSync, clock: Clock): AuthStore {
   const countUsers = db.prepare("select count(*) as n from users");
 
   const selectUser = db.prepare(
@@ -1244,7 +1247,7 @@ function authStore(db: DatabaseSync): AuthStore {
       updateLastActive.run(at, id);
     },
     insertBrowserSession: (tokenHash, userId, expiresAt) => {
-      deleteExpired.run(new Date().toISOString());
+      deleteExpired.run(new Date(clock.now()).toISOString());
       insertBrowserSession.run(tokenHash, userId, expiresAt);
     },
     browserSessionUser: (tokenHash, now) =>
@@ -1289,7 +1292,7 @@ function authStore(db: DatabaseSync): AuthStore {
       useInvite.run(id);
     },
     insertJoinKey: (keyHash, ownerId) => {
-      insertJoinKey.run(keyHash, new Date().toISOString(), ownerId);
+      insertJoinKey.run(keyHash, new Date(clock.now()).toISOString(), ownerId);
     },
     joinKeyOwner: (keyHash) =>
       (selectJoinKey.get(keyHash) as { owner_id: string } | undefined)

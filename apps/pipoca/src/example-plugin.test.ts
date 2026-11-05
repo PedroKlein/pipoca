@@ -4,12 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PluginInfo } from "@pipoca/protocol";
 import { installedPlugins } from "./installed";
-import { serve } from "./serve";
-import { firstUser } from "./testdata/sign-in";
+import { testServer, type TestServer } from "./testdata/harness";
 
 let root: string;
-let server: ReturnType<typeof serve>;
-let cookie: string;
+let server: TestServer;
 
 // The plugin docs/plugins.md walks through, so the guide's code stays true.
 const example = join(import.meta.dir, "../../../examples/plugins/greeter");
@@ -21,67 +19,47 @@ beforeEach(async () => {
   await cp(example, join(plugins, "greeter"), { recursive: true });
   await writeFile(join(plugins, "enabled.json"), JSON.stringify(["greeter"]));
 
-  const logs: string[] = [];
-
-  server = serve({
-    port: 0,
+  server = testServer({
     database: join(root, "server.db"),
     sessions: { pollWaitMs: 0 },
     installed: {
       root: plugins,
       plugins: await installedPlugins(plugins, () => undefined),
     },
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
   });
-
-  cookie = await firstUser(server, logs)();
 });
 
 afterEach(async () => {
-  await server.stop();
+  await server.close();
   await rm(root, { recursive: true, force: true });
 });
 
-async function api(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<Response> {
-  return fetch(new URL(path, server.url), {
-    method,
-    headers: {
-      cookie,
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
-}
-
 test("runs the guide's example plugin with all three parts", async () => {
-  const all = (await (await api("GET", "/api/plugins")).json()) as PluginInfo[];
+  const all = (await (await server.api("/api/plugins")).json()) as PluginInfo[];
   const greeter = all.find(({ id }) => id === "greeter");
 
   expect(greeter).toMatchObject({ state: "on", source: "installed" });
   expect(greeter?.error).toBeUndefined();
-  expect((await api("GET", greeter?.webPart ?? "/missing")).status).toBe(200);
+  expect((await server.api(greeter?.webPart ?? "/missing")).status).toBe(200);
 
   expect(
-    await (await api("GET", "/api/plugins/greeter/greeting")).json(),
+    await (await server.api("/api/plugins/greeter/greeting")).json(),
   ).toEqual({ greeting: "Hello" });
 
-  await api("PATCH", "/api/plugins/greeter", {
-    settings: { greeting: "Hi" },
+  await server.api("/api/plugins/greeter", {
+    method: "PATCH",
+    body: {
+      settings: { greeting: "Hi" },
+    },
   });
 
   expect(
-    await (await api("GET", "/api/plugins/greeter/greeting")).json(),
+    await (await server.api("/api/plugins/greeter/greeting")).json(),
   ).toEqual({ greeting: "Hi" });
 });
 
 test("answers the example's unknown routes with the server's 404", async () => {
-  const missing = await api("GET", "/api/plugins/greeter/farewell");
+  const missing = await server.api("/api/plugins/greeter/farewell");
 
   expect(missing.status).toBe(404);
 

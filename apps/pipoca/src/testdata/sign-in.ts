@@ -11,6 +11,8 @@ export function setupTokenOf(logs: readonly string[]): string {
   return token;
 }
 
+export const firstUserLogin = { name: "pedro", password: "correct horse" };
+
 // Creates the first user and returns the Cookie header that signs it in.
 export async function firstUserCookie(
   handle: (request: Request) => Promise<Response>,
@@ -21,7 +23,7 @@ export async function firstUserCookie(
     new Request(new URL("/api/auth/setup", server).href, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token, name: "pedro", password: "correct horse" }),
+      body: JSON.stringify({ token, ...firstUserLogin }),
     }),
   );
 

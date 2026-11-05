@@ -1,4 +1,5 @@
 import type { Invite, Joined, Person, SetupState } from "@pipoca/protocol";
+import { type Clock, systemClock } from "@pipoca/sessions";
 import {
   createHash,
   randomBytes,
@@ -159,7 +160,7 @@ export class Auth {
   readonly #ownTokens = new Map<string, Agent>();
   #setupToken: string | undefined;
   readonly #passwordLogin: boolean;
-  readonly #now: () => number;
+  readonly #clock: Clock;
   // The one user of a solo install (ADR 0053), and the sign-in links by
   // hash.
   readonly #soloUser: User | undefined;
@@ -169,12 +170,12 @@ export class Auth {
   constructor(
     store: AuthStore,
     passwordLogin = true,
-    now: () => number = () => Date.now(),
+    clock: Clock = systemClock,
     soloName?: string,
   ) {
     this.#store = store;
     this.#passwordLogin = passwordLogin;
-    this.#now = now;
+    this.#clock = clock;
 
     if (soloName !== undefined) {
       this.#soloUser =
@@ -206,7 +207,7 @@ export class Auth {
   }
 
   #active(userId: string): void {
-    const now = this.#now();
+    const now = this.#clock.now();
     if (now - (this.#lastActive.get(userId) ?? 0) < lastActiveStepMs) {
       return;
     }
@@ -226,7 +227,10 @@ export class Auth {
   }
 
   userOfSession(session: string): User | undefined {
-    return this.#store.browserSessionUser(session, new Date().toISOString());
+    return this.#store.browserSessionUser(
+      session,
+      new Date(this.#clock.now()).toISOString(),
+    );
   }
 
   status(request: Request): AuthStatus {
@@ -263,7 +267,7 @@ export class Auth {
     const link = this.#signInLinks.get(key);
     this.#signInLinks.delete(key);
 
-    if (link === undefined || link.expires <= Date.now()) {
+    if (link === undefined || link.expires <= this.#clock.now()) {
       return undefined;
     }
 
@@ -282,7 +286,7 @@ export class Auth {
   }
 
   #newSignInLink(link: Omit<SignInLink, "expires">): string {
-    const now = Date.now();
+    const now = this.#clock.now();
     for (const [token, { expires }] of this.#signInLinks) {
       if (expires <= now) {
         this.#signInLinks.delete(token);
@@ -318,7 +322,7 @@ export class Auth {
         name: credentials.name,
         admin: true,
         passwordHash: await Bun.password.hash(credentials.password),
-        createdAt: new Date().toISOString(),
+        createdAt: new Date(this.#clock.now()).toISOString(),
       };
 
       this.#store.insertUser(user);
@@ -343,7 +347,7 @@ export class Auth {
       return "wrong";
     }
 
-    const now = Date.now();
+    const now = this.#clock.now();
     this.#prune(now);
 
     const byAddress = this.#failuresOf(`address\n${address}`, now);
@@ -514,7 +518,7 @@ export class Auth {
       return stored?.agent;
     }
 
-    const now = this.#now();
+    const now = this.#clock.now();
     const lastUsed = Date.parse(stored.lastUsed);
     if (now - lastUsed < lastUsedStepMs) {
       return stored.agent;
@@ -540,7 +544,7 @@ export class Auth {
       this.#store.insertAgentToken(
         hashed,
         holder,
-        new Date(this.#now()).toISOString(),
+        new Date(this.#clock.now()).toISOString(),
       );
 
       return token;
@@ -574,7 +578,7 @@ export class Auth {
       id: randomUUID(),
       userId,
       name: name.trim(),
-      createdAt: new Date().toISOString(),
+      createdAt: new Date(this.#clock.now()).toISOString(),
     };
 
     this.#store.insertMcpToken(token, hash(secret));
@@ -658,7 +662,7 @@ export class Auth {
     this.#store.insertUser({
       ...user,
       passwordHash: "",
-      createdAt: new Date().toISOString(),
+      createdAt: new Date(this.#clock.now()).toISOString(),
     });
 
     return user;
@@ -672,7 +676,7 @@ export class Auth {
     admin: boolean,
     days: number,
   ): readonly (Invite & { readonly token: string })[] {
-    const now = this.#now();
+    const now = this.#clock.now();
 
     return (emails.length === 0 ? [null] : emails).map((email) => {
       const token = randomBytes(24).toString("base64url");
@@ -694,7 +698,7 @@ export class Auth {
   }
 
   invites(): readonly Invite[] {
-    return this.#store.invites(new Date(this.#now()).toISOString());
+    return this.#store.invites(new Date(this.#clock.now()).toISOString());
   }
 
   revokeInvite(id: string): boolean {
@@ -707,7 +711,7 @@ export class Auth {
     token: string | undefined,
     email: string | undefined,
   ): Invite | undefined {
-    const now = new Date(this.#now()).toISOString();
+    const now = new Date(this.#clock.now()).toISOString();
 
     return (
       (token === undefined
@@ -750,7 +754,7 @@ export class Auth {
       name,
       admin: invite.admin,
       passwordHash: await Bun.password.hash(credentials.password),
-      createdAt: new Date().toISOString(),
+      createdAt: new Date(this.#clock.now()).toISOString(),
     };
 
     this.#store.insertUser(user);
@@ -774,7 +778,10 @@ export class Auth {
   // The Set-Cookie value of a new browser session for the user.
   startSession(user: User, request: Request): string {
     const token = randomBytes(32).toString("base64url");
-    const expires = new Date(Date.now() + sessionDays * 24 * 60 * 60_000);
+
+    const expires = new Date(
+      this.#clock.now() + sessionDays * 24 * 60 * 60_000,
+    );
 
     this.#store.insertBrowserSession(
       hash(token),

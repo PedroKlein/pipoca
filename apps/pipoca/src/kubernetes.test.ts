@@ -20,9 +20,8 @@ import {
   versionHeader,
 } from "@pipoca/protocol";
 import { runAgent } from "./agent";
-import { serve } from "./serve";
 import { builtInPlugins } from "./session-parts";
-import { firstUser } from "./testdata/sign-in";
+import { testServer, type TestServer, until } from "./testdata/harness";
 
 interface FakePod {
   readonly metadata: {
@@ -158,17 +157,10 @@ function fakeApi(): {
 
 let root: string;
 let api: ReturnType<typeof fakeApi>;
-let server: ReturnType<typeof serve>;
-let signedIn: () => Promise<string>;
-let logs: string[];
+let server: TestServer;
 
-function startServer(database = ":memory:"): void {
-  // A server that stopped may still log to its own lines.
-  const lines: string[] = [];
-  logs = lines;
-
-  server = serve({
-    port: 0,
+function startServer(database = ":memory:", cookie?: string): void {
+  server = testServer({
     database,
     sessions: { pollWaitMs: 100, offlineAfterMs: 1000 },
     plugins: [
@@ -184,12 +176,8 @@ function startServer(database = ":memory:"): void {
       })),
     ],
     manifests: builtInPlugins,
-    log: (message, fields) => {
-      lines.push(`${message} ${JSON.stringify(fields)}`);
-    },
+    ...(cookie !== undefined && { cookie }),
   });
-
-  signedIn = firstUser(server, logs);
 }
 
 beforeEach(async () => {
@@ -199,22 +187,10 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await server.stop();
+  await server.close();
   await api.stop();
   await rm(root, { recursive: true, force: true });
 });
-
-async function call(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<Response> {
-  return fetch(new URL(path, server.url), {
-    method,
-    headers: { "content-type": "application/json", cookie: await signedIn() },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
-}
 
 // An Environment made from a new pod template.
 async function kubernetesEnvironment(
@@ -222,16 +198,21 @@ async function kubernetesEnvironment(
   name = "pods",
 ): Promise<Environment> {
   const template = (await (
-    await call("POST", "/api/templates", { name })
+    await server.api("/api/templates", { body: { name } })
   ).json()) as EnvironmentTemplate;
 
-  const saved = await call("POST", templatePath(template.id), { settings });
+  const saved = await server.api(templatePath(template.id), {
+    body: { settings },
+  });
+
   expect(saved.status).toBe(200);
 
   const { environment } = (await (
-    await call("POST", "/api/environments", {
-      name,
-      template: template.id,
+    await server.api("/api/environments", {
+      body: {
+        name,
+        template: template.id,
+      },
     })
   ).json()) as { environment: Environment };
 
@@ -244,30 +225,20 @@ function templatePath(id: string | null): string {
 
 async function startSession(environment: Environment): Promise<Session> {
   return (await (
-    await call("POST", "/api/sessions", {
-      environment: environment.id,
-      workspace: { kind: "folder", path: root },
+    await server.api("/api/sessions", {
+      body: {
+        environment: environment.id,
+        workspace: { kind: "folder", path: root },
+      },
     })
   ).json()) as Session;
-}
-
-async function eventually(check: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 250; attempt++) {
-    if (check()) {
-      return;
-    }
-
-    await sleep(20);
-  }
-
-  throw new Error("timed out");
 }
 
 async function lastFailure(
   environment: Environment,
 ): Promise<{ readonly problem: string } | null> {
   const answer = (await (
-    await call("GET", `/api/plugins/kubernetes/environments/${environment.id}`)
+    await server.api(`/api/plugins/kubernetes/environments/${environment.id}`)
   ).json()) as { readonly lastFailure: { readonly problem: string } | null };
 
   return answer.lastFailure;
@@ -281,10 +252,10 @@ function failAll(): void {
 
 test("reads an Environment that starts runner pods as on demand, not offline", async () => {
   const environments = async (): Promise<readonly Environment[]> =>
-    (await (await call("GET", "/api/environments")).json()) as Environment[];
+    (await (await server.api("/api/environments")).json()) as Environment[];
 
   const { environment: plain } = (await (
-    await call("POST", "/api/environments", { name: "plain" })
+    await server.api("/api/environments", { body: { name: "plain" } })
   ).json()) as { environment: Environment };
 
   const pods = await kubernetesEnvironment({ capacity: 1, maxPods: 2 });
@@ -298,7 +269,7 @@ test("reads an Environment that starts runner pods as on demand, not offline", a
 
   expect(listed.find(({ id }) => id === plain.id)?.onDemand).toBe(false);
 
-  await call("POST", templatePath(pods.templateId), { settings: null });
+  await server.api(templatePath(pods.templateId), { body: { settings: null } });
 
   expect(
     (await environments()).find(({ id }) => id === pods.id)?.onDemand,
@@ -307,13 +278,13 @@ test("reads an Environment that starts runner pods as on demand, not offline", a
 
 test("says which templates have runner pods started for them", async () => {
   const plain = (await (
-    await call("POST", "/api/templates", { name: "plain" })
+    await server.api("/api/templates", { body: { name: "plain" } })
   ).json()) as EnvironmentTemplate;
 
   const pods = await kubernetesEnvironment({ capacity: 1, maxPods: 2 });
 
   const listed = (await (
-    await call("GET", "/api/templates")
+    await server.api("/api/templates")
   ).json()) as ListedTemplate[];
 
   expect(listed.find(({ id }) => id === pods.templateId)?.runnersFrom).toBe(
@@ -324,8 +295,11 @@ test("says which templates have runner pods started for them", async () => {
 });
 
 test("starts no more runner pods for one person than the per-person limit, across their Environments", async () => {
-  const saved = await call("PATCH", "/api/plugins/kubernetes", {
-    settings: { maxPodsPerPerson: 3 },
+  const saved = await server.api("/api/plugins/kubernetes", {
+    method: "PATCH",
+    body: {
+      settings: { maxPodsPerPerson: 3 },
+    },
   });
 
   expect(saved.status).toBe(200);
@@ -341,7 +315,7 @@ test("starts no more runner pods for one person than the per-person limit, acros
     await startSession(environment);
   }
 
-  await eventually(() => api.pods.size === 3);
+  await until(() => api.pods.size === 3);
   await sleep(200);
 
   expect(api.pods.size).toBe(3);
@@ -351,14 +325,14 @@ test("starts one runner pod per Session no runner can take, up to the most allow
   const environment = await kubernetesEnvironment({ capacity: 1, maxPods: 2 });
 
   await startSession(environment);
-  await eventually(() => api.pods.size === 1);
+  await until(() => api.pods.size === 1);
   await sleep(200);
 
   expect(api.pods.size).toBe(1);
 
   await startSession(environment);
   await startSession(environment);
-  await eventually(() => api.pods.size === 2);
+  await until(() => api.pods.size === 2);
   await sleep(200);
 
   const [pod] = api.pods.values();
@@ -394,14 +368,14 @@ test("lets the runner in a started pod run the Session, and forgets an earlier f
   const environment = await kubernetesEnvironment({});
   const path = `/api/plugins/kubernetes/environments/${environment.id}`;
   const session = await startSession(environment);
-  await eventually(() => api.pods.size === 1);
+  await until(() => api.pods.size === 1);
 
   const [failed] = api.pods.values();
   if (failed) {
     failed.status = { phase: "Failed" };
   }
 
-  await eventually(
+  await until(
     () => api.pods.size === 1 && !api.pods.has(failed?.metadata.name ?? ""),
   );
 
@@ -432,7 +406,7 @@ test("lets the runner in a started pod run the Session, and forgets an earlier f
 
   for (let attempt = 0; attempt < 250; attempt++) {
     const current = (await (
-      await call("GET", `/api/sessions/${session.id}`)
+      await server.api(`/api/sessions/${session.id}`)
     ).json()) as Session;
 
     if (current.runner === name && current.status === "idle") {
@@ -444,7 +418,7 @@ test("lets the runner in a started pod run the Session, and forgets an earlier f
 
   await sleep(100);
 
-  const whileRunning = (await (await call("GET", path)).json()) as {
+  const whileRunning = (await (await server.api(path)).json()) as {
     readonly lastFailure: unknown;
   };
 
@@ -459,9 +433,9 @@ test("lets the runner in a started pod run the Session, and forgets an earlier f
   );
 
   expect(stopped).toEqual(new Error("the server let this runner go"));
-  await eventually(() => api.pods.size === 0 && api.secrets.size === 0);
+  await until(() => api.pods.size === 0 && api.secrets.size === 0);
 
-  const afterStop = (await (await call("GET", path)).json()) as {
+  const afterStop = (await (await server.api(path)).json()) as {
     readonly lastFailure: unknown;
   };
 
@@ -471,27 +445,30 @@ test("lets the runner in a started pod run the Session, and forgets an earlier f
 
 test("refuses Kubernetes settings it can't use", async () => {
   const template = (await (
-    await call("POST", "/api/templates", { name: "pods" })
+    await server.api("/api/templates", { body: { name: "pods" } })
   ).json()) as EnvironmentTemplate;
 
   const path = templatePath(template.id);
 
   const responses = await Promise.all([
-    call("POST", path, { settings: { capacity: 0 } }),
-    call("POST", path, { settings: { podPatch: [] } }),
-    call("POST", path, { settings: { workspace: "disk" } }),
-    call("POST", path, { settings: { claimSize: "lots" } }),
-    call("POST", path, { capacity: 1 }),
-    call("POST", templatePath("nope"), { settings: {} }),
+    server.api(path, { body: { settings: { capacity: 0 } } }),
+    server.api(path, { body: { settings: { podPatch: [] } } }),
+    server.api(path, { body: { settings: { workspace: "disk" } } }),
+    server.api(path, { body: { settings: { claimSize: "lots" } } }),
+    server.api(path, { body: { capacity: 1 } }),
+    server.api(templatePath("nope"), { body: { settings: {} } }),
   ]);
 
-  const unsaved = await (await call("GET", path)).json();
+  const unsaved = await (await server.api(path)).json();
 
-  await call("PATCH", `/api/templates/${template.id}`, {
-    isolation: "container",
+  await server.api(`/api/templates/${template.id}`, {
+    method: "PATCH",
+    body: {
+      isolation: "container",
+    },
   });
 
-  const inContainers = await call("POST", path, { settings: {} });
+  const inContainers = await server.api(path, { body: { settings: {} } });
 
   expect(responses.map(({ status }) => status)).toEqual([
     400, 400, 400, 400, 400, 404,
@@ -509,27 +486,26 @@ test("refuses Kubernetes settings it can't use", async () => {
 
 test("takes runner pods from a pod template, never from an Environment's own settings", async () => {
   const { environment: laptop } = (await (
-    await call("POST", "/api/environments", { name: "laptop" })
+    await server.api("/api/environments", { body: { name: "laptop" } })
   ).json()) as { environment: Environment };
 
   const path = `/api/plugins/kubernetes/environments/${laptop.id}`;
-  const refused = await call("POST", path, { settings: {} });
+  const refused = await server.api(path, { body: { settings: {} } });
 
   const pods = await kubernetesEnvironment({ maxPods: 2 });
 
-  const fromTemplate = await call(
-    "POST",
+  const fromTemplate = await server.api(
     `/api/plugins/kubernetes/environments/${pods.id}`,
-    { settings: {} },
+    { body: { settings: {} } },
   );
 
   const shown = await (
-    await call("GET", `/api/plugins/kubernetes/environments/${pods.id}`)
+    await server.api(`/api/plugins/kubernetes/environments/${pods.id}`)
   ).json();
 
   expect([refused.status, fromTemplate.status]).toEqual([409, 409]);
 
-  expect(await (await call("GET", path)).json()).toMatchObject({
+  expect(await (await server.api(path)).json()).toMatchObject({
     settings: null,
   });
 
@@ -539,20 +515,20 @@ test("takes runner pods from a pod template, never from an Environment's own set
   });
 
   await startSession(pods);
-  await eventually(() => api.pods.size === 1);
+  await until(() => api.pods.size === 1);
 });
 
 test("keeps starting pods for an Environment's settings from before templates, until removed", async () => {
   const database = join(root, "server.db");
-  await server.stop();
+  await server.close();
   startServer(database);
 
   const { environment } = (await (
-    await call("POST", "/api/environments", { name: "old-pods" })
+    await server.api("/api/environments", { body: { name: "old-pods" } })
   ).json()) as { environment: Environment };
 
-  const cookie = await signedIn();
-  await server.stop();
+  const cookie = await server.signedIn();
+  await server.close();
 
   const db = new DatabaseSync(database);
 
@@ -562,17 +538,16 @@ test("keeps starting pods for an Environment's settings from before templates, u
 
   db.close();
 
-  startServer(database);
-  signedIn = async () => Promise.resolve(cookie);
+  startServer(database, cookie);
 
   const path = `/api/plugins/kubernetes/environments/${environment.id}`;
-  const shown = await (await call("GET", path)).json();
+  const shown = await (await server.api(path)).json();
 
   await startSession(environment);
-  await eventually(() => api.pods.size === 1);
+  await until(() => api.pods.size === 1);
 
-  const removed = await call("POST", path, { settings: null });
-  const again = await call("POST", path, { settings: {} });
+  const removed = await server.api(path, { body: { settings: null } });
+  const again = await server.api(path, { body: { settings: {} } });
 
   expect(shown).toMatchObject({ settings: { maxPods: 1 }, editable: true });
   expect([removed.status, again.status]).toEqual([200, 409]);
@@ -590,7 +565,7 @@ test("keeps a pod patch from giving runner pods a service account token", async 
   });
 
   await startSession(environment);
-  await eventually(() => api.pods.size === 1);
+  await until(() => api.pods.size === 1);
 
   const [pod] = api.pods.values();
 
@@ -605,7 +580,7 @@ test("keeps a pod patch from giving runner pods a service account token", async 
 test("copies the binary from the Pipoca image pulled as the server's own", async () => {
   const environment = await kubernetesEnvironment({});
   await startSession(environment);
-  await eventually(() => api.pods.size === 1);
+  await until(() => api.pods.size === 1);
 
   const [pod] = api.pods.values();
 
@@ -617,7 +592,7 @@ test("copies the binary from the Pipoca image pulled as the server's own", async
 test("gives runner pods a home their user can write and leaves the mesh sidecar to the namespace", async () => {
   const environment = await kubernetesEnvironment({ workspace: "claim" });
   await startSession(environment);
-  await eventually(() => api.pods.size === 1);
+  await until(() => api.pods.size === 1);
 
   const [pod] = api.pods.values();
 
@@ -628,7 +603,7 @@ test("gives runner pods a home their user can write and leaves the mesh sidecar 
 test("removes a runner pod that never starts, and starts another", async () => {
   const environment = await kubernetesEnvironment({});
   await startSession(environment);
-  await eventually(() => api.pods.size === 1);
+  await until(() => api.pods.size === 1);
 
   const [first] = api.pods.values();
   if (first) {
@@ -652,7 +627,7 @@ test("removes a runner pod that never starts, and starts another", async () => {
     };
   }
 
-  await eventually(
+  await until(
     () =>
       first !== undefined &&
       !api.pods.has(first.metadata.name) &&
@@ -673,7 +648,7 @@ test("waits longer for a new runner pod after each one that fails, and says why"
   await startSession(environment);
 
   const fail = async (): Promise<number> => {
-    await eventually(() => api.pods.size === 1);
+    await until(() => api.pods.size === 1);
 
     const [pod] = api.pods.values();
     if (pod) {
@@ -693,9 +668,9 @@ test("waits longer for a new runner pod after each one that fails, and says why"
       };
     }
 
-    await eventually(() => api.pods.size === 0);
+    await until(() => api.pods.size === 0);
     const failedAt = Date.now();
-    await eventually(() => api.pods.size === 1);
+    await until(() => api.pods.size === 1);
 
     return Date.now() - failedAt;
   };
@@ -716,7 +691,7 @@ test("waits longer for a new runner pod after each one that fails, and says why"
 test("counts a runner pod whose agent never reached the server as failed", async () => {
   const environment = await kubernetesEnvironment({});
   await startSession(environment);
-  await eventually(() => api.pods.size === 1);
+  await until(() => api.pods.size === 1);
 
   const [pod] = api.pods.values();
   if (pod) {
@@ -724,7 +699,7 @@ test("counts a runner pod whose agent never reached the server as failed", async
     pod.status = { phase: "Succeeded" };
   }
 
-  await eventually(() => api.pods.size === 0);
+  await until(() => api.pods.size === 0);
 
   const failure = await lastFailure(environment);
 
@@ -736,12 +711,12 @@ test("counts a runner pod whose agent never reached the server as failed", async
 test("counts runner pods that fail together as one failure", async () => {
   const environment = await kubernetesEnvironment({ maxPods: 3 });
   await Promise.all([1, 2, 3].map(async () => startSession(environment)));
-  await eventually(() => api.pods.size === 3);
+  await until(() => api.pods.size === 3);
 
   failAll();
-  await eventually(() => api.pods.size === 0);
+  await until(() => api.pods.size === 0);
   const failedAt = Date.now();
-  await eventually(() => api.pods.size > 0);
+  await until(() => api.pods.size > 0);
 
   expect(Date.now() - failedAt).toBeLessThan(550);
 });
@@ -749,13 +724,13 @@ test("counts runner pods that fail together as one failure", async () => {
 test("holds back only the Session whose own pod failed", async () => {
   const environment = await kubernetesEnvironment({ workspace: "claim" });
   const first = await startSession(environment);
-  await eventually(() => api.pods.size === 1);
+  await until(() => api.pods.size === 1);
 
   failAll();
-  await eventually(() => api.pods.size === 0);
+  await until(() => api.pods.size === 0);
 
   const second = await startSession(environment);
-  await eventually(() => api.pods.has(`pi-session-${second.id}`));
+  await until(() => api.pods.has(`pi-session-${second.id}`));
 
   expect(api.pods.has(`pi-session-${first.id}`)).toBe(false);
 });
@@ -763,14 +738,16 @@ test("holds back only the Session whose own pod failed", async () => {
 test("forgets a failure once the Environment's settings are saved again", async () => {
   const environment = await kubernetesEnvironment({});
   await startSession(environment);
-  await eventually(() => api.pods.size === 1);
+  await until(() => api.pods.size === 1);
 
   failAll();
-  await eventually(() => api.pods.size === 0);
+  await until(() => api.pods.size === 0);
   const failed = await lastFailure(environment);
 
-  await call("POST", templatePath(environment.templateId), {
-    settings: { idleSeconds: 120 },
+  await server.api(templatePath(environment.templateId), {
+    body: {
+      settings: { idleSeconds: 120 },
+    },
   });
 
   expect(failed).not.toBeNull();
@@ -790,7 +767,7 @@ test("doesn't count a pod made before the server started that never reached it",
     status: { phase: "Succeeded" },
   });
 
-  await eventually(() => !api.pods.has("pi-runner-0ld"));
+  await until(() => !api.pods.has("pi-runner-0ld"));
 
   expect(await lastFailure(environment)).toBeNull();
 });
@@ -798,13 +775,13 @@ test("doesn't count a pod made before the server started that never reached it",
 test("revokes the token of a runner pod deleted from outside, and deletes its Secret", async () => {
   const environment = await kubernetesEnvironment({});
   await startSession(environment);
-  await eventually(() => api.pods.size === 1);
+  await until(() => api.pods.size === 1);
 
   const [name = ""] = api.pods.keys();
   const token = api.secrets.get(name)?.stringData["token"] ?? "";
   api.pods.delete(name);
 
-  await eventually(() => !api.secrets.has(name) && api.pods.size === 1);
+  await until(() => !api.secrets.has(name) && api.pods.size === 1);
 
   const work = await fetch(new URL("/agent/work", server.url), {
     method: "POST",
@@ -837,15 +814,15 @@ test("keeps starting runner pods while one stopped pod can't be deleted", async 
 
   // A pass that listed pods before this one was added could start the next
   // pod without ever trying to delete it.
-  await eventually(() =>
-    logs.some(
+  await until(() =>
+    server.logs.some(
       (line) =>
         line.includes("pi-runner-stuck") && line.includes("not removed"),
     ),
   );
 
   await startSession(environment);
-  await eventually(() => api.pods.size === 2);
+  await until(() => api.pods.size === 2);
 
   expect(api.pods.has("pi-runner-stuck")).toBe(true);
 });
@@ -853,33 +830,36 @@ test("keeps starting runner pods while one stopped pod can't be deleted", async 
 test("removes stopped runner pods of an Environment whose settings were removed", async () => {
   const environment = await kubernetesEnvironment({});
   await startSession(environment);
-  await eventually(() => api.pods.size === 1);
+  await until(() => api.pods.size === 1);
 
-  await call("POST", templatePath(environment.templateId), { settings: null });
+  await server.api(templatePath(environment.templateId), {
+    body: { settings: null },
+  });
 
   const [pod] = api.pods.values();
   if (pod) {
     pod.status = { phase: "Succeeded" };
   }
 
-  await eventually(() => api.pods.size === 0 && api.secrets.size === 0);
+  await until(() => api.pods.size === 0 && api.secrets.size === 0);
 });
 
 test("reconciles saved settings once the server starts again", async () => {
   const database = join(root, "server.db");
-  await server.stop();
+  await server.close();
   startServer(database);
 
   const environment = await kubernetesEnvironment({});
-  const cookie = await signedIn();
-  await server.stop();
-  startServer(database);
-  signedIn = async () => Promise.resolve(cookie);
+  const cookie = await server.signedIn();
+  await server.close();
+  startServer(database, cookie);
 
   await startSession(environment);
-  await eventually(() => api.pods.size === 1);
+  await until(() => api.pods.size === 1);
 
-  expect(logs.filter((line) => line.includes("not reconciled"))).toEqual([]);
+  expect(server.logs.filter((line) => line.includes("not reconciled"))).toEqual(
+    [],
+  );
 });
 
 async function startRunner(
@@ -913,7 +893,7 @@ async function startRunner(
 }
 
 async function sessionOf(id: string): Promise<Session> {
-  return (await (await call("GET", `/api/sessions/${id}`)).json()) as Session;
+  return (await (await server.api(`/api/sessions/${id}`)).json()) as Session;
 }
 
 test("gives each Session a pod of its own that mounts its claim, and brings it back once deleted", async () => {
@@ -924,7 +904,7 @@ test("gives each Session a pod of its own that mounts its claim, and brings it b
 
   const first = await startSession(environment);
   const second = await startSession(environment);
-  await eventually(() => api.pods.size === 2);
+  await until(() => api.pods.size === 2);
 
   const name = `pi-session-${second.id}`;
   const pod = api.pods.get(name);
@@ -947,7 +927,7 @@ test("gives each Session a pod of its own that mounts its claim, and brings it b
   stop.abort();
   await runner.catch(() => undefined);
 
-  await eventually(
+  await until(
     () =>
       api.pods.has(name) &&
       api.secrets.get(name)?.stringData["token"] !== undefined &&
@@ -975,14 +955,14 @@ test("gives each Session a pod of its own that mounts its claim, and brings it b
   expect(heldFirst).toMatchObject({ runner: null, status: "queued" });
   expect(await sessionOf(second.id)).toMatchObject({ runner: name });
 
-  await call("POST", `/api/sessions/${second.id}/archive`, {});
+  await server.api(`/api/sessions/${second.id}/archive`, { body: {} });
 
   const back = api.pods.get(name);
   if (back) {
     back.status = { phase: "Succeeded" };
   }
 
-  await eventually(() => !api.claims.has(name) && !api.pods.has(name));
+  await until(() => !api.claims.has(name) && !api.pods.has(name));
 
   expect(api.claims.has(`pi-session-${first.id}`)).toBe(true);
 }, 30_000);
@@ -991,17 +971,19 @@ test("keeps an archived Session's claim while its workspace is kept, until force
   const environment = await kubernetesEnvironment({ workspace: "claim" });
 
   const session = (await (
-    await call("POST", "/api/sessions", {
-      environment: environment.id,
-      workspace: { kind: "clone", repository: "https://example.com/r.git" },
+    await server.api("/api/sessions", {
+      body: {
+        environment: environment.id,
+        workspace: { kind: "clone", repository: "https://example.com/r.git" },
+      },
     })
   ).json()) as Session;
 
   const name = `pi-session-${session.id}`;
-  await eventually(() => api.pods.has(name) && api.claims.has(name));
+  await until(() => api.pods.has(name) && api.claims.has(name));
 
   const archived = (await (
-    await call("POST", `/api/sessions/${session.id}/archive`, {})
+    await server.api(`/api/sessions/${session.id}/archive`, { body: {} })
   ).json()) as Session;
 
   const reported = await fetch(
@@ -1026,15 +1008,18 @@ test("keeps an archived Session's claim while its workspace is kept, until force
     pod.status = { phase: "Succeeded" };
   }
 
-  await eventually(() => !api.pods.has(name));
+  await until(() => !api.pods.has(name));
   await sleep(200);
 
   expect(reported.status).toBe(204);
   expect((await sessionOf(session.id)).workspaceRemoval).toBe("kept");
   expect(api.claims.has(name)).toBe(true);
 
-  await call("POST", `/api/sessions/${session.id}/remove-workspace`, {});
-  await eventually(() => !api.claims.has(name));
+  await server.api(`/api/sessions/${session.id}/remove-workspace`, {
+    body: {},
+  });
+
+  await until(() => !api.claims.has(name));
 });
 
 test("replaces a runner pod whose spec names an older Pipoca image, keeping its claim", async () => {
@@ -1043,7 +1028,7 @@ test("replaces a runner pod whose spec names an older Pipoca image, keeping its 
   const current = await startSession(environment);
   const oldName = `pi-session-${old.id}`;
   const currentName = `pi-session-${current.id}`;
-  await eventually(() => api.pods.has(oldName) && api.pods.has(currentName));
+  await until(() => api.pods.has(oldName) && api.pods.has(currentName));
 
   const oldToken = api.secrets.get(oldName)?.stringData["token"] ?? "";
   const currentToken = api.secrets.get(currentName)?.stringData["token"];
@@ -1062,7 +1047,7 @@ test("replaces a runner pod whose spec names an older Pipoca image, keeping its 
 
   api.pods.set(oldName, upgraded);
 
-  await eventually(
+  await until(
     () =>
       api.pods.has(oldName) &&
       api.pods.get(oldName) !== upgraded &&
@@ -1092,7 +1077,7 @@ test("replaces a runner pod whose spec names an older Pipoca image, keeping its 
   expect(api.secrets.get(currentName)?.stringData["token"]).toBe(currentToken);
 
   expect(
-    logs.filter((line) => line.includes("runner pod replaced")),
+    server.logs.filter((line) => line.includes("runner pod replaced")),
   ).toHaveLength(1);
 });
 
@@ -1128,7 +1113,7 @@ test("replaces a runner pod whose node ran another digest of the same moving tag
   const current = await startSession(environment);
   const oldName = `pi-session-${old.id}`;
   const currentName = `pi-session-${current.id}`;
-  await eventually(() => api.pods.has(oldName) && api.pods.has(currentName));
+  await until(() => api.pods.has(oldName) && api.pods.has(currentName));
 
   const oldPod = api.pods.get(oldName);
   const currentPod = api.pods.get(currentName);
@@ -1137,7 +1122,7 @@ test("replaces a runner pod whose node ran another digest of the same moving tag
   ran(currentPod, "registry/pipoca@sha256:new");
   ran(oldPod, "registry/pipoca@sha256:old");
 
-  await eventually(
+  await until(
     () =>
       api.pods.has(oldName) &&
       api.pods.get(oldName) !== oldPod &&
@@ -1157,6 +1142,6 @@ test("replaces a runner pod whose node ran another digest of the same moving tag
   expect(api.pods.get(oldName)?.spec["terminationGracePeriodSeconds"]).toBe(30);
 
   expect(
-    logs.filter((line) => line.includes("runner pod replaced")),
+    server.logs.filter((line) => line.includes("runner pod replaced")),
   ).toHaveLength(1);
 });
