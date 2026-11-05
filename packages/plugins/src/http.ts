@@ -1,5 +1,3 @@
-import type { RouteCaller } from "./plugin";
-
 // Every copy of this module brands its errors alike, so the server answers
 // one thrown from a plugin that bundles its own copy too (ADR 0046).
 const brand = Symbol.for("pipoca.http-error");
@@ -69,9 +67,17 @@ export class NotFound extends HttpError {
   }
 }
 
+// Thrown from a tool, it becomes the call's error with its message.
+export class ToolError extends Error {}
+
 // For a route that changes config every user shares (ADR 0038). The
 // message is what the user who isn't an admin reads.
-export function requireAdmin(caller: RouteCaller, message: string): void {
+export function requireAdmin(
+  caller:
+    | { readonly kind: "user"; readonly admin: boolean }
+    | { readonly kind: "session" },
+  message: string,
+): void {
   if (caller.kind !== "user" || !caller.admin) {
     throw new HttpError(403, message, "admin_only");
   }

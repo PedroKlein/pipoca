@@ -101,6 +101,8 @@ export default tseslint.config(
       "examples/plugins/**/*.ts",
       "examples/plugins/**/*.tsx",
       "apps/pipoca/src/testdata/*-server.ts",
+      "apps/pipoca/src/testdata/*-session.ts",
+      "apps/pipoca/src/web-parts.ts",
     ],
     rules: { "no-restricted-exports": "off" },
   },
@@ -205,9 +207,9 @@ export default tseslint.config(
       "packages/**/*.tsx",
     ],
     ignores: [
-      "apps/pipoca/src/serve.ts",
-      "apps/pipoca/src/session-parts.ts",
-      "apps/web/src/plugins.ts",
+      "apps/pipoca/src/registry-server.ts",
+      "apps/pipoca/src/registry-session.ts",
+      "apps/web/src/registry.ts",
       // Until these plugins' tests move into the plugins.
       "apps/pipoca/src/kubernetes.test.ts",
       "apps/pipoca/src/models.test.ts",
@@ -224,7 +226,7 @@ export default tseslint.config(
           patterns: [
             {
               regex:
-                "^@pipoca/(?!(environments|people|pluginhost|plugins|profiles|protocol|repositories|runner|sessionhost|sessions|ui|workspaces)(/|$))",
+                "^@pipoca/(?!(environments|people|pluginhost|plugins|profiles|protocol|repositories|runner|sessionhost|sessions|ui|web|workspaces)(/|$))",
               message: "Only the plugin registries import plugins.",
             },
             {

@@ -77,6 +77,9 @@ const assignment = Type.Object({
   // Each plugin's settings when the Session started (ADR 0036). Older
   // servers leave it out, and Session parts get their defaults.
   pluginSettings: Type.Optional(Type.Record(Type.String(), pluginSettings)),
+  // Each defined plugin's config when the Session started, without its
+  // secrets.
+  pluginConfig: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
   // Session parts the Session must not run without, such as the meta
   // plugin's confirm. A runner that lacks one doesn't start it.
   requiredPlugins: Type.Optional(strings),

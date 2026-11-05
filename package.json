@@ -13,9 +13,10 @@
     "dev": "bun run --cwd apps/pipoca dev",
     "smoke": "bun run --cwd apps/pipoca smoke",
     "format": "prettier --write .",
+    "registries": "bun apps/pipoca/src/registries.ts",
     "format:check": "prettier --check .",
     "lint": "eslint . --ignore-pattern 'apps/web/**' --ignore-pattern 'examples/**' --max-warnings 0 && eslint apps/web examples --max-warnings 0",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p apps/web && tsc --noEmit -p packages/ui/web && tsc --noEmit -p examples",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p apps/web && tsc --noEmit -p packages/ui/web && tsc --noEmit -p packages/plugins/web && tsc --noEmit -p examples",
     "test:e2e": "bun test ./apps/pipoca/src/web.e2e.ts"
   },
   "devDependencies": {

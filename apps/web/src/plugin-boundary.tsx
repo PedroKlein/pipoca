@@ -1,3 +1,4 @@
+import { PluginScope } from "@pipoca/plugins/web/shell";
 import { Button, ErrorText } from "@pipoca/ui";
 import { Component, type ReactNode } from "react";
 
@@ -21,7 +22,11 @@ export class PluginBoundary extends Component<Props, State> {
 
   override render(): ReactNode {
     if (!this.state.failed) {
-      return this.props.children;
+      return (
+        <PluginScope plugin={this.props.name}>
+          {this.props.children}
+        </PluginScope>
+      );
     }
 
     const { error } = this.state;

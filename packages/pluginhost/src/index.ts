@@ -1,5 +1,6 @@
 export {
   type OnBehalf,
+  type PluginConfigView,
   type PluginHost,
   startPlugins,
   type UserActor,

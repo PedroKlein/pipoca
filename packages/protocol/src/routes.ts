@@ -49,6 +49,7 @@ import {
 import { browserCommand } from "./events";
 import {
   pluginFileContent,
+  pluginConfig,
   pluginInfo,
   pluginInstall,
   pluginUpdate,
@@ -440,6 +441,21 @@ export const routes = {
     path: "/api/plugins/:plugin/data",
     auth: "admin",
     response: pluginInfo,
+    changes: ["plugins"],
+  },
+  // A defined plugin's config, its secrets sealed or named (ADR 0039).
+  "plugins.config": {
+    method: "GET",
+    path: "/api/plugins/:plugin/config",
+    auth: "admin",
+    response: pluginConfig,
+  },
+  "plugins.config.update": {
+    method: "PUT",
+    path: "/api/plugins/:plugin/config",
+    auth: "admin",
+    body: Type.Object({ value: Type.Unknown() }),
+    response: pluginConfig,
     changes: ["plugins"],
   },
   "plugins.part": {

@@ -5,7 +5,7 @@ import { checked } from "./body";
 import { annotation } from "./definition";
 import { isObject } from "./http";
 import type { PluginConfig } from "./plugin";
-import type { SecretRefs } from "./secrets";
+import type { SecretRef, SecretRefs } from "./secrets";
 
 export type ConfigSecrets = Pick<SecretRefs, "open">;
 
@@ -21,6 +21,72 @@ export function configOf<const S extends TSchema>(
   const kept = checked(pruned(schema, filled, [], log), schema, "config");
 
   return opened(schema, kept, [], secrets, log) as Static<S>;
+}
+
+// Plain secrets in a change, such as one typed in Settings, sealed with the
+// context they are opened with.
+export function sealedConfig(
+  schema: TSchema,
+  value: unknown,
+  seal: (secret: string, context: string) => SecretRef,
+): unknown {
+  return secretsMapped(schema, value, [], (field, context) =>
+    typeof field === "string" ? seal(field, context) : field,
+  );
+}
+
+const unopened: ConfigSecrets = {
+  open: () => ({ ref: { env: "" }, secret: "" }),
+};
+
+// What a Session part reads: the config with its defaults, without secrets.
+export function sessionConfig(
+  schema: TSchema,
+  raw: unknown,
+  log: Log,
+): unknown {
+  return secretsMapped(
+    schema,
+    configOf(schema, raw, unopened, log),
+    [],
+    () => dropped,
+  );
+}
+
+const dropped = Symbol("dropped");
+
+function secretsMapped(
+  schema: TSchema,
+  value: unknown,
+  path: readonly string[],
+  map: (secret: unknown, context: string) => unknown,
+): unknown {
+  if (marks(schema)["secret"] !== undefined) {
+    return map(value, path.join("."));
+  }
+
+  if (Type.IsArray(schema) && Array.isArray(value)) {
+    return value.map((item: unknown) =>
+      secretsMapped(schema.items, item, path, map),
+    );
+  }
+
+  if (Type.IsObject(schema) && isObject(value)) {
+    return Object.fromEntries(
+      Object.entries(value).flatMap(([name, field]) => {
+        const property = propertyOf(schema, name);
+
+        const mapped =
+          property === undefined
+            ? field
+            : secretsMapped(property, field, [...path, name], map);
+
+        return mapped === dropped ? [] : [[name, mapped]];
+      }),
+    );
+  }
+
+  return value;
 }
 
 const noSecrets: ConfigSecrets = {

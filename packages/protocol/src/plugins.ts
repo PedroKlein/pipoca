@@ -162,6 +162,13 @@ export type PluginInfo = Wire<typeof pluginInfo>;
 
 export const pluginInstall = Type.Object({ url: Type.String() });
 
+// A file that fixes the plugin's key, such as one Helm mounts, makes it
+// read-only (ADR 0063).
+export const pluginConfig = Type.Object({
+  value: Type.Unknown(),
+  lockedIn: Type.Optional(Type.String()),
+});
+
 // Settings are checked against the plugin's own declared settings.
 export const pluginUpdate = Type.Object({
   settings: Type.Optional(Type.Unknown()),

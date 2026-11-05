@@ -1,6 +1,12 @@
 export { checkBody, readBody } from "./body";
 export { type ClientOptions, pluginClient, type TypedClient } from "./client";
-export { type ConfigSecrets, configOf, kernelConfig } from "./config";
+export {
+  type ConfigSecrets,
+  configOf,
+  kernelConfig,
+  sealedConfig,
+  sessionConfig,
+} from "./config";
 export {
   Config,
   definePlugin,
@@ -31,6 +37,7 @@ export {
   NotFound,
   readJson,
   requireAdmin,
+  ToolError,
 } from "./http";
 export { type Static, Type } from "typebox";
 export { canSee, owners } from "./owners";
@@ -61,6 +68,16 @@ export {
   type Urls,
 } from "./server";
 export type { Schedule, Scheduled } from "./schedule";
+export { transcriptReader } from "./transcript";
+export {
+  type ConfigValue,
+  defineSession,
+  type SessionContext,
+  type SessionPart,
+  type SessionTool,
+  type SessionToolCall,
+  type ToolOutput,
+} from "./session";
 export { checkedSettings, settingSpecs, settingValues } from "./settings";
 export type {
   AskPermission,

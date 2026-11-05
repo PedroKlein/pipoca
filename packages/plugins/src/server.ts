@@ -9,6 +9,9 @@ import type { Static, TObject, TSchema } from "typebox";
 import type { EventDef, Events, PluginDefinition } from "./definition";
 import type { KernelEventOf } from "./events";
 import type { KernelEvent } from "./plugin";
+import type { Transcript } from "./transcript";
+
+export type { ToolResultEntry, Transcript } from "./transcript";
 
 export interface Person {
   readonly id: string;
@@ -21,33 +24,6 @@ export interface People {
   readonly get: (id: string) => Person | undefined;
   readonly list: () => readonly Person[];
   readonly byName: (name: string) => Person | undefined;
-}
-
-export interface ToolResultEntry<D = unknown> {
-  readonly callId: string;
-  readonly line: number;
-  readonly input: unknown;
-  readonly details: D;
-  readonly isError: boolean;
-}
-
-export interface Transcript {
-  readonly toolResults: <D = unknown>(
-    sessionId: string,
-    tool: string,
-  ) => readonly ToolResultEntry<D>[];
-  readonly messages: (
-    sessionId: string,
-    o?: { readonly sinceLine?: number },
-  ) => readonly {
-    readonly line: number;
-    readonly role: "user" | "assistant";
-    readonly text: string;
-  }[];
-  readonly lastReply: (
-    sessionId: string,
-  ) => { readonly line: number; readonly text: string } | undefined;
-  readonly length: (sessionId: string) => number;
 }
 
 type EventsOf<P extends PluginDefinition> = NonNullable<P["events"]> & Events;

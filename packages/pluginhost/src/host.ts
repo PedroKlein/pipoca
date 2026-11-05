@@ -1,8 +1,10 @@
 import { basename } from "node:path";
+import { Value } from "typebox/value";
 import type { Environments } from "@pipoca/environments";
 import { canSee } from "@pipoca/people";
 import {
   checkedSettings,
+  configOf,
   envSecrets,
   type EventBus,
   fieldsOf,
@@ -16,13 +18,16 @@ import {
   type PublicRoute,
   type RouteCaller,
   type RunnerSource,
+  sealedConfig,
   type ServerPart,
   type ServerPlugin,
   type ServerPluginContext,
   secretRefs,
   type ServerTool,
+  sessionConfig,
   type SessionPlugin,
   settingValues,
+  transcriptReader,
   type Toolset,
   type TypedBus,
   type User,
@@ -42,12 +47,7 @@ import {
   type ToolSpec,
 } from "@pipoca/protocol";
 import type { Clock, Log, Timer } from "@pipoca/protocol";
-import {
-  type PluginProfile,
-  type SessionPlugins,
-  type Sessions,
-  transcriptReader,
-} from "@pipoca/sessions";
+import type { PluginProfile, SessionPlugins, Sessions } from "@pipoca/sessions";
 import {
   routeToolQuestion,
   runRouteTool,
@@ -64,6 +64,11 @@ type GitLoginsOf = (
   userId: string,
   session: Pick<Session, "actsAs" | "workspace">,
 ) => readonly GitLogin[];
+
+export interface PluginConfigView {
+  readonly value: unknown;
+  readonly lockedIn?: string;
+}
 
 export function userIdOf(actor: UserActor): string {
   return actor.slice("user:".length);
@@ -95,6 +100,15 @@ export interface PluginHost {
     name: string,
     settings: unknown,
   ) => PluginInfo | string | undefined;
+  // A defined plugin's config as pipoca.json keeps it, its secrets sealed or
+  // named by environment variable, or undefined when it has none.
+  readonly config: (name: string) => PluginConfigView | undefined;
+  // Seals the plain secrets in it first. Says what is wrong with it, or
+  // undefined when the plugin has no config.
+  readonly setConfig: (
+    name: string,
+    value: unknown,
+  ) => PluginConfigView | string | undefined;
   // Turns an installed plugin on or off for the next start.
   // Turning one on with the digest of the manifest and files the user saw
   // refuses it when its folder changed since.
@@ -785,6 +799,25 @@ export function startPlugins(
 
   const extRoutes: ExtRoute[] = [];
 
+  const schemaOf = (name: string): PluginDefinition["config"] =>
+    deps.definitions.find(({ id }) => id === name)?.config;
+
+  const configView = (name: string): PluginConfigView | undefined => {
+    const schema = schemaOf(name);
+
+    if (schema === undefined) {
+      return undefined;
+    }
+
+    const config = deps.config(name);
+    const locked = config.lockedIn();
+
+    return {
+      value: Value.Default(schema, structuredClone(config.get())),
+      ...(locked !== undefined && { lockedIn: locked }),
+    };
+  };
+
   const load = async (definition: PluginDefinition): Promise<void> => {
     const { id } = definition;
 
@@ -1228,11 +1261,69 @@ export function startPlugins(
         ? bundle.path
         : undefined;
     },
+    config: (name) => configView(name),
+    setConfig: (name, value) => {
+      const schema = schemaOf(name);
+
+      if (schema === undefined) {
+        return undefined;
+      }
+
+      const config = deps.config(name);
+      const locked = config.lockedIn();
+
+      if (locked !== undefined) {
+        return `${locked} sets ${name}'s config, so it can't change here`;
+      }
+
+      const refs = secretRefs(deps.store(name), fromEnv);
+      const sealed = sealedConfig(schema, value, refs.seal);
+
+      try {
+        configOf(schema, sealed, refs, (_message, fields) => {
+          throw new Error(
+            `${String(fields?.["path"])} ${String(fields?.["item"])}: ${String(fields?.["error"])}`,
+          );
+        });
+      } catch (error) {
+        return messageOf(error);
+      }
+
+      config.set(sealed);
+      deps.log("plugin config saved", { plugin: name });
+
+      return configView(name);
+    },
     sessionPlugins: () => {
       return {
         plugins: running,
         pluginSettings: Object.fromEntries(
           running.map((name) => [name, values(name)]),
+        ),
+        pluginConfig: Object.fromEntries(
+          running.flatMap((name) => {
+            const schema = schemaOf(name);
+
+            if (schema === undefined) {
+              return [];
+            }
+
+            try {
+              return [
+                [
+                  name,
+                  sessionConfig(schema, deps.config(name).get(), deps.log),
+                ],
+              ];
+            } catch (error) {
+              deps.log("plugin config unreadable", {
+                plugin: name,
+                error: messageOf(error),
+              });
+
+              return [];
+            }
+          }),
         ),
         ownSessionsOnly: [
           ...deps.sessionParts

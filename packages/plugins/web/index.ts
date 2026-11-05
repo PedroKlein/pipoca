@@ -22,6 +22,21 @@ export {
   shownModels,
 } from "./models";
 export { responseOrder } from "./responses";
+export { CollectionEditor, ConfigForm } from "./config-form";
+export {
+  defineWeb,
+  Hidden,
+  Slot,
+  type Slots,
+  useApi,
+  useConfig,
+  useSessionState,
+  useToolResults,
+  useTopic,
+  useViewer,
+  type WebPage,
+  type WebPart,
+} from "./parts";
 
 // The shell's own Session view, for a plugin page to show a Session in
 // (ADR 0028). A side view is a narrow panel next to the page's main view.
@@ -188,6 +203,8 @@ export interface WebPlugin {
     // Paths whose page fills the window, such as an open Project, instead of
     // scrolling in the shell's column.
     readonly fills?: (path: string) => boolean;
+    // Pinned in the sidebar for someone who never changed their pins.
+    readonly pinned?: boolean;
   };
   // What the plugin gives the team hub, by key (ADR 0067).
   readonly hub?: {
