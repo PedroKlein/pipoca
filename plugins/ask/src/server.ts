@@ -330,9 +330,7 @@ function ballots(context: ServerPluginContext) {
       }
 
       const now = Date.now();
-      const settings = context.settings.get();
-
-      const open = minutes ?? Number(settings["voteMinutes"] ?? 60);
+      const open = minutes ?? Number(context.settings.get()["voteMinutes"]);
       const id = randomUUID();
       const closesAt = now + open * 60_000;
 

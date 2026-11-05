@@ -8,6 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
+import { pluginSwitches } from "@pipoca/pluginhost";
 import { HttpError, type PluginConfig } from "@pipoca/plugins";
 import type { Log } from "@pipoca/protocol";
 
@@ -67,6 +68,18 @@ export function configFolder(
     },
     lockedIn: () => lockedIn(plugin),
   });
+}
+
+// The installed plugins turned on under "plugins" in pipoca.json, which load
+// when the server starts.
+export function installedTurnedOn(
+  dir: string,
+  log: Log,
+  locked?: string,
+): (id: string) => boolean {
+  const switches = pluginSwitches(configFolder(dir, log, locked)("plugins"));
+
+  return (id) => switches.get(id).personal === true;
 }
 
 // A JSON object file, read again once it changes. Readers keep the last

@@ -17,7 +17,11 @@ import { email } from "@pipoca/email/server";
 import { routines } from "@pipoca/routines/server";
 import { usage } from "@pipoca/usage/server";
 import { slack } from "@pipoca/slack/server";
-import { kernelToolsets, startPlugins } from "@pipoca/pluginhost";
+import {
+  kernelToolsets,
+  pluginSwitches,
+  startPlugins,
+} from "@pipoca/pluginhost";
 import { eventBus, type ServerPlugin } from "@pipoca/plugins";
 import type { PluginManifest } from "@pipoca/protocol";
 import type { Log } from "@pipoca/protocol";
@@ -48,7 +52,6 @@ import {
   install,
   remove,
   reread,
-  turnOn,
   update,
 } from "./installed";
 import { latestOf } from "./sources";
@@ -178,13 +181,12 @@ export function serve(options: ServeOptions): {
 
   const clock = options.clock ?? systemClock;
 
-  // A team server's machine holds everyone's data and the sealing key, so
-  // only a solo install runs runners on it, and a solo install signs in no
-  // one else (ADR 0053).
-  const disabled = [
-    ...(options.disabledPlugins ?? []),
-    ...(options.solo === undefined ? ["local"] : ["oidc"]),
-  ];
+  // Which plugins are on, under "plugins" in pipoca.json. A team server's
+  // machine holds everyone's data and the sealing key, so only a solo install
+  // runs runners on it unless admins say otherwise, and a solo install signs
+  // in no one else (ADR 0053).
+  const switches = pluginSwitches(config("plugins"));
+  const offByDefault = options.solo === undefined ? ["local"] : ["oidc"];
 
   const folder = options.installed;
   const installed = folder?.plugins ?? [];
@@ -219,7 +221,13 @@ export function serve(options: ServeOptions): {
   const known = [...builtIn, ...installed.map(({ manifest }) => manifest)];
 
   const enabled = [
-    ...builtIn.map(({ id }) => id).filter((name) => !disabled.includes(name)),
+    ...builtIn
+      .map(({ id }) => id)
+      .filter(
+        (name) =>
+          options.disabledPlugins?.includes(name) !== true &&
+          (switches.get(name).personal ?? !offByDefault.includes(name)),
+      ),
     ...installed.flatMap(({ manifest: { id }, on }) => (on ? [id] : [])),
   ];
 
@@ -317,7 +325,6 @@ export function serve(options: ServeOptions): {
     events,
     changes: changes.publish,
     store: store.plugin,
-    settings: store.pluginSettings,
     config,
     toolsets: kernelToolsets,
     api: async (onBehalf, request) => handler(onBehalfOf(onBehalf, request)),
@@ -342,7 +349,6 @@ export function serve(options: ServeOptions): {
     ...(folder && {
       installed: {
         plugins: installed,
-        turnOn: async (id, on) => turnOn(folder.root, id, on),
         install: async (url, taken) => install(folder.root, url, taken),
         update: async (id) => update(folder.root, id),
         latest: latestOf,
@@ -357,7 +363,7 @@ export function serve(options: ServeOptions): {
     }),
     sessionParts: sessionPlugins,
     mcpServers: () => userProfiles.mcpServers(),
-    teamPlugins: config("teamPlugins"),
+    switches,
     buildsOn: (id) => profiles.buildsOn(id),
     signal: pluginsStop.signal,
     log: options.log,

@@ -26,6 +26,7 @@ import {
   type Session,
   type SessionEvent,
 } from "@pipoca/protocol";
+import { installedTurnedOn } from "./config";
 import { installedPlugins } from "./installed";
 import { latestOf } from "./sources";
 import type { ServeOptions } from "./serve";
@@ -51,6 +52,25 @@ afterEach(async () => {
 });
 
 const noLog = (): void => undefined;
+
+async function turnOnInConfig(...ids: readonly string[]): Promise<void> {
+  await mkdir(join(root, "config"), { recursive: true });
+
+  await writeFile(
+    join(root, "config", "pipoca.json"),
+    JSON.stringify({
+      plugins: Object.fromEntries(ids.map((id) => [id, { personal: true }])),
+    }),
+  );
+}
+
+async function switchesInConfig(): Promise<unknown> {
+  const config = JSON.parse(
+    await readFile(join(root, "config", "pipoca.json"), "utf8"),
+  ) as { readonly plugins?: unknown };
+
+  return config.plugins;
+}
 
 // A plugin folder whose server part answers on its route, and leaves a mark
 // when it is imported.
@@ -103,7 +123,11 @@ async function start(agent?: ServeOptions["agent"]): Promise<void> {
     ...(agent && { agent }),
     installed: {
       root: plugins,
-      plugins: await installedPlugins(plugins, noLog),
+      plugins: await installedPlugins(
+        plugins,
+        noLog,
+        installedTurnedOn(join(root, "config"), noLog),
+      ),
     },
     ...(cookie !== undefined && { cookie }),
   });
@@ -151,9 +175,7 @@ test("turns an installed plugin on for the next start", async () => {
 
   expect(await turned.json()).toMatchObject({ state: "off", turnedOn: true });
 
-  expect(
-    JSON.parse(await readFile(join(plugins, "enabled.json"), "utf8")),
-  ).toEqual(["hello"]);
+  expect(await switchesInConfig()).toEqual({ hello: { personal: true } });
 
   await start();
 
@@ -204,7 +226,7 @@ test("fails a plugin that reaches past the capabilities it declared", async () =
     "context.sessions.owned('x');",
   );
 
-  await writeFile(join(plugins, "enabled.json"), JSON.stringify(["nosy"]));
+  await turnOnInConfig("nosy");
   await start();
 
   const nosy = await listed("nosy");
@@ -220,7 +242,7 @@ test("fails an installed plugin that tries to sign people in", async () => {
     "context.auth.startSession('someone', new Request('http://x'));",
   );
 
-  await writeFile(join(plugins, "enabled.json"), JSON.stringify(["imposter"]));
+  await turnOnInConfig("imposter");
   await start();
 
   const imposter = await listed("imposter");
@@ -285,7 +307,7 @@ test("turns built-in plugins on or off only through the server's options", async
 
 test("keeps a built-in plugin when a folder takes its id", async () => {
   await writePlugin("projects");
-  await writeFile(join(plugins, "enabled.json"), JSON.stringify(["projects"]));
+  await turnOnInConfig("projects");
   await start();
 
   const all = (await (await server.api("/api/plugins")).json()) as PluginInfo[];
@@ -317,9 +339,9 @@ test("keeps every switch when several are turned at once", async () => {
 
   expect(turned.map(({ status }) => status)).toEqual([200, 200, 200, 200]);
 
-  expect(
-    JSON.parse(await readFile(join(plugins, "enabled.json"), "utf8")),
-  ).toEqual(ids);
+  expect(await switchesInConfig()).toEqual(
+    Object.fromEntries(ids.map((id) => [id, { personal: true }])),
+  );
 });
 
 test("won't turn on a plugin whose manifest is broken", async () => {
@@ -332,14 +354,14 @@ test("won't turn on a plugin whose manifest is broken", async () => {
   });
 
   expect(refused.status).toBe(400);
-  expect(await exists(join(plugins, "enabled.json"))).toBe(false);
+  expect(await exists(join(root, "config", "pipoca.json"))).toBe(false);
 });
 
 test("loads a plugin whose folder is a link to one elsewhere", async () => {
   await writePlugin("linked");
   await rename(join(plugins, "linked"), join(root, "linked"));
   await symlink(join(root, "linked"), join(plugins, "linked"));
-  await writeFile(join(plugins, "enabled.json"), JSON.stringify(["linked"]));
+  await turnOnInConfig("linked");
   await start();
 
   expect(await (await server.api("/api/plugins/linked/")).text()).toBe(
@@ -354,15 +376,16 @@ test("won't import a server part that links outside the plugin", async () => {
 
   await writePlugin("sneaky", { parts: { server: "outside/server.ts" } });
   await symlink(elsewhere, join(plugins, "sneaky", "outside"));
-  await writeFile(join(plugins, "enabled.json"), JSON.stringify(["sneaky"]));
+  await turnOnInConfig("sneaky");
   await start();
 
   expect((await listed("sneaky"))?.error).toContain("outside the plugin");
 });
 
-test("starts with every installed plugin off when enabled.json is broken", async () => {
+test("starts with every installed plugin off when pipoca.json is broken", async () => {
   await writePlugin("hello");
-  await writeFile(join(plugins, "enabled.json"), "[");
+  await mkdir(join(root, "config"));
+  await writeFile(join(root, "config", "pipoca.json"), "[");
   await start();
 
   expect(await listed("hello")).toMatchObject({ state: "off" });
@@ -410,7 +433,7 @@ export default {
 `,
   );
 
-  await writeFile(join(plugins, "enabled.json"), JSON.stringify(["greeter"]));
+  await turnOnInConfig("greeter");
   await start();
 
   expect(await (await server.api("/api/plugins/greeter/")).text()).toBe(
@@ -420,7 +443,7 @@ export default {
 
 test("runs a plugin's source as it is at each start", async () => {
   await writePlugin("hello");
-  await writeFile(join(plugins, "enabled.json"), JSON.stringify(["hello"]));
+  await turnOnInConfig("hello");
   await start();
 
   const part = join(plugins, "hello", "server.ts");
@@ -437,7 +460,7 @@ test("runs a plugin's source as it is at each start", async () => {
 test("shows why a plugin doesn't build", async () => {
   await writePlugin("broken");
   await writeFile(join(plugins, "broken", "server.ts"), "export default {");
-  await writeFile(join(plugins, "enabled.json"), JSON.stringify(["broken"]));
+  await turnOnInConfig("broken");
   await start();
 
   const broken = await listed("broken");
@@ -471,7 +494,7 @@ export default {
 `,
   );
 
-  await writeFile(join(plugins, "enabled.json"), JSON.stringify([id]));
+  await turnOnInConfig(id);
 }
 
 test("answers the errors a plugin throws from the server's plugin SDK", async () => {
@@ -535,7 +558,7 @@ export default {
 `,
   );
 
-  await writeFile(join(plugins, "enabled.json"), JSON.stringify(["names"]));
+  await turnOnInConfig("names");
   await start();
 
   const named = await server.api("/api/plugins/names/rename", {
@@ -592,7 +615,7 @@ export default { name: "pages", hook: useState };
 `,
   );
 
-  await writeFile(join(plugins, "enabled.json"), JSON.stringify(["pages"]));
+  await turnOnInConfig("pages");
   await start();
 
   const webPart = (await listed("pages"))?.webPart ?? "";
@@ -615,7 +638,7 @@ test("names a web part's bundle so its URL needs no escaping", async () => {
     `export default { name: "spaced" };\n`,
   );
 
-  await writeFile(join(plugins, "enabled.json"), JSON.stringify(["spaced"]));
+  await turnOnInConfig("spaced");
   await start();
 
   const webPart = (await listed("spaced"))?.webPart ?? "";
@@ -632,7 +655,7 @@ test("fails a web part that imports CSS the page would never load", async () => 
     `import "./look.css";\n\nexport default { name: "styled" };\n`,
   );
 
-  await writeFile(join(plugins, "enabled.json"), JSON.stringify(["styled"]));
+  await turnOnInConfig("styled");
   await start();
 
   expect((await listed("styled"))?.error).toContain("imports CSS");
@@ -658,7 +681,7 @@ async function writeSlashPlugin(
 `,
   );
 
-  await writeFile(join(plugins, "enabled.json"), JSON.stringify(["slash"]));
+  await turnOnInConfig("slash");
 }
 
 // Starts the server with its own runner on a faux model, and a Session on it.
@@ -767,7 +790,7 @@ test("fails a Session part that imports a file the runner wouldn't get", async (
     `import prompt from "./prompt.png";\n\nexport default { name: "prompted", prompt };\n`,
   );
 
-  await writeFile(join(plugins, "enabled.json"), JSON.stringify(["prompted"]));
+  await turnOnInConfig("prompted");
   await start();
 
   expect((await listed("prompted"))?.error).toContain(
@@ -1083,9 +1106,7 @@ test("turns off an update that asks for more than was trusted", async () => {
     capabilities: ["routes", "sessions"],
   });
 
-  expect(
-    JSON.parse(await readFile(join(plugins, "enabled.json"), "utf8")),
-  ).toEqual([]);
+  expect(await switchesInConfig()).toEqual({ hello: { personal: false } });
 });
 
 test("won't update a plugin put in the folder by hand", async () => {
@@ -1102,7 +1123,7 @@ test("won't update a plugin put in the folder by hand", async () => {
 
 test("removes an installed plugin only once it isn't running", async () => {
   await writePlugin("hello");
-  await writeFile(join(plugins, "enabled.json"), JSON.stringify(["hello"]));
+  await turnOnInConfig("hello");
   await start();
 
   const running = await server.api("/api/plugins/hello", { method: "DELETE" });
@@ -1134,14 +1155,14 @@ test("removes an installed plugin only once it isn't running", async () => {
 test("says why a plugin couldn't be removed", async () => {
   await writePlugin("hello");
   await start();
-  await mkdir(join(plugins, "enabled.json"));
+  await mkdir(join(root, "config", "pipoca.json"), { recursive: true });
 
   const refused = await server.api("/api/plugins/hello", { method: "DELETE" });
 
   expect(refused.status).toBe(400);
 
   expect(((await refused.json()) as { message: string }).message).toContain(
-    "EISDIR",
+    "pipoca.json",
   );
 
   expect(await listed("hello")).toBeDefined();
@@ -1278,7 +1299,7 @@ test("turns off an update that adds a part running somewhere new", async () => {
 });
 
 test("installs turned off even when a plugin of its id was turned on and removed by hand", async () => {
-  await writeFile(join(plugins, "enabled.json"), JSON.stringify(["hello"]));
+  await turnOnInConfig("hello");
 
   const url = await gitPlugin("hello");
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PluginInfo } from "@pipoca/protocol";
@@ -17,14 +17,17 @@ beforeEach(async () => {
 
   const plugins = join(root, "plugins");
   await cp(example, join(plugins, "greeter"), { recursive: true });
-  await writeFile(join(plugins, "enabled.json"), JSON.stringify(["greeter"]));
 
   server = testServer({
     database: join(root, "server.db"),
     sessions: { pollWaitMs: 0 },
     installed: {
       root: plugins,
-      plugins: await installedPlugins(plugins, () => undefined),
+      plugins: await installedPlugins(
+        plugins,
+        () => undefined,
+        (id) => id === "greeter",
+      ),
     },
   });
 });

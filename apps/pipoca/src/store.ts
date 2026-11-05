@@ -12,7 +12,6 @@ import type {
   WorkspaceRemoval,
 } from "@pipoca/protocol";
 import type { PluginStore, ServerPlugin } from "@pipoca/plugins";
-import type { PluginSettingsStore } from "@pipoca/pluginhost";
 import {
   defaultProfileId as sharedDefault,
   type ProfileFolders,
@@ -124,7 +123,6 @@ export function openStore(
     check: () => void;
     close: () => void;
     plugin: (name: string) => PluginStore;
-    pluginSettings: PluginSettingsStore;
   } {
   if (path !== ":memory:") {
     mkdirSync(dirname(path), { recursive: true });
@@ -621,7 +619,6 @@ export function openStore(
 
       return found;
     },
-    pluginSettings: pluginSettingsStore(db),
     close: () => {
       db.close();
     },
@@ -1089,30 +1086,6 @@ function authStore(db: DatabaseSync, clock: Clock): AuthStore {
           lastUsed: iso(row.last_used_at),
         }
       );
-    },
-  };
-}
-
-function pluginSettingsStore(db: DatabaseSync): PluginSettingsStore {
-  const select = db.prepare(
-    "select settings from plugin_settings where plugin = ?",
-  );
-
-  const upsert = db.prepare(
-    `insert into plugin_settings (plugin, settings) values (?, ?)
-     on conflict (plugin) do update set settings = excluded.settings`,
-  );
-
-  return {
-    get: (plugin) => {
-      const row = select.get(plugin) as { settings: string } | undefined;
-
-      return row === undefined
-        ? undefined
-        : (JSON.parse(row.settings) as unknown);
-    },
-    set: (plugin, settings) => {
-      upsert.run(plugin, JSON.stringify(settings));
     },
   };
 }

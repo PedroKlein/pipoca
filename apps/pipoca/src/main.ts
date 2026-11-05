@@ -11,6 +11,7 @@ import { JoinRefused } from "./client";
 import { connectFolder, dataFolder, runnerFolder } from "./data-folder";
 import { fauxModels } from "./faux";
 import { help, overview, version } from "./help";
+import { installedTurnedOn } from "./config";
 import { installedPlugins } from "./installed";
 import { restartExitCode, supervise, supervised } from "./restart";
 import { stderrLog } from "./log";
@@ -149,6 +150,15 @@ switch (command) {
       values.plugins ?? join(dirname(values.database), "plugins"),
     );
 
+    const configDir = absolutePath(
+      values["config-dir"] ?? join(dirname(values.database), "config"),
+    );
+
+    const lockedConfig =
+      values["locked-config"] === undefined
+        ? undefined
+        : absolutePath(values["locked-config"]);
+
     let restarting: Promise<never> | undefined;
 
     const server = serve({
@@ -156,12 +166,8 @@ switch (command) {
       ...(values.url !== undefined && { url: new URL(values.url) }),
       port: Number(values.port),
       database: values.database,
-      ...(values["config-dir"] !== undefined && {
-        configDir: absolutePath(values["config-dir"]),
-      }),
-      ...(values["locked-config"] !== undefined && {
-        lockedConfig: absolutePath(values["locked-config"]),
-      }),
+      configDir,
+      ...(lockedConfig !== undefined && { lockedConfig }),
       passwordLogin: !values["sso-only"],
       trustProxy: values["trust-proxy"],
       ...(solo && {
@@ -182,7 +188,11 @@ switch (command) {
       }),
       installed: {
         root: pluginsRoot,
-        plugins: await installedPlugins(pluginsRoot, log),
+        plugins: await installedPlugins(
+          pluginsRoot,
+          log,
+          installedTurnedOn(configDir, log, lockedConfig),
+        ),
       },
       ...(supervised(process.env) && {
         restart: () => {

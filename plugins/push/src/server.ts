@@ -224,7 +224,7 @@ export const push: ServerPlugin = {
             );
           }
         },
-        (typeof minutes === "number" ? minutes : 10) * 60_000,
+        Number(minutes) * 60_000,
       ).unref();
     });
 

@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -808,6 +815,75 @@ test("leaves out plugins that are turned off", async () => {
   ]);
 
   expect((await server.api("/api/plugins/off/anything")).status).toBe(404);
+});
+
+test("turns plugins on and off, and in team work, under plugins in pipoca.json", async () => {
+  const registered: string[] = [];
+  const configDir = join(root, "config");
+  const file = join(configDir, "pipoca.json");
+
+  await mkdir(configDir);
+
+  await writeFile(
+    file,
+    JSON.stringify({ plugins: { quiet: { personal: false } } }),
+  );
+
+  const plugin = (name: string): ServerPlugin => ({
+    name,
+    register: () => {
+      registered.push(name);
+    },
+  });
+
+  server = testServer({
+    configDir,
+    plugins: [plugin("quiet"), plugin("chatty"), plugin("team")],
+    manifests: ["quiet", "chatty", "team"].map((id) => ({
+      id,
+      title: id,
+      description: "",
+      works: ["personal", "team"],
+    })),
+  });
+
+  const listed = async (): Promise<unknown> =>
+    (await server.api("/api/plugins")).json();
+
+  expect(await listed()).toMatchObject([
+    { id: "quiet", state: "off", turnedOn: false },
+    { id: "chatty", state: "on", turnedOn: true, teamWork: true },
+    {
+      id: "team",
+      state: "failed",
+      error:
+        "team is a key the kernel keeps in pipoca.json, so no plugin can have it",
+    },
+  ]);
+
+  expect(registered).toEqual(["chatty"]);
+
+  const switched = await server.api("/api/plugins/chatty", {
+    method: "PATCH",
+    body: { teamWork: false },
+  });
+
+  expect(await switched.json()).toMatchObject({ teamWork: false });
+
+  expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
+    plugins: { quiet: { personal: false }, chatty: { team: false } },
+  });
+
+  await writeFile(
+    file,
+    JSON.stringify({ plugins: { chatty: { team: true } } }),
+  );
+
+  expect(await listed()).toMatchObject([
+    { id: "quiet" },
+    { id: "chatty", teamWork: true },
+    { id: "team" },
+  ]);
 });
 
 // A runner a plugin started, such as a pod, with the token the plugin gave it.

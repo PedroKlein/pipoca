@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { NotFound } from "@pipoca/plugins";
-import { build, idProblem, isReserved, sourceOf, turnOn } from "./installed";
+import { build, idProblem, isReserved, sourceOf } from "./installed";
 
 // The files of a plugin a meta-session writes straight into the plugins
 // folder (ADR 0035). None of its code runs until the user turns it on.
@@ -75,11 +75,7 @@ export async function writePluginFile(
 
   lexicalPath(folder, path);
 
-  // A switch left from a plugin of this id removed by hand would turn the
-  // new one on at the next start.
   if ((await lstat(folder).catch(() => undefined)) === undefined) {
-    await mkdir(root, { recursive: true });
-    await turnOn(root, id, false);
     await mkdir(folder, { recursive: true });
   }
 
