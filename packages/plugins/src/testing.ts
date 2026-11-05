@@ -1,14 +1,231 @@
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import { type Session, systemClock } from "@pipoca/protocol";
+import type {
+  ExtensionAPI,
+  ExtensionToolContext,
+  ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
+import {
+  type Method,
+  type Owner,
+  type Session,
+  systemClock,
+} from "@pipoca/protocol";
+import type { TypedClient } from "./client";
+import type { PluginDefinition } from "./definition";
 import { eventBus } from "./events";
 import { isHttpError } from "./http";
+import { owners } from "./owners";
 import type {
+  KernelEvent,
   PluginRoute,
   PluginStore,
   RouteCaller,
   ServerPluginContext,
+  SessionCloud,
+  SessionPlugin,
 } from "./plugin";
 import { envSecrets, secretRefs } from "./secrets";
+import type { Store } from "./server";
+
+export interface TestPerson {
+  readonly id: string;
+  readonly name?: string;
+  readonly admin?: boolean;
+}
+
+export interface TestPluginOptions {
+  // The plugin's key in pipoca.json.
+  readonly config?: Readonly<Record<string, unknown>>;
+  readonly people?: readonly TestPerson[];
+  // More plugins on the same kernel.
+  readonly plugins?: readonly PluginDefinition[];
+  // Answers the plugins' outbound HTTP; without it, any throws.
+  readonly fetch?: (request: Request) => Response | Promise<Response>;
+  readonly solo?: boolean;
+}
+
+export interface ToolAnswer {
+  readonly text: string;
+  readonly isError: boolean;
+  readonly details?: unknown;
+}
+
+export type Duration = number | `${number}${"s" | "m" | "h" | "d"}`;
+
+export interface TestSession {
+  readonly id: string;
+  // Connects or drops its host, which takes what the outbox holds.
+  readonly online: (on: boolean) => Promise<void>;
+  // What reached its host, which arrives a moment after it is sent.
+  readonly delivered: () => readonly {
+    readonly text: string;
+    readonly turn: boolean;
+    readonly notice?: unknown;
+  }[];
+  readonly queued: () => readonly { readonly text: string }[];
+  readonly transcript: (lines: readonly unknown[]) => Promise<void>;
+  readonly archive: () => Promise<void>;
+}
+
+export interface PluginTest {
+  readonly as: (personId: string) => TypedClient & {
+    readonly raw: (
+      method: Method,
+      path: string,
+      init?: RequestInit,
+    ) => Promise<Response>;
+  };
+  readonly public: () => {
+    readonly raw: (
+      method: Method,
+      path: string,
+      init?: RequestInit,
+    ) => Promise<Response>;
+    readonly webhook: (
+      path: string,
+      body: string,
+      secret: string,
+    ) => Promise<Response>;
+  };
+  readonly session: (o: {
+    readonly owner: Owner;
+    readonly startedBy?: string;
+    readonly key?: string;
+    readonly plugin?: string;
+  }) => Promise<TestSession>;
+  readonly tool: (
+    name: string,
+    input: unknown,
+    o: { readonly session: TestSession; readonly answer?: "allow" | "deny" },
+  ) => Promise<ToolAnswer>;
+  readonly emit: (event: KernelEvent) => void;
+  readonly emitted: (type: string) => readonly {
+    readonly fields: unknown;
+    readonly to: readonly Owner[];
+  }[];
+  readonly clock: {
+    readonly now: () => number;
+    readonly advance: (by: Duration) => Promise<void>;
+  };
+  // Stops the server and starts a new one on the same database.
+  readonly restart: () => Promise<void>;
+  readonly store: Store;
+  readonly topics: readonly string[];
+  readonly log: readonly {
+    readonly message: string;
+    readonly fields?: unknown;
+  }[];
+  readonly close: () => Promise<void>;
+}
+
+type Kernel = (
+  plugin: PluginDefinition,
+  o: TestPluginOptions,
+) => Promise<PluginTest>;
+
+// Set by the repository's test setup, since the kernel is the server's.
+const kernelKey = Symbol.for("pipoca.test-kernel");
+
+// The plugin on the real server, its tables in an SQLite database of its
+// own, with a clock that moves only when the test says.
+export async function testPlugin(
+  plugin: PluginDefinition,
+  o: TestPluginOptions = {},
+): Promise<PluginTest> {
+  const kernel = (globalThis as Record<symbol, unknown>)[kernelKey] as
+    (() => Promise<Kernel>) | undefined;
+
+  if (kernel === undefined) {
+    throw new Error(
+      "testPlugin needs the Pipoca server; run bun test from the repository's root",
+    );
+  }
+
+  return (await kernel())(plugin, o);
+}
+
+export function person(id: string): Owner {
+  return owners.of(id);
+}
+
+export interface SessionTest {
+  readonly tool: (name: string, input: unknown) => Promise<ToolAnswer>;
+  readonly published: (key: string) => unknown;
+}
+
+// A Session part against a stand-in for Pi. Members of the cloud the test
+// doesn't pass throw when called, except publish, which it records.
+export async function testSession(
+  plugin: SessionPlugin,
+  cloud: Partial<SessionCloud> = {},
+): Promise<SessionTest> {
+  const notFaked = (name: string) => (): never => {
+    throw new Error(`${name} is not faked; pass it to testSession`);
+  };
+
+  const published = new Map<string, unknown>();
+  const tools: ToolDefinition[] = [];
+
+  const given: SessionCloud = {
+    askQuestions: notFaked("askQuestions"),
+    askPermission: notFaked("askPermission"),
+    checkouts: [],
+    settings: {},
+    request: notFaked("request"),
+    log: () => undefined,
+    startChild: notFaked("startChild"),
+    ...cloud,
+    publish: (key, data, options) => {
+      published.set(key, data);
+      cloud.publish?.(key, data, options);
+    },
+  };
+
+  const pi = {
+    registerTool: (tool: ToolDefinition) => {
+      tools.push(tool);
+    },
+    registerCommand: () => undefined,
+    on: () => undefined,
+  };
+
+  await plugin.extension?.(given)(pi as unknown as ExtensionAPI);
+  tools.push(...((await plugin.tools?.(given)) ?? []));
+
+  return {
+    tool: async (name, input) => {
+      const tool = tools.findLast((each) => each.name === name);
+
+      if (tool === undefined) {
+        throw new Error(`${plugin.name} has no tool ${name}`);
+      }
+
+      try {
+        const { content, details } = await tool.execute(
+          "call-1",
+          input,
+          undefined,
+          undefined,
+          {} as ExtensionToolContext,
+        );
+
+        return {
+          text: content
+            .flatMap((part) => (part.type === "text" ? [part.text] : []))
+            .join("\n"),
+          isError: false,
+          ...(details !== undefined && { details }),
+        };
+      } catch (error) {
+        return {
+          text: error instanceof Error ? error.message : String(error),
+          isError: true,
+        };
+      }
+    },
+    published: (key) => published.get(key),
+  };
+}
 
 // A store in memory with the plugin's tables, for a plugin's tests. It seals
 // nothing, and has no kernel tables for the plugin's to reference.

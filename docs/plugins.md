@@ -221,6 +221,22 @@ const response = await route?.(
 );
 ```
 
+A plugin made with `definePlugin` runs in its tests on the real server instead. `testPlugin(plugin, { people, config, plugins, fetch })` starts one with its own database, the plugin's tables and the people you name, and returns what a test drives it with. `as(personId)` calls its routes as that person, `session({ owner: person(id) })` starts a Session with a stand-in host that you take `online(false)` and back, `tool(name, input, { session, answer })` calls a tool as that Session does, and `clock.advance("1h")` moves time so its schedules fire. `restart()` starts a new server on the same database. A request the plugin makes to another server fails unless `fetch` answers it. Run these tests with `bun test` from the repository's root, whose test setup gives `testPlugin` the server.
+
+```ts
+import { person, testPlugin } from "@pipoca/plugins/testing";
+import { reminders } from "./plugin";
+
+const t = await testPlugin(reminders, { people: [{ id: "ana" }] });
+const session = await t.session({ owner: person("ana") });
+
+await session.online(false);
+await t.as("ana").post("reminders", { session: session.id });
+await t.clock.advance("1h");
+
+expect(session.queued()).toEqual([{ text: "Time is up." }]);
+```
+
 ## Know the limits
 
 - A plugin runs with the server's own access. Capabilities catch mistakes but don't sandbox anything, so turn on only plugins you trust.
