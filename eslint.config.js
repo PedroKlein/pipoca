@@ -197,10 +197,7 @@ export default tseslint.config(
       "apps/web/src/registry.ts",
       // Until these plugins' tests move into the plugins.
       "apps/pipoca/src/kubernetes.test.ts",
-      "apps/pipoca/src/models.test.ts",
       "apps/pipoca/src/projects.test.ts",
-      "apps/pipoca/src/team-sessions.test.ts",
-      "apps/pipoca/src/toolsets.test.ts",
       "packages/sessionhost/src/host.test.ts",
       "packages/sessionhost/src/subagents.test.ts",
     ],
