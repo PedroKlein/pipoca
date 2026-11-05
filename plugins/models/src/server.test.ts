@@ -87,18 +87,18 @@ async function savedAliases(route: PluginRoute): Promise<unknown> {
 const aliases = { models: { fast: ["local/llama"] } };
 
 test.each([
-  ["no body", ""],
-  ["broken JSON", '{"aliases":'],
-  ["no aliases key", "{}"],
-  ["a misspelled aliases key", JSON.stringify({ alias: aliases })],
-])("a save with %s keeps the saved aliases", async (_, body) => {
+  ["no body", "", 400],
+  ["broken JSON", '{"aliases":', 400],
+  ["no aliases key", "{}", 422],
+  ["a misspelled aliases key", JSON.stringify({ alias: aliases }), 422],
+])("a save with %s keeps the saved aliases", async (_, body, status) => {
   const route = registered(new AbortController().signal);
   await saveAliases(route, JSON.stringify({ aliases }));
   const seen = await configVersion(route);
 
   const response = await saveAliases(route, body);
 
-  expect(response.status).toBe(400);
+  expect(response.status).toBe(status);
   expect(await savedAliases(route)).toEqual(aliases);
   expect(await configVersion(route)).toBe(seen);
 });
