@@ -215,27 +215,39 @@ export interface When {
   ) => boolean;
 }
 
-export interface ToolDef<Pm extends TSchema = TSchema> {
+// One kind of tool, run on the server with a ToolCall or in the Session with
+// a SessionToolCall.
+export interface ToolDef<Pm extends TSchema = TSchema, Call = ToolCall> {
   readonly name: string;
   readonly label?: string;
   readonly description: string;
   readonly params: Pm;
+  // Which Sessions get a server tool. A Session part's tools are in every
+  // Session the plugin is on in.
   readonly when?: When;
   // The question to ask the person before it runs, or undefined to run
   // without asking.
   readonly asks?: (
     input: Static<Pm>,
-    call: ToolCall,
+    call: Call,
   ) => string | undefined | Promise<string | undefined>;
   readonly annotations?: {
     readonly readOnly?: boolean;
     readonly destructive?: boolean;
   };
   readonly exposure?: "direct" | "deferred";
+  // What the system prompt says about the tool, as Pi's own tools do.
+  readonly prompt?: {
+    readonly snippet: string;
+    readonly guidelines?: readonly string[];
+  };
+  // Runs alone, never beside the turn's other tool calls.
+  readonly sequential?: boolean;
+  // A user's own tool of this name wins.
   readonly replaceable?: boolean;
   readonly run: (
     input: Static<Pm>,
-    call: ToolCall,
+    call: Call,
   ) => ToolOutput | Promise<ToolOutput>;
 }
 

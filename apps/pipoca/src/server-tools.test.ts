@@ -46,6 +46,11 @@ const keys = defineServer(
       name: "count_keys",
       description: "Counts keys",
       params: Type.Object({ count: Type.Integer() }),
+      prompt: {
+        snippet: "Count keys before you wipe them",
+        guidelines: ["Count again after a wipe"],
+      },
+      sequential: true,
       run: (input) => {
         ran.push(input);
 
@@ -302,6 +307,23 @@ test("leaves a team-only tool out of personal work", async () => {
     text: "no tool named team_keys",
     isError: true,
   });
+});
+
+test("tells the Session what the system prompt says about a tool, and that it runs alone", async () => {
+  const { token, environment } = await laptop();
+  await ordinary(environment);
+  const assigned = await claim(token);
+
+  const count = (await toolsOf(token, assigned)).find(
+    ({ name }) => name === "count_keys",
+  );
+
+  expect(count?.prompt).toEqual({
+    snippet: "Count keys before you wipe them",
+    guidelines: ["Count again after a wipe"],
+  });
+
+  expect(count?.sequential).toBe(true);
 });
 
 test("says a tool asks, and what to ask the person, before every call", async () => {

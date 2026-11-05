@@ -1,4 +1,4 @@
-import { type Api, type Model, Type } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   defineTool,
   type ExtensionFactory,
@@ -6,17 +6,14 @@ import {
   type InlineExtension,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import {
-  isHttpError,
-  type SessionContext,
-  type SessionPart,
-  type SessionTool,
-  type SessionToolCall,
-  type ToolOutput,
+import type {
+  SessionContext,
+  SessionPart,
+  SessionTool,
+  SessionToolCall,
 } from "@pipoca/plugins";
-import { isToolError, pluginClient } from "@pipoca/plugins/host";
-import type { Log } from "@pipoca/protocol";
-import { repairArguments } from "./arguments";
+import { pluginClient, toolAnswer, toolSpecOf } from "@pipoca/plugins/host";
+import { piToolOf } from "./tools";
 
 export type PartHost = Omit<
   SessionContext,
@@ -45,6 +42,12 @@ export async function setUpPart(
     ...host,
     tools: {
       define: (tool) => {
+        if (tool.when !== undefined) {
+          throw new Error(
+            `${tool.name} has a when rule, which only a server tool takes`,
+          );
+        }
+
         tools.push(tool);
       },
     },
@@ -102,34 +105,18 @@ function piTool(
   tool: SessionTool,
   host: Pick<PartHost, "askPermission" | "log" | "clock">,
 ): ToolDefinition {
-  const schema = tool.params as unknown as Readonly<Record<string, unknown>>;
-
   return defineTool({
-    name: tool.name,
-    label: tool.label ?? tool.name,
-    description: tool.description,
-    parameters: Type.Unsafe<unknown>(schema),
-    prepareArguments: (args) => repairArguments(args, schema),
-    ...(tool.exposure && { exposure: tool.exposure }),
-    ...(tool.prompt && {
-      promptSnippet: tool.prompt.snippet,
-      ...(tool.prompt.guidelines && {
-        promptGuidelines: [...tool.prompt.guidelines],
-      }),
-    }),
-    ...(tool.sequential === true && { executionMode: "sequential" }),
-    ...(tool.annotations && {
-      annotations: {
-        ...(tool.annotations.readOnly !== undefined && {
-          readOnlyHint: tool.annotations.readOnly,
-        }),
-        ...(tool.annotations.destructive !== undefined && {
-          destructiveHint: tool.annotations.destructive,
-        }),
-      },
-    }),
+    ...piToolOf(toolSpecOf(tool)),
     execute: async (id, input, signal, _update, ctx) => {
-      const question = await tool.asks?.(input);
+      const model: Model<Api> | undefined = ctx.model;
+
+      const call: SessionToolCall = {
+        id,
+        signal,
+        ...(model && { complete: completion(ctx.modelRegistry, model, host) }),
+      };
+
+      const question = await tool.asks?.(input, call);
 
       if (
         question !== undefined &&
@@ -138,27 +125,20 @@ function piTool(
         throw new Error("The person said no.");
       }
 
-      const model: Model<Api> | undefined = ctx.model;
-
-      const output = await ran(
-        tool,
-        input,
-        {
-          id,
-          signal,
-          ...(model && {
-            complete: completion(ctx.modelRegistry, model, host),
-          }),
-        },
+      const result = await toolAnswer(
+        tool.name,
+        async () => tool.run(input, call),
         host.log,
       );
 
-      return typeof output === "string"
-        ? { content: [{ type: "text", text: output }], details: {} }
-        : {
-            content: [{ type: "text", text: output.text }],
-            details: output.details ?? {},
-          };
+      if (result.isError) {
+        throw new Error(result.text);
+      }
+
+      return {
+        content: [{ type: "text", text: result.text }],
+        details: result.details ?? {},
+      };
     },
   });
 }
@@ -191,23 +171,4 @@ function completion(
       .join("\n")
       .trim();
   };
-}
-
-async function ran(
-  tool: SessionTool,
-  input: unknown,
-  call: SessionToolCall,
-  log: Log,
-): Promise<ToolOutput> {
-  try {
-    return await tool.run(input, call);
-  } catch (error) {
-    if (isToolError(error) || isHttpError(error)) {
-      throw new Error(error.message, { cause: error });
-    }
-
-    log("tool failed", { tool: tool.name, error: String(error) });
-
-    throw new Error("The tool failed", { cause: error });
-  }
 }

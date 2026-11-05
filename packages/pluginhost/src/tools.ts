@@ -1,6 +1,5 @@
 import {
   fieldsOf,
-  isHttpError,
   type Person,
   type RouteRequest,
   type ServerTool,
@@ -8,7 +7,7 @@ import {
   type ToolDef,
   type Toolset,
 } from "@pipoca/plugins";
-import { checkBody, isToolError } from "@pipoca/plugins/host";
+import { checkBody, toolAnswer, toolSpecOf } from "@pipoca/plugins/host";
 import {
   type Log,
   type Method,
@@ -235,23 +234,7 @@ export function definedTool(
 
   return {
     plugin,
-    spec: {
-      name: tool.name,
-      description: tool.description,
-      parameters: { ...tool.params },
-      ...(tool.label !== undefined && { label: tool.label }),
-      ...(tool.exposure !== undefined && { exposure: tool.exposure }),
-      ...(tool.annotations && {
-        annotations: {
-          ...(tool.annotations.readOnly !== undefined && {
-            readOnlyHint: tool.annotations.readOnly,
-          }),
-          ...(tool.annotations.destructive !== undefined && {
-            destructiveHint: tool.annotations.destructive,
-          }),
-        },
-      }),
-    },
+    spec: toolSpecOf(tool),
     applies: (session) => {
       const owner = when?.owner ?? "any";
       const call = callOf(session);
@@ -280,25 +263,11 @@ export function definedTool(
         return { text: messageOf(error), isError: true };
       }
 
-      try {
-        const output = await tool.run(checked, callOf(session));
-
-        return typeof output === "string"
-          ? { text: output, isError: false }
-          : {
-              text: output.text,
-              isError: false,
-              ...(output.details !== undefined && { details: output.details }),
-            };
-      } catch (error) {
-        if (isToolError(error) || isHttpError(error)) {
-          return { text: error.message, isError: true };
-        }
-
-        deps.log("tool failed", { tool: tool.name, error: messageOf(error) });
-
-        return { text: "The tool failed", isError: true };
-      }
+      return toolAnswer(
+        tool.name,
+        async () => tool.run(checked, callOf(session)),
+        deps.log,
+      );
     },
   };
 }

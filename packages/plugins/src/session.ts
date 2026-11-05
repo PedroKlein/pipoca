@@ -6,7 +6,7 @@ import type { Clock, Log, Timer } from "@pipoca/protocol";
 import type { Static, TSchema } from "typebox";
 import type { TypedClient } from "./client";
 import type { PluginDefinition } from "./definition";
-import type { ToolOutput } from "./server";
+import type { ToolDef } from "./server";
 import type {
   AskPermission,
   AskQuestions,
@@ -25,35 +25,10 @@ export interface SessionToolCall {
   }) => Promise<string>;
 }
 
-export interface SessionTool<Pm extends TSchema = TSchema> {
-  readonly name: string;
-  readonly label?: string;
-  readonly description: string;
-  readonly params: Pm;
-  // The question to ask the person before it runs, or undefined to run
-  // without asking.
-  readonly asks?: (
-    input: Static<Pm>,
-  ) => string | undefined | Promise<string | undefined>;
-  readonly annotations?: {
-    readonly readOnly?: boolean;
-    readonly destructive?: boolean;
-  };
-  readonly exposure?: "direct" | "deferred";
-  // What the system prompt says about the tool, as Pi's own tools do.
-  readonly prompt?: {
-    readonly snippet: string;
-    readonly guidelines?: readonly string[];
-  };
-  // Runs alone, never beside the turn's other tool calls.
-  readonly sequential?: boolean;
-  // A user's own tool of this name wins.
-  readonly replaceable?: boolean;
-  readonly run: (
-    input: Static<Pm>,
-    call: SessionToolCall,
-  ) => ToolOutput | Promise<ToolOutput>;
-}
+export type SessionTool<Pm extends TSchema = TSchema> = ToolDef<
+  Pm,
+  SessionToolCall
+>;
 
 export type ConfigValue<P extends PluginDefinition> = [P["config"]] extends [
   TSchema,

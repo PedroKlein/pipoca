@@ -20,4 +20,5 @@ export {
 export { isToolError, readJson } from "./http";
 export { envSecrets, type EnvSecrets, secretRefs } from "./secrets";
 export { checkedSettings, settingSpecs, settingValues } from "./settings";
+export { toolAnswer, toolSpecOf } from "./tools";
 export { transcriptReader } from "./transcript";

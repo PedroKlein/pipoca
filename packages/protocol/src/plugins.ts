@@ -226,6 +226,13 @@ export const toolSpec = Type.Object({
   annotations: Type.Optional(toolAnnotations),
   // The Session asks the server what to ask the person before each call.
   asks: Type.Optional(Type.Boolean()),
+  prompt: Type.Optional(
+    Type.Object({
+      snippet: Type.String(),
+      guidelines: Type.Optional(Type.Array(Type.String())),
+    }),
+  ),
+  sequential: Type.Optional(Type.Boolean()),
 });
 
 export type ToolSpec = Wire<typeof toolSpec>;
