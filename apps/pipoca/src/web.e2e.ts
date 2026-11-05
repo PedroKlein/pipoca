@@ -4116,7 +4116,7 @@ test("shows plugin panels on the team hub and lets an admin lay out a page of th
   await page.getByRole("button", { name: "Remove page" }).click();
   await page.getByRole("heading", { name: "Team home" }).waitFor();
 
-  expect(await nav.getByRole("link", { name: "Costs" }).count()).toBe(0);
+  await nav.getByRole("link", { name: "Costs" }).waitFor({ state: "detached" });
 });
 
 test("an admin sets up team work from Team setup: its Profiles, Environments, credentials, budgets and audit log", async () => {
