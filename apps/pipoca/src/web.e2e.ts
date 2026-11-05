@@ -601,7 +601,6 @@ test("infers the workspace from what the New session composer picks and remember
       workspace: {
         kind: "clone",
         repository: "https://example.com/a.git",
-        startPoint: "",
       },
     },
     {
@@ -614,6 +613,9 @@ test("infers the workspace from what the New session composer picks and remember
       },
     },
   ]);
+
+  // A blank start point is left out rather than sent empty.
+  expect(JSON.stringify(asked)).not.toContain("startPoint");
 
   expect(
     await form
