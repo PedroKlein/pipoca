@@ -270,8 +270,8 @@ test("a fresh coordinator takes over with a handoff once Pi compacts", async () 
     return found.coordinatorId === s.project.coordinatorId ? undefined : found;
   });
 
-  expect(project.formerCoordinators).toEqual([s.project.coordinatorId]);
-  expect(project.coordinatorState).not.toBe("archived");
+  expect(project?.formerCoordinators).toEqual([s.project.coordinatorId]);
+  expect(project?.coordinatorState).not.toBe("archived");
 });
 
 test("a team Project has no owner and every person sees it", async () => {

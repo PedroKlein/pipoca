@@ -591,7 +591,17 @@ export const server = defineServer(projects, (context) => {
 
   routes.get(
     "projects",
-    { auth: "person", team: true },
+    {
+      auth: "person",
+      team: true,
+      tool: {
+        name: "projects_list",
+        description:
+          "List Projects with their coordinator, thread counts and how many threads need the user.",
+        exposure: "direct",
+        annotations: { readOnlyHint: true },
+      },
+    },
     ({ caller }): ProjectSummary[] =>
       store
         .list()

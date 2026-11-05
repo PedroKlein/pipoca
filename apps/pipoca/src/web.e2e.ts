@@ -431,19 +431,9 @@ test("chats from Pi's own TUI and goes back to the chat when Pi quits", async ()
 }, 30_000);
 
 test("asks the assistant from the home screen with the model picked, then continues there", async () => {
-  faux.setResponses([
-    fauxAssistantMessage([fauxText("From before")]),
-    fauxAssistantMessage([fauxText("Happy to help")]),
-  ]);
-
-  await fetch(new URL("/api/ext/meta/sessions", server.url), {
-    method: "POST",
-    headers: { cookie, "content-type": "application/json" },
-    body: JSON.stringify({ text: "An older question" }),
-  });
+  faux.setResponses([fauxAssistantMessage([fauxText("Happy to help")])]);
 
   await page.goto(server.url.href);
-  await page.getByRole("heading", { name: "Earlier conversations" }).waitFor();
 
   await page
     .getByRole("heading", { name: "What do you want to build today?" })
@@ -495,11 +485,25 @@ test("asks the assistant from the home screen with the model picked, then contin
   expect(await model.count()).toBe(0);
 
   expect(
-    await page.getByRole("heading", { name: "Earlier conversations" }).count(),
+    await page.getByRole("link", { name: "Earlier conversations" }).count(),
   ).toBe(0);
 
+  // Starting fresh keeps the conversation before it reachable.
+  await fetch(
+    new URL(
+      `/api/ext/projects/projects/${projectHash.split("/").at(-1) ?? ""}/fresh`,
+      server.url,
+    ),
+    { method: "POST", headers: { cookie } },
+  );
+
   await page.getByRole("link", { name: "Earlier conversations" }).click();
-  await page.getByRole("link", { name: "An older question" }).waitFor();
+  await page.getByRole("heading", { name: "Earlier conversations" }).waitFor();
+  await page.getByRole("link", { name: /What can you do/ }).click();
+
+  await page
+    .locator('#chat li[data-role="assistant"]', { hasText: "Happy to help" })
+    .waitFor();
 
   await page.getByRole("link", { name: "Assistant", exact: true }).click();
   await page.waitForURL((url) => url.hash === projectHash);
@@ -2733,10 +2737,7 @@ test("creates a Project and shares a file through its library", async () => {
   await side.waitFor();
   await side.getByRole("button", { name: "Back to threads" }).click();
 
-  const pluginNav = page.locator("#plugin-nav");
-
-  await pluginNav.getByRole("button", { name: "More" }).click();
-  await pluginNav.getByRole("link", { name: "Library" }).click();
+  await page.getByRole("button", { name: "Project library" }).click();
 
   await page.getByText("No files yet.").waitFor();
 

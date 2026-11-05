@@ -47,6 +47,7 @@ import {
   stopSession,
 } from "./session";
 import { openTerminal, type Terminal, type TerminalOptions } from "./terminal";
+import { permissionDetails } from "./details";
 import { serverTools } from "./tools";
 import { piView } from "./tui";
 
@@ -337,16 +338,39 @@ export async function hostSession(
 
   const ui = { ...prompts.ui, ...surfaces.ui };
 
+  const specs = await stream.tools();
+
+  // A tool the person let run for the rest of the Session asks no more.
+  const allowed = new Set<string>();
+
   const calls = serverTools(
-    await stream.tools(),
+    specs,
     stream.callTool,
     async (name, input, signal) => {
+      if (allowed.has(name)) {
+        return true;
+      }
+
       const question = await stream.toolQuestion(name, input);
 
-      return (
-        question === undefined ||
-        (await prompts.permission(question, [], signal)) !== "deny"
+      if (question === undefined) {
+        return true;
+      }
+
+      const answer = await prompts.permission(
+        question,
+        permissionDetails(
+          input,
+          specs.find((spec) => spec.name === name)?.parameters,
+        ),
+        signal,
       );
+
+      if (answer === "session") {
+        allowed.add(name);
+      }
+
+      return answer !== "deny";
     },
     options.serverToolTimeoutMs,
   );

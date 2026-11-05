@@ -544,21 +544,18 @@ test("lets an email invite in once, and not after an admin revokes it", async ()
   expect(await json(server.as(pedros)("/api/invites"))).toEqual([]);
 });
 
-test("a person lists only the meta-sessions they started", async () => {
+test("a person's assistant is theirs alone", async () => {
   const anas = await ana();
   await environment(await server.signedIn(), "mac");
 
-  const started = await server.api("/api/ext/meta/sessions", {
-    body: {
-      text: "what can you do?",
-    },
+  const started = await server.api("/api/ext/projects/assistant", {
+    body: { text: "what can you do?" },
   });
 
-  expect(started.status).toBe(201);
+  expect(started.status).toBe(200);
+  expect((await server.api("/api/ext/projects/assistant")).status).toBe(200);
 
-  expect(
-    await json<Session[]>(server.api("/api/ext/meta/sessions")),
-  ).toHaveLength(1);
-
-  expect(await json(server.as(anas)("/api/ext/meta/sessions"))).toEqual([]);
+  expect((await server.as(anas)("/api/ext/projects/assistant")).status).toBe(
+    404,
+  );
 });

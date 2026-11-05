@@ -22,7 +22,7 @@ type Context = SessionContext<typeof projects>;
 const skipped = new Set([".git", "node_modules", ".build"]);
 
 // Only Sessions in a Project get the library's tools, and only the
-// assistant's threads install what they built (ADR 0018, ADR 0052).
+// assistant's Sessions install what its threads built (ADR 0018, ADR 0052).
 export const session = defineSession(projects, async (s) => {
   const member = await s.api
     .get<Membership>("member")
@@ -40,7 +40,7 @@ export const session = defineSession(projects, async (s) => {
 
   libraryTools(s);
 
-  if (member.assistant && member.role === "thread") {
+  if (member.assistant) {
     installTools(s);
   }
 });
