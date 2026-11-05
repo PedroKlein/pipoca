@@ -1,5 +1,17 @@
 import type { EnvironmentTemplate, ManifestEntry } from "@pipoca/protocol";
-import { Button, cn, ErrorText, Field, fieldClass, type KeyValue, KeyValues, Section, Select, useConfirm } from "@pipoca/ui";
+import {
+  Button,
+  Card,
+  cn,
+  ErrorText,
+  Field,
+  fieldClass,
+  type KeyValue,
+  KeyValues,
+  Section,
+  Select,
+  useConfirm,
+} from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import { api, send } from "./api";
 import { PluginBoundary } from "./plugin-boundary";
@@ -84,7 +96,7 @@ export function Templates({
         </form>
       )}
       {templates.length > 0 && (
-        <div className="divide-y divide-line overflow-hidden rounded-lg border border-line bg-elevated shadow-xs">
+        <Card padding="none" className="divide-y divide-line overflow-hidden">
           {templates.map((template) => (
             <TemplateEditor
               key={template.id}
@@ -92,7 +104,7 @@ export function Templates({
               onChange={onChange}
             />
           ))}
-        </div>
+        </Card>
       )}
     </Section>
   );
@@ -154,7 +166,7 @@ function FromRepository({
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-line bg-elevated p-4 shadow-xs">
+    <Card padding="none" className="flex flex-col gap-3 p-4">
       <form
         onSubmit={list}
         aria-label="Templates from a repository"
@@ -189,7 +201,7 @@ function FromRepository({
         </form>
       )}
       <ErrorText size="caption">{error}</ErrorText>
-    </div>
+    </Card>
   );
 }
 

@@ -4,7 +4,7 @@ import type {
   WebContext,
   WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, cn, ErrorText, Icon, isComposing } from "@pipoca/ui";
+import { Button, cn, ErrorText, Icon, isComposing, popClass } from "@pipoca/ui";
 import {
   Fragment,
   type ReactElement,
@@ -213,7 +213,9 @@ function Checkout({
           >
             Discard
           </Button>
-          <ErrorText inline size="inherit">{sendError}</ErrorText>
+          <ErrorText inline size="inherit">
+            {sendError}
+          </ErrorText>
         </div>
       )}
     </div>
@@ -292,9 +294,7 @@ function PullRequestActions({
         )}
       </div>
       {problem !== undefined && problem !== null && (
-        <ErrorText className="max-w-80 text-right">
-          {problem}
-        </ErrorText>
+        <ErrorText className="max-w-80 text-right">{problem}</ErrorText>
       )}
     </div>
   );
@@ -348,7 +348,7 @@ function CreateMenu({
       {open && (
         <ul
           role="menu"
-          className="absolute top-full right-0 z-10 mt-1 w-48 rounded-lg border border-line bg-elevated p-1 shadow-pop animate-pop-in"
+          className={cn(popClass, "absolute top-full right-0 z-10 mt-1 w-48")}
         >
           {modes.map(({ command, label }) => (
             <li key={command} role="none">

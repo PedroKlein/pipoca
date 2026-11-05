@@ -10,7 +10,15 @@ import {
   type WebPlugin,
 } from "@pipoca/plugins/web";
 import type { Environment, ModelRef, Session } from "@pipoca/protocol";
-import { Button, cn, ErrorText, Icon, isComposing, PageTitle, Picker } from "@pipoca/ui";
+import {
+  Button,
+  cn,
+  ErrorText,
+  Icon,
+  isComposing,
+  PageTitle,
+  Picker,
+} from "@pipoca/ui";
 import {
   type ReactElement,
   type SubmitEvent,

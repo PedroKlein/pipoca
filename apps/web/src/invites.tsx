@@ -1,11 +1,27 @@
 import type { Invite } from "@pipoca/protocol";
-import { Badge, Button, Cell, cn, CopyButton, Dialog, ErrorText, Icon, Segmented, Select, Table } from "@pipoca/ui";
-import { type ClipboardEvent, type KeyboardEvent, type ReactElement, useState } from "react";
+import {
+  Badge,
+  Button,
+  Cell,
+  cn,
+  CopyButton,
+  Dialog,
+  ErrorText,
+  Icon,
+  Segmented,
+  Select,
+  Table,
+} from "@pipoca/ui";
+import {
+  type ClipboardEvent,
+  type KeyboardEvent,
+  type ReactElement,
+  useState,
+} from "react";
 import { api, send } from "./api";
 import { TheirSetup } from "./newcomers";
 
 export type Made = Invite & { readonly token: string };
-
 
 export function linkOf(token: string): string {
   return `${location.origin}/#join/${token}`;
@@ -46,45 +62,43 @@ export function InvitesTable({
         </span>,
       ]}
     >
-        {invites.map((invite) => {
-          const name = invite.email ?? "Link anyone can join with";
+      {invites.map((invite) => {
+        const name = invite.email ?? "Link anyone can join with";
 
-          return (
-            <tr key={invite.id} aria-label={name}>
-              <Cell>
-                <span className="flex flex-col">
-                  <span className="text-fg-strong">{name}</span>
-                  {invite.email === null && (
-                    <span className="text-label text-fg-dim">
-                      {invite.uses === 1
-                        ? "1 person joined"
-                        : `${String(invite.uses)} people joined`}
-                    </span>
-                  )}
-                </span>
-              </Cell>
-              <Cell>
-                <Badge state="offline">
-                  {invite.admin ? "Admin" : "Member"}
-                </Badge>
-              </Cell>
-              <Cell className="text-label text-fg-dim">
-                {dateOf(invite.expiresAt)}
-              </Cell>
-              <Cell className="text-right">
-                <Button
-                  variant="ghost"
-                  aria-label={`Revoke ${name}`}
-                  onClick={() => {
-                    onRevoke(invite);
-                  }}
-                >
-                  Revoke
-                </Button>
-              </Cell>
-            </tr>
-          );
-        })}
+        return (
+          <tr key={invite.id} aria-label={name}>
+            <Cell>
+              <span className="flex flex-col">
+                <span className="text-fg-strong">{name}</span>
+                {invite.email === null && (
+                  <span className="text-label text-fg-dim">
+                    {invite.uses === 1
+                      ? "1 person joined"
+                      : `${String(invite.uses)} people joined`}
+                  </span>
+                )}
+              </span>
+            </Cell>
+            <Cell>
+              <Badge state="offline">{invite.admin ? "Admin" : "Member"}</Badge>
+            </Cell>
+            <Cell className="text-label text-fg-dim">
+              {dateOf(invite.expiresAt)}
+            </Cell>
+            <Cell className="text-right">
+              <Button
+                variant="ghost"
+                aria-label={`Revoke ${name}`}
+                onClick={() => {
+                  onRevoke(invite);
+                }}
+              >
+                Revoke
+              </Button>
+            </Cell>
+          </tr>
+        );
+      })}
     </Table>
   );
 }
@@ -106,12 +120,7 @@ export function InviteDialog({
   readonly onChangeSetup: () => void;
 }): ReactElement {
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      labelledBy="invite-title"
-      size="md"
-    >
+    <Dialog open={open} onClose={onClose} labelledBy="invite-title" size="md">
       <InviteForm onClose={onClose} onChangeSetup={onChangeSetup} />
     </Dialog>
   );

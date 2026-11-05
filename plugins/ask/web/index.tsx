@@ -6,7 +6,16 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, cn, Dialog, ErrorText, Field, fieldClass, Icon, ListInput } from "@pipoca/ui";
+import {
+  Button,
+  cn,
+  Dialog,
+  ErrorText,
+  Field,
+  fieldClass,
+  Icon,
+  ListInput,
+} from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import type { Vote, Votes } from "../src/votes";
 
@@ -182,12 +191,7 @@ function OpenVoteDialog({
   readonly onClose: () => void;
 }): ReactElement {
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      labelledBy="vote-title"
-      size="sm"
-    >
+    <Dialog open={open} onClose={onClose} labelledBy="vote-title" size="sm">
       <VoteForm context={context} session={session} onDone={onClose} />
     </Dialog>
   );

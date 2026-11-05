@@ -124,7 +124,9 @@ function SettingsSection({
           )}
         </Row>
       </Rows>
-      <ErrorText size="caption" className="mt-2">{error}</ErrorText>
+      <ErrorText size="caption" className="mt-2">
+        {error}
+      </ErrorText>
     </>
   );
 }

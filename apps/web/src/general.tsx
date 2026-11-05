@@ -1,4 +1,12 @@
-import { Badge, Button, PageTitle, Row, Rows, Section, Segmented } from "@pipoca/ui";
+import {
+  Badge,
+  Button,
+  PageTitle,
+  Row,
+  Rows,
+  Section,
+  Segmented,
+} from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { api } from "./api";
 import { PluginBoundary } from "./plugin-boundary";
@@ -35,9 +43,7 @@ export function GeneralPage({
           title={
             <>
               {user}
-              {admin && (
-                <Badge>Admin</Badge>
-              )}
+              {admin && <Badge>Admin</Badge>}
             </>
           }
           description={`Signed in to ${location.host}`}

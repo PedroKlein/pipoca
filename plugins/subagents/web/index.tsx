@@ -7,7 +7,16 @@ import type {
   WebPlugin,
 } from "@pipoca/plugins/web";
 import { useNow } from "@pipoca/plugins/web";
-import { Button, cn, Code, Icon, isComposing, StatusMark } from "@pipoca/ui";
+import {
+  Button,
+  Card,
+  cardClass,
+  cn,
+  Code,
+  Icon,
+  isComposing,
+  StatusMark,
+} from "@pipoca/ui";
 import { type ReactElement, useEffect, useState } from "react";
 import {
   type ChildView,
@@ -117,7 +126,6 @@ function useMissions(session: MountedSession): readonly MissionView[] {
   return [...missions.values()].reverse();
 }
 
-
 function SubagentCall({ call, session }: ToolCallProps): ReactElement {
   const runs = useRuns(session);
   const runId = runIdOf(call.result?.details);
@@ -128,13 +136,14 @@ function SubagentCall({ call, session }: ToolCallProps): ReactElement {
   }
 
   return (
-    <div
+    <Card
+      padding="none"
       data-subagent-run={runId}
       data-subagent-tone={run ? toneOf(runState(run)) : call.status}
-      className="overflow-hidden rounded-lg border border-line bg-elevated shadow-xs"
+      className="overflow-hidden"
     >
       {run ? <Run run={run} session={session} /> : <Pending call={call} />}
-    </div>
+    </Card>
   );
 }
 
@@ -472,12 +481,9 @@ function FleetButton({ session }: SessionPartProps): ReactElement | null {
             <Mission key={mission.id} mission={mission} session={session} />
           ))}
           {runs.map((run) => (
-            <div
-              key={run.id}
-              className="overflow-hidden rounded-lg border border-line bg-elevated shadow-xs"
-            >
+            <Card padding="none" key={run.id} className="overflow-hidden">
               <Run run={run} session={session} />
-            </div>
+            </Card>
           ))}
         </div>
       </section>
@@ -579,7 +585,7 @@ function Mission({
   return (
     <section
       aria-label={`Mission ${mission.title}`}
-      className="flex flex-col gap-2 rounded-lg border border-line bg-elevated px-3 py-2 shadow-xs"
+      className={cn(cardClass, "flex flex-col gap-2 px-3 py-2")}
     >
       <div className="flex items-center gap-2">
         <Icon name="pin" className="size-3.5 shrink-0 text-fg-dim" />

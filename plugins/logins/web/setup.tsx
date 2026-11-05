@@ -4,7 +4,20 @@ import {
   useLoaded,
   type WebContext,
 } from "@pipoca/plugins/web";
-import { Avatar, Badge, Button, ChoiceTiles, ErrorText, initialsOf, Picker, Row, Rows, Segmented } from "@pipoca/ui";
+import {
+  Avatar,
+  Badge,
+  Button,
+  cardClass,
+  ChoiceTiles,
+  cn,
+  ErrorText,
+  initialsOf,
+  Picker,
+  Row,
+  Rows,
+  Segmented,
+} from "@pipoca/ui";
 import type { Environment } from "@pipoca/protocol";
 import { type ReactElement, useState } from "react";
 import type { Account, Connectable } from "../src/model";
@@ -139,7 +152,7 @@ function ModelStep({
       {account.connection === undefined && provider !== undefined && (
         <section
           aria-label={`Connect ${provider.name}`}
-          className="flex flex-col items-start gap-3 rounded-lg border border-line bg-elevated p-5 shadow-xs"
+          className={cn(cardClass, "flex flex-col items-start gap-3 p-5")}
         >
           {provider.methods.length > 1 && (
             <Segmented

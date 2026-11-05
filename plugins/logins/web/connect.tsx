@@ -1,5 +1,13 @@
 import { json, useLoaded, type WebContext } from "@pipoca/plugins/web";
-import { Button, ErrorText, Field, fieldClass, Select } from "@pipoca/ui";
+import {
+  Button,
+  cardClass,
+  cn,
+  ErrorText,
+  Field,
+  fieldClass,
+  Select,
+} from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type { Connectable, Connection, ConnectionPrompt } from "../src/model";
 
@@ -76,7 +84,7 @@ export function ConnectForm({
     <form
       aria-label={`Connect ${fixed === undefined ? "a model provider" : (provider?.name ?? fixed)}`}
       onSubmit={connect}
-      className="flex flex-col gap-3 rounded-lg border border-line bg-elevated shadow-xs p-3"
+      className={cn(cardClass, "flex flex-col gap-3 p-3")}
     >
       {fixed === undefined && (
         <Field label="Provider">
@@ -157,7 +165,7 @@ export function ConnectionCard({
   return (
     <section
       aria-label={`Connecting ${name}`}
-      className="flex flex-col gap-3 rounded-lg border border-line bg-elevated shadow-xs p-3 text-ui"
+      className={cn(cardClass, "flex flex-col gap-3 p-3 text-ui")}
     >
       <p className="font-medium text-fg">
         {connection.state === "done"

@@ -18,7 +18,10 @@ export interface TextStyle {
 
 // The theme's terminal colours (--ansi-0 to --ansi-15), which the Pi view's
 // terminal uses too.
-const basic = Array.from({ length: 16 }, (_, index) => `var(--ansi-${String(index)})`);
+const basic = Array.from(
+  { length: 16 },
+  (_, index) => `var(--ansi-${String(index)})`,
+);
 
 const cube = [0, 95, 135, 175, 215, 255];
 

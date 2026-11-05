@@ -5,7 +5,15 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, ErrorText, Field, fieldClass, useConfirm } from "@pipoca/ui";
+import {
+  Button,
+  cardClass,
+  cn,
+  ErrorText,
+  Field,
+  fieldClass,
+  useConfirm,
+} from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type { Account, MailboxView } from "../src/model";
 
@@ -119,7 +127,7 @@ function Mailboxes({
       </p>
       <ul
         aria-label="Mailboxes"
-        className="flex flex-col gap-1 rounded-lg border border-line bg-elevated shadow-xs p-3"
+        className={cn(cardClass, "flex flex-col gap-1 p-3")}
       >
         {value?.length === 0 && (
           <li className="text-fg-dim">No mailboxes yet.</li>
@@ -150,7 +158,7 @@ function Mailboxes({
         <form
           onSubmit={add}
           aria-label="New mailbox"
-          className="grid gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 md:grid-cols-2"
+          className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
         >
           <Field label="Name">
             <input

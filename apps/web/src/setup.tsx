@@ -5,7 +5,25 @@ import {
   type WebContext,
 } from "@pipoca/plugins/web";
 import type { Environment, Profile, SetupState } from "@pipoca/protocol";
-import { Badge, Button, ChoiceCard, cn, Command, ErrorText, Hero, Icon, Row, Rows, SetupShell, Spinner, Step, Stepper, type StepState } from "@pipoca/ui";
+import {
+  Badge,
+  Button,
+  cardClass,
+  ChoiceCard,
+  cn,
+  Command,
+  ErrorText,
+  Hero,
+  Icon,
+  linkCardClass,
+  Row,
+  Rows,
+  SetupShell,
+  Spinner,
+  Step,
+  Stepper,
+  type StepState,
+} from "@pipoca/ui";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import {
@@ -119,8 +137,8 @@ function OfferedProfiles({
 
           return (
             <ChoiceCard
-          type="checkbox"
-          as="li"
+              type="checkbox"
+              as="li"
               key={shared.id}
               title={shared.name}
               description={offeredDescription(shared)}
@@ -510,8 +528,8 @@ function WhereStep(): ReactElement {
       ))}
       <ErrorText size="caption">{error}</ErrorText>
       <ChoiceCard
-          type="checkbox"
-          as="li"
+        type="checkbox"
+        as="li"
         title="Another machine"
         description="A Linux VM, a workstation or a second laptop. Run one command on it."
         checked={machine}
@@ -631,7 +649,10 @@ function DoneStep({
               <a
                 href={href}
                 onClick={onLeave}
-                className="flex h-full flex-col gap-1 rounded-lg border border-line bg-elevated p-3.5 hover:border-line-strong"
+                className={cn(
+                  linkCardClass,
+                  "flex h-full flex-col gap-1 p-3.5",
+                )}
               >
                 <span className="text-ui font-medium text-fg-strong">
                   {title}
@@ -650,7 +671,7 @@ function Summary({ step }: { readonly step: Step }): ReactElement {
   const done = useDone(step);
 
   return (
-    <li className="flex items-center gap-3 rounded-lg border border-line bg-elevated p-3.5">
+    <li className={cn(cardClass, "flex items-center gap-3 p-3.5")}>
       <span
         aria-hidden="true"
         className={cn(

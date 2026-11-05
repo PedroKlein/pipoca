@@ -6,7 +6,27 @@ import type {
   ProfileContent,
   RepositorySource,
 } from "@pipoca/protocol";
-import { Badge, Button, cn, ErrorText, Field, fieldClass, FileButton, Icon, initialsOf, ListInput, PageTitle, Picker, Row, Rows, Section, Tabs, useConfirm } from "@pipoca/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  cardClass,
+  cn,
+  ErrorText,
+  Field,
+  fieldClass,
+  FileButton,
+  Icon,
+  initialsOf,
+  ListInput,
+  PageTitle,
+  Picker,
+  Row,
+  Rows,
+  Section,
+  Tabs,
+  useConfirm,
+} from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import { api, send } from "./api";
 import {
@@ -332,7 +352,7 @@ function Editor({
     >
       <form
         onSubmit={submit}
-        className="flex flex-col gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5"
+        className={cn(cardClass, "flex flex-col gap-4 p-5")}
       >
         <Field label="Name">
           <input
@@ -731,7 +751,7 @@ function LayerForm({
     <Section title={layerNames[layer]}>
       <form
         onSubmit={submit}
-        className="flex flex-col gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5"
+        className={cn(cardClass, "flex flex-col gap-4 p-5")}
       >
         <p className="text-caption text-fg-dim">{layerAbout[layer]}</p>
         <ListInput
@@ -827,7 +847,9 @@ function Synced({
         >
           Make a copy
         </Button>
-        <ErrorText inline size="caption">{error}</ErrorText>
+        <ErrorText inline size="caption">
+          {error}
+        </ErrorText>
       </div>
     </div>
   );
@@ -888,7 +910,7 @@ function Import({ onChange }: { readonly onChange: () => void }): ReactElement {
 
   return (
     <Section title="Import a Profile">
-      <div className="flex flex-col gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5">
+      <Card padding="none" className="flex flex-col gap-4 p-5">
         <div className="flex items-center justify-between gap-4">
           <div className="flex min-w-0 flex-col gap-0.5">
             <span className="text-label font-medium text-fg">
@@ -1009,10 +1031,8 @@ function Import({ onChange }: { readonly onChange: () => void }): ReactElement {
             </span>
           </form>
         )}
-        <ErrorText size="caption">
-          {error}
-        </ErrorText>
-      </div>
+        <ErrorText size="caption">{error}</ErrorText>
+      </Card>
     </Section>
   );
 }

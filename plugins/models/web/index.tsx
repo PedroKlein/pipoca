@@ -5,7 +5,21 @@ import {
   type WebPlugin,
 } from "@pipoca/plugins/web";
 import type { Environment, ModelRef } from "@pipoca/protocol";
-import { Badge, Button, cn, ErrorText, fieldClass, Icon, initialsOf, PageTitle, Row, Rows, Section, Select } from "@pipoca/ui";
+import {
+  Badge,
+  Button,
+  cardClass,
+  cn,
+  ErrorText,
+  fieldClass,
+  Icon,
+  initialsOf,
+  PageTitle,
+  Row,
+  Rows,
+  Section,
+  Select,
+} from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import {
   aliasesOf,
@@ -333,7 +347,9 @@ function Aliases({
             <option key={modelKey(model)} value={modelKey(model)} />
           ))}
       </datalist>
-      <ErrorText size="caption" className="mt-4">{error}</ErrorText>
+      <ErrorText size="caption" className="mt-4">
+        {error}
+      </ErrorText>
       <div className="mt-6 flex flex-col gap-4">
         {adding && (
           <NewAlias
@@ -460,7 +476,7 @@ function NewAlias({
   return (
     <form
       aria-label="New alias"
-      className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-elevated p-4 shadow-xs"
+      className={cn(cardClass, "flex flex-wrap items-center gap-2 p-4")}
       onSubmit={(event) => {
         event.preventDefault();
 
@@ -542,7 +558,7 @@ function AliasCard({
   return (
     <section
       aria-label={`Alias ${name}`}
-      className="flex flex-col gap-3 rounded-lg border border-line bg-elevated p-4 shadow-xs"
+      className={cn(cardClass, "flex flex-col gap-3 p-4")}
     >
       <header className="flex flex-wrap items-center gap-2">
         {renaming ? (

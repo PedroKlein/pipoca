@@ -38,12 +38,7 @@ export function AccessDialog({
   readonly onClose: () => void;
 }): ReactElement {
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      labelledBy="access-title"
-      size="sm"
-    >
+    <Dialog open={open} onClose={onClose} labelledBy="access-title" size="sm">
       <AccessForm session={session} onDone={onClose} />
     </Dialog>
   );

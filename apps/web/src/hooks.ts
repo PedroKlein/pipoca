@@ -310,4 +310,3 @@ function notify(done: readonly Session[], route: string): void {
     });
   }
 }
-

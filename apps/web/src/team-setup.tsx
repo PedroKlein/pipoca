@@ -1,5 +1,16 @@
 import type { SetupScreen } from "@pipoca/plugins/web";
-import { AreaLayout, Badge, Button, ErrorText, Field, fieldClass, PageTitle, Row, Rows, Switch } from "@pipoca/ui";
+import {
+  AreaLayout,
+  Badge,
+  Button,
+  ErrorText,
+  Field,
+  fieldClass,
+  PageTitle,
+  Row,
+  Rows,
+  Switch,
+} from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,

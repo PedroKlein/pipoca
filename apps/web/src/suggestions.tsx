@@ -1,4 +1,4 @@
-import { cn } from "@pipoca/ui";
+import { cn, popClass } from "@pipoca/ui";
 import {
   type KeyboardEvent,
   type ReactElement,
@@ -129,7 +129,10 @@ export function useSuggestions(feed: Feed): Suggestions {
         id={listId}
         role="listbox"
         aria-label={typed?.kind === "file" ? "Files" : "Commands"}
-        className="absolute inset-x-0 bottom-full mb-2 max-h-72 overflow-y-auto rounded-lg border border-line bg-elevated p-1 shadow-pop animate-pop-in"
+        className={cn(
+          popClass,
+          "absolute inset-x-0 bottom-full mb-2 max-h-72 overflow-y-auto",
+        )}
       >
         {options.map((option, index) => (
           <li

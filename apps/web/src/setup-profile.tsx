@@ -1,5 +1,13 @@
 import { profilePath, type Profile } from "@pipoca/protocol";
-import { Button, ChoiceCard, cn, ErrorText, fieldClass, FileButton, Icon } from "@pipoca/ui";
+import {
+  Button,
+  ChoiceCard,
+  cn,
+  ErrorText,
+  fieldClass,
+  FileButton,
+  Icon,
+} from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { api } from "./api";
 import { base64 } from "./profile-files";

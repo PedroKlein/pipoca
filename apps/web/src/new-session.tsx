@@ -7,7 +7,16 @@ import {
   type ThinkingLevel,
   thinkingLevels,
 } from "@pipoca/protocol";
-import { Button, Dialog, ErrorText, Icon, isComposing, Picker, type PickerOption, Slider } from "@pipoca/ui";
+import {
+  Button,
+  Dialog,
+  ErrorText,
+  Icon,
+  isComposing,
+  Picker,
+  type PickerOption,
+  Slider,
+} from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -178,12 +187,7 @@ export function NewSessionDialog({
           >
             {team ? "Start team work" : "New session"}
           </h2>
-          <Button
-            variant="ghost"
-            iconOnly
-            aria-label="Close"
-            onClick={onClose}
-          >
+          <Button variant="ghost" iconOnly aria-label="Close" onClick={onClose}>
             <Icon name="x" />
           </Button>
         </header>
@@ -522,7 +526,9 @@ export function NewSessionForm({
         </Button>
       </div>
 
-      <ErrorText size="caption" className="border-t border-line px-5 py-2">{error}</ErrorText>
+      <ErrorText size="caption" className="border-t border-line px-5 py-2">
+        {error}
+      </ErrorText>
     </form>
   );
 }

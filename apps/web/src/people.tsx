@@ -6,18 +6,38 @@ import {
   type Person,
   type Session,
 } from "@pipoca/protocol";
-import { Badge, Button, Card, Cell, ErrorText, Icon, initialsOf, PageTitle, plural, Row, Rows, Select, Table, Tabs, useConfirm } from "@pipoca/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  Cell,
+  ErrorText,
+  Icon,
+  initialsOf,
+  PageTitle,
+  plural,
+  Row,
+  Rows,
+  Select,
+  Table,
+  Tabs,
+  useConfirm,
+} from "@pipoca/ui";
 import { Fragment, type ReactElement, type ReactNode, useState } from "react";
 import { api, command, send } from "./api";
 import { ago } from "./chat";
 import { deleteEnvironment, kindNames } from "./environments";
 import { InviteDialog, InvitesTable, revoke } from "./invites";
 import { NewcomersCard } from "./newcomers";
-import { useEveryonesEnvironments, useEveryonesSessions, useInvites, usePeople } from "./hooks";
+import {
+  useEveryonesEnvironments,
+  useEveryonesSessions,
+  useInvites,
+  usePeople,
+} from "./hooks";
 import { settingsPageClass } from "./page-class";
 
 const busy = new Set(["queued", "starting", "running"]);
-
 
 // Who can use the server, and what an admin sees of their work: names and
 // states, never transcripts, files or variable values (ADR 0049).
@@ -88,7 +108,9 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
         editing={editingNewcomers}
         onEditing={setEditingNewcomers}
       />
-      <ErrorText size="caption" className="mb-3">{error}</ErrorText>
+      <ErrorText size="caption" className="mb-3">
+        {error}
+      </ErrorText>
       <Tabs
         label="People"
         className="mt-6"
@@ -127,111 +149,111 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
               </span>,
             ]}
           >
-              {people.value.map((person) => {
-                const theirs = sessions.value.filter(
-                  (session) => personOf(session) === person.id,
-                );
+            {people.value.map((person) => {
+              const theirs = sessions.value.filter(
+                (session) => personOf(session) === person.id,
+              );
 
-                const own = environments.value.filter(
-                  ({ ownerId }) => ownerId === person.id,
-                );
+              const own = environments.value.filter(
+                ({ ownerId }) => ownerId === person.id,
+              );
 
-                return (
-                  <Fragment key={person.id}>
-                    <tr aria-label={person.name}>
-                      <Cell>
-                        <span className="flex items-center gap-2.5">
-                          <span
-                            aria-hidden="true"
-                            className="grid size-7 shrink-0 place-items-center rounded-full bg-hover text-caption font-semibold text-fg-strong"
-                          >
-                            {initialsOf(person.name)}
+              return (
+                <Fragment key={person.id}>
+                  <tr aria-label={person.name}>
+                    <Cell>
+                      <span className="flex items-center gap-2.5">
+                        <span
+                          aria-hidden="true"
+                          className="grid size-7 shrink-0 place-items-center rounded-full bg-hover text-caption font-semibold text-fg-strong"
+                        >
+                          {initialsOf(person.name)}
+                        </span>
+                        <span className="flex min-w-0 flex-col">
+                          <span className="truncate text-fg-strong">
+                            {person.name}
                           </span>
-                          <span className="flex min-w-0 flex-col">
-                            <span className="truncate text-fg-strong">
-                              {person.name}
-                            </span>
-                            <span className="text-label text-fg-dim">
-                              {[
-                                person.name === user && "you",
-                                person.settingUp && "setting up",
-                              ]
-                                .filter(Boolean)
-                                .join(" · ")}
-                            </span>
+                          <span className="text-label text-fg-dim">
+                            {[
+                              person.name === user && "you",
+                              person.settingUp && "setting up",
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
                           </span>
                         </span>
-                      </Cell>
-                      <Cell>
-                        <Select
-                          aria-label={`Role of ${person.name}`}
-                          className="w-32"
-                          value={person.admin ? "admin" : "member"}
-                          onChange={(event) => {
+                      </span>
+                    </Cell>
+                    <Cell>
+                      <Select
+                        aria-label={`Role of ${person.name}`}
+                        className="w-32"
+                        value={person.admin ? "admin" : "member"}
+                        onChange={(event) => {
+                          act(
+                            send(
+                              `/api/people/${encodeURIComponent(person.id)}`,
+                              "PATCH",
+                              { admin: event.target.value === "admin" },
+                            ),
+                          );
+                        }}
+                      >
+                        <option value="admin">Admin</option>
+                        <option value="member">Member</option>
+                      </Select>
+                    </Cell>
+                    <Cell>
+                      <Doing person={person} sessions={theirs} />
+                    </Cell>
+                    <Cell className="text-label text-fg-dim">
+                      {lastActive(person.lastActive, now)}
+                    </Cell>
+                    <Cell className="w-11 text-right">
+                      <Button
+                        variant="ghost"
+                        aria-label={`More for ${person.name}`}
+                        aria-expanded={open === person.id}
+                        onClick={() => {
+                          setOpen(open === person.id ? undefined : person.id);
+                        }}
+                      >
+                        ···
+                      </Button>
+                    </Cell>
+                  </tr>
+                  {open === person.id && (
+                    <tr>
+                      <Cell colSpan={5} className="bg-panel">
+                        <Work
+                          person={person}
+                          environments={own}
+                          sessions={theirs}
+                          onStop={(session) => {
+                            act(command(session.id, { type: "abort" }));
+                          }}
+                          onArchive={(session) => {
                             act(
-                              send(
-                                `/api/people/${encodeURIComponent(person.id)}`,
-                                "PATCH",
-                                { admin: event.target.value === "admin" },
+                              api(
+                                `/api/sessions/${encodeURIComponent(session.id)}/archive`,
+                                {},
                               ),
                             );
                           }}
-                        >
-                          <option value="admin">Admin</option>
-                          <option value="member">Member</option>
-                        </Select>
-                      </Cell>
-                      <Cell>
-                        <Doing person={person} sessions={theirs} />
-                      </Cell>
-                      <Cell className="text-label text-fg-dim">
-                        {lastActive(person.lastActive, now)}
-                      </Cell>
-                      <Cell className="w-11 text-right">
-                        <Button
-                          variant="ghost"
-                          aria-label={`More for ${person.name}`}
-                          aria-expanded={open === person.id}
-                          onClick={() => {
-                            setOpen(open === person.id ? undefined : person.id);
+                          onDelete={(environment) => {
+                            act(
+                              deleteEnvironment(environment, ask).then(
+                                environments.reload,
+                              ),
+                            );
                           }}
-                        >
-                          ···
-                        </Button>
+                        />
                       </Cell>
                     </tr>
-                    {open === person.id && (
-                      <tr>
-                        <Cell colSpan={5} className="bg-panel">
-                          <Work
-                            person={person}
-                            environments={own}
-                            sessions={theirs}
-                            onStop={(session) => {
-                              act(command(session.id, { type: "abort" }));
-                            }}
-                            onArchive={(session) => {
-                              act(
-                                api(
-                                  `/api/sessions/${encodeURIComponent(session.id)}/archive`,
-                                  {},
-                                ),
-                              );
-                            }}
-                            onDelete={(environment) => {
-                              act(
-                                deleteEnvironment(environment, ask).then(
-                                  environments.reload,
-                                ),
-                              );
-                            }}
-                          />
-                        </Cell>
-                      </tr>
-                    )}
-                  </Fragment>
-                );
-              })}
+                  )}
+                </Fragment>
+              );
+            })}
           </Table>
         )}
       </Card>
@@ -387,4 +409,3 @@ function Work({
     </div>
   );
 }
-

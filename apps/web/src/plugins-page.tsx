@@ -1,5 +1,22 @@
 import type { PluginInfo, SettingSpec, SettingValue } from "@pipoca/protocol";
-import { Badge, Button, cn, ErrorText, Field, fieldClass, Icon, PageTitle, plural, Section, Segmented, Select, Switch, useConfirm } from "@pipoca/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  cardClass,
+  cn,
+  ErrorText,
+  Field,
+  fieldClass,
+  Icon,
+  PageTitle,
+  plural,
+  Section,
+  Segmented,
+  Select,
+  Switch,
+  useConfirm,
+} from "@pipoca/ui";
 import { ok } from "@pipoca/plugins/web";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import { api, send } from "./api";
@@ -219,7 +236,8 @@ function PluginCard({
     <li
       aria-label={plugin.title}
       className={cn(
-        "flex flex-col gap-2 rounded-lg border border-line bg-elevated p-4 shadow-xs",
+        cardClass,
+        "flex flex-col gap-2 p-4",
         open && "md:col-span-2",
       )}
     >
@@ -506,7 +524,10 @@ function Restart(): ReactElement {
   };
 
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-line bg-elevated shadow-xs p-4 text-ui">
+    <Card
+      padding="none"
+      className="mb-4 flex flex-wrap items-center gap-3 p-4 text-ui"
+    >
       <span className="text-fg">
         {state === "restarting"
           ? "Restarting the server…"
@@ -527,7 +548,7 @@ function Restart(): ReactElement {
       )}
       <ErrorText size="caption">{error}</ErrorText>
       {asking}
-    </div>
+    </Card>
   );
 }
 

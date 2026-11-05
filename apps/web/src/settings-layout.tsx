@@ -1,6 +1,14 @@
 import type { SettingsGroup } from "@pipoca/plugins/web";
 import type { Environment, Profile } from "@pipoca/protocol";
-import { AreaLayout, Avatar, cn, Icon, linkCardClass, PageTitle, Tabs } from "@pipoca/ui";
+import {
+  AreaLayout,
+  Avatar,
+  cn,
+  Icon,
+  linkCardClass,
+  PageTitle,
+  Tabs,
+} from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
 import { AccountsPage } from "./accounts";
 import { EnvironmentsPage } from "./environments";
@@ -276,10 +284,7 @@ export function SettingsLayout({
       menuTop={
         <a
           href="#settings/general"
-          className={cn(
-            "mt-1 flex items-center gap-3 p-3.5",
-            linkCardClass,
-          )}
+          className={cn("mt-1 flex items-center gap-3 p-3.5", linkCardClass)}
         >
           <Avatar name={user} size="lg" className="size-10 text-ui">
             {user.slice(0, 1).toUpperCase()}

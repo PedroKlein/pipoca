@@ -1,4 +1,18 @@
-import { Badge, Button, Card, ErrorText, Field, fieldClass, Hero, Mark, SetupShell, Step, Stepper } from "@pipoca/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  cn,
+  ErrorText,
+  Field,
+  fieldClass,
+  Hero,
+  Mark,
+  raisedCardClass,
+  SetupShell,
+  Step,
+  Stepper,
+} from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -116,7 +130,7 @@ export function SignInPage({
       {passwordLogin && (
         <form
           onSubmit={submit}
-          className="flex flex-col gap-4 rounded-lg border border-line bg-elevated p-6 shadow-card"
+          className={cn(raisedCardClass, "flex flex-col gap-4 p-6")}
         >
           <Field label="Name">
             <input

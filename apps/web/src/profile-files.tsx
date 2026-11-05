@@ -1,6 +1,16 @@
 import { json, ok, useLoaded } from "@pipoca/plugins/web";
 import { profilePath } from "@pipoca/protocol";
-import { Button, cn, ErrorText, Field, fieldClass, FileButton, Section, useConfirm } from "@pipoca/ui";
+import {
+  Button,
+  Card,
+  cn,
+  ErrorText,
+  Field,
+  fieldClass,
+  FileButton,
+  Section,
+  useConfirm,
+} from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { api, send } from "./api";
 
@@ -145,7 +155,7 @@ export function KindFiles({
 
   return (
     <Section title={kind.title}>
-      <div className="flex flex-col gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5">
+      <Card padding="none" className="flex flex-col gap-4 p-5">
         <p className="text-caption text-fg-dim">{kind.about}</p>
         <ul className="flex flex-col divide-y divide-line">
           {listed.map(({ path, size, name }) => (
@@ -221,10 +231,8 @@ export function KindFiles({
             }}
           />
         )}
-        <ErrorText size="caption">
-          {error}
-        </ErrorText>
-      </div>
+        <ErrorText size="caption">{error}</ErrorText>
+      </Card>
     </Section>
   );
 }
@@ -319,7 +327,7 @@ export function NamedFiles({
 
   return (
     <Section title={title}>
-      <div className="flex flex-col gap-6 rounded-lg border border-line bg-elevated shadow-xs p-5">
+      <Card padding="none" className="flex flex-col gap-6 p-5">
         {texts &&
           files.map((file, n) => (
             <NamedFile
@@ -330,7 +338,7 @@ export function NamedFiles({
               onSaved={reload}
             />
           ))}
-      </div>
+      </Card>
     </Section>
   );
 }
@@ -393,9 +401,7 @@ function NamedFile({
         >
           Save
         </Button>
-        <ErrorText size="caption">
-          {error}
-        </ErrorText>
+        <ErrorText size="caption">{error}</ErrorText>
       </div>
     </div>
   );

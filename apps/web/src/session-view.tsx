@@ -10,7 +10,18 @@ import {
   terminalTakenOver,
 } from "@pipoca/protocol";
 import type { EmbeddedSessionProps } from "@pipoca/plugins/web";
-import { Badge, Button, cn, Icon, type IconName, Menu, Picker, type PickerOption, Segmented, useConfirm } from "@pipoca/ui";
+import {
+  Badge,
+  Button,
+  cn,
+  Icon,
+  type IconName,
+  Menu,
+  Picker,
+  type PickerOption,
+  Segmented,
+  useConfirm,
+} from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,

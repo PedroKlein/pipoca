@@ -6,7 +6,18 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, cn, Code, ErrorText, Field, fieldClass, Section, Select, TextInput } from "@pipoca/ui";
+import {
+  Button,
+  Card,
+  cn,
+  Code,
+  ErrorText,
+  Field,
+  fieldClass,
+  Section,
+  Select,
+  TextInput,
+} from "@pipoca/ui";
 import { Fragment, type ReactElement, type SubmitEvent, useState } from "react";
 import {
   defaultSettings,
@@ -73,9 +84,10 @@ function Pods({
 
   return (
     <Section title="Kubernetes">
-      <div
+      <Card
+        padding="none"
         aria-label="Kubernetes"
-        className="flex flex-col gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 text-ui"
+        className="flex flex-col gap-4 p-5 text-ui"
       >
         {value === undefined ? (
           <p className="text-fg-dim">Loading…</p>
@@ -105,7 +117,7 @@ function Pods({
             )}
           </>
         )}
-      </div>
+      </Card>
     </Section>
   );
 }
@@ -234,15 +246,33 @@ function Settings({
       <div className="grid gap-4 sm:grid-cols-3">
         {workspace === "pod" && (
           <Field label="Sessions per pod">
-<TextInput name="capacity" type="number" min={1} required defaultValue={shown.capacity} />
-</Field>
+            <TextInput
+              name="capacity"
+              type="number"
+              min={1}
+              required
+              defaultValue={shown.capacity}
+            />
+          </Field>
         )}
         <Field label="Most pods">
-<TextInput name="maxPods" type="number" min={1} required defaultValue={shown.maxPods} />
-</Field>
+          <TextInput
+            name="maxPods"
+            type="number"
+            min={1}
+            required
+            defaultValue={shown.maxPods}
+          />
+        </Field>
         <Field label="Seconds idle before a pod stops">
-<TextInput name="idleSeconds" type="number" min={1} required defaultValue={shown.idleSeconds} />
-</Field>
+          <TextInput
+            name="idleSeconds"
+            type="number"
+            min={1}
+            required
+            defaultValue={shown.idleSeconds}
+          />
+        </Field>
       </div>
       {workspace === "claim" && (
         <div className="grid gap-4 sm:grid-cols-2">
@@ -291,7 +321,6 @@ function Settings({
     </form>
   );
 }
-
 
 // The form's fields as the settings the server checks. Fields the form
 // doesn't show keep what they were.

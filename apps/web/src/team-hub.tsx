@@ -1,10 +1,32 @@
 import { useNow } from "@pipoca/plugins/web";
 import type { HubPanel, HubScreen } from "@pipoca/plugins/web";
 import type { HubPage, Session } from "@pipoca/protocol";
-import { AreaLayout, Badge, Button, ErrorText, fieldClass, Icon, type IconName, PageTitle, plural, Row, Rows, Section, Select } from "@pipoca/ui";
+import {
+  AreaLayout,
+  Badge,
+  Button,
+  cardClass,
+  cn,
+  ErrorText,
+  fieldClass,
+  Icon,
+  type IconName,
+  PageTitle,
+  plural,
+  Row,
+  Rows,
+  Section,
+  Select,
+} from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useState } from "react";
 import { send } from "./api";
-import { useHubLayout, useTeamEnvironments, useTeammates, useTeamProfiles, useTeamSessions } from "./hooks";
+import {
+  useHubLayout,
+  useTeamEnvironments,
+  useTeammates,
+  useTeamProfiles,
+  useTeamSessions,
+} from "./hooks";
 import { NewSessionDialog } from "./new-session";
 import { ago, sessionBadge, shortName, teamSessionHref } from "./names";
 import { settingsPageClass } from "./page-class";
@@ -194,7 +216,9 @@ export function TeamHub({
       back={{ href: "#", label: "My work" }}
       heading={name ?? "Team"}
       detail={
-        people.loaded ? plural(people.value.length, "person", "people") : undefined
+        people.loaded
+          ? plural(people.value.length, "person", "people")
+          : undefined
       }
       groups={[
         {
@@ -475,7 +499,7 @@ function LayoutPage({
             <section
               key={id}
               aria-label={title}
-              className="flex min-w-0 flex-col gap-2.5 rounded-lg border border-line bg-elevated p-4 shadow-xs"
+              className={cn(cardClass, "flex min-w-0 flex-col gap-2.5 p-4")}
             >
               <h2 className="text-prose font-semibold text-fg-strong">
                 {title}

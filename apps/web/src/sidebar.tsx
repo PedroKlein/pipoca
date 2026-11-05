@@ -1,6 +1,15 @@
 import { ThemeSwitch } from "./theme";
 import { availability, type Environment, type Session } from "@pipoca/protocol";
-import { Avatar, Button, cn, fieldClass, Icon, Mark, SessionRow } from "@pipoca/ui";
+import {
+  Avatar,
+  Button,
+  cn,
+  fieldClass,
+  Icon,
+  Mark,
+  popClass,
+  SessionRow,
+} from "@pipoca/ui";
 import { type ReactElement, useEffect, useState } from "react";
 import { json, useNow } from "@pipoca/plugins/web";
 import { api, send } from "./api";
@@ -298,7 +307,10 @@ function AccountMenu({ user }: { readonly user: string }): ReactElement {
         <div
           role="menu"
           aria-label="Account"
-          className="absolute right-2 bottom-full left-2 mb-1 flex flex-col rounded-lg border border-line bg-elevated p-1 shadow-pop"
+          className={cn(
+            popClass,
+            "absolute right-2 bottom-full left-2 mb-1 flex flex-col",
+          )}
         >
           <a
             role="menuitem"
@@ -335,11 +347,7 @@ function AccountMenu({ user }: { readonly user: string }): ReactElement {
         }}
         className="w-full justify-start text-label"
       >
-        <Avatar
-          name={user}
-          size="xs"
-          className="bg-accent-tint text-accent"
-        >
+        <Avatar name={user} size="xs" className="bg-accent-tint text-accent">
           {user.slice(0, 1).toUpperCase()}
         </Avatar>
         <span className="flex-1 truncate text-left">{user}</span>

@@ -4,7 +4,16 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Badge, Button, ErrorText, Icon, initialsOf, Row, Rows, Section } from "@pipoca/ui";
+import {
+  Badge,
+  Button,
+  ErrorText,
+  Icon,
+  initialsOf,
+  Row,
+  Rows,
+  Section,
+} from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import type { Profile } from "@pipoca/protocol";
 import type { Account } from "../src/model";

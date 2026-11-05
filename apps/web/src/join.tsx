@@ -1,5 +1,16 @@
 import type { JoinInfo } from "@pipoca/protocol";
-import { Avatar, Button, ErrorText, Field, fieldClass, Hero, SetupShell, Spinner } from "@pipoca/ui";
+import {
+  Avatar,
+  Button,
+  cn,
+  ErrorText,
+  Field,
+  fieldClass,
+  Hero,
+  raisedCardClass,
+  SetupShell,
+  Spinner,
+} from "@pipoca/ui";
 import {
   type ReactElement,
   type SubmitEvent,
@@ -91,7 +102,10 @@ export function JoinPage({ token }: { readonly token: string }): ReactElement {
               <form
                 onSubmit={submit}
                 aria-label="Make your account"
-                className="flex max-w-sm flex-col gap-4 rounded-lg border border-line bg-elevated p-6 shadow-card"
+                className={cn(
+                  raisedCardClass,
+                  "flex max-w-sm flex-col gap-4 p-6",
+                )}
               >
                 <Field label="Username">
                   <input

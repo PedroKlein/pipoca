@@ -4,7 +4,16 @@ import {
   useLoaded,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, cn, ErrorText, Field, fieldClass, Section, TextInput } from "@pipoca/ui";
+import {
+  Button,
+  Card,
+  cn,
+  ErrorText,
+  Field,
+  fieldClass,
+  Section,
+  TextInput,
+} from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import {
   defaultSettings,
@@ -31,9 +40,10 @@ function EnvironmentSection({
 
   return (
     <Section title="Local runner">
-      <div
+      <Card
+        padding="none"
         aria-label="Local runner"
-        className="flex flex-col gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 text-ui"
+        className="flex flex-col gap-4 p-5 text-ui"
       >
         {value === undefined ? (
           <p className="text-fg-dim">Loading…</p>
@@ -58,7 +68,7 @@ function EnvironmentSection({
             />
           </>
         )}
-      </div>
+      </Card>
     </Section>
   );
 }
@@ -131,11 +141,23 @@ function Settings({
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Sessions at once">
-<TextInput name="capacity" type="number" min={1} required defaultValue={shown.capacity} />
-</Field>
+          <TextInput
+            name="capacity"
+            type="number"
+            min={1}
+            required
+            defaultValue={shown.capacity}
+          />
+        </Field>
         <Field label="Seconds idle before it stops">
-<TextInput name="idleSeconds" type="number" min={1} required defaultValue={shown.idleSeconds} />
-</Field>
+          <TextInput
+            name="idleSeconds"
+            type="number"
+            min={1}
+            required
+            defaultValue={shown.idleSeconds}
+          />
+        </Field>
       </div>
       <Field label="Folders Sessions can work in, one per line">
         <textarea
@@ -164,4 +186,3 @@ function Settings({
     </form>
   );
 }
-

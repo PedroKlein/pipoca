@@ -8,7 +8,18 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Badge, type BadgeState, Button, fieldClass, Icon, PageTitle, Section, useConfirm } from "@pipoca/ui";
+import {
+  Badge,
+  type BadgeState,
+  Button,
+  cn,
+  fieldClass,
+  Icon,
+  linkCardClass,
+  PageTitle,
+  Section,
+  useConfirm,
+} from "@pipoca/ui";
 import type { DeclaredEvent } from "@pipoca/protocol";
 import { type ReactElement, useState } from "react";
 import type {
@@ -140,7 +151,10 @@ function Routines({
           <li key={routine.name}>
             <a
               href={context.href(`${scope.page}${routine.name}`)}
-              className="flex min-w-0 items-center gap-3 rounded-lg border border-line bg-elevated px-3 py-2 shadow-xs hover:border-line-strong"
+              className={cn(
+                linkCardClass,
+                "flex min-w-0 items-center gap-3 px-3 py-2",
+              )}
             >
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-ui font-medium text-fg">

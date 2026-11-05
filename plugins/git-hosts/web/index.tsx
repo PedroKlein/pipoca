@@ -6,7 +6,28 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Badge, Button, ErrorText, Field, fieldClass, Icon, initialsOf, PageTitle, Picker, Row, Rows, Section, Select, Step, Stepper, type StepState, Switch, useConfirm } from "@pipoca/ui";
+import {
+  Badge,
+  Button,
+  cardClass,
+  cn,
+  ErrorText,
+  Field,
+  fieldClass,
+  Icon,
+  initialsOf,
+  PageTitle,
+  Picker,
+  Row,
+  Rows,
+  Section,
+  Select,
+  Step,
+  Stepper,
+  type StepState,
+  Switch,
+  useConfirm,
+} from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type {
   Account,
@@ -387,9 +408,7 @@ function PullRequest({
         <Icon name="more" className="size-3.5" />
       </Picker>
       {problem !== null && (
-        <ErrorText className="w-full text-right">
-          {problem}
-        </ErrorText>
+        <ErrorText className="w-full text-right">{problem}</ErrorText>
       )}
     </div>
   );
@@ -577,7 +596,9 @@ function HostRow({
           >
             Cancel
           </Button>
-          <ErrorText size="caption" className="w-full">{error}</ErrorText>
+          <ErrorText size="caption" className="w-full">
+            {error}
+          </ErrorText>
         </form>
       )}
     </Row>
@@ -868,7 +889,9 @@ function ConnectSetup({
               <Button variant="primary" type="submit">
                 Save
               </Button>
-              <ErrorText size="caption" className="sm:col-span-3">{error}</ErrorText>
+              <ErrorText size="caption" className="sm:col-span-3">
+                {error}
+              </ErrorText>
             </form>
           )}
         </Step>
@@ -934,7 +957,7 @@ function HostForm({
     <form
       onSubmit={submit}
       aria-label={host ? `Edit ${host.host}` : "New host"}
-      className="grid gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 md:grid-cols-2"
+      className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
     >
       <Field label="Host">
         <input
@@ -1235,7 +1258,7 @@ function Bots({
         <form
           onSubmit={createApp}
           aria-label="New GitHub App"
-          className="grid gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 md:grid-cols-2"
+          className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
         >
           {hostField}
           <Field label="App name">
@@ -1271,7 +1294,7 @@ function Bots({
         <form
           onSubmit={addMachineUser}
           aria-label="New machine user"
-          className="grid gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 md:grid-cols-2"
+          className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
         >
           {hostField}
           <Field label="Name">

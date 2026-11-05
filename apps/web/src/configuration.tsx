@@ -1,4 +1,13 @@
-import { Badge, Button, cn, ErrorText, Icon, PageTitle, useConfirm } from "@pipoca/ui";
+import {
+  Badge,
+  Button,
+  cardClass,
+  cn,
+  ErrorText,
+  Icon,
+  PageTitle,
+  useConfirm,
+} from "@pipoca/ui";
 import { type ReactElement, useEffect, useState } from "react";
 import { api, send } from "./api";
 import { settingsPageClass } from "./page-class";
@@ -111,7 +120,7 @@ export function ConfigurationPage(): ReactElement {
       <div className="mt-6 grid gap-4 md:grid-cols-[15rem_1fr]">
         <nav
           aria-label="Config files"
-          className="self-start rounded-lg border border-line bg-elevated p-2 shadow-xs"
+          className={cn(cardClass, "self-start p-2")}
         >
           <ul className="flex flex-col">
             {shownOf(treeOf(list?.files ?? []), folders).map((item) =>
@@ -162,7 +171,10 @@ export function ConfigurationPage(): ReactElement {
         </nav>
         <section
           aria-label={chosen}
-          className="flex min-w-0 flex-col self-start overflow-hidden rounded-lg border border-line bg-elevated shadow-xs"
+          className={cn(
+            cardClass,
+            "flex min-w-0 flex-col self-start overflow-hidden",
+          )}
         >
           <header className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2.5">
             <span className="truncate font-mono text-mono-sm text-fg-strong">
@@ -223,9 +235,7 @@ export function ConfigurationPage(): ReactElement {
           />
           <footer className="flex flex-col gap-1 border-t border-line px-4 py-2.5 text-caption text-fg-dim">
             {(error ?? invalid) !== undefined && (
-              <ErrorText size="inherit">
-                {error ?? invalid}
-              </ErrorText>
+              <ErrorText size="inherit">{error ?? invalid}</ErrorText>
             )}
             <p>
               Secrets never appear here in plain text: they&apos;re sealed on

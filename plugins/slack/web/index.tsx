@@ -5,7 +5,15 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, ErrorText, Field, fieldClass, useConfirm } from "@pipoca/ui";
+import {
+  Button,
+  cardClass,
+  cn,
+  ErrorText,
+  Field,
+  fieldClass,
+  useConfirm,
+} from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type { Account, BotView } from "../src/model";
 
@@ -144,7 +152,7 @@ function Bots({ context }: { readonly context: WebContext }): ReactElement {
       </p>
       <ul
         aria-label="Slack bots"
-        className="flex flex-col gap-1 rounded-lg border border-line bg-elevated shadow-xs p-3"
+        className={cn(cardClass, "flex flex-col gap-1 p-3")}
       >
         {value?.length === 0 && <li className="text-fg-dim">No bots yet.</li>}
         {value?.map((bot) => (
@@ -176,7 +184,7 @@ function Bots({ context }: { readonly context: WebContext }): ReactElement {
         <form
           onSubmit={add}
           aria-label="New Slack bot"
-          className="grid gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 md:grid-cols-2"
+          className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
         >
           <Field label="Name">
             <input

@@ -4,7 +4,25 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Badge, Button, ErrorText, Field, fieldClass, Icon, initialsOf, PageTitle, Row, Rows, Section, Segmented, Switch, useConfirm } from "@pipoca/ui";
+import {
+  Badge,
+  Button,
+  cardClass,
+  cn,
+  ErrorText,
+  Field,
+  fieldClass,
+  Icon,
+  initialsOf,
+  linkCardClass,
+  PageTitle,
+  Row,
+  Rows,
+  Section,
+  Segmented,
+  Switch,
+  useConfirm,
+} from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type {
   Account,
@@ -307,7 +325,10 @@ function Providers({
                 onClick={() => {
                   setEditing(preset);
                 }}
-                className="flex h-full w-full cursor-pointer flex-col items-start gap-1 rounded-lg border border-line bg-elevated px-4 py-3.5 text-left shadow-xs hover:border-line-strong"
+                className={cn(
+                  linkCardClass,
+                  "flex h-full w-full cursor-pointer flex-col items-start gap-1 px-4 py-3.5 text-left",
+                )}
               >
                 <span className="text-ui font-medium text-fg-strong">
                   {preset.name}
@@ -357,9 +378,7 @@ function ProviderRow({
         <>
           {provider.label}
           {badge()}
-          {locked && (
-            <Badge>Config file</Badge>
-          )}
+          {locked && <Badge>Config file</Badge>}
         </>
       }
       description={
@@ -508,7 +527,9 @@ function Rules({
           description={
             <>
               {whoMayJoin(providers ?? [])}
-              <ErrorText inline size="inherit" className="block">{error}</ErrorText>
+              <ErrorText inline size="inherit" className="block">
+                {error}
+              </ErrorText>
             </>
           }
         >
@@ -645,7 +666,7 @@ function ProviderForm({
           ? `Edit ${provider.label}`
           : `New ${preset?.name ?? ""} sign-in`
       }
-      className="grid gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 md:grid-cols-2"
+      className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
     >
       {textField("label", "Button label", "Sign in with SAP IAS")}
       {textField(

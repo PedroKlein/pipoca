@@ -18,8 +18,36 @@ import {
   type Profile,
   type Session,
 } from "@pipoca/protocol";
-import { Badge, type BadgeState, Button, cn, Code, ErrorText, Field, fieldClass, Icon, Menu, PageTitle, Picker, type PickerOption, popClass, Section, Segmented, Select, SessionRow, useConfirm } from "@pipoca/ui";
-import { type ReactElement, type ReactNode, type SubmitEvent, useState } from "react";
+import {
+  Badge,
+  type BadgeState,
+  Button,
+  Card,
+  cardClass,
+  cn,
+  Code,
+  ErrorText,
+  Field,
+  fieldClass,
+  Icon,
+  linkCardClass,
+  Menu,
+  PageTitle,
+  Picker,
+  type PickerOption,
+  popClass,
+  Section,
+  Segmented,
+  Select,
+  SessionRow,
+  useConfirm,
+} from "@pipoca/ui";
+import {
+  type ReactElement,
+  type ReactNode,
+  type SubmitEvent,
+  useState,
+} from "react";
 import {
   type ProjectNotices,
   type ProjectSummary,
@@ -124,9 +152,10 @@ function StartThreadCard({ context, call }: ToolCallProps): ReactElement {
     thread && context.href(`${thread.projectId}/${thread.sessionId}`);
 
   return (
-    <div
+    <Card
+      padding="none"
       aria-label={`Thread ${title}`}
-      className="flex items-center gap-3 rounded-lg border border-line bg-elevated shadow-xs px-3 py-2"
+      className="flex items-center gap-3 px-3 py-2"
     >
       <StateDot thread={thread} />
       <div className="flex min-w-0 flex-1 flex-col">
@@ -160,7 +189,7 @@ function StartThreadCard({ context, call }: ToolCallProps): ReactElement {
           </a>
         </>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -441,7 +470,10 @@ function ProjectCards({
             onClick={() => {
               onOpen(project.id);
             }}
-            className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg border border-line bg-elevated shadow-xs px-4 py-3 text-left hover:border-line-strong hover:bg-hover"
+            className={cn(
+              linkCardClass,
+              "flex w-full cursor-pointer items-center justify-between gap-3 px-4 py-3 text-left hover:bg-hover",
+            )}
           >
             <span className="flex min-w-0 items-center gap-2 font-medium text-fg-strong">
               {project.name}
@@ -621,7 +653,7 @@ function CreateForm({
   return (
     <form
       onSubmit={submit}
-      className="project-create grid max-w-xl gap-3 rounded-lg border border-line bg-elevated shadow-xs p-5"
+      className={cn(cardClass, "project-create grid max-w-xl gap-3 p-5")}
     >
       {teamEnvironments.length > 0 && teamProfile !== undefined && (
         <Segmented

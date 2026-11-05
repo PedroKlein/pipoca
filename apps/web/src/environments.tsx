@@ -5,7 +5,27 @@ import {
   type EnvironmentTemplate,
   kindOf,
 } from "@pipoca/protocol";
-import { Badge, Button, ChoiceTiles, cn, Command, type ConfirmOptions, ErrorText, fieldClass, Icon, type KeyValue, KeyValues, PageTitle, plural, Row, Rows, Section, Select, useConfirm } from "@pipoca/ui";
+import {
+  Badge,
+  Button,
+  ChoiceTiles,
+  cn,
+  Command,
+  type ConfirmOptions,
+  ErrorText,
+  fieldClass,
+  Icon,
+  type KeyValue,
+  KeyValues,
+  linkCardClass,
+  PageTitle,
+  plural,
+  Row,
+  Rows,
+  Section,
+  Select,
+  useConfirm,
+} from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -187,7 +207,7 @@ function EnvironmentCard({
   return (
     <a
       href={`#${environmentsPath(environment.ownerId === "team")}/${environment.id}`}
-      className="flex items-center gap-4 rounded-lg border border-line bg-elevated p-4 shadow-xs hover:border-line-strong"
+      className={cn(linkCardClass, "flex items-center gap-4 p-4")}
     >
       <span
         aria-hidden="true"

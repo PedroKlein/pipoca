@@ -1,5 +1,13 @@
 import type { Session } from "@pipoca/protocol";
-import { Button, Dialog, ErrorText, Field, fieldClass, Icon, Select } from "@pipoca/ui";
+import {
+  Button,
+  Dialog,
+  ErrorText,
+  Field,
+  fieldClass,
+  Icon,
+  Select,
+} from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { api, command } from "./api";
 import type { FeedItem } from "./feed";
@@ -24,18 +32,8 @@ export function MoveDialog({
   readonly onClose: () => void;
 }): ReactElement {
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      labelledBy="move-title"
-      size="md"
-    >
-      <MoveForm
-        session={session}
-        items={items}
-        busy={busy}
-        onDone={onClose}
-      />
+    <Dialog open={open} onClose={onClose} labelledBy="move-title" size="md">
+      <MoveForm session={session} items={items} busy={busy} onDone={onClose} />
     </Dialog>
   );
 }

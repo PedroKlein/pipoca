@@ -1,6 +1,6 @@
 import { json, useLoaded } from "@pipoca/plugins/web";
 import type { Newcomers, Profile } from "@pipoca/protocol";
-import { Button, ErrorText, Select } from "@pipoca/ui";
+import { Button, cardClass, cn, ErrorText, Select } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { send } from "./api";
 import { useProfiles, useTemplates } from "./hooks";
@@ -65,7 +65,7 @@ export function NewcomersCard({
   return (
     <section
       aria-label="What new people get"
-      className="mt-6 flex flex-col gap-3 rounded-lg border border-line bg-elevated p-4 shadow-xs"
+      className={cn(cardClass, "mt-6 flex flex-col gap-3 p-4")}
     >
       <div className="flex items-start gap-3">
         <div className="flex flex-1 flex-col gap-0.5">
