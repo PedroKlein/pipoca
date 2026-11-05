@@ -3,6 +3,7 @@ import {
   Config,
   configOf,
   envSecrets,
+  pluginConfig,
   type PluginStore,
   Secret,
   secretRefs,
@@ -238,6 +239,93 @@ describe("configOf", () => {
             "bots.botToken isn't sealed with this server's key; save it in Settings or name an environment variable",
         },
       },
+    ]);
+  });
+});
+
+describe("pluginConfig", () => {
+  const timers = {
+    waiting: [] as (() => Promise<void>)[],
+    after: (_ms: number, fire: () => Promise<void>) => {
+      timers.waiting.push(fire);
+
+      return () => undefined;
+    },
+    tick: async () => {
+      await Promise.all(timers.waiting.splice(0).map(async (fire) => fire()));
+    },
+  };
+
+  function edited(schema: Parameters<typeof pluginConfig>[0], first: unknown) {
+    let raw = first;
+    const logs: string[] = [];
+
+    const config = pluginConfig(
+      schema,
+      {
+        get: () => raw,
+        set: (value) => {
+          raw = value;
+        },
+        dir: "",
+        lockedIn: () => undefined,
+      },
+      secretRefs(storeOf("slack"), envSecrets({})),
+      {
+        timer: timers,
+        signal: new AbortController().signal,
+        log: (message) => {
+          logs.push(message);
+        },
+      },
+    );
+
+    return {
+      config,
+      logs,
+      edit: (next: unknown) => {
+        raw = next;
+      },
+    };
+  }
+
+  const minutes = Config.object({
+    minutes: Config.number({ title: "Minutes", default: 5 }),
+    greeting: Config.string({ title: "Greeting", default: "Hello" }),
+    token: Type.Optional(Secret()),
+  });
+
+  test("a hand-edited field that doesn't fit takes its default, and the others keep their values", () => {
+    const { config, logs } = edited(minutes, {
+      minutes: "five",
+      greeting: "Hi",
+      token: { env: "UNSET" },
+    });
+
+    expect(config.get()).toEqual({ minutes: 5, greeting: "Hi" });
+    expect(logs).toEqual(["config field skipped", "config field skipped"]);
+  });
+
+  test("watchers hear the fix to a field that didn't fit, and one that throws stops none of them", async () => {
+    const { config, edit } = edited(minutes, { minutes: 3 });
+    const heard: unknown[] = [];
+
+    config.watch(() => {
+      throw new Error("watcher broke");
+    });
+
+    config.watch((next) => {
+      heard.push(next);
+    });
+
+    edit({ minutes: "five" });
+    await timers.tick();
+    edit({ minutes: 7 });
+    await timers.tick();
+
+    expect(heard).toEqual([
+      { minutes: 5, greeting: "Hello" },
+      { minutes: 7, greeting: "Hello" },
     ]);
   });
 });

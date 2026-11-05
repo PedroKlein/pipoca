@@ -20,8 +20,18 @@ export function pluginConfig(
   secrets: SecretRefs,
   o: { readonly timer: Timer; readonly signal: AbortSignal; readonly log: Log },
 ): PluginConfig {
+  const fits = (field: TSchema, value: unknown, name: string): void => {
+    const filled = Value.Default(field, structuredClone(value));
+    const kept = checked(pruned(field, filled, [name], quiet), field, name);
+
+    opened(field, kept, [name], secrets, quiet);
+  };
+
+  // A hand edit that doesn't fit costs only its own fields.
   const read = (): Readonly<Record<string, unknown>> =>
-    fieldsOf(configOf(schema, key.get(), secrets, o.log));
+    fieldsOf(
+      configOf(schema, fitting(schema, key.get(), o.log, fits), secrets, o.log),
+    );
 
   const watchers: ((next: never, previous: never) => void)[] = [];
   let last: { readonly raw: string; readonly value: unknown } | undefined;
@@ -38,7 +48,11 @@ export function pluginConfig(
     last = { raw, value: next };
 
     for (const fn of watchers) {
-      fn(next as never, previous as never);
+      try {
+        fn(next as never, previous as never);
+      } catch (error) {
+        o.log("config watcher failed", { error: messageOf(error) });
+      }
     }
   };
 
@@ -48,7 +62,12 @@ export function pluginConfig(
     }
 
     o.timer.after(watchMs, async () => {
-      check();
+      try {
+        check();
+      } catch (error) {
+        o.log("config unreadable", { error: messageOf(error) });
+      }
+
       poll();
 
       return Promise.resolve();
@@ -298,7 +317,16 @@ export function kernelConfig<const S extends TSchema>(
   };
 }
 
-function fitting(schema: TSchema, raw: unknown, log: Log): unknown {
+const quiet: Log = () => undefined;
+
+function fitting(
+  schema: TSchema,
+  raw: unknown,
+  log: Log,
+  fits = (field: TSchema, value: unknown, name: string): void => {
+    checked(Value.Default(field, structuredClone(value)), field, name);
+  },
+): unknown {
   if (!isObject(raw)) {
     return raw;
   }
@@ -320,7 +348,7 @@ function fitting(schema: TSchema, raw: unknown, log: Log): unknown {
       }
 
       try {
-        checked(Value.Default(field, structuredClone(value)), field, name);
+        fits(field, value, name);
 
         return true;
       } catch (error) {
