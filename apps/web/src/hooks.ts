@@ -7,6 +7,7 @@ import {
 } from "react";
 import type {
   AccessToken,
+  Account,
   Environment,
   HubPage,
   Invite,
@@ -168,6 +169,25 @@ export function useTeam(): TeamView {
   }, []);
 
   return team;
+}
+
+// The signed-in person's own account, undefined until it is read.
+export function useAccount(): Account | undefined {
+  const [account, setAccount] = useState<Account>();
+
+  useEffect(() => {
+    const read = (): void => {
+      api("me")
+        .then(setAccount)
+        .catch(() => undefined);
+    };
+
+    read();
+
+    return watchChanges(["people"], read);
+  }, []);
+
+  return account;
 }
 
 export function useProfiles(): WatchedList<Profile> {

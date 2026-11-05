@@ -307,9 +307,15 @@ export interface Sessions {
       readonly turn: boolean;
       readonly as?: Actor;
       readonly notice?: { readonly kind: string; readonly data?: unknown };
+      // A repeat with the key of a message still queued for the Session is
+      // a no-op. Once that one is delivered, the key sends again.
       readonly dedupe?: string;
     },
   ) => "queued" | "gone";
+  // A key of the plugin's own, such as a mail thread, names one Session.
+  readonly bind: (key: string, sessionId: string) => void;
+  readonly boundTo: (key: string) => string | undefined;
+  readonly unbind: (key: string) => void;
 }
 
 export interface Store {

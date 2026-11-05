@@ -252,6 +252,46 @@ test("drops what waits for a Session once it is archived", async () => {
   ]);
 });
 
+test("loses nothing sent to a host whose stream falls behind, and sends the rest once it reconnects", async () => {
+  const { token, session } = await laptop();
+  const assigned = await claim(token);
+
+  const behind = await fetch(
+    new URL(
+      `/runner/sessions/${session.id}/commands?generation=${String(assigned.generation)}`,
+      server.url,
+    ),
+    { headers: runnerHeaders(token) },
+  );
+
+  const sent = Array.from({ length: 6 }, (_, at) => String(at + 1));
+
+  for (const n of sent) {
+    sender.send(session.id, `${n} ${"x".repeat(500_000)}`, "plugin:sender");
+  }
+
+  const texts = (commands: readonly unknown[]): string[] =>
+    commands.map((command) =>
+      (command as Command).type === "message"
+        ? ((command as { text: string }).text.split(" ")[0] ?? "")
+        : "",
+    );
+
+  const first: unknown[] = [];
+
+  try {
+    for await (const command of readSse(behind, 3000)) {
+      first.push(command);
+    }
+  } catch {
+    // The stream ends when it falls behind.
+  }
+
+  const rest = await received(token, assigned, sent.length - first.length);
+
+  expect([...texts(first), ...texts(rest)]).toEqual(sent);
+});
+
 test("sends a message with a dedupe key once while it waits", async () => {
   const { token, session } = await laptop();
 

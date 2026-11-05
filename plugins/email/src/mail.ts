@@ -1,7 +1,10 @@
 import { ImapFlow, type MessageStructureObject } from "imapflow";
 import { createTransport, type Transporter } from "nodemailer";
 import type SMTPTransport from "nodemailer/lib/smtp-transport";
-import type { Mailbox } from "./mailboxes";
+import type { Static } from "@pipoca/plugins";
+import type { email } from "../plugin";
+
+export type Mailbox = Static<typeof email.config>["mailboxes"][number];
 
 // What a mail server answered, in words for an admin or a Session.
 export class MailRefused extends Error {}
@@ -32,10 +35,11 @@ export interface Checked {
 
 // The mail that came after the last UID seen. On a first check, or when the
 // mailbox's UIDs were renumbered, it only learns where the mailbox is, so
-// old mail doesn't start runs.
+// old mail doesn't start runs. Mail without a date takes now's.
 export async function check(
   mailbox: Mailbox,
   seen: { readonly uidValidity: string; readonly last: number } | undefined,
+  now: number,
 ): Promise<Checked> {
   const client = imapOf(mailbox);
 
@@ -87,7 +91,7 @@ export async function check(
             address === undefined ? [] : [address],
           ),
           subject: envelope.subject ?? "",
-          date: new Date(envelope.date ?? Date.now()).toISOString(),
+          date: new Date(envelope.date ?? now).toISOString(),
           messageId: envelope.messageId ?? "",
           inReplyTo: envelope.inReplyTo ?? "",
           text:

@@ -1,5 +1,7 @@
 export {
   type AccessToken,
+  type Account,
+  type AccountChange,
   availability,
   type ConfigFile,
   createEnvironment,
@@ -19,6 +21,7 @@ export {
   type HubPage,
   type Invite,
   type JoinInfo,
+  type JoinItem,
   kindOf,
   type ListedTemplate,
   type ManifestEntry,

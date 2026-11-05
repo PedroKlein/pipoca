@@ -8,6 +8,7 @@ export function Page({
   description,
   actions,
   label,
+  wide = false,
   className,
   children,
 }: {
@@ -16,6 +17,8 @@ export function Page({
   readonly description?: ReactNode;
   readonly actions?: ReactNode;
   readonly label?: string;
+  // A 1000px column for a dashboard, such as the Team hub's home.
+  readonly wide?: boolean;
   readonly className?: string;
   readonly children: ReactNode;
 }): ReactElement {
@@ -24,7 +27,8 @@ export function Page({
       id={id}
       aria-label={label}
       className={cn(
-        "mx-auto flex w-full max-w-chat flex-col px-4 py-8 md:px-12 md:py-11",
+        "mx-auto flex w-full flex-col px-4 pt-8 pb-12 md:px-12 md:pt-11 md:pb-18",
+        wide ? "max-w-page-wide" : "max-w-page",
         className,
       )}
     >
@@ -55,7 +59,7 @@ export function PageTitle({
           {children}
         </h1>
         {description !== undefined && (
-          <p className="max-w-chat text-ui text-fg-dim">{description}</p>
+          <p className="max-w-145 text-ui text-fg-dim">{description}</p>
         )}
       </div>
       {actions !== undefined && (

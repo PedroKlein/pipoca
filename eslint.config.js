@@ -131,8 +131,6 @@ export default tseslint.config(
     ignores: [
       "plugins/*/src/**/*.test.ts",
       // Until these move to the clock and schedule as their plugins port.
-      "plugins/email/src/mail.ts",
-      "plugins/email/src/server.ts",
       "plugins/kubernetes/src/cluster.ts",
       "plugins/kubernetes/src/server.ts",
       "plugins/local/src/server.ts",
@@ -145,7 +143,6 @@ export default tseslint.config(
       "plugins/push/src/server.ts",
       "plugins/routines/src/engine.ts",
       "plugins/routines/src/wakeups.ts",
-      "plugins/slack/src/socket.ts",
     ],
     rules: {
       "no-restricted-globals": [
