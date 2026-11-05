@@ -28,18 +28,25 @@ afterAll(() => {
   server.kill();
 });
 
+// Reads the server's log for as long as it runs, since a server whose log
+// nobody reads stops at its next line.
 async function listening(): Promise<URL> {
   let output = "";
 
-  for await (const chunk of server.stderr) {
-    output += String(chunk);
-    const url = /"server listening","url":"([^"]+)"/.exec(output)?.[1];
-    if (url !== undefined) {
-      return new URL(url);
-    }
-  }
+  return new Promise((resolve, reject) => {
+    server.stderr.on("data", (chunk) => {
+      output += String(chunk);
+      const url = /"server listening","url":"([^"]+)"/.exec(output)?.[1];
 
-  throw new Error(`the server stopped before listening:\n${output}`);
+      if (url !== undefined) {
+        resolve(new URL(url));
+      }
+    });
+
+    server.on("exit", () => {
+      reject(new Error(`the server stopped before listening:\n${output}`));
+    });
+  });
 }
 
 // Started as a service, a server run from source has another working folder,
