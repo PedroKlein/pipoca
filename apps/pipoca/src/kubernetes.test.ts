@@ -27,7 +27,7 @@ import {
 } from "@pipoca/protocol";
 import { runAgent } from "@pipoca/runner";
 import { binary } from "./binary";
-import { builtInPlugins } from "./session-parts";
+import { builtInPlugins } from "./built-in";
 import { testServer, type TestServer } from "./testdata/harness";
 import { until } from "@pipoca/plugins/testing";
 

@@ -75,6 +75,10 @@ export function pluginRoutes({
     },
     "plugins.data.remove": ({ params: { plugin } }) =>
       changed(plugins.resetData(plugin)),
+    "plugins.config": ({ params: { plugin } }) =>
+      changed(plugins.config(plugin)),
+    "plugins.config.update": ({ params: { plugin }, body: { value } }) =>
+      changed(plugins.setConfig(plugin, value)),
     "plugins.part": ({ params: { plugin, file } }) => {
       const path = plugins.webPart(plugin, file);
 

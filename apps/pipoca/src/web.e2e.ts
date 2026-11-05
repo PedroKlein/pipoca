@@ -128,6 +128,70 @@ export default { name: "greeter", nav: { label: "Greeter", Page } };
 `,
   );
 
+  await mkdir(join(plugins, "vault"));
+
+  await writeFile(
+    join(plugins, "vault", "package.json"),
+    JSON.stringify({
+      description: "Keeps keys.",
+      pipoca: { entry: "plugin.ts" },
+    }),
+  );
+
+  await writeFile(
+    join(plugins, "vault", "plugin.ts"),
+    `import { Config, definePlugin, Secret, Type } from "@pipoca/plugins";
+
+export const vault = definePlugin({
+  id: "vault",
+  title: "Vault",
+  description: "Keeps keys for other services.",
+  config: Config.object({
+    greeting: Config.string({ title: "Greeting", default: "Hello" }),
+    keys: Config.collection({
+      title: "Keys",
+      key: "name",
+      admin: true,
+      item: Type.Object({
+        name: Type.String({ title: "Name" }),
+        token: Secret({ title: "Token" }),
+      }),
+    }),
+  }),
+  web: async () => import("./web"),
+});
+`,
+  );
+
+  await writeFile(
+    join(plugins, "vault", "web.tsx"),
+    `import { defineWeb, Slot, useViewer } from "@pipoca/plugins/web";
+import { Page } from "@pipoca/ui";
+import { vault } from "./plugin";
+
+function VaultPage({ path }: { readonly path: string }) {
+  const { person } = useViewer();
+
+  return (
+    <Page title="Vault" description={\`Keys for \${person.name}\`}>
+      <p>Open at {path === "" ? "the start" : path}</p>
+      <Slot name="settings.general" />
+    </Page>
+  );
+}
+
+function General() {
+  return <p>Vault keeps your keys.</p>;
+}
+
+export default defineWeb(vault, {
+  pages: [{ path: "", label: "Vault", Page: VaultPage, nav: { pinned: true } }],
+  settings: { group: "server", form: "auto" },
+  slots: { "settings.general": General },
+});
+`,
+  );
+
   const logs: string[] = [];
 
   server = serve({
@@ -147,7 +211,7 @@ export default { name: "greeter", nav: { label: "Greeter", Page } };
       plugins: await installedPlugins(
         plugins,
         () => undefined,
-        (id) => id === "faulty" || id === "greeter",
+        (id) => id === "faulty" || id === "greeter" || id === "vault",
       ),
     },
     log: (message, fields) => {
@@ -975,6 +1039,68 @@ test("shows an installed plugin's page with the app's React and components", asy
   const button = page.getByRole("button", { name: "Hellos: 0" });
   await button.click();
   await page.getByRole("button", { name: "Hellos: 1" }).waitFor();
+});
+
+test("draws a defined plugin's page and slots, pinned for someone who never changed their pins", async () => {
+  await page.route("**/api/me/pinned-pages", async (route) => {
+    await (route.request().method() === "GET"
+      ? route.fulfill({ json: { pages: null } })
+      : route.continue());
+  });
+
+  try {
+    await page.goto(server.url.href);
+    const nav = page.locator("#plugin-nav");
+
+    await nav.getByRole("link", { name: "Projects" }).waitFor();
+    expect(await nav.getByRole("link", { name: "Library" }).count()).toBe(0);
+
+    await nav.getByRole("link", { name: "Vault" }).click();
+    await page.getByRole("heading", { name: "Vault" }).waitFor();
+    await page.getByText("Keys for pedro").waitFor();
+    await page.getByText("Open at the start").waitFor();
+    await page.getByText("Vault keeps your keys.").waitFor();
+  } finally {
+    await page.unroute("**/api/me/pinned-pages");
+  }
+
+  await openSettings("General");
+  await page.getByText("Vault keeps your keys.").waitFor();
+});
+
+test("saves a collection item with a secret from the config's form, and keeps the secret sealed", async () => {
+  await page.goto(server.url.href);
+  await openSettings("Vault");
+
+  await page.getByRole("button", { name: "Add" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Name").fill("github");
+  await dialog.getByLabel("Token").fill("ghp_plain");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await dialog.waitFor({ state: "detached" });
+
+  const keys = page.getByRole("list", { name: "Keys" });
+  await keys.getByText("github").waitFor();
+
+  const saved = await readFile(join(root, "config", "pipoca.json"), "utf8");
+
+  const { vault } = JSON.parse(saved) as {
+    vault: { keys: { name: string; token: Record<string, string> }[] };
+  };
+
+  expect(vault.keys.map(({ name }) => name)).toEqual(["github"]);
+  expect(Object.keys(vault.keys[0]?.token ?? {})).toEqual(["sealed"]);
+  expect(saved).not.toContain("ghp_plain");
+
+  await page.reload();
+  await keys.getByRole("button", { name: "Edit" }).click();
+
+  const token = page.getByRole("dialog").getByLabel("Token");
+  expect(await token.inputValue()).toBe("");
+
+  expect(await token.getAttribute("placeholder")).toBe(
+    "Saved, type to replace",
+  );
 });
 
 test("says why an installed plugin's web part didn't load, and draws the rest", async () => {

@@ -11,7 +11,11 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { type ServerPlugin, settingSpecs } from "@pipoca/plugins";
+import {
+  type PluginDefinition,
+  type ServerPlugin,
+  settingSpecs,
+} from "@pipoca/plugins";
 import {
   capabilities,
   type PluginManifest,
@@ -20,9 +24,15 @@ import {
 import type { Log } from "@pipoca/protocol";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-import { bundleParts, type PluginParts, provideSdk } from "./bundle";
+import {
+  bundleDefined,
+  bundleParts,
+  importedDefinition,
+  type PluginParts,
+  provideSdk,
+} from "./bundle";
 import { kernelKeys } from "@pipoca/pluginhost";
-import { builtInPlugins } from "./session-parts";
+import { builtInPlugins, definedManifest } from "./built-in";
 import { fetchSnapshot } from "@pipoca/repositories";
 
 // Where an installed plugin came from, and the exact version fetched: a git
@@ -39,6 +49,8 @@ export interface InstalledPlugin {
   readonly manifest: PluginManifest;
   readonly on: boolean;
   readonly server?: ServerPlugin;
+  // Its definePlugin, when it is defined with one and on.
+  readonly definition?: PluginDefinition;
   // The web part's bundle.
   readonly web?: string;
   // The Session part's bundle, and its SHA-256 that runners ask for it by.
@@ -339,13 +351,20 @@ async function load(
   const fallback: PluginManifest = { id: name, title: name, description: "" };
 
   let manifest: PluginManifest;
+  let entry: string | undefined;
   try {
-    manifest = manifestOf(
-      JSON.parse(await readFile(join(folder, "package.json"), "utf8")),
-      name,
+    const packageJson: unknown = JSON.parse(
+      await readFile(join(folder, "package.json"), "utf8"),
     );
+
+    manifest = manifestOf(packageJson, name);
+    entry = entryOf(packageJson);
   } catch (error) {
     return { manifest: fallback, on, error: messageOf(error) };
+  }
+
+  if (entry !== undefined) {
+    return on ? loadDefined(folder, entry, manifest) : { manifest, on };
   }
 
   const { server, web, session } = manifest.parts ?? {};
@@ -390,6 +409,44 @@ async function load(
     };
   } catch (error) {
     return { manifest, on, error: messageOf(error) };
+  }
+}
+
+// Its definition is code, so until it is on the Plugins page shows what its
+// package.json says.
+async function loadDefined(
+  folder: string,
+  entry: string,
+  manifest: PluginManifest,
+): Promise<InstalledPlugin> {
+  try {
+    const bundles = await bundleDefined(
+      folder,
+      await inside(folder, entry),
+      manifest.id,
+    );
+
+    const definition = await importedDefinition(
+      bundles.definition,
+      manifest.id,
+    );
+
+    return {
+      manifest: definedManifest(definition),
+      on: true,
+      definition,
+      ...(bundles.web !== undefined && { web: bundles.web }),
+      ...(bundles.session !== undefined && {
+        session: {
+          path: bundles.session,
+          hash: new Bun.CryptoHasher("sha256")
+            .update(await readFile(bundles.session))
+            .digest("hex"),
+        },
+      }),
+    };
+  } catch (error) {
+    return { manifest, on: true, error: messageOf(error) };
   }
 }
 
@@ -463,10 +520,18 @@ export function isReserved(name: string): boolean {
 export async function build(root: string, id: string): Promise<void> {
   const folder = join(root, id);
 
-  const manifest = manifestOf(
-    JSON.parse(await readFile(join(folder, "package.json"), "utf8")),
-    id,
+  const packageJson: unknown = JSON.parse(
+    await readFile(join(folder, "package.json"), "utf8"),
   );
+
+  const manifest = manifestOf(packageJson, id);
+  const entry = entryOf(packageJson);
+
+  if (entry !== undefined) {
+    await bundleDefined(folder, await inside(folder, entry), id);
+
+    return;
+  }
 
   if (Object.keys(manifest.parts ?? {}).length === 0) {
     throw new Error(
@@ -529,7 +594,37 @@ const pluginPackage = Type.Object({
   }),
 });
 
+// A plugin defined with definePlugin names only its entry, and its id when
+// it is installed from a URL.
+const definedPackage = Type.Object({
+  description: Type.Optional(Type.String()),
+  pipoca: Type.Object({
+    entry: Type.String(),
+    id: Type.Optional(Type.String()),
+  }),
+});
+
+function entryOf(packageJson: unknown): string | undefined {
+  return Value.Check(definedPackage, packageJson)
+    ? packageJson.pipoca.entry
+    : undefined;
+}
+
 function manifestOf(packageJson: unknown, folder: string): PluginManifest {
+  if (Value.Check(definedPackage, packageJson)) {
+    const { id } = packageJson.pipoca;
+
+    if (id !== undefined && id !== folder) {
+      throw new Error(`pipoca.id must be the folder's name, ${folder}`);
+    }
+
+    return {
+      id: folder,
+      title: folder,
+      description: packageJson.description ?? "",
+    };
+  }
+
   if (!Value.Check(pluginPackage, packageJson)) {
     const [error] = Value.Errors(pluginPackage, packageJson);
     const field = error?.instancePath.slice(1).replaceAll("/", ".") ?? "";

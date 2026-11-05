@@ -2,21 +2,6 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ServerWebSocket } from "bun";
-import { askServer } from "@pipoca/ask/server";
-import { gitHosts } from "@pipoca/git-hosts/server";
-import { kubernetesPlugin } from "@pipoca/kubernetes/server";
-import { library } from "@pipoca/library/server";
-import { push } from "@pipoca/push/server";
-import { local, type LocalOptions } from "@pipoca/local/server";
-import { logins as loginsPlugin } from "@pipoca/logins/server";
-import { meta } from "@pipoca/meta/server";
-import { models } from "@pipoca/models/server";
-import { oidc } from "@pipoca/oidc/server";
-import { projects } from "@pipoca/projects/server";
-import { email } from "@pipoca/email/server";
-import { routines } from "@pipoca/routines/server";
-import { usage } from "@pipoca/usage/server";
-import { slack } from "@pipoca/slack/server";
 import { pluginSwitches, startPlugins } from "@pipoca/pluginhost";
 import {
   eventBus,
@@ -64,7 +49,14 @@ import {
   update,
 } from "./installed";
 import { latestCommit } from "@pipoca/repositories";
-import { builtInPlugins, sessionPlugins } from "./session-parts";
+import {
+  builtInDefinitions,
+  builtInPlugins,
+  builtInServers,
+  builtInSessions,
+  definedManifest,
+  type Runtime,
+} from "./built-in";
 import { errorReply } from "./server/http/replies";
 import { previewBroker } from "./previews";
 import { webAppFile } from "./web-app";
@@ -74,23 +66,6 @@ import { fromAddress, onBehalfOf } from "./server/http/router";
 import type { PreviewData, SocketData, TerminalData } from "./sockets";
 import { openStore, type Store } from "./sqlite/store";
 import { terminalBroker } from "./terminals";
-
-const serverPlugins: readonly ServerPlugin[] = [
-  askServer,
-  projects,
-  library,
-  models,
-  kubernetesPlugin,
-  meta,
-  oidc,
-  gitHosts,
-  loginsPlugin,
-  push,
-  routines,
-  slack,
-  email,
-  usage,
-];
 
 const updateCheckMs = 6 * 60 * 60_000;
 const outboxSweepMs = 5000;
@@ -191,9 +166,9 @@ export function serve(options: ServeOptions): {
 
   const folder = options.installed;
   const installed = folder?.plugins ?? [];
-  let seed: LocalOptions["seed"];
+  let seed: Runtime["seed"];
 
-  const thisMachine = local(() => ({
+  const runtime = (): Runtime => ({
     command: pipoca,
     server: () => server.url.href,
     dataDir:
@@ -201,10 +176,10 @@ export function serve(options: ServeOptions): {
         ? mkdtempSync(join(tmpdir(), "pipoca-local-"))
         : join(dirname(options.database), "local"),
     ...(seed !== undefined && { seed }),
-  }));
+  });
 
   const plugins = [
-    ...(options.plugins ?? [...serverPlugins, thisMachine]),
+    ...(options.plugins ?? builtInServers(runtime)),
     ...installed.flatMap(({ server }) => (server ? [server] : [])),
   ];
 
@@ -217,18 +192,24 @@ export function serve(options: ServeOptions): {
           title: name,
           description: "",
         },
-    ) ?? builtInPlugins;
+    ) ??
+    builtInPlugins.filter(
+      ({ id }) => !builtInDefinitions.some((each) => each.id === id),
+    );
 
-  const definitions = options.definitions ?? [];
+  const ownDefinitions = [
+    ...(options.plugins === undefined ? builtInDefinitions : []),
+    ...(options.definitions ?? []),
+  ];
 
-  const defined = definitions.map(
-    ({ id, title, description, works }): PluginManifest => ({
-      id,
-      title,
-      description,
-      ...(works !== undefined && { works: [...works] }),
-    }),
-  );
+  const definitions = [
+    ...ownDefinitions,
+    ...installed.flatMap(({ definition }) =>
+      definition === undefined ? [] : [definition],
+    ),
+  ];
+
+  const defined = ownDefinitions.map(definedManifest);
 
   const known = [
     ...builtIn,
@@ -466,7 +447,9 @@ export function serve(options: ServeOptions): {
         build: async (id) => buildPlugin(folder.root, id),
       },
     }),
-    sessionParts: sessionPlugins,
+    sessionParts: builtInSessions.flatMap(({ plugin }) =>
+      plugin === undefined ? [] : [plugin],
+    ),
     mcpServers: () => userProfiles.mcpServers(),
     switches,
     templates,
@@ -807,7 +790,7 @@ function fromThisSite(request: Request, hosts: ReadonlySet<string>): boolean {
 function thisMachineEnvironment(
   store: Store,
   folders: readonly string[],
-): LocalOptions["seed"] {
+): Runtime["seed"] {
   const provider = "this-machine";
   const [owner] = store.people.users();
 

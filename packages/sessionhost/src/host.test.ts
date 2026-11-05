@@ -18,7 +18,11 @@ import {
   ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
-import type { SessionPlugin } from "@pipoca/plugins";
+import {
+  definePlugin,
+  defineSession,
+  type SessionPlugin,
+} from "@pipoca/plugins";
 import type { Command, LiveEvent, ToolSpec } from "@pipoca/protocol";
 import { ask } from "@pipoca/ask/session";
 import {
@@ -3198,6 +3202,76 @@ test("lets a plugin's tools reach its own server routes", async () => {
       JSON.stringify({ plugin: "echo", path: "echo", body: "hi" }),
     ).slice(1, -1),
   );
+});
+
+test("runs a defined Session part's tools in Pi, with its config, its api and publish", async () => {
+  const { faux, models } = await fauxModels(root);
+
+  faux.setResponses([
+    fauxAssistantMessage([fauxToolCall("echo", { text: "hi" })], {
+      stopReason: "toolUse",
+    }),
+    fauxAssistantMessage([fauxText("done")]),
+  ]);
+
+  const plugin = definePlugin({
+    id: "echo",
+    title: "Echo",
+    description: "Echoes",
+  });
+
+  const part = defineSession(plugin, (s) => {
+    s.tools.define({
+      name: "echo",
+      description: "Sends text to the plugin's server routes",
+      params: Type.Object({ text: Type.String() }),
+      run: async ({ text }) => {
+        s.publish("said", text);
+
+        return {
+          text: JSON.stringify(await s.api.put("echo", text)),
+          details: { config: s.config },
+        };
+      },
+    });
+  });
+
+  const fake = fakeStream();
+
+  const hosted = await hostSession(
+    sessionOptions(root, {
+      models,
+      parts: [part],
+      pluginConfig: { echo: { greeting: "Hello" } },
+    }),
+    fake.stream,
+    () => undefined,
+    noTerminal,
+  );
+
+  fake.send({ actor: "user:local", type: "message", text: "echo hi" });
+  await fake.waitFor(() => fake.lines.join().includes("done"));
+  await hosted.stop();
+
+  const result = fake.lines
+    .map((line) => JSON.parse(line) as { message?: { role: string } })
+    .find(({ message }) => message?.role === "toolResult")?.message as
+    { content: { text: string }[]; details: unknown } | undefined;
+
+  expect(JSON.parse(result?.content[0]?.text ?? "null")).toEqual({
+    plugin: "echo",
+    path: "echo",
+    body: JSON.stringify("hi"),
+  });
+
+  expect(result?.details).toEqual({ config: { greeting: "Hello" } });
+
+  expect(fake.events).toContainEqual({
+    type: "plugin",
+    plugin: "echo",
+    key: "said",
+    data: "hi",
+  });
 });
 
 test("starts with its first message, its system prompt text and plugins' extensions", async () => {

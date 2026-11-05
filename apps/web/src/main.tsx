@@ -5,7 +5,7 @@ import { App } from "./app";
 import { AppSignIn, pendingAppSignIn } from "./app-sign-in";
 import { JoinPage } from "./join";
 import { Me } from "./me";
-import { loadPlugins, navEntries } from "./plugins";
+import { loadPlugins, navEntries, PluginShell } from "./plugins";
 import { SignInPage } from "./sign-in";
 import { applyTheme } from "./theme";
 
@@ -56,14 +56,26 @@ if (status === undefined) {
         team: !status.solo,
       }}
     >
-      <App
-        nav={navEntries()}
-        user={status.user.name}
-        admin={status.user.admin}
-        setup={setup}
-        people={status.user.admin && !status.solo}
-        team={!status.solo}
-      />
+      <PluginShell
+        viewer={{
+          person: {
+            id: status.user.id,
+            name: status.user.name,
+            admin: status.user.admin,
+          },
+          admin: status.user.admin,
+          team: !status.solo,
+        }}
+      >
+        <App
+          nav={navEntries()}
+          user={status.user.name}
+          admin={status.user.admin}
+          setup={setup}
+          people={status.user.admin && !status.solo}
+          team={!status.solo}
+        />
+      </PluginShell>
     </Me>,
   );
 }

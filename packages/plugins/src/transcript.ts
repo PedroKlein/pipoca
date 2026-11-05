@@ -1,4 +1,29 @@
-import type { ToolResultEntry, Transcript } from "@pipoca/plugins";
+export interface ToolResultEntry<D = unknown> {
+  readonly callId: string;
+  readonly line: number;
+  readonly input: unknown;
+  readonly details: D;
+  readonly isError: boolean;
+}
+
+export interface Transcript {
+  readonly toolResults: <D = unknown>(
+    sessionId: string,
+    tool: string,
+  ) => readonly ToolResultEntry<D>[];
+  readonly messages: (
+    sessionId: string,
+    o?: { readonly sinceLine?: number },
+  ) => readonly {
+    readonly line: number;
+    readonly role: "user" | "assistant";
+    readonly text: string;
+  }[];
+  readonly lastReply: (
+    sessionId: string,
+  ) => { readonly line: number; readonly text: string } | undefined;
+  readonly length: (sessionId: string) => number;
+}
 
 interface Message {
   readonly role?: unknown;

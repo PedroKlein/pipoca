@@ -1,23 +1,14 @@
-import { ask } from "@pipoca/ask/web";
-import { changes } from "@pipoca/changes/web";
-import { checklist } from "@pipoca/checklist/web";
-import { gitHosts } from "@pipoca/git-hosts/web";
-import { kubernetes } from "@pipoca/kubernetes/web";
-import { library } from "@pipoca/library/web";
-import { push } from "@pipoca/push/web";
-import { local } from "@pipoca/local/web";
-import { logins } from "@pipoca/logins/web";
-import { meta } from "@pipoca/meta/web";
-import { models } from "@pipoca/models/web";
-import { oidc } from "@pipoca/oidc/web";
-import type {
-  NavItemsProps,
-  PullRequestStatusProps,
-  ToolCallProps,
-  WebContext,
-  WebPlugin,
-  WidgetProps,
+import {
+  ConfigForm,
+  type NavItemsProps,
+  type PullRequestStatusProps,
+  type ToolCallProps,
+  type WebContext,
+  type WebPart,
+  type WebPlugin,
+  type WidgetProps,
 } from "@pipoca/plugins/web";
+import { type Shell, ShellProvider } from "@pipoca/plugins/web/shell";
 import {
   apiPath,
   type PluginInfo,
@@ -25,12 +16,7 @@ import {
   type RepositoryChoice,
   type Session,
 } from "@pipoca/protocol";
-import { projects } from "@pipoca/projects/web";
-import { email } from "@pipoca/email/web";
-import { routines } from "@pipoca/routines/web";
-import { slack } from "@pipoca/slack/web";
-import { subagents } from "@pipoca/subagents/web";
-import { usage } from "@pipoca/usage/web";
+import * as sdk from "@pipoca/plugins";
 import * as plugins from "@pipoca/plugins/web";
 import * as ui from "@pipoca/ui";
 import * as react from "react";
@@ -39,6 +25,7 @@ import {
   createElement,
   Fragment,
   type ReactElement,
+  type ReactNode,
   useMemo,
   useSyncExternalStore,
 } from "react";
@@ -47,30 +34,26 @@ import * as reactDomClient from "react-dom/client";
 import * as jsxRuntime from "react/jsx-runtime";
 import { api } from "./api";
 import { EmbeddedSession } from "./embedded-session";
+import { PluginBoundary } from "./plugin-boundary";
+import { webRegistry } from "./registry";
+
+type Module = Readonly<Record<string, unknown>>;
 
 // The web parts of the plugins built into this bundle (ADR 0015).
-const webPlugins: readonly WebPlugin[] = [
-  meta,
-  usage,
-  changes,
-  projects,
-  library,
-  models,
-  subagents,
-  checklist,
-  ask,
-  routines,
-  slack,
-  email,
-  kubernetes,
-  local,
-  logins,
-  oidc,
-  gitHosts,
-  push,
-];
+const builtIn: readonly {
+  readonly id: string;
+  readonly plugin?: Module;
+  readonly part?: Module;
+}[] = webRegistry;
 
-let enabled: readonly WebPlugin[] = [];
+// A web part the shell draws, a v2 one drawn through the v1 fields.
+interface ShellPlugin extends WebPlugin {
+  readonly part?: WebPart;
+  // Its pages have no place in the sidebar.
+  readonly unlisted?: boolean;
+}
+
+let enabled: readonly ShellPlugin[] = [];
 const webErrors = new Map<string, string>();
 let settings: ReadonlyMap<string, PluginSettings> = new Map();
 let titles: ReadonlyMap<string, string> = new Map();
@@ -86,6 +69,7 @@ Object.assign(globalThis, {
     "react-dom": reactDom,
     "react-dom/client": reactDomClient,
     "@pipoca/ui": ui,
+    "@pipoca/plugins": sdk,
     "@pipoca/plugins/web": plugins,
   },
 });
@@ -100,13 +84,17 @@ export async function loadPlugins(): Promise<void> {
     ),
   );
 
-  enabled = [
-    ...webPlugins.filter(({ name }) => on.some(({ id }) => id === name)),
-    ...installed.flatMap((plugin) => (plugin ? [plugin] : [])),
-  ];
-
   settings = new Map(on.map(({ id, values }) => [id, values]));
   titles = new Map(on.map(({ id, title }) => [id, title]));
+
+  enabled = [
+    ...builtIn.flatMap(({ id, plugin, part }) =>
+      on.some((each) => each.id === id)
+        ? [shellPlugin(id, plugin ?? part)]
+        : [],
+    ),
+    ...installed.flatMap((plugin) => (plugin ? [plugin] : [])),
+  ];
 
   inTeamWork = teamWorkOf(on);
 
@@ -140,10 +128,186 @@ function watchTeamWork(listener: () => void): () => void {
   };
 }
 
+// A v1 web part, or a v2 one as the v1 fields it fills.
+function shellPlugin(id: string, module: Module | undefined): ShellPlugin {
+  const part = module?.["default"];
+
+  if (isPart(part)) {
+    return adapted(part);
+  }
+
+  const plugin = Object.values(module ?? {}).find(
+    (value) => (value as { readonly name?: unknown } | null)?.name === id,
+  );
+
+  if (plugin === undefined) {
+    throw new Error(`the ${id} web module exports no web part`);
+  }
+
+  return plugin as WebPlugin;
+}
+
+function isPart(value: unknown): value is WebPart {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { readonly plugin?: { readonly id?: unknown } }).plugin
+      ?.id === "string"
+  );
+}
+
+function adapted(part: WebPart): ShellPlugin {
+  const { id } = part.plugin;
+
+  const slots = (part.slots ?? {}) as Readonly<
+    Record<string, ComponentType<never>>
+  >;
+
+  const slotted = <Props>(prefix: string) =>
+    Object.fromEntries(
+      Object.entries(slots).flatMap(([name, Component]) =>
+        name.startsWith(prefix)
+          ? [[name.slice(prefix.length), Component as ComponentType<Props>]]
+          : [],
+      ),
+    );
+
+  const slot = <Props>(name: string): ComponentType<Props> | undefined =>
+    slots[name] as ComponentType<Props> | undefined;
+
+  const pages = (part.pages ?? []).filter(({ area }) => area !== "hub");
+  const listed = pages.find(({ nav }) => nav !== undefined);
+  const first = listed ?? pages[0];
+
+  const byLength = [...pages].sort(
+    (one, other) => other.path.length - one.path.length,
+  );
+
+  const Page = ({ path }: { readonly path: string }): ReactElement | null => {
+    const page = byLength.find(
+      (each) =>
+        each.path === "" ||
+        path === each.path ||
+        path.startsWith(`${each.path}/`),
+    );
+
+    return page
+      ? createElement(page.Page, {
+          path: page.path === "" ? path : path.slice(page.path.length + 1),
+        })
+      : null;
+  };
+
+  const settingsSection = part.settings && {
+    SettingsSection: (part.settings.Section ??
+      (() =>
+        createElement(ConfigForm, { plugin: part.plugin }))) as NonNullable<
+      WebPlugin["SettingsSection"]
+    >,
+    settingsGroup: part.settings.group,
+  };
+
+  const optional = <K extends keyof WebPlugin>(
+    key: K,
+    value: WebPlugin[K] | undefined,
+  ): Partial<WebPlugin> => (value === undefined ? {} : { [key]: value });
+
+  const withSlot = (
+    key: string,
+    Component: ComponentType<never> | undefined,
+  ): Readonly<Record<string, ComponentType<never>>> =>
+    Component === undefined ? {} : { [key]: Component };
+
+  const panels = slotted<{ readonly title: string }>("hub.panel:");
+
+  return {
+    name: id,
+    part,
+    ...(listed === undefined && { unlisted: true }),
+    ...(first && {
+      nav: {
+        label: first.label,
+        Page,
+        ...(listed?.nav?.Items && {
+          Items: listed.nav.Items as ComponentType<NavItemsProps>,
+        }),
+        ...(listed?.nav?.fills && { fills: listed.nav.fills }),
+        ...(listed?.nav?.pinned === true && { pinned: true }),
+      },
+    }),
+    hub: {
+      panels: Object.fromEntries(
+        Object.entries(panels).map(([key, Panel]) => [
+          key,
+          {
+            title: pluginTitle(id),
+            Panel: () => createElement(Panel, { title: pluginTitle(id) }),
+          },
+        ]),
+      ),
+      pages: Object.fromEntries(
+        (part.pages ?? [])
+          .filter(({ area }) => area === "hub")
+          .map((page) => [
+            page.path,
+            {
+              label: page.label,
+              Page: () => createElement(page.Page, { path: "" }),
+            },
+          ]),
+      ),
+    },
+    ...optional("Home", slot("home")),
+    ...optional("sessionPath", part.sessionPath),
+    notices: slotted("notice:"),
+    links: slotted("link:"),
+    tools: slotted("session.toolCall:"),
+    ...optional("SessionHeader", slot("session.header")),
+    ...optional("Composer", slot("session.composer")),
+    ...optional("EnvironmentSection", slot("environment.section")),
+    ...optional("TemplateSection", slot("template.section")),
+    ...settingsSection,
+    ...optional("setupStep", part.setup?.[0]),
+    settingsParts: {
+      ...withSlot("General", slot("settings.general")),
+      ...withSlot("Accounts", slot("settings.accounts")),
+      ...withSlot("Profile", slot("settings.profile")),
+    },
+  };
+}
+
+const shell: Omit<Shell, "viewer"> = {
+  fills: (name) =>
+    enabled.flatMap(({ name: plugin, part }) => {
+      const Component = (
+        part?.slots as
+          Readonly<Record<string, ComponentType<never>>> | undefined
+      )?.[name];
+
+      return Component === undefined ? [] : [{ plugin, Component }];
+    }),
+  part: (plugin, children) =>
+    createElement(PluginBoundary, { name: plugin, children }),
+};
+
+// What the plugins' parts draw inside: who looks, and every enabled
+// plugin's slots.
+export function PluginShell({
+  viewer,
+  children,
+}: {
+  readonly viewer: Shell["viewer"];
+  readonly children: ReactNode;
+}): ReactElement {
+  const value = useMemo(() => ({ ...shell, viewer }), [viewer]);
+
+  return createElement(ShellProvider, { shell: value, children });
+}
+
 async function importWebPart(
   id: string,
   url: string,
-): Promise<WebPlugin | undefined> {
+): Promise<ShellPlugin | undefined> {
   try {
     // The page waits for every web part before it draws, so one that never
     // finishes loading can't keep it blank.
@@ -154,7 +318,15 @@ async function importWebPart(
           reject(new Error("it took longer than 10 seconds to load"));
         }, 10_000);
       }),
-    ])) as { default?: WebPlugin };
+    ])) as { default?: WebPlugin | WebPart };
+
+    if (isPart(plugin)) {
+      if (plugin.plugin.id !== id) {
+        throw new Error(`its default export must be a web part for ${id}`);
+      }
+
+      return adapted(plugin);
+    }
 
     if (plugin?.name !== id) {
       throw new Error(`its default export must be a web part named ${id}`);
@@ -284,6 +456,7 @@ export interface NavEntry {
   readonly name: string;
   readonly label: string;
   readonly Items?: ComponentType<NavItemsProps>;
+  readonly pinned: boolean;
 }
 
 // A plugin whose search fails offers nothing, so the others still show.
@@ -302,9 +475,16 @@ export async function searchRepositories(
 }
 
 export function navEntries(): readonly NavEntry[] {
-  return enabled.flatMap(({ name, nav }) =>
-    nav
-      ? [{ name, label: nav.label, ...(nav.Items && { Items: nav.Items }) }]
+  return enabled.flatMap(({ name, nav, unlisted }) =>
+    nav && unlisted !== true
+      ? [
+          {
+            name,
+            label: nav.label,
+            pinned: nav.pinned === true,
+            ...(nav.Items && { Items: nav.Items }),
+          },
+        ]
       : [],
   );
 }
