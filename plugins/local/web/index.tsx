@@ -4,7 +4,7 @@ import {
   useLoaded,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, cn, Field, fieldClass, Section, TextInput } from "@pipoca/ui";
+import { Button, cn, ErrorText, Field, fieldClass, Section, TextInput } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import {
   defaultSettings,
@@ -72,10 +72,10 @@ function Failure({
     new Date(iso).toLocaleTimeString([], { timeStyle: "short" });
 
   return (
-    <p role="alert" className="text-failed">
+    <ErrorText size="inherit">
       The runner failed at {time(failure.at)}: {failure.problem}. The next one
       starts after {time(failure.retryAt)}, and the server log says why.
-    </p>
+    </ErrorText>
   );
 }
 
@@ -159,11 +159,7 @@ function Settings({
             Stop running here
           </Button>
         )}
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
       </div>
     </form>
   );

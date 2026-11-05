@@ -5,7 +5,7 @@ import {
   type EnvironmentTemplate,
   kindOf,
 } from "@pipoca/protocol";
-import { Badge, Button, ChoiceTiles, cn, Command, type ConfirmOptions, fieldClass, Icon, type KeyValue, KeyValues, PageTitle, plural, Row, Rows, Section, Select, useConfirm } from "@pipoca/ui";
+import { Badge, Button, ChoiceTiles, cn, Command, type ConfirmOptions, ErrorText, fieldClass, Icon, type KeyValue, KeyValues, PageTitle, plural, Row, Rows, Section, Select, useConfirm } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -278,11 +278,7 @@ function NewEnvironment({
         </Select>
       )}
       <Button type="submit">Create</Button>
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
     </form>
   );
 }
@@ -347,11 +343,7 @@ function JoinKey({
         >
           {environment.hasKey ? "Replace key" : "Make key"}
         </Button>
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
       </div>
       {asking}
     </div>

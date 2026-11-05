@@ -6,7 +6,7 @@ import type {
   ProfileContent,
   RepositorySource,
 } from "@pipoca/protocol";
-import { Badge, Button, cn, Field, fieldClass, FileButton, Icon, initialsOf, ListInput, PageTitle, Picker, Row, Rows, Section, Tabs, useConfirm } from "@pipoca/ui";
+import { Badge, Button, cn, ErrorText, Field, fieldClass, FileButton, Icon, initialsOf, ListInput, PageTitle, Picker, Row, Rows, Section, Tabs, useConfirm } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import { api, send } from "./api";
 import {
@@ -827,11 +827,7 @@ function Synced({
         >
           Make a copy
         </Button>
-        {error !== undefined && (
-          <span role="alert" className="text-caption text-failed">
-            {error}
-          </span>
-        )}
+        <ErrorText inline size="caption">{error}</ErrorText>
       </div>
     </div>
   );
@@ -1013,9 +1009,9 @@ function Import({ onChange }: { readonly onChange: () => void }): ReactElement {
             </span>
           </form>
         )}
-        <p role="alert" className="text-caption text-failed">
+        <ErrorText size="caption">
           {error}
-        </p>
+        </ErrorText>
       </div>
     </Section>
   );

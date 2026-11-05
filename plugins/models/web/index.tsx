@@ -5,19 +5,7 @@ import {
   type WebPlugin,
 } from "@pipoca/plugins/web";
 import type { Environment, ModelRef } from "@pipoca/protocol";
-import {
-  Badge,
-  Button,
-  cn,
-  fieldClass,
-  Icon,
-  initialsOf,
-  PageTitle,
-  Row,
-  Rows,
-  Section,
-  Select,
-} from "@pipoca/ui";
+import { Badge, Button, cn, ErrorText, fieldClass, Icon, initialsOf, PageTitle, Row, Rows, Section, Select } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import {
   aliasesOf,
@@ -195,11 +183,7 @@ function InThePicker({
       title="In the model picker"
       description="Hide models nobody here should use"
     >
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
       <Rows label="Providers in the model picker">
         {[...byProvider].map(([provider, listed]) => {
           const shown = listed.filter(
@@ -349,11 +333,7 @@ function Aliases({
             <option key={modelKey(model)} value={modelKey(model)} />
           ))}
       </datalist>
-      {error !== undefined && (
-        <p role="alert" className="mt-4 text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption" className="mt-4">{error}</ErrorText>
       <div className="mt-6 flex flex-col gap-4">
         {adding && (
           <NewAlias
@@ -516,9 +496,9 @@ function NewAlias({
         Cancel
       </Button>
       {clash && (
-        <p role="alert" className="w-full text-caption text-failed">
+        <ErrorText size="caption" className="w-full">
           {name} is already an alias.
-        </p>
+        </ErrorText>
       )}
     </form>
   );

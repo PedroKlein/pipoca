@@ -1,5 +1,5 @@
 import { json, useLoaded, type WebContext } from "@pipoca/plugins/web";
-import { Button, Field, fieldClass, Select } from "@pipoca/ui";
+import { Button, ErrorText, Field, fieldClass, Select } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type { Connectable, Connection, ConnectionPrompt } from "../src/model";
 
@@ -175,9 +175,9 @@ export function ConnectionCard({
         />
       )}
       {connection.state === "failed" && (
-        <p role="alert" className="text-caption text-failed">
+        <ErrorText size="caption">
           {connection.error ?? "The sign-in didn't finish."}
-        </p>
+        </ErrorText>
       )}
       <div>
         <Button onClick={dismiss}>

@@ -6,7 +6,7 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, cn, Dialog, Field, fieldClass, Icon, ListInput } from "@pipoca/ui";
+import { Button, cn, Dialog, ErrorText, Field, fieldClass, Icon, ListInput } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import type { Vote, Votes } from "../src/votes";
 
@@ -137,11 +137,7 @@ function VoteCard({
           );
         })}
       </ul>
-      {error !== undefined && (
-        <p role="alert" className="text-label text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText>{error}</ErrorText>
     </section>
   );
 }
@@ -283,11 +279,7 @@ function VoteForm({
         someone asks it something.
       </p>
 
-      {error !== undefined && (
-        <p role="alert" className="text-label text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText>{error}</ErrorText>
 
       <div className="flex justify-end gap-2">
         <Button onClick={onDone}>Cancel</Button>

@@ -1,5 +1,5 @@
 import type { SetupScreen } from "@pipoca/plugins/web";
-import { AreaLayout, Badge, Button, Field, fieldClass, PageTitle, Row, Rows, Switch } from "@pipoca/ui";
+import { AreaLayout, Badge, Button, ErrorText, Field, fieldClass, PageTitle, Row, Rows, Switch } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -237,11 +237,7 @@ function TeamNaming({ name }: { readonly name: string | null }): ReactElement {
             </span>
           )}
         </div>
-        {error !== undefined && (
-          <p role="alert" className="text-label text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText>{error}</ErrorText>
       </form>
     </div>
   );
@@ -272,11 +268,7 @@ function TeamPlugins(): ReactElement {
       <PageTitle description="A plugin loads in team Sessions only if it says it works in team work and you leave it on. Built-in ones start on, installed ones start off. New team Sessions pick up a change.">
         Plugins in team work
       </PageTitle>
-      {error !== undefined && (
-        <p role="alert" className="mb-4 text-label text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText className="mb-4">{error}</ErrorText>
       <Rows label="Plugins in team work">
         {plugins
           .filter(({ state }) => state === "on")

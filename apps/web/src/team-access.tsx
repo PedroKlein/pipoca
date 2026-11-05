@@ -1,5 +1,5 @@
 import type { Session, SessionAccess } from "@pipoca/protocol";
-import { Button, Dialog, Icon, Picker, Segmented } from "@pipoca/ui";
+import { Button, Dialog, ErrorText, Icon, Picker, Segmented } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { send } from "./api";
 import { useTeammates } from "./hooks";
@@ -138,11 +138,7 @@ function AccessForm({
         </Picker>
       )}
 
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
 
       <footer className="flex justify-end gap-2">
         <Button variant="ghost" onClick={onDone}>

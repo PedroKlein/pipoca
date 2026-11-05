@@ -6,7 +6,7 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Badge, Button, Field, fieldClass, Icon, initialsOf, PageTitle, Picker, Row, Rows, Section, Select, Step, Stepper, type StepState, Switch, useConfirm } from "@pipoca/ui";
+import { Badge, Button, ErrorText, Field, fieldClass, Icon, initialsOf, PageTitle, Picker, Row, Rows, Section, Select, Step, Stepper, type StepState, Switch, useConfirm } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type {
   Account,
@@ -314,11 +314,7 @@ function PullRequestChoices({
           />
         </Row>
       </Rows>
-      {error !== undefined && (
-        <p role="alert" className="text-label text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText>{error}</ErrorText>
     </Section>
   );
 }
@@ -391,9 +387,9 @@ function PullRequest({
         <Icon name="more" className="size-3.5" />
       </Picker>
       {problem !== null && (
-        <p role="alert" className="w-full text-right text-label text-failed">
+        <ErrorText className="w-full text-right">
           {problem}
-        </p>
+        </ErrorText>
       )}
     </div>
   );
@@ -581,11 +577,7 @@ function HostRow({
           >
             Cancel
           </Button>
-          {error !== undefined && (
-            <p role="alert" className="w-full text-caption text-failed">
-              {error}
-            </p>
-          )}
+          <ErrorText size="caption" className="w-full">{error}</ErrorText>
         </form>
       )}
     </Row>
@@ -876,14 +868,7 @@ function ConnectSetup({
               <Button variant="primary" type="submit">
                 Save
               </Button>
-              {error !== undefined && (
-                <p
-                  role="alert"
-                  className="text-caption text-failed sm:col-span-3"
-                >
-                  {error}
-                </p>
-              )}
+              <ErrorText size="caption" className="sm:col-span-3">{error}</ErrorText>
             </form>
           )}
         </Step>
@@ -1004,11 +989,7 @@ function HostForm({
             Remove host
           </Button>
         )}
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
       </div>
     </form>
   );
@@ -1322,11 +1303,7 @@ function Bots({
             >
               Cancel
             </Button>
-            {error !== undefined && (
-              <p role="alert" className="text-caption text-failed">
-                {error}
-              </p>
-            )}
+            <ErrorText size="caption">{error}</ErrorText>
           </div>
         </form>
       )}

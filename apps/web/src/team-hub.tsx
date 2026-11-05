@@ -1,7 +1,7 @@
 import { useNow } from "@pipoca/plugins/web";
 import type { HubPanel, HubScreen } from "@pipoca/plugins/web";
 import type { HubPage, Session } from "@pipoca/protocol";
-import { AreaLayout, Badge, Button, fieldClass, Icon, type IconName, PageTitle, plural, Row, Rows, Section, Select } from "@pipoca/ui";
+import { AreaLayout, Badge, Button, ErrorText, fieldClass, Icon, type IconName, PageTitle, plural, Row, Rows, Section, Select } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useState } from "react";
 import { send } from "./api";
 import { useHubLayout, useTeamEnvironments, useTeammates, useTeamProfiles, useTeamSessions } from "./hooks";
@@ -374,11 +374,7 @@ function LayoutPage({
       >
         {home ? "Team home" : page.title}
       </PageTitle>
-      {error !== undefined && (
-        <p role="alert" className="mb-4 text-label text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText className="mb-4">{error}</ErrorText>
       {editing && (
         <Section
           title="Panels on this page"

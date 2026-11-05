@@ -4,15 +4,7 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import {
-  Badge,
-  Button,
-  Icon,
-  initialsOf,
-  Row,
-  Rows,
-  Section,
-} from "@pipoca/ui";
+import { Badge, Button, ErrorText, Icon, initialsOf, Row, Rows, Section } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import type { Profile } from "@pipoca/protocol";
 import type { Account } from "../src/model";
@@ -138,11 +130,7 @@ function Accounts({
             }}
           />
         )}
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
         <Rows label="Your model logins">
           {value.logins.length === 0 && (
             <Row

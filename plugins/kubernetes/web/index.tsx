@@ -6,7 +6,7 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, cn, Code, Field, fieldClass, Section, Select, TextInput } from "@pipoca/ui";
+import { Button, cn, Code, ErrorText, Field, fieldClass, Section, Select, TextInput } from "@pipoca/ui";
 import { Fragment, type ReactElement, type SubmitEvent, useState } from "react";
 import {
   defaultSettings,
@@ -286,11 +286,7 @@ function Settings({
             Stop runner pods
           </Button>
         )}
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
       </div>
     </form>
   );

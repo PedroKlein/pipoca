@@ -1,6 +1,6 @@
 import { json, ok, useLoaded } from "@pipoca/plugins/web";
 import { profilePath } from "@pipoca/protocol";
-import { Button, cn, Field, fieldClass, FileButton, Section, useConfirm } from "@pipoca/ui";
+import { Button, cn, ErrorText, Field, fieldClass, FileButton, Section, useConfirm } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { api, send } from "./api";
 
@@ -221,9 +221,9 @@ export function KindFiles({
             }}
           />
         )}
-        <p role="alert" className="text-caption text-failed">
+        <ErrorText size="caption">
           {error}
-        </p>
+        </ErrorText>
       </div>
     </Section>
   );
@@ -393,9 +393,9 @@ function NamedFile({
         >
           Save
         </Button>
-        <p role="alert" className="text-caption text-failed">
+        <ErrorText size="caption">
           {error}
-        </p>
+        </ErrorText>
       </div>
     </div>
   );

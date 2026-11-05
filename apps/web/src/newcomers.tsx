@@ -1,6 +1,6 @@
 import { json, useLoaded } from "@pipoca/plugins/web";
 import type { Newcomers, Profile } from "@pipoca/protocol";
-import { Button, Select } from "@pipoca/ui";
+import { Button, ErrorText, Select } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { send } from "./api";
 import { useProfiles, useTemplates } from "./hooks";
@@ -209,11 +209,7 @@ function NewcomersForm({
           </label>
         ))}
       </fieldset>
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={onDone}>
           Cancel

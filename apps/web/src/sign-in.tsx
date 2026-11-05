@@ -1,4 +1,4 @@
-import { Badge, Button, Card, Field, fieldClass, Hero, Mark, SetupShell, Step, Stepper } from "@pipoca/ui";
+import { Badge, Button, Card, ErrorText, Field, fieldClass, Hero, Mark, SetupShell, Step, Stepper } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -135,11 +135,7 @@ export function SignInPage({
               className={fieldClass}
             />
           </Field>
-          {error !== undefined && (
-            <p role="alert" className="text-caption text-failed">
-              {error}
-            </p>
-          )}
+          <ErrorText size="caption">{error}</ErrorText>
           <Button variant="primary" type="submit" className="h-10 w-full">
             Sign in
           </Button>
@@ -234,11 +230,7 @@ function SetupAccount({
                 className={fieldClass}
               />
             </Field>
-            {error !== undefined && (
-              <p role="alert" className="text-caption text-failed">
-                {error}
-              </p>
-            )}
+            <ErrorText size="caption">{error}</ErrorText>
             <Button
               variant="primary"
               type="submit"

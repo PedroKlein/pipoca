@@ -7,7 +7,7 @@ import {
   type ThinkingLevel,
   thinkingLevels,
 } from "@pipoca/protocol";
-import { Button, Dialog, Icon, isComposing, Picker, type PickerOption, Slider } from "@pipoca/ui";
+import { Button, Dialog, ErrorText, Icon, isComposing, Picker, type PickerOption, Slider } from "@pipoca/ui";
 import {
   type ReactElement,
   type ReactNode,
@@ -522,14 +522,7 @@ export function NewSessionForm({
         </Button>
       </div>
 
-      {error !== undefined && (
-        <p
-          role="alert"
-          className="border-t border-line px-5 py-2 text-caption text-failed"
-        >
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption" className="border-t border-line px-5 py-2">{error}</ErrorText>
     </form>
   );
 }

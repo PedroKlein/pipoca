@@ -2,23 +2,39 @@ import type { ReactElement, ReactNode } from "react";
 import { cn } from "./cn";
 import { Icon, type IconName } from "./icon";
 
+const errorSizes = {
+  label: "text-label",
+  caption: "text-caption",
+  inherit: "",
+} as const;
+
 // Why something failed, next to the control that failed. Renders nothing
 // until there is an error.
 export function ErrorText({
-  children,
+  size = "label",
+  inline = false,
   className,
+  children,
 }: {
-  readonly children: ReactNode;
+  readonly size?: keyof typeof errorSizes;
+  // A span inside a line of text, such as a status line.
+  readonly inline?: boolean;
   readonly className?: string;
+  readonly children: ReactNode;
 }): ReactElement | null {
   if (children === undefined || children === null || children === "") {
     return null;
   }
 
+  const Tag = inline ? "span" : "p";
+
   return (
-    <p role="alert" className={cn("text-label text-failed", className)}>
+    <Tag
+      role="alert"
+      className={cn("text-failed", errorSizes[size], className)}
+    >
       {children}
-    </p>
+    </Tag>
   );
 }
 

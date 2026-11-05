@@ -4,7 +4,7 @@ import {
   useLoaded,
   type WebContext,
 } from "@pipoca/plugins/web";
-import { Avatar, Badge, Button, ChoiceTiles, initialsOf, Picker, Row, Rows, Segmented } from "@pipoca/ui";
+import { Avatar, Badge, Button, ChoiceTiles, ErrorText, initialsOf, Picker, Row, Rows, Segmented } from "@pipoca/ui";
 import type { Environment } from "@pipoca/protocol";
 import { type ReactElement, useState } from "react";
 import type { Account, Connectable } from "../src/model";
@@ -165,11 +165,7 @@ function ModelStep({
           </Button>
         </section>
       )}
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
       {account.logins.length > 0 && (
         <Rows label="Your model logins">
           {account.logins.map((login) => (

@@ -1,5 +1,5 @@
 import { profilePath, type Profile } from "@pipoca/protocol";
-import { Button, ChoiceCard, cn, fieldClass, FileButton, Icon } from "@pipoca/ui";
+import { Button, ChoiceCard, cn, ErrorText, fieldClass, FileButton, Icon } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { api } from "./api";
 import { base64 } from "./profile-files";
@@ -402,11 +402,7 @@ export function ProfileStep({
           {state.done}
         </p>
       )}
-      {state.error !== undefined && (
-        <p role="alert" className="text-label text-failed">
-          {state.error}
-        </p>
-      )}
+      <ErrorText>{state.error}</ErrorText>
     </div>
   );
 }

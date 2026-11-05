@@ -96,7 +96,7 @@ export function SettingsPage(): ReactElement {
             </Row>
           ))}
         </Rows>
-        <ErrorText className="text-caption">{error}</ErrorText>
+        <ErrorText size="caption">{error}</ErrorText>
       </div>
       {asking}
     </Page>
@@ -145,7 +145,7 @@ function NewToken({
         className="w-48"
       />
       <Button type="submit">New token</Button>
-      <ErrorText className="text-caption">{error}</ErrorText>
+      <ErrorText size="caption">{error}</ErrorText>
     </form>
   );
 }

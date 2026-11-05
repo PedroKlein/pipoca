@@ -1,5 +1,5 @@
 import type { JoinInfo } from "@pipoca/protocol";
-import { Avatar, Button, Field, fieldClass, Hero, SetupShell, Spinner } from "@pipoca/ui";
+import { Avatar, Button, ErrorText, Field, fieldClass, Hero, SetupShell, Spinner } from "@pipoca/ui";
 import {
   type ReactElement,
   type SubmitEvent,
@@ -112,11 +112,7 @@ export function JoinPage({ token }: { readonly token: string }): ReactElement {
                     className={fieldClass}
                   />
                 </Field>
-                {error !== undefined && (
-                  <p role="alert" className="text-caption text-failed">
-                    {error}
-                  </p>
-                )}
+                <ErrorText size="caption">{error}</ErrorText>
                 <Button variant="primary" type="submit" className="h-10">
                   Join
                 </Button>

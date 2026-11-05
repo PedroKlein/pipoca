@@ -4,7 +4,7 @@ import type {
   WebContext,
   WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, cn, Icon, isComposing } from "@pipoca/ui";
+import { Button, cn, ErrorText, Icon, isComposing } from "@pipoca/ui";
 import {
   Fragment,
   type ReactElement,
@@ -213,11 +213,7 @@ function Checkout({
           >
             Discard
           </Button>
-          {sendError !== undefined && (
-            <span role="alert" className="text-failed">
-              {sendError}
-            </span>
-          )}
+          <ErrorText inline size="inherit">{sendError}</ErrorText>
         </div>
       )}
     </div>
@@ -296,9 +292,9 @@ function PullRequestActions({
         )}
       </div>
       {problem !== undefined && problem !== null && (
-        <p role="alert" className="max-w-80 text-right text-label text-failed">
+        <ErrorText className="max-w-80 text-right">
           {problem}
-        </p>
+        </ErrorText>
       )}
     </div>
   );

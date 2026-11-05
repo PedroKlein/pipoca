@@ -5,7 +5,7 @@ import {
   type WebContext,
 } from "@pipoca/plugins/web";
 import type { Environment, Profile, SetupState } from "@pipoca/protocol";
-import { Badge, Button, ChoiceCard, cn, Command, Hero, Icon, Row, Rows, SetupShell, Spinner, Step, Stepper, type StepState } from "@pipoca/ui";
+import { Badge, Button, ChoiceCard, cn, Command, ErrorText, Hero, Icon, Row, Rows, SetupShell, Spinner, Step, Stepper, type StepState } from "@pipoca/ui";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import {
@@ -142,11 +142,7 @@ function OfferedProfiles({
           );
         })}
       </ul>
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
       <p className="pt-2 text-label font-medium text-fg">Or bring your own</p>
     </div>
   );
@@ -512,11 +508,7 @@ function WhereStep(): ReactElement {
           }}
         />
       ))}
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
       <ChoiceCard
           type="checkbox"
           as="li"
@@ -551,11 +543,7 @@ function ConnectMachine(): ReactElement {
         >
           Show the command
         </Button>
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
       </div>
     );
   }

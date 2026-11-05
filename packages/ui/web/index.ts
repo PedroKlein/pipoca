@@ -7,7 +7,7 @@ export {
   type ButtonSize,
   type ButtonVariant,
 } from "./button";
-export { Card, cardClass, linkCardClass } from "./card";
+export { Card, cardClass, linkCardClass, raisedCardClass } from "./card";
 export { ChoiceCard, ChoiceTiles, type Tile } from "./choice";
 export { cn } from "./cn";
 export { Code, Command, CopyButton } from "./code";

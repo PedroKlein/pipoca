@@ -6,7 +6,7 @@ import {
   type Person,
   type Session,
 } from "@pipoca/protocol";
-import { Badge, Button, Card, Cell, Icon, initialsOf, PageTitle, plural, Row, Rows, Select, Table, Tabs, useConfirm } from "@pipoca/ui";
+import { Badge, Button, Card, Cell, ErrorText, Icon, initialsOf, PageTitle, plural, Row, Rows, Select, Table, Tabs, useConfirm } from "@pipoca/ui";
 import { Fragment, type ReactElement, type ReactNode, useState } from "react";
 import { api, command, send } from "./api";
 import { ago } from "./chat";
@@ -88,11 +88,7 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
         editing={editingNewcomers}
         onEditing={setEditingNewcomers}
       />
-      {error !== undefined && (
-        <p role="alert" className="mb-3 text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption" className="mb-3">{error}</ErrorText>
       <Tabs
         label="People"
         className="mt-6"

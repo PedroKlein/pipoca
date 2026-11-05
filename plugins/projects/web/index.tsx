@@ -18,7 +18,7 @@ import {
   type Profile,
   type Session,
 } from "@pipoca/protocol";
-import { Badge, type BadgeState, Button, cn, Code, Field, fieldClass, Icon, Menu, PageTitle, Picker, type PickerOption, popClass, Section, Segmented, Select, SessionRow, useConfirm } from "@pipoca/ui";
+import { Badge, type BadgeState, Button, cn, Code, ErrorText, Field, fieldClass, Icon, Menu, PageTitle, Picker, type PickerOption, popClass, Section, Segmented, Select, SessionRow, useConfirm } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, type SubmitEvent, useState } from "react";
 import {
   type ProjectNotices,
@@ -1418,11 +1418,7 @@ function Settings({
       >
         Save settings
       </Button>
-      {error !== "" && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
     </form>
   );
 }
@@ -1487,11 +1483,7 @@ function StartFresh({
           ))}
         </ul>
       )}
-      {error !== "" && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
     </section>
   );
 }
@@ -1547,11 +1539,7 @@ function ArchiveProject({
         <Icon name="archive" />
         {archived ? "Unarchive Project" : "Archive Project"}
       </Button>
-      {error !== "" && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
     </section>
   );
 }

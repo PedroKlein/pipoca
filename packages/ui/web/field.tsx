@@ -25,7 +25,7 @@ export function Field({
       {hint !== undefined && (
         <span className="text-caption text-fg-dim">{hint}</span>
       )}
-      <ErrorText className="text-caption">{error}</ErrorText>
+      <ErrorText size="caption">{error}</ErrorText>
     </label>
   );
 }

@@ -1,5 +1,5 @@
 import type { EnvironmentTemplate, ManifestEntry } from "@pipoca/protocol";
-import { Button, cn, Field, fieldClass, type KeyValue, KeyValues, Section, Select, useConfirm } from "@pipoca/ui";
+import { Button, cn, ErrorText, Field, fieldClass, type KeyValue, KeyValues, Section, Select, useConfirm } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import { api, send } from "./api";
 import { PluginBoundary } from "./plugin-boundary";
@@ -80,11 +80,7 @@ export function Templates({
             className={cn(fieldClass, "w-48")}
           />
           <Button type="submit">Create</Button>
-          {error !== undefined && (
-            <p role="alert" className="text-caption text-failed">
-              {error}
-            </p>
-          )}
+          <ErrorText size="caption">{error}</ErrorText>
         </form>
       )}
       {templates.length > 0 && (
@@ -192,11 +188,7 @@ function FromRepository({
           </span>
         </form>
       )}
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
     </div>
   );
 }

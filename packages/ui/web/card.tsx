@@ -4,6 +4,10 @@ import { cn } from "./cn";
 // Grouped content on a page: elevated, with a border and a light shadow.
 export const cardClass = "rounded-lg border border-line bg-elevated shadow-xs";
 
+// A card that stands out from the page, such as a welcome form.
+export const raisedCardClass =
+  "rounded-lg border border-line bg-elevated shadow-card";
+
 // A card that a click opens, such as an Environment in a list.
 export const linkCardClass = cn(
   cardClass,
@@ -19,12 +23,22 @@ const paddings = {
 
 export function Card({
   padding = "md",
+  raised = false,
   className,
   ...props
 }: HTMLAttributes<HTMLDivElement> & {
   readonly padding?: keyof typeof paddings;
+  // Stands out from the page, such as a welcome form.
+  readonly raised?: boolean;
 }): ReactElement {
   return (
-    <div className={cn(cardClass, paddings[padding], className)} {...props} />
+    <div
+      className={cn(
+        raised ? raisedCardClass : cardClass,
+        paddings[padding],
+        className,
+      )}
+      {...props}
+    />
   );
 }

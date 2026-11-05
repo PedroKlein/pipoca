@@ -1,5 +1,5 @@
 import type { Session } from "@pipoca/protocol";
-import { Button, Dialog, Field, fieldClass, Icon, Select } from "@pipoca/ui";
+import { Button, Dialog, ErrorText, Field, fieldClass, Icon, Select } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { api, command } from "./api";
 import type { FeedItem } from "./feed";
@@ -179,11 +179,7 @@ function MoveForm({
         />
       </Field>
 
-      {error !== undefined && (
-        <p role="alert" className="text-label text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText>{error}</ErrorText>
 
       <div className="flex items-center justify-end gap-2">
         <Button className="mr-auto" disabled={writing || busy} onClick={ask}>

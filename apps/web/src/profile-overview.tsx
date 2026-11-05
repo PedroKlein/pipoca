@@ -1,6 +1,6 @@
 import { json, useLoaded } from "@pipoca/plugins/web";
 import type { PiPackage, Profile } from "@pipoca/protocol";
-import { Badge, Button, cn, fieldClass, Icon, initialsOf, plural, Row, Rows, Section, Segmented, Switch } from "@pipoca/ui";
+import { Badge, Button, cn, ErrorText, fieldClass, Icon, initialsOf, plural, Row, Rows, Section, Segmented, Switch } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useEffect, useState } from "react";
 import { send } from "./api";
 import { messageOf } from "./profile-files";
@@ -114,11 +114,7 @@ export function ProfileOverview({
 
   return (
     <>
-      {error !== undefined && (
-        <p role="alert" className="mt-4 text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption" className="mt-4">{error}</ErrorText>
       <Instructions text={profile.agentsMd} edit={tab("instructions")} />
       <SystemPromptCard
         key={`${profile.systemMd}:${profile.appendSystemMd}`}

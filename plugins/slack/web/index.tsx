@@ -5,7 +5,7 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, Field, fieldClass, useConfirm } from "@pipoca/ui";
+import { Button, ErrorText, Field, fieldClass, useConfirm } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type { Account, BotView } from "../src/model";
 
@@ -216,11 +216,7 @@ function Bots({ context }: { readonly context: WebContext }): ReactElement {
             >
               Cancel
             </Button>
-            {error !== undefined && (
-              <p role="alert" className="text-caption text-failed">
-                {error}
-              </p>
-            )}
+            <ErrorText size="caption">{error}</ErrorText>
           </div>
         </form>
       ) : (

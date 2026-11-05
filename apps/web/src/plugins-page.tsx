@@ -1,5 +1,5 @@
 import type { PluginInfo, SettingSpec, SettingValue } from "@pipoca/protocol";
-import { Badge, Button, cn, Field, fieldClass, Icon, PageTitle, plural, Section, Segmented, Select, Switch, useConfirm } from "@pipoca/ui";
+import { Badge, Button, cn, ErrorText, Field, fieldClass, Icon, PageTitle, plural, Section, Segmented, Select, Switch, useConfirm } from "@pipoca/ui";
 import { ok } from "@pipoca/plugins/web";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import { api, send } from "./api";
@@ -303,11 +303,7 @@ function PluginCard({
       {(pendingNote(plugin) ?? note) !== undefined && (
         <p className="text-label text-fg-dim">{pendingNote(plugin) ?? note}</p>
       )}
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
       {plugin.error !== undefined && (
         <div className="flex flex-wrap items-center gap-2">
           <p className="min-w-0 flex-1 text-label text-failed">
@@ -437,11 +433,7 @@ function Install({
           A git repository or a .tgz URL. A branch, tag or commit after # pins
           it.
         </p>
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
         {installed !== undefined && (
           <p role="status" className="text-caption text-fg-dim">
             {installed}
@@ -533,11 +525,7 @@ function Restart(): ReactElement {
           Restart now
         </Button>
       )}
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
       {asking}
     </div>
   );

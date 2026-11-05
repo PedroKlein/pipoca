@@ -1,4 +1,4 @@
-import { Badge, Button, cn, Icon, PageTitle, useConfirm } from "@pipoca/ui";
+import { Badge, Button, cn, ErrorText, Icon, PageTitle, useConfirm } from "@pipoca/ui";
 import { type ReactElement, useEffect, useState } from "react";
 import { api, send } from "./api";
 import { settingsPageClass } from "./page-class";
@@ -223,9 +223,9 @@ export function ConfigurationPage(): ReactElement {
           />
           <footer className="flex flex-col gap-1 border-t border-line px-4 py-2.5 text-caption text-fg-dim">
             {(error ?? invalid) !== undefined && (
-              <p role="alert" className="text-failed">
+              <ErrorText size="inherit">
                 {error ?? invalid}
-              </p>
+              </ErrorText>
             )}
             <p>
               Secrets never appear here in plain text: they&apos;re sealed on

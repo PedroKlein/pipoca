@@ -1,5 +1,5 @@
 import type { Invite } from "@pipoca/protocol";
-import { Badge, Button, Cell, cn, CopyButton, Dialog, Icon, Segmented, Select, Table } from "@pipoca/ui";
+import { Badge, Button, Cell, cn, CopyButton, Dialog, ErrorText, Icon, Segmented, Select, Table } from "@pipoca/ui";
 import { type ClipboardEvent, type KeyboardEvent, type ReactElement, useState } from "react";
 import { api, send } from "./api";
 import { TheirSetup } from "./newcomers";
@@ -317,11 +317,7 @@ function InviteForm({
             ))}
           </ul>
         )}
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
       </div>
       <footer className="flex flex-wrap items-center gap-2 border-t border-line px-6 py-4">
         <span className="flex-1 text-caption text-fg-dim">

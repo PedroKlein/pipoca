@@ -4,7 +4,7 @@ import {
   type WebContext,
   type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Badge, Button, Field, fieldClass, Icon, initialsOf, PageTitle, Row, Rows, Section, Segmented, Switch, useConfirm } from "@pipoca/ui";
+import { Badge, Button, ErrorText, Field, fieldClass, Icon, initialsOf, PageTitle, Row, Rows, Section, Segmented, Switch, useConfirm } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type {
   Account,
@@ -369,9 +369,9 @@ function ProviderRow({
             signed in this week
           </span>
           {typeof test === "object" && test.error !== null && (
-            <span role="alert" className="text-failed">
+            <ErrorText inline size="inherit">
               {test.error}
-            </span>
+            </ErrorText>
           )}
         </span>
       }
@@ -508,11 +508,7 @@ function Rules({
           description={
             <>
               {whoMayJoin(providers ?? [])}
-              {error !== undefined && (
-                <span role="alert" className="block text-failed">
-                  {error}
-                </span>
-              )}
+              <ErrorText inline size="inherit" className="block">{error}</ErrorText>
             </>
           }
         >
@@ -693,11 +689,7 @@ function ProviderForm({
             Remove
           </Button>
         )}
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
       </div>
       <p className="text-caption text-fg-dim md:col-span-2">
         Register{" "}
