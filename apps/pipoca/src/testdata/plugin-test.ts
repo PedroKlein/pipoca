@@ -51,15 +51,15 @@ interface Host {
 }
 
 interface Opened {
-  readonly origin: () => string;
   readonly fetch: TestPluginOptions["fetch"];
 }
 
 const realFetch = globalThis.fetch;
 const opened = new Set<Opened>();
 
-// Requests to a test's own server go out; any other is the plugins' and
-// goes to the newest test's fetch.
+// Requests to this machine go out, such as to a test's own server or one
+// another test left running; any other is the plugins' and goes to the
+// newest test's fetch.
 const outbound = Object.assign(
   async (input: string | URL | Request, init?: RequestInit) => {
     const request =
@@ -67,9 +67,7 @@ const outbound = Object.assign(
         ? new Request(input, init)
         : new Request(input.toString(), init);
 
-    const { origin } = new URL(request.url);
-
-    if ([...opened].some((each) => each.origin() === origin)) {
+    if (["127.0.0.1", "localhost"].includes(new URL(request.url).hostname)) {
       return realFetch(request);
     }
 
@@ -213,7 +211,7 @@ export async function pluginTest(
 
   const url = (path: string): URL => new URL(path, server.url);
 
-  const self: Opened = { origin: () => server.url.origin, fetch: o.fetch };
+  const self: Opened = { fetch: o.fetch };
   opened.add(self);
   globalThis.fetch = outbound;
 
