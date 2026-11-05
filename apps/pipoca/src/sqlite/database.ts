@@ -171,8 +171,9 @@ function addPlugin(
   return undefined;
 }
 
-// Drops the tables a plugin's schema made and makes them again, for an admin
-// to start it fresh after its schema changed (ADR 0068). Says why it couldn't.
+// Drops the tables a plugin's schema made and what it scheduled, and makes
+// them again, for an admin to start it fresh after its schema changed
+// (ADR 0068). Says why it couldn't.
 export function resetPlugin(
   db: DatabaseSync,
   schema: Schema,
@@ -198,6 +199,10 @@ export function resetPlugin(
       }
 
       db.prepare("delete from schema_owners where owner = ?").run(schema.owner);
+
+      db.prepare("delete from plugin_schedules where plugin = ?").run(
+        schema.owner,
+      );
     });
   } catch (error) {
     return `its tables could not be dropped: ${error instanceof Error ? error.message : String(error)}`;

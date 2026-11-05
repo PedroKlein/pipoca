@@ -183,6 +183,16 @@ create table repository_trust (
   decided_at integer not null
 ) strict;
 create unique index repository_trust_key on repository_trust (coalesce(owner_user_id, ''), repository);
+
+create table plugin_schedules (
+  plugin text not null check (plugin <> ''),
+  key text not null check (key <> ''),
+  due_at integer not null,
+  payload text check (payload is null or json_valid(payload)),
+  attempts integer not null check (attempts >= 0),
+  primary key (plugin, key)
+) strict, without rowid;
+create index plugin_schedules_due on plugin_schedules (due_at);
 `;
 
 export const kernelSchema: Schema = { owner: "kernel", sql };

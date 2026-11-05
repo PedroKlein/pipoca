@@ -14,7 +14,7 @@ export const library: ServerPlugin = {
   name: "library",
   schema: librarySchema,
   register: (context) => {
-    const store = libraryStore(context.store);
+    const store = libraryStore(context.store, context.clock);
 
     context.events.subscribe("projects.MemberAdded", (event) => {
       const { sessionId, projectId } = event;
