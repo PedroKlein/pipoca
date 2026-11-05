@@ -143,8 +143,6 @@ export default tseslint.config(
       "plugins/ask/src/server.ts",
       "plugins/changes/src/pull-request.ts",
       "plugins/changes/src/session.ts",
-      "plugins/email/src/mail.ts",
-      "plugins/email/src/server.ts",
       "plugins/git-hosts/src/acting.ts",
       "plugins/git-hosts/src/poller.ts",
       "plugins/git-hosts/src/server.ts",

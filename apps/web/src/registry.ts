@@ -22,7 +22,7 @@ export const webRegistry = [
   { id: "ask", plugin: askWeb },
   { id: "changes", plugin: changesWeb },
   { id: "checklist", plugin: checklistWeb },
-  { id: "email", plugin: emailWeb },
+  { id: "email", part: emailWeb },
   { id: "git-hosts", plugin: gitHostsWeb },
   { id: "kubernetes", plugin: kubernetesWeb },
   { id: "library", plugin: libraryWeb },
