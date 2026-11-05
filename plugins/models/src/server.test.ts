@@ -105,6 +105,62 @@ test.each([
   expect(await configVersion(route)).toBe(seen);
 });
 
+test("keeps a capped account's spend in whole millionths", async () => {
+  const store = memoryStore(models.schema);
+  const routes: PluginRoute[] = [];
+
+  models.register(
+    fakeContext({
+      store,
+      routes: {
+        handle: (route) => {
+          routes.push(served(route));
+        },
+      },
+      models: { offer: () => undefined },
+    }),
+  );
+
+  const until = new Date(Date.now() + 60_000).toISOString();
+  const quota = { spent: 10.1, cap: 10.2, currency: "USD" };
+
+  const reported = await routes[0]?.(
+    new Request("http://models/health", {
+      method: "POST",
+      body: JSON.stringify({
+        version: 1,
+        unhealthyUntil: { openai: { until, reason: "capped", quota } },
+      }),
+    }),
+    "health",
+    caller,
+  );
+
+  expect(reported?.status).toBe(204);
+
+  expect(
+    store.all(
+      "select typeof(quota_spent_micros) as kind, quota_spent_micros, quota_cap_micros from models_health",
+    ),
+  ).toEqual([
+    {
+      kind: "integer",
+      quota_spent_micros: 10_100_000,
+      quota_cap_micros: 10_200_000,
+    },
+  ]);
+
+  const request = new Request("http://models/config");
+
+  const config = (await (
+    await routes[0]?.(request, "config", caller)
+  )?.json()) as {
+    health: { unhealthyUntil: Record<string, { quota?: unknown }> };
+  };
+
+  expect(config.health.unhealthyUntil["openai"]?.quota).toEqual(quota);
+});
+
 test("a save with null aliases turns them off", async () => {
   const route = registered(new AbortController().signal);
   await saveAliases(route, JSON.stringify({ aliases }));
