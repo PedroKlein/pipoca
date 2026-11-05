@@ -522,12 +522,27 @@ export function startPlugins(
       : undefined;
   };
 
-  const routedTool = (session: Session, name: string): RouteTool | undefined =>
-    loadsRouteTools(session)
+  const routedTool = (
+    session: Session,
+    name: string,
+  ): RouteTool | undefined => {
+    const found = loadsRouteTools(session)
       ? modelTools().find(
           ({ spec, plugin }) => spec.name === name && loadsIn(session, plugin),
         )
       : undefined;
+
+    return found?.teamTwin === true && session.ownedBy === "team"
+      ? {
+          ...found,
+          request: (input) => {
+            const sent = found.request(input);
+
+            return { ...sent, path: `team/${sent.path}` };
+          },
+        }
+      : found;
+  };
 
   // A plugin loads in team work only if it says it works there, and then
   // a built-in is on until admins turn it off and an installed one is off
@@ -1219,13 +1234,14 @@ export function startPlugins(
     resetData: (name) => {
       const found = manifest(name);
       const plugin = plugins.find((each) => each.name === name);
+      const defined = deps.definitions.some(({ id }) => id === name);
 
       if (found === undefined) {
         return undefined;
       }
 
       if (
-        plugin === undefined ||
+        (plugin === undefined && !defined) ||
         !enabled.includes(name) ||
         !failures.has(name) ||
         deps.dataFailure(name) === undefined
@@ -1242,6 +1258,16 @@ export function startPlugins(
       }
 
       deps.log("plugin data reset", { plugin: name });
+
+      // The server's routes are set at start, so a definition's wait for it.
+      if (plugin === undefined) {
+        failures.set(
+          name,
+          "its data was reset; it starts when the server restarts",
+        );
+
+        return info(found);
+      }
 
       failures.delete(name);
       register(plugin);
@@ -1843,6 +1869,7 @@ function routeOf(route: ExtRoute): Parameters<typeof routeToolsOf>[1] {
     path: route.path,
     query: route.spec.query,
     body: route.spec.body,
+    teamTwin: route.teamTwin,
   };
 }
 

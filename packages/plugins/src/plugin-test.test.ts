@@ -33,7 +33,7 @@ async function started(
 
 function served<P extends PluginDefinition>(
   plugin: P,
-  register: (context: ServerContext<P>) => void,
+  register: (context: ServerContext<P>) => void | Promise<void>,
 ): P {
   const definition: P = {
     ...plugin,
@@ -152,6 +152,47 @@ test("a restart keeps what waits for an offline Session, and what is scheduled",
   ]);
 
   expect(session.queued()).toEqual([]);
+});
+
+let alarmBoots = 0;
+const rung: string[] = [];
+
+// Rings at a time a person picks, and takes a while to start after the first
+// boot.
+const alarms = served(
+  definePlugin({ id: "alarms", title: "Alarms", description: "Rings." }),
+  async ({ routes, schedule, clock }) => {
+    alarmBoots += 1;
+
+    if (alarmBoots > 1) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+
+    schedule.on("ring:", (_payload, key) => {
+      rung.push(key);
+    });
+
+    routes.post("alarms", { auth: "person" }, () => {
+      schedule.at("ring:soon", clock.now() + 100, undefined);
+
+      return { ok: true };
+    });
+  },
+);
+
+test("an at that comes due while its plugin starts fires once it has started", async () => {
+  const t = await started(alarms, { people });
+
+  await t.as("ana").post("alarms", {});
+  await t.restart();
+
+  expect(
+    await until(
+      () => rung,
+      (each) => each.length > 0,
+      3000,
+    ),
+  ).toEqual(["ring:soon"]);
 });
 
 // Says hello by the greeting in its config.
