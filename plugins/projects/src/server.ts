@@ -50,7 +50,9 @@ const settingsFields = {
     }),
   ),
   threadModel: Type.Optional(
-    Type.String({ description: "provider/id of the model thread Sessions use" }),
+    Type.String({
+      description: "provider/id of the model thread Sessions use",
+    }),
   ),
   // Null takes the Project's Profile away.
   profile: Type.Optional(
@@ -107,6 +109,7 @@ const transcriptWaitMs = 1000;
 export const server = defineServer(projects, (context) => {
   const { routes, sessions, events, schedule, transcript, log } = context;
   const store = projectStore(context.store, context.clock);
+
   const changed = (): void => {
     routes.topic("projects");
   };
@@ -175,7 +178,10 @@ export const server = defineServer(projects, (context) => {
       return;
     }
 
-    const turn = transcript.lastTurn(threadId, end === undefined ? {} : { end });
+    const turn = transcript.lastTurn(
+      threadId,
+      end === undefined ? {} : { end },
+    );
 
     const { text, notice } = threadNotice(
       thread,
@@ -198,7 +204,8 @@ export const server = defineServer(projects, (context) => {
       text,
       notice,
       turn:
-        turn.error === undefined && !turn.called.includes("message_coordinator"),
+        turn.error === undefined &&
+        !turn.called.includes("message_coordinator"),
       dedupe: `turn:${threadId}:${String(end ?? transcript.length(threadId))}`,
     });
   };
@@ -646,7 +653,7 @@ export const server = defineServer(projects, (context) => {
         annotations: { destructiveHint: true },
         asks: {
           lookup: (input) =>
-            `projects/${encodeURIComponent(String(input["id"] ?? ""))}`,
+            `projects/${encodeURIComponent(typeof input["id"] === "string" ? input["id"] : "")}`,
           text: (_input, found) =>
             found === undefined
               ? "Change this Project's settings?"
@@ -776,20 +783,16 @@ export const server = defineServer(projects, (context) => {
     },
   );
 
-  routes.get(
-    "library/:name",
-    { auth: "session" },
-    ({ caller, params }) => {
-      const { project } = memberOf(caller);
-      const content = store.readFile(project.id, decoded(params.name));
+  routes.get("library/:name", { auth: "session" }, ({ caller, params }) => {
+    const { project } = memberOf(caller);
+    const content = store.readFile(project.id, decoded(params.name));
 
-      if (content === undefined) {
-        throw new NotFound(`no library file ${params.name}`);
-      }
+    if (content === undefined) {
+      throw new NotFound(`no library file ${params.name}`);
+    }
 
-      return { content: Buffer.from(content).toString("base64") };
-    },
-  );
+    return { content: Buffer.from(content).toString("base64") };
+  });
 
   routes.get("library", { auth: "session" }, ({ caller }) =>
     store.files(memberOf(caller).project.id),
@@ -835,10 +838,7 @@ export const server = defineServer(projects, (context) => {
   };
 
   // The web app's half of the library, which uploads raw bytes.
-  function libraryRoutes(
-    { routes: own }: Context,
-    files: typeof store,
-  ): void {
+  function libraryRoutes({ routes: own }: Context, files: typeof store): void {
     own.get("projects/:id/files", { auth: "person" }, ({ caller, params }) =>
       files.files(theirs(params.id, caller).id),
     );
@@ -889,7 +889,9 @@ function started<T>(start: () => T): T {
   try {
     return start();
   } catch (error) {
-    throw new BadRequest(error instanceof Error ? error.message : String(error));
+    throw new BadRequest(
+      error instanceof Error ? error.message : String(error),
+    );
   }
 }
 
@@ -909,9 +911,13 @@ function checkedModel(name: string | null): void {
 // Environment stay, since the coordinator's workspace was built from them.
 function settingsOf(
   project: Project,
-  { name, goal, instructions, threadModel, profile }: Static<
-    typeof settingsChange
-  >,
+  {
+    name,
+    goal,
+    instructions,
+    threadModel,
+    profile,
+  }: Static<typeof settingsChange>,
 ): Pick<
   Project,
   "name" | "goal" | "instructions" | "threadModel" | "profileId"
@@ -921,18 +927,21 @@ function settingsOf(
   }
 
   const model =
-    threadModel === undefined ? project.threadModel : threadModel.trim() || null;
+    threadModel === undefined
+      ? project.threadModel
+      : threadModel.trim() || null;
 
   checkedModel(model);
 
   const id = profile === undefined ? undefined : (profile?.trim() ?? "");
+  const profileId = id === "" ? null : id;
 
   return {
     name: name?.trim() ?? project.name,
     goal: goal?.trim() ?? project.goal,
     instructions: instructions ?? project.instructions,
     threadModel: model,
-    profileId: id === undefined ? project.profileId : id === "" ? null : id,
+    profileId: profileId === undefined ? project.profileId : profileId,
   };
 }
 
@@ -1011,4 +1020,3 @@ async function installPlugin(
 
   return tools.call("plugins_build", { plugin }, { session });
 }
-

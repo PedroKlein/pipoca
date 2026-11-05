@@ -116,7 +116,10 @@ export function SessionView(props: EmbeddedSessionProps): ReactElement {
 }
 
 // The address of a path inside a plugin's page, such as a Project.
-export function href(plugin: Pick<PluginDefinition, "id">, path: string): string {
+export function href(
+  plugin: Pick<PluginDefinition, "id">,
+  path: string,
+): string {
   return `#plugin/${plugin.id}/${path}`;
 }
 

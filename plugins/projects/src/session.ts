@@ -4,6 +4,7 @@ import {
   defineSession,
   HttpError,
   type SessionContext,
+  ToolError,
   Type,
 } from "@pipoca/plugins";
 import { profilePath } from "@pipoca/protocol";
@@ -23,13 +24,15 @@ const skipped = new Set([".git", "node_modules", ".build"]);
 // Only Sessions in a Project get the library's tools, and only the
 // assistant's threads install what they built (ADR 0018, ADR 0052).
 export const session = defineSession(projects, async (s) => {
-  const member = await s.api.get<Membership>("member").catch((error: unknown) => {
-    if (error instanceof HttpError && error.status === 404) {
-      return undefined;
-    }
+  const member = await s.api
+    .get<Membership>("member")
+    .catch((error: unknown) => {
+      if (error instanceof HttpError && error.status === 404) {
+        return undefined;
+      }
 
-    throw error;
-  });
+      throw error;
+    });
 
   if (member === undefined) {
     return;
@@ -46,7 +49,7 @@ function libraryPath(name: string): string {
   const composed = name.normalize("NFC");
 
   if (!validName(composed)) {
-    throw new Error(nameRule);
+    throw new ToolError(nameRule);
   }
 
   return `library/${encodeURIComponent(composed)}`;
@@ -97,7 +100,7 @@ function libraryTools({ api, config, tools }: Context): void {
       const name = input.name ?? basename(path);
 
       if ((await stat(path)).size > limit) {
-        throw new Error(sizeRule(limit));
+        throw new ToolError(sizeRule(limit));
       }
 
       const content = await readFile(path);
@@ -159,7 +162,7 @@ function installTools({ api, tools }: Context): void {
     }>("install", body, signal === undefined ? {} : { signal });
 
     if (result.isError) {
-      throw new Error(result.text);
+      throw new ToolError(result.text);
     }
 
     return {
@@ -175,7 +178,9 @@ function installTools({ api, tools }: Context): void {
       "Install a folder from the workspace as a Profile, laid out like ~/.pi/agent: AGENTS.md, settings.json, extensions/, skills/, prompts/ and themes/. Without id it makes a new Profile; with id it writes the folder's files into that Profile.",
     params: Type.Object({
       path: Type.String({ description: "The folder, from the workspace" }),
-      name: Type.Optional(Type.String({ description: "The new Profile's name" })),
+      name: Type.Optional(
+        Type.String({ description: "The new Profile's name" }),
+      ),
       id: Type.Optional(
         Type.String({ description: "The Profile to write the files into" }),
       ),

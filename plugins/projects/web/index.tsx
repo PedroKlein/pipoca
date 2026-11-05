@@ -10,7 +10,7 @@ import {
   useLoaded,
   useNow,
   defineWeb,
-  href,
+  href as pageHref,
   SessionView,
 } from "@pipoca/plugins/web";
 import {
@@ -74,7 +74,12 @@ export const web = defineWeb(projects, {
       Page,
       nav: { Items, fills: (path) => path !== "", pinned: true },
     },
-    { path: "team-assistant", label: "Team assistant", Page: TeamAssistant, area: "hub" },
+    {
+      path: "team-assistant",
+      label: "Team assistant",
+      Page: TeamAssistant,
+      area: "hub",
+    },
   ],
   sessionPath: (session) => `${session.owner?.key ?? ""}/${session.id}`,
   slots: {
@@ -119,19 +124,15 @@ async function allProjects(): Promise<ProjectSummary[]> {
 }
 
 function link(path: string): string {
-  return href(projects, path);
+  return pageHref(projects, path);
 }
 
-function useThread(
-  id: string | undefined,
-): ThreadLinkView | undefined {
+function useThread(id: string | undefined): ThreadLinkView | undefined {
   return useLoaded(
     async () =>
       id === undefined
         ? undefined
-        : json<ThreadLinkView>(
-            request(`threads/${encodeURIComponent(id)}`),
-          ),
+        : json<ThreadLinkView>(request(`threads/${encodeURIComponent(id)}`)),
     id ?? "",
     watched,
   ).value;
@@ -164,9 +165,7 @@ function ThreadLink({ target, label }: Own<LinkProps>): ReactElement {
   return (
     <a
       href={
-        thread
-          ? link(`${thread.projectId}/${thread.sessionId}`)
-          : `#${target}`
+        thread ? link(`${thread.projectId}/${thread.sessionId}`) : `#${target}`
       }
       className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line bg-elevated px-2 align-baseline text-label leading-relaxed font-medium text-fg no-underline hover:bg-hover"
     >
@@ -194,8 +193,7 @@ function StartThreadCard({ call }: Own<ToolCallProps>): ReactElement {
 
   const status = startStatus(call, thread);
 
-  const open =
-    thread && link(`${thread.projectId}/${thread.sessionId}`);
+  const open = thread && link(`${thread.projectId}/${thread.sessionId}`);
 
   return (
     <Card
@@ -273,10 +271,7 @@ function MessageThreadCard({ call }: Own<ToolCallProps>): ReactElement {
         <>
           To
           {thread ? (
-            <ThreadLink
-              target={thread.sessionId}
-              label={thread.title}
-            />
+            <ThreadLink target={thread.sessionId} label={thread.title} />
           ) : (
             (threadId ?? "a thread")
           )}
@@ -384,11 +379,7 @@ function MessageNotice({
 }
 
 function Items({ path }: Own<NavItemsProps>): ReactElement {
-  const list = useLoaded(
-    async () => allProjects(),
-    "projects",
-    watched,
-  ).value;
+  const list = useLoaded(async () => allProjects(), "projects", watched).value;
 
   return (
     <ul id="project-nav" className="flex flex-col gap-0.5">
@@ -463,11 +454,7 @@ function ProjectList({
   readonly environments: readonly Environment[];
   readonly onOpen: (id: string) => void;
 }): ReactElement {
-  const list = useLoaded(
-    async () => allProjects(),
-    "projects",
-    watched,
-  ).value;
+  const list = useLoaded(async () => allProjects(), "projects", watched).value;
 
   const active = list?.filter(
     ({ coordinatorState }) => coordinatorState !== "archived",
@@ -490,10 +477,7 @@ function ProjectList({
         </Section>
       )}
       <Section title="New Project">
-        <CreateForm
-          environments={environments}
-          onCreated={onOpen}
-        />
+        <CreateForm environments={environments} onCreated={onOpen} />
       </Section>
     </>
   );
@@ -629,8 +613,7 @@ function CreateForm({
 
   const teamEnvironments =
     useLoaded(
-      async () =>
-        json<Environment[]>(request("/api/environments?scope=team")),
+      async () => json<Environment[]>(request("/api/environments?scope=team")),
       "team-environments",
       { topics: ["environments"] },
     ).value ?? [];
@@ -890,7 +873,11 @@ function ProjectPage({
       onClick={() => {
         setRailOpen(beside === undefined);
 
-        if (beside === "settings" || beside === "library" || beside === "thread") {
+        if (
+          beside === "settings" ||
+          beside === "library" ||
+          beside === "thread"
+        ) {
           go("");
         }
       }}
@@ -1073,10 +1060,7 @@ function ProjectPage({
                 go("");
               }}
             />
-            <ArchiveProject
-              project={project}
-              onDone={reload}
-            />
+            <ArchiveProject project={project} onDone={reload} />
           </div>
         </aside>
       )}
@@ -1321,11 +1305,7 @@ function ThreadRow({
   );
 }
 
-function ThreadMenu({
-  thread,
-}: {
-  readonly thread: ThreadView;
-}): ReactElement {
+function ThreadMenu({ thread }: { readonly thread: ThreadView }): ReactElement {
   const [error, setError] = useState("");
 
   const run = (sent: Promise<Response>): void => {
@@ -1665,9 +1645,7 @@ function Memory({
       return "";
     }
 
-    const reply = await request(
-      `${path}/memory/${encodeURIComponent(shown)}`,
-    );
+    const reply = await request(`${path}/memory/${encodeURIComponent(shown)}`);
 
     return reply.ok
       ? ((await reply.json()) as { content: string }).content

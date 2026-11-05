@@ -52,13 +52,19 @@ function useModels(scope: "" | "team"): readonly string[] | undefined {
   const environments = useLoaded(
     async () =>
       json<Environment[]>(
-        fetch(scope === "team" ? "/api/environments?scope=team" : "/api/environments"),
+        fetch(
+          scope === "team"
+            ? "/api/environments?scope=team"
+            : "/api/environments",
+        ),
       ),
     `environments-${scope}`,
     { topics: ["environments"] },
   ).value;
 
-  return environments && (environments.length === 0 ? [] : modelNames(environments));
+  return (
+    environments && (environments.length === 0 ? [] : modelNames(environments))
+  );
 }
 
 // The home screen asks the assistant. Once it exists, its own chat switches
@@ -362,7 +368,10 @@ function Continue({
 
   return (
     <div className="flex justify-center">
-      <a href={href(projects, assistant)} className="text-accent hover:underline">
+      <a
+        href={href(projects, assistant)}
+        className="text-accent hover:underline"
+      >
         Continue with the assistant
       </a>
     </div>

@@ -67,10 +67,13 @@ export function pluginRoutes(
         return;
       }
 
+      // A tool is the person's half alone: one name, one route.
+      const { tool: _tool, ...team } = spec;
+
       declare({
         method,
         path: joined("team", path),
-        spec,
+        spec: team,
         handler: (input) => {
           if (!o.inTeamWork()) {
             throw new NotFound("Not found.");

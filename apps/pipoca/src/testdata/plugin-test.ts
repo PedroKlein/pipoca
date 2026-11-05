@@ -306,9 +306,7 @@ export async function pluginTest(
     [...hosts.values()]
       .filter(
         (each) =>
-          each.token === token &&
-          each !== without &&
-          each.stream !== undefined,
+          each.token === token && each !== without && each.stream !== undefined,
       )
       .map(({ id, generation }) => ({ sessionId: id, generation }));
 
@@ -357,6 +355,7 @@ export async function pluginTest(
       host.token,
       runningOn(host.token, host),
     );
+
     const found = assigned.find(({ sessionId }) => sessionId === host.id);
 
     if (found === undefined) {
@@ -396,10 +395,17 @@ export async function pluginTest(
     "select count(*) as count from session_outbox where session_id = ?",
   );
 
-  const taken = async (host: Host): Promise<void> => {
-    await until(
-      () => (queuedCount.get(host.id) as { count: number }).count === 0,
-    );
+  const queued = (host: Host): number =>
+    (queuedCount.get(host.id) as { count: number }).count;
+
+  // Connects the host and waits until the commands the outbox held for it
+  // have arrived, which can trail their rows leaving the outbox.
+  const reconnect = async (host: Host): Promise<void> => {
+    const expected = host.commands.length + queued(host);
+
+    await connect(host);
+
+    await until(() => queued(host) === 0 && host.commands.length >= expected);
   };
 
   const adminId = (): string => {
@@ -500,7 +506,7 @@ export async function pluginTest(
     hosts.set(host.id, host);
 
     if (host.stream === undefined) {
-      await connect(host);
+      await reconnect(host);
     }
 
     const { cookie } = environment;
@@ -526,7 +532,7 @@ export async function pluginTest(
     };
 
     const status = async (
-      status: "running" | "idle",
+      to: "running" | "idle",
       length?: number,
     ): Promise<void> => {
       const posted = await request(
@@ -536,7 +542,7 @@ export async function pluginTest(
           events: [
             {
               type: "status",
-              status,
+              status: to,
               ...(length !== undefined && { transcriptLength: length }),
             },
           ],
@@ -560,8 +566,7 @@ export async function pluginTest(
       }),
       online: async (on) => {
         if (on && host.stream === undefined) {
-          await connect(host);
-          await taken(host);
+          await reconnect(host);
         }
 
         if (!on && host.stream !== undefined) {

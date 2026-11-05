@@ -95,7 +95,9 @@ export function projectTools(context: Context, store: ProjectStore): void {
         }),
       ),
       environment: Type.Optional(
-        Type.String({ description: "Environment id to run in. Default: the Project's" }),
+        Type.String({
+          description: "Environment id to run in. Default: the Project's",
+        }),
       ),
       profile: Type.Optional(
         Type.String({
@@ -104,11 +106,14 @@ export function projectTools(context: Context, store: ProjectStore): void {
         }),
       ),
       model: Type.Optional(
-        Type.String({ description: "Model as provider/id. Default: the coordinator's" }),
+        Type.String({
+          description: "Model as provider/id. Default: the coordinator's",
+        }),
       ),
     }),
     run: (input, { session }) => {
       const { project, actor } = callerOf(session);
+
       const repositories =
         input.repositories === undefined
           ? project.repositories
@@ -269,6 +274,7 @@ export function projectTools(context: Context, store: ProjectStore): void {
     }),
     run: (input, { session }) => {
       const { member, project, actor } = callerOf(session);
+
       sessions.send(project.coordinatorId, {
         text: `[Thread "${member.title}" (${member.sessionId})] ${input.text}`,
         turn: true,
@@ -398,7 +404,9 @@ export function projectTools(context: Context, store: ProjectStore): void {
           input.revision,
         );
       } catch (error) {
-        throw new ToolError(error instanceof Error ? error.message : String(error));
+        throw new ToolError(
+          error instanceof Error ? error.message : String(error),
+        );
       }
 
       context.routes.topic("projects");

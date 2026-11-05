@@ -133,9 +133,9 @@ export function transcriptReader(
       );
 
       const last = replies.at(-1);
-      const reply = replies.map(({ content }) => textOf(content)).findLast(
-        (text) => text !== "",
-      );
+      const reply = replies
+        .map(({ content }) => textOf(content))
+        .findLast((text) => text !== "");
 
       return {
         ...(reply !== undefined && { reply }),
@@ -172,8 +172,10 @@ export function transcriptReader(
 function startsTurn(line: string): boolean {
   if (line.includes('"custom_message"')) {
     try {
-      return (JSON.parse(line) as { readonly type?: unknown } | null)?.type ===
-        "custom_message";
+      return (
+        (JSON.parse(line) as { readonly type?: unknown } | null)?.type ===
+        "custom_message"
+      );
     } catch {
       return false;
     }

@@ -74,6 +74,7 @@ const selectProjects = `
 
 export type ProjectStore = ReturnType<typeof projectStore>;
 
+// eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types -- its type is what it returns, named ProjectStore
 export function projectStore(store: Store, clock: Clock) {
   const repositoriesOf = (projectId: string): readonly string[] =>
     store
