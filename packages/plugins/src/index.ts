@@ -52,6 +52,8 @@ export {
   type RouteSpec,
   type Secrets,
   type ServerTools,
+  type SignInApi,
+  type SignInProvider,
   type Sessions,
   type Store,
   type ToolCall,

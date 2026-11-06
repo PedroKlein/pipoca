@@ -106,12 +106,26 @@ export interface PluginTest {
       path: string,
       init?: RequestInit,
     ) => Promise<Response>;
+    // The kernel's own routes, such as /api/profiles, as the person.
+    // A body is sent as JSON.
+    readonly kernel: (
+      method: Method,
+      path: string,
+      body?: unknown,
+      headers?: Readonly<Record<string, string>>,
+    ) => Promise<Response>;
   };
   readonly public: () => {
     readonly raw: (
       method: Method,
       path: string,
       init?: RequestInit,
+    ) => Promise<Response>;
+    // The kernel's own routes, as a browser that sends only these headers.
+    readonly kernel: (
+      method: Method,
+      path: string,
+      headers?: Readonly<Record<string, string>>,
     ) => Promise<Response>;
     readonly webhook: (
       path: string,

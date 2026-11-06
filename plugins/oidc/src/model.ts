@@ -1,5 +1,3 @@
-// What the plugin's routes send and take, shared with its web part.
-
 export interface LinkedIdentity {
   readonly issuer: string;
   readonly email: string | null;
@@ -25,9 +23,6 @@ export interface ProviderInput {
 export interface ProviderView extends Omit<ProviderInput, "clientSecret"> {
   readonly id: string;
   readonly hasClientSecret: boolean;
-  // The environment variable the secret comes from, when the config file
-  // names one instead of holding it sealed (ADR 0039).
-  readonly clientSecretEnv: string | null;
   // How many people signed in with it in the last seven days.
   readonly signedInThisWeek: number;
 }

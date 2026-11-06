@@ -562,6 +562,13 @@ export const routes = {
     auth: "person",
     response: "bytes",
   },
+  // Where a plugin's routes were before ext, such as a redirect URI an
+  // identity provider has registered.
+  "plugins.moved": {
+    method: "GET",
+    path: "/api/plugins/:plugin/*path",
+    auth: "public",
+  },
   // Each plugin's own API: its public routes, then those for people signed
   // in (ADR 0015).
   ext: { method: "ANY", path: "/api/ext/:plugin/*path", auth: "public" },

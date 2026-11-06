@@ -2,11 +2,6 @@
   "name": "@pipoca/oidc",
   "private": true,
   "type": "module",
-  "exports": {
-    "./server": "./src/server.ts",
-    "./web": "./web/index.tsx",
-    "./package.json": "./package.json"
-  },
   "dependencies": {
     "@pipoca/plugins": "workspace:*",
     "@pipoca/protocol": "workspace:*",
@@ -14,18 +9,10 @@
     "react": "19.3.1"
   },
   "devDependencies": {
+    "@pipoca/testing": "workspace:*",
     "@types/react": "19.3.0"
   },
   "pipoca": {
-    "id": "oidc",
-    "title": "Sign-in",
-    "description": "Signs people in through OpenID Connect providers, such as SAP IAS, Okta or Google, and lets in the groups or emails you choose. Admins add providers in Settings.",
-    "capabilities": [
-      "routes"
-    ],
-    "works": [
-      "personal",
-      "team"
-    ]
+    "entry": "plugin.ts"
   }
 }

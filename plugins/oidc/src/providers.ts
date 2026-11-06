@@ -1,15 +1,13 @@
-import type { Log } from "@pipoca/protocol";
 import {
   BadRequest,
-  fieldsOf,
-  isObject,
-  type ConfigKey,
-  type SecretRef,
-  type SecretRefs,
+  type Collection,
+  isHttpError,
+  NotFound,
   type Static,
   Type,
 } from "@pipoca/plugins";
-import type { ProviderInput, ProviderView } from "./model";
+import type { ProviderItem } from "../plugin";
+import type { ProviderView } from "./model";
 
 // What Settings sends to add or change a provider. An empty or missing client
 // secret keeps the one the provider has, and null takes it away.
@@ -36,7 +34,6 @@ export interface ProviderConfig {
   readonly clientId: string;
   // Undefined for a public client, which PKCE alone protects.
   readonly clientSecret: string | undefined;
-  readonly clientSecretEnv: string | undefined;
   readonly groupsClaim: string;
   readonly accessGroup: string;
   readonly adminGroup: string;
@@ -45,263 +42,157 @@ export interface ProviderConfig {
   readonly adminEmails: readonly string[];
 }
 
-export interface ProviderStore {
+export interface Providers {
   readonly list: () => readonly ProviderConfig[];
   readonly get: (id: string) => ProviderConfig | undefined;
   readonly create: (input: ProviderChange) => ProviderConfig;
-  readonly update: (
-    id: string,
-    input: ProviderChange,
-  ) => ProviderConfig | undefined;
-  readonly remove: (id: string) => boolean;
-}
-
-// A provider and its client secret as the file holds it, so a save that
-// keeps the secret writes the same ref back.
-interface Entry {
-  readonly provider: ProviderConfig;
-  readonly ref: SecretRef | undefined;
+  readonly update: (id: string, input: ProviderChange) => ProviderConfig;
+  readonly remove: (id: string) => void;
 }
 
 const defaultGroupsClaim = "groups";
 const defaultLabel = "Sign in with single sign-on";
 
-// The providers live under the plugin's key in pipoca.json, which Settings
-// and people both edit (ADR 0039). A list that stops fitting is logged, and
-// the last one that fit stays in use.
-export function providerStore(
-  config: ConfigKey,
-  refs: SecretRefs,
-  log: Log,
-): ProviderStore {
-  const parse = (value: unknown): readonly Entry[] =>
-    entriesOf(value, (ref, id) => refs.open(ref, id, "clientSecret"));
+// The providers live in the plugin's config in pipoca.json, which Settings
+// and people both edit (ADR 0039).
+export function providers(items: Collection<ProviderItem>): Providers {
+  const get = (id: string): ProviderConfig | undefined => {
+    const item = items.get(id);
 
-  let read = JSON.stringify(config.get());
-  let entries = parse(config.get());
-
-  // Why the providers in the file stopped fitting. A save would write the last
-  // ones that fit over what someone wrote there by hand.
-  let unfit: string | undefined;
-
-  const current = (): readonly Entry[] => {
-    const value = config.get();
-    const text = JSON.stringify(value);
-
-    if (text !== read) {
-      read = text;
-
-      try {
-        entries = parse(value);
-        unfit = undefined;
-      } catch (failure) {
-        unfit = failure instanceof Error ? failure.message : String(failure);
-
-        log("providers in the config file don't fit", {
-          error: unfit,
-        });
-      }
-    }
-
-    return entries;
+    return item && configOf(item);
   };
 
-  const save = (next: readonly Entry[]): void => {
-    current();
-    if (unfit !== undefined) {
-      throw new BadRequest(`fix oidc in pipoca.json first: ${unfit}`);
-    }
-
-    const value = config.get();
+  // kept is the secret the provider keeps unless Settings typed another.
+  const save = (input: ProviderChange, id: string, kept?: string): void => {
+    const typed = input.clientSecret?.trim() ?? "";
 
     try {
-      config.set({
-        ...fieldsOf(value),
-        providers: next.map(fileEntry),
-      });
+      items.put(itemOf(checked(id, input), typed === "" ? kept : typed));
     } catch (failure) {
+      if (isHttpError(failure)) {
+        throw failure;
+      }
+
       throw new BadRequest(
         failure instanceof Error ? failure.message : String(failure),
       );
     }
-
-    entries = next;
-    read = JSON.stringify(config.get());
   };
 
-  const get = (id: string): Entry | undefined =>
-    current().find(({ provider }) => provider.id === id);
+  const found = (id: string): ProviderConfig => {
+    const provider = get(id);
 
-  const changed = (
-    id: string,
-    input: ProviderChange,
-    before: Entry | undefined,
-  ): Entry => {
-    const secret = input.clientSecret;
-    const provider = providerFrom(id, input);
-
-    if (secret === null) {
-      return { provider, ref: undefined };
+    if (provider === undefined) {
+      throw new NotFound(`no provider ${id}`);
     }
 
-    if (secret !== undefined && secret.trim() !== "") {
-      return {
-        provider: { ...provider, clientSecret: secret.trim() },
-        ref: refs.seal(secret.trim(), id),
-      };
-    }
-
-    return {
-      provider: {
-        ...provider,
-        clientSecret: before?.provider.clientSecret,
-        clientSecretEnv: before?.provider.clientSecretEnv,
-      },
-      ref: before?.ref,
-    };
+    return provider;
   };
 
   return {
-    list: () => current().map(({ provider }) => provider),
-    get: (id) => get(id)?.provider,
+    list: () => items.list().map(configOf),
+    get,
     create: (input) => {
-      const taken = new Set(current().map(({ provider }) => provider.id));
+      const id = freeId(
+        input.label,
+        new Set(items.list().map((each) => each.id)),
+      );
 
-      const entry = changed(freeId(input.label, taken), input, undefined);
+      save(input, id);
 
-      save([...current(), entry]);
-
-      return entry.provider;
+      return found(id);
     },
     update: (id, input) => {
-      const before = get(id);
-      if (before === undefined) {
-        return undefined;
-      }
+      const { clientSecret } = found(id);
 
-      const entry = changed(id, input, before);
-      save(current().map((each) => (each === before ? entry : each)));
+      save(input, id, input.clientSecret === null ? undefined : clientSecret);
 
-      return entry.provider;
+      return found(id);
     },
     remove: (id) => {
-      const before = get(id);
-      if (before === undefined) {
-        return false;
+      if (!items.remove(id)) {
+        throw new NotFound(`no provider ${id}`);
       }
-
-      save(current().filter((each) => each !== before));
-
-      return true;
     },
   };
 }
 
 // The web never gets a client secret back, only whether one is set.
 export function viewOf(
-  { clientSecret, clientSecretEnv, ...provider }: ProviderConfig,
+  { clientSecret, ...provider }: ProviderConfig,
   signedInThisWeek: number,
 ): ProviderView {
   return {
     ...provider,
     hasClientSecret: clientSecret !== undefined,
-    clientSecretEnv: clientSecretEnv ?? null,
     signedInThisWeek,
   };
 }
 
-function entriesOf(
-  value: unknown,
-  open: (
-    ref: unknown,
-    id: string,
-  ) => { readonly ref: SecretRef; readonly secret: string },
-): readonly Entry[] {
-  if (value === undefined) {
-    return [];
-  }
+function checked(id: string, input: ProviderChange): ProviderConfig {
+  const { clientSecret: _secret, ...fields } = input;
 
-  if (!isObject(value)) {
-    throw new BadRequest("oidc in pipoca.json must be an object");
-  }
-
-  const { providers = [] } = value;
-
-  if (!Array.isArray(providers)) {
-    throw new BadRequest("oidc.providers must be a list");
-  }
-
-  const ids = new Set<string>();
-
-  return providers.map((item: unknown, index): Entry => {
-    const where = `oidc.providers[${String(index)}]`;
-
-    try {
-      if (!isObject(item)) {
-        throw new BadRequest("must be an object");
-      }
-
-      const { id, clientSecret } = item;
-
-      if (typeof id !== "string" || !/^[\w-]+$/.test(id)) {
-        throw new BadRequest("id must be letters, digits, - or _");
-      }
-
-      if (ids.has(id)) {
-        throw new BadRequest(`id ${id} is used twice`);
-      }
-
-      ids.add(id);
-
-      const provider = providerFrom(id, item);
-
-      if (clientSecret === undefined) {
-        return { provider, ref: undefined };
-      }
-
-      const { ref, secret } = open(clientSecret, id);
-
-      return {
-        provider: {
-          ...provider,
-          clientSecret: secret,
-          clientSecretEnv: "env" in ref ? ref.env : undefined,
-        },
-        ref,
-      };
-    } catch (failure) {
-      if (failure instanceof BadRequest) {
-        throw new BadRequest(`${where}: ${failure.message}`);
-      }
-
-      throw failure;
-    }
+  const provider = configOf({
+    ...fields,
+    id,
+    issuer: input.issuer ?? "",
+    clientId: input.clientId ?? "",
   });
+
+  if (!URL.canParse(provider.issuer)) {
+    throw new BadRequest("issuer must be a URL");
+  }
+
+  if (provider.clientId === "") {
+    throw new BadRequest("clientId is needed");
+  }
+
+  return provider;
+}
+
+function configOf(item: ProviderItem): ProviderConfig {
+  const text = (value = "", fallback = ""): string =>
+    value.trim() === "" ? fallback : value.trim();
+
+  const list = (values: readonly string[] = []): readonly string[] =>
+    values.flatMap((each) =>
+      each.trim() === "" ? [] : [each.trim().toLowerCase()],
+    );
+
+  return {
+    id: item.id,
+    label: text(item.label, defaultLabel),
+    issuer: text(item.issuer),
+    clientId: text(item.clientId),
+    clientSecret: item.clientSecret,
+    groupsClaim: text(item.groupsClaim, defaultGroupsClaim),
+    accessGroup: text(item.accessGroup),
+    adminGroup: text(item.adminGroup),
+    allowedEmails: list(item.allowedEmails),
+    allowedDomains: list(item.allowedDomains),
+    adminEmails: list(item.adminEmails),
+  };
 }
 
 // What the file holds for a provider, leaving out what is empty or default.
-function fileEntry({ provider, ref }: Entry): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries({
-      id: provider.id,
-      label: provider.label === defaultLabel ? "" : provider.label,
-      issuer: provider.issuer,
-      clientId: provider.clientId,
-      clientSecret: ref,
-      groupsClaim:
-        provider.groupsClaim === defaultGroupsClaim ? "" : provider.groupsClaim,
-      accessGroup: provider.accessGroup,
-      adminGroup: provider.adminGroup,
-      allowedEmails: provider.allowedEmails,
-      allowedDomains: provider.allowedDomains,
-      adminEmails: provider.adminEmails,
-    }).filter(
-      ([, value]) =>
-        value !== undefined &&
-        value !== "" &&
-        !(Array.isArray(value) && value.length === 0),
-    ),
+function itemOf(
+  provider: ProviderConfig,
+  clientSecret: string | undefined,
+): ProviderItem {
+  const kept = Object.entries({
+    ...provider,
+    label: provider.label === defaultLabel ? "" : provider.label,
+    groupsClaim:
+      provider.groupsClaim === defaultGroupsClaim ? "" : provider.groupsClaim,
+    clientSecret,
+  }).filter(
+    ([, value]) =>
+      value !== undefined &&
+      value !== "" &&
+      !(Array.isArray(value) && value.length === 0),
   );
+
+  return Object.fromEntries(kept) as unknown as ProviderItem;
 }
 
 // A readable id for the file, such as "sap" for "Sign in with SAP".
@@ -319,59 +210,4 @@ function freeId(label: string | undefined, taken: ReadonlySet<string>): string {
   }
 
   return id;
-}
-
-function providerFrom(id: string, input: unknown): ProviderConfig {
-  const fields = fieldsOf(input);
-
-  const text = (name: keyof ProviderInput, fallback = ""): string => {
-    const value = fields[name] ?? "";
-
-    if (typeof value !== "string") {
-      throw new BadRequest(`${name} must be text`);
-    }
-
-    return value.trim() === "" ? fallback : value.trim();
-  };
-
-  const list = (name: keyof ProviderInput): readonly string[] => {
-    const value = fields[name] ?? [];
-
-    if (
-      !Array.isArray(value) ||
-      !value.every((each) => typeof each === "string")
-    ) {
-      throw new BadRequest(`${name} must be a list of text`);
-    }
-
-    return value.flatMap((each: string) =>
-      each.trim() === "" ? [] : [each.trim().toLowerCase()],
-    );
-  };
-
-  const issuer = text("issuer");
-  const clientId = text("clientId");
-
-  if (!URL.canParse(issuer)) {
-    throw new BadRequest("issuer must be a URL");
-  }
-
-  if (clientId === "") {
-    throw new BadRequest("clientId is needed");
-  }
-
-  return {
-    id,
-    label: text("label", defaultLabel),
-    issuer,
-    clientId,
-    clientSecret: undefined,
-    clientSecretEnv: undefined,
-    groupsClaim: text("groupsClaim", defaultGroupsClaim),
-    accessGroup: text("accessGroup"),
-    adminGroup: text("adminGroup"),
-    allowedEmails: list("allowedEmails"),
-    allowedDomains: list("allowedDomains"),
-    adminEmails: list("adminEmails"),
-  };
 }

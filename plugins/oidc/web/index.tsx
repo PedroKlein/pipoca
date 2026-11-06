@@ -1,9 +1,4 @@
-import {
-  json,
-  useLoaded,
-  type WebContext,
-  type WebPlugin,
-} from "@pipoca/plugins/web";
+import { defineWeb, useApi, useConfig, useLoaded } from "@pipoca/plugins/web";
 import {
   Badge,
   Button,
@@ -24,6 +19,7 @@ import {
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
+import { oidc } from "../plugin";
 import type {
   Account,
   ProviderInput,
@@ -31,36 +27,29 @@ import type {
   ProviderView,
 } from "../src/model";
 
-export const oidc: WebPlugin = {
-  name: "oidc",
-  SettingsSection,
-  settingsGroup: "server",
-  settingsParts: { Accounts },
-};
+export const web = defineWeb(oidc, {
+  settings: { group: "server", Section: SettingsSection },
+  slots: { "settings.accounts": Accounts },
+});
 
-function SettingsSection({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement | null {
-  const { value, reload } = useLoaded(
-    async () => json<Account>(context.request("account")),
+function SettingsSection(): ReactElement | null {
+  const api = useApi(oidc);
+
+  const { value } = useLoaded(
+    async () => api.get<Account>("account"),
     "account",
+    { changes: ["account"] },
   );
 
   const providers = useLoaded(
-    async () => json<readonly ProviderView[]>(context.request("providers")),
+    async () => api.get<readonly ProviderView[]>("providers"),
     "providers",
+    { changes: ["providers"] },
   );
 
   if (value?.admin !== true) {
     return null;
   }
-
-  const changed = (): void => {
-    providers.reload();
-    reload();
-  };
 
   return (
     <>
@@ -68,18 +57,11 @@ function SettingsSection({
         Sign-in
       </PageTitle>
       {value.lockedIn !== null && <LockedNotice file={value.lockedIn} />}
-      <Providers
-        context={context}
-        providers={providers.value}
-        locked={value.lockedIn !== null}
-        onChange={changed}
-      />
+      <Providers providers={providers.value} locked={value.lockedIn !== null} />
       <Rules
-        context={context}
         account={value}
         providers={providers.value}
         locked={value.lockedIn !== null}
-        onChange={changed}
       />
     </>
   );
@@ -114,14 +96,13 @@ function LockedNotice({ file }: { readonly file: string }): ReactElement {
 
 // The providers the person can sign in with, and which of them their user
 // is linked to.
-function Accounts({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement | null {
+function Accounts(): ReactElement | null {
+  const api = useApi(oidc);
+
   const { value, reload } = useLoaded(
-    async () => json<Account>(context.request("account")),
+    async () => api.get<Account>("account"),
     "account",
+    { changes: ["account"] },
   );
 
   if (value === undefined || value.providers.length === 0) {
@@ -162,12 +143,11 @@ function Accounts({
                   <Button
                     variant="ghost"
                     onClick={() => {
-                      void json(
-                        context.request(
+                      void api
+                        .delete(
                           `identities/${encodeURIComponent(linked.issuer)}`,
-                          { method: "DELETE" },
-                        ),
-                      ).then(reload, reload);
+                        )
+                        .then(reload, reload);
                     }}
                   >
                     Unlink
@@ -227,22 +207,18 @@ const presets: readonly Preset[] = [
 ];
 
 function Providers({
-  context,
   providers,
   locked,
-  onChange,
 }: {
-  readonly context: WebContext;
   readonly providers: readonly ProviderView[] | undefined;
   readonly locked: boolean;
-  readonly onChange: () => void;
 }): ReactElement {
+  const api = useApi(oidc);
   const [ask, asking] = useConfirm();
   const [editing, setEditing] = useState<ProviderView | Preset>();
 
   const changed = (): void => {
     setEditing(undefined);
-    onChange();
   };
 
   const remove = (provider: ProviderView): void => {
@@ -256,11 +232,9 @@ function Providers({
         return;
       }
 
-      void json(
-        context.request(`providers/${encodeURIComponent(provider.id)}`, {
-          method: "DELETE",
-        }),
-      ).then(changed, changed);
+      void api
+        .delete(`providers/${encodeURIComponent(provider.id)}`)
+        .then(changed, changed);
     });
   };
 
@@ -275,7 +249,6 @@ function Providers({
           {providers.map((provider) => (
             <ProviderRow
               key={provider.id}
-              context={context}
               provider={provider}
               locked={locked}
               onEdit={() => {
@@ -291,13 +264,11 @@ function Providers({
           provider={existing}
           preset={existing === undefined ? (editing as Preset) : undefined}
           save={async (input) => {
-            await json(
-              context.request(
-                existing === undefined
-                  ? "providers"
-                  : `providers/${encodeURIComponent(existing.id)}`,
-                { method: "POST", body: JSON.stringify(input) },
-              ),
+            await api.post(
+              existing === undefined
+                ? "providers"
+                : `providers/${encodeURIComponent(existing.id)}`,
+              input,
             );
 
             changed();
@@ -344,16 +315,15 @@ function Providers({
 }
 
 function ProviderRow({
-  context,
   provider,
   locked,
   onEdit,
 }: {
-  readonly context: WebContext;
   readonly provider: ProviderView;
   readonly locked: boolean;
   readonly onEdit: () => void;
 }): ReactElement {
+  const api = useApi(oidc);
   const [test, setTest] = useState<ProviderTest | "testing">();
   const people = provider.signedInThisWeek;
 
@@ -401,17 +371,17 @@ function ProviderRow({
         onClick={() => {
           setTest("testing");
 
-          json<ProviderTest>(
-            context.request(
+          api
+            .post<ProviderTest>(
               `providers/${encodeURIComponent(provider.id)}/test`,
-              { method: "POST" },
-            ),
-          ).then(setTest, (reason: unknown) => {
-            setTest({
-              ok: false,
-              error: reason instanceof Error ? reason.message : String(reason),
+            )
+            .then(setTest, (reason: unknown) => {
+              setTest({
+                ok: false,
+                error:
+                  reason instanceof Error ? reason.message : String(reason),
+              });
             });
-          });
         }}
       >
         Test
@@ -430,18 +400,15 @@ function ProviderRow({
 }
 
 function Rules({
-  context,
   account,
   providers,
   locked,
-  onChange,
 }: {
-  readonly context: WebContext;
   readonly account: Account;
   readonly providers: readonly ProviderView[] | undefined;
   readonly locked: boolean;
-  readonly onChange: () => void;
 }): ReactElement {
+  const api = useApi(oidc);
   const [error, setError] = useState<string>();
   const [only] = providers?.length === 1 ? providers : [];
 
@@ -470,15 +437,9 @@ function Rules({
       adminEmails: only.adminEmails,
     };
 
-    json(
-      context.request(`providers/${encodeURIComponent(only.id)}`, {
-        method: "POST",
-        body: JSON.stringify(input),
-      }),
-    ).then(
+    api.post(`providers/${encodeURIComponent(only.id)}`, input).then(
       () => {
         setError(undefined);
-        onChange();
       },
       (reason: unknown) => {
         setError(reason instanceof Error ? reason.message : String(reason));
@@ -580,6 +541,7 @@ function ProviderForm({
   readonly cancel: () => void;
 }): ReactElement {
   const [error, setError] = useState<string>();
+  const secret = useSecretRef(provider?.id);
 
   const submit = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -675,7 +637,7 @@ function ProviderForm({
         preset?.issuerHint ?? "https://tenant.accounts.ondemand.com",
       )}
       {textField("clientId", "Client ID")}
-      <Field label={secretLabel(provider)}>
+      <Field label={secretLabel(provider, secret)}>
         <input
           name="clientSecret"
           type="password"
@@ -715,7 +677,7 @@ function ProviderForm({
       <p className="text-caption text-fg-dim md:col-span-2">
         Register{" "}
         <code className="font-mono text-mono-sm">
-          {location.origin}/api/ext/oidc/callback
+          {location.origin}/api/plugins/oidc/callback
         </code>{" "}
         as the redirect URI with the provider.
       </p>
@@ -723,11 +685,21 @@ function ProviderForm({
   );
 }
 
-function secretLabel(provider: ProviderView | undefined): string {
-  const env = provider?.clientSecretEnv ?? null;
+// How the file holds the provider's client secret, such as { env: "NAME" }.
+function useSecretRef(id: string | undefined): unknown {
+  const config = useConfig(oidc);
+  const listed: unknown = config?.["providers"];
 
-  if (env !== null) {
-    return `Client secret (from ${env}; leave empty to keep it)`;
+  return Array.isArray(listed)
+    ? (listed as readonly { id?: unknown; clientSecret?: unknown }[]).find(
+        (each) => each.id === id,
+      )?.clientSecret
+    : undefined;
+}
+
+function secretLabel(provider: ProviderView | undefined, ref: unknown): string {
+  if (typeof ref === "object" && ref !== null && "env" in ref) {
+    return `Client secret (from ${String(ref.env)}; leave empty to keep it)`;
   }
 
   return provider?.hasClientSecret === true

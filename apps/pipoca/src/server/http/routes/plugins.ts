@@ -94,6 +94,13 @@ export function pluginRoutes({
         },
       });
     },
+    "plugins.moved": ({ request, params: { plugin, path } }) =>
+      new Response(null, {
+        status: 308,
+        headers: {
+          location: `/api/ext/${encodeURIComponent(plugin)}/${path}${new URL(request.url).search}`,
+        },
+      }),
     // A plugin's own API: its public routes, then the ones for people who
     // signed in (ADR 0015).
     ext: async ({ request, params: { plugin, path } }) => {
