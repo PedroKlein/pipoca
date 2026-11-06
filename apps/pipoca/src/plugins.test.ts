@@ -429,10 +429,10 @@ test("starts a plugin's own Sessions on the Profile it provides, and no others",
   expect(listed.map(({ id }) => id)).not.toContain(owned.profileId);
 });
 
-test("resets a plugin whose tables another version made, and starts it at the restart", async () => {
+test("resets a plugin whose tables can't be upgraded, and starts it at the restart", async () => {
   const database = join(root, "server.db");
 
-  const tally = (sql: string): ServerPart =>
+  const tally = (migrations: readonly string[]): ServerPart =>
     plugin(
       "tally",
       ({ routes, store }) => {
@@ -446,16 +446,15 @@ test("resets a plugin whose tables another version made, and starts it at the re
           store.all("select n from tally_marks"),
         );
       },
-      { schema: sql },
+      { schema: "create table tally_marks (n integer) strict", migrations },
     );
 
-  const before = tally("create table tally_marks (n integer) strict");
+  const before = tally([]);
 
-  const after = tally(
-    "create table tally_marks (n integer, m integer not null default 0) strict",
-  );
+  const after = tally(["create unique index tally_marks_n on tally_marks (n)"]);
 
   server = testServer({ database, builtIns: false, servers: [before] });
+  await server.api("/api/ext/tally/marks", { body: {} });
   await server.api("/api/ext/tally/marks", { body: {} });
 
   const cookie = await server.signedIn();
@@ -469,7 +468,7 @@ test("resets a plugin whose tables another version made, and starts it at the re
       state: "failed",
       resettable: true,
       error:
-        "its tables were made by another version of tally; its data is kept until an admin resets it",
+        "its tables could not be upgraded: migration 1 failed: UNIQUE constraint failed: tally_marks.n; its data is kept until an admin resets it",
     },
   ]);
 

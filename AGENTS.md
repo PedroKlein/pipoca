@@ -13,7 +13,7 @@ Pipoca is a self-hosted server for durable Pi sessions and Projects on your own 
 - TypeScript everywhere, on Bun: runtime, package manager, workspaces and test runner ([ADR 0002](docs/adr/0002-typescript-for-all-components.md), [ADR 0003](docs/adr/0003-bun-runtime-and-workspaces.md)).
 - Prefer `node:*` APIs over `Bun.*` where both exist.
 - SQLite on the server holds runtime data, and `pipoca.json` and folders in the config folder hold what people set ahead of time ([ADR 0039](docs/adr/0039-plugin-config-files.md)). Don't add brokers or other infrastructure without an ADR.
-- The database has no migrations. Tables are `STRICT`, ids are UUIDv7, times are integer milliseconds, and `owner_user_id` is NULL for the team. The kernel and each plugin declare their schema ([ADR 0068](docs/adr/0068-clean-rebuild.md#storage)).
+- Tables are `STRICT`, ids are UUIDv7, times are integer milliseconds, and `owner_user_id` is NULL for the team. The kernel and each plugin declare their schema ([ADR 0068](docs/adr/0068-clean-rebuild.md#storage)). Once released, a schema changes only by adding a migration ([ADR 0070](docs/adr/0070-schema-migrations.md)).
 
 ## Layout
 

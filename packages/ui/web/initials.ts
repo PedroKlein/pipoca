@@ -11,6 +11,11 @@ export function initialsOf(name: string): string {
   return first.slice(0, 1).toUpperCase() + second.toLowerCase();
 }
 
+// A person's mark is both initials in capitals: "Pedro Klein" is PK.
+export function personInitials(name: string): string {
+  return initialsOf(name).toUpperCase();
+}
+
 // "1 person", "3 Sessions": a count with its noun, plural unless it is one.
 export function plural(count: number, noun: string, many = `${noun}s`): string {
   return `${String(count)} ${count === 1 ? noun : many}`;

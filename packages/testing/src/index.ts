@@ -24,6 +24,7 @@ import {
   type ActsAs,
   type GitLogin,
   type Owner,
+  type SessionAccess,
   type WorkspaceRequest,
   systemClock,
   systemTimer,
@@ -127,6 +128,8 @@ export interface PluginTest {
     // A Profile of the starter's, by id, in place of their default.
     readonly profile?: string;
     readonly actsAs?: ActsAs;
+    // Who steers team work, everyone in the team unless it says.
+    readonly access?: SessionAccess;
     // A folder of the test's own unless it says.
     readonly workspace?: WorkspaceRequest;
   }) => Promise<TestSession>;

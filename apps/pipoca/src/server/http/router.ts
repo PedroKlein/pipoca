@@ -223,7 +223,8 @@ export function createRouter(
   };
 
   // A webhook delivery's id, such as GitHub's, is taken once. One that
-  // fails is let go, so the sender can deliver it again.
+  // fails is let go, so the sender can deliver it again. A delivery with
+  // no id needs a signed timestamp, so none can be sent again for long.
   const delivered = new Map<string, number>();
   const taking = new WeakMap<Request, string>();
 
@@ -233,6 +234,14 @@ export function createRouter(
       request.headers.get("x-pipoca-delivery");
 
     if (id === null) {
+      if (request.headers.get("x-pipoca-timestamp") === null) {
+        throw new HttpError(
+          400,
+          "A delivery needs an X-GitHub-Delivery or X-Pipoca-Delivery id, or a signed X-Pipoca-Timestamp.",
+          "unidentified_delivery",
+        );
+      }
+
       return;
     }
 

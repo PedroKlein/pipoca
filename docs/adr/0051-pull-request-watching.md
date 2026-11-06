@@ -1,6 +1,6 @@
 # 0051: Pull request watching and auto-fix
 
-- Status: accepted
+- Status: accepted; polling with the starting person's token amended by [ADR 0071](0071-team-pull-request-watching.md): team Sessions watch with the team's bot on the host, never a person's token
 - Date: 2026-10-31
 
 ## Context

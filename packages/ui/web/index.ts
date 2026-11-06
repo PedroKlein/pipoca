@@ -25,7 +25,7 @@ export { EmptyState, ErrorText, Notice, Spinner } from "./feedback";
 export { Field } from "./field";
 export { FileButton } from "./file-button";
 export { Icon, type IconName, isIconName } from "./icon";
-export { initialsOf, plural } from "./initials";
+export { initialsOf, personInitials, plural } from "./initials";
 export { Checkbox, Radio, TextArea, TextInput } from "./inputs";
 export { isComposing } from "./keys";
 export { type KeyValue, KeyValues } from "./key-values";

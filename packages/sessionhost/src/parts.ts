@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   defineTool,
@@ -18,7 +19,11 @@ import {
   toolAnswer,
   toolSpecOf,
 } from "@pipoca/plugins/host";
+import { askedHeader } from "@pipoca/protocol";
 import { piToolOf } from "./tools";
+
+// Set while a tool the person allowed runs, so its requests say so.
+const allowed = new AsyncLocalStorage<true>();
 
 export type PartHost = Omit<
   SessionContext,
@@ -63,6 +68,12 @@ export async function setUpPart(
     },
     provide: {
       modelCredentials: (logins) => {
+        if (part.plugin.modelCredentials !== true) {
+          throw new Error(
+            `${id} keeps model logins, so its definition needs modelCredentials: true`,
+          );
+        }
+
         modelCredentials = logins;
       },
     },
@@ -76,7 +87,19 @@ export async function setUpPart(
           throw new Error("a Session part reaches only its plugin's routes");
         }
 
-        return host.request(url.slice(at + marker.length), init);
+        const path = url.slice(at + marker.length);
+
+        if (allowed.getStore() === undefined) {
+          return host.request(path, init);
+        }
+
+        return host.request(path, {
+          ...init,
+          headers: {
+            ...Object.fromEntries(new Headers(init.headers)),
+            [askedHeader]: "1",
+          },
+        });
       },
     }),
   });
@@ -146,11 +169,11 @@ function piTool(
         throw new Error("The person said no.");
       }
 
-      const result = await toolAnswer(
-        tool.name,
-        async () => tool.run(input, call),
-        host.log,
-      );
+      const run = async () =>
+        toolAnswer(tool.name, async () => tool.run(input, call), host.log);
+
+      const result =
+        question === undefined ? await run() : await allowed.run(true, run);
 
       if (result.isError) {
         throw new Error(result.text);

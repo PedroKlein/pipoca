@@ -170,7 +170,9 @@ test("a webhook answers 401 to a body it didn't sign and 413 to one over its lim
   const body = JSON.stringify({ text: "pushed" });
   const large = JSON.stringify({ text: "x".repeat(100) });
 
-  expect(await hook(body, signed(body, "s3cret"))).toEqual({
+  expect(
+    await hook(body, signed(body, "s3cret"), { "x-github-delivery": "d-0" }),
+  ).toEqual({
     status: 200,
     body: { name: "github", text: "pushed" },
   });
@@ -187,11 +189,17 @@ test("a webhook answers 401 to a body it didn't sign and 413 to one over its lim
 });
 
 // Someone who captured a delivery can't send it again: not one with the same
-// delivery id, and not one whose signed timestamp is over 5 minutes old.
-test("a webhook refuses a delivery it took already or one signed too long ago", async () => {
+// delivery id, not one whose signed timestamp is over 5 minutes old, and not
+// one with neither.
+test("a webhook refuses a delivery it took already, one signed too long ago or one with neither id nor time", async () => {
   const body = JSON.stringify({ text: "pushed" });
   const signature = signed(body, "s3cret");
   const first = { "x-github-delivery": "d-1" };
+
+  expect(await hook(body, signature)).toMatchObject({
+    status: 400,
+    body: { error: "unidentified_delivery" },
+  });
 
   expect((await hook(body, signature, first)).status).toBe(200);
 

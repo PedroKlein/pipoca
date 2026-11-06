@@ -32,13 +32,14 @@ afterEach(async () => {
 function timers(
   register: (context: ServerContext) => void,
   schema?: string,
+  migrations: readonly string[] = [],
 ): ServerPart {
   return defineServer(
     definePlugin({
       id: "timers",
       title: "Timers",
       description: "",
-      ...(schema !== undefined && { schema }),
+      ...(schema !== undefined && { schema, migrations }),
     }),
     register,
   );
@@ -313,24 +314,36 @@ test("resetting a plugin's data drops its schedules", async () => {
   const clock = testClock();
   let schedule: Schedule | undefined;
 
-  const plugin = (schema: string, scheduling: boolean): ServerPart =>
-    timers((context) => {
-      schedule = context.schedule;
+  const plugin = (
+    migrations: readonly string[],
+    scheduling: boolean,
+  ): ServerPart =>
+    timers(
+      (context) => {
+        schedule = context.schedule;
 
-      context.schedule.on("", (_payload, key) => {
-        fired.push(key);
-      });
+        context.schedule.on("", (_payload, key) => {
+          fired.push(key);
+        });
 
-      if (scheduling) {
-        context.schedule.at("later", clock.now() + hour);
-      }
-    }, schema);
+        if (scheduling) {
+          context.store.run("insert into timers_a (a) values (null)");
+          context.schedule.at("later", clock.now() + hour);
+        }
+      },
+      "create table timers_a (a text) strict",
+      migrations,
+    );
+
+  const copied = [
+    "create table timers_b (b text not null) strict; insert into timers_b select a from timers_a",
+  ];
 
   const before = testServer({
     database,
     clock,
     builtIns: false,
-    servers: [plugin("create table timers_a (a text) strict", true)],
+    servers: [plugin([], true)],
   });
 
   const cookie = await before.signedIn();
@@ -341,7 +354,7 @@ test("resetting a plugin's data drops its schedules", async () => {
     clock,
     cookie,
     builtIns: false,
-    servers: [plugin("create table timers_b (b text) strict", false)],
+    servers: [plugin(copied, false)],
   });
 
   await server.clock.advance(2 * hour);
@@ -360,7 +373,7 @@ test("resetting a plugin's data drops its schedules", async () => {
     clock,
     cookie,
     builtIns: false,
-    servers: [plugin("create table timers_b (b text) strict", false)],
+    servers: [plugin(copied, false)],
   });
 
   expect(schedule?.pending("")).toEqual([]);

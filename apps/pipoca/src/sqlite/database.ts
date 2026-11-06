@@ -1,10 +1,11 @@
-import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
-// The tables one owner keeps: the kernel, or a plugin by its id.
+// The tables one owner keeps: the kernel, or a plugin by its id. The sql is
+// version 0, and each migration after it one version more (ADR 0070).
 export interface Schema {
   readonly owner: string;
   readonly sql: string;
+  readonly migrations?: readonly string[];
 }
 
 interface Database {
@@ -13,8 +14,9 @@ interface Database {
   readonly failures: Map<string, string>;
 }
 
-// The database has no migrations (ADR 0068): a new one gets every schema at
-// once, and one made from other SQL is refused, or for a plugin, fails it.
+// A new database gets every schema and its migrations, and an older one the
+// migrations it hasn't run. One from a newer Pipoca is refused, and a plugin
+// whose tables can't be brought up to date fails (ADR 0070).
 export function openDatabase(
   path: string,
   kernel: Schema,
@@ -34,15 +36,29 @@ export function openDatabase(
 
   try {
     transaction(db, () => {
-      if (names(db).length === 0) {
-        record(db, kernel, made(db, kernel.sql), now());
-      } else if (
-        !names(db).includes("schema_owners") ||
-        recordedHash(db, kernel.owner) !== hash(kernel.sql)
-      ) {
+      const fresh = names(db).length === 0;
+
+      const version =
+        !fresh && names(db).includes("schema_owners")
+          ? recordedVersion(db, kernel.owner)
+          : undefined;
+
+      if (!fresh && version === undefined) {
         throw new Error(
           `${path}: this database was made by another Pipoca version; move it aside to start fresh`,
         );
+      }
+
+      if (version !== undefined && version > latest(kernel)) {
+        throw new Error(
+          `${path}: this database was made by a newer Pipoca (schema version ${String(version)}, this one knows ${String(latest(kernel))}); run that version, or move the database aside to start fresh`,
+        );
+      }
+
+      try {
+        upgrade(db, kernel, version, now());
+      } catch (error) {
+        throw new Error(`${path}: ${message(error)}`, { cause: error });
       }
 
       for (const schema of plugins) {
@@ -97,24 +113,92 @@ function names(db: DatabaseSync): string[] {
   return objects(db).map(({ name }) => name);
 }
 
-// Runs a schema and says what it made.
-function made(db: DatabaseSync, sql: string): Made[] {
-  const before = new Set(names(db));
-  db.exec(sql);
+function latest(schema: Schema): number {
+  return schema.migrations?.length ?? 0;
+}
 
-  return objects(db).filter(({ name }) => !before.has(name));
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+interface Upgraded {
+  readonly created: readonly Made[];
+  readonly tables: readonly string[];
+}
+
+// Runs the SQL that brings an owner from its version, or from nothing, to the
+// latest, and records that version and the tables the owner then keeps.
+function upgrade(
+  db: DatabaseSync,
+  schema: Schema,
+  from: number | undefined,
+  at: number,
+): Upgraded {
+  const migrations = schema.migrations ?? [];
+
+  if (from === latest(schema)) {
+    return { created: [], tables: [] };
+  }
+
+  const before = new Set(names(db));
+
+  const kept =
+    from === undefined
+      ? []
+      : (JSON.parse(
+          (
+            db
+              .prepare("select tables from schema_owners where owner = ?")
+              .get(schema.owner) as { tables: string }
+          ).tables,
+        ) as string[]);
+
+  const steps =
+    from === undefined ? [schema.sql, ...migrations] : migrations.slice(from);
+
+  const first = from === undefined ? 0 : from + 1;
+
+  for (const [index, sql] of steps.entries()) {
+    try {
+      db.exec(sql);
+    } catch (error) {
+      const version = first + index;
+
+      throw new Error(
+        version === 0
+          ? message(error)
+          : `migration ${String(version)} failed: ${message(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  const after = objects(db);
+  const created = after.filter(({ name }) => !before.has(name));
+
+  const tables = [
+    ...kept.filter((table) => after.some(({ name }) => name === table)),
+    ...created.flatMap(({ type, name }) => (type === "table" ? [name] : [])),
+  ];
+
+  db.prepare(
+    `insert into schema_owners (owner, version, tables, created_at) values (?, ?, ?, ?)
+     on conflict (owner) do update set version = excluded.version, tables = excluded.tables`,
+  ).run(schema.owner, latest(schema), JSON.stringify(tables), at);
+
+  return { created, tables };
 }
 
 function prefixOf(owner: string): string {
   return `${owner.replaceAll("-", "_")}_`;
 }
 
-function recordedHash(db: DatabaseSync, owner: string): string | undefined {
+function recordedVersion(db: DatabaseSync, owner: string): number | undefined {
   return (
     db
-      .prepare("select sql_hash from schema_owners where owner = ?")
-      .get(owner) as { sql_hash: string } | undefined
-  )?.sql_hash;
+      .prepare("select version from schema_owners where owner = ?")
+      .get(owner) as { version: number } | undefined
+  )?.version;
 }
 
 function addPlugin(
@@ -122,12 +206,20 @@ function addPlugin(
   schema: Schema,
   at: number,
 ): string | undefined {
-  const recorded = recordedHash(db, schema.owner);
+  const recorded = recordedVersion(db, schema.owner);
+
+  if (recorded !== undefined && recorded > latest(schema)) {
+    return `its tables were made by a newer version of ${schema.owner} (schema version ${String(recorded)}, this one knows ${String(latest(schema))}); its data is kept until an admin resets it`;
+  }
 
   if (recorded !== undefined) {
-    return recorded === hash(schema.sql)
-      ? undefined
-      : `its tables were made by another version of ${schema.owner}; its data is kept until an admin resets it`;
+    try {
+      upgradePlugin(db, schema, recorded, at);
+    } catch (error) {
+      return `its tables could not be upgraded: ${message(error)}; its data is kept until an admin resets it`;
+    }
+
+    return undefined;
   }
 
   const prefix = prefixOf(schema.owner);
@@ -151,40 +243,46 @@ function addPlugin(
   }
 
   try {
-    transaction(db, () => {
-      const created = made(db, schema.sql);
-      const refusal = checked(db, schema.owner, created);
-
-      if (refusal !== undefined) {
-        throw new Refused(refusal);
-      }
-
-      record(db, schema, created, at);
-    });
+    upgradePlugin(db, schema, undefined, at);
   } catch (error) {
     return error instanceof Refused
       ? error.message
-      : `its tables could not be made: ${error instanceof Error ? error.message : String(error)}`;
+      : `its tables could not be made: ${message(error)}`;
   }
 
   return undefined;
 }
 
+// Brings a plugin's tables up to date, or rolls back and says why it
+// couldn't.
+function upgradePlugin(
+  db: DatabaseSync,
+  schema: Schema,
+  from: number | undefined,
+  at: number,
+): void {
+  transaction(db, () => {
+    const { created, tables } = upgrade(db, schema, from, at);
+    const refusal = checked(db, schema.owner, created, tables);
+
+    if (refusal !== undefined) {
+      throw new Refused(refusal);
+    }
+  });
+}
+
 const kernelTargets = ["users", "sessions", "environments"];
 
-// What is wrong with what a plugin's schema made: only STRICT tables and
-// indexes named for it, pointing only at each other and at people, Sessions
-// and Environments.
+// What is wrong with what a plugin's schema made, among the tables it keeps:
+// only STRICT tables and indexes named for it, pointing only at each other
+// and at people, Sessions and Environments.
 function checked(
   db: DatabaseSync,
   owner: string,
   created: readonly Made[],
+  tables: readonly string[],
 ): string | undefined {
   const prefix = prefixOf(owner);
-
-  const tables = created.flatMap(({ type, name }) =>
-    type === "table" ? [name] : [],
-  );
 
   const other = created.find(
     ({ type }) => type !== "table" && type !== "index",
@@ -230,8 +328,8 @@ function checked(
 }
 
 // Drops the tables a plugin's schema made and what it scheduled, and makes
-// them again, for an admin to start it fresh after its schema changed
-// (ADR 0068). Says why it couldn't.
+// them again, for an admin to start it fresh when its tables can't be
+// upgraded. Says why it couldn't.
 export function resetPlugin(
   db: DatabaseSync,
   schema: Schema,
@@ -267,23 +365,4 @@ export function resetPlugin(
   }
 
   return addPlugin(db, schema, now);
-}
-
-function record(
-  db: DatabaseSync,
-  schema: Schema,
-  created: readonly Made[],
-  at: number,
-): void {
-  const tables = created
-    .filter(({ type }) => type === "table")
-    .map(({ name }) => name);
-
-  db.prepare(
-    "insert into schema_owners (owner, sql_hash, tables, created_at) values (?, ?, ?, ?)",
-  ).run(schema.owner, hash(schema.sql), JSON.stringify(tables), at);
-}
-
-function hash(sql: string): string {
-  return createHash("sha256").update(sql.trim()).digest("hex");
 }

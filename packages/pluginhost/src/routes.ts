@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   type Caller,
@@ -8,7 +9,7 @@ import {
   type RouteSpec,
   type Urls,
 } from "@pipoca/plugins";
-import type { Method } from "@pipoca/protocol";
+import { askedHeader, type Method } from "@pipoca/protocol";
 
 interface ExtInput {
   readonly caller: Caller;
@@ -29,6 +30,12 @@ export interface ExtRoute {
   readonly teamHalf?: true;
   readonly handler: (input: ExtInput) => unknown;
 }
+
+// While a Session part's request is served: whether the person allowed the
+// tool call that made it.
+export const sessionRequest = new AsyncLocalStorage<{
+  readonly asked: boolean;
+}>();
 
 export function pluginRoutes(
   plugin: string,
@@ -54,7 +61,16 @@ export function pluginRoutes(
   const route =
     (method: ExtRoute["method"]) =>
     (path: string, spec: RouteSpec, handler: unknown): void => {
-      const run = handler as ExtRoute["handler"];
+      const handled = handler as ExtRoute["handler"];
+
+      const run: ExtRoute["handler"] =
+        spec.auth === "session"
+          ? (input) =>
+              sessionRequest.run(
+                { asked: input.raw.headers.get(askedHeader) === "1" },
+                () => handled(input),
+              )
+          : handled;
 
       if (spec.team === true && spec.auth !== "person") {
         throw new Error(`${path} answers the team, so it needs auth person`);

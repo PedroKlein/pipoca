@@ -1,6 +1,6 @@
 import type { ReactElement, ReactNode } from "react";
 import { cn } from "./cn";
-import { initialsOf } from "./initials";
+import { initialsOf, personInitials } from "./initials";
 
 const sizes = {
   xs: "size-6 text-caption",
@@ -39,7 +39,7 @@ export function Avatar({
         className,
       )}
     >
-      {children ?? initialsOf(name)}
+      {children ?? (square ? initialsOf(name) : personInitials(name))}
     </span>
   );
 }

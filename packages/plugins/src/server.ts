@@ -356,6 +356,8 @@ export interface Sessions {
   readonly archive: (id: string) => void;
   readonly unarchive: (id: string) => void;
   readonly sees: (id: string, person: string) => boolean;
+  // Whether the person may act in it, such as by sending it a message.
+  readonly steers: (id: string, person: string) => boolean;
   readonly send: (
     id: string,
     message: {

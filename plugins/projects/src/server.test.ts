@@ -361,6 +361,61 @@ test("the Team assistant's route tools act on the team's half", async () => {
   ]);
 });
 
+test("the Team assistant gets and changes team Projects, never a person's", async () => {
+  const s = await started({ team: true });
+  await using _ = s.t;
+  const { t } = s;
+  const environment = await t.environment({ owner: person("ana") });
+
+  const own = await t.as("ana").post<ProjectView>("projects", {
+    name: "Diary",
+    repositories: [repository],
+    environment: environment.id,
+  });
+
+  const personal = await t
+    .as("ana")
+    .post<ProjectView>("assistant", { text: "Hello" });
+
+  const assistant = await t
+    .as("ana")
+    .post<ProjectView>("team/assistant", { text: "Rename the shop" });
+
+  const coordinator = await t.attach(assistant.coordinatorId);
+  const on = { session: coordinator, answer: "allow" } as const;
+
+  expect(await t.tool("projects_get", { id: s.project.id }, on)).toMatchObject({
+    isError: false,
+    text: expect.stringContaining('"name":"Shop"') as unknown,
+  });
+
+  expect(
+    await t.tool("projects_update", { id: s.project.id, goal: "Sell" }, on),
+  ).toMatchObject({ isError: false });
+
+  expect(
+    (await t.as("bo").get<ProjectView>(`projects/${s.project.id}`)).goal,
+  ).toBe("Sell");
+
+  for (const id of [own.id, personal.id]) {
+    expect(await t.tool("projects_get", { id }, on)).toMatchObject({
+      isError: true,
+    });
+
+    expect(
+      await t.tool("projects_update", { id, goal: "Leak" }, on),
+    ).toMatchObject({ isError: true });
+
+    expect(
+      (await t.as("ana").raw(`team/projects/${id}`, { method: "GET" })).status,
+    ).toBe(404);
+  }
+
+  expect((await t.as("ana").get<ProjectView>(`projects/${own.id}`)).goal).toBe(
+    "",
+  );
+});
+
 test("archiving the coordinator archives the Project's threads", async () => {
   const s = await started();
   await using _ = s.t;

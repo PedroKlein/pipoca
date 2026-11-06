@@ -20,13 +20,15 @@ interface Poller {
   readonly poll: (id: string) => Promise<void>;
 }
 
-// Polls every watched pull request with its person's token and tells its
-// Session what changed (ADR 0051). News goes through the Session's outbox,
-// so a Session that is offline hears it when it is back.
+// Polls every watched pull request with its person's token, or team work's
+// with the team's bot (ADR 0071), and tells its Session what changed
+// (ADR 0051). News goes through the Session's outbox, so a Session that is
+// offline hears it when it is back.
 export function startPoller(
   watches: WatchStore,
   hosts: Hosts,
-  accounts: (userId: string) => readonly Account[],
+  // The account to poll a watch as, or why there is none.
+  accountOf: (watch: Watch) => Account | string,
   {
     sessions,
     routes,
@@ -45,6 +47,7 @@ export function startPoller(
     watch: Watch,
     news: readonly string[],
     ends: boolean,
+    reply: boolean,
   ): void => {
     const lines = news.map((line) => `- ${line}`);
 
@@ -52,9 +55,7 @@ export function startPoller(
       return;
     }
 
-    const brief = watch.briefed
-      ? ""
-      : `\n\n${rules(watches.preferences(watch.userId).reply)}`;
+    const brief = watch.briefed ? "" : `\n\n${rules(reply)}`;
 
     // A pull request that ended needs no fix, so its news waits for the
     // Session's next turn.
@@ -95,14 +96,17 @@ export function startPoller(
     }
 
     const host = hosts.get(watch.host);
+    const account = accountOf(watch);
 
-    const account = accounts(watch.userId).find(
-      ({ host: name }) => name === watch.host,
-    );
-
-    if (host === undefined || account === undefined) {
+    if (host === undefined || typeof account === "string") {
       watches.update(watch.id, {
-        view: { ...watch.view, error: `Connect ${watch.host} to watch it.` },
+        view: {
+          ...watch.view,
+          error:
+            typeof account === "string"
+              ? account
+              : `${watch.host} isn't one of the git hosts.`,
+        },
       });
 
       return "quiet";
@@ -123,8 +127,17 @@ export function startPoller(
 
     watches.update(watch.id, { seen, view });
 
+    // Team work never replies as a person (ADR 0071).
+    const reply =
+      watch.userId !== null && watches.preferences(watch.userId).reply;
+
     if (watch.autoFix) {
-      deliver(watch, [...news, ...(watch.seen === null ? [] : final)], ends);
+      deliver(
+        watch,
+        [...news, ...(watch.seen === null ? [] : final)],
+        ends,
+        reply,
+      );
     }
 
     if (ends) {

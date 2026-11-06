@@ -1,4 +1,10 @@
-export { type Clone, fetchSnapshot, latestCommit, withClone } from "./fetch";
+export {
+  type Clone,
+  type CloneOptions,
+  fetchSnapshot,
+  latestCommit,
+  withClone,
+} from "./fetch";
 export {
   InvalidRepository,
   listedIn,

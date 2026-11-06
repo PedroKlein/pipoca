@@ -242,9 +242,10 @@ export function serve(options: ServeOptions): {
     clock,
     definitions
       .filter(({ id }) => enabled.includes(id))
-      .map(({ id, schema }) => ({
+      .map(({ id, schema, migrations }) => ({
         name: id,
         ...(schema !== undefined && { schema }),
+        ...(migrations !== undefined && { migrations }),
       })),
   );
 

@@ -728,6 +728,7 @@ export async function pluginTest(
           headers: {
             "content-type": "application/json",
             "x-pipoca-signature": `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`,
+            "x-pipoca-delivery": crypto.randomUUID(),
           },
           body,
         }),
@@ -739,6 +740,7 @@ export async function pluginTest(
       plugin: by = plugin.id,
       profile,
       actsAs,
+      access,
       workspace = { kind: "folder", path: root },
     }) => {
       const personal = owners.personId(owner);
@@ -761,6 +763,7 @@ export async function pluginTest(
         ...(key !== undefined && { key }),
         ...(profile !== undefined && { profile }),
         ...(actsAs !== undefined && { actsAs }),
+        ...(access !== undefined && { access }),
         ...(personal === undefined && {
           team: true,
           profile: await teamProfileOf(),

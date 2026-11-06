@@ -1,12 +1,19 @@
 import { afterEach, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { definePlugin, type PluginDefinition } from "@pipoca/plugins";
 import type { PluginInfo } from "@pipoca/protocol";
 import { closeServers, json, testServer } from "./testdata/harness";
 
 afterEach(closeServers);
 
-function keeping(id: string, schema: string): PluginDefinition {
-  return definePlugin({ id, title: id, description: "", schema });
+function keeping(
+  id: string,
+  schema: string,
+  migrations: readonly string[] = [],
+): PluginDefinition {
+  return definePlugin({ id, title: id, description: "", schema, migrations });
 }
 
 test("fails a plugin whose schema makes more than STRICT tables and indexes of its own", async () => {
@@ -68,6 +75,57 @@ test("fails a plugin whose schema makes more than STRICT tables and indexes of i
       state: "failed",
       error:
         "plugin linked's table linked_items points at profiles, but only its own tables, users, sessions and environments may be pointed at",
+    },
+  ]);
+});
+
+test("fails only the plugin whose migration fails, and offers to reset its data", async () => {
+  const root = await mkdtemp(join(tmpdir(), "plugin-schemas-"));
+  const database = join(root, "server.db");
+
+  const notes = "create table notes_items (text text) strict";
+  const tags = "create table tags_items (tag text) strict";
+
+  const first = testServer({
+    database,
+    builtIns: false,
+    definitions: [keeping("notes", notes), keeping("tags", tags)],
+  });
+
+  const cookie = await first.signedIn();
+  await first.close();
+
+  const second = testServer({
+    database,
+    cookie,
+    builtIns: false,
+    definitions: [
+      keeping("notes", notes, [
+        "alter table notes_items add column at integer",
+      ]),
+      keeping("tags", tags, ["alter table tags_missing add column at integer"]),
+    ],
+  });
+
+  const listed = await json<PluginInfo[]>(second.api("/api/plugins"));
+  await second.close();
+  await rm(root, { recursive: true, force: true });
+
+  expect(
+    listed.map(({ id, state, error, resettable }) => ({
+      id,
+      state,
+      error,
+      resettable,
+    })),
+  ).toEqual([
+    { id: "notes", state: "on", error: undefined, resettable: undefined },
+    {
+      id: "tags",
+      state: "failed",
+      error:
+        "its tables could not be upgraded: migration 1 failed: no such table: tags_missing; its data is kept until an admin resets it",
+      resettable: true,
     },
   ]);
 });

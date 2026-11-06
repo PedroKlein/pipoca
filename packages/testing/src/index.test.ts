@@ -6,6 +6,7 @@ import {
   defineSession,
   event,
   type PluginDefinition,
+  type SessionLogins,
   Type,
 } from "@pipoca/plugins";
 import {
@@ -434,6 +435,31 @@ test("a Session part's tools run against a stand-in for Pi", async () => {
   });
 
   expect(published.get("count")).toEqual({ n: 3 });
+});
+
+// The server checks the one plugin that keeps model logins when it starts,
+// from definitions, so a Session part keeps them only if its says so.
+test("a Session part keeps model logins only if its definition says it does", async () => {
+  const logins = {} as SessionLogins;
+
+  const part = (modelCredentials: boolean) =>
+    defineSession(
+      definePlugin({
+        id: "keeper",
+        title: "Keeper",
+        description: "",
+        modelCredentials,
+      }),
+      (s) => {
+        s.provide.modelCredentials(async () => Promise.resolve(logins));
+      },
+    );
+
+  expect(await (await testSession(part(true))).modelCredentials()).toBe(logins);
+
+  expect(testSession(part(false))).rejects.toThrow(
+    "keeper keeps model logins, so its definition needs modelCredentials: true",
+  );
 });
 
 // A route with a team half, and a tool that runs it as the Session's person.

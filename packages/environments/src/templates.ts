@@ -12,6 +12,7 @@ import {
   kernelConfig,
 } from "@pipoca/plugins/host";
 import {
+  type CloneOptions,
   listedIn,
   picked,
   repositoryFile,
@@ -34,7 +35,10 @@ export interface Templates {
   readonly remove: (id: string) => void;
   // What a repository's pipoca.json lists, and the picked ones as templates
   // that follow it (ADR 0063).
-  readonly listed: (url: string) => Promise<readonly ManifestEntry[]>;
+  readonly listed: (
+    url: string,
+    clone?: CloneOptions,
+  ) => Promise<readonly ManifestEntry[]>;
   readonly importListed: (
     url: string,
     paths: readonly string[],
@@ -186,8 +190,8 @@ export function environmentTemplates(config: ConfigKey, log: Log): Templates {
 
       save(templates.filter((each) => each.id !== id));
     },
-    listed: async (url) =>
-      withClone(url, ({ dir }) => listedIn(dir, "templates")),
+    listed: async (url, clone) =>
+      withClone(url, ({ dir }) => listedIn(dir, "templates"), clone),
     importListed: async (url, paths) =>
       withClone(url, ({ dir, commit }) => {
         const taken = new Set(list().map(({ id }) => id));

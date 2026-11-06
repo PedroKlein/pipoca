@@ -107,7 +107,7 @@ export const gitHosts = definePlugin({
   // Each person connects their own account on each host, and the runner
   // signs git and gh in with it in that person's Sessions (ADR 0043).
   // Watched pull requests and each person's choices are runtime data
-  // (ADR 0051).
+  // (ADR 0051). A team Session's watch has no user_id (ADR 0071).
   schema: `
 create table git_hosts_connections (
   user_id text not null references users (id) on delete cascade,
@@ -127,7 +127,7 @@ create table git_hosts_commit_as (
 create table git_hosts_watches (
   id text primary key,
   session_id text not null references sessions (id) on delete cascade,
-  user_id text not null references users (id) on delete cascade,
+  user_id text references users (id) on delete cascade,
   url text not null,
   host text not null,
   repository text not null,

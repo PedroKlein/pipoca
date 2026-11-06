@@ -349,10 +349,12 @@ export const server = defineServer(projects, (context) => {
 
   // A Project is its owner's alone (ADR 0049), or the whole team's
   // (ADR 0067). An assistant's is its person's, even the Team assistant.
+  // Team work reaches only team Projects.
   const sees = (project: Project, caller: PersonCaller): boolean =>
-    project.assistantOf === null
+    (caller.owner !== "team" || project.owner === "team") &&
+    (project.assistantOf === null
       ? project.owner === caller.owner || project.owner === "team"
-      : project.assistantOf === caller.person.id;
+      : project.assistantOf === caller.person.id);
 
   const theirs = (id: string, caller: PersonCaller): Project => {
     const project = store.get(id);
@@ -667,6 +669,7 @@ export const server = defineServer(projects, (context) => {
     "projects/:id",
     {
       auth: "person",
+      team: true,
       tool: {
         name: "projects_get",
         description: "Get one Project with its threads.",
@@ -680,6 +683,7 @@ export const server = defineServer(projects, (context) => {
     "projects/:id/settings",
     {
       auth: "person",
+      team: true,
       body: settingsChange,
       changes: ["projects"],
       tool: {
@@ -811,6 +815,15 @@ export const server = defineServer(projects, (context) => {
 
       if (project.assistantOf === null) {
         throw new Forbidden("only the assistant's threads install");
+      }
+
+      const { startedBy } = caller.session;
+
+      if (
+        body.kind === "plugin" &&
+        (startedBy === null || context.people.get(startedBy)?.admin !== true)
+      ) {
+        throw new Forbidden("Only admins install plugins.", "admin_only");
       }
 
       return body.kind === "profile"

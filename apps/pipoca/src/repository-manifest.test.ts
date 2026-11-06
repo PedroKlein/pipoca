@@ -4,9 +4,11 @@ import {
   beforeAll,
   beforeEach,
   expect,
+  mock,
   test,
 } from "bun:test";
 import { execFile, spawn } from "node:child_process";
+import * as dns from "node:dns/promises";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,6 +22,21 @@ import { definePlugin, defineServer } from "@pipoca/plugins";
 import { json, testServer, type TestServer } from "./testdata/harness";
 
 const run = promisify(execFile);
+
+// What the server's own lookups of a name answer, where a test says.
+const answers = new Map<string, string>();
+const { lookup } = dns;
+
+await mock.module("node:dns/promises", () => ({
+  ...dns,
+  lookup: async (host: string, options: unknown) => {
+    const answer = answers.get(host);
+
+    return answer === undefined
+      ? lookup(host, options as never)
+      : [{ address: answer, family: 4 }];
+  },
+}));
 
 let certs: string;
 let git: Bun.Server<undefined>;
@@ -111,6 +128,48 @@ test("fetches from a private address only from a host the person has a git login
 
   expect(missing.status).toBe(400);
   expect(JSON.stringify(await missing.json())).not.toMatch(/fatal|not found/i);
+});
+
+// A name can answer one address when the server checks it and another when
+// git connects, so git connects only to the one it checked.
+test("clones only from the address it checked", async () => {
+  const url = await repository({ "pipoca.json": "{}" });
+  const loginless = testServer({ configDir: join(root, "loginless") });
+
+  // An address on no private range that refuses at once, where git's own
+  // lookup of localhost would reach this machine.
+  answers.set("localhost", "224.0.0.1");
+
+  try {
+    const listed = await loginless.api(
+      `/api/repositories/manifest?url=${encodeURIComponent(url)}`,
+    );
+
+    expect(listed.status).toBe(400);
+  } finally {
+    answers.clear();
+    await loginless.close();
+  }
+});
+
+// ::ffff:127.0.0.1 is the IPv6 spelling of a loopback address.
+test("refuses an IPv4-mapped IPv6 address as its IPv4 address", async () => {
+  const url = (await repository({ "pipoca.json": "{}" })).replace(
+    "localhost",
+    "[::ffff:127.0.0.1]",
+  );
+
+  const loginless = testServer({ configDir: join(root, "loginless") });
+
+  try {
+    const listed = await loginless.api(
+      `/api/repositories/manifest?url=${encodeURIComponent(url)}`,
+    );
+
+    expect(listed.status).toBe(400);
+  } finally {
+    await loginless.close();
+  }
 });
 
 afterEach(async () => {

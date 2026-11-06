@@ -17,6 +17,13 @@ export interface Clone {
   readonly commit: string;
 }
 
+export interface CloneOptions {
+  readonly local?: boolean;
+  // A curl resolve entry, host:port:address, so git connects only to the
+  // address the server checked.
+  readonly resolve?: string;
+}
+
 const timeoutMs = 2 * 60_000;
 const maxTarballBytes = 100 * 1024 * 1024;
 const execFiled = promisify(execFile);
@@ -60,15 +67,17 @@ function trusted(url: string, local: boolean): URL {
 export async function withClone<T>(
   url: string,
   work: (clone: Clone) => Promise<T> | T,
-  options: { readonly local?: boolean } = {},
+  options: CloneOptions = {},
 ): Promise<T> {
   const parsed = trusted(url, options.local === true);
   const dir = await mkdtemp(join(tmpdir(), "pipoca-repository-"));
 
   try {
-    const commit = await fetchGit(parsed, dir).catch((error: unknown) => {
-      throw new InvalidRepository(`could not clone ${url}: ${String(error)}`);
-    });
+    const commit = await fetchGit(parsed, dir, options.resolve).catch(
+      (error: unknown) => {
+        throw new InvalidRepository(`could not clone ${url}: ${String(error)}`);
+      },
+    );
 
     return await work({ dir, commit });
   } finally {
@@ -146,11 +155,23 @@ function refOf(url: URL): {
   };
 }
 
-async function fetchGit(url: URL, into: string): Promise<string> {
+async function fetchGit(
+  url: URL,
+  into: string,
+  resolve?: string,
+): Promise<string> {
   const { repository, ref } = refOf(url);
 
+  const pinned =
+    resolve === undefined ? [] : ["-c", `http.curloptResolve=${resolve}`];
+
   await git(["init", "-q"], into);
-  await git(["fetch", "-q", "--depth", "1", "--", repository, ref], into);
+
+  await git(
+    [...pinned, "fetch", "-q", "--depth", "1", "--", repository, ref],
+    into,
+  );
+
   await git(["checkout", "-q", "FETCH_HEAD"], into);
 
   return (await git(["rev-parse", "HEAD"], into)).trim();
