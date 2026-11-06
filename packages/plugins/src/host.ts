@@ -1,22 +1,16 @@
 export { checkBody, checked } from "./body";
-export { type ClientOptions, pluginClient } from "./client";
+export { pluginClient } from "./client";
 export {
   type ConfigKey,
-  type ConfigSecrets,
   configOf,
   kernelConfig,
   pluginConfig,
   sealedConfig,
   sessionConfig,
 } from "./config";
-export {
-  type EventBus,
-  eventBus,
-  type KernelEventOf,
-  pluginEvents,
-} from "./events";
-export { fieldsOf, isObject, isToolError, readJson } from "./http";
-export { envSecrets, type EnvSecrets, secretRefs } from "./secrets";
+export { type EventBus, eventBus, pluginEvents } from "./events";
+export { fieldsOf, isObject, readJson } from "./http";
+export { envSecrets, secretRefs } from "./secrets";
 export type {
   ModelOffer,
   PluginEnvironments,

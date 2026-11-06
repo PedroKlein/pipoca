@@ -68,8 +68,6 @@ export const repositoryCheckout = Type.Object({
   startPoint: Type.Optional(startPoint),
 });
 
-export type RepositoryCheckout = Wire<typeof repositoryCheckout>;
-
 // The directory a repository is checked out into inside a repositories
 // Workspace: the last segment of its URL, without ".git". Undefined when that
 // is "", "." or "..", which can't name a folder of its own.
@@ -196,11 +194,7 @@ export const isolations = ["process", "container"] as const;
 
 export const isolation = Type.Enum(isolations);
 
-export type Isolation = Wire<typeof isolation>;
-
 export const activityStatus = Type.Enum(["idle", "running"]);
-
-export type ActivityStatus = Wire<typeof activityStatus>;
 
 export const sessionStatus = Type.Enum([
   "queued",

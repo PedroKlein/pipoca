@@ -12,8 +12,6 @@ const eventSpec = Type.Object({
   fields: anyMap,
 });
 
-export type EventSpec = Wire<typeof eventSpec>;
-
 // A plugin event an enabled plugin declares, by its full type.
 export const declaredEvent = Type.Object({
   ...eventSpec.properties,
@@ -88,8 +86,6 @@ export const pluginUpdate = Type.Object({
   update: Type.Optional(Type.Boolean()),
   teamWork: Type.Optional(Type.Boolean()),
 });
-
-export type PluginUpdate = Wire<typeof pluginUpdate>;
 
 export const pluginFileWrite = Type.Object({
   path: Type.String({
