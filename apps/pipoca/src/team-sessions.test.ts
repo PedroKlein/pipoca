@@ -615,6 +615,52 @@ test("whoever started team work makes it view-only or limits it to named people"
   expect(await listed(cys)).toEqual([session.id]);
 });
 
+test("an admin lists work they can't open as an outline, without what was first asked", async () => {
+  const anas = await ana();
+  const team = await teamSetup();
+  const admin = await server.signedIn();
+
+  const start = async (body: object): Promise<Session> =>
+    json<Session>(
+      server.as(anas)("/api/sessions", {
+        body: { workspace: workspace(), firstMessage: "my raise", ...body },
+      }),
+    );
+
+  const laptop = await json<Environment>(
+    server.as(anas)("/api/environments", { body: { name: "laptop" } }),
+  );
+
+  const own = await start({ environment: laptop.id });
+
+  const limited = await start({
+    team: true,
+    environment: team.environment,
+    profile: team.profile,
+  });
+
+  await server.as(anas)(`/api/sessions/${limited.id}`, {
+    method: "PATCH",
+    body: { access: { kind: "named", people: [] } },
+  });
+
+  const first = async (scope: string, id: string): Promise<unknown> =>
+    (
+      await json<Session[]>(server.as(admin)(`/api/sessions?scope=${scope}`))
+    ).find((session) => session.id === id)?.firstMessage;
+
+  expect(await first("all", own.id)).toBeNull();
+  expect(await first("team", limited.id)).toBeNull();
+
+  const mine = await json<Session[]>(
+    server.as(anas)("/api/sessions?scope=team"),
+  );
+
+  expect(mine.find(({ id }) => id === limited.id)?.firstMessage).toBe(
+    "my raise",
+  );
+});
+
 test("a team Session keeps who sent each message, for everyone who opens it", async () => {
   const anas = await ana();
   const bo = randomUUID();

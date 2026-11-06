@@ -744,3 +744,86 @@ test("only admins change model aliases, and anyone changes a Project's goal", as
 
   expect(statuses).toEqual([403, 200, 200]);
 });
+
+test("a team Project follows who sees and steers its coordinator, and a fresh one keeps that", async () => {
+  const anas = await ana();
+  const admin = await server.signedIn();
+  const me = await json<Person>(server.api("/api/me"));
+
+  const pods = await json<Environment>(
+    server.api("/api/environments", { body: { name: "pods", team: true } }),
+  );
+
+  const profile = await json<{ id: string }>(
+    server.api("/api/profiles", { body: { name: "Team work", team: true } }),
+  );
+
+  const project = await json<{ id: string; coordinatorId: string }>(
+    server.api("/api/ext/projects/team/projects", {
+      body: {
+        name: "Release",
+        repositories: ["https://example.com/app.git"],
+        environment: pods.id,
+        profile: profile.id,
+      },
+    }),
+  );
+
+  const limit = async (id: string, access: unknown): Promise<void> => {
+    await server.as(admin)(`/api/sessions/${id}`, {
+      method: "PATCH",
+      body: { access },
+    });
+  };
+
+  const at = `/api/ext/projects/projects/${project.id}`;
+
+  const tries = async (): Promise<number[]> =>
+    Promise.all(
+      [
+        server.as(anas)(at),
+        server.as(anas)(`${at}/settings`, { body: { goal: "Leak" } }),
+        server.as(anas)(`${at}/files/notes.md`, {
+          method: "PUT",
+          body: "planted",
+        }),
+        server.as(anas)(`${at}/fresh`, { method: "POST" }),
+      ].map(async (response) => (await response).status),
+    );
+
+  await limit(project.coordinatorId, { kind: "named", people: [] });
+
+  expect(await tries()).toEqual([404, 404, 404, 404]);
+
+  expect(
+    await json<unknown[]>(server.as(anas)("/api/ext/projects/team/projects")),
+  ).toEqual([]);
+
+  await limit(project.coordinatorId, { kind: "view" });
+
+  expect(await tries()).toEqual([200, 403, 403, 403]);
+
+  const fresh = await json<{ coordinatorId: string }>(
+    server.as(admin)(`${at}/fresh`, { method: "POST" }),
+  );
+
+  expect(
+    await json<Session>(
+      server.as(anas)(`/api/sessions/${fresh.coordinatorId}`),
+    ),
+  ).toMatchObject({ access: { kind: "view" }, startedBy: me.id });
+
+  await limit(fresh.coordinatorId, { kind: "team" });
+
+  const anasFresh = await json<{ coordinatorId: string }>(
+    server.as(anas)(`${at}/fresh`, { method: "POST" }),
+  );
+
+  const anaId = (await json<Person>(server.as(anas)("/api/me"))).id;
+
+  expect(
+    await json<Session>(
+      server.as(anas)(`/api/sessions/${anasFresh.coordinatorId}`),
+    ),
+  ).toMatchObject({ access: { kind: "team" }, startedBy: anaId });
+});

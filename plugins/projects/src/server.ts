@@ -11,7 +11,12 @@ import {
   StringEnum,
   Type,
 } from "@pipoca/plugins";
-import { type Actor, checkoutName } from "@pipoca/protocol";
+import {
+  type Actor,
+  checkoutName,
+  type Session,
+  type SessionAccess,
+} from "@pipoca/protocol";
 import { projects } from "../plugin";
 import { assistantProfiles } from "./assistant";
 import {
@@ -356,11 +361,32 @@ export const server = defineServer(projects, (context) => {
       ? project.owner === caller.owner || project.owner === "team"
       : project.assistantOf === caller.person.id);
 
-  const theirs = (id: string, caller: PersonCaller): Project => {
+  // A team Project follows who sees and steers its coordinator (ADR 0064).
+  const theirs = (
+    id: string,
+    caller: PersonCaller,
+    may: "sees" | "steers" = "sees",
+  ): Project => {
     const project = store.get(id);
 
-    if (project === undefined || !sees(project, caller)) {
+    if (
+      project === undefined ||
+      !sees(project, caller) ||
+      (project.owner === "team" &&
+        !sessions.sees(project.coordinatorId, caller.person.id))
+    ) {
       throw new NotFound("no such Project");
+    }
+
+    if (
+      may === "steers" &&
+      project.owner === "team" &&
+      !sessions.steers(project.coordinatorId, caller.person.id)
+    ) {
+      throw new Forbidden(
+        "Only people who steer the Project's coordinator change it.",
+        "view_only",
+      );
     }
 
     return project;
@@ -459,8 +485,9 @@ export const server = defineServer(projects, (context) => {
   };
 
   // The old coordinator is archived but stays readable, and what waited for
-  // it goes to the new one.
-  const startFresh = (project: Project): Project => {
+  // it goes to the new one. Whoever asked for it starts it, or the old one's
+  // starter when Pi compacted, and it keeps who sees and steers it.
+  const startFresh = (project: Project, by?: string): Project => {
     const previous = sessions.get(project.coordinatorId);
     const compaction = transcript.compaction(project.coordinatorId);
 
@@ -480,17 +507,16 @@ export const server = defineServer(projects, (context) => {
     const environment = previous?.environmentId ?? project.environmentId;
     const profile = previous?.profileId ?? project.profileId;
     const team = project.owner === "team";
+    const starter = by ?? previous?.startedBy ?? project.assistantOf ?? "";
+    const access = previous && carried(previous, starter);
 
     const coordinator = started(() =>
       sessions.start({
         key: project.id,
-        actor: `user:${previous?.startedBy ?? project.assistantOf ?? ""}`,
+        actor: `user:${starter}`,
         ...(previous?.model && { model: previous.model }),
         ...(team && { team: true }),
-        ...(team &&
-          project.assistantOf !== null && {
-            access: { kind: "named", people: [] },
-          }),
+        ...(team && access && { access }),
         ...(environment !== null && { environment }),
         ...(profile !== null && { profile }),
         workspace: {
@@ -635,7 +661,10 @@ export const server = defineServer(projects, (context) => {
         .list()
         .filter(
           (project) =>
-            project.assistantOf === null && project.owner === caller.owner,
+            project.assistantOf === null &&
+            project.owner === caller.owner &&
+            (project.owner !== "team" ||
+              sessions.sees(project.coordinatorId, caller.person.id)),
         )
         .map(summary),
   );
@@ -702,7 +731,7 @@ export const server = defineServer(projects, (context) => {
       },
     },
     ({ caller, params, body }) => {
-      const project = theirs(params.id, caller);
+      const project = theirs(params.id, caller, "steers");
       store.update(project.id, settingsOf(project, body));
 
       return view(store.get(project.id) ?? project);
@@ -712,7 +741,8 @@ export const server = defineServer(projects, (context) => {
   routes.post(
     "projects/:id/fresh",
     { auth: "person", changes: ["projects"] },
-    ({ caller, params }) => view(startFresh(theirs(params.id, caller))),
+    ({ caller, params }) =>
+      view(startFresh(theirs(params.id, caller, "steers"), caller.person.id)),
   );
 
   routes.get(
@@ -755,7 +785,7 @@ export const server = defineServer(projects, (context) => {
         throw new NotFound("no such thread");
       }
 
-      theirs(thread.projectId, caller);
+      theirs(thread.projectId, caller, "steers");
       store.setWorkState(thread.sessionId, body.state);
 
       return { ok: true };
@@ -921,7 +951,7 @@ export const server = defineServer(projects, (context) => {
       "projects/:id/files/:name",
       { auth: "person", changes: ["projects"] },
       async ({ caller, params, raw }) => {
-        const project = theirs(params.id, caller);
+        const project = theirs(params.id, caller, "steers");
 
         return writeFile(
           project.id,
@@ -933,6 +963,18 @@ export const server = defineServer(projects, (context) => {
     );
   }
 });
+
+// A starter always steers what they limited, so a new one names the old.
+function carried(previous: Session, starter: string): SessionAccess {
+  const { access, startedBy } = previous;
+
+  return access.kind === "named" &&
+    startedBy !== null &&
+    startedBy !== starter &&
+    !access.people.includes(startedBy)
+    ? { kind: "named", people: [...access.people, startedBy] }
+    : access;
+}
 
 function started<T>(start: () => T): T {
   try {

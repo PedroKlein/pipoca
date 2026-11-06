@@ -145,18 +145,29 @@ export function sessionRoutes({
         );
       }
 
+      const outlined = (list: readonly Session[]): readonly Session[] =>
+        list.map((session) =>
+          canSee(viewerOf(caller, false), ownedFor(session.id, caller))
+            ? session
+            : sessionOutline(session),
+        );
+
       if (scope === "team" || caller.team) {
-        return sessions.list({
-          archived,
-          team: true,
-          ...(!caller.admin && { person: caller.id }),
-        });
+        return outlined(
+          sessions.list({
+            archived,
+            team: true,
+            ...(!caller.admin && { person: caller.id }),
+          }),
+        );
       }
 
-      const all = sessions.list({
-        archived,
-        ...(scope !== "all" && { person: caller.id }),
-      });
+      const all = outlined(
+        sessions.list({
+          archived,
+          ...(scope !== "all" && { person: caller.id }),
+        }),
+      );
 
       // An owned Session shows only inside its plugin, unless that plugin
       // is off (ADR 0028), or for search and notices.
