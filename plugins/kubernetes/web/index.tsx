@@ -1,11 +1,5 @@
-import {
-  type EnvironmentSectionProps,
-  json,
-  type TemplateSectionProps,
-  useLoaded,
-  type WebContext,
-  type WebPlugin,
-} from "@pipoca/plugins/web";
+import { defineWeb, useApi, useLoaded } from "@pipoca/plugins/web";
+import type { Environment, EnvironmentTemplate } from "@pipoca/protocol";
 import {
   Button,
   Card,
@@ -19,6 +13,7 @@ import {
   TextInput,
 } from "@pipoca/ui";
 import { Fragment, type ReactElement, type SubmitEvent, useState } from "react";
+import { kubernetes } from "../plugin";
 import {
   defaultSettings,
   type KubernetesEnvironment,
@@ -26,20 +21,22 @@ import {
   type PodFailure,
 } from "../src/settings";
 
-export const kubernetes: WebPlugin = {
-  name: "kubernetes",
-  EnvironmentSection,
-  TemplateSection,
-};
+export const web = defineWeb(kubernetes, {
+  settings: { group: "server", form: "auto" },
+  slots: {
+    "environment.section": EnvironmentSection,
+    "template.section": TemplateSection,
+  },
+});
 
 // Only an Environment whose runners are pods shows the section (ADR 0049).
 function EnvironmentSection({
-  context,
   environment,
-}: EnvironmentSectionProps): ReactElement | null {
+}: {
+  readonly environment: Environment;
+}): ReactElement | null {
   return (
     <Pods
-      context={context}
       path={`environments/${encodeURIComponent(environment.id)}`}
       processes={environment.isolation === "process"}
       hiddenWhenOff
@@ -48,12 +45,12 @@ function EnvironmentSection({
 }
 
 function TemplateSection({
-  context,
   template,
-}: TemplateSectionProps): ReactElement {
+}: {
+  readonly template: EnvironmentTemplate;
+}): ReactElement {
   return (
     <Pods
-      context={context}
       path={`templates/${encodeURIComponent(template.id)}`}
       processes={template.isolation === "process"}
       hiddenWhenOff={false}
@@ -62,18 +59,18 @@ function TemplateSection({
 }
 
 function Pods({
-  context,
   path,
   processes,
   hiddenWhenOff,
 }: {
-  readonly context: WebContext;
   readonly path: string;
   readonly processes: boolean;
   readonly hiddenWhenOff: boolean;
 }): ReactElement | null {
+  const api = useApi(kubernetes);
+
   const { value, reload } = useLoaded(
-    async () => json<KubernetesEnvironment>(context.request(path)),
+    async () => api.get<KubernetesEnvironment>(path),
     path,
     { everyMs: 10_000 },
   );
@@ -102,13 +99,7 @@ function Pods({
                 loaded={value}
                 processes={processes}
                 save={async (settings) => {
-                  await json(
-                    context.request(path, {
-                      method: "POST",
-                      body: JSON.stringify({ settings }),
-                    }),
-                  );
-
+                  await api.post(path, { settings });
                   reload();
                 }}
               />
@@ -121,6 +112,7 @@ function Pods({
     </Section>
   );
 }
+
 
 // What an admin set on the template, for everyone else.
 function Summary({

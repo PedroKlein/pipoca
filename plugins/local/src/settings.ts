@@ -1,4 +1,4 @@
-import type { PluginStore } from "@pipoca/plugins";
+import type { Store } from "@pipoca/plugins";
 
 // An Environment whose runner the server starts on its own machine (ADR
 // 0053). The runner takes up to capacity Sessions at once, shares the listed
@@ -36,39 +36,24 @@ export interface SettingsStore {
   readonly remove: (environmentId: string) => void;
 }
 
-export const localSchema = `
-create table local_environments (
-  environment_id text primary key references environments (id) on delete cascade,
-  capacity integer not null check (capacity > 0),
-  idle_seconds integer not null check (idle_seconds >= 0)
-) strict;
-
-create table local_folders (
-  environment_id text not null references local_environments (environment_id) on delete cascade,
-  position integer not null,
-  path text not null,
-  primary key (environment_id, position)
-) strict, without rowid;
-`;
-
-export function settingsStore(store: PluginStore): SettingsStore {
+export function settingsStore(store: Store): SettingsStore {
   return {
     get: (environmentId) => {
-      const [row] = store.all(
+      const row = store.get<{ capacity: number; idle_seconds: number }>(
         "select capacity, idle_seconds from local_environments where environment_id = ?",
         environmentId,
-      ) as { capacity: number; idle_seconds: number }[];
+      );
 
       return (
         row && {
           capacity: row.capacity,
           idleSeconds: row.idle_seconds,
-          folders: (
-            store.all(
+          folders: store
+            .all<{ path: string }>(
               "select path from local_folders where environment_id = ? order by position",
               environmentId,
-            ) as { path: string }[]
-          ).map(({ path }) => path),
+            )
+            .map(({ path }) => path),
         }
       );
     },

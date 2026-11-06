@@ -1,29 +1,18 @@
 import { randomBytes } from "node:crypto";
-import { setTimeout as sleep } from "node:timers/promises";
 import {
   BadRequest,
-  checkBody,
+  defineServer,
   HttpError,
   NotFound,
-  readBody,
-  requireAdmin,
   type RunnerSource,
-  type ServerPlugin,
-  type ServerPluginContext,
+  type ServerContext,
+  type Static,
   Type,
 } from "@pipoca/plugins";
-import {
-  type Environment,
-  movable,
-  type PluginSettings,
-} from "@pipoca/protocol";
-import {
-  type ApiAccess,
-  type Cluster,
-  clusterAt,
-  type RunnerPod,
-  inClusterApi,
-} from "./cluster";
+import { type Environment, movable } from "@pipoca/protocol";
+import { Value } from "typebox/value";
+import { kubernetes } from "../plugin";
+import { type Cluster, clusterAt, type RunnerPod, inClusterApi } from "./cluster";
 import { type FailedPod, PodFailures } from "./failures";
 import { runnerPod, sessionClaim, sessionPodName } from "./pods";
 import {
@@ -32,6 +21,8 @@ import {
   settingsFrom,
   workspaces,
 } from "./settings";
+
+type Context = ServerContext<typeof kubernetes>;
 
 const positive = Type.Integer({
   minimum: 1,
@@ -53,24 +44,11 @@ const settingsChange = Type.Object({
   settings: Type.Union([settingsFields, Type.Null()]),
 });
 
-export interface KubernetesOptions {
-  readonly api: ApiAccess | undefined;
-  // The Pipoca image, and the image of an Environment that names none.
-  readonly image: string | undefined;
-  // How the cluster pulls that image, as for the server's own pod. A moving
-  // tag such as main needs Always, or a node keeps copying an old binary.
-  readonly imagePullPolicy?: string | undefined;
-  // The server's in-cluster address, which runner pods poll.
-  readonly server: string | undefined;
-  // The server's own pod. The image ID its node ran tells an old binary from
-  // a new one under a moving tag such as main.
-  readonly pod?: string | undefined;
-  readonly variables?: Readonly<Record<string, string>>;
-  readonly intervalMs?: number;
-  // How long an Environment waits for a new pod after one fails. It doubles
-  // with each failure in a row, up to 32 times as long.
-  readonly retryAfterMs?: number;
-}
+const intervalMs = 2000;
+
+// How long an Environment waits for a new pod after one fails, doubling with
+// each failure in a row.
+const retryAfterMs = 10_000;
 
 interface Pods {
   readonly cluster: Cluster;
@@ -89,257 +67,193 @@ const finished = new Set(["Succeeded", "Failed"]);
 const stuckAfterMs = 10 * 60_000;
 
 function fitting(saved: unknown): KubernetesSettings | string {
-  try {
-    return settingsFrom(checkBody(saved, settingsFields));
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
+  const [misfit] = Value.Errors(settingsFields, saved);
+
+  if (misfit !== undefined) {
+    return `${misfit.instancePath || "settings"} ${misfit.message}`;
   }
+
+  return settingsFrom(
+    Value.Clean(settingsFields, structuredClone(saved)) as Static<
+      typeof settingsFields
+    >,
+  );
 }
 
 // Starts runner pods for the Sessions of a Kubernetes Environment that no
-// runner can take, and removes the pods that stopped (ADR 0032).
-export function kubernetes(options: () => KubernetesOptions): ServerPlugin {
-  return {
-    name: "kubernetes",
-    register: (context) => {
-      // Pod settings live in their template's entry in pipoca.json
-      // (ADR 0049). Ones that stop fitting are logged and start no pods.
-      const byTemplate = {
-        get: (id: string): KubernetesSettings | undefined => {
-          const saved = context.environments.templateConfig.get(id);
+// runner can take, and removes the pods that stopped (ADR 0032). The chart
+// sets the cluster, image and the runners' URL in its environment.
+export const server = defineServer(kubernetes, (context) => {
+  const { clock, environments, log, provide, routes, schedule } = context;
+  const api = inClusterApi();
+  const image = process.env["PIPOCA_IMAGE"];
+  const imagePullPolicy = process.env["PIPOCA_IMAGE_PULL_POLICY"];
+  const runnerUrl = process.env["PIPOCA_RUNNER_URL"];
+  const pod = process.env["POD_NAME"] ?? process.env["HOSTNAME"];
+  const faux = process.env["PIPOCA_FAUX_REPLY"];
+  const failures = new PodFailures(retryAfterMs);
 
-          if (saved === undefined) {
-            return undefined;
-          }
+  const startsPods =
+    api !== undefined && image !== undefined && runnerUrl !== undefined;
 
-          const settings = fitting(saved);
+  // Pod settings live in their template's entry in pipoca.json (ADR 0049).
+  // Ones that stop fitting are logged and start no pods.
+  const byTemplate = (id: string): KubernetesSettings | undefined => {
+    const saved = environments.templateConfig.get(id);
 
-          if (typeof settings === "string") {
-            context.log("kubernetes template settings don't fit", {
-              templateId: id,
-              error: settings,
-            });
+    if (saved === undefined) {
+      return undefined;
+    }
 
-            return undefined;
-          }
+    const settings = fitting(saved);
 
-          return settings;
-        },
-        set: (id: string, settings: KubernetesSettings | undefined): void => {
-          context.environments.templateConfig.set(id, settings);
-        },
-      };
-
-      const {
-        api,
-        image,
-        imagePullPolicy,
-        server,
-        pod,
-        variables = {},
-        intervalMs = 2000,
-        retryAfterMs = 10_000,
-      } = options();
-
-      const failures = new PodFailures(retryAfterMs);
-
-      const startsPods =
-        api !== undefined && image !== undefined && server !== undefined;
-
-      const template = (id: string | null) =>
-        context.environments.templates().find((each) => each.id === id);
-
-      // An Environment starts pods as its template says, and none once its
-      // template is gone (ADR 0049).
-      const settingsOf: Settings = (environment) =>
-        template(environment.templateId) === undefined
-          ? undefined
-          : byTemplate.get(environment.templateId ?? "");
-
-      const answer = (
-        settings: KubernetesSettings | undefined,
-        editable: boolean,
-        environmentId?: string,
-      ): Response =>
-        Response.json({
-          settings: settings ?? null,
-          startsPods,
-          lastFailure:
-            environmentId === undefined ? null : failures.last(environmentId),
-          editable,
-        } satisfies KubernetesEnvironment);
-
-      const changed = async (
-        request: Request,
-        isolation: string,
-        save: (settings: KubernetesSettings | null) => void,
-      ): Promise<KubernetesSettings | undefined> => {
-        const body = await readBody(request, settingsChange);
-
-        if (body.settings === null) {
-          save(null);
-
-          return undefined;
-        }
-
-        const settings = settingsFrom(body.settings);
-
-        if (typeof settings === "string") {
-          throw new BadRequest(settings);
-        }
-
-        if (isolation !== "process") {
-          throw new HttpError(409, "runner pods run Sessions as processes");
-        }
-
-        save(settings);
-
-        return settings;
-      };
-
-      context.routes.handle(async (request, path, caller) => {
-        const [resource, id] = path.split("/");
-
-        if (
-          caller.kind !== "user" ||
-          id === undefined ||
-          (request.method !== "GET" && request.method !== "POST")
-        ) {
-          throw new NotFound(`no route ${path}`);
-        }
-
-        if (resource === "templates") {
-          const found = template(id);
-          if (found === undefined) {
-            throw new NotFound(`no template ${id}`);
-          }
-
-          if (request.method === "GET") {
-            return answer(byTemplate.get(id), caller.admin);
-          }
-
-          // A pod patch can mount the namespace's Secrets or run privileged,
-          // so it is as much as the server's own access (ADR 0038).
-          requireAdmin(caller, "only admins change Kubernetes settings");
-
-          const settings = await changed(request, found.isolation, (saved) => {
-            byTemplate.set(id, saved ?? undefined);
-          });
-
-          for (const environment of context.environments.list()) {
-            if (environment.templateId === id) {
-              failures.clearEnvironment(environment.id);
-            }
-          }
-
-          context.log("kubernetes template settings saved", {
-            templateId: id,
-            on: settings !== undefined,
-          });
-
-          return answer(settings, true);
-        }
-
-        const environment = context.environments
-          .list()
-          .find((each) => each.id === id);
-
-        if (
-          resource !== "environments" ||
-          environment === undefined ||
-          (environment.ownerId !== caller.actor.slice("user:".length) &&
-            !caller.admin)
-        ) {
-          throw new NotFound(`no route ${path}`);
-        }
-
-        if (request.method === "GET") {
-          return answer(settingsOf(environment), false, id);
-        }
-
-        requireAdmin(caller, "only admins change Kubernetes settings");
-
-        throw new HttpError(
-          409,
-          "runner pods come from a pod template: make the Environment from one",
-        );
+    if (typeof settings === "string") {
+      log("kubernetes template settings don't fit", {
+        templateId: id,
+        error: settings,
       });
 
-      if (startsPods) {
-        context.environments.startsRunners(
-          (environment) => settingsOf(environment) !== undefined,
-        );
-      }
+      return undefined;
+    }
 
-      if (api === undefined || image === undefined || server === undefined) {
-        context.log("kubernetes runner pods off", {
-          inCluster: api !== undefined,
-          image: image !== undefined,
-          server: server !== undefined,
-        });
-
-        return;
-      }
-
-      const cluster = clusterAt(api);
-      let imageId: string | undefined;
-
-      const pods: Pods = {
-        cluster,
-        image,
-        imagePullPolicy,
-        server,
-        variables,
-        imageId: async () => {
-          if (imageId === undefined && pod !== undefined) {
-            imageId = await cluster.imageId(pod, image).catch(() => undefined);
-          }
-
-          return imageId;
-        },
-        since: Date.now(),
-      };
-
-      // The first pass waits a tick: the server finishes starting plugins
-      // before their context answers.
-      void (async () => {
-        while (
-          await sleep(intervalMs, undefined, { signal: context.signal }).then(
-            () => true,
-            () => false,
-          )
-        ) {
-          await reconcile(context, pods, settingsOf, failures).catch(
-            (error: unknown) => {
-              context.log("kubernetes runner pods not reconciled", {
-                error: String(error),
-              });
-            },
-          );
-        }
-      })();
-    },
+    return settings;
   };
-}
 
-export const kubernetesPlugin = kubernetes(() => {
-  const faux = process.env["PIPOCA_FAUX_REPLY"];
+  const template = (id: string | null) =>
+    environments.templates().find((each) => each.id === id);
 
-  return {
-    api: inClusterApi(),
-    image: process.env["PIPOCA_IMAGE"],
-    imagePullPolicy: process.env["PIPOCA_IMAGE_PULL_POLICY"],
-    server: process.env["PIPOCA_RUNNER_URL"],
-    pod: process.env["POD_NAME"] ?? process.env["HOSTNAME"],
+  // An Environment starts pods as its template says, and none once its
+  // template is gone (ADR 0049).
+  const settingsOf: Settings = (environment) =>
+    environment.templateId === null ||
+    template(environment.templateId) === undefined
+      ? undefined
+      : byTemplate(environment.templateId);
+
+  const answer = (
+    settings: KubernetesSettings | undefined,
+    editable: boolean,
+    environmentId?: string,
+  ): KubernetesEnvironment => ({
+    settings: settings ?? null,
+    startsPods,
+    lastFailure:
+      environmentId === undefined ? null : failures.last(environmentId),
+    editable,
+  });
+
+  routes.get("templates/:id", { auth: "person" }, ({ caller, params }) => {
+    if (template(params.id) === undefined) {
+      throw new NotFound(`no template ${params.id}`);
+    }
+
+    return answer(byTemplate(params.id), caller.person.admin);
+  });
+
+  // A pod patch can mount the namespace's Secrets or run privileged, so it
+  // is as much as the server's own access (ADR 0038).
+  routes.post(
+    "templates/:id",
+    { auth: "admin", body: settingsChange },
+    ({ params: { id }, body }) => {
+      const found = template(id);
+
+      if (found === undefined) {
+        throw new NotFound(`no template ${id}`);
+      }
+
+      const settings =
+        body.settings === null ? undefined : settingsFrom(body.settings);
+
+      if (typeof settings === "string") {
+        throw new BadRequest(settings);
+      }
+
+      if (settings !== undefined && found.isolation !== "process") {
+        throw new HttpError(409, "runner pods run Sessions as processes");
+      }
+
+      environments.templateConfig.set(id, settings);
+
+      for (const environment of environments.list()) {
+        if (environment.templateId === id) {
+          failures.clearEnvironment(environment.id);
+        }
+      }
+
+      log("kubernetes template settings saved", {
+        templateId: id,
+        on: settings !== undefined,
+      });
+
+      return answer(settings, true);
+    },
+  );
+
+  routes.get("environments/:id", { auth: "person" }, ({ caller, params }) => {
+    const environment = environments
+      .list()
+      .find((each) => each.id === params.id);
+
+    if (
+      environment === undefined ||
+      (environment.ownerId !== caller.person.id && !caller.person.admin)
+    ) {
+      throw new NotFound(`no Environment ${params.id}`);
+    }
+
+    return answer(settingsOf(environment), false, environment.id);
+  });
+
+  provide.runners({
+    kind: { label: "Kubernetes", icon: "cloud" },
+    starts: (environment) => startsPods && settingsOf(environment) !== undefined,
+    replacesServerRunner: () => startsPods,
+  });
+
+  if (api === undefined || image === undefined || runnerUrl === undefined) {
+    log("kubernetes runner pods off", {
+      inCluster: api !== undefined,
+      image: image !== undefined,
+      server: runnerUrl !== undefined,
+    });
+
+    return;
+  }
+
+  const cluster = clusterAt(api, clock.now);
+  let imageId: string | undefined;
+
+  const pods: Pods = {
+    cluster,
+    image,
+    imagePullPolicy,
+    server: runnerUrl,
     // Tests run the binary on Pi's faux model, in pods too.
     variables: faux === undefined ? {} : { PIPOCA_FAUX_REPLY: faux },
+    imageId: async () => {
+      if (imageId === undefined && pod !== undefined) {
+        imageId = await cluster.imageId(pod, image).catch(() => undefined);
+      }
+
+      return imageId;
+    },
+    since: clock.now(),
   };
+
+  schedule.every("reconcile", intervalMs, async () => {
+    await reconcile(context, pods, settingsOf, failures).catch(
+      (error: unknown) => {
+        log("kubernetes runner pods not reconciled", { error: String(error) });
+      },
+    );
+  });
 });
 
 type Settings = (environment: RunnerSource) => KubernetesSettings | undefined;
 
 async function reconcile(
-  context: ServerPluginContext,
+  context: Context,
   pods: Pods,
   settingsOf: Settings,
   failures: PodFailures,
@@ -347,7 +261,7 @@ async function reconcile(
   const environments = context.environments.list();
   const all = await pods.cluster.runnerPods();
   const imageId = await pods.imageId();
-  const now = Date.now();
+  const now = context.clock.now();
 
   // Pods of an Environment without settings run until their agent stops.
   // Pods of an Environment this server doesn't know belong to another server
@@ -507,7 +421,7 @@ async function reconcile(
   }
 
   const owners = new Map(environments.map(({ id, ownerId }) => [id, ownerId]));
-  const perPerson = maxPodsPerPerson(context.settings.get());
+  const perPerson = context.config.get().maxPodsPerPerson;
   const running = new Map<string, number>();
 
   for (const pod of all) {
@@ -564,17 +478,8 @@ async function reconcile(
   }
 }
 
-function maxPodsPerPerson(settings: PluginSettings): number {
-  const most = settings["maxPodsPerPerson"];
-  if (typeof most !== "number") {
-    throw new Error("kubernetes settings have no maxPodsPerPerson");
-  }
-
-  return most;
-}
-
 async function scale(
-  context: ServerPluginContext,
+  context: Context,
   pods: Pods,
   environment: Environment,
   settings: KubernetesSettings,
@@ -638,7 +543,7 @@ async function scale(
 // A Session's own pod takes only that Session, and a pod of that name, on the
 // same claim, takes it back after the pod stops or is deleted (ADR 0032).
 async function scaleSessions(
-  context: ServerPluginContext,
+  context: Context,
   pods: Pods,
   environment: Environment,
   settings: KubernetesSettings,
@@ -673,7 +578,7 @@ async function scaleSessions(
 }
 
 async function startPod(
-  context: ServerPluginContext,
+  context: Context,
   { cluster, image, imagePullPolicy, server, variables }: Pods,
   environment: Environment,
   settings: KubernetesSettings,

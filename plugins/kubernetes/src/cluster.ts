@@ -72,11 +72,14 @@ export interface ApiAccess {
 export const environmentLabel = "pipoca.dev/environment";
 export const sessionLabel = "pipoca.dev/session";
 
-const serviceAccount = "/var/run/secrets/kubernetes.io/serviceaccount";
-
 // The server reaches the API with its pod's service account, so no kubeconfig
-// is stored (ADR 0032). Outside a cluster there is none.
-export function inClusterApi(dir = serviceAccount): ApiAccess | undefined {
+// is stored (ADR 0032). Outside a cluster there is none. Tests name a folder
+// of their own.
+export function inClusterApi(): ApiAccess | undefined {
+  const dir =
+    process.env["PIPOCA_SERVICE_ACCOUNT_DIR"] ??
+    "/var/run/secrets/kubernetes.io/serviceaccount";
+
   const host = process.env["KUBERNETES_SERVICE_HOST"];
   const port = process.env["KUBERNETES_SERVICE_PORT"] ?? "443";
 
@@ -102,7 +105,7 @@ export function inClusterApi(dir = serviceAccount): ApiAccess | undefined {
   };
 }
 
-export function clusterAt(options: ApiAccess): Cluster {
+export function clusterAt(options: ApiAccess, now: () => number): Cluster {
   const base = `${options.url}/api/v1/namespaces/${options.namespace}`;
 
   const call = async (
@@ -169,7 +172,7 @@ export function clusterAt(options: ApiAccess): Cluster {
         environmentId: metadata.labels?.[environmentLabel] ?? "",
         sessionId: metadata.labels?.[sessionLabel],
         phase: status?.phase ?? "Pending",
-        createdAt: Date.parse(metadata.creationTimestamp ?? "") || Date.now(),
+        createdAt: Date.parse(metadata.creationTimestamp ?? "") || now(),
         problem: [
           ...(status?.initContainerStatuses ?? []),
           ...(status?.containerStatuses ?? []),

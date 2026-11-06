@@ -7,10 +7,10 @@ import { email } from "../../../plugins/email/plugin";
 import { server as emailServer } from "../../../plugins/email/src/server";
 import { gitHosts } from "../../../plugins/git-hosts/plugin";
 import { server as gitHostsServer } from "../../../plugins/git-hosts/src/server";
-import kubernetesPackage from "../../../plugins/kubernetes/package.json";
-import * as kubernetesServer from "../../../plugins/kubernetes/src/server";
-import localPackage from "../../../plugins/local/package.json";
-import * as localServer from "../../../plugins/local/src/server";
+import { kubernetes } from "../../../plugins/kubernetes/plugin";
+import { server as kubernetesServer } from "../../../plugins/kubernetes/src/server";
+import { local } from "../../../plugins/local/plugin";
+import { server as localServer } from "../../../plugins/local/src/server";
 import { logins } from "../../../plugins/logins/plugin";
 import { server as loginsServer } from "../../../plugins/logins/src/server";
 import { models } from "../../../plugins/models/plugin";
@@ -35,12 +35,8 @@ export const serverRegistry = [
   { id: "checklist", definition: checklist },
   { id: "email", definition: email, server: emailServer },
   { id: "git-hosts", definition: gitHosts, server: gitHostsServer },
-  {
-    id: "kubernetes",
-    manifest: kubernetesPackage.pipoca,
-    server: kubernetesServer,
-  },
-  { id: "local", manifest: localPackage.pipoca, server: localServer },
+  { id: "kubernetes", definition: kubernetes, server: kubernetesServer },
+  { id: "local", definition: local, server: localServer },
   { id: "logins", definition: logins, server: loginsServer },
   { id: "models", definition: models, server: modelsServer },
   { id: "oidc", manifest: oidcPackage.pipoca, server: oidcServer },
