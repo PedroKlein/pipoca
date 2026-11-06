@@ -137,6 +137,39 @@ test("fails when an extension does not load", async () => {
   expect(String(error)).toContain(broken);
 });
 
+test("tells the extensions that loaded that a session that fails to start shut down", async () => {
+  const { models } = await fauxModels(root);
+  const broken = join(root, "broken.ts");
+  await writeFile(broken, "throw new Error('boom');\n");
+  const stopped: string[] = [];
+
+  // Such as the models plugin's, which follows the server from the moment
+  // it loads until the session shuts down.
+  const following: SessionHost = {
+    ui: {} as SessionHost["ui"],
+    tools: [],
+    extensions: [
+      {
+        name: "following",
+        factory: (pi) => {
+          pi.on("session_shutdown", (event) => {
+            stopped.push(event.reason);
+          });
+        },
+      },
+    ],
+    onError: () => undefined,
+  };
+
+  const error: unknown = await startSession(
+    sessionOptions(root, { extensionPaths: [broken], models }),
+    following,
+  ).catch((e: unknown) => e);
+
+  expect(String(error)).toContain(broken);
+  expect(stopped).toEqual(["quit"]);
+});
+
 test("continues the session already in the session directory", async () => {
   const { faux, models } = await fauxModels(root);
 

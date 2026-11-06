@@ -15,10 +15,12 @@ import {
   createAgentSession,
   DefaultResourceLoader,
   type ExtensionError,
+  ExtensionRunner,
   hasTrustRequiringProjectResources,
   initTheme,
   type InlineExtension,
   type McpExtensionOptions,
+  ModelRegistry,
   ModelRuntime,
   resolveCliModel,
   SessionManager,
@@ -167,6 +169,21 @@ export async function startSession(
     ...(host?.logins && { credentials: host.logins.models }),
   });
 
+  try {
+    return await sessionFrom(services, cwd, options, host);
+  } catch (error) {
+    await shutDown(services);
+
+    throw error;
+  }
+}
+
+async function sessionFrom(
+  services: AgentSessionServices,
+  cwd: string,
+  options: SessionOptions,
+  host: SessionHost | undefined,
+): Promise<AgentSession> {
   const sessionManager = SessionManager.continueRecent(cwd, options.sessionDir);
   recordInterruptedToolCalls(sessionManager);
 
@@ -372,11 +389,29 @@ async function loadServices(
 
   const { errors } = services.resourceLoader.getExtensions();
   if (errors.length > 0) {
+    await shutDown(services);
     const details = errors.map((e) => `${e.path}: ${e.error}`).join("; ");
     throw new Error(`extensions failed to load: ${details}`);
   }
 
   return services;
+}
+
+// Extensions run as they load, and some start work then, such as following
+// the server until the session shuts down. A session that never starts tells
+// them it shut down, or that work would outlive it.
+async function shutDown(services: AgentSessionServices): Promise<void> {
+  const { extensions, runtime } = services.resourceLoader.getExtensions();
+
+  await new ExtensionRunner(
+    extensions,
+    runtime,
+    services.cwd,
+    SessionManager.inMemory(services.cwd),
+    new ModelRegistry(services.modelRuntime),
+  )
+    .emit({ type: "session_shutdown", reason: "quit" })
+    .catch(() => undefined);
 }
 
 // Pi always loads ~/.agents/skills as the user's own. Sessions take the
