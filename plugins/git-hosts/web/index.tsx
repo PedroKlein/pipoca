@@ -1,10 +1,11 @@
 import {
+  defineWeb,
   json,
+  type MountedSession,
   type NoticeProps,
-  type PullRequestProps,
+  useApi,
   useLoaded,
   type WebContext,
-  type WebPlugin,
 } from "@pipoca/plugins/web";
 import {
   Badge,
@@ -28,7 +29,9 @@ import {
   Switch,
   useConfirm,
 } from "@pipoca/ui";
+import type { RepositoryChoice } from "@pipoca/protocol";
 import { type ReactElement, type SubmitEvent, useState } from "react";
+import { gitHosts } from "../plugin";
 import type {
   Account,
   HostInput,
@@ -38,45 +41,60 @@ import type {
   TechnicalUserView,
 } from "../src/model";
 
-export const gitHosts: WebPlugin = {
-  name: "git-hosts",
-  SettingsSection,
-  settingsGroup: "server",
-  settingsParts: { General: CodeChoices, Accounts },
-  setupStep: {
-    title: "Your code",
-    summary: "GitHub or another git host",
-    heading: "Connect your code",
-    description:
-      "Sessions clone, push and open pull requests as you. Connect the hosts where your repositories live.",
-    optional: true,
-    done: async (context) => {
-      const account = await json<Account>(context.request("account"));
+// The pull request a Session opened, as the changes plugin's panel shows it
+// (ADR 0051). Declared here as changes declares it, since a plugin imports
+// no other plugin.
+declare module "@pipoca/plugins/web" {
+  interface Slots {
+    "pullRequest.status": {
+      readonly session: MountedSession;
+      readonly url: string;
+    };
+  }
+}
 
-      return account.hosts.length === 0 || account.connections.length > 0;
+export const web = defineWeb(gitHosts, {
+  settings: { group: "server", Section: SettingsSection },
+  setup: [
+    {
+      title: "Your code",
+      summary: "GitHub or another git host",
+      heading: "Connect your code",
+      description:
+        "Sessions clone, push and open pull requests as you. Connect the hosts where your repositories live.",
+      optional: true,
+      done: async (context: WebContext) => {
+        const account = await json<Account>(context.request("account"));
+
+        return account.hosts.length === 0 || account.connections.length > 0;
+      },
+      topics: ["git-hosts.account"],
+      Step: CodeStep,
     },
-    Step: CodeStep,
+  ],
+  slots: {
+    "settings.general": CodeChoices,
+    "settings.accounts": Accounts,
+    "pullRequest.status": PullRequest,
+    "notice:pull_request": PullRequestNotice,
   },
-  PullRequest,
-  notices: { pull_request: PullRequestNotice },
-  repositories: async (context, query, team) =>
-    json(
-      context.request(
-        `repositories?q=${encodeURIComponent(query)}${team ? "&team" : ""}`,
+  repositories: async (query, team) =>
+    json<readonly RepositoryChoice[]>(
+      fetch(
+        `/api/ext/git-hosts/${team ? "team/" : ""}repositories?q=${encodeURIComponent(query)}`,
       ),
     ),
-};
+});
 
 // Admins pick the hosts people can connect and the bots routines act as
 // (ADR 0063).
-function SettingsSection({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement | null {
+function SettingsSection(): ReactElement | null {
+  const api = useApi(gitHosts);
+
   const { value, reload } = useLoaded(
-    async () => json<Account>(context.request("account")),
+    async () => api.get<Account>("account"),
     "account",
+    { changes: ["account", "hosts"] },
   );
 
   const [adding, setAdding] = useState(false);
@@ -104,25 +122,19 @@ function SettingsSection({
       >
         Git hosts
       </PageTitle>
-      <Hosts
-        context={context}
-        adding={adding}
-        onAdding={setAdding}
-        onChange={reload}
-      />
-      <Bots context={context} hosts={value.hosts.map(({ host }) => host)} />
+      <Hosts adding={adding} onAdding={setAdding} onChange={reload} />
+      <Bots hosts={value.hosts.map(({ host }) => host)} />
     </>
   );
 }
 
-function Accounts({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement | null {
+function Accounts(): ReactElement | null {
+  const api = useApi(gitHosts);
+
   const { value, reload } = useLoaded(
-    async () => json<Account>(context.request("account")),
+    async () => api.get<Account>("account"),
     "account",
+    { changes: ["account", "hosts"] },
   );
 
   if (value === undefined) {
@@ -141,7 +153,6 @@ function Accounts({
         {value.hosts.map((host) => (
           <HostRow
             key={host.host}
-            context={context}
             host={host}
             login={
               value.connections.find((each) => each.host === host.host)?.login
@@ -154,24 +165,20 @@ function Accounts({
   );
 }
 
-function CodeStep({ context }: { readonly context: WebContext }): ReactElement {
+function CodeStep(): ReactElement {
   return (
     <div className="-mt-8 flex flex-col">
-      <Accounts context={context} />
-      <CodeChoices context={context} />
+      <Accounts />
+      <CodeChoices />
     </div>
   );
 }
 
-function CodeChoices({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement {
+function CodeChoices(): ReactElement {
   return (
     <>
-      <CommitAs context={context} />
-      <PullRequestChoices context={context} />
+      <CommitAs />
+      <PullRequestChoices />
     </>
   );
 }
@@ -182,13 +189,11 @@ interface Identity {
 }
 
 // The name and email the person's Sessions commit as, on every runner.
-function CommitAs({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement | null {
+function CommitAs(): ReactElement | null {
+  const api = useApi(gitHosts);
+
   const { value, reload } = useLoaded(
-    async () => json<Identity | null>(context.request("commit-as")),
+    async () => api.get<Identity | null>("commit-as"),
     "commit-as",
   );
 
@@ -203,26 +208,25 @@ function CommitAs({
     event.preventDefault();
     const form = new FormData(event.currentTarget);
 
-    json(
-      context.request("commit-as", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          name: form.get("name"),
-          email: form.get("email"),
-        }),
-      }),
-    ).then(
-      () => {
-        setError(undefined);
-        setSaved(true);
-        reload();
-      },
-      (failure: unknown) => {
-        setSaved(false);
-        setError(failure instanceof Error ? failure.message : String(failure));
-      },
-    );
+    api
+      .post("commit-as", {
+        name: form.get("name"),
+        email: form.get("email"),
+      })
+      .then(
+        () => {
+          setError(undefined);
+          setSaved(true);
+          reload();
+        },
+        (failure: unknown) => {
+          setSaved(false);
+
+          setError(
+            failure instanceof Error ? failure.message : String(failure),
+          );
+        },
+      );
   };
 
   return (
@@ -275,13 +279,11 @@ function CommitAs({
 
 // What a Session may do on its own about the pull requests it watches
 // (ADR 0051).
-function PullRequestChoices({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement | null {
+function PullRequestChoices(): ReactElement | null {
+  const api = useApi(gitHosts);
+
   const { value, reload } = useLoaded(
-    async () => json<Preferences>(context.request("preferences")),
+    async () => api.get<Preferences>("preferences"),
     "preferences",
   );
 
@@ -294,15 +296,11 @@ function PullRequestChoices({
   const save = (change: Partial<Preferences>): void => {
     setError(undefined);
 
-    json(
-      context.request("preferences", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...value, ...change }),
-      }),
-    ).then(reload, (failure: unknown) => {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    });
+    api
+      .post("preferences", { ...value, ...change })
+      .then(reload, (failure: unknown) => {
+        setError(failure instanceof Error ? failure.message : String(failure));
+      });
   };
 
   return (
@@ -343,19 +341,19 @@ function PullRequestChoices({
 // A watched pull request's checks, reviews and conflicts, with Auto-fix and
 // Merge, beside it on the Changes panel (ADR 0051).
 function PullRequest({
-  context,
   session,
   url,
-}: PullRequestProps): ReactElement | null {
+}: {
+  readonly session: MountedSession;
+  readonly url: string;
+}): ReactElement | null {
+  const api = useApi(gitHosts);
+
   const { value, reload } = useLoaded(
     async () =>
-      json<readonly PullWatch[]>(
-        context.request(
-          `pull-requests?session=${encodeURIComponent(session.id)}`,
-        ),
-      ),
+      api.get<readonly PullWatch[]>("pull-requests", { session: session.id }),
     `pull-requests ${session.id}`,
-    { topics: ["git-hosts.pull-requests"] },
+    { changes: ["pull-requests"] },
   );
 
   const [error, setError] = useState<string>();
@@ -370,15 +368,11 @@ function PullRequest({
   const post = (action: string, body: unknown): void => {
     setError(undefined);
 
-    json(
-      context.request(`pull-requests/${watch.id}/${action}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      }),
-    ).then(reload, (failure: unknown) => {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    });
+    api
+      .post(`pull-requests/${watch.id}/${action}`, body)
+      .then(reload, (failure: unknown) => {
+        setError(failure instanceof Error ? failure.message : String(failure));
+      });
   };
 
   return (
@@ -443,7 +437,7 @@ function PullBadges({
 }
 
 // The news Pipoca sent the Session about a pull request it watches.
-function PullRequestNotice({ data }: NoticeProps): ReactElement {
+function PullRequestNotice({ data }: Pick<NoticeProps, "data">): ReactElement {
   const { url, news } = (data ?? {}) as {
     url?: unknown;
     news?: unknown;
@@ -485,16 +479,15 @@ function PullRequestNotice({ data }: NoticeProps): ReactElement {
 }
 
 function HostRow({
-  context,
   host,
   login,
   onChange,
 }: {
-  readonly context: WebContext;
   readonly host: Account["hosts"][number];
   readonly login: string | undefined;
   readonly onChange: () => void;
 }): ReactElement {
+  const api = useApi(gitHosts);
   const [pasting, setPasting] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -502,12 +495,7 @@ function HostRow({
     event.preventDefault();
     const token = new FormData(event.currentTarget).get("token");
 
-    json(
-      context.request("connect", {
-        method: "POST",
-        body: JSON.stringify({ host: host.host, token }),
-      }),
-    ).then(
+    api.post("connect", { host: host.host, token }).then(
       () => {
         setPasting(false);
         setError(undefined);
@@ -562,11 +550,9 @@ function HostRow({
           variant="ghost"
           aria-label={`Disconnect ${host.label}`}
           onClick={() => {
-            void json(
-              context.request(`connections/${encodeURIComponent(host.host)}`, {
-                method: "DELETE",
-              }),
-            ).then(onChange, onChange);
+            void api
+              .delete(`connections/${encodeURIComponent(host.host)}`)
+              .then(onChange, onChange);
           }}
         >
           Disconnect
@@ -606,20 +592,19 @@ function HostRow({
 }
 
 function Hosts({
-  context,
   adding,
   onAdding,
   onChange,
 }: {
-  readonly context: WebContext;
   readonly adding: boolean;
   readonly onAdding: (adding: boolean) => void;
   readonly onChange: () => void;
 }): ReactElement {
+  const api = useApi(gitHosts);
   const [ask, asking] = useConfirm();
 
   const { value, reload } = useLoaded(
-    async () => json<readonly HostView[]>(context.request("hosts")),
+    async () => api.get<readonly HostView[]>("hosts"),
     "hosts",
   );
 
@@ -634,9 +619,7 @@ function Hosts({
   };
 
   const save = async (path: string, input: object): Promise<void> => {
-    await json(
-      context.request(path, { method: "POST", body: JSON.stringify(input) }),
-    );
+    await api.post(path, input);
 
     reload();
     onChange();
@@ -653,11 +636,9 @@ function Hosts({
         return;
       }
 
-      void json(
-        context.request(`hosts/${encodeURIComponent(host.host)}`, {
-          method: "DELETE",
-        }),
-      ).then(changed, changed);
+      void api
+        .delete(`hosts/${encodeURIComponent(host.host)}`)
+        .then(changed, changed);
     });
   };
 
@@ -1020,12 +1001,6 @@ function HostForm({
 }
 
 function secretLabel(host: HostView | undefined): string {
-  const env = host?.clientSecretEnv ?? null;
-
-  if (env !== null) {
-    return `Client secret (from ${env}; leave empty to keep it)`;
-  }
-
   return host?.hasClientSecret === true
     ? "Client secret (set; leave empty to keep it)"
     : "OAuth app client secret";
@@ -1043,18 +1018,12 @@ function botDescription(user: TechnicalUserView): string {
 
 // Bot identities that routines and the factory act as instead of a person
 // (ADR 0060).
-function Bots({
-  context,
-  hosts,
-}: {
-  readonly context: WebContext;
-  readonly hosts: readonly string[];
-}): ReactElement {
+function Bots({ hosts }: { readonly hosts: readonly string[] }): ReactElement {
+  const api = useApi(gitHosts);
   const [ask, asking] = useConfirm();
 
   const { value, reload } = useLoaded(
-    async () =>
-      json<readonly TechnicalUserView[]>(context.request("technical-users")),
+    async () => api.get<readonly TechnicalUserView[]>("technical-users"),
     "technical-users",
   );
 
@@ -1087,25 +1056,22 @@ function Bots({
     event.preventDefault();
     const form = new FormData(event.currentTarget);
 
-    json(
-      context.request("technical-users", {
-        method: "POST",
-        body: JSON.stringify({
-          host: text(form, "host"),
-          name: text(form, "name"),
-          token: text(form, "token"),
-        }),
-      }),
-    ).then(
-      () => {
-        setAdding(undefined);
-        setError(undefined);
-        reload();
-      },
-      (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
-      },
-    );
+    api
+      .post("technical-users", {
+        host: text(form, "host"),
+        name: text(form, "name"),
+        token: text(form, "token"),
+      })
+      .then(
+        () => {
+          setAdding(undefined);
+          setError(undefined);
+          reload();
+        },
+        (reason: unknown) => {
+          setError(reason instanceof Error ? reason.message : String(reason));
+        },
+      );
   };
 
   const remove = (user: TechnicalUserView): void => {
@@ -1119,21 +1085,16 @@ function Bots({
         return;
       }
 
-      void json(
-        context.request(`technical-users/${encodeURIComponent(user.name)}`, {
-          method: "DELETE",
-        }),
-      ).then(reload, reload);
+      void api
+        .delete(`technical-users/${encodeURIComponent(user.name)}`)
+        .then(reload, reload);
     });
   };
 
   const setTeam = (user: TechnicalUserView, team: boolean): void => {
-    void json(
-      context.request(`technical-users/${encodeURIComponent(user.name)}`, {
-        method: "PATCH",
-        body: JSON.stringify({ team }),
-      }),
-    ).then(reload, reload);
+    void api
+      .patch(`technical-users/${encodeURIComponent(user.name)}`, { team })
+      .then(reload, reload);
   };
 
   const hostField = (

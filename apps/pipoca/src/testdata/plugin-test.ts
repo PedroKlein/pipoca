@@ -19,6 +19,7 @@ import type {
 } from "@pipoca/testing";
 import {
   type Command,
+  type GitLogin,
   type Method,
   protocolVersion,
   readSse,
@@ -45,6 +46,7 @@ interface Host {
   readonly token: string;
   readonly commands: Command[];
   generation: number;
+  gitLogins: readonly GitLogin[];
   stream: AbortController | undefined;
 }
 
@@ -346,6 +348,7 @@ export async function pluginTest(
     }
 
     host.generation = found.generation;
+    host.gitLogins = found.gitLogins ?? [];
     await attach(host);
   };
 
@@ -471,7 +474,14 @@ export async function pluginTest(
           body,
         }),
     }),
-    session: async ({ owner, startedBy, key, plugin: by = plugin.id }) => {
+    session: async ({
+      owner,
+      startedBy,
+      key,
+      plugin: by = plugin.id,
+      actsAs,
+      workspace = { kind: "folder", path: root },
+    }) => {
       const personal = owners.personId(owner);
 
       if (
@@ -506,9 +516,10 @@ export async function pluginTest(
 
       const started = contextOf(by).sessions.start({
         environment: environment.id,
-        workspace: { kind: "folder", path: root },
+        workspace,
         actor: starter === undefined ? `plugin:${by}` : `user:${starter}`,
         ...(key !== undefined && { key }),
+        ...(actsAs !== undefined && { actsAs }),
         ...(personal === undefined && {
           team: true,
           profile: await teamProfileOf(),
@@ -520,6 +531,7 @@ export async function pluginTest(
         token: joined.token,
         commands: [],
         generation: 0,
+        gitLogins: [],
         stream: undefined,
       };
 
@@ -535,9 +547,15 @@ export async function pluginTest(
           fetch: async (path, init) => request(path, init),
         }),
         online: async (on) => {
+          // Each message the outbox held comes down the stream as one
+          // command, which the test sees once this settles.
           if (on && host.stream === undefined) {
+            const owed = (queuedCount.get(host.id) as { count: number }).count;
+            const seen = host.commands.length;
+
             await connect(host);
             await taken(host);
+            await until(() => host.commands.length >= seen + owed);
           }
 
           if (!on && host.stream !== undefined) {
@@ -563,6 +581,7 @@ export async function pluginTest(
             return [];
           }),
         queued: () => queuedText.all(host.id) as { text: string }[],
+        gitLogins: () => host.gitLogins,
         send: async (personId, text) => {
           const sent = await request(
             `/api/sessions/${host.id}/commands`,
@@ -739,6 +758,12 @@ export async function pluginTest(
         }
       }
     },
+    config: async () =>
+      (
+        JSON.parse(
+          await readFile(join(configDir, "pipoca.json"), "utf8"),
+        ) as Record<string, unknown>
+      )[plugin.id],
     get store() {
       return contextOf(plugin.id).store;
     },

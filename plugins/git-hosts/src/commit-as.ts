@@ -1,10 +1,14 @@
-import { BadRequest, type PluginStore, Type } from "@pipoca/plugins";
-import type { Identity } from "./acting";
+import { BadRequest, type Store, Type } from "@pipoca/plugins";
 
 export const commitAsBody = Type.Object({
   name: Type.String(),
   email: Type.String(),
 });
+
+export interface Identity {
+  readonly name: string;
+  readonly email: string;
+}
 
 export interface CommitAs {
   readonly of: (userId: string) => Identity | null;
@@ -13,13 +17,13 @@ export interface CommitAs {
 
 // The name and email a person's Sessions commit as on every runner. Without
 // one, git uses the runner's own config.
-export function commitAsStore(store: PluginStore): CommitAs {
+export function commitAsStore(store: Store): CommitAs {
   return {
     of: (userId) => {
-      const [row] = store.all(
+      const row = store.get<Identity>(
         `select name, email from git_hosts_commit_as where user_id = ?`,
         userId,
-      ) as Identity[];
+      );
 
       return row === undefined ? null : { name: row.name, email: row.email };
     },

@@ -110,6 +110,23 @@ export function pluginUrls(plugin: string, server: () => URL): Urls {
   return {
     public: (path) =>
       new URL(`/api/ext/${plugin}/${joined(path)}`, server()).href,
+    cookie: {
+      set: (response, name, value, maxAgeS) => {
+        response.headers.append(
+          "set-cookie",
+          new Bun.Cookie(name, value, {
+            path: `/api/ext/${plugin}/`,
+            httpOnly: true,
+            sameSite: "lax",
+            secure: server().protocol === "https:",
+            maxAge: maxAgeS,
+          }).serialize(),
+        );
+      },
+      get: (request, name) =>
+        new Bun.CookieMap(request.headers.get("cookie") ?? "").get(name) ??
+        undefined,
+    },
   };
 }
 

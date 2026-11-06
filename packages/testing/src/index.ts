@@ -19,8 +19,11 @@ import {
 } from "@pipoca/plugins";
 import { sessionConfig } from "@pipoca/plugins/host";
 import {
+  type ActsAs,
+  type GitLogin,
   type Method,
   type Owner,
+  type WorkspaceRequest,
   systemClock,
   systemTimer,
 } from "@pipoca/protocol";
@@ -80,6 +83,8 @@ export interface TestSession {
     readonly notice?: unknown;
   }[];
   readonly queued: () => readonly { readonly text: string }[];
+  // What its runner signed git in with when it last took the Session.
+  readonly gitLogins: () => readonly GitLogin[];
   // A person's message to Pi, as one of the test's people sends it. It has
   // reached the host, when the host is online, once this settles.
   readonly send: (personId: string, text: string) => Promise<void>;
@@ -112,6 +117,9 @@ export interface PluginTest {
     readonly startedBy?: string;
     readonly key?: string;
     readonly plugin?: string;
+    readonly actsAs?: ActsAs;
+    // A folder of the test's own unless it says.
+    readonly workspace?: WorkspaceRequest;
   }) => Promise<TestSession>;
   readonly tool: (
     name: string,
@@ -134,6 +142,8 @@ export interface PluginTest {
   // Stops the server and starts a new one on the same database.
   readonly restart: () => Promise<void>;
   readonly store: Store;
+  // The plugin's key in pipoca.json as the file holds it, secrets sealed.
+  readonly config: () => Promise<unknown>;
   readonly topics: readonly string[];
   readonly log: readonly {
     readonly message: string;

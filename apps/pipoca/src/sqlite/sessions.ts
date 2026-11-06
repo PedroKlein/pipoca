@@ -48,6 +48,7 @@ interface SessionRow {
   workspace_removal: WorkspaceRemoval | null;
   workspace_kept_reason: string | null;
   started_by: string | null;
+  acts_as_plugin: string | null;
   acts_as: string | null;
 }
 
@@ -95,14 +96,17 @@ export function sessionStore(
     workspaceRemoval: row.workspace_removal,
     workspaceKeptReason: row.workspace_kept_reason,
     startedBy: row.started_by,
-    actsAs: row.acts_as,
+    actsAs:
+      row.acts_as_plugin === null || row.acts_as === null
+        ? null
+        : { plugin: row.acts_as_plugin, name: row.acts_as },
   });
 
   const sessionRows = (statement: StatementSync, ...params: SQLInputValue[]) =>
     (statement.all(...params) as unknown as SessionRow[]).map(toSession);
 
   const insertSession = db.prepare(
-    "insert into sessions (id, environment_id, plugin, plugin_key, runner, profile_id, workspace, model_provider, model_id, system_prompt, first_message, thinking, title, status, generation, created_at, interrupted_at, error, archived_at, workspace_removal, workspace_kept_reason, started_by, acts_as) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "insert into sessions (id, environment_id, plugin, plugin_key, runner, profile_id, workspace, model_provider, model_id, system_prompt, first_message, thinking, title, status, generation, created_at, interrupted_at, error, archived_at, workspace_removal, workspace_kept_reason, started_by, acts_as_plugin, acts_as) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   );
 
   const updateSession = db.prepare(
@@ -243,7 +247,8 @@ export function sessionStore(
         s.workspaceRemoval,
         s.workspaceKeptReason,
         s.startedBy,
-        s.actsAs,
+        s.actsAs?.plugin ?? null,
+        s.actsAs?.name ?? null,
       );
     },
     update: (s) => {
