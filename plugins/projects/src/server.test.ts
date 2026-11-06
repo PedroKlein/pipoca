@@ -446,13 +446,13 @@ test("an admin's Team assistant thread acts as an admin only while only admins s
 
   const coordinator = await t.attach(assistant.coordinatorId);
 
-  const started = await t.tool(
+  const begun = await t.tool(
     "start_thread",
     { title: "Hello plugin", message: "Build a hello plugin" },
     { session: coordinator },
   );
 
-  const thread = await t.attach(/as (\S+)\.$/.exec(started.text)?.[1] ?? "");
+  const thread = await t.attach(/as (\S+)\.$/.exec(begun.text)?.[1] ?? "");
 
   expect(await t.tool("probe_admin", {}, { session: thread })).toMatchObject({
     text: expect.stringContaining('"admin":true') as unknown,

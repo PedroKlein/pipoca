@@ -810,6 +810,7 @@ export function startPlugins(
     offers.push(
       ...staged.offers.map((offer) => ({ plugin: plugin.name, offer })),
     );
+
     starters.push(...staged.starters);
 
     for (const [id, profile] of staged.profiles) {
@@ -1691,6 +1692,7 @@ export function startPlugins(
           offer(environment, userId),
         ),
       );
+
       const fallback = offered.find((each) => each.default)?.default;
 
       const hidden = [...new Set(offered.flatMap((each) => each.hidden ?? []))];

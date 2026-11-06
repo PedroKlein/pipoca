@@ -400,7 +400,7 @@ test("slack_post posts in team work only as bots the team uses, never a person's
 
   const team = await t.session({ owner: "team", startedBy: "ana" });
 
-  await expect(
+  expect(
     t.tool("slack_post", { channel: "C1", text: "Hi" }, { session: team }),
   ).rejects.toThrow("slack_post isn't offered in this Session");
 

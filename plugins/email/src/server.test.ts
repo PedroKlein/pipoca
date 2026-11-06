@@ -372,9 +372,9 @@ test("email_send sends in team work only from mailboxes the team uses, never a p
   const team = await t.session({ owner: "team", startedBy: "ana" });
   const sending = { to: "a@example.com", subject: "Hi", text: "Hi" };
 
-  await expect(
-    t.tool("email_send", sending, { session: team }),
-  ).rejects.toThrow("email_send isn't offered in this Session");
+  expect(t.tool("email_send", sending, { session: team })).rejects.toThrow(
+    "email_send isn't offered in this Session",
+  );
 
   const { mailboxes } = (await t.config()) as {
     mailboxes: readonly Record<string, unknown>[];
