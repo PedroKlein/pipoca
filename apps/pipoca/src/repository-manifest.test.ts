@@ -379,6 +379,58 @@ test("refuses a template file that holds secrets", async () => {
   ).toEqual([]);
 });
 
+// Whoever can push to the repository is not an admin, and a pod patch can
+// mount the namespace's Secrets.
+test("keeps a template's pod settings out of its repository's hands", async () => {
+  const keyVolume = { name: "key", secret: { secretName: "pipoca" } };
+
+  const url = await repository(
+    {
+      "pipoca.json": JSON.stringify({
+        templates: [{ name: "Pods", path: "pods.json" }],
+      }),
+      "pods.json": JSON.stringify({
+        kubernetes: { podPatch: { spec: { volumes: [keyVolume] } } },
+      }),
+    },
+    "pods",
+  );
+
+  const pods = await json<EnvironmentTemplate>(
+    server.api("/api/environment-templates", {
+      body: { source: { url, path: "pods.json" } },
+    }),
+  );
+
+  const path = `/api/ext/kubernetes/templates/${pods.id}`;
+
+  const imported = await json<{ settings: unknown }>(server.api(path));
+
+  const saved = await json<{ settings: unknown }>(
+    server.api(path, { body: { settings: { maxPods: 2 } } }),
+  );
+
+  await change(url, {
+    "pods.json": JSON.stringify({
+      kubernetes: {
+        maxPods: 50,
+        podPatch: { spec: { volumes: [keyVolume] } },
+      },
+    }),
+  });
+
+  await json(
+    server.api(`/api/environment-templates/${pods.id}/syncs`, {
+      body: {},
+    }),
+  );
+
+  const synced = await json<{ settings: unknown }>(server.api(path));
+
+  expect([imported.settings, synced.settings]).toEqual([null, saved.settings]);
+  expect(saved.settings).toMatchObject({ maxPods: 2, podPatch: {} });
+});
+
 async function repository(
   files: Readonly<Record<string, string>>,
   name = "team",

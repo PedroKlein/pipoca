@@ -42,6 +42,9 @@ export interface PluginDefinition<
   // Its Session part keeps the Session's model and MCP logins, through
   // provide.modelCredentials. One plugin per server does.
   readonly modelCredentials?: boolean;
+  // Only admins set its key in a template's entry, so a template that follows
+  // a repository never takes it from the repository's file.
+  readonly adminTemplateKey?: boolean;
   readonly config?: C;
   readonly schema?: string;
   // SQL run in order after schema; never edit schema once released.

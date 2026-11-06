@@ -5,6 +5,8 @@ export const kubernetes = definePlugin({
   title: "Kubernetes",
   description:
     "Starts runner pods for an Environment when the server runs in a cluster.",
+  // A pod patch can mount the namespace's Secrets (ADR 0038).
+  adminTemplateKey: true,
   config: Config.object({
     maxPodsPerPerson: Config.number({
       title: "Most runner pods per person",

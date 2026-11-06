@@ -664,8 +664,33 @@ test("gives runner pods a home their user can write and leaves the mesh sidecar 
 
   const [pod] = api.pods.values();
 
-  expect(pod?.spec["securityContext"]).toEqual({ fsGroup: 1000 });
+  expect(pod?.spec["securityContext"]).toMatchObject({ fsGroup: 1000 });
   expect(pod?.metadata.labels).not.toHaveProperty("sidecar.istio.io/inject");
+});
+
+// The Environment's image may need root for its setup script, but the
+// binary's copy never does.
+test("copies the binary without privileges and runs runner pods under the runtime's seccomp profile", async () => {
+  const environment = await kubernetesEnvironment({});
+  await startSession(environment);
+  await pass();
+
+  const [pod] = api.pods.values();
+
+  expect(pod?.spec["securityContext"]).toMatchObject({
+    seccompProfile: { type: "RuntimeDefault" },
+  });
+
+  expect(pod?.spec["initContainers"]).toMatchObject([
+    {
+      securityContext: {
+        runAsNonRoot: true,
+        runAsUser: 1000,
+        allowPrivilegeEscalation: false,
+        capabilities: { drop: ["ALL"] },
+      },
+    },
+  ]);
 });
 
 // The chart's Istio policy lets runner pods reach /runner only as mesh

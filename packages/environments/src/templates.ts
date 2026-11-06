@@ -61,8 +61,13 @@ const templateFields = new Set([
 
 // Admins keep Environment templates under "templates" in pipoca.json, so a
 // Helm value can set them as well as Settings (ADR 0039, ADR 0049). An entry
-// also holds a key per plugin, which saves keep.
-export function environmentTemplates(config: ConfigKey, log: Log): Templates {
+// also holds a key per plugin, which saves keep. A template file never sets a
+// key only admins set, so the entry's own stays (ADR 0049).
+export function environmentTemplates(
+  config: ConfigKey,
+  log: Log,
+  adminKeys: readonly string[] = [],
+): Templates {
   const read = kernelConfig(
     config,
     Config.collection({ title: "Templates", key: "id", item: templateEntry }),
@@ -86,6 +91,29 @@ export function environmentTemplates(config: ConfigKey, log: Log): Templates {
         ([key]) => !templateFields.has(key),
       ),
     );
+
+  const fileOf = (
+    dir: string,
+    name: string,
+    source: RepositorySource,
+  ): ReturnType<typeof fromFile> => {
+    const file = fromFile(dir, name, source);
+    const left = adminKeys.filter((key) => Object.hasOwn(file.plugins, key));
+
+    if (left.length > 0) {
+      log("template file keys only admins set left out", {
+        path: source.path,
+        keys: left,
+      });
+    }
+
+    return {
+      ...file,
+      plugins: Object.fromEntries(
+        Object.entries(file.plugins).filter(([key]) => !left.includes(key)),
+      ),
+    };
+  };
 
   // A template file's plugin keys replace the entry's.
   const save = (
@@ -121,7 +149,7 @@ export function environmentTemplates(config: ConfigKey, log: Log): Templates {
       url,
       log,
       update: (template, { dir }, source) => {
-        const { plugins, ...settings } = fromFile(dir, template.name, source);
+        const { plugins, ...settings } = fileOf(dir, template.name, source);
 
         updated.set(template.id, { ...settings, id: template.id });
         fromFiles.set(template.id, plugins);
@@ -199,7 +227,7 @@ export function environmentTemplates(config: ConfigKey, log: Log): Templates {
 
         const imported = picked(listedIn(dir, "templates"), paths).map(
           ({ name, path }) => {
-            const { plugins, ...settings } = fromFile(dir, name, {
+            const { plugins, ...settings } = fileOf(dir, name, {
               url,
               path,
               commit,
