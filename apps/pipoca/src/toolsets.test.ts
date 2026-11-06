@@ -25,8 +25,7 @@ import type {
   UiAction,
 } from "@pipoca/protocol";
 import type { ServeOptions } from "./serve";
-import { builtInPlugins } from "./built-in";
-import { builtInServer } from "./testdata/built-in";
+import { builtInParts, builtInPlugins } from "./built-in";
 import { readSse } from "@pipoca/protocol";
 import { json, testServer, type TestServer } from "./testdata/harness";
 import { until } from "@pipoca/plugins/testing";
@@ -36,7 +35,11 @@ let faux: ReturnType<typeof fauxProvider>;
 let server: TestServer;
 let runtime: ModelRuntime;
 
-const meta = builtInServer("meta");
+// The assistant's chat, the coordinator of a Project of the person's own
+// (ADR 0052).
+const projectsPart = builtInParts.filter(
+  ({ plugin }) => plugin.id === "projects",
+);
 
 beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), "pipoca-toolsets-")));
@@ -59,6 +62,7 @@ function start(
   server = testServer({
     ...(plugins && {
       plugins,
+      servers: projectsPart,
       manifests: plugins.map(
         ({ name }) =>
           builtInPlugins.find(({ id }) => id === name) ?? {
@@ -94,12 +98,16 @@ async function environmentReady(): Promise<void> {
   );
 }
 
+// Each call asks the person's assistant, whose coordinator is the Session
+// that answers.
 async function startMeta(text: string): Promise<Session> {
   await environmentReady();
 
-  return json<Session>(
-    server.api("/api/ext/meta/sessions", { body: { text } }),
+  const { coordinatorId } = await json<{ coordinatorId: string }>(
+    server.api("/api/ext/projects/assistant", { body: { text } }),
   );
+
+  return json<Session>(server.api(`/api/sessions/${coordinatorId}`));
 }
 
 async function follow(
@@ -458,11 +466,6 @@ test("runs the person's assistant as a Project of their own, on the assistant's 
 
   await environmentReady();
 
-  const asked = {
-    profile: "meta.assistant",
-    threadProfile: "meta.builder",
-  };
-
   const assistant = await json<{
     id: string;
     coordinatorId: string;
@@ -471,7 +474,6 @@ test("runs the person's assistant as a Project of their own, on the assistant's 
   }>(
     server.api("/api/ext/projects/assistant", {
       body: {
-        ...asked,
         text: "Build me a Profile",
       },
     }),
@@ -505,7 +507,7 @@ test("runs the person's assistant as a Project of their own, on the assistant's 
 
   const again = await json<{ id: string }>(
     server.api("/api/ext/projects/assistant", {
-      body: { ...asked, text: "And another" },
+      body: { text: "And another" },
     }),
   );
 
@@ -571,7 +573,7 @@ test("keeps a plugin's tool inside the plugin's own routes", async () => {
   };
 
   await server.close();
-  start([meta, probe]);
+  start([probe]);
 
   faux.setResponses([
     call("probe_run", { id: "../../../profiles" }),
@@ -605,7 +607,7 @@ test("refuses a plugin's toolset in a namespace the kernel has", async () => {
   };
 
   await server.close();
-  start([meta, squatter]);
+  start([squatter]);
 
   const plugins = await json<{ id: string; state: string; error?: string }[]>(
     server.api("/api/plugins"),
@@ -707,7 +709,7 @@ test("opens a Session on request without asking, and only routes of the app", as
   };
 
   await server.close();
-  start([meta, probe]);
+  start([probe]);
   await environmentReady();
 
   const target = await json<Session>(

@@ -72,3 +72,46 @@ test("reads nothing from a line cut short or a Session without lines", () => {
   expect(transcript.toolResults("s2", "read")).toEqual([]);
   expect(transcript.lastReply("s2")).toBeUndefined();
 });
+
+test("reads what a Session's last turn did, up to where it ended", () => {
+  const turns = transcriptReader(() =>
+    [
+      { type: "message", message: { role: "user", content: "go" } },
+      {
+        type: "message",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "text", text: "Asking." },
+            { type: "toolCall", id: "c1", name: "ask", arguments: {} },
+          ],
+        },
+      },
+      { type: "custom_message", customType: "notice", content: "again" },
+      {
+        type: "message",
+        message: {
+          role: "assistant",
+          content: [],
+          stopReason: "error",
+          errorMessage: "overloaded",
+        },
+      },
+      { type: "compaction", summary: "Earlier, it asked." },
+    ].map((entry) => JSON.stringify(entry)),
+  );
+
+  expect(turns.lastTurn("s", { end: 2 })).toEqual({
+    reply: "Asking.",
+    called: ["ask"],
+  });
+
+  expect(turns.lastTurn("s")).toEqual({ error: "overloaded", called: [] });
+
+  expect(turns.compaction("s")).toEqual({
+    line: 4,
+    summary: "Earlier, it asked.",
+  });
+
+  expect(transcript.compaction("s1")).toBeUndefined();
+});

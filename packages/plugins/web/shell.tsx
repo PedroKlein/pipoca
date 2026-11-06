@@ -6,6 +6,7 @@ import {
   useContext,
 } from "react";
 import type { Person } from "@pipoca/protocol";
+import type { EmbeddedSessionProps } from "./index";
 
 export interface Viewer {
   readonly person: Pick<Person, "id" | "name" | "admin">;
@@ -24,6 +25,8 @@ export interface Shell {
   readonly fills: (slot: string) => readonly Fill[];
   // Draws a plugin's part inside the app's error boundary for it.
   readonly part: (plugin: string, children: ReactNode) => ReactNode;
+  // The app's own Session view, which a page embeds (ADR 0028).
+  readonly SessionView: ComponentType<EmbeddedSessionProps>;
 }
 
 const ShellContext = createContext<Shell | undefined>(undefined);
