@@ -17,7 +17,7 @@ One personal installation should be able to manage:
 - the user's complete Pi personalization;
 - extension-provided capabilities.
 
-The first product is a control plane for one user. The same foundation is meant to carry what comes after: automations for a team, multiplayer Projects, and software factories built for specific apps. Those are plugins and policies on the same kernel, not a second system.
+The first product is a server for one user. The same foundation is meant to carry what comes after: automations for a team, multiplayer Projects, and software factories built for specific apps. Those are plugins and policies on the same kernel, not a second system.
 
 ## Use cases
 
@@ -35,11 +35,11 @@ These scenarios are the yardstick for scope. A feature that serves none of them 
 
 - Independent Sessions and Projects with full Thread Sessions.
 - An internal plugin interface. Projects and the other first-party features are default plugins on it ([ADR 0015](adr/0015-plugins.md)).
-- Local and VM Runtime Providers, connected outbound to one Control Plane.
+- Local and VM runners, connected outbound to one server.
 - A Project file library, as a plugin after Projects: uploads, files published by threads, and files fetched into a thread's workspace.
 - One trusted mode with no sandbox: each Session runs in its own process on the provider's machine ([ADR 0017](adr/0017-process-per-session.md)). An Environment is a name for one provider ([ADR 0014](adr/0014-concept-map-and-environments.md)).
 - A Session stays on the provider it started on, for its whole life.
-- No authentication. The Control Plane listens on localhost and is reached there or through an SSH tunnel, including from a phone ([ADR 0005](adr/0005-v1-access-and-model-credentials.md)).
+- No authentication. The server listens on localhost and is reached there or through an SSH tunnel, including from a phone ([ADR 0005](adr/0005-v1-access-and-model-credentials.md)).
 - A minimal web UI.
 
 v1 is done when all five use cases above pass on the laptop and the VM with a cheap real model, as much of each as possible also runs in CI on the faux model, and no v1 issue is open. Each run is written up with its logs or screenshots. The v1 runs are in [acceptance/v1.md](acceptance/v1.md).
@@ -47,13 +47,13 @@ v1 is done when all five use cases above pass on the laptop and the VM with a ch
 ### v2: execution platform
 
 - Kubernetes provider, dedicated Session pods, and batch Jobs.
-- Authentication for the web UI and Provider Agent enrollment, once the Control Plane is reachable beyond a tunnel: a built-in password login, OIDC as a plugin, and a key per Environment for runners ([ADR 0033](adr/0033-v2-authentication-and-order.md)).
+- Authentication for the web UI and runner enrollment, once the server is reachable beyond a tunnel: a built-in password login, OIDC as a plugin, and a key per Environment for runners ([ADR 0033](adr/0033-v2-authentication-and-order.md)).
 - Profiles defined on the server, which every provider uses, including fresh runtimes ([ADR 0031](adr/0031-profiles.md)).
 - Forking a Session onto another runner, starting from the server's copy of its transcript ([ADR 0034](adr/0034-v2-deployment-and-credentials.md#v2-scope)).
 - Pipoca on SAP's Kyma as a container image and a Helm chart, with HTTPS in Kyma's gateway ([ADR 0034](adr/0034-v2-deployment-and-credentials.md)).
 - A public Pipoca extension SDK, published once two real providers use the same internal seams.
 
-v2 is built in this order: Profiles, Environments as pools, authentication, Kubernetes, meta-sessions ([ADR 0035](adr/0035-meta-sessions.md)), then third-party and in-place plugins, with the plugin pieces in between ([ADR 0033](adr/0033-v2-authentication-and-order.md)).
+v2 is built in this order: Profiles, Environments as pools, authentication, Kubernetes, the assistant ([ADR 0035](adr/0035-meta-sessions.md), [ADR 0052](adr/0052-the-assistant-as-a-project.md)), then third-party and in-place plugins, with the plugin pieces in between ([ADR 0033](adr/0033-v2-authentication-and-order.md)).
 
 ### v3: a team's control center
 
@@ -76,7 +76,7 @@ A Project is one ongoing goal and coordinating conversation. Its workers are thr
 
 Independent sessions remain first-class. A user does not need to create a Project for work that fits one conversation.
 
-An Environment is a reusable execution definition. A session binds to an Environment, and the server places it on a runner in that Environment's pool ([ADR 0032](adr/0032-environments-and-runners.md)). This allows the same control plane to dispatch work locally, to an always-on VM, or to Kubernetes.
+An Environment is a reusable execution definition. A session binds to an Environment, and the server places it on a runner in that Environment's pool ([ADR 0032](adr/0032-environments-and-runners.md)). This allows the same server to dispatch work locally, to an always-on VM, or to Kubernetes.
 
 ## Principles
 
@@ -100,7 +100,7 @@ Hosted sessions must use Pi's normal runtime and session model. Pipoca should or
 
 The user's required packages, extensions, skills, prompts, instructions, models, MCP servers, and preferences must be available to hosted sessions. This configuration belongs in a Profile defined on the server, and each Session records which Profile it uses ([ADR 0031](adr/0031-profiles.md)).
 
-A small mandatory session bridge may be loaded to connect a Pi session to the control plane. It should provide hosting protocol functions only. Projects and automations should remain control-plane capabilities exposed through narrow tools.
+A small mandatory session bridge may be loaded to connect a Pi session to the server. It should provide hosting protocol functions only. Projects and automations should remain server capabilities exposed through narrow tools.
 
 ### Sessions are the execution primitive
 
@@ -114,9 +114,9 @@ A Project connects one coordinator session, thread sessions, repositories, instr
 
 An Environment answers what can run and under which policy. A Workspace answers which files and repository state a session owns. Compute may be replaced while the Workspace and transcript remain durable.
 
-### One authoritative personal control plane
+### One authoritative server
 
-A personal Pipoca Cell should have one logical control plane. Provider Agents on laptops, VMs, and clusters connect outbound to it and execute assigned sessions. Independent control planes on every provider would require distributed conflict resolution before the product has earned that complexity.
+A Pipoca install has one server. Runners on laptops, VMs, and clusters connect outbound to it and execute assigned sessions. Independent servers on every runner would require distributed conflict resolution before the product has earned that complexity.
 
 ### Extension seams are product architecture
 

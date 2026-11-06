@@ -1,6 +1,6 @@
 # 0039: Plugin Config Files
 
-- Status: accepted
+- Status: accepted; `ctx.settings`, `clientSecretEnv` and moving OIDC providers out of their table superseded by [ADR 0068](0068-clean-rebuild.md#storage): declared settings live in `pipoca.json`, and a secret is `{ "sealed": … }` or `{ "env": … }`
 - Date: 2026-10-26
 
 ## Context
