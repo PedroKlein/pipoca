@@ -118,6 +118,11 @@ const paths = {
 
 export type IconName = keyof typeof paths;
 
+// A name that comes from data, such as a plugin's, may name no icon.
+export function isIconName(name: string): name is IconName {
+  return Object.hasOwn(paths, name);
+}
+
 export function Icon({
   name,
   className,

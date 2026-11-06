@@ -15,7 +15,9 @@ import {
   type PublicRoute,
   type RouteCaller,
   type RouteToolSpec,
+  type RunnerProvider,
   type RunnerSource,
+  type Runtime,
   type ServerPart,
   type ServerPlugin,
   type ServerPluginContext,
@@ -47,6 +49,7 @@ import {
   type PluginInfo,
   type PluginManifest,
   type PluginSettings,
+  type RunnersFrom,
   type Session,
   type ToolCall,
   type ToolResult,
@@ -177,7 +180,9 @@ export interface PluginHost {
   ) => Promise<ToolResult>;
   readonly offeredModels: ModelOffer;
   // The plugin that starts runners for the Environment on demand, if any.
-  readonly startsRunners: (environment: RunnerSource) => string | undefined;
+  readonly startsRunners: (environment: RunnerSource) => RunnersFrom | undefined;
+  // A plugin starts runners where the server's own would share its files.
+  readonly replacesServerRunner: () => boolean;
   readonly gitLogins: GitLoginsOf;
   readonly route: (
     request: Request,
@@ -203,9 +208,8 @@ function pluginEnvironments(
     readonly token: (environment: string, runner: string) => string;
     readonly revoke: (environment: string, runner: string) => void;
   },
-  startsRunners: ServerPluginContext["environments"]["startsRunners"],
-  templateConfig: ServerPluginContext["environments"]["templateConfig"],
-): ServerPluginContext["environments"] {
+  templateConfig: PluginEnvironments["templateConfig"],
+): PluginEnvironments {
   const provider = (environmentId: string): string => {
     const found = environments.get(environmentId);
 
@@ -218,14 +222,13 @@ function pluginEnvironments(
 
   return {
     list: () => environments.list(),
+    templates: () => environments.templates(),
     unplaced: (environmentId) => sessions.unplaced(environmentId),
     runnerToken: (environmentId, runner) =>
       runners.token(provider(environmentId), runner),
     revokeRunner: (environmentId, runner) => {
       runners.revoke(provider(environmentId), runner);
     },
-    startsRunners,
-    templates: () => environments.templates(),
     templateConfig,
   };
 }
@@ -282,6 +285,8 @@ export function startPlugins(
       ) => void;
     };
     readonly buildsOn?: ServerPluginContext["profiles"]["buildsOn"];
+    // What runner providers start runners on this machine with.
+    readonly runtime?: () => Runtime;
     readonly schedules: ScheduleStore;
     readonly clock: Clock;
     readonly timer: Timer;
@@ -313,10 +318,7 @@ export function startPlugins(
     log: deps.log,
   });
 
-  const starters: {
-    readonly plugin: string;
-    readonly starts: (environment: RunnerSource) => boolean;
-  }[] = [];
+  const starters: (RunnerProvider & { readonly plugin: string })[] = [];
 
   const failures = new Map<string, string>(
     deps.installed?.plugins.flatMap(({ manifest: { id }, error }) =>
@@ -549,7 +551,7 @@ export function startPlugins(
 
   const templateConfigOf = (
     plugin: string,
-  ): ServerPluginContext["environments"]["templateConfig"] => ({
+  ): PluginEnvironments["templateConfig"] => ({
     get: (templateId) => deps.templates?.config(templateId, plugin),
     set: (templateId, value) => {
       if (deps.templates === undefined) {
@@ -559,11 +561,6 @@ export function startPlugins(
       deps.templates.setConfig(templateId, plugin, value);
     },
   });
-
-  const environments: PluginEnvironments = {
-    list: () => deps.environments.list(),
-    templates: () => deps.environments.templates(),
-  };
 
   // The kernel's own tools have no plugin.
   const loadsIn = (session: Session, plugin: string | undefined): boolean =>
@@ -609,7 +606,6 @@ export function startPlugins(
       publicRoute: undefined as PublicRoute | undefined,
       logins: [] as (() => readonly Login[])[],
       offers: [] as ModelOffer[],
-      starters: [] as (typeof starters)[number][],
       profiles: new Map<string, PluginProfile>(),
       loadOnly: undefined as readonly string[] | undefined,
       unsubscribes: [] as (() => void)[],
@@ -726,9 +722,6 @@ export function startPlugins(
             deps.sessions,
             deps.environments,
             deps.runners,
-            (starts) => {
-              staged.starters.push({ plugin: plugin.name, starts });
-            },
             templateConfigOf(plugin.name),
           ),
           profiles: {
@@ -826,7 +819,6 @@ export function startPlugins(
     );
 
     offers.push(...staged.offers);
-    starters.push(...staged.starters);
 
     for (const [id, profile] of staged.profiles) {
       profiles.set(id, profile);
@@ -901,6 +893,7 @@ export function startPlugins(
       routeToolProfiles: [] as string[],
       offers: [] as ModelOffer[],
       gitCredentials: [] as GitLoginsOf[],
+      runners: [] as RunnerProvider[],
     };
 
     try {
@@ -998,6 +991,16 @@ export function startPlugins(
           transcript,
           urls: pluginUrls(id, deps.url),
           provide: {
+            runners: (provider) => {
+              staged.runners.push(provider);
+            },
+            runtime: () => {
+              if (deps.runtime === undefined) {
+                throw new Error("this server starts no runners itself");
+              }
+
+              return deps.runtime();
+            },
             models: (offer) => {
               staged.offers.push(offer);
             },
@@ -1021,7 +1024,12 @@ export function startPlugins(
             },
           },
           secrets: secretsOf(store),
-          environments,
+          environments: pluginEnvironments(
+            deps.sessions,
+            deps.environments,
+            deps.runners,
+            templateConfigOf(id),
+          ),
           profiles: {
             mcpServers: deps.mcpServers ?? (() => []),
             buildsOn: deps.buildsOn ?? (() => []),
@@ -1104,6 +1112,7 @@ export function startPlugins(
     }
 
     offers.push(...staged.offers);
+    starters.push(...staged.runners.map((each) => ({ ...each, plugin: id })));
 
     gitLogins.push(...staged.gitCredentials.map((of) => ({ plugin: id, of })));
 
@@ -1697,8 +1706,15 @@ export function startPlugins(
         ...(hidden.length > 0 && { hidden }),
       };
     },
-    startsRunners: (environment) =>
-      starters.find(({ starts }) => starts(environment))?.plugin,
+    startsRunners: (environment) => {
+      const found = starters.find(({ starts }) => starts(environment));
+
+      return found && { plugin: found.plugin, ...found.kind };
+    },
+    replacesServerRunner: () =>
+      starters.some(
+        ({ replacesServerRunner }) => replacesServerRunner?.() === true,
+      ),
     // A Session acting as someone gets only the logins of the plugin it
     // names, so no other plugin's account signs in beside a bot's.
     gitLogins: (owner, session) =>

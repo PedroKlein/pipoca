@@ -24,17 +24,6 @@ interface Entry {
 const servers: readonly Entry[] = serverRegistry;
 const sessions: readonly Entry[] = sessionRegistry;
 
-// What a v1 server part that starts runners on this machine is made with.
-export interface Runtime {
-  readonly command: readonly string[];
-  readonly server: () => string;
-  readonly dataDir: string;
-  readonly seed?: {
-    readonly environmentId: string;
-    readonly folders: readonly string[];
-  };
-}
-
 export function definedManifest(definition: PluginDefinition): PluginManifest {
   const { id, title, description, works } = definition;
 
@@ -66,30 +55,21 @@ export const builtInParts: readonly ServerPart[] = servers.flatMap(
       : [server as ServerPart],
 );
 
-// A v1 server module exports its part, or a function of the runtime that
-// makes it.
-export function builtInServers(runtime: () => Runtime): ServerPlugin[] {
+export function builtInServers(): ServerPlugin[] {
   return servers.flatMap(({ id, server, definition }) => {
     if (server === undefined || definition !== undefined) {
       return [];
     }
 
-    const values = Object.values(server as Module);
-    const part = values.find((value) => named(value, id));
-
-    if (part !== undefined) {
-      return [part as ServerPlugin];
-    }
-
-    const [make, ...others] = values.filter(
-      (value) => typeof value === "function",
+    const part = Object.values(server as Module).find((value) =>
+      named(value, id),
     );
 
-    if (make === undefined || others.length > 0) {
+    if (part === undefined) {
       throw new Error(`the ${id} server module exports no server part`);
     }
 
-    return [(make as (runtime: () => Runtime) => ServerPlugin)(runtime)];
+    return [part as ServerPlugin];
   });
 }
 

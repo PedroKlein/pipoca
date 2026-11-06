@@ -1,7 +1,7 @@
 export { StringEnum } from "@earendil-works/pi-ai";
 export type { Actor, Owner, Session } from "@pipoca/protocol";
-// checkBody stays for the v1 kubernetes plugin until it ports.
-export { checkBody, readBody } from "./body";
+export { type Backoff, backoff } from "./backoff";
+export { readBody } from "./body";
 export type { TypedClient } from "./client";
 export {
   Config,
@@ -50,6 +50,8 @@ export {
   type RouteInput,
   type Routes,
   type RouteSpec,
+  type RunnerProvider,
+  type Runtime,
   type Secrets,
   type ServerTools,
   type Sessions,

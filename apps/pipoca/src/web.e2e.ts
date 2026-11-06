@@ -816,31 +816,6 @@ test("makes an Environment and shows its key once", async () => {
     .waitFor();
 });
 
-test("changes a plugin's setting on the Plugins page", async () => {
-  await page.goto(server.url.href);
-  await openSettings("Plugins");
-
-  const kubernetes = page.getByRole("listitem", { name: "Kubernetes" });
-  await kubernetes.getByRole("switch", { name: "On", checked: true }).waitFor();
-  await kubernetes.getByRole("button", { name: "Settings" }).click();
-
-  const limit = kubernetes.getByLabel(/^Most runner pods per person/);
-
-  expect(await limit.inputValue()).toBe("10");
-
-  await limit.fill("25");
-  await kubernetes.getByRole("button", { name: "Save" }).click();
-  await kubernetes.getByText("Saved").waitFor();
-
-  await page.reload();
-  await kubernetes.getByRole("button", { name: "Settings" }).click();
-  expect(await limit.inputValue()).toBe("25");
-
-  await limit.fill("10");
-  await kubernetes.getByRole("button", { name: "Save" }).click();
-  await kubernetes.getByText("Saved").waitFor();
-});
-
 test("finds a plugin by a word of its name or description", async () => {
   await page.goto(server.url.href);
   await openSettings("Plugins");

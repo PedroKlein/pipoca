@@ -2,7 +2,6 @@ import {
   availability,
   type Environment,
   type EnvironmentTemplate,
-  kindOf,
 } from "@pipoca/protocol";
 import {
   Avatar,
@@ -22,7 +21,7 @@ import { type ReactElement, type SubmitEvent, useState } from "react";
 import { api } from "../../api";
 import { useTemplates } from "../../hooks";
 import { Templates } from "./templates";
-import { environmentsPath, kindNames } from "./kinds";
+import { environmentsPath, kindIcon, kindName } from "./kinds";
 import { Editor } from "./editor";
 
 // A person's Environments in Settings, or with team the team's in Team
@@ -85,7 +84,7 @@ export function EnvironmentsPage({
       description={
         team
           ? "Where team work runs. Everyone can start team work on these, and only admins change them. Their secrets reach the runner of every team Session."
-          : "Where your Sessions run: a machine you connect, a Docker image on one, or pods on Kubernetes. Each has the tools and secrets its Sessions need, and it is yours alone."
+          : "Where your Sessions run: a machine you connect, a Docker image on one, or runners a plugin starts. Each has the tools and secrets its Sessions need, and it is yours alone."
       }
       actions={
         <Button
@@ -149,8 +148,9 @@ function EnvironmentCard({
   readonly environment: Environment;
   readonly template: EnvironmentTemplate | undefined;
 }): ReactElement {
-  const kind = kindOf(environment);
   const status = availability(environment);
+  const plain =
+    environment.runnersFrom === null && environment.isolation !== "container";
 
   const running = environment.runners.reduce(
     (total, { running: count }) => total + count,
@@ -159,14 +159,14 @@ function EnvironmentCard({
 
   const image = environment.image ?? template?.image ?? "the default image";
 
-  const summary = {
-    machine:
-      environment.folders.length > 0
+  const summary =
+    environment.isolation === "container"
+      ? `${image} · one container, Sessions share it`
+      : environment.folders.length > 0
         ? `Folders ${environment.folders.join(", ")}`
-        : `${plural(environment.runners.length, "machine")} joined`,
-    docker: `${image} · one container, Sessions share it`,
-    kubernetes: `${image} · a pod per person, their Sessions share it`,
-  }[kind];
+        : environment.runnersFrom === null
+          ? `${plural(environment.runners.length, "machine")} joined`
+          : `${image} · a runner starts when a Session needs one`;
 
   return (
     <a
@@ -174,15 +174,12 @@ function EnvironmentCard({
       className={cn(linkCardClass, "flex items-center gap-4 p-4")}
     >
       <Avatar name={environment.name} square size="lg">
-        <Icon
-          name={kind === "machine" ? "monitor" : "cloud"}
-          className="size-5"
-        />
+        <Icon name={kindIcon(environment)} className="size-5" />
       </Avatar>
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="flex flex-wrap items-center gap-2 text-prose font-medium text-fg-strong">
           {environment.name}
-          {kind !== "machine" && <Badge>{kindNames[kind]}</Badge>}
+          {!plain && <Badge>{kindName(environment)}</Badge>}
           {template !== undefined && <Badge>From a template</Badge>}
         </span>
         <span className="truncate text-label text-fg-dim">{summary}</span>

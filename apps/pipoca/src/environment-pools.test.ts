@@ -13,7 +13,11 @@ import {
   type Work,
   type WorkPoll,
 } from "@pipoca/protocol";
-import type { ServerPluginContext } from "@pipoca/plugins";
+import {
+  definePlugin,
+  defineServer,
+  type PluginEnvironments,
+} from "@pipoca/plugins";
 import { readSse } from "@pipoca/protocol";
 import { runnerCredentials } from "./testdata/runners";
 import { json, testServer, type TestServer } from "./testdata/harness";
@@ -23,7 +27,14 @@ const leaseMs = 200;
 let server: TestServer;
 let runners: ReturnType<typeof runnerCredentials>;
 
-let machines: ServerPluginContext["environments"] | undefined;
+let machines: PluginEnvironments | undefined;
+
+const machinesPart = defineServer(
+  definePlugin({ id: "machines", title: "Machines", description: "" }),
+  ({ environments }) => {
+    machines = environments;
+  },
+);
 
 function startServer({
   pollWaitMs = 0,
@@ -34,22 +45,8 @@ function startServer({
 } = {}): void {
   server = testServer({
     runners: { pollWaitMs, offlineAfterMs, leaseMs },
-    plugins: [
-      {
-        name: "machines",
-        register: ({ environments }) => {
-          machines = environments;
-        },
-      },
-    ],
-    manifests: [
-      {
-        id: "machines",
-        title: "Machines",
-        description: "",
-        capabilities: ["environments"],
-      },
-    ],
+    plugins: [],
+    servers: [machinesPart],
   });
 
   runners = runnerCredentials(server, server.signedIn);

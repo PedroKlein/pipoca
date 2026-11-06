@@ -19,11 +19,13 @@ export function WhereStep(): ReactElement {
 
   const templates = useTemplates().value;
 
-  // Pod templates the person has no Environment from yet.
-  const clusters = templates.filter(
-    ({ id, runnersFrom }) =>
-      runnersFrom === "kubernetes" &&
-      !environments.some(({ templateId }) => templateId === id),
+  // Templates a plugin starts runners for, which the person has no
+  // Environment from yet.
+  const started = templates.flatMap((template) =>
+    template.runnersFrom === null ||
+    environments.some(({ templateId }) => templateId === template.id)
+      ? []
+      : [{ ...template, runnersFrom: template.runnersFrom }],
   );
 
   return (
@@ -61,14 +63,14 @@ export function WhereStep(): ReactElement {
           )}
         </ChoiceCard>
       ))}
-      {clusters.map((template) => (
+      {started.map((template) => (
         <ChoiceCard
           type="checkbox"
           as="li"
           key={template.id}
-          title="A Kubernetes cluster"
+          title={template.runnersFrom.label}
           badge={<Badge state="offline">{template.name}</Badge>}
-          description="Each Session gets its own pod, started when it needs one."
+          description="Runners start when a Session needs one."
           checked={false}
           onChange={() => {
             api("environments.create", {

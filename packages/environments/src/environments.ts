@@ -6,6 +6,7 @@ import {
   type EnvironmentUpdate,
   leaseMs,
   type ModelRef,
+  type RunnersFrom,
   type SessionEnvironment,
   systemClock,
   type WorkPoll,
@@ -73,7 +74,7 @@ export interface EnvironmentsOptions {
   // The plugin that starts runners for the Environment on demand, if any.
   readonly startsRunners?: (
     environment: Pick<Environment, "id" | "templateId">,
-  ) => string | undefined;
+  ) => RunnersFrom | undefined;
   // What the Environments' Sessions are doing.
   readonly sessions?: () => {
     readonly running: (provider: string, runner: string) => number;

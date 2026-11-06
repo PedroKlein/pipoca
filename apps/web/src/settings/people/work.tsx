@@ -1,14 +1,13 @@
 import {
   availability,
   type Environment,
-  kindOf,
   type Person,
   type Session,
 } from "@pipoca/protocol";
 import { Badge, Button, initialsOf, plural, Row, Rows } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
 import { ago } from "../../chat";
-import { kindNames } from "../environments/kinds";
+import { kindName } from "../environments/kinds";
 
 const busy = new Set(["queued", "starting", "running"]);
 
@@ -111,7 +110,7 @@ export function Work({
                   </Badge>
                 </>
               }
-              description={kindNames[kindOf(environment)]}
+              description={kindName(environment)}
             >
               <Button
                 variant="ghost"
