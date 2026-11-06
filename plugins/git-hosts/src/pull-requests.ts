@@ -8,6 +8,7 @@ import {
 } from "@pipoca/plugins";
 import type { Session } from "@pipoca/protocol";
 import type { gitHosts } from "../plugin";
+import type { TeamBot } from "./acting";
 import { HostRefused } from "./github";
 import type { Hosts } from "./hosts";
 import type { PullWatch, WatchedPull } from "./model";
@@ -30,21 +31,50 @@ const urlParams = Type.Object({
   }),
 });
 
+const noBot = (host: string): string =>
+  `No team bot is marked for ${host}. An admin can mark a GitHub App or technical user for team work in Settings > Git hosts.`;
+
 // Watches the pull requests Sessions open and tells each Session its news
 // (ADR 0051).
 export function pullRequests(
   context: ServerContext<typeof gitHosts>,
   hosts: Hosts,
   accounts: (userId: string) => readonly Account[],
+  teamBots: (session: Session) => readonly TeamBot[],
 ): void {
   const { routes, tools, sessions, log } = context;
   const watches = watchStore(context.store);
-  const poller = startPoller(watches, hosts, accounts, context);
+
+  // Team work polls and merges as the team's bot on the host, never with a
+  // person's token (ADR 0066, ADR 0071).
+  const accountOf = (watch: Watch): Account | string => {
+    const session = sessions.get(watch.sessionId);
+
+    if (session?.ownedBy !== "team") {
+      return (
+        accounts(watch.userId).find(({ host }) => host === watch.host) ??
+        `Connect ${watch.host} first.`
+      );
+    }
+
+    const bot = teamBots(session).find(({ host }) => host === watch.host);
+
+    if (bot === undefined) {
+      return noBot(watch.host);
+    }
+
+    return bot.token === undefined
+      ? `${bot.login} isn't installed where ${watch.repository} lives.`
+      : { host: bot.host, login: bot.login, token: bot.token };
+  };
+
+  const poller = startPoller(watches, hosts, accountOf, context);
 
   const watch = (session: Session, url: string): Watch => {
     const userId = session.startedBy;
+    const team = session.ownedBy === "team";
 
-    if (userId === null || session.ownedBy === "team") {
+    if (userId === null) {
       throw new BadRequest("only a Session a person started can watch");
     }
 
@@ -58,12 +88,16 @@ export function pullRequests(
       throw new BadRequest(`${ref.host} isn't one of the git hosts`);
     }
 
+    if (team && !teamBots(session).some(({ host }) => host === ref.host)) {
+      throw new BadRequest(noBot(ref.host));
+    }
+
     const added = watches.add(
       session.id,
       userId,
       url.trim(),
       ref,
-      watches.preferences(userId).autoFix,
+      team || watches.preferences(userId).autoFix,
     );
 
     routes.topic("pull-requests");
@@ -72,13 +106,12 @@ export function pullRequests(
     return added;
   };
 
-  // A person's git accounts never serve team work (ADR 0066).
   tools.define({
     name: "git_hosts_watch",
     description:
       "Watch a pull request: Pipoca tells this Session when its checks fail, someone reviews it, it conflicts, or it merges. Pull requests opened with /pr are watched already.",
     params: urlParams,
-    when: { owner: "person" },
+    when: { owner: "any" },
     exposure: "direct",
     run: ({ url }, { session }) => {
       const added = watch(session, url);
@@ -93,7 +126,7 @@ export function pullRequests(
     name: "git_hosts_unwatch",
     description: "Stop watching a pull request in this Session.",
     params: urlParams,
-    when: { owner: "person" },
+    when: { owner: "any" },
     exposure: "direct",
     run: ({ url }, { session }) => {
       const found = watches
@@ -182,13 +215,14 @@ export function pullRequests(
       const userId = caller.person.id;
       const found = owned(params.id, userId);
       const host = hosts.get(found.host);
+      const account = accountOf(found);
 
-      const account = accounts(userId).find(
-        ({ host: name }) => name === found.host,
-      );
+      if (host === undefined) {
+        throw new BadRequest(`${found.host} isn't one of the git hosts`);
+      }
 
-      if (host === undefined || account === undefined) {
-        throw new BadRequest(`connect ${found.host} first`);
+      if (typeof account === "string") {
+        throw new BadRequest(account);
       }
 
       try {

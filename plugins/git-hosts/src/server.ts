@@ -467,7 +467,7 @@ export const server = defineServer(gitHosts, (context) => {
 
   technicalUserRoutes(context, hosts, bots, actingAs.refresh);
 
-  pullRequests(context, hosts, signed);
+  pullRequests(context, hosts, signed, actingAs.teamBots);
 });
 
 interface Signed {

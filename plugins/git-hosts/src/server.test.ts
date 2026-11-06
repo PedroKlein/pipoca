@@ -14,6 +14,7 @@ import { server } from "./server";
 const host = "git.example.com";
 const api = `https://${host}/api/v3`;
 const goodToken = "ghp_good";
+const botToken = "ghp_team_bot";
 const pullUrl = `https://${host}/acme/dotfiles/pull/7`;
 
 const people = [
@@ -80,6 +81,8 @@ function fakeHost(now: () => number) {
   };
 
   const asked: string[] = [];
+  // The token each read of the pull request came with.
+  const readWith: string[] = [];
 
   const repository = (name: string): unknown => ({
     full_name: name,
@@ -140,7 +143,10 @@ function fakeHost(now: () => number) {
           : Response.json({ message: "Bad credentials" }, { status: 401 });
     }
 
-    if (authorization !== `Bearer ${goodToken}`) {
+    if (
+      authorization !== `Bearer ${goodToken}` &&
+      authorization !== `Bearer ${botToken}`
+    ) {
       return Response.json({ message: "Bad credentials" }, { status: 401 });
     }
 
@@ -148,6 +154,8 @@ function fakeHost(now: () => number) {
 
     switch (url.pathname) {
       case `${repo}/pulls/7`:
+        readWith.push(authorization.replace("Bearer ", ""));
+
         if (pull.pageOnce) {
           pull.pageOnce = false;
 
@@ -202,7 +210,10 @@ function fakeHost(now: () => number) {
 
         return Response.json({ merged: true });
       case "/api/v3/user":
-        return Response.json({ login: "pedro-gh" });
+        return Response.json({
+          login:
+            authorization === `Bearer ${botToken}` ? "team-bot" : "pedro-gh",
+        });
       case "/api/v3/user/repos":
         return Response.json([
           repository("acme/aicore-provider"),
@@ -223,7 +234,7 @@ function fakeHost(now: () => number) {
     }
   };
 
-  return { pull, asked, answer };
+  return { pull, asked, readWith, answer };
 }
 
 type Config = NonNullable<TestPluginOptions<typeof gitHosts>["config"]>;
@@ -668,7 +679,7 @@ test("tells a Session where the person connects a git host when they have none, 
   });
 });
 
-test("offers its tools to a person's Sessions, never to team work", async () => {
+test("offers repository search only to a person's Sessions, and watching to team work too", async () => {
   await using run = await start();
   const { t } = run;
 
@@ -678,9 +689,90 @@ test("offers its tools to a person's Sessions, never to team work", async () => 
     t.tool("git_hosts_repositories", {}, { session: team }),
   ).rejects.toThrow("isn't offered");
 
+  for (const name of ["git_hosts_watch", "git_hosts_unwatch"]) {
+    expect(
+      (await t.tool(name, { url: pullUrl }, { session: team })).isError,
+    ).toBe(true);
+  }
+});
+
+// A machine user marked for team work, beside Pedro's own account.
+async function teamBot(t: PluginTest): Promise<void> {
+  await connected(t);
+
+  await t
+    .as("pedro")
+    .post("technical-users", { name: "team-bot", host, token: botToken });
+
+  await t.as("pedro").patch("technical-users/team-bot", { team: true });
+}
+
+test("polls a team Session's pull request as the team's bot, never with its starter's token", async () => {
+  await using run = await start();
+  const { t, fake } = run;
+
+  await teamBot(t);
+  await t.as("pedro").post("preferences", { autoFix: false, reply: true });
+  const team = await t.session({ owner: "team", startedBy: "pedro" });
+
   expect(
-    t.tool("git_hosts_watch", { url: pullUrl }, { session: team }),
-  ).rejects.toThrow("isn't offered");
+    await t.tool("git_hosts_watch", { url: pullUrl }, { session: team }),
+  ).toEqual({
+    text: `Watching ${pullUrl}. Its news will come here.`,
+    isError: false,
+  });
+
+  await t.clock.advance(0);
+  fake.pull.checks = "failure";
+  await t.clock.advance("60s");
+
+  const [news] = notices(team);
+
+  expect(news).toStartWith(`News on ${pullUrl}:\n- Checks failed`);
+
+  expect(news).toContain(
+    "Never comment, review or reply on GitHub as the user.",
+  );
+
+  const [{ id }] = (await watched(t, team)) as [{ id: string }];
+
+  expect(await t.as("pedro").post(`pull-requests/${id}/merge`)).toEqual({
+    merged: pullUrl,
+  });
+
+  expect(fake.readWith.length).toBeGreaterThan(1);
+  expect(new Set(fake.readWith)).toEqual(new Set([botToken]));
+});
+
+test("refuses a team Session's watch on a host with no team bot, and never falls back to its starter", async () => {
+  await using run = await start();
+  const { t, fake } = run;
+
+  await connected(t);
+  const team = await t.session({ owner: "team", startedBy: "pedro" });
+
+  const refused = await t.tool(
+    "git_hosts_watch",
+    { url: pullUrl },
+    { session: team },
+  );
+
+  expect(refused.isError).toBe(true);
+
+  expect(refused.text).toContain(
+    `No team bot is marked for ${host}. An admin can mark a GitHub App or technical user for team work in Settings > Git hosts.`,
+  );
+
+  await teamBot(t);
+  await t.tool("git_hosts_watch", { url: pullUrl }, { session: team });
+  await t.as("pedro").patch("technical-users/team-bot", { team: false });
+  await t.clock.advance("60s");
+
+  expect(await watched(t, team)).toMatchObject([
+    { error: expect.stringContaining("No team bot is marked") as unknown },
+  ]);
+
+  expect(fake.readWith).not.toContain(goodToken);
 });
 
 test("tells the Session watching a pull request that its checks failed, with the rules first", async () => {

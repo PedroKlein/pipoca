@@ -23,6 +23,13 @@ interface Cached {
   readonly expiresAt: number;
 }
 
+export interface TeamBot {
+  readonly host: string;
+  readonly login: string;
+  // Missing while an App has no token where the Session works.
+  readonly token: string | undefined;
+}
+
 interface TeamReach {
   readonly host: string;
   readonly kind: "app" | "token";
@@ -40,6 +47,11 @@ export interface Acting {
   // The logins of team work that acts as no one in particular: on each host,
   // the technical user admins chose for the team.
   readonly team: (session: Pick<Session, "workspace">) => readonly GitLogin[];
+  // The bots team work signs in as, the same ones git gets: the technical
+  // user it acts as, or on each host the one admins chose for the team.
+  readonly teamBots: (
+    session: Pick<Session, "actsAs" | "workspace">,
+  ) => readonly TeamBot[];
   // What team work can reach on each host: a machine user's token, or a
   // token for each of the App's installations.
   readonly teamReach: () => readonly TeamReach[];
@@ -149,6 +161,14 @@ export function acting(
       key.startsWith(`${user.name} `) && live(cached) ? [cached] : [],
     );
 
+  // A package can live outside the workspace's accounts, so an App falls
+  // back to any of its installations.
+  const teamToken = (
+    user: TechnicalUser,
+    workspace: Session["workspace"],
+  ): string | undefined =>
+    tokenOf(user, workspace) ?? installed(user).at(0)?.token;
+
   return {
     refresh,
     logins: (owner, { actsAs, workspace }, own) => {
@@ -178,14 +198,33 @@ export function acting(
 
       return [{ host: user.host, token }, ...others];
     },
-    // A package can live outside the workspace's accounts, so an App falls
-    // back to any of its installations.
     team: ({ workspace }) =>
       teamUsers().flatMap((user) => {
-        const token = tokenOf(user, workspace) ?? installed(user).at(0)?.token;
+        const token = teamToken(user, workspace);
 
         return token === undefined ? [] : [{ host: user.host, token }];
       }),
+    teamBots: ({ actsAs, workspace }) => {
+      if (actsAs === null) {
+        return teamUsers().map((user) => ({
+          host: user.host,
+          login: botLogin(user),
+          token: teamToken(user, workspace),
+        }));
+      }
+
+      const user = users.get(actsAs.name);
+
+      return user?.users.includes("team") === true
+        ? [
+            {
+              host: user.host,
+              login: botLogin(user),
+              token: tokenOf(user, workspace),
+            },
+          ]
+        : [];
+    },
     teamReach: () =>
       teamUsers().flatMap((user): readonly TeamReach[] => {
         if (isApp(user)) {
