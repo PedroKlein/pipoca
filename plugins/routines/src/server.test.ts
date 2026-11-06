@@ -277,6 +277,45 @@ test("a firing while the last run goes is skipped, or queued once when the routi
   ]);
 });
 
+test("a run ends when its Session is archived or stopped, so the next firing runs", async () => {
+  await using t = await started();
+  await environment(t);
+
+  await save(t, "nightly", {
+    title: "Nightly",
+    triggers: [{ webhook: true }],
+    run: { prompt: "Check the build.", workspace: folder() },
+  });
+
+  const first = await t.as("ana").post<Run>("routines/nightly/run");
+  await (await t.attach(first.sessionId ?? "")).archive();
+
+  const second = await t.as("ana").post<Run>("routines/nightly/run");
+  expect(second).toMatchObject({ outcome: "running" });
+
+  const session = tracking?.sessions.get(second.sessionId ?? "");
+
+  if (session === undefined) {
+    throw new Error("no run Session");
+  }
+
+  t.emit({
+    type: "SessionStateChanged",
+    session: { ...session, status: "stopped" },
+    previous: session.status,
+  });
+
+  expect(await t.as("ana").post<Run>("routines/nightly/run")).toMatchObject({
+    outcome: "running",
+  });
+
+  expect((await runs(t, "nightly")).map(({ outcome }) => outcome)).toEqual([
+    "running",
+    "stopped",
+    "stopped",
+  ]);
+});
+
 test("firings missed while time jumped ahead become one catch-up run", async () => {
   await using t = await started();
   await environment(t);
