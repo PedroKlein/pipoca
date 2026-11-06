@@ -553,9 +553,6 @@ export interface SessionPlugin {
   readonly tools?: (
     cloud: SessionCloud,
   ) => readonly ToolDefinition[] | Promise<readonly ToolDefinition[]>;
-  // Where the Session keeps its logins instead of the machine's files, such as
-  // the server (ADR 0045). The first plugin that gives them wins.
-  readonly logins?: (cloud: SessionCloud) => Promise<SessionLogins>;
 }
 
 export interface SessionLogins {

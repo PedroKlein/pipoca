@@ -12,6 +12,7 @@ import type {
   AskQuestions,
   Checkout,
   ChildOptions,
+  SessionLogins,
 } from "./plugin";
 
 export interface SessionToolCall {
@@ -53,6 +54,12 @@ export interface SessionContext<P extends PluginDefinition = PluginDefinition> {
   readonly askPermission: AskPermission;
   readonly checkouts: readonly Checkout[];
   readonly startChild: (o: ChildOptions) => Promise<AgentSession>;
+  readonly provide: {
+    // Where the Session keeps its model and MCP logins in place of the
+    // runner's files, such as on the server (ADR 0045). One plugin per
+    // server gives them; without one, Pi uses the runner's own.
+    readonly modelCredentials: (logins: () => Promise<SessionLogins>) => void;
+  };
   readonly clock: Clock;
   // Waits that end with the Session, such as a retry, since a Session part
   // has no durable schedule.

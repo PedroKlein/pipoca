@@ -20,6 +20,7 @@ import type {
   KernelEvent,
   ModelOffer,
   PluginProfile,
+  ProfileMcpServer,
   SqlValue,
   StartRequest,
 } from "./plugin";
@@ -207,6 +208,18 @@ export interface Routes {
 
 export interface Urls {
   readonly public: (path: string) => string;
+  // A cookie only the plugin's own routes get back, such as the browser's
+  // half of an OAuth state. It is Lax, so it comes back on the redirect
+  // from another site.
+  readonly cookie: {
+    readonly set: (
+      response: Response,
+      name: string,
+      value: string,
+      maxAgeS: number,
+    ) => void;
+    readonly get: (request: Request, name: string) => string | undefined;
+  };
 }
 
 export interface ToolCall {
@@ -372,6 +385,15 @@ export interface PluginEnvironments {
   readonly templates: () => readonly EnvironmentTemplate[];
 }
 
+// What Profiles hold that a plugin reads, such as the MCP servers people
+// sign in to.
+export interface PluginProfiles {
+  // Every MCP server of the base, everyone's My defaults and every Profile.
+  readonly mcpServers: () => readonly ProfileMcpServer[];
+  // The Profiles one builds on, nearest first.
+  readonly buildsOn: (profileId: string) => readonly string[];
+}
+
 export interface Providers {
   readonly models: (offer: ModelOffer) => void;
   // Sessions on the Profile load every route tool when routeTools is true.
@@ -397,6 +419,7 @@ export interface ServerContext<P extends PluginDefinition = PluginDefinition> {
   readonly provide: Providers;
   readonly secrets: Secrets;
   readonly environments: PluginEnvironments;
+  readonly profiles: PluginProfiles;
   readonly clock: Clock;
   // In-memory time, lost on restart, for waits such as a long poll.
   readonly timer: Timer;

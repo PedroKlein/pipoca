@@ -1003,6 +1003,10 @@ export function startPlugins(
           },
           secrets: secretsOf(store),
           environments,
+          profiles: {
+            mcpServers: deps.mcpServers ?? (() => []),
+            buildsOn: deps.buildsOn ?? (() => []),
+          },
           clock: deps.clock,
           timer: deps.timer,
           log,

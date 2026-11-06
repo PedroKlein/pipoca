@@ -8,6 +8,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type {
   SessionContext,
+  SessionLogins,
   SessionPart,
   SessionTool,
   SessionToolCall,
@@ -17,7 +18,7 @@ import { piToolOf } from "./tools";
 
 export type PartHost = Omit<
   SessionContext,
-  "tools" | "extension" | "config" | "api"
+  "tools" | "extension" | "config" | "api" | "provide"
 > & {
   readonly config: unknown;
   readonly request: (path: string, init?: RequestInit) => Promise<Response>;
@@ -32,10 +33,12 @@ export async function setUpPart(
 ): Promise<{
   readonly tools: readonly ToolDefinition[];
   readonly extensions: readonly InlineExtension[];
+  readonly modelCredentials?: () => Promise<SessionLogins>;
 }> {
   const { id } = part.plugin;
   const tools: SessionTool[] = [];
   const factories: ExtensionFactory[] = [];
+  let modelCredentials: (() => Promise<SessionLogins>) | undefined;
   const marker = `/ext/${id}/`;
 
   await part.setup({
@@ -54,6 +57,11 @@ export async function setUpPart(
     extension: (factory) => {
       factories.push(factory);
     },
+    provide: {
+      modelCredentials: (logins) => {
+        modelCredentials = logins;
+      },
+    },
     config: host.config as SessionContext["config"],
     api: pluginClient(part.plugin, {
       session: "this",
@@ -70,6 +78,7 @@ export async function setUpPart(
   const replaceable = piTools(true);
 
   return {
+    ...(modelCredentials && { modelCredentials }),
     tools: piTools(false),
     extensions: [
       ...(factories.length === 0

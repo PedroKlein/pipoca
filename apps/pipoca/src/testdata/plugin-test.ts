@@ -456,6 +456,18 @@ export async function pluginTest(
             request(path, init, await cookieOf(personId)),
         }),
         raw,
+        kernel: async (method, path, body) =>
+          request(
+            path,
+            {
+              method,
+              ...(body !== undefined && {
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify(body),
+              }),
+            },
+            await cookieOf(personId),
+          ),
       };
     },
     public: () => ({
@@ -471,7 +483,13 @@ export async function pluginTest(
           body,
         }),
     }),
-    session: async ({ owner, startedBy, key, plugin: by = plugin.id }) => {
+    session: async ({
+      owner,
+      startedBy,
+      key,
+      plugin: by = plugin.id,
+      profile,
+    }) => {
       const personal = owners.personId(owner);
 
       if (
@@ -509,6 +527,7 @@ export async function pluginTest(
         workspace: { kind: "folder", path: root },
         actor: starter === undefined ? `plugin:${by}` : `user:${starter}`,
         ...(key !== undefined && { key }),
+        ...(profile !== undefined && { profile }),
         ...(personal === undefined && {
           team: true,
           profile: await teamProfileOf(),
@@ -534,6 +553,17 @@ export async function pluginTest(
           headers: { authorization: `Bearer ${host.token}` },
           fetch: async (path, init) => request(path, init),
         }),
+        request: async (path, init = {}) => {
+          const headers = new Headers(init.headers);
+
+          headers.set(versionHeader, String(protocolVersion));
+          headers.set("authorization", `Bearer ${host.token}`);
+
+          return request(
+            `/runner/sessions/${host.id}/ext/${plugin.id}/${path.replace(/^\//, "")}`,
+            { ...init, headers },
+          );
+        },
         online: async (on) => {
           if (on && host.stream === undefined) {
             await connect(host);

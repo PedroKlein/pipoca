@@ -10,6 +10,7 @@ import {
   owners,
   type PluginDefinition,
   type SessionCloud,
+  type SessionLogins,
   type SessionPart,
   type SessionPlugin,
   type Store,
@@ -71,6 +72,8 @@ export interface TestSession {
   readonly environmentId: string;
   // The plugin's routes, called as its Session part calls them.
   readonly api: TypedClient;
+  // The same, as a Session part's cloud request takes a path and init.
+  readonly request: (path: string, init?: RequestInit) => Promise<Response>;
   // Connects or drops its host. Connected, it has taken what the outbox
   // held once this settles.
   readonly online: (on: boolean) => Promise<void>;
@@ -94,6 +97,12 @@ export interface PluginTest {
       path: string,
       init?: RequestInit,
     ) => Promise<Response>;
+    // The kernel's own routes, such as /api/profiles, as the person.
+    readonly kernel: (
+      method: Method,
+      path: string,
+      body?: unknown,
+    ) => Promise<Response>;
   };
   readonly public: () => {
     readonly raw: (
@@ -112,6 +121,8 @@ export interface PluginTest {
     readonly startedBy?: string;
     readonly key?: string;
     readonly plugin?: string;
+    // A Profile of the starter's, by id, in place of their default.
+    readonly profile?: string;
   }) => Promise<TestSession>;
   readonly tool: (
     name: string,
@@ -159,6 +170,8 @@ export function person(id: string): Owner {
 export interface SessionTest {
   readonly tool: (name: string, input: unknown) => Promise<ToolAnswer>;
   readonly published: (key: string) => unknown;
+  // The logins the part keeps for Pi, if it provides them.
+  readonly modelCredentials: () => Promise<SessionLogins | undefined>;
 }
 
 export type SessionFakes = Partial<SessionCloud> & {
@@ -179,6 +192,7 @@ export async function testSession(
 
   const published = new Map<string, unknown>();
   const tools: ToolDefinition[] = [];
+  let modelCredentials: (() => Promise<SessionLogins>) | undefined;
 
   const given: SessionCloud = {
     askQuestions: notFaked("askQuestions"),
@@ -216,7 +230,9 @@ export async function testSession(
       timer: systemTimer,
     };
 
-    const { tools: direct, extensions } = await setUpPart(plugin, host);
+    const set = await setUpPart(plugin, host);
+    const { tools: direct, extensions } = set;
+    modelCredentials = set.modelCredentials;
 
     for (const extension of extensions) {
       if ("factory" in extension) {
@@ -271,5 +287,6 @@ export async function testSession(
       }
     },
     published: (key) => published.get(key),
+    modelCredentials: async () => modelCredentials?.(),
   };
 }

@@ -44,6 +44,7 @@ export {
   type People,
   type PluginConfig,
   type PluginEnvironments,
+  type PluginProfiles,
   type Person,
   type PluginEvents,
   type Providers,

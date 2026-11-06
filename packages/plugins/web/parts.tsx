@@ -61,7 +61,10 @@ export interface WebPage {
     readonly pinned?: boolean;
     readonly fills?: (path: string) => boolean;
   };
-  readonly area?: "personal" | "hub";
+  // A screen of Team setup, which only admins open, is listed with what
+  // team work runs on or with its rules.
+  readonly area?: "personal" | "hub" | "setup";
+  readonly group?: "runs-on" | "rules";
 }
 
 export interface WebPart<P extends PluginDefinition = PluginDefinition> {

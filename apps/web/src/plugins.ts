@@ -182,7 +182,9 @@ function adapted(part: WebPart): ShellPlugin {
   const slot = <Props>(name: string): ComponentType<Props> | undefined =>
     slots[name] as ComponentType<Props> | undefined;
 
-  const pages = (part.pages ?? []).filter(({ area }) => area !== "hub");
+  const pages = (part.pages ?? []).filter(
+    ({ area }) => area !== "hub" && area !== "setup",
+  );
   const listed = pages.find(({ nav }) => nav !== undefined);
   const first = listed ?? pages[0];
 
@@ -252,6 +254,18 @@ function adapted(part: WebPart): ShellPlugin {
             Panel: () => createElement(Panel, { title: pluginTitle(id) }),
           },
         ]),
+      ),
+      setup: Object.fromEntries(
+        (part.pages ?? [])
+          .filter(({ area }) => area === "setup")
+          .map((page) => [
+            page.path,
+            {
+              label: page.label,
+              group: page.group ?? "runs-on",
+              Page: () => createElement(page.Page, { path: "" }),
+            },
+          ]),
       ),
       pages: Object.fromEntries(
         (part.pages ?? [])
