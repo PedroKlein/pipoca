@@ -83,13 +83,13 @@ const stuckAfterMs = 10 * 60_000;
 // runner can take, and removes the pods that stopped (ADR 0032). The chart
 // sets the cluster, image and the runners' URL in its environment.
 export const server = defineServer(kubernetes, (context) => {
-  const { clock, environments, log, provide, routes, schedule } = context;
-  const api = inClusterApi();
-  const image = process.env["PIPOCA_IMAGE"];
-  const imagePullPolicy = process.env["PIPOCA_IMAGE_PULL_POLICY"];
-  const runnerUrl = process.env["PIPOCA_RUNNER_URL"];
-  const pod = process.env["POD_NAME"] ?? process.env["HOSTNAME"];
-  const faux = process.env["PIPOCA_FAUX_REPLY"];
+  const { clock, env, environments, log, provide, routes, schedule } = context;
+  const api = inClusterApi(env);
+  const image = env("PIPOCA_IMAGE");
+  const imagePullPolicy = env("PIPOCA_IMAGE_PULL_POLICY");
+  const runnerUrl = env("PIPOCA_RUNNER_URL");
+  const pod = env("POD_NAME") ?? env("HOSTNAME");
+  const faux = env("PIPOCA_FAUX_REPLY");
   const failures = new PodFailures(retryAfterMs);
 
   const startsPods =

@@ -107,6 +107,8 @@ export interface ServeOptions {
   // What plugins that start runners on this machine run, the pipoca binary
   // unless it says.
   readonly command?: readonly string[];
+  // The environment plugins read, the server's own unless it says.
+  readonly env?: Readonly<Record<string, string | undefined>>;
   // False leaves out the built-in plugins.
   readonly builtIns?: boolean;
   // Plugins besides the built-in ones, by their definitions or server parts.
@@ -377,6 +379,7 @@ export function serve(options: ServeOptions): {
       ...installed.flatMap(({ part }) => (part ? [part] : [])),
     ],
     url: () => options.url ?? server.url,
+    ...(options.env && { env: options.env }),
     manifests: known,
     sessions,
     environments,

@@ -186,6 +186,7 @@ export async function pluginTest(
       events,
       changes,
       ...(o.command !== undefined && { command: o.command }),
+      ...(o.env !== undefined && { env: o.env }),
       ...(o.solo === true &&
         soloPerson !== undefined && {
           solo: {

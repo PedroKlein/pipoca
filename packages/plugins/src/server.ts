@@ -574,6 +574,8 @@ export interface ServerContext<P extends PluginDefinition = PluginDefinition> {
   readonly environments: PluginEnvironments;
   readonly profiles: PluginProfiles;
   readonly clock: Clock;
+  // The server's environment variables, such as a chart sets.
+  readonly env: (name: string) => string | undefined;
   // In-memory time, lost on restart, for waits such as a long poll.
   readonly timer: Timer;
   readonly log: Log;

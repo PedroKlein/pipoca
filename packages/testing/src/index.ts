@@ -64,6 +64,8 @@ export interface TestPluginOptions<
   readonly solo?: boolean;
   // What provide.runtime() names as the pipoca binary.
   readonly command?: readonly string[];
+  // The environment variables the plugins read in place of the process's.
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 export interface ToolAnswer {

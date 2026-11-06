@@ -160,7 +160,7 @@ const cluster = {
 const runnerUrl = cluster.PIPOCA_RUNNER_URL;
 const passMs = 2000;
 const retryMs = 10_000;
-const before = new Map<string, string | undefined>();
+let env: Readonly<Record<string, string>>;
 
 let root: string;
 let api: ReturnType<typeof fakeApi>;
@@ -175,31 +175,17 @@ beforeAll(async () => {
   await writeFile(join(account, "ca.crt"), "ca");
   await writeFile(join(account, "token"), "t");
 
-  for (const [name, value] of Object.entries({
-    ...cluster,
-    PIPOCA_SERVICE_ACCOUNT_DIR: account,
-  })) {
-    before.set(name, process.env[name]);
-    process.env[name] = value;
-  }
+  env = { ...cluster, PIPOCA_SERVICE_ACCOUNT_DIR: account };
 });
 
 afterAll(async () => {
-  for (const [name, value] of before) {
-    if (value === undefined) {
-      Reflect.deleteProperty(process.env, name);
-    } else {
-      process.env[name] = value;
-    }
-  }
-
   await rm(root, { recursive: true, force: true });
 });
 
 async function start(
   o: Omit<TestPluginOptions<typeof server.plugin>, "people" | "fetch"> = {},
 ): Promise<void> {
-  t = await testPlugin(server, { people, fetch: api.fetch, ...o });
+  t = await testPlugin(server, { people, fetch: api.fetch, env, ...o });
 }
 
 beforeEach(async () => {

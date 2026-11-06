@@ -75,13 +75,15 @@ export const sessionLabel = "pipoca.dev/session";
 // The server reaches the API with its pod's service account, so no kubeconfig
 // is stored (ADR 0032). Outside a cluster there is none. Tests name a folder
 // of their own.
-export function inClusterApi(): ApiAccess | undefined {
+export function inClusterApi(
+  env: (name: string) => string | undefined,
+): ApiAccess | undefined {
   const dir =
-    process.env["PIPOCA_SERVICE_ACCOUNT_DIR"] ??
+    env("PIPOCA_SERVICE_ACCOUNT_DIR") ??
     "/var/run/secrets/kubernetes.io/serviceaccount";
 
-  const host = process.env["KUBERNETES_SERVICE_HOST"];
-  const port = process.env["KUBERNETES_SERVICE_PORT"] ?? "443";
+  const host = env("KUBERNETES_SERVICE_HOST");
+  const port = env("KUBERNETES_SERVICE_PORT") ?? "443";
 
   let namespace: string;
   let ca: string;

@@ -247,6 +247,7 @@ export function startPlugins(
     readonly buildsOn?: (profileId: string) => readonly string[];
     // What runner providers start runners on this machine with.
     readonly runtime?: () => Runtime;
+    readonly env?: Readonly<Record<string, string | undefined>>;
     readonly schedules: ScheduleStore;
     readonly clock: Clock;
     readonly timer: Timer;
@@ -780,6 +781,7 @@ export function startPlugins(
             buildsOn: deps.buildsOn ?? (() => []),
           },
           clock: deps.clock,
+          env: (name) => (deps.env ?? process.env)[name],
           timer: deps.timer,
           log,
           signal,
