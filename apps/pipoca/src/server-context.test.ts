@@ -10,6 +10,7 @@ import {
   Type,
 } from "@pipoca/plugins";
 import type { Environment, PluginInfo, Session } from "@pipoca/protocol";
+import { until } from "@pipoca/testing/until";
 import { json, testServer, type TestServer } from "./testdata/harness";
 import { runnerCredentials } from "./testdata/runners";
 
@@ -297,6 +298,65 @@ test("lets one plugin sign people in, and fails another that tries too", async (
     state: "failed",
     error: "gate already signs people in",
   });
+});
+
+// A plugin that fails later, out of an async listener, watcher or timer,
+// costs only a log line under its name, not the server (spec 2.8a).
+test("logs a plugin's async listener, config watcher and timer that reject", async () => {
+  const flaky = testServer({
+    configDir: join(root, "flaky"),
+    servers: [
+      defineServer(
+        definePlugin({
+          id: "flaky",
+          title: "Flaky",
+          description: "Fails late.",
+          config: Config.object({
+            limit: Config.number({ title: "Limit", default: 1 }),
+          }),
+        }),
+        ({ events, config, timer }) => {
+          events.on("PersonInvited", async () => {
+            await Promise.resolve();
+            throw new Error("listener broke");
+          });
+
+          config.watch(async () => {
+            await Promise.resolve();
+            throw new Error("watcher broke");
+          });
+
+          timer.after(60_000, async () => {
+            await Promise.resolve();
+            throw new Error("timer broke");
+          });
+        },
+      ),
+    ],
+  });
+
+  await flaky.api("/api/invites", { body: { emails: ["ana@example.com"] } });
+
+  await flaky.api("/api/plugins/flaky/config", {
+    method: "PUT",
+    body: { value: { limit: 2 } },
+  });
+
+  await flaky.clock.advance(60_000);
+
+  const failures = await until(
+    () =>
+      flaky.logs.filter(
+        (line) => line.includes('"plugin":"flaky"') && line.includes("broke"),
+      ),
+    (lines) => lines.length === 3,
+  );
+
+  await flaky.close();
+
+  expect(
+    failures.map((line) => /broke/.exec(line) && line.split(" {")[0]),
+  ).toEqual(["event listener failed", "config watcher failed", "timer failed"]);
 });
 
 test("turns a plugin on by default on a team server as its definition says", async () => {

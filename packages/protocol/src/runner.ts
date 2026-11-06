@@ -4,7 +4,7 @@ import { isolation, modelRef, thinkingLevel, workspace } from "./session";
 import type { Workspace } from "./session";
 import { integer, nullable, strings, textMap, type Wire } from "./wire";
 
-export const protocolVersion = 4;
+export const protocolVersion = 5;
 export const versionHeader = "pipoca-protocol";
 
 // Runner and Environment names show in logs, container names and paths.

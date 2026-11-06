@@ -231,6 +231,142 @@ test("a run the agent ends as blocked doesn't count towards pausing the routine"
   expect((await detail(t, "tidy")).paused).toBeNull();
 });
 
+test("a run whose Session dies five times without progress parks the routine", async () => {
+  await using t = await started();
+  await environment(t);
+
+  await save(t, "nightly", {
+    title: "Nightly",
+    triggers: [{ webhook: true }],
+    run: { prompt: "Check the build.", workspace: folder() },
+  });
+
+  const run = await t.as("ana").post<Run>("routines/nightly/run");
+
+  // Its host takes the Session in a new attempt, which ends the first, so
+  // it has died before Pi does anything.
+  const session = await t.attach(run.sessionId ?? "");
+
+  const dies = (times: number): void => {
+    const died = tracking?.sessions.get(run.sessionId ?? "");
+
+    for (let each = 0; died !== undefined && each < times; each++) {
+      t.emit({
+        type: "SessionStateChanged",
+        session: { ...died, status: "interrupted" },
+        previous: "running",
+      });
+    }
+  };
+
+  const pi = (content: unknown): object => ({
+    type: "message",
+    message: { role: "assistant", content },
+  });
+
+  await session.transcript([pi([{ type: "text", text: "On it." }])]);
+  dies(2);
+
+  await session.transcript([
+    pi([{ type: "toolCall", id: "t1", name: "bash", arguments: {} }]),
+    {
+      type: "message",
+      message: {
+        role: "toolResult",
+        toolCallId: "t1",
+        toolName: "bash",
+        content: [{ type: "text", text: "ok" }],
+      },
+    },
+  ]);
+
+  dies(4);
+  const going = await detail(t, "nightly");
+  dies(1);
+
+  expect(going).toMatchObject({ paused: null, runs: [{ outcome: "running" }] });
+
+  expect(await detail(t, "nightly")).toMatchObject({
+    paused: "Parked after a run's Session died 5 times without progress.",
+    runs: [
+      {
+        outcome: "failed",
+        reason: "the run's Session died 5 times without progress",
+      },
+    ],
+  });
+
+  expect(
+    tracking?.sessions.get(run.sessionId ?? "")?.archivedAt,
+  ).not.toBeNull();
+});
+
+test("a run keeps the progress of its earlier turns when a new turn starts", async () => {
+  await using t = await started();
+  await environment(t);
+
+  await save(t, "nightly", {
+    title: "Nightly",
+    triggers: [{ webhook: true }],
+    run: { prompt: "Check the build.", workspace: folder() },
+  });
+
+  const run = await t.as("ana").post<Run>("routines/nightly/run");
+  const session = await t.attach(run.sessionId ?? "");
+
+  const dies = (times: number): void => {
+    const died = tracking?.sessions.get(run.sessionId ?? "");
+
+    for (let each = 0; died !== undefined && each < times; each++) {
+      t.emit({
+        type: "SessionStateChanged",
+        session: { ...died, status: "interrupted" },
+        previous: "running",
+      });
+    }
+  };
+
+  const bash = (id: string): object[] => [
+    {
+      type: "message",
+      message: {
+        role: "assistant",
+        content: [{ type: "toolCall", id, name: "bash", arguments: {} }],
+      },
+    },
+    {
+      type: "message",
+      message: {
+        role: "toolResult",
+        toolCallId: id,
+        toolName: "bash",
+        content: [{ type: "text", text: "ok" }],
+      },
+    },
+  ];
+
+  await session.transcript([...bash("t1"), ...bash("t2"), ...bash("t3")]);
+  dies(1);
+
+  await session.transcript([
+    { type: "custom_message", customType: "pipoca-notice", content: "Again." },
+    {
+      type: "message",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "Looking again." }],
+      },
+    },
+  ]);
+
+  dies(4);
+
+  expect(await detail(t, "nightly")).toMatchObject({
+    paused: null,
+    runs: [{ outcome: "running" }],
+  });
+});
+
 test("a firing while the last run goes is skipped, or queued once when the routine says", async () => {
   await using t = await started();
   await environment(t);

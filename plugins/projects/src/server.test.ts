@@ -421,7 +421,7 @@ const probe = definePlugin({
 });
 
 const probeServer = defineServer(probe, ({ routes, tools }) => {
-  routes.get("admin", { auth: "person" }, ({ caller }) => ({
+  routes.get("admin", { auth: "person", team: true }, ({ caller }) => ({
     admin: caller.person.admin,
   }));
 

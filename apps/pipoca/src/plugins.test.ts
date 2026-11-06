@@ -36,6 +36,7 @@ import type {
   Session,
   SessionEvent,
 } from "@pipoca/protocol";
+import { protocolVersion, versionHeader } from "@pipoca/protocol";
 import { runAgent } from "@pipoca/runner";
 import { binary } from "./binary";
 import { sessionParts } from "./session-parts";
@@ -157,7 +158,7 @@ async function toolsOf(
     new URL(`/runner/sessions/${session.id}/tools?generation=1`, server.url),
     {
       headers: {
-        "pipoca-protocol": "4",
+        [versionHeader]: String(protocolVersion),
         "content-type": "application/json",
         authorization: `Bearer ${token ?? ""}`,
       },

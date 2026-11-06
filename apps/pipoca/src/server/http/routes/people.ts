@@ -8,6 +8,7 @@ export function peopleRoutes({
   people,
   plugins,
   log,
+  url,
 }: ApiDeps): Handlers<Group<"people"> | Group<"invites">> {
   return {
     // Everyone names people in team work; admins also see their roles and
@@ -46,7 +47,7 @@ export function peopleRoutes({
           plugins.publish({
             type: "PersonInvited",
             email: invite.email,
-            link: `${originOf(request)}/#join/${invite.token}`,
+            link: `${url?.origin ?? originOf(request)}/#join/${invite.token}`,
             invitedBy: { id: caller.id, name },
             admin: invite.admin,
             expiresAt: invite.expiresAt,
@@ -169,8 +170,9 @@ function tokenView({
   return { id, name, createdAt };
 }
 
-// The Host header already passed the server's own site check, and HTTPS
-// usually ends in a gateway in front of the server (ADR 0034).
+// Without --url, the host the request came through. The Host header already
+// passed the server's own site check, and HTTPS usually ends in a gateway in
+// front of the server (ADR 0034).
 function originOf(request: Request): string {
   const url = new URL(request.url);
 

@@ -644,6 +644,22 @@ test("gives runner pods a home their user can write and leaves the mesh sidecar 
   expect(pod?.metadata.labels).not.toHaveProperty("sidecar.istio.io/inject");
 });
 
+// The chart's Istio policy lets runner pods reach /runner only as mesh
+// peers, so on a server in the mesh they join it too, whatever the
+// namespace says. A template's patch can still leave them out.
+test("puts runner pods in the mesh when the server is in it", async () => {
+  await t.close();
+  await start({ env: { ...env, PIPOCA_RUNNER_MESH: "true" } });
+
+  const environment = await kubernetesEnvironment({});
+  await startSession(environment);
+  await pass();
+
+  const [pod] = api.pods.values();
+
+  expect(pod?.metadata.labels["sidecar.istio.io/inject"]).toBe("true");
+});
+
 test("removes a runner pod that never starts, and starts another", async () => {
   const environment = await kubernetesEnvironment({});
   await startSession(environment);

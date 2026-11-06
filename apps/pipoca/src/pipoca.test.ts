@@ -29,6 +29,7 @@ import {
   type Session,
   type SessionEvent,
   type Work,
+  versionHeader,
 } from "@pipoca/protocol";
 import { runAgent } from "@pipoca/runner";
 import { binary } from "./binary";
@@ -675,7 +676,7 @@ async function asAgent(
   return fetch(new URL(path, server.url), {
     method: body === undefined ? "GET" : "POST",
     headers: {
-      "pipoca-protocol": version,
+      [versionHeader]: version,
       authorization: `Bearer ${await runners.token(provider)}`,
       "content-type": "application/json",
     },
@@ -2679,7 +2680,7 @@ test("accepts a runner's calls under Docker's host name with its token alone", a
       await fetch(new URL(path, server.url), {
         headers: {
           host,
-          "pipoca-protocol": "4",
+          [versionHeader]: String(protocolVersion),
           "content-type": "application/json",
           ...(token !== undefined && { authorization: `Bearer ${token}` }),
         },
@@ -2770,7 +2771,7 @@ test("does not let a host take another session's terminal", async () => {
 
   const response = await fetch(url, {
     headers: {
-      "pipoca-protocol": "4",
+      [versionHeader]: String(protocolVersion),
       "content-type": "application/json",
       authorization: `Bearer ${await runners.token("laptop")}`,
       ...webSocketUpgrade,

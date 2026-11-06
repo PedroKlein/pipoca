@@ -12,6 +12,8 @@ import type {
   Person,
   Session,
 } from "@pipoca/protocol";
+import { protocolVersion, versionHeader } from "@pipoca/protocol";
+import { definePlugin, defineServer } from "@pipoca/plugins";
 import { json, testServer, type TestServer } from "./testdata/harness";
 
 let root: string;
@@ -196,7 +198,7 @@ test("an Environment a runner makes with a join key is the key maker's", async (
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "pipoca-protocol": "4",
+        [versionHeader]: String(protocolVersion),
         authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({ name: "vm" }),
@@ -328,7 +330,7 @@ test("an owner or an admin deletes an Environment once its Sessions are archived
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "pipoca-protocol": "4",
+        [versionHeader]: String(protocolVersion),
         authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({ name: "mac" }),
@@ -357,7 +359,7 @@ test("an owner or an admin deletes an Environment once its Sessions are archived
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "pipoca-protocol": "4",
+      [versionHeader]: String(protocolVersion),
       authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ running: [], folders: [root], models: [] }),
@@ -542,6 +544,35 @@ test("lets an email invite in once, and not after an admin revokes it", async ()
 
   expect(await joined.json()).toMatchObject({ name: "dan", admin: true });
   expect(await json(server.as(pedros)("/api/invites"))).toEqual([]);
+});
+
+// An admin who invites through a port-forward still mails the public link.
+test("links an email invite to the server's configured URL, not the host it came through", async () => {
+  const links: string[] = [];
+
+  const forwarded = testServer({
+    url: new URL("https://pipoca.example.com"),
+    servers: [
+      defineServer(
+        definePlugin({ id: "mailer", title: "Mailer", description: "" }),
+        ({ events }) => {
+          events.on("PersonInvited", ({ link }) => {
+            links.push(link);
+          });
+        },
+      ),
+    ],
+  });
+
+  await forwarded.api("/api/invites", {
+    body: { emails: ["dan@example.com"] },
+    headers: { host: "localhost:7420" },
+  });
+
+  await forwarded.close();
+
+  expect(links).toHaveLength(1);
+  expect(links[0]).toStartWith("https://pipoca.example.com/#join/");
 });
 
 test("a person's assistant is theirs alone", async () => {

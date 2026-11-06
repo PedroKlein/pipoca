@@ -473,6 +473,7 @@ export function serve(options: ServeOptions): {
     changes,
     checkStore: store.check,
     log: options.log,
+    url: options.url,
     restart: options.restart && {
       busy: () =>
         sessions

@@ -12,6 +12,7 @@ import {
   type ToolResult,
   type ToolSpec,
 } from "@pipoca/protocol";
+import { protocolVersion, versionHeader } from "@pipoca/protocol";
 import { json, testServer, type TestServer } from "./testdata/harness";
 import { runnerCredentials } from "./testdata/runners";
 
@@ -203,7 +204,7 @@ beforeEach(async () => {
 });
 
 const runnerHeaders = (token: string): Record<string, string> => ({
-  "pipoca-protocol": "4",
+  [versionHeader]: String(protocolVersion),
   authorization: `Bearer ${token}`,
   "content-type": "application/json",
 });

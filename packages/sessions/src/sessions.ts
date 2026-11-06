@@ -145,9 +145,11 @@ export interface SessionStore {
   insert: (session: StoredSession) => void;
   update: (session: StoredSession) => void;
   get: (id: string) => StoredSession | undefined;
+  // A person's id lists only their own Sessions, and null only the team's.
   list: (options: {
     readonly includeArchived: boolean;
     readonly plugin?: SessionPlugin;
+    readonly owner?: string | null;
   }) => readonly StoredSession[];
   // Undefined while the Session is open to the whole team.
   access: (id: string) => SessionAccess | undefined;
@@ -251,8 +253,9 @@ export interface Claim extends Omit<Work, "profiles" | "start"> {
 
 type Listener<T> = (value: T) => void;
 
-// False when the host's stream ended before it took the command.
-type HostSend = (command: Command) => boolean;
+// False when the host's stream ended before it took the command. seq is the
+// outbox's, which the host acknowledges.
+type HostSend = (command: Command, seq?: number) => boolean;
 
 // Enough to catch a browser retrying a send; ids only need to outlive retries.
 const maxRequestIds = 100;
@@ -596,15 +599,19 @@ export class Sessions {
     readonly person?: string;
     readonly team?: boolean;
   } = {}): readonly Session[] {
+    const owner = team ? null : person;
+
     return this.#store
-      .list({ includeArchived: archived, ...(ownedBy && { plugin: ownedBy }) })
-      .filter((session) =>
-        team
-          ? this.#team(session) &&
-            (person === undefined ||
-              canSee({ id: person, admin: false }, this.#owned(session)))
-          : person === undefined ||
-            (!this.#team(session) && this.#person(session) === person),
+      .list({
+        includeArchived: archived,
+        ...(ownedBy && { plugin: ownedBy }),
+        ...(owner !== undefined && { owner }),
+      })
+      .filter(
+        (session) =>
+          !team ||
+          person === undefined ||
+          canSee({ id: person, admin: false }, this.#owned(session)),
       )
       .map((session) => this.#view(session));
   }
@@ -1262,6 +1269,15 @@ export class Sessions {
     command: Command,
     quote?: Quote,
   ): Result<undefined, "not_found" | "archived" | "offline"> {
+    return this.#send(id, command, quote);
+  }
+
+  #send(
+    id: string,
+    command: Command,
+    quote?: Quote,
+    seq?: number,
+  ): Result<undefined, "not_found" | "archived" | "offline"> {
     const session = this.#store.get(id);
     if (!session) {
       return { ok: false, reason: "not_found" };
@@ -1307,7 +1323,12 @@ export class Sessions {
 
     if (held) {
       this.#held.set(id, [...(this.#held.get(id) ?? []), ...told]);
-    } else if (!told.every((each) => host?.send(each) === true)) {
+    } else if (
+      !told.every(
+        (each, at) =>
+          host?.send(each, at === told.length - 1 ? seq : undefined) === true,
+      )
+    ) {
       return { ok: false, reason: "offline" };
     }
 
@@ -1342,19 +1363,6 @@ export class Sessions {
       return { ok: false, reason: "archived" };
     }
 
-    // Pi reads it with the team's messages, which the team sees at once.
-    if (message.kind === "notice" && !message.turn && this.#team(session)) {
-      this.#addVoice(id, {
-        kind: "notice",
-        actor: message.actor,
-        at: new Date(this.#clock.now()).toISOString(),
-        text: message.text,
-        notice: { plugin: message.plugin ?? "", ...message.notice },
-      });
-
-      return { ok: true, value: undefined };
-    }
-
     this.#outbox.enqueue(id, message);
 
     return { ok: true, value: undefined };
@@ -1383,11 +1391,34 @@ export class Sessions {
       return "stale_generation";
     }
 
-    if (!this.#hosts.has(session.id)) {
+    // Pi reads it with the team's messages, which the team sees at once.
+    if (message.kind === "notice" && !message.turn && this.#team(session)) {
+      this.#addVoice(session.id, {
+        kind: "notice",
+        actor: message.actor,
+        at: new Date(this.#clock.now()).toISOString(),
+        text: message.text,
+        notice: { plugin: message.plugin ?? "", ...message.notice },
+      });
+
+      return "kept";
+    }
+
+    const host = this.#hosts.get(session.id);
+
+    if (host === undefined || !this.#online(session)) {
       return "waits";
     }
 
-    return this.send(session.id, commandOf(message)).ok ? "sent" : "waits";
+    // Its side effects, such as a team's record of it, happened the first
+    // time.
+    if (message.sent) {
+      return host.send(commandOf(message), message.seq) ? "sent" : "waits";
+    }
+
+    return this.#send(session.id, commandOf(message), undefined, message.seq).ok
+      ? "sent"
+      : "waits";
   }
 
   // An external thread, such as a Slack thread, that talks to a Session.
@@ -1427,6 +1458,7 @@ export class Sessions {
     generation: number,
     send: HostSend,
     end: () => void,
+    acked?: number,
   ): Result<() => void> {
     const current = this.#current(id, generation);
     if (!current.ok) {
@@ -1443,7 +1475,7 @@ export class Sessions {
     }
 
     this.#held.delete(id);
-    this.#outbox.flush(id);
+    this.#outbox.attached(id, acked);
 
     return {
       ok: true,
@@ -1453,6 +1485,19 @@ export class Sessions {
         }
       },
     };
+  }
+
+  // The Session's host took what the outbox sent it up to seq.
+  ack(id: string, generation: number, seq: number): Result<undefined> {
+    const current = this.#current(id, generation);
+
+    if (!current.ok) {
+      return current;
+    }
+
+    this.#outbox.ack(id, seq);
+
+    return { ok: true, value: undefined };
   }
 
   transcript(id: string): readonly string[] {

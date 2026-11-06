@@ -79,10 +79,13 @@ export function userIdOf(actor: UserActor): string {
 }
 
 // Who a toolset tool's request acts as (ADR 0035). A meta-session's acts as
-// the user who started it, but never as an admin (ADR 0038).
+// the user who started it, but never as an admin (ADR 0038). A team
+// Session's reach only team work, so nothing it does touches the person's
+// own (ADR 0067).
 export interface OnBehalf {
   readonly actor: UserActor;
   readonly mayAdmin: boolean;
+  readonly team: boolean;
 }
 
 export interface PluginHost {
@@ -592,6 +595,17 @@ export function startPlugins(
       deps.log(message, { plugin: id, ...fields });
     };
 
+    const timer: Timer = {
+      after: (ms, fire) =>
+        deps.timer.after(ms, async () => {
+          try {
+            await fire();
+          } catch (error) {
+            log("timer failed", { error: messageOf(error) });
+          }
+        }),
+    };
+
     const failed = new AbortController();
     const touched = new Set<string>();
     const provided = new Set<string>();
@@ -708,7 +722,7 @@ export function startPlugins(
             definition.config ?? Type.Object({}),
             deps.config(id),
             secretRefs(store, fromEnv),
-            { timer: deps.timer, signal, log },
+            { timer, signal, log },
           ),
           store: storeOf(store),
           transcript,
@@ -786,7 +800,7 @@ export function startPlugins(
           },
           clock: deps.clock,
           env: (name) => (deps.env ?? process.env)[name],
-          timer: deps.timer,
+          timer,
           log,
           signal,
         }),
@@ -1275,7 +1289,11 @@ export function startPlugins(
         })),
       ...(loadsRouteTools(session)
         ? modelTools()
-            .filter(({ plugin }) => loadsIn(session, plugin))
+            .filter(
+              (tool) =>
+                loadsIn(session, tool.plugin) &&
+                onOwnersHalf(tool, session) !== undefined,
+            )
             .map(({ spec, asks }) => ({
               ...spec,
               ...(asks && { asks: true }),
@@ -1367,7 +1385,7 @@ export function startPlugins(
         : runRouteTool(
             found,
             input,
-            { actor, mayAdmin: true },
+            { actor, mayAdmin: true, team: false },
             deps.api,
             () => undefined,
           ).catch((error: unknown) => ({ text: String(error), isError: true }));
@@ -1557,22 +1575,33 @@ function ownerOf(
           session.ownedBy === "team" &&
           users.some(({ id }) => id === person) &&
           users.every(({ id, admin }) => admin || !steers(id)),
+        team: session.ownedBy === "team",
       };
 }
 
-// A team Session's call of a route with a team half goes to that half
+// A team Session's call of a route with a team half goes to that half, and
+// a plugin's route without one isn't its tool, since it acts as the person
 // (ADR 0067).
-function onOwnersHalf(found: RouteTool, session: Session): RouteTool {
-  return found.teamTwin === true && session.ownedBy === "team"
-    ? {
-        ...found,
-        request: (input) => {
-          const sent = found.request(input);
+function onOwnersHalf(
+  found: RouteTool,
+  session: Session,
+): RouteTool | undefined {
+  if (session.ownedBy !== "team") {
+    return found;
+  }
 
-          return { ...sent, path: `team/${sent.path}` };
-        },
-      }
-    : found;
+  if (found.teamTwin === true) {
+    return {
+      ...found,
+      request: (input) => {
+        const sent = found.request(input);
+
+        return { ...sent, path: `team/${sent.path}` };
+      },
+    };
+  }
+
+  return found.plugin === undefined ? found : undefined;
 }
 
 const nobodyToActAs: ToolResult = {

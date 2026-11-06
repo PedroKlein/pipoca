@@ -24,7 +24,7 @@ import {
   type TranscriptBatch,
   liveSurface,
   type Log,
-  readSse,
+  readSseEvents,
   versionHeader,
 } from "@pipoca/protocol";
 import type {
@@ -276,6 +276,40 @@ export function httpSessionStream(
   const open = new Map<string, LiveEvent>();
   let sending = Promise.resolve();
 
+  // The server sends again what it hasn't heard the host took, so the host
+  // drops a seq it has seen.
+  let taken = 0;
+  let acknowledged = 0;
+  let acknowledging = false;
+
+  const acknowledge = (): void => {
+    if (acknowledging) {
+      return;
+    }
+
+    acknowledging = true;
+
+    void (async () => {
+      while (acknowledged < taken) {
+        const seq = taken;
+
+        await call(agent, "runner.acks.create", {
+          params,
+          body: { generation, seq },
+          signal: AbortSignal.timeout(requestTimeoutMs),
+        });
+
+        acknowledged = seq;
+      }
+    })()
+      .catch((error: unknown) => {
+        log("commands not acknowledged", { sessionId, error: String(error) });
+      })
+      .finally(() => {
+        acknowledging = false;
+      });
+  };
+
   // No one follows a fenced attempt live, such as one whose Session was just
   // archived, so its events are dropped without a retry. Posts go one at a
   // time, so surfaces sent again never overtake a newer event.
@@ -347,8 +381,22 @@ export function httpSessionStream(
 
       void followCommands(
         agent,
-        { params, query: { generation } },
-        listener,
+        () => ({
+          params,
+          query: { generation, ...(taken > 0 && { ack: taken }) },
+        }),
+        (command, seq) => {
+          if (seq !== undefined && seq <= taken) {
+            return;
+          }
+
+          listener(command);
+
+          if (seq !== undefined) {
+            taken = seq;
+            acknowledge();
+          }
+        },
         republish,
         log,
         controller.signal,
@@ -614,8 +662,8 @@ function rejected(error: unknown): boolean {
 
 async function followCommands(
   agent: Agent,
-  input: ApiInput<"runner.commands">,
-  listener: (command: Command) => void,
+  input: () => ApiInput<"runner.commands">,
+  listener: (command: Command, seq?: number) => void,
   reconnected: () => void,
   log: Log,
   signal: AbortSignal,
@@ -625,7 +673,7 @@ async function followCommands(
   while (!signal.aborted) {
     try {
       const response = await call(agent, "runner.commands", {
-        ...input,
+        ...input(),
         signal,
       });
 
@@ -635,8 +683,8 @@ async function followCommands(
       }
 
       connected = true;
-      for await (const command of readSse(response)) {
-        listener(command as Command);
+      for await (const { id, data } of readSseEvents(response)) {
+        listener(data as Command, id === undefined ? undefined : Number(id));
       }
     } catch (error) {
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- the signal can abort while the await above is pending
@@ -646,7 +694,7 @@ async function followCommands(
 
       if (rejected(error)) {
         log("command stream rejected", {
-          sessionId: input.params.id,
+          sessionId: input().params.id,
           error: String(error),
         });
 
@@ -654,7 +702,7 @@ async function followCommands(
       }
 
       log("command stream failed", {
-        sessionId: input.params.id,
+        sessionId: input().params.id,
         error: String(error),
         retryInMs: retry.delayMs(),
       });

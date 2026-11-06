@@ -118,20 +118,19 @@ export function sessionStore(
 
   const selectSession = db.prepare(`${withProvider} where sessions.id = ?`);
 
+  // Null params match any row. A person's Sessions are those in their own
+  // Environments that they or nobody started, and the team's are those in
+  // its Environments (ADR 0064).
   const selectSessions = db.prepare(
-    `${withProvider} order by sessions.created_at desc`,
-  );
-
-  const selectUnarchivedSessions = db.prepare(
-    `${withProvider} where sessions.archived_at is null order by sessions.created_at desc`,
-  );
-
-  const selectOwnedSessions = db.prepare(
-    `${withProvider} where plugin = ? and plugin_key = ? order by sessions.created_at desc`,
-  );
-
-  const selectUnarchivedOwnedSessions = db.prepare(
-    `${withProvider} where plugin = ? and plugin_key = ? and sessions.archived_at is null order by sessions.created_at desc`,
+    `${withProvider}
+     where (?1 = 1 or sessions.archived_at is null)
+       and (?2 is null or (sessions.plugin = ?2 and sessions.plugin_key = ?3))
+       and (?4 is null
+         or (?4 = 'team' and environments.owner_user_id is null)
+         or (?4 = 'person'
+           and environments.owner_user_id is not null
+           and coalesce(sessions.started_by, environments.owner_user_id) = ?5))
+     order by sessions.created_at desc`,
   );
 
   const selectVoices = db.prepare(
@@ -266,18 +265,18 @@ export function sessionStore(
 
       return row && toSession(row);
     },
-    list: ({ includeArchived, plugin: ownedBy }) =>
-      ownedBy
-        ? sessionRows(
-            includeArchived
-              ? selectOwnedSessions
-              : selectUnarchivedOwnedSessions,
-            ownedBy.id,
-            ownedBy.key,
-          )
-        : sessionRows(
-            includeArchived ? selectSessions : selectUnarchivedSessions,
-          ),
+    list: ({ includeArchived, plugin: ownedBy, owner }) => {
+      const person = owner === undefined ? null : "person";
+
+      return sessionRows(
+        selectSessions,
+        includeArchived ? 1 : 0,
+        ownedBy?.id ?? null,
+        ownedBy?.key ?? null,
+        owner === null ? "team" : person,
+        owner ?? null,
+      );
+    },
     access: (id) => {
       const row = selectAccess.get(id) as
         { access: SessionAccess["kind"] } | undefined;
@@ -451,7 +450,7 @@ export function profileStore(db: DatabaseSync): ProfileStore {
 }
 
 interface OutboxRow {
-  id: string;
+  seq: number;
   session_id: string;
   plugin: string | null;
   actor: Actor;
@@ -463,29 +462,57 @@ interface OutboxRow {
   payload: string | null;
   dedupe: string | null;
   created_at: number;
+  sent_at: number | null;
+  acked_at: number | null;
 }
 
 function outboxStore(db: DatabaseSync): OutboxStore {
+  const forget = db.prepare(
+    "delete from session_outbox where session_id = ? and acked_at < ?",
+  );
+
   const insert = db.prepare(
-    "insert into session_outbox (id, session_id, plugin, actor, kind, text, notice, turn, generation, payload, dedupe, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict (session_id, plugin, dedupe) do nothing",
+    "insert into session_outbox (session_id, plugin, actor, kind, text, notice, turn, generation, payload, dedupe, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict (session_id, coalesce(plugin, ''), dedupe) where dedupe is not null do nothing",
   );
 
-  const selectFirst = db.prepare(
-    "select * from session_outbox where session_id = ? order by id limit 1",
+  const selectAfter = db.prepare(
+    "select * from session_outbox where session_id = ? and seq > ? and acked_at is null order by seq limit 1",
   );
 
-  const deleteOne = db.prepare("delete from session_outbox where id = ?");
+  const markSent = db.prepare(
+    "update session_outbox set sent_at = ? where seq = ?",
+  );
+
+  const deleteOne = db.prepare("delete from session_outbox where seq = ?");
+
+  const deleteKept = db.prepare(
+    "delete from session_outbox where seq = ? and dedupe is null",
+  );
+
+  const markKept = db.prepare(
+    "update session_outbox set sent_at = ?, acked_at = ? where seq = ?",
+  );
+
+  const deleteAcked = db.prepare(
+    "delete from session_outbox where session_id = ? and seq <= ? and sent_at is not null and dedupe is null",
+  );
+
+  const keepKeys = db.prepare(
+    "update session_outbox set acked_at = ? where session_id = ? and seq <= ? and sent_at is not null and acked_at is null",
+  );
 
   const deleteAll = db.prepare(
     "delete from session_outbox where session_id = ? returning *",
   );
 
   const selectSessions = db.prepare(
-    "select distinct session_id from session_outbox",
+    "select distinct session_id from session_outbox where acked_at is null",
   );
 
   return {
-    add: (message) => {
+    add: (message, keysSince) => {
+      forget.run(message.sessionId, keysSince);
+
       const toolResult =
         message.kind === "tool_result"
           ? {
@@ -499,7 +526,6 @@ function outboxStore(db: DatabaseSync): OutboxStore {
 
       return (
         insert.run(
-          message.id,
           message.sessionId,
           message.plugin,
           message.actor,
@@ -517,18 +543,30 @@ function outboxStore(db: DatabaseSync): OutboxStore {
         ).changes > 0
       );
     },
-    first: (sessionId) => {
-      const row = selectFirst.get(sessionId) as OutboxRow | undefined;
+    after: (sessionId, seq) => {
+      const row = selectAfter.get(sessionId, seq) as OutboxRow | undefined;
 
       return row && queuedOf(row);
     },
-    remove: (id) => {
-      deleteOne.run(id);
+    sent: (seq, at) => {
+      markSent.run(at, seq);
+    },
+    remove: (seq) => {
+      deleteOne.run(seq);
+    },
+    kept: (seq, at) => {
+      deleteKept.run(seq);
+      markKept.run(at, at, seq);
+    },
+    acked: (sessionId, seq, at) => {
+      deleteAcked.run(sessionId, seq);
+      keepKeys.run(at, sessionId, seq);
     },
     removeAll: (sessionId) =>
       (deleteAll.all(sessionId) as unknown as OutboxRow[])
+        .filter(({ acked_at }) => acked_at === null)
         .map(queuedOf)
-        .toSorted((a, b) => a.id.localeCompare(b.id)),
+        .toSorted((a, b) => a.seq - b.seq),
     sessions: () =>
       (selectSessions.all() as { session_id: string }[]).map(
         ({ session_id }) => session_id,
@@ -538,12 +576,13 @@ function outboxStore(db: DatabaseSync): OutboxStore {
 
 function queuedOf(row: OutboxRow): Queued {
   const base = {
-    id: row.id,
+    seq: row.seq,
     sessionId: row.session_id,
     plugin: row.plugin,
     actor: row.actor,
     dedupe: row.dedupe,
     createdAt: row.created_at,
+    sent: row.sent_at !== null,
   };
 
   switch (row.kind) {

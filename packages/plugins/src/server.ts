@@ -94,7 +94,7 @@ export interface PluginEvents<P extends PluginDefinition> {
   readonly on: {
     <T extends KernelEvent["type"]>(
       type: T,
-      fn: (event: KernelEventOf<T>) => void,
+      fn: (event: KernelEventOf<T>) => void | Promise<void>,
     ): void;
     <F extends TObject>(
       def: EventDef<F>,
@@ -102,7 +102,7 @@ export interface PluginEvents<P extends PluginDefinition> {
         readonly fields: Static<F>;
         readonly to: readonly Owner[];
         readonly plugin: string;
-      }) => void,
+      }) => void | Promise<void>,
     ): void;
     // Another plugin's event by its name, for a plugin whose people name
     // events at run time, such as in a trigger they write.
@@ -113,7 +113,7 @@ export interface PluginEvents<P extends PluginDefinition> {
         readonly fields: Readonly<Record<string, unknown>>;
         readonly to: readonly Owner[];
         readonly plugin: string;
-      }) => void,
+      }) => void | Promise<void>,
     ): void;
   };
   readonly declared: () => readonly DeclaredEvent[];
@@ -363,8 +363,8 @@ export interface Sessions {
       readonly turn: boolean;
       readonly as?: Actor;
       readonly notice?: { readonly kind: string; readonly data?: unknown };
-      // A repeat with the key of a message still queued for the Session is
-      // a no-op. Once that one is delivered, the key sends again.
+      // A repeat with the key of a message queued for the Session, or
+      // delivered in the last day, is a no-op.
       readonly dedupe?: string;
     },
   ) => "queued" | "gone";
@@ -426,7 +426,10 @@ export interface PluginConfig<P extends PluginDefinition = PluginDefinition> {
   // Seals plain secrets.
   readonly set: (change: DeepPartial<ConfigValue<P>>) => void;
   readonly watch: (
-    fn: (next: ConfigValue<P>, previous: ConfigValue<P>) => void,
+    fn: (
+      next: ConfigValue<P>,
+      previous: ConfigValue<P>,
+    ) => void | Promise<void>,
   ) => void;
   readonly lockedIn: () => string | undefined;
   readonly collection: <K extends CollectionKeys<ConfigValue<P>>>(

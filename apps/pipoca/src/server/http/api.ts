@@ -47,6 +47,7 @@ export function createApi(deps: Omit<ApiDeps, "callers">): Router {
         id,
         admin:
           behalf?.mayAdmin !== false && people.userById(id)?.admin === true,
+        team: behalf?.team === true,
       };
     },
     runner: (request) => runners.callerOf(request),

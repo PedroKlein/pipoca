@@ -106,6 +106,40 @@ test("the APIRule lets through every route the server serves", () => {
   expect(unlisted.filter((key) => ruleFor(routes[key]))).toEqual([]);
 });
 
+// Plugins' routes are compiled at boot, so the route table doesn't list
+// them, and the gateway must let all of /api/ext through.
+test("the APIRule lets through plugins' routes under /api/ext", () => {
+  const samples = [
+    "/api/ext/oidc/start/ias",
+    "/api/ext/oidc/callback",
+    "/api/ext/git-hosts/callback",
+    "/api/ext/routines/hooks/x",
+    "/api/ext/logins/proxy/anthropic/v1/messages",
+    "/api/ext/projects",
+  ];
+
+  expect(
+    samples.filter(
+      (path) =>
+        !rules.some(
+          (rule) =>
+            matches(rule.path, path) &&
+            allMethods.every((method) => rule.methods.includes(method)),
+        ),
+    ),
+  ).toEqual([]);
+});
+
+// Team Sessions' model calls go through the logins proxy at the public
+// host, and a long answer streams for longer than the gateway's 180 seconds.
+test("the APIRule keeps plugins' routes open as long as Kyma allows", () => {
+  expect(
+    rules.find(({ path }) =>
+      matches(path, "/api/ext/logins/proxy/anthropic/v1/messages"),
+    )?.timeout,
+  ).toBe(3900);
+});
+
 test("the APIRule lists the route table's paths, as bun run apirule writes them", () => {
   expect(withApiPaths(apiRule)).toBe(apiRule);
 });

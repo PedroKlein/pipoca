@@ -41,6 +41,8 @@ export interface ApiDeps {
   readonly callers: Callers;
   readonly checkStore: () => void;
   readonly log: Log;
+  // The server's public URL, from --url.
+  readonly url?: URL | undefined;
   readonly restart?: ServerRestart | undefined;
   readonly templates?: Templates | undefined;
   readonly config?: ConfigFiles | undefined;

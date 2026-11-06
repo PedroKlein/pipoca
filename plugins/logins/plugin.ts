@@ -1,10 +1,17 @@
-import { definePlugin, event, Type } from "@pipoca/plugins";
+import { Config, definePlugin, event, Type } from "@pipoca/plugins";
 
 export const logins = definePlugin({
   id: "logins",
   title: "Logins",
   description:
     "Keeps each person's model provider and MCP server logins on the server, so their Sessions use them on every runner. Log in once with /login or /mcp login in any Session.",
+  config: Config.object({
+    privateHosts: Config.strings({
+      title:
+        "MCP servers on private addresses that sign-ins from Settings may reach, as host or host:port",
+      default: [],
+    }),
+  }),
   events: {
     model_called: event({
       title: "Team model call",

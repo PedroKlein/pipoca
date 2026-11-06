@@ -34,6 +34,8 @@ export interface Transcript {
     readonly error?: string;
     readonly called: readonly string[];
   };
+  // Every tool Pi called in the Session, in order.
+  readonly called: (sessionId: string) => readonly string[];
   // Pi's latest summary of the context it compacted.
   readonly compaction: (
     sessionId: string,
@@ -146,13 +148,11 @@ export function transcriptReader(
               ? last.errorMessage
               : "unknown error",
         }),
-        called: replies.flatMap(({ content }) =>
-          partsOf(content).flatMap(({ type, name }) =>
-            type === "toolCall" && typeof name === "string" ? [name] : [],
-          ),
-        ),
+        called: calledIn(replies),
       };
     },
+    called: (sessionId) =>
+      calledIn(messages(sessionId).filter(({ role }) => role === "assistant")),
     compaction: (sessionId) => {
       const all = linesOf(sessionId);
 
@@ -167,6 +167,14 @@ export function transcriptReader(
       return undefined;
     },
   };
+}
+
+function calledIn(replies: readonly Message[]): string[] {
+  return replies.flatMap(({ content }) =>
+    partsOf(content).flatMap(({ type, name }) =>
+      type === "toolCall" && typeof name === "string" ? [name] : [],
+    ),
+  );
 }
 
 // A person's message, or a message a plugin sent, such as a notice.

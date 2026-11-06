@@ -27,6 +27,7 @@ import {
   type Route,
 } from "playwright-core";
 import type { Environment, Profile, Session } from "@pipoca/protocol";
+import { protocolVersion, versionHeader } from "@pipoca/protocol";
 import { installedPlugins } from "./installed";
 import { serve } from "./serve";
 import { setupTokenOf } from "./testdata/sign-in";
@@ -1440,7 +1441,17 @@ test("signs in to an MCP server of the base Profile from Settings and comes back
     });
   };
 
+  // The test's MCP server is on a loopback address, which an admin allows.
+  const allow = async (privateHosts: readonly string[]): Promise<void> => {
+    await fetch(new URL("/api/plugins/logins/config", server.url), {
+      method: "PUT",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ value: { privateHosts } }),
+    });
+  };
+
   try {
+    await allow([linear.url.host]);
     await base({ linear: { url: `${linear.url.origin}/mcp` } });
 
     await page.goto(server.url.href);
@@ -1459,6 +1470,7 @@ test("signs in to an MCP server of the base Profile from Settings and comes back
     await page.getByRole("button", { name: "Log out of linear" }).waitFor();
   } finally {
     await base({});
+    await allow([]);
     await linear.stop(true);
   }
 });
@@ -4762,7 +4774,7 @@ test("an admin pastes the key of a team runner's extension provider, and Credent
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "pipoca-protocol": "4",
+          [versionHeader]: String(protocolVersion),
           authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(body),

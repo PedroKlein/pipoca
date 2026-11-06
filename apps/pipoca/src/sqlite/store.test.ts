@@ -64,6 +64,71 @@ test("opens its own database again", () => {
   store.close();
 });
 
+// The Sessions list reads only the rows the person or the team owns, rather
+// than every Session on the server.
+test("lists only one person's Sessions, or only the team's", () => {
+  const store = openStore(":memory:");
+  defaultProfile = store.sessions.defaultProfileId("local");
+
+  for (const id of ["ana", "bo"]) {
+    store.people.insertUser({
+      id,
+      name: id,
+      admin: false,
+      passwordHash: "",
+      createdAt: new Date().toISOString(),
+    });
+
+    store.environments.ensureEnvironment(id, id);
+  }
+
+  store.environments.ensureEnvironment("pods", "team");
+
+  const environmentOf = (slug: string): string =>
+    store.environments.environments().find((each) => each.provider === slug)
+      ?.id ?? "";
+
+  store.sessions.insert(
+    sessionIn(environmentOf("ana"), "ana", {
+      id: "anas",
+      createdAt: "2026-10-24T00:00:01.000Z",
+      startedBy: "ana",
+    }),
+  );
+
+  store.sessions.insert(
+    sessionIn(environmentOf("ana"), "ana", {
+      id: "anas-plugin",
+      createdAt: "2026-10-24T00:00:02.000Z",
+    }),
+  );
+
+  store.sessions.insert(
+    sessionIn(environmentOf("bo"), "bo", {
+      id: "bos",
+      createdAt: "2026-10-24T00:00:03.000Z",
+      startedBy: "bo",
+    }),
+  );
+
+  store.sessions.insert(
+    sessionIn(environmentOf("pods"), "pods", {
+      id: "teams",
+      createdAt: "2026-10-24T00:00:04.000Z",
+      startedBy: "ana",
+    }),
+  );
+
+  const ids = (owner: string | null): string[] =>
+    store.sessions.list({ includeArchived: false, owner }).map(({ id }) => id);
+
+  expect(ids("ana")).toEqual(["anas-plugin", "anas"]);
+  expect(ids("bo")).toEqual(["bos"]);
+  expect(ids(null)).toEqual(["teams"]);
+
+  store.close();
+});
+
 test("lists the Sessions one owner holds", () => {
   const store = openStore(":memory:");
   defaultProfile = store.sessions.defaultProfileId("local");
@@ -704,4 +769,50 @@ test("keeps who said what in a Session as an actor, once per request", () => {
   ).toEqual([{ actor: "user:ana", user_id: "ana", request_id: "r1" }]);
 
   db.close();
+});
+
+test("holds the kernel's dedupe keys as it holds a plugin's, until they expire", () => {
+  const store = openStore(join(root, "server.db"));
+
+  store.environments.ensureEnvironment("vm", "team");
+  const [environment] = store.environments.environments();
+  defaultProfile = store.sessions.defaultProfileId("local");
+
+  store.sessions.insert(
+    sessionIn(environment?.id ?? "", "vm", {
+      id: "s1",
+      createdAt: "2026-11-02T00:00:00.000Z",
+    }),
+  );
+
+  const { outbox } = store.sessions;
+
+  const add = (keysSince: number): boolean =>
+    outbox.add(
+      {
+        kind: "context",
+        text: "Checks failed",
+        sessionId: "s1",
+        plugin: null,
+        actor: "plugin:kernel",
+        dedupe: "pr-1",
+        createdAt: 100,
+      },
+      keysSince,
+    );
+
+  const added = [add(0), add(0)];
+  const first = outbox.after("s1", 0)?.seq ?? 0;
+
+  outbox.sent(first, 200);
+  outbox.acked("s1", first, 300);
+
+  const taken = [add(300), outbox.after("s1", 0)];
+
+  expect(added).toEqual([true, false]);
+  expect(taken).toEqual([false, undefined]);
+  expect(add(301)).toBe(true);
+  expect(outbox.after("s1", 0)?.seq).toBeGreaterThan(first);
+
+  store.close();
 });
