@@ -145,6 +145,12 @@ switch (command) {
 
     const log = stderrLog("server");
 
+    // Bun exits on a rejection nothing handles, which would drop every
+    // Session stream for one plugin's stray promise (spec 2.8a).
+    process.on("unhandledRejection", (reason) => {
+      log("unhandled rejection", { error: String(reason) });
+    });
+
     const pluginsRoot = absolutePath(
       values.plugins ?? join(dirname(values.database), "plugins"),
     );

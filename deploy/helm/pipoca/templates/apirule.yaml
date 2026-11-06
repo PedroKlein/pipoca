@@ -54,15 +54,17 @@ spec:
       methods: {{ toJson $methods }}
       noAuth: true
       timeout: 3900
-    # The route table's other paths, which `bun run apirule` in apps/pipoca
-    # writes.
-    {{- range list "environment-templates" "environments" "invites" "join-keys" "me" "people" "plugins" "profiles" "repositories" "server" "settings" }}
+    # The route table's other paths and plugins' under ext, which
+    # `bun run apirule` in apps/pipoca writes. Team Sessions' model calls
+    # stream through the logins proxy under ext.
+    {{- range list "environment-templates" "environments" "ext" "invites" "join-keys" "me" "people" "plugins" "profiles" "repositories" "server" "settings" }}
     - path: /api/{{ . }}
       methods: {{ toJson $methods }}
       noAuth: true
     - path: /api/{{ . }}/{**}
       methods: {{ toJson $methods }}
       noAuth: true
+      timeout: 3900
     {{- end }}
     {{- if .Values.apiRule.exposeMcp }}
     - path: /api/mcp

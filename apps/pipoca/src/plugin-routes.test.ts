@@ -95,6 +95,7 @@ function signed(body: string, secret: string): string {
 async function hook(
   body: string,
   signature: string,
+  headers: Readonly<Record<string, string>> = {},
 ): Promise<{ readonly status: number; readonly body: unknown }> {
   const response = await fetch(
     new URL("/api/ext/notes/hooks/github", server.url),
@@ -103,6 +104,7 @@ async function hook(
       headers: {
         "content-type": "application/json",
         "x-hub-signature-256": signature,
+        ...headers,
       },
       body,
     },
@@ -182,6 +184,55 @@ test("a webhook answers 401 to a body it didn't sign and 413 to one over its lim
     status: 413,
     body: { error: "too_large" },
   });
+});
+
+// Someone who captured a delivery can't send it again: not one with the same
+// delivery id, and not one whose signed timestamp is over 5 minutes old.
+test("a webhook refuses a delivery it took already or one signed too long ago", async () => {
+  const body = JSON.stringify({ text: "pushed" });
+  const signature = signed(body, "s3cret");
+  const first = { "x-github-delivery": "d-1" };
+
+  expect((await hook(body, signature, first)).status).toBe(200);
+
+  expect(await hook(body, signature, first)).toMatchObject({
+    status: 409,
+    body: { error: "replayed" },
+  });
+
+  expect(
+    (await hook(body, signature, { "x-github-delivery": "d-2" })).status,
+  ).toBe(200);
+
+  const at = (ms: number): Record<string, string> => ({
+    "x-pipoca-timestamp": String(Math.floor(ms / 1000)),
+  });
+
+  const now = Date.now();
+  const stale = now - 6 * 60_000;
+
+  expect(
+    (
+      await hook(
+        body,
+        signed(`${String(Math.floor(now / 1000))}.${body}`, "s3cret"),
+        at(now),
+      )
+    ).status,
+  ).toBe(200);
+
+  expect(await hook(body, signature, at(now))).toMatchObject({
+    status: 401,
+    body: { error: "bad_signature" },
+  });
+
+  expect(
+    await hook(
+      body,
+      signed(`${String(Math.floor(stale / 1000))}.${body}`, "s3cret"),
+      at(stale),
+    ),
+  ).toMatchObject({ status: 401, body: { error: "stale_delivery" } });
 });
 
 test("a body that doesn't fit the route's schema answers 422 naming the field", async () => {

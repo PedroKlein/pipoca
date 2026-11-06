@@ -145,9 +145,11 @@ export interface SessionStore {
   insert: (session: StoredSession) => void;
   update: (session: StoredSession) => void;
   get: (id: string) => StoredSession | undefined;
+  // A person's id lists only their own Sessions, and null only the team's.
   list: (options: {
     readonly includeArchived: boolean;
     readonly plugin?: SessionPlugin;
+    readonly owner?: string | null;
   }) => readonly StoredSession[];
   // Undefined while the Session is open to the whole team.
   access: (id: string) => SessionAccess | undefined;
@@ -597,15 +599,19 @@ export class Sessions {
     readonly person?: string;
     readonly team?: boolean;
   } = {}): readonly Session[] {
+    const owner = team ? null : person;
+
     return this.#store
-      .list({ includeArchived: archived, ...(ownedBy && { plugin: ownedBy }) })
-      .filter((session) =>
-        team
-          ? this.#team(session) &&
-            (person === undefined ||
-              canSee({ id: person, admin: false }, this.#owned(session)))
-          : person === undefined ||
-            (!this.#team(session) && this.#person(session) === person),
+      .list({
+        includeArchived: archived,
+        ...(ownedBy && { plugin: ownedBy }),
+        ...(owner !== undefined && { owner }),
+      })
+      .filter(
+        (session) =>
+          !team ||
+          person === undefined ||
+          canSee({ id: person, admin: false }, this.#owned(session)),
       )
       .map((session) => this.#view(session));
   }

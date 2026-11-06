@@ -43,7 +43,13 @@ function routerFor(admin: boolean): {
 
   const router = createRouter(routes, {
     callers: {
-      person: () => ({ kind: "person", actor: "user:u1", id: "u1", admin }),
+      person: () => ({
+        kind: "person",
+        actor: "user:u1",
+        id: "u1",
+        admin,
+        team: false,
+      }),
       runner: () => undefined,
       hosts: () => false,
     },

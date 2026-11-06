@@ -1149,6 +1149,107 @@ test("a Team assistant runs as team work only its person steers, with tools that
   ).toThrow();
 });
 
+test("a Team assistant's kernel tools act on team work and never reach its person's own", async () => {
+  const pedros = await server.signedIn();
+  const team = await teamSetup();
+
+  const laptop = await json<Environment>(
+    server.as(pedros)("/api/environments", { body: { name: "laptop" } }),
+  );
+
+  const mine = await json<Profile>(
+    server.as(pedros)("/api/profiles", { body: { name: "Mine" } }),
+  );
+
+  const own = await json<Session>(
+    server.as(pedros)("/api/sessions", {
+      body: {
+        environment: laptop.id,
+        profile: mine.id,
+        workspace: workspace(),
+      },
+    }),
+  );
+
+  const { user } = await json<{ user: { id: string } }>(
+    server.as(pedros)("/api/auth"),
+  );
+
+  const assistant = starter?.start({
+    team: true,
+    actor: `user:${user.id}`,
+    environment: team.environment,
+    profile: "starter.helper",
+    workspace: workspace(),
+    access: { kind: "named", people: [] },
+    key: "assistant",
+  });
+
+  const tool = async (name: string, input: unknown) =>
+    (await serverTools?.call(name, input, {
+      session: assistant?.id ?? "",
+    })) ?? {
+      text: "",
+      isError: true,
+    };
+
+  const listed = async (name: string): Promise<readonly string[]> =>
+    (JSON.parse((await tool(name, {})).text) as { id: string }[]).map(
+      ({ id }) => id,
+    );
+
+  expect(await listed("sessions_list")).toEqual([assistant?.id ?? ""]);
+  expect(await listed("profiles_list")).toEqual([team.profile]);
+  expect(await listed("environments_list")).toEqual([team.environment]);
+
+  expect((await tool("sessions_get", { id: own.id })).isError).toBe(true);
+  expect((await tool("profiles_get", { id: mine.id })).isError).toBe(true);
+
+  expect(
+    (await tool("profiles_update", { id: mine.id, name: "Taken" })).isError,
+  ).toBe(true);
+
+  expect(
+    (await tool("environments_update", { id: laptop.id, name: "Taken" }))
+      .isError,
+  ).toBe(true);
+
+  expect(
+    (
+      await tool("sessions_start", {
+        environment: laptop.id,
+        profile: team.profile,
+        workspace: workspace(),
+      })
+    ).isError,
+  ).toBe(true);
+
+  const started = await tool("sessions_start", {
+    profile: team.profile,
+    workspace: workspace(),
+    firstMessage: "Ship it",
+  });
+
+  const { id } = JSON.parse(started.text) as { id: string };
+
+  expect(
+    await json<Session>(server.as(pedros)(`/api/sessions/${id}`)),
+  ).toMatchObject({
+    ownedBy: "team",
+    environmentId: team.environment,
+  });
+
+  expect(
+    (await json<Profile>(server.as(pedros)(`/api/profiles/${mine.id}`))).name,
+  ).toBe("Mine");
+
+  expect(
+    (await json<Environment[]>(server.as(pedros)("/api/environments"))).map(
+      ({ name }) => name,
+    ),
+  ).toEqual(["laptop"]);
+});
+
 test("team work nobody started uses no toolset tool, since it has no person to act as", async () => {
   await server.signedIn();
   const team = await teamSetup();
@@ -1341,4 +1442,43 @@ test("keeps a team message that a retried request sends twice once", async () =>
     ["message", "Go"],
     ["aside", "Done"],
   ]);
+});
+
+test("an admin who only watches team work sends it no message and shows as typing in none", async () => {
+  const anas = await ana();
+  const pedros = await server.signedIn();
+  const team = await teamSetup();
+
+  const session = await json<Session>(
+    server.as(anas)("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        profile: team.profile,
+        workspace: workspace(),
+      },
+    }),
+  );
+
+  await server.as(anas)(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { access: { kind: "view" } },
+  });
+
+  const said = async (cookie: string, path: string, body: unknown) =>
+    (await server.as(cookie)(`/api/sessions/${session.id}/${path}`, { body }))
+      .status;
+
+  expect(await said(pedros, "messages", { to: "team", text: "Hi" })).toBe(403);
+  expect(await said(pedros, "presence", {})).toBe(403);
+  expect(await said(anas, "messages", { to: "team", text: "Hi" })).toBe(201);
+
+  expect(
+    (
+      await server.as(pedros)(`/api/sessions/${session.id}`, {
+        method: "PATCH",
+        body: { archived: true },
+      })
+    ).status,
+  ).toBe(200);
 });

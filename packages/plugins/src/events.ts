@@ -161,7 +161,10 @@ export function pluginEvents<P extends PluginDefinition>(
 
       bus.emit({ type: `${plugin.id}.${name}`, plugin: plugin.id, fields, to });
     },
-    on: (what: string | EventDef, fn: (event: never) => void) => {
+    on: (
+      what: string | EventDef,
+      fn: (event: never) => void | Promise<void>,
+    ) => {
       const type = typeof what === "string" ? what : typeOf(known, what);
 
       if (type === undefined) {
@@ -170,10 +173,18 @@ export function pluginEvents<P extends PluginDefinition>(
 
       listening(
         bus.on(type, (event) => {
-          try {
-            (fn as (heard: Heard) => void)(event);
-          } catch (error) {
+          const failed = (error: unknown): void => {
             log("event listener failed", { type, error: String(error) });
+          };
+
+          try {
+            const heard = (fn as (heard: Heard) => void | Promise<void>)(event);
+
+            if (heard instanceof Promise) {
+              heard.catch(failed);
+            }
+          } catch (error) {
+            failed(error);
           }
         }),
       );
