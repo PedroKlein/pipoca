@@ -39,6 +39,8 @@ export interface OutboxStore {
   readonly after: (sessionId: string, seq: number) => Queued | undefined;
   readonly sent: (seq: number, at: number) => void;
   readonly remove: (seq: number) => void;
+  // The Session took it without its host, at `at`.
+  readonly kept: (seq: number, at: number) => void;
   // The host took everything up to seq, at `at`.
   readonly acked: (sessionId: string, seq: number, at: number) => void;
   readonly removeAll: (sessionId: string) => readonly Queued[];
@@ -46,7 +48,7 @@ export interface OutboxStore {
 }
 
 export type Delivery =
-  "sent" | "waits" | "not_found" | "archived" | "stale_generation";
+  "sent" | "kept" | "waits" | "not_found" | "archived" | "stale_generation";
 
 // How long the dedupe key of a message a host took still holds.
 const keepKeysMs = 24 * 60 * 60 * 1000;
@@ -128,6 +130,12 @@ export class Outbox {
           continue;
         }
 
+        if (delivery === "kept") {
+          this.#store.kept(message.seq, this.#clock.now());
+
+          continue;
+        }
+
         this.#store.remove(message.seq);
         this.#dropped(message, delivery);
       }
@@ -156,7 +164,10 @@ export class Outbox {
     }
   }
 
-  drop(sessionId: string, reason: Exclude<Delivery, "sent" | "waits">): void {
+  drop(
+    sessionId: string,
+    reason: Exclude<Delivery, "sent" | "kept" | "waits">,
+  ): void {
     this.#written.delete(sessionId);
 
     for (const message of this.#store.removeAll(sessionId)) {

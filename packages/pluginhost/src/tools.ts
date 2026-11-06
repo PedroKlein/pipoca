@@ -364,11 +364,15 @@ export async function routeToolQuestion(
   const fields = fieldsOf(input);
   const path = asks.lookup?.(fields);
   const base = baseOf(found);
+  const half = onBehalf.team ? "team/" : "";
 
   const url =
     path === undefined
       ? undefined
-      : routeUrl(found.plugin === undefined ? path : base + path, base);
+      : routeUrl(
+          found.plugin === undefined ? path : `${base}${half}${path}`,
+          base,
+        );
 
   let looked: unknown;
   if (url !== undefined) {
