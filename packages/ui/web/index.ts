@@ -9,6 +9,7 @@ export {
 } from "./button";
 export { Card, cardClass, linkCardClass, raisedCardClass } from "./card";
 export { ChoiceCard, ChoiceTiles, type Tile } from "./choice";
+export { Chip } from "./chip";
 export { cn } from "./cn";
 export { Code, Command, CopyButton } from "./code";
 export {

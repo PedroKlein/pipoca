@@ -11,7 +11,7 @@ import { PluginBoundary } from "../../plugin-boundary";
 import { enabledPlugins, pluginContext } from "../../plugins";
 import { renderMarkdown } from "./render-markdown";
 
-export function Markdown({ text }: { readonly text: string }): ReactElement {
+function Markdown({ text }: { readonly text: string }): ReactElement {
   const prose = useRef<HTMLDivElement>(null);
   const [links, setLinks] = useState<readonly PluginLink[]>([]);
 

@@ -17,7 +17,7 @@ interface Option {
   readonly detail: string | null;
 }
 
-export interface Suggestions {
+interface Suggestions {
   readonly menu: ReactElement | null;
   // Props for the textarea the menu completes.
   readonly box: {

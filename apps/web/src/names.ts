@@ -49,7 +49,7 @@ export function modelRef(name: string): ModelRef | undefined {
     : undefined;
 }
 
-export interface SessionBadge {
+interface SessionBadge {
   readonly state: "working" | "waiting" | "failed" | "offline";
   readonly label: string;
 }

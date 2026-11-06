@@ -4,7 +4,6 @@ import {
   ErrorText,
   Field,
   Page,
-  PageTitle,
   Row,
   Rows,
   Switch,
@@ -32,10 +31,10 @@ export function TeamNaming(): ReactElement {
   };
 
   return (
-    <Page>
-      <PageTitle description="Shown on the team hub and in everyone's sidebar.">
-        Name
-      </PageTitle>
+    <Page
+      title="Name"
+      description="Shown on the team hub and in everyone's sidebar."
+    >
       <form onSubmit={save} className="flex max-w-md flex-col gap-4">
         <Field label="Team name" hint="Left empty, it shows as Team.">
           <TextInput
@@ -77,10 +76,10 @@ export function TeamPlugins(): ReactElement {
   );
 
   return (
-    <Page>
-      <PageTitle description="A plugin loads in team Sessions only if it says it works in team work and you leave it on. Built-in ones start on, installed ones start off. New team Sessions pick up a change.">
-        Plugins in team work
-      </PageTitle>
+    <Page
+      title="Plugins in team work"
+      description="A plugin loads in team Sessions only if it says it works in team work and you leave it on. Built-in ones start on, installed ones start off. New team Sessions pick up a change."
+    >
       <ErrorText className="mb-4">{turn.error}</ErrorText>
       <Rows label="Plugins in team work">
         {plugins

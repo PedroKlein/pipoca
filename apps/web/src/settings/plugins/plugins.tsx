@@ -1,4 +1,4 @@
-import { Button, Icon, Page, PageTitle, Segmented } from "@pipoca/ui";
+import { Button, Icon, Page, Segmented } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { useQuery } from "../../data/hooks";
 import { PluginCard } from "./plugin-card";
@@ -23,23 +23,22 @@ export function PluginsPage(): ReactElement {
   );
 
   return (
-    <Page id="plugins-page">
-      <PageTitle
-        description="Features for everyone on this server. A plugin with settings adds its own page to this menu."
-        actions={
-          !installing && (
-            <Button
-              onClick={() => {
-                setInstalling(true);
-              }}
-            >
-              Install from git
-            </Button>
-          )
-        }
-      >
-        Plugins
-      </PageTitle>
+    <Page
+      id="plugins-page"
+      title="Plugins"
+      description="Features for everyone on this server. A plugin with settings adds its own page to this menu."
+      actions={
+        !installing && (
+          <Button
+            onClick={() => {
+              setInstalling(true);
+            }}
+          >
+            Install from git
+          </Button>
+        )
+      }
+    >
       {plugins.some(waitsForRestart) && <Restart />}
       {installing && (
         <Install

@@ -1,4 +1,4 @@
-import { Page, PageTitle, Tabs } from "@pipoca/ui";
+import { Page, Tabs } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { PluginBoundary } from "../../plugin-boundary";
 import { enabledPlugins, pluginContext, pluginTitle } from "../../plugins";
@@ -21,10 +21,10 @@ export function IntegrationsPage({
   const Section = open?.SettingsSection;
 
   return (
-    <Page>
-      <PageTitle description="Services that start work from outside Pipoca and that Sessions can answer through.">
-        Integrations
-      </PageTitle>
+    <Page
+      title="Integrations"
+      description="Services that start work from outside Pipoca and that Sessions can answer through."
+    >
       <Tabs
         label="Integrations"
         className="mb-2"

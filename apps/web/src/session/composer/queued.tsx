@@ -1,4 +1,4 @@
-import { Icon } from "@pipoca/ui";
+import { Button, Icon } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { command } from "../../data/client";
 
@@ -31,8 +31,9 @@ export function Queued({
             {queued}
           </span>
           {delivery === "followUp" && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="xs"
               aria-label={`Send "${queued}" now`}
               title="Send now"
               onClick={() => {
@@ -43,14 +44,15 @@ export function Queued({
                   sendNow: true,
                 }).catch(report);
               }}
-              className="flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 text-caption hover:bg-hover hover:text-fg"
             >
               <Icon name="arrow-up" className="size-3.5" />
               Send now
-            </button>
+            </Button>
           )}
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="xs"
+            iconOnly
             aria-label={`Take back "${queued}"`}
             title="Take back"
             onClick={() => {
@@ -60,10 +62,9 @@ export function Queued({
                 text: queued,
               }).catch(report);
             }}
-            className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md hover:bg-hover hover:text-fg"
           >
             <Icon name="x" className="size-3.5" />
-          </button>
+          </Button>
         </p>
       ))}
     </>

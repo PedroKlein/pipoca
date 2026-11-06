@@ -17,7 +17,7 @@ import {
 import { errorText, request, store } from "./client";
 
 // The routes a page reads: GETs that answer JSON.
-export type QueryKey = {
+type QueryKey = {
   [Key in RouteKey]: Routes[Key]["method"] extends "GET"
     ? ApiReply<Key> extends Response | undefined
       ? never
@@ -55,7 +55,7 @@ const topicsOf: Readonly<Partial<Record<QueryKey, readonly string[]>>> = {
   "sessions.get": ["sessions"],
 };
 
-export interface QueryOptions {
+interface QueryOptions {
   // Topics besides the route's own.
   readonly topics?: readonly string[];
   // Read again this often, for what changes outside Pipoca.
@@ -64,7 +64,7 @@ export interface QueryOptions {
   readonly enabled?: boolean;
 }
 
-export interface Query<T> {
+interface Query<T> {
   readonly data: T | undefined;
   readonly error: string | undefined;
   readonly loading: boolean;
@@ -179,7 +179,7 @@ async function signedIn<T>(reply: Promise<T>): Promise<T> {
   });
 }
 
-export interface Action<Args extends readonly unknown[], Result> {
+interface Action<Args extends readonly unknown[], Result> {
   // Resolves undefined when it fails, with error set.
   readonly run: (...args: Args) => Promise<Result | undefined>;
   readonly pending: boolean;
@@ -234,7 +234,7 @@ export function useAction<Args extends readonly unknown[], Result>(
   return { run, pending, error, clear };
 }
 
-export interface Me {
+interface Me {
   readonly user: User;
   readonly admin: boolean;
   // A server several people use has a team (ADR 0064).

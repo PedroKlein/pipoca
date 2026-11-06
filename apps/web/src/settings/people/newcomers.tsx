@@ -1,5 +1,5 @@
 import type { Newcomers } from "@pipoca/protocol";
-import { Button, cardClass, cn } from "@pipoca/ui";
+import { Button, cardClass, Chip, cn } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { useQuery } from "../../data/hooks";
 import { skippableSteps } from "../../setup/steps";
@@ -12,7 +12,7 @@ export function useNewcomers(): Newcomers {
 }
 
 // Names for what an admin set up, in the words new people read.
-export function useNewcomerSummary(newcomers: Newcomers): {
+function useNewcomerSummary(newcomers: Newcomers): {
   readonly template: string | undefined;
   readonly profiles: readonly string[];
   readonly required: readonly string[];
@@ -87,11 +87,8 @@ export function NewcomersCard({
       ) : (
         <ul aria-label="New people get" className="flex flex-wrap gap-1.5">
           {chips.map((chip) => (
-            <li
-              key={chip}
-              className="inline-flex h-7 items-center rounded-full border border-line px-2.5 text-label text-fg"
-            >
-              {chip}
+            <li key={chip}>
+              <Chip>{chip}</Chip>
             </li>
           ))}
         </ul>

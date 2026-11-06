@@ -1,21 +1,13 @@
 import { expect, test } from "bun:test";
 import { act, useState } from "react";
 import { Slider } from "./slider";
-import { byRole, click, render, withPage } from "./testing/render";
+import { byRole, click, press, render, withPage } from "./testing/render";
 
 withPage();
 
 const levels = ["off", "low", "medium", "high"] as const;
 
 type Level = (typeof levels)[number];
-
-function press(element: HTMLElement, key: string): void {
-  act(() => {
-    element.dispatchEvent(
-      new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
-    );
-  });
-}
 
 function saved(): {
   readonly asked: Level[];
