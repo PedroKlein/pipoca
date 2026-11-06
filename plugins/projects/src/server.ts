@@ -129,8 +129,6 @@ export const server = defineServer(projects, (context) => {
     }),
   };
 
-  projectTools(context, store);
-
   const coordinated = (sessionId: string): Project | undefined => {
     const member = store.member(sessionId);
 
@@ -155,7 +153,11 @@ export const server = defineServer(projects, (context) => {
 
   // A thread's turn reaches its coordinator once the thread's transcript
   // holds the whole turn, which its host can upload after TurnEnded.
-  const reportTurn = (threadId: string, end: number | undefined): void => {
+  const reportTurn = (
+    threadId: string,
+    end: number | undefined,
+    wait = true,
+  ): void => {
     const thread = store.member(threadId);
     const project = thread && store.get(thread.projectId);
     const session = sessions.get(threadId);
@@ -165,6 +167,7 @@ export const server = defineServer(projects, (context) => {
     }
 
     if (
+      wait &&
       end !== undefined &&
       session?.archivedAt === null &&
       transcript.length(threadId) < end
@@ -216,6 +219,17 @@ export const server = defineServer(projects, (context) => {
     reportTurn(threadId, end);
   });
 
+  // A thread's later message never overtakes its last turn's report, which
+  // then goes with what the transcript holds so far.
+  const reportWaitingTurns = (threadId: string): void => {
+    for (const { key, payload } of schedule.pending(`turn:${threadId}:`)) {
+      schedule.cancel(key);
+      reportTurn(threadId, (payload as { end: number }).end, false);
+    }
+  };
+
+  projectTools(context, store, reportWaitingTurns);
+
   for (const type of ["TurnStarted", "TurnEnded"] as const) {
     events.on(type, ({ session }) => {
       if (store.member(session.id) !== undefined) {
@@ -261,6 +275,8 @@ export const server = defineServer(projects, (context) => {
       ((session.status === "interrupted" && previous === "running") ||
         session.status === "failed")
     ) {
+      reportWaitingTurns(session.id);
+
       report(project, {
         ...threadNotice(thread, session, `stopped: ${session.status}`),
         turn: true,

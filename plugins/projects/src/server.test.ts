@@ -168,6 +168,33 @@ test("a turn report waits for the thread's transcript to hold the whole turn", a
   );
 });
 
+test("a thread's later message never overtakes its waiting turn report", async () => {
+  const s = await started();
+  await using _ = s.t;
+  const thread = await threadOf(s, "Docs");
+
+  await thread.turn([asked("Do Docs"), reply("Half done.")], {
+    uploaded: false,
+  });
+
+  await s.t.tool(
+    "message_coordinator",
+    { text: "Which branch?" },
+    { session: thread },
+  );
+
+  await until(() => s.coordinator.delivered().length === 2);
+
+  const [report, message] = s.coordinator.delivered();
+
+  expect(report?.text).toContain("finished a turn");
+  expect(message?.text).toContain("Which branch?");
+
+  await s.t.clock.advance("2s");
+
+  expect(s.coordinator.delivered()).toHaveLength(2);
+});
+
 test("a thread that messaged the coordinator reports its turn as context", async () => {
   const s = await started();
   await using _ = s.t;

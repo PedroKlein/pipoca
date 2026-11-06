@@ -24,7 +24,12 @@ interface Caller {
 
 // The tools a coordinator and its threads work with (ADR 0016), each only in
 // the Sessions of its role.
-export function projectTools(context: Context, store: ProjectStore): void {
+export function projectTools(
+  context: Context,
+  store: ProjectStore,
+  // Sends what a thread's turns still owe its coordinator, first.
+  reportWaitingTurns: (threadId: string) => void,
+): void {
   const { sessions, tools, transcript } = context;
 
   const callerOf = (session: Session): Caller => {
@@ -274,6 +279,8 @@ export function projectTools(context: Context, store: ProjectStore): void {
     }),
     run: (input, { session }) => {
       const { member, project, actor } = callerOf(session);
+
+      reportWaitingTurns(member.sessionId);
 
       sessions.send(project.coordinatorId, {
         text: `[Thread "${member.title}" (${member.sessionId})] ${input.text}`,
