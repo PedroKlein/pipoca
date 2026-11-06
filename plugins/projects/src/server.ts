@@ -103,6 +103,10 @@ const installation = Type.Union([
 const errorLimit = 300;
 const transcriptWaitMs = 1000;
 
+// A runner can die between TurnEnded and its upload, so a report stops
+// waiting for the transcript after this long.
+const transcriptWaitLimitMs = 60_000;
+
 // Projects, their coordinators and threads (ADR 0016, ADR 0028), each
 // Project's library (ADR 0018), and each person's assistant, a Project of
 // their own (ADR 0052).
@@ -157,6 +161,7 @@ export const server = defineServer(projects, (context) => {
     threadId: string,
     end: number | undefined,
     wait = true,
+    since = context.clock.now(),
   ): void => {
     const thread = store.member(threadId);
     const project = thread && store.get(thread.projectId);
@@ -170,12 +175,13 @@ export const server = defineServer(projects, (context) => {
       wait &&
       end !== undefined &&
       session?.archivedAt === null &&
-      transcript.length(threadId) < end
+      transcript.length(threadId) < end &&
+      context.clock.now() < since + transcriptWaitLimitMs
     ) {
       schedule.at(
         `turn:${threadId}:${String(end)}`,
         context.clock.now() + transcriptWaitMs,
-        { threadId, end },
+        { threadId, end, since },
       );
 
       return;
@@ -214,9 +220,13 @@ export const server = defineServer(projects, (context) => {
   };
 
   schedule.on("turn:", (payload) => {
-    const { threadId, end } = payload as { threadId: string; end: number };
+    const { threadId, end, since } = payload as {
+      threadId: string;
+      end: number;
+      since?: number;
+    };
 
-    reportTurn(threadId, end);
+    reportTurn(threadId, end, true, since);
   });
 
   // A thread's later message never overtakes its last turn's report, which
