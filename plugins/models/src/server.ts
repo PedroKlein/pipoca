@@ -199,7 +199,22 @@ export const server = defineServer(models, (context) => {
     },
   );
 
-  routes.get("environments", { auth: "person" }, () => store.all());
+  // A person sees their own Environments and the team's; an admin, all.
+  routes.get("environments", { auth: "person" }, ({ caller }) => {
+    const { person } = caller;
+
+    const seen = new Set(
+      environments
+        .list()
+        .filter(
+          ({ ownerId }) =>
+            person.admin || ownerId === person.id || ownerId === "team",
+        )
+        .map(({ id }) => id),
+    );
+
+    return store.all().filter(({ environmentId }) => seen.has(environmentId));
+  });
 
   routes.post(
     "environments/:id",
