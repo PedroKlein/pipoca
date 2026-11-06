@@ -808,6 +808,7 @@ test("changes a plugin's setting on the Plugins page", async () => {
   const limit = push.getByLabel(
     /^Minutes before a question goes to the starter/,
   );
+
   expect(await limit.inputValue()).toBe("10");
 
   await limit.fill("25");

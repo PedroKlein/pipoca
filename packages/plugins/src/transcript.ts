@@ -133,6 +133,7 @@ export function transcriptReader(
       );
 
       const last = replies.at(-1);
+
       const reply = replies
         .map(({ content }) => textOf(content))
         .findLast((text) => text !== "");
