@@ -12,7 +12,7 @@ import * as metaWeb from "../../../plugins/meta/web/index";
 import { web as modelsWeb } from "../../../plugins/models/web/index";
 import * as oidcWeb from "../../../plugins/oidc/web/index";
 import * as projectsWeb from "../../../plugins/projects/web/index";
-import * as pushWeb from "../../../plugins/push/web/index";
+import { web as pushWeb } from "../../../plugins/push/web/index";
 import * as routinesWeb from "../../../plugins/routines/web/index";
 import { web as slackWeb } from "../../../plugins/slack/web/index";
 import { web as subagentsWeb } from "../../../plugins/subagents/web/index";
@@ -32,7 +32,7 @@ export const webRegistry = [
   { id: "models", web: modelsWeb },
   { id: "oidc", plugin: oidcWeb },
   { id: "projects", plugin: projectsWeb },
-  { id: "push", plugin: pushWeb },
+  { id: "push", web: pushWeb },
   { id: "routines", plugin: routinesWeb },
   { id: "slack", web: slackWeb },
   { id: "subagents", web: subagentsWeb },

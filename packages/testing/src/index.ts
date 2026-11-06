@@ -88,6 +88,9 @@ export interface TestSession {
     readonly notice?: unknown;
   }[];
   readonly queued: () => readonly { readonly text: string }[];
+  // Live events its host reports, such as a status or a prompt, which the
+  // kernel acts on as it would a runner's.
+  readonly report: (events: readonly unknown[]) => Promise<void>;
   // A person's message to Pi, as one of the test's people sends it. It has
   // reached the host, when the host is online, once this settles.
   readonly send: (personId: string, text: string) => Promise<void>;

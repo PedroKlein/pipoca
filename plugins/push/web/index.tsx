@@ -1,31 +1,23 @@
-import {
-  json,
-  useLoaded,
-  type WebContext,
-  type WebPlugin,
-} from "@pipoca/plugins/web";
+import { defineWeb, useApi, useLoaded } from "@pipoca/plugins/web";
 import { Button, ErrorText, PageTitle, Row, Rows } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
+import { push } from "../plugin";
 
-export const push: WebPlugin = {
-  name: "push",
-  SettingsSection,
-};
+export const web = defineWeb(push, {
+  settings: { group: "you", Section },
+});
 
 const supported =
   typeof navigator !== "undefined" &&
   "serviceWorker" in navigator &&
   typeof PushManager !== "undefined";
 
-function SettingsSection({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement | null {
+function Section(): ReactElement | null {
+  const api = useApi(push);
   const [error, setError] = useState<string>();
 
   const key = useLoaded(
-    async () => (await json<{ key: string }>(context.request("key"))).key,
+    async () => (await api.get<{ key: string }>("key")).key,
     "push.key",
   ).value;
 
@@ -57,21 +49,11 @@ function SettingsSection({
       applicationServerKey: key,
     });
 
-    await json(
-      context.request("subscriptions", {
-        method: "PUT",
-        body: JSON.stringify(subscription.toJSON()),
-      }),
-    );
+    await api.put("subscriptions", subscription.toJSON());
   };
 
   const turnOff = async (subscription: PushSubscription): Promise<void> => {
-    await json(
-      context.request("subscriptions", {
-        method: "DELETE",
-        body: JSON.stringify({ endpoint: subscription.endpoint }),
-      }),
-    );
+    await api.delete("subscriptions", { endpoint: subscription.endpoint });
 
     await subscription.unsubscribe();
   };

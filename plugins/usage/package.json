@@ -2,6 +2,10 @@
   "name": "@pipoca/usage",
   "private": true,
   "type": "module",
+  "exports": {
+    "./plugin": "./plugin.ts",
+    "./server": "./src/server.ts"
+  },
   "dependencies": {
     "@pipoca/logins": "workspace:*",
     "@pipoca/plugins": "workspace:*",

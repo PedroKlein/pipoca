@@ -167,7 +167,6 @@ export default tseslint.config(
       "plugins/projects/src/projects.ts",
       "plugins/projects/src/server.ts",
       "plugins/projects/src/tools.ts",
-      "plugins/push/src/server.ts",
       "plugins/routines/src/engine.ts",
       "plugins/routines/src/wakeups.ts",
     ],

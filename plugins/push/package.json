@@ -2,42 +2,19 @@
   "name": "@pipoca/push",
   "private": true,
   "type": "module",
-  "exports": {
-    "./server": "./src/server.ts",
-    "./web": "./web/index.tsx",
-    "./package.json": "./package.json"
-  },
   "dependencies": {
     "@pipoca/plugins": "workspace:*",
     "@pipoca/protocol": "workspace:*",
     "@pipoca/ui": "workspace:*",
+    "@pipoca/usage": "workspace:*",
     "react": "19.3.1"
   },
   "devDependencies": {
+    "@pipoca/logins": "workspace:*",
+    "@pipoca/testing": "workspace:*",
     "@types/react": "19.3.0"
   },
   "pipoca": {
-    "id": "push",
-    "title": "Notifications",
-    "description": "Tells your devices when Pi finishes or needs you, even with Pipoca closed.",
-    "capabilities": [
-      "events",
-      "routes",
-      "sessions"
-    ],
-    "settings": {
-      "answerMinutes": {
-        "type": "number",
-        "title": "Minutes before a question goes to the starter",
-        "description": "In team work, how long a question Pi asks a named person waits before whoever started the work is told too.",
-        "default": 10,
-        "min": 1,
-        "max": 1440
-      }
-    },
-    "works": [
-      "personal",
-      "team"
-    ]
+    "entry": "plugin.ts"
   }
 }

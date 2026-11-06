@@ -622,6 +622,21 @@ export async function pluginTest(
             );
           }
         },
+        report: async (reports) => {
+          const reported = await request(
+            `/runner/sessions/${host.id}/events`,
+            runner(host.token, {
+              generation: host.generation,
+              events: reports,
+            }),
+          );
+
+          if (!reported.ok) {
+            throw new Error(
+              `the events answered ${String(reported.status)}: ${await reported.text()}`,
+            );
+          }
+        },
         transcript: async (lines) => {
           const { entries } = await json<{ entries: readonly string[] }>(
             request(
