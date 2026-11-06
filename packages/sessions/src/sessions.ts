@@ -115,7 +115,6 @@ export interface BindingStore {
     at: number,
   ) => void;
   readonly boundTo: (plugin: string, key: string) => string | undefined;
-  readonly unbind: (plugin: string, key: string) => void;
 }
 
 export interface SessionStore {
@@ -1406,10 +1405,6 @@ export class Sessions {
 
   boundTo(plugin: string, key: string): string | undefined {
     return this.#store.bindings.boundTo(plugin, key);
-  }
-
-  unbind(plugin: string, key: string): void {
-    this.#store.bindings.unbind(plugin, key);
   }
 
   #rememberRequest(id: string, requestId: string): boolean {

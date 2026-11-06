@@ -150,9 +150,6 @@ export function sessionStore(
     "select session_id from session_bindings where plugin = ? and key = ?",
   );
 
-  const deleteBinding = db.prepare(
-    "delete from session_bindings where plugin = ? and key = ?",
-  );
 
   const selectAccess = db.prepare("select access from sessions where id = ?");
 
@@ -358,9 +355,6 @@ export function sessionStore(
       boundTo: (plugin, key) =>
         (selectBinding.get(plugin, key) as { session_id: string } | undefined)
           ?.session_id,
-      unbind: (plugin, key) => {
-        deleteBinding.run(plugin, key);
-      },
     },
     byEnvironment: (provider, statuses) =>
       sessionRows(selectByEnvironment, provider, JSON.stringify(statuses)),
