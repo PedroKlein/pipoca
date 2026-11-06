@@ -862,7 +862,10 @@ export function routinesEngine(context: Context): Routines {
   });
 
   const died = (run: RunRow, sessionId: string): void => {
-    const progress = context.transcript.messages(sessionId).length;
+    // A run can work through tools for a long time without saying anything.
+    const progress =
+      context.transcript.messages(sessionId).length +
+      context.transcript.lastTurn(sessionId).called.length;
 
     const before = store.get<{ deaths: number; progress: number }>(
       "select deaths, progress from routines_runs where id = ?",

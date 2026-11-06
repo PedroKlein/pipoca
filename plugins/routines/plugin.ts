@@ -42,8 +42,8 @@ create table routines_runs (
   events text check (events is null or json_valid(events)),
   fired_at integer not null,
   ended_at integer,
-  -- How often its Session died since Pi's messages last grew, and how many
-  -- there were then.
+  -- How often its Session died since Pi last said something or called a
+  -- tool, and how far it had got then.
   deaths integer not null default 0,
   progress integer not null default 0
 ) strict;

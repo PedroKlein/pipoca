@@ -244,7 +244,7 @@ test("a run whose Session dies five times without progress parks the routine", a
   const run = await t.as("ana").post<Run>("routines/nightly/run");
 
   // Its host takes the Session in a new attempt, which ends the first, so
-  // it has died before Pi says anything.
+  // it has died before Pi does anything.
   const session = await t.attach(run.sessionId ?? "");
 
   const dies = (times: number): void => {
@@ -259,12 +259,23 @@ test("a run whose Session dies five times without progress parks the routine", a
     }
   };
 
+  const pi = (content: unknown): object => ({
+    type: "message",
+    message: { role: "assistant", content },
+  });
+
+  await session.transcript([pi([{ type: "text", text: "On it." }])]);
+  dies(2);
+
   await session.transcript([
+    pi([{ type: "toolCall", id: "t1", name: "bash", arguments: {} }]),
     {
       type: "message",
       message: {
-        role: "assistant",
-        content: [{ type: "text", text: "On it." }],
+        role: "toolResult",
+        toolCallId: "t1",
+        toolName: "bash",
+        content: [{ type: "text", text: "ok" }],
       },
     },
   ]);
