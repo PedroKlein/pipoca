@@ -6,6 +6,8 @@ import { integer, nullable, strings, textMap, type Wire } from "./wire";
 
 export const protocolVersion = 5;
 export const versionHeader = "pipoca-protocol";
+// Marks a Session part's request made by a tool call the person allowed.
+export const askedHeader = "pipoca-asked";
 
 // Runner and Environment names show in logs, container names and paths.
 export const runnerName = Type.String({

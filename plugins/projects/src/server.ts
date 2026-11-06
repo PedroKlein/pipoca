@@ -817,6 +817,15 @@ export const server = defineServer(projects, (context) => {
         throw new Forbidden("only the assistant's threads install");
       }
 
+      const { startedBy } = caller.session;
+
+      if (
+        body.kind === "plugin" &&
+        (startedBy === null || context.people.get(startedBy)?.admin !== true)
+      ) {
+        throw new Forbidden("Only admins install plugins.", "admin_only");
+      }
+
       return body.kind === "profile"
         ? installProfile(context, caller.session.id, body)
         : installPlugin(context, caller.session.id, body);

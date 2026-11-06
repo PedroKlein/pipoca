@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HttpError, type TypedClient } from "@pipoca/plugins";
 import {
   type PluginTest,
   person,
@@ -19,33 +18,6 @@ const people = [
   { id: "bo", name: "bo" },
 ];
 
-// The Session part's requests, answered by the plugin's real routes.
-function routed(api: TypedClient) {
-  return async (path: string, init?: RequestInit): Promise<Response> => {
-    const method = init?.method ?? "GET";
-
-    const body: unknown =
-      typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
-
-    try {
-      const answer: unknown = await (method === "GET"
-        ? api.get(path)
-        : api[method === "PUT" ? "put" : "post"](path, body));
-
-      return Response.json(answer ?? null);
-    } catch (error) {
-      if (error instanceof HttpError) {
-        return Response.json(
-          { message: error.message },
-          { status: error.status },
-        );
-      }
-
-      throw error;
-    }
-  };
-}
-
 async function part(
   host: TestSession,
   cwd: string,
@@ -53,7 +25,7 @@ async function part(
   answer: "once" | "deny" = "once",
 ) {
   return testSession(session, {
-    request: routed(host.api),
+    request: host.api.raw,
     cwd,
     config: { fileLimitMb: 1 },
     askPermission: async (question) => {
@@ -261,6 +233,80 @@ test("assistant threads load route tools and install what they built", async () 
     expect(
       outside.tool("install_profile", { path: ".", name: "Brief" }),
     ).rejects.toThrow("projects has no tool install_profile");
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
+async function assistantThread(
+  t: PluginTest,
+  personId: string,
+): Promise<TestSession> {
+  await t.environment({ owner: person(personId) });
+
+  const assistant = await t
+    .as(personId)
+    .post<ProjectView>("assistant", { text: "Build me a plugin" });
+
+  const started = await t.tool(
+    "start_thread",
+    { title: "Hello plugin", message: "Build a hello plugin" },
+    { session: await t.attach(assistant.coordinatorId) },
+  );
+
+  return t.attach(/as (\S+)\.$/.exec(started.text)?.[1] ?? "");
+}
+
+test("installing asks the person, and only an admin's thread installs a plugin", async () => {
+  await using t = await testPlugin(server, { people });
+  const folder = await mkdtemp(join(tmpdir(), "projects-install-asks-"));
+
+  try {
+    await writeFile(join(folder, "AGENTS.md"), "Be brief.\n");
+    const thread = await assistantThread(t, "ana");
+    const asked: string[] = [];
+
+    expect(
+      await (
+        await part(thread, folder, asked)
+      ).tool("install_profile", { path: ".", name: "Brief" }),
+    ).toMatchObject({ isError: false });
+
+    expect(asked).toEqual(["Install . as a new Profile?"]);
+
+    expect(
+      await (
+        await part(thread, folder, [], "deny")
+      ).tool("install_profile", { path: ".", name: "Denied" }),
+    ).toEqual({ text: "The person said no.", isError: true });
+
+    const unasked = await thread.api.raw("install", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "profile", files: {}, name: "Unasked" }),
+    });
+
+    expect(await unasked.json()).toMatchObject({
+      isError: true,
+      text: expect.stringContaining("asks the person first") as unknown,
+    });
+
+    const profiles = await t
+      .as("ana")
+      .get<readonly { readonly name: string }[]>("/api/profiles");
+
+    expect(profiles.map(({ name }) => name)).toContain("Brief");
+    expect(profiles.map(({ name }) => name)).not.toContain("Denied");
+    expect(profiles.map(({ name }) => name)).not.toContain("Unasked");
+
+    const theirs = await part(await assistantThread(t, "bo"), folder);
+
+    expect(
+      await theirs.tool("install_plugin", { path: ".", plugin: "hello" }),
+    ).toMatchObject({
+      isError: true,
+      text: expect.stringContaining("Only admins install plugins.") as unknown,
+    });
   } finally {
     await rm(folder, { recursive: true, force: true });
   }

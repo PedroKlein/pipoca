@@ -213,7 +213,6 @@ function libraryTools({ api, config, tools }: Context): void {
 
 // The assistant's threads build a Profile or a plugin as a folder in their
 // workspace with all of Pi's tools, then install it in one call (ADR 0052).
-// A new Profile is the person's own, so making one asks nothing.
 function installTools({ api, tools }: Context): void {
   const installed = async (
     body: Readonly<Record<string, unknown>>,
@@ -252,7 +251,7 @@ function installTools({ api, tools }: Context): void {
     annotations: { destructive: true },
     asks: (input) =>
       input.id === undefined
-        ? undefined
+        ? `Install ${input.path} as a new Profile?`
         : `Write the files of ${input.path} into the Profile ${input.id}?`,
     run: async (input, { cwd, signal }) => {
       const folder = resolve(cwd, input.path);

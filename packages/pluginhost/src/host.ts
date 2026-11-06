@@ -60,7 +60,12 @@ import {
 } from "./tools";
 import { scheduler, type ScheduleStore } from "./scheduler";
 import { kernelKeys, type PluginSwitches } from "./switches";
-import { type ExtRoute, pluginRoutes, pluginUrls } from "./routes";
+import {
+  type ExtRoute,
+  pluginRoutes,
+  pluginUrls,
+  sessionRequest,
+} from "./routes";
 
 export type UserActor = `user:${string}`;
 
@@ -687,6 +692,16 @@ export function startPlugins(
                 !loadsRouteTools(session)
               ) {
                 return { text: `no tool named ${name}`, isError: true };
+              }
+
+              if (
+                sessionRequest.getStore()?.asked === false &&
+                found.spec.annotations?.readOnlyHint !== true
+              ) {
+                return {
+                  text: `${name} changes something, so the Session's tool asks the person first`,
+                  isError: true,
+                };
               }
 
               const onBehalf = ownerOf(session, deps.auth.users());

@@ -97,6 +97,7 @@ export {
   type ToolSpec,
 } from "./plugins";
 export {
+  askedHeader,
   type Assignment,
   type Attempt,
   type GitLogin,
