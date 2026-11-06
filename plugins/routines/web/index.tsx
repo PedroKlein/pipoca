@@ -381,7 +381,8 @@ function Webhook({
         POST JSON here, signed with the secret as{" "}
         <code>sha256=&lt;HMAC-SHA256 of the body in hex&gt;</code> in{" "}
         <code>X-Pipoca-Signature</code> or <code>X-Hub-Signature-256</code>, as
-        GitHub signs webhooks.
+        GitHub signs webhooks, with an id of its own in{" "}
+        <code>X-Pipoca-Delivery</code>.
       </p>
       <code className="break-all text-label text-fg">
         {new URL(path, location.origin).href}

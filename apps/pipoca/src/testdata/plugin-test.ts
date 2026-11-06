@@ -728,6 +728,7 @@ export async function pluginTest(
           headers: {
             "content-type": "application/json",
             "x-pipoca-signature": `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`,
+            "x-pipoca-delivery": crypto.randomUUID(),
           },
           body,
         }),

@@ -1073,6 +1073,7 @@ test("turns a GitHub App's signed webhooks into events for the people who may us
       method: "POST",
       headers: {
         "x-github-event": "issues",
+        "x-github-delivery": crypto.randomUUID(),
         "x-hub-signature-256": `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`,
       },
       body,
