@@ -88,6 +88,47 @@ test("shuts down cleanly on SIGTERM when another library also handles it", async
   expect(log).toContain("server stopped");
 });
 
+test("logs a promise nothing awaited that rejects, and keeps serving", async () => {
+  const server = spawn(
+    process.execPath,
+    [
+      "--preload",
+      join(import.meta.dirname, "testdata", "stray-rejection.ts"),
+      join(import.meta.dirname, "main.ts"),
+      "server",
+      "--port",
+      "0",
+      "--database",
+      ":memory:",
+    ],
+    { stdio: ["ignore", "ignore", "pipe"] },
+  );
+
+  const exited = once(server, "exit");
+  let log = "";
+  server.stderr.setEncoding("utf8");
+
+  await new Promise<void>((resolve) => {
+    server.stderr.on("data", (chunk: string) => {
+      log += chunk;
+      if (log.includes("server listening")) {
+        resolve();
+      }
+    });
+  });
+
+  await sleep(500);
+
+  const running = server.exitCode === null;
+  server.kill("SIGTERM");
+
+  const [code] = (await exited) as [number | null];
+
+  expect(running).toBe(true);
+  expect(code).toBe(0);
+  expect(log).toContain('"message":"unhandled rejection"');
+});
+
 test("restarts a supervised server in place and stops it through the server on SIGTERM", async () => {
   const home = await mkdtemp(join(tmpdir(), "pipoca-supervised-"));
   const port = await freePort();

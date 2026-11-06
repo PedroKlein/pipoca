@@ -595,6 +595,17 @@ export function startPlugins(
       deps.log(message, { plugin: id, ...fields });
     };
 
+    const timer: Timer = {
+      after: (ms, fire) =>
+        deps.timer.after(ms, async () => {
+          try {
+            await fire();
+          } catch (error) {
+            log("timer failed", { error: messageOf(error) });
+          }
+        }),
+    };
+
     const failed = new AbortController();
     const touched = new Set<string>();
     const provided = new Set<string>();
@@ -711,7 +722,7 @@ export function startPlugins(
             definition.config ?? Type.Object({}),
             deps.config(id),
             secretRefs(store, fromEnv),
-            { timer: deps.timer, signal, log },
+            { timer, signal, log },
           ),
           store: storeOf(store),
           transcript,
@@ -789,7 +800,7 @@ export function startPlugins(
           },
           clock: deps.clock,
           env: (name) => (deps.env ?? process.env)[name],
-          timer: deps.timer,
+          timer,
           log,
           signal,
         }),
