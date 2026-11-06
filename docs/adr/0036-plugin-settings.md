@@ -1,6 +1,6 @@
 # 0036: Plugin Settings and Load Failures
 
-- Status: accepted; declared `capabilities` superseded by [ADR 0069](0069-plugin-sdk-v2.md), which infers them
+- Status: accepted; declared `capabilities` superseded by [ADR 0069](0069-plugin-sdk-v2.md), which infers them; settings in the manifest, kept in the kernel's database and read with `ctx.settings`, superseded by [ADR 0068](0068-clean-rebuild.md#storage) and [ADR 0069](0069-plugin-sdk-v2.md): a plugin declares typed `config` in `definePlugin`, kept under its key in `pipoca.json`, and whether it is on is kept under `plugins` there
 - Date: 2026-10-25
 
 ## Context

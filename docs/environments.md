@@ -1,6 +1,6 @@
 # Pipoca Environments
 
-> Status: working model. Environment is an agreed product concept; its provider cardinality, build system, schema, and migration rules remain open.
+> Status: early design notes, kept for their reasoning. What is built is in [concepts.md](concepts.md), the [guide](guide.md) and [ADR 0032](adr/0032-environments-and-runners.md) and [ADR 0049](adr/0049-personal-environments-and-templates.md): an Environment is one person's or the team's settings plus a pool of runners, with no revisions.
 
 ## Purpose
 
@@ -15,25 +15,25 @@ It answers:
 - how much compute and storage it requests;
 - which isolation mode it requires;
 - which Workspace implementation it uses;
-- which Runtime Providers are compatible.
+- which runners are compatible.
 
 A Runtime is a live realization of an Environment. A Workspace contains one Session's files. A Project may choose default Environments for new Sessions.
 
 ## Provider types
 
-The same Control Plane should support Environments backed by different provider adapters.
+The same server should support Environments whose runners run in different places.
 
 ### Local Environment
 
-A local Provider Agent runs ordinary processes or SDK Sessions and creates local Git worktrees. It can use local databases, emulators, keychains, Docker, and developer tools. Network policy may be advisory unless a local proxy or sandbox enforces it.
+A local runner runs ordinary processes or SDK Sessions and creates local Git worktrees. It can use local databases, emulators, keychains, Docker, and developer tools. Network policy may be advisory unless a local proxy or sandbox enforces it.
 
 ### VM Environment
 
-A VM Provider Agent runs persistent processes or containers on an always-on host. It can retain repositories and build caches and may be the cheapest place for coordinator and long-running personal Sessions.
+A VM runner runs persistent processes or containers on an always-on host. It can retain repositories and build caches and may be the cheapest place for coordinator and long-running personal Sessions.
 
 ### Kubernetes Environment
 
-A namespace-scoped Provider Agent creates or selects shared runners, dedicated Session pods, or Jobs. Kubernetes can enforce images, resources, security contexts, service accounts, node placement, volume mounts, and some network policy.
+A namespace-scoped runner provider creates or selects shared runners, dedicated Session pods, or Jobs. Kubernetes can enforce images, resources, security contexts, service accounts, node placement, volume mounts, and some network policy.
 
 ### Self-hosted runner pool
 
@@ -93,7 +93,7 @@ Used for runtime provisioning that can be shared across Sessions:
 
 Possible implementations include:
 
-- an immutable OCI image per Environment revision;
+- an immutable OCI image per version of the Environment's setup;
 - a base image plus an Environment cache volume;
 - Nix or devcontainer-based builders;
 - host setup validation for local or VM providers.
@@ -130,13 +130,13 @@ hardened
   dedicated pod or microVM with a stronger runtime boundary
 ```
 
-Capacity applies to the Runtime, not to the number of Projects. One shared Runtime may host independent Sessions and Sessions from several Projects when they belong to the same owner and use a compatible Environment revision.
+Capacity applies to the Runtime, not to the number of Projects. One shared Runtime may host independent Sessions and Sessions from several Projects when they belong to the same owner and use the same Environment.
 
 Sessions may share one Runtime only when their required policy is compatible. In particular, sessions with different container images, network policy, secret mounts, or security contexts should not be placed in one pod if those policies cannot be enforced per process.
 
 ## Capability validation
 
-Provider Agents advertise capabilities. Environment creation or activation validates requested policy against them.
+Runners advertise capabilities. Environment creation or activation validates requested policy against them.
 
 For example, a local provider may report:
 
@@ -169,7 +169,7 @@ runtimeClass: true
 gpu: true
 ```
 
-The Control Plane must distinguish strongly enforced policy from advisory configuration.
+The server must distinguish strongly enforced policy from advisory configuration.
 
 ## Network policy
 
@@ -194,7 +194,7 @@ Secret exposure should eventually distinguish:
 
 ### Session-readable secret
 
-Mounted or injected into the Session process. Simple and suitable for a trusted personal Cell, but the agent can read and disclose the value.
+Mounted or injected into the Session process. Simple and suitable for a trusted personal install, but the agent can read and disclose the value.
 
 ### Brokered network secret
 
@@ -275,6 +275,6 @@ profile: standard
 
 ## Relationship to deployment
 
-The Control Plane's own deployment and a Session Environment are independent. A Control Plane running on a VM may dispatch Sessions to the same VM, a laptop, and Kubernetes. A Control Plane running in Kubernetes may still dispatch a Session to a connected laptop.
+The server's own deployment and a Session's Environment are independent. A server running on a VM may dispatch Sessions to the same VM, a laptop, and Kubernetes. A server running in Kubernetes may still dispatch a Session to a connected laptop.
 
-This independence connects the three initial use cases without requiring three separate products or authoritative control planes.
+This independence connects the three initial use cases without requiring three separate products or servers.

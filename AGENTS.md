@@ -1,10 +1,10 @@
 # AGENTS.md
 
-Pipoca is a self-hosted control plane for durable Pi sessions and Projects on your own machines. Start with [README.md](README.md) and [docs/guide.md](docs/guide.md), then [docs/vision.md](docs/vision.md) for scope and [docs/adr/](docs/adr/) for decisions.
+Pipoca is a self-hosted server for durable Pi sessions and Projects on your own machines. Start with [README.md](README.md), [docs/concepts.md](docs/concepts.md) and [docs/guide.md](docs/guide.md), then [docs/vision.md](docs/vision.md) for scope and [docs/adr/](docs/adr/) for decisions.
 
 ## Where things stand
 
-- v1 is a laptop and one VM, with no Kubernetes ([vision](docs/vision.md#scope)). Don't build v2 features (Kubernetes, isolation modes, public SDK) early.
+- The code is being rebuilt in slices on the `rebuild` branch ([ADR 0068](docs/adr/0068-clean-rebuild.md)). The rebuild adds no features: [docs/acceptance/rebuild.md](docs/acceptance/rebuild.md) lists what must keep working.
 - Accepted decisions live in `docs/adr/NNNN-title.md`. Open ones live in [docs/open-questions.md](docs/open-questions.md). Don't treat a working assumption in another doc as decided.
 - Claude Code (cloud sessions, self-hosted runners, Remote Control, Projects) is the main reference design. When you make a design choice, compare it with how Claude Code does the same thing and cite the docs.
 
@@ -12,22 +12,26 @@ Pipoca is a self-hosted control plane for durable Pi sessions and Projects on yo
 
 - TypeScript everywhere, on Bun: runtime, package manager, workspaces and test runner ([ADR 0002](docs/adr/0002-typescript-for-all-components.md), [ADR 0003](docs/adr/0003-bun-runtime-and-workspaces.md)).
 - Prefer `node:*` APIs over `Bun.*` where both exist.
-- SQLite on the server is the only store. Don't add brokers or other infrastructure without an ADR.
+- SQLite on the server holds runtime data, and `pipoca.json` and folders in the config folder hold what people set ahead of time ([ADR 0039](docs/adr/0039-plugin-config-files.md)). Don't add brokers or other infrastructure without an ADR.
+- The database has no migrations. Tables are `STRICT`, ids are UUIDv7, times are integer milliseconds, and `owner_user_id` is NULL for the team. The kernel and each plugin declare their schema ([ADR 0068](docs/adr/0068-clean-rebuild.md#storage)).
 
 ## Layout
 
 [ADR 0008](docs/adr/0008-monorepo-layout.md):
 
 ```text
-apps/            thin entry points: the pipoca binary (with its adapters) and web
-packages/        domain packages: protocol, people, environments, sessions, profiles, repositories, workspaces, runner, sessionhost, pluginhost
-plugins/         features built on the kernel, such as projects (ADR 0015)
+apps/            thin entry points: the pipoca binary (with its adapters), web and desktop
+packages/        domain packages: protocol, people, environments, sessions, profiles, repositories, workspaces, runner,
+                 sessionhost, pluginhost, plus the plugin SDK (plugins), testing and ui
+plugins/         features built on the kernel, such as projects (ADR 0015, ADR 0069)
 ```
 
 - Name packages for what they provide. No `core`, `common`, `utils` or layer-named packages.
 - Domain packages define the interfaces they need. Apps supply the implementations.
 - Add a package when a domain has code, not before.
 - Keep exported surfaces narrow. Don't export something only so a test can reach it.
+- A plugin is one `definePlugin` in `plugin.ts`, with named `server`, `session` and `web` exports ([ADR 0069](docs/adr/0069-plugin-sdk-v2.md)). It writes against `@pipoca/plugins` and is tested with `@pipoca/testing`. No plugin is special: the kernel names no plugin and imports none outside the generated registries, and the server works with any plugin off.
+- Every wire shape is a TypeBox schema in `packages/protocol`, and every route is in its route table. The web app calls routes through its typed client and query store, and links pages through its route table.
 
 ## Design
 

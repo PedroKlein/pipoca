@@ -1,6 +1,6 @@
 # 0059: Routines and wake-ups
 
-- Status: accepted
+- Status: accepted; `report_nothing` superseded by [ADR 0068](0068-clean-rebuild.md#loose-ends-settled-by-keeping-todays-behavior): a run ends with `end_run` (done, nothing or blocked)
 - Date: 2026-11-03
 
 ## Context

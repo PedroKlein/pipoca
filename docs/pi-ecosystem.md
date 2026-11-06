@@ -115,4 +115,4 @@ Its trust model is personal and explicitly not a multi-tenant sandbox. Pipoca ow
 | GitHub operations         | pi-github                                                                   | Policy-aware integration seam                   |
 | Browser Session host      | PI WEB                                                                      | Candidate foundation or prototype host          |
 
-These boundaries favor deletion and reuse. Pipoca should add distributed control, Projects, Environments, Profiles, Workspaces, Provider Agents, and extension interfaces only where the existing modules do not already own the behavior.
+These boundaries favor deletion and reuse. Pipoca should add distributed control, Projects, Environments, Profiles, Workspaces, runners, and extension interfaces only where the existing modules do not already own the behavior.
