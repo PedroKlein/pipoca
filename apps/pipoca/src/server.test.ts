@@ -125,9 +125,8 @@ test("reports unhealthy when the database can't be read, keeping why in the log"
         throw new Error("no toolsets here");
       },
       auth: {
-        userOf: () => undefined,
         users: () => [],
-        createUser: () => undefined,
+        create: () => undefined,
         setAdmin: () => undefined,
         invited: () => undefined,
         acceptInvite: () => undefined,
@@ -233,9 +232,8 @@ function startServer(
         throw new Error("no toolsets here");
       },
       auth: {
-        userOf: () => undefined,
         users: () => [],
-        createUser: () => undefined,
+        create: () => undefined,
         setAdmin: () => undefined,
         invited: () => undefined,
         acceptInvite: () => undefined,
@@ -636,9 +634,8 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
           throw new Error("no toolsets here");
         },
         auth: {
-          userOf: () => undefined,
           users: () => [],
-          createUser: () => undefined,
+          create: () => undefined,
           setAdmin: () => undefined,
           invited: () => undefined,
           acceptInvite: () => undefined,

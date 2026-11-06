@@ -248,7 +248,7 @@ test("fails an installed plugin that tries to sign people in", async () => {
   const imposter = await listed("imposter");
 
   expect(imposter?.state).toBe("failed");
-  expect(imposter?.error).toContain("only built-in plugins get");
+  expect(imposter?.error).toContain("context.auth.startSession");
 });
 
 test("fails a plugin whose manifest this server can't load", async () => {
