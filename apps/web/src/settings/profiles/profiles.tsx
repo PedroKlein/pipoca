@@ -1,6 +1,8 @@
 import {
   Badge,
   buttonClass,
+  EmptyState,
+  ErrorText,
   Icon,
   initialsOf,
   Page,
@@ -8,13 +10,12 @@ import {
   Rows,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import { errorText, request } from "../../data/client";
-import { useMe, useQuery } from "../../data/hooks";
+import { request } from "../../data/client";
+import { useAction, useMe, useQuery } from "../../data/hooks";
 import { href, scopedHref } from "../../router";
 import { layerFolder, profileFolder } from "./folder";
 import { ProfileOverview } from "./overview";
-import { PluginBoundary } from "../../plugin-boundary";
-import { enabledPlugins } from "../../plugins";
+import { SettingsSlot } from "../settings-slot";
 import { layerHashes, type Layer, layerNames, chipClass } from "./layers";
 import { Editor } from "./editor";
 import { ProfileTabs } from "./tabs";
@@ -48,6 +49,14 @@ export function ProfilesPage({
 
   // The editor starts again when its files change, so it doesn't keep this.
   const [savedId, setSavedId] = useState<string>();
+
+  const buildOn = useAction(
+    async (profileId: string, buildsOn: string | null) =>
+      request("profiles.update", {
+        params: { id: profileId },
+        body: { buildsOn },
+      }),
+  );
 
   return (
     <Page
@@ -110,18 +119,14 @@ export function ProfilesPage({
                 team={team}
                 disabled={profile.source !== null}
                 onChange={(buildsOn) => {
-                  request("profiles.update", {
-                    params: { id: profile.id },
-                    body: { buildsOn },
-                  }).catch((reason: unknown) => {
-                    alert(errorText(reason));
-                  });
+                  void buildOn.run(profile.id, buildsOn);
                 }}
               />
             </span>
           )}
         </nav>
       )}
+      <ErrorText size="caption">{buildOn.error}</ErrorText>
       {profile && (
         <ProfileTabs
           folder={profileFolder(profile.id)}
@@ -137,7 +142,9 @@ export function ProfilesPage({
                 profiles={profiles}
                 editable={profile.source === null}
               >
-                {!team && <ProfileParts profileId={profile.id} />}
+                {!team && (
+                  <SettingsSlot slot="Profile" profileId={profile.id} />
+                )}
               </ProfileOverview>
               <Editor
                 key={`${profile.id}:${JSON.stringify(profile.packages)}:${profile.buildsOn ?? ""}`}
@@ -188,33 +195,10 @@ export function ProfilesPage({
         </Rows>
       )}
       {selected === "" && team && profiles.length === 0 && (
-        <p className="rounded-lg border border-dashed border-line-strong p-5 text-ui text-fg-dim">
+        <EmptyState>
           No team Profile yet. Team work can't start until there is one.
-        </p>
+        </EmptyState>
       )}
     </Page>
-  );
-}
-
-// What plugins add to a Profile's page, such as its own logins (ADR 0063).
-function ProfileParts({
-  profileId,
-}: {
-  readonly profileId: string;
-}): ReactElement {
-  return (
-    <>
-      {enabledPlugins().map(({ name, settingsParts }) => {
-        const Part = settingsParts.Profile;
-
-        return (
-          Part && (
-            <PluginBoundary key={name} name={name}>
-              <Part profileId={profileId} />
-            </PluginBoundary>
-          )
-        );
-      })}
-    </>
   );
 }

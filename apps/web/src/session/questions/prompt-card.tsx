@@ -1,8 +1,7 @@
 import type { Answer, Prompt } from "@pipoca/protocol";
-import { Button, fieldClass } from "@pipoca/ui";
+import { Button, TextArea, TextInput } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import type { OpenPrompt } from "../feed";
-import { Actions } from "./fields";
 import { QuestionsForm } from "./questions-form";
 
 export interface PromptHandlers {
@@ -95,7 +94,7 @@ function PermissionPrompt({
           ))}
         </dl>
       )}
-      <Actions>
+      <div className="flex flex-wrap gap-2">
         <Button
           variant="primary"
           onClick={() => {
@@ -119,7 +118,7 @@ function PermissionPrompt({
         >
           Deny
         </Button>
-      </Actions>
+      </div>
     </>
   );
 }
@@ -151,7 +150,7 @@ function SimplePrompt({
       return (
         <>
           <p className="text-prose whitespace-pre-wrap">{prompt.message}</p>
-          <Actions>
+          <div className="flex flex-wrap gap-2">
             <Button
               variant="primary"
               onClick={() => {
@@ -167,12 +166,12 @@ function SimplePrompt({
             >
               No
             </Button>
-          </Actions>
+          </div>
         </>
       );
     case "select":
       return (
-        <Actions>
+        <div className="flex flex-wrap gap-2">
           {prompt.options.map((option) => (
             <Button
               key={option}
@@ -184,7 +183,7 @@ function SimplePrompt({
             </Button>
           ))}
           {cancel}
-        </Actions>
+        </div>
       );
     case "input":
     case "secret":
@@ -198,17 +197,16 @@ function SimplePrompt({
           className="flex flex-col gap-3"
         >
           {prompt.kind === "editor" ? (
-            <textarea
+            <TextArea
               aria-label={prompt.title}
               rows={8}
               value={text}
               onChange={(event) => {
                 setText(event.target.value);
               }}
-              className={fieldClass}
             />
           ) : (
-            <input
+            <TextInput
               type={prompt.kind === "secret" ? "password" : "text"}
               aria-label={prompt.title}
               autoComplete="off"
@@ -217,15 +215,14 @@ function SimplePrompt({
               onChange={(event) => {
                 setText(event.target.value);
               }}
-              className={fieldClass}
             />
           )}
-          <Actions>
+          <div className="flex flex-wrap gap-2">
             <Button variant="primary" type="submit">
               Submit
             </Button>
             {cancel}
-          </Actions>
+          </div>
         </form>
       );
   }

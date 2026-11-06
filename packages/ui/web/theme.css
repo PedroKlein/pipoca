@@ -202,6 +202,9 @@
   --shadow-card: var(--card-shadow);
   --shadow-pop: var(--pop-shadow);
 
+  --blur-*: initial;
+  --blur-scrim: 2px;
+
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --animate-pop-in: pop-in 160ms var(--ease-out);
   --animate-fade-in: fade-in 160ms var(--ease-out);

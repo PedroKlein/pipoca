@@ -74,7 +74,7 @@ export function Dialog({
       onClose={onClose}
       aria-labelledby={title === undefined ? labelledBy : titleId}
       className={cn(
-        "m-auto overflow-visible rounded-xl border border-line bg-elevated p-0 text-fg shadow-pop backdrop:bg-scrim backdrop:backdrop-blur-[2px] open:animate-pop-in",
+        "m-auto overflow-visible rounded-xl border border-line bg-elevated p-0 text-fg shadow-pop backdrop:bg-scrim backdrop:backdrop-blur-scrim open:animate-pop-in",
         sizes[size],
         sheet && "max-sm:mb-0 max-sm:w-full max-sm:rounded-b-none",
         className,

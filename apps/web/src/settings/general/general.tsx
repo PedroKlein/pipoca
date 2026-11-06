@@ -5,7 +5,6 @@ import {
   Code,
   initialsOf,
   Page,
-  PageTitle,
   Row,
   Rows,
   Section,
@@ -15,8 +14,7 @@ import {
 import type { ReactElement } from "react";
 import { request } from "../../data/client";
 import { useMe, useQuery } from "../../data/hooks";
-import { PluginBoundary } from "../../plugin-boundary";
-import { enabledPlugins } from "../../plugins";
+import { SettingsSlot } from "../settings-slot";
 import { useTheme } from "../../theme";
 import {
   useVerbosity,
@@ -40,10 +38,11 @@ export function GeneralPage(): ReactElement {
   const shown = account?.displayName ?? user;
 
   return (
-    <Page id="general-page">
-      <PageTitle description="You, and how Pipoca looks and behaves for you. Changes save as you make them.">
-        General
-      </PageTitle>
+    <Page
+      id="general-page"
+      title="General"
+      description="You, and how Pipoca looks and behaves for you. Changes save as you make them."
+    >
       <Rows label="You">
         <Row
           initials={initialsOf(shown)}
@@ -91,17 +90,7 @@ export function GeneralPage(): ReactElement {
         </Rows>
       </Section>
       <StartWith account={account} />
-      {enabledPlugins().map(({ name, settingsParts }) => {
-        const Part = settingsParts.General;
-
-        return (
-          Part && (
-            <PluginBoundary key={name} name={name}>
-              <Part />
-            </PluginBoundary>
-          )
-        );
-      })}
+      <SettingsSlot slot="General" />
       <div className="mt-8 flex gap-2">
         <Button
           onClick={() => {

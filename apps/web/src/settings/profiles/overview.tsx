@@ -1,5 +1,5 @@
 import type { Profile } from "@pipoca/protocol";
-import { ErrorText, initialsOf, Row, Rows, Section } from "@pipoca/ui";
+import { Chip, ErrorText, initialsOf, Row, Rows, Section } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
 import { request } from "../../data/client";
 import { useAction, useLoad } from "../../data/hooks";
@@ -142,11 +142,8 @@ export function ProfileOverview({
       <Section title="Prompts" description="Slash commands in the composer">
         <ul aria-label="Prompts" className="flex flex-wrap gap-1.5">
           {files?.prompts.map((name) => (
-            <li
-              key={name}
-              className="rounded-full border border-line bg-elevated px-3 py-1 font-mono text-mono-sm"
-            >
-              /{name}
+            <li key={name}>
+              <Chip mono>/{name}</Chip>
             </li>
           ))}
           {editable && (

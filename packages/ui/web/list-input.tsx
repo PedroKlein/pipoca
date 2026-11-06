@@ -1,8 +1,7 @@
 import { type ReactElement, useState } from "react";
 import { Button } from "./button";
-import { cn } from "./cn";
-import { fieldClass } from "./field";
 import { Icon } from "./icon";
+import { TextInput } from "./inputs";
 import { isComposing } from "./keys";
 
 // A list of short values as chips, added with Enter and removed with their x,
@@ -59,7 +58,7 @@ export function ListInput({
           ))}
         </ul>
       )}
-      <input
+      <TextInput
         aria-label={`Add to ${label}`}
         value={draft}
         placeholder={placeholder}
@@ -73,7 +72,7 @@ export function ListInput({
           }
         }}
         onBlur={add}
-        className={cn(fieldClass, "font-mono text-mono-sm")}
+        className="font-mono text-mono-sm"
       />
     </fieldset>
   );

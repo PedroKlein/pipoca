@@ -30,3 +30,10 @@ test("a link button draws as underlined text", () => {
   expect(buttonClass({ variant: "link" })).toContain("underline");
   expect(buttonClass({ variant: "link" })).not.toContain("border");
 });
+
+test("an extra small icon button is a square mark beside text", () => {
+  const classes = buttonClass({ size: "xs", iconOnly: true }).split(" ");
+
+  expect(classes).toContain("h-6");
+  expect(classes).toContain("w-6");
+});

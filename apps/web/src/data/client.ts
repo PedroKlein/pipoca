@@ -39,7 +39,7 @@ export function errorText(reason: unknown): string {
   return reason instanceof Error ? reason.message : String(reason);
 }
 
-export type BrowserCommand = ApiInput<"sessions.commands.create">["body"];
+type BrowserCommand = ApiInput<"sessions.commands.create">["body"];
 
 const sending = new Map<string, Promise<unknown>>();
 

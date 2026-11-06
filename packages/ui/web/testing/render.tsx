@@ -56,6 +56,40 @@ export function click(element: Element | null | undefined): void {
   });
 }
 
+// Types into a field the way React hears it under happy-dom: React watches a
+// focused field's value for changes on each key.
+export function type(element: HTMLElement, text: string): void {
+  if (!(
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLTextAreaElement
+  )) {
+    throw new Error("Nothing to type into");
+  }
+
+  act(() => {
+    element.focus();
+
+    // Past React's own value property, so it sees the change.
+    Reflect.set(
+      Object.getPrototypeOf(element) as object,
+      "value",
+      text,
+      element,
+    );
+
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+    element.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
+  });
+}
+
+export function press(element: HTMLElement, key: string): void {
+  act(() => {
+    element.dispatchEvent(
+      new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
+    );
+  });
+}
+
 export function byRole(
   container: ParentNode,
   role: string,

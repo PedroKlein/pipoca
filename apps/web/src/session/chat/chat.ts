@@ -536,26 +536,6 @@ export function duration(from: string, to: string): string {
     : `${String(minutes)}m ${String(seconds % 60)}s`;
 }
 
-export function ago(at: string, now: number): string {
-  const minutes = Math.floor((now - Date.parse(at)) / 60_000);
-
-  if (minutes < 1) {
-    return "just now";
-  }
-
-  if (minutes < 60) {
-    return `${String(minutes)} min ago`;
-  }
-
-  const hours = Math.floor(minutes / 60);
-
-  if (hours < 24) {
-    return `${String(hours)} h ago`;
-  }
-
-  return new Date(at).toLocaleDateString();
-}
-
 // Login notes carry the URLs to open (ADR 0024). A URL doesn't end with the
 // sentence's punctuation.
 export function linkParts(

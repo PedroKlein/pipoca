@@ -1,6 +1,6 @@
 import { type ModelRef, type Quote, teamTalkSince } from "@pipoca/protocol";
 import type { MountedSession } from "@pipoca/plugins/web";
-import { Icon, isComposing } from "@pipoca/ui";
+import { Button, Icon, isComposing } from "@pipoca/ui";
 import { type ReactElement, useEffect, useId, useRef, useState } from "react";
 import { command } from "../../data/client";
 import { usePrimaryId } from "../../primary";
@@ -162,14 +162,15 @@ export function Composer({
                 Replying to <span className="font-medium">{replying.by}</span>
                 <span className="line-clamp-1">{replying.quote.text}</span>
               </span>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="xs"
+                iconOnly
                 aria-label="Cancel the reply"
                 onClick={onReplied}
-                className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md hover:bg-hover hover:text-fg"
               >
                 <Icon name="x" className="size-3.5" />
-              </button>
+              </Button>
             </p>
           )}
           {team && target === "pi" && (

@@ -387,7 +387,7 @@ export function useSessionPlugins(team: boolean): readonly ShellPlugin[] {
   );
 }
 
-export interface Claimed<Props> {
+interface Claimed<Props> {
   readonly plugin: string;
   readonly Component: ComponentType<Props>;
 }
@@ -451,15 +451,6 @@ export function navEntries(): readonly NavEntry[] {
         ]
       : [],
   );
-}
-
-// "plugin/projects/p1" is the projects page open at "p1".
-export function pluginRoute(
-  route: string,
-): { readonly name: string; readonly path: string } | undefined {
-  const match = /^plugin\/([^/]+)\/?(.*)$/.exec(route);
-
-  return match ? { name: match[1] ?? "", path: match[2] ?? "" } : undefined;
 }
 
 // A Session a plugin owns opens in that plugin's page (ADR 0028).

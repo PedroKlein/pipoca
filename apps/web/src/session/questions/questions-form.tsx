@@ -1,8 +1,7 @@
 import type { Answer, Prompt, Question } from "@pipoca/protocol";
-import { Button, fieldClass, Icon } from "@pipoca/ui";
+import { Button, Icon, TextArea } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import type { Explanation } from "../feed";
-import { Actions } from "./fields";
 import {
   answered,
   answerOf,
@@ -112,7 +111,7 @@ export function QuestionsForm({
         />
       )}
 
-      <Actions>
+      <div className="flex flex-wrap gap-2">
         {current > 0 && (
           <Button
             onClick={() => {
@@ -149,7 +148,7 @@ export function QuestionsForm({
         >
           Cancel
         </Button>
-      </Actions>
+      </div>
     </div>
   );
 }
@@ -201,7 +200,7 @@ function QuestionBody({
         );
       case "text":
         return (
-          <textarea
+          <TextArea
             aria-label={question.prompt}
             rows={4}
             placeholder={question.placeholder ?? ""}
@@ -209,7 +208,6 @@ function QuestionBody({
             onChange={(event) => {
               onChange({ ...state, text: event.target.value });
             }}
-            className={fieldClass}
           />
         );
     }
@@ -266,7 +264,7 @@ function Review({
           </div>
         ))}
       </dl>
-      <textarea
+      <TextArea
         aria-label="Note for the agent"
         rows={3}
         placeholder="Anything else the agent should know?"
@@ -274,7 +272,6 @@ function Review({
         onChange={(event) => {
           onNote(event.target.value);
         }}
-        className={fieldClass}
       />
     </div>
   );
