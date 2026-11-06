@@ -159,15 +159,12 @@ function JoinSteps({
 // for new people, once, so Where is ready for them.
 function useNewcomerEnvironment(template: string | null): void {
   const environments = useQuery("environments.list").data;
-  const templates = useQuery("environmentTemplates.list").data ?? [];
   const asked = useRef(false);
-  const name = templates.find(({ id }) => id === template)?.name;
 
   useEffect(() => {
     if (
       asked.current ||
       template === null ||
-      name === undefined ||
       environments === undefined ||
       environments.some(({ templateId }) => templateId === template)
     ) {
@@ -176,10 +173,10 @@ function useNewcomerEnvironment(template: string | null): void {
 
     asked.current = true;
 
-    request("environments.create", { body: { name, template } }).catch(
-      () => undefined,
-    );
-  }, [template, name, environments]);
+    request("environments.create", {
+      body: { name: template, template },
+    }).catch(() => undefined);
+  }, [template, environments]);
 }
 
 function stepState(index: number, current: number): StepState {

@@ -17,8 +17,10 @@ export function WhereStep(): ReactElement {
   const ready = environments.filter(connected);
   const [machine, setMachine] = useState(ready.length === 0);
 
-  const add = useAction(async (name: string, template: string) =>
-    request("environments.create", { body: { name, template } }),
+  // A template's id is a slug, which fits an Environment's name; its name
+  // may have spaces.
+  const add = useAction(async (template: string) =>
+    request("environments.create", { body: { name: template, template } }),
   );
 
   const templates = useQuery("environmentTemplates.list").data ?? [];
@@ -74,7 +76,7 @@ export function WhereStep(): ReactElement {
           description="Runners start when a Session needs one."
           checked={false}
           onChange={() => {
-            void add.run(template.name, template.id);
+            void add.run(template.id);
           }}
         />
       ))}

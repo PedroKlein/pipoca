@@ -27,6 +27,7 @@ import {
   type Route,
 } from "playwright-core";
 import type { Environment, Profile, Session } from "@pipoca/protocol";
+import { until } from "@pipoca/testing/until";
 import { protocolVersion, versionHeader } from "@pipoca/protocol";
 import { installedPlugins } from "./installed";
 import { serve } from "./serve";
@@ -2023,6 +2024,64 @@ test("names the plugin an Environment's runners come from", async () => {
   await page.getByRole("heading", { name: "Runners" }).waitFor();
   await page.unroute(environments);
 });
+
+test("adds an Environment from a runner template whose name has a space, in setup", async () => {
+  const template = (await (
+    await fetch(new URL("/api/environment-templates", server.url), {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ name: "Pod kit" }),
+    })
+  ).json()) as { readonly id: string };
+
+  const templates = /\/api\/environment-templates(\?.*)?$/;
+
+  await page.route(templates, async (route) => {
+    const real = (await (await route.fetch()).json()) as { id: string }[];
+
+    await route.fulfill({
+      json: real.map((each) =>
+        each.id === template.id
+          ? {
+              ...each,
+              runnersFrom: { plugin: "pods", label: "Pod farm", icon: "cloud" },
+            }
+          : each,
+      ),
+    });
+  });
+
+  await page.goto(`${server.url.href}#get-started/where`);
+  await page.getByRole("checkbox", { name: /^Pod farm/ }).click();
+
+  const made = async (): Promise<readonly Environment[]> =>
+    (
+      (await (
+        await fetch(new URL("/api/environments", server.url), {
+          headers: { cookie },
+        })
+      ).json()) as Environment[]
+    ).filter(({ templateId }) => templateId === template.id);
+
+  const added = await until(made, (each) => each.length > 0);
+
+  expect(added).toHaveLength(1);
+  expect(await page.getByText("Couldn't add it.").count()).toBe(0);
+
+  for (const { id } of added) {
+    await fetch(new URL(`/api/environments/${id}`, server.url), {
+      method: "DELETE",
+      headers: { cookie },
+    });
+  }
+
+  await fetch(
+    new URL(`/api/environment-templates/${template.id}`, server.url),
+    { method: "DELETE", headers: { cookie } },
+  );
+
+  await page.unroute(templates);
+}, 30_000);
 
 test("keeps a Profile that follows a repository read-only until it is copied", async () => {
   const profile = (await (
