@@ -15,10 +15,8 @@ export type Outgoing =
       readonly result: ToolResult;
     };
 
-// One message waiting for its Session's host. plugin is null for what the
-// kernel sends.
-export type Queued = Outgoing & {
-  readonly id: string;
+// plugin is null for what the kernel sends.
+export type Unsent = Outgoing & {
   readonly sessionId: string;
   readonly plugin: string | null;
   readonly actor: Actor;
@@ -26,11 +24,23 @@ export type Queued = Outgoing & {
   readonly createdAt: number;
 };
 
+// One message for its Session's host, kept until the host acknowledges its
+// seq, which grows in send order.
+export type Queued = Unsent & {
+  readonly seq: number;
+  // A host's stream took it before, so it goes again as it is.
+  readonly sent: boolean;
+};
+
 export interface OutboxStore {
-  // False when a queued message has the same dedupe key.
-  readonly add: (message: Queued) => boolean;
-  readonly first: (sessionId: string) => Queued | undefined;
-  readonly remove: (id: string) => void;
+  // False when a message with the same dedupe key waits, or a host took one
+  // after keysSince.
+  readonly add: (message: Unsent, keysSince: number) => boolean;
+  readonly after: (sessionId: string, seq: number) => Queued | undefined;
+  readonly sent: (seq: number, at: number) => void;
+  readonly remove: (seq: number) => void;
+  // The host took everything up to seq, at `at`.
+  readonly acked: (sessionId: string, seq: number, at: number) => void;
   readonly removeAll: (sessionId: string) => readonly Queued[];
   readonly sessions: () => readonly string[];
 }
@@ -38,12 +48,17 @@ export interface OutboxStore {
 export type Delivery =
   "sent" | "waits" | "not_found" | "archived" | "stale_generation";
 
+// How long the dedupe key of a message a host took still holds.
+const keepKeysMs = 24 * 60 * 60 * 1000;
+
 export class Outbox {
   readonly #store: OutboxStore;
   readonly #deliver: (message: Queued) => Delivery;
   readonly #clock: Clock;
   readonly #log: Log;
   readonly #flushing = new Set<string>();
+  // The last seq written to each Session's current stream.
+  readonly #written = new Map<string, number>();
 
   constructor(
     store: OutboxStore,
@@ -66,15 +81,18 @@ export class Outbox {
     },
   ): void {
     const { plugin, dedupe, ...outgoing } = message;
+    const now = this.#clock.now();
 
-    const added = this.#store.add({
-      ...outgoing,
-      id: Bun.randomUUIDv7(),
-      sessionId,
-      plugin: plugin ?? null,
-      dedupe: dedupe ?? null,
-      createdAt: this.#clock.now(),
-    });
+    const added = this.#store.add(
+      {
+        ...outgoing,
+        sessionId,
+        plugin: plugin ?? null,
+        dedupe: dedupe ?? null,
+        createdAt: now,
+      },
+      now - keepKeysMs,
+    );
 
     if (added) {
       this.flush(sessionId);
@@ -89,27 +107,47 @@ export class Outbox {
 
     this.#flushing.add(sessionId);
 
+    const next = (): Queued | undefined =>
+      this.#store.after(sessionId, this.#written.get(sessionId) ?? 0);
+
     try {
-      for (
-        let next = this.#store.first(sessionId);
-        next !== undefined;
-        next = this.#store.first(sessionId)
-      ) {
-        const delivery = this.#deliver(next);
+      for (let message = next(); message !== undefined; message = next()) {
+        const delivery = this.#deliver(message);
 
         if (delivery === "waits") {
           return;
         }
 
-        this.#store.remove(next.id);
+        if (delivery === "sent") {
+          this.#written.set(sessionId, message.seq);
 
-        if (delivery !== "sent") {
-          this.#dropped(next, delivery);
+          if (!message.sent) {
+            this.#store.sent(message.seq, this.#clock.now());
+          }
+
+          continue;
         }
+
+        this.#store.remove(message.seq);
+        this.#dropped(message, delivery);
       }
     } finally {
       this.#flushing.delete(sessionId);
     }
+  }
+
+  // A new stream gets again what its host hasn't acknowledged.
+  attached(sessionId: string, acked: number | undefined): void {
+    if (acked !== undefined) {
+      this.ack(sessionId, acked);
+    }
+
+    this.#written.delete(sessionId);
+    this.flush(sessionId);
+  }
+
+  ack(sessionId: string, seq: number): void {
+    this.#store.acked(sessionId, seq, this.#clock.now());
   }
 
   flushAll(): void {
@@ -119,12 +157,19 @@ export class Outbox {
   }
 
   drop(sessionId: string, reason: Exclude<Delivery, "sent" | "waits">): void {
+    this.#written.delete(sessionId);
+
     for (const message of this.#store.removeAll(sessionId)) {
       this.#dropped(message, reason);
     }
   }
 
+  // One a host took before is no loss.
   #dropped(message: Queued, reason: string): void {
+    if (message.sent) {
+      return;
+    }
+
     this.#log("message to a Session dropped", {
       sessionId: message.sessionId,
       plugin: message.plugin,

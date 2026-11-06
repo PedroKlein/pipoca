@@ -14,8 +14,10 @@ import {
   type Command,
   type Environment,
   readSse,
+  readSseEvents,
   type Session,
 } from "@pipoca/protocol";
+import { protocolVersion, versionHeader } from "@pipoca/protocol";
 import { runnerCredentials } from "./testdata/runners";
 import { json, testServer, type TestServer } from "./testdata/harness";
 
@@ -70,7 +72,7 @@ function start(cookie?: string): TestServer {
 }
 
 const runnerHeaders = (token: string): Record<string, string> => ({
-  "pipoca-protocol": "4",
+  [versionHeader]: String(protocolVersion),
   authorization: `Bearer ${token}`,
   "content-type": "application/json",
 });
@@ -122,10 +124,13 @@ async function received(
   token: string,
   { sessionId, generation }: Assignment,
   count: number,
+  ack?: string,
 ): Promise<readonly Command[]> {
+  const acked = ack === undefined ? "" : `&ack=${ack}`;
+
   const stream = await fetch(
     new URL(
-      `/runner/sessions/${sessionId}/commands?generation=${String(generation)}`,
+      `/runner/sessions/${sessionId}/commands?generation=${String(generation)}${acked}`,
       server.url,
     ),
     { headers: runnerHeaders(token) },
@@ -271,16 +276,23 @@ test("loses nothing sent to a host whose stream falls behind, and sends the rest
     );
 
   const first: unknown[] = [];
+  let taken: string | undefined;
 
   try {
-    for await (const command of readSse(behind, 3000)) {
-      first.push(command);
+    for await (const { id, data } of readSseEvents(behind, 3000)) {
+      first.push(data);
+      taken = id;
     }
   } catch {
     // The stream ends when it falls behind.
   }
 
-  const rest = await received(token, assigned, sent.length - first.length);
+  const rest = await received(
+    token,
+    assigned,
+    sent.length - first.length,
+    taken,
+  );
 
   expect([...texts(first), ...texts(rest)]).toEqual(sent);
 });

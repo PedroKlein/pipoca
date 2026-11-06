@@ -26,7 +26,7 @@ import {
   type GitLogin,
   type Owner,
   protocolVersion,
-  readSse,
+  readSseEvents,
   type ToolSpec,
   versionHeader,
   type Work,
@@ -49,6 +49,8 @@ interface Host {
   readonly id: string;
   readonly token: string;
   readonly commands: Command[];
+  // The last outbox seq it took.
+  taken: number;
   generation: number;
   gitLogins: readonly GitLogin[];
   stream: AbortController | undefined;
@@ -333,8 +335,10 @@ export async function pluginTest(
   const attach = async (host: Host): Promise<void> => {
     const stream = new AbortController();
 
+    const acked = host.taken > 0 ? `&ack=${String(host.taken)}` : "";
+
     const response = await request(
-      `/runner/sessions/${host.id}/commands?generation=${String(host.generation)}`,
+      `/runner/sessions/${host.id}/commands?generation=${String(host.generation)}${acked}`,
       { ...runner(host.token), signal: stream.signal },
     );
 
@@ -348,8 +352,23 @@ export async function pluginTest(
 
     void (async () => {
       try {
-        for await (const command of readSse(response, longest)) {
-          host.commands.push(command as Command);
+        for await (const { id, data } of readSseEvents(response, longest)) {
+          const seq = id === undefined ? undefined : Number(id);
+
+          if (seq !== undefined && seq <= host.taken) {
+            continue;
+          }
+
+          host.commands.push(data as Command);
+
+          if (seq !== undefined) {
+            host.taken = seq;
+
+            void request(
+              `/runner/sessions/${host.id}/acks`,
+              runner(host.token, { generation: host.generation, seq }),
+            ).catch(() => undefined);
+          }
         }
       } catch {
         // The host went away.
@@ -398,11 +417,11 @@ export async function pluginTest(
   const outbox = new DatabaseSync(database, { readOnly: true });
 
   const queuedText = outbox.prepare(
-    "select text from session_outbox where session_id = ? and text is not null order by id",
+    "select text from session_outbox where session_id = ? and sent_at is null and text is not null order by seq",
   );
 
   const queuedCount = outbox.prepare(
-    "select count(*) as count from session_outbox where session_id = ?",
+    "select count(*) as count from session_outbox where session_id = ? and sent_at is null",
   );
 
   const queued = (host: Host): number =>
@@ -509,6 +528,7 @@ export async function pluginTest(
       id: sessionId,
       token: environment.token,
       commands: [],
+      taken: 0,
       generation: 0,
       gitLogins: [],
       stream: undefined,

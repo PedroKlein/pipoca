@@ -17,6 +17,7 @@ import type {
   SessionEvent,
   Voice,
 } from "@pipoca/protocol";
+import { protocolVersion, versionHeader } from "@pipoca/protocol";
 import {
   definePlugin,
   defineServer,
@@ -167,7 +168,7 @@ async function teamSetup(): Promise<{
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "pipoca-protocol": "4",
+        [versionHeader]: String(protocolVersion),
         authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({ name: "pod-1" }),
@@ -186,7 +187,7 @@ async function poll(token: string): Promise<readonly Assignment[]> {
     fetch(new URL("/runner/work", server.url), {
       method: "POST",
       headers: {
-        "pipoca-protocol": "4",
+        [versionHeader]: String(protocolVersion),
         authorization: `Bearer ${token}`,
         "content-type": "application/json",
       },
@@ -318,7 +319,7 @@ test("a team Session's runner gets the team Profile on the base, never anyone's 
   const files = await json<ProfileFiles>(
     fetch(new URL(`/runner/sessions/${session.id}/profile`, server.url), {
       headers: {
-        "pipoca-protocol": "4",
+        [versionHeader]: String(protocolVersion),
         "content-type": "application/json",
         authorization: `Bearer ${team.runner}`,
       },
@@ -367,7 +368,7 @@ async function toolsOf(token: string): Promise<readonly string[]> {
       ),
       {
         headers: {
-          "pipoca-protocol": "4",
+          [versionHeader]: String(protocolVersion),
           "content-type": "application/json",
           authorization: `Bearer ${token}`,
         },
@@ -390,7 +391,7 @@ test("a team Session gets no tools that use a person's git accounts", async () =
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "pipoca-protocol": "4",
+        [versionHeader]: String(protocolVersion),
         authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({ name: "mac-1" }),
@@ -687,7 +688,7 @@ test("Pi reads what the team said since its last turn, with names and replies, b
       ),
       {
         headers: {
-          "pipoca-protocol": "4",
+          [versionHeader]: String(protocolVersion),
           "content-type": "application/json",
           authorization: `Bearer ${team.runner}`,
         },
@@ -783,7 +784,7 @@ test("Pi reads only as many of the team's messages as pipoca.json says", async (
       ),
       {
         headers: {
-          "pipoca-protocol": "4",
+          [versionHeader]: String(protocolVersion),
           "content-type": "application/json",
           authorization: `Bearer ${team.runner}`,
         },
@@ -842,7 +843,7 @@ test("Pi hears who answered its question in team work", async () => {
       ),
       {
         headers: {
-          "pipoca-protocol": "4",
+          [versionHeader]: String(protocolVersion),
           "content-type": "application/json",
           authorization: `Bearer ${team.runner}`,
         },
@@ -936,7 +937,7 @@ test("team work forks as team work, or to a person's own side with its transcrip
     {
       method: "POST",
       headers: {
-        "pipoca-protocol": "4",
+        [versionHeader]: String(protocolVersion),
         authorization: `Bearer ${team.runner}`,
         "content-type": "application/json",
       },

@@ -251,8 +251,9 @@ export interface Claim extends Omit<Work, "profiles" | "start"> {
 
 type Listener<T> = (value: T) => void;
 
-// False when the host's stream ended before it took the command.
-type HostSend = (command: Command) => boolean;
+// False when the host's stream ended before it took the command. seq is the
+// outbox's, which the host acknowledges.
+type HostSend = (command: Command, seq?: number) => boolean;
 
 // Enough to catch a browser retrying a send; ids only need to outlive retries.
 const maxRequestIds = 100;
@@ -1262,6 +1263,15 @@ export class Sessions {
     command: Command,
     quote?: Quote,
   ): Result<undefined, "not_found" | "archived" | "offline"> {
+    return this.#send(id, command, quote);
+  }
+
+  #send(
+    id: string,
+    command: Command,
+    quote?: Quote,
+    seq?: number,
+  ): Result<undefined, "not_found" | "archived" | "offline"> {
     const session = this.#store.get(id);
     if (!session) {
       return { ok: false, reason: "not_found" };
@@ -1307,7 +1317,12 @@ export class Sessions {
 
     if (held) {
       this.#held.set(id, [...(this.#held.get(id) ?? []), ...told]);
-    } else if (!told.every((each) => host?.send(each) === true)) {
+    } else if (
+      !told.every(
+        (each, at) =>
+          host?.send(each, at === told.length - 1 ? seq : undefined) === true,
+      )
+    ) {
       return { ok: false, reason: "offline" };
     }
 
@@ -1383,11 +1398,21 @@ export class Sessions {
       return "stale_generation";
     }
 
-    if (!this.#hosts.has(session.id)) {
+    const host = this.#hosts.get(session.id);
+
+    if (host === undefined || !this.#online(session)) {
       return "waits";
     }
 
-    return this.send(session.id, commandOf(message)).ok ? "sent" : "waits";
+    // Its side effects, such as a team's record of it, happened the first
+    // time.
+    if (message.sent) {
+      return host.send(commandOf(message), message.seq) ? "sent" : "waits";
+    }
+
+    return this.#send(session.id, commandOf(message), undefined, message.seq).ok
+      ? "sent"
+      : "waits";
   }
 
   // An external thread, such as a Slack thread, that talks to a Session.
@@ -1427,6 +1452,7 @@ export class Sessions {
     generation: number,
     send: HostSend,
     end: () => void,
+    acked?: number,
   ): Result<() => void> {
     const current = this.#current(id, generation);
     if (!current.ok) {
@@ -1443,7 +1469,7 @@ export class Sessions {
     }
 
     this.#held.delete(id);
-    this.#outbox.flush(id);
+    this.#outbox.attached(id, acked);
 
     return {
       ok: true,
@@ -1453,6 +1479,19 @@ export class Sessions {
         }
       },
     };
+  }
+
+  // The Session's host took what the outbox sent it up to seq.
+  ack(id: string, generation: number, seq: number): Result<undefined> {
+    const current = this.#current(id, generation);
+
+    if (!current.ok) {
+      return current;
+    }
+
+    this.#outbox.ack(id, seq);
+
+    return { ok: true, value: undefined };
   }
 
   transcript(id: string): readonly string[] {

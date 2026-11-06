@@ -1,4 +1,5 @@
 import type { Environment, Joined } from "@pipoca/protocol";
+import { protocolVersion, versionHeader } from "@pipoca/protocol";
 
 // Keys and runner tokens of one server's Environments, made on first use.
 // A new key would let go of the runners that joined with the one before.
@@ -54,7 +55,7 @@ export function runnerCredentials(
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "pipoca-protocol": "4",
+        [versionHeader]: String(protocolVersion),
         authorization: `Bearer ${await key(environment)}`,
       },
       body: JSON.stringify({ name: runner }),

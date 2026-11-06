@@ -87,6 +87,15 @@ export async function* readSse(
   response: Response,
   idleMs = heartbeatMs * 3,
 ): AsyncGenerator {
+  for await (const { data } of readSseEvents(response, idleMs)) {
+    yield data;
+  }
+}
+
+export async function* readSseEvents(
+  response: Response,
+  idleMs = heartbeatMs * 3,
+): AsyncGenerator<{ readonly id?: string; readonly data: unknown }> {
   if (!response.body) {
     return;
   }
@@ -122,16 +131,20 @@ export async function* readSse(
       let buffer = pending.join("");
       let end = buffer.indexOf("\n\n");
       while (end !== -1) {
-        const data = buffer
-          .slice(0, end)
-          .split("\n")
+        const lines = buffer.slice(0, end).split("\n");
+
+        const data = lines
           .filter((line) => line.startsWith("data: "))
           .map((line) => line.slice("data: ".length))
           .join("\n");
 
+        const id = lines
+          .findLast((line) => line.startsWith("id: "))
+          ?.slice("id: ".length);
+
         buffer = buffer.slice(end + 2);
         if (data !== "") {
-          yield JSON.parse(data);
+          yield { ...(id !== undefined && { id }), data: JSON.parse(data) };
         }
 
         end = buffer.indexOf("\n\n");

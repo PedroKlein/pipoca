@@ -37,6 +37,9 @@ import {
 } from "./routine";
 
 const failuresToPause = 3;
+// The kernel takes an interrupted Session again, so one that keeps dying
+// would run forever (ADR 0059).
+const deathsToPark = 5;
 // Overdue firings wait this long after a start, so runners can come back.
 const startGraceMs = 30_000;
 const keptRuns = 200;
@@ -67,6 +70,7 @@ type Context = Pick<
   | "timer"
   | "signal"
   | "log"
+  | "transcript"
 >;
 
 interface Loaded {
@@ -847,7 +851,60 @@ export function routinesEngine(context: Context): Routines {
     if (run !== undefined && session.status === "stopped") {
       end(run, "stopped", "the run's Session stopped");
     }
+
+    if (run !== undefined && session.status === "interrupted") {
+      died(run, session.id);
+    }
   });
+
+  const died = (run: RunRow, sessionId: string): void => {
+    // A run can work through tools for a long time without saying anything.
+    const progress =
+      context.transcript.messages(sessionId).length +
+      context.transcript.lastTurn(sessionId).called.length;
+
+    const before = store.get<{ deaths: number; progress: number }>(
+      "select deaths, progress from routines_runs where id = ?",
+      run.id,
+    );
+
+    const deaths =
+      before === undefined || progress > before.progress
+        ? 1
+        : before.deaths + 1;
+
+    store.run(
+      "update routines_runs set deaths = ?, progress = ? where id = ?",
+      deaths,
+      progress,
+      run.id,
+    );
+
+    if (deaths < deathsToPark) {
+      return;
+    }
+
+    const owner = owners.fromSql(run.owner_user_id);
+
+    store.run(
+      "update routines_state set paused_at = ?, paused_reason = ? where owner_user_id is ? and name = ? and paused_reason is null",
+      clock.now(),
+      `Parked after a run's Session died ${String(deathsToPark)} times without progress.`,
+      run.owner_user_id,
+      run.name,
+    );
+
+    schedule.cancel(firingKey({ owner, name: run.name }));
+    log("routine parked", { owner, name: run.name, sessionId });
+
+    end(
+      run,
+      "failed",
+      `the run's Session died ${String(deathsToPark)} times without progress`,
+    );
+
+    sessions.archive(sessionId);
+  };
 
   context.events.on("SessionArchived", ({ session }) => {
     const run =

@@ -27,6 +27,7 @@ import {
   type Route,
 } from "playwright-core";
 import type { Environment, Profile, Session } from "@pipoca/protocol";
+import { protocolVersion, versionHeader } from "@pipoca/protocol";
 import { installedPlugins } from "./installed";
 import { serve } from "./serve";
 import { setupTokenOf } from "./testdata/sign-in";
@@ -4757,7 +4758,7 @@ test("an admin pastes the key of a team runner's extension provider, and Credent
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "pipoca-protocol": "4",
+          [versionHeader]: String(protocolVersion),
           authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(body),

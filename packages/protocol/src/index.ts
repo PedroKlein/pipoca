@@ -93,7 +93,7 @@ export {
   systemTimer,
   type Timer,
 } from "./log";
-export { readSse, sseResponse } from "./sse";
+export { readSse, readSseEvents, sseResponse } from "./sse";
 export {
   type DeclaredEvent,
   pluginFileWrite,
