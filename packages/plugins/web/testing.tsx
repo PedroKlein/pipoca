@@ -44,8 +44,9 @@ export function TestShell({
       return Component === undefined ? [] : [{ plugin: "other", Component }];
     },
     part: (_plugin, child): ReactNode => child,
-    href: (id, path) => `#plugin/${id}/${path}`,
-    SessionView: ({ sessionId }) => <p>Session {sessionId}</p>,
+    SessionView: ({ sessionId, title }) => (
+      <section aria-label={title ?? sessionId} data-session={sessionId} />
+    ),
   };
 
   return (

@@ -27,12 +27,12 @@ export { CollectionEditor, ConfigForm } from "./config-form";
 export {
   defineWeb,
   Hidden,
+  href,
   SessionView,
   Slot,
   type Slots,
   useApi,
   useConfig,
-  useHref,
   useSessionState,
   useToolResults,
   useTopic,

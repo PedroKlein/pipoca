@@ -1,86 +1,22 @@
-import {
-  json,
-  ok,
-  type PageProps,
-  useLoaded,
-  type WebContext,
-  type WebPlugin,
-} from "@pipoca/plugins/web";
-import { FileButton, PageTitle, Section, Select } from "@pipoca/ui";
-import { type ReactElement, useState } from "react";
+import { json, ok, useLoaded } from "@pipoca/plugins/web";
+import { FileButton, Section } from "@pipoca/ui";
+import type { ReactElement } from "react";
+import { projects } from "../plugin";
 import type { LibraryFile, LibraryWrite } from "../src/model";
 
-interface ProjectSummary {
-  readonly id: string;
-  readonly name: string;
-}
-
-export const library: WebPlugin = {
-  name: "library",
-  nav: { label: "Library", Page },
-};
-
-function Page({ context }: PageProps): ReactElement {
-  const [selected, setSelected] = useState<string>();
-
-  const projects = useLoaded(
-    async () =>
-      json<ProjectSummary[]>(context.request("/api/ext/projects/projects")),
-    "projects",
-  ).value;
-
-  if (!projects) {
-    return <PageTitle>Library</PageTitle>;
-  }
-
-  const id = selected ?? projects[0]?.id;
-
-  return (
-    <>
-      <PageTitle description="Files every session in a Project can read and write.">
-        Library
-      </PageTitle>
-      {id === undefined ? (
-        <p className="text-fg-dim">Create a Project first.</p>
-      ) : (
-        <>
-          <Select
-            aria-label="Project"
-            value={id}
-            onChange={(event) => {
-              setSelected(event.target.value);
-            }}
-            className="self-start"
-          >
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </Select>
-          <ProjectFiles key={id} context={context} projectId={id} />
-        </>
-      )}
-    </>
-  );
-}
-
-function ProjectFiles({
-  context,
-  projectId,
-}: {
-  readonly context: WebContext;
-  readonly projectId: string;
-}): ReactElement {
-  const base = `projects/${encodeURIComponent(projectId)}`;
+// A Project's files, which every Session in it reads and writes (ADR 0018).
+// path is the Project's own, such as projects/<id>.
+export function Library({ path }: { readonly path: string }): ReactElement {
+  const base = `/api/ext/${projects.id}/${path}`;
 
   const { value, reload } = useLoaded(
     async () =>
       Promise.all([
-        json<LibraryFile[]>(context.request(`${base}/files`)),
-        json<LibraryWrite[]>(context.request(`${base}/log`)),
+        json<LibraryFile[]>(fetch(`${base}/files`)),
+        json<LibraryWrite[]>(fetch(`${base}/log`)),
       ]),
     base,
+    { changes: ["projects"] },
   );
 
   const [files, writes] = value ?? [[], []];
@@ -91,7 +27,7 @@ function ProjectFiles({
   const upload = async (chosen: readonly File[]): Promise<void> => {
     const results = await Promise.allSettled(
       chosen.map(async (file) =>
-        ok(context.request(filePath(file.name), { method: "PUT", body: file })),
+        ok(fetch(filePath(file.name), { method: "PUT", body: file })),
       ),
     );
 
@@ -125,7 +61,7 @@ function ProjectFiles({
                 className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-2.5"
               >
                 <a
-                  href={`/api/ext/library/${filePath(file.name)}`}
+                  href={filePath(file.name)}
                   download={file.name}
                   className="font-mono text-mono text-accent hover:underline"
                 >

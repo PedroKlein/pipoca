@@ -432,19 +432,9 @@ test("chats from Pi's own TUI and goes back to the chat when Pi quits", async ()
 }, 30_000);
 
 test("asks the assistant from the home screen with the model picked, then continues there", async () => {
-  faux.setResponses([
-    fauxAssistantMessage([fauxText("From before")]),
-    fauxAssistantMessage([fauxText("Happy to help")]),
-  ]);
-
-  await fetch(new URL("/api/ext/meta/sessions", server.url), {
-    method: "POST",
-    headers: { cookie, "content-type": "application/json" },
-    body: JSON.stringify({ text: "An older question" }),
-  });
+  faux.setResponses([fauxAssistantMessage([fauxText("Happy to help")])]);
 
   await page.goto(server.url.href);
-  await page.getByRole("heading", { name: "Earlier conversations" }).waitFor();
 
   await page
     .getByRole("heading", { name: "What do you want to build today?" })
@@ -496,13 +486,45 @@ test("asks the assistant from the home screen with the model picked, then contin
   expect(await model.count()).toBe(0);
 
   expect(
-    await page.getByRole("heading", { name: "Earlier conversations" }).count(),
+    await page.getByRole("link", { name: "Earlier conversations" }).count(),
   ).toBe(0);
 
-  await page.getByRole("link", { name: "Earlier conversations" }).click();
-  await page.getByRole("link", { name: "An older question" }).waitFor();
+  // Starting fresh keeps the conversation before it reachable.
+  await fetch(
+    new URL(
+      `/api/ext/projects/projects/${projectHash.split("/").at(-1) ?? ""}/fresh`,
+      server.url,
+    ),
+    { method: "POST", headers: { cookie } },
+  );
 
-  await page.getByRole("link", { name: "Assistant", exact: true }).click();
+  await page
+    .locator("#plugin-nav")
+    .getByRole("link", { name: "Earlier conversations" })
+    .click();
+
+  await page.getByRole("heading", { name: "Earlier conversations" }).waitFor();
+  await page.getByRole("link", { name: /What can you do/ }).click();
+
+  await page
+    .locator('#chat li[data-role="assistant"]', { hasText: "Happy to help" })
+    .waitFor();
+
+  await page
+    .locator("#plugin-page")
+    .getByRole("link", { name: "Assistant", exact: true })
+    .click();
+
+  await page.waitForURL((url) => url.hash === projectHash);
+
+  // The sidebar's Assistant entry opens the same assistant (ADR 0052).
+  await page.goto(server.url.href);
+
+  await page
+    .locator("#plugin-nav")
+    .getByRole("link", { name: "Assistant", exact: true })
+    .click();
+
   await page.waitForURL((url) => url.hash === projectHash);
 }, 30_000);
 
@@ -798,24 +820,27 @@ test("changes a plugin's setting on the Plugins page", async () => {
   await page.goto(server.url.href);
   await openSettings("Plugins");
 
-  const library = page.getByRole("listitem", { name: "Library" });
-  await library.getByRole("switch", { name: "On", checked: true }).waitFor();
-  await library.getByRole("button", { name: "Settings" }).click();
+  const push = page.getByRole("listitem", { name: "Notifications" });
+  await push.getByRole("switch", { name: "On", checked: true }).waitFor();
+  await push.getByRole("button", { name: "Settings" }).click();
 
-  const limit = library.getByLabel(/^File size limit in MB/);
+  const limit = push.getByLabel(
+    /^Minutes before a question goes to the starter/,
+  );
+
   expect(await limit.inputValue()).toBe("10");
 
   await limit.fill("25");
-  await library.getByRole("button", { name: "Save" }).click();
-  await library.getByText("Saved").waitFor();
+  await push.getByRole("button", { name: "Save" }).click();
+  await push.getByText("Saved").waitFor();
 
   await page.reload();
-  await library.getByRole("button", { name: "Settings" }).click();
+  await push.getByRole("button", { name: "Settings" }).click();
   expect(await limit.inputValue()).toBe("25");
 
   await limit.fill("10");
-  await library.getByRole("button", { name: "Save" }).click();
-  await library.getByText("Saved").waitFor();
+  await push.getByRole("button", { name: "Save" }).click();
+  await push.getByText("Saved").waitFor();
 });
 
 test("finds a plugin by a word of its name or description", async () => {
@@ -823,12 +848,12 @@ test("finds a plugin by a word of its name or description", async () => {
   await openSettings("Plugins");
 
   const plugins = page.getByRole("list", { name: "Plugins" });
-  await plugins.getByRole("listitem", { name: "Library" }).waitFor();
+  await plugins.getByRole("listitem", { name: "Routines" }).waitFor();
 
   await page.getByLabel("Search plugins").fill("subagents");
 
   await plugins
-    .getByRole("listitem", { name: "Library" })
+    .getByRole("listitem", { name: "Routines" })
     .waitFor({ state: "detached" });
 
   expect(await plugins.getByRole("listitem").count()).toBe(1);
@@ -1168,8 +1193,8 @@ test("draws a defined plugin's page and slots, pinned for someone who never chan
     await page.goto(server.url.href);
     const nav = page.locator("#plugin-nav");
 
-    await nav.getByRole("link", { name: "Projects" }).waitFor();
-    expect(await nav.getByRole("link", { name: "Library" }).count()).toBe(0);
+    await nav.getByRole("link", { name: "Assistant", exact: true }).waitFor();
+    expect(await nav.getByRole("link", { name: "Routines" }).count()).toBe(0);
 
     await nav.getByRole("link", { name: "Vault" }).click();
     await page.getByRole("heading", { name: "Vault" }).waitFor();
@@ -1232,23 +1257,23 @@ test("says why an installed plugin's web part didn't load, and draws the rest", 
 test("pins a plugin page to the sidebar and keeps the rest under More", async () => {
   await page.goto(server.url.href);
   const nav = page.locator("#plugin-nav");
-  const library = nav.getByRole("link", { name: "Library" });
+  const routines = nav.getByRole("link", { name: "Routines" });
 
-  await nav.getByRole("link", { name: "Projects" }).waitFor();
-  expect(await library.count()).toBe(0);
+  await nav.getByRole("link", { name: "Assistant", exact: true }).waitFor();
+  expect(await routines.count()).toBe(0);
 
   await nav.getByRole("button", { name: "More" }).click();
-  await nav.getByRole("button", { name: "Pin Library" }).click();
-  await nav.getByRole("button", { name: "Unpin Library" }).waitFor();
+  await nav.getByRole("button", { name: "Pin Routines" }).click();
+  await nav.getByRole("button", { name: "Unpin Routines" }).waitFor();
 
   await page.reload();
-  await library.waitFor();
+  await routines.waitFor();
   expect(await nav.getByRole("button", { name: "More" }).count()).toBe(1);
 
-  await nav.getByRole("button", { name: "Unpin Library" }).click();
+  await nav.getByRole("button", { name: "Unpin Routines" }).click();
   await page.reload();
-  await nav.getByRole("link", { name: "Projects" }).waitFor();
-  expect(await library.count()).toBe(0);
+  await nav.getByRole("link", { name: "Assistant", exact: true }).waitFor();
+  expect(await routines.count()).toBe(0);
 });
 
 test("puts a pin back when the server doesn't save it", async () => {
@@ -1273,12 +1298,12 @@ test("puts a pin back when the server doesn't save it", async () => {
   const nav = page.locator("#plugin-nav");
 
   await nav.getByRole("button", { name: "More" }).click();
-  await nav.getByRole("button", { name: "Pin Library" }).click();
-  await nav.getByRole("button", { name: "Unpin Library" }).waitFor();
+  await nav.getByRole("button", { name: "Pin Routines" }).click();
+  await nav.getByRole("button", { name: "Unpin Routines" }).waitFor();
   refuse(undefined);
 
   await nav
-    .getByRole("button", { name: "Pin Library", exact: true })
+    .getByRole("button", { name: "Pin Routines", exact: true })
     .waitFor({ timeout: 2000 });
 
   await page.unroute("**/api/me/pinned-pages");
@@ -2866,10 +2891,7 @@ test("creates a Project and shares a file through its library", async () => {
   await side.waitFor();
   await side.getByRole("button", { name: "Back to threads" }).click();
 
-  const pluginNav = page.locator("#plugin-nav");
-
-  await pluginNav.getByRole("button", { name: "More" }).click();
-  await pluginNav.getByRole("link", { name: "Library" }).click();
+  await page.getByRole("button", { name: "Project library" }).click();
 
   await page.getByText("No files yet.").waitFor();
 
@@ -2982,12 +3004,9 @@ test("shows a plugin page's failure without taking the app down", async () => {
     }),
   );
 
+  // The failing list takes the sidebar's Project links with it.
   await page.goto(server.url.href);
-
-  await page
-    .locator("#plugin-nav")
-    .getByRole("link", { name: "Projects" })
-    .click();
+  await page.goto(new URL("#plugin/projects/all", server.url).href);
 
   const pluginPage = page.locator("#plugin-page");
 

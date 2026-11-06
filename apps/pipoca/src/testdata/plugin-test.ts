@@ -21,6 +21,7 @@ import {
   type Command,
   type GitLogin,
   type Method,
+  type Owner,
   protocolVersion,
   readSse,
   type ToolSpec,
@@ -44,7 +45,6 @@ type Delivered = ReturnType<TestSession["delivered"]>[number];
 interface Host {
   readonly id: string;
   readonly token: string;
-  readonly environmentId: string;
   readonly commands: Command[];
   generation: number;
   gitLogins: readonly GitLogin[];
@@ -300,30 +300,29 @@ export async function pluginTest(
 
   const hosts = new Map<string, Host>();
 
+  // What the runner a token is for runs: every connected host of it but the
+  // one left out.
+  const runningOn = (
+    token: string,
+    without?: Host,
+  ): { sessionId: string; generation: number }[] =>
+    [...hosts.values()]
+      .filter(
+        (each) =>
+          each.token === token && each !== without && each.stream !== undefined,
+      )
+      .map(({ id, generation }) => ({ sessionId: id, generation }));
+
   const poll = async (
-    host: Host,
+    token: string,
     running: readonly { sessionId: string; generation: number }[],
   ): Promise<Work> =>
     json<Work>(
       request(
         "/runner/work",
-        runner(host.token, { running, folders: [], models: [] }),
+        runner(token, { running, folders: [], models: [] }),
       ),
     );
-
-  // A runner polls with every Session it runs: a test's run Sessions share
-  // the runner of the Session whose Environment they started in.
-  const runningOn = (
-    token: string,
-  ): { sessionId: string; generation: number }[] =>
-    [...hosts.values()].flatMap((each) =>
-      each.token === token && each.stream !== undefined
-        ? [{ sessionId: each.id, generation: each.generation }]
-        : [],
-    );
-
-  const othersOn = (host: Host): { sessionId: string; generation: number }[] =>
-    runningOn(host.token).filter(({ sessionId }) => sessionId !== host.id);
 
   const attach = async (host: Host): Promise<void> => {
     const stream = new AbortController();
@@ -355,7 +354,11 @@ export async function pluginTest(
   // A poll that runs nothing ends the Session's current attempt, as when
   // its runner restarts, and takes it again in a new one.
   const connect = async (host: Host): Promise<void> => {
-    const { start: assigned } = await poll(host, othersOn(host));
+    const { start: assigned } = await poll(
+      host.token,
+      runningOn(host.token, host),
+    );
+
     const found = assigned.find(({ sessionId }) => sessionId === host.id);
 
     if (found === undefined) {
@@ -368,22 +371,21 @@ export async function pluginTest(
   };
 
   const disconnect = async (host: Host): Promise<void> => {
-    await poll(host, othersOn(host));
+    await poll(host.token, runningOn(host.token, host));
     host.stream?.abort();
     host.stream = undefined;
   };
 
+  const tokens = (): Set<string> =>
+    new Set([...hosts.values()].map(({ token }) => token));
+
   const keepUp = async (): Promise<void> => {
-    const runners = new Map<string, Host>();
+    for (const token of tokens()) {
+      const running = runningOn(token);
 
-    for (const host of hosts.values()) {
-      if (host.stream !== undefined) {
-        runners.set(host.token, host);
+      if (running.length > 0) {
+        await poll(token, running);
       }
-    }
-
-    for (const host of runners.values()) {
-      await poll(host, runningOn(host.token));
     }
   };
 
@@ -397,10 +399,17 @@ export async function pluginTest(
     "select count(*) as count from session_outbox where session_id = ?",
   );
 
-  const taken = async (host: Host): Promise<void> => {
-    await until(
-      () => (queuedCount.get(host.id) as { count: number }).count === 0,
-    );
+  const queued = (host: Host): number =>
+    (queuedCount.get(host.id) as { count: number }).count;
+
+  // Connects the host and waits until the commands the outbox held for it
+  // have arrived, which can trail their rows leaving the outbox.
+  const reconnect = async (host: Host): Promise<void> => {
+    const expected = host.commands.length + queued(host);
+
+    await connect(host);
+
+    await until(() => queued(host) === 0 && host.commands.length >= expected);
   };
 
   const adminId = (): string => {
@@ -435,26 +444,134 @@ export async function pluginTest(
     return teamProfile;
   };
 
-  // A Session's handle for the test, for one it started or one it attached.
-  const handleOf = (host: Host, cookie: string): TestSession => {
+  const hostOf = (session: TestSession): Host => {
+    const found = hosts.get(session.id);
+
+    if (found === undefined) {
+      throw new Error(`Session ${session.id} isn't this test's`);
+    }
+
+    return found;
+  };
+
+  const environments = new Map<
+    string,
+    { readonly token: string; readonly cookie: string }
+  >();
+
+  // An Environment with a runner of its own, which hosts the Sessions that
+  // run in it.
+  const environmentOf = async (owner: Owner): Promise<{ id: string }> => {
+    const personal = owners.personId(owner);
+    const cookie = await cookieOf(personal ?? adminId());
+
+    const environment = await json<{ id: string; key: string }>(
+      request(
+        "/api/environments",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            name: `session-${String(environments.size + 1)}`,
+            ...(personal === undefined && { team: true }),
+          }),
+        },
+        cookie,
+      ),
+    );
+
+    const joined = await json<{ token: string }>(
+      request("/runner/join", runner(environment.key, { name: "runner" })),
+    );
+
+    environments.set(environment.id, { token: joined.token, cookie });
+
+    return { id: environment.id };
+  };
+
+  const attachTo = async (sessionId: string): Promise<TestSession> => {
+    const found = contextOf(plugin.id).sessions.get(sessionId);
+    const environment = environments.get(found?.environmentId ?? "");
+
+    if (found === undefined || environment === undefined) {
+      throw new Error(
+        `Session ${sessionId} doesn't run in one of the test's Environments`,
+      );
+    }
+
+    const host: Host = hosts.get(sessionId) ?? {
+      id: sessionId,
+      token: environment.token,
+      commands: [],
+      generation: 0,
+      gitLogins: [],
+      stream: undefined,
+    };
+
+    hosts.set(host.id, host);
+
+    if (host.stream === undefined) {
+      await reconnect(host);
+    }
+
+    const { cookie } = environment;
+
+    const transcriptLength = async (): Promise<number> =>
+      (
+        await json<{ entries: readonly string[] }>(
+          request(`/runner/sessions/${host.id}/transcript`, runner(host.token)),
+        )
+      ).entries.length;
+
+    const upload = async (lines: readonly unknown[]): Promise<void> => {
+      await json(
+        request(
+          `/runner/sessions/${host.id}/transcript`,
+          runner(host.token, {
+            generation: host.generation,
+            start: await transcriptLength(),
+            lines: lines.map((line) => JSON.stringify(line)),
+          }),
+        ),
+      );
+    };
+
+    const status = async (
+      to: "running" | "idle",
+      length?: number,
+    ): Promise<void> => {
+      const posted = await request(
+        `/runner/sessions/${host.id}/events`,
+        runner(host.token, {
+          generation: host.generation,
+          events: [
+            {
+              type: "status",
+              status: to,
+              ...(length !== undefined && { transcriptLength: length }),
+            },
+          ],
+        }),
+      );
+
+      if (!posted.ok) {
+        throw new Error(
+          `the Session's events answered ${String(posted.status)}: ${await posted.text()}`,
+        );
+      }
+    };
+
     return {
       id: host.id,
-      environmentId: host.environmentId,
+      environmentId: found.environmentId,
       api: pluginClient(plugin, {
         session: host.id,
         headers: { authorization: `Bearer ${host.token}` },
         fetch: async (path, init) => request(path, init),
       }),
       online: async (on) => {
-        // Each message the outbox held comes down the stream as one
-        // command, which the test sees once this settles.
         if (on && host.stream === undefined) {
-          const owed = (queuedCount.get(host.id) as { count: number }).count;
-          const seen = host.commands.length;
-
-          await connect(host);
-          await taken(host);
-          await until(() => host.commands.length >= seen + owed);
+          await reconnect(host);
         }
 
         if (!on && host.stream !== undefined) {
@@ -506,21 +623,17 @@ export async function pluginTest(
           );
         }
       },
-      transcript: async (lines) => {
-        const { entries } = await json<{ entries: readonly string[] }>(
-          request(`/runner/sessions/${host.id}/transcript`, runner(host.token)),
-        );
+      transcript: upload,
+      turn: async (lines, { uploaded = true } = {}) => {
+        const end = (await transcriptLength()) + lines.length;
 
-        await json(
-          request(
-            `/runner/sessions/${host.id}/transcript`,
-            runner(host.token, {
-              generation: host.generation,
-              start: entries.length,
-              lines: lines.map((line) => JSON.stringify(line)),
-            }),
-          ),
-        );
+        await status("running");
+
+        if (uploaded) {
+          await upload(lines);
+        }
+
+        await status("idle", end);
       },
       archive: async () => {
         await json(
@@ -536,16 +649,6 @@ export async function pluginTest(
         );
       },
     };
-  };
-
-  const hostOf = (session: TestSession): Host => {
-    const found = hosts.get(session.id);
-
-    if (found === undefined) {
-      throw new Error(`Session ${session.id} isn't this test's`);
-    }
-
-    return found;
   };
 
   let calls = 0;
@@ -617,26 +720,7 @@ export async function pluginTest(
       }
 
       const starter = personal ?? startedBy;
-      const cookie = await cookieOf(personal ?? adminId());
-
-      const environment = await json<{ id: string; key: string }>(
-        request(
-          "/api/environments",
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              name: `session-${String(hosts.size + 1)}`,
-              ...(personal === undefined && { team: true }),
-            }),
-          },
-          cookie,
-        ),
-      );
-
-      const joined = await json<{ token: string }>(
-        request("/runner/join", runner(environment.key, { name: "runner" })),
-      );
+      const environment = await environmentOf(owner);
 
       const started = contextOf(by).sessions.start({
         environment: environment.id,
@@ -650,48 +734,10 @@ export async function pluginTest(
         }),
       });
 
-      const host: Host = {
-        id: started.id,
-        token: joined.token,
-        environmentId: environment.id,
-        commands: [],
-        generation: 0,
-        gitLogins: [],
-        stream: undefined,
-      };
-
-      hosts.set(host.id, host);
-      await connect(host);
-
-      return handleOf(host, cookie);
+      return attachTo(started.id);
     },
-    attach: async (sessionId) => {
-      const session = contextOf(plugin.id).sessions.get(sessionId);
-
-      const sibling = [...hosts.values()].find(
-        ({ environmentId }) => environmentId === session?.environmentId,
-      );
-
-      if (session === undefined || sibling === undefined) {
-        throw new Error(`no runner of the test's runs Session ${sessionId}`);
-      }
-
-      const host: Host = {
-        ...sibling,
-        id: sessionId,
-        commands: [],
-        generation: 0,
-        stream: undefined,
-      };
-
-      hosts.set(host.id, host);
-      await connect(host);
-
-      return handleOf(
-        host,
-        await cookieOf(owners.personId(session.ownedBy) ?? adminId()),
-      );
-    },
+    environment: async ({ owner }) => ({ id: (await environmentOf(owner)).id }),
+    attach: attachTo,
     tool: async (name, input, { session, answer }) => {
       const host = hostOf(session);
       const generation = host.generation;
@@ -798,11 +844,20 @@ export async function pluginTest(
       server = start();
       await ready();
 
-      for (const host of hosts.values()) {
-        if (host.stream !== undefined) {
-          await poll(host, runningOn(host.token));
-          await attach(host);
+      const connected = [...hosts.values()].filter(
+        ({ stream }) => stream !== undefined,
+      );
+
+      for (const token of tokens()) {
+        const running = runningOn(token);
+
+        if (running.length > 0) {
+          await poll(token, running);
         }
+      }
+
+      for (const host of connected) {
+        await attach(host);
       }
     },
     config: async () =>

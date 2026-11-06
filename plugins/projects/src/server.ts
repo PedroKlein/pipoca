@@ -1,18 +1,28 @@
 import {
   BadRequest,
-  canSee,
+  defineServer,
+  Forbidden,
+  HttpError,
   NotFound,
-  type PluginStore,
-  readBody,
-  type RouteCaller,
-  type SendOutcome,
-  type ServerPlugin,
-  type ServerPluginContext,
+  type PersonCaller,
+  type ServerContext,
+  type SessionCaller,
   type Static,
+  StringEnum,
   Type,
 } from "@pipoca/plugins";
 import { type Actor, checkoutName } from "@pipoca/protocol";
-import { type ProjectSummary, type ProjectView, workStates } from "./model";
+import { projects } from "../plugin";
+import { assistantProfiles } from "./assistant";
+import {
+  type Membership,
+  nameRule,
+  type ProjectSummary,
+  type ProjectView,
+  sizeRule,
+  validName,
+  workStates,
+} from "./model";
 import {
   coordinatorPrompt,
   handoffText,
@@ -20,475 +30,912 @@ import {
   threadNotice,
   threadView,
 } from "./prompts";
-import {
-  type Delivery,
-  type Member,
-  type Project,
-  type ProjectStore,
-  projectsSchema,
-  projectStore,
-  type Queued,
-} from "./projects";
+import { type Member, type Project, projectStore } from "./store";
 import { modelRef, projectTools } from "./tools";
-import { projectsToolset } from "./toolset";
-import {
-  compacted,
-  lastReply,
-  messagedCoordinator,
-  recentChat,
-  turnError,
-} from "./transcript";
 
-// The settings a Project can change after it starts. Null takes its Profile
-// away.
-const settingsChange = Type.Object({
+type Context = ServerContext<typeof projects>;
+
+const settingsFields = {
   name: Type.Optional(Type.String()),
-  goal: Type.Optional(Type.String()),
-  instructions: Type.Optional(Type.String()),
-  threadModel: Type.Optional(Type.String()),
-  profile: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-});
+  goal: Type.Optional(
+    Type.String({
+      description:
+        "The outcome the Project works toward, in a sentence or two in the user's words. Not the steps to get there, and nothing from the conversation that led to the Project.",
+    }),
+  ),
+  instructions: Type.Optional(
+    Type.String({
+      description:
+        "Lasting conventions every Session in the Project follows, such as how to test or which branch to target. Only what holds for the Project's whole life: leave out the request's history, tool names, ids, and anything the repositories already say. Usually empty at first.",
+    }),
+  ),
+  threadModel: Type.Optional(
+    Type.String({
+      description: "provider/id of the model thread Sessions use",
+    }),
+  ),
+  // Null takes the Project's Profile away.
+  profile: Type.Optional(
+    Type.Union([Type.String(), Type.Null()], {
+      description: "Profile id, or null for the default Profile",
+    }),
+  ),
+};
+
+const settingsChange = Type.Object(settingsFields);
 
 const newProject = Type.Object({
-  ...settingsChange.properties,
+  ...settingsFields,
   name: Type.String(),
-  repositories: Type.Array(Type.String()),
-  environment: Type.Optional(Type.String()),
-  model: Type.Optional(Type.String()),
-  team: Type.Optional(Type.Boolean()),
+  repositories: Type.Array(Type.String(), {
+    description:
+      "Clone URLs of git repositories, such as https://github.com/owner/name.git, each with a different name. Use URLs the user gave or a tool found, never guessed ones. A folder that isn't a git repository can't be one.",
+  }),
+  environment: Type.Optional(Type.String({ description: "Environment id" })),
+  model: Type.Optional(
+    Type.String({ description: "provider/id of the coordinator's model" }),
+  ),
 });
 
 const assistantAsk = Type.Object({
-  text: Type.String(),
+  text: Type.String({ minLength: 1 }),
   model: Type.Optional(Type.String()),
-  // The Profiles the assistant's coordinator and threads run on.
-  profile: Type.String({ minLength: 1 }),
-  threadProfile: Type.String({ minLength: 1 }),
-  // The person's Team assistant, in the hub, instead of their own
-  // (ADR 0067).
-  team: Type.Optional(Type.Boolean()),
 });
 
-const stateChange = Type.Object({ state: Type.Enum(workStates) });
+const stateChange = Type.Object({ state: StringEnum(workStates) });
 
-const deliveryMs = 1000;
+const fileContent = Type.Object({ content: Type.String() });
+
+const installation = Type.Union([
+  Type.Object({
+    kind: Type.Literal("profile"),
+    files: Type.Record(Type.String(), Type.String()),
+    name: Type.String({ minLength: 1 }),
+    id: Type.Optional(Type.String({ minLength: 1 })),
+  }),
+  Type.Object({
+    kind: Type.Literal("plugin"),
+    plugin: Type.String({ minLength: 1 }),
+    files: Type.Record(Type.String(), Type.String()),
+  }),
+]);
+
 const errorLimit = 300;
+const transcriptWaitMs = 1000;
 
-export const projects: ServerPlugin = {
-  name: "projects",
-  schema: projectsSchema,
-  register: (context) => {
-    // Other plugins, like the library, follow who is in which Project.
-    // Every write can change what an open Project shows (ADR 0038).
-    const tables: PluginStore = {
-      ...context.store,
-      run: (sql, ...params) => {
-        context.store.run(sql, ...params);
-        context.changes.publish("projects");
-      },
-    };
+// Projects, their coordinators and threads (ADR 0016, ADR 0028), each
+// Project's library (ADR 0018), and each person's assistant, a Project of
+// their own (ADR 0052).
+export const server = defineServer(projects, (context) => {
+  const { routes, sessions, events, schedule, transcript, log } = context;
+  const store = projectStore(context.store, context.clock);
 
-    const store = projectStore(tables, (member) => {
-      context.events.publish({
-        type: "projects.MemberAdded",
-        sessionId: member.sessionId,
-        projectId: member.projectId,
-      });
+  const changed = (): void => {
+    routes.topic("projects");
+  };
+
+  // The assistant's coordinator reads but changes nothing on the runner,
+  // and its threads build with all of Pi's tools. Both load every route
+  // tool, which act as the person (ADR 0052).
+  const assistant = {
+    coordinator: context.provide.profile(
+      "assistant",
+      assistantProfiles.coordinator,
+      { team: true, routeTools: true },
+    ),
+    thread: context.provide.profile("builder", assistantProfiles.thread, {
+      team: true,
+      routeTools: true,
+    }),
+  };
+
+  const coordinated = (sessionId: string): Project | undefined => {
+    const member = store.member(sessionId);
+
+    return member?.role === "coordinator"
+      ? store.get(member.projectId)
+      : undefined;
+  };
+
+  const report = (
+    project: Project,
+    message: { text: string; turn: boolean; notice: unknown; dedupe?: string },
+  ): void => {
+    const { text, turn, notice, dedupe } = message;
+
+    sessions.send(project.coordinatorId, {
+      text,
+      turn,
+      notice: notice as { kind: string; data?: unknown },
+      ...(dedupe !== undefined && { dedupe }),
     });
+  };
 
-    for (const tool of projectTools(store, context)) {
-      context.tools.register(tool);
+  // A thread's turn reaches its coordinator once the thread's transcript
+  // holds the whole turn, which its host can upload after TurnEnded.
+  const reportTurn = (
+    threadId: string,
+    end: number | undefined,
+    wait = true,
+  ): void => {
+    const thread = store.member(threadId);
+    const project = thread && store.get(thread.projectId);
+    const session = sessions.get(threadId);
+
+    if (thread?.role !== "thread" || project === undefined) {
+      return;
     }
 
-    context.toolsets.register(projectsToolset);
+    if (
+      wait &&
+      end !== undefined &&
+      session?.archivedAt === null &&
+      transcript.length(threadId) < end
+    ) {
+      schedule.at(
+        `turn:${threadId}:${String(end)}`,
+        context.clock.now() + transcriptWaitMs,
+        { threadId, end },
+      );
 
-    for (const type of ["TurnStarted", "TurnEnded"] as const) {
-      context.events.subscribe(type, ({ session }) => {
-        store.touch(session.id);
-      });
+      return;
     }
 
-    // The transcript upload can trail TurnEnded, so a turn notice reads the
-    // transcript when it is delivered, up to where the turn ended.
-    context.events.subscribe("TurnEnded", ({ session, transcriptLength }) => {
-      const thread = store.member(session.id);
-      if (thread?.role === "thread") {
-        const project = store.get(thread.projectId);
-        if (project) {
-          store.enqueue(project.coordinatorId, `plugin:projects`, {
-            kind: "turn",
-            threadId: thread.sessionId,
-            ...(transcriptLength !== undefined && { end: transcriptLength }),
-          });
-        }
-      }
-    });
-
-    // Once Pi compacts a coordinator's context, a fresh coordinator takes
-    // over from a handoff, as Claude Code's does (ADR 0052).
-    context.events.subscribe("TurnEnded", ({ session }) => {
-      const project = coordinated(store, session.id);
-      if (
-        project?.coordinatorId === session.id &&
-        compacted(context.sessions.transcript(session.id))
-      ) {
-        try {
-          startFresh(project, store, context);
-        } catch (error) {
-          context.log("could not start a fresh coordinator", {
-            project: project.id,
-            error: String(error),
-          });
-        }
-      }
-    });
-
-    // Every restart interrupts the threads it finds idle too, and those lost
-    // nothing, so a notice would only cost the coordinator a turn.
-    context.events.subscribe("SessionStateChanged", ({ session, previous }) => {
-      const thread = store.member(session.id);
-      const project = thread && store.get(thread.projectId);
-      if (
-        thread?.role === "thread" &&
-        project &&
-        ((session.status === "interrupted" && previous === "running") ||
-          session.status === "failed")
-      ) {
-        store.enqueue(project.coordinatorId, "plugin:projects", {
-          kind: "message",
-          ...threadNotice(thread, session, `stopped: ${session.status}`),
-        });
-      }
-    });
-
-    // A Project goes and comes back with its coordinator, and takes every
-    // Session it owns along (ADR 0028).
-    context.events.subscribe("SessionArchived", ({ session }) => {
-      const project = coordinated(store, session.id);
-      if (project) {
-        for (const owned of context.sessions.owned(project.id)) {
-          try {
-            context.sessions.archive(owned.id);
-          } catch (error) {
-            context.log("could not archive a Session with its Project", {
-              sessionId: owned.id,
-              error: String(error),
-            });
-          }
-        }
-      }
-    });
-
-    // Threads archived before the Project stay archived.
-    context.events.subscribe("SessionUnarchived", ({ session, archivedAt }) => {
-      const project = coordinated(store, session.id);
-      if (project) {
-        for (const owned of context.sessions.owned(project.id, {
-          archived: true,
-        })) {
-          if (owned.archivedAt === null || owned.archivedAt < archivedAt) {
-            continue;
-          }
-
-          try {
-            context.sessions.unarchive(owned.id);
-          } catch (error) {
-            context.log("could not bring back a Session with its Project", {
-              sessionId: owned.id,
-              error: String(error),
-            });
-          }
-        }
-      }
-    });
-
-    // A turn notice waits here for its thread's transcript, and what was
-    // queued after it waits behind it, before they go to the kernel's outbox.
-    const timer = setInterval(() => {
-      deliver(store, context);
-    }, deliveryMs);
-
-    context.signal.addEventListener("abort", () => {
-      clearInterval(timer);
-    });
-
-    context.routes.handle(async (request, path, caller) =>
-      route(request, path.split("/"), store, context, caller),
+    const turn = transcript.lastTurn(
+      threadId,
+      end === undefined ? {} : { end },
     );
-  },
-};
 
-function coordinated(
-  store: ProjectStore,
-  sessionId: string,
-): Project | undefined {
-  const member = store.member(sessionId);
+    const { text, notice } = threadNotice(
+      thread,
+      session,
+      turn.error === undefined
+        ? "finished a turn"
+        : `ended its turn with a model error: ${turn.error.slice(0, errorLimit)}`,
+      turn.reply,
+    );
 
-  return member?.role === "coordinator"
-    ? store.get(member.projectId)
-    : undefined;
-}
+    if (turn.error !== undefined) {
+      log("thread turn failed", { sessionId: threadId, error: turn.error });
+    }
 
-// The store can refuse a write, such as while another process holds its lock.
-// A delivery waits for the next tick then, and the server keeps running.
-function deliver(store: ProjectStore, context: ServerPluginContext): void {
-  try {
-    deliverQueued(store, context);
-  } catch (error) {
-    context.log("deliveries wait for the next tick after an error", {
-      error: String(error),
+    // A thread that messaged the coordinator this turn already started a
+    // coordinator turn, so its notice is only context. So is a failed turn:
+    // a coordinator woken by it tends to retry the thread on the same model,
+    // which fails the same way.
+    report(project, {
+      text,
+      notice,
+      turn:
+        turn.error === undefined &&
+        !turn.called.includes("message_coordinator"),
+      dedupe: `turn:${threadId}:${String(end ?? transcript.length(threadId))}`,
+    });
+  };
+
+  schedule.on("turn:", (payload) => {
+    const { threadId, end } = payload as { threadId: string; end: number };
+
+    reportTurn(threadId, end);
+  });
+
+  // A thread's later message never overtakes its last turn's report, which
+  // then goes with what the transcript holds so far.
+  const reportWaitingTurns = (threadId: string): void => {
+    for (const { key, payload } of schedule.pending(`turn:${threadId}:`)) {
+      schedule.cancel(key);
+      reportTurn(threadId, (payload as { end: number }).end, false);
+    }
+  };
+
+  projectTools(context, store, reportWaitingTurns);
+
+  for (const type of ["TurnStarted", "TurnEnded"] as const) {
+    events.on(type, ({ session }) => {
+      if (store.member(session.id) !== undefined) {
+        store.touch(session.id);
+        changed();
+      }
     });
   }
-}
 
-function deliverQueued(
-  store: ProjectStore,
-  { sessions, log }: ServerPluginContext,
-): void {
-  const blocked = new Set<string>();
+  events.on("TurnEnded", ({ session, transcriptLength }) => {
+    reportTurn(session.id, transcriptLength);
+  });
 
-  for (const queued of store.queued()) {
-    if (blocked.has(queued.sessionId)) {
-      continue;
-    }
+  // Once Pi compacts a coordinator's context, a fresh coordinator takes over
+  // from a handoff, as Claude Code's does (ADR 0052).
+  events.on("TurnEnded", ({ session }) => {
+    const project = coordinated(session.id);
 
-    const { sessionId } = queued;
-    const target = sessions.get(sessionId);
-    if (target?.archivedAt !== null) {
-      log("dropped a delivery to a session that is gone", { sessionId });
-      store.delivered(queued.id);
-      continue;
-    }
-
-    if (awaitsTranscript(queued.delivery, sessions)) {
-      blocked.add(sessionId);
-      continue;
-    }
-
-    try {
-      const sent = sendQueued(queued, store, sessions, log);
-
-      if (!sent.ok) {
-        log("dropped a delivery to a session that is gone", {
-          sessionId,
-          reason: sent.reason,
+    if (
+      project?.coordinatorId === session.id &&
+      transcript.compaction(session.id) !== undefined
+    ) {
+      try {
+        startFresh(project);
+      } catch (error) {
+        log("could not start a fresh coordinator", {
+          project: project.id,
+          error: String(error),
         });
       }
+    }
+  });
+
+  // Every restart interrupts the threads it finds idle too, and those lost
+  // nothing, so a notice would only cost the coordinator a turn.
+  events.on("SessionStateChanged", ({ session, previous }) => {
+    const thread = store.member(session.id);
+    const project = thread && store.get(thread.projectId);
+
+    if (
+      thread?.role === "thread" &&
+      project !== undefined &&
+      ((session.status === "interrupted" && previous === "running") ||
+        session.status === "failed")
+    ) {
+      reportWaitingTurns(session.id);
+
+      report(project, {
+        ...threadNotice(thread, session, `stopped: ${session.status}`),
+        turn: true,
+      });
+    }
+
+    if (thread !== undefined) {
+      changed();
+    }
+  });
+
+  // A Project goes and comes back with its coordinator, and takes every
+  // Session it owns along (ADR 0028).
+  events.on("SessionArchived", ({ session }) => {
+    const project = coordinated(session.id);
+
+    if (project === undefined) {
+      return;
+    }
+
+    for (const owned of sessions.owned(project.id)) {
+      try {
+        sessions.archive(owned.id);
+      } catch (error) {
+        log("could not archive a Session with its Project", {
+          sessionId: owned.id,
+          error: String(error),
+        });
+      }
+    }
+
+    changed();
+  });
+
+  // Threads archived before the Project stay archived.
+  events.on("SessionUnarchived", ({ session, archivedAt }) => {
+    const project = coordinated(session.id);
+
+    if (project === undefined) {
+      return;
+    }
+
+    for (const owned of sessions.owned(project.id, { archived: true })) {
+      if (owned.archivedAt === null || owned.archivedAt < archivedAt) {
+        continue;
+      }
+
+      try {
+        sessions.unarchive(owned.id);
+      } catch (error) {
+        log("could not bring back a Session with its Project", {
+          sessionId: owned.id,
+          error: String(error),
+        });
+      }
+    }
+
+    changed();
+  });
+
+  // A Project is its owner's alone (ADR 0049), or the whole team's
+  // (ADR 0067). An assistant's is its person's, even the Team assistant.
+  const sees = (project: Project, caller: PersonCaller): boolean =>
+    project.assistantOf === null
+      ? project.owner === caller.owner || project.owner === "team"
+      : project.assistantOf === caller.person.id;
+
+  const theirs = (id: string, caller: PersonCaller): Project => {
+    const project = store.get(id);
+
+    if (project === undefined || !sees(project, caller)) {
+      throw new NotFound("no such Project");
+    }
+
+    return project;
+  };
+
+  const view = (project: Project): ProjectView => ({
+    id: project.id,
+    name: project.name,
+    goal: project.goal,
+    instructions: project.instructions,
+    repositories: project.repositories,
+    environmentId: project.environmentId,
+    profileId: project.profileId,
+    threadModel: project.threadModel,
+    coordinatorId: project.coordinatorId,
+    coordinatorState: runState(sessions.get(project.coordinatorId)),
+    assistant: project.assistantOf !== null,
+    team: project.owner === "team",
+    formerCoordinators: store
+      .formers(project.id)
+      .map(({ sessionId }) => sessionId),
+    threads: store
+      .threads(project.id)
+      .map((thread) => threadView(thread, sessions.get(thread.sessionId))),
+    memory: store.memory(project.id),
+  });
+
+  const summary = (project: Project): ProjectSummary => {
+    const threads = store.threads(project.id);
+
+    return {
+      id: project.id,
+      name: project.name,
+      coordinatorId: project.coordinatorId,
+      coordinatorState: runState(sessions.get(project.coordinatorId)),
+      repositories: project.repositories.length,
+      threads: threads.length,
+      needsYou: threads.filter(
+        (thread) =>
+          thread.workState === "blocked" ||
+          runState(sessions.get(thread.sessionId)) === "waiting",
+      ).length,
+      team: project.owner === "team",
+    };
+  };
+
+  const begin = (
+    draft: Omit<Project, "coordinatorId" | "createdAt">,
+    by: string,
+    start: {
+      readonly model?: string | undefined;
+      readonly profile: string | null;
+      readonly firstMessage?: string;
+    },
+  ): Project => {
+    const coordinator = started(() => {
+      const ref = modelRef((start.model ?? "").trim() || undefined);
+      const team = draft.owner === "team";
+
+      return sessions.start({
+        key: draft.id,
+        actor: `user:${by}`,
+        ...(ref && { model: ref }),
+        ...(team && { team: true }),
+        // A Team assistant's chat is its person's alone (ADR 0067).
+        ...(team &&
+          draft.assistantOf !== null && {
+            access: { kind: "named", people: [] },
+          }),
+        ...(draft.environmentId !== null && {
+          environment: draft.environmentId,
+        }),
+        ...(start.profile !== null && { profile: start.profile }),
+        workspace: {
+          kind: "repositories",
+          repositories: draft.repositories.map((repository) => ({
+            repository,
+          })),
+        },
+        systemPrompt: coordinatorPrompt(draft, undefined),
+        ...(start.firstMessage !== undefined && {
+          firstMessage: start.firstMessage,
+        }),
+      });
+    });
+
+    store.create(draft, coordinator.id);
+
+    log("project created", {
+      project: draft.id,
+      coordinator: coordinator.id,
+      ...(draft.assistantOf !== null && { assistant: true }),
+    });
+
+    return store.get(draft.id) ?? fail(draft.id);
+  };
+
+  // The old coordinator is archived but stays readable, and what waited for
+  // it goes to the new one.
+  const startFresh = (project: Project): Project => {
+    const previous = sessions.get(project.coordinatorId);
+    const compaction = transcript.compaction(project.coordinatorId);
+
+    const handoff = handoffText(
+      {
+        summary: compaction?.summary,
+        messages: transcript.messages(
+          project.coordinatorId,
+          compaction === undefined ? {} : { sinceLine: compaction.line + 1 },
+        ),
+      },
+      store
+        .threads(project.id)
+        .map((thread) => threadView(thread, sessions.get(thread.sessionId))),
+    );
+
+    const environment = previous?.environmentId ?? project.environmentId;
+    const profile = previous?.profileId ?? project.profileId;
+    const team = project.owner === "team";
+
+    const coordinator = started(() =>
+      sessions.start({
+        key: project.id,
+        actor: `user:${previous?.startedBy ?? project.assistantOf ?? ""}`,
+        ...(previous?.model && { model: previous.model }),
+        ...(team && { team: true }),
+        ...(team &&
+          project.assistantOf !== null && {
+            access: { kind: "named", people: [] },
+          }),
+        ...(environment !== null && { environment }),
+        ...(profile !== null && { profile }),
+        workspace: {
+          kind: "repositories",
+          repositories: project.repositories.map((repository) => ({
+            repository,
+          })),
+        },
+        // In the system prompt, since Pi keeps no context message in a
+        // Session's file before its first reply.
+        systemPrompt: `${coordinatorPrompt(
+          project,
+          store.readMemory(project.id, "MEMORY.md")?.content,
+        )}\n\n${handoff}`,
+      }),
+    );
+
+    store.replaceCoordinator(project, coordinator.id);
+
+    try {
+      sessions.archive(project.coordinatorId);
     } catch (error) {
-      log("dropped a delivery that failed", {
-        id: queued.id,
-        sessionId,
+      log("could not archive the coordinator a fresh one replaced", {
+        sessionId: project.coordinatorId,
         error: String(error),
       });
     }
 
-    store.delivered(queued.id);
-  }
-}
+    log("fresh coordinator started", {
+      project: project.id,
+      previous: project.coordinatorId,
+      coordinator: coordinator.id,
+    });
 
-// A turn notice waits for the rest of its turn, which its thread's host
-// uploads even after an outage, until the thread is archived.
-function awaitsTranscript(
-  delivery: Delivery,
-  sessions: ServerPluginContext["sessions"],
-): boolean {
-  return (
-    delivery.kind === "turn" &&
-    delivery.end !== undefined &&
-    sessions.get(delivery.threadId)?.archivedAt === null &&
-    sessions.transcriptLength(delivery.threadId) < delivery.end
-  );
-}
+    changed();
 
-function sendQueued(
-  { delivery, sessionId, actor }: Queued,
-  store: ProjectStore,
-  sessions: ServerPluginContext["sessions"],
-  log: ServerPluginContext["log"],
-): SendOutcome {
-  switch (delivery.kind) {
-    case "message":
-      return sessions.send(sessionId, delivery.text, actor, delivery.notice);
-    case "context":
-      return sessions.notify(sessionId, delivery.text, actor, delivery.notice);
-    case "turn": {
-      const thread = store.member(delivery.threadId);
+    return store.get(project.id) ?? project;
+  };
 
-      return thread
-        ? deliverTurn(thread, delivery.end, sessionId, actor, sessions, log)
-        : { ok: true };
+  const create = (
+    body: Static<typeof newProject>,
+    caller: PersonCaller,
+  ): Project => {
+    if (body.name.trim() === "") {
+      throw new BadRequest("name is required");
     }
-  }
-}
 
-function deliverTurn(
-  thread: Member,
-  end: number | undefined,
-  coordinatorId: string,
-  actor: Actor,
-  sessions: ServerPluginContext["sessions"],
-  log: ServerPluginContext["log"],
-): SendOutcome {
-  const transcript = sessions.transcript(thread.sessionId).slice(0, end);
-  const error = turnError(transcript);
+    const urls = body.repositories.filter((url) => url.trim() !== "");
+    const names = urls.map(checkoutName);
 
-  const { text, notice } = threadNotice(
-    thread,
-    sessions.get(thread.sessionId),
-    error === undefined
-      ? "finished a turn"
-      : `ended its turn with a model error: ${error.slice(0, errorLimit)}`,
-    lastReply(transcript),
-  );
-
-  if (error !== undefined) {
-    log("thread turn failed", { sessionId: thread.sessionId, error });
-  }
-
-  // A thread that messaged the coordinator this turn already started a
-  // coordinator turn, so its notice is only context. So is a failed turn: a
-  // coordinator woken by it tends to retry the thread on the same model, which
-  // fails the same way.
-  if (error !== undefined || messagedCoordinator(transcript)) {
-    return sessions.notify(coordinatorId, text, actor, notice);
-  }
-
-  return sessions.send(coordinatorId, text, actor, notice);
-}
-
-async function route(
-  request: Request,
-  path: readonly string[],
-  store: ProjectStore,
-  context: ServerPluginContext,
-  caller: RouteCaller,
-): Promise<Response> {
-  const [resource, id, child, name] = path;
-
-  // The plugin has no Session part that sends requests.
-  if (caller.kind !== "user") {
-    throw new NotFound(`no route ${path.join("/")}`);
-  }
-
-  if (resource === "projects" && id === undefined) {
-    if (request.method === "POST") {
-      return Response.json(
-        view(
-          create(
-            await readBody(request, newProject),
-            store,
-            context,
-            caller.actor,
-          ),
-          store,
-          context,
-        ),
+    if (
+      urls.length === 0 ||
+      names.includes(undefined) ||
+      new Set(names).size !== names.length
+    ) {
+      throw new BadRequest(
+        "a Project needs one or more repositories with different names",
       );
     }
 
-    if (request.method !== "GET") {
-      throw new NotFound(`no route ${path.join("/")}`);
+    const threadModel = (body.threadModel ?? "").trim() || null;
+    checkedModel(threadModel);
+    const profile = (body.profile ?? "") || null;
+
+    return begin(
+      {
+        id: Bun.randomUUIDv7(),
+        owner: caller.owner,
+        assistantOf: null,
+        name: body.name.trim(),
+        goal: body.goal?.trim() ?? "",
+        instructions: body.instructions ?? "",
+        repositories: urls,
+        environmentId: (body.environment ?? "") || null,
+        profileId: profile,
+        threadModel,
+      },
+      caller.person.id,
+      { model: body.model, profile },
+    );
+  };
+
+  // The person's assistant, made the first time they ask it something
+  // (ADR 0052). Each ask goes to its coordinator.
+  const ask = (
+    { text, model }: Static<typeof assistantAsk>,
+    caller: PersonCaller,
+  ): Project => {
+    if (text.trim() === "") {
+      throw new BadRequest("text must not be empty");
     }
 
-    return Response.json(summaries(store, context, caller));
-  }
+    const found = store.assistant(caller.owner, caller.person.id);
 
-  if (resource === "assistant" && id === undefined) {
-    if (request.method === "POST") {
-      return Response.json(
-        view(
-          ask(
-            await readBody(request, assistantAsk),
-            store,
-            context,
-            caller.actor,
-          ),
-          store,
-          context,
-        ),
+    if (found === undefined) {
+      return begin(
+        {
+          id: Bun.randomUUIDv7(),
+          owner: caller.owner,
+          assistantOf: caller.person.id,
+          name: caller.owner === "team" ? "Team assistant" : "Assistant",
+          goal: "",
+          instructions: "",
+          repositories: [],
+          environmentId: null,
+          profileId: assistant.thread,
+          threadModel: null,
+        },
+        caller.person.id,
+        { model, profile: assistant.coordinator, firstMessage: text },
       );
     }
 
-    const found = assistantOf(
-      store,
-      caller.actor,
-      new URL(request.url).searchParams.get("team") === "true",
-    );
-
-    if (request.method !== "GET" || found === undefined) {
-      throw new NotFound(`no route ${path.join("/")}`);
+    if (
+      sessions.send(found.coordinatorId, {
+        text,
+        turn: true,
+        as: `user:${caller.person.id}`,
+      }) === "gone"
+    ) {
+      throw new BadRequest("the assistant's conversation is archived");
     }
 
-    return Response.json(view(found, store, context));
-  }
+    return found;
+  };
 
-  const project =
-    resource === "projects" ? theirs(store.get(id ?? ""), caller) : undefined;
+  routes.get(
+    "projects",
+    {
+      auth: "person",
+      team: true,
+      tool: {
+        name: "projects_list",
+        description:
+          "List Projects with their coordinator, thread counts and how many threads need the user.",
+        exposure: "direct",
+        annotations: { readOnlyHint: true },
+      },
+    },
+    ({ caller }): ProjectSummary[] =>
+      store
+        .list()
+        .filter(
+          (project) =>
+            project.assistantOf === null && project.owner === caller.owner,
+        )
+        .map(summary),
+  );
 
-  if (project && child === undefined && request.method === "GET") {
-    return Response.json(view(project, store, context));
-  }
+  routes.post(
+    "projects",
+    {
+      auth: "person",
+      team: true,
+      body: newProject,
+      changes: ["projects"],
+      tool: {
+        name: "projects_create",
+        description:
+          "Create a Project, which starts its coordinator Session with every repository checked out.",
+        exposure: "direct",
+        // It clones the repositories and starts a coordinator, whose agent
+        // runs without a confirm of its own.
+        annotations: { destructiveHint: false, openWorldHint: true },
+        opens: (body) => {
+          const { id, name } = body as ProjectView;
 
-  if (project && child === "settings" && request.method === "POST") {
-    store.update(
-      project.id,
-      settings(project, await readBody(request, settingsChange)),
-    );
+          return { route: id, label: `“${name}”` };
+        },
+      },
+    },
+    ({ caller, body }) => view(create(body, caller)),
+  );
 
-    return Response.json(
-      view(store.get(project.id) ?? project, store, context),
-    );
-  }
+  routes.get(
+    "projects/:id",
+    {
+      auth: "person",
+      tool: {
+        name: "projects_get",
+        description: "Get one Project with its threads.",
+        annotations: { readOnlyHint: true },
+      },
+    },
+    ({ caller, params }) => view(theirs(params.id, caller)),
+  );
 
-  if (project && child === "fresh" && request.method === "POST") {
-    return Response.json(
-      view(startFresh(project, store, context), store, context),
-    );
-  }
+  routes.post(
+    "projects/:id/settings",
+    {
+      auth: "person",
+      body: settingsChange,
+      changes: ["projects"],
+      tool: {
+        name: "projects_update",
+        description:
+          "Change a Project's settings. Only the fields given change.",
+        annotations: { destructiveHint: true },
+        asks: {
+          lookup: (input) =>
+            `projects/${encodeURIComponent(typeof input["id"] === "string" ? input["id"] : "")}`,
+          text: (_input, found) =>
+            found === undefined
+              ? "Change this Project's settings?"
+              : `Change the settings of “${(found as ProjectView).name}”?`,
+        },
+      },
+    },
+    ({ caller, params, body }) => {
+      const project = theirs(params.id, caller);
+      store.update(project.id, settingsOf(project, body));
 
-  if (project && child === "memory" && name !== undefined) {
-    const content = store.readMemory(project.id, decoded(name))?.content;
+      return view(store.get(project.id) ?? project);
+    },
+  );
+
+  routes.post(
+    "projects/:id/fresh",
+    { auth: "person", changes: ["projects"] },
+    ({ caller, params }) => view(startFresh(theirs(params.id, caller))),
+  );
+
+  routes.get(
+    "projects/:id/memory/:name",
+    { auth: "person" },
+    ({ caller, params }) => {
+      const project = theirs(params.id, caller);
+      const content = store.readMemory(project.id, params.name)?.content;
+
+      if (content === undefined) {
+        throw new NotFound(`no memory file ${params.name}`);
+      }
+
+      return { name: params.name, content };
+    },
+  );
+
+  routes.get("threads/:id", { auth: "person" }, ({ caller, params }) => {
+    const thread = store.member(params.id);
+
+    if (thread?.role !== "thread") {
+      throw new NotFound("no such thread");
+    }
+
+    theirs(thread.projectId, caller);
+
+    return {
+      projectId: thread.projectId,
+      ...threadView(thread, sessions.get(thread.sessionId)),
+    };
+  });
+
+  routes.post(
+    "threads/:id/state",
+    { auth: "person", body: stateChange, changes: ["projects"] },
+    ({ caller, params, body }) => {
+      const thread = store.member(params.id);
+
+      if (thread === undefined) {
+        throw new NotFound("no such thread");
+      }
+
+      theirs(thread.projectId, caller);
+      store.setWorkState(thread.sessionId, body.state);
+
+      return { ok: true };
+    },
+  );
+
+  routes.get("assistant", { auth: "person", team: true }, ({ caller }) => {
+    const found = store.assistant(caller.owner, caller.person.id);
+
+    if (found === undefined) {
+      throw new NotFound("no assistant yet");
+    }
+
+    return view(found);
+  });
+
+  routes.post(
+    "assistant",
+    { auth: "person", team: true, body: assistantAsk, changes: ["projects"] },
+    ({ caller, body }) => view(ask(body, caller)),
+  );
+
+  libraryRoutes(context, store);
+
+  // What a Session part learns of the Session it runs in.
+  routes.get("member", { auth: "session" }, ({ caller }): Membership => {
+    const { member, project } = memberOf(caller);
+
+    return {
+      projectId: project.id,
+      role: member.role,
+      assistant: project.assistantOf !== null,
+    };
+  });
+
+  const memberOf = (
+    caller: SessionCaller,
+  ): { member: Member; project: Project } => {
+    const member = store.member(caller.session.id);
+    const project = member && store.get(member.projectId);
+
+    if (member === undefined || project === undefined) {
+      throw new NotFound("this Session is not in a Project");
+    }
+
+    return { member, project };
+  };
+
+  // An assistant thread installs what it built in its workspace through the
+  // route tools the web UI's routes back, so it acts as the person, with the
+  // same checks (ADR 0052).
+  routes.post(
+    "install",
+    { auth: "session", body: installation },
+    async ({ caller, body }) => {
+      const { project } = memberOf(caller);
+
+      if (project.assistantOf === null) {
+        throw new Forbidden("only the assistant's threads install");
+      }
+
+      return body.kind === "profile"
+        ? installProfile(context, caller.session.id, body)
+        : installPlugin(context, caller.session.id, body);
+    },
+  );
+
+  routes.get("library/:name", { auth: "session" }, ({ caller, params }) => {
+    const { project } = memberOf(caller);
+    const content = store.readFile(project.id, decoded(params.name));
 
     if (content === undefined) {
-      throw new NotFound(`no memory file ${name}`);
+      throw new NotFound(`no library file ${params.name}`);
     }
 
-    return Response.json({ name, content });
+    return { content: Buffer.from(content).toString("base64") };
+  });
+
+  routes.get("library", { auth: "session" }, ({ caller }) =>
+    store.files(memberOf(caller).project.id),
+  );
+
+  routes.put(
+    "library/:name",
+    { auth: "session", body: fileContent, changes: ["projects"] },
+    ({ caller, params, body }) => {
+      const { project } = memberOf(caller);
+      const content = Buffer.from(body.content, "base64");
+
+      return writeFile(
+        project.id,
+        params.name,
+        new Uint8Array(content),
+        `session:${caller.session.id}`,
+      );
+    },
+  );
+
+  const writeFile = (
+    projectId: string,
+    rawName: string,
+    content: Uint8Array,
+    actor: Actor,
+  ): { name: string; size: number } => {
+    const name = decoded(rawName);
+    const limit = context.config.get().fileLimitMb * 1024 * 1024;
+
+    if (!validName(name)) {
+      throw new BadRequest(nameRule);
+    }
+
+    if (content.length > limit) {
+      throw new HttpError(413, sizeRule(limit));
+    }
+
+    store.writeFile(projectId, name, content, actor);
+    log("library file written", { project: projectId, name, actor });
+
+    return { name, size: content.length };
+  };
+
+  // The web app's half of the library, which uploads raw bytes.
+  function libraryRoutes({ routes: own }: Context, files: typeof store): void {
+    own.get("projects/:id/files", { auth: "person" }, ({ caller, params }) =>
+      files.files(theirs(params.id, caller).id),
+    );
+
+    own.get("projects/:id/log", { auth: "person" }, ({ caller, params }) =>
+      files.writes(theirs(params.id, caller).id),
+    );
+
+    own.get(
+      "projects/:id/files/:name",
+      { auth: "person" },
+      ({ caller, params }) => {
+        const project = theirs(params.id, caller);
+        const name = decoded(params.name);
+        const content = files.readFile(project.id, name);
+
+        if (content === undefined) {
+          throw new NotFound(`no library file ${name}`);
+        }
+
+        return new Response(content, {
+          headers: {
+            "content-type": "application/octet-stream",
+            "content-disposition": attachment(name),
+          },
+        });
+      },
+    );
+
+    own.put(
+      "projects/:id/files/:name",
+      { auth: "person", changes: ["projects"] },
+      async ({ caller, params, raw }) => {
+        const project = theirs(params.id, caller);
+
+        return writeFile(
+          project.id,
+          params.name,
+          new Uint8Array(await raw.arrayBuffer()),
+          `user:${caller.person.id}`,
+        );
+      },
+    );
   }
+});
 
-  const member = resource === "threads" ? store.member(id ?? "") : undefined;
-
-  const thread =
-    member && theirs(store.get(member.projectId), caller) ? member : undefined;
-
-  if (thread?.role === "thread" && child === undefined) {
-    return Response.json({
-      projectId: thread.projectId,
-      ...threadView(thread, context.sessions.get(thread.sessionId)),
-    });
+function started<T>(start: () => T): T {
+  try {
+    return start();
+  } catch (error) {
+    throw new BadRequest(
+      error instanceof Error ? error.message : String(error),
+    );
   }
-
-  if (thread && child === "state" && request.method === "POST") {
-    const { state } = await readBody(request, stateChange);
-    store.setWorkState(thread.sessionId, state);
-
-    return new Response(null, { status: 204 });
-  }
-
-  throw new NotFound(`no route ${path.join("/")}`);
 }
 
-function decoded(name: string): string {
+function fail(id: string): never {
+  throw new Error(`Project ${id} was not stored`);
+}
+
+function checkedModel(name: string | null): void {
   try {
-    return decodeURIComponent(name);
+    modelRef(name ?? undefined);
   } catch (error) {
-    throw new BadRequest((error as Error).message);
+    throw new BadRequest(`thread model: ${(error as Error).message}`);
   }
 }
 
 // The settings a Project can change after it starts. The repositories and
 // Environment stay, since the coordinator's workspace was built from them.
-function settings(
+function settingsOf(
   project: Project,
   {
     name,
@@ -510,357 +957,92 @@ function settings(
       ? project.threadModel
       : threadModel.trim() || null;
 
-  try {
-    modelRef(model ?? undefined);
-  } catch (error) {
-    throw new BadRequest(`thread model: ${(error as Error).message}`);
-  }
+  checkedModel(model);
+
+  const id = profile === undefined ? undefined : (profile?.trim() ?? "");
+  const profileId = id === "" ? null : id;
 
   return {
     name: name?.trim() ?? project.name,
     goal: goal?.trim() ?? project.goal,
     instructions: instructions ?? project.instructions,
     threadModel: model,
-    profileId: profile === undefined ? project.profileId : profileOf(profile),
+    profileId: profileId === undefined ? project.profileId : profileId,
   };
 }
 
-function profileOf(profile: string | null): string | null {
-  const id = profile?.trim() ?? "";
-
-  return id === "" ? null : id;
+// macOS and zip archives often spell "é" as "e" plus a combining accent; NFC
+// makes both spellings one file.
+function decoded(name: string): string {
+  return name.normalize("NFC");
 }
 
-function create(
-  {
-    name,
-    goal,
-    instructions,
-    repositories,
-    environment,
-    profile,
-    model,
-    threadModel,
-    team,
-  }: Static<typeof newProject>,
-  store: ProjectStore,
-  context: ServerPluginContext,
-  user: `user:${string}`,
-): Project {
-  if (name.trim() === "") {
-    throw new BadRequest("name is required");
-  }
-
-  const urls = repositories.filter((url) => url.trim() !== "");
-
-  const names = urls.map(checkoutName);
-  if (
-    urls.length === 0 ||
-    names.includes(undefined) ||
-    new Set(names).size !== names.length
-  ) {
-    throw new BadRequest(
-      "a Project needs one or more repositories with different names",
-    );
-  }
-
-  const draft: Project = {
-    id: Bun.randomUUIDv7(),
-    ownerId: user.slice("user:".length),
-    name: name.trim(),
-    goal: goal?.trim() ?? "",
-    instructions: instructions ?? "",
-    repositories: urls,
-    environmentId: (environment ?? "") || null,
-    profileId: (profile ?? "") || null,
-    threadModel: (threadModel ?? "").trim() || null,
-    coordinatorId: "",
-    createdAt: new Date().toISOString(),
-    assistant: false,
-    team: team === true,
-  };
-
-  try {
-    modelRef(draft.threadModel ?? undefined);
-  } catch (error) {
-    throw new BadRequest(`thread model: ${(error as Error).message}`);
-  }
-
-  return begin(draft, { model, profile: draft.profileId }, store, context);
-}
-
-// The person's assistant, made the first time they ask it something, with
-// the Profiles the assistant plugin gives its coordinator and threads (ADR
-// 0052). Each ask goes to its coordinator.
-function ask(
-  { text, model, profile, threadProfile, team }: Static<typeof assistantAsk>,
-  store: ProjectStore,
-  context: ServerPluginContext,
-  user: `user:${string}`,
-): Project {
-  if (text.trim() === "") {
-    throw new BadRequest("text must not be empty");
-  }
-
-  const found = assistantOf(store, user, team === true);
-
-  if (found === undefined) {
-    return begin(
-      {
-        id: Bun.randomUUIDv7(),
-        ownerId: user.slice("user:".length),
-        name: team === true ? "Team assistant" : "Assistant",
-        goal: "",
-        instructions: "",
-        repositories: [],
-        environmentId: null,
-        profileId: threadProfile,
-        threadModel: null,
-        coordinatorId: "",
-        createdAt: new Date().toISOString(),
-        assistant: true,
-        team: team === true,
-      },
-      { model, profile, firstMessage: text },
-      store,
-      context,
-    );
-  }
-
-  const sent = context.sessions.send(found.coordinatorId, text, user);
-  if (!sent.ok) {
-    throw new BadRequest(`the assistant can't take it: ${sent.reason}`);
-  }
-
-  return found;
-}
-
-function assistantOf(
-  store: ProjectStore,
-  user: `user:${string}`,
-  team: boolean,
-): Project | undefined {
-  return store
-    .list()
-    .find(
-      (project) =>
-        project.assistant &&
-        project.team === team &&
-        project.ownerId === user.slice("user:".length),
-    );
-}
-
-function begin(
-  draft: Project,
-  start: {
-    readonly model?: string | undefined;
-    readonly profile: string | null;
-    readonly firstMessage?: string;
-  },
-  store: ProjectStore,
-  { sessions, log }: ServerPluginContext,
-): Project {
-  let coordinator;
-  try {
-    const ref = modelRef((start.model ?? "").trim() || undefined);
-
-    coordinator = sessions.start(
-      {
-        ...(ref && { model: ref }),
-        actor: `user:${draft.ownerId}`,
-        ...(draft.team && { team: true }),
-        // A Team assistant's chat is its person's alone (ADR 0067).
-        ...(draft.team &&
-          draft.assistant && { access: { kind: "named", people: [] } }),
-        ...(draft.environmentId !== null && {
-          environment: draft.environmentId,
-        }),
-        ...(start.profile !== null && { profile: start.profile }),
-        workspace: {
-          kind: "repositories",
-          repositories: draft.repositories.map((repository) => ({
-            repository,
-          })),
-        },
-        systemPrompt: coordinatorPrompt(draft, undefined),
-        ...(start.firstMessage !== undefined && {
-          firstMessage: start.firstMessage,
-        }),
-      },
-      draft.id,
-    );
-  } catch (error) {
-    throw new BadRequest((error as Error).message);
-  }
-
-  const project = { ...draft, coordinatorId: coordinator.id };
-  store.create(project);
-
-  store.addMember({
-    sessionId: coordinator.id,
-    projectId: project.id,
-    role: "coordinator",
-    title: "Coordinator",
-    workState: "in_progress",
-    lastActivity: project.createdAt,
-  });
-
-  log("project created", {
-    project: project.id,
-    coordinator: coordinator.id,
-    ...(project.assistant && { assistant: true }),
-  });
-
-  return project;
-}
-
-// The old coordinator is archived but stays readable, and what waited for it
-// goes to the new one.
-function startFresh(
-  project: Project,
-  store: ProjectStore,
-  { sessions, log }: ServerPluginContext,
-): Project {
-  const previous = sessions.get(project.coordinatorId);
-
-  const handoff = handoffText(
-    recentChat(sessions.transcript(project.coordinatorId)),
-    store
-      .threads(project.id)
-      .map((thread) => threadView(thread, sessions.get(thread.sessionId))),
+// RFC 8187 leaves ' ( ) and * out of filename*, but encodeURIComponent keeps
+// them.
+function attachment(name: string): string {
+  const encoded = encodeURIComponent(name).replace(
+    /['()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
   );
 
-  let coordinator;
-  try {
-    const environment = previous?.environmentId ?? project.environmentId;
-    const profile = previous?.profileId ?? project.profileId;
+  return `attachment; filename*=UTF-8''${encoded}`;
+}
 
-    coordinator = sessions.start(
-      {
-        ...(previous?.model && { model: previous.model }),
-        actor: `user:${project.ownerId}`,
-        ...(project.team && { team: true }),
-        ...(project.team &&
-          project.assistant && { access: { kind: "named", people: [] } }),
-        ...(environment !== null && { environment }),
-        ...(profile !== null && { profile }),
-        workspace: {
-          kind: "repositories",
-          repositories: project.repositories.map((repository) => ({
-            repository,
-          })),
-        },
-        // In the system prompt, since Pi keeps no context message in a
-        // Session's file before its first reply.
-        systemPrompt: `${coordinatorPrompt(
-          project,
-          store.readMemory(project.id, "MEMORY.md")?.content,
-        )}\n\n${handoff}`,
-      },
-      project.id,
-    );
-  } catch (error) {
-    throw new BadRequest((error as Error).message);
+async function installProfile(
+  { tools }: Context,
+  session: string,
+  { files, name, id }: Static<typeof installation> & { kind: "profile" },
+): Promise<{ text: string; isError: boolean; opened?: unknown }> {
+  let target = id;
+
+  if (target === undefined) {
+    const created = await tools.call("profiles_create", { name }, { session });
+
+    if (created.isError) {
+      return created;
+    }
+
+    target = (JSON.parse(created.text) as { id: string }).id;
   }
 
-  store.replaceCoordinator(project, {
-    sessionId: coordinator.id,
-    projectId: project.id,
-    role: "coordinator",
-    title: "Coordinator",
-    workState: "in_progress",
-    lastActivity: new Date().toISOString(),
-  });
+  const uploaded = await tools.call(
+    "profiles_upload",
+    { id: target, files },
+    { session },
+  );
 
-  try {
-    sessions.archive(project.coordinatorId);
-  } catch (error) {
-    log("could not archive the coordinator a fresh one replaced", {
-      sessionId: project.coordinatorId,
-      error: String(error),
-    });
+  if (uploaded.isError) {
+    return id === undefined
+      ? {
+          ...uploaded,
+          text: `Made the Profile ${target}, but its files weren't written: ${uploaded.text}`,
+        }
+      : uploaded;
   }
 
-  log("fresh coordinator started", {
-    project: project.id,
-    previous: project.coordinatorId,
-    coordinator: coordinator.id,
-  });
-
-  return store.get(project.id) ?? project;
-}
-
-// A Project is its starter's alone (ADR 0049), or the whole team's
-// (ADR 0067).
-function theirs(
-  project: Project | undefined,
-  caller: RouteCaller & { readonly kind: "user" },
-): Project | undefined {
-  return project !== undefined &&
-    canSee(
-      caller,
-      project.team && !project.assistant ? "team" : `person:${project.ownerId}`,
-    )
-    ? project
-    : undefined;
-}
-
-function summaries(
-  store: ProjectStore,
-  context: ServerPluginContext,
-  caller: RouteCaller & { readonly kind: "user" },
-): ProjectSummary[] {
-  const { sessions } = context;
-
-  return store
-    .list()
-    .filter(
-      (project) => !project.assistant && theirs(project, caller) !== undefined,
-    )
-    .map((project) => {
-      const threads = store.threads(project.id);
-
-      return {
-        id: project.id,
-        name: project.name,
-        coordinatorId: project.coordinatorId,
-        coordinatorState: runState(sessions.get(project.coordinatorId)),
-        repositories: project.repositories.length,
-        threads: threads.length,
-        needsYou: threads.filter(
-          (thread) =>
-            thread.workState === "blocked" ||
-            runState(sessions.get(thread.sessionId)) === "waiting",
-        ).length,
-        team: project.team,
-      };
-    });
-}
-
-function view(
-  project: Project,
-  store: ProjectStore,
-  { sessions }: ServerPluginContext,
-): ProjectView {
   return {
-    id: project.id,
-    name: project.name,
-    goal: project.goal,
-    instructions: project.instructions,
-    repositories: project.repositories,
-    environmentId: project.environmentId,
-    profileId: project.profileId,
-    threadModel: project.threadModel,
-    coordinatorId: project.coordinatorId,
-    coordinatorState: runState(sessions.get(project.coordinatorId)),
-    assistant: project.assistant,
-    team: project.team,
-    formerCoordinators: store
-      .formers(project.id)
-      .map(({ sessionId }) => sessionId),
-    threads: store
-      .threads(project.id)
-      .map((thread) => threadView(thread, sessions.get(thread.sessionId))),
-    memory: store.memory(project.id),
+    text: `Wrote ${String(Object.keys(files).length)} files into the Profile ${target}.`,
+    isError: false,
+    opened: { kind: "open", route: `profiles/${target}`, label: name },
   };
+}
+
+async function installPlugin(
+  { tools }: Context,
+  session: string,
+  { plugin, files }: Static<typeof installation> & { kind: "plugin" },
+): Promise<{ text: string; isError: boolean }> {
+  for (const [path, content] of Object.entries(files)) {
+    const written = await tools.call(
+      "plugins_write_file",
+      { plugin, path, content },
+      { session },
+    );
+
+    if (written.isError) {
+      return { ...written, text: `${path}: ${written.text}` };
+    }
+  }
+
+  return tools.call("plugins_build", { plugin }, { session });
 }

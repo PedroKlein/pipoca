@@ -1,10 +1,10 @@
 import {
   defineWeb,
+  href as pageHref,
   json,
   type MountedSession,
   SessionView,
   useApi,
-  useHref,
   useLoaded,
 } from "@pipoca/plugins/web";
 import {
@@ -33,6 +33,9 @@ import type {
 import { starters } from "./starters";
 
 const changes = ["routines"];
+
+// The address of a path inside the routines page, "" for the page.
+const pageAt = (path: string): string => pageHref(routines, path);
 
 // A person's own routines, or the team's, which anyone on the team makes
 // and changes (ADR 0067). The team's routes and pages start with team/.
@@ -87,8 +90,6 @@ function Page({ path }: { readonly path: string }): ReactElement {
 }
 
 function RoutineList(): ReactElement {
-  const href = useHref();
-
   const team =
     useLoaded(
       async () => json<unknown[]>(fetch("/api/environments?scope=team")),
@@ -102,13 +103,13 @@ function RoutineList(): ReactElement {
         Routines
       </PageTitle>
       <div className="flex flex-wrap gap-2">
-        <a href={href("new")} className="inline-flex">
+        <a href={pageAt("new")} className="inline-flex">
           <Button variant="primary" tabIndex={-1}>
             New routine
           </Button>
         </a>
         {team.length > 0 && (
-          <a href={href(`${teams.prefix}new`)} className="inline-flex">
+          <a href={pageAt(`${teams.prefix}new`)} className="inline-flex">
             <Button tabIndex={-1}>New team routine</Button>
           </a>
         )}
@@ -127,7 +128,6 @@ function Routines({
   readonly title: string;
 }): ReactElement {
   const api = useApi(routines);
-  const href = useHref();
 
   const list = useLoaded(
     async () => api.get<RoutineView[]>(`${scope.prefix}routines`),
@@ -142,7 +142,7 @@ function Routines({
         {list?.map((routine) => (
           <li key={routine.name}>
             <a
-              href={href(`${scope.prefix}${routine.name}`)}
+              href={pageAt(`${scope.prefix}${routine.name}`)}
               className={cn(
                 linkCardClass,
                 "flex min-w-0 items-center gap-3 px-3 py-2",
@@ -183,7 +183,6 @@ function RoutinePage({
   readonly name: string;
 }): ReactElement {
   const api = useApi(routines);
-  const href = useHref();
   const [ask, asking] = useConfirm();
   const creating = name === "new";
   const [editing, setEditing] = useState(creating);
@@ -209,7 +208,7 @@ function RoutinePage({
       {asking}
       <PageTitle
         description={
-          <a href={href("")} className="hover:underline">
+          <a href={pageAt("")} className="hover:underline">
             All routines
           </a>
         }
@@ -261,7 +260,7 @@ function RoutinePage({
                   }
 
                   await api.delete(path);
-                  location.hash = href("");
+                  location.hash = pageAt("");
                 });
               }}
             >
@@ -284,7 +283,7 @@ function RoutinePage({
             setEditing(false);
 
             if (creating) {
-              location.hash = href(`${scope.prefix}${saved}`);
+              location.hash = pageAt(`${scope.prefix}${saved}`);
             } else {
               reload();
             }
@@ -300,7 +299,7 @@ function RoutinePage({
             {routine.runs.map((run) => (
               <RunRow
                 key={run.id}
-                href={href(`${scope.prefix}${name}/${run.sessionId ?? ""}`)}
+                href={pageAt(`${scope.prefix}${name}/${run.sessionId ?? ""}`)}
                 run={run}
               />
             ))}
@@ -539,8 +538,6 @@ function RunSession({
   readonly name: string;
   readonly sessionId: string;
 }): ReactElement {
-  const href = useHref();
-
   return (
     <SessionView
       sessionId={sessionId}
@@ -548,7 +545,7 @@ function RunSession({
       crumb={
         <>
           <a
-            href={href(`${scope.prefix}${name}`)}
+            href={pageAt(`${scope.prefix}${name}`)}
             className="shrink-0 font-normal text-fg-dim hover:text-fg hover:underline"
           >
             {name}

@@ -533,16 +533,7 @@ export function startPlugins(
         )
       : undefined;
 
-    return found?.teamTwin === true && session.ownedBy === "team"
-      ? {
-          ...found,
-          request: (input) => {
-            const sent = found.request(input);
-
-            return { ...sent, path: `team/${sent.path}` };
-          },
-        }
-      : found;
+    return found && onOwnersHalf(found, session);
   };
 
   // A plugin loads in team work only if it says it works there, and then
@@ -954,6 +945,34 @@ export function startPlugins(
             },
             fromRoute: (method, path, spec) => {
               staged.fromRoutes.push({ method, path, spec });
+            },
+            call: async (name, input, { session: sessionId }) => {
+              const session = deps.sessions.get(sessionId);
+              const tool = routeTools.get(name);
+              const found = tool && session && onOwnersHalf(tool, session);
+
+              if (
+                session === undefined ||
+                found === undefined ||
+                !loadsRouteTools(session)
+              ) {
+                return { text: `no tool named ${name}`, isError: true };
+              }
+
+              const onBehalf = ownerOf(session, deps.auth.users());
+
+              return onBehalf === undefined
+                ? nobodyToActAs
+                : runRouteTool(
+                    found,
+                    input,
+                    onBehalf,
+                    deps.api,
+                    () => undefined,
+                  ).catch((error: unknown) => ({
+                    text: messageOf(error),
+                    isError: true,
+                  }));
             },
           },
           schedule: scheduled.schedule,
@@ -1908,6 +1927,21 @@ function ownerOf(
           session.ownedBy === "team" &&
           users.some(({ id, admin }) => id === person && admin),
       };
+}
+
+// A team Session's call of a route with a team half goes to that half
+// (ADR 0067).
+function onOwnersHalf(found: RouteTool, session: Session): RouteTool {
+  return found.teamTwin === true && session.ownedBy === "team"
+    ? {
+        ...found,
+        request: (input) => {
+          const sent = found.request(input);
+
+          return { ...sent, path: `team/${sent.path}` };
+        },
+      }
+    : found;
 }
 
 const nobodyToActAs: ToolResult = {

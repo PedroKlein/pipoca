@@ -25,8 +25,7 @@ export interface Shell {
   readonly fills: (slot: string) => readonly Fill[];
   // Draws a plugin's part inside the app's error boundary for it.
   readonly part: (plugin: string, children: ReactNode) => ReactNode;
-  // The address of a path inside a plugin's page.
-  readonly href: (plugin: string, path: string) => string;
+  // The app's own Session view, which a page embeds (ADR 0028).
   readonly SessionView: ComponentType<EmbeddedSessionProps>;
 }
 
