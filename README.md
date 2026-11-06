@@ -18,7 +18,7 @@
   <img src="docs/images/session-light.png" alt="A Pipoca session: the task, Pi's steps folded into one line, and its answer">
 </picture>
 
-Pipoca is a self-hosted control plane for Pi. You start a session from the web, it runs on your laptop, a VM or a Kubernetes pod, and it keeps going when you close the tab. Open it later from another computer or your phone and the whole transcript, the diff and a live terminal are still there.
+Pipoca is a self-hosted server for Pi. You start a session from the web, it runs on your laptop, a VM or a Kubernetes pod, and it keeps going when you close the tab. Open it later from another computer or your phone and the whole transcript, the diff and a live terminal are still there.
 
 Pipoca keeps Pi as Pi. Sessions load real Pi packages, skills and extensions, and you can always drop into Pi's own terminal UI. Everything past the small core is a plugin, including Projects, the diff view and single sign-on, so you can turn features off or write your own.
 
@@ -64,7 +64,7 @@ A Project groups work toward one goal across one or more repositories. You talk 
   <img src="docs/images/profiles-light.png" alt="A Profile with Pi packages, an AGENTS.md and a file tree">
 </picture>
 
-A Profile is a Pi agent folder, like your `~/.pi/agent`: packages, instructions, skills, prompts, MCP servers and settings. Import yours from a folder, a tarball or a git repository, and every session runs with it on any machine. Model logins stay on each machine.
+A Profile is a Pi agent folder, like your `~/.pi/agent`: packages, instructions, skills, prompts, MCP servers and settings. Import yours from a folder, a tarball or a git repository, and every session runs with it on any machine. Model logins are kept on the server, so any runner can use them.
 
 ### Ask the assistant
 
@@ -124,7 +124,7 @@ bun run build
 apps/pipoca/dist/pipoca server
 ```
 
-The server logs a one-time setup link. Open it to create your user. Then, on the Environments page, make an Environment named `laptop` and copy the command it shows, which starts an agent with the Environment's key:
+The server logs a one-time setup link. Open it to create your user. Then, in Settings > Environments, make an Environment named `laptop` and copy the command it shows, which starts an agent with the Environment's key:
 
 ```sh
 PIPOCA_KEY=pck_… apps/pipoca/dist/pipoca agent --name laptop --folder ~/code
@@ -145,7 +145,7 @@ kubectl logs deploy/pipoca | grep setup
 
 Put HTTPS in front with your gateway. The chart also supports SAP BTP's Kyma gateway, runner pods, and OpenID Connect sign-in through providers such as SAP IAS, Okta or Google.
 
-The [guide](docs/guide.md) covers every option: server and agent flags, workspaces, plugins, Environments, secrets, containers, runner pools, single sign-on and runner pods.
+The [guide](docs/guide.md) covers every option: server and agent flags, workspaces, plugins, Environments, secrets, containers, runner pools, single sign-on and runner pods. A server that ran code from before the rebuild starts with a fresh database: see [Upgrading from before the rebuild](docs/guide.md#upgrading-from-before-the-rebuild).
 
 ## How it works
 
@@ -154,24 +154,25 @@ browser ──HTTP/SSE──▶ pipoca server ◀──long-poll + HTTPS/SSE─�
                       (web UI, SQLite)                          (laptop, VM or pod)
 ```
 
-- `pipoca server` serves the web UI, stores sessions and a copy of each transcript in SQLite, and relays commands. Server settings live in a plain `pipoca.json` next to the database, so they are easy to set from Helm or by hand.
+- `pipoca server` serves the web UI, stores sessions and a copy of each transcript in SQLite, and relays commands. Server settings live in a plain `pipoca.json` in the `config` folder next to the database, so they are easy to set from Helm or by hand.
 - `pipoca agent` runs each Pi session in its own process, with the session's Profile. A session that crashes reloads from its transcript without touching the others.
-- One binary does both, built with Bun. Each machine keeps its own model logins.
+- One binary does both, built with Bun. Model logins are kept on the server, sealed, and reach a runner only for the sessions that use them.
 
-The design is written down in [docs/architecture.md](docs/architecture.md), with the reasoning behind each decision in [docs/adr/](docs/adr/).
+The words are defined in [docs/concepts.md](docs/concepts.md) and the design in [docs/architecture.md](docs/architecture.md), with the reasoning behind each decision in [docs/adr/](docs/adr/).
 
 ## Status
 
-Pipoca is young and built by one person, for their own daily use first. Personal sessions and Projects on a laptop and a VM are done and tested with real models. Kubernetes, authentication, Profiles, the assistant and third-party plugins are working. Expect breaking changes between versions.
+Pipoca is young and built by one person, for their own daily use first. Personal sessions and Projects on a laptop and a VM are done and tested with real models. Kubernetes, authentication, Profiles, the assistant, third-party plugins and team work (invites, team Environments, Profiles and Projects, and the team hub) are working. The code was rebuilt with a fresh database, plugin SDK and HTTP API ([ADR 0068](docs/adr/0068-clean-rebuild.md)). Expect breaking changes between versions.
 
-Next up are teams: inviting people, shared Environments and Profiles, and multiplayer Projects. [docs/vision.md](docs/vision.md) has the roadmap and non-goals, and [docs/open-questions.md](docs/open-questions.md) lists what isn't decided yet.
+[docs/vision.md](docs/vision.md) has the roadmap and non-goals, and [docs/open-questions.md](docs/open-questions.md) lists what isn't decided yet.
 
 ## Repository layout
 
 ```text
 apps/pipoca      the pipoca binary: server and agent
 apps/web         the web UI
-packages/        protocol, sessions, providers, workspaces, profiles, UI kit, the session host and the plugin host
+packages/        protocol, people, environments, sessions, profiles, repositories, workspaces, runner,
+                 UI kit, plugin SDK, testing, the session host and the plugin host
 plugins/         built-in plugins: projects, changes, usage, kubernetes, oidc and more
 deploy/helm      the Helm chart
 docs/            guide, vision, architecture, design system and decision records
@@ -179,7 +180,7 @@ docs/            guide, vision, architecture, design system and decision records
 
 ## Development
 
-`bun run dev` runs the server with a built-in provider named `cloud`, and restarts it when a file under `apps/` or `packages/` changes. Its data lives in `~/.pipoca/dev`. With `PIPOCA_KEY` set to an Environment's key from the Environments page, it also runs an agent named `local` that may use this repository's folder.
+`bun run dev` runs the server with a built-in provider named `cloud`, and restarts it when a file under `apps/` or `packages/` changes. Its data lives in `~/.pipoca/dev`. With `PIPOCA_KEY` set to an Environment's key from Settings > Environments, it also runs an agent named `local` that may use this repository's folder.
 
 ```sh
 bun run dev
