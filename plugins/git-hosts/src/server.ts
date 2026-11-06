@@ -29,7 +29,7 @@ import {
   viewOf,
 } from "./hosts";
 import type { Account, Connection, HostView } from "./model";
-import { hash, page, redirect } from "./pages";
+import { page, redirect } from "./pages";
 import { pullRequests } from "./pull-requests";
 import { technicalUserRoutes } from "./technical-user-routes";
 import { type HostSearch, repositoriesTool } from "./tool";
@@ -40,7 +40,6 @@ const maxHookBytes = 5 * 1024 * 1024;
 
 // A browser has this long to come back from the host.
 const attemptMs = 10 * 60_000;
-const browserCookie = "sign-in";
 
 interface Pending {
   readonly host: string;
@@ -346,14 +345,6 @@ export const server = defineServer(gitHosts, (context) => {
     }
 
     const state = randomBytes(32).toString("base64url");
-    const browser = randomBytes(32).toString("base64url");
-
-    pending.set(state, {
-      host: host.host,
-      userId: caller.person.id,
-      browser: hash(browser),
-      expires: now + attemptMs,
-    });
 
     const response = new Response(null, {
       status: 302,
@@ -362,7 +353,12 @@ export const server = defineServer(gitHosts, (context) => {
       },
     });
 
-    urls.cookie.set(response, browserCookie, browser, attemptMs / 1000);
+    pending.set(state, {
+      host: host.host,
+      userId: caller.person.id,
+      browser: urls.browser.mark(response, attemptMs),
+      expires: now + attemptMs,
+    });
 
     return response;
   });
@@ -374,7 +370,6 @@ export const server = defineServer(gitHosts, (context) => {
       const state = query.state ?? "";
       const attempt = pending.get(state);
       const host = attempt && hosts.get(attempt.host);
-      const browser = urls.cookie.get(raw, browserCookie);
 
       // The state must come back to the browser that left with it, so a
       // link can't connect someone else's account (RFC 6749, 10.12). The
@@ -384,8 +379,7 @@ export const server = defineServer(gitHosts, (context) => {
         attempt === undefined ||
         host?.oauth === undefined ||
         attempt.expires < clock.now() ||
-        browser === undefined ||
-        hash(browser) !== attempt.browser ||
+        !urls.browser.is(raw, attempt.browser) ||
         (caller.person !== undefined && caller.person.id !== attempt.userId)
       ) {
         return page("This sign-in has expired. Start it again.", 400);

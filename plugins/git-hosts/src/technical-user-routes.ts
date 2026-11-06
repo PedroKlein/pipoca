@@ -11,7 +11,7 @@ import type { gitHosts, TechnicalUserItem } from "../plugin";
 import { HostRefused, loginOf } from "./github";
 import type { Hosts } from "./hosts";
 import type { TechnicalUserView } from "./model";
-import { escaped, hash, html, page, redirect } from "./pages";
+import { escaped, html, page, redirect } from "./pages";
 import {
   appManifest,
   botLogin,
@@ -23,7 +23,6 @@ import {
 
 // An admin has this long to create the App on the host.
 const attemptMs = 60 * 60_000;
-const browserCookie = "app-attempt";
 
 interface Pending {
   readonly host: string;
@@ -155,16 +154,7 @@ export function technicalUserRoutes(
       }
 
       const state = randomBytes(32).toString("base64url");
-      const browser = randomBytes(32).toString("base64url");
       const hook = randomBytes(16).toString("hex");
-
-      pending.set(state, {
-        host: host.host,
-        userId: caller.person.id,
-        hook,
-        browser: hash(browser),
-        expires: now + attemptMs,
-      });
 
       // The host sends events only to an address it can reach, which a
       // server on a laptop's http doesn't have.
@@ -178,7 +168,13 @@ export function technicalUserRoutes(
         200,
       );
 
-      urls.cookie.set(response, browserCookie, browser, attemptMs / 1000);
+      pending.set(state, {
+        host: host.host,
+        userId: caller.person.id,
+        hook,
+        browser: urls.browser.mark(response, attemptMs),
+        expires: now + attemptMs,
+      });
 
       return response;
     },
@@ -197,7 +193,6 @@ export function technicalUserRoutes(
       const state = query.state ?? "";
       const attempt = pending.get(state);
       const host = attempt && hosts.get(attempt.host);
-      const browser = urls.cookie.get(raw, browserCookie);
 
       // The code must come back to the admin's browser that left with the
       // state, so a link can't plant someone else's App.
@@ -205,8 +200,7 @@ export function technicalUserRoutes(
         attempt === undefined ||
         host === undefined ||
         attempt.expires < clock.now() ||
-        browser === undefined ||
-        hash(browser) !== attempt.browser
+        !urls.browser.is(raw, attempt.browser)
       ) {
         return page("This App's creation has expired. Start it again.", 400);
       }

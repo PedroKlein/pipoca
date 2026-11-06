@@ -509,7 +509,7 @@ test("a person signs in to an MCP server of their Profiles from Settings, and th
 
   const cookie = (begun.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
 
-  expect(cookie).toStartWith("pipoca-logins=");
+  expect(cookie).toStartWith("browser-");
 
   const asked = await until(
     async () => account(t, "ana"),

@@ -428,7 +428,8 @@ export const server = defineServer(logins, (ctx) => {
       }
 
       const owner = ownerFor(caller, on, false);
-      const browser = returns.browser();
+      const response = Response.json(account(caller));
+      const browser = returns.mark(response);
 
       signIns.start(
         caller.person.id,
@@ -441,7 +442,7 @@ export const server = defineServer(logins, (ctx) => {
         ),
       );
 
-      return returns.mark(Response.json(account(caller)), browser);
+      return response;
     },
   );
 

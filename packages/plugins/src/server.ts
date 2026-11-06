@@ -259,17 +259,13 @@ export interface Routes {
 
 export interface Urls {
   readonly public: (path: string) => string;
-  // A cookie only the plugin's own routes get back, such as the browser's
-  // half of an OAuth state. It is Lax, so it comes back on the redirect
-  // from another site.
-  readonly cookie: {
-    readonly set: (
-      response: Response,
-      name: string,
-      value: string,
-      maxAgeS: number,
-    ) => void;
-    readonly get: (request: Request, name: string) => string | undefined;
+  // Ties a flow such as an OAuth state to the browser that starts it, so a
+  // link can't finish it in another (RFC 6749, 10.12). mark gives the
+  // response's browser a cookie for ttlMs, which comes back on a redirect
+  // from another site, and returns what to keep with the state.
+  readonly browser: {
+    readonly mark: (response: Response, ttlMs: number) => string;
+    readonly is: (request: Request, kept: string) => boolean;
   };
 }
 

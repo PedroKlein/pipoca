@@ -1,3 +1,4 @@
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   type Caller,
   NotFound,
@@ -109,24 +110,45 @@ export function pluginUrls(plugin: string, server: () => URL): Urls {
   return {
     public: (path) =>
       new URL(`/api/ext/${plugin}/${joined(path)}`, server()).href,
-    cookie: {
-      set: (response, name, value, maxAgeS) => {
+    browser: {
+      mark: (response, ttlMs) => {
+        const value = randomBytes(32).toString("base64url");
+        const kept = hashed(value);
+
         response.headers.append(
           "set-cookie",
-          new Bun.Cookie(name, value, {
+          new Bun.Cookie(browserCookie(kept), value, {
             path: `/api/ext/${plugin}/`,
             httpOnly: true,
             sameSite: "lax",
             secure: server().protocol === "https:",
-            maxAge: maxAgeS,
+            maxAge: Math.ceil(ttlMs / 1000),
           }).serialize(),
         );
+
+        return kept;
       },
-      get: (request, name) =>
-        new Bun.CookieMap(request.headers.get("cookie") ?? "").get(name) ??
-        undefined,
+      is: (request, kept) => {
+        const value = new Bun.CookieMap(request.headers.get("cookie") ?? "").get(
+          browserCookie(kept),
+        );
+
+        return (
+          value !== null &&
+          timingSafeEqual(Buffer.from(hashed(value)), Buffer.from(kept))
+        );
+      },
     },
   };
+}
+
+// One cookie per flow, so two flows in one browser keep their own.
+function browserCookie(kept: string): string {
+  return `browser-${kept.slice(0, 16)}`;
+}
+
+function hashed(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function joined(...paths: readonly string[]): string {
