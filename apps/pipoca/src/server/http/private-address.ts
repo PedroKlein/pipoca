@@ -36,13 +36,16 @@ async function addressesOf(
   const bare = host.replace(/^\[(.*)\]$/, "$1");
 
   return isIP(bare) === 0
-    ? lookup(bare, { all: true }).catch(() => [])
+    ? lookup(bare, { all: true }).catch(() => {
+        throw new BadRequest(`The server couldn't look up ${bare}.`);
+      })
     : [{ address: bare, family: isIP(bare) }];
 }
 
 // A repository the server clones for a person: on a host they have a git
 // login for, or on no private address, and then only from the address it
-// checked. A URL that doesn't parse is left to the clone to refuse.
+// checked, and with none of the server's own ssh keys or git setup. A URL
+// that doesn't parse is left to the clone to refuse.
 export async function checkFetchable(
   url: string,
   person: string,
@@ -53,7 +56,7 @@ export async function checkFetchable(
   try {
     parsed = new URL(url);
   } catch {
-    return {};
+    return { anonymous: true };
   }
 
   const logins = plugins.gitLogins(`person:${person}`, {
@@ -62,7 +65,7 @@ export async function checkFetchable(
   });
 
   if (logins.some(({ host }) => host === parsed.host)) {
-    return {};
+    return { anonymous: true };
   }
 
   const addresses = await addressesOf(parsed.hostname);
@@ -80,12 +83,13 @@ export async function checkFetchable(
   const [first] = addresses;
 
   if (first === undefined || parsed.protocol !== "https:") {
-    return {};
+    return { anonymous: true };
   }
 
   const address = first.family === 6 ? `[${first.address}]` : first.address;
 
   return {
+    anonymous: true,
     resolve: `${parsed.hostname}:${parsed.port || "443"}:${address}`,
   };
 }
