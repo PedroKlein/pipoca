@@ -1106,7 +1106,7 @@ test("signs a person out in every browser from General", async () => {
       headers: { "content-type": "application/json", cookie },
       body: JSON.stringify({}),
     })
-  ).json()) as { readonly token: string }[];
+  ).json()) as { readonly id: string; readonly token: string }[];
 
   const first = await browser.newContext();
   const second = await browser.newContext();
@@ -1147,6 +1147,13 @@ test("signs a person out in every browser from General", async () => {
   } finally {
     await first.close();
     await second.close();
+
+    // A shared link stays open after someone joins with it, so revoke it
+    // and leave the People page's invites as the later tests expect them.
+    await fetch(new URL(`/api/invites/${invite?.id ?? ""}`, server.url), {
+      method: "DELETE",
+      headers: { cookie },
+    });
   }
 }, 30_000);
 
