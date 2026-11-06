@@ -193,6 +193,12 @@ export class SignIn {
     credentials: Credentials,
     displayName = "",
   ): Promise<User | undefined> {
+    if (this.#people.count > 0) {
+      this.#setupToken = undefined;
+
+      return undefined;
+    }
+
     const expected = this.#setupToken;
     if (expected === undefined || !sameText(token, expected)) {
       return undefined;
@@ -231,10 +237,11 @@ export class SignIn {
       return "taken";
     }
 
-    const user = await this.#insert(credentials, invite.admin);
-    this.#people.acceptInvite(invite.id);
+    if (!this.#people.acceptInvite(invite.id)) {
+      return undefined;
+    }
 
-    return user;
+    return this.#insert(credentials, invite.admin);
   }
 
   async #insert(

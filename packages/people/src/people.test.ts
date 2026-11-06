@@ -63,6 +63,20 @@ test("the setup link makes the first admin once", async () => {
   expect(signIn.setupToken).toBeUndefined();
 });
 
+test("the setup link stops working once someone has signed in another way", async () => {
+  const { people, signIn } = server();
+  const token = signIn.setupToken ?? "";
+
+  people.createUser("ana", false);
+
+  expect(
+    await signIn.setUp(token, { name: "eve", password: "a long password" }),
+  ).toBeUndefined();
+
+  expect(signIn.setupToken).toBeUndefined();
+  expect(people.users().map(({ name }) => name)).toEqual(["ana"]);
+});
+
 test("an invite lets one person in per email, and a link lets anyone in until it expires", async () => {
   const { people, signIn, time } = server();
   const [byEmail] = people.invite("ana", [" Bea@Example.com "], false, 7);

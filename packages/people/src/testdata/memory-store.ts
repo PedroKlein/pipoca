@@ -111,9 +111,13 @@ export function memoryStore(): PeopleStore {
     useInvite: (id) => {
       const invite = invites.get(id);
 
-      if (invite !== undefined) {
-        invites.set(id, { ...invite, uses: invite.uses + 1 });
+      if (invite === undefined || (invite.email !== null && invite.uses > 0)) {
+        return false;
       }
+
+      invites.set(id, { ...invite, uses: invite.uses + 1 });
+
+      return true;
     },
     insertAccessToken: (token, hash) => {
       tokens.set(hash, token);
