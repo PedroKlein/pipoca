@@ -29,7 +29,7 @@ export function Budgets(): ReactElement {
   const { value: totals, reload } = useLoaded(
     async () => api.get<Totals>("totals"),
     "totals",
-    { topics: ["usage.totals"] },
+    { changes: ["totals"] },
   );
 
   const [error, setError] = useState<string>();
@@ -134,7 +134,7 @@ export function AuditLog(): ReactElement {
   const { value: entries } = useLoaded(
     async () => api.get<readonly AuditEntry[]>("audit"),
     "audit",
-    { topics: ["usage.audit"] },
+    { changes: ["audit"] },
   );
 
   const { value: teammates = [] } = useLoaded(

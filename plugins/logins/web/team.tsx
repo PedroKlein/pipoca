@@ -23,7 +23,7 @@ export function TeamCredentials(): ReactElement {
   const { value: keys = [] } = useLoaded(
     async () => api.get<readonly TeamKey[]>("keys"),
     "keys",
-    { topics: ["logins.logins"] },
+    { changes: ["logins"] },
   );
 
   const { value: loaded } = useLoaded(

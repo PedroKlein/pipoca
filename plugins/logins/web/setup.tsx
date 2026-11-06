@@ -43,7 +43,8 @@ export const modelStep: SetupStep = {
     (await api.get<Environment[]>("/api/environments")).some(
       ({ models }) => models.length > 0,
     ),
-  topics: ["logins.logins", "environments"],
+  topics: ["environments"],
+  changes: ["logins"],
   wide: true,
   Step: ModelStep,
 };
@@ -54,7 +55,7 @@ function ModelStep(): ReactElement | null {
   const { value: account, reload } = useLoaded(
     async () => api.get<Account>("account"),
     "account",
-    { topics: ["logins.logins"] },
+    { changes: ["logins"] },
   );
 
   const { value: providers } = useLoaded(

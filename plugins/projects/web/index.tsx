@@ -72,7 +72,7 @@ import {
 } from "../src/model";
 
 // Thread states follow their Sessions.
-const watched = { topics: ["sessions", "projects.projects"] };
+const watched = { topics: ["sessions"], changes: ["projects"] };
 
 export const web = defineWeb(projects, {
   pages: [

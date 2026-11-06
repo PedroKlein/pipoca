@@ -60,7 +60,7 @@ function Accounts(): ReactElement | null {
   const { value, reload } = useLoaded(
     async () => api.get<Account>("account"),
     "account",
-    { topics: ["logins.logins"] },
+    { changes: ["logins"] },
   );
 
   const { value: profiles = [] } = useLoaded(

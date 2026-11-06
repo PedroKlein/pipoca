@@ -23,7 +23,7 @@ export function Spend(): ReactElement {
   const { value: totals } = useLoaded(
     async () => api.get<Totals>("totals"),
     "totals",
-    { topics: ["usage.totals"] },
+    { changes: ["totals"] },
   );
 
   if (totals === undefined) {

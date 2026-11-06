@@ -20,7 +20,7 @@ export function Activity(): ReactElement {
   const { value: actions } = useLoaded(
     async () => api.get<readonly Action[]>("activity"),
     "activity",
-    { topics: ["usage.audit"] },
+    { changes: ["audit"] },
   );
 
   const { value: teammates = [] } = useLoaded(
