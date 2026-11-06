@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { definePlugin, defineServer } from "@pipoca/plugins";
 import {
   type PluginTest,
   person,
@@ -409,4 +410,63 @@ test("the library takes files from people, within the size limit", async () => {
         )
     ).status,
   ).toBe(400);
+});
+
+// A route that says whether its caller acts as an admin, as a route tool.
+const probe = definePlugin({
+  id: "probe",
+  title: "Probe",
+  description: "Says whether its caller is an admin.",
+  works: ["personal", "team"],
+});
+
+const probeServer = defineServer(probe, ({ routes, tools }) => {
+  routes.get("admin", { auth: "person" }, ({ caller }) => ({
+    admin: caller.person.admin,
+  }));
+
+  tools.fromRoute("GET", "admin", {
+    name: "probe_admin",
+    description: "Says whether you act as an admin.",
+    annotations: { readOnlyHint: true },
+  });
+});
+
+test("an admin's Team assistant thread acts as an admin only while only admins steer it", async () => {
+  await using t = await testPlugin(server, {
+    people,
+    plugins: [probeServer],
+  });
+
+  await t.environment({ owner: "team" });
+
+  const assistant = await t
+    .as("ana")
+    .post<ProjectView>("team/assistant", { text: "Build a plugin" });
+
+  const coordinator = await t.attach(assistant.coordinatorId);
+
+  const started = await t.tool(
+    "start_thread",
+    { title: "Hello plugin", message: "Build a hello plugin" },
+    { session: coordinator },
+  );
+
+  const thread = await t.attach(/as (\S+)\.$/.exec(started.text)?.[1] ?? "");
+
+  expect(await t.tool("probe_admin", {}, { session: thread })).toMatchObject({
+    text: expect.stringContaining('"admin":true') as unknown,
+  });
+
+  const shared = await t
+    .as("ana")
+    .kernel("PATCH", `/api/sessions/${thread.id}`, {
+      access: { kind: "team" },
+    });
+
+  expect(shared.status).toBe(200);
+
+  expect(await t.tool("probe_admin", {}, { session: thread })).toMatchObject({
+    text: expect.stringContaining('"admin":false') as unknown,
+  });
 });

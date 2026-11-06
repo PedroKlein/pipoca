@@ -1914,7 +1914,8 @@ function inOrder(definitions: readonly PluginDefinition[]): PluginDefinition[] {
 
 // A meta-session's tools act as the person who started it, never as an admin
 // (ADR 0035). An admin's Team assistant changes team setup too, so its
-// tools follow the person's role (ADR 0067).
+// tools follow the person's role (ADR 0067), and only while everyone who
+// steers the Session is an admin.
 // Undefined for a Session nobody started, such as a plugin's team work,
 // which has no person to act as.
 function ownerOf(
@@ -1922,6 +1923,12 @@ function ownerOf(
   users: readonly User[],
 ): OnBehalf | undefined {
   const person = session.startedBy;
+  const { access } = session;
+
+  const steers = (id: string): boolean =>
+    id === person ||
+    access.kind === "team" ||
+    (access.kind === "named" && access.people.includes(id));
 
   return person === null
     ? undefined
@@ -1929,7 +1936,8 @@ function ownerOf(
         actor: `user:${person}`,
         mayAdmin:
           session.ownedBy === "team" &&
-          users.some(({ id, admin }) => id === person && admin),
+          users.some(({ id }) => id === person) &&
+          users.every(({ id, admin }) => admin || !steers(id)),
       };
 }
 

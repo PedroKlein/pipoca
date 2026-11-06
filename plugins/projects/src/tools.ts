@@ -152,6 +152,12 @@ export function projectTools(
         actor,
         key: project.id,
         ...(project.owner === "team" && { team: true }),
+        // A Team assistant's threads are its person's alone, as its chat
+        // is, until they share one (ADR 0067).
+        ...(project.owner === "team" &&
+          project.assistantOf !== null && {
+            access: { kind: "named", people: [] },
+          }),
         ...(environment !== undefined && { environment }),
         ...(profile !== undefined && { profile }),
         workspace: {
