@@ -445,7 +445,7 @@ async function toolsOf(token: string): Promise<readonly string[]> {
   return tools.map(({ name }) => name);
 }
 
-test("a team Session gets no tools that use a person's git accounts", async () => {
+test("a team Session gets only the git tools its team bot serves", async () => {
   const team = await teamSetup();
 
   const { key } = await json<{ key: string }>(
@@ -484,7 +484,10 @@ test("a team Session gets no tools that use a person's git accounts", async () =
     "git_hosts_unwatch",
   ]);
 
-  expect(gitTools(await toolsOf(team.runner))).toEqual([]);
+  expect(gitTools(await toolsOf(team.runner))).toEqual([
+    "git_hosts_watch",
+    "git_hosts_unwatch",
+  ]);
 });
 
 test("only an admin lays out the team hub, and everyone reads the layout", async () => {

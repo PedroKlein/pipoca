@@ -758,7 +758,7 @@ export const plugin = definePlugin({
   ).not.toContainEqual(expect.stringContaining("node_modules"));
 });
 
-test("installs a folder as a new Profile without asking, leaving out what isn't the Profile's", async () => {
+test("installs a folder as a new Profile once asked, leaving out what isn't the Profile's", async () => {
   const folder = join(root, "work", "dotfiles");
   await mkdir(join(folder, "skills", "review"), { recursive: true });
   await mkdir(join(folder, ".git"), { recursive: true });
@@ -772,13 +772,13 @@ test("installs a folder as a new Profile without asking, leaving out what isn't 
   ]);
 
   const metaSession = await startMeta("Make a Profile from my dotfiles");
+  await allowNext(metaSession.id);
   const events = await follow(metaSession.id, entriesInclude("installed it"));
 
   const profile = (
     await json<{ id: string; name: string }[]>(server.api("/api/profiles"))
   ).find(({ name }) => name === "dotfiles");
 
-  expect(prompts(events)).toEqual([]);
   expect(profile).toBeDefined();
 
   expect(transcriptOf(events)).toContain(
