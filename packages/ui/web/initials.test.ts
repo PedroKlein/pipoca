@@ -1,11 +1,16 @@
 import { expect, test } from "bun:test";
-import { initialsOf, plural } from "./initials";
+import { initialsOf, personInitials, plural } from "./initials";
 
 test("takes two letters for a name's mark", () => {
-  expect(initialsOf("GitHub")).toBe("GH");
-  expect(initialsOf("maria silva")).toBe("MS");
-  expect(initialsOf("Pedro Klein")).toBe("PK");
-  expect(initialsOf("Bea")).toBe("BE");
+  expect(initialsOf("GitHub")).toBe("Gh");
+  expect(initialsOf("maria silva")).toBe("Ms");
+  expect(initialsOf("Bea")).toBe("Be");
+});
+
+test("writes a person's initials in capitals", () => {
+  expect(personInitials("Pedro Klein")).toBe("PK");
+  expect(personInitials("maria silva")).toBe("MS");
+  expect(personInitials("Bea")).toBe("BE");
 });
 
 test("counts a noun, plural unless there is one", () => {

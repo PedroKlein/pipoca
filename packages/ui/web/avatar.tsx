@@ -1,6 +1,6 @@
 import type { ReactElement, ReactNode } from "react";
 import { cn } from "./cn";
-import { initialsOf } from "./initials";
+import { initialsOf, personInitials } from "./initials";
 
 const sizes = {
   xs: "size-6 text-caption",
@@ -9,7 +9,7 @@ const sizes = {
   lg: "size-11 text-prose",
 } as const;
 
-// A person's round mark, or with square an item's logo, such as "GH" for
+// A person's round mark, or with square an item's logo, such as "Gh" for
 // GitHub. It shows the name's initials unless given something else.
 export function Avatar({
   name,
@@ -39,7 +39,7 @@ export function Avatar({
         className,
       )}
     >
-      {children ?? initialsOf(name)}
+      {children ?? (square ? initialsOf(name) : personInitials(name))}
     </span>
   );
 }

@@ -35,7 +35,7 @@ export function Row({
 }: {
   readonly title: ReactNode;
   readonly description?: ReactNode;
-  // A short mark for the item, such as "GH" for GitHub.
+  // A short mark for the item, such as "Gh" for GitHub.
   readonly initials?: string;
   // Draws the mark as a person's avatar.
   readonly round?: boolean;

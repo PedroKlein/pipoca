@@ -16,6 +16,6 @@ test("shows a name's initials, round for a person and square for a logo", () => 
 
   expect(person?.textContent).toBe("MS");
   expect(person?.className).toContain("rounded-full");
-  expect(logo?.textContent).toBe("GH");
+  expect(logo?.textContent).toBe("Gh");
   expect(logo?.className).toContain("rounded-md");
 });

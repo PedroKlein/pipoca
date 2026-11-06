@@ -3,8 +3,8 @@ import {
   Button,
   Card,
   Code,
-  initialsOf,
   Page,
+  personInitials,
   Row,
   Rows,
   Section,
@@ -45,7 +45,7 @@ export function GeneralPage(): ReactElement {
     >
       <Rows label="You">
         <Row
-          initials={initialsOf(shown)}
+          initials={personInitials(shown)}
           round
           title={
             <>
