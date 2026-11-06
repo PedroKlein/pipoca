@@ -36,6 +36,7 @@ export { Picker, type PickerOption } from "./picker";
 export { Row, Rows } from "./rows";
 export { Segmented } from "./segmented";
 export { Select } from "./select";
+export { SidePanel } from "./side-panel";
 export { SessionRow } from "./session-row";
 export { Hero, Mark, SetupShell, Wordmark } from "./setup-shell";
 export { Slider } from "./slider";
