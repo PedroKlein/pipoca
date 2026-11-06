@@ -1289,7 +1289,11 @@ export function startPlugins(
         })),
       ...(loadsRouteTools(session)
         ? modelTools()
-            .filter(({ plugin }) => loadsIn(session, plugin))
+            .filter(
+              (tool) =>
+                loadsIn(session, tool.plugin) &&
+                onOwnersHalf(tool, session) !== undefined,
+            )
             .map(({ spec, asks }) => ({
               ...spec,
               ...(asks && { asks: true }),
@@ -1575,19 +1579,29 @@ function ownerOf(
       };
 }
 
-// A team Session's call of a route with a team half goes to that half
+// A team Session's call of a route with a team half goes to that half, and
+// a plugin's route without one isn't its tool, since it acts as the person
 // (ADR 0067).
-function onOwnersHalf(found: RouteTool, session: Session): RouteTool {
-  return found.teamTwin === true && session.ownedBy === "team"
-    ? {
-        ...found,
-        request: (input) => {
-          const sent = found.request(input);
+function onOwnersHalf(
+  found: RouteTool,
+  session: Session,
+): RouteTool | undefined {
+  if (session.ownedBy !== "team") {
+    return found;
+  }
 
-          return { ...sent, path: `team/${sent.path}` };
-        },
-      }
-    : found;
+  if (found.teamTwin === true) {
+    return {
+      ...found,
+      request: (input) => {
+        const sent = found.request(input);
+
+        return { ...sent, path: `team/${sent.path}` };
+      },
+    };
+  }
+
+  return found.plugin === undefined ? found : undefined;
 }
 
 const nobodyToActAs: ToolResult = {

@@ -107,6 +107,37 @@ beforeEach(async () => {
           });
         },
       ),
+      defineServer(
+        definePlugin({ id: "diary", title: "Diary", description: "" }),
+        ({ routes }) => {
+          routes.get(
+            "entries",
+            {
+              auth: "person",
+              tool: {
+                name: "diary_entries",
+                description: "Reads the person's diary",
+                annotations: { readOnlyHint: true },
+              },
+            },
+            ({ caller }) => `${caller.person.name}'s diary`,
+          );
+
+          routes.get(
+            "shared",
+            {
+              auth: "person",
+              team: true,
+              tool: {
+                name: "diary_shared",
+                description: "Reads the owner's shared diary",
+                annotations: { readOnlyHint: true },
+              },
+            },
+            ({ caller }) => `${caller.owner}'s shared diary`,
+          );
+        },
+      ),
     ],
   });
 });
@@ -1248,6 +1279,41 @@ test("a Team assistant's kernel tools act on team work and never reach its perso
       ({ name }) => name,
     ),
   ).toEqual(["laptop"]);
+});
+
+test("a team Session's plugin route tools reach only their team half, never the person's own", async () => {
+  const pedros = await server.signedIn();
+  const team = await teamSetup();
+
+  const { user } = await json<{ user: { id: string } }>(
+    server.as(pedros)("/api/auth"),
+  );
+
+  const assistant = starter?.start({
+    team: true,
+    actor: `user:${user.id}`,
+    environment: team.environment,
+    profile: "starter.helper",
+    workspace: workspace(),
+    access: { kind: "named", people: [] },
+    key: "assistant",
+  });
+
+  const tool = async (name: string) =>
+    (await serverTools?.call(
+      name,
+      {},
+      {
+        session: assistant?.id ?? "",
+      },
+    )) ?? { text: "", isError: true };
+
+  expect(await tool("diary_entries")).toMatchObject({ isError: true });
+
+  expect(await tool("diary_shared")).toMatchObject({
+    isError: false,
+    text: expect.stringContaining("team's shared diary") as unknown,
+  });
 });
 
 test("team work nobody started uses no toolset tool, since it has no person to act as", async () => {
