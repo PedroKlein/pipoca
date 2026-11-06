@@ -5,6 +5,7 @@ import type { ServerWebSocket } from "bun";
 import { pluginSwitches, startPlugins } from "@pipoca/pluginhost";
 import type {
   PluginDefinition,
+  Runtime,
   ServerPart,
   ServerPlugin,
 } from "@pipoca/plugins";
@@ -57,7 +58,6 @@ import {
   builtInServers,
   builtInSessions,
   definedManifest,
-  type Runtime,
 } from "./built-in";
 import { errorReply } from "./server/http/replies";
 import { previewBroker } from "./previews";
@@ -112,6 +112,9 @@ export interface ServeOptions {
     AgentOptions,
     "server" | "credential" | "binary" | "log" | "signal"
   >;
+  // What plugins that start runners on this machine run, the pipoca binary
+  // unless it says.
+  readonly command?: readonly string[];
   // Replaces the built-in plugins. A plugin without a manifest gets one with
   // just its name.
   readonly plugins?: readonly ServerPlugin[];
@@ -165,28 +168,30 @@ export function serve(options: ServeOptions): {
 
   const clock = options.clock ?? systemClock;
 
-  // Which plugins are on, under "plugins" in pipoca.json. A team server's
-  // machine holds everyone's data and the sealing key, so only a solo install
-  // runs runners on it unless admins say otherwise (ADR 0053).
+  // Which plugins are on, under "plugins" in pipoca.json.
   const switches = pluginSwitches(config("plugins"), options.log);
-  const offByDefault = options.solo === undefined ? ["local"] : [];
 
   const folder = options.installed;
   const installed = folder?.plugins ?? [];
-  let seed: Runtime["seed"];
+  let solo: Runtime["solo"];
 
+  const runnersDir =
+    options.database === ":memory:"
+      ? mkdtempSync(join(tmpdir(), "pipoca-runners-"))
+      : join(dirname(options.database), "runners");
+
+  // The server listens only after its plugins register.
   const runtime = (): Runtime => ({
-    command: pipoca,
-    server: () => server.url.href,
-    dataDir:
-      options.database === ":memory:"
-        ? mkdtempSync(join(tmpdir(), "pipoca-local-"))
-        : join(dirname(options.database), "local"),
-    ...(seed !== undefined && { seed }),
+    command: options.command ?? pipoca,
+    get serverUrl() {
+      return server.url.href;
+    },
+    dataDir: runnersDir,
+    ...(solo !== undefined && { solo }),
   });
 
   const plugins = [
-    ...(options.plugins ?? builtInServers(runtime)),
+    ...(options.plugins ?? builtInServers()),
     ...installed.flatMap(({ server }) => (server ? [server] : [])),
   ];
 
@@ -236,15 +241,15 @@ export function serve(options: ServeOptions): {
     const defaultOn = definitions.find(({ id }) => id === name)?.defaultOn;
 
     if (defaultOn === undefined) {
-      return !offByDefault.includes(name);
+      return true;
     }
 
-    const solo = options.solo !== undefined;
+    const alone = options.solo !== undefined;
 
     return {
       always: true,
-      solo,
-      team: !solo,
+      solo: alone,
+      team: !alone,
       never: false,
     }[defaultOn];
   };
@@ -274,23 +279,8 @@ export function serve(options: ServeOptions): {
     ].filter(({ name }) => enabled.includes(name)),
   );
 
-  // A Session on the server's own runner would share the server pod's files,
-  // its sealing key among them, so a server that can start runner pods runs
-  // no runner itself (ADR 0049). The chart names the runners' URL only when
-  // it lets the server start them.
-  const startsPods =
-    enabled.includes("kubernetes") &&
-    process.env["KUBERNETES_SERVICE_HOST"] !== undefined &&
-    process.env["PIPOCA_RUNNER_URL"] !== undefined;
-
-  const ownAgent = startsPods ? undefined : options.agent;
-
-  if (options.agent !== undefined && ownAgent === undefined) {
-    options.log(
-      "the server's own runner is off, since it starts runner pods in its cluster",
-      { runner: options.agent.provider },
-    );
-  }
+  // Until the plugins have registered, which can turn it off.
+  let ownAgent = options.agent;
 
   const events =
     options.events ??
@@ -354,11 +344,9 @@ export function serve(options: ServeOptions): {
   // Outside a cluster, the built-in runner's Environment is the first
   // person's (ADR 0049): made when the setup link, a sign-in or a solo
   // install makes them, and until then its runner polls for nothing.
-  const ownRunner = ownAgent?.provider;
-
   const ownEnvironment = (person: string): void => {
-    if (ownRunner !== undefined) {
-      store.environments.ensureEnvironment(ownRunner, person);
+    if (ownAgent !== undefined) {
+      store.environments.ensureEnvironment(ownAgent.provider, person);
     }
   };
 
@@ -397,7 +385,7 @@ export function serve(options: ServeOptions): {
     options.solo !== undefined &&
     store.environments.environments().length === 0
   ) {
-    seed = thisMachineEnvironment(store, options.solo.folders ?? []);
+    solo = thisMachineEnvironment(store, options.solo.folders ?? []);
   }
 
   const userProfiles = new Profiles(profiles, store.profiles);
@@ -477,12 +465,23 @@ export function serve(options: ServeOptions): {
     switches,
     templates,
     buildsOn: (id) => profiles.buildsOn(id),
+    runtime,
     schedules: store.schedules,
     clock,
     timer: options.timer ?? systemTimer,
     signal: pluginsStop.signal,
     log: options.log,
   });
+
+  // A Session on the server's own runner would share the server's files,
+  // its sealing key among them, such as in a cluster's pod (ADR 0049).
+  if (ownAgent !== undefined && pluginHost.replacesServerRunner()) {
+    options.log("the server's own runner is off, since a plugin replaces it", {
+      runner: ownAgent.provider,
+    });
+
+    ownAgent = undefined;
+  }
 
   // Asked at start and a few times a day, since each check reaches every
   // installed plugin's repository.
@@ -810,7 +809,7 @@ function fromThisSite(request: Request, hosts: ReadonlySet<string>): boolean {
 function thisMachineEnvironment(
   store: Store,
   folders: readonly string[],
-): Runtime["seed"] {
+): Runtime["solo"] {
   const provider = "this-machine";
   const [owner] = store.people.users();
 

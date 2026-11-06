@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { BadRequest, checkBody, readBody, Type } from "@pipoca/plugins";
+import { BadRequest, readBody, Type } from "@pipoca/plugins";
+import { checkBody } from "./body";
 
 const post = (body: string): Request =>
   new Request("http://plugin/items", { method: "POST", body });

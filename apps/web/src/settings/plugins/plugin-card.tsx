@@ -12,7 +12,6 @@ import { type ReactElement, useState } from "react";
 import { api } from "../../api";
 import { webPartError } from "../../plugins";
 import { switchesAtRestart } from "./restart";
-import { SettingsForm } from "./settings-form";
 
 export function PluginCard({
   plugin,
@@ -22,11 +21,9 @@ export function PluginCard({
   readonly onChange: () => void;
 }): ReactElement {
   const failure = webPartError(plugin.id);
-  const [open, setOpen] = useState(false);
   const [error, setError] = useState<string>();
   const [note, setNote] = useState<string>();
   const installed = plugin.source === "installed";
-  const hasSettings = Object.keys(plugin.settings ?? {}).length > 0;
   const [ask, asking] = useConfirm();
 
   const run = (change: () => Promise<string | undefined>): void => {
@@ -135,11 +132,7 @@ export function PluginCard({
   return (
     <li
       aria-label={plugin.title}
-      className={cn(
-        cardClass,
-        "flex flex-col gap-2 p-4",
-        open && "md:col-span-2",
-      )}
+      className={cn(cardClass, "flex flex-col gap-2 p-4")}
     >
       <div className="flex items-start gap-3">
         <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-ui font-medium text-fg-strong">
@@ -181,20 +174,6 @@ export function PluginCard({
       )}
       <div className="mt-auto flex flex-wrap items-center gap-x-1.5 gap-y-1 text-caption text-fg-dim">
         <span>{meta.join(" · ")}</span>
-        {hasSettings && (
-          <>
-            <span aria-hidden="true">·</span>
-            <Button
-              variant="link"
-              aria-expanded={open}
-              onClick={() => {
-                setOpen(!open);
-              }}
-            >
-              Settings
-            </Button>
-          </>
-        )}
         {installed && (
           <span className="ml-auto flex gap-1">
             {plugin.installedFrom !== undefined && (
@@ -237,13 +216,6 @@ export function PluginCard({
         <p className="text-label text-failed">
           Its web part didn&apos;t load: {failure}
         </p>
-      )}
-      {open && plugin.settings !== undefined && (
-        <SettingsForm
-          plugin={plugin}
-          settings={plugin.settings}
-          onChange={onChange}
-        />
       )}
       {asking}
     </li>

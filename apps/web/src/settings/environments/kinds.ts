@@ -1,20 +1,36 @@
-import type { EnvironmentKind } from "@pipoca/protocol";
+import type { Environment } from "@pipoca/protocol";
+import { type IconName, isIconName } from "@pipoca/ui";
+
+type Kind = Pick<Environment, "runnersFrom" | "isolation">;
 
 export function environmentsPath(team: boolean): string {
   return team ? "team/setup/environments" : "environments";
 }
 
-export const kindNames: Readonly<Record<EnvironmentKind, string>> = {
-  machine: "Machines",
-  docker: "Docker image",
-  kubernetes: "Kubernetes",
-};
+// What an Environment is (ADR 0063): runners a plugin starts, a Docker image
+// on a machine someone connects, or the machines themselves.
+export function kindName({ runnersFrom, isolation }: Kind): string {
+  if (runnersFrom !== null) {
+    return runnersFrom.label;
+  }
 
-export const kindAbout: Readonly<Record<EnvironmentKind, string>> = {
-  machine:
-    "Sessions run on the machines that join it, with what's installed there.",
-  docker:
-    "One container from its image on a machine that joins it, shared by its Sessions.",
-  kubernetes:
-    "Each person gets a pod on the cluster, which their Sessions share. There are no machines to connect: the server starts a pod when a Session needs one and stops it when it goes idle.",
-};
+  return isolation === "container" ? "Docker image" : "Machines";
+}
+
+export function kindAbout({ runnersFrom, isolation }: Kind): string {
+  if (runnersFrom !== null) {
+    return `Its runners come from ${runnersFrom.label}: the server starts one when a Session needs it and stops it when it goes idle.`;
+  }
+
+  return isolation === "container"
+    ? "One container from its image on a machine that joins it, shared by its Sessions."
+    : "Sessions run on the machines that join it, with what's installed there.";
+}
+
+export function kindIcon({ runnersFrom, isolation }: Kind): IconName {
+  if (runnersFrom !== null) {
+    return isIconName(runnersFrom.icon) ? runnersFrom.icon : "cloud";
+  }
+
+  return isolation === "container" ? "cloud" : "monitor";
+}

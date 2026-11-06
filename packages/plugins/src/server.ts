@@ -23,6 +23,7 @@ import type {
   ModelOffer,
   PluginProfile,
   ProfileMcpServer,
+  RunnerSource,
   SqlValue,
   StartRequest,
 } from "./plugin";
@@ -405,6 +406,45 @@ export interface PluginConfig<P extends PluginDefinition = PluginDefinition> {
 export interface PluginEnvironments {
   readonly list: () => readonly Environment[];
   readonly templates: () => readonly EnvironmentTemplate[];
+  // Sessions no online runner in the pool can take now: queued ones beyond
+  // the room its runners have, and ones held by a runner that went away.
+  readonly unplaced: (environmentId: string) => readonly Session[];
+  // The token a runner the plugin starts polls with. It lasts until revoked,
+  // and a new Environment key leaves it be.
+  readonly runnerToken: (environmentId: string, runner: string) => string;
+  readonly revokeRunner: (environmentId: string, runner: string) => void;
+  // The plugin's key in a template's entry in pipoca.json, such as its pod
+  // settings. Set throws when no template has the id.
+  readonly templateConfig: {
+    readonly get: (templateId: string) => unknown;
+    readonly set: (templateId: string, value: unknown) => void;
+  };
+}
+
+// The plugin that starts runners for an Environment when its Sessions need
+// one, such as pods in a cluster.
+export interface RunnerProvider {
+  // What the Environments page calls its runners, and an icon of @pipoca/ui.
+  readonly kind: { readonly label: string; readonly icon: string };
+  readonly starts: (environment: RunnerSource) => boolean;
+  // The server then runs no runner of its own, such as in a cluster where
+  // its Sessions would share the server's files.
+  readonly replacesServerRunner?: () => boolean;
+}
+
+// What a plugin needs to start runners on the server's own machine. Read it
+// once the server listens, such as when a runner starts.
+export interface Runtime {
+  // Runs the pipoca binary, which runs a runner as `agent`.
+  readonly command: readonly string[];
+  readonly serverUrl: string;
+  readonly dataDir: string;
+  // The Environment a new solo install made for this machine, and the
+  // folders it was started with.
+  readonly solo?: {
+    readonly environmentId: string;
+    readonly folders: readonly string[];
+  };
 }
 
 // The links the sign-in page shows beside the password form, each a path
@@ -448,6 +488,8 @@ export interface PluginProfiles {
 }
 
 export interface Providers {
+  readonly runners: (provider: RunnerProvider) => void;
+  readonly runtime: () => Runtime;
   readonly models: (offer: ModelOffer) => void;
   // One plugin per server signs people in without a password.
   readonly signIn: (provider: SignInProvider) => SignInApi;

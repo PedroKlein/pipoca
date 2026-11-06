@@ -3,7 +3,6 @@ import {
   type Environment,
   type EnvironmentTemplate,
   type EnvironmentUpdate,
-  kindOf,
 } from "@pipoca/protocol";
 import {
   Badge,
@@ -12,7 +11,6 @@ import {
   cn,
   Icon,
   KeyValues,
-  plural,
   Row,
   Rows,
   Section,
@@ -128,8 +126,8 @@ export function Editor({
   };
 
   const area = "min-h-24 resize-y font-mono text-mono-sm";
-  const kind = kindOf(environment);
   const status = availability(environment);
+  const machines = environment.runnersFrom === null ? "Machines" : "Runners";
 
   return (
     <>
@@ -142,7 +140,8 @@ export function Editor({
         </Badge>
       </div>
       <p className="mt-1 max-w-prose text-ui text-fg-dim">
-        {kindAbout[kind]} Changes reach a Session the next time it starts.
+        {kindAbout(environment)} Changes reach a Session the next time it
+        starts.
       </p>
       {template !== undefined && (
         <Note icon="lock">
@@ -151,79 +150,59 @@ export function Editor({
           secrets stay yours.
         </Note>
       )}
-      {kind === "kubernetes" ? (
-        <Section title="Pods">
-          <Rows label="Pods">
-            {template !== undefined && (
-              <Row title="Image" description="What every pod starts from">
-                <span className="font-mono text-mono-sm text-fg">
-                  {template.image ?? "Default image"}
-                </span>
-              </Row>
-            )}
-            <Row title="Running now">
+      <Section title={machines}>
+        <Rows label={machines}>
+          {environment.runners.length === 0 && (
+            <Row
+              title={
+                environment.onDemand
+                  ? "None is running"
+                  : "No machine has joined yet"
+              }
+              description={
+                environment.onDemand
+                  ? "One starts when a Session needs it."
+                  : "Run the join command below on a machine to connect it."
+              }
+            />
+          )}
+          {environment.runners.map((runner) => (
+            <Row
+              key={runner.name}
+              title={
+                <>
+                  <span className="font-mono">{runner.name}</span>
+                  <Badge state={runner.online ? "done" : "offline"}>
+                    {runner.online ? "Online" : "Offline"}
+                  </Badge>
+                </>
+              }
+            >
               <span className="text-label text-fg-dim">
-                {plural(
-                  environment.runners.filter(({ online }) => online).length,
-                  "pod",
-                )}
+                {runner.capacity === null
+                  ? `${String(runner.running)} running`
+                  : `${String(runner.running)} of ${String(runner.capacity)} running`}
               </span>
             </Row>
-          </Rows>
-        </Section>
-      ) : (
-        <Section title="Machines">
-          <Rows label="Machines">
-            {environment.runners.length === 0 && (
-              <Row
-                title={
-                  environment.onDemand
-                    ? "None is running"
-                    : "No machine has joined yet"
-                }
-                description={
-                  environment.onDemand
-                    ? "One starts when a Session needs it."
-                    : "Run the join command below on a machine to connect it."
-                }
-              />
-            )}
-            {environment.runners.map((runner) => (
-              <Row
-                key={runner.name}
-                title={
-                  <>
-                    <span className="font-mono">{runner.name}</span>
-                    <Badge state={runner.online ? "done" : "offline"}>
-                      {runner.online ? "Online" : "Offline"}
-                    </Badge>
-                  </>
-                }
-              >
-                <span className="text-label text-fg-dim">
-                  {runner.capacity === null
-                    ? `${String(runner.running)} running`
-                    : `${String(runner.running)} of ${String(runner.capacity)} running`}
-                </span>
-              </Row>
-            ))}
-          </Rows>
+          ))}
+        </Rows>
+        {environment.runnersFrom === null && (
           <JoinKey environment={environment} madeKey={madeKey} onKey={onKey} />
-          {environment.folders.length > 0 && (
-            <ul aria-label="Folders" className="mt-3 flex flex-wrap gap-1.5">
-              {environment.folders.map((folder) => (
-                <li
-                  key={folder}
-                  title={folder}
-                  className="max-w-full truncate rounded-full border border-line bg-elevated px-2.5 py-1 font-mono text-mono-sm"
-                >
-                  {folder}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Section>
-      )}
+        )}
+        {environment.folders.length > 0 && (
+          <ul aria-label="Folders" className="mt-3 flex flex-wrap gap-1.5">
+            {environment.folders.map((folder) => (
+              <li
+                key={folder}
+                title={folder}
+                className="max-w-full truncate rounded-full border border-line bg-elevated px-2.5 py-1 font-mono text-mono-sm"
+              >
+                {folder}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
       <form onSubmit={submit} className="flex flex-col">
         <Section title="Name">
           <TextInput
@@ -233,7 +212,7 @@ export function Editor({
             defaultValue={environment.name}
           />
         </Section>
-        {template === undefined && kind !== "kubernetes" && (
+        {template === undefined && (
           <Section title="Each Session runs">
             <ChoiceTiles
               label="Each Session runs"
@@ -265,10 +244,7 @@ export function Editor({
           </Section>
         )}
         {template === undefined && (
-          <div
-            hidden={kind !== "kubernetes" && isolation !== "container"}
-            className="flex flex-col"
-          >
+          <div hidden={isolation !== "container"} className="flex flex-col">
             <Section title="Image">
               <TextInput
                 name="image"

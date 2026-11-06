@@ -3,24 +3,33 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { definePlugin, defineServer } from "@pipoca/plugins";
 import type { Environment } from "@pipoca/protocol";
 import { testServer } from "./testdata/harness";
+
+// Starts runners for every Environment, the way a cluster's plugin does.
+const pods = defineServer(
+  definePlugin({ id: "pods", title: "Pods", description: "" }),
+  ({ provide }) => {
+    provide.runners({
+      kind: { label: "Pods", icon: "cloud" },
+      starts: () => true,
+      replacesServerRunner: () => true,
+    });
+  },
+);
 
 let root: string;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "built-in-runner-"));
-  process.env["KUBERNETES_SERVICE_HOST"] = "10.0.0.1";
-  process.env["PIPOCA_RUNNER_URL"] = "http://pipoca.pipoca.svc:7420";
 });
 
 afterEach(async () => {
-  delete process.env["KUBERNETES_SERVICE_HOST"];
-  delete process.env["PIPOCA_RUNNER_URL"];
   await rm(root, { recursive: true, force: true });
 });
 
-test("runs no runner of its own where it starts runner pods (ADR 0049)", async () => {
+test("runs no runner of its own where a plugin replaces it (ADR 0049)", async () => {
   const logs: string[] = [];
 
   const server = testServer({
@@ -32,6 +41,8 @@ test("runs no runner of its own where it starts runner pods (ADR 0049)", async (
       extensionPaths: [],
       folders: [],
     },
+    plugins: [],
+    servers: [pods],
     log: (message) => {
       logs.push(message);
     },
@@ -40,7 +51,7 @@ test("runs no runner of its own where it starts runner pods (ADR 0049)", async (
   await server.close();
 
   expect(logs).toContain(
-    "the server's own runner is off, since it starts runner pods in its cluster",
+    "the server's own runner is off, since a plugin replaces it",
   );
 
   const db = new DatabaseSync(join(root, "server.db"));
@@ -51,8 +62,6 @@ test("runs no runner of its own where it starts runner pods (ADR 0049)", async (
 });
 
 test("makes its own runner's Environment for the first person, once they sign up (ADR 0049)", async () => {
-  delete process.env["KUBERNETES_SERVICE_HOST"];
-
   const server = testServer({
     agent: {
       provider: "server",
@@ -75,4 +84,30 @@ test("makes its own runner's Environment for the first person, once they sign up
   expect(
     environments.map(({ provider, ownerId }) => [provider, ownerId]),
   ).toEqual([["server", user.id]]);
+});
+
+test("says which plugin starts an Environment's runners, and with what label and icon", async () => {
+  const server = testServer({ plugins: [], servers: [pods] });
+
+  try {
+    const made = (await (
+      await server.api("/api/environments", { body: { name: "cluster" } })
+    ).json()) as Environment;
+
+    const [listed] = (await (
+      await server.api("/api/environments")
+    ).json()) as Environment[];
+
+    expect({
+      id: listed?.id,
+      onDemand: listed?.onDemand,
+      runnersFrom: listed?.runnersFrom,
+    }).toEqual({
+      id: made.id,
+      onDemand: true,
+      runnersFrom: { plugin: "pods", label: "Pods", icon: "cloud" },
+    });
+  } finally {
+    await server.close();
+  }
 });

@@ -267,6 +267,16 @@ async function pickWorkspace(
     await form.getByRole("option", { name: /^e2e/ }).click();
   }
 
+  // It remembers the last model and reasoning level too, which picking an
+  // Environment resets only when the form lists more than one by then.
+  const model = form.getByRole("button", { name: "Model" });
+
+  if ((await model.textContent())?.trim() !== "Default model") {
+    await model.click();
+    await form.getByTitle("default", { exact: true }).click();
+    await form.getByRole("option", { name: /^Environment default/ }).click();
+  }
+
   await form.getByRole("button", { name: "Folder or repository" }).click();
   const search = form.getByRole("combobox", { name: "Folder or repository" });
   const picked = form.getByRole("option", { selected: true });
@@ -814,31 +824,6 @@ test("makes an Environment and shows its key once", async () => {
     .getByRole("list", { name: "Folders" })
     .getByText(root, { exact: true })
     .waitFor();
-});
-
-test("changes a plugin's setting on the Plugins page", async () => {
-  await page.goto(server.url.href);
-  await openSettings("Plugins");
-
-  const kubernetes = page.getByRole("listitem", { name: "Kubernetes" });
-  await kubernetes.getByRole("switch", { name: "On", checked: true }).waitFor();
-  await kubernetes.getByRole("button", { name: "Settings" }).click();
-
-  const limit = kubernetes.getByLabel(/^Most runner pods per person/);
-
-  expect(await limit.inputValue()).toBe("10");
-
-  await limit.fill("25");
-  await kubernetes.getByRole("button", { name: "Save" }).click();
-  await kubernetes.getByText("Saved").waitFor();
-
-  await page.reload();
-  await kubernetes.getByRole("button", { name: "Settings" }).click();
-  expect(await limit.inputValue()).toBe("25");
-
-  await limit.fill("10");
-  await kubernetes.getByRole("button", { name: "Save" }).click();
-  await kubernetes.getByText("Saved").waitFor();
 });
 
 test("finds a plugin by a word of its name or description", async () => {
@@ -1984,6 +1969,44 @@ test("shows why an Environment's last runner pod failed", async () => {
   );
 
   await page.unroute("**/api/ext/kubernetes/environments/*");
+});
+
+test("names the plugin an Environment's runners come from", async () => {
+  const environments = /\/api\/environments(\?.*)?$/;
+
+  await page.route(environments, async (route) => {
+    const real = (await (await route.fetch()).json()) as Environment[];
+
+    await route.fulfill({
+      json: real.map((each) =>
+        each.name === "e2e"
+          ? {
+              ...each,
+              onDemand: true,
+              runnersFrom: { plugin: "pods", label: "Pod farm", icon: "cloud" },
+            }
+          : each,
+      ),
+    });
+  });
+
+  await page.goto(server.url.href);
+  await openSettings("Environments");
+
+  await page
+    .getByRole("list", { name: "Your Environments" })
+    .getByRole("link", { name: /^e2e/ })
+    .getByText("Pod farm", { exact: true })
+    .waitFor();
+
+  await openEnvironment("e2e");
+
+  await page
+    .getByText(/^Its runners come from Pod farm: the server starts one/)
+    .waitFor();
+
+  await page.getByRole("heading", { name: "Runners" }).waitFor();
+  await page.unroute(environments);
 });
 
 test("keeps a Profile that follows a repository read-only until it is copied", async () => {

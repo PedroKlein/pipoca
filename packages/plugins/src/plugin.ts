@@ -6,6 +6,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { EventBus } from "./events";
 import type { Schedule } from "./schedule";
+import type { PluginEnvironments } from "./server";
 import type { SecretRefs } from "./secrets";
 import type {
   ActsAs,
@@ -14,7 +15,6 @@ import type {
   CreateSession,
   DeclaredEvent,
   Environment,
-  EnvironmentTemplate,
   Log,
   ModelRef,
   Permission,
@@ -350,31 +350,10 @@ export interface ServerPluginContext {
     // Whether the person may open the Session, if only to watch it.
     readonly sees: (id: string, person: string) => boolean;
   };
-  // For a plugin that brings machines to a pool, such as Kubernetes pods
-  // (ADR 0032).
-  readonly environments: {
-    readonly list: () => readonly Environment[];
-    // Sessions no online runner in the pool can take now: queued ones beyond
-    // the room its runners have, and ones held by a runner that went away.
-    readonly unplaced: (environmentId: string) => readonly Session[];
-    // The token a runner the plugin starts polls with. It lasts until revoked,
-    // and a new Environment key leaves it be.
-    readonly runnerToken: (environmentId: string, runner: string) => string;
-    readonly revokeRunner: (environmentId: string, runner: string) => void;
-    // Says which Environments the plugin starts runners for on demand, so
-    // they don't read as offline while none is running.
-    readonly startsRunners: (
-      starts: (environment: RunnerSource) => boolean,
-    ) => void;
-    // The admins' Environment templates (ADR 0049).
-    readonly templates: () => readonly EnvironmentTemplate[];
-    // The plugin's key in a template's entry in pipoca.json, such as its pod
-    // settings. Set throws when no template has the id.
-    readonly templateConfig: {
-      readonly get: (templateId: string) => unknown;
-      readonly set: (templateId: string, value: unknown) => void;
-    };
-  };
+  readonly environments: Pick<
+    PluginEnvironments,
+    "list" | "templates" | "unplaced" | "runnerToken" | "revokeRunner"
+  >;
   readonly profiles: {
     // Returns the id the plugin starts its Sessions with. Every Session on
     // it gets the plugin's toolsets, its own-Sessions parts and only the
