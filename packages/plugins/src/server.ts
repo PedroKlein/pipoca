@@ -22,6 +22,7 @@ import type {
   KernelEvent,
   ModelOffer,
   PluginProfile,
+  ProfileMcpServer,
   SqlValue,
   StartRequest,
 } from "./plugin";
@@ -406,6 +407,15 @@ export interface PluginEnvironments {
   readonly templates: () => readonly EnvironmentTemplate[];
 }
 
+// What Profiles hold that a plugin reads, such as the MCP servers people
+// sign in to.
+export interface PluginProfiles {
+  // Every MCP server of the base, everyone's My defaults and every Profile.
+  readonly mcpServers: () => readonly ProfileMcpServer[];
+  // The Profiles one builds on, nearest first.
+  readonly buildsOn: (profileId: string) => readonly string[];
+}
+
 export interface Providers {
   readonly models: (offer: ModelOffer) => void;
   // The logins a Session's git and gh sign in with: its person's, the
@@ -440,6 +450,7 @@ export interface ServerContext<P extends PluginDefinition = PluginDefinition> {
   readonly provide: Providers;
   readonly secrets: Secrets;
   readonly environments: PluginEnvironments;
+  readonly profiles: PluginProfiles;
   readonly clock: Clock;
   // In-memory time, lost on restart, for waits such as a long poll.
   readonly timer: Timer;

@@ -1,4 +1,5 @@
-import { json, useLoaded, type WebContext } from "@pipoca/plugins/web";
+import { json, useLoaded } from "@pipoca/plugins/web";
+import { request } from "./request";
 import type { Profile } from "@pipoca/protocol";
 import {
   Badge,
@@ -26,26 +27,24 @@ interface Line {
 // A Profile inherits each login from the layers below it, or signs in with
 // an account of its own (ADR 0063).
 export function ProfileLogins({
-  context,
   profileId,
 }: {
-  readonly context: WebContext;
   readonly profileId: string;
 }): ReactElement | null {
   const { value: account, reload } = useLoaded(
-    async () => json<Account>(context.request("account")),
+    async () => json<Account>(request("account")),
     "account",
     { topics: ["logins.logins"] },
   );
 
   const { value: profiles } = useLoaded(
-    async () => json<readonly Profile[]>(context.request("/api/profiles")),
+    async () => json<readonly Profile[]>(request("/api/profiles")),
     "profiles",
     { topics: ["profiles"] },
   );
 
   const { value: providers = [] } = useLoaded(
-    async () => json<readonly Connectable[]>(context.request("providers")),
+    async () => json<readonly Connectable[]>(request("providers")),
     "providers",
   );
 
@@ -119,7 +118,7 @@ export function ProfileLogins({
   ];
 
   const send = (path: string, init: RequestInit): void => {
-    json(context.request(path, init)).then(
+    json(request(path, init)).then(
       () => {
         setChoosing(undefined);
         setError(undefined);
@@ -168,7 +167,6 @@ export function ProfileLogins({
       )}
       {account.connection === undefined && choosing !== undefined && (
         <ConnectForm
-          context={context}
           send={send}
           provider={choosing}
           layer={own}

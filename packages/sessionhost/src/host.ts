@@ -12,7 +12,12 @@ import type {
   AgentSessionEvent,
   ExtensionError,
 } from "@earendil-works/pi-coding-agent";
-import type { ChildOptions, SessionPart, SessionPlugin } from "@pipoca/plugins";
+import type {
+  ChildOptions,
+  SessionLogins,
+  SessionPart,
+  SessionPlugin,
+} from "@pipoca/plugins";
 import {
   type Command,
   type ImageAttachment,
@@ -429,8 +434,7 @@ export async function hostSession(
     plugins.map(async ({ plugin, cloud }) => plugin.tools?.(cloud) ?? []),
   );
 
-  const keeper = plugins.find(({ plugin }) => plugin.logins);
-  const logins = await keeper?.plugin.logins?.(keeper.cloud);
+  const logins = await modelCredentialsOf(parts, options.parts ?? [])?.();
 
   const pages = hostPages(
     stream.preview,
@@ -1192,4 +1196,25 @@ function transcriptBatch(
   }
 
   return lines.slice(start, end);
+}
+
+// One plugin keeps the Session's model logins, so two that both would is a
+// mistake to show instead of a choice to make.
+function modelCredentialsOf(
+  set: readonly Awaited<ReturnType<typeof setUpPart>>[],
+  parts: readonly SessionPart[],
+): (() => Promise<SessionLogins>) | undefined {
+  const giving = set.flatMap(({ modelCredentials }, index) =>
+    modelCredentials === undefined
+      ? []
+      : [{ plugin: parts[index]?.plugin.id, modelCredentials }],
+  );
+
+  if (giving.length > 1) {
+    throw new Error(
+      `only one plugin keeps model logins, but ${giving.map(({ plugin }) => plugin).join(" and ")} both do`,
+    );
+  }
+
+  return giving[0]?.modelCredentials;
 }

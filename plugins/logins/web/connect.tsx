@@ -1,4 +1,5 @@
-import { json, useLoaded, type WebContext } from "@pipoca/plugins/web";
+import { json, useLoaded } from "@pipoca/plugins/web";
+import { request } from "./request";
 import {
   Button,
   cardClass,
@@ -18,14 +19,12 @@ type Send = (path: string, init: RequestInit) => void;
 // login there, such as one Profile's own (ADR 0063). An admin may instead
 // keep an API key on the server base, for everyone.
 export function ConnectForm({
-  context,
   send,
   onClose,
   provider: fixed,
   layer,
   admin = false,
 }: {
-  readonly context: WebContext;
   readonly send: Send;
   readonly onClose: () => void;
   readonly provider?: string;
@@ -33,7 +32,7 @@ export function ConnectForm({
   readonly admin?: boolean;
 }): ReactElement | null {
   const { value: providers } = useLoaded(
-    async () => json<readonly Connectable[]>(context.request("providers")),
+    async () => json<readonly Connectable[]>(request("providers")),
     "providers",
   );
 

@@ -111,9 +111,33 @@ export default tseslint.config(
           patterns: [
             {
               regex:
-                "^@pipoca/(?!(plugins|plugins/testing|plugins/web|plugins/web/testing|protocol|testing|ui)$)",
+                "^@pipoca/(?!(plugins|plugins/testing|plugins/web|plugins/web/testing|protocol|testing|ui|[a-z][a-z0-9-]*/plugin)$)",
               message:
-                "Plugins import only @pipoca/plugins, @pipoca/protocol, @pipoca/testing and @pipoca/ui.",
+                "Plugins import only @pipoca/plugins, @pipoca/protocol, @pipoca/testing, @pipoca/ui and another plugin's definition, as @pipoca/<id>/plugin.",
+            },
+            {
+              regex: "^\\.\\./\\.\\./",
+              message: "Plugins don't import files outside their own folder.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // A plugin's test may run another plugin's server part beside its own,
+    // such as the one whose events it hears.
+    files: ["plugins/*/src/**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex:
+                "^@pipoca/(?!(plugins|plugins/testing|plugins/web|plugins/web/testing|protocol|testing|ui|[a-z][a-z0-9-]*/plugin|[a-z][a-z0-9-]*/server)$)",
+              message:
+                "Plugin tests import only what plugins do, and another plugin's server part as @pipoca/<id>/server.",
             },
             {
               regex: "^\\.\\./\\.\\./",
@@ -134,10 +158,7 @@ export default tseslint.config(
       "plugins/kubernetes/src/cluster.ts",
       "plugins/kubernetes/src/server.ts",
       "plugins/local/src/server.ts",
-      "plugins/logins/src/connect.ts",
-      "plugins/logins/src/locks.ts",
       "plugins/oidc/src/oidc.ts",
-      "plugins/push/src/server.ts",
     ],
     rules: {
       "no-restricted-globals": [

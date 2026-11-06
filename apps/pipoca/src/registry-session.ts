@@ -7,8 +7,8 @@ import { checklist } from "../../../plugins/checklist/plugin";
 import { session as checklistSession } from "../../../plugins/checklist/src/session";
 import { gitHosts } from "../../../plugins/git-hosts/plugin";
 import { session as gitHostsSession } from "../../../plugins/git-hosts/src/session";
-import loginsPackage from "../../../plugins/logins/package.json";
-import * as loginsSession from "../../../plugins/logins/src/session";
+import { logins } from "../../../plugins/logins/plugin";
+import { session as loginsSession } from "../../../plugins/logins/src/session";
 import { models } from "../../../plugins/models/plugin";
 import { session as modelsSession } from "../../../plugins/models/src/session";
 import { projects } from "../../../plugins/projects/plugin";
@@ -21,7 +21,7 @@ export const sessionRegistry = [
   { id: "changes", definition: changes, session: changesSession },
   { id: "checklist", definition: checklist, session: checklistSession },
   { id: "git-hosts", definition: gitHosts, session: gitHostsSession },
-  { id: "logins", manifest: loginsPackage.pipoca, session: loginsSession },
+  { id: "logins", definition: logins, session: loginsSession },
   { id: "models", definition: models, session: modelsSession },
   { id: "projects", definition: projects, session: projectsSession },
   { id: "subagents", definition: subagents, session: subagentsSession },

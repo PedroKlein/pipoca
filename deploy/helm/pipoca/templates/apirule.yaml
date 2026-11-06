@@ -81,7 +81,8 @@ spec:
 ---
 # The APIRule's policies let in only the gateway, which would also shut out
 # the runner pods that reach the server through its Service. Team Sessions
-# also send their model calls to the logins plugin's proxy (ADR 0066).
+# also send their model calls to the logins plugin's proxy (ADR 0066), at
+# its public route proxy/:provider/*rest.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:

@@ -343,6 +343,7 @@
         "react": "19.3.1",
       },
       "devDependencies": {
+        "@pipoca/testing": "workspace:*",
         "@types/react": "19.3.0",
       },
     },
@@ -391,9 +392,12 @@
         "@pipoca/plugins": "workspace:*",
         "@pipoca/protocol": "workspace:*",
         "@pipoca/ui": "workspace:*",
+        "@pipoca/usage": "workspace:*",
         "react": "19.3.1",
       },
       "devDependencies": {
+        "@pipoca/logins": "workspace:*",
+        "@pipoca/testing": "workspace:*",
         "@types/react": "19.3.0",
       },
     },
@@ -442,12 +446,14 @@
     "plugins/usage": {
       "name": "@pipoca/usage",
       "dependencies": {
+        "@pipoca/logins": "workspace:*",
         "@pipoca/plugins": "workspace:*",
         "@pipoca/protocol": "workspace:*",
         "@pipoca/ui": "workspace:*",
         "react": "19.3.1",
       },
       "devDependencies": {
+        "@pipoca/testing": "workspace:*",
         "@types/react": "19.3.0",
       },
     },

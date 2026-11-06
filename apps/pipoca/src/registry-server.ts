@@ -11,23 +11,23 @@ import kubernetesPackage from "../../../plugins/kubernetes/package.json";
 import * as kubernetesServer from "../../../plugins/kubernetes/src/server";
 import localPackage from "../../../plugins/local/package.json";
 import * as localServer from "../../../plugins/local/src/server";
-import loginsPackage from "../../../plugins/logins/package.json";
-import * as loginsServer from "../../../plugins/logins/src/server";
+import { logins } from "../../../plugins/logins/plugin";
+import { server as loginsServer } from "../../../plugins/logins/src/server";
 import { models } from "../../../plugins/models/plugin";
 import { server as modelsServer } from "../../../plugins/models/src/server";
 import oidcPackage from "../../../plugins/oidc/package.json";
 import * as oidcServer from "../../../plugins/oidc/src/server";
 import { projects } from "../../../plugins/projects/plugin";
 import { server as projectsServer } from "../../../plugins/projects/src/server";
-import pushPackage from "../../../plugins/push/package.json";
-import * as pushServer from "../../../plugins/push/src/server";
+import { push } from "../../../plugins/push/plugin";
+import { server as pushServer } from "../../../plugins/push/src/server";
 import { routines } from "../../../plugins/routines/plugin";
 import { server as routinesServer } from "../../../plugins/routines/src/server";
 import { slack } from "../../../plugins/slack/plugin";
 import { server as slackServer } from "../../../plugins/slack/src/server";
 import { subagents } from "../../../plugins/subagents/plugin";
-import usagePackage from "../../../plugins/usage/package.json";
-import * as usageServer from "../../../plugins/usage/src/server";
+import { usage } from "../../../plugins/usage/plugin";
+import { server as usageServer } from "../../../plugins/usage/src/server";
 
 export const serverRegistry = [
   { id: "ask", definition: ask, server: askServer },
@@ -41,13 +41,13 @@ export const serverRegistry = [
     server: kubernetesServer,
   },
   { id: "local", manifest: localPackage.pipoca, server: localServer },
-  { id: "logins", manifest: loginsPackage.pipoca, server: loginsServer },
+  { id: "logins", definition: logins, server: loginsServer },
   { id: "models", definition: models, server: modelsServer },
   { id: "oidc", manifest: oidcPackage.pipoca, server: oidcServer },
   { id: "projects", definition: projects, server: projectsServer },
-  { id: "push", manifest: pushPackage.pipoca, server: pushServer },
+  { id: "push", definition: push, server: pushServer },
   { id: "routines", definition: routines, server: routinesServer },
   { id: "slack", definition: slack, server: slackServer },
   { id: "subagents", definition: subagents },
-  { id: "usage", manifest: usagePackage.pipoca, server: usageServer },
+  { id: "usage", definition: usage, server: usageServer },
 ] as const;

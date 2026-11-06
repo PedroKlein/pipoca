@@ -1,16 +1,16 @@
 import { createHash, randomBytes } from "node:crypto";
+import type { Urls } from "@pipoca/plugins";
 import { type AuthorizationResponse, responseOf } from "./mcp";
 
 const browserCookie = "pipoca-logins";
-const cookiePath = "/api/ext/logins/";
-const callbackPath = `${cookiePath}callback`;
+// As long as a sign-in may run.
+const browserS = 10 * 60;
 
 export interface Callbacks {
-  // Marks the browser that starts a sign-in, so only it can finish it.
-  readonly browser: (request: Request) => {
-    readonly id: string;
-    readonly cookie: string;
-  };
+  // A mark for the browser that starts a sign-in, so only it can finish it.
+  readonly browser: () => string;
+  // Gives the browser its mark with the answer that starts the sign-in.
+  readonly mark: (response: Response, browser: string) => Response;
   // Waits for the sign-in page to send the browser back with state.
   readonly wait: (
     browser: string,
@@ -26,22 +26,15 @@ interface Waiting {
   readonly reject: (error: Error) => void;
 }
 
-export function callbacks(): Callbacks {
+export function callbacks(urls: Urls): Callbacks {
   const waiting = new Map<string, Waiting>();
 
   return {
-    browser: (request) => {
-      const id = randomBytes(32).toString("base64url");
+    browser: () => randomBytes(32).toString("base64url"),
+    mark: (response, browser) => {
+      urls.cookie.set(response, browserCookie, browser, browserS);
 
-      return {
-        id,
-        cookie: new Bun.Cookie(browserCookie, id, {
-          path: cookiePath,
-          httpOnly: true,
-          sameSite: "lax",
-          secure: secure(request),
-        }).serialize(),
-      };
+      return response;
     },
     wait: (browser) => async (state, signal) =>
       new Promise((resolve, reject) => {
@@ -67,16 +60,13 @@ export function callbacks(): Callbacks {
     handle: (request) => {
       const state = new URL(request.url).searchParams.get("state") ?? "";
       const waiter = waiting.get(state);
-
-      const browser = new Bun.CookieMap(
-        request.headers.get("cookie") ?? "",
-      ).get(browserCookie);
+      const browser = urls.cookie.get(request, browserCookie);
 
       // The state must come back to the browser that left with it, so a
       // link can't sign someone else in (RFC 6749, 10.12).
       if (
         waiter === undefined ||
-        browser === null ||
+        browser === undefined ||
         hash(browser) !== waiter.browser
       ) {
         return page(
@@ -101,22 +91,6 @@ export function callbacks(): Callbacks {
       return page("Signed in. You can close this tab.", 200);
     },
   };
-}
-
-// Pipoca's own address for the sign-in page to send the browser back to.
-// The Host header already passed the server's own site check.
-export function callbackUrl(request: Request): string {
-  const host = request.headers.get("host") ?? new URL(request.url).host;
-
-  return `${secure(request) ? "https" : "http"}://${host}${callbackPath}`;
-}
-
-// HTTPS usually ends in a gateway in front of the server (ADR 0034).
-function secure(request: Request): boolean {
-  return (
-    new URL(request.url).protocol === "https:" ||
-    request.headers.get("x-forwarded-proto") === "https"
-  );
 }
 
 function page(message: string, status: number): Response {
