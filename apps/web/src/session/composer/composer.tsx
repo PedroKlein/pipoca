@@ -1,77 +1,25 @@
-import {
-  type ImageAttachment,
-  imageLimits,
-  imageTypes,
-  type ModelRef,
-  type Quote,
-  teamMessagesRead,
-  teamTalkSince,
-} from "@pipoca/protocol";
-import {
-  type MountedSession,
-  modelOptions,
-  rememberModel,
-  shownModels,
-} from "@pipoca/plugins/web";
-import {
-  Button,
-  FileButton,
-  Icon,
-  isComposing,
-  Picker,
-  Segmented,
-  Slider,
-} from "@pipoca/ui";
-import {
-  memo,
-  type ReactElement,
-  type RefObject,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from "react";
-import { command, request } from "../../data/client";
-import { useQuery } from "../../data/hooks";
-import { admit, dataUrl } from "./attachments";
-import type { Feed, Settings, ShownWidget } from "../feed";
-import { modelName, modelRef } from "../../names";
+import { type ModelRef, type Quote, teamTalkSince } from "@pipoca/protocol";
+import type { MountedSession } from "@pipoca/plugins/web";
+import { Icon, isComposing } from "@pipoca/ui";
+import { type ReactElement, useEffect, useId, useRef, useState } from "react";
+import { command } from "../../data/client";
 import { usePrimaryId } from "../../primary";
-import { PluginBoundary } from "../../plugin-boundary";
-import { pluginContext, useSessionPlugins, widgetRenderer } from "../../plugins";
+import type { Feed } from "../feed";
 import { PromptCard, type PromptHandlers } from "../questions/prompt-card";
-import { browserCommand } from "./suggest";
+import {
+  Styled,
+  TerminalColumns,
+  TerminalText,
+} from "../terminal/terminal-text";
+import { AttachedImages } from "./attached-images";
+import { usePrefill } from "./prefill";
+import { Queued } from "./queued";
+import { useSend } from "./send";
 import { useSuggestions } from "./suggestions";
-import { Styled, TerminalColumns, TerminalText } from "../terminal/terminal-text";
-
-// Pi reads a message sent now after its current step, and a queued one when
-// it finishes.
-const sendNowKeys = /Mac|iPhone|iPad/.test(navigator.userAgent)
-  ? "⌘Enter"
-  : "Ctrl+Enter";
-
-// The message a fork from a message starts with in its composer, as Pi's
-// /fork puts it back in the editor.
-const prefills = new Map<string, string>();
-
-export function prefillComposer(sessionId: string, text: string): void {
-  prefills.set(sessionId, text);
-}
-
-// Who a team Session message goes to (ADR 0065).
-type Target = "pi" | "team" | "aside";
-
-const targets = [
-  { value: "pi", label: "To Pi" },
-  { value: "team", label: "To the team" },
-  { value: "aside", label: "Off the record" },
-] as const;
-
-const placeholders = {
-  pi: "Message Pi",
-  team: "Message the team. Pi reads it next time it's asked",
-  aside: "Hidden from Pi, visible to the team",
-} as const satisfies Record<Target, string>;
+import { placeholders, type Target } from "./target";
+import { TeamTalk } from "./team-talk";
+import { Toolbar } from "./toolbar";
+import { PluginParts, Widgets } from "./widgets";
 
 // A reply in team work, and the name of whoever it answers.
 export interface Replying {
@@ -112,7 +60,6 @@ export function Composer({
   const generatedId = useId();
   const textId = usePrimaryId("prompt-text") ?? generatedId;
   const modelMenu = useRef<HTMLButtonElement>(null);
-  const [images, setImages] = useState<readonly Attached[]>([]);
   const suggestions = useSuggestions(feed);
   const running = feed.session?.status === "running";
   const { steering, followUp } = feed.queue;
@@ -137,22 +84,19 @@ export function Composer({
     };
   }, [sessionId, columns, generation, hosted]);
 
-  useEffect(() => {
-    const prefilled = prefills.get(sessionId);
+  usePrefill(sessionId, text, feed.editorText);
 
-    if (prefilled !== undefined && text.current) {
-      prefills.delete(sessionId);
-      text.current.value = prefilled;
-      text.current.focus();
-    }
-  }, [sessionId]);
-
-  useEffect(() => {
-    if (feed.editorText && text.current) {
-      text.current.value = feed.editorText.text;
-      text.current.focus();
-    }
-  }, [feed.editorText]);
+  const { images, setImages, attach, send } = useSend({
+    sessionId,
+    feed,
+    team,
+    target,
+    replying,
+    onReplied,
+    report,
+    textRef: text,
+    modelMenuRef: modelMenu,
+  });
 
   const handlers: PromptHandlers = {
     answer: (id, value) => {
@@ -169,156 +113,18 @@ export function Composer({
     },
   };
 
-  const attach = (files: readonly File[]): void => {
-    const { admitted, problems } = admit(images.length, files);
-
-    if (problems.length > 0) {
-      report(problems.join(" "));
-    }
-
-    void Promise.all(admitted.map(attached)).then((read) => {
-      setImages((current) => [...current, ...read].slice(0, imageLimits.count));
-    }, report);
-  };
-
-  const runInBrowser = (name: "copy" | "model" | "thinking"): void => {
-    if (name === "copy") {
-      const answer = feed.items
-        .flatMap((item) => (item.role === "assistant" ? [item.text] : []))
-        .at(-1);
-
-      navigator.clipboard.writeText(answer ?? "").catch(report);
-
-      return;
-    }
-
-    modelMenu.current?.click();
-  };
-
-  const send = (delivery: "steer" | "followUp"): void => {
-    const box = text.current;
-    const message = box?.value.trim() ?? "";
-    if (!box || (message === "" && images.length === 0)) {
-      return;
-    }
-
-    const local = images.length === 0 ? browserCommand(message) : undefined;
-    if (local) {
-      box.value = "";
-      runInBrowser(local);
-
-      return;
-    }
-
-    const toPeople = team && target !== "pi";
-
-    if (toPeople && images.length > 0) {
-      report("Images go to Pi only. Switch to To Pi to send them.");
-
-      return;
-    }
-
-    box.value = "";
-    setImages([]);
-
-    const quote = replying?.quote;
-    onReplied?.();
-
-    const restore = (error: unknown): void => {
-      box.value = box.value === "" ? message : `${message}\n${box.value}`;
-      report(error);
-    };
-
-    if (toPeople) {
-      request("sessions.messages.create", {
-        params: { id: sessionId },
-        body: {
-          to: target,
-          text: message,
-          ...(quote && { quote }),
-          requestId: crypto.randomUUID(),
-        },
-      }).catch(restore);
-
-      return;
-    }
-
-    command(sessionId, {
-      ...(quote && { quote }),
-      type: "message",
-      text: message,
-      ...(images.length > 0 && {
-        images: images.map(({ mimeType, data }) => ({ mimeType, data })),
-      }),
-      requestId: crypto.randomUUID(),
-      delivery,
-    }).catch((error: unknown) => {
-      box.value = box.value === "" ? message : `${message}\n${box.value}`;
-
-      setImages((current) =>
-        [...images, ...current].slice(0, imageLimits.count),
-      );
-
-      report(error);
-    });
-  };
-
   return (
     <div className="mx-auto flex w-full max-w-chat flex-col gap-2 px-4 pb-4">
       {feed.prompts.map((open) => (
         <PromptCard key={open.prompt.id} open={open} handlers={handlers} />
       ))}
 
-      {[
-        ...steering.map((t) => ["steer", t] as const),
-        ...followUp.map((t) => ["followUp", t] as const),
-      ].map(([delivery, queued], index) => (
-        <p
-          key={`${String(index)}-${queued}`}
-          className="flex max-w-[80%] items-start gap-2 self-end rounded-lg border border-dashed border-line-strong bg-elevated py-1 pr-1 pl-3 text-ui text-fg-dim"
-        >
-          <span>
-            <span className="mr-2 text-caption font-medium">
-              {delivery === "steer" ? "Steering" : "Queued"}
-            </span>
-            {queued}
-          </span>
-          {delivery === "followUp" && (
-            <button
-              type="button"
-              aria-label={`Send "${queued}" now`}
-              title="Send now"
-              onClick={() => {
-                command(sessionId, {
-                  type: "unqueue",
-                  delivery,
-                  text: queued,
-                  sendNow: true,
-                }).catch(report);
-              }}
-              className="flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 text-caption hover:bg-hover hover:text-fg"
-            >
-              <Icon name="arrow-up" className="size-3.5" />
-              Send now
-            </button>
-          )}
-          <button
-            type="button"
-            aria-label={`Take back "${queued}"`}
-            title="Take back"
-            onClick={() => {
-              command(sessionId, {
-                type: "unqueue",
-                delivery,
-                text: queued,
-              }).catch(report);
-            }}
-            className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md hover:bg-hover hover:text-fg"
-          >
-            <Icon name="x" className="size-3.5" />
-          </button>
-        </p>
-      ))}
+      <Queued
+        sessionId={sessionId}
+        steering={steering}
+        followUp={followUp}
+        report={report}
+      />
 
       <TerminalColumns onColumns={setColumns} />
 
@@ -383,34 +189,12 @@ export function Composer({
               }
             />
           )}
-          {images.length > 0 && (
-            <ul
-              aria-label="Attached images"
-              className="flex flex-wrap gap-2 pt-1"
-            >
-              {images.map((image) => (
-                <li key={image.id} className="relative">
-                  <img
-                    src={dataUrl(image)}
-                    alt={image.name}
-                    className="size-16 rounded-md border border-line object-cover"
-                  />
-                  <button
-                    type="button"
-                    aria-label={`Remove ${image.name}`}
-                    onClick={() => {
-                      setImages((current) =>
-                        current.filter(({ id }) => id !== image.id),
-                      );
-                    }}
-                    className="absolute -top-1.5 -right-1.5 flex size-5 cursor-pointer items-center justify-center rounded-full border border-line bg-panel text-fg-dim hover:text-fg"
-                  >
-                    <Icon name="x" className="size-3" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          <AttachedImages
+            images={images}
+            onRemove={(id) => {
+              setImages((current) => current.filter((each) => each.id !== id));
+            }}
+          />
           <textarea
             ref={text}
             id={textId}
@@ -461,81 +245,19 @@ export function Composer({
             }}
             className="max-h-72 min-h-12 resize-none field-sizing-content bg-transparent pt-1 text-prose text-fg placeholder:text-fg-dim focus:outline-none"
           />
-          <div className="flex items-center gap-2">
-            <FileButton
-              variant="ghost"
-              iconOnly
-              icon="paperclip"
-              title="Attach images"
-              aria-label="Attach images"
-              multiple
-              accept={imageTypes.join(",")}
-              onFiles={attach}
-              className="-ml-2"
-            />
-            {feed.settings && (
-              <ModelMenu
-                settings={feed.settings}
-                models={models}
-                hiddenModels={hiddenModels}
-                modelMenu={modelMenu}
-                onModel={(model) => {
-                  command(sessionId, { type: "set_model", model }).catch(
-                    report,
-                  );
-                }}
-                onLogin={() => {
-                  command(sessionId, {
-                    type: "message",
-                    text: "/login",
-                    requestId: crypto.randomUUID(),
-                    delivery: "followUp",
-                  }).catch(report);
-                }}
-                onThinking={(level) => {
-                  command(sessionId, { type: "set_thinking", level }).catch(
-                    report,
-                  );
-                }}
-              />
-            )}
-            {team && (
-              <Segmented
-                label="Send to"
-                value={target}
-                options={targets}
-                onChange={setTarget}
-              />
-            )}
-            <span className="flex-1 truncate text-caption text-fg-dim max-md:hidden">
-              {running
-                ? `Enter queues · ${sendNowKeys} sends now`
-                : "Enter sends"}{" "}
-              · / commands · @ files
-            </span>
-            {running && (
-              <Button
-                variant="default"
-                iconOnly
-                aria-label="Stop"
-                className="rounded-full"
-                onClick={() => {
-                  command(sessionId, { type: "abort" }).catch(report);
-                }}
-              >
-                <Icon name="stop" />
-              </Button>
-            )}
-            <Button
-              variant="primary"
-              iconOnly
-              type="submit"
-              aria-label="Send"
-              className="ml-auto rounded-full"
-            >
-              <Icon name="arrow-up" />
-            </Button>
-          </div>
+          <Toolbar
+            sessionId={sessionId}
+            feed={feed}
+            models={models}
+            hiddenModels={hiddenModels}
+            modelMenu={modelMenu}
+            team={team}
+            target={target}
+            onTarget={setTarget}
+            running={running}
+            attach={attach}
+            report={report}
+          />
         </form>
       )}
 
@@ -553,230 +275,5 @@ export function Composer({
         </footer>
       )}
     </div>
-  );
-}
-
-interface Attached extends ImageAttachment {
-  readonly id: string;
-  readonly name: string;
-}
-
-async function attached(file: File): Promise<Attached> {
-  const url = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.addEventListener("load", () => {
-      resolve(typeof reader.result === "string" ? reader.result : "");
-    });
-
-    reader.addEventListener("error", () => {
-      reject(reader.error ?? new Error(`couldn't read ${file.name}`));
-    });
-
-    reader.readAsDataURL(file);
-  });
-
-  return {
-    id: crypto.randomUUID(),
-    name: file.name,
-    mimeType: file.type as ImageAttachment["mimeType"],
-    data: url.slice(url.indexOf(",") + 1),
-  };
-}
-
-// Kept across renders so plugin parts re-render on their own events, not on
-// every token.
-const PluginParts = memo(function Parts({
-  session,
-  team,
-}: {
-  readonly session: MountedSession;
-  readonly team: boolean;
-}): ReactElement[] {
-  return useSessionPlugins(team).flatMap(({ name, Composer: Part }) =>
-    Part
-      ? [
-          <PluginBoundary key={name} name={name}>
-            <Part context={pluginContext(name)} session={session} />
-          </PluginBoundary>,
-        ]
-      : [],
-  );
-});
-
-// Extensions' widgets as Pi's TUI draws them, one box for each run of
-// widgets no plugin claims (ADR 0030).
-function Widgets({
-  widgets,
-  session,
-}: {
-  readonly widgets: readonly ShownWidget[];
-  readonly session: MountedSession;
-}): ReactElement[] {
-  const shown: ReactElement[] = [];
-  let lines: string[] = [];
-
-  const box = (): void => {
-    if (lines.length > 0) {
-      shown.push(
-        <TerminalText
-          key={`text-${String(shown.length)}`}
-          text={lines.join("\n")}
-          className="rounded-md bg-code py-2"
-        />,
-      );
-
-      lines = [];
-    }
-  };
-
-  for (const widget of widgets) {
-    const renderer = widgetRenderer(widget.key);
-
-    if (!renderer) {
-      lines.push(...widget.lines);
-
-      continue;
-    }
-
-    box();
-
-    const { plugin, Component } = renderer;
-
-    shown.push(
-      <PluginBoundary key={widget.key} name={plugin}>
-        <Component
-          context={pluginContext(plugin)}
-          session={session}
-          lines={widget.lines}
-        />
-      </PluginBoundary>,
-    );
-  }
-
-  box();
-
-  return shown;
-}
-
-// Claude Code's model menu with its effort levels, on Pi's model and reasoning level
-// (ADR 0023).
-function ModelMenu({
-  settings,
-  models,
-  hiddenModels,
-  modelMenu,
-  onModel,
-  onLogin,
-  onThinking,
-}: {
-  readonly settings: Settings;
-  readonly models: readonly ModelRef[];
-  readonly hiddenModels: readonly string[];
-  readonly modelMenu: RefObject<HTMLButtonElement | null>;
-  readonly onModel: (model: ModelRef) => void;
-  readonly onLogin: () => void;
-  readonly onThinking: (level: Settings["thinking"]) => void;
-}): ReactElement {
-  const current = settings.model ? modelName(settings.model) : "";
-
-  const known = [
-    ...new Map(
-      shownModels(
-        [
-          ...(settings.model ? [settings.model] : []),
-          ...models,
-          ...settings.models,
-        ],
-        hiddenModels,
-        settings.model,
-      ).map((model) => [modelName(model), model] as const),
-    ).values(),
-  ];
-
-  const { options, openGroups } = modelOptions(known);
-
-  return (
-    <Picker
-      label="Model"
-      quiet
-      trigger={modelMenu}
-      options={options}
-      {...(openGroups && { openGroups })}
-      selected={[current]}
-      {...(known.length > 6 && { placeholder: "Search models" })}
-      actions={[{ label: "Log in to a provider…", run: onLogin }]}
-      {...(settings.levels.length > 1 && {
-        footer: (
-          <Slider
-            label="Reasoning"
-            stops={settings.levels.map((level) => ({
-              value: level,
-              label: level,
-            }))}
-            value={settings.thinking}
-            onChange={onThinking}
-          />
-        ),
-      })}
-      onChange={([name]) => {
-        const model = modelRef(name ?? "");
-
-        if (model && name !== undefined) {
-          rememberModel(name);
-          onModel(model);
-        }
-      }}
-    >
-      {settings.model?.id ?? "Choose a model"}
-      {settings.levels.length > 1 &&
-        settings.thinking !== "off" &&
-        ` · ${settings.thinking}`}
-    </Picker>
-  );
-}
-
-// What Pi reads of the team's talk with the next message, and past what it
-// reads, a fork that starts fresh instead (ADR 0065).
-function TeamTalk({
-  unread,
-  onFork,
-}: {
-  readonly unread: number;
-  readonly onFork: (() => void) | undefined;
-}): ReactElement | null {
-  const messagesRead =
-    useQuery("settings.team").data?.messagesRead ?? teamMessagesRead;
-
-  if (unread === 0) {
-    return null;
-  }
-
-  if (unread <= messagesRead) {
-    return (
-      <p className="text-label text-fg-dim">
-        Pi also reads the{" "}
-        {unread === 1 ? "team message" : `${String(unread)} team messages`}{" "}
-        since its last turn.
-      </p>
-    );
-  }
-
-  return (
-    <p
-      role="status"
-      className="flex flex-wrap items-center gap-x-2 gap-y-1 text-label text-fg-dim"
-    >
-      <span className="min-w-0 flex-1">
-        Pi reads only the latest {messagesRead} of {unread} team messages since
-        its last turn. Fork to start fresh, and tell Pi where the team landed.
-      </span>
-      {onFork && (
-        <Button variant="ghost" onClick={onFork}>
-          <Icon name="git-fork" />
-          Fork
-        </Button>
-      )}
-    </p>
   );
 }

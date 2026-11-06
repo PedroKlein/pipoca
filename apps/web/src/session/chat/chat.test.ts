@@ -5,9 +5,12 @@ import {
   chatItems,
   describeTool,
   duration,
+  hasSteps,
   linkParts,
+  stepStatus,
   tally,
   turns,
+  type Step,
 } from "./chat";
 
 const line = (message: unknown): string =>
@@ -523,4 +526,21 @@ test("opens a turn with a plugin's notice, and keeps an untagged one a note", ()
   expect(chatItems(notice({ kind: "thread" }))).toEqual([
     { role: "note", text: "Docs finished a turn" },
   ]);
+});
+
+test("a turn's work has steps when one of its items is a step", () => {
+  expect(hasSteps([{ kind: "note", text: "hm" }])).toBe(false);
+
+  expect(
+    hasSteps([
+      { kind: "note", text: "hm" },
+      { kind: "step", step: {} as Step },
+    ]),
+  ).toBe(true);
+});
+
+test("a step shows running before it shows how it ended", () => {
+  expect(stepStatus(true, true)).toBe("running");
+  expect(stepStatus(false, true)).toBe("failed");
+  expect(stepStatus(false, false)).toBe("done");
 });

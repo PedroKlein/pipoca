@@ -566,3 +566,18 @@ export function linkParts(
     .map((part, at) => ({ text: part, link: at % 2 === 1 }))
     .filter((part) => part.text !== "");
 }
+
+export function hasSteps(work: readonly Work[]): boolean {
+  return work.some((item) => item.kind === "step");
+}
+
+export function stepStatus(
+  running: boolean,
+  failed: boolean,
+): "running" | "failed" | "done" {
+  if (running) {
+    return "running";
+  }
+
+  return failed ? "failed" : "done";
+}

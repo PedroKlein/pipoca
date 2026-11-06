@@ -18,7 +18,11 @@ import { useMe, useQuery } from "../../data/hooks";
 import { PluginBoundary } from "../../plugin-boundary";
 import { enabledPlugins, pluginContext } from "../../plugins";
 import { useTheme } from "../../theme";
-import { useVerbosity, type Verbosity, verbosities } from "../../session/chat/verbosity";
+import {
+  useVerbosity,
+  type Verbosity,
+  verbosities,
+} from "../../session/chat/verbosity";
 import { EditProfile, SignOutEverywhere, StartWith } from "./account";
 
 const verbosityLabels = {
