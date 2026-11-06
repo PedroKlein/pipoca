@@ -2,8 +2,7 @@ import {
   BadRequest,
   defineServer,
   NotFound,
-  owners,
-  type Person,
+  type Owner,
   type Static,
   ToolError,
   Type,
@@ -202,10 +201,8 @@ export const server = defineServer(
       }
     });
 
-    const usable = (person: Person | undefined): readonly Bot[] =>
-      person === undefined
-        ? []
-        : bots.list().filter((bot) => bot.users.includes(owners.of(person)));
+    const usable = (owner: Owner): readonly Bot[] =>
+      bots.list().filter((bot) => bot.users.includes(owner));
 
     tools.define({
       name: "slack_post",
@@ -214,9 +211,9 @@ export const server = defineServer(
       params: post,
       exposure: "direct",
       annotations: { readOnly: false, destructive: false },
-      when: { available: (_session, person) => usable(person).length > 0 },
-      run: async (input, { session, person }) => {
-        const mine = usable(person);
+      when: { available: (session) => usable(session.ownedBy).length > 0 },
+      run: async (input, { session, owner }) => {
+        const mine = usable(owner);
 
         const only = mine.length === 1 ? mine[0]?.name : undefined;
         const bot = mine.find(({ name }) => name === (input.bot ?? only));

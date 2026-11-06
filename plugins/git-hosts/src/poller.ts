@@ -11,6 +11,8 @@ export interface Account {
   readonly token: string;
 }
 
+type Outcome = "news" | "quiet" | "failed";
+
 export interface Poller {
   // Polls one watch soon, such as one just added.
   readonly soon: (id: string) => void;
@@ -136,23 +138,44 @@ export function startPoller(
     return news.length > 0 ? "news" : "quiet";
   };
 
-  const guarded = async (watch: Watch): Promise<"news" | "quiet" | "failed"> =>
+  const attempt = async (watch: Watch): Promise<Outcome> =>
     poll(watch).catch((failure: unknown) => {
-      if (!(failure instanceof HostRefused)) {
-        throw failure;
+      if (failure instanceof HostRefused) {
+        watches.update(watch.id, {
+          view: { ...watch.view, error: failure.message },
+        });
       }
-
-      watches.update(watch.id, {
-        view: { ...watch.view, error: failure.message },
-      });
 
       log("pull request poll failed", {
         url: watch.url,
-        error: failure.message,
+        error: failure instanceof Error ? failure.message : String(failure),
       });
 
       return "failed";
     });
+
+  // One poll of a watch at a time, so two never send the same news.
+  const inFlight = new Map<string, Promise<Outcome>>();
+
+  const guarded = async (id: string): Promise<Outcome> => {
+    const run = (inFlight.get(id) ?? Promise.resolve("quiet")).then(
+      async () => {
+        const watch = watches.get(id);
+
+        return watch === undefined ? "quiet" : attempt(watch);
+      },
+    );
+
+    inFlight.set(id, run);
+
+    try {
+      return await run;
+    } finally {
+      if (inFlight.get(id) === run) {
+        inFlight.delete(id);
+      }
+    }
+  };
 
   schedule.every(
     "poll",
@@ -162,8 +185,8 @@ export function startPoller(
       const due = watches.all();
       const outcomes = [];
 
-      for (const watch of due) {
-        outcomes.push(await guarded(watch));
+      for (const { id } of due) {
+        outcomes.push(await guarded(id));
       }
 
       if (due.length > 0) {
@@ -178,11 +201,7 @@ export function startPoller(
   );
 
   const pollOne = async (id: string): Promise<void> => {
-    const watch = watches.get(id);
-
-    if (watch !== undefined) {
-      await guarded(watch);
-    }
+    await guarded(id);
   };
 
   schedule.on("watched:", async (_payload, key) => {

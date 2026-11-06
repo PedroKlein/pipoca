@@ -3,6 +3,7 @@ import type {
   ExtensionAPI,
   ExtensionToolContext,
   ToolDefinition,
+  ToolInfo,
 } from "@earendil-works/pi-coding-agent";
 import { pluginTest } from "@pipoca/pipoca/plugin-test";
 import {
@@ -218,6 +219,13 @@ export interface SessionTest {
   readonly provider: (name: string) => unknown;
   // The logins the part keeps for Pi, if it provides them.
   readonly modelCredentials: () => Promise<SessionLogins | undefined>;
+  // A call Pi is about to make, of the part's tool or another's, such as an
+  // MCP server's, through the part's tool_call hooks: the reason one blocks
+  // it, or undefined when it may run.
+  readonly toolCall: (
+    tool: Pick<ToolInfo, "name" | "annotations">,
+    input: Readonly<Record<string, unknown>>,
+  ) => Promise<string | undefined>;
 }
 
 export type SessionFakes = Partial<SessionCloud> & {
@@ -241,6 +249,8 @@ export async function testSession(
   const published = new Map<string, unknown>();
   const providers = new Map<string, unknown>();
   const tools: ToolDefinition[] = [];
+  const others: Pick<ToolInfo, "name" | "annotations">[] = [];
+  const hooks: ((event: unknown, ctx: unknown) => unknown)[] = [];
   let modelCredentials: (() => Promise<SessionLogins>) | undefined;
 
   const given: SessionCloud = {
@@ -266,7 +276,12 @@ export async function testSession(
     registerProvider: (name: string, config: unknown) => {
       providers.set(name, config);
     },
-    on: () => undefined,
+    on: (event: string, hook: (event: unknown, ctx: unknown) => unknown) => {
+      if (event === "tool_call") {
+        hooks.push(hook);
+      }
+    },
+    getAllTools: () => [...tools, ...others],
   };
 
   if ("setup" in plugin) {
@@ -341,5 +356,26 @@ export async function testSession(
     published: (key) => published.get(key),
     provider: (named) => providers.get(named),
     modelCredentials: async () => modelCredentials?.(),
+    toolCall: async (tool, input) => {
+      others.push(tool);
+
+      for (const hook of hooks) {
+        const result = (await hook(
+          {
+            type: "tool_call",
+            toolCallId: "call-1",
+            toolName: tool.name,
+            input,
+          },
+          { cwd: cloud.cwd ?? process.cwd() },
+        )) as { block?: boolean; reason?: string } | undefined;
+
+        if (result?.block === true) {
+          return result.reason ?? "blocked";
+        }
+      }
+
+      return undefined;
+    },
   };
 }

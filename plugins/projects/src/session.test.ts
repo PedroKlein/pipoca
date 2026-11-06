@@ -262,3 +262,55 @@ test("assistant threads load route tools and install what they built", async () 
     await rm(folder, { recursive: true, force: true });
   }
 });
+
+test("in the assistant a tool without hints asks first, and Pi's own and hinted tools don't", async () => {
+  await using t = await testPlugin(server, { people });
+  await t.environment({ owner: person("ana") });
+  const folder = await mkdtemp(join(tmpdir(), "projects-hints-"));
+
+  try {
+    const assistant = await t
+      .as("ana")
+      .post<ProjectView>("assistant", { text: "Hi" });
+
+    const asked: string[] = [];
+    const coordinator = await t.attach(assistant.coordinatorId);
+    const tools = await part(coordinator, folder, asked);
+
+    expect(
+      await tools.toolCall({ name: "linear_create_issue" }, { title: "x" }),
+    ).toBeUndefined();
+
+    await tools.toolCall({ name: "read" }, { path: "a" });
+    await tools.toolCall({ name: "tool_search" }, { query: "a" });
+
+    await tools.toolCall(
+      { name: "linear_list", annotations: { readOnlyHint: true } },
+      {},
+    );
+
+    await tools.toolCall(
+      { name: "linear_comment", annotations: { destructiveHint: false } },
+      {},
+    );
+
+    expect(asked).toEqual(["Let the assistant run “linear create issue”?"]);
+
+    const refused = await part(coordinator, folder, [], "deny");
+
+    expect(
+      await refused.toolCall({ name: "linear_create_issue" }, { title: "x" }),
+    ).toBe("The person didn't allow linear_create_issue.");
+
+    const ordinary = await project(t);
+    const outside: string[] = [];
+
+    await (
+      await part(ordinary, folder, outside)
+    ).toolCall({ name: "linear_create_issue" }, { title: "x" });
+
+    expect(outside).toEqual([]);
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+});

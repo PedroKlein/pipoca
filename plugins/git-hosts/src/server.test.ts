@@ -6,6 +6,7 @@ import {
   type TestPluginOptions,
   type TestSession,
   testPlugin,
+  until,
 } from "@pipoca/testing";
 import type { gitHosts } from "../plugin";
 import { server } from "./server";
@@ -59,6 +60,11 @@ interface Pull {
   merged: boolean;
   comments: { id: number; login: string; body: string }[];
   mergedWith: string | undefined;
+  // Answers the next read of the pull request with a sign-in page, as an
+  // SSO proxy in front of the host does.
+  pageOnce: boolean;
+  // Holds reads of the checks until it settles, to catch a poll midway.
+  held: Promise<void> | undefined;
 }
 
 // The host's REST API, which knows one person's token and one App.
@@ -69,6 +75,8 @@ function fakeHost(now: () => number) {
     merged: false,
     comments: [],
     mergedWith: undefined,
+    pageOnce: false,
+    held: undefined,
   };
 
   const asked: string[] = [];
@@ -140,6 +148,14 @@ function fakeHost(now: () => number) {
 
     switch (url.pathname) {
       case `${repo}/pulls/7`:
+        if (pull.pageOnce) {
+          pull.pageOnce = false;
+
+          return new Response("<html>Sign in</html>", {
+            headers: { "content-type": "text/html" },
+          });
+        }
+
         return Response.json({
           html_url: pullUrl,
           title: "Tidy the dotfiles",
@@ -149,6 +165,8 @@ function fakeHost(now: () => number) {
           head: { sha: "abc1234def" },
         });
       case `${repo}/commits/abc1234def/check-runs`:
+        await pull.held;
+
         return Response.json({
           check_runs: [
             {
@@ -1117,4 +1135,68 @@ test("team work reaches only what the team's GitHub App is installed on", async 
   expect(
     (await t.session({ owner: "team", startedBy: "pedro" })).gitLogins(),
   ).toEqual([{ host, token: "ghs_installation" }]);
+});
+
+test("a pull request whose host answers with a page instead of JSON doesn't stop the others' news", async () => {
+  await using run = await start();
+  const { t, fake } = run;
+
+  const first = await watching(t);
+  const second = await t.session({ owner: person("pedro") });
+  await t.tool("git_hosts_watch", { url: pullUrl }, { session: second });
+  await t.clock.advance(0);
+
+  fake.pull.checks = "failure";
+  fake.pull.pageOnce = true;
+  await t.clock.advance("60s");
+
+  expect(
+    [first, second]
+      .map((session) => notices(session).length)
+      .sort((a, b) => a - b),
+  ).toEqual([0, 1]);
+
+  await t.clock.advance("60s");
+
+  expect([first, second].map((session) => notices(session).length)).toEqual([
+    1, 1,
+  ]);
+});
+
+test("a merge pressed during a poll tells the Session it merged once", async () => {
+  await using run = await start();
+  const { t, fake } = run;
+
+  const session = await watching(t);
+  const [{ id }] = (await watched(t, session)) as [{ id: string }];
+
+  const checks = (): number =>
+    fake.asked.filter((each) => each.endsWith("/check-runs")).length;
+
+  let release = (): void => undefined;
+
+  fake.pull.held = new Promise((resolve) => {
+    release = resolve;
+  });
+
+  fake.pull.merged = true;
+  const before = checks();
+  const polling = t.clock.advance("60s");
+  await until(() => checks() === before + 1);
+
+  const merging = t.as("pedro").post(`pull-requests/${id}/merge`);
+  await until(() => fake.pull.mergedWith !== undefined);
+
+  // The merge's own poll reads the checks too only while the first one
+  // still goes.
+  await until(() => checks() === before + 2, Boolean, 300).catch(
+    () => undefined,
+  );
+
+  release();
+  await Promise.all([polling, merging]);
+
+  expect(
+    notices(session).filter((text) => text.includes("It merged.")),
+  ).toHaveLength(1);
 });

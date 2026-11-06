@@ -363,6 +363,32 @@ test("email_send is offered only to people who may send from a mailbox", async (
   ).rejects.toThrow("email_send isn't offered in this Session");
 });
 
+test("email_send sends in team work only from mailboxes the team uses, never a person's", async () => {
+  const mail = await fakeMail();
+  await using t = await started();
+
+  await addMailbox(t, mail);
+
+  const team = await t.session({ owner: "team", startedBy: "ana" });
+  const sending = { to: "a@example.com", subject: "Hi", text: "Hi" };
+
+  expect(t.tool("email_send", sending, { session: team })).rejects.toThrow(
+    "email_send isn't offered in this Session",
+  );
+
+  const { mailboxes } = (await t.config()) as {
+    mailboxes: readonly Record<string, unknown>[];
+  };
+
+  await t.editConfig({
+    mailboxes: mailboxes.map((mailbox) => ({ ...mailbox, users: ["team"] })),
+  });
+
+  expect(await t.tool("email_send", sending, { session: team })).toMatchObject({
+    isError: false,
+  });
+});
+
 test("an invite goes out by mail from a mailbox the inviting admin sends from", async () => {
   const mail = await fakeMail();
   await using t = await started();

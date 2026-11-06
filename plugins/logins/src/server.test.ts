@@ -837,3 +837,56 @@ test("a Session can't call a person's routes, and a person can't call a Session'
   expect((await ana.request("account")).status).toBe(403);
   expect((await t.as("ana").raw("GET", "credentials/values")).status).toBe(403);
 });
+
+test("the proxy reports what a stream cut off midway counted so far", async () => {
+  const opening = sse({
+    type: "message_start",
+    message: { usage: { input_tokens: 20, output_tokens: 1 } },
+  });
+
+  let pulls = 0;
+
+  await using t = await started({
+    fetch: () =>
+      new Response(
+        new ReadableStream({
+          pull: async (controller) => {
+            pulls += 1;
+
+            if (pulls === 1) {
+              controller.enqueue(new TextEncoder().encode(opening));
+
+              return;
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            controller.error(new Error("the person stopped the turn"));
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      ),
+  });
+
+  const { proxy } = await teamWith(t, "anthropic");
+
+  await t
+    .public()
+    .raw("POST", "proxy/anthropic/v1/messages", {
+      headers: { "x-api-key": proxy.token ?? "" },
+      body: JSON.stringify({ model: "claude-sonnet-4-5", stream: true }),
+    })
+    .then(async (response) => response.text())
+    .catch(() => "");
+
+  const [called] = await until(
+    () => t.emitted("logins.model_called"),
+    (found) => found.length > 0,
+    2000,
+  );
+
+  expect(called?.fields).toMatchObject({
+    model: "claude-sonnet-4-5",
+    input: 20,
+    output: 1,
+  });
+});
