@@ -159,8 +159,6 @@ export default tseslint.config(
       "plugins/kubernetes/src/server.ts",
       "plugins/local/src/server.ts",
       "plugins/oidc/src/oidc.ts",
-      "plugins/routines/src/engine.ts",
-      "plugins/routines/src/wakeups.ts",
     ],
     rules: {
       "no-restricted-globals": [

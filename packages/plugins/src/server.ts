@@ -66,6 +66,17 @@ export interface PluginEvents<P extends PluginDefinition> {
         readonly plugin: string;
       }) => void,
     ): void;
+    // Another plugin's event by its name, for a plugin whose people name
+    // events at run time, such as in a trigger they write.
+    (
+      type: `${string}.${string}`,
+      fn: (event: {
+        readonly type: `${string}.${string}`;
+        readonly fields: Readonly<Record<string, unknown>>;
+        readonly to: readonly Owner[];
+        readonly plugin: string;
+      }) => void,
+    ): void;
   };
   readonly declared: () => readonly DeclaredEvent[];
 }

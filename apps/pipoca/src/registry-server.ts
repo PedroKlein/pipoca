@@ -21,8 +21,8 @@ import { projects } from "../../../plugins/projects/plugin";
 import { server as projectsServer } from "../../../plugins/projects/src/server";
 import { push } from "../../../plugins/push/plugin";
 import { server as pushServer } from "../../../plugins/push/src/server";
-import routinesPackage from "../../../plugins/routines/package.json";
-import * as routinesServer from "../../../plugins/routines/src/server";
+import { routines } from "../../../plugins/routines/plugin";
+import { server as routinesServer } from "../../../plugins/routines/src/server";
 import { slack } from "../../../plugins/slack/plugin";
 import { server as slackServer } from "../../../plugins/slack/src/server";
 import { subagents } from "../../../plugins/subagents/plugin";
@@ -46,7 +46,7 @@ export const serverRegistry = [
   { id: "oidc", manifest: oidcPackage.pipoca, server: oidcServer },
   { id: "projects", definition: projects, server: projectsServer },
   { id: "push", definition: push, server: pushServer },
-  { id: "routines", manifest: routinesPackage.pipoca, server: routinesServer },
+  { id: "routines", definition: routines, server: routinesServer },
   { id: "slack", definition: slack, server: slackServer },
   { id: "subagents", definition: subagents },
   { id: "usage", definition: usage, server: usageServer },
