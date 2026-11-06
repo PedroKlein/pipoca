@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { PluginStore } from "@pipoca/plugins";
+import type { Store } from "@pipoca/plugins";
+import type { Clock } from "@pipoca/protocol";
 
 // Where a provider's requests go, and how its key travels: the proxy
 // translates nothing, it only swaps the key (ADR 0066).
@@ -49,16 +50,12 @@ export function upstreams(
 }
 
 // Tokens that stand in for a key in one team Session, kept as hashes.
-export interface ProxyTokens {
+interface ProxyTokens {
   readonly issue: (sessionId: string) => string;
   readonly sessionOf: (token: string) => string | undefined;
 }
 
-export function proxyTokens(store: PluginStore): ProxyTokens {
-  store.exec(
-    "create table if not exists logins_proxy_tokens (token_hash text primary key, session_id text not null, created_at text not null)",
-  );
-
+export function proxyTokens(store: Store, clock: Clock): ProxyTokens {
   return {
     issue: (sessionId) => {
       const token = `ppx_${randomBytes(24).toString("base64url")}`;
@@ -67,19 +64,16 @@ export function proxyTokens(store: PluginStore): ProxyTokens {
         "insert into logins_proxy_tokens (token_hash, session_id, created_at) values (?, ?, ?)",
         hash(token),
         sessionId,
-        new Date().toISOString(),
+        clock.now(),
       );
 
       return token;
     },
-    sessionOf: (token) => {
-      const [row] = store.all(
+    sessionOf: (token) =>
+      store.get<{ session_id: string }>(
         "select session_id from logins_proxy_tokens where token_hash = ?",
         hash(token),
-      ) as { session_id: string }[];
-
-      return row?.session_id;
-    },
+      )?.session_id,
   };
 }
 
@@ -113,7 +107,7 @@ const dropped = new Set([
 ]);
 
 // What one model call used, as the provider's answer reports it.
-export interface CallUsage {
+interface CallUsage {
   readonly model: string | null;
   readonly input: number;
   readonly output: number;
@@ -198,13 +192,13 @@ interface Tokens {
   readonly output: number;
 }
 
-// Reads an answer to its end: a stream of server-sent events or one JSON
-// body. The last report of each count wins, since streams send running
-// totals.
+// Reads an answer to its end, or to where it was cut off, such as when the
+// person stops the turn: a stream of server-sent events or one JSON body.
+// The last report of each count wins, since streams send running totals.
 async function tokensIn(
   stream: ReadableStream<Uint8Array>,
 ): Promise<Tokens | undefined> {
-  const text = await new Response(stream).text().catch(() => "");
+  const text = await textUntilCut(stream);
 
   const objects = text.trimStart().startsWith("{")
     ? [text]
@@ -226,6 +220,23 @@ async function tokensIn(
   return found.input === undefined && found.output === undefined
     ? undefined
     : { input: found.input ?? 0, output: found.output ?? 0 };
+}
+
+async function textUntilCut(
+  stream: ReadableStream<Uint8Array>,
+): Promise<string> {
+  const decoder = new TextDecoder();
+  let text = "";
+
+  try {
+    for await (const chunk of stream) {
+      text += decoder.decode(chunk, { stream: true });
+    }
+  } catch {
+    return text;
+  }
+
+  return text + decoder.decode();
 }
 
 const count = (value: unknown): number =>

@@ -1,10 +1,10 @@
 import type { PluginHost } from "@pipoca/pluginhost";
-import { fieldsOf } from "@pipoca/plugins";
-import type { Log } from "@pipoca/providers";
-import type { Auth } from "./auth";
-import { errorReply } from "./replies";
+import { fieldsOf } from "@pipoca/plugins/host";
+import type { Log } from "@pipoca/protocol";
+import type { People } from "@pipoca/people";
+import { errorReply } from "./server/http/replies";
 
-// Pipoca's meta toolsets over MCP's streamable HTTP transport (ADR 0035):
+// Pipoca's route tools over MCP's streamable HTTP transport (ADR 0035):
 // one JSON reply per request and no server-sent stream, which the transport
 // allows. A client authenticates with an MCP token and acts as its user.
 // https://modelcontextprotocol.io/specification/2025-06-18/basic/transports
@@ -19,7 +19,7 @@ interface Message {
 }
 
 export function mcpHandler(
-  auth: Auth,
+  people: People,
   plugins: PluginHost,
   serverVersion: string,
   log: Log,
@@ -48,7 +48,7 @@ export function mcpHandler(
       case "tools/list":
         return {
           tools: plugins
-            .toolsetTools()
+            .routeTools()
             .map(({ name, description, parameters, annotations }) => ({
               name,
               description,
@@ -63,7 +63,7 @@ export function mcpHandler(
           throw new RpcError(-32602, "params.name must be a tool name");
         }
 
-        const result = await plugins.callToolset(
+        const result = await plugins.callRouteTool(
           name,
           input ?? {},
           `user:${userId}`,
@@ -98,7 +98,7 @@ export function mcpHandler(
       );
     }
 
-    const user = auth.mcpUserOf(request);
+    const user = people.userOfAccessToken(request);
     if (user === undefined) {
       const refused = errorReply(
         401,

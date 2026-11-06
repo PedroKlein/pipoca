@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { ServerWebSocket } from "bun";
 import { type TerminalControl, terminalTakenOver } from "@pipoca/protocol";
-import type { Log } from "@pipoca/providers";
+import type { Log } from "@pipoca/protocol";
+import { canSteer } from "@pipoca/people";
 import type { Sessions } from "@pipoca/sessions";
-import type { Auth } from "./auth";
-import { errorReply, notFound, rejected } from "./replies";
+import type { Auth } from "./server/http/deps";
+import { errorReply, notFound, rejected } from "./server/http/replies";
 import {
   fromSessionHost,
   type SocketHandler,
@@ -28,7 +29,7 @@ const hostTimeoutMs = 10_000;
 const maxBufferedBytes = 1024 * 1024;
 const browserPath = /^\/api\/sessions\/([^/]+)\/terminal$/;
 const terminalIdPattern = /^[\w-]{1,64}$/;
-const hostPath = /^\/agent\/sessions\/([^/]+)\/terminals\/([^/]+)$/;
+const hostPath = /^\/runner\/sessions\/([^/]+)\/terminals\/([^/]+)$/;
 
 export function terminalBroker(
   sessions: Sessions,
@@ -61,12 +62,12 @@ export function terminalBroker(
     server: SocketServer,
     sessionId: string,
   ): Response | "upgraded" => {
-    const user = auth.userOf(request);
+    const user = auth.signIn.userOf(request);
     if (user === undefined) {
       return errorReply(401, "signed_out", "Sign in again.");
     }
 
-    if (!sessions.belongsTo(sessionId, user.id)) {
+    if (!canSteer({ id: user.id, admin: false }, sessions.owned(sessionId))) {
       return notFound();
     }
 

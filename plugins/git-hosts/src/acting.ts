@@ -1,14 +1,16 @@
-import type { ServerPluginContext } from "@pipoca/plugins";
-import type { GitLogin, Session } from "@pipoca/protocol";
+import type { Collection, ServerContext } from "@pipoca/plugins";
+import type { GitLogin, Owner, Session } from "@pipoca/protocol";
+import type { gitHosts, TechnicalUserItem } from "../plugin";
+import type { Identity } from "./commit-as";
 import { HostRefused, reach } from "./github";
-import type { HostStore } from "./hosts";
+import type { HostConfig, Hosts } from "./hosts";
 import {
   type AppUser,
+  botLogin,
   installationsOf,
   installationToken,
+  isApp,
   type TechnicalUser,
-  type TechnicalUsers,
-  teamOwner,
 } from "./technical-users";
 
 // A Session gets a token that lives at least this long, and the tokens are
@@ -21,23 +23,17 @@ interface Cached {
   readonly expiresAt: number;
 }
 
-export interface TeamReach {
+interface TeamReach {
   readonly host: string;
-  readonly login: string;
   readonly kind: "app" | "token";
   readonly token: string;
-}
-
-export interface Identity {
-  readonly name: string;
-  readonly email: string;
 }
 
 export interface Acting {
   // The logins of a Session that acts as a technical user: the bot's on its
   // host, and the person's own on the others.
   readonly logins: (
-    userId: string,
+    owner: Owner,
     session: Pick<Session, "actsAs" | "workspace">,
     own: readonly GitLogin[],
   ) => readonly GitLogin[];
@@ -49,7 +45,8 @@ export interface Acting {
   readonly teamReach: () => readonly TeamReach[];
   // Who the Session's commits are by.
   readonly identity: (name: string) => Promise<Identity | undefined>;
-  readonly refresh: () => Promise<void>;
+  // Fetches the installation tokens that are missing or about to expire.
+  readonly refresh: () => void;
 }
 
 // Sessions that act as a technical user sign git in as it (ADR 0060). The
@@ -57,16 +54,22 @@ export interface Acting {
 // host, so the server keeps a fresh token for each of each App's
 // installations.
 export function acting(
-  context: ServerPluginContext,
-  hosts: HostStore,
-  users: TechnicalUsers,
+  {
+    clock,
+    log,
+    schedule,
+  }: Pick<ServerContext<typeof gitHosts>, "clock" | "log" | "schedule">,
+  hosts: Hosts,
+  users: Collection<TechnicalUserItem>,
 ): Acting {
   const tokens = new Map<string, Cached>();
   const ids = new Map<string, number>();
-  let refreshing: Promise<void> | undefined;
 
   const keyOf = (name: string, account: string): string =>
     `${name} ${account.toLowerCase()}`;
+
+  const live = (cached: Cached | undefined): cached is Cached =>
+    cached !== undefined && cached.expiresAt > clock.now();
 
   const refreshApp = async (user: AppUser): Promise<void> => {
     const host = hosts.get(user.host);
@@ -75,70 +78,62 @@ export function acting(
       return;
     }
 
-    for (const { id, account } of await installationsOf(host, user.app)) {
+    for (const { id, account } of await installationsOf(
+      host,
+      user.app,
+      clock.now(),
+    )) {
       const key = keyOf(user.name, account);
 
-      if ((tokens.get(key)?.expiresAt ?? 0) - Date.now() > freshMs) {
+      if ((tokens.get(key)?.expiresAt ?? 0) - clock.now() > freshMs) {
         continue;
       }
 
-      tokens.set(key, await installationToken(host, user.app, id));
+      tokens.set(key, await installationToken(host, user.app, id, clock.now()));
     }
   };
 
-  const refresh = async (): Promise<void> => {
-    refreshing ??= (async () => {
-      for (const user of users.list()) {
-        if (!("app" in user)) {
-          continue;
+  // One refresh at a time, and then every refreshMs, through the schedule
+  // so it outlives a restart.
+  schedule.on("refresh", async () => {
+    for (const user of users.list()) {
+      if (!isApp(user)) {
+        continue;
+      }
+
+      await refreshApp(user).catch((failure: unknown) => {
+        if (!(failure instanceof HostRefused)) {
+          throw failure;
         }
 
-        await refreshApp(user).catch((failure: unknown) => {
-          if (!(failure instanceof HostRefused)) {
-            throw failure;
-          }
-
-          context.log("could not refresh a technical user's tokens", {
-            name: user.name,
-            error: failure.message,
-          });
+        log("could not refresh a technical user's tokens", {
+          name: user.name,
+          error: failure.message,
         });
-      }
-    })().finally(() => {
-      refreshing = undefined;
-    });
-
-    return refreshing;
-  };
-
-  const kick = (): void => {
-    refresh().catch((failure: unknown) => {
-      context.log("refreshing technical users' tokens failed", {
-        error: String(failure),
       });
-    });
+    }
+
+    schedule.at("refresh", clock.now() + refreshMs);
+  });
+
+  const refresh = (): void => {
+    schedule.at("refresh", clock.now());
   };
 
-  kick();
-
-  const timer = setInterval(kick, refreshMs);
-
-  context.signal.addEventListener("abort", () => {
-    clearInterval(timer);
-  });
+  refresh();
 
   const tokenOf = (
     user: TechnicalUser,
     workspace: Session["workspace"],
   ): string | undefined => {
-    if (!("app" in user)) {
+    if (!isApp(user)) {
       return user.token;
     }
 
     for (const account of accountsIn(workspace, user.host)) {
       const cached = tokens.get(keyOf(user.name, account));
 
-      if (cached !== undefined && cached.expiresAt > Date.now()) {
+      if (live(cached)) {
         return cached.token;
       }
     }
@@ -147,25 +142,22 @@ export function acting(
   };
 
   const teamUsers = (): readonly TechnicalUser[] =>
-    users.list().filter((user) => user.users.includes(teamOwner));
+    users.list().filter((user) => user.users.includes("team"));
 
   const installed = (user: TechnicalUser): readonly Cached[] =>
-    [...tokens]
-      .filter(
-        ([key, { expiresAt }]) =>
-          key.startsWith(`${user.name} `) && expiresAt > Date.now(),
-      )
-      .map(([, cached]) => cached);
+    [...tokens].flatMap(([key, cached]) =>
+      key.startsWith(`${user.name} `) && live(cached) ? [cached] : [],
+    );
 
   return {
     refresh,
-    logins: (userId, { actsAs, workspace }, own) => {
-      const user = actsAs === null ? undefined : users.get(actsAs);
+    logins: (owner, { actsAs, workspace }, own) => {
+      const user = actsAs === null ? undefined : users.get(actsAs.name);
 
-      if (user?.users.includes(userId) !== true) {
-        context.log("a Session can't act as this technical user", {
-          name: actsAs,
-          userId,
+      if (user?.users.includes(owner) !== true) {
+        log("a Session can't act as this technical user", {
+          name: actsAs?.name,
+          owner,
         });
 
         return [];
@@ -175,11 +167,11 @@ export function acting(
       const token = tokenOf(user, workspace);
 
       if (token === undefined) {
-        context.log("the App isn't installed where the Session works", {
+        log("the App isn't installed where the Session works", {
           name: user.name,
         });
 
-        kick();
+        refresh();
 
         return others;
       }
@@ -195,23 +187,19 @@ export function acting(
         return token === undefined ? [] : [{ host: user.host, token }];
       }),
     teamReach: () =>
-      teamUsers().flatMap((user): readonly TeamReach[] =>
-        "app" in user
-          ? installed(user).map(({ token }) => ({
-              host: user.host,
-              login: `${user.app.slug}[bot]`,
-              kind: "app",
-              token,
-            }))
-          : [
-              {
-                host: user.host,
-                login: user.login,
-                kind: "token",
-                token: user.token,
-              },
-            ],
-      ),
+      teamUsers().flatMap((user): readonly TeamReach[] => {
+        if (isApp(user)) {
+          return installed(user).map(({ token }) => ({
+            host: user.host,
+            kind: "app",
+            token,
+          }));
+        }
+
+        return user.token === undefined
+          ? []
+          : [{ host: user.host, kind: "token", token: user.token }];
+      }),
     identity: async (name) => {
       const user = users.get(name);
       const host = user && hosts.get(user.host);
@@ -220,7 +208,7 @@ export function acting(
         return undefined;
       }
 
-      const login = "app" in user ? `${user.app.slug}[bot]` : user.login;
+      const login = botLogin(user);
       let id = ids.get(name);
 
       if (id === undefined) {
@@ -245,7 +233,7 @@ export function acting(
 }
 
 async function userIdOf(
-  host: NonNullable<ReturnType<HostStore["get"]>>,
+  host: HostConfig,
   login: string,
 ): Promise<number | undefined> {
   const response = await reach(

@@ -27,6 +27,7 @@ import {
   type Route,
 } from "playwright-core";
 import type { Environment, Profile, Session } from "@pipoca/protocol";
+import { protocolVersion, versionHeader } from "@pipoca/protocol";
 import { installedPlugins } from "./installed";
 import { serve } from "./serve";
 import { setupTokenOf } from "./testdata/sign-in";
@@ -67,35 +68,37 @@ beforeAll(async () => {
   await writeFile(
     join(plugins, "hello", "package.json"),
     JSON.stringify({
-      pipoca: {
-        id: "hello",
-        title: "Hello",
-        description: "Says hi.",
-        engine: 1,
-      },
+      description: "Says hi.",
+      pipoca: { id: "hello", entry: "plugin.ts" },
     }),
   );
 
-  await mkdir(join(plugins, "greeter"));
+  await mkdir(join(plugins, "greeter", "web"), { recursive: true });
 
   await writeFile(
     join(plugins, "greeter", "package.json"),
-    JSON.stringify({
-      pipoca: {
-        id: "greeter",
-        title: "Greeter",
-        description: "Counts hellos.",
-        engine: 1,
-        parts: { web: "web.tsx" },
-      },
-    }),
+    JSON.stringify({ pipoca: { id: "greeter", entry: "plugin.ts" } }),
+  );
+
+  await writeFile(
+    join(plugins, "greeter", "plugin.ts"),
+    `import { definePlugin } from "@pipoca/plugins";
+
+export const greeter = definePlugin({
+  id: "greeter",
+  title: "Greeter",
+  description: "Counts hellos.",
+});
+`,
   );
 
   // Hooks only work when the part shares the page's React.
   await writeFile(
-    join(plugins, "greeter", "web.tsx"),
-    `import { Button } from "@pipoca/ui";
+    join(plugins, "greeter", "web", "index.tsx"),
+    `import { defineWeb } from "@pipoca/plugins/web";
+import { Button } from "@pipoca/ui";
 import { useState } from "react";
+import { greeter } from "../plugin";
 
 function Page() {
   const [count, setCount] = useState(0);
@@ -103,34 +106,98 @@ function Page() {
   return <Button onClick={() => setCount(count + 1)}>Hellos: {count}</Button>;
 }
 
-export default { name: "greeter", nav: { label: "Greeter", Page } };
+export const web = defineWeb(greeter, {
+  pages: [{ path: "", label: "Greeter", Page, nav: {} }],
+});
 `,
   );
 
-  await mkdir(join(plugins, "faulty"));
+  await mkdir(join(plugins, "faulty", "web"), { recursive: true });
 
   await writeFile(
     join(plugins, "faulty", "package.json"),
-    JSON.stringify({
-      pipoca: {
-        id: "faulty",
-        title: "Faulty",
-        description: "Throws when it loads.",
-        engine: 1,
-        parts: { web: "web.ts" },
-      },
-    }),
+    JSON.stringify({ pipoca: { id: "faulty", entry: "plugin.ts" } }),
   );
 
   await writeFile(
-    join(plugins, "faulty", "web.ts"),
+    join(plugins, "faulty", "plugin.ts"),
+    `import { definePlugin } from "@pipoca/plugins";
+
+export const faulty = definePlugin({
+  id: "faulty",
+  title: "Faulty",
+  description: "Throws when it loads.",
+});
+`,
+  );
+
+  await writeFile(
+    join(plugins, "faulty", "web", "index.tsx"),
     `throw new Error("faulty on purpose");
 `,
   );
 
+  await mkdir(join(plugins, "vault", "web"), { recursive: true });
+
   await writeFile(
-    join(plugins, "enabled.json"),
-    JSON.stringify(["faulty", "greeter"]),
+    join(plugins, "vault", "package.json"),
+    JSON.stringify({
+      description: "Keeps keys.",
+      pipoca: { entry: "plugin.ts" },
+    }),
+  );
+
+  await writeFile(
+    join(plugins, "vault", "plugin.ts"),
+    `import { Config, definePlugin, Secret, Type } from "@pipoca/plugins";
+
+export const vault = definePlugin({
+  id: "vault",
+  title: "Vault",
+  description: "Keeps keys for other services.",
+  config: Config.object({
+    greeting: Config.string({ title: "Greeting", default: "Hello" }),
+    keys: Config.collection({
+      title: "Keys",
+      key: "name",
+      admin: true,
+      item: Type.Object({
+        name: Type.String({ title: "Name" }),
+        token: Secret({ title: "Token" }),
+      }),
+    }),
+  }),
+});
+`,
+  );
+
+  await writeFile(
+    join(plugins, "vault", "web", "index.tsx"),
+    `import { defineWeb, Slot, useViewer } from "@pipoca/plugins/web";
+import { Page } from "@pipoca/ui";
+import { vault } from "../plugin";
+
+function VaultPage({ path }: { readonly path: string }) {
+  const { person } = useViewer();
+
+  return (
+    <Page title="Vault" description={\`Keys for \${person.name}\`}>
+      <p>Open at {path === "" ? "the start" : path}</p>
+      <Slot name="settings.general" />
+    </Page>
+  );
+}
+
+function General() {
+  return <p>Vault keeps your keys.</p>;
+}
+
+export const web = defineWeb(vault, {
+  pages: [{ path: "", label: "Vault", Page: VaultPage, nav: { pinned: true } }],
+  settings: { group: "server", form: "auto" },
+  slots: { "settings.general": General },
+});
+`,
   );
 
   const logs: string[] = [];
@@ -139,7 +206,7 @@ export default { name: "greeter", nav: { label: "Greeter", Page } };
     port: 0,
     database: ":memory:",
     configDir: join(root, "config"),
-    sessions: { pollWaitMs: 100, offlineAfterMs: 1000 },
+    runners: { pollWaitMs: 100, offlineAfterMs: 1000 },
     agent: {
       provider: "e2e",
       dataDir: join(root, "e2e"),
@@ -149,7 +216,11 @@ export default { name: "greeter", nav: { label: "Greeter", Page } };
     },
     installed: {
       root: plugins,
-      plugins: await installedPlugins(plugins, () => undefined),
+      plugins: await installedPlugins(
+        plugins,
+        () => undefined,
+        (id) => id === "faulty" || id === "greeter" || id === "vault",
+      ),
     },
     log: (message, fields) => {
       logs.push(`${message} ${JSON.stringify(fields)}`);
@@ -162,6 +233,7 @@ export default { name: "greeter", nav: { label: "Greeter", Page } };
 
   await page.goto(new URL(`/#setup/${setupTokenOf(logs)}`, server.url).href);
   await page.getByRole("heading", { name: "Welcome to Pipoca" }).waitFor();
+  await page.getByLabel("Your name").fill("Pedro Klein");
   await page.getByLabel("Username").fill("pedro");
   await page.getByLabel("Password").fill("correct horse");
 
@@ -202,6 +274,16 @@ async function pickWorkspace(
   if ((await environment.count()) > 0) {
     await environment.click();
     await form.getByRole("option", { name: /^e2e/ }).click();
+  }
+
+  // It remembers the last model and reasoning level too, which picking an
+  // Environment resets only when the form lists more than one by then.
+  const model = form.getByRole("button", { name: "Model" });
+
+  if ((await model.textContent())?.trim() !== "Default model") {
+    await model.click();
+    await form.getByTitle("default", { exact: true }).click();
+    await form.getByRole("option", { name: /^Environment default/ }).click();
   }
 
   await form.getByRole("button", { name: "Folder or repository" }).click();
@@ -369,19 +451,9 @@ test("chats from Pi's own TUI and goes back to the chat when Pi quits", async ()
 }, 30_000);
 
 test("asks the assistant from the home screen with the model picked, then continues there", async () => {
-  faux.setResponses([
-    fauxAssistantMessage([fauxText("From before")]),
-    fauxAssistantMessage([fauxText("Happy to help")]),
-  ]);
-
-  await fetch(new URL("/api/plugins/meta/sessions", server.url), {
-    method: "POST",
-    headers: { cookie, "content-type": "application/json" },
-    body: JSON.stringify({ text: "An older question" }),
-  });
+  faux.setResponses([fauxAssistantMessage([fauxText("Happy to help")])]);
 
   await page.goto(server.url.href);
-  await page.getByRole("heading", { name: "Earlier conversations" }).waitFor();
 
   await page
     .getByRole("heading", { name: "What do you want to build today?" })
@@ -408,7 +480,7 @@ test("asks the assistant from the home screen with the model picked, then contin
   expect(projectHash).toMatch(/^#plugin\/projects\/[\w-]+$/);
 
   const assistant = (await (
-    await fetch(new URL("/api/plugins/projects/assistant", server.url), {
+    await fetch(new URL("/api/ext/projects/assistant", server.url), {
       headers: { cookie },
     })
   ).json()) as { coordinatorId: string };
@@ -433,13 +505,45 @@ test("asks the assistant from the home screen with the model picked, then contin
   expect(await model.count()).toBe(0);
 
   expect(
-    await page.getByRole("heading", { name: "Earlier conversations" }).count(),
+    await page.getByRole("link", { name: "Earlier conversations" }).count(),
   ).toBe(0);
 
-  await page.getByRole("link", { name: "Earlier conversations" }).click();
-  await page.getByRole("link", { name: "An older question" }).waitFor();
+  // Starting fresh keeps the conversation before it reachable.
+  await fetch(
+    new URL(
+      `/api/ext/projects/projects/${projectHash.split("/").at(-1) ?? ""}/fresh`,
+      server.url,
+    ),
+    { method: "POST", headers: { cookie } },
+  );
 
-  await page.getByRole("link", { name: "Assistant", exact: true }).click();
+  await page
+    .locator("#plugin-nav")
+    .getByRole("link", { name: "Earlier conversations" })
+    .click();
+
+  await page.getByRole("heading", { name: "Earlier conversations" }).waitFor();
+  await page.getByRole("link", { name: /What can you do/ }).click();
+
+  await page
+    .locator('#chat li[data-role="assistant"]', { hasText: "Happy to help" })
+    .waitFor();
+
+  await page
+    .locator("#plugin-page")
+    .getByRole("link", { name: "Assistant", exact: true })
+    .click();
+
+  await page.waitForURL((url) => url.hash === projectHash);
+
+  // The sidebar's Assistant entry opens the same assistant (ADR 0052).
+  await page.goto(server.url.href);
+
+  await page
+    .locator("#plugin-nav")
+    .getByRole("link", { name: "Assistant", exact: true })
+    .click();
+
   await page.waitForURL((url) => url.hash === projectHash);
 }, 30_000);
 
@@ -602,7 +706,6 @@ test("infers the workspace from what the New session composer picks and remember
       workspace: {
         kind: "clone",
         repository: "https://example.com/a.git",
-        startPoint: "",
       },
     },
     {
@@ -615,6 +718,9 @@ test("infers the workspace from what the New session composer picks and remember
       },
     },
   ]);
+
+  // A blank start point is left out rather than sent empty.
+  expect(JSON.stringify(asked)).not.toContain("startPoint");
 
   expect(
     await form
@@ -729,41 +835,17 @@ test("makes an Environment and shows its key once", async () => {
     .waitFor();
 });
 
-test("changes a plugin's setting on the Plugins page", async () => {
-  await page.goto(server.url.href);
-  await openSettings("Plugins");
-
-  const library = page.getByRole("listitem", { name: "Library" });
-  await library.getByRole("switch", { name: "On", checked: true }).waitFor();
-  await library.getByRole("button", { name: "Settings" }).click();
-
-  const limit = library.getByLabel(/^File size limit in MB/);
-  expect(await limit.inputValue()).toBe("10");
-
-  await limit.fill("25");
-  await library.getByRole("button", { name: "Save" }).click();
-  await library.getByText("Saved").waitFor();
-
-  await page.reload();
-  await library.getByRole("button", { name: "Settings" }).click();
-  expect(await limit.inputValue()).toBe("25");
-
-  await limit.fill("10");
-  await library.getByRole("button", { name: "Save" }).click();
-  await library.getByText("Saved").waitFor();
-});
-
 test("finds a plugin by a word of its name or description", async () => {
   await page.goto(server.url.href);
   await openSettings("Plugins");
 
   const plugins = page.getByRole("list", { name: "Plugins" });
-  await plugins.getByRole("listitem", { name: "Library" }).waitFor();
+  await plugins.getByRole("listitem", { name: "Routines" }).waitFor();
 
   await page.getByLabel("Search plugins").fill("subagents");
 
   await plugins
-    .getByRole("listitem", { name: "Library" })
+    .getByRole("listitem", { name: "Routines" })
     .waitFor({ state: "detached" });
 
   expect(await plugins.getByRole("listitem").count()).toBe(1);
@@ -877,14 +959,11 @@ test("turns an installed plugin on for the next start", async () => {
   await page.goto(server.url.href);
   await openSettings("Plugins");
 
-  const hello = page.getByRole("listitem", { name: "Hello" });
+  const hello = page.getByRole("listitem", { name: "hello" });
   await hello.getByText(/^Installed/).waitFor();
 
-  page.once("dialog", (dialog) => {
-    void dialog.accept();
-  });
-
   await hello.getByRole("switch", { name: "On" }).click();
+  await confirmIn("Turn on");
   await hello.getByText("It turns on when the server restarts.").waitFor();
   await hello.getByText("Off until restart").waitFor();
 
@@ -905,13 +984,8 @@ test("installs a plugin from a git repository, asks before turning it on, and re
   await writeFile(
     join(source, "package.json"),
     JSON.stringify({
-      pipoca: {
-        id: "weather",
-        title: "Weather",
-        description: "Says the weather.",
-        engine: 1,
-        capabilities: ["routes"],
-      },
+      description: "Says the weather.",
+      pipoca: { id: "weather", entry: "plugin.ts" },
     }),
   );
 
@@ -934,27 +1008,22 @@ test("installs a plugin from a git repository, asks before turning it on, and re
 
   await page.getByRole("button", { name: "Install", exact: true }).click();
 
-  await page.getByText("Installed Weather, turned off.").waitFor();
+  await page.getByText("Installed weather, turned off.").waitFor();
 
-  const weather = page.getByRole("listitem", { name: "Weather" });
+  const weather = page.getByRole("listitem", { name: "weather" });
   await weather.getByText(`file://${source} at`).waitFor();
 
-  const asked = new Promise<string>((resolve) => {
-    page.once("dialog", (dialog) => {
-      resolve(dialog.message());
-      void dialog.accept();
-    });
-  });
-
   await weather.getByRole("switch", { name: "On" }).click();
-  expect(await asked).toContain("It asks for routes");
+
+  expect(
+    await page.getByRole("dialog", { name: "Turn on weather?" }).textContent(),
+  ).toContain("with the server's access");
+
+  await confirmIn("Turn on");
   await weather.getByRole("switch", { name: "On", checked: true }).click();
 
-  page.once("dialog", (dialog) => {
-    void dialog.accept();
-  });
-
   await weather.getByRole("button", { name: "Remove" }).click();
+  await confirmIn("Remove");
   await weather.waitFor({ state: "detached" });
 });
 
@@ -984,6 +1053,184 @@ test("shows an installed plugin's page with the app's React and components", asy
   await page.getByRole("button", { name: "Hellos: 1" }).waitFor();
 });
 
+test("shows the name given at setup on General, beside the username", async () => {
+  await page.goto(server.url.href);
+  await openSettings("General");
+
+  const you = page.getByRole("list", { name: "You" });
+  await you.getByText("Pedro Klein").waitFor();
+  await you.getByText(/^@pedro · /).waitFor();
+});
+
+test("edits the person's name and what new Sessions start with on General", async () => {
+  await page.goto(server.url.href);
+  await openSettings("General");
+
+  const you = page.getByRole("list", { name: "You" });
+  await you.getByRole("button", { name: "Edit profile" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Edit profile" });
+  await dialog.getByLabel("Your name").fill("Pedro K.");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await dialog.waitFor({ state: "detached" });
+  await you.getByText("Pedro K.").waitFor();
+
+  const startWith = page.locator("section", {
+    has: page.getByRole("heading", { name: "New Sessions start with" }),
+  });
+
+  const [environment] = (await (
+    await fetch(new URL("/api/environments", server.url), {
+      headers: { cookie },
+    })
+  ).json()) as Environment[];
+
+  const saved = page.waitForResponse("**/api/me");
+  await startWith.getByLabel("Environment").selectOption(environment?.id ?? "");
+  await saved;
+
+  const me = async (): Promise<unknown> =>
+    (
+      await fetch(new URL("/api/me", server.url), { headers: { cookie } })
+    ).json();
+
+  expect(await me()).toMatchObject({
+    displayName: "Pedro K.",
+    defaultEnvironment: environment?.id,
+  });
+
+  await startWith.getByLabel("Profile").waitFor();
+
+  await fetch(new URL("/api/me", server.url), {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({
+      displayName: "Pedro Klein",
+      defaultEnvironment: null,
+    }),
+  });
+}, 30_000);
+
+test("signs a person out in every browser from General", async () => {
+  const [invite] = (await (
+    await fetch(new URL("/api/invites", server.url), {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({}),
+    })
+  ).json()) as { readonly id: string; readonly token: string }[];
+
+  const first = await browser.newContext();
+  const second = await browser.newContext();
+
+  try {
+    const tab = await first.newPage();
+    await tab.goto(new URL(`/#join/${invite?.token ?? ""}`, server.url).href);
+
+    const account = tab.getByRole("form", { name: "Make your account" });
+    await account.getByLabel("Username").fill("dora");
+    await account.getByLabel("Password").fill("correct horse");
+    await account.getByRole("button", { name: "Join" }).click();
+    await tab.getByRole("list", { name: "Your setup" }).waitFor();
+
+    await first.request.patch(new URL("/api/me/setup", server.url).href, {
+      data: { finished: true },
+    });
+
+    const other = await second.newPage();
+    await other.goto(server.url.href);
+    await other.getByLabel("Name").fill("dora");
+    await other.getByLabel("Password").fill("correct horse");
+    await other.getByRole("button", { name: "Sign in" }).click();
+    await other.getByRole("button", { name: "New session" }).waitFor();
+
+    await tab.goto(new URL("/#settings/general", server.url).href);
+    await tab.reload();
+    await tab.getByRole("button", { name: "Sign out everywhere" }).click();
+
+    await tab
+      .getByRole("dialog", { name: "Sign out everywhere?" })
+      .getByRole("button", { name: "Sign out everywhere" })
+      .click();
+
+    await tab.getByRole("heading", { name: "Sign in" }).waitFor();
+    await other.reload();
+    await other.getByRole("heading", { name: "Sign in" }).waitFor();
+  } finally {
+    await first.close();
+    await second.close();
+
+    // A shared link stays open after someone joins with it, so revoke it
+    // and leave the People page's invites as the later tests expect them.
+    await fetch(new URL(`/api/invites/${invite?.id ?? ""}`, server.url), {
+      method: "DELETE",
+      headers: { cookie },
+    });
+  }
+}, 30_000);
+
+test("draws a defined plugin's page and slots, pinned for someone who never changed their pins", async () => {
+  await page.route("**/api/me/pinned-pages", async (route) => {
+    await (route.request().method() === "GET"
+      ? route.fulfill({ json: { pages: null } })
+      : route.continue());
+  });
+
+  try {
+    await page.goto(server.url.href);
+    const nav = page.locator("#plugin-nav");
+
+    await nav.getByRole("link", { name: "Assistant", exact: true }).waitFor();
+    expect(await nav.getByRole("link", { name: "Routines" }).count()).toBe(0);
+
+    await nav.getByRole("link", { name: "Vault" }).click();
+    await page.getByRole("heading", { name: "Vault" }).waitFor();
+    await page.getByText("Keys for pedro").waitFor();
+    await page.getByText("Open at the start").waitFor();
+    await page.getByText("Vault keeps your keys.").waitFor();
+  } finally {
+    await page.unroute("**/api/me/pinned-pages");
+  }
+
+  await openSettings("General");
+  await page.getByText("Vault keeps your keys.").waitFor();
+});
+
+test("saves a collection item with a secret from the config's form, and keeps the secret sealed", async () => {
+  await page.goto(server.url.href);
+  await openSettings("Vault");
+
+  await page.getByRole("button", { name: "Add" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Name").fill("github");
+  await dialog.getByLabel("Token").fill("ghp_plain");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await dialog.waitFor({ state: "detached" });
+
+  const keys = page.getByRole("list", { name: "Keys" });
+  await keys.getByText("github").waitFor();
+
+  const saved = await readFile(join(root, "config", "pipoca.json"), "utf8");
+
+  const { vault } = JSON.parse(saved) as {
+    vault: { keys: { name: string; token: Record<string, string> }[] };
+  };
+
+  expect(vault.keys.map(({ name }) => name)).toEqual(["github"]);
+  expect(Object.keys(vault.keys[0]?.token ?? {})).toEqual(["sealed"]);
+  expect(saved).not.toContain("ghp_plain");
+
+  await page.reload();
+  await keys.getByRole("button", { name: "Edit" }).click();
+
+  const token = page.getByRole("dialog").getByLabel("Token");
+  expect(await token.inputValue()).toBe("");
+
+  expect(await token.getAttribute("placeholder")).toBe(
+    "Saved, type to replace",
+  );
+});
+
 test("says why an installed plugin's web part didn't load, and draws the rest", async () => {
   await page.goto(server.url.href);
   await openSettings("Plugins");
@@ -997,29 +1244,29 @@ test("says why an installed plugin's web part didn't load, and draws the rest", 
 test("pins a plugin page to the sidebar and keeps the rest under More", async () => {
   await page.goto(server.url.href);
   const nav = page.locator("#plugin-nav");
-  const library = nav.getByRole("link", { name: "Library" });
+  const routines = nav.getByRole("link", { name: "Routines" });
 
-  await nav.getByRole("link", { name: "Projects" }).waitFor();
-  expect(await library.count()).toBe(0);
+  await nav.getByRole("link", { name: "Assistant", exact: true }).waitFor();
+  expect(await routines.count()).toBe(0);
 
   await nav.getByRole("button", { name: "More" }).click();
-  await nav.getByRole("button", { name: "Pin Library" }).click();
-  await nav.getByRole("button", { name: "Unpin Library" }).waitFor();
+  await nav.getByRole("button", { name: "Pin Routines" }).click();
+  await nav.getByRole("button", { name: "Unpin Routines" }).waitFor();
 
   await page.reload();
-  await library.waitFor();
+  await routines.waitFor();
   expect(await nav.getByRole("button", { name: "More" }).count()).toBe(1);
 
-  await nav.getByRole("button", { name: "Unpin Library" }).click();
+  await nav.getByRole("button", { name: "Unpin Routines" }).click();
   await page.reload();
-  await nav.getByRole("link", { name: "Projects" }).waitFor();
-  expect(await library.count()).toBe(0);
+  await nav.getByRole("link", { name: "Assistant", exact: true }).waitFor();
+  expect(await routines.count()).toBe(0);
 });
 
 test("puts a pin back when the server doesn't save it", async () => {
   const { promise: pinned, resolve: refuse } = Promise.withResolvers();
 
-  await page.route("**/api/pinned-pages", async (route) => {
+  await page.route("**/api/me/pinned-pages", async (route) => {
     if (route.request().method() !== "PUT") {
       await route.continue();
 
@@ -1038,15 +1285,15 @@ test("puts a pin back when the server doesn't save it", async () => {
   const nav = page.locator("#plugin-nav");
 
   await nav.getByRole("button", { name: "More" }).click();
-  await nav.getByRole("button", { name: "Pin Library" }).click();
-  await nav.getByRole("button", { name: "Unpin Library" }).waitFor();
+  await nav.getByRole("button", { name: "Pin Routines" }).click();
+  await nav.getByRole("button", { name: "Unpin Routines" }).waitFor();
   refuse(undefined);
 
   await nav
-    .getByRole("button", { name: "Pin Library", exact: true })
+    .getByRole("button", { name: "Pin Routines", exact: true })
     .waitFor({ timeout: 2000 });
 
-  await page.unroute("**/api/pinned-pages");
+  await page.unroute("**/api/me/pinned-pages");
 });
 
 test("connects a model provider from Settings by answering its prompts", async () => {
@@ -1125,8 +1372,8 @@ test("gives a Profile its own login, then lets it inherit again", async () => {
 
   await logins.getByText("From My defaults").waitFor();
 
-  page.once("dialog", async (dialog) => dialog.accept());
   await editor.getByRole("button", { name: "Delete" }).click();
+  await confirmIn("Delete");
   await page.getByRole("link", { name: "Accounts" }).click();
 
   await page
@@ -1187,14 +1434,24 @@ test("signs in to an MCP server of the base Profile from Settings and comes back
   });
 
   const base = async (mcpServers: unknown): Promise<void> => {
-    await fetch(new URL("/api/base", server.url), {
+    await fetch(new URL("/api/settings/base-profile", server.url), {
       method: "PUT",
       headers: { "content-type": "application/json", cookie },
       body: JSON.stringify({ mcpServers }),
     });
   };
 
+  // The test's MCP server is on a loopback address, which an admin allows.
+  const allow = async (privateHosts: readonly string[]): Promise<void> => {
+    await fetch(new URL("/api/plugins/logins/config", server.url), {
+      method: "PUT",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ value: { privateHosts } }),
+    });
+  };
+
   try {
+    await allow([linear.url.host]);
     await base({ linear: { url: `${linear.url.origin}/mcp` } });
 
     await page.goto(server.url.href);
@@ -1213,6 +1470,7 @@ test("signs in to an MCP server of the base Profile from Settings and comes back
     await page.getByRole("button", { name: "Log out of linear" }).waitFor();
   } finally {
     await base({});
+    await allow([]);
     await linear.stop(true);
   }
 });
@@ -1246,9 +1504,8 @@ test("makes an MCP token that works once shown, and revokes it", async () => {
   await page.getByLabel("Add command").waitFor({ state: "detached" });
   expect(await page.content()).not.toContain(secret);
 
-  page.once("dialog", async (dialog) => dialog.accept());
-
   await page.getByRole("button", { name: "Revoke My laptop" }).click();
+  await confirmIn("Revoke");
   await page.getByText("No client has a token.").waitFor();
   expect(await ping()).toBe(401);
 });
@@ -1261,20 +1518,20 @@ test("says why an MCP token wasn't revoked", async () => {
   await page.getByRole("button", { name: "New token" }).click();
   const revoke = page.getByRole("button", { name: "Revoke Old laptop" });
 
-  await page.route("**/api/mcp-tokens/*", async (route) =>
+  await page.route("**/api/me/access-tokens/*", async (route) =>
     route.fulfill({
       status: 500,
       json: { error: "internal", message: "token store is locked" },
     }),
   );
 
-  page.once("dialog", async (dialog) => dialog.accept());
   await revoke.click();
+  await confirmIn("Revoke");
   await page.getByRole("alert").getByText("token store is locked").waitFor();
-  await page.unroute("**/api/mcp-tokens/*");
+  await page.unroute("**/api/me/access-tokens/*");
 
-  page.once("dialog", async (dialog) => dialog.accept());
   await revoke.click();
+  await confirmIn("Revoke");
   await page.getByText("No client has a token.").waitFor();
   expect(await page.getByRole("alert").count()).toBe(0);
 });
@@ -1374,7 +1631,7 @@ test("edits an Environment's variables and secrets without showing secret values
 
 test("starts and stops runner pods from a template's Kubernetes section", async () => {
   const template = (await (
-    await fetch(new URL("/api/templates", server.url), {
+    await fetch(new URL("/api/environment-templates", server.url), {
       method: "POST",
       headers: { "content-type": "application/json", cookie },
       body: JSON.stringify({ name: "Pods" }),
@@ -1398,10 +1655,7 @@ test("starts and stops runner pods from a template's Kubernetes section", async 
     (
       (await (
         await fetch(
-          new URL(
-            `/api/plugins/kubernetes/templates/${template.id}`,
-            server.url,
-          ),
+          new URL(`/api/ext/kubernetes/templates/${template.id}`, server.url),
           { headers: { cookie } },
         )
       ).json()) as { readonly settings: unknown }
@@ -1432,28 +1686,28 @@ test("starts and stops runner pods from a template's Kubernetes section", async 
 
   expect(await settings()).toBeNull();
 
-  await fetch(new URL(`/api/templates/${template.id}`, server.url), {
-    method: "DELETE",
-    headers: { cookie },
-  });
+  await fetch(
+    new URL(`/api/environment-templates/${template.id}`, server.url),
+    {
+      method: "DELETE",
+      headers: { cookie },
+    },
+  );
 });
 
 test("deletes an Environment from its page", async () => {
-  const { environment } = (await (
+  const environment = (await (
     await fetch(new URL("/api/environments", server.url), {
       method: "POST",
       headers: { "content-type": "application/json", cookie },
       body: JSON.stringify({ name: "throwaway" }),
     })
-  ).json()) as { readonly environment: { readonly id: string } };
+  ).json()) as { readonly id: string };
 
-  await page.goto(`${server.url.href}#environments/${environment.id}`);
-
-  page.once("dialog", (dialog) => {
-    void dialog.accept();
-  });
+  await page.goto(`${server.url.href}#settings/environments/${environment.id}`);
 
   await page.getByRole("button", { name: "Delete throwaway" }).click();
+  await confirmIn("Delete");
 
   await page.getByRole("link", { name: /^throwaway/ }).waitFor({
     state: "detached",
@@ -1498,12 +1752,9 @@ test("adds company sign-in from a preset, tests it, and removes it", async () =>
   await providers.getByRole("button", { name: "Test Okta" }).click();
   await providers.getByText("Can't reach it").waitFor();
 
-  page.once("dialog", (dialog) => {
-    void dialog.accept();
-  });
-
   await providers.getByRole("button", { name: "Edit Okta" }).click();
   await page.getByRole("button", { name: "Remove Okta" }).click();
+  await confirmIn("Remove");
   await providers.waitFor({ state: "detached" });
 });
 
@@ -1517,8 +1768,15 @@ test("guides an admin from a token-only host to a Connect button", async () => {
   await form.getByLabel("Host").fill("git.example.com");
   await form.getByRole("button", { name: "Add host" }).click();
 
+  // GitHub is listed by default and also has tokens only, so look at
+  // the new host's own row.
   const hosts = page.getByRole("list", { name: "Hosts" });
-  await hosts.getByText("Tokens only").waitFor();
+
+  const added = hosts
+    .getByRole("listitem")
+    .filter({ hasText: "git.example.com" });
+
+  await added.getByText("Tokens only").waitFor();
 
   await page
     .getByRole("button", { name: "Set up Connect for git.example.com" })
@@ -1532,13 +1790,13 @@ test("guides an admin from a token-only host to a Connect button", async () => {
   await setup.getByLabel("Client secret").fill("shh");
   await setup.getByRole("button", { name: "Save" }).click();
 
-  await hosts.getByText("Sign-in ready").waitFor();
+  await added.getByText("Sign-in ready").waitFor();
   await setup.getByRole("button", { name: "Connect your account" }).waitFor();
 
   await setup.getByRole("button", { name: "Done" }).click();
   await page.getByRole("button", { name: "Edit git.example.com" }).click();
-  page.once("dialog", (dialog) => void dialog.accept());
   await page.getByRole("button", { name: "Remove git.example.com" }).click();
+  await confirmIn("Remove");
   await hosts.getByText("git.example.com").waitFor({ state: "detached" });
 });
 
@@ -1640,6 +1898,15 @@ test("chooses what new people get, and someone who joins picks an offered Profil
     const tab = await context.newPage();
     await tab.goto(link);
 
+    await tab
+      .getByRole("list", { name: "Set up by your team" })
+      .getByText("Profiles to pick from")
+      .waitFor();
+
+    const yours = tab.getByRole("list", { name: "You'll add" });
+    await yours.getByText("One of the team's, or your own").waitFor();
+    expect(await yours.getByText("Optional").count()).toBe(0);
+
     const account = tab.getByRole("form", { name: "Make your account" });
     await account.getByLabel("Username").fill("cleo");
     await account.getByLabel("Password").fill("correct horse");
@@ -1665,7 +1932,7 @@ test("chooses what new people get, and someone who joins picks an offered Profil
     await context.close();
   }
 
-  await fetch(new URL("/api/newcomers", server.url), {
+  await fetch(new URL("/api/settings/newcomers", server.url), {
     method: "PUT",
     headers: { "content-type": "application/json", cookie },
     body: JSON.stringify({ template: null, profiles: [], required: [] }),
@@ -1678,7 +1945,7 @@ test("chooses what new people get, and someone who joins picks an offered Profil
 }, 30_000);
 
 test("shows why an Environment's last runner pod failed", async () => {
-  await page.route("**/api/plugins/kubernetes/environments/*", async (route) =>
+  await page.route("**/api/ext/kubernetes/environments/*", async (route) =>
     route.fulfill({
       json: {
         settings: {
@@ -1716,7 +1983,45 @@ test("shows why an Environment's last runner pod failed", async () => {
     "Runner pod pi-runner-1a2b3c4d failed",
   );
 
-  await page.unroute("**/api/plugins/kubernetes/environments/*");
+  await page.unroute("**/api/ext/kubernetes/environments/*");
+});
+
+test("names the plugin an Environment's runners come from", async () => {
+  const environments = /\/api\/environments(\?.*)?$/;
+
+  await page.route(environments, async (route) => {
+    const real = (await (await route.fetch()).json()) as Environment[];
+
+    await route.fulfill({
+      json: real.map((each) =>
+        each.name === "e2e"
+          ? {
+              ...each,
+              onDemand: true,
+              runnersFrom: { plugin: "pods", label: "Pod farm", icon: "cloud" },
+            }
+          : each,
+      ),
+    });
+  });
+
+  await page.goto(server.url.href);
+  await openSettings("Environments");
+
+  await page
+    .getByRole("list", { name: "Your Environments" })
+    .getByRole("link", { name: /^e2e/ })
+    .getByText("Pod farm", { exact: true })
+    .waitFor();
+
+  await openEnvironment("e2e");
+
+  await page
+    .getByText(/^Its runners come from Pod farm: the server starts one/)
+    .waitFor();
+
+  await page.getByRole("heading", { name: "Runners" }).waitFor();
+  await page.unroute(environments);
 });
 
 test("keeps a Profile that follows a repository read-only until it is copied", async () => {
@@ -1742,7 +2047,7 @@ test("keeps a Profile that follows a repository read-only until it is copied", a
     }),
   );
 
-  await page.goto(`${server.url.href}#profiles/${profile.id}`);
+  await page.goto(`${server.url.href}#settings/profiles/${profile.id}`);
 
   const synced = page.getByLabel("Synced from a repository");
   await synced.getByText("0123456").waitFor();
@@ -1870,8 +2175,8 @@ test("lists a Profile's packages as chips and edits its folder's files", async (
     { source: "./tools", extensions: [], skills: [], prompts: [], themes: [] },
   ]);
 
-  page.once("dialog", async (dialog) => dialog.accept());
   await editor.getByRole("button", { name: "Delete" }).click();
+  await confirmIn("Delete");
 
   await page
     .getByRole("link", { name: "Tools" })
@@ -1912,8 +2217,8 @@ test("builds a Profile on another, over My defaults", async () => {
     await page.getByRole("button", { name: "Builds on" }).textContent(),
   ).toContain("Default");
 
-  page.once("dialog", async (dialog) => dialog.accept());
   await editor.getByRole("button", { name: "Delete" }).click();
+  await confirmIn("Delete");
 
   await profiles
     .getByRole("link", { name: "Deep" })
@@ -2533,7 +2838,12 @@ test("creates a Project and shares a file through its library", async () => {
   await card.getByRole("link", { name: "Open Docs fullscreen" }).waitFor();
   expect(await page.locator("#chat").getByText("start_thread").count()).toBe(0);
 
-  const row = rail.getByRole("listitem", { name: "Docs" });
+  // A thread's row moves between groups as its run state changes, so the
+  // menu opens once it has settled as idle.
+  const row = rail
+    .getByRole("region", { name: "Idle" })
+    .getByRole("listitem", { name: "Docs" });
+
   await row.getByText(/^e2e · /).waitFor();
   await row.getByRole("button", { name: "Actions for Docs" }).click();
 
@@ -2622,10 +2932,7 @@ test("creates a Project and shares a file through its library", async () => {
   await side.waitFor();
   await side.getByRole("button", { name: "Back to threads" }).click();
 
-  const pluginNav = page.locator("#plugin-nav");
-
-  await pluginNav.getByRole("button", { name: "More" }).click();
-  await pluginNav.getByRole("link", { name: "Library" }).click();
+  await page.getByRole("button", { name: "Project library" }).click();
 
   await page.getByText("No files yet.").waitFor();
 
@@ -2647,7 +2954,7 @@ test("creates a Project and shares a file through its library", async () => {
 
   await rail
     .getByRole("listitem", { name: "Docs" })
-    .getByText(/^Archived · /)
+    .getByText("Archived", { exact: true })
     .waitFor();
 
   await page
@@ -2668,11 +2975,11 @@ test("creates a Project and shares a file through its library", async () => {
 
   await rail
     .getByRole("listitem", { name: "Docs" })
-    .getByText(/^Archived · /)
+    .getByText("Archived", { exact: true })
     .waitFor({ state: "detached" });
 
-  page.once("dialog", async (dialog) => dialog.accept());
   await settings.getByRole("button", { name: "Archive Project" }).click();
+  await confirmIn("Archive");
   await nav.waitFor({ state: "detached" });
 }, 30_000);
 
@@ -2680,7 +2987,7 @@ test("shows a Project made elsewhere on the open Projects page", async () => {
   let made = false;
   const { promise: listed, resolve: list } = Promise.withResolvers();
 
-  await page.route("**/api/plugins/projects/projects", async (route) =>
+  await page.route("**/api/ext/projects/projects", async (route) =>
     route.fulfill({
       json: made
         ? [
@@ -2723,11 +3030,11 @@ test("shows a Project made elsewhere on the open Projects page", async () => {
     .waitFor({ timeout: 2000 });
 
   await page.unroute("**/api/changes");
-  await page.unroute("**/api/plugins/projects/projects");
+  await page.unroute("**/api/ext/projects/projects");
 });
 
 test("shows a plugin page's failure without taking the app down", async () => {
-  await page.route("**/api/plugins/projects/projects", async (route) =>
+  await page.route("**/api/ext/projects/projects", async (route) =>
     route.fulfill({
       status: 500,
       contentType: "application/json",
@@ -2738,12 +3045,9 @@ test("shows a plugin page's failure without taking the app down", async () => {
     }),
   );
 
+  // The failing list takes the sidebar's Project links with it.
   await page.goto(server.url.href);
-
-  await page
-    .locator("#plugin-nav")
-    .getByRole("link", { name: "Projects" })
-    .click();
+  await page.goto(new URL("#plugin/projects/all", server.url).href);
 
   const pluginPage = page.locator("#plugin-page");
 
@@ -2758,7 +3062,7 @@ test("shows a plugin page's failure without taking the app down", async () => {
     .filter({ hasText: "projects store is unreadable" })
     .waitFor();
 
-  await page.unroute("**/api/plugins/projects/projects");
+  await page.unroute("**/api/ext/projects/projects");
   await pluginPage.getByRole("button", { name: "Try again" }).click();
   await page.getByRole("heading", { name: "New Project" }).waitFor();
   await page.getByRole("button", { name: "New session" }).waitFor();
@@ -2778,7 +3082,7 @@ test("keeps a plugin's newest list when an older load answers last", async () =>
   const loads: Route[] = [];
   const { promise: watching, resolve: watched } = Promise.withResolvers();
 
-  await page.route("**/api/plugins/projects/projects", async (route) => {
+  await page.route("**/api/ext/projects/projects", async (route) => {
     loads.push(route);
     watched(undefined);
 
@@ -2809,7 +3113,7 @@ test("keeps a plugin's newest list when an older load answers last", async () =>
   expect(shown.map((text) => text.split("1 repository")[0])).toEqual(["Newer"]);
 
   await page.unroute("**/api/changes");
-  await page.unroute("**/api/plugins/projects/projects");
+  await page.unroute("**/api/ext/projects/projects");
 });
 
 test("attaches an image to a message and shows it in the chat", async () => {
@@ -3705,7 +4009,7 @@ test("opens a page the Session opened in a browser through its preview", async (
   const site = `http://localhost:${server.url.port}`;
   const context = await browser.newContext();
 
-  await context.request.post(`${site}/api/auth/login`, {
+  await context.request.post(`${site}/api/auth/session`, {
     data: { name: "pedro", password: "correct horse" },
   });
 
@@ -3762,8 +4066,14 @@ test("opens Settings as its own page, grouped by who each page is for", async ()
   ).toEqual(["You", "Workspace", "Server, for admins"]);
 
   await menu.getByRole("link", { name: "Integrations" }).click();
-  await page.getByRole("tab", { name: "Email" }).click();
-  await page.getByRole("tab", { name: "Email", selected: true }).waitFor();
+  const tabs = page.getByRole("navigation", { name: "Integrations" });
+  await tabs.getByRole("link", { name: "Email" }).click();
+  await tabs.locator('a[aria-current="page"]', { hasText: "Email" }).waitFor();
+  await page.getByRole("button", { name: "Add a mailbox" }).waitFor();
+  await page.getByLabel("Seconds between mail checks").waitFor();
+
+  await tabs.getByRole("link", { name: "Slack" }).click();
+  await page.getByRole("button", { name: "Add a Slack bot" }).waitFor();
 
   await menu.getByRole("link", { name: "Back to Pipoca" }).click();
   await page.locator("#plugin-nav").waitFor();
@@ -3852,14 +4162,14 @@ test("signs in in the browser for the desktop app and hands it a link only it ca
     .getByRole("heading", { name: "Sign in to the Pipoca app" })
     .waitFor();
 
-  const handed = tab.waitForResponse("**/api/auth/app");
+  const handed = tab.waitForResponse("**/api/auth/app-links");
   await tab.getByRole("button", { name: "Open Pipoca" }).click();
   const { link } = (await (await handed).json()) as { link: string };
   const token = new URL(link).searchParams.get("link") ?? "";
 
   await tab.getByRole("heading", { name: "Pipoca is open" }).waitFor();
 
-  const app = new URL(`/api/auth/link/${token}`, server.url);
+  const app = new URL(`/api/auth/links/${token}`, server.url);
   app.searchParams.set("verifier", verifier);
   const signedIn = await fetch(app, { redirect: "manual" });
 
@@ -3891,10 +4201,10 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
       })
     ).json();
 
-  const { environment } = (await post("/api/environments", {
+  const environment = (await post("/api/environments", {
     name: "team-pods",
     team: true,
-  })) as { environment: Environment };
+  })) as Environment;
 
   const profile = (await post("/api/profiles", {
     name: "Team work",
@@ -3921,7 +4231,7 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
 
   await page
     .getByRole("navigation", { name: "Team" })
-    .getByRole("link", { name: "Sessions" })
+    .getByRole("link", { name: /^Sessions\s*1$/ })
     .click();
 
   await page.getByRole("heading", { name: "Sessions" }).waitFor();
@@ -3958,7 +4268,28 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
   await page.getByRole("button", { name: "Start team work" }).click();
 
   const form = page.getByRole("dialog", { name: "Start team work" });
+  const whose = form.getByRole("group", { name: "Whose work" });
 
+  await whose
+    .getByRole("button", { name: "The team", pressed: true })
+    .waitFor();
+
+  await whose.getByRole("button", { name: "Just me" }).click();
+
+  await page
+    .getByRole("dialog", { name: "New session" })
+    .getByRole("group", { name: "Whose work" })
+    .getByRole("button", { name: "The team" })
+    .click();
+
+  await form.getByRole("button", { name: "Profile" }).click();
+
+  await form
+    .getByRole("listbox", { name: "Profile" })
+    .getByText("Team Profiles, set up by admins")
+    .waitFor();
+
+  await page.keyboard.press("Escape");
   await form.getByRole("button", { name: "Folder or repository" }).click();
 
   const search = form.getByRole("combobox", { name: "Folder or repository" });
@@ -3967,7 +4298,13 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
   await form.getByRole("option", { name: `Use ${docs}` }).click();
   await search.press("Escape");
   await form.getByLabel("What should Pi do?").fill("Write the release notes");
-  await form.getByRole("button", { name: "Start session" }).click();
+
+  await form
+    .getByRole("button", { name: "Who steers" })
+    .getByText("Team can steer")
+    .waitFor();
+
+  await form.getByRole("button", { name: "Start", exact: true }).click();
   await page.waitForURL((url) => !url.hash.startsWith("#team"));
 
   await page.getByRole("button", { name: "Session actions" }).click();
@@ -4129,7 +4466,7 @@ test("shows plugin panels on the team hub and lets an admin lay out a page of th
   await page.getByRole("button", { name: "Remove page" }).click();
   await page.getByRole("heading", { name: "Team home" }).waitFor();
 
-  expect(await nav.getByRole("link", { name: "Costs" }).count()).toBe(0);
+  await nav.getByRole("link", { name: "Costs" }).waitFor({ state: "detached" });
 });
 
 test("an admin sets up team work from Team setup: its Profiles, Environments, credentials, budgets and audit log", async () => {
@@ -4158,7 +4495,7 @@ test("an admin sets up team work from Team setup: its Profiles, Environments, cr
   ).toBe(0);
 
   const teamProfiles = (await (
-    await page.request.get(new URL("/api/profiles?owner=team", server.url).href)
+    await page.request.get(new URL("/api/profiles?scope=team", server.url).href)
   ).json()) as Profile[];
 
   expect(teamProfiles.map(({ name }) => name)).toContain("Backend");
@@ -4184,9 +4521,7 @@ test("an admin sets up team work from Team setup: its Profiles, Environments, cr
   await page.getByRole("status").getByText("Saved").waitFor();
 
   const totals = (await (
-    await page.request.get(
-      new URL("/api/plugins/usage/totals", server.url).href,
-    )
+    await page.request.get(new URL("/api/ext/usage/totals", server.url).href)
   ).json()) as { budgets: unknown };
 
   expect(totals.budgets).toEqual({ team: 200, person: 40 });
@@ -4194,6 +4529,26 @@ test("an admin sets up team work from Team setup: its Profiles, Environments, cr
   await nav.getByRole("link", { name: "Audit log" }).click();
   await page.getByRole("heading", { name: "Audit log" }).waitFor();
   await page.getByRole("link", { name: "Download CSV" }).waitFor();
+
+  await nav.getByRole("link", { name: "Notifications" }).click();
+
+  const answer = page.getByLabel(
+    /^Minutes before a question goes to the starter/,
+  );
+
+  expect(await answer.inputValue()).toBe("10");
+
+  await answer.fill("25");
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.reload();
+
+  expect(await answer.inputValue()).toBe("25");
+
+  await answer.fill("10");
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.reload();
+
+  expect(await answer.inputValue()).toBe("10");
 
   await nav.getByRole("link", { name: "Team home" }).click();
   await page.getByRole("heading", { name: "Team home" }).waitFor();
@@ -4242,7 +4597,7 @@ test("an admin names the team, and the hub and sidebar show it", async () => {
   await page.getByRole("link", { name: "My work" }).click();
   await page.getByRole("link", { name: "Acme platform" }).waitFor();
 
-  await page.request.put(new URL("/api/team", server.url).href, {
+  await page.request.put(new URL("/api/settings/team", server.url).href, {
     data: { name: null },
   });
 
@@ -4267,10 +4622,10 @@ test("offers a fork once the team said more than Pi reads", async () => {
       })
     ).json();
 
-  const { environment } = (await post("/api/environments", {
+  const environment = (await post("/api/environments", {
     name: "talk-pods",
     team: true,
-  })) as { environment: Environment };
+  })) as Environment;
 
   const profile = (await post("/api/profiles", {
     name: "Talk",
@@ -4288,7 +4643,11 @@ test("offers a fork once the team said more than Pi reads", async () => {
     workspace: { kind: "folder", path: folder },
   })) as Session;
 
-  await post(`/api/sessions/${session.id}/say`, { to: "team", text: "One" });
+  await post(`/api/sessions/${session.id}/messages`, {
+    to: "team",
+    text: "One",
+  });
+
   await page.goto(new URL(`/#${session.id}`, server.url).href);
 
   await page
@@ -4296,7 +4655,7 @@ test("offers a fork once the team said more than Pi reads", async () => {
     .waitFor();
 
   for (let n = 2; n <= 41; n++) {
-    await post(`/api/sessions/${session.id}/say`, {
+    await post(`/api/sessions/${session.id}/messages`, {
       to: "team",
       text: `Message ${String(n)}`,
     });
@@ -4354,10 +4713,10 @@ test("shows on the hub's Home who limited team work", async () => {
       })
     ).json();
 
-  const { environment } = (await call("/api/environments", {
+  const environment = (await call("/api/environments", {
     name: "activity-pods",
     team: true,
-  })) as { environment: Environment };
+  })) as Environment;
 
   const profile = (await call("/api/profiles", {
     name: "Activity",
@@ -4375,10 +4734,14 @@ test("shows on the hub's Home who limited team work", async () => {
     workspace: { kind: "folder", path: folder },
   })) as Session;
 
-  await call(`/api/sessions/${session.id}/access`, { kind: "view" }, "PUT");
+  await call(
+    `/api/sessions/${session.id}`,
+    { access: { kind: "view" } },
+    "PATCH",
+  );
 
   // Home shows every panel until an admin lays it out.
-  await call("/api/hub", { pages: null }, "PUT");
+  await call("/api/settings/hub", { pages: null }, "PUT");
   await page.goto(new URL("/#team", server.url).href);
 
   await page
@@ -4396,7 +4759,7 @@ test("an admin pastes the key of a team runner's extension provider, and Credent
     ({ name }) => name === "pipoca-session",
   );
 
-  const { environment, key } = (await (
+  const { key, ...environment } = (await (
     await fetch(new URL("/api/environments", server.url), {
       method: "POST",
       headers: {
@@ -4405,7 +4768,7 @@ test("an admin pastes the key of a team runner's extension provider, and Credent
       },
       body: JSON.stringify({ name: "core-pods", team: true }),
     })
-  ).json()) as { environment: Environment; key: string };
+  ).json()) as Environment & { key: string };
 
   const agent = async (
     path: string,
@@ -4417,18 +4780,18 @@ test("an admin pastes the key of a team runner's extension provider, and Credent
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "pipoca-protocol": "4",
+          [versionHeader]: String(protocolVersion),
           authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(body),
       })
     ).json();
 
-  const joined = (await agent("/agent/join", key, { name: "core-1" })) as {
+  const joined = (await agent("/runner/join", key, { name: "core-1" })) as {
     token: string;
   };
 
-  await agent("/agent/work", joined.token, {
+  await agent("/runner/work", joined.token, {
     running: [],
     folders: [],
     models: [{ provider: "ai-core", id: "claude-on-core" }],
@@ -4494,10 +4857,10 @@ test("drops a plugin's parts from open team work once an admin keeps it out", as
       })
     ).json();
 
-  const { environment } = (await call("/api/environments", {
+  const environment = (await call("/api/environments", {
     name: "switch-pods",
     team: true,
-  })) as { environment: Environment };
+  })) as Environment;
 
   const profile = (await call("/api/profiles", {
     name: "Switch",
@@ -4544,10 +4907,10 @@ test("keeps team work inside the team's area, with the server's pages shared fro
       })
     ).json();
 
-  const { environment } = (await post("/api/environments", {
+  const environment = (await post("/api/environments", {
     name: "team-area-pods",
     team: true,
-  })) as { environment: Environment };
+  })) as Environment;
 
   const profile = (await post("/api/profiles", {
     name: "Team area work",
@@ -4592,10 +4955,18 @@ test("keeps team work inside the team's area, with the server's pages shared fro
   await page.getByRole("note").getByText("Server-wide").waitFor();
   await page.getByRole("navigation", { name: "Team setup" }).waitFor();
 
-  await page.goto(new URL("/#plugins", server.url).href);
+  await page.goto(new URL("/#settings/plugins", server.url).href);
 
   await page
     .getByRole("note")
     .getByRole("link", { name: "open it there" })
     .waitFor();
 }, 30_000);
+
+// Answers the confirm dialog that the last click opened.
+async function confirmIn(name: string): Promise<void> {
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name, exact: true })
+    .click();
+}

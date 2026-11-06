@@ -1,24 +1,31 @@
 import {
-  json,
-  type NoticeProps,
-  ok,
-  type PageProps,
-  type SessionPartProps,
+  defineWeb,
+  href as pageHref,
+  type MountedSession,
+  SessionView,
+  useApi,
   useLoaded,
-  type WebContext,
-  type WebPlugin,
 } from "@pipoca/plugins/web";
 import {
   Badge,
   type BadgeState,
   Button,
-  fieldClass,
+  buttonClass,
+  cn,
+  ErrorText,
   Icon,
-  PageTitle,
+  linkCardClass,
+  Page,
+  plural,
   Section,
+  TextArea,
+  TextInput,
+  useConfirm,
 } from "@pipoca/ui";
+import type { TypedClient } from "@pipoca/plugins";
 import type { DeclaredEvent } from "@pipoca/protocol";
 import { type ReactElement, useState } from "react";
+import { routines } from "../plugin";
 import type {
   RoutineDetail,
   RoutineView,
@@ -28,116 +35,118 @@ import type {
 } from "../src/model";
 import { starters } from "./starters";
 
-const watched = { topics: ["routines.routines"] };
+const changes = ["routines"];
+
+// The address of a path inside the routines page, "" for the page.
+const pageAt = (path: string): string => pageHref(routines, path);
 
 // A person's own routines, or the team's, which anyone on the team makes
-// and changes (ADR 0067).
+// and changes (ADR 0067). The team's routes and pages start with team/.
 interface Scope {
-  readonly api: "routines" | "team-routines";
-  readonly page: "" | "team/";
+  readonly prefix: "" | "team/";
 }
 
-const yours: Scope = { api: "routines", page: "" };
-const teams: Scope = { api: "team-routines", page: "team/" };
+const yours: Scope = { prefix: "" };
+const teams: Scope = { prefix: "team/" };
 
 // Routines, a Session's pending wake-ups above its composer, and the notice
 // each wake-up sends when it comes (ADR 0059).
-export const routines: WebPlugin = {
-  name: "routines",
-  nav: {
-    label: "Routines",
-    Page,
-    fills: (path) => path.split("/").length > 1,
-  },
+export const web = defineWeb(routines, {
+  pages: [
+    {
+      path: "",
+      label: "Routines",
+      Page: RoutinesPage,
+      nav: {
+        fills: (path) =>
+          path
+            .slice(path.startsWith(teams.prefix) ? teams.prefix.length : 0)
+            .split("/").length > 1,
+      },
+    },
+  ],
+  // A run's Session is owned by "<owner>/<routine>".
   sessionPath: (session) => {
-    const [owner = "", name = ""] = session.owner?.key.split(":") ?? [];
+    const key = session.plugin?.key ?? "";
+    const owner = key.slice(0, key.lastIndexOf("/"));
+    const name = key.slice(key.lastIndexOf("/") + 1);
 
-    return `${owner === "team" ? teams.page : ""}${name}/${session.id}`;
+    return `${owner === "team" ? teams.prefix : ""}${name}/${session.id}`;
   },
-  Composer: PendingWakeUps,
-  notices: { wakeup: WakeUpNotice, routine: RoutineNotice },
-};
+  panels: { routines: { title: "Routines", Panel: TeamRoutines } },
+  slots: {
+    "session.composer": PendingWakeUps,
+    "notice:wakeup": WakeUpNotice,
+    "notice:routine": RoutineNotice,
+  },
+});
 
-function Page({ context, path }: PageProps): ReactElement {
-  const scope = path.startsWith(teams.page) ? teams : yours;
-  const [name = "", sessionId] = path.slice(scope.page.length).split("/");
+function RoutinesPage({ path }: { readonly path: string }): ReactElement {
+  const scope = path.startsWith(teams.prefix) ? teams : yours;
+  const [name = "", sessionId] = path.slice(scope.prefix.length).split("/");
 
   if (name === "") {
-    return <RoutineList context={context} />;
+    return <RoutineList />;
   }
 
   if (sessionId !== undefined) {
-    return (
-      <RunSession
-        context={context}
-        scope={scope}
-        name={name}
-        sessionId={sessionId}
-      />
-    );
+    return <RunSession scope={scope} name={name} sessionId={sessionId} />;
   }
 
   return (
-    <RoutinePage
-      key={`${scope.page}${name}`}
-      context={context}
-      scope={scope}
-      name={name}
-    />
+    <RoutinePage key={`${scope.prefix}${name}`} scope={scope} name={name} />
   );
 }
 
-function RoutineList({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement {
+function RoutineList(): ReactElement {
+  const api = useApi(routines);
+
   const team =
     useLoaded(
-      async () =>
-        json<unknown[]>(context.request("/api/environments?owner=team")),
+      async () => api.get<unknown[]>("/api/environments?scope=team"),
       "team-environments",
       { topics: ["environments"] },
     ).value ?? [];
 
   return (
-    <>
-      <PageTitle description="A routine runs a prompt on a schedule, each time in a new Session of its own, or as a message to one of your Sessions. Ask the assistant to make one, or write its JSON here.">
-        Routines
-      </PageTitle>
-      <div className="flex flex-wrap gap-2">
-        <a href={context.href("new")} className="inline-flex">
-          <Button variant="primary" tabIndex={-1}>
+    <Page
+      title="Routines"
+      description="A routine runs a prompt on a schedule, each time in a new Session of its own, or as a message to one of your Sessions. Ask the assistant to make one, or write its JSON here."
+      actions={
+        <>
+          {team.length > 0 && (
+            <a href={pageAt(`${teams.prefix}new`)} className={buttonClass()}>
+              New team routine
+            </a>
+          )}
+          <a
+            href={pageAt("new")}
+            className={buttonClass({ variant: "primary" })}
+          >
             New routine
-          </Button>
-        </a>
-        {team.length > 0 && (
-          <a href={context.href(`${teams.page}new`)} className="inline-flex">
-            <Button tabIndex={-1}>New team routine</Button>
           </a>
-        )}
-      </div>
-      <Routines context={context} scope={yours} title="Yours" />
-      {team.length > 0 && (
-        <Routines context={context} scope={teams} title="The team's" />
-      )}
-    </>
+        </>
+      }
+    >
+      <Routines scope={yours} title="Yours" />
+      {team.length > 0 && <Routines scope={teams} title="The team's" />}
+    </Page>
   );
 }
 
 function Routines({
-  context,
   scope,
   title,
 }: {
-  readonly context: WebContext;
   readonly scope: Scope;
   readonly title: string;
 }): ReactElement {
+  const api = useApi(routines);
+
   const list = useLoaded(
-    async () => json<RoutineView[]>(context.request(scope.api)),
-    scope.api,
-    watched,
+    async () => api.get<RoutineView[]>(`${scope.prefix}routines`),
+    scope.prefix,
+    { changes },
   ).value;
 
   return (
@@ -147,8 +156,11 @@ function Routines({
         {list?.map((routine) => (
           <li key={routine.name}>
             <a
-              href={context.href(`${scope.page}${routine.name}`)}
-              className="flex min-w-0 items-center gap-3 rounded-lg border border-line bg-elevated px-3 py-2 shadow-xs hover:border-line-strong"
+              href={pageAt(`${scope.prefix}${routine.name}`)}
+              className={cn(
+                linkCardClass,
+                "flex min-w-0 items-center gap-3 px-3 py-2",
+              )}
             >
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-ui font-medium text-fg">
@@ -169,62 +181,104 @@ function Routines({
   );
 }
 
+// The team's next scheduled run and how many are paused, for the hub's Home.
+function TeamRoutines(): ReactElement {
+  const api = useApi(routines);
+
+  const list = useLoaded(
+    async () => api.get<RoutineView[]>(`${teams.prefix}routines`),
+    "team-panel",
+    { changes },
+  ).value;
+
+  if (list === undefined) {
+    return <p className="text-label text-fg-dim">Loading…</p>;
+  }
+
+  const next = list
+    .flatMap(({ title, nextAt, paused }) =>
+      nextAt !== null && paused === null ? [{ title, at: nextAt }] : [],
+    )
+    .sort((a, b) => a.at.localeCompare(b.at))[0];
+
+  const paused = list.filter((routine) => routine.paused !== null).length;
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <p className="text-label text-fg-dim">
+        {list.length === 0 && "The team has no routines yet."}
+        {list.length > 0 && next === undefined && "Nothing scheduled."}
+        {next !== undefined && (
+          <>
+            Next: <b className="font-medium text-fg-strong">{next.title}</b>,{" "}
+            {new Date(next.at).toLocaleString()}.
+          </>
+        )}
+        {paused > 0 && ` ${plural(paused, "routine")} paused.`}
+      </p>
+      <a href={pageAt("")} className="self-start text-label text-fg underline">
+        Open routines
+      </a>
+    </div>
+  );
+}
+
 function startText(index: number): string {
   return `${JSON.stringify(starters[index]?.routine ?? {}, null, 2)}\n`;
 }
 
+function failureOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function RoutinePage({
-  context,
   scope,
   name,
 }: {
-  readonly context: WebContext;
   readonly scope: Scope;
   readonly name: string;
 }): ReactElement {
+  const api = useApi(routines);
+  const [ask, asking] = useConfirm();
   const creating = name === "new";
   const [editing, setEditing] = useState(creating);
   const [failure, setFailure] = useState<string>();
+  const path = `${scope.prefix}routines/${encodeURIComponent(name)}`;
 
   const { value: routine, reload } = useLoaded(
-    async () =>
-      creating
-        ? undefined
-        : json<RoutineDetail>(context.request(`${scope.api}/${name}`)),
-    name,
-    watched,
+    async () => (creating ? undefined : api.get<RoutineDetail>(path)),
+    `${scope.prefix}${name}`,
+    { changes },
   );
 
-  const act = (action: string, method = "POST"): void => {
+  const act = (action: string): void => {
     setFailure(undefined);
 
-    ok(context.request(`${scope.api}/${name}/${action}`, { method })).then(
-      reload,
-      (error: unknown) => {
-        setFailure(String(error instanceof Error ? error.message : error));
-      },
-    );
+    api.post(`${path}/${action}`).then(reload, (error: unknown) => {
+      setFailure(failureOf(error));
+    });
   };
 
   return (
-    <>
-      <PageTitle
-        description={
-          <a href={context.href("")} className="hover:underline">
-            All routines
-          </a>
-        }
-      >
-        {creating
+    <Page
+      title={
+        creating
           ? `New ${scope === teams ? "team " : ""}routine`
-          : (routine?.title ?? name)}
-      </PageTitle>
+          : (routine?.title ?? name)
+      }
+      description={
+        <a href={pageAt("")} className="hover:underline">
+          All routines
+        </a>
+      }
+    >
+      {asking}
       {routine !== undefined && (
         <div className="flex flex-col gap-3">
           <p className="text-ui text-fg-dim">{summaryOf(routine)}</p>
-          {routine.error !== undefined && (
-            <p className="text-ui text-failed">{routine.error}</p>
-          )}
+          <ErrorText size="inherit" className="text-ui">
+            {routine.error}
+          </ErrorText>
           <div className="flex flex-wrap gap-2">
             <Button
               variant="primary"
@@ -252,15 +306,18 @@ function RoutinePage({
             <Button
               variant="danger"
               onClick={() => {
-                if (confirm(`Delete the routine “${routine.title}”?`)) {
-                  void ok(
-                    context.request(`${scope.api}/${name}`, {
-                      method: "DELETE",
-                    }),
-                  ).then(() => {
-                    location.hash = context.href("");
-                  });
-                }
+                void ask({
+                  title: `Delete the routine “${routine.title}”?`,
+                  confirm: "Delete",
+                  danger: true,
+                }).then(async (yes) => {
+                  if (!yes) {
+                    return;
+                  }
+
+                  await api.delete(path);
+                  location.hash = pageAt("");
+                });
               }}
             >
               Delete
@@ -268,13 +325,13 @@ function RoutinePage({
           </div>
         </div>
       )}
-      {failure !== undefined && (
-        <p className="mt-3 text-ui text-failed">{failure}</p>
-      )}
+      <ErrorText size="inherit" className="mt-3 text-ui">
+        {failure}
+      </ErrorText>
       {routine?.webhook !== undefined && <Webhook {...routine.webhook} />}
       {editing && (creating || routine !== undefined) && (
         <Editor
-          context={context}
+          api={api}
           scope={scope}
           name={creating ? undefined : name}
           text={routine?.file ?? startText(0)}
@@ -282,7 +339,7 @@ function RoutinePage({
             setEditing(false);
 
             if (creating) {
-              location.hash = context.href(`${scope.page}${saved}`);
+              location.hash = pageAt(`${scope.prefix}${saved}`);
             } else {
               reload();
             }
@@ -298,16 +355,14 @@ function RoutinePage({
             {routine.runs.map((run) => (
               <RunRow
                 key={run.id}
-                href={context.href(
-                  `${scope.page}${name}/${run.sessionId ?? ""}`,
-                )}
+                href={pageAt(`${scope.prefix}${name}/${run.sessionId ?? ""}`)}
                 run={run}
               />
             ))}
           </ul>
         </Section>
       )}
-    </>
+    </Page>
   );
 }
 
@@ -349,13 +404,13 @@ function Webhook({
 }
 
 function Editor({
-  context,
+  api,
   scope,
   name,
   text: initial,
   onSaved,
 }: {
-  readonly context: WebContext;
+  readonly api: TypedClient;
   readonly scope: Scope;
   readonly name: string | undefined;
   readonly text: string;
@@ -377,19 +432,16 @@ function Editor({
       return;
     }
 
-    ok(
-      context.request(`${scope.api}/${encodeURIComponent(target)}`, {
-        method: "PUT",
-        body: JSON.stringify(value),
-      }),
-    ).then(
-      () => {
-        onSaved(target);
-      },
-      (error: unknown) => {
-        setFailure(String(error instanceof Error ? error.message : error));
-      },
-    );
+    api
+      .put(`${scope.prefix}routines/${encodeURIComponent(target)}`, value)
+      .then(
+        () => {
+          onSaved(target);
+        },
+        (error: unknown) => {
+          setFailure(failureOf(error));
+        },
+      );
   };
 
   return (
@@ -418,17 +470,16 @@ function Editor({
         </div>
       )}
       {name === undefined && (
-        <input
+        <TextInput
           aria-label="Name"
           placeholder="name, such as daily-issues"
           value={newName}
           onChange={(event) => {
             setNewName(event.target.value);
           }}
-          className={fieldClass}
         />
       )}
-      <textarea
+      <TextArea
         aria-label="Routine JSON"
         rows={14}
         spellCheck={false}
@@ -436,12 +487,12 @@ function Editor({
         onChange={(event) => {
           setText(event.target.value);
         }}
-        className={`${fieldClass} h-auto py-2 font-mono text-label`}
+        className="h-auto font-mono text-label"
       />
-      {failure !== undefined && (
-        <p className="text-ui text-failed">{failure}</p>
-      )}
-      <DeclaredEvents context={context} />
+      <ErrorText size="inherit" className="text-ui">
+        {failure}
+      </ErrorText>
+      <DeclaredEvents api={api} />
       <div>
         <Button type="submit" variant="primary">
           Save
@@ -453,12 +504,12 @@ function Editor({
 
 // What an event trigger can name, with the fields its filter and key read.
 function DeclaredEvents({
-  context,
+  api,
 }: {
-  readonly context: WebContext;
+  readonly api: TypedClient;
 }): ReactElement | null {
   const events = useLoaded(
-    async () => json<DeclaredEvent[]>(context.request("events")),
+    async () => api.get<DeclaredEvent[]>("events"),
     "events",
   ).value;
 
@@ -534,18 +585,14 @@ function RunRow({
 }
 
 function RunSession({
-  context,
   scope,
   name,
   sessionId,
 }: {
-  readonly context: WebContext;
   readonly scope: Scope;
   readonly name: string;
   readonly sessionId: string;
 }): ReactElement {
-  const { SessionView } = context;
-
   return (
     <SessionView
       sessionId={sessionId}
@@ -553,7 +600,7 @@ function RunSession({
       crumb={
         <>
           <a
-            href={context.href(`${scope.page}${name}`)}
+            href={pageAt(`${scope.prefix}${name}`)}
             className="shrink-0 font-normal text-fg-dim hover:text-fg hover:underline"
           >
             {name}
@@ -606,16 +653,16 @@ function summaryOf(routine: RoutineView): string {
 }
 
 function PendingWakeUps({
-  context,
   session,
-}: SessionPartProps): ReactElement | null {
+}: {
+  readonly session: MountedSession;
+}): ReactElement | null {
+  const api = useApi(routines);
+
   const { value, reload } = useLoaded(
-    async () =>
-      json<readonly WakeUp[]>(
-        context.request(`wakeups?session=${encodeURIComponent(session.id)}`),
-      ),
+    async () => api.get<readonly WakeUp[]>("wakeups", { session: session.id }),
     session.id,
-    { topics: ["routines.wakeups"] },
+    { changes: ["wakeups"] },
   );
 
   if (value === undefined || value.length === 0) {
@@ -641,12 +688,10 @@ function PendingWakeUps({
           </time>
           <Button
             variant="ghost"
-            className="h-6 px-2"
+            size="xs"
             aria-label={`Cancel wake-up: ${wakeUp.reason}`}
             onClick={() => {
-              void ok(
-                context.request(`wakeups/${wakeUp.id}`, { method: "DELETE" }),
-              ).finally(reload);
+              void api.delete(`wakeups/${wakeUp.id}`).finally(reload);
             }}
           >
             Cancel
@@ -657,7 +702,7 @@ function PendingWakeUps({
   );
 }
 
-function WakeUpNotice({ data }: NoticeProps): ReactElement {
+function WakeUpNotice({ data }: { readonly data: unknown }): ReactElement {
   const { reason } = (data ?? {}) as { reason?: unknown };
 
   return (
@@ -670,7 +715,13 @@ function WakeUpNotice({ data }: NoticeProps): ReactElement {
   );
 }
 
-function RoutineNotice({ data, text }: NoticeProps): ReactElement {
+function RoutineNotice({
+  data,
+  text,
+}: {
+  readonly data: unknown;
+  readonly text: string;
+}): ReactElement {
   const { title } = (data ?? {}) as { title?: unknown };
 
   return (

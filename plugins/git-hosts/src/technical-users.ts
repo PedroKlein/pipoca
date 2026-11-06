@@ -1,258 +1,36 @@
 import { createSign } from "node:crypto";
-import {
-  BadRequest,
-  isObject,
-  type PluginConfig,
-  type PluginStore,
-} from "@pipoca/plugins";
+import type { Urls } from "@pipoca/plugins";
+import type { TechnicalUserItem } from "../plugin";
 import { HostRefused, reach } from "./github";
 import type { HostConfig } from "./hosts";
 
-// Team work's id among a technical user's people (ADR 0064).
-export const teamOwner = "team";
-
 // A bot identity on a git host that an admin registered (ADR 0060).
-export type TechnicalUser = AppUser | TokenUser;
+export type TechnicalUser = TechnicalUserItem;
 
-interface Common {
-  readonly name: string;
-  readonly host: string;
-  // The people who may have their Sessions act as it, by user id.
-  readonly users: readonly string[];
+export type AppUser = TechnicalUser & {
+  readonly app: NonNullable<TechnicalUser["app"]>;
+};
+
+export function isApp(user: TechnicalUser): user is AppUser {
+  return user.app !== undefined;
 }
 
-export interface AppUser extends Common {
-  readonly app: {
-    readonly id: number;
-    readonly slug: string;
-    // The App's page on the host, where it is installed.
-    readonly url: string;
-    readonly privateKey: string;
-    readonly webhookSecret: string | undefined;
-    // Where the host sends the App's events, under the plugin's hooks.
-    readonly hook: string;
-  };
-}
-
-export interface TokenUser extends Common {
-  readonly login: string;
-  readonly token: string;
-}
-
-export interface TechnicalUsers {
-  readonly list: () => readonly TechnicalUser[];
-  readonly get: (name: string) => TechnicalUser | undefined;
-  readonly add: (user: TechnicalUser) => void;
-  readonly remove: (name: string) => boolean;
-  // Makes it the one team work signs in as on its host, or stops that.
-  readonly setTeam: (name: string, team: boolean) => boolean;
-}
-
-const namePattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
-
-// Technical users live under the plugin's key in pipoca.json, beside the
-// hosts, with their secrets sealed (ADR 0039). One that stops fitting is
-// logged and left out, and the others still work.
-export function technicalUsers(
-  config: PluginConfig,
-  store: PluginStore,
-  log: (message: string, fields?: Readonly<Record<string, unknown>>) => void,
-): TechnicalUsers {
-  const sealedFor = (name: string): string => `technical-user ${name}`;
-
-  const read = (): readonly unknown[] => {
-    const value = config.get();
-    const listed = isObject(value) ? value["technicalUsers"] : undefined;
-
-    return Array.isArray(listed) ? listed : [];
-  };
-
-  const list = (): readonly TechnicalUser[] =>
-    read().flatMap((item, index) => {
-      try {
-        return [
-          userOf(item, (sealed, name) => store.open(sealed, sealedFor(name))),
-        ];
-      } catch (failure) {
-        log("a technical user in the config file doesn't fit", {
-          index,
-          error: failure instanceof Error ? failure.message : String(failure),
-        });
-
-        return [];
-      }
-    });
-
-  const write = (items: readonly unknown[]): void => {
-    const value = config.get();
-
-    config.set({
-      ...(isObject(value) ? value : {}),
-      technicalUsers: items,
-    });
-  };
-
-  const nameOf = (item: unknown): unknown =>
-    isObject(item) ? item["name"] : undefined;
-
-  return {
-    list,
-    get: (name) => list().find((user) => user.name === name),
-    add: (user) => {
-      if (!namePattern.test(user.name)) {
-        throw new BadRequest(
-          "a technical user's name is lower-case letters, digits and dashes",
-        );
-      }
-
-      if (read().some((item) => nameOf(item) === user.name)) {
-        throw new BadRequest(`there is a technical user ${user.name} already`);
-      }
-
-      const seal = (secret: string): string =>
-        store.seal(secret, sealedFor(user.name));
-
-      write([
-        ...read(),
-        "app" in user
-          ? {
-              name: user.name,
-              host: user.host,
-              users: user.users,
-              app: {
-                id: user.app.id,
-                slug: user.app.slug,
-                url: user.app.url,
-                privateKey: seal(user.app.privateKey),
-                ...(user.app.webhookSecret !== undefined && {
-                  webhookSecret: seal(user.app.webhookSecret),
-                }),
-                hook: user.app.hook,
-              },
-            }
-          : {
-              name: user.name,
-              host: user.host,
-              users: user.users,
-              login: user.login,
-              token: seal(user.token),
-            },
-      ]);
-    },
-    setTeam: (name, team) => {
-      const chosen = list().find((user) => user.name === name);
-
-      if (chosen === undefined) {
-        return false;
-      }
-
-      write(
-        read().map((item) => {
-          if (!isObject(item) || item["host"] !== chosen.host) {
-            return item;
-          }
-
-          const others = (
-            Array.isArray(item["users"]) ? (item["users"] as unknown[]) : []
-          ).filter((each) => each !== teamOwner);
-
-          return {
-            ...item,
-            users:
-              team && item["name"] === name ? [...others, teamOwner] : others,
-          };
-        }),
-      );
-
-      return true;
-    },
-    remove: (name) => {
-      const before = read();
-      const after = before.filter((item) => nameOf(item) !== name);
-
-      if (after.length === before.length) {
-        return false;
-      }
-
-      write(after);
-
-      return true;
-    },
-  };
-}
-
-function userOf(
-  item: unknown,
-  open: (sealed: string, name: string) => string,
-): TechnicalUser {
-  if (!isObject(item)) {
-    throw new BadRequest("must be an object");
-  }
-
-  const name = text(item["name"], "name");
-  const host = text(item["host"], "host");
-  const { app, users = [] } = item;
-
-  if (
-    !Array.isArray(users) ||
-    !users.every((each): each is string => typeof each === "string")
-  ) {
-    throw new BadRequest("users must be a list of user ids");
-  }
-
-  if (app === undefined) {
-    return {
-      name,
-      host,
-      users,
-      login: text(item["login"], "login"),
-      token: open(text(item["token"], "token"), name),
-    };
-  }
-
-  if (!isObject(app) || typeof app["id"] !== "number") {
-    throw new BadRequest("app must hold the App's id");
-  }
-
-  const secret = app["webhookSecret"];
-
-  return {
-    name,
-    host,
-    users,
-    app: {
-      id: app["id"],
-      slug: text(app["slug"], "app.slug"),
-      url: text(app["url"], "app.url"),
-      privateKey: open(text(app["privateKey"], "app.privateKey"), name),
-      webhookSecret:
-        secret === undefined
-          ? undefined
-          : open(text(secret, "app.webhookSecret"), name),
-      hook: text(app["hook"], "app.hook"),
-    },
-  };
-}
-
-function text(value: unknown, field: string): string {
-  if (typeof value !== "string" || value === "") {
-    throw new BadRequest(`${field} must be text`);
-  }
-
-  return value;
+// Who its commits and comments show as.
+export function botLogin(user: TechnicalUser): string {
+  return user.app === undefined ? (user.login ?? "") : `${user.app.slug}[bot]`;
 }
 
 // What a GitHub App manifest asks for: enough to clone, push, open and
 // review pull requests, and to hear about them (ADR 0060).
 export function appManifest(
   name: string,
-  origin: string,
+  urls: Urls,
   hook: string | undefined,
 ): Readonly<Record<string, unknown>> {
   return {
     name,
-    url: origin,
-    redirect_url: `${origin}/api/plugins/git-hosts/app-created`,
+    url: new URL(urls.public("")).origin,
+    redirect_url: urls.public("app-created"),
     public: false,
     default_permissions: {
       contents: "write",
@@ -265,7 +43,7 @@ export function appManifest(
     },
     ...(hook !== undefined && {
       hook_attributes: {
-        url: `${origin}/api/plugins/git-hosts/hooks/${hook}`,
+        url: urls.public(`hooks/${hook}`),
         active: true,
       },
       default_events: [
@@ -281,7 +59,7 @@ export function appManifest(
   };
 }
 
-export interface CreatedApp {
+interface CreatedApp {
   readonly id: number;
   readonly slug: string;
   readonly url: string;
@@ -340,11 +118,12 @@ export async function convertManifest(
 export async function installationsOf(
   host: HostConfig,
   app: AppUser["app"],
+  now: number,
 ): Promise<readonly { readonly id: number; readonly account: string }[]> {
   const response = await reach(host, `${host.api}/app/installations`, {
     headers: {
       accept: "application/vnd.github+json",
-      authorization: `Bearer ${appJwt(app.id, app.privateKey)}`,
+      authorization: `Bearer ${appJwt(app.id, app.privateKey, now)}`,
     },
   });
 
@@ -370,8 +149,8 @@ export async function installationsOf(
 
 // The App signs in as itself with a short JWT, which GitHub takes for ten
 // minutes at most. It starts a minute back for clocks that drift.
-function appJwt(id: number, privateKey: string): string {
-  const now = Math.floor(Date.now() / 1000);
+function appJwt(id: number, privateKey: string, at: number): string {
+  const now = Math.floor(at / 1000);
 
   const part = (value: unknown): string =>
     Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -387,6 +166,7 @@ export async function installationToken(
   host: HostConfig,
   app: AppUser["app"],
   installation: number,
+  now: number,
 ): Promise<{ readonly token: string; readonly expiresAt: number }> {
   const response = await reach(
     host,
@@ -395,7 +175,7 @@ export async function installationToken(
       method: "POST",
       headers: {
         accept: "application/vnd.github+json",
-        authorization: `Bearer ${appJwt(app.id, app.privateKey)}`,
+        authorization: `Bearer ${appJwt(app.id, app.privateKey, now)}`,
       },
     },
   );

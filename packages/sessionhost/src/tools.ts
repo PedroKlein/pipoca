@@ -7,7 +7,7 @@ import {
 import type { ToolResult, ToolSpec } from "@pipoca/protocol";
 import { repairArguments } from "./arguments";
 
-export interface ServerToolCalls {
+interface ServerToolCalls {
   readonly tools: readonly ToolDefinition[];
   readonly result: (id: string, result: ToolResult) => void;
   readonly cancelAll: () => void;
@@ -17,11 +17,45 @@ export interface ServerToolCalls {
 // call, so a call gives up instead of keeping the turn running forever.
 const resultTimeoutMs = 5 * 60_000;
 
+// A tool's spec as Pi takes it, for the server's tools and a Session part's.
+export function piToolOf(
+  spec: ToolSpec,
+): Omit<ToolDefinition, "execute" | "renderCall" | "renderResult"> {
+  // Pi shows a namespace's instructions only to codemode scripts, so they go
+  // in the rules the prompt lists for declared tools.
+  const guidelines = [
+    ...(spec.namespace?.instructions === undefined
+      ? []
+      : [spec.namespace.instructions]),
+    ...(spec.prompt?.guidelines ?? []),
+  ];
+
+  return {
+    name: spec.name,
+    label: spec.label ?? spec.name,
+    description: spec.description,
+    parameters: Type.Unsafe<unknown>(spec.parameters),
+    prepareArguments: (args) => repairArguments(args, spec.parameters),
+    ...(spec.exposure && { exposure: spec.exposure }),
+    ...(spec.namespace && { namespace: spec.namespace }),
+    ...(spec.prompt && { promptSnippet: spec.prompt.snippet }),
+    ...(guidelines.length > 0 && { promptGuidelines: guidelines }),
+    ...(spec.sequential === true && { executionMode: "sequential" }),
+    ...(spec.annotations && { annotations: spec.annotations }),
+  };
+}
+
 // Tools served by server plugins (ADR 0015): a call goes up the stream and
 // its result comes back as a tool_result command.
 export function serverTools(
   specs: readonly ToolSpec[],
   call: (id: string, name: string, input: unknown) => Promise<void>,
+  // Whether the person lets a call of a tool that asks run.
+  allowed: (
+    name: string,
+    input: unknown,
+    signal: AbortSignal | undefined,
+  ) => Promise<boolean>,
   timeoutMs = resultTimeoutMs,
 ): ServerToolCalls {
   const pending = new Map<
@@ -31,20 +65,12 @@ export function serverTools(
 
   const tools = specs.map((spec) =>
     defineTool({
-      name: spec.name,
-      label: spec.name,
-      description: spec.description,
-      parameters: Type.Unsafe<unknown>(spec.parameters),
-      prepareArguments: (args) => repairArguments(args, spec.parameters),
-      ...(spec.exposure && { exposure: spec.exposure }),
-      ...(spec.namespace && { namespace: spec.namespace }),
-      // Pi shows a namespace's instructions only to codemode scripts, so
-      // they go in the rules the prompt lists for declared tools.
-      ...(spec.namespace?.instructions !== undefined && {
-        promptGuidelines: [spec.namespace.instructions],
-      }),
-      ...(spec.annotations && { annotations: spec.annotations }),
+      ...piToolOf(spec),
       async execute(_toolCallId, input, signal) {
+        if (spec.asks === true && !(await allowed(spec.name, input, signal))) {
+          throw new Error("The person said no.");
+        }
+
         const id = randomUUID();
 
         const abort = () => {
@@ -81,7 +107,9 @@ export function serverTools(
 
           return {
             content: [{ type: "text", text: result.text }],
-            details: result.opened ? { opened: result.opened } : {},
+            details: result.opened
+              ? { opened: result.opened }
+              : (result.details ?? {}),
           };
         } finally {
           clearTimeout(timer);

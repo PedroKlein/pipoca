@@ -1,5 +1,4 @@
-import { randomUUID } from "node:crypto";
-import type { PluginStore } from "@pipoca/plugins";
+import type { Store } from "@pipoca/plugins";
 import type { Preferences, PullWatch } from "./model";
 import type { PullRef, PullState, Remark } from "./pulls";
 
@@ -20,8 +19,6 @@ export interface Watch extends PullRef {
   readonly autoFix: boolean;
   readonly briefed: boolean;
   readonly seen: Seen | null;
-  // News a Session that was offline hasn't had yet.
-  readonly pending: string | null;
   readonly view: PullWatch;
 }
 
@@ -53,42 +50,15 @@ interface Row {
   auto_fix: number;
   briefed: number;
   seen: string | null;
-  pending: string | null;
   view: string | null;
 }
 
-const watches = `"git-hosts_watches"`;
-const preferences = `"git-hosts_preferences"`;
+const watches = "git_hosts_watches";
+const preferences = "git_hosts_preferences";
 
 // Watched pull requests and each person's choices are runtime data, so they
 // live in SQLite (ADR 0051).
-export function watchStore(store: PluginStore): WatchStore {
-  store.exec(`
-    create table if not exists ${watches} (
-      id text primary key,
-      session_id text not null,
-      user_id text not null,
-      url text not null,
-      host text not null,
-      repository text not null,
-      number integer not null,
-      auto_fix integer not null,
-      briefed integer not null default 0,
-      seen text,
-      pending text,
-      view text,
-      unique (session_id, url)
-    )
-  `);
-
-  store.exec(`
-    create table if not exists ${preferences} (
-      user_id text primary key,
-      auto_fix integer not null,
-      reply integer not null
-    )
-  `);
-
+export function watchStore(store: Store): WatchStore {
   const watchOf = (row: Row): Watch => {
     const base = {
       id: row.id,
@@ -105,7 +75,6 @@ export function watchStore(store: PluginStore): WatchStore {
       ...base,
       briefed: row.briefed === 1,
       seen: row.seen === null ? null : (JSON.parse(row.seen) as Seen),
-      pending: row.pending,
       view:
         row.view === null
           ? {
@@ -124,9 +93,7 @@ export function watchStore(store: PluginStore): WatchStore {
   };
 
   const select = (where: string, ...params: (string | number)[]) =>
-    (store.all(`select * from ${watches} ${where}`, ...params) as Row[]).map(
-      watchOf,
-    );
+    store.all<Row>(`select * from ${watches} ${where}`, ...params).map(watchOf);
 
   return {
     all: () => select("order by id"),
@@ -136,7 +103,7 @@ export function watchStore(store: PluginStore): WatchStore {
     add: (sessionId, userId, url, ref, autoFix) => {
       store.run(
         `insert into ${watches} (id, session_id, user_id, url, host, repository, number, auto_fix) values (?, ?, ?, ?, ?, ?, ?, ?) on conflict (session_id, url) do nothing`,
-        randomUUID(),
+        Bun.randomUUIDv7(),
         sessionId,
         userId,
         url,
@@ -174,9 +141,6 @@ export function watchStore(store: PluginStore): WatchStore {
                 change.seen === null ? null : JSON.stringify(change.seen),
               ] as [string, string | null],
             ]),
-        ...(change.pending === undefined
-          ? []
-          : [["pending", change.pending] as [string, string | null]]),
         ...(change.view === undefined
           ? []
           : [["view", JSON.stringify(change.view)] as [string, string]]),
@@ -194,10 +158,10 @@ export function watchStore(store: PluginStore): WatchStore {
       store.run(`delete from ${watches} where id = ?`, id);
     },
     preferences: (userId) => {
-      const [row] = store.all(
+      const row = store.get<{ auto_fix: number; reply: number }>(
         `select auto_fix, reply from ${preferences} where user_id = ?`,
         userId,
-      ) as { auto_fix: number; reply: number }[];
+      );
 
       return row === undefined
         ? { autoFix: true, reply: false }

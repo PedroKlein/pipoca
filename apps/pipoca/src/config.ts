@@ -8,8 +8,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { HttpError, type PluginConfig } from "@pipoca/plugins";
-import type { Log } from "@pipoca/providers";
+import { pluginSwitches } from "@pipoca/pluginhost";
+import { HttpError } from "@pipoca/plugins";
+import type { ConfigKey } from "@pipoca/plugins/host";
+import type { Log } from "@pipoca/protocol";
 
 // The config folder's pipoca.json, a key per plugin (ADR 0039). People edit
 // it by hand and plugins through their UI, so it is read again whenever it
@@ -19,15 +21,8 @@ export function configFolder(
   dir: string,
   log: Log,
   locked?: string,
-): (plugin: string) => PluginConfig {
+): (plugin: string) => ConfigKey {
   const file = join(dir, "pipoca.json");
-  const oldFile = join(dir, "pi-cloud.json");
-
-  // The product was called Pi Cloud before ADR 0042.
-  if (!existsSync(file) && existsSync(oldFile)) {
-    renameSync(oldFile, file);
-    log("config file renamed", { from: oldFile, to: file });
-  }
 
   const own = watched(file, log);
   const fixed = locked === undefined ? undefined : watched(locked, log);
@@ -74,6 +69,21 @@ export function configFolder(
     },
     lockedIn: () => lockedIn(plugin),
   });
+}
+
+// The installed plugins turned on under "plugins" in pipoca.json, which load
+// when the server starts.
+export function installedTurnedOn(
+  dir: string,
+  log: Log,
+  locked?: string,
+): (id: string) => boolean {
+  const switches = pluginSwitches(
+    configFolder(dir, log, locked)("plugins"),
+    log,
+  );
+
+  return (id) => switches.get(id).personal === true;
 }
 
 // A JSON object file, read again once it changes. Readers keep the last
@@ -160,7 +170,7 @@ export interface ConfigText extends ConfigEntry {
   readonly version: string | null;
 }
 
-export interface ConfigRefusal {
+interface ConfigRefusal {
   readonly changed: boolean;
   readonly reason: string;
 }

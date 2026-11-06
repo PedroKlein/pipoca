@@ -1,4 +1,4 @@
-import type { PluginStore } from "@pipoca/plugins";
+import type { Store } from "@pipoca/plugins";
 
 // An Environment whose runner the server starts on its own machine (ADR
 // 0053). The runner takes up to capacity Sessions at once, shares the listed
@@ -30,39 +30,57 @@ export const defaultSettings: LocalSettings = {
   folders: [],
 };
 
-export interface SettingsStore {
+interface SettingsStore {
   readonly get: (environmentId: string) => LocalSettings | undefined;
   readonly set: (environmentId: string, settings: LocalSettings) => void;
   readonly remove: (environmentId: string) => void;
 }
 
-export function settingsStore(store: PluginStore): SettingsStore {
-  store.exec(`create table if not exists local_environments (
-    environment_id text primary key,
-    settings text not null
-  )`);
-
+export function settingsStore(store: Store): SettingsStore {
   return {
     get: (environmentId) => {
-      const [row] = store.all(
-        "select settings from local_environments where environment_id = ?",
+      const row = store.get<{ capacity: number; idle_seconds: number }>(
+        "select capacity, idle_seconds from local_environments where environment_id = ?",
         environmentId,
-      ) as { settings: string }[];
+      );
 
       return (
         row && {
-          ...defaultSettings,
-          ...(JSON.parse(row.settings) as Partial<LocalSettings>),
+          capacity: row.capacity,
+          idleSeconds: row.idle_seconds,
+          folders: store
+            .all<{ path: string }>(
+              "select path from local_folders where environment_id = ? order by position",
+              environmentId,
+            )
+            .map(({ path }) => path),
         }
       );
     },
     set: (environmentId, settings) => {
-      store.run(
-        `insert into local_environments (environment_id, settings) values (?, ?)
-         on conflict (environment_id) do update set settings = excluded.settings`,
-        environmentId,
-        JSON.stringify(settings),
-      );
+      store.transaction(() => {
+        store.run(
+          `insert into local_environments (environment_id, capacity, idle_seconds) values (?, ?, ?)
+           on conflict (environment_id) do update set capacity = excluded.capacity, idle_seconds = excluded.idle_seconds`,
+          environmentId,
+          settings.capacity,
+          settings.idleSeconds,
+        );
+
+        store.run(
+          "delete from local_folders where environment_id = ?",
+          environmentId,
+        );
+
+        settings.folders.forEach((path, position) => {
+          store.run(
+            "insert into local_folders (environment_id, position, path) values (?, ?, ?)",
+            environmentId,
+            position,
+            path,
+          );
+        });
+      });
     },
     remove: (environmentId) => {
       store.run(

@@ -1,12 +1,8 @@
-import {
-  json,
-  useLoaded,
-  type WebContext,
-  type WebPlugin,
-} from "@pipoca/plugins/web";
+import { defineWeb, useLoaded, useApi } from "@pipoca/plugins/web";
 import {
   Badge,
   Button,
+  ErrorText,
   Icon,
   initialsOf,
   Row,
@@ -15,6 +11,7 @@ import {
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import type { Profile } from "@pipoca/protocol";
+import { logins } from "../plugin";
 import type { Account } from "../src/model";
 import { ConnectForm, ConnectionCard } from "./connect";
 import { layerName } from "./layers";
@@ -22,20 +19,22 @@ import { ProfileLogins } from "./profile";
 import { modelStep } from "./setup";
 import { TeamCredentials } from "./team";
 
-export const logins: WebPlugin = {
-  name: "logins",
-  settingsParts: { Accounts, Profile: ProfileLogins },
-  setupStep: modelStep,
-  hub: {
-    setup: {
-      credentials: {
-        label: "Credentials",
-        group: "runs-on",
-        Page: TeamCredentials,
-      },
+export const web = defineWeb(logins, {
+  setup: [modelStep],
+  pages: [
+    {
+      path: "credentials",
+      label: "Credentials",
+      area: "setup",
+      group: "runs-on",
+      Page: TeamCredentials,
     },
+  ],
+  slots: {
+    "settings.accounts": Accounts,
+    "settings.profile": ProfileLogins,
   },
-};
+});
 
 function layerPlace(
   layer: Account["logins"][number]["layer"],
@@ -55,19 +54,17 @@ const typeLabels = {
   api_key: "API key",
 } as const;
 
-function Accounts({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement | null {
+function Accounts(): ReactElement | null {
+  const api = useApi(logins);
+
   const { value, reload } = useLoaded(
-    async () => json<Account>(context.request("account")),
+    async () => api.get<Account>("account"),
     "account",
-    { topics: ["logins.logins"] },
+    { changes: ["logins"] },
   );
 
   const { value: profiles = [] } = useLoaded(
-    async () => json<readonly Profile[]>(context.request("/api/profiles")),
+    async () => api.get<readonly Profile[]>("/api/profiles"),
     "profiles",
     { topics: ["profiles"] },
   );
@@ -93,8 +90,8 @@ function Accounts({
     .sort()
     .map((key) => ({ key, signedIn: stored.has(key) }));
 
-  const send = (path: string, init: RequestInit): void => {
-    json(context.request(path, init)).then(
+  const send = (call: Promise<unknown>): void => {
+    call.then(
       () => {
         setChoosing(false);
         setError(undefined);
@@ -130,7 +127,6 @@ function Accounts({
         )}
         {value.connection === undefined && choosing && (
           <ConnectForm
-            context={context}
             send={send}
             admin={value.admin}
             onClose={() => {
@@ -138,11 +134,7 @@ function Accounts({
             }}
           />
         )}
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
         <Rows label="Your model logins">
           {value.logins.length === 0 && (
             <Row
@@ -169,12 +161,11 @@ function Accounts({
                   variant="ghost"
                   aria-label={`Log out of ${login.provider} in ${layerName(login.layer, profiles)}`}
                   onClick={() => {
-                    void json(
-                      context.request(
+                    void api
+                      .delete(
                         `credentials/${encodeURIComponent(login.provider)}?layer=${login.layer}`,
-                        { method: "DELETE" },
-                      ),
-                    ).then(reload, reload);
+                      )
+                      .then(reload, reload);
                   }}
                 >
                   Log out
@@ -215,9 +206,7 @@ function Accounts({
                     variant="ghost"
                     aria-label={`Log out of ${name}`}
                     onClick={() => {
-                      send(`mcp/${encodeURIComponent(key)}`, {
-                        method: "DELETE",
-                      });
+                      send(api.delete(`mcp/${encodeURIComponent(key)}`));
                     }}
                   >
                     Sign out
@@ -228,10 +217,7 @@ function Accounts({
                     aria-label={`Sign in to ${name}`}
                     disabled={value.connection?.state === "running"}
                     onClick={() => {
-                      send("connect-mcp", {
-                        method: "POST",
-                        body: JSON.stringify({ server: key }),
-                      });
+                      send(api.post("connect-mcp", { server: key }));
                     }}
                   >
                     Sign in

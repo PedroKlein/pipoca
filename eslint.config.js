@@ -96,14 +96,13 @@ export default tseslint.config(
     },
   },
   {
-    // An installed plugin's parts are loaded by their default export
-    // (docs/plugins.md).
-    files: ["examples/plugins/**/*.ts", "examples/plugins/**/*.tsx"],
-    rules: { "no-restricted-exports": "off" },
-  },
-  {
     // Built-in plugins use only what a third-party plugin gets (ADR 0038).
-    files: ["plugins/**/*.ts", "plugins/**/*.tsx"],
+    files: [
+      "plugins/**/*.ts",
+      "plugins/**/*.tsx",
+      "examples/plugins/**/*.ts",
+      "examples/plugins/**/*.tsx",
+    ],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -111,9 +110,9 @@ export default tseslint.config(
           patterns: [
             {
               regex:
-                "^@pipoca/(?!(plugins|plugins/testing|plugins/web|protocol|ui)$)",
+                "^@pipoca/(?!(plugins|plugins/web|plugins/web/testing|protocol|testing|testing/until|ui|[a-z][a-z0-9-]*/plugin)$)",
               message:
-                "Plugins import only @pipoca/plugins, @pipoca/protocol and @pipoca/ui.",
+                "Plugins import only @pipoca/plugins, @pipoca/protocol, @pipoca/testing, @pipoca/ui and another plugin's definition, as @pipoca/<id>/plugin.",
             },
             {
               regex: "^\\.\\./\\.\\./",
@@ -122,6 +121,177 @@ export default tseslint.config(
           ],
         },
       ],
+    },
+  },
+  {
+    // A plugin's test may run another plugin's server part beside its own,
+    // such as the one whose events it hears.
+    files: ["plugins/*/src/**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex:
+                "^@pipoca/(?!(plugins|plugins/web|plugins/web/testing|protocol|testing|testing/until|ui|[a-z][a-z0-9-]*/plugin|[a-z][a-z0-9-]*/server)$)",
+              message:
+                "Plugin tests import only what plugins do, and another plugin's server part as @pipoca/<id>/server.",
+            },
+            {
+              regex: "^\\.\\./\\.\\./",
+              message: "Plugins don't import files outside their own folder.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // Plugins tell time by their context's clock and wait through its
+    // schedule, so a test's clock moves them too.
+    files: [
+      "plugins/*/*.ts",
+      "plugins/*/src/**/*.ts",
+      "plugins/*/src/**/*.tsx",
+      "examples/plugins/*/*.ts",
+      "examples/plugins/*/src/**/*.ts",
+    ],
+    ignores: ["plugins/*/src/**/*.test.ts"],
+    rules: {
+      "no-restricted-globals": [
+        "error",
+        ...["setTimeout", "setInterval"].map((name) => ({
+          name,
+          message: "Use schedule.at or schedule.every.",
+        })),
+      ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "MemberExpression[object.name='Date'][property.name='now']",
+          message: "Use clock.now().",
+        },
+        {
+          selector: "NewExpression[callee.name='Date'][arguments.length=0]",
+          message: "Use new Date(clock.now()).",
+        },
+        {
+          selector:
+            "MemberExpression[object.name='Bun'][property.name='sleep']",
+          message: "Use schedule.at or schedule.every.",
+        },
+        {
+          selector: "ImportSpecifier[imported.name=/^set(Timeout|Interval)$/]",
+          message: "Use schedule.at or schedule.every.",
+        },
+      ],
+    },
+  },
+  {
+    // No plugin is special: the kernel reaches plugins only through the
+    // plugin registries.
+    files: [
+      "apps/**/*.ts",
+      "apps/**/*.tsx",
+      "packages/**/*.ts",
+      "packages/**/*.tsx",
+    ],
+    ignores: [
+      "apps/pipoca/src/registry-server.ts",
+      "apps/pipoca/src/registry-session.ts",
+      "apps/web/src/registry.ts",
+      // Until these plugins' tests move into the plugins.
+      "packages/sessionhost/src/host.test.ts",
+      "packages/sessionhost/src/subagents.test.ts",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex:
+                "^@pipoca/(?!(environments|people|pipoca/plugin-test|pluginhost|plugins|profiles|protocol|repositories|runner|sessionhost|sessions|testing|ui|web|workspaces)(/|$))",
+              message: "Only the plugin registries import plugins.",
+            },
+            {
+              regex: "^(\\.\\./)+plugins/",
+              message: "Only the plugin registries import plugins.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // Screens build from @pipoca/ui instead of copying its classes and
+    // elements (docs/design-system.md).
+    files: [
+      "apps/web/src/**/*.ts",
+      "apps/web/src/**/*.tsx",
+      "plugins/*/web/**/*.ts",
+      "plugins/*/web/**/*.tsx",
+    ],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...[
+          [
+            "rounded-lg border border-line bg-elevated",
+            "Use Card, cardClass, linkCardClass or popClass from @pipoca/ui.",
+          ],
+          [
+            "\\bbg-black\\b",
+            "Use bg-scrim behind a dialog; the palette has no black.",
+          ],
+          [
+            // Three digits only inside [..] or after a colon, so an
+            // anchor such as #add still passes.
+            "(^|[\\s\\[:])#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})\\b|(\\[|:\\s?)#[0-9a-fA-F]{3}\\b",
+            "Use a colour token from theme.css instead of a hex colour.",
+          ],
+          [
+            "\\buppercase\\b",
+            "Labels stay in sentence case (docs/design-system.md).",
+          ],
+        ].flatMap(([pattern, message]) => [
+          { selector: `Literal[value=/${pattern}/]`, message },
+          { selector: `TemplateElement[value.raw=/${pattern}/]`, message },
+        ]),
+        {
+          selector: "Identifier[name='fieldClass']",
+          message: "Use TextInput, TextArea or Select from @pipoca/ui.",
+        },
+        {
+          selector: "Identifier[name='PageTitle']",
+          message: "Give Page from @pipoca/ui its title and actions.",
+        },
+        {
+          selector: "JSXOpeningElement[name.name='select']",
+          message: "Use Select from @pipoca/ui.",
+        },
+        {
+          selector: "JSXOpeningElement[name.name='dialog']",
+          message: "Use Dialog or useConfirm from @pipoca/ui.",
+        },
+        {
+          selector:
+            "JSXOpeningElement[name.name='input']:has(JSXAttribute[name.name='type'][value.value='file'])",
+          message: "Use FileButton from @pipoca/ui.",
+        },
+      ],
+    },
+  },
+  {
+    // The app asks with useConfirm and shows errors in the page.
+    files: [
+      "apps/web/src/**/*.tsx",
+      "packages/ui/web/**/*.tsx",
+      "plugins/*/web/**/*.tsx",
+    ],
+    rules: {
+      "no-alert": "error",
     },
   },
   {

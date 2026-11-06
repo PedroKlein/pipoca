@@ -1,24 +1,28 @@
-import {
-  json,
-  useLoaded,
-  type WebContext,
-  type WebPlugin,
-} from "@pipoca/plugins/web";
+import { defineWeb, useApi, useConfig, useLoaded } from "@pipoca/plugins/web";
 import {
   Badge,
   Button,
+  cardClass,
+  Checkbox,
+  cn,
+  ErrorText,
   Field,
-  fieldClass,
   Icon,
   initialsOf,
-  PageTitle,
+  linkCardClass,
+  Notice,
+  Page,
   Row,
   Rows,
   Section,
   Segmented,
   Switch,
+  TextArea,
+  TextInput,
+  useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
+import { oidc } from "../plugin";
 import type {
   Account,
   ProviderInput,
@@ -26,97 +30,77 @@ import type {
   ProviderView,
 } from "../src/model";
 
-export const oidc: WebPlugin = {
-  name: "oidc",
-  SettingsSection,
-  settingsGroup: "server",
-  settingsParts: { Accounts },
-};
+export const web = defineWeb(oidc, {
+  settings: { group: "server", Section: SettingsSection },
+  slots: { "settings.accounts": Accounts },
+});
 
-function SettingsSection({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement | null {
-  const { value, reload } = useLoaded(
-    async () => json<Account>(context.request("account")),
+function SettingsSection(): ReactElement | null {
+  const api = useApi(oidc);
+
+  const { value } = useLoaded(
+    async () => api.get<Account>("account"),
     "account",
+    { changes: ["account"] },
   );
 
   const providers = useLoaded(
-    async () => json<readonly ProviderView[]>(context.request("providers")),
+    async () => api.get<readonly ProviderView[]>("providers"),
     "providers",
+    { changes: ["providers"] },
   );
 
   if (value?.admin !== true) {
     return null;
   }
 
-  const changed = (): void => {
-    providers.reload();
-    reload();
-  };
-
   return (
-    <>
-      <PageTitle description="How people get into this server, and who may join.">
-        Sign-in
-      </PageTitle>
+    <Page
+      title="Sign-in"
+      description="How people get into this server, and who may join."
+    >
       {value.lockedIn !== null && <LockedNotice file={value.lockedIn} />}
-      <Providers
-        context={context}
-        providers={providers.value}
-        locked={value.lockedIn !== null}
-        onChange={changed}
-      />
+      <Providers providers={providers.value} locked={value.lockedIn !== null} />
       <Rules
-        context={context}
         account={value}
         providers={providers.value}
         locked={value.lockedIn !== null}
-        onChange={changed}
       />
-    </>
+    </Page>
   );
 }
 
 function LockedNotice({ file }: { readonly file: string }): ReactElement {
   return (
-    <aside
-      aria-label="Set in a config file"
-      className="mt-6 flex items-start gap-3 rounded-lg bg-hover px-4 py-3"
+    <Notice
+      icon="lock"
+      className="mt-6"
+      title="Some of this is set in the server's config file"
+      action={
+        <Button
+          onClick={() => {
+            location.hash = "#settings/configuration";
+          }}
+        >
+          View file
+        </Button>
+      }
     >
-      <Icon name="lock" />
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="text-ui font-medium text-fg-strong">
-          Some of this is set in the server&apos;s config file
-        </span>
-        <span className="text-label text-fg-muted">
-          <code className="font-mono">{file}</code> sets oidc, so its providers
-          and who can join are read-only here.
-        </span>
-      </span>
-      <Button
-        onClick={() => {
-          location.hash = "#settings/configuration";
-        }}
-      >
-        View file
-      </Button>
-    </aside>
+      <code className="font-mono">{file}</code> sets oidc, so its providers and
+      who can join are read-only here.
+    </Notice>
   );
 }
 
 // The providers the person can sign in with, and which of them their user
 // is linked to.
-function Accounts({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement | null {
+function Accounts(): ReactElement | null {
+  const api = useApi(oidc);
+
   const { value, reload } = useLoaded(
-    async () => json<Account>(context.request("account")),
+    async () => api.get<Account>("account"),
     "account",
+    { changes: ["account"] },
   );
 
   if (value === undefined || value.providers.length === 0) {
@@ -146,7 +130,7 @@ function Accounts({
                 <Button
                   onClick={() => {
                     location.assign(
-                      `/api/plugins/oidc/link/${encodeURIComponent(provider.id)}`,
+                      `/api/ext/oidc/link/${encodeURIComponent(provider.id)}`,
                     );
                   }}
                 >
@@ -157,12 +141,11 @@ function Accounts({
                   <Button
                     variant="ghost"
                     onClick={() => {
-                      void json(
-                        context.request(
+                      void api
+                        .delete(
                           `identities/${encodeURIComponent(linked.issuer)}`,
-                          { method: "DELETE" },
-                        ),
-                      ).then(reload, reload);
+                        )
+                        .then(reload, reload);
                     }}
                   >
                     Unlink
@@ -222,33 +205,35 @@ const presets: readonly Preset[] = [
 ];
 
 function Providers({
-  context,
   providers,
   locked,
-  onChange,
 }: {
-  readonly context: WebContext;
   readonly providers: readonly ProviderView[] | undefined;
   readonly locked: boolean;
-  readonly onChange: () => void;
 }): ReactElement {
+  const api = useApi(oidc);
+  const [ask, asking] = useConfirm();
   const [editing, setEditing] = useState<ProviderView | Preset>();
 
   const changed = (): void => {
     setEditing(undefined);
-    onChange();
   };
 
   const remove = (provider: ProviderView): void => {
-    if (!confirm(`People won't be able to sign in with ${provider.label}.`)) {
-      return;
-    }
+    void ask({
+      title: `Remove ${provider.label}?`,
+      description: `People won't be able to sign in with ${provider.label}.`,
+      confirm: "Remove",
+      danger: true,
+    }).then((yes) => {
+      if (!yes) {
+        return;
+      }
 
-    void json(
-      context.request(`providers/${encodeURIComponent(provider.id)}`, {
-        method: "DELETE",
-      }),
-    ).then(changed, changed);
+      void api
+        .delete(`providers/${encodeURIComponent(provider.id)}`)
+        .then(changed, changed);
+    });
   };
 
   const existing =
@@ -256,12 +241,12 @@ function Providers({
 
   return (
     <Section title="Company sign-in">
+      {asking}
       {providers !== undefined && providers.length > 0 && (
         <Rows label="Providers">
           {providers.map((provider) => (
             <ProviderRow
               key={provider.id}
-              context={context}
               provider={provider}
               locked={locked}
               onEdit={() => {
@@ -277,13 +262,11 @@ function Providers({
           provider={existing}
           preset={existing === undefined ? (editing as Preset) : undefined}
           save={async (input) => {
-            await json(
-              context.request(
-                existing === undefined
-                  ? "providers"
-                  : `providers/${encodeURIComponent(existing.id)}`,
-                { method: "POST", body: JSON.stringify(input) },
-              ),
+            await api.post(
+              existing === undefined
+                ? "providers"
+                : `providers/${encodeURIComponent(existing.id)}`,
+              input,
             );
 
             changed();
@@ -311,7 +294,10 @@ function Providers({
                 onClick={() => {
                   setEditing(preset);
                 }}
-                className="flex h-full w-full cursor-pointer flex-col items-start gap-1 rounded-lg border border-line bg-elevated px-4 py-3.5 text-left shadow-xs hover:border-line-strong"
+                className={cn(
+                  linkCardClass,
+                  "flex h-full w-full cursor-pointer flex-col items-start gap-1 px-4 py-3.5 text-left",
+                )}
               >
                 <span className="text-ui font-medium text-fg-strong">
                   {preset.name}
@@ -327,16 +313,15 @@ function Providers({
 }
 
 function ProviderRow({
-  context,
   provider,
   locked,
   onEdit,
 }: {
-  readonly context: WebContext;
   readonly provider: ProviderView;
   readonly locked: boolean;
   readonly onEdit: () => void;
 }): ReactElement {
+  const api = useApi(oidc);
   const [test, setTest] = useState<ProviderTest | "testing">();
   const people = provider.signedInThisWeek;
 
@@ -361,11 +346,7 @@ function ProviderRow({
         <>
           {provider.label}
           {badge()}
-          {locked && (
-            <span className="inline-flex h-5 items-center rounded-full bg-hover px-2 text-caption font-medium text-fg-muted">
-              Config file
-            </span>
-          )}
+          {locked && <Badge>Config file</Badge>}
         </>
       }
       description={
@@ -375,9 +356,9 @@ function ProviderRow({
             signed in this week
           </span>
           {typeof test === "object" && test.error !== null && (
-            <span role="alert" className="text-failed">
+            <ErrorText inline size="inherit">
               {test.error}
-            </span>
+            </ErrorText>
           )}
         </span>
       }
@@ -388,17 +369,17 @@ function ProviderRow({
         onClick={() => {
           setTest("testing");
 
-          json<ProviderTest>(
-            context.request(
+          api
+            .post<ProviderTest>(
               `providers/${encodeURIComponent(provider.id)}/test`,
-              { method: "POST" },
-            ),
-          ).then(setTest, (reason: unknown) => {
-            setTest({
-              ok: false,
-              error: reason instanceof Error ? reason.message : String(reason),
+            )
+            .then(setTest, (reason: unknown) => {
+              setTest({
+                ok: false,
+                error:
+                  reason instanceof Error ? reason.message : String(reason),
+              });
             });
-          });
         }}
       >
         Test
@@ -417,18 +398,15 @@ function ProviderRow({
 }
 
 function Rules({
-  context,
   account,
   providers,
   locked,
-  onChange,
 }: {
-  readonly context: WebContext;
   readonly account: Account;
   readonly providers: readonly ProviderView[] | undefined;
   readonly locked: boolean;
-  readonly onChange: () => void;
 }): ReactElement {
+  const api = useApi(oidc);
   const [error, setError] = useState<string>();
   const [only] = providers?.length === 1 ? providers : [];
 
@@ -457,15 +435,9 @@ function Rules({
       adminEmails: only.adminEmails,
     };
 
-    json(
-      context.request(`providers/${encodeURIComponent(only.id)}`, {
-        method: "POST",
-        body: JSON.stringify(input),
-      }),
-    ).then(
+    api.post(`providers/${encodeURIComponent(only.id)}`, input).then(
       () => {
         setError(undefined);
-        onChange();
       },
       (reason: unknown) => {
         setError(reason instanceof Error ? reason.message : String(reason));
@@ -514,11 +486,9 @@ function Rules({
           description={
             <>
               {whoMayJoin(providers ?? [])}
-              {error !== undefined && (
-                <span role="alert" className="block text-failed">
-                  {error}
-                </span>
-              )}
+              <ErrorText inline size="inherit" className="block">
+                {error}
+              </ErrorText>
             </>
           }
         >
@@ -569,6 +539,7 @@ function ProviderForm({
   readonly cancel: () => void;
 }): ReactElement {
   const [error, setError] = useState<string>();
+  const secret = useSecretRef(provider?.id);
 
   const submit = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -622,11 +593,10 @@ function ProviderForm({
     placeholder?: string,
   ): ReactElement => (
     <Field label={label}>
-      <input
+      <TextInput
         name={name}
         defaultValue={provider?.[name] ?? starting[name]}
         placeholder={placeholder}
-        className={fieldClass}
       />
     </Field>
   );
@@ -637,12 +607,11 @@ function ProviderForm({
     placeholder: string,
   ): ReactElement => (
     <Field label={label}>
-      <textarea
+      <TextArea
         name={name}
         rows={2}
         defaultValue={provider?.[name].join("\n") ?? ""}
         placeholder={placeholder}
-        className={fieldClass}
       />
     </Field>
   );
@@ -655,7 +624,7 @@ function ProviderForm({
           ? `Edit ${provider.label}`
           : `New ${preset?.name ?? ""} sign-in`
       }
-      className="grid gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 md:grid-cols-2"
+      className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
     >
       {textField("label", "Button label", "Sign in with SAP IAS")}
       {textField(
@@ -664,13 +633,8 @@ function ProviderForm({
         preset?.issuerHint ?? "https://tenant.accounts.ondemand.com",
       )}
       {textField("clientId", "Client ID")}
-      <Field label={secretLabel(provider)}>
-        <input
-          name="clientSecret"
-          type="password"
-          autoComplete="off"
-          className={fieldClass}
-        />
+      <Field label={secretLabel(provider, secret)}>
+        <TextInput name="clientSecret" type="password" autoComplete="off" />
       </Field>
       {textField("groupsClaim", "Groups claim", "groups")}
       {textField("accessGroup", "Access group", "pipoca-users")}
@@ -679,10 +643,7 @@ function ProviderForm({
       {listField("allowedDomains", "Allowed domains", "example.com")}
       {listField("adminEmails", "Admin emails", "ana@example.com")}
       {provider?.hasClientSecret === true && (
-        <label className="flex items-center gap-2 text-fg-dim">
-          <input type="checkbox" name="removeSecret" />
-          Remove the client secret
-        </label>
+        <Checkbox name="removeSecret" label="Remove the client secret" />
       )}
       <div className="flex flex-wrap items-center gap-2 md:col-span-2">
         <Button variant="primary" type="submit">
@@ -699,16 +660,12 @@ function ProviderForm({
             Remove
           </Button>
         )}
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
       </div>
       <p className="text-caption text-fg-dim md:col-span-2">
         Register{" "}
         <code className="font-mono text-mono-sm">
-          {location.origin}/api/plugins/oidc/callback
+          {location.origin}/api/ext/oidc/callback
         </code>{" "}
         as the redirect URI with the provider.
       </p>
@@ -716,11 +673,21 @@ function ProviderForm({
   );
 }
 
-function secretLabel(provider: ProviderView | undefined): string {
-  const env = provider?.clientSecretEnv ?? null;
+// How the file holds the provider's client secret, such as { env: "NAME" }.
+function useSecretRef(id: string | undefined): unknown {
+  const config = useConfig(oidc);
+  const listed: unknown = config?.["providers"];
 
-  if (env !== null) {
-    return `Client secret (from ${env}; leave empty to keep it)`;
+  return Array.isArray(listed)
+    ? (listed as readonly { id?: unknown; clientSecret?: unknown }[]).find(
+        (each) => each.id === id,
+      )?.clientSecret
+    : undefined;
+}
+
+function secretLabel(provider: ProviderView | undefined, ref: unknown): string {
+  if (typeof ref === "object" && ref !== null && "env" in ref) {
+    return `Client secret (from ${String(ref.env)}; leave empty to keep it)`;
   }
 
   return provider?.hasClientSecret === true

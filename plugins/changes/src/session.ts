@@ -1,18 +1,17 @@
 import { relative } from "node:path";
-import type { SessionCloud, SessionPlugin } from "@pipoca/plugins";
+import { defineSession, type SessionContext } from "@pipoca/plugins";
+import { changes } from "../plugin";
 import { workspaceChanges } from "./changes";
 import { type Complete, pullRequestCommand } from "./pull-request";
 import type { CheckoutChanges } from "./report";
-export type { CheckoutChanges, PullRequest } from "./report";
 
 // Publishes what the Session changed in each git checkout of its workspace
 // when it starts and after every turn, and opens pull requests with /pr
 // (ADR 0021).
-export const changes: SessionPlugin = {
-  name: "changes",
-  extension: (cloud) => (pi) => {
-    const tracked = trackChanges(cloud);
-    const pullRequests = pullRequestCommand(cloud, tracked.refresh);
+export const session = defineSession(changes, (s) => {
+  s.extension((pi) => {
+    const tracked = trackChanges(s);
+    const pullRequests = pullRequestCommand(s, tracked.refresh);
 
     pi.registerCommand("pr", {
       description:
@@ -26,7 +25,7 @@ export const changes: SessionPlugin = {
 
           const reply = await ctx.modelRegistry.complete(model, {
             messages: [
-              { role: "user", content: prompt, timestamp: Date.now() },
+              { role: "user", content: prompt, timestamp: s.clock.now() },
             ],
           });
 
@@ -60,10 +59,15 @@ export const changes: SessionPlugin = {
       await pullRequests.settled();
       await tracked.settled();
     });
-  },
-};
+  });
+});
 
-function trackChanges({ publish, checkouts, log }: SessionCloud): {
+function trackChanges({
+  publish,
+  checkouts,
+  log,
+  clock,
+}: Pick<SessionContext, "publish" | "checkouts" | "log" | "clock">): {
   readonly refresh: (cwd: string) => void;
   readonly settled: () => Promise<void>;
 } {
@@ -72,7 +76,7 @@ function trackChanges({ publish, checkouts, log }: SessionCloud): {
 
   const collect = async (cwd: string): Promise<void> => {
     queued = false;
-    const started = Date.now();
+    const started = clock.now();
     const found: CheckoutChanges[] = [];
 
     for (const { path, base } of checkouts) {
@@ -99,7 +103,7 @@ function trackChanges({ publish, checkouts, log }: SessionCloud): {
       log("workspace changes", {
         files: found.reduce((sum, { fileCount }) => sum + fileCount, 0),
         truncated: found.some(({ truncated }) => truncated),
-        ms: Date.now() - started,
+        ms: clock.now() - started,
       });
     }
   };

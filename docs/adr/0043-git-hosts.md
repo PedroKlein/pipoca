@@ -1,6 +1,6 @@
 # 0043: Git Hosts
 
-- Status: accepted, amended 2026-10-29 (Sessions a plugin starts, [ADR 0038](0038-single-sign-on-and-admins.md))
+- Status: accepted, amended 2026-10-29 (Sessions a plugin starts, [ADR 0038](0038-single-sign-on-and-admins.md)), amended 2026-11-06 (the callback is `/api/ext/git-hosts/callback`; plugin routes moved under `/api/ext/<id>/` in the rebuild, [ADR 0068](0068-clean-rebuild.md#code-shape))
 - Date: 2026-10-28
 
 ## Context

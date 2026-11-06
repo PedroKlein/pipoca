@@ -11,18 +11,23 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { type ServerPlugin, settingSpecs } from "@pipoca/plugins";
-import {
-  capabilities,
-  type PluginManifest,
-  pluginEngine,
-} from "@pipoca/protocol";
-import type { Log } from "@pipoca/providers";
-import { Type } from "typebox";
+import type { PluginDefinition } from "@pipoca/plugins";
+import type { ServerPart } from "@pipoca/plugins/host";
+import type { Log, PluginManifest } from "@pipoca/protocol";
+import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
-import { bundleParts, type PluginParts, provideSdk } from "./bundle";
-import { builtInPlugins } from "./session-parts";
-import { fetchSource, type PluginSource } from "./sources";
+import { bundlePlugin, importedDefinition, type PluginParts } from "./bundle";
+import { kernelKeys } from "@pipoca/pluginhost";
+import { builtInPlugins, definedManifest } from "./built-in";
+import { definedParts, type Part } from "./parts";
+import { fetchSnapshot } from "@pipoca/repositories";
+
+// Where an installed plugin came from, and the exact version fetched: a git
+// commit, or a tarball's SHA-256 (ADR 0022).
+interface PluginSource {
+  readonly url: string;
+  readonly pinned: string;
+}
 
 // A plugin installed into the plugins folder, one folder each, named by its
 // id (ADR 0022). Only the ones turned on are built and imported, since that
@@ -30,7 +35,9 @@ import { fetchSource, type PluginSource } from "./sources";
 export interface InstalledPlugin {
   readonly manifest: PluginManifest;
   readonly on: boolean;
-  readonly server?: ServerPlugin;
+  // Its definePlugin and server part, once it is on.
+  readonly definition?: PluginDefinition;
+  readonly part?: ServerPart;
   // The web part's bundle.
   readonly web?: string;
   // The Session part's bundle, and its SHA-256 that runners ask for it by.
@@ -43,19 +50,19 @@ export interface InstalledPlugin {
   readonly digest?: string;
 }
 
-const switchesFile = "enabled.json";
 const sourceFile = ".source.json";
 
 // What the server makes or keeps in a plugin's folder itself.
 const reserved = new Set([sourceFile, ".build", "node_modules", ".git"]);
 const idPattern = /^[a-z][a-z0-9-]*$/;
 
+// Which are on comes from the plugins key in pipoca.json.
 export async function installedPlugins(
   root: string,
   log: Log,
+  isOn: (id: string) => boolean,
 ): Promise<InstalledPlugin[]> {
   const builtIn = new Set(builtInPlugins.map(({ id }) => id));
-  const on = await turnedOn(root);
 
   const folders = await readdir(root).catch((error: unknown) => {
     if (isMissing(error)) {
@@ -100,7 +107,7 @@ export async function installedPlugins(
 
       return [
         {
-          ...(await load(folder, name, on.includes(name))),
+          ...(await load(folder, name, isOn(name))),
           ...(source && { source }),
           digest: await digestOf(folder),
         },
@@ -117,49 +124,6 @@ export async function installedPlugins(
   }
 
   return plugins.flat();
-}
-
-let switching = Promise.resolve();
-
-// Takes effect when the server next starts. Writes go one at a time, so two
-// switches at once both land.
-export async function turnOn(
-  root: string,
-  id: string,
-  on: boolean,
-): Promise<void> {
-  const write = switching.then(async () => {
-    const others = (await turnedOn(root)).filter((each) => each !== id);
-    const next = on ? [...others, id].sort() : others;
-    const temporary = join(root, `.${switchesFile}.${randomUUID()}`);
-
-    await writeFile(temporary, `${JSON.stringify(next, null, 2)}\n`);
-    await rename(temporary, join(root, switchesFile));
-  });
-
-  switching = write.catch(() => undefined);
-
-  return write;
-}
-
-export async function turnedOn(root: string): Promise<string[]> {
-  try {
-    const ids: unknown = JSON.parse(
-      await readFile(join(root, switchesFile), "utf8"),
-    );
-
-    return Array.isArray(ids)
-      ? ids.filter((id): id is string => typeof id === "string")
-      : [];
-  } catch (error) {
-    // A file broken by hand turns every installed plugin off rather than
-    // keeping the server from starting.
-    if (isMissing(error) || error instanceof SyntaxError) {
-      return [];
-    }
-
-    throw error;
-  }
 }
 
 let changing = Promise.resolve();
@@ -189,15 +153,13 @@ export async function install(
     const staging = join(root, `.install-${randomUUID()}`);
 
     try {
-      const source = { url, pinned: await fetchSource(url, staging) };
+      const source = { url, pinned: await fetchSnapshot(url, staging) };
       const manifest = await stagedManifest(staging);
 
       if (taken(manifest.id) || (await isFolder(join(root, manifest.id)))) {
         throw new Error(`a plugin with the id ${manifest.id} is already here`);
       }
 
-      // A switch left from a plugin of this id removed by hand.
-      await turnOn(root, manifest.id, false);
       await writeSource(staging, source);
       await rename(staging, join(root, manifest.id));
 
@@ -214,8 +176,8 @@ export async function install(
 }
 
 // Fetches the newest version from where the plugin was installed from, to
-// run when the server restarts. Undefined when it already has it. A version
-// that asks for more than the one turned on is turned off first.
+// run when the server restarts. Undefined when it already has it. It may stay
+// on unless it asks for more than the version turned on.
 export async function update(
   root: string,
   id: string,
@@ -233,7 +195,7 @@ export async function update(
     try {
       const source = {
         url: installed.url,
-        pinned: await fetchSource(installed.url, staging),
+        pinned: await fetchSnapshot(installed.url, staging),
       };
 
       if (source.pinned === installed.pinned) {
@@ -247,10 +209,6 @@ export async function update(
       }
 
       const trusted = await stagedManifest(folder).catch(() => undefined);
-
-      if (trusted === undefined || asksForMore(trusted, manifest)) {
-        await turnOn(root, id, false);
-      }
 
       await writeSource(staging, source);
 
@@ -285,7 +243,7 @@ export async function update(
 
       return {
         manifest,
-        on: (await turnedOn(root)).includes(id),
+        on: trusted !== undefined && !asksForMore(trusted, manifest),
         source,
         digest: await digestOf(folder),
       };
@@ -295,23 +253,16 @@ export async function update(
   });
 }
 
-// Turning a plugin on trusted what it asked for and where its parts ran then.
+// Turning a plugin on trusted where its parts ran then.
 function asksForMore(trusted: PluginManifest, next: PluginManifest): boolean {
-  const had = trusted.capabilities ?? [];
-
-  return (
-    (next.capabilities ?? []).some((each) => !had.includes(each)) ||
-    (next.parts?.web !== undefined && trusted.parts?.web === undefined) ||
-    (next.parts?.session !== undefined &&
-      (trusted.parts?.session === undefined ||
-        (trusted.ownSessionsOnly === true && next.ownSessionsOnly !== true)))
+  return (next.parts ?? []).some(
+    (part) => trusted.parts?.includes(part) !== true,
   );
 }
 
 // A folder that links to a plugin elsewhere loses only the link.
 export async function remove(root: string, id: string): Promise<void> {
   return oneAtATime(async () => {
-    await turnOn(root, id, false);
     await rm(join(root, id), { recursive: true, force: true });
   });
 }
@@ -338,7 +289,7 @@ async function stagedManifest(folder: string): Promise<PluginManifest> {
     throw new Error(`pipoca.id ${id}: ${error}`);
   }
 
-  return manifestOf(packageJson, id);
+  return manifestOf(folder, packageJson, id);
 }
 
 const recordedSource = Type.Object({
@@ -381,45 +332,44 @@ async function load(
   const fallback: PluginManifest = { id: name, title: name, description: "" };
 
   let manifest: PluginManifest;
+  let entry: string;
   try {
-    manifest = manifestOf(
-      JSON.parse(await readFile(join(folder, "package.json"), "utf8")),
-      name,
+    const packageJson: unknown = JSON.parse(
+      await readFile(join(folder, "package.json"), "utf8"),
     );
+
+    manifest = manifestOf(folder, packageJson, name);
+    entry = entryOf(packageJson);
   } catch (error) {
     return { manifest: fallback, on, error: messageOf(error) };
   }
 
-  const { server, web, session } = manifest.parts ?? {};
-
-  if (
-    !on ||
-    (server === undefined && web === undefined && session === undefined)
-  ) {
+  if (!on) {
     return { manifest, on };
   }
 
+  // Its definition is code, so until it is on the Plugins page shows what its
+  // folder says.
   try {
-    const bundles = await builtParts(folder, manifest);
+    const bundles = await bundlePlugin(
+      folder,
+      await inside(folder, entry),
+      await partsInside(folder),
+    );
 
-    provideSdk();
-
-    const part =
-      bundles.server === undefined
-        ? undefined
-        : ((await import(bundles.server)) as { default?: ServerPlugin })
-            .default;
-
-    if (server !== undefined && part?.name !== manifest.id) {
-      throw new Error(
-        `${server} must export as default a server part named ${manifest.id}`,
-      );
-    }
+    const { definition, server } = await importedDefinition(
+      bundles.definition,
+      manifest.id,
+    );
 
     return {
-      manifest,
+      manifest: {
+        ...definedManifest(definition),
+        ...(manifest.parts && { parts: manifest.parts }),
+      },
       on,
-      ...(part && { server: part }),
+      definition,
+      ...(server && { part: server }),
       ...(bundles.web !== undefined && { web: bundles.web }),
       ...(bundles.session !== undefined && {
         session: {
@@ -433,19 +383,6 @@ async function load(
   } catch (error) {
     return { manifest, on, error: messageOf(error) };
   }
-}
-
-async function builtParts(
-  folder: string,
-  manifest: PluginManifest,
-): Promise<PluginParts> {
-  const { server, web, session } = manifest.parts ?? {};
-
-  return bundleParts(folder, {
-    ...(server !== undefined && { server: await inside(folder, server) }),
-    ...(web !== undefined && { web: await inside(folder, web) }),
-    ...(session !== undefined && { session: await inside(folder, session) }),
-  });
 }
 
 // What a plugin's folder holds now, read again after it changed, without
@@ -505,23 +442,30 @@ export function isReserved(name: string): boolean {
 export async function build(root: string, id: string): Promise<void> {
   const folder = join(root, id);
 
-  const manifest = manifestOf(
-    JSON.parse(await readFile(join(folder, "package.json"), "utf8")),
-    id,
+  const packageJson: unknown = JSON.parse(
+    await readFile(join(folder, "package.json"), "utf8"),
   );
 
-  if (Object.keys(manifest.parts ?? {}).length === 0) {
-    throw new Error(
-      "it has no parts, so it would do nothing: list a server, web or session file in pipoca.parts",
-    );
-  }
-
-  await builtParts(folder, manifest);
+  await bundlePlugin(
+    folder,
+    await inside(folder, entryOf(packageJson)),
+    await partsInside(folder),
+  );
 }
 
 // Why a plugin can't have this id, if it can't.
 export function idProblem(id: string): string | undefined {
   return skipReason(id, new Set(builtInPlugins.map((each) => each.id)));
+}
+
+async function partsInside(folder: string): Promise<PluginParts> {
+  return Object.fromEntries(
+    await Promise.all(
+      Object.entries(definedParts(folder)).map(
+        async ([part, path]) => [part, await inside(folder, path)] as const,
+      ),
+    ),
+  );
 }
 
 // The real path of a part, which must stay inside the plugin's folder even
@@ -537,41 +481,17 @@ async function inside(folder: string, part: string): Promise<string> {
   return entry;
 }
 
-// The pipoca field of a plugin's package.json (ADR 0022, ADR 0036).
+// A plugin names its entry, the file with its definePlugin, and its id
+// when it is installed from a URL (ADR 0069).
 const pluginPackage = Type.Object({
+  description: Type.Optional(Type.String()),
   pipoca: Type.Object({
-    id: Type.String(),
-    title: Type.String(),
-    description: Type.String(),
-    version: Type.Optional(Type.String()),
-    engine: Type.Number(),
-    capabilities: Type.Optional(Type.Array(Type.Enum(capabilities))),
-    parts: Type.Optional(
-      Type.Object({
-        server: Type.Optional(Type.String()),
-        web: Type.Optional(Type.String()),
-        session: Type.Optional(Type.String()),
-      }),
-    ),
-    ownSessionsOnly: Type.Optional(Type.Boolean()),
-    works: Type.Optional(
-      Type.Array(Type.Union([Type.Literal("personal"), Type.Literal("team")])),
-    ),
-    settings: Type.Optional(Type.Unknown()),
-    events: Type.Optional(
-      Type.Record(
-        Type.String({ pattern: "^[a-z][a-z0-9_]*$" }),
-        Type.Object({
-          title: Type.String(),
-          description: Type.Optional(Type.String()),
-          fields: Type.Record(Type.String(), Type.Unknown()),
-        }),
-      ),
-    ),
+    entry: Type.String(),
+    id: Type.Optional(Type.String()),
   }),
 });
 
-function manifestOf(packageJson: unknown, folder: string): PluginManifest {
+function checkedPackage(packageJson: unknown): Static<typeof pluginPackage> {
   if (!Value.Check(pluginPackage, packageJson)) {
     const [error] = Value.Errors(pluginPackage, packageJson);
     const field = error?.instancePath.slice(1).replaceAll("/", ".") ?? "";
@@ -581,46 +501,31 @@ function manifestOf(packageJson: unknown, folder: string): PluginManifest {
     );
   }
 
-  const {
-    id,
-    title,
-    description,
-    version,
-    engine,
-    parts,
-    settings,
-    events,
-    works,
-  } = packageJson.pipoca;
+  return packageJson;
+}
 
-  if (id !== folder) {
-    throw new Error(`pipoca.id must be the folder's name, ${folder}`);
+function entryOf(packageJson: unknown): string {
+  return checkedPackage(packageJson).pipoca.entry;
+}
+
+function manifestOf(
+  folder: string,
+  packageJson: unknown,
+  id: string,
+): PluginManifest {
+  const { description, pipoca } = checkedPackage(packageJson);
+
+  if (pipoca.id !== undefined && pipoca.id !== id) {
+    throw new Error(`pipoca.id must be the folder's name, ${id}`);
   }
 
-  if (engine !== pluginEngine) {
-    throw new Error(
-      `pipoca.engine must be ${String(pluginEngine)}, the plugin interface this server has`,
-    );
-  }
+  const parts = Object.keys(definedParts(folder)) as Part[];
 
   return {
     id,
-    title,
-    description,
-    engine,
-    capabilities: packageJson.pipoca.capabilities ?? [],
-    ...(version !== undefined && { version }),
-    ...(packageJson.pipoca.ownSessionsOnly === true && {
-      ownSessionsOnly: true,
-    }),
-    parts: {
-      ...(parts?.server !== undefined && { server: parts.server }),
-      ...(parts?.web !== undefined && { web: parts.web }),
-      ...(parts?.session !== undefined && { session: parts.session }),
-    },
-    ...(settings !== undefined && { settings: settingSpecs(settings) }),
-    ...(events !== undefined && { events }),
-    ...(works !== undefined && { works }),
+    title: id,
+    description: description ?? "",
+    ...(parts.length > 0 && { parts }),
   };
 }
 
@@ -634,6 +539,10 @@ function skipReason(
 
   if (builtIn.has(name)) {
     return "a built-in plugin has this id";
+  }
+
+  if (kernelKeys.includes(name)) {
+    return "the kernel keeps this id as a key in pipoca.json";
   }
 
   return undefined;

@@ -13,60 +13,43 @@ import {
   type Work,
   type WorkPoll,
 } from "@pipoca/protocol";
-import type { ServerPluginContext } from "@pipoca/plugins";
-import { serve } from "./serve";
-import { readSse } from "./sse";
+import { definePlugin, defineServer } from "@pipoca/plugins";
+import type { Runners } from "@pipoca/plugins";
+import { readSse } from "@pipoca/protocol";
 import { runnerCredentials } from "./testdata/runners";
-import { firstUser } from "./testdata/sign-in";
+import { json, testServer, type TestServer } from "./testdata/harness";
 
 const leaseMs = 200;
 
-let server: ReturnType<typeof serve>;
-let signedIn: () => Promise<string>;
+let server: TestServer;
 let runners: ReturnType<typeof runnerCredentials>;
-let logged: string[];
 
-let machines: ServerPluginContext["environments"] | undefined;
+let machines: Runners | undefined;
+
+const machinesPart = defineServer(
+  definePlugin({ id: "machines", title: "Machines", description: "" }),
+  ({ provide }) => {
+    machines = provide.runners({
+      kind: { label: "Machines", icon: "cloud" },
+      starts: () => false,
+    });
+  },
+);
 
 function startServer({
   pollWaitMs = 0,
   offlineAfterMs = 30_000,
-  now,
 }: {
   readonly pollWaitMs?: number;
   readonly offlineAfterMs?: number;
-  readonly now?: () => number;
 } = {}): void {
-  logged = [];
-
-  server = serve({
-    port: 0,
-    database: ":memory:",
-    ...(now !== undefined && { now }),
-    sessions: { pollWaitMs, offlineAfterMs, leaseMs },
-    plugins: [
-      {
-        name: "machines",
-        register: ({ environments }) => {
-          machines = environments;
-        },
-      },
-    ],
-    manifests: [
-      {
-        id: "machines",
-        title: "Machines",
-        description: "",
-        capabilities: ["environments"],
-      },
-    ],
-    log: (message, fields) => {
-      logged.push(`${message} ${JSON.stringify(fields)}`);
-    },
+  server = testServer({
+    runners: { pollWaitMs, offlineAfterMs, leaseMs },
+    builtIns: false,
+    servers: [machinesPart],
   });
 
-  signedIn = firstUser(server, logged);
-  runners = runnerCredentials(server, signedIn);
+  runners = runnerCredentials(server, server.signedIn);
 }
 
 beforeEach(() => {
@@ -74,12 +57,8 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  await server.stop();
+  await server.close();
 });
-
-async function json<T>(response: Promise<Response>): Promise<T> {
-  return (await (await response).json()) as T;
-}
 
 async function poll(
   runner: string,
@@ -111,7 +90,7 @@ async function poll(
   };
 
   return json(
-    fetch(new URL("/agent/work", server.url), {
+    fetch(new URL("/runner/work", server.url), {
       method: "POST",
       headers: {
         [versionHeader]: String(protocolVersion),
@@ -134,15 +113,13 @@ async function startSession(
   workspace: string | WorkspaceRequest,
 ): Promise<string> {
   const session = await json<{ readonly id: string }>(
-    fetch(new URL("/api/sessions", server.url), {
-      method: "POST",
-      headers: { "content-type": "application/json", cookie: await signedIn() },
-      body: JSON.stringify({
+    server.api("/api/sessions", {
+      body: {
         workspace:
           typeof workspace === "string"
             ? { kind: "folder", path: workspace }
             : workspace,
-      }),
+      },
     }),
   );
 
@@ -150,11 +127,7 @@ async function startSession(
 }
 
 async function environmentId(provider = "laptops"): Promise<string> {
-  const listed = await json<Environment[]>(
-    fetch(new URL("/api/environments", server.url), {
-      headers: { cookie: await signedIn() },
-    }),
-  );
+  const listed = await json<Environment[]>(server.api("/api/environments"));
 
   return listed.find((each) => each.provider === provider)?.id ?? "";
 }
@@ -174,9 +147,7 @@ test("lists every runner that joined an Environment's pool", async () => {
   await claimed("mac-2", { folders: ["/srv/b"] });
 
   const environments = await json<Environment[]>(
-    fetch(new URL("/api/environments", server.url), {
-      headers: { cookie: await signedIn() },
-    }),
+    server.api("/api/environments"),
   );
 
   expect(environments).toMatchObject([
@@ -193,20 +164,18 @@ test("lists every runner that joined an Environment's pool", async () => {
 });
 
 test("offers only the models logged in on online runners", async () => {
-  await server.stop();
+  await server.close();
   startServer({ offlineAfterMs: 100 });
 
   const gone = { provider: "anthropic", id: "claude-gone" };
   const here = { provider: "openai", id: "gpt-here" };
 
   await claimed("mac-1", { models: [gone] });
-  await sleep(150);
+  await server.clock.advance(150);
   await claimed("mac-2", { models: [here] });
 
   const [environment] = await json<Environment[]>(
-    fetch(new URL("/api/environments", server.url), {
-      headers: { cookie: await signedIn() },
-    }),
+    server.api("/api/environments"),
   );
 
   expect(environment?.models).toEqual([here]);
@@ -276,16 +245,12 @@ test("moves a Session whose Workspace can be cloned again once its runner's leas
   const folder = await startSession("/srv/a");
   const first = await claimed("mac-1");
 
-  await sleep(leaseMs * 1.5);
+  await server.clock.advance(leaseMs * 1.5);
 
   const moved = await claimed("mac-2");
   const back = await poll("mac-1", { running: [...first] });
 
-  const session = await json<Session>(
-    fetch(new URL(`/api/sessions/${clone}`, server.url), {
-      headers: { cookie: await signedIn() },
-    }),
-  );
+  const session = await json<Session>(server.api(`/api/sessions/${clone}`));
 
   expect(ids(first)).toEqual([clone, folder]);
   expect(moved).toMatchObject([{ sessionId: clone, generation: 2 }]);
@@ -312,10 +277,10 @@ test("tells a runner to start fresh when a Session comes back from another runne
 
   const restarted = await claimed("mac-1");
 
-  await sleep(leaseMs * 1.5);
+  await server.clock.advance(leaseMs * 1.5);
   const moved = await claimed("mac-2");
 
-  await sleep(leaseMs * 1.5);
+  await server.clock.advance(leaseMs * 1.5);
   const back = await claimed("mac-1");
 
   expect(first).toMatchObject([{ sessionId: clone, generation: 1 }]);
@@ -347,11 +312,7 @@ test("keeps a Session on its runner while a runner with the same name polls for 
 
   const elsewhere = await claimed("mac-2");
 
-  const session = await json<Session>(
-    fetch(new URL(`/api/sessions/${clone}`, server.url), {
-      headers: { cookie: await signedIn() },
-    }),
-  );
+  const session = await json<Session>(server.api(`/api/sessions/${clone}`));
 
   expect(ids(first)).toEqual([clone]);
   expect(elsewhere).toEqual([]);
@@ -368,26 +329,24 @@ test("gives a runner an Environment's secrets without logging them", async () =>
   await claimed("mac-1");
 
   const [environment] = await json<Environment[]>(
-    fetch(new URL("/api/environments", server.url), {
-      headers: { cookie: await signedIn() },
-    }),
+    server.api("/api/environments"),
   );
 
-  await fetch(
-    new URL(`/api/environments/${environment?.id ?? ""}`, server.url),
-    {
-      method: "PATCH",
-      headers: { "content-type": "application/json", cookie: await signedIn() },
-      body: JSON.stringify({ secrets: { TOKEN: "s3cret" } }),
-    },
-  );
+  await server.api(`/api/environments/${environment?.id ?? ""}`, {
+    method: "PATCH",
+    body: { secrets: { TOKEN: "s3cret" } },
+  });
 
   await startSession("/srv/a");
   const [assignment] = await claimed("mac-1");
 
   expect(assignment?.environment.variables).toEqual({ TOKEN: "s3cret" });
-  expect(logged.some((line) => line.includes("session assigned"))).toBe(true);
-  expect(logged.join("\n")).not.toContain("s3cret");
+
+  expect(server.logs.some((line) => line.includes("session assigned"))).toBe(
+    true,
+  );
+
+  expect(server.logs.join("\n")).not.toContain("s3cret");
 });
 
 test("forks a Session that never started from where it would have, and keeps folder Sessions in their Environment", async () => {
@@ -395,9 +354,7 @@ test("forks a Session that never started from where it would have, and keeps fol
   await claimed("vm-1", { environment: "elsewhere" });
 
   const environments = await json<Environment[]>(
-    fetch(new URL("/api/environments", server.url), {
-      headers: { cookie: await signedIn() },
-    }),
+    server.api("/api/environments"),
   );
 
   const elsewhere = environments.find(
@@ -405,10 +362,8 @@ test("forks a Session that never started from where it would have, and keeps fol
   );
 
   const fork = async (id: string): Promise<Response> =>
-    fetch(new URL(`/api/sessions/${id}/fork`, server.url), {
-      method: "POST",
-      headers: { "content-type": "application/json", cookie: await signedIn() },
-      body: JSON.stringify({ environment: elsewhere?.id }),
+    server.api("/api/sessions", {
+      body: { from: { session: id }, environment: elsewhere?.id },
     });
 
   const folder = await startSession("/srv/a");
@@ -436,11 +391,12 @@ test("forks a Session that never started from where it would have, and keeps fol
   });
 });
 
-async function forkFrom(id: string, body: unknown): Promise<Response> {
-  return fetch(new URL(`/api/sessions/${id}/fork`, server.url), {
-    method: "POST",
-    headers: { "content-type": "application/json", cookie: await signedIn() },
-    body: JSON.stringify(body),
+async function forkFrom(
+  id: string,
+  { entry }: { readonly entry?: string },
+): Promise<Response> {
+  return server.api("/api/sessions", {
+    body: { from: { session: id, ...(entry !== undefined && { entry }) } },
   });
 }
 
@@ -449,7 +405,7 @@ test("forks from a user message with only the entries before it on its branch", 
   const id = await startSession("/srv/a");
 
   const work = await json<Work>(
-    asRunner(runner, "/agent/work", { ...emptyPoll, folders: ["/srv/a"] }),
+    asRunner(runner, "/runner/work", { ...emptyPoll, folders: ["/srv/a"] }),
   );
 
   const message = (
@@ -479,7 +435,7 @@ test("forks from a user message with only the entries before it on its branch", 
     message("a3", "u3", "assistant", "three"),
   ];
 
-  await asRunner(work.start[0]?.token, `/agent/sessions/${id}/transcript`, {
+  await asRunner(work.start[0]?.token, `/runner/sessions/${id}/transcript`, {
     generation: work.start[0]?.generation,
     start: 0,
     lines,
@@ -492,7 +448,7 @@ test("forks from a user message with only the entries before it on its branch", 
   const unknown = await forkFrom(id, { entry: "nope" });
 
   const claims = await json<Work>(
-    asRunner(runner, "/agent/work", {
+    asRunner(runner, "/runner/work", {
       ...emptyPoll,
       folders: ["/srv/a"],
       running: work.start.map(({ sessionId, generation }) => ({
@@ -507,7 +463,7 @@ test("forks from a user message with only the entries before it on its branch", 
       await json<{ entries: string[] }>(
         asRunner(
           claims.start.find(({ sessionId }) => sessionId === session)?.token,
-          `/agent/sessions/${session}/transcript`,
+          `/runner/sessions/${session}/transcript`,
         ),
       )
     ).entries;
@@ -535,23 +491,29 @@ test("forks a started clone from its branch, or from its restore point once arch
     repository: "https://example.com/app.git",
   });
 
-  const work = await json<Work>(asRunner(runner, "/agent/work", emptyPoll));
+  const work = await json<Work>(asRunner(runner, "/runner/work", emptyPoll));
   const live = await json<Session>(forkFrom(id, {}));
 
-  await fetch(new URL(`/api/sessions/${id}/archive`, server.url), {
-    method: "POST",
-    headers: { cookie: await signedIn() },
+  await server.api(`/api/sessions/${id}`, {
+    method: "PATCH",
+    body: { archived: true },
   });
 
-  const removing = await json<Work>(asRunner(runner, "/agent/work", emptyPoll));
+  const removing = await json<Work>(
+    asRunner(runner, "/runner/work", emptyPoll),
+  );
 
   const removal = removing.remove.find(({ sessionId }) => sessionId === id);
 
-  await asRunner(work.start[0]?.token, `/agent/sessions/${id}/workspace`, {
-    generation: removal?.generation,
-    outcome: "removed",
-    restore: { ...removal?.workspace, restorePoint: "origin/pipoca/pushed" },
-  });
+  await asRunner(
+    work.start[0]?.token,
+    `/runner/sessions/${id}/workspace-removal`,
+    {
+      generation: removal?.generation,
+      outcome: "removed",
+      restore: { ...removal?.workspace, restorePoint: "origin/pipoca/pushed" },
+    },
+  );
 
   const archived = await json<Session>(forkFrom(id, {}));
 
@@ -559,7 +521,7 @@ test("forks a started clone from its branch, or from its restore point once arch
 
   expect(live.workspace).toMatchObject({
     kind: "clone",
-    startPoint: `pipoca/${id.slice(0, 8)}`,
+    startPoint: `pipoca/${id.slice(-8)}`,
     forked: true,
   });
 
@@ -592,10 +554,11 @@ const emptyPoll: WorkPoll = { running: [], folders: [], models: [] };
 test("lets a runner join only with its Environment's key", async () => {
   await runners.key("laptops");
 
-  const wrongKey = await fetch(new URL("/agent/join", server.url), {
+  const wrongKey = await fetch(new URL("/runner/join", server.url), {
     method: "POST",
     headers: {
       [versionHeader]: String(protocolVersion),
+      "content-type": "application/json",
       authorization: "Bearer pck_guess",
     },
     body: JSON.stringify({ name: "mac-1" }),
@@ -603,17 +566,17 @@ test("lets a runner join only with its Environment's key", async () => {
 
   expect(wrongKey.status).toBe(401);
 
-  expect((await asRunner(undefined, "/agent/work", emptyPoll)).status).toBe(
+  expect((await asRunner(undefined, "/runner/work", emptyPoll)).status).toBe(
     401,
   );
 
-  expect((await asRunner("pct_guess", "/agent/work", emptyPoll)).status).toBe(
+  expect((await asRunner("pct_guess", "/runner/work", emptyPoll)).status).toBe(
     401,
   );
 
   const token = await runners.token("mac-1", "laptops");
 
-  expect((await asRunner(token, "/agent/work", emptyPoll)).status).toBe(200);
+  expect((await asRunner(token, "/runner/work", emptyPoll)).status).toBe(200);
 });
 
 test("lets go of runners that joined with an Environment's earlier key", async () => {
@@ -621,58 +584,53 @@ test("lets go of runners that joined with an Environment's earlier key", async (
   const id = await startSession("/srv/a");
 
   const work = await json<Work>(
-    asRunner(token, "/agent/work", { ...emptyPoll, folders: ["/srv/a"] }),
+    asRunner(token, "/runner/work", { ...emptyPoll, folders: ["/srv/a"] }),
   );
 
   const sessionToken = work.start[0]?.token;
 
   const [environment] = await json<Environment[]>(
-    fetch(new URL("/api/environments", server.url), {
-      headers: { cookie: await signedIn() },
-    }),
+    server.api("/api/environments"),
   );
 
-  const replaced = await fetch(
-    new URL(`/api/environments/${environment?.id ?? ""}/key`, server.url),
-    { method: "POST", headers: { cookie: await signedIn() } },
+  const replaced = await server.api(
+    `/api/environments/${environment?.id ?? ""}/keys`,
+    { method: "POST" },
   );
 
-  expect(replaced.status).toBe(200);
-  expect((await asRunner(token, "/agent/work", emptyPoll)).status).toBe(401);
+  expect(replaced.status).toBe(201);
+  expect((await asRunner(token, "/runner/work", emptyPoll)).status).toBe(401);
 
   expect(
-    (await asRunner(sessionToken, `/agent/sessions/${id}/transcript`)).status,
+    (await asRunner(sessionToken, `/runner/sessions/${id}/transcript`)).status,
   ).toBe(401);
 });
 
 test("keeps a Session's token while its runner polls, and drops it with the runner's", async () => {
   const day = 24 * 60 * 60_000;
-  let now = Date.now();
-  await server.stop();
-  startServer({ now: () => now });
 
   const token = await runners.token("mac-1", "laptops");
   const id = await startSession("/srv/a");
 
   const work = await json<Work>(
-    asRunner(token, "/agent/work", { ...emptyPoll, folders: ["/srv/a"] }),
+    asRunner(token, "/runner/work", { ...emptyPoll, folders: ["/srv/a"] }),
   );
 
   const [assignment] = work.start;
   const running = { ...emptyPoll, running: [...work.start] };
 
   const transcript = async (): Promise<number> =>
-    (await asRunner(assignment?.token, `/agent/sessions/${id}/transcript`))
+    (await asRunner(assignment?.token, `/runner/sessions/${id}/transcript`))
       .status;
 
-  now += 29 * day;
-  expect((await asRunner(token, "/agent/work", running)).status).toBe(200);
+  await server.clock.advance(29 * day);
+  expect((await asRunner(token, "/runner/work", running)).status).toBe(200);
 
-  now += 29 * day;
+  await server.clock.advance(29 * day);
   expect(await transcript()).toBe(200);
 
-  now += 31 * day;
-  expect((await asRunner(token, "/agent/work", running)).status).toBe(401);
+  await server.clock.advance(31 * day);
+  expect((await asRunner(token, "/runner/work", running)).status).toBe(401);
   expect(await transcript()).toBe(401);
 });
 
@@ -682,15 +640,15 @@ test("gives each Session a token that reaches only that Session", async () => {
   const second = await startSession("/srv/a");
 
   const work = await json<Work>(
-    asRunner(runner, "/agent/work", { ...emptyPoll, folders: ["/srv/a"] }),
+    asRunner(runner, "/runner/work", { ...emptyPoll, folders: ["/srv/a"] }),
   );
 
   const token = work.start.find(({ sessionId }) => sessionId === first)?.token;
 
   const statuses = [
-    (await asRunner(token, `/agent/sessions/${first}/transcript`)).status,
-    (await asRunner(token, `/agent/sessions/${second}/transcript`)).status,
-    (await asRunner(token, "/agent/work", emptyPoll)).status,
+    (await asRunner(token, `/runner/sessions/${first}/transcript`)).status,
+    (await asRunner(token, `/runner/sessions/${second}/transcript`)).status,
+    (await asRunner(token, "/runner/work", emptyPoll)).status,
   ];
 
   expect(work.start.map(({ sessionId }) => sessionId).sort()).toEqual(
@@ -704,32 +662,22 @@ test("gives each Session a token that reaches only that Session", async () => {
 
 test("makes an Environment once, with a key, under a name runners can use", async () => {
   const create = async (name: string): Promise<Response> =>
-    fetch(new URL("/api/environments", server.url), {
-      method: "POST",
-      headers: { "content-type": "application/json", cookie: await signedIn() },
-      body: JSON.stringify({ name }),
-    });
+    server.api("/api/environments", { body: { name } });
 
   const created = await create("builders");
 
-  const body = (await created.json()) as {
-    environment: Environment;
-    key: string;
-  };
+  const body = (await created.json()) as Environment & { key: string };
 
   expect(created.status).toBe(201);
-  expect(body.environment).toMatchObject({ name: "builders", hasKey: true });
+  expect(body).toMatchObject({ name: "builders", hasKey: true });
   expect(body.key).toStartWith("pck_");
   expect((await create("builders")).status).toBe(409);
-  expect((await create("no spaces")).status).toBe(400);
+  expect((await create("no spaces")).status).toBe(422);
 });
 
 test("makes an Environment named after the first runner that joins with a join key", async () => {
   const joinKey = async (): Promise<string> => {
-    const made = await fetch(new URL("/api/join-key", server.url), {
-      method: "POST",
-      headers: { cookie: await signedIn() },
-    });
+    const made = await server.api("/api/join-keys", { method: "POST" });
 
     expect(made.status).toBe(201);
 
@@ -738,10 +686,11 @@ test("makes an Environment named after the first runner that joins with a join k
 
   const join = async (key: string, name: string): Promise<Joined> =>
     json<Joined>(
-      fetch(new URL("/agent/join", server.url), {
+      fetch(new URL("/runner/join", server.url), {
         method: "POST",
         headers: {
           [versionHeader]: String(protocolVersion),
+          "content-type": "application/json",
           authorization: `Bearer ${key}`,
         },
         body: JSON.stringify({ name }),
@@ -759,11 +708,7 @@ test("makes an Environment named after the first runner that joins with a join k
     "laptops-2",
   );
 
-  const listed = await json<Environment[]>(
-    fetch(new URL("/api/environments", server.url), {
-      headers: { cookie: await signedIn() },
-    }),
-  );
+  const listed = await json<Environment[]>(server.api("/api/environments"));
 
   expect(
     listed
@@ -780,10 +725,11 @@ async function joinAs(
   name: string,
   environment = "laptops",
 ): Promise<Response> {
-  return fetch(new URL("/agent/join", server.url), {
+  return fetch(new URL("/runner/join", server.url), {
     method: "POST",
     headers: {
       [versionHeader]: String(protocolVersion),
+      "content-type": "application/json",
       authorization: `Bearer ${await runners.key(environment)}`,
     },
     body: JSON.stringify({ name }),
@@ -793,7 +739,7 @@ async function joinAs(
 test("refuses a runner that joins under the name of one online there", async () => {
   const token = await runners.token("mac-1", "laptops");
 
-  expect((await asRunner(token, "/agent/work", emptyPoll)).status).toBe(200);
+  expect((await asRunner(token, "/runner/work", emptyPoll)).status).toBe(200);
 
   const refused = await joinAs("mac-1");
 
@@ -805,43 +751,41 @@ test("refuses a runner that joins under the name of one online there", async () 
   });
 
   expect((await joinAs("mac-1", "builders")).status).toBe(200);
-  expect((await asRunner(token, "/agent/work", emptyPoll)).status).toBe(200);
+  expect((await asRunner(token, "/runner/work", emptyPoll)).status).toBe(200);
 });
 
 test("gives an offline runner's name to the next runner that joins under it, and lets the old one go", async () => {
-  await server.stop();
+  await server.close();
   startServer({ offlineAfterMs: 100 });
   const old = await runners.token("mac-1", "laptops");
 
-  expect((await asRunner(old, "/agent/work", emptyPoll)).status).toBe(200);
-  await sleep(150);
+  expect((await asRunner(old, "/runner/work", emptyPoll)).status).toBe(200);
+  await server.clock.advance(150);
 
   const joined = await joinAs("mac-1");
   const { token } = (await joined.json()) as Joined;
 
   expect(joined.status).toBe(200);
-  expect((await asRunner(old, "/agent/work", emptyPoll)).status).toBe(401);
-  expect((await asRunner(token, "/agent/work", emptyPoll)).status).toBe(200);
+  expect((await asRunner(old, "/runner/work", emptyPoll)).status).toBe(401);
+  expect((await asRunner(token, "/runner/work", emptyPoll)).status).toBe(200);
 });
 
 test("keeps a runner that comes back with its own token, since that is no join", async () => {
-  await server.stop();
+  await server.close();
   startServer({ offlineAfterMs: 100 });
   const token = await runners.token("mac-1", "laptops");
 
-  expect((await asRunner(token, "/agent/work", emptyPoll)).status).toBe(200);
-  await sleep(150);
-  expect((await asRunner(token, "/agent/work", emptyPoll)).status).toBe(200);
+  expect((await asRunner(token, "/runner/work", emptyPoll)).status).toBe(200);
+  await server.clock.advance(150);
+  expect((await asRunner(token, "/runner/work", emptyPoll)).status).toBe(200);
   expect((await joinAs("mac-1")).status).toBe(409);
-  expect((await asRunner(token, "/agent/work", emptyPoll)).status).toBe(200);
+  expect((await asRunner(token, "/runner/work", emptyPoll)).status).toBe(200);
 });
 
 test("tells open pages when a runner comes online, so its Environment shows it", async () => {
   await runners.key("laptops");
 
-  const changes = await fetch(new URL("/api/changes", server.url), {
-    headers: { cookie: await signedIn() },
-  });
+  const changes = await server.api("/api/changes");
 
   const topics: string[] = [];
 
@@ -855,7 +799,7 @@ test("tells open pages when a runner comes online, so its Environment shows it",
   })();
 
   const token = await runners.token("mac-1", "laptops");
-  await asRunner(token, "/agent/work", emptyPoll);
+  await asRunner(token, "/runner/work", emptyPoll);
   await reading;
 
   expect(topics).toEqual(["environments"]);
@@ -881,7 +825,7 @@ test("leaves a folder Session to the full runner that lists its folder", async (
 });
 
 test("reports a clone Session whose runner went offline once its lease lapses", async () => {
-  await server.stop();
+  await server.close();
   startServer({ offlineAfterMs: 100 });
   await claimed("mac-1");
 
@@ -891,33 +835,31 @@ test("reports a clone Session whose runner went offline once its lease lapses", 
   });
 
   await claimed("mac-1");
-  await sleep(150);
+  await server.clock.advance(150);
   const beforeLease = await unplaced();
-  await sleep(leaseMs);
+  await server.clock.advance(leaseMs);
 
   expect(beforeLease).toEqual([]);
   expect(await unplaced()).toEqual([clone]);
 });
 
 test("gives no work to a runner revoked while it waited for some", async () => {
-  await server.stop();
+  await server.close();
   startServer({ pollWaitMs: 10_000 });
   await runners.key("pods");
 
   const id = await environmentId("pods");
-  const token = machines?.runnerToken(id, "pod-1");
-  const waited = asRunner(token, "/agent/work", emptyPoll);
+  const token = machines?.token(id, "pod-1");
+  const waited = asRunner(token, "/runner/work", emptyPoll);
 
   await sleep(100);
-  machines?.revokeRunner(id, "pod-1");
+  machines?.revoke(id, "pod-1");
 
-  await fetch(new URL("/api/sessions", server.url), {
-    method: "POST",
-    headers: { "content-type": "application/json", cookie: await signedIn() },
-    body: JSON.stringify({
+  await server.api("/api/sessions", {
+    body: {
       environment: id,
       workspace: { kind: "folder", path: "/srv/a" },
-    }),
+    },
   });
 
   expect((await waited).status).toBe(401);
@@ -940,10 +882,9 @@ test("gives a Session with a runner of its own only to that runner, which takes 
   const onMac = await claimed("mac-1");
 
   await json(
-    fetch(new URL(`/api/sessions/${own}/archive`, server.url), {
-      method: "POST",
-      headers: { "content-type": "application/json", cookie: await signedIn() },
-      body: "{}",
+    server.api(`/api/sessions/${own}`, {
+      method: "PATCH",
+      body: { archived: true },
     }),
   );
 
@@ -979,7 +920,7 @@ test("keeps a Session with a runner of its own from every other runner", async (
 });
 
 test("reports a Session whose own runner went offline", async () => {
-  await server.stop();
+  await server.close();
   startServer({ offlineAfterMs: 100 });
   const full = { sessionId: "other", generation: 1 };
   await claimed("mac-1", { capacity: 1, running: [full] });
@@ -991,7 +932,7 @@ test("reports a Session whose own runner went offline", async () => {
 
   await claimed("pod-a", { session: own, capacity: 1, running: [full] });
   const whileOnline = await unplaced();
-  await sleep(150);
+  await server.clock.advance(150);
 
   expect(whileOnline).toEqual([]);
   expect(await unplaced()).toEqual([own]);

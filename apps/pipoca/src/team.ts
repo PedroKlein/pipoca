@@ -1,47 +1,39 @@
-import { BadRequest, fieldsOf, type PluginConfig } from "@pipoca/plugins";
-import type { TeamName } from "@pipoca/protocol";
-
-const maxName = 60;
+import { Config, Type } from "@pipoca/plugins";
+import { type ConfigKey, fieldsOf, kernelConfig } from "@pipoca/plugins/host";
+import {
+  type Log,
+  type TeamName,
+  teamMessagesRead,
+  teamNameChange,
+} from "@pipoca/protocol";
 
 export interface Team {
   readonly get: () => TeamName;
   readonly set: (team: TeamName) => void;
+  // How many of the team's messages since its last turn Pi reads (ADR 0065).
+  readonly messagesRead: () => number;
 }
 
-// The team's name in pipoca.json, under "team".
-export function teamSettings(config: PluginConfig): Team {
+const teamOptions = Config.object({
+  ...teamNameChange.properties,
+  messagesRead: Type.Number({ minimum: 1, default: teamMessagesRead }),
+});
+
+// The team's name and options in pipoca.json, under "team".
+export function teamSettings(config: ConfigKey, log: Log): Team {
+  const read = kernelConfig(config, teamOptions, log);
+
   return {
-    get: () => {
-      try {
-        return teamOf(config.get() ?? { name: null });
-      } catch {
-        return { name: null };
-      }
-    },
+    get: () => teamOf(read()),
     set: (team) => {
-      config.set(team);
+      config.set({ ...fieldsOf(config.get()), ...team });
     },
+    messagesRead: () => Math.floor(read().messagesRead),
   };
 }
 
-export function teamOf(value: unknown): TeamName {
-  const { name } = fieldsOf(value);
-
-  if (name === null || name === undefined) {
-    return { name: null };
-  }
-
-  if (typeof name !== "string") {
-    throw new BadRequest("name must be a string or null");
-  }
-
-  const trimmed = name.trim();
-
-  if (trimmed.length > maxName) {
-    throw new BadRequest(
-      `a team name is at most ${String(maxName)} characters`,
-    );
-  }
+export function teamOf({ name }: { readonly name?: string | null }): TeamName {
+  const trimmed = name?.trim() ?? "";
 
   return { name: trimmed === "" ? null : trimmed };
 }

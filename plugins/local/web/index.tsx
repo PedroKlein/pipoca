@@ -1,39 +1,46 @@
+import { defineWeb, useApi, useLoaded } from "@pipoca/plugins/web";
+import type { Environment } from "@pipoca/protocol";
 import {
-  type EnvironmentSectionProps,
-  json,
-  useLoaded,
-  type WebPlugin,
-} from "@pipoca/plugins/web";
-import { Button, cn, Field, fieldClass, Section } from "@pipoca/ui";
+  Button,
+  Card,
+  ErrorText,
+  Field,
+  Section,
+  TextArea,
+  TextInput,
+} from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
+import { local } from "../plugin";
 import {
   defaultSettings,
   type LocalEnvironment,
   type RunnerFailure,
 } from "../src/settings";
 
-export const local: WebPlugin = {
-  name: "local",
-  EnvironmentSection,
-};
+export const web = defineWeb(local, {
+  slots: { "environment.section": EnvironmentSection },
+});
 
 function EnvironmentSection({
-  context,
   environment,
-}: EnvironmentSectionProps): ReactElement {
+}: {
+  readonly environment: Environment;
+}): ReactElement {
+  const api = useApi(local);
   const path = `environments/${encodeURIComponent(environment.id)}`;
 
   const { value, reload } = useLoaded(
-    async () => json<LocalEnvironment>(context.request(path)),
+    async () => api.get<LocalEnvironment>(path),
     path,
     { everyMs: 10_000 },
   );
 
   return (
     <Section title="Local runner">
-      <div
+      <Card
+        padding="none"
         aria-label="Local runner"
-        className="flex flex-col gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 text-ui"
+        className="flex flex-col gap-4 p-5 text-ui"
       >
         {value === undefined ? (
           <p className="text-fg-dim">Loading…</p>
@@ -46,19 +53,13 @@ function EnvironmentSection({
               key={JSON.stringify(value.settings)}
               loaded={value}
               save={async (settings) => {
-                await json(
-                  context.request(path, {
-                    method: "POST",
-                    body: JSON.stringify({ settings }),
-                  }),
-                );
-
+                await api.post(path, { settings });
                 reload();
               }}
             />
           </>
         )}
-      </div>
+      </Card>
     </Section>
   );
 }
@@ -72,10 +73,10 @@ function Failure({
     new Date(iso).toLocaleTimeString([], { timeStyle: "short" });
 
   return (
-    <p role="alert" className="text-failed">
+    <ErrorText size="inherit">
       The runner failed at {time(failure.at)}: {failure.problem}. The next one
       starts after {time(failure.retryAt)}, and the server log says why.
-    </p>
+    </ErrorText>
   );
 }
 
@@ -130,24 +131,32 @@ function Settings({
           : "Off. The server can start a runner on its own machine when a Session here needs one."}
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
-        <NumberField
-          label="Sessions at once"
-          name="capacity"
-          value={shown.capacity}
-        />
-        <NumberField
-          label="Seconds idle before it stops"
-          name="idleSeconds"
-          value={shown.idleSeconds}
-        />
+        <Field label="Sessions at once">
+          <TextInput
+            name="capacity"
+            type="number"
+            min={1}
+            required
+            defaultValue={shown.capacity}
+          />
+        </Field>
+        <Field label="Seconds idle before it stops">
+          <TextInput
+            name="idleSeconds"
+            type="number"
+            min={1}
+            required
+            defaultValue={shown.idleSeconds}
+          />
+        </Field>
       </div>
       <Field label="Folders Sessions can work in, one per line">
-        <textarea
+        <TextArea
           name="folders"
           rows={3}
           defaultValue={shown.folders.join("\n")}
           placeholder="~/code"
-          className={cn(fieldClass, "min-h-20 resize-y font-mono text-mono-sm")}
+          className="min-h-20 resize-y font-mono text-mono-sm"
         />
       </Field>
       <div className="flex flex-wrap items-center gap-2">
@@ -163,35 +172,8 @@ function Settings({
             Stop running here
           </Button>
         )}
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
       </div>
     </form>
-  );
-}
-
-function NumberField({
-  label,
-  name,
-  value,
-}: {
-  readonly label: string;
-  readonly name: string;
-  readonly value: number;
-}): ReactElement {
-  return (
-    <Field label={label}>
-      <input
-        name={name}
-        type="number"
-        min={1}
-        required
-        defaultValue={value}
-        className={fieldClass}
-      />
-    </Field>
   );
 }

@@ -1,4 +1,4 @@
-import { sseResponse } from "./sse";
+import { sseResponse } from "@pipoca/protocol";
 
 // Tells open pages that something of a kind changed, never what, so each
 // fetches it as usual (ADR 0038).
@@ -29,29 +29,4 @@ export function changeFeed(): Changes {
         };
       }),
   };
-}
-
-const kernelTopics: readonly (readonly [RegExp, string])[] = [
-  [/^\/api\/(profiles|base)(\/|$)/, "profiles"],
-  [/^\/api\/(environments|templates|people|invites)(\/|$)/, "environments"],
-  [/^\/api\/mcp-tokens(\/|$)/, "mcp-tokens"],
-  [
-    /^\/api\/(plugins(\/[^/]+)?|plugin-files\/.*|plugin-builds\/.*)$/,
-    "plugins",
-  ],
-];
-
-// The kernel list a successful write to this path changes. Sessions tell
-// on their own, since they also change without a request.
-export function changedBy(
-  request: Request,
-  response: Response,
-): string | undefined {
-  if (request.method === "GET" || !response.ok) {
-    return undefined;
-  }
-
-  const { pathname } = new URL(request.url);
-
-  return kernelTopics.find(([pattern]) => pattern.test(pathname))?.[1];
 }

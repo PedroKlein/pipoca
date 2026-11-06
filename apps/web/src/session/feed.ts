@@ -1,0 +1,533 @@
+import {
+  apiPath,
+  type LiveEvent,
+  liveSurface,
+  type OpenedPage,
+  type Prompt,
+  type Session,
+  type SessionEvent,
+  type SessionStatus,
+  type SlashCommand,
+  type TerminalTab,
+  type UiAction,
+  type Voice,
+} from "@pipoca/protocol";
+import { chatItems, type ChatItem } from "./chat/chat";
+
+type Widget = Extract<LiveEvent, { type: "widget" }>;
+
+export interface ShownWidget {
+  readonly key: string;
+  readonly lines: readonly string[];
+}
+export type Settings = Extract<LiveEvent, { type: "settings" }>;
+export type Explanation = Extract<LiveEvent, { type: "explanation" }>;
+
+// A question the agent is waiting on, and the explanations asked about it.
+export interface OpenPrompt {
+  readonly prompt: Prompt;
+  readonly explanations: readonly Explanation[];
+}
+
+export type FeedItem = ChatItem & { readonly key: number };
+
+// What the Session view shows, rebuilt from the Session's event stream.
+export interface Feed {
+  readonly session: Session | undefined;
+  readonly missing: boolean;
+  readonly title: string | undefined;
+  readonly items: readonly FeedItem[];
+  // Who sent a team Session's messages and who stopped it, oldest first.
+  readonly voices: readonly Voice[];
+  readonly streaming: string | undefined;
+  readonly tools: readonly { readonly id: string; readonly name: string }[];
+  readonly prompts: readonly OpenPrompt[];
+  readonly statuses: readonly string[];
+  readonly widgetsAbove: readonly ShownWidget[];
+  readonly widgetsBelow: readonly ShownWidget[];
+  // An extension's footer, which replaces the statuses, and header (ADR 0029).
+  readonly footer: string | undefined;
+  readonly header: string | undefined;
+  readonly queue: {
+    readonly steering: readonly string[];
+    readonly followUp: readonly string[];
+  };
+  readonly editorText: { readonly text: string } | undefined;
+  readonly commands: readonly SlashCommand[];
+  readonly files: readonly string[];
+  readonly settings: Settings | undefined;
+  readonly terminals: readonly TerminalTab[];
+  readonly pages: readonly OpenedPage[];
+  // The last thing a tool asked to open (ADR 0035), keyed so the same route
+  // asked for twice is acted on twice.
+  readonly uiAction:
+    { readonly key: number; readonly action: UiAction } | undefined;
+  readonly piView: {
+    readonly attached: boolean;
+    readonly dialog: string | null;
+  };
+}
+
+export const emptyFeed: Feed = {
+  session: undefined,
+  missing: false,
+  title: undefined,
+  items: [],
+  voices: [],
+  streaming: undefined,
+  tools: [],
+  prompts: [],
+  statuses: [],
+  widgetsAbove: [],
+  widgetsBelow: [],
+  footer: undefined,
+  header: undefined,
+  queue: { steering: [], followUp: [] },
+  editorText: undefined,
+  commands: [],
+  files: [],
+  settings: undefined,
+  terminals: [],
+  pages: [],
+  uiAction: undefined,
+  piView: { attached: false, dialog: null },
+};
+
+// While a Session is in another status, its Pi is gone with what it was doing.
+const piRuns = new Set<SessionStatus>(["starting", "idle", "running"]);
+
+interface FollowOptions {
+  readonly dispatch: (event: SessionEvent) => void;
+  readonly onChange: (feed: Feed) => void;
+  readonly onSession: (session: Session) => void;
+}
+
+interface FeedReader {
+  readonly open: () => void;
+  readonly receive: (event: SessionEvent) => void;
+  readonly lost: () => void;
+  readonly report: (error: unknown) => void;
+}
+
+// Builds the Feed from a Session's event stream, which followEvents opens.
+export function feedReader({
+  dispatch,
+  onChange,
+  onSession,
+}: FollowOptions): FeedReader {
+  let feed = emptyFeed;
+  let lines = 0;
+  let nextKey = 0;
+
+  // Live text can arrive after the entry that already holds it; that text
+  // is skipped instead of shown twice.
+  let echo = "";
+  const statuses = new Map<string, string>();
+  const widgets = new Map<string, Widget>();
+  const drawn = new Map<"footer" | "header", string>();
+
+  // After a reconnect the prompts already shown stay, with their
+  // explanations, until the replay has re-announced the ones still open.
+  const unconfirmed = new Set<string>();
+
+  const update = (change: Partial<Feed>): void => {
+    feed = { ...feed, ...change };
+    onChange(feed);
+  };
+
+  const add = (...items: readonly ChatItem[]): void => {
+    update({
+      items: [
+        ...feed.items,
+        ...items.map((item) => ({ ...item, key: nextKey++ })),
+      ],
+    });
+  };
+
+  const report = (error: unknown): void => {
+    add({ role: "error", text: String(error) });
+  };
+
+  const surfaces = (): Partial<Feed> => {
+    const placed = (placement: string): ShownWidget[] =>
+      [...widgets.values()].flatMap((widget) =>
+        widget.placement === placement && widget.lines
+          ? [{ key: widget.key, lines: widget.lines }]
+          : [],
+      );
+
+    return {
+      statuses: [...statuses.values()],
+      widgetsAbove: placed("aboveEditor"),
+      widgetsBelow: placed("belowEditor"),
+      footer: drawn.get("footer"),
+      header: drawn.get("header"),
+    };
+  };
+
+  const live = (event: LiveEvent): void => {
+    switch (event.type) {
+      case "status":
+        echo = "";
+
+        // What the last turn offered to open is stale once a new one runs.
+        if (event.status === "running" && feed.uiAction !== undefined) {
+          update({ uiAction: undefined });
+        }
+
+        if (event.status === "idle") {
+          // The entry that holds the streamed answer can land after idle.
+          const behind = (event.transcriptLength ?? 0) > lines;
+
+          update({
+            ...(!behind && { streaming: undefined }),
+            tools: [],
+          });
+        }
+
+        return;
+      case "text":
+        if (feed.streaming === undefined && echo.startsWith(event.delta)) {
+          echo = echo.slice(event.delta.length);
+
+          return;
+        }
+
+        echo = "";
+        update({ streaming: (feed.streaming ?? "") + event.delta });
+
+        return;
+      case "tool_start":
+        echo = "";
+
+        update({
+          tools: [
+            ...feed.tools,
+            { id: event.toolCallId, name: event.toolName },
+          ],
+        });
+
+        return;
+      case "tool_end":
+        echo = "";
+
+        update({
+          tools: feed.tools.filter(({ id }) => id !== event.toolCallId),
+        });
+
+        return;
+      case "prompt":
+        unconfirmed.delete(event.prompt.id);
+        if (!feed.prompts.some(({ prompt }) => prompt.id === event.prompt.id)) {
+          update({
+            prompts: [
+              ...feed.prompts,
+              { prompt: event.prompt, explanations: [] },
+            ],
+          });
+        }
+
+        return;
+      case "prompt_end":
+        update({
+          prompts: feed.prompts.filter(({ prompt }) => prompt.id !== event.id),
+        });
+
+        return;
+      case "explanation":
+        update({
+          prompts: feed.prompts.map((open) =>
+            open.prompt.id === event.id
+              ? { ...open, explanations: [...open.explanations, event] }
+              : open,
+          ),
+        });
+
+        return;
+      case "notify":
+        add({
+          role: event.level === "error" ? "error" : "note",
+          text: event.message,
+        });
+
+        return;
+      case "extension_status":
+        if (event.text === null) {
+          statuses.delete(event.key);
+        } else {
+          statuses.set(event.key, event.text);
+        }
+
+        update(surfaces());
+
+        return;
+      case "widget":
+        if (event.lines === null) {
+          widgets.delete(event.key);
+        } else {
+          widgets.set(event.key, event);
+        }
+
+        update(surfaces());
+
+        return;
+      case "footer":
+      case "header":
+        if (event.lines === null) {
+          drawn.delete(event.type);
+        } else {
+          drawn.set(event.type, event.lines.join("\n"));
+        }
+
+        update(surfaces());
+
+        return;
+      case "title":
+        update({ title: event.title });
+
+        return;
+      case "commands":
+        update({ commands: event.commands });
+
+        return;
+      case "files":
+        update({ files: event.paths });
+
+        return;
+      case "terminals":
+        update({ terminals: event.terminals });
+
+        return;
+      case "pages":
+        update({ pages: event.pages });
+
+        return;
+      case "ui_action":
+        update({ uiAction: { key: nextKey++, action: event.action } });
+
+        return;
+      case "pi_view":
+        update({ piView: { attached: event.attached, dialog: event.dialog } });
+
+        return;
+      case "settings":
+        update({ settings: event });
+
+        return;
+      case "editor_text":
+        update({ editorText: { text: event.text } });
+
+        return;
+      case "plugin":
+      case "extension_data":
+      case "context":
+        return;
+      case "queue":
+        update({
+          queue: { steering: event.steering, followUp: event.followUp },
+        });
+
+        return;
+    }
+  };
+
+  const settle = (event: SessionEvent): void => {
+    const replayed =
+      event.type === "session"
+        ? event.session.waiting
+        : event.type !== "live" || liveSurface(event.event)?.open === true;
+
+    if (unconfirmed.size === 0 || replayed) {
+      return;
+    }
+
+    update({
+      prompts: feed.prompts.filter(({ prompt }) => !unconfirmed.has(prompt.id)),
+    });
+
+    unconfirmed.clear();
+  };
+
+  const clearLive = (): Partial<Feed> => {
+    statuses.clear();
+    widgets.clear();
+    drawn.clear();
+    echo = "";
+
+    return {
+      ...surfaces(),
+      streaming: undefined,
+      tools: [],
+      queue: emptyFeed.queue,
+      terminals: [],
+      pages: [],
+      piView: emptyFeed.piView,
+    };
+  };
+
+  const open = (): void => {
+    for (const { prompt } of feed.prompts) {
+      unconfirmed.add(prompt.id);
+    }
+
+    update({ ...clearLive(), voices: [] });
+  };
+
+  const receive = (event: SessionEvent): void => {
+    dispatch(event);
+    settle(event);
+    switch (event.type) {
+      case "session": {
+        const { status, generation } = event.session;
+
+        const ended =
+          !piRuns.has(status) ||
+          (feed.session !== undefined &&
+            feed.session.generation !== generation);
+
+        if (ended) {
+          unconfirmed.clear();
+        }
+
+        update({
+          ...(ended && { ...clearLive(), prompts: [] }),
+          session: event.session,
+        });
+
+        onSession(event.session);
+
+        return;
+      }
+
+      case "entry": {
+        if (event.line < lines) {
+          return;
+        }
+
+        lines = event.line + 1;
+        const items = chatItems(event.entry);
+
+        echo = items
+          .flatMap((item) => (item.role === "assistant" ? [item.text] : []))
+          .join("");
+
+        update({
+          streaming: undefined,
+          tools: feed.tools.filter(
+            ({ id }) =>
+              !items.some((item) => item.role === "result" && item.id === id),
+          ),
+        });
+
+        add(...items);
+
+        return;
+      }
+
+      case "voice":
+        update({ voices: [...feed.voices, event.voice] });
+
+        return;
+
+      case "live":
+        live(event.event);
+
+        return;
+    }
+  };
+
+  return {
+    open,
+    receive,
+    lost: () => {
+      update({ missing: true });
+    },
+    report,
+  };
+}
+
+// The part of a browser EventSource that followEvents uses.
+export interface EventStream {
+  readonly readyState: number;
+  readonly CLOSED: number;
+  addEventListener(
+    type: "open" | "error" | "message",
+    listener: (event: { readonly data: string }) => void,
+  ): void;
+  close(): void;
+}
+
+// Follows a Session's event stream into reader. A browser reconnects by
+// itself after the connection drops, but not after an error response, so the
+// stream is opened again, backing off, until the Session is gone or the
+// browser is signed out.
+export function followEvents(
+  sessionId: string,
+  reader: FeedReader,
+  connect: (url: string) => EventStream,
+): () => void {
+  const path = apiPath("sessions.get", { params: { id: sessionId } });
+  let events: EventStream | undefined;
+  let retry: ReturnType<typeof setTimeout> | undefined;
+  let failures = 0;
+  let closed = false;
+
+  const reopen = async (): Promise<void> => {
+    const status = await fetch(path).then(
+      (response) => response.status,
+      () => undefined,
+    );
+
+    if (closed) {
+      return;
+    }
+
+    if (status === 401) {
+      (
+        globalThis as unknown as { location: { reload: () => void } }
+      ).location.reload();
+
+      return;
+    }
+
+    if (status === 404) {
+      reader.lost();
+
+      return;
+    }
+
+    retry = setTimeout(follow, Math.min(1000 * 2 ** failures, 30_000));
+    failures++;
+  };
+
+  const follow = (): void => {
+    const stream = connect(
+      apiPath("sessions.events", { params: { id: sessionId } }),
+    );
+
+    events = stream;
+
+    stream.addEventListener("error", () => {
+      if (stream.readyState === stream.CLOSED) {
+        void reopen();
+      }
+    });
+
+    stream.addEventListener("open", () => {
+      failures = 0;
+      reader.open();
+    });
+
+    stream.addEventListener("message", (message) => {
+      reader.receive(JSON.parse(message.data) as SessionEvent);
+    });
+  };
+
+  follow();
+
+  return () => {
+    closed = true;
+    clearTimeout(retry);
+    events?.close();
+  };
+}

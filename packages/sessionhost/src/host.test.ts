@@ -2,9 +2,8 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
 import { promisify, stripVTControlCharacters } from "node:util";
 import {
   fauxAssistantMessage,
@@ -18,14 +17,11 @@ import {
   ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
-import type { SessionPlugin } from "@pipoca/plugins";
+import { definePlugin, defineSession } from "@pipoca/plugins";
+import type { SessionPart } from "@pipoca/plugins/host";
 import type { Command, LiveEvent, ToolSpec } from "@pipoca/protocol";
-import { ask } from "@pipoca/ask/session";
-import {
-  type CheckoutChanges,
-  changes,
-  type PullRequest,
-} from "@pipoca/changes/session";
+import { session as askPart } from "@pipoca/ask/session";
+import { session as changesPart } from "@pipoca/changes/session";
 import {
   hostSession,
   hostTerminals,
@@ -37,6 +33,10 @@ import { fauxModels } from "./testdata/models";
 import { sessionOptions } from "./testdata/options";
 
 let root: string;
+
+function sessionPart(id: string, setup: SessionPart["setup"]): SessionPart {
+  return defineSession(definePlugin({ id, title: id, description: "" }), setup);
+}
 
 // What the composer's menus and the header show, published at every start.
 const listings: readonly LiveEvent["type"][] = [
@@ -62,6 +62,7 @@ function fakeStream(
     failPublishes?: number;
     failToolCalls?: boolean;
     tools?: readonly ToolSpec[];
+    questions?: Readonly<Record<string, string>>;
   } = {},
 ): {
   stream: SessionStream;
@@ -145,6 +146,7 @@ function fakeStream(
         throw new Error("the connection closed before the server answered");
       }
     },
+    toolQuestion: async (name) => Promise.resolve(options.questions?.[name]),
     answerTrust: async (trusted) => {
       await Promise.resolve();
       trustAnswers.push(trusted);
@@ -490,9 +492,8 @@ test("sends only the latest of each surface after live posts keep failing", asyn
   const { models } = await fauxModels(root);
   const fake = fakeStream({ failPublishes: 2 });
 
-  const progress: SessionPlugin = {
-    name: "progress",
-    extension: (cloud) => (pi: ExtensionAPI) => {
+  const progress = sessionPart("progress", (cloud) => {
+    cloud.extension((pi: ExtensionAPI) => {
       pi.on("session_start", (_event, ctx) => {
         cloud.publish("done", 1);
         ctx.ui.setStatus("build", "1 running");
@@ -501,11 +502,11 @@ test("sends only the latest of each surface after live posts keep failing", asyn
         ctx.ui.setStatus("lint", "failing");
         ctx.ui.setStatus("lint", undefined);
       });
-    },
-  };
+    });
+  });
 
   const hosted = await hostSession(
-    sessionOptions(root, { models, plugins: [progress] }),
+    sessionOptions(root, { models, parts: [progress] }),
     fake.stream,
     () => undefined,
     noTerminal,
@@ -525,112 +526,12 @@ test("sends only the latest of each surface after live posts keep failing", asyn
   ]);
 });
 
-const subagentsPath = dirname(
-  fileURLToPath(import.meta.resolve("pi-subagents/package.json")),
-);
-
-const subagents: SessionPlugin = {
-  name: "subagents",
-  packages: [subagentsPath],
-};
-
-function commandNames(events: readonly LiveEvent[]): string[] {
-  return events.flatMap((event) =>
-    event.type === "commands" ? event.commands.map(({ name }) => name) : [],
-  );
-}
-
-test("loads a plugin's Pi packages in the Session", async () => {
-  const { models } = await fauxModels(root);
-  const fake = fakeStream();
-
-  const hosted = await hostSession(
-    sessionOptions(root, { models, plugins: [subagents] }),
-    fake.stream,
-    () => undefined,
-    noTerminal,
-  );
-
-  await fake.waitFor(() => commandNames(fake.events).length > 0);
-  await hosted.stop();
-
-  expect(commandNames(fake.events)).toContain("subagents-inspect-rpc");
-});
-
-test("lets a user's own extension replace a plugin's package of the same tool", async () => {
-  const { models } = await fauxModels(root);
-  const fake = fakeStream();
-  const own = join(root, "own-subagents.ts");
-
-  await writeFile(
-    own,
-    `export default (pi) => {
-      pi.registerTool({
-        name: "subagent",
-        label: "Subagent",
-        description: "The user's own",
-        parameters: { type: "object", properties: {} },
-        execute: async () => ({ content: [], details: undefined }),
-      });
-      pi.registerCommand("own-subagents", { handler: async () => undefined });
-    };\n`,
-  );
-
-  const hosted = await hostSession(
-    sessionOptions(root, {
-      models,
-      extensionPaths: [own],
-      plugins: [subagents],
-    }),
-    fake.stream,
-    () => undefined,
-    noTerminal,
-  );
-
-  await fake.waitFor(() => commandNames(fake.events).length > 0);
-  await hosted.stop();
-
-  expect(commandNames(fake.events)).toContain("own-subagents");
-  expect(commandNames(fake.events)).not.toContain("subagents-inspect-rpc");
-});
-
-test("starts without a plugin package that cannot be installed", async () => {
-  const { models } = await fauxModels(root);
-  const fake = fakeStream();
-  const logs: string[] = [];
-
-  const unreachable: SessionPlugin = {
-    name: "unreachable",
-    packages: ["git:localhost/missing/package"],
-  };
-
-  // Offline, Pi doesn't try to install it at all.
-  delete process.env["PI_OFFLINE"];
-
-  try {
-    const hosted = await hostSession(
-      sessionOptions(root, { models, plugins: [unreachable] }),
-      fake.stream,
-      (message) => logs.push(message),
-      noTerminal,
-    );
-
-    await fake.waitFor(() => commandNames(fake.events).length > 0);
-    await hosted.stop();
-  } finally {
-    process.env["PI_OFFLINE"] = "1";
-  }
-
-  expect(logs).toContain("extension error");
-});
-
 test("resends only the end of a prompt that closed while its live post failed", async () => {
   const { models } = await fauxModels(root);
   const fake = fakeStream({ failPublishes: 1 });
 
-  const asking: SessionPlugin = {
-    name: "asking",
-    extension: () => (pi: ExtensionAPI) => {
+  const asking = sessionPart("asking", (s) => {
+    s.extension((pi: ExtensionAPI) => {
       pi.on("session_start", (_event, ctx) => {
         const cancel = new AbortController();
 
@@ -640,11 +541,11 @@ test("resends only the end of a prompt that closed while its live post failed", 
 
         cancel.abort();
       });
-    },
-  };
+    });
+  });
 
   const hosted = await hostSession(
-    sessionOptions(root, { models, plugins: [asking] }),
+    sessionOptions(root, { models, parts: [asking] }),
     fake.stream,
     () => undefined,
     noTerminal,
@@ -840,25 +741,15 @@ test("leaves out a replaceable plugin's extension when the user's own registers 
     fauxAssistantMessage([fauxText("deployed")]),
   ]);
 
-  const builtIn: SessionPlugin = {
-    name: "built-in",
-    replaceable: true,
-    extension: () => (pi: ExtensionAPI) => {
-      pi.registerTool(
-        defineTool({
-          name: "deploy",
-          label: "Deploy",
-          description: "The plugin's deploy",
-          parameters: Type.Object({}),
-          execute: async () =>
-            Promise.resolve({
-              content: [{ type: "text" as const, text: "from the plugin" }],
-              details: {},
-            }),
-        }),
-      );
-    },
-  };
+  const builtIn = sessionPart("built-in", (s) => {
+    s.tools.define({
+      name: "deploy",
+      description: "The plugin's deploy",
+      params: Type.Object({}),
+      replaceable: true,
+      run: () => "from the plugin",
+    });
+  });
 
   const logs: string[] = [];
   const fake = fakeStream();
@@ -867,7 +758,7 @@ test("leaves out a replaceable plugin's extension when the user's own registers 
     sessionOptions(root, {
       extensionPaths: [await confirmTool()],
       models,
-      plugins: [builtIn],
+      parts: [builtIn],
     }),
     fake.stream,
     (message) => {
@@ -1301,7 +1192,7 @@ test("asks structured questions with the ask plugin's ask_user tool", async () =
   const fake = fakeStream();
 
   const hosted = await hostSession(
-    sessionOptions(root, { models, plugins: [ask] }),
+    sessionOptions(root, { models, parts: [askPart] }),
     fake.stream,
     () => undefined,
     noTerminal,
@@ -1475,7 +1366,7 @@ export default (pi) => {
     sessionOptions(root, {
       extensionPaths: [extension],
       models,
-      plugins: [ask],
+      parts: [askPart],
     }),
     fake.stream,
     () => undefined,
@@ -1534,7 +1425,7 @@ test("explains an option with the session's model while the form is open", async
   const fake = fakeStream();
 
   const hosted = await hostSession(
-    sessionOptions(root, { models, plugins: [ask] }),
+    sessionOptions(root, { models, parts: [askPart] }),
     fake.stream,
     () => undefined,
     noTerminal,
@@ -1604,7 +1495,7 @@ test.each([
     const fake = fakeStream();
 
     const hosted = await hostSession(
-      sessionOptions(root, { models, plugins: [ask] }),
+      sessionOptions(root, { models, parts: [askPart] }),
       fake.stream,
       () => undefined,
       noTerminal,
@@ -1677,7 +1568,7 @@ test("takes a queued message back and keeps the rest queued with their images", 
   const fake = fakeStream();
 
   const hosted = await hostSession(
-    sessionOptions(root, { models, plugins: [ask] }),
+    sessionOptions(root, { models, parts: [askPart] }),
     fake.stream,
     () => undefined,
     noTerminal,
@@ -1842,13 +1733,12 @@ test.each(["steer", "followUp"] as const)(
     const hosted = await hostSession(
       sessionOptions(root, {
         models,
-        plugins: [
-          {
-            name: "background",
-            extension: () => (pi: ExtensionAPI) => {
+        parts: [
+          sessionPart("background", (s) => {
+            s.extension((pi: ExtensionAPI) => {
               extension = pi;
-            },
-          },
+            });
+          }),
         ],
       }),
       fake.stream,
@@ -2018,7 +1908,7 @@ test("leaves a message Pi already read when asked to take it back", async () => 
   const fake = fakeStream();
 
   const hosted = await hostSession(
-    sessionOptions(root, { models, plugins: [ask] }),
+    sessionOptions(root, { models, parts: [askPart] }),
     fake.stream,
     () => undefined,
     noTerminal,
@@ -2065,6 +1955,16 @@ async function gitRepository(): Promise<string> {
   return dir;
 }
 
+// What the changes plugin publishes about a checkout, as far as these tests
+// read it.
+interface CheckoutChanges {
+  readonly files: readonly { readonly status: string; readonly path: string }[];
+  readonly fileCount: number;
+  readonly stat: string;
+  readonly patch: string;
+  readonly truncated: boolean;
+}
+
 function published(
   events: readonly LiveEvent[],
 ): (readonly CheckoutChanges[])[] {
@@ -2094,7 +1994,7 @@ test("publishes what the session changed in its git workspace after a turn", asy
     sessionOptions(root, {
       cwd: repo,
       models,
-      plugins: [changes],
+      parts: [changesPart],
       checkouts: [{ path: repo, base: null }],
     }),
     fake.stream,
@@ -2147,7 +2047,7 @@ test("sends only the stat when the patch is too large", async () => {
     sessionOptions(root, {
       cwd: repo,
       models,
-      plugins: [changes],
+      parts: [changesPart],
       checkouts: [{ path: repo, base: null }],
     }),
     fake.stream,
@@ -2187,7 +2087,7 @@ test("sends the file list and stat when they alone are larger than the patch lim
     sessionOptions(root, {
       cwd: repo,
       models,
-      plugins: [changes],
+      parts: [changesPart],
       checkouts: [{ path: repo, base: null }],
     }),
     fake.stream,
@@ -2232,7 +2132,7 @@ test("caps the published file list and stat but reports the real file count", as
     sessionOptions(root, {
       cwd: repo,
       models,
-      plugins: [changes],
+      parts: [changesPart],
       checkouts: [{ path: repo, base: null }],
     }),
     fake.stream,
@@ -2321,6 +2221,14 @@ async function pullRequestSetup(reply: string): Promise<{
   };
 }
 
+// Where a checkout's pull request stands, as the changes plugin publishes it.
+interface PullRequest {
+  readonly name: string;
+  readonly status: string;
+  readonly url?: string;
+  readonly error?: string;
+}
+
 function pullRequests(events: readonly LiveEvent[]): PullRequest[] {
   return events.flatMap((event) =>
     event.type === "plugin" &&
@@ -2350,7 +2258,7 @@ test("/pr draft commits, pushes and opens a draft pull request that the next sta
     const options = sessionOptions(root, {
       cwd: setup.repo,
       models,
-      plugins: [changes],
+      parts: [changesPart],
       checkouts: [{ path: setup.repo, base: setup.base }],
     });
 
@@ -2432,7 +2340,7 @@ test("/pr on a branch that has a pull request commits, pushes and keeps its link
       sessionOptions(root, {
         cwd: setup.repo,
         models,
-        plugins: [changes],
+        parts: [changesPart],
         checkouts: [{ path: setup.repo, base: setup.base }],
       }),
       fake.stream,
@@ -2491,7 +2399,7 @@ test("/pr falls back to GitHub's compose page when gh fails", async () => {
       sessionOptions(root, {
         cwd: setup.repo,
         models,
-        plugins: [changes],
+        parts: [changesPart],
         checkouts: [{ path: setup.repo, base: setup.base }],
       }),
       fake.stream,
@@ -2514,7 +2422,7 @@ test("/pr falls back to GitHub's compose page when gh fails", async () => {
       reason: "gh pr create failed: not logged in",
     });
 
-    const url = new URL(last?.status === "compose" ? last.url : "");
+    const url = new URL(last?.url ?? "");
     expect(url.pathname).toBe("/acme/widgets/compare/pi%2Fnotes");
     expect(url.searchParams.get("title")).toBe("Add notes");
     expect(url.searchParams.get("body")).toBe("Why.");
@@ -2535,7 +2443,7 @@ test("/pr says why when the branch has nothing to push", async () => {
       sessionOptions(root, {
         cwd: setup.repo,
         models,
-        plugins: [changes],
+        parts: [changesPart],
         checkouts: [{ path: setup.repo, base: setup.base }],
       }),
       fake.stream,
@@ -2582,7 +2490,7 @@ test("/pr with only a checkout's name opens a full pull request for that checkou
     const hosted = await hostSession(
       sessionOptions(root, {
         models,
-        plugins: [changes],
+        parts: [changesPart],
         checkouts: [
           { path: setup.repo, base: setup.base },
           { path: other, base: setup.base },
@@ -2632,7 +2540,7 @@ test("/pr constructor starts no pull request", async () => {
       sessionOptions(root, {
         cwd: setup.repo,
         models,
-        plugins: [changes],
+        parts: [changesPart],
         checkouts: [{ path: setup.repo, base: setup.base }],
       }),
       fake.stream,
@@ -2673,7 +2581,7 @@ test("publishes no changes outside a git repository", async () => {
   const hosted = await hostSession(
     sessionOptions(root, {
       models,
-      plugins: [changes],
+      parts: [changesPart],
       checkouts: [{ path: root, base: null }],
     }),
     fake.stream,
@@ -2831,6 +2739,51 @@ test("runs server tools through the stream and gives the model their result", as
   expect(fake.lines.join()).toContain("the server said forty-two");
 });
 
+test("asks the person the server's question before a server tool that asks, and refuses it when they say no", async () => {
+  const { faux, models } = await fauxModels(root);
+
+  faux.setResponses([
+    fauxAssistantMessage([fauxToolCall("wipe", {})], {
+      stopReason: "toolUse",
+    }),
+    fauxAssistantMessage([fauxText("left it")]),
+  ]);
+
+  const fake = fakeStream({
+    tools: [
+      {
+        name: "wipe",
+        description: "Wipes the disk",
+        parameters: { type: "object", properties: {} },
+        asks: true,
+      },
+    ],
+    questions: { wipe: "Wipe the disk?" },
+  });
+
+  const hosted = await hostSession(
+    sessionOptions(root, { models }),
+    fake.stream,
+    () => undefined,
+    noTerminal,
+  );
+
+  fake.send({ actor: "user:local", type: "message", text: "wipe it" });
+  await fake.waitFor(() => fake.events.some((e) => e.type === "prompt"));
+  const prompt = fake.events.find((e) => e.type === "prompt");
+  const id = prompt?.type === "prompt" ? prompt.prompt.id : "";
+  fake.send({ actor: "user:local", type: "answer", id, value: "deny" });
+  await fake.waitFor(() => fake.lines.join().includes("left it"));
+  await hosted.stop();
+
+  expect(prompt?.type === "prompt" && prompt.prompt.title).toBe(
+    "Wipe the disk?",
+  );
+
+  expect(fake.toolCalls).toEqual([]);
+  expect(fake.lines.join()).toContain("The person said no.");
+});
+
 test("declares a deferred server tool once tool_search finds it", async () => {
   const { faux, models } = await fauxModels(root);
   const description = "Looks a key up on the server";
@@ -2942,9 +2895,8 @@ test("gives extensions a server tool's namespace and hints", async () => {
   const { models } = await fauxModels(root);
   const seen: { namespace?: unknown; annotations?: unknown }[] = [];
 
-  const inspector: SessionPlugin = {
-    name: "inspector",
-    extension: () => (pi) => {
+  const inspector = sessionPart("inspector", (s) => {
+    s.extension((pi) => {
       pi.registerCommand("inspect", {
         description: "Records the lookup tool",
         handler: async () => {
@@ -2958,8 +2910,8 @@ test("gives extensions a server tool's namespace and hints", async () => {
           await Promise.resolve();
         },
       });
-    },
-  };
+    });
+  });
 
   const fake = fakeStream({
     tools: [
@@ -2974,7 +2926,7 @@ test("gives extensions a server tool's namespace and hints", async () => {
   });
 
   const hosted = await hostSession(
-    sessionOptions(root, { models, plugins: [inspector] }),
+    sessionOptions(root, { models, parts: [inspector] }),
     fake.stream,
     () => undefined,
     noTerminal,
@@ -3097,7 +3049,7 @@ test("tells the model a server tool may still have run when its call gets no ans
   );
 });
 
-test("lets a plugin's tools reach its own server routes", async () => {
+test("runs a defined Session part's tools in Pi, with its config, its api and publish", async () => {
   const { faux, models } = await fauxModels(root);
 
   faux.setResponses([
@@ -3107,36 +3059,36 @@ test("lets a plugin's tools reach its own server routes", async () => {
     fauxAssistantMessage([fauxText("done")]),
   ]);
 
-  const echo: SessionPlugin = {
-    name: "echo",
-    tools: async ({ request }) =>
-      (await request("member")).ok
-        ? [
-            defineTool({
-              name: "echo",
-              label: "Echo",
-              description: "Sends text to the plugin's server routes",
-              parameters: Type.Object({ text: Type.String() }),
-              async execute(_id, params) {
-                const response = await request("echo", {
-                  method: "PUT",
-                  body: params.text,
-                });
+  const plugin = definePlugin({
+    id: "echo",
+    title: "Echo",
+    description: "Echoes",
+  });
 
-                return {
-                  content: [{ type: "text", text: await response.text() }],
-                  details: undefined,
-                };
-              },
-            }),
-          ]
-        : [],
-  };
+  const part = defineSession(plugin, (s) => {
+    s.tools.define({
+      name: "echo",
+      description: "Sends text to the plugin's server routes",
+      params: Type.Object({ text: Type.String() }),
+      run: async ({ text }) => {
+        s.publish("said", text);
+
+        return {
+          text: JSON.stringify(await s.api.put("echo", text)),
+          details: { config: s.config },
+        };
+      },
+    });
+  });
 
   const fake = fakeStream();
 
   const hosted = await hostSession(
-    sessionOptions(root, { models, plugins: [echo] }),
+    sessionOptions(root, {
+      models,
+      parts: [part],
+      pluginConfig: { echo: { greeting: "Hello" } },
+    }),
     fake.stream,
     () => undefined,
     noTerminal,
@@ -3146,11 +3098,25 @@ test("lets a plugin's tools reach its own server routes", async () => {
   await fake.waitFor(() => fake.lines.join().includes("done"));
   await hosted.stop();
 
-  expect(fake.lines.join()).toContain(
-    JSON.stringify(
-      JSON.stringify({ plugin: "echo", path: "echo", body: "hi" }),
-    ).slice(1, -1),
-  );
+  const result = fake.lines
+    .map((line) => JSON.parse(line) as { message?: { role: string } })
+    .find(({ message }) => message?.role === "toolResult")?.message as
+    { content: { text: string }[]; details: unknown } | undefined;
+
+  expect(JSON.parse(result?.content[0]?.text ?? "null")).toEqual({
+    plugin: "echo",
+    path: "echo",
+    body: JSON.stringify("hi"),
+  });
+
+  expect(result?.details).toEqual({ config: { greeting: "Hello" } });
+
+  expect(fake.events).toContainEqual({
+    type: "plugin",
+    plugin: "echo",
+    key: "said",
+    data: "hi",
+  });
 });
 
 test("starts with its first message, its system prompt text and plugins' extensions", async () => {
@@ -3162,10 +3128,9 @@ test("starts with its first message, its system prompt text and plugins' extensi
     models,
     systemPrompt: "You coordinate project X.",
     firstMessage: "kick off",
-    plugins: [
-      {
-        name: "tooly",
-        extension: () => (pi: ExtensionAPI) => {
+    parts: [
+      sessionPart("tooly", (s) => {
+        s.extension((pi: ExtensionAPI) => {
           pi.on("session_start", () => {
             pi.sendMessage({
               customType: "snapshot",
@@ -3181,8 +3146,8 @@ test("starts with its first message, its system prompt text and plugins' extensi
             parameters: Type.Object({}),
             execute: async () => Promise.resolve({ content: [], details: {} }),
           });
-        },
-      },
+        });
+      }),
     ],
   });
 
@@ -4160,47 +4125,48 @@ test("starts a plugin's child session on the Session's own models", async () => 
     fauxAssistantMessage([fauxText("delegated")]),
   ]);
 
-  const delegating: SessionPlugin = {
-    name: "delegating",
-    tools: (cloud) => [
-      defineTool({
-        name: "delegate",
-        label: "Delegate",
-        description: "Asks a child session",
-        parameters: Type.Object({}),
-        execute: async () => {
-          const child = await cloud.startChild({ tools: ["read"] });
-          await child.prompt("answer");
+  const delegating = sessionPart("delegating", (cloud) => {
+    cloud.extension((pi) => {
+      pi.registerTool(
+        defineTool({
+          name: "delegate",
+          label: "Delegate",
+          description: "Asks a child session",
+          parameters: Type.Object({}),
+          execute: async () => {
+            const child = await cloud.startChild({ tools: ["read"] });
+            await child.prompt("answer");
 
-          const reply = child.messages.findLast(
-            (message) => message.role === "assistant",
-          );
+            const reply = child.messages.findLast(
+              (message) => message.role === "assistant",
+            );
 
-          const text =
-            reply?.role === "assistant"
-              ? reply.content.flatMap((part) =>
-                  part.type === "text" ? [part.text] : [],
-                )
-              : [];
+            const text =
+              reply?.role === "assistant"
+                ? reply.content.flatMap((part) =>
+                    part.type === "text" ? [part.text] : [],
+                  )
+                : [];
 
-          child.dispose();
+            child.dispose();
 
-          return {
-            content: [{ type: "text", text: `child: ${text.join("")}` }],
-            details: {
-              file: child.sessionFile,
-              tools: child.getActiveToolNames(),
-            },
-          };
-        },
-      }),
-    ],
-  };
+            return {
+              content: [{ type: "text", text: `child: ${text.join("")}` }],
+              details: {
+                file: child.sessionFile,
+                tools: child.getActiveToolNames(),
+              },
+            };
+          },
+        }),
+      );
+    });
+  });
 
   const fake = fakeStream();
 
   const hosted = await hostSession(
-    sessionOptions(root, { models, plugins: [delegating] }),
+    sessionOptions(root, { models, parts: [delegating] }),
     fake.stream,
     () => undefined,
     noTerminal,

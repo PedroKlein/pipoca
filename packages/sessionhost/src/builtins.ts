@@ -30,7 +30,7 @@ export const builtinCommands: readonly SlashCommand[] = [
   source: "builtin",
 }));
 
-export interface Builtin {
+interface Builtin {
   readonly name: string;
   readonly args: string;
 }
@@ -56,7 +56,7 @@ export function builtinOf(
   return { name, args: match?.[2]?.trim() ?? "" };
 }
 
-export interface BuiltinContext {
+interface BuiltinContext {
   readonly prompts: Pick<ReturnType<typeof remoteUI>, "ui" | "secret">;
   readonly push: (event: LiveEvent) => void;
 }

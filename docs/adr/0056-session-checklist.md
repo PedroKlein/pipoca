@@ -1,6 +1,6 @@
 # 0056: A checklist in every Session
 
-- Status: accepted
+- Status: accepted; the `composer` slot is `session.composer` since [ADR 0069](0069-plugin-sdk-v2.md)
 - Date: 2026-11-02
 
 ## Context

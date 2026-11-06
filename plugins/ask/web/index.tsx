@@ -1,35 +1,48 @@
 import {
-  json,
-  ok,
-  type SessionPartProps,
+  defineWeb,
+  type MountedSession,
+  useApi,
   useLoaded,
-  type WebContext,
-  type WebPlugin,
 } from "@pipoca/plugins/web";
-import { Button, cn, Field, fieldClass, Icon, ListInput } from "@pipoca/ui";
-import { type ReactElement, useEffect, useRef, useState } from "react";
-import type { Vote, Votes } from "../src/server";
+import {
+  Button,
+  cn,
+  Dialog,
+  DialogBody,
+  DialogFoot,
+  ErrorText,
+  Field,
+  Icon,
+  ListInput,
+  TextInput,
+} from "@pipoca/ui";
+import { type ReactElement, useState } from "react";
+import { ask } from "../plugin";
+import type { Vote, Votes } from "../src/votes";
+
+interface Props {
+  readonly session: MountedSession;
+}
 
 // Open votes sit above the composer of team work, and anyone following it
 // opens one from the header (ADR 0065).
-export const ask: WebPlugin = {
-  name: "ask",
-  Composer: OpenVotes,
-  SessionHeader: VoteButton,
-};
+export const web = defineWeb(ask, {
+  settings: { group: "server", form: "auto" },
+  slots: { "session.composer": OpenVotes, "session.header": VoteButton },
+});
 
-function useVotes({ context, session }: SessionPartProps): Votes | undefined {
+function useVotes({ session }: Props): Votes | undefined {
+  const api = useApi(ask);
+
   return useLoaded(
     async () =>
-      json<Votes>(
-        context.request(`sessions/${encodeURIComponent(session.id)}/votes`),
-      ),
+      api.get<Votes>(`sessions/${encodeURIComponent(session.id)}/votes`),
     session.id,
-    { topics: ["ask.votes"] },
+    { changes: ["votes"] },
   ).value;
 }
 
-function OpenVotes(props: SessionPartProps): ReactElement | null {
+function OpenVotes(props: Props): ReactElement | null {
   const votes = useVotes(props);
 
   if (votes === undefined || votes.votes.length === 0) {
@@ -39,33 +52,20 @@ function OpenVotes(props: SessionPartProps): ReactElement | null {
   return (
     <div className="flex flex-col gap-2">
       {votes.votes.map((vote) => (
-        <VoteCard key={vote.id} context={props.context} vote={vote} />
+        <VoteCard key={vote.id} vote={vote} />
       ))}
     </div>
   );
 }
 
-function VoteCard({
-  context,
-  vote,
-}: {
-  readonly context: WebContext;
-  readonly vote: Vote;
-}): ReactElement {
+function VoteCard({ vote }: { readonly vote: Vote }): ReactElement {
+  const api = useApi(ask);
   const [error, setError] = useState<string>();
 
-  const act = (path: string, method: string, body?: unknown): void => {
+  const act = (sent: Promise<unknown>): void => {
     setError(undefined);
 
-    ok(
-      context.request(path, {
-        method,
-        ...(body !== undefined && {
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
-        }),
-      }),
-    ).catch((failure: unknown) => {
+    sent.catch((failure: unknown) => {
       setError(failure instanceof Error ? failure.message : String(failure));
     });
   };
@@ -94,7 +94,7 @@ function VoteCard({
             variant="ghost"
             className="shrink-0"
             onClick={() => {
-              act(`votes/${vote.id}/close`, "POST");
+              act(api.post(`votes/${vote.id}/close`));
             }}
           >
             Close vote
@@ -113,7 +113,7 @@ function VoteCard({
                 type="button"
                 aria-pressed={vote.mine === option}
                 onClick={() => {
-                  act(`votes/${vote.id}/pick`, "PUT", { option });
+                  act(api.put(`votes/${vote.id}/pick`, { option }));
                 }}
                 className={cn(
                   "flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-label",
@@ -137,16 +137,12 @@ function VoteCard({
           );
         })}
       </ul>
-      {error !== undefined && (
-        <p role="alert" className="text-label text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText>{error}</ErrorText>
     </section>
   );
 }
 
-function VoteButton(props: SessionPartProps): ReactElement | null {
+function VoteButton(props: Props): ReactElement | null {
   const votes = useVotes(props);
   const [open, setOpen] = useState(false);
 
@@ -177,60 +173,37 @@ function VoteButton(props: SessionPartProps): ReactElement | null {
 }
 
 function OpenVoteDialog({
-  context,
   session,
   open,
   onClose,
-}: SessionPartProps & {
+}: Props & {
   readonly open: boolean;
   readonly onClose: () => void;
 }): ReactElement {
-  const dialog = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    if (open) {
-      dialog.current?.showModal();
-    } else {
-      dialog.current?.close();
-    }
-  }, [open]);
-
   return (
-    <dialog
-      ref={dialog}
-      onClose={onClose}
-      aria-labelledby="vote-title"
-      className="m-auto w-[min(480px,calc(100vw-32px))] overflow-visible rounded-xl border border-line bg-elevated p-0 text-fg shadow-pop backdrop:bg-black/30 backdrop:backdrop-blur-[2px] open:animate-pop-in"
-    >
-      {open && (
-        <VoteForm context={context} session={session} onDone={onClose} />
-      )}
-    </dialog>
+    <Dialog open={open} onClose={onClose} title="Open a vote" size="sm">
+      <VoteForm session={session} onDone={onClose} />
+    </Dialog>
   );
 }
 
 function VoteForm({
-  context,
   session,
   onDone,
-}: SessionPartProps & { readonly onDone: () => void }): ReactElement {
+}: Props & { readonly onDone: () => void }): ReactElement {
+  const api = useApi(ask);
   const [question, setQuestion] = useState("");
   const [options, setOptions] = useState<readonly string[]>([]);
   const [minutes, setMinutes] = useState("");
   const [error, setError] = useState<string>();
 
   const submit = (): void => {
-    json(
-      context.request(`sessions/${encodeURIComponent(session.id)}/votes`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          question,
-          options,
-          ...(minutes.trim() !== "" && { minutes: Number(minutes) }),
-        }),
-      }),
-    )
+    api
+      .post(`sessions/${encodeURIComponent(session.id)}/votes`, {
+        question,
+        options,
+        ...(minutes.trim() !== "" && { minutes: Number(minutes) }),
+      })
       .then(onDone)
       .catch((failure: unknown) => {
         setError(failure instanceof Error ? failure.message : String(failure));
@@ -244,64 +217,47 @@ function VoteForm({
         event.preventDefault();
         submit();
       }}
-      className="flex flex-col gap-4 p-5"
     >
-      <header className="flex items-center gap-2">
-        <h2
-          id="vote-title"
-          className="flex-1 text-ui font-semibold text-fg-strong"
+      <DialogBody>
+        <Field label="Question">
+          <TextInput
+            value={question}
+            onChange={(event) => {
+              setQuestion(event.target.value);
+            }}
+            placeholder="Ship it today?"
+          />
+        </Field>
+
+        <ListInput
+          label="Options"
+          values={options}
+          placeholder="Type an option and press Enter"
+          onChange={setOptions}
+        />
+
+        <Field
+          label="Minutes open"
+          hint="Leave empty for the team's default. You or whoever started the work can close it sooner."
         >
-          Open a vote
-        </h2>
-        <Button variant="ghost" iconOnly aria-label="Close" onClick={onDone}>
-          <Icon name="x" />
-        </Button>
-      </header>
+          <TextInput
+            inputMode="numeric"
+            value={minutes}
+            onChange={(event) => {
+              setMinutes(event.target.value);
+            }}
+          />
+        </Field>
 
-      <Field label="Question">
-        <input
-          className={fieldClass}
-          value={question}
-          onChange={(event) => {
-            setQuestion(event.target.value);
-          }}
-          placeholder="Ship it today?"
-        />
-      </Field>
-
-      <ListInput
-        label="Options"
-        values={options}
-        placeholder="Type an option and press Enter"
-        onChange={setOptions}
-      />
-
-      <Field
-        label="Minutes open"
-        hint="Leave empty for the team's default. You or whoever started the work can close it sooner."
-      >
-        <input
-          className={fieldClass}
-          inputMode="numeric"
-          value={minutes}
-          onChange={(event) => {
-            setMinutes(event.target.value);
-          }}
-        />
-      </Field>
-
-      <p className="text-label text-fg-dim">
-        Everyone following this work can vote. Pi reads the result the next time
-        someone asks it something.
-      </p>
-
-      {error !== undefined && (
-        <p role="alert" className="text-label text-failed">
-          {error}
+        <p className="text-label text-fg-dim">
+          Everyone following this work can vote. Pi reads the result the next
+          time someone asks it something.
         </p>
-      )}
 
-      <div className="flex justify-end gap-2">
+        <ErrorText>{error}</ErrorText>
+      </DialogBody>
+
+      <DialogFoot>
         <Button onClick={onDone}>Cancel</Button>
         <Button
           type="submit"
@@ -310,7 +266,7 @@ function VoteForm({
         >
           Open vote
         </Button>
-      </div>
+      </DialogFoot>
     </form>
   );
 }

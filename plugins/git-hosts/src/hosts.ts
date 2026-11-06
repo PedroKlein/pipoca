@@ -1,11 +1,11 @@
 import {
   BadRequest,
-  isObject,
-  type PluginConfig,
-  type PluginStore,
+  type Collection,
+  NotFound,
   type Static,
   Type,
 } from "@pipoca/plugins";
+import { type HostItem, hostPattern } from "../plugin";
 import type { HostView } from "./model";
 
 // What Settings sends to change a host. An empty or missing client secret
@@ -33,195 +33,86 @@ export interface OAuthApp {
   readonly clientId: string;
   // GitHub's OAuth apps need a secret, so without one people paste a token.
   readonly clientSecret: string | undefined;
-  readonly clientSecretEnv: string | undefined;
 }
 
-export interface HostStore {
+export interface Hosts {
   readonly list: () => readonly HostConfig[];
   readonly get: (host: string) => HostConfig | undefined;
   readonly create: (input: Static<typeof newHost>) => HostConfig;
   readonly update: (
     host: string,
     input: Static<typeof hostChange>,
-  ) => HostConfig | undefined;
-  readonly remove: (host: string) => boolean;
+  ) => HostConfig;
+  readonly remove: (host: string) => void;
 }
 
-// A host and its client secret as the file holds them, sealed, so a save that
-// keeps the secret writes the same text back.
-interface Entry {
-  readonly config: HostConfig;
-  readonly sealed: string | undefined;
-}
+// The hosts live in the plugin's config in pipoca.json, which Settings and
+// people both edit (ADR 0039).
+export function hosts(items: Collection<HostItem>): Hosts {
+  const get = (host: string): HostConfig | undefined => {
+    const item = items.get(host);
 
-const github: HostConfig = {
-  host: "github.com",
-  label: "GitHub",
-  api: "https://api.github.com",
-  oauth: undefined,
-};
-
-// The hosts live under the plugin's key in pipoca.json, which Settings and
-// people both edit (ADR 0039). With no list in the file, github.com is the
-// one host (ADR 0043). A list that stops fitting is logged, and the last one
-// that fit stays in use.
-export function hostStore(
-  config: PluginConfig,
-  store: PluginStore,
-  env: NodeJS.ProcessEnv,
-  log: (message: string, fields?: Readonly<Record<string, unknown>>) => void,
-): HostStore {
-  // Sessions the server starts inherit its environment, so a secret leaves
-  // it once read.
-  const fromEnv = new Map<string, string>();
-
-  const secretIn = (name: string): string | undefined => {
-    const value = fromEnv.get(name) ?? env[name];
-
-    if (value !== undefined && value !== "") {
-      fromEnv.set(name, value);
-      Reflect.deleteProperty(env, name);
-    }
-
-    return fromEnv.get(name);
+    return item && hostConfig(item);
   };
-
-  const parse = (value: unknown): readonly Entry[] =>
-    entriesOf(value, (sealed, host) => store.open(sealed, host), secretIn);
-
-  let read = JSON.stringify(config.get());
-  let entries = parse(config.get());
-
-  // Why the hosts in the file stopped fitting. A save would write the last
-  // ones that fit over what someone wrote there by hand.
-  let unfit: string | undefined;
-
-  const current = (): readonly Entry[] => {
-    const value = config.get();
-    const serialized = JSON.stringify(value);
-
-    if (serialized !== read) {
-      read = serialized;
-
-      try {
-        entries = parse(value);
-        unfit = undefined;
-      } catch (failure) {
-        unfit = failure instanceof Error ? failure.message : String(failure);
-
-        log("hosts in the config file don't fit", {
-          error: unfit,
-        });
-      }
-    }
-
-    return entries;
-  };
-
-  const save = (next: readonly Entry[]): void => {
-    current();
-    if (unfit !== undefined) {
-      throw new BadRequest(`fix git-hosts in pipoca.json first: ${unfit}`);
-    }
-
-    const value = config.get();
-
-    try {
-      config.set({
-        ...(isObject(value) ? value : {}),
-        hosts: next.map(fileEntry),
-      });
-    } catch (failure) {
-      throw new BadRequest(
-        failure instanceof Error ? failure.message : String(failure),
-      );
-    }
-
-    entries = next;
-    read = JSON.stringify(config.get());
-  };
-
-  const get = (host: string): Entry | undefined =>
-    current().find(({ config: each }) => each.host === host);
 
   const changed = (
     host: string,
     input: Static<typeof hostChange>,
-    before: Entry | undefined,
-  ): Entry => {
-    const secret = input.clientSecret;
-    const label = (input.label ?? "").trim() || host;
+    before: HostItem | undefined,
+  ): HostItem => {
+    const label = (input.label ?? "").trim();
     const clientId = input.clientId?.trim() ?? "";
-    const base = { ...hostConfig(host, before?.config.api), label };
+    const secret = input.clientSecret?.trim();
 
-    if (clientId === "") {
-      return { config: { ...base, oauth: undefined }, sealed: undefined };
-    }
+    const kept = input.clientSecret === null ? undefined : before?.oauth;
 
-    if (secret !== undefined && secret !== null && secret.trim() !== "") {
-      return {
-        config: {
-          ...base,
-          oauth: {
-            clientId,
-            clientSecret: secret.trim(),
-            clientSecretEnv: undefined,
-          },
-        },
-        sealed: store.seal(secret.trim(), host),
-      };
-    }
-
-    const kept = secret === null ? undefined : before?.config.oauth;
+    const clientSecret =
+      secret === undefined || secret === "" ? kept?.clientSecret : secret;
 
     return {
-      config: {
-        ...base,
+      host,
+      ...(label !== "" && label !== host && { label }),
+      ...(before?.api !== undefined && { api: before.api }),
+      ...(clientId !== "" && {
         oauth: {
           clientId,
-          clientSecret: kept?.clientSecret,
-          clientSecretEnv: kept?.clientSecretEnv,
+          ...(clientSecret !== undefined && { clientSecret }),
         },
-      },
-      sealed: secret === null ? undefined : before?.sealed,
+      }),
     };
   };
 
   return {
-    list: () => current().map((entry) => entry.config),
-    get: (host) => get(host)?.config,
+    list: () => items.list().map(hostConfig),
+    get,
     create: (input) => {
       const host = hostName(input.host);
 
-      if (get(host) !== undefined) {
+      if (items.get(host) !== undefined) {
         throw new BadRequest(`${host} is already listed`);
       }
 
-      const entry = changed(host, input, undefined);
-      save([...current(), entry]);
+      const item = changed(host, input, undefined);
+      items.put(item);
 
-      return entry.config;
+      return hostConfig(item);
     },
     update: (host, input) => {
-      const before = get(host);
+      const before = items.get(host);
+
       if (before === undefined) {
-        return undefined;
+        throw new NotFound(`no host ${host}`);
       }
 
-      const entry = changed(host, input, before);
-      save(current().map((each) => (each === before ? entry : each)));
+      const item = changed(host, input, before);
+      items.put(item);
 
-      return entry.config;
+      return hostConfig(item);
     },
     remove: (host) => {
-      const before = get(host);
-      if (before === undefined) {
-        return false;
+      if (!items.remove(host)) {
+        throw new NotFound(`no host ${host}`);
       }
-
-      save(current().filter((each) => each !== before));
-
-      return true;
     },
   };
 }
@@ -236,176 +127,20 @@ export function viewOf(
     label,
     clientId: oauth?.clientId ?? "",
     hasClientSecret: oauth?.clientSecret !== undefined,
-    clientSecretEnv: oauth?.clientSecretEnv ?? null,
     connected,
   };
 }
 
-function entriesOf(
-  value: unknown,
-  open: (sealed: string, host: string) => string,
-  secretIn: (name: string) => string | undefined,
-): readonly Entry[] {
-  if (value === undefined) {
-    return [{ config: github, sealed: undefined }];
-  }
-
-  if (!isObject(value)) {
-    throw new BadRequest("git-hosts in pipoca.json must be an object");
-  }
-
-  const { hosts } = value;
-
-  if (hosts === undefined) {
-    return [{ config: github, sealed: undefined }];
-  }
-
-  if (!Array.isArray(hosts)) {
-    throw new BadRequest("git-hosts.hosts must be a list");
-  }
-
-  const seen = new Set<string>();
-
-  return hosts.map((item: unknown, index): Entry => {
-    try {
-      if (!isObject(item)) {
-        throw new BadRequest("must be an object");
-      }
-
-      const host = hostName(item["host"]);
-
-      if (seen.has(host)) {
-        throw new BadRequest(`${host} is listed twice`);
-      }
-
-      seen.add(host);
-
-      return entryOf(host, item, open, secretIn);
-    } catch (failure) {
-      if (failure instanceof BadRequest) {
-        throw new BadRequest(
-          `git-hosts.hosts[${String(index)}]: ${failure.message}`,
-        );
-      }
-
-      throw failure;
-    }
-  });
-}
-
-function entryOf(
-  host: string,
-  item: Readonly<Record<string, unknown>>,
-  open: (sealed: string, host: string) => string,
-  secretIn: (name: string) => string | undefined,
-): Entry {
-  const { api, oauth } = item;
-
-  if (api !== undefined && (typeof api !== "string" || !isHttp(api))) {
-    throw new BadRequest("api must be an http or https URL");
-  }
-
-  const base = {
-    ...hostConfig(host, api),
-    label: text(item["label"], "label").trim() || host,
-  };
-
-  if (oauth === undefined) {
-    return { config: { ...base, oauth: undefined }, sealed: undefined };
-  }
-
-  if (!isObject(oauth)) {
-    throw new BadRequest("oauth must be an object");
-  }
-
-  const { clientId, clientSecret, clientSecretEnv } = oauth;
-
-  if (typeof clientId !== "string" || clientId.trim() === "") {
-    throw new BadRequest("oauth.clientId must be text");
-  }
-
-  if (clientSecretEnv !== undefined) {
-    const secret =
-      typeof clientSecretEnv === "string"
-        ? secretIn(clientSecretEnv)
-        : undefined;
-
-    if (typeof clientSecretEnv !== "string" || secret === undefined) {
-      throw new BadRequest(
-        "oauth.clientSecretEnv names no environment variable that is set",
-      );
-    }
-
-    return {
-      config: {
-        ...base,
-        oauth: { clientId, clientSecret: secret, clientSecretEnv },
-      },
-      sealed: undefined,
-    };
-  }
-
-  if (clientSecret !== undefined && typeof clientSecret !== "string") {
-    throw new BadRequest("oauth.clientSecret must be text");
-  }
-
-  return {
-    config: {
-      ...base,
-      oauth: {
-        clientId,
-        clientSecret:
-          clientSecret === undefined
-            ? undefined
-            : opened(clientSecret, host, open),
-        clientSecretEnv: undefined,
-      },
-    },
-    sealed: clientSecret,
-  };
-}
-
-function opened(
-  sealed: string,
-  host: string,
-  open: (sealed: string, host: string) => string,
-): string {
-  try {
-    return open(sealed, host);
-  } catch {
-    throw new BadRequest(
-      "oauth.clientSecret must be sealed by Settings; name an environment variable in oauth.clientSecretEnv instead",
-    );
-  }
-}
-
-// What the file holds for a host, leaving out what is default.
-function fileEntry({
-  config,
-  sealed,
-}: Entry): Readonly<Record<string, unknown>> {
-  const { host, label, api, oauth } = config;
-
+function hostConfig({ host, label, api, oauth }: HostItem): HostConfig {
   return {
     host,
-    ...(label !== host && { label }),
-    ...(api !== defaultApi(host) && { api }),
-    ...(oauth && {
-      oauth: {
-        clientId: oauth.clientId,
-        ...(oauth.clientSecretEnv !== undefined
-          ? { clientSecretEnv: oauth.clientSecretEnv }
-          : sealed !== undefined && { clientSecret: sealed }),
-      },
-    }),
+    label: label === undefined || label.trim() === "" ? host : label.trim(),
+    api: (api ?? defaultApi(host)).replace(/\/+$/, ""),
+    oauth: oauth && {
+      clientId: oauth.clientId,
+      clientSecret: oauth.clientSecret,
+    },
   };
-}
-
-function hostConfig(
-  host: string,
-  api: string | undefined,
-): Omit<HostConfig, "label" | "oauth"> {
-  return { host, api: (api ?? defaultApi(host)).replace(/\/+$/, "") };
 }
 
 function defaultApi(host: string): string {
@@ -414,34 +149,12 @@ function defaultApi(host: string): string {
     : `https://${host}/api/v3`;
 }
 
-// The host goes into git's config keys and gh's hosts.yml, so it is only a
-// name and an optional port.
-function hostName(value: unknown): string {
-  const host = typeof value === "string" ? value.trim().toLowerCase() : "";
+function hostName(value: string): string {
+  const host = value.trim().toLowerCase();
 
-  if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:\d{1,5})?$/.test(host)) {
+  if (!new RegExp(hostPattern).test(host)) {
     throw new BadRequest("host must be a host name, such as github.com");
   }
 
   return host;
-}
-
-function text(value: unknown, field: string): string {
-  if (value === undefined) {
-    return "";
-  }
-
-  if (typeof value !== "string") {
-    throw new BadRequest(`${field} must be text`);
-  }
-
-  return value;
-}
-
-function isHttp(value: string): boolean {
-  try {
-    return ["http:", "https:"].includes(new URL(value).protocol);
-  } catch {
-    return false;
-  }
 }

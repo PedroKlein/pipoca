@@ -1,45 +1,52 @@
-import type { ServerPluginContext } from "@pipoca/plugins";
+import type { ServerContext } from "@pipoca/plugins";
+import type { gitHosts } from "../plugin";
 import { HostRefused } from "./github";
-import type { HostStore } from "./hosts";
+import type { Hosts } from "./hosts";
 import { type Answers, pullStateOf } from "./pulls";
 import { newsOf, rules, viewOf, type Watch, type WatchStore } from "./watch";
 
-const defaultPollSeconds = 60;
-const tickMs = 1000;
-
-interface Account {
+export interface Account {
   readonly host: string;
   readonly login: string;
   readonly token: string;
 }
 
-export interface Poller {
-  // Polls one watch now, such as one just added.
+type Outcome = "news" | "quiet" | "failed";
+
+interface Poller {
+  // Polls one watch soon, such as one just added.
+  readonly soon: (id: string) => void;
+  // Polls one watch now, such as after a merge.
   readonly poll: (id: string) => Promise<void>;
 }
 
 // Polls every watched pull request with its person's token and tells its
-// Session what changed (ADR 0051).
+// Session what changed (ADR 0051). News goes through the Session's outbox,
+// so a Session that is offline hears it when it is back.
 export function startPoller(
   watches: WatchStore,
-  hosts: HostStore,
+  hosts: Hosts,
   accounts: (userId: string) => readonly Account[],
   {
     sessions,
-    changes,
-    settings,
-    signal,
+    routes,
+    config,
+    schedule,
+    clock,
     log,
   }: Pick<
-    ServerPluginContext,
-    "sessions" | "changes" | "settings" | "signal" | "log"
+    ServerContext<typeof gitHosts>,
+    "sessions" | "routes" | "config" | "schedule" | "clock" | "log"
   >,
 ): Poller {
   const answers: Answers = new Map();
 
-  const deliver = (watch: Watch, news: readonly string[], ends: boolean) => {
-    const waiting = watch.pending === null ? [] : [watch.pending];
-    const lines = [...waiting, ...news.map((line) => `- ${line}`)];
+  const deliver = (
+    watch: Watch,
+    news: readonly string[],
+    ends: boolean,
+  ): void => {
+    const lines = news.map((line) => `- ${line}`);
 
     if (lines.length === 0) {
       return;
@@ -49,15 +56,16 @@ export function startPoller(
       ? ""
       : `\n\n${rules(watches.preferences(watch.userId).reply)}`;
 
-    const text = `News on ${watch.url}:\n${lines.join("\n")}${brief}`;
-    const notice = { kind: "pull_request", data: { url: watch.url, news } };
+    // A pull request that ended needs no fix, so its news waits for the
+    // Session's next turn.
+    const sent = sessions.send(watch.sessionId, {
+      text: `News on ${watch.url}:\n${lines.join("\n")}${brief}`,
+      turn: !ends,
+      notice: { kind: "pull_request", data: { url: watch.url, news } },
+    });
 
-    const sent = ends
-      ? sessions.notify(watch.sessionId, text, "plugin:git-hosts", notice)
-      : sessions.send(watch.sessionId, text, "plugin:git-hosts", notice);
-
-    if (sent.ok) {
-      watches.update(watch.id, { briefed: true, pending: null });
+    if (sent === "queued") {
+      watches.update(watch.id, { briefed: true });
 
       log("pull request news sent", {
         sessionId: watch.sessionId,
@@ -68,25 +76,20 @@ export function startPoller(
       return;
     }
 
-    if (sent.reason === "offline") {
-      watches.update(watch.id, { pending: lines.join("\n") });
-
-      return;
-    }
-
     watches.remove(watch.id);
 
     log("stopped watching for a Session that is gone", {
       sessionId: watch.sessionId,
       url: watch.url,
-      reason: sent.reason,
     });
   };
 
   const poll = async (watch: Watch): Promise<"news" | "quiet"> => {
     const session = sessions.get(watch.sessionId);
+
     if (session?.archivedAt !== null) {
       watches.remove(watch.id);
+      routes.topic("pull-requests");
 
       return "quiet";
     }
@@ -120,10 +123,6 @@ export function startPoller(
 
     watches.update(watch.id, { seen, view });
 
-    if (changed) {
-      changes.publish("pull-requests");
-    }
-
     if (watch.autoFix) {
       deliver(watch, [...news, ...(watch.seen === null ? [] : final)], ends);
     }
@@ -132,95 +131,87 @@ export function startPoller(
       watches.remove(watch.id);
     }
 
+    if (changed || ends) {
+      routes.topic("pull-requests");
+    }
+
     return news.length > 0 ? "news" : "quiet";
   };
 
-  const guarded = async (watch: Watch): Promise<"news" | "quiet" | "failed"> =>
+  const attempt = async (watch: Watch): Promise<Outcome> =>
     poll(watch).catch((failure: unknown) => {
-      if (!(failure instanceof HostRefused)) {
-        throw failure;
+      if (failure instanceof HostRefused) {
+        watches.update(watch.id, {
+          view: { ...watch.view, error: failure.message },
+        });
       }
-
-      watches.update(watch.id, {
-        view: { ...watch.view, error: failure.message },
-      });
 
       log("pull request poll failed", {
         url: watch.url,
-        error: failure.message,
+        error: failure instanceof Error ? failure.message : String(failure),
       });
 
       return "failed";
     });
 
-  // When each watch was last polled, so a change to pollSeconds applies at
-  // the next second instead of after the old wait.
-  const polledAt = new Map<string, number>();
+  // One poll of a watch at a time, so two never send the same news.
+  const inFlight = new Map<string, Promise<Outcome>>();
 
-  const pollEvery = (): number => {
-    const { pollSeconds } = settings.get();
+  const guarded = async (id: string): Promise<Outcome> => {
+    const run = (inFlight.get(id) ?? Promise.resolve("quiet")).then(
+      async () => {
+        const watch = watches.get(id);
 
-    return (
-      (typeof pollSeconds === "number" && pollSeconds > 0
-        ? pollSeconds
-        : defaultPollSeconds) * 1000
+        return watch === undefined ? "quiet" : attempt(watch);
+      },
     );
-  };
 
-  const tick = async (): Promise<void> => {
-    const started = Date.now();
+    inFlight.set(id, run);
 
-    const due = watches
-      .all()
-      .filter(({ id }) => started - (polledAt.get(id) ?? 0) >= pollEvery());
-
-    const outcomes = [];
-
-    for (const watch of due) {
-      polledAt.set(watch.id, Date.now());
-      outcomes.push(await guarded(watch));
-    }
-
-    if (due.length > 0) {
-      log("pull requests polled", {
-        polled: due.length,
-        withNews: outcomes.filter((each) => each === "news").length,
-        failed: outcomes.filter((each) => each === "failed").length,
-        ms: Date.now() - started,
-      });
+    try {
+      return await run;
+    } finally {
+      if (inFlight.get(id) === run) {
+        inFlight.delete(id);
+      }
     }
   };
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  schedule.every(
+    "poll",
+    () => config.get().pollSeconds * 1000,
+    async () => {
+      const started = clock.now();
+      const due = watches.all();
+      const outcomes = [];
 
-  const schedule = (): void => {
-    timer = setTimeout(() => {
-      tick()
-        .catch((failure: unknown) => {
-          log("pull request polling failed", { error: String(failure) });
-        })
-        .finally(() => {
-          if (!signal.aborted) {
-            schedule();
-          }
+      for (const { id } of due) {
+        outcomes.push(await guarded(id));
+      }
+
+      if (due.length > 0) {
+        log("pull requests polled", {
+          polled: due.length,
+          withNews: outcomes.filter((each) => each === "news").length,
+          failed: outcomes.filter((each) => each === "failed").length,
+          ms: clock.now() - started,
         });
-    }, tickMs);
-  };
-
-  signal.addEventListener("abort", () => {
-    clearTimeout(timer);
-  });
-
-  schedule();
-
-  return {
-    poll: async (id) => {
-      const watch = watches.get(id);
-
-      if (watch !== undefined) {
-        polledAt.set(watch.id, Date.now());
-        await guarded(watch);
       }
     },
+  );
+
+  const pollOne = async (id: string): Promise<void> => {
+    await guarded(id);
+  };
+
+  schedule.on("watched:", async (_payload, key) => {
+    await pollOne(key.slice("watched:".length));
+  });
+
+  return {
+    soon: (id) => {
+      schedule.at(`watched:${id}`, clock.now());
+    },
+    poll: pollOne,
   };
 }

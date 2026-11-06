@@ -10,7 +10,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { Environment, Session, SessionEvent } from "@pipoca/protocol";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 import { firstUserCookie, setupTokenOf } from "./testdata/sign-in";
 
 const run = promisify(execFile);
@@ -119,7 +119,7 @@ test("a compiled server sends requests with a Copilot OAuth login", async () => 
   );
 
   try {
-    const saved = await fetch(new URL("/api/plugins/logins/save", url), {
+    const saved = await fetch(new URL("/api/ext/logins/save", url), {
       method: "POST",
       headers: { "content-type": "application/json", cookie },
       body: JSON.stringify({

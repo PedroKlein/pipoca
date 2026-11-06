@@ -1,13 +1,22 @@
 import {
-  json,
+  defineWeb,
   type NoticeProps,
+  useApi,
   useLoaded,
-  type WebContext,
-  type WebPlugin,
+  useViewer,
 } from "@pipoca/plugins/web";
-import { Button, Field, fieldClass } from "@pipoca/ui";
+import {
+  Button,
+  cardClass,
+  cn,
+  ErrorText,
+  Field,
+  TextInput,
+  useConfirm,
+} from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import type { Account, BotView } from "../src/model";
+import { slack } from "../plugin";
+import type { BotView } from "../src/model";
 
 // A Slack app with Socket Mode and the scopes the plugin's events and posts
 // need, for Slack's "create from manifest".
@@ -40,33 +49,21 @@ const manifest = {
   },
 };
 
-export const slack: WebPlugin = {
-  name: "slack",
-  SettingsSection,
-  settingsGroup: "integrations",
-  notices: { slack_reply: SlackReply },
-};
+export const web = defineWeb(slack, {
+  settings: { group: "integrations", Section },
+  slots: { "notice:slack_reply": SlackReply },
+});
 
-function SettingsSection({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement | null {
-  const { value: account } = useLoaded(
-    async () => json<Account>(context.request("account")),
-    "account",
-  );
-
-  if (account?.admin !== true) {
-    return null;
-  }
-
-  return <Bots context={context} />;
+function Section(): ReactElement | null {
+  return useViewer().person.admin ? <Bots /> : null;
 }
 
-function Bots({ context }: { readonly context: WebContext }): ReactElement {
+function Bots(): ReactElement {
+  const api = useApi(slack);
+  const [ask, asking] = useConfirm();
+
   const { value, reload } = useLoaded(
-    async () => json<readonly BotView[]>(context.request("bots")),
+    async () => api.get<readonly BotView[]>("bots"),
     "bots",
   );
 
@@ -83,45 +80,44 @@ function Bots({ context }: { readonly context: WebContext }): ReactElement {
       return typeof entry === "string" ? entry.trim() : "";
     };
 
-    json(
-      context.request("bots", {
-        method: "POST",
-        body: JSON.stringify({
-          name: field("name"),
-          appToken: field("appToken"),
-          botToken: field("botToken"),
-        }),
-      }),
-    ).then(
-      () => {
-        setAdding(false);
-        setError(undefined);
-        reload();
-      },
-      (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
-      },
-    );
+    api
+      .post("bots", {
+        name: field("name"),
+        appToken: field("appToken"),
+        botToken: field("botToken"),
+      })
+      .then(
+        () => {
+          setAdding(false);
+          setError(undefined);
+          reload();
+        },
+        (reason: unknown) => {
+          setError(reason instanceof Error ? reason.message : String(reason));
+        },
+      );
   };
 
   const remove = (bot: BotView): void => {
-    if (
-      !confirm(
-        `Routines stop hearing ${bot.name}, and Sessions can't post as it.`,
-      )
-    ) {
-      return;
-    }
+    void ask({
+      title: `Remove ${bot.name}?`,
+      description: `Routines stop hearing ${bot.name}, and Sessions can't post as it.`,
+      confirm: "Remove",
+      danger: true,
+    }).then((yes) => {
+      if (!yes) {
+        return;
+      }
 
-    void json(
-      context.request(`bots/${encodeURIComponent(bot.name)}`, {
-        method: "DELETE",
-      }),
-    ).then(reload, reload);
+      void api
+        .delete(`bots/${encodeURIComponent(bot.name)}`)
+        .then(reload, reload);
+    });
   };
 
   return (
     <div className="flex flex-col gap-2 text-ui">
+      {asking}
       <p className="text-fg-dim">
         Bots whose messages, mentions and reactions become routine triggers, and
         that Sessions post as. They connect with Socket Mode, so Slack needs no
@@ -139,7 +135,7 @@ function Bots({ context }: { readonly context: WebContext }): ReactElement {
       </p>
       <ul
         aria-label="Slack bots"
-        className="flex flex-col gap-1 rounded-lg border border-line bg-elevated shadow-xs p-3"
+        className={cn(cardClass, "flex flex-col gap-1 p-3")}
       >
         {value?.length === 0 && <li className="text-fg-dim">No bots yet.</li>}
         {value?.map((bot) => (
@@ -161,9 +157,7 @@ function Bots({ context }: { readonly context: WebContext }): ReactElement {
                 Remove
               </Button>
             </div>
-            {bot.error !== null && (
-              <p className="text-caption text-failed">{bot.error}</p>
-            )}
+            <ErrorText size="caption">{bot.error}</ErrorText>
           </li>
         ))}
       </ul>
@@ -171,32 +165,25 @@ function Bots({ context }: { readonly context: WebContext }): ReactElement {
         <form
           onSubmit={add}
           aria-label="New Slack bot"
-          className="grid gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 md:grid-cols-2"
+          className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
         >
           <Field label="Name">
-            <input
-              name="name"
-              required
-              placeholder="team-bot"
-              className={fieldClass}
-            />
+            <TextInput name="name" required placeholder="team-bot" />
           </Field>
           <Field label="Bot token (xoxb-…)">
-            <input
+            <TextInput
               name="botToken"
               type="password"
               autoComplete="off"
               required
-              className={fieldClass}
             />
           </Field>
           <Field label="App-level token (xapp-…)">
-            <input
+            <TextInput
               name="appToken"
               type="password"
               autoComplete="off"
               required
-              className={fieldClass}
             />
           </Field>
           <div className="flex flex-wrap items-center gap-2 md:col-span-2">
@@ -211,11 +198,7 @@ function Bots({ context }: { readonly context: WebContext }): ReactElement {
             >
               Cancel
             </Button>
-            {error !== undefined && (
-              <p role="alert" className="text-caption text-failed">
-                {error}
-              </p>
-            )}
+            <ErrorText size="caption">{error}</ErrorText>
           </div>
         </form>
       ) : (
@@ -233,7 +216,7 @@ function Bots({ context }: { readonly context: WebContext }): ReactElement {
   );
 }
 
-function SlackReply({ text }: NoticeProps): ReactElement {
+function SlackReply({ text }: Omit<NoticeProps, "context">): ReactElement {
   return (
     <div className="flex flex-col gap-1 text-ui">
       <span className="text-label text-fg-dim">Reply in Slack</span>

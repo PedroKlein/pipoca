@@ -1,3 +1,4 @@
+import type { Log } from "@pipoca/protocol";
 import { randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
@@ -24,12 +25,7 @@ export interface PreviewExchange {
   readonly fail: (reason: string) => void;
 }
 
-export type PreviewCommand = Extract<Command, { type: "preview" }>;
-
-type Log = (
-  message: string,
-  fields?: Readonly<Record<string, unknown>>,
-) => void;
+type PreviewCommand = Extract<Command, { type: "preview" }>;
 
 export interface Pages {
   readonly open: (url: string) => void;

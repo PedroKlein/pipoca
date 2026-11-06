@@ -1,5 +1,5 @@
-import type { KernelEvent, PluginStore } from "@pipoca/plugins";
-import type { Actor, Session, SessionAccess } from "@pipoca/protocol";
+import type { KernelEvent, Store } from "@pipoca/plugins";
+import type { Actor, Clock, Session, SessionAccess } from "@pipoca/protocol";
 
 // One kernel action on team work, or one use of the team's key (ADR 0066).
 export interface AuditEntry {
@@ -21,21 +21,25 @@ export interface AuditLog {
   readonly actions: (limit: number) => readonly AuditEntry[];
 }
 
-export function auditLog(store: PluginStore): AuditLog {
-  store.exec(
-    "create table if not exists usage_audit (id integer primary key, at text not null, actor text, session_id text not null, action text not null, detail text)",
-  );
-
+export function auditLog(store: Store, clock: Clock): AuditLog {
   const rows = (found: unknown[]): readonly AuditEntry[] =>
-    (found as (Omit<AuditEntry, "sessionId"> & { session_id: string })[]).map(
-      ({ session_id: sessionId, ...row }) => ({ ...row, sessionId }),
-    );
+    (
+      found as (Omit<AuditEntry, "sessionId" | "at"> & {
+        session_id: string;
+        at: number;
+      })[]
+    ).map(({ session_id: sessionId, at, ...row }) => ({
+      ...row,
+      at: new Date(at).toISOString(),
+      sessionId,
+    }));
 
   return {
     add: ({ actor, sessionId, action, detail }) => {
       store.run(
-        "insert into usage_audit (at, actor, session_id, action, detail) values (?, ?, ?, ?, ?)",
-        new Date().toISOString(),
+        "insert into usage_audit (id, at, actor, session_id, action, detail) values (?, ?, ?, ?, ?, ?)",
+        Bun.randomUUIDv7(),
+        clock.now(),
         actor,
         sessionId,
         action,

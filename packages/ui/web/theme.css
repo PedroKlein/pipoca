@@ -71,6 +71,27 @@
   --term-fg: #e2dccf;
   --card-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.28);
   --pop-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+  --xs-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+  --scrim: rgb(0 0 0 / 0.5);
+  --butter: #f3c552;
+  --on-butter: #1a1712;
+  /* xterm.js's default 16 colours, for terminal output in either theme. */
+  --ansi-0: #2e3436;
+  --ansi-1: #cc0000;
+  --ansi-2: #4e9a06;
+  --ansi-3: #c4a000;
+  --ansi-4: #3465a4;
+  --ansi-5: #75507b;
+  --ansi-6: #06989a;
+  --ansi-7: #d3d7cf;
+  --ansi-8: #555753;
+  --ansi-9: #ef2929;
+  --ansi-10: #8ae234;
+  --ansi-11: #fce94f;
+  --ansi-12: #729fcf;
+  --ansi-13: #ad7fa8;
+  --ansi-14: #34e2e2;
+  --ansi-15: #eeeeec;
 }
 
 [data-theme="light"] {
@@ -103,6 +124,8 @@
   --card-shadow:
     0 1px 2px rgb(26 23 18 / 0.06), 0 8px 24px rgb(26 23 18 / 0.08);
   --pop-shadow: 0 12px 32px rgb(26 23 18 / 0.16);
+  --xs-shadow: 0 1px 1px rgb(26 23 18 / 0.05);
+  --scrim: rgb(26 23 18 / 0.32);
 }
 
 @theme {
@@ -132,6 +155,9 @@
   --color-failed-tint: var(--status-failed-tint);
   --color-term-bg: var(--term-bg);
   --color-term-fg: var(--term-fg);
+  --color-scrim: var(--scrim);
+  --color-butter: var(--butter);
+  --color-on-butter: var(--on-butter);
   --color-transparent: transparent;
   --color-current: currentColor;
 
@@ -174,9 +200,12 @@
   --radius-xl: 20px;
 
   --shadow-*: initial;
-  --shadow-xs: 0 1px 1px rgb(26 23 18 / 0.05);
+  --shadow-xs: var(--xs-shadow);
   --shadow-card: var(--card-shadow);
   --shadow-pop: var(--pop-shadow);
+
+  --blur-*: initial;
+  --blur-scrim: 2px;
 
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --animate-pop-in: pop-in 160ms var(--ease-out);
@@ -205,6 +234,9 @@
 
   --container-chat: 760px;
   --container-form: 768px;
+  /* The chat column with a page's side padding on a wide screen. */
+  --container-page: 856px;
+  --container-page-wide: 1096px;
   --spacing-sidebar: 288px;
   --spacing-control: 32px;
   --spacing-touch: 44px;

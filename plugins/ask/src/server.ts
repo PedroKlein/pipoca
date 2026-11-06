@@ -1,187 +1,124 @@
-import { randomUUID } from "node:crypto";
 import {
   BadRequest,
+  defineServer,
   HttpError,
   NotFound,
-  readBody,
-  type RouteCaller,
-  type ServerPlugin,
-  type ServerPluginContext,
+  type Person,
+  type ServerContext,
+  type Session,
   Type,
 } from "@pipoca/plugins";
-import type { Session } from "@pipoca/protocol";
-
-const sweepMs = 30_000;
-const maxOptions = 8;
+import { ask } from "../plugin";
+import type { Votes } from "./votes";
 
 const opening = Type.Object({
-  question: Type.String({ minLength: 1, maxLength: 500 }),
+  question: Type.String({
+    minLength: 1,
+    maxLength: 500,
+    description: "The choice, one line",
+  }),
   options: Type.Array(Type.String({ minLength: 1, maxLength: 200 }), {
     minItems: 2,
-    maxItems: maxOptions,
+    maxItems: 8,
   }),
-  minutes: Type.Optional(Type.Number({ minimum: 1, maximum: 10_080 })),
+  minutes: Type.Optional(
+    Type.Number({
+      minimum: 1,
+      maximum: 10_080,
+      description: "How long it stays open, if not the team's default",
+    }),
+  ),
 });
 
 const picking = Type.Object({ option: Type.String() });
 
+// A person opens a vote as user:<id>, and Pi as the Session it runs in.
+type Opener = `user:${string}` | `session:${string}`;
+
 interface StoredVote {
   readonly id: string;
   readonly session_id: string;
-  readonly opener: string;
+  readonly opener: Opener;
   readonly question: string;
-  readonly options: string;
-  readonly picks: string;
-  readonly closes_at: string;
-}
-
-// An open vote as one person sees it: who picked what, their own pick, and
-// whether they may close it.
-export interface Vote {
-  readonly id: string;
-  readonly opener: string;
-  readonly question: string;
-  readonly options: readonly string[];
-  readonly picks: readonly {
-    readonly person: string;
-    readonly name: string;
-    readonly option: string;
-  }[];
-  readonly mine: string | null;
-  readonly canClose: boolean;
-  readonly closesAt: string;
-}
-
-export interface Votes {
-  readonly canOpen: boolean;
-  readonly votes: readonly Vote[];
+  readonly closes_at: number;
 }
 
 // Anyone in team work opens a vote, Pi too. The opener or the starter closes
 // it, or it closes on time, and Pi reads the result on its next turn
 // (ADR 0065).
-export const askServer: ServerPlugin = {
-  name: "ask",
-  register: (context) => {
-    const { store } = context;
+export const server = defineServer(ask, (context) => {
+  const { routes, schedule, tools } = context;
+  const votes = ballots(context);
 
-    store.exec(
-      "create table if not exists ask_votes (id text primary key, session_id text not null, opener text not null, question text not null, options text not null, picks text not null, opened_at text not null, closes_at text not null, closed_at text)",
-    );
+  schedule.on("close:", (id) => {
+    votes.closeOnTime(String(id));
+  });
 
-    const votes = ballots(context);
+  tools.define({
+    name: "open_vote",
+    description:
+      "Opens a vote for the team on a choice the team should make together. Everyone following the work picks one option; the vote closes when whoever started the work closes it, or on time. You read the result with the team's messages the next time someone asks you something, so don't wait for it.",
+    params: opening,
+    when: { owner: "team" },
+    exposure: "direct",
+    annotations: { readOnly: false, destructive: false },
+    run: (input, { session }) => {
+      const vote = votes.open(session, `session:${session.id}`, input);
+      routes.topic("votes");
 
-    const sweep = setInterval(votes.sweep, sweepMs);
+      return `The vote is open until ${vote.closesAt}.`;
+    },
+  });
 
-    context.signal.addEventListener("abort", () => {
-      clearInterval(sweep);
-    });
+  routes.get(
+    "sessions/:id/votes",
+    { auth: "person" },
+    ({ params, caller: { person } }) =>
+      votes.of(votes.session(params.id, person), person),
+  );
 
-    context.tools.register({
-      name: "open_vote",
-      description:
-        "Opens a vote for the team on a choice the team should make together. Everyone following the work picks one option; the vote closes when whoever started the work closes it, or on time. You read the result with the team's messages the next time someone asks you something, so don't wait for it.",
-      parameters: {
-        type: "object",
-        properties: {
-          question: { type: "string", description: "The choice, one line" },
-          options: {
-            type: "array",
-            items: { type: "string" },
-            minItems: 2,
-            maxItems: maxOptions,
-          },
-          minutes: {
-            type: "number",
-            description: "How long it stays open, if not the team's default",
-          },
-        },
-        required: ["question", "options"],
-        additionalProperties: false,
-      },
-      exposure: "direct",
-      annotations: { readOnlyHint: false, destructiveHint: false },
-      appliesTo: (session) => session.ownedBy === "team",
-      run: async (input, { session }) => {
-        await Promise.resolve();
+  routes.post(
+    "sessions/:id/votes",
+    { auth: "person", body: opening, status: 201, changes: ["votes"] },
+    ({ params, caller: { person }, body }) =>
+      votes.open(votes.session(params.id, person), `user:${person.id}`, body),
+  );
 
-        try {
-          const vote = votes.open(session, "pi", checked(input));
+  routes.put(
+    "votes/:id/pick",
+    { auth: "person", body: picking, changes: ["votes"] },
+    ({ params, caller, body }) => {
+      votes.pick(params.id, caller.person, body.option);
 
-          return {
-            text: `The vote is open until ${vote.closesAt}.`,
-            isError: false,
-          };
-        } catch (error) {
-          return {
-            text: error instanceof Error ? error.message : String(error),
-            isError: true,
-          };
-        }
-      },
-    });
+      return { ok: true };
+    },
+  );
 
-    context.routes.handle(async (request, path, caller) => {
-      if (caller.kind !== "user") {
-        throw new NotFound(`no route ${path}`);
-      }
+  routes.post(
+    "votes/:id/close",
+    { auth: "person", changes: ["votes"] },
+    ({ params, caller }) => {
+      votes.close(params.id, caller.person);
 
-      const [route, id = "", action] = path.split("/");
+      return { ok: true };
+    },
+  );
+});
 
-      if (route === "sessions" && action === "votes") {
-        const session = votes.session(id, caller);
-
-        if (request.method === "GET") {
-          votes.sweep();
-
-          return Response.json(votes.of(session, caller));
-        }
-
-        if (request.method === "POST") {
-          const body = await readBody(request, opening);
-
-          return Response.json(votes.open(session, personOf(caller), body), {
-            status: 201,
-          });
-        }
-      }
-
-      if (route === "votes" && action === "pick" && request.method === "PUT") {
-        const { option } = await readBody(request, picking);
-        votes.pick(id, caller, option);
-
-        return Response.json({ ok: true });
-      }
-
-      if (
-        route === "votes" &&
-        action === "close" &&
-        request.method === "POST"
-      ) {
-        votes.close(id, caller);
-
-        return Response.json({ ok: true });
-      }
-
-      throw new NotFound(`no route ${path}`);
-    });
-  },
-};
-
-function ballots(context: ServerPluginContext) {
-  const { store, sessions } = context;
+function ballots(context: ServerContext<typeof ask>) {
+  const { store, sessions, people, schedule, clock, config, routes } = context;
 
   const name = (person: string): string =>
-    person === "pi"
-      ? "Pi"
-      : (context.auth.users().find(({ id }) => id === person)?.name ??
-        "Someone");
+    people.get(person)?.name ?? "Someone";
 
-  const stored = (id: string): StoredVote => {
-    const [vote] = store.all(
+  const stored = (id: string): StoredVote | undefined =>
+    store.get<StoredVote>(
       "select * from ask_votes where id = ? and closed_at is null",
       id,
-    ) as StoredVote[];
+    );
+
+  const open = (id: string): StoredVote => {
+    const vote = stored(id);
 
     if (vote === undefined) {
       throw new NotFound("no open vote with that id");
@@ -190,15 +127,30 @@ function ballots(context: ServerPluginContext) {
     return vote;
   };
 
-  const picksOf = (vote: StoredVote): Readonly<Record<string, string>> =>
-    JSON.parse(vote.picks) as Record<string, string>;
+  const optionsOf = (vote: StoredVote): readonly string[] =>
+    store
+      .all<{ label: string }>(
+        "select label from ask_vote_options where vote_id = ? order by position",
+        vote.id,
+      )
+      .map(({ label }) => label);
 
-  const session = (id: string, caller: RouteCaller): Session => {
+  const picksOf = (vote: StoredVote): Readonly<Record<string, string>> =>
+    Object.fromEntries(
+      store
+        .all<{ user_id: string; label: string }>(
+          "select user_id, label from ask_vote_picks join ask_vote_options using (vote_id, position) where vote_id = ? order by ask_vote_picks.rowid",
+          vote.id,
+        )
+        .map(({ user_id, label }) => [user_id, label]),
+    );
+
+  const session = (id: string, person: Person): Session => {
     const found = sessions.get(id);
 
     if (
       found === undefined ||
-      (!admin(caller) && !sessions.sees(id, personOf(caller)))
+      (!person.admin && !sessions.sees(id, person.id))
     ) {
       throw new NotFound("no session with that id");
     }
@@ -206,76 +158,74 @@ function ballots(context: ServerPluginContext) {
     return found;
   };
 
-  const canClose = (
-    vote: StoredVote,
-    caller: RouteCaller,
-    of: Session | undefined,
-  ): boolean => {
-    const person = personOf(caller);
-
-    return admin(caller) || vote.opener === person || of?.startedBy === person;
-  };
+  const canClose = (vote: StoredVote, person: Person, of: Session): boolean =>
+    person.admin ||
+    vote.opener === `user:${person.id}` ||
+    of.startedBy === person.id;
 
   const finish = (vote: StoredVote, by: string | undefined): void => {
     store.run(
       "update ask_votes set closed_at = ? where id = ?",
-      new Date().toISOString(),
+      clock.now(),
       vote.id,
     );
 
-    const told = sessions.voted(
-      vote.session_id,
-      vote.opener,
-      tally(vote, picksOf(vote), name, by),
-    );
+    const told = sessions.send(vote.session_id, {
+      text: `Vote closed. ${tally(vote, optionsOf(vote), picksOf(vote), name, by)}`,
+      turn: false,
+      notice: { kind: "vote_result" },
+    });
 
-    if (!told.ok) {
+    if (told === "gone") {
       context.log("vote result not told", {
         vote: vote.id,
         session: vote.session_id,
-        reason: told.reason,
       });
     }
-
-    context.changes.publish("votes");
   };
 
   return {
     session,
-    of: (of: Session, caller: RouteCaller): Votes => {
-      const person = personOf(caller);
-
-      const open = store.all(
+    of: (of: Session, person: Person): Votes => {
+      const opened = store.all<StoredVote>(
         "select * from ask_votes where session_id = ? and closed_at is null order by opened_at",
         of.id,
-      ) as StoredVote[];
+      );
 
       return {
         canOpen: of.ownedBy === "team" && of.archivedAt === null,
-        votes: open.map((vote) => {
+        votes: opened.map((vote) => {
           const picks = picksOf(vote);
 
           return {
             id: vote.id,
             opener: vote.opener,
             question: vote.question,
-            options: JSON.parse(vote.options) as string[],
+            options: optionsOf(vote),
             picks: Object.entries(picks).map(([who, option]) => ({
               person: who,
               name: name(who),
               option,
             })),
-            mine: picks[person] ?? null,
-            canClose: canClose(vote, caller, of),
-            closesAt: vote.closes_at,
+            mine: picks[person.id] ?? null,
+            canClose: canClose(vote, person, of),
+            closesAt: new Date(vote.closes_at).toISOString(),
           };
         }),
       };
     },
     open: (
       of: Session,
-      opener: string,
-      { question, options, minutes }: Opening,
+      opener: Opener,
+      {
+        question,
+        options,
+        minutes = config.get().voteMinutes,
+      }: {
+        readonly question: string;
+        readonly options: readonly string[];
+        readonly minutes?: number;
+      },
     ): { readonly id: string; readonly closesAt: string } => {
       if (of.ownedBy !== "team") {
         throw new HttpError(409, "only team work has votes", "not_team");
@@ -291,49 +241,57 @@ function ballots(context: ServerPluginContext) {
         throw new BadRequest("a vote needs a question and two options");
       }
 
-      const now = Date.now();
-      const settings = context.settings.get();
+      const now = clock.now();
+      const id = Bun.randomUUIDv7();
+      const closesAt = now + minutes * 60_000;
 
-      const open = minutes ?? Number(settings["voteMinutes"] ?? 60);
-      const id = randomUUID();
-      const closesAt = new Date(now + open * 60_000).toISOString();
+      store.transaction(() => {
+        store.run(
+          "insert into ask_votes (id, session_id, opener, question, opened_at, closes_at) values (?, ?, ?, ?, ?, ?)",
+          id,
+          of.id,
+          opener,
+          question.trim(),
+          now,
+          closesAt,
+        );
 
-      store.run(
-        "insert into ask_votes (id, session_id, opener, question, options, picks, opened_at, closes_at) values (?, ?, ?, ?, ?, '{}', ?, ?)",
-        id,
-        of.id,
-        opener,
-        question.trim(),
-        JSON.stringify(choices),
-        new Date(now).toISOString(),
-        closesAt,
-      );
+        choices.forEach((label, position) => {
+          store.run(
+            "insert into ask_vote_options (vote_id, position, label) values (?, ?, ?)",
+            id,
+            position,
+            label,
+          );
+        });
+      });
 
-      context.changes.publish("votes");
+      schedule.at(`close:${id}`, closesAt, id);
 
-      return { id, closesAt };
+      return { id, closesAt: new Date(closesAt).toISOString() };
     },
-    pick: (id: string, caller: RouteCaller, option: string): void => {
-      const vote = stored(id);
-      session(vote.session_id, caller);
+    pick: (id: string, person: Person, option: string): void => {
+      const vote = open(id);
+      session(vote.session_id, person);
 
-      if (!(JSON.parse(vote.options) as string[]).includes(option)) {
+      const position = optionsOf(vote).indexOf(option);
+
+      if (position === -1) {
         throw new BadRequest("that is not one of the vote's options");
       }
 
       store.run(
-        "update ask_votes set picks = ? where id = ?",
-        JSON.stringify({ ...picksOf(vote), [personOf(caller)]: option }),
+        "insert into ask_vote_picks (vote_id, user_id, position, picked_at) values (?, ?, ?, ?) on conflict (vote_id, user_id) do update set position = excluded.position, picked_at = excluded.picked_at",
         id,
+        person.id,
+        position,
+        clock.now(),
       );
-
-      context.changes.publish("votes");
     },
-    close: (id: string, caller: RouteCaller): void => {
-      const vote = stored(id);
-      const of = session(vote.session_id, caller);
+    close: (id: string, person: Person): void => {
+      const vote = open(id);
 
-      if (!canClose(vote, caller, of)) {
+      if (!canClose(vote, person, session(vote.session_id, person))) {
         throw new HttpError(
           403,
           "only whoever opened the vote or started the work closes it",
@@ -341,49 +299,17 @@ function ballots(context: ServerPluginContext) {
         );
       }
 
-      finish(vote, personOf(caller));
+      schedule.cancel(`close:${vote.id}`);
+      finish(vote, person.id);
     },
-    sweep: (): void => {
-      const due = store.all(
-        "select * from ask_votes where closed_at is null and closes_at <= ?",
-        new Date().toISOString(),
-      ) as StoredVote[];
+    closeOnTime: (id: string): void => {
+      const vote = stored(id);
 
-      for (const vote of due) {
+      if (vote !== undefined) {
         finish(vote, undefined);
+        routes.topic("votes");
       }
     },
-  };
-}
-
-interface Opening {
-  readonly question: string;
-  readonly options: readonly string[];
-  readonly minutes?: number;
-}
-
-function checked(input: unknown): Opening {
-  const { question, options, minutes } = (input ?? {}) as Record<
-    string,
-    unknown
-  >;
-
-  if (
-    typeof question !== "string" ||
-    !Array.isArray(options) ||
-    !options.every((option) => typeof option === "string") ||
-    options.length > maxOptions ||
-    (minutes !== undefined && (typeof minutes !== "number" || minutes < 1))
-  ) {
-    throw new Error(
-      `give a question, 2 to ${String(maxOptions)} options as text, and minutes of at least 1 if any`,
-    );
-  }
-
-  return {
-    question,
-    options,
-    ...(typeof minutes === "number" && { minutes }),
   };
 }
 
@@ -391,21 +317,21 @@ function checked(input: unknown): Opening {
 // (ana, bo), Wait 0. ana closed it.
 function tally(
   vote: StoredVote,
+  options: readonly string[],
   picks: Readonly<Record<string, string>>,
   name: (person: string) => string,
   by: string | undefined,
 ): string {
-  const options = JSON.parse(vote.options) as string[];
   const voters = Object.entries(picks);
 
   const counts = options.map((option) => {
-    const people = voters
+    const voted = voters
       .filter(([, picked]) => picked === option)
       .map(([person]) => name(person));
 
-    return people.length === 0
+    return voted.length === 0
       ? `${option} 0`
-      : `${option} ${String(people.length)} (${people.join(", ")})`;
+      : `${option} ${String(voted.length)} (${voted.join(", ")})`;
   });
 
   const closed =
@@ -414,14 +340,4 @@ function tally(
   return voters.length === 0
     ? `"${vote.question}": nobody voted. ${closed}`
     : `"${vote.question}": ${counts.join(", ")}. ${closed}`;
-}
-
-function personOf(caller: RouteCaller): string {
-  return caller.kind === "user"
-    ? caller.actor.slice("user:".length)
-    : (caller.session.startedBy ?? "");
-}
-
-function admin(caller: RouteCaller): boolean {
-  return caller.kind === "user" && caller.admin;
 }

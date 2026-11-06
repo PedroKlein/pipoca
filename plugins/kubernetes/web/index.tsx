@@ -1,13 +1,18 @@
+import { defineWeb, useApi, useLoaded } from "@pipoca/plugins/web";
+import type { Environment, EnvironmentTemplate } from "@pipoca/protocol";
 import {
-  type EnvironmentSectionProps,
-  json,
-  type TemplateSectionProps,
-  useLoaded,
-  type WebContext,
-  type WebPlugin,
-} from "@pipoca/plugins/web";
-import { Button, cn, Field, fieldClass, Section, Select } from "@pipoca/ui";
+  Button,
+  Card,
+  Code,
+  ErrorText,
+  Field,
+  Section,
+  Select,
+  TextArea,
+  TextInput,
+} from "@pipoca/ui";
 import { Fragment, type ReactElement, type SubmitEvent, useState } from "react";
+import { kubernetes } from "../plugin";
 import {
   defaultSettings,
   type KubernetesEnvironment,
@@ -15,20 +20,22 @@ import {
   type PodFailure,
 } from "../src/settings";
 
-export const kubernetes: WebPlugin = {
-  name: "kubernetes",
-  EnvironmentSection,
-  TemplateSection,
-};
+export const web = defineWeb(kubernetes, {
+  settings: { group: "server", form: "auto" },
+  slots: {
+    "environment.section": EnvironmentSection,
+    "template.section": TemplateSection,
+  },
+});
 
 // Only an Environment whose runners are pods shows the section (ADR 0049).
 function EnvironmentSection({
-  context,
   environment,
-}: EnvironmentSectionProps): ReactElement | null {
+}: {
+  readonly environment: Environment;
+}): ReactElement | null {
   return (
     <Pods
-      context={context}
       path={`environments/${encodeURIComponent(environment.id)}`}
       processes={environment.isolation === "process"}
       hiddenWhenOff
@@ -37,12 +44,12 @@ function EnvironmentSection({
 }
 
 function TemplateSection({
-  context,
   template,
-}: TemplateSectionProps): ReactElement {
+}: {
+  readonly template: EnvironmentTemplate;
+}): ReactElement {
   return (
     <Pods
-      context={context}
       path={`templates/${encodeURIComponent(template.id)}`}
       processes={template.isolation === "process"}
       hiddenWhenOff={false}
@@ -51,18 +58,18 @@ function TemplateSection({
 }
 
 function Pods({
-  context,
   path,
   processes,
   hiddenWhenOff,
 }: {
-  readonly context: WebContext;
   readonly path: string;
   readonly processes: boolean;
   readonly hiddenWhenOff: boolean;
 }): ReactElement | null {
+  const api = useApi(kubernetes);
+
   const { value, reload } = useLoaded(
-    async () => json<KubernetesEnvironment>(context.request(path)),
+    async () => api.get<KubernetesEnvironment>(path),
     path,
     { everyMs: 10_000 },
   );
@@ -73,9 +80,10 @@ function Pods({
 
   return (
     <Section title="Kubernetes">
-      <div
+      <Card
+        padding="none"
         aria-label="Kubernetes"
-        className="flex flex-col gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 text-ui"
+        className="flex flex-col gap-4 p-5 text-ui"
       >
         {value === undefined ? (
           <p className="text-fg-dim">Loading…</p>
@@ -90,13 +98,7 @@ function Pods({
                 loaded={value}
                 processes={processes}
                 save={async (settings) => {
-                  await json(
-                    context.request(path, {
-                      method: "POST",
-                      body: JSON.stringify({ settings }),
-                    }),
-                  );
-
+                  await api.post(path, { settings });
                   reload();
                 }}
               />
@@ -105,7 +107,7 @@ function Pods({
             )}
           </>
         )}
-      </div>
+      </Card>
     </Section>
   );
 }
@@ -157,9 +159,7 @@ function Failure({ failure }: { readonly failure: PodFailure }): ReactElement {
         starts after {time(failure.retryAt)}, and each failure in a row doubles
         the wait.
       </p>
-      <pre className="overflow-x-auto rounded-md border border-line bg-elevated p-3 font-mono text-mono-sm whitespace-pre-wrap text-fg">
-        {failure.problem}
-      </pre>
+      <Code wrap>{failure.problem}</Code>
     </div>
   );
 }
@@ -235,46 +235,62 @@ function Settings({
       </Field>
       <div className="grid gap-4 sm:grid-cols-3">
         {workspace === "pod" && (
-          <NumberField
-            label="Sessions per pod"
-            name="capacity"
-            value={shown.capacity}
-          />
+          <Field label="Sessions per pod">
+            <TextInput
+              name="capacity"
+              type="number"
+              min={1}
+              required
+              defaultValue={shown.capacity}
+            />
+          </Field>
         )}
-        <NumberField label="Most pods" name="maxPods" value={shown.maxPods} />
-        <NumberField
-          label="Seconds idle before a pod stops"
-          name="idleSeconds"
-          value={shown.idleSeconds}
-        />
+        <Field label="Most pods">
+          <TextInput
+            name="maxPods"
+            type="number"
+            min={1}
+            required
+            defaultValue={shown.maxPods}
+          />
+        </Field>
+        <Field label="Seconds idle before a pod stops">
+          <TextInput
+            name="idleSeconds"
+            type="number"
+            min={1}
+            required
+            defaultValue={shown.idleSeconds}
+          />
+        </Field>
       </div>
       {workspace === "claim" && (
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Claim size">
-            <input
+            <TextInput
               name="claimSize"
               required
               defaultValue={shown.claimSize}
               placeholder="10Gi"
-              className={cn(fieldClass, "font-mono")}
+              className="font-mono"
             />
           </Field>
           <Field label="Storage class, empty for the cluster's default">
-            <input
+            <TextInput
               name="storageClass"
               defaultValue={shown.storageClass ?? ""}
-              className={cn(fieldClass, "font-mono")}
+              className="font-mono"
             />
           </Field>
         </div>
       )}
       <Field label="Pod patch, a JSON merge patch on each pod">
-        <textarea
+        <TextArea
           name="podPatch"
           rows={3}
           defaultValue={JSON.stringify(shown.podPatch, null, 2)}
           placeholder='{"spec": {"nodeSelector": {"pool": "agents"}}}'
-          className={cn(fieldClass, "min-h-20 resize-y font-mono text-mono-sm")}
+          className="min-h-20 resize-y font-mono text-mono-sm"
         />
       </Field>
       <div className="flex flex-wrap items-center gap-2">
@@ -290,36 +306,9 @@ function Settings({
             Stop runner pods
           </Button>
         )}
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
       </div>
     </form>
-  );
-}
-
-function NumberField({
-  label,
-  name,
-  value,
-}: {
-  readonly label: string;
-  readonly name: string;
-  readonly value: number;
-}): ReactElement {
-  return (
-    <Field label={label}>
-      <input
-        name={name}
-        type="number"
-        min={1}
-        required
-        defaultValue={value}
-        className={fieldClass}
-      />
-    </Field>
   );
 }
 

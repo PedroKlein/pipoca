@@ -1,6 +1,15 @@
-import { json, useLoaded, type WebContext } from "@pipoca/plugins/web";
+import { logins } from "../plugin";
+import { useLoaded, useApi } from "@pipoca/plugins/web";
 import type { Profile } from "@pipoca/protocol";
-import { Badge, initialsOf, Row, Rows, Section, Segmented } from "@pipoca/ui";
+import {
+  Badge,
+  ErrorText,
+  initialsOf,
+  Row,
+  Rows,
+  Section,
+  Segmented,
+} from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import type { Account, Connectable, LoginLayer } from "../src/model";
 import { ConnectForm, ConnectionCard } from "./connect";
@@ -18,26 +27,26 @@ interface Line {
 // A Profile inherits each login from the layers below it, or signs in with
 // an account of its own (ADR 0063).
 export function ProfileLogins({
-  context,
   profileId,
 }: {
-  readonly context: WebContext;
   readonly profileId: string;
 }): ReactElement | null {
+  const api = useApi(logins);
+
   const { value: account, reload } = useLoaded(
-    async () => json<Account>(context.request("account")),
+    async () => api.get<Account>("account"),
     "account",
-    { topics: ["logins.logins"] },
+    { changes: ["logins"] },
   );
 
   const { value: profiles } = useLoaded(
-    async () => json<readonly Profile[]>(context.request("/api/profiles")),
+    async () => api.get<readonly Profile[]>("/api/profiles"),
     "profiles",
     { topics: ["profiles"] },
   );
 
   const { value: providers = [] } = useLoaded(
-    async () => json<readonly Connectable[]>(context.request("providers")),
+    async () => api.get<readonly Connectable[]>("providers"),
     "providers",
   );
 
@@ -110,8 +119,8 @@ export function ProfileLogins({
     ),
   ];
 
-  const send = (path: string, init: RequestInit): void => {
-    json(context.request(path, init)).then(
+  const send = (call: Promise<unknown>): void => {
+    call.then(
       () => {
         setChoosing(undefined);
         setError(undefined);
@@ -130,8 +139,9 @@ export function ProfileLogins({
 
       if (line.own) {
         send(
-          `${line.kind === "model" ? "credentials" : "mcp"}/${encodeURIComponent(line.key)}?layer=${own}`,
-          { method: "DELETE" },
+          api.delete(
+            `${line.kind === "model" ? "credentials" : "mcp"}/${encodeURIComponent(line.key)}?layer=${own}`,
+          ),
         );
       }
 
@@ -139,10 +149,7 @@ export function ProfileLogins({
     }
 
     if (line.kind === "mcp") {
-      send("connect-mcp", {
-        method: "POST",
-        body: JSON.stringify({ server: line.key, layer: own }),
-      });
+      send(api.post("connect-mcp", { server: line.key, layer: own }));
 
       return;
     }
@@ -160,7 +167,6 @@ export function ProfileLogins({
       )}
       {account.connection === undefined && choosing !== undefined && (
         <ConnectForm
-          context={context}
           send={send}
           provider={choosing}
           layer={own}
@@ -169,11 +175,7 @@ export function ProfileLogins({
           }}
         />
       )}
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
       <Rows label="This Profile's logins">
         {lines.length === 0 && (
           <Row

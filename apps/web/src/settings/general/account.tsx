@@ -1,0 +1,193 @@
+import type { Account } from "@pipoca/protocol";
+import {
+  Button,
+  Dialog,
+  DialogBody,
+  DialogFoot,
+  ErrorText,
+  Field,
+  Row,
+  Rows,
+  Section,
+  Select,
+  TextInput,
+  useConfirm,
+} from "@pipoca/ui";
+import { type ReactElement, type SubmitEvent, useState } from "react";
+import { request } from "../../data/client";
+import { useAction, useQuery } from "../../data/hooks";
+
+export function EditProfile({
+  account,
+}: {
+  readonly account: Account | undefined;
+}): ReactElement {
+  const [open, setOpen] = useState(false);
+
+  const rename = useAction(async (displayName: string) => {
+    await request("me.update", { body: { displayName } });
+    close();
+  });
+
+  const error = rename.error;
+
+  function close(): void {
+    setOpen(false);
+    rename.clear();
+  }
+
+  const save = (event: SubmitEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    const name = new FormData(event.currentTarget).get("displayName");
+    void rename.run(typeof name === "string" ? name : "");
+  };
+
+  return (
+    <>
+      <Button
+        disabled={account === undefined}
+        onClick={() => {
+          setOpen(true);
+        }}
+      >
+        Edit profile
+      </Button>
+      <Dialog open={open} onClose={close} title="Edit profile" size="sm">
+        <form onSubmit={save}>
+          <DialogBody>
+            <Field
+              label="Your name"
+              hint={`People see it beside your username, @${account?.name ?? ""}.`}
+            >
+              <TextInput
+                name="displayName"
+                autoComplete="name"
+                maxLength={64}
+                defaultValue={account?.displayName ?? ""}
+              />
+            </Field>
+            <ErrorText size="caption">{error}</ErrorText>
+          </DialogBody>
+          <DialogFoot>
+            <Button onClick={close}>Cancel</Button>
+            <Button variant="primary" type="submit">
+              Save
+            </Button>
+          </DialogFoot>
+        </form>
+      </Dialog>
+    </>
+  );
+}
+
+// What a Session starts with when the person doesn't pick. The model comes
+// from the Profile (ADR 0063).
+export function StartWith({
+  account,
+}: {
+  readonly account: Account | undefined;
+}): ReactElement {
+  const environments = useQuery("environments.list").data ?? [];
+  const profiles = useQuery("profiles.list").data ?? [];
+  const action = useAction(async (work: () => Promise<unknown>) => work());
+  const error = action.error;
+
+  const chosen = environments.some(
+    ({ id }) => id === account?.defaultEnvironment,
+  )
+    ? (account?.defaultEnvironment ?? "")
+    : "";
+
+  return (
+    <Section title="New Sessions start with">
+      <Rows>
+        <Row
+          title="Environment"
+          description="Where a Session runs when you don't pick one"
+        >
+          <Select
+            aria-label="Environment"
+            value={chosen}
+            disabled={account === undefined}
+            onChange={(event) => {
+              const picked = event.target.value;
+
+              void action.run(async () =>
+                request("me.update", {
+                  body: { defaultEnvironment: picked === "" ? null : picked },
+                }),
+              );
+            }}
+          >
+            <option value="">
+              {environments[0] === undefined
+                ? "None yet"
+                : `The first, ${environments[0].name}`}
+            </option>
+            {environments.map(({ id, name }) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        <Row
+          title="Profile"
+          description="Its providers decide which models a Session can pick"
+        >
+          <Select
+            aria-label="Profile"
+            value={profiles.find(({ isDefault }) => isDefault)?.id ?? ""}
+            onChange={(event) => {
+              const id = event.target.value;
+
+              void action.run(async () =>
+                request("profiles.update", {
+                  params: { id },
+                  body: { isDefault: true },
+                }),
+              );
+            }}
+          >
+            {profiles.map(({ id, name }) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </Select>
+        </Row>
+      </Rows>
+      <ErrorText size="caption">{error}</ErrorText>
+    </Section>
+  );
+}
+
+export function SignOutEverywhere(): ReactElement {
+  const [ask, asking] = useConfirm();
+
+  return (
+    <>
+      <Button
+        variant="ghost"
+        onClick={() => {
+          void ask({
+            title: "Sign out everywhere?",
+            description:
+              "Every browser and app signed in as you signs out, and your access tokens stop working.",
+            confirm: "Sign out everywhere",
+            danger: true,
+          }).then((yes) => {
+            if (yes) {
+              void request("me.signIns.remove").finally(() => {
+                location.replace("/");
+              });
+            }
+          });
+        }}
+      >
+        Sign out everywhere
+      </Button>
+      {asking}
+    </>
+  );
+}

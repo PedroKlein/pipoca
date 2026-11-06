@@ -2,11 +2,6 @@
   "name": "@pipoca/slack",
   "private": true,
   "type": "module",
-  "exports": {
-    "./server": "./src/server.ts",
-    "./web": "./web/index.tsx",
-    "./package.json": "./package.json"
-  },
   "dependencies": {
     "@pipoca/plugins": "workspace:*",
     "@pipoca/protocol": "workspace:*",
@@ -14,119 +9,13 @@
     "react": "19.3.1"
   },
   "devDependencies": {
+    "@pipoca/testing": "workspace:*",
     "@types/react": "19.3.0"
   },
   "pipoca": {
-    "id": "slack",
-    "title": "Slack",
-    "description": "Turns messages, mentions and reactions in Slack into routine triggers, and lets Sessions post and reply in threads as a bot. Admins add bots in Settings.",
-    "capabilities": [
-      "routes",
-      "tools",
-      "events",
-      "sessions"
-    ],
-    "events": {
-      "mention": {
-        "title": "Slack mention",
-        "description": "Someone mentioned the bot in a channel it is in.",
-        "fields": {
-          "type": "object",
-          "properties": {
-            "bot": {
-              "type": "string",
-              "description": "The Slack bot that heard it"
-            },
-            "channel": {
-              "type": "string",
-              "description": "The channel's id"
-            },
-            "user": {
-              "type": "string",
-              "description": "Who wrote or reacted, by Slack user id"
-            },
-            "ts": {
-              "type": "string",
-              "description": "The message's timestamp, its id in the channel"
-            },
-            "text": {
-              "type": "string"
-            },
-            "threadTs": {
-              "type": "string",
-              "description": "The thread it is in, empty when it isn't"
-            }
-          }
-        }
-      },
-      "message": {
-        "title": "Slack message",
-        "description": "A message in a channel the bot is in, or sent to the bot directly.",
-        "fields": {
-          "type": "object",
-          "properties": {
-            "bot": {
-              "type": "string",
-              "description": "The Slack bot that heard it"
-            },
-            "channel": {
-              "type": "string",
-              "description": "The channel's id"
-            },
-            "user": {
-              "type": "string",
-              "description": "Who wrote or reacted, by Slack user id"
-            },
-            "ts": {
-              "type": "string",
-              "description": "The message's timestamp, its id in the channel"
-            },
-            "text": {
-              "type": "string"
-            },
-            "threadTs": {
-              "type": "string"
-            },
-            "channelType": {
-              "type": "string",
-              "description": "channel, group or im"
-            }
-          }
-        }
-      },
-      "reaction": {
-        "title": "Slack reaction",
-        "description": "Someone added a reaction to a message in a channel the bot is in.",
-        "fields": {
-          "type": "object",
-          "properties": {
-            "bot": {
-              "type": "string",
-              "description": "The Slack bot that heard it"
-            },
-            "channel": {
-              "type": "string",
-              "description": "The channel's id"
-            },
-            "user": {
-              "type": "string",
-              "description": "Who wrote or reacted, by Slack user id"
-            },
-            "ts": {
-              "type": "string",
-              "description": "The message's timestamp, its id in the channel"
-            },
-            "reaction": {
-              "type": "string",
-              "description": "The emoji's name, such as eyes"
-            }
-          }
-        }
-      }
-    },
-    "works": [
-      "personal",
-      "team"
-    ]
+    "entry": "plugin.ts"
+  },
+  "exports": {
+    "./plugin": "./plugin.ts"
   }
 }

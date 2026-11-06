@@ -5,12 +5,13 @@ import type {
   CredentialStore,
 } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { Log, Timer } from "@pipoca/protocol";
 import type { Connection, ConnectionPrompt } from "./model";
 
 // A sign-in nobody finishes stops holding its prompt and callback port.
 const connectionMs = 10 * 60_000;
 
-export interface Connections {
+interface Connections {
   readonly current: (userId: string) => Connection | undefined;
   // Starts the person's sign-in, in place of one still running.
   readonly start: (
@@ -44,7 +45,8 @@ interface Running {
 // device code or a prompt to answer.
 export function connections(
   publish: () => void,
-  log: (message: string, fields: Record<string, unknown>) => void,
+  log: Log,
+  timer: Timer,
 ): Connections {
   const running = new Map<string, Running>();
   let prompts = 0;
@@ -146,13 +148,13 @@ export function connections(
       running.set(userId, entry);
       log("login started", { userId, key });
 
-      const timer = setTimeout(() => {
+      const stop = timer.after(connectionMs, async () => {
         entry.abort.abort(new Error("The sign-in took too long"));
-      }, connectionMs);
 
-      void run(userId, entry, signIn).finally(() => {
-        clearTimeout(timer);
+        return Promise.resolve();
       });
+
+      void run(userId, entry, signIn).finally(stop);
     },
     answer: (userId, prompt, answer) => {
       const asked = running.get(userId)?.asked;

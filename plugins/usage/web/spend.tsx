@@ -1,5 +1,6 @@
-import { json, watchChanges, type WebContext } from "@pipoca/plugins/web";
-import { type ReactElement, useEffect, useState } from "react";
+import { usage } from "../plugin";
+import { useLoaded, useApi } from "@pipoca/plugins/web";
+import type { ReactElement } from "react";
 
 export interface Totals {
   readonly team: { readonly cost: number };
@@ -16,32 +17,14 @@ export const dollars = new Intl.NumberFormat("en-US", {
 });
 
 // The team's spend against its budget, and the viewer's share (ADR 0066).
-export function Spend({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement {
-  const [totals, setTotals] = useState<Totals>();
-  const [error, setError] = useState<string>();
+export function Spend(): ReactElement {
+  const api = useApi(usage);
 
-  useEffect(() => {
-    const read = (): void => {
-      json<Totals>(context.request("totals")).then(
-        setTotals,
-        (reason: unknown) => {
-          setError(reason instanceof Error ? reason.message : String(reason));
-        },
-      );
-    };
-
-    read();
-
-    return watchChanges(["usage.totals"], read);
-  }, [context]);
-
-  if (error !== undefined) {
-    return <p className="text-label text-failed">{error}</p>;
-  }
+  const { value: totals } = useLoaded(
+    async () => api.get<Totals>("totals"),
+    "totals",
+    { changes: ["totals"] },
+  );
 
   if (totals === undefined) {
     return <p className="text-label text-fg-dim">Loading…</p>;

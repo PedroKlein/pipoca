@@ -3,61 +3,21 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./server": "./src/server.ts",
-    "./web": "./web/index.tsx",
-    "./package.json": "./package.json"
+    "./plugin": "./plugin.ts",
+    "./server": "./src/server.ts"
   },
   "dependencies": {
+    "@pipoca/logins": "workspace:*",
     "@pipoca/plugins": "workspace:*",
     "@pipoca/protocol": "workspace:*",
     "@pipoca/ui": "workspace:*",
     "react": "19.3.1"
   },
   "devDependencies": {
+    "@pipoca/testing": "workspace:*",
     "@types/react": "19.3.0"
   },
   "pipoca": {
-    "id": "usage",
-    "title": "Usage",
-    "description": "Shows a Session's token use and cost in its header, and records what team work spends through the server's proxy.",
-    "capabilities": [
-      "routes",
-      "events",
-      "sessions"
-    ],
-    "events": {
-      "budget_warned": {
-        "title": "Budget warning",
-        "description": "Team work reached 80% or 100% of the team's monthly budget or of one person's monthly cap.",
-        "fields": {
-          "type": "object",
-          "properties": {
-            "person": {
-              "type": [
-                "string",
-                "null"
-              ],
-              "description": "Whose cap it is, or null for the team's budget"
-            },
-            "share": {
-              "type": "number",
-              "description": "80 or 100"
-            },
-            "spent": {
-              "type": "number",
-              "description": "Dollars spent this month"
-            },
-            "limit": {
-              "type": "number",
-              "description": "The budget or cap in dollars"
-            }
-          }
-        }
-      }
-    },
-    "works": [
-      "personal",
-      "team"
-    ]
+    "entry": "plugin.ts"
   }
 }

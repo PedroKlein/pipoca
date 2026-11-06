@@ -10,13 +10,26 @@ const variants = {
   danger: "border-failed bg-failed-tint text-failed hover:brightness-110",
 } as const;
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  readonly variant?: keyof typeof variants;
+const sizes = {
+  // For a small mark beside text, such as a row's remove button.
+  xs: ["h-6 text-caption", "px-1.5", "w-6"],
+  sm: ["h-7 text-label", "px-2.5", "w-7"],
+  md: ["h-control text-ui", "px-3", "w-control"],
+  lg: ["h-11 rounded-[11px] text-prose", "px-5", "w-11"],
+} as const;
+
+export type ButtonVariant = keyof typeof variants | "link";
+export type ButtonSize = keyof typeof sizes;
+
+interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  readonly variant?: ButtonVariant;
+  readonly size?: ButtonSize;
   readonly iconOnly?: boolean;
 }
 
 export function Button({
   variant = "default",
+  size = "md",
   iconOnly = false,
   className,
   type = "button",
@@ -25,20 +38,38 @@ export function Button({
   return (
     <button
       type={type}
-      className={buttonClass(variant, iconOnly, className)}
+      className={buttonClass({ variant, size, iconOnly, className })}
       {...props}
     />
   );
 }
 
-export function buttonClass(
-  variant: keyof typeof variants = "default",
+// A link drawn as text with an underline, for an action inside a sentence.
+const linkClass =
+  "inline cursor-pointer font-medium text-fg underline decoration-line-strong underline-offset-3 hover:decoration-fg disabled:pointer-events-none disabled:opacity-45";
+
+// Button's classes, for a link or label that looks like one.
+export function buttonClass({
+  variant = "default",
+  size = "md",
   iconOnly = false,
-  className?: string,
-): string {
+  className,
+}: {
+  readonly variant?: ButtonVariant;
+  readonly size?: ButtonSize;
+  readonly iconOnly?: boolean;
+  readonly className?: string | undefined;
+} = {}): string {
+  if (variant === "link") {
+    return cn(linkClass, className);
+  }
+
+  const [height, padding, width] = sizes[size];
+
   return cn(
-    "inline-flex h-control shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-md border text-ui font-medium whitespace-nowrap transition-[background-color,border-color,opacity,transform] duration-150 select-none active:scale-[0.97] disabled:pointer-events-none disabled:opacity-45 pointer-coarse:min-h-touch",
-    iconOnly ? "w-control pointer-coarse:min-w-touch" : "px-3",
+    "inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-md border font-medium whitespace-nowrap transition-[background-color,border-color,opacity,transform] duration-150 select-none active:scale-[0.97] disabled:pointer-events-none disabled:opacity-45 pointer-coarse:min-h-touch",
+    height,
+    iconOnly ? `${width} pointer-coarse:min-w-touch` : padding,
     variants[variant],
     className,
   );

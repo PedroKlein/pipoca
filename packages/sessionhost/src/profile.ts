@@ -1,3 +1,4 @@
+import type { Log } from "@pipoca/protocol";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, normalize, sep } from "node:path";
 import {
@@ -5,8 +6,6 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { PiPackage, ProfileFiles } from "@pipoca/protocol";
-
-type Log = (message: string, fields?: Record<string, unknown>) => void;
 
 // The package sources installed so far, so a start installs only new ones.
 const installedFile = ".pipoca-packages.json";
@@ -93,7 +92,7 @@ export async function syncFolder(
   log("folder files written", { dir, files: paths.length });
 }
 
-export type InstallPackage = (dir: string, source: string) => Promise<void>;
+type InstallPackage = (dir: string, source: string) => Promise<void>;
 
 // Installs one package into a Profile's folder, with the git credentials of
 // this process's environment.

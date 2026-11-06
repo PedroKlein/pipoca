@@ -1,208 +1,255 @@
-import {
-  HttpError,
-  NotFound,
-  readJson,
-  type RouteCaller,
-  type ServerPlugin,
-} from "@pipoca/plugins";
-import { routinesEngine, teamRoutines } from "./engine";
+import { defineServer, StringEnum, ToolError, Type } from "@pipoca/plugins";
+import { routines } from "../plugin";
+import { routinesEngine } from "./engine";
+import { routineSchema } from "./routine";
 import { wakeUps } from "./wakeups";
 
-const maxHookBody = 1024 * 1024;
+const wakeUpsQuery = Type.Object({ session: Type.String() });
 
-export const routines: ServerPlugin = {
-  name: "routines",
-  register: (context) => {
-    const wakeups = wakeUps(context);
-    const engine = routinesEngine(context);
-
-    context.tools.register({
-      name: "end_run",
+const endRun = Type.Object(
+  {
+    result: StringEnum(["done", "nothing", "blocked"] as const),
+    summary: Type.String({
+      minLength: 1,
       description:
-        "Ends this routine run: done when you finished the task, nothing when there was nothing to do this time, blocked when you can't go on without a person. The summary is the one line the person sees for the run. Call it once, then end your turn.",
-      parameters: {
-        type: "object",
-        properties: {
-          result: { type: "string", enum: ["done", "nothing", "blocked"] },
-          summary: {
-            type: "string",
-            description:
-              "One line: what you did, or why there was nothing to do, or what you need from the person.",
-          },
-        },
-        required: ["result", "summary"],
-        additionalProperties: false,
-      },
-      exposure: "direct",
-      annotations: { readOnlyHint: false, destructiveHint: false },
-      appliesTo: (session) => session.owner?.plugin === "routines",
-      run: async (input, { session }) => {
-        await Promise.resolve();
+        "One line: what you did, or why there was nothing to do, or what you need from the person.",
+    }),
+  },
+  { additionalProperties: false },
+);
 
-        const { result, summary } = input as {
-          result?: unknown;
-          summary?: unknown;
-        };
+const actions = [
+  "create",
+  "list",
+  "get",
+  "update",
+  "pause",
+  "resume",
+  "run",
+  "remove",
+] as const;
 
-        if (
-          (result !== "done" && result !== "nothing" && result !== "blocked") ||
-          typeof summary !== "string" ||
-          summary.trim() === ""
-        ) {
-          return {
-            text: "give result (done, nothing or blocked) and a one-line summary",
-            isError: true,
-          };
+const routinesTool = Type.Object(
+  {
+    action: StringEnum(actions),
+    name: Type.Optional(
+      Type.String({
+        description:
+          "The routine's name: lower-case letters, digits and dashes, such as daily-issues. Every action but list needs it.",
+      }),
+    ),
+    routine: Type.Optional(
+      Type.Unknown({
+        description:
+          'For create and update, the whole routine: { "title", "triggers": [{ "cron": "0 8 * * 1-5", "timeZone": "Europe/Berlin" } | { "at": ISO time with zone } | { "event": "<plugin>.<name>", "filter": { field: value } } | { "webhook": true }], "run": { "prompt", "workspace": { "kind": "clone", "repository": url } | { "kind": "folder", "path" }, "environment"?, "profile"?, "model"?: "provider/id", "as"?: technical user name to act as on git instead of the user } or { "prompt", "session": id }, "overlap"?: "skip" | "queue", "key"?: [event fields], "maxRunning"?: number }',
+      }),
+    ),
+    summary: Type.Optional(
+      Type.String({
+        description:
+          "For create and update, what the routine does and when, in plain words the user checks before allowing it, such as: Every weekday at 08:00 Berlin time, summarise new issues in o/r.",
+      }),
+    ),
+  },
+  { additionalProperties: false },
+);
+
+// Routines and wake-ups (ADR 0059): a person's or the team's routines, run
+// on a schedule, on events or webhooks, and a Session's own wake-ups.
+export const server = defineServer(routines, (context) => {
+  const { routes, tools, sessions } = context;
+  const wakeups = wakeUps(context);
+  const engine = routinesEngine(context);
+
+  tools.define({
+    name: "end_run",
+    description:
+      "Ends this routine run: done when you finished the task, nothing when there was nothing to do this time, blocked when you can't go on without a person. The summary is the one line the person sees for the run. Call it once, then end your turn.",
+    params: endRun,
+    when: { ownSessions: true },
+    exposure: "direct",
+    annotations: { readOnly: false, destructive: false },
+    run: ({ result, summary }, { session }) =>
+      engine.endRun(session, result, summary.trim()),
+  });
+
+  // The agent's way to make and change its person's routines. A routine's
+  // own runs don't get it, so routines can't make routines, and a team
+  // Session doesn't, since the team's are made on the Routines page.
+  tools.define({
+    name: "routines",
+    label: "Routines",
+    description:
+      "Make and change the user's routines: prompts that run on a schedule, on an event or on a webhook, each time in a new Session of their own or as a message to one Session. Use it when the user asks for something to happen regularly or when something happens. On create, the routine runs once at once as a test. Look at the result with get. For one later check of your own, use schedule_wakeup instead.",
+    params: routinesTool,
+    when: {
+      owner: "person",
+      available: (session) => session.plugin?.id !== "routines",
+    },
+    exposure: "deferred",
+    annotations: { readOnly: false, destructive: true },
+    asks: ({ action, name = "", summary = "" }) => {
+      switch (action) {
+        case "create":
+          return `Create the routine “${name}”? ${summary}`.trim();
+        case "update":
+          return `Change the routine “${name}”? ${summary}`.trim();
+        case "remove":
+          return `Delete the routine “${name}”?`;
+        case "list":
+        case "get":
+        case "pause":
+        case "resume":
+        case "run":
+          return undefined;
+      }
+    },
+    run: ({ action, name = "", routine, summary }, { owner }) => {
+      if (action === "list") {
+        return JSON.stringify(engine.list(owner));
+      }
+
+      if (name === "") {
+        throw new ToolError(`${action} needs the routine's name`);
+      }
+
+      switch (action) {
+        case "get": {
+          const { webhook, ...detail } = engine.get(owner, name);
+
+          // An agent learns where the webhook is, never its secret.
+          return JSON.stringify({
+            ...detail,
+            ...(webhook && { webhook: { path: webhook.path } }),
+          });
         }
 
-        try {
-          return {
-            text: engine.endRun(session, result, summary.trim()),
-            isError: false,
-          };
-        } catch (error) {
-          return {
-            text: error instanceof Error ? error.message : String(error),
-            isError: true,
-          };
-        }
-      },
-    });
+        case "create":
+        case "update": {
+          if (summary === undefined || summary.trim() === "") {
+            throw new ToolError(`${action} needs a summary in plain words`);
+          }
 
-    context.auth.handlePublic(async (request, path) => {
-      const [route, id, extra] = path.split("/");
+          const exists = engine.exists(owner, name);
 
-      if (
-        route !== "hooks" ||
-        id === undefined ||
-        extra !== undefined ||
-        request.method !== "POST"
-      ) {
-        return undefined;
-      }
-
-      const body = await request.text();
-
-      if (body.length > maxHookBody) {
-        return refusal(413, "too_large", "a webhook's body is at most 1 MB");
-      }
-
-      const outcome = engine.hook(
-        id,
-        body,
-        request.headers.get("x-pipoca-signature") ??
-          request.headers.get("x-hub-signature-256"),
-      );
-
-      switch (outcome) {
-        case "accepted":
-          return Response.json({ ok: true }, { status: 202 });
-        case "unknown":
-          return refusal(404, "not_found", "no such webhook");
-        case "unsigned":
-          return refusal(
-            401,
-            "unauthorized",
-            "sign the body with the routine's secret, as sha256=<HMAC-SHA256 in hex> in X-Pipoca-Signature",
-          );
-      }
-    });
-
-    context.routes.handle(async (request, path, caller) => {
-      const person = personOf(caller);
-      const [route, id, action] = path.split("/");
-      const method = request.method;
-
-      // Anyone on the team makes and changes the team's routines, as anyone
-      // starts team work (ADR 0067).
-      const userId = route === "team-routines" ? teamRoutines : person;
-
-      if (route === "wakeups" && id === undefined && method === "GET") {
-        const session = new URL(request.url).searchParams.get("session") ?? "";
-
-        return Response.json(wakeups.pending(person, session));
-      }
-
-      if (route === "wakeups" && id !== undefined && method === "DELETE") {
-        wakeups.cancel(person, id);
-
-        return Response.json({ ok: true });
-      }
-
-      if (route === "events" && method === "GET") {
-        return Response.json(context.events.declared());
-      }
-
-      if (route !== "routines" && route !== "team-routines") {
-        throw new NotFound(`no route ${path}`);
-      }
-
-      if (id === undefined && method === "GET") {
-        return Response.json(engine.list(userId));
-      }
-
-      if (id !== undefined && action === undefined) {
-        switch (method) {
-          case "GET": {
-            const { webhook, ...detail } = engine.get(userId, id);
-
-            // An agent learns where the webhook is, never its secret.
-            return Response.json(
-              caller.kind === "user" || webhook === undefined
-                ? { ...detail, ...(webhook && { webhook }) }
-                : { ...detail, webhook: { path: webhook.path } },
+          if (exists !== (action === "update")) {
+            throw new ToolError(
+              exists
+                ? `there is a routine ${name} already; update it instead`
+                : `there is no routine ${name}; create it instead`,
             );
           }
 
-          case "PUT":
-            engine.save(userId, id, await readJson(request));
+          engine.save(owner, name, routine);
+          routes.topic("routines");
 
-            return Response.json(engine.get(userId, id));
-          case "DELETE":
-            engine.remove(userId, id);
+          if (action === "update") {
+            return `Changed the routine ${name}.`;
+          }
 
-            return Response.json({ ok: true });
+          const run = engine.runNow(owner, name);
+
+          return `Created the routine ${name} and ran it once as a test: ${JSON.stringify(run)}\nTell the user what it does and when, and that it is on the Routines page.`;
         }
+
+        case "pause":
+        case "resume":
+          engine.pause(owner, name, action === "pause");
+
+          return JSON.stringify(engine.get(owner, name).paused);
+        case "run":
+          return JSON.stringify(engine.runNow(owner, name));
+        case "remove":
+          engine.remove(owner, name);
+
+          return `Deleted the routine ${name}.`;
       }
+    },
+  });
 
-      if (id !== undefined && method === "POST" && action === "run") {
-        return Response.json(engine.runNow(userId, id), { status: 201 });
-      }
+  routes.get("events", { auth: "person" }, () => context.events.declared());
 
-      if (
-        id !== undefined &&
-        method === "POST" &&
-        (action === "pause" || action === "resume")
-      ) {
-        engine.pause(userId, id, action === "pause");
+  routes.get(
+    "wakeups",
+    { auth: "person", query: wakeUpsQuery },
+    ({ caller, query }) =>
+      sessions.sees(query.session, caller.person.id)
+        ? wakeups.pending(query.session)
+        : [],
+  );
 
-        return Response.json(engine.get(userId, id));
-      }
+  routes.delete(
+    "wakeups/:id",
+    { auth: "person", changes: ["wakeups"] },
+    ({ caller, params }) => {
+      wakeups.cancel(params.id, (session) =>
+        sessions.sees(session, caller.person.id),
+      );
 
-      throw new NotFound(`no route ${path}`);
-    });
-  },
-};
+      return { ok: true };
+    },
+  );
 
-// A Session acts for the person who started it, except a routine's own run,
-// so routines can't make routines (ADR 0059), and team work.
-function personOf(caller: RouteCaller): string {
-  if (caller.kind === "user") {
-    return caller.actor.slice("user:".length);
+  // Anyone on the team makes and changes the team's routines, as anyone
+  // starts team work (ADR 0067).
+  routes.get("routines", { auth: "person", team: true }, ({ caller }) =>
+    engine.list(caller.owner),
+  );
+
+  routes.get(
+    "routines/:name",
+    { auth: "person", team: true },
+    ({ caller, params }) => engine.get(caller.owner, params.name),
+  );
+
+  routes.put(
+    "routines/:name",
+    { auth: "person", team: true, body: routineSchema, changes: ["routines"] },
+    ({ caller, params, body }) => {
+      engine.save(caller.owner, params.name, body);
+
+      return engine.get(caller.owner, params.name);
+    },
+  );
+
+  routes.delete(
+    "routines/:name",
+    { auth: "person", team: true, changes: ["routines"] },
+    ({ caller, params }) => {
+      engine.remove(caller.owner, params.name);
+
+      return { ok: true };
+    },
+  );
+
+  routes.post(
+    "routines/:name/run",
+    { auth: "person", team: true, status: 201, changes: ["routines"] },
+    ({ caller, params }) => engine.runNow(caller.owner, params.name),
+  );
+
+  for (const action of ["pause", "resume"] as const) {
+    routes.post(
+      `routines/:name/${action}`,
+      { auth: "person", team: true, changes: ["routines"] },
+      ({ caller, params }) => {
+        engine.pause(caller.owner, params.name, action === "pause");
+
+        return engine.get(caller.owner, params.name);
+      },
+    );
   }
 
-  if (caller.session.owner?.plugin === "routines") {
-    throw new HttpError(403, "a routine's run can't change routines");
-  }
+  routes.post(
+    "hooks/:id",
+    {
+      auth: { webhook: { secret: ({ id = "" }) => engine.hookSecret(id) } },
+      status: 202,
+    },
+    async ({ params, raw }) => {
+      engine.hook(params.id, await raw.text());
 
-  // Anyone can steer a team Session, and a routine runs as its person.
-  if (caller.session.startedBy === null || caller.session.ownedBy === "team") {
-    throw new HttpError(403, "only a Session a person started can do this");
-  }
-
-  return caller.session.startedBy;
-}
-
-function refusal(status: number, error: string, message: string): Response {
-  return Response.json({ error, message }, { status });
-}
+      return { ok: true };
+    },
+  );
+});

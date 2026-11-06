@@ -1,26 +1,40 @@
-import type { SessionPartProps, WebPlugin } from "@pipoca/plugins/web";
-import { cn, Icon } from "@pipoca/ui";
-import { type ReactElement, useEffect, useId, useState } from "react";
-import { isOpen, type Item, listOf, toolName } from "../src/list";
+import {
+  defineWeb,
+  Hidden,
+  type MountedSession,
+  useToolResults,
+} from "@pipoca/plugins/web";
+import { cn, Icon, type MarkStatus, StatusMark } from "@pipoca/ui";
+import { type ReactElement, useId, useState } from "react";
+import { checklist } from "../plugin";
+import { type Item, toolName } from "../src/items";
 
 // The agent's checklist, pinned above the composer while it has open items
 // (ADR 0056). Its calls show nowhere else.
-export const checklist: WebPlugin = {
-  name: "checklist",
-  Composer: PinnedList,
-  tools: { [toolName]: () => null },
-};
+export const web = defineWeb(checklist, {
+  slots: {
+    "session.composer": PinnedList,
+    [`session.toolCall:${toolName}`]: Hidden,
+  },
+});
 
-function PinnedList({ session }: SessionPartProps): ReactElement | null {
-  const items = useList(session);
+function PinnedList({
+  session,
+}: {
+  readonly session: MountedSession;
+}): ReactElement | null {
+  const items =
+    useToolResults<{ readonly items?: readonly Item[] }>(session, toolName)
+      .filter(({ isError }) => !isError)
+      .at(-1)?.details.items ?? [];
+
   const [open, setOpen] = useState(false);
   const listId = useId();
+  const done = items.filter(({ status }) => status === "completed").length;
 
-  if (!isOpen(items)) {
+  if (done === items.length) {
     return null;
   }
-
-  const done = items.filter(({ status }) => status === "completed").length;
 
   const current =
     items.find(({ status }) => status === "in_progress") ??
@@ -70,49 +84,14 @@ function PinnedList({ session }: SessionPartProps): ReactElement | null {
   );
 }
 
-function useList(session: SessionPartProps["session"]): readonly Item[] {
-  const [items, setItems] = useState<readonly Item[]>([]);
-
-  useEffect(
-    () =>
-      session.events((event) => {
-        const found = event.type === "entry" ? listOf(event.entry) : undefined;
-
-        if (found) {
-          setItems(found);
-        }
-      }),
-    [session],
-  );
-
-  return items;
-}
+const marks = {
+  completed: ["done", "Done"],
+  in_progress: ["running", "In progress"],
+  pending: ["pending", "Not started"],
+} as const satisfies Record<Item["status"], readonly [MarkStatus, string]>;
 
 function Mark({ status }: { readonly status: Item["status"] }): ReactElement {
-  switch (status) {
-    case "completed":
-      return (
-        <span aria-label="Done" className="shrink-0">
-          <Icon name="check" className="size-4 text-done" />
-        </span>
-      );
-    case "in_progress":
-      return (
-        <span
-          aria-label="In progress"
-          className="grid size-4 shrink-0 place-items-center"
-        >
-          <span className="size-1.5 animate-pulse rounded-full bg-working" />
-        </span>
-      );
-    case "pending":
-      return (
-        <span
-          aria-label="Not started"
-          className="grid size-4 shrink-0 place-items-center"
-        >
-          <span className="size-2.5 rounded-full border border-line-strong" />
-        </span>
-      );
-  }
+  const [mark, label] = marks[status];
+
+  return <StatusMark status={mark} label={label} />;
 }

@@ -1,11 +1,13 @@
 import type { SetupState } from "@pipoca/protocol";
 import { createRoot } from "react-dom/client";
-import { App } from "./app";
-import { AppSignIn, pendingAppSignIn } from "./app-sign-in";
-import { JoinPage } from "./join";
-import { Me } from "./me";
-import { loadPlugins, navEntries } from "./plugins";
-import { type Login, SignInPage } from "./sign-in";
+import { request } from "./data/client";
+import { seed } from "./data/hooks";
+import { App } from "./shell/app";
+import { AppSignIn, pendingAppSignIn } from "./setup/app-sign-in";
+import { JoinPage } from "./setup/join";
+import { loadPlugins } from "./plugins";
+import { parse } from "./router";
+import { SignInPage } from "./setup/sign-in";
 import { applyTheme } from "./theme";
 
 const root = document.getElementById("root");
@@ -15,39 +17,19 @@ if (!root) {
 
 applyTheme();
 
-const status = await fetch("/api/auth")
-  .then(
-    async (response) =>
-      (await response.json()) as {
-        readonly user: {
-          readonly id: string;
-          readonly name: string;
-          readonly admin: boolean;
-        } | null;
-        readonly setup: boolean;
-        readonly logins: readonly Login[];
-        readonly passwordLogin: boolean;
-        readonly solo: boolean;
-      },
-  )
-  .catch(() => undefined);
-
-const setupToken = /^#setup\/(.+)$/.exec(location.hash)?.[1];
-const joinToken = /^#join\/(.+)$/.exec(location.hash)?.[1];
+const status = await request("auth.status").catch(() => undefined);
+const route = parse(location.hash);
 const appChallenge = pendingAppSignIn();
 
 if (status === undefined) {
   root.textContent = "The server can't be reached. Reload to try again.";
-} else if (status.user === null && joinToken !== undefined) {
-  createRoot(root).render(<JoinPage token={joinToken} />);
+} else if (status.user === null && route.name === "join") {
+  createRoot(root).render(<JoinPage token={route.params.token} />);
 } else if (status.user === null) {
   createRoot(root).render(
     <SignInPage
-      setup={status.setup}
-      setupToken={setupToken}
-      logins={status.logins}
-      passwordLogin={status.passwordLogin}
-      solo={status.solo}
+      status={status}
+      setupToken={route.name === "setup" ? route.params.token : undefined}
     />,
   );
 } else if (appChallenge !== undefined) {
@@ -57,26 +39,12 @@ if (status === undefined) {
 } else {
   await loadPlugins().catch(() => undefined);
 
-  const setup = await fetch("/api/setup")
-    .then(async (response) => (await response.json()) as SetupState)
-    .catch(() => ({ finished: true, dismissed: [] }));
+  const setup = await request("me.setup").catch((): SetupState => ({
+    finished: true,
+    dismissed: [],
+  }));
 
-  createRoot(root).render(
-    <Me
-      value={{
-        id: status.user.id,
-        admin: status.user.admin,
-        team: !status.solo,
-      }}
-    >
-      <App
-        nav={navEntries()}
-        user={status.user.name}
-        admin={status.user.admin}
-        setup={setup}
-        people={status.user.admin && !status.solo}
-        team={!status.solo}
-      />
-    </Me>,
-  );
+  seed("auth.status", status);
+  seed("me.setup", setup);
+  createRoot(root).render(<App />);
 }

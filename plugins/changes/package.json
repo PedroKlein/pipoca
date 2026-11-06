@@ -3,12 +3,12 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./session": "./src/session.ts",
-    "./web": "./web/index.tsx",
-    "./package.json": "./package.json"
+    "./plugin": "./plugin.ts",
+    "./session": "./src/session.ts"
   },
   "dependencies": {
     "@pipoca/plugins": "workspace:*",
+    "@pipoca/protocol": "workspace:*",
     "@pipoca/ui": "workspace:*",
     "react": "19.3.1"
   },
@@ -16,13 +16,6 @@
     "@types/react": "19.3.0"
   },
   "pipoca": {
-    "id": "changes",
-    "title": "Changes",
-    "description": "Shows a Session's changes as a diff and opens pull requests.",
-    "capabilities": [],
-    "works": [
-      "personal",
-      "team"
-    ]
+    "entry": "plugin.ts"
   }
 }

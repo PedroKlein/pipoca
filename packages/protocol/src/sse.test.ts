@@ -1,0 +1,102 @@
+import { expect, test } from "bun:test";
+import { once } from "node:events";
+import { connect } from "node:net";
+import { readSse, sseResponse } from "./index";
+
+function chunked(text: string, size: number): Response {
+  const bytes = new TextEncoder().encode(text);
+
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let offset = 0; offset < bytes.length; offset += size) {
+          controller.enqueue(bytes.subarray(offset, offset + size));
+        }
+
+        controller.close();
+      },
+    }),
+  );
+}
+
+test("reads the same events wherever the stream is split into chunks", async () => {
+  const text = [
+    ": open\n\n",
+    'data: {"n":1}\n\n',
+    'id: 7\ndata: {"text":\ndata: "two lines"}\n\n',
+    'data: {"n":3}\n\n',
+    'data: {"n":4}',
+  ].join("");
+
+  for (let size = 1; size <= text.length; size++) {
+    const events: unknown[] = [];
+    for await (const event of readSse(chunked(text, size))) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([{ n: 1 }, { text: "two lines" }, { n: 3 }]);
+  }
+});
+
+test("stops reading a stream that goes quiet", async () => {
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('data: {"n":1}\n\n'));
+    },
+  });
+
+  const events: unknown[] = [];
+  for await (const event of readSse(new Response(body), 20)) {
+    events.push(event);
+  }
+
+  expect(events).toEqual([{ n: 1 }]);
+});
+
+test("drops a client that stops reading while others keep receiving", async () => {
+  const sends: ((data: unknown) => void)[] = [];
+  let closed = 0;
+
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: () =>
+      sseResponse((send) => {
+        sends.push(send);
+
+        return () => {
+          closed++;
+        };
+      }),
+  });
+
+  const stalled = connect(Number(server.url.port), "127.0.0.1");
+  stalled.write(`GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n`);
+  await once(stalled, "data");
+  stalled.pause();
+
+  const healthy = readSse(await fetch(server.url));
+  while (sends.length < 2) {
+    await Bun.sleep(5);
+  }
+
+  const chunk = "x".repeat(64 * 1024);
+  let received = 0;
+
+  for (let sent = 0; sent < 1024 && closed === 0; sent++) {
+    sends.forEach((send) => {
+      send(chunk);
+    });
+
+    await healthy.next();
+    received++;
+  }
+
+  const dropped = closed;
+  stalled.destroy();
+  await healthy.return(undefined);
+  await server.stop(true);
+
+  expect(dropped).toBe(1);
+  expect(received).toBeLessThan(1024);
+});

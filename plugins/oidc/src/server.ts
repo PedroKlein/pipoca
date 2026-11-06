@@ -1,12 +1,12 @@
-import { createHash, randomBytes } from "node:crypto";
 import {
-  HttpError,
+  defineServer,
   NotFound,
-  type PluginStore,
-  readBody,
-  type ServerPlugin,
-  type User,
+  type Person,
+  type Store,
+  Type,
 } from "@pipoca/plugins";
+import type { Clock } from "@pipoca/protocol";
+import { oidc } from "../plugin";
 import type {
   Account,
   LinkedIdentity,
@@ -27,155 +27,246 @@ import {
 import {
   type ProviderConfig,
   providerChange,
-  providerStore,
+  providers as providerList,
   viewOf,
 } from "./providers";
 
 // A browser has this long to come back from the provider.
 const attemptMs = 10 * 60_000;
 const weekMs = 7 * 24 * 60 * 60_000;
-const browserCookie = "pipoca-oidc";
 
 interface Pending extends Attempt {
   readonly providerId: string;
   readonly browser: string;
-  // Set when a signed-in user links their identity.
+  // Set when a signed-in person links their identity.
   readonly linkTo: string | undefined;
   // The invite link the person followed to get here (ADR 0063).
   readonly join: string | undefined;
   readonly expires: number;
 }
 
-export const oidc: ServerPlugin = {
-  name: "oidc",
-  register: (context) => {
-    const identities = identityStore(context.store);
+const startQuery = Type.Object({ join: Type.Optional(Type.String()) });
 
-    const providers = providerStore(
-      context.config,
-      context.store,
-      process.env,
-      context.log,
-    );
+const callbackQuery = Type.Object({
+  state: Type.Optional(Type.String()),
+  code: Type.Optional(Type.String()),
+  error: Type.Optional(Type.String()),
+  error_description: Type.Optional(Type.String()),
+});
 
-    const pending = new Map<string, Pending>();
-    const discovered = new Map<string, Promise<Provider>>();
+export const server = defineServer(oidc, (context) => {
+  const { routes, urls, clock, log } = context;
+  const identities = identityStore(context.store, clock);
+  const providers = providerList(context.config.collection("providers"));
+  const pending = new Map<string, Pending>();
+  const discovered = new Map<string, Promise<Provider>>();
+  const callback = (): string => urls.public("callback");
 
-    const discovery = async (issuer: string): Promise<Provider> => {
-      const found = discovered.get(issuer) ?? discover(issuer);
-      discovered.set(issuer, found);
+  const people = context.provide.signIn({
+    logins: () =>
+      providers.list().map(({ id, label }) => ({ label, path: `start/${id}` })),
+  });
 
-      // A failed discovery is tried again on the next sign-in.
-      return found.catch((error: unknown) => {
-        discovered.delete(issuer);
-        throw error;
-      });
-    };
+  const discovery = async (issuer: string): Promise<Provider> => {
+    const found = discovered.get(issuer) ?? discover(issuer);
+    discovered.set(issuer, found);
 
-    const client = (config: ProviderConfig): Client => ({
-      id: config.clientId,
-      secret: config.clientSecret,
+    // A failed discovery is tried again on the next sign-in.
+    return found.catch((error: unknown) => {
+      discovered.delete(issuer);
+      throw error;
+    });
+  };
+
+  const client = (config: ProviderConfig): Client => ({
+    id: config.clientId,
+    secret: config.clientSecret,
+  });
+
+  const start = async (
+    providerId: string,
+    linkTo: string | undefined,
+    join: string | undefined,
+  ): Promise<Response> => {
+    const config = providers.get(providerId);
+
+    if (config === undefined) {
+      return page("This server has no such sign-in.", 404);
+    }
+
+    const now = clock.now();
+
+    for (const [state, each] of pending) {
+      if (each.expires < now) {
+        pending.delete(state);
+      }
+    }
+
+    const attempt = newAttempt();
+
+    let location: string;
+
+    try {
+      location = authorizationUrl(
+        await discovery(config.issuer),
+        client(config),
+        callback(),
+        attempt,
+      );
+    } catch (failure) {
+      if (!(failure instanceof LoginFailed)) {
+        throw failure;
+      }
+
+      log("discovery failed", { provider: config.id, error: failure.message });
+
+      return page(`Sign-in failed: ${failure.message}`, 502);
+    }
+
+    const response = new Response(null, { status: 302, headers: { location } });
+
+    pending.set(attempt.state, {
+      ...attempt,
+      providerId,
+      browser: urls.browser.mark(response, attemptMs),
+      linkTo,
+      join,
+      expires: now + attemptMs,
     });
 
-    const start = async (
-      request: Request,
-      providerId: string,
-      linkTo: string | undefined,
-    ): Promise<Response> => {
-      const config = providers.get(providerId);
-      if (config === undefined) {
-        return page("This server has no such sign-in.", 404);
-      }
+    return response;
+  };
 
-      const now = Date.now();
-      for (const [state, each] of pending) {
-        if (each.expires < now) {
-          pending.delete(state);
-        }
-      }
-
-      const attempt = newAttempt();
-      const browser = randomBytes(32).toString("base64url");
-
-      let location: string;
-      try {
-        location = authorizationUrl(
-          await discovery(config.issuer),
-          client(config),
-          redirectUri(request),
-          attempt,
-        );
-      } catch (failure) {
-        if (!(failure instanceof LoginFailed)) {
-          throw failure;
-        }
-
-        context.log("discovery failed", {
-          provider: config.id,
-          error: failure.message,
-        });
-
-        return page(`Sign-in failed: ${failure.message}`, 502);
-      }
-
-      pending.set(attempt.state, {
-        ...attempt,
-        providerId,
-        browser: hash(browser),
-        linkTo,
-        join: new URL(request.url).searchParams.get("join") ?? undefined,
-        expires: now + attemptMs,
-      });
-
-      return new Response(null, {
-        status: 302,
-        headers: {
-          location,
-          // Lax, since the provider's redirect back is a cross-site
-          // navigation, which leaves Strict cookies out.
-          "set-cookie": new Bun.Cookie(browserCookie, browser, {
-            path: "/api/plugins/oidc/",
-            httpOnly: true,
-            sameSite: "lax",
-            secure: secure(request),
-            maxAge: attemptMs / 1000,
-          }).serialize(),
-        },
-      });
+  const signIn = (
+    request: Request,
+    config: ProviderConfig,
+    identity: Identity,
+    { linkTo, join }: Pick<Pending, "linkTo" | "join">,
+  ): Response => {
+    const fields = {
+      provider: config.id,
+      subject: identity.subject,
+      email: identity.email,
     };
 
-    const callback = async (request: Request): Promise<Response> => {
-      const params = new URL(request.url).searchParams;
-      const attempt = pending.get(params.get("state") ?? "");
-      const config = attempt && providers.get(attempt.providerId);
+    const { allowed, admin } = access(config, identity);
+    const linked = identities.find(identity);
 
-      const browser = new Bun.CookieMap(
-        request.headers.get("cookie") ?? "",
-      ).get(browserCookie);
+    // An invite lets a new person in past the rules, and keeps them in.
+    const invite =
+      linked === undefined && linkTo === undefined
+        ? people.invited(
+            join,
+            identity.emailVerified ? (identity.email ?? undefined) : undefined,
+          )
+        : undefined;
+
+    if (!allowed && invite === undefined && linked?.invited !== true) {
+      log("sign-in refused: not let in", fields);
+
+      return page(
+        "This server doesn't let your account in. Ask its admin to add you.",
+        403,
+      );
+    }
+
+    if (linkTo !== undefined) {
+      if (linked !== undefined && linked.userId !== linkTo) {
+        return page("This account already signs in as another user.", 409);
+      }
+
+      identities.link(identity, linkTo, false, false);
+      log("identity linked", { ...fields, userId: linkTo });
+      routes.topic("account");
+
+      return redirect("/#settings/accounts", undefined);
+    }
+
+    let made: Person | undefined;
+
+    if (linked === undefined) {
+      const asAdmin = admin || invite?.admin === true;
+      const name = identity.email ?? identity.subject;
+
+      made = people.create(name, asAdmin);
+
+      if (made === undefined) {
+        return page(
+          `A user named ${name} already exists. Sign in with its password and link this account in Settings.`,
+          409,
+        );
+      }
+
+      identities.link(identity, made.id, true, invite !== undefined);
+
+      if (invite !== undefined) {
+        people.acceptInvite(invite.id);
+      }
+
+      log("user created", {
+        ...fields,
+        userId: made.id,
+        admin: asAdmin,
+        invited: invite !== undefined,
+      });
+    } else if (
+      linked.created &&
+      !linked.invited &&
+      (config.adminGroup !== "" || config.adminEmails.length > 0)
+    ) {
+      // Groups are read again on every sign-in, so a change in the provider
+      // applies the next time. A provider that names no admins, or someone
+      // an invite let in, leaves roles to People.
+      people.setAdmin(linked.userId, admin);
+    }
+
+    const userId = made?.id ?? linked?.userId ?? "";
+    const cookie = people.startSession(userId, request);
+
+    if (cookie === undefined) {
+      return page("This account's user no longer exists.", 403);
+    }
+
+    identities.signedIn(identity);
+    log("signed in", { ...fields, userId });
+
+    return redirect("/", cookie);
+  };
+
+  routes.get(
+    "start/:id",
+    { auth: "public", query: startQuery },
+    async ({ params, query }) => start(params.id, undefined, query.join),
+  );
+
+  routes.get(
+    "callback",
+    { auth: "public", query: callbackQuery },
+    async ({ query, raw }) => {
+      const attempt = pending.get(query.state ?? "");
+      const config = attempt && providers.get(attempt.providerId);
 
       // The state must come back to the browser that left with it, so a
       // link can't sign someone in as another person (RFC 6749, 10.12).
       if (
         attempt === undefined ||
         config === undefined ||
-        attempt.expires < Date.now() ||
-        browser === null ||
-        hash(browser) !== attempt.browser
+        attempt.expires < clock.now() ||
+        !urls.browser.is(raw, attempt.browser)
       ) {
         return page("This sign-in has expired. Start it again.", 400);
       }
 
       pending.delete(attempt.state);
 
-      const error = params.get("error");
-      if (error !== null) {
-        context.log("sign-in refused by the provider", {
+      if (query.error !== undefined) {
+        log("sign-in refused by the provider", {
           provider: config.id,
-          error,
+          error: query.error,
         });
 
         return page(
-          `The identity provider refused the sign-in: ${params.get("error_description") ?? error}`,
+          `The identity provider refused the sign-in: ${query.error_description ?? query.error}`,
           403,
         );
       }
@@ -184,282 +275,131 @@ export const oidc: ServerPlugin = {
         const identity = await redeem(
           await discovery(config.issuer),
           client(config),
-          redirectUri(request),
+          callback(),
           attempt,
-          params.get("code") ?? "",
+          query.code ?? "",
+          clock.now(),
         );
 
-        return signIn(request, config, identity, attempt);
+        return signIn(raw, config, identity, attempt);
       } catch (failure) {
         if (!(failure instanceof LoginFailed)) {
           throw failure;
         }
 
-        context.log("sign-in failed", {
-          provider: config.id,
-          error: failure.message,
-        });
+        log("sign-in failed", { provider: config.id, error: failure.message });
 
         return page(`Sign-in failed: ${failure.message}`, 502);
       }
-    };
+    },
+  );
 
-    const signIn = (
-      request: Request,
-      config: ProviderConfig,
-      identity: Identity,
-      { linkTo, join }: Pick<Pending, "linkTo" | "join">,
-    ): Response => {
-      const fields = {
-        provider: config.id,
-        subject: identity.subject,
-        email: identity.email,
-      };
+  routes.get("link/:id", { auth: "person" }, async ({ caller, params }) =>
+    start(params.id, caller.person.id, undefined),
+  );
 
-      const { allowed, admin } = access(config, identity);
-      const linked = identities.find(identity);
+  const account = (person: Person): Account => ({
+    admin: person.admin,
+    passwordLogin: people.passwordLogin(),
+    lockedIn: context.config.lockedIn() ?? null,
+    providers: providers
+      .list()
+      .map(({ id, label, issuer }) => ({ id, label, issuer })),
+    identities: identities.of(person.id),
+  });
 
-      // An invite lets a new person in past the rules, and keeps them in.
-      const invite =
-        linked === undefined && linkTo === undefined
-          ? context.auth.invited(
-              join,
-              identity.emailVerified
-                ? (identity.email ?? undefined)
-                : undefined,
-            )
-          : undefined;
+  routes.get("account", { auth: "person" }, ({ caller }) =>
+    account(caller.person),
+  );
 
-      if (!allowed && invite === undefined && linked?.invited !== true) {
-        context.log("sign-in refused: not let in", fields);
+  routes.delete(
+    "identities/:issuer",
+    { auth: "person", changes: ["account"] },
+    ({ caller, params }) => {
+      identities.unlink(caller.person.id, params.issuer);
 
-        return page(
-          "This server doesn't let your account in. Ask its admin to add you.",
-          403,
-        );
-      }
+      log("identity unlinked", {
+        userId: caller.person.id,
+        issuer: params.issuer,
+      });
 
-      if (linkTo !== undefined) {
-        if (linked !== undefined && linked.userId !== linkTo) {
-          return page("This account already signs in as another user.", 409);
-        }
+      return account(caller.person);
+    },
+  );
 
-        identities.link(identity, linkTo, false, false);
-        context.log("identity linked", { ...fields, userId: linkTo });
-
-        return redirect("/#settings/accounts", undefined);
-      }
-
-      let user: User | undefined;
-
-      if (linked === undefined) {
-        const asAdmin = admin || invite?.admin === true;
-
-        user = context.auth.createUser(
-          identity.email ?? identity.subject,
-          asAdmin,
-        );
-
-        if (user === undefined) {
-          return page(
-            `A user named ${identity.email ?? identity.subject} already exists. Sign in with its password and link this account in Settings.`,
-            409,
-          );
-        }
-
-        identities.link(identity, user.id, true, invite !== undefined);
-
-        if (invite !== undefined) {
-          context.auth.acceptInvite(invite.id);
-        }
-
-        context.log("user created", {
-          ...fields,
-          userId: user.id,
-          admin: asAdmin,
-          invited: invite !== undefined,
-        });
-      } else if (
-        linked.created &&
-        !linked.invited &&
-        (config.adminGroup !== "" || config.adminEmails.length > 0)
-      ) {
-        // Groups are read again on every sign-in, so a change in the
-        // provider applies the next time. A provider that names no admins,
-        // or someone an invite let in, leaves roles to People.
-        context.auth.setAdmin(linked.userId, admin);
-      }
-
-      const userId = user?.id ?? linked?.userId ?? "";
-      const cookie = context.auth.startSession(userId, request);
-
-      if (cookie === undefined) {
-        return page("This account's user no longer exists.", 403);
-      }
-
-      identities.signedIn(identity);
-      context.log("signed in", { ...fields, userId });
-
-      return redirect("/", cookie);
-    };
-
-    // Admins add, change and remove providers.
-    const manage = async (
-      request: Request,
-      path: readonly string[],
-    ): Promise<Response> => {
-      const [, id, action] = path;
-
-      const view = (config: ProviderConfig): ProviderView =>
-        viewOf(
-          config,
-          identities.signedInSince(
-            config.issuer,
-            new Date(Date.now() - weekMs).toISOString(),
-          ),
-        );
-
-      if (id === undefined && request.method === "GET") {
-        return Response.json(providers.list().map(view));
-      }
-
-      if (action === "test" && request.method === "POST") {
-        const config = providers.get(id ?? "");
-        if (config === undefined) {
-          throw new NotFound(`no provider ${id ?? ""}`);
-        }
-
-        const test = await discover(config.issuer).then(
-          (): ProviderTest => ({ ok: true, error: null }),
-          (failure: unknown): ProviderTest => {
-            if (!(failure instanceof LoginFailed)) {
-              throw failure;
-            }
-
-            return { ok: false, error: failure.message };
-          },
-        );
-
-        context.log("provider tested", { provider: config.id, ok: test.ok });
-
-        return Response.json(test);
-      }
-
-      if (id === undefined && request.method === "POST") {
-        const created = providers.create(
-          await readBody(request, providerChange),
-        );
-
-        context.log("provider added", { provider: created.id });
-
-        return Response.json(view(created), { status: 201 });
-      }
-
-      if (id !== undefined && request.method === "DELETE") {
-        if (!providers.remove(id)) {
-          throw new NotFound(`no provider ${id}`);
-        }
-
-        return Response.json({ removed: id });
-      }
-
-      if (id !== undefined && request.method === "POST") {
-        const updated = providers.update(
-          id,
-          await readBody(request, providerChange),
-        );
-
-        if (updated === undefined) {
-          throw new NotFound(`no provider ${id}`);
-        }
-
-        return Response.json(view(updated));
-      }
-
-      throw new NotFound(`no route ${path.join("/")}`);
-    };
-
-    context.auth.offer(() =>
-      providers.list().map(({ id, label }) => ({ label, path: `start/${id}` })),
+  // Admins add, change and remove providers.
+  const view = (config: ProviderConfig): ProviderView =>
+    viewOf(
+      config,
+      identities.signedInSince(config.issuer, clock.now() - weekMs),
     );
 
-    context.auth.handlePublic(async (request, path) => {
-      if (request.method !== "GET") {
-        return undefined;
-      }
+  routes.get("providers", { auth: "admin" }, () => providers.list().map(view));
 
-      const [route, id] = path.split("/");
+  routes.post(
+    "providers",
+    {
+      auth: "admin",
+      body: providerChange,
+      status: 201,
+      changes: ["providers", "account"],
+    },
+    ({ body }) => {
+      const created = providers.create(body);
+      log("provider added", { provider: created.id });
 
-      if (route === "start" && id !== undefined) {
-        return start(request, id, undefined);
-      }
+      return view(created);
+    },
+  );
 
-      return route === "callback" ? callback(request) : undefined;
-    });
+  routes.post(
+    "providers/:id",
+    { auth: "admin", body: providerChange, changes: ["providers", "account"] },
+    ({ params, body }) => view(providers.update(params.id, body)),
+  );
 
-    context.routes.handle(async (request, path) => {
-      const user = context.auth.userOf(request);
-      if (user === undefined) {
-        throw new HttpError(401, "Sign in again.", "signed_out");
-      }
+  routes.delete(
+    "providers/:id",
+    { auth: "admin", changes: ["providers", "account"] },
+    ({ params }) => {
+      providers.remove(params.id);
+      log("provider removed", { provider: params.id });
 
-      const parts = path.split("/");
-      const [route, id] = parts;
+      return { removed: params.id };
+    },
+  );
 
-      if (route === "providers") {
-        if (!user.admin) {
-          throw new HttpError(
-            403,
-            "Only admins manage sign-in providers.",
-            "admin_only",
-          );
+  routes.post("providers/:id/test", { auth: "admin" }, async ({ params }) => {
+    const config = providers.get(params.id);
+
+    if (config === undefined) {
+      throw new NotFound(`no provider ${params.id}`);
+    }
+
+    const test = await discover(config.issuer).then(
+      (): ProviderTest => ({ ok: true, error: null }),
+      (failure: unknown): ProviderTest => {
+        if (!(failure instanceof LoginFailed)) {
+          throw failure;
         }
 
-        return manage(request, parts);
-      }
+        return { ok: false, error: failure.message };
+      },
+    );
 
-      if (route === "link" && id !== undefined && request.method === "GET") {
-        return start(request, id, user.id);
-      }
+    log("provider tested", { provider: config.id, ok: test.ok });
 
-      if (route === "account" && request.method === "GET") {
-        return Response.json(account(user));
-      }
-
-      if (
-        route === "identities" &&
-        id !== undefined &&
-        request.method === "DELETE"
-      ) {
-        const issuer = decodeURIComponent(id);
-        identities.unlink(user.id, issuer);
-        context.log("identity unlinked", { userId: user.id, issuer });
-
-        return Response.json(account(user));
-      }
-
-      throw new NotFound(`no route ${path}`);
-    });
-
-    const account = (user: User): Account => ({
-      admin: user.admin,
-      passwordLogin: context.auth.passwordLogin(),
-      lockedIn: context.config.lockedIn() ?? null,
-      providers: providers
-        .list()
-        .map(({ id, label, issuer }) => ({ id, label, issuer })),
-      identities: identities.of(user.id),
-    });
-  },
-};
+    return test;
+  });
+});
 
 // The groups come from the claim the provider puts them in. Emails count
 // only once the provider has verified them.
 function access(
-  settings: ProviderConfig,
+  config: ProviderConfig,
   identity: Identity,
 ): { readonly allowed: boolean; readonly admin: boolean } {
-  const claim = identity.claims[settings.groupsClaim];
+  const claim = identity.claims[config.groupsClaim];
 
   const groups = (Array.isArray(claim) ? claim : [claim]).filter(
     (group): group is string => typeof group === "string" && group !== "",
@@ -472,33 +412,18 @@ function access(
   const domain = email.slice(email.lastIndexOf("@") + 1);
 
   const admin =
-    groups.includes(settings.adminGroup) ||
-    (email !== "" && settings.adminEmails.includes(email));
+    groups.includes(config.adminGroup) ||
+    (email !== "" && config.adminEmails.includes(email));
 
   return {
     admin,
     allowed:
       admin ||
-      groups.includes(settings.accessGroup) ||
+      groups.includes(config.accessGroup) ||
       (email !== "" &&
-        (settings.allowedEmails.includes(email) ||
-          settings.allowedDomains.includes(domain))),
+        (config.allowedEmails.includes(email) ||
+          config.allowedDomains.includes(domain))),
   };
-}
-
-// The Host header already passed the server's own site check.
-function redirectUri(request: Request): string {
-  const host = request.headers.get("host") ?? new URL(request.url).host;
-
-  return `${secure(request) ? "https" : "http"}://${host}/api/plugins/oidc/callback`;
-}
-
-// HTTPS usually ends in a gateway in front of the server (ADR 0034).
-function secure(request: Request): boolean {
-  return (
-    new URL(request.url).protocol === "https:" ||
-    request.headers.get("x-forwarded-proto") === "https"
-  );
 }
 
 // A page that moves on by itself instead of a 302: the browser came here
@@ -537,10 +462,6 @@ function escaped(text: string): string {
   );
 }
 
-function hash(text: string): string {
-  return createHash("sha256").update(text).digest("hex");
-}
-
 interface IdentityStore {
   readonly find: (identity: Identity) =>
     | {
@@ -560,45 +481,22 @@ interface IdentityStore {
   readonly of: (userId: string) => readonly LinkedIdentity[];
   readonly signedIn: (identity: Identity) => void;
   // How many people signed in with the issuer since the time.
-  readonly signedInSince: (issuer: string, since: string) => number;
+  readonly signedInSince: (issuer: string, since: number) => number;
   readonly unlink: (userId: string, issuer: string) => void;
 }
 
-function identityStore(store: PluginStore): IdentityStore {
-  store.exec(`
-    create table if not exists oidc_identities (
-      issuer text not null,
-      subject text not null,
-      user_id text not null,
-      email text,
-      created integer not null,
-      linked_at text not null,
-      invited integer not null default 0,
-      primary key (issuer, subject)
-    )
-  `);
-
-  const columns = store.all(
-    "select name from pragma_table_info('oidc_identities')",
-  ) as { name: string }[];
-
-  if (!columns.some(({ name }) => name === "invited")) {
-    store.exec(
-      "alter table oidc_identities add column invited integer not null default 0",
-    );
-  }
-
-  if (!columns.some(({ name }) => name === "signed_in_at")) {
-    store.exec("alter table oidc_identities add column signed_in_at text");
-  }
-
+function identityStore(store: Store, clock: Clock): IdentityStore {
   return {
     find: ({ issuer, subject }) => {
-      const [row] = store.all(
+      const row = store.get<{
+        user_id: string;
+        created: number;
+        invited: number;
+      }>(
         "select user_id, created, invited from oidc_identities where issuer = ? and subject = ?",
         issuer,
         subject,
-      ) as { user_id: string; created: number; invited: number }[];
+      );
 
       return (
         row && {
@@ -616,44 +514,41 @@ function identityStore(store: PluginStore): IdentityStore {
         userId,
         email,
         created ? 1 : 0,
-        new Date().toISOString(),
+        clock.now(),
         invited ? 1 : 0,
       );
     },
     of: (userId) =>
-      (
-        store.all(
-          "select issuer, email, linked_at, created from oidc_identities where user_id = ? order by linked_at",
-          userId,
-        ) as {
+      store
+        .all<{
           issuer: string;
           email: string | null;
-          linked_at: string;
+          linked_at: number;
           created: number;
-        }[]
-      ).map((row) => ({
-        issuer: row.issuer,
-        email: row.email,
-        linkedAt: row.linked_at,
-        created: row.created === 1,
-      })),
+        }>(
+          "select issuer, email, linked_at, created from oidc_identities where user_id = ? order by linked_at",
+          userId,
+        )
+        .map((row) => ({
+          issuer: row.issuer,
+          email: row.email,
+          linkedAt: new Date(row.linked_at).toISOString(),
+          created: row.created === 1,
+        })),
     signedIn: ({ issuer, subject }) => {
       store.run(
         "update oidc_identities set signed_in_at = ? where issuer = ? and subject = ?",
-        new Date().toISOString(),
+        clock.now(),
         issuer,
         subject,
       );
     },
-    signedInSince: (issuer, since) => {
-      const [row] = store.all(
+    signedInSince: (issuer, since) =>
+      store.get<{ people: number }>(
         "select count(distinct user_id) as people from oidc_identities where issuer = ? and signed_in_at >= ?",
         issuer,
         since,
-      ) as { people: number }[];
-
-      return row?.people ?? 0;
-    },
+      )?.people ?? 0,
     unlink: (userId, issuer) => {
       store.run(
         "delete from oidc_identities where user_id = ? and issuer = ? and created = 0",

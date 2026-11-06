@@ -1,3 +1,4 @@
+import type { Log } from "@pipoca/protocol";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -11,7 +12,8 @@ import type {
   AgentSessionEvent,
   ExtensionError,
 } from "@earendil-works/pi-coding-agent";
-import type { ChildOptions, SessionPlugin } from "@pipoca/plugins";
+import type { SessionLogins } from "@pipoca/plugins";
+import type { SessionPart } from "@pipoca/plugins/host";
 import {
   type Command,
   type ImageAttachment,
@@ -19,8 +21,9 @@ import {
   liveSurface,
   noticeType,
   piTerminal,
-  type PluginSettings,
   type SlashCommand,
+  systemClock,
+  systemTimer,
   type ToolSpec,
 } from "@pipoca/protocol";
 import {
@@ -33,6 +36,7 @@ import {
 import { workspaceFiles } from "./files";
 import { browserHelper, hostPages, type PreviewExchange } from "./pages";
 import { webSurfaces } from "./surfaces";
+import { setUpPart } from "./parts";
 import { remoteUI } from "./ui";
 import {
   asksForTrust,
@@ -43,6 +47,7 @@ import {
   stopSession,
 } from "./session";
 import { openTerminal, type Terminal, type TerminalOptions } from "./terminal";
+import { permissionDetails } from "./details";
 import { serverTools } from "./tools";
 import { piView } from "./tui";
 
@@ -57,6 +62,8 @@ export interface SessionStream {
   preview: (connectionId: string) => PreviewExchange;
   tools: () => Promise<readonly ToolSpec[]>;
   callTool: (id: string, name: string, input: unknown) => Promise<void>;
+  // What to ask the person before a call of a tool that asks, if anything.
+  toolQuestion: (name: string, input: unknown) => Promise<string | undefined>;
   // Keeps the user's answer for the repository the Session works in.
   answerTrust: (trusted: boolean) => Promise<void>;
   pluginRequest: (
@@ -67,8 +74,8 @@ export interface SessionStream {
 }
 
 export interface HostOptions extends SessionOptions {
-  readonly plugins?: readonly SessionPlugin[];
-  readonly pluginSettings?: Readonly<Record<string, PluginSettings>>;
+  readonly parts?: readonly SessionPart[];
+  readonly pluginConfig?: Readonly<Record<string, unknown>>;
   readonly firstMessage?: string | null;
   readonly serverToolTimeoutMs?: number;
   // Runs `pipoca open <url>`, for the BROWSER helper.
@@ -88,11 +95,6 @@ export interface TerminalChannel {
   send: (data: Uint8Array) => void;
   close: () => void;
 }
-
-export type Log = (
-  message: string,
-  fields?: Readonly<Record<string, unknown>>,
-) => void;
 
 export interface HostedSession {
   readonly stop: () => Promise<void>;
@@ -334,53 +336,79 @@ export async function hostSession(
 
   const ui = { ...prompts.ui, ...surfaces.ui };
 
+  const specs = await stream.tools();
+
+  // A tool the person let run for the rest of the Session asks no more.
+  const allowed = new Set<string>();
+
   const calls = serverTools(
-    await stream.tools(),
+    specs,
     stream.callTool,
+    async (name, input, signal) => {
+      if (allowed.has(name)) {
+        return true;
+      }
+
+      const question = await stream.toolQuestion(name, input);
+
+      if (question === undefined) {
+        return true;
+      }
+
+      const answer = await prompts.permission(
+        question,
+        permissionDetails(
+          input,
+          specs.find((spec) => spec.name === name)?.parameters,
+        ),
+        signal,
+      );
+
+      if (answer === "session") {
+        allowed.add(name);
+      }
+
+      return answer !== "deny";
+    },
     options.serverToolTimeoutMs,
   );
 
-  const plugins = (options.plugins ?? []).map((plugin) => ({
-    plugin,
-    cloud: {
-      publish: (
-        key: string,
-        data: unknown,
-        { waiting }: { readonly waiting?: boolean } = {},
-      ) => {
-        live.push({
-          type: "plugin",
-          plugin: plugin.name,
-          key,
-          data,
-          ...(waiting === true && { waiting }),
-        });
-      },
-      askQuestions: prompts.questions,
-      askPermission: prompts.permission,
-      checkouts: options.checkouts ?? [],
-      settings: options.pluginSettings?.[plugin.name] ?? {},
-      request: async (path: string, init?: RequestInit) =>
-        stream.pluginRequest(plugin.name, path, init),
-      log: (message: string, fields?: Readonly<Record<string, unknown>>) => {
-        log(message, { plugin: plugin.name, ...fields });
-      },
-      startChild: async (child: ChildOptions) => {
-        if (!started.session) {
-          throw new Error("the Session hasn't started yet");
-        }
+  const parts = await Promise.all(
+    (options.parts ?? []).map(async (part) => {
+      const name = part.plugin.id;
 
-        return startChild(started.session, options, child);
-      },
-    },
-  }));
+      return setUpPart(part, {
+        publish: (key, data, { waiting } = {}) => {
+          live.push({
+            type: "plugin",
+            plugin: name,
+            key,
+            data,
+            ...(waiting === true && { waiting }),
+          });
+        },
+        askQuestions: prompts.questions,
+        askPermission: prompts.permission,
+        checkouts: options.checkouts ?? [],
+        log: (message, fields) => {
+          log(message, { plugin: name, ...fields });
+        },
+        startChild: async (child) => {
+          if (!started.session) {
+            throw new Error("the Session hasn't started yet");
+          }
 
-  const pluginTools = await Promise.all(
-    plugins.map(async ({ plugin, cloud }) => plugin.tools?.(cloud) ?? []),
+          return startChild(started.session, options, child);
+        },
+        request: async (path, init) => stream.pluginRequest(name, path, init),
+        config: options.pluginConfig?.[name] ?? {},
+        clock: systemClock,
+        timer: systemTimer,
+      });
+    }),
   );
 
-  const keeper = plugins.find(({ plugin }) => plugin.logins);
-  const logins = await keeper?.plugin.logins?.(keeper.cloud);
+  const logins = await modelCredentialsOf(parts, options.parts ?? [])?.();
 
   const pages = hostPages(
     stream.preview,
@@ -416,22 +444,11 @@ export async function hostSession(
 
   const session = await startSession(options, {
     ui,
-    tools: [...pluginTools.flat(), ...calls.tools],
+    tools: [...parts.flatMap(({ tools }) => tools), ...calls.tools],
     extensions: [
       { name: "pi-view", factory: view.extension },
-      ...plugins.flatMap(({ plugin, cloud }) =>
-        plugin.extension
-          ? [
-              {
-                name: plugin.name,
-                factory: plugin.extension(cloud),
-                ...(plugin.replaceable === true && { replaceable: true }),
-              },
-            ]
-          : [],
-      ),
+      ...parts.flatMap(({ extensions }) => extensions),
     ],
-    packages: plugins.flatMap(({ plugin }) => plugin.packages ?? []),
     onError,
     ...(logins && { logins }),
     openUrl: pages.open,
@@ -1137,4 +1154,25 @@ function transcriptBatch(
   }
 
   return lines.slice(start, end);
+}
+
+// One plugin keeps the Session's model logins, so two that both would is a
+// mistake to show instead of a choice to make.
+function modelCredentialsOf(
+  set: readonly Awaited<ReturnType<typeof setUpPart>>[],
+  parts: readonly SessionPart[],
+): (() => Promise<SessionLogins>) | undefined {
+  const giving = set.flatMap(({ modelCredentials }, index) =>
+    modelCredentials === undefined
+      ? []
+      : [{ plugin: parts[index]?.plugin.id, modelCredentials }],
+  );
+
+  if (giving.length > 1) {
+    throw new Error(
+      `only one plugin keeps model logins, but ${giving.map(({ plugin }) => plugin).join(" and ")} both do`,
+    );
+  }
+
+  return giving[0]?.modelCredentials;
 }

@@ -6,13 +6,8 @@ import {
   InteractiveMode,
 } from "@earendil-works/pi-coding-agent";
 import { StdinBuffer, type Terminal } from "@earendil-works/pi-tui";
-import { type LiveEvent, piTerminal } from "@pipoca/protocol";
-import type {
-  Log,
-  SessionStream,
-  TerminalChannel,
-  TerminalCommand,
-} from "./host";
+import { type LiveEvent, type Log, piTerminal } from "@pipoca/protocol";
+import type { SessionStream, TerminalChannel, TerminalCommand } from "./host";
 
 // The InteractiveMode members the Pi view replaces or calls. Pi keeps them
 // private, and changing Pi isn't an option (ADR 0027).
@@ -24,7 +19,7 @@ interface ModeInternals {
   readonly ui: { readonly requestRender: (force?: boolean) => void };
 }
 
-export interface PiView {
+interface PiView {
   readonly open: (command: TerminalCommand) => void;
   readonly close: () => void;
 }

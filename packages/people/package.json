@@ -1,0 +1,9 @@
+{
+  "name": "@pipoca/people",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@pipoca/protocol": "workspace:*"
+  }
+}

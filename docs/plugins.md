@@ -1,184 +1,154 @@
 # Writing a plugin
 
-A plugin adds a feature to Pipoca for everyone on one server. It can answer HTTP routes and register tools on the server, add a page or panels to the web app, and add commands, tools and Pi packages to Sessions. The built-in plugins in `plugins/` use the same interface. This guide covers plugins you install yourself ([ADR 0022](adr/0022-plugin-model-v2.md)).
+A plugin adds a feature to Pipoca for everyone on one server. It can answer HTTP routes, register tools and run schedules on the server, add pages and parts to the web app, and add commands, tools and Pi extensions to Sessions. The built-in plugins in `plugins/` use the same SDK as the ones you install ([ADR 0069](adr/0069-plugin-sdk-v2.md)).
 
-The example in [`examples/plugins/greeter`](../examples/plugins/greeter) has all three parts, and a test runs it on every change.
+The example in [`examples/plugins/greeter`](../examples/plugins/greeter) has all three parts, and a test installs and runs it on every change.
 
 ## Make the folder
 
-A plugin is a folder with a `package.json`. The `pipoca` field is its manifest:
+A plugin is a folder with a `package.json`. Its `pipoca` field names the plugin's id and the file that defines it:
 
 ```json
 {
   "name": "pipoca-greeter",
   "version": "1.0.0",
   "type": "module",
-  "pipoca": {
-    "id": "greeter",
-    "title": "Greeter",
-    "description": "Greets you on its own page and with /greet in a Session.",
-    "engine": 1,
-    "capabilities": ["routes"],
-    "parts": {
-      "server": "server.ts",
-      "web": "web.tsx",
-      "session": "session.ts"
-    },
-    "settings": {
-      "greeting": { "type": "string", "title": "Greeting", "default": "Hello" }
-    }
-  }
+  "description": "Greets you on its own page and with /greet in a Session.",
+  "pipoca": { "id": "greeter", "entry": "plugin.ts" }
 }
 ```
 
-Every part is optional. Write them in TypeScript or JavaScript. `version` is optional and shows on the Plugins page. ADR 0022 also names a `requires` field for what a Session part needs on the machine; the server doesn't read it yet, and it arrives with the first plugin that needs it. The server bundles each one with its npm `dependencies`, so there's no build step of your own.
+The parts are found by where they live:
+
+| File             | Export                          | Runs                                       |
+| ---------------- | ------------------------------- | ------------------------------------------ |
+| `plugin.ts`      | the `definePlugin` definition   | nowhere: the other parts import it         |
+| `src/server.ts`  | `server`, from `defineServer`   | in the server's process                    |
+| `src/session.ts` | `session`, from `defineSession` | in every Session's process, on any machine |
+| `web/index.tsx`  | `web`, from `defineWeb`         | in the browser                             |
+
+Every part is optional. The server bundles each one with its npm `dependencies`, so there's no build step of your own. `version` is optional and shows on the Plugins page.
 
 Markdown files in a `docs` folder beside `package.json` reach every Session while the plugin is on, under `plugins/<id>/` in the Session's docs folder, so agents can read how to use it.
 
+## Define it
+
+`plugin.ts` exports the definition and nothing that runs:
+
+```ts
+import { Config, definePlugin } from "@pipoca/plugins";
+
+export const greeter = definePlugin({
+  id: "greeter",
+  title: "Greeter",
+  description: "Greets you on its own page and with /greet in a Session.",
+  config: Config.object({
+    greeting: Config.string({ title: "Greeting", default: "Hello" }),
+  }),
+});
+```
+
+- `config` is the plugin's key in the server's `pipoca.json`, which admins edit on the Plugins page. Build it with `Config.object`, `Config.string`, `Config.number`, `Config.boolean`, `Config.choice`, `Config.strings`, `Config.collection`, `Config.audience` and `Secret()`. A secret is stored sealed, or as `{ "env": "NAME" }` for config kept in git.
+- `schema` is SQL for the plugin's tables. Name them `<id>_<table>`, with a hyphen in the id written as an underscore, make them `STRICT`, keep times as integer milliseconds and ids as UUIDv7 (`Bun.randomUUIDv7()`). A table may reference the plugin's own tables and `users`, `sessions` and `environments`. There are no migrations: when the schema changes, the plugin fails until an admin resets its data on the Plugins page ([ADR 0068](adr/0068-clean-rebuild.md#storage)).
+- `events` declares what the plugin emits, each with a `title` and TypeBox `fields`, so routines can offer it as a trigger.
+- `requires` lists the plugins it can't run without. They start first, and it fails while one is off.
+- `defaultOn` says whether a built-in plugin starts on: `always`, `solo`, `team` or `never`.
+
+A plugin imports only `@pipoca/plugins`, `@pipoca/plugins/web`, `@pipoca/protocol`, `@pipoca/ui` and another plugin's definition as `@pipoca/<id>/plugin`. They come from the server it runs on, so don't list them in `dependencies`. It tells time with `clock.now()` and waits with `schedule` or `timer`, never `Date.now()` or `setTimeout`, so its tests can move time. The repository's lint enforces both.
+
 ## The server part
 
-The server part runs inside the server's process. Its default export is a `ServerPlugin` from `@pipoca/plugins`, with the plugin's id as its `name` and a `register` function that gets the plugin's context. Check the export with `satisfies`:
-
 ```ts
-import { NotFound, type ServerPlugin } from "@pipoca/plugins";
+import { defineServer } from "@pipoca/plugins";
+import { greeter } from "../plugin";
 
-export default {
-  name: "greeter",
-  register: (context) => {
-    context.routes.handle((_request, path) => {
-      if (path !== "greeting") {
-        throw new NotFound(`the greeter has no ${path}`);
-      }
-
-      return Response.json({ greeting: context.settings.get()["greeting"] });
-    });
-  },
-} satisfies ServerPlugin;
-```
-
-The server and Session parts import `@pipoca/plugins` from the server they run on, the way a web part gets React from the page, so don't list it in `dependencies`. It changes with the server, and `engine` says which version a plugin was written for ([ADR 0046](adr/0046-plugin-sdk-from-the-server.md)). A route throws `BadRequest(message)`, `NotFound(message)` or `HttpError(status, message, code?)` to answer with that status and `{ "error": code, "message": message }`, the body every error from the server has ([ADR 0047](adr/0047-api-errors-and-removal.md)). The code is a stable snake_case string a program checks, and it defaults to one for the status, such as `bad_request` for 400 and `not_found` for 404. Pass a more specific one, such as `busy`, when a client should tell it apart. The message is what a person reads, and `ok()` and `json()` in the web part show it. `readBody(request, schema)` reads a JSON body and checks it against a [TypeBox](https://github.com/sinclairzx81/typebox) schema, the way Pi checks a tool's parameters ([ADR 0048](adr/0048-typebox-checks-in-plugins.md)). It returns the body with the schema's type, or throws a `BadRequest` that names the first field that doesn't fit, such as `name must be string`. Build the schema with `Type` from `@pipoca/plugins`, and get its type with `Static<typeof schema>`:
-
-```ts
-import { readBody, type ServerPlugin, Type } from "@pipoca/plugins";
-
-const greetingChange = Type.Object({
-  greeting: Type.String(),
-  shout: Type.Optional(Type.Boolean()),
+export const server = defineServer(greeter, ({ config, routes }) => {
+  routes.get("greeting", { auth: "person" }, () => ({
+    greeting: config.get().greeting,
+  }));
 });
-
-export default {
-  name: "greeter",
-  register: (context) => {
-    context.routes.handle(async (request) => {
-      const { greeting, shout } = await readBody(request, greetingChange);
-
-      return Response.json({
-        greeting: shout ? greeting.toUpperCase() : greeting,
-      });
-    });
-  },
-} satisfies ServerPlugin;
 ```
 
-`context.routes.handle` answers everything under `/api/plugins/greeter/`. The handler gets the request, the rest of the path, and its caller. The caller is `{ kind: "user", actor, admin }` for a signed-in user, also when a toolset tool sends the request for them (from a meta-session, `admin` is always false), and `{ kind: "session", session, actor }` when the plugin's Session part sent it. A route acts as its caller: a Session it starts for a user takes `actor: caller.actor`, so it gets that user's git logins. A route that changes config every user shares calls `requireAdmin(caller, message)` first, which answers 403 with the message unless `caller.kind === "user" && caller.admin` ([ADR 0038](adr/0038-single-sign-on-and-admins.md#admins)). The part can use only the context members its manifest lists in `capabilities`. Reaching for any other member fails the plugin when it registers. The built-in plugins in `plugins/` declare theirs the same way and are held to them, and a manifest without `capabilities` gets none. `owner`, `store`, `settings`, `config`, `changes`, `signal` and `log` are always there, and `auth` is only for built-in plugins. `context.store` is the plugin's own SQLite database, with `exec`, `all` and `run` for SQL and `seal` and `open` for secrets it keeps in a table. Name its tables `<id>_<table>`. `context.config.get()` is the plugin's key in the server's `pipoca.json`, read again when the file changes, `context.config.set(value)` replaces that key (and throws while `context.config.lockedIn()` names a read-only file that sets it, such as one Helm mounts), and `context.config.dir` is a folder of the plugin's own next to it. The plugin decides whether its configuration lives there, in its store, or in both ([ADR 0039](adr/0039-plugin-config-files.md)). `context.changes.publish(name)` tells open pages that something of the plugin's changed; they hear the topic `<id>.<name>` ([ADR 0038](adr/0038-tool-repair-change-events-and-context.md)).
+The function runs once, synchronously, when the plugin starts. What it gets:
 
-`context.events.publish({ type: "<id>.<name>", ...fields })` publishes one of the plugin's events, and other plugins hear it with `context.events.subscribe`. Declare each event the plugin publishes under `events` in its manifest, with a `title`, an optional `description` and a JSON Schema of its `fields`, so the routine editor can offer it as a trigger, and `context.events.declared()` lists every enabled plugin's ([ADR 0059](adr/0059-routines-and-wake-ups.md#other-plugins-extend-routines)). An event reaches a person's routines only when it names them, with `userId` or a list in `userIds`, since routines belong to people:
-
-```json
-"events": {
-  "greeted": {
-    "title": "Someone was greeted",
-    "fields": {
-      "type": "object",
-      "properties": { "userId": { "type": "string" }, "name": { "type": "string" } }
-    }
-  }
-}
-```
-
-Name a route for the thing it serves and let the method say what happens to it: `GET` reads, `POST` adds or changes, and `DELETE` removes ([ADR 0047](adr/0047-api-errors-and-removal.md)). The `oidc` plugin removes a provider with `DELETE providers/<id>`, not `POST providers/<id>/remove`. Encode a key that can hold `/` or spaces with `encodeURIComponent`, and decode it in the route, since the path arrives as the browser sent it.
-
-| Capability     | What it gives                                                                                     |
-| -------------- | ------------------------------------------------------------------------------------------------- |
-| `routes`       | Answer HTTP requests under `/api/plugins/<id>/`, from browsers and from the plugin's Session part |
-| `tools`        | Register tools that the Sessions you pick can call                                                |
-| `toolsets`     | Register a meta toolset for the assistant and MCP clients ([ADR 0035](adr/0035-meta-sessions.md)) |
-| `events`       | Listen to Session events and publish the plugin's own                                             |
-| `sessions`     | Start, read, archive and message Sessions, and own the ones it starts                             |
-| `environments` | List Environments, see Sessions waiting for a machine, and give runners it starts a token         |
-| `profiles`     | Provide the Profiles its own Sessions start with                                                  |
-| `models`       | Offer models to the model picker                                                                  |
+- `routes.get/post/put/patch/delete(path, spec, handler)` answers `/api/ext/<id>/<path>`. `:name` in the path is a param. `spec.auth` is `"person"`, `"admin"`, `"session"` (the plugin's own Session part), `"public"` or `{ webhook: { secret } }`. `body` and `query` are TypeBox schemas: a request that doesn't fit gets a 422 that names the field. `changes: ["items"]` tells open pages that `items` changed once the route succeeds. `team: true` also answers at `team/<path>` with the team as the caller's owner, while the plugin is on in team work. `tool: { name, description }` also makes the route a tool. A team Session gets the tool only when the route has `team: true`, and then calls its team half. The handler gets `{ caller, params, body, query, raw }` and returns a value, sent as JSON, or a `Response`. Throw `BadRequest`, `Forbidden`, `NotFound` or `HttpError(status, message, code?)` to answer with that status and `{ "error": code, "message": message }` ([ADR 0047](adr/0047-api-errors-and-removal.md)). Name a route for what it serves and let the method say what happens to it.
+- `tools.define({ name, description, params, run })` adds a tool to Sessions, with `when` to pick which.
+- `store` is the plugin's tables: `all`, `get`, `run` and `transaction`. `secrets` seals what it keeps in them.
+- `config.get()`, `config.set(change)` and `config.watch(fn)` read and change its key in `pipoca.json`. `config.collection(name)` edits a collection in it by key.
+- `schedule.at(key, time, data)` and `schedule.every(key, ms, run)` run work later, and survive a restart. `timer` waits in memory, for a long poll.
+- `sessions` starts, lists, messages and archives Sessions. The ones it starts with a `key` are its own, and show inside its page rather than in the Session list.
+- `events.on(def, handler)` hears another plugin's or the kernel's events, and `events.emit(name, fields, { to })` sends its own to the owners in `to`.
+- `people`, `transcript`, `environments` and `profiles` read what the kernel keeps. `environments.templateConfig(schema)` reads and writes the plugin's key in a template's entry, with the schema's defaults filled.
+- `provide.models`, `provide.runners`, `provide.runtime`, `provide.gitCredentials` and `provide.profile` give the kernel models, runners and logins. `provide.runners` returns what a runner provider needs: `unplaced`, `token` and `revoke`.
+- `urls.public(path)` is a route's address from outside, and `urls.browser` ties an OAuth state to the browser that started it.
+- `clock`, `env`, `log` and `signal`, which aborts when the server stops.
 
 ## The web part
 
-The web part's default export is a `WebPlugin`, the same object a built-in exports from `@pipoca/plugins/web`. `nav` adds a sidebar entry and its page:
-
 ```tsx
-import type { PageProps, WebPlugin } from "@pipoca/plugins/web";
-import { Button, PageTitle } from "@pipoca/ui";
+import { defineWeb, useApi } from "@pipoca/plugins/web";
+import { Button, Page } from "@pipoca/ui";
 import { useState } from "react";
+import { greeter } from "../plugin";
 
-function Page({ context }: PageProps) {
+function Greeter() {
+  const api = useApi(greeter);
   const [greeting, setGreeting] = useState("");
 
   const greet = async () => {
-    const response = await context.request("greeting");
-    const body = (await response.json()) as { greeting: string };
+    const body = await api.get<{ greeting: string }>("greeting");
 
     setGreeting(body.greeting);
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-8">
-      <PageTitle description="An example plugin.">Greeter</PageTitle>
+    <Page title="Greeter" description="An example plugin." className="gap-4">
       <Button onClick={() => void greet()}>Greet me</Button>
       <p>{greeting}</p>
-    </div>
+    </Page>
   );
 }
 
-export default {
-  name: "greeter",
-  nav: { label: "Greeter", Page },
-} satisfies WebPlugin;
+export const web = defineWeb(greeter, {
+  pages: [{ path: "", label: "Greeter", Page: Greeter, nav: {} }],
+  settings: { group: "server", form: "auto" },
+});
 ```
 
-`Page` gets `{ context, path }`, where `path` is the rest of the address after the plugin's page. `context.request(path, init)` is `fetch` for the plugin's own routes: `context.request("greeting")` asks `/api/plugins/greeter/greeting`, and `context.request("items", { method: "PUT", body })` sends any method and body. A path that starts with `/`, such as `/api/environments`, goes to the server's own API instead. `context.settings` holds the plugin's settings. `nav` can also list links under the entry with `Items`, and say with `fills` which paths fill the window.
+- `pages` are the plugin's pages, under `#plugin/<id>/<path>`. `nav` puts one in the sidebar, and `area` puts it on the team hub or in Team setup instead. `href(plugin, path)` links to one.
+- `settings` is its section on the Settings page: `form: "auto"` draws a form from its config, or give your own `Section`.
+- A page or `Section` puts its title, description and actions in `Page` from `@pipoca/ui`. Inside the app's own column it draws only those and its content.
+- `setup` adds steps to the first-run setup, each with `done(api)` and a `Step` component.
+- `slots` fills places the app draws in: `session.composer`, `session.header`, `session.toolCall:<tool>`, `notice:<kind>`, `link:<scheme>`, `home`, `environment.section`, `template.section` and `settings.general`, `settings.accounts` and `settings.profile`.
+- `panels` are panels admins lay out on the team hub, `sessionPath` is where a Session the plugin owns opens, and `repositories` adds to what New Session offers.
 
-The other slots are `SessionPanel`, `SessionHeader`, `EnvironmentSection`, `SettingsSection` (a page in Settings, listed under the `settingsGroup` it names: `you`, `workspace`, `server` for admins, or `integrations` for a tab of the Integrations page), `settingsParts` (`General` and `Accounts` parts of those Settings pages), `Home`, `tools` and `widgets` for drawing tool calls and extension widgets, `notices`, `links`, `sessionPath` for where a Session the plugin owns opens, and `repositories` for the repositories New Session offers.
+`useApi(plugin)` calls the plugin's routes: `get`, `post`, `put`, `patch` and `delete` take JSON and return it, and `raw` returns the `Response`. A path that starts with `/`, such as `/api/environments`, goes to the server's own API. `useLoaded(load, key, { topics, changes, everyMs })` loads data, and loads it again when a kernel topic such as `sessions` or `environments` changes, when one of the plugin's own `changes` does, or every `everyMs` for data that changes outside Pipoca. `useViewer()` says who is looking.
 
-`useLoaded(load, key, { topics })` from `@pipoca/plugins/web` loads data and loads it again when one of the topics changes, such as `sessions`, `profiles`, `environments`, `plugins` or your own `<id>.<name>`. Pass `everyMs` instead for data that changes outside Pipoca.
-
-The part shares `react`, `react-dom`, `@pipoca/ui` and `@pipoca/plugins/web` with the page, so hooks work and it looks like the rest of the app. It can't import CSS or other files yet. The page only has the Tailwind classes the app itself uses, so build the UI from `@pipoca/ui` components.
+The part shares `react`, `react-dom`, `@pipoca/ui` and `@pipoca/plugins/web` with the page, so hooks work and it looks like the rest of the app. It can't import CSS or other files. The page only has the Tailwind classes the app itself uses, so build the UI from `@pipoca/ui` components.
 
 ## The Session part
 
-The Session part runs in every Session's process, on whichever machine runs it, including a laptop. Set `ownSessionsOnly` in the manifest to load it only in the Sessions your server part starts.
-
-Team Sessions load a plugin's tools and its Session and web parts only if its manifest has `"works": ["personal", "team"]` and an admin turned it on in Team setup's Plugins in team work. Without `works` a plugin is personal only, so code written for one person never runs in team work unchecked (ADR 0067).
-
-Its default export is a `SessionPlugin`:
-
 ```ts
-import type { SessionPlugin } from "@pipoca/plugins";
+import { defineSession } from "@pipoca/plugins";
+import { greeter } from "../plugin";
 
-export default {
-  name: "greeter",
-  extension: (cloud) => (pi) => {
+export const session = defineSession(greeter, (s) => {
+  s.extension((pi) => {
     pi.registerCommand("greet", {
-      description: "Say the greeting from the Greeter plugin's settings",
+      description: "Say the greeting from the Greeter plugin's config",
       handler: async (_args, ctx) => {
-        const response = await cloud.request("greeting");
-        const { greeting } = (await response.json()) as { greeting: string };
+        const { greeting } = await s.api.get<{ greeting: string }>("greeting");
 
         ctx.ui.notify(`${greeting} from ${ctx.cwd}`, "info");
       },
     });
-  },
-} satisfies SessionPlugin;
+  });
+});
 ```
 
-`extension` returns a Pi extension (Pi's `docs/extensions.md`). `cloud.request` calls the plugin's own routes on behalf of the Session, and `cloud.settings` holds its settings as they were when the Session started. `cloud.publish(key, data)` shares a value with everyone watching the Session, `cloud.checkouts` lists the git checkouts in its workspace, `cloud.askQuestions` asks the user questions, and `cloud.log` logs a message with fields. Instead of an extension, a part can list Pi `packages` to load, or return `tools`. A part can also return `logins`: a Pi `CredentialStore` for the Session's model logins and a store for its MCP sign-ins, kept instead of the runner's files, as the `logins` plugin does; the first part that returns them is used. Runners fetch the bundle by its hash when a Session starts. The part can't import files other than code.
+The Session part runs in every Session's process, on whichever machine runs it, including a laptop. `s.extension` adds a Pi extension (Pi's `docs/extensions.md`), and `s.tools.define` adds a tool. `s.api` calls the plugin's routes as the Session, which reach routes with `auth: "session"`. `s.config` is its config as it was when the Session started, without secrets. `s.publish(key, data)` shares a value with everyone watching the Session, `s.checkouts` lists the git checkouts in its workspace, `s.askQuestions` and `s.askPermission` ask the person, and `s.log` logs. Runners fetch the bundle by its hash when a Session starts.
+
+Team Sessions load a plugin's tools and its Session and web parts while an admin leaves it on in Team setup's Plugins in team work. Built-in plugins start on there, installed ones off (ADR 0067).
 
 ## Install it
 
@@ -190,42 +160,32 @@ There are three ways to put a plugin on a server, and each one installs it turne
 
 You can also put the folder in the server's plugins folder yourself (`--plugins`, next to the database by default), or link it there from where you develop it.
 
-Then select Turn on. The confirm lists the capabilities the plugin asks for and where its parts will run. Restart the server from the banner that appears. A plugin installed from git or a tarball can be updated to the newest version at its URL. A new version that asks for more capabilities, or adds a web or Session part, is turned off until you turn it on again.
+Then select Turn on. The confirm lists where its parts will run. Restart the server from the banner that appears. A plugin installed from git or a tarball can be updated to the newest version at its URL. A new version that adds a part is turned off until you turn it on again. An installed plugin can't sign people in.
 
 ## Test it
 
-`@pipoca/plugins/testing` has what a test of a server part needs. `fakeContext(members)` returns a context with the members you pass, and the others throw when called. `owner`, `events`, `changes`, `store`, `settings`, `config`, `signal` and `log` work without passing them: the store is an SQLite database in memory from `memoryStore()`, and the settings are empty. `fakeUser({ id, admin })` is a signed-in user calling a route, not an admin unless you say, and `fakeSession(fields)` makes a Session for a Session caller. `served(route)` answers what the route throws as the server does.
+`testPlugin(server, { people, config, plugins, fetch, env })` from `@pipoca/testing` runs the plugin on the real server, with its own database in memory, the plugin's tables and the people you name. What it returns drives it:
+
+- `as(personId)` calls its routes as that person, and `public()` as a browser signed in to nothing.
+- `session({ owner })` starts a Session with a stand-in host that you take `online(false)` and back, and `tool(name, input, { session })` calls a tool as that Session does.
+- `clock.advance("1h")` moves time so its schedules fire, and `restart()` starts a new server on the same database.
+- A request the plugin makes to another server fails unless `fetch` answers it, and `env` is what it reads from the environment.
 
 ```ts
-import type { PluginRoute } from "@pipoca/plugins";
-import { fakeContext, fakeUser } from "@pipoca/plugins/testing";
-import greeter from "./server";
+import { testPlugin } from "@pipoca/testing";
+import { server } from "./server";
 
-let route: PluginRoute | undefined;
+const t = await testPlugin(server, { people: [{ id: "ana" }] });
 
-greeter.register(
-  fakeContext({
-    routes: {
-      handle: (handler) => {
-        route = handler;
-      },
-    },
-    settings: { get: () => ({ greeting: "Hi" }) },
-  }),
-);
-
-const response = await route?.(
-  new Request("http://greeter/greeting"),
-  "greeting",
-  fakeUser(),
-);
+expect(await t.as("ana").get("greeting")).toEqual({ greeting: "Hello" });
 ```
+
+`testSession(session)` runs a Session part against a stand-in Pi, and `until(check)` waits for something; a web test imports it from `@pipoca/testing/until`. Web parts render with `renderPart` from `@pipoca/plugins/web/testing`. Run tests with `bun test` from the repository's root, whose setup gives `testPlugin` the server.
 
 ## Know the limits
 
-- A plugin runs with the server's own access. Capabilities catch mistakes but don't sandbox anything, so turn on only plugins you trust.
+- A plugin runs with the server's own access. Nothing sandboxes it, so turn on only plugins you trust.
 - The server installs dependencies with `bun install --ignore-scripts` and builds with Bun macros off. A plugin can't use `workspaces`, `patchedDependencies`, `workspace:` or `link:` dependencies, a dependency from a path outside its folder, a `bunfig.toml`, or an `.npmrc`.
 - A fetched plugin can't contain symlinks, and a URL can't contain credentials. Use an ssh URL with a key for a private repository.
-- `@pipoca/plugins` isn't on npm yet. A running part gets it from the server, but its types and `@pipoca/plugins/testing` come from a checkout of the Pipoca repository.
+- `@pipoca/plugins` isn't on npm yet. A running part gets it from the server, but its types and `@pipoca/testing` come from a checkout of the Pipoca repository.
 - Parts run from `.build` in the plugin's folder, so a part that reads files next to itself through `import.meta.url` should look one folder up.
-- Settings types are `string`, `number` (with `min` and `max`), `boolean`, `choice` (with `options`) and `strings`. Each takes a `title`, an optional `description`, and a `default`.

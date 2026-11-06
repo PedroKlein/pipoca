@@ -1,102 +1,28 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, rename, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import askPackage from "@pipoca/ask/package.json";
-import { ask } from "@pipoca/ask/session";
-import changesPackage from "@pipoca/changes/package.json";
-import { changes } from "@pipoca/changes/session";
-import checklistPackage from "@pipoca/checklist/package.json";
-import { checklist } from "@pipoca/checklist/session";
-import gitHostsPackage from "@pipoca/git-hosts/package.json";
-import { gitHosts } from "@pipoca/git-hosts/session";
-import kubernetesPackage from "@pipoca/kubernetes/package.json";
-import libraryPackage from "@pipoca/library/package.json";
-import { library as librarySession } from "@pipoca/library/session";
-import localPackage from "@pipoca/local/package.json";
-import loginsPackage from "@pipoca/logins/package.json";
-import { logins } from "@pipoca/logins/session";
-import metaPackage from "@pipoca/meta/package.json";
-import { metaSession } from "@pipoca/meta/session";
-import modelsPackage from "@pipoca/models/package.json";
-import { models as modelsSession } from "@pipoca/models/session";
-import oidcPackage from "@pipoca/oidc/package.json";
-import projectsPackage from "@pipoca/projects/package.json";
-import pushPackage from "@pipoca/push/package.json";
-import routinesPackage from "@pipoca/routines/package.json";
-import { routines } from "@pipoca/routines/session";
-import slackPackage from "@pipoca/slack/package.json";
-import emailPackage from "@pipoca/email/package.json";
-import subagentsPackage from "@pipoca/subagents/package.json";
-import { subagents } from "@pipoca/subagents/session";
-import usagePackage from "@pipoca/usage/package.json";
-import { type SessionPlugin, settingValues } from "@pipoca/plugins";
-import type {
-  Assignment,
-  PluginManifest,
-  PluginSettings,
-  SessionStart,
-} from "@pipoca/protocol";
+import type { SessionPart } from "@pipoca/plugins/host";
+import type { Assignment } from "@pipoca/protocol";
+import { builtInSessions } from "./built-in";
 import { provideSdk } from "./bundle";
-import { fetchSessionPart } from "./client";
 
-// The plugins built into this binary (ADR 0015), described by the pipoca
-// field of their package.json (ADR 0036). Each app imports its own parts
-// statically, so the compiled binary needs no dynamic loading.
-export const builtInPlugins: readonly PluginManifest[] = [
-  askPackage,
-  changesPackage,
-  usagePackage,
-  projectsPackage,
-  libraryPackage,
-  modelsPackage,
-  subagentsPackage,
-  checklistPackage,
-  routinesPackage,
-  kubernetesPackage,
-  localPackage,
-  metaPackage,
-  oidcPackage,
-  gitHostsPackage,
-  loginsPackage,
-  pushPackage,
-  slackPackage,
-  emailPackage,
-].map(({ pipoca }) => pipoca as PluginManifest);
-
-export const sessionPlugins: readonly SessionPlugin[] = [
-  ask,
-  changes,
-  librarySession,
-  modelsSession,
-  subagents,
-  checklist,
-  routines,
-  metaSession,
-  logins,
-  gitHosts,
-];
-
-// The Session parts an assignment names, each with its settings. A server
-// from before settings sends none, so they take their defaults. An installed
+// The Session parts an assignment names, with their config. An installed
 // plugin's part comes from installed, by its bundle's hash.
 export async function sessionParts(
   assignment: Pick<
     Assignment,
-    "plugins" | "pluginSettings" | "requiredPlugins" | "installedParts"
+    "plugins" | "pluginConfig" | "requiredPlugins" | "installedParts"
   >,
-  installed: (name: string, hash: string) => Promise<SessionPlugin>,
+  installed: (name: string, hash: string) => Promise<SessionPart>,
 ): Promise<{
-  readonly plugins: readonly SessionPlugin[];
-  readonly pluginSettings: Readonly<Record<string, PluginSettings>>;
+  readonly parts: readonly SessionPart[];
+  readonly pluginConfig: Readonly<Record<string, unknown>>;
 }> {
-  const parts = Object.entries(assignment.installedParts ?? {}).filter(
+  const bundles = Object.entries(assignment.installedParts ?? {}).filter(
     ([name]) => assignment.plugins.includes(name),
   );
 
   const unknown = (assignment.requiredPlugins ?? []).filter(
     (name) =>
-      !sessionPlugins.some((plugin) => plugin.name === name) &&
-      !parts.some(([part]) => part === name),
+      !builtInSessions.some(({ plugin }) => plugin.id === name) &&
+      !bundles.some(([part]) => part === name),
   );
 
   if (unknown.length > 0) {
@@ -105,79 +31,38 @@ export async function sessionParts(
     );
   }
 
-  const builtIn = sessionPlugins.filter(({ name }) =>
-    assignment.plugins.includes(name),
-  );
-
   const fetched = await Promise.all(
-    parts.map(async ([name, hash]) => installed(name, hash)),
+    bundles.map(async ([name, hash]) => installed(name, hash)),
   );
 
   return {
-    plugins: [...builtIn, ...fetched],
-    pluginSettings: Object.fromEntries<PluginSettings>([
-      ...builtIn.map(({ name }): [string, PluginSettings] => [
-        name,
-        settingValues(
-          builtInPlugins.find(({ id }) => id === name)?.settings,
-          assignment.pluginSettings?.[name],
-        ),
-      ]),
-      ...fetched.map(({ name }): [string, PluginSettings] => [
-        name,
-        assignment.pluginSettings?.[name] ?? {},
-      ]),
-    ]),
+    parts: [
+      ...builtInSessions.filter(({ plugin }) =>
+        assignment.plugins.includes(plugin.id),
+      ),
+      ...fetched,
+    ],
+    pluginConfig: assignment.pluginConfig ?? {},
   };
 }
 
-// Loads an installed plugin's Session part, fetching its bundle into the
-// Session's folder the first time, so a reload doesn't fetch it again.
-export function installedSessionParts(
-  server: string,
-  assignment: SessionStart,
-  sessionDir: string,
-): (name: string, hash: string) => Promise<SessionPlugin> {
-  const dir = join(sessionDir, "plugin-parts");
+// Loads an installed plugin's Session part from the file the runner fetched
+// its bundle into.
+export async function installedPart(
+  name: string,
+  path: string,
+): Promise<SessionPart> {
+  provideSdk();
 
-  return async (name, hash) => {
-    const path = join(dir, `${name}-${hash}.js`);
-
-    if (!(await exists(path))) {
-      const code = await fetchSessionPart(server, assignment, name, hash);
-      const got = new Bun.CryptoHasher("sha256").update(code).digest("hex");
-
-      if (got !== hash) {
-        throw new Error(`the ${name} plugin's Session part changed on the way`);
-      }
-
-      // Two starts of one Session can fetch it at once.
-      const partial = `${path}.${randomUUID()}`;
-
-      await mkdir(dir, { recursive: true });
-      await writeFile(partial, code);
-      await rename(partial, path);
-    }
-
-    provideSdk();
-
-    const { default: plugin } = (await import(path)) as {
-      default?: SessionPlugin;
-    };
-
-    if (plugin?.name !== name) {
-      throw new Error(
-        `the ${name} plugin's Session part must export as default a Session part named ${name}`,
-      );
-    }
-
-    return plugin;
+  const { session } = (await import(path)) as {
+    readonly session?: SessionPart;
   };
-}
 
-async function exists(path: string): Promise<boolean> {
-  return stat(path).then(
-    () => true,
-    () => false,
+  if (session?.plugin.id === name) {
+    return session;
+  }
+
+  throw new Error(
+    `the ${name} plugin's Session part must export a Session part for ${name} as session`,
   );
 }

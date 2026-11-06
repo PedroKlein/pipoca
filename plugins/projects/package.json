@@ -3,10 +3,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./model": "./src/model.ts",
-    "./server": "./src/server.ts",
-    "./web": "./web/index.tsx",
-    "./package.json": "./package.json"
+    "./plugin": "./plugin.ts"
   },
   "dependencies": {
     "@pipoca/plugins": "workspace:*",
@@ -15,22 +12,10 @@
     "react": "19.3.1"
   },
   "devDependencies": {
+    "@pipoca/testing": "workspace:*",
     "@types/react": "19.3.0"
   },
   "pipoca": {
-    "id": "projects",
-    "title": "Projects",
-    "description": "Groups Sessions around a coordinator that works across repositories.",
-    "capabilities": [
-      "tools",
-      "toolsets",
-      "events",
-      "sessions",
-      "routes"
-    ],
-    "works": [
-      "personal",
-      "team"
-    ]
+    "entry": "plugin.ts"
   }
 }

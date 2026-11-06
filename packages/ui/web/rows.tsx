@@ -1,4 +1,6 @@
 import type { ReactElement, ReactNode } from "react";
+import { Avatar } from "./avatar";
+import { cardClass } from "./card";
 import { cn } from "./cn";
 
 // A card of rows, each one a setting or an item with its controls on the
@@ -6,14 +8,16 @@ import { cn } from "./cn";
 export function Rows({
   label,
   children,
+  className,
 }: {
   readonly label?: string;
   readonly children: ReactNode;
+  readonly className?: string;
 }): ReactElement {
   return (
     <ul
       aria-label={label}
-      className="flex flex-col rounded-lg border border-line bg-elevated shadow-xs"
+      className={cn("flex flex-col", cardClass, className)}
     >
       {children}
     </ul>
@@ -25,6 +29,7 @@ export function Row({
   description,
   initials,
   round = false,
+  leading,
   children,
   className,
 }: {
@@ -34,6 +39,8 @@ export function Row({
   readonly initials?: string;
   // Draws the mark as a person's avatar.
   readonly round?: boolean;
+  // Anything else before the title, such as a status mark.
+  readonly leading?: ReactNode;
   readonly children?: ReactNode;
   readonly className?: string;
 }): ReactElement {
@@ -45,18 +52,11 @@ export function Row({
       )}
     >
       {initials !== undefined && (
-        <span
-          aria-hidden="true"
-          className={cn(
-            "grid shrink-0 place-items-center bg-hover font-semibold text-fg-strong",
-            round
-              ? "size-11 rounded-full text-prose"
-              : "size-8.5 rounded-md border border-line text-label",
-          )}
-        >
+        <Avatar name={initials} square={!round} size={round ? "lg" : "md"}>
           {initials}
-        </span>
+        </Avatar>
       )}
+      {leading}
       <div className="flex min-w-0 flex-1 basis-48 flex-col gap-0.5">
         <span className="flex flex-wrap items-center gap-2 text-ui font-medium text-fg-strong">
           {title}
@@ -67,53 +67,5 @@ export function Row({
       </div>
       {children}
     </li>
-  );
-}
-
-// Two letters for a name's mark: its first letter, then the first letter of
-// its next word or capital ("GitHub" is Gh), or else its second letter.
-export function initialsOf(name: string): string {
-  const [first = "", ...rest] =
-    name
-      .match(/\p{Lu}?[\p{Ll}\p{N}]*|\p{Lu}+/gu)
-      ?.filter((part) => part !== "") ?? [];
-
-  const second = rest[0]?.[0] ?? first[1] ?? "";
-
-  return first.slice(0, 1).toUpperCase() + second.toLowerCase();
-}
-
-// A choice between a few options, all in view, that saves when picked.
-export function Segmented<T extends string>({
-  label,
-  options,
-  value,
-  onChange,
-}: {
-  readonly label: string;
-  readonly options: readonly { readonly value: T; readonly label: string }[];
-  readonly value: T;
-  readonly onChange: (value: T) => void;
-}): ReactElement {
-  return (
-    <div
-      role="group"
-      aria-label={label}
-      className="inline-flex shrink-0 gap-0.5 rounded-md bg-hover p-0.75"
-    >
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          aria-pressed={option.value === value}
-          onClick={() => {
-            onChange(option.value);
-          }}
-          className="h-7 cursor-pointer rounded-sm px-3 text-label font-medium text-fg-dim transition-colors aria-pressed:bg-elevated aria-pressed:text-fg-strong aria-pressed:shadow-xs"
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
   );
 }

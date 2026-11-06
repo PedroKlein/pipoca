@@ -26,7 +26,7 @@ export interface Run {
   readonly ended: Promise<RunView>;
 }
 
-export interface Fleet {
+interface Fleet {
   readonly start: (shape: Shape, steps: readonly Step[]) => Run;
   readonly startWorkflow: (
     workflow: Workflow,
@@ -95,7 +95,7 @@ export function fleet({
   changed,
   recorded,
   limit = 4,
-  now = Date.now,
+  now,
 }: {
   readonly startChild: (
     agent: Agent,
@@ -105,7 +105,7 @@ export function fleet({
   // Called when a run or one of its children starts or ends, to keep it.
   readonly recorded: (run: RunView) => void;
   readonly limit?: number;
-  readonly now?: () => number;
+  readonly now: () => number;
 }): Fleet {
   const runs = new Map<string, Running>();
   const waiting: (() => void)[] = [];

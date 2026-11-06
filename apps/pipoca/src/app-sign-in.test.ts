@@ -1,27 +1,15 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
-import { serve } from "./serve";
-import { firstUser } from "./testdata/sign-in";
+import { testServer, type TestServer } from "./testdata/harness";
 
-let server: ReturnType<typeof serve>;
-let pedro: () => Promise<string>;
+let server: TestServer;
 
 beforeEach(() => {
-  const logs: string[] = [];
-
-  server = serve({
-    port: 0,
-    database: ":memory:",
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
-  });
-
-  pedro = firstUser(server, logs);
+  server = testServer();
 });
 
 afterEach(async () => {
-  await server.stop();
+  await server.close();
 });
 
 function pair(): { verifier: string; challenge: string } {
@@ -34,11 +22,7 @@ function pair(): { verifier: string; challenge: string } {
 }
 
 async function handoff(cookie: string, challenge: string): Promise<Response> {
-  return fetch(new URL("/api/auth/app", server.url), {
-    method: "POST",
-    headers: { cookie, "content-type": "application/json" },
-    body: JSON.stringify({ challenge }),
-  });
+  return server.as(cookie)("/api/auth/app-links", { body: { challenge } });
 }
 
 async function linkOf(response: Response): Promise<URL> {
@@ -48,7 +32,7 @@ async function linkOf(response: Response): Promise<URL> {
 }
 
 async function redeem(token: string, verifier?: string): Promise<Response> {
-  const url = new URL(`/api/auth/link/${token}`, server.url);
+  const url = new URL(`/api/auth/links/${token}`, server.url);
   if (verifier !== undefined) {
     url.searchParams.set("verifier", verifier);
   }
@@ -60,15 +44,15 @@ async function redeem(token: string, verifier?: string): Promise<Response> {
 // session from a pipoca:// link (ADR 0055).
 test("signs the desktop app in as the person signed in in their browser", async () => {
   const { verifier, challenge } = pair();
-  const link = await linkOf(await handoff(await pedro(), challenge));
+  const link = await linkOf(await handoff(await server.signedIn(), challenge));
   const token = link.searchParams.get("link") ?? "";
 
   const visit = await redeem(token, verifier);
   const cookie = visit.headers.get("set-cookie")?.split(";")[0] ?? "";
 
-  const status = (await (
-    await fetch(new URL("/api/auth", server.url), { headers: { cookie } })
-  ).json()) as { user: { name: string } | null };
+  const status = (await (await server.as(cookie)("/api/auth")).json()) as {
+    user: { name: string } | null;
+  };
 
   expect([link.protocol, link.host]).toEqual(["pipoca:", "signed-in"]);
   expect(link.searchParams.get("challenge")).toBe(challenge);
@@ -78,7 +62,7 @@ test("signs the desktop app in as the person signed in in their browser", async 
 });
 
 test("refuses the app's link without the verifier only the app has", async () => {
-  const cookie = await pedro();
+  const cookie = await server.signedIn();
 
   const tokens = await Promise.all(
     [pair(), pair()].map(async ({ challenge }) =>
@@ -96,11 +80,11 @@ test("refuses the app's link without the verifier only the app has", async () =>
 });
 
 test("hands the app no link for a browser that isn't signed in", async () => {
-  await pedro();
+  await server.signedIn();
 
   const [signedOut, odd] = await Promise.all([
     handoff("", pair().challenge),
-    handoff(await pedro(), "short"),
+    handoff(await server.signedIn(), "short"),
   ]);
 
   expect([signedOut.status, odd.status]).toEqual([401, 400]);

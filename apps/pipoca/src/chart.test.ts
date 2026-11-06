@@ -30,7 +30,7 @@ test("the chart pulls its moving image tag again, for the server and runner pods
     "- name: PIPOCA_IMAGE_PULL_POLICY\n              value: {{ .Values.image.pullPolicy | quote }}",
   );
 
-  expect(plugin).toContain('process.env["PIPOCA_IMAGE_PULL_POLICY"]');
+  expect(plugin).toContain('env("PIPOCA_IMAGE_PULL_POLICY")');
 });
 
 // Under a moving tag only the image ID the server's pod ran tells a runner
@@ -42,7 +42,7 @@ test("the chart lets the server read its own pod, to replace runner pods with an
     "- name: POD_NAME\n              valueFrom:\n                fieldRef:\n                  fieldPath: metadata.name",
   );
 
-  expect(plugin).toContain('process.env["POD_NAME"]');
+  expect(plugin).toContain('env("POD_NAME")');
 
   expect(rbac).toContain(
     'resources: ["pods", "secrets", "persistentvolumeclaims"]\n    verbs: ["get",',
@@ -59,6 +59,20 @@ test("the chart trusts the proxy in front only when there is one", () => {
   );
 
   expect(main).toContain('trustProxy: values["trust-proxy"]');
+});
+
+// The APIRule's policy for runners matches only mesh peers, so runner pods
+// join the mesh whenever the server is in it, in any namespace.
+test("the chart puts runner pods in the mesh along with the server", () => {
+  expect(deployment).toContain(
+    '{{- if .Values.apiRule.enabled }}\n        # APIRules reach only workloads in the Istio mesh.\n        sidecar.istio.io/inject: "true"',
+  );
+
+  expect(deployment).toMatch(
+    /\{\{- if \.Values\.apiRule\.enabled \}\}\n(?: +#.*\n)? +- name: PIPOCA_RUNNER_MESH\n +value: "true"/,
+  );
+
+  expect(plugin).toContain('env("PIPOCA_RUNNER_MESH") === "true"');
 });
 
 // The kubelet counts every exit as a crash and backs off for up to five

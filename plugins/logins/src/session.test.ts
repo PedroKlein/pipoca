@@ -1,66 +1,33 @@
 import { expect, test } from "bun:test";
 import type { Credential, CredentialStore } from "@earendil-works/pi-ai";
-import type {
-  McpLoginState,
-  PluginRoute,
-  SessionCloud,
-  SessionLogins,
-} from "@pipoca/plugins";
-import { fakeContext, fakeSession, served } from "@pipoca/plugins/testing";
-import { logins as server } from "./server";
-import { logins } from "./session";
+import type { McpLoginState, SessionLogins } from "@pipoca/plugins";
+import {
+  type PluginTest,
+  person,
+  testPlugin,
+  testSession,
+  until,
+} from "@pipoca/testing";
+import { server } from "./server";
+import { session } from "./session";
 
-function serverRoute(): PluginRoute {
-  const routes: PluginRoute[] = [];
-  const faked = fakeContext();
+const people = [
+  { id: "admin", name: "Admin", admin: true },
+  { id: "ana", name: "Ana" },
+  { id: "bo", name: "Bo" },
+];
 
-  server.register(
-    fakeContext({
-      auth: { ...faked.auth, handlePublic: () => undefined },
-      routes: {
-        handle: (route) => {
-          routes.push(route);
-        },
-      },
-      models: { offer: () => undefined },
-    }),
-  );
+// A runner's Session of the person, its logins kept on the test's server.
+async function runner(t: PluginTest, id: string): Promise<SessionLogins> {
+  const started = await t.session({ owner: person(id) });
+  const part = await testSession(session, { request: started.api.raw });
+  const logins = await part.modelCredentials();
 
-  const [route] = routes;
-  if (route === undefined) {
-    throw new Error("logins registered no route");
+  if (logins === undefined) {
+    throw new Error("the Session part keeps no logins");
   }
 
-  return served(route);
-}
-
-// A runner's Session of the owner, sending its requests to the server's
-// route as Pipoca does.
-async function runner(
-  route: PluginRoute,
-  userId: string,
-): Promise<SessionLogins> {
-  const session = fakeSession({ startedBy: userId });
-
-  const cloud = {
-    request: async (path: string, init?: RequestInit) => {
-      const url = new URL(`http://logins/${path}`);
-
-      return route(new Request(url.href, init), url.pathname.slice(1), {
-        kind: "session",
-        session,
-        actor: `session:${session.id}`,
-      });
-    },
-    log: () => undefined,
-  } as unknown as SessionCloud;
-
-  const kept = await logins.logins?.(cloud);
-  if (kept === undefined) {
-    throw new Error("logins keeps no logins");
-  }
-
-  return kept;
+  return logins;
 }
 
 const oauth = (access: string): Credential => ({
@@ -71,32 +38,31 @@ const oauth = (access: string): Credential => ({
 });
 
 test("a login made on one runner is there on another, for its owner only", async () => {
-  const route = serverRoute();
+  await using t = await testPlugin(server, { people });
 
   await (
-    await runner(route, "ana")
+    await runner(t, "ana")
   ).models.modify("openai-codex", async () => Promise.resolve(oauth("a1")));
 
-  expect(
-    await (await runner(route, "ana")).models.read("openai-codex"),
-  ).toEqual(oauth("a1"));
+  const other = await runner(t, "ana");
 
-  expect(await (await runner(route, "ana")).models.list()).toEqual([
+  expect(await other.models.read("openai-codex")).toEqual(oauth("a1"));
+
+  expect(await other.models.list()).toEqual([
     { providerId: "openai-codex", type: "oauth" },
   ]);
 
-  expect(
-    await (await runner(route, "bo")).models.read("openai-codex"),
-  ).toBeUndefined();
+  const bo = await runner(t, "bo");
 
-  expect(await (await runner(route, "bo")).models.list()).toEqual([]);
+  expect(await bo.models.read("openai-codex")).toBeUndefined();
+  expect(await bo.models.list()).toEqual([]);
 });
 
 test("runners refresh one login one at a time, each seeing the last write", async () => {
-  const route = serverRoute();
+  await using t = await testPlugin(server, { people });
 
   await (
-    await runner(route, "ana")
+    await runner(t, "ana")
   ).models.modify("openai-codex", async () => Promise.resolve(oauth("t0")));
 
   const seen: string[] = [];
@@ -111,45 +77,47 @@ test("runners refresh one login one at a time, each seeing the last write", asyn
     });
   };
 
-  await Promise.all([
-    refresh((await runner(route, "ana")).models),
-    refresh((await runner(route, "ana")).models),
-  ]);
+  const [first, second] = [await runner(t, "ana"), await runner(t, "ana")];
+
+  await Promise.all([refresh(first.models), refresh(second.models)]);
 
   expect(seen).toEqual(["t0", "t0+"]);
 
-  expect(
-    await (await runner(route, "ana")).models.read("openai-codex"),
-  ).toEqual(oauth("t0++"));
+  expect(await (await runner(t, "ana")).models.read("openai-codex")).toEqual(
+    oauth("t0++"),
+  );
 });
 
 test("a failed refresh lets go of the login and keeps it", async () => {
-  const route = serverRoute();
-  const store = (await runner(route, "ana")).models;
-  await store.modify("anthropic", async () => Promise.resolve(oauth("k")));
+  await using t = await testPlugin(server, { people });
+  const { models } = await runner(t, "ana");
+
+  await models.modify("anthropic", async () => Promise.resolve(oauth("k")));
 
   expect(
-    store.modify("anthropic", async () => Promise.reject(new Error("refused"))),
+    models.modify("anthropic", async () =>
+      Promise.reject(new Error("refused")),
+    ),
   ).rejects.toThrow("refused");
 
-  await store.modify("anthropic", async (current) => Promise.resolve(current));
+  await models.modify("anthropic", async (current) => Promise.resolve(current));
 
-  expect(await store.read("anthropic")).toEqual(oauth("k"));
+  expect(await models.read("anthropic")).toEqual(oauth("k"));
 });
 
 test("logging out removes the login on every runner", async () => {
-  const route = serverRoute();
+  await using t = await testPlugin(server, { people });
 
   await (
-    await runner(route, "ana")
+    await runner(t, "ana")
   ).models.modify("anthropic", async () =>
     Promise.resolve({ type: "api_key", key: "sk" }),
   );
 
-  await (await runner(route, "ana")).models.delete("anthropic");
+  await (await runner(t, "ana")).models.delete("anthropic");
 
   expect(
-    await (await runner(route, "ana")).models.read("anthropic"),
+    await (await runner(t, "ana")).models.read("anthropic"),
   ).toBeUndefined();
 });
 
@@ -162,27 +130,20 @@ const linear = ["linear", "https://mcp.linear.app/mcp"] as const;
 
 // Writes go back to the server in the background, so another runner sees
 // them a moment later.
-async function eventually<T>(read: () => Promise<T>, wanted: T): Promise<T> {
-  for (let tries = 0; tries < 50; tries++) {
-    const value = await read();
-    if (Bun.deepEquals(value, wanted)) {
-      return value;
-    }
-
-    await Bun.sleep(10);
-  }
-
-  return read();
-}
+const is =
+  (wanted: unknown) =>
+  (value: unknown): boolean =>
+    Bun.deepEquals(value, wanted);
 
 test("an MCP sign-in on one runner is there on another, for its owner only", async () => {
-  const route = serverRoute();
-  (await runner(route, "ana")).mcp.forServer(...linear).save(mcpState("m1"));
+  await using t = await testPlugin(server, { people });
 
-  const loaded = async (userId: string) =>
-    (await runner(route, userId)).mcp.forServer(...linear).load();
+  (await runner(t, "ana")).mcp.forServer(...linear).save(mcpState("m1"));
 
-  expect(await eventually(async () => loaded("ana"), mcpState("m1"))).toEqual(
+  const loaded = async (id: string) =>
+    (await runner(t, id)).mcp.forServer(...linear).load();
+
+  expect(await until(async () => loaded("ana"), is(mcpState("m1")))).toEqual(
     mcpState("m1"),
   );
 
@@ -190,16 +151,16 @@ test("an MCP sign-in on one runner is there on another, for its owner only", asy
 });
 
 test("runners refresh one MCP login one at a time, each seeing the last write", async () => {
-  const route = serverRoute();
-  (await runner(route, "ana")).mcp.forServer(...linear).save(mcpState("t0"));
-  const first = await runner(route, "ana");
-  const second = await runner(route, "ana");
+  await using t = await testPlugin(server, { people });
 
-  await eventually(
-    async () => (await runner(route, "ana")).mcp.forServer(...linear).load(),
-    mcpState("t0"),
+  (await runner(t, "ana")).mcp.forServer(...linear).save(mcpState("t0"));
+
+  await until(
+    async () => (await runner(t, "ana")).mcp.forServer(...linear).load(),
+    is(mcpState("t0")),
   );
 
+  const [first, second] = [await runner(t, "ana"), await runner(t, "ana")];
   const seen: string[] = [];
 
   const refresh = async ({ mcp }: SessionLogins): Promise<void> => {
@@ -219,54 +180,61 @@ test("runners refresh one MCP login one at a time, each seeing the last write", 
 
   expect(seen).toEqual(["t0", "t0+"]);
 
-  expect((await runner(route, "ana")).mcp.forServer(...linear).load()).toEqual(
+  expect((await runner(t, "ana")).mcp.forServer(...linear).load()).toEqual(
     mcpState("t0++"),
   );
 });
 
 test("an MCP logout reaches every runner", async () => {
-  const route = serverRoute();
-  const { mcp } = await runner(route, "ana");
+  await using t = await testPlugin(server, { people });
+  const { mcp } = await runner(t, "ana");
+
   mcp.forServer(...linear).save(mcpState("m1"));
+
+  await until(
+    async () => (await runner(t, "ana")).mcp.tokens(...linear),
+    (tokens) => tokens !== undefined,
+  );
 
   expect(mcp.remove(...linear)).toBe(true);
 
   expect(
-    await eventually(
-      async () => (await runner(route, "ana")).mcp.tokens(...linear),
-      undefined,
+    await until(
+      async () => (await runner(t, "ana")).mcp.tokens(...linear),
+      (tokens) => tokens === undefined,
     ),
   ).toBeUndefined();
 });
 
-test("a team Session points the providers it's given at the proxy, with its token as the key", async () => {
-  const registered: [string, unknown][] = [];
+test("a team Session points the team's providers at the proxy, with its token as the key", async () => {
+  await using t = await testPlugin(server, { people });
 
-  const cloud = {
-    request: async () =>
-      Promise.resolve(
-        Response.json({
-          providers: [
-            { provider: "anthropic", baseUrl: "http://server/proxy/anthropic" },
-          ],
-          token: "ppx_1",
-        }),
-      ),
-    log: () => undefined,
-  } as unknown as SessionCloud;
+  await t.as("admin").post("save", {
+    provider: "anthropic",
+    credential: { type: "api_key", key: "sk-team" },
+    layer: "base",
+  });
 
-  await logins.extension?.(cloud)({
-    registerProvider: (name: string, config: unknown) => {
-      registered.push([name, config]);
-    },
-  } as unknown as Parameters<
-    ReturnType<NonNullable<typeof logins.extension>>
-  >[0]);
+  const team = await t.session({ owner: "team", startedBy: "ana" });
 
-  expect(registered).toEqual([
-    [
-      "anthropic",
-      { baseUrl: "http://server/proxy/anthropic", apiKey: "ppx_1" },
-    ],
-  ]);
+  // Pi's providers load in the background when the plugin registers.
+  await until(
+    async () =>
+      (await team.api.get<{ providers: readonly unknown[] }>("proxy"))
+        .providers,
+    (providers) => providers.length > 0,
+  );
+
+  const part = await testSession(session, { request: team.api.raw });
+
+  const pointed = part.provider("anthropic") as
+    { readonly baseUrl: string; readonly apiKey: string } | undefined;
+
+  expect(pointed?.baseUrl).toEndWith("/api/ext/logins/proxy/anthropic");
+  expect(pointed?.apiKey).toStartWith("ppx_");
+
+  const mine = await t.session({ owner: person("ana") });
+  const personal = await testSession(session, { request: mine.api.raw });
+
+  expect(personal.provider("anthropic")).toBeUndefined();
 });

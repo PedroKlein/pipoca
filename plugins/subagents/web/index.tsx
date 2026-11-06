@@ -1,142 +1,155 @@
-import type {
-  MountedSession,
-  NoticeProps,
-  SessionPartProps,
-  ToolCall,
-  ToolCallProps,
-  WebPlugin,
+import {
+  defineWeb,
+  type MountedSession,
+  type ToolCall,
+  useNow,
+  useSessionState,
+  useToolResults,
 } from "@pipoca/plugins/web";
-import { Button, cn, Icon, isComposing } from "@pipoca/ui";
-import { type ReactElement, useEffect, useState } from "react";
+import type { SessionEvent } from "@pipoca/protocol";
+import {
+  Badge,
+  Button,
+  Card,
+  cardClass,
+  cn,
+  Code,
+  Icon,
+  isComposing,
+  SidePanel,
+  StatusMark,
+  TextInput,
+} from "@pipoca/ui";
+import { type ReactElement, useEffect, useMemo, useState } from "react";
+import { subagents } from "../plugin";
 import {
   type ChildView,
   elapsed,
   finishedRun,
   manages,
-  publishedRuns,
+  type MissionView,
+  missionsKey,
+  openDecisions,
+  recordedMission,
   recordedRun,
+  type Review,
   runIdOf,
   running,
+  runsKey,
   runState,
   type RunView,
   separateOutput,
+  type Started,
   stateLabel,
   type Tone,
   toneOf,
   took,
-  type Review,
   watchdogKind,
-  type MissionView,
-  openDecisions,
-  publishedMissions,
-  recordedMission,
 } from "./runs";
 
 // Subagent runs as cards in the chat, and a fleet panel from the header
 // (ADR 0030, ADR 0057).
-export const subagents: WebPlugin = {
-  name: "subagents",
-  tools: { subagent: SubagentCall },
-  SessionHeader: FleetButton,
-  notices: {
-    finished: FinishedNotice,
-    interrupted: InterruptedNotice,
-    [watchdogKind]: WatchdogNotice,
-    decided: DecidedNotice,
+export const web = defineWeb(subagents, {
+  slots: {
+    "session.toolCall:subagent": SubagentCall,
+    "session.header": FleetButton,
+    "notice:finished": FinishedNotice,
+    "notice:interrupted": InterruptedNotice,
+    [`notice:${watchdogKind}`]: WatchdogNotice,
+    "notice:decided": DecidedNotice,
   },
-};
+});
 
-// The latest of every run: as published while the Session runs, and as the
-// transcript recorded the ones that ended.
+interface NoticeData {
+  readonly data: unknown;
+}
+
+// The latest of every run: as the call that started it returned, as the
+// transcript recorded it, and as the Session part last published them.
 function useRuns(session: MountedSession): ReadonlyMap<string, RunView> {
-  const [runs, setRuns] = useState<ReadonlyMap<string, RunView>>(new Map());
+  const called = useToolResults<Partial<Started>>(session, "subagent");
+  const published = useSessionState<readonly RunView[]>(session, runsKey);
+  const kept = useKept(session, keptRun);
 
-  useEffect(
+  return useMemo(
     () =>
-      session.events((event) => {
-        const published = publishedRuns(event);
-        const kept = recordedRun(event) ?? finishedRun(event);
-
-        if (published === undefined && kept === undefined) {
-          return;
-        }
-
-        setRuns((seen) => {
-          const next = new Map(seen);
-
-          for (const run of published ?? []) {
-            next.set(run.id, run);
-          }
-
-          if (kept) {
-            next.set(kept.id, kept);
-          }
-
-          return next;
-        });
-      }),
-    [session],
+      new Map([
+        ...called.flatMap(({ details: { run } }) =>
+          run === undefined ? [] : [[run.id, run] as const],
+        ),
+        ...kept,
+        ...(published ?? []).map((run) => [run.id, run] as const),
+      ]),
+    [called, kept, published],
   );
-
-  return runs;
 }
 
-// The latest of every mission, as published and as the transcript recorded.
+// The latest of every mission, as the transcript recorded it and as the
+// Session part last published them.
 function useMissions(session: MountedSession): readonly MissionView[] {
-  const [missions, setMissions] = useState<ReadonlyMap<string, MissionView>>(
-    new Map(),
+  const published = useSessionState<readonly MissionView[]>(
+    session,
+    missionsKey,
   );
+
+  const kept = useKept(session, recordedMission);
+
+  return useMemo(
+    () =>
+      [
+        ...new Map([
+          ...kept,
+          ...(published ?? []).map((mission) => [mission.id, mission] as const),
+        ]).values(),
+      ].reverse(),
+    [kept, published],
+  );
+}
+
+// What the transcript last recorded of each run or mission, by its id.
+function useKept<T extends { readonly id: string }>(
+  session: MountedSession,
+  read: (event: SessionEvent) => T | undefined,
+): ReadonlyMap<string, T> {
+  const [kept, setKept] = useState<{
+    readonly session: MountedSession;
+    readonly records: ReadonlyMap<string, T>;
+  }>();
 
   useEffect(
     () =>
       session.events((event) => {
-        const published = publishedMissions(event);
-        const kept = recordedMission(event);
+        const record = read(event);
 
-        if (published === undefined && kept === undefined) {
-          return;
+        if (record !== undefined) {
+          setKept((seen) => ({
+            session,
+            records: new Map(seen?.session === session ? seen.records : []).set(
+              record.id,
+              record,
+            ),
+          }));
         }
-
-        setMissions((seen) => {
-          const next = new Map(seen);
-
-          for (const mission of [
-            ...(published ?? []),
-            ...(kept ? [kept] : []),
-          ]) {
-            next.set(mission.id, mission);
-          }
-
-          return next;
-        });
       }),
-    [session],
+    [session, read],
   );
 
-  return [...missions.values()].reverse();
+  return kept?.session === session ? kept.records : none;
 }
 
-function useNow(ticking: boolean): number {
-  const [now, setNow] = useState(Date.now);
+const none: ReadonlyMap<never, never> = new Map<never, never>();
 
-  useEffect(() => {
-    if (!ticking) {
-      return undefined;
-    }
-
-    const timer = setInterval(() => {
-      setNow(Date.now());
-    }, 1000);
-
-    return () => {
-      clearInterval(timer);
-    };
-  }, [ticking]);
-
-  return now;
+function keptRun(event: SessionEvent): RunView | undefined {
+  return recordedRun(event) ?? finishedRun(event);
 }
 
-function SubagentCall({ call, session }: ToolCallProps): ReactElement {
+function SubagentCall({
+  call,
+  session,
+}: {
+  readonly call: ToolCall;
+  readonly session: MountedSession;
+}): ReactElement {
   const runs = useRuns(session);
   const runId = runIdOf(call.result?.details);
   const run = runId === undefined ? undefined : runs.get(runId);
@@ -146,13 +159,14 @@ function SubagentCall({ call, session }: ToolCallProps): ReactElement {
   }
 
   return (
-    <div
+    <Card
+      padding="none"
       data-subagent-run={runId}
       data-subagent-tone={run ? toneOf(runState(run)) : call.status}
-      className="overflow-hidden rounded-lg border border-line bg-elevated shadow-xs"
+      className="overflow-hidden"
     >
       {run ? <Run run={run} session={session} /> : <Pending call={call} />}
-    </div>
+    </Card>
   );
 }
 
@@ -191,7 +205,7 @@ function Run({
   readonly session: MountedSession;
 }): ReactElement {
   const live = run.endedAt === undefined;
-  const now = useNow(live);
+  const now = useNow(live ? 1000 : 30_000);
 
   return (
     <div className="flex flex-col">
@@ -339,7 +353,7 @@ function Controls({
 
   return (
     <div className="flex items-center gap-2 border-t border-line px-3 py-2">
-      <input
+      <TextInput
         value={text}
         aria-label="Tell the subagents"
         placeholder="Tell the subagents…"
@@ -352,7 +366,7 @@ function Controls({
             steer();
           }
         }}
-        className="min-w-0 flex-1 rounded-md border border-line bg-panel px-2 py-1 text-label text-fg placeholder:text-fg-dim"
+        className="min-w-0 flex-1"
       />
       <Button variant="ghost" onClick={steer} disabled={text.trim() === ""}>
         Steer
@@ -382,14 +396,9 @@ function Output({
   }
 
   return (
-    <pre
-      className={cn(
-        "max-h-80 overflow-auto rounded-md border border-line bg-code px-3 py-2 font-mono text-mono-sm whitespace-pre-wrap",
-        failed ? "text-failed" : "text-fg",
-      )}
-    >
+    <Code wrap failed={failed} className="max-h-80 overflow-auto">
       {text}
-    </pre>
+    </Code>
   );
 }
 
@@ -416,48 +425,25 @@ function ManageRow({ call }: { readonly call: ToolCall }): ReactElement {
 }
 
 function Mark({ tone }: { readonly tone: Tone }): ReactElement {
-  switch (tone) {
-    case "running":
-      return (
-        <span className="grid size-4 shrink-0 place-items-center">
-          <span className="size-1.5 animate-pulse rounded-full bg-working" />
-        </span>
-      );
-    case "done":
-      return <Icon name="check" className="size-4 shrink-0 text-done" />;
-    case "failed":
-      return <Icon name="x" className="size-4 shrink-0 text-failed" />;
-    case "stopped":
-      return <Icon name="stop" className="size-4 shrink-0 text-fg-dim" />;
-  }
+  return <StatusMark status={tone} label="" />;
 }
 
 // The header's Subagents button opens every run of the Session in a side
 // panel, once there is one.
-function FleetButton({ session }: SessionPartProps): ReactElement | null {
+function FleetButton({
+  session,
+}: {
+  readonly session: MountedSession;
+}): ReactElement | null {
   const [open, setOpen] = useState(false);
-  const runs = [...useRuns(session).values()].reverse();
+
+  const runs = [...useRuns(session).values()].sort(
+    (one, other) => other.startedAt - one.startedAt,
+  );
+
   const missions = useMissions(session);
   const asking = openDecisions(missions).length;
   const count = running(runs);
-
-  useEffect(() => {
-    if (!open) {
-      return undefined;
-    }
-
-    const close = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    };
-
-    document.addEventListener("keydown", close);
-
-    return () => {
-      document.removeEventListener("keydown", close);
-    };
-  }, [open]);
 
   if (runs.length === 0 && missions.length === 0) {
     return null;
@@ -473,56 +459,37 @@ function FleetButton({ session }: SessionPartProps): ReactElement | null {
         }}
       >
         {count > 0 ? (
-          <span className="size-1.5 animate-pulse rounded-full bg-working" />
+          <StatusMark status="running" label="" />
         ) : (
           <Icon name="git-fork" className="size-3.5" />
         )}
         {count > 0 ? `${String(count)} running` : "Subagents"}
-        {asking > 0 && (
-          <span className="rounded-full bg-waiting px-1.5 text-label text-fg-strong">
-            {asking} to decide
-          </span>
-        )}
+        {asking > 0 && <Badge state="waiting">{asking} to decide</Badge>}
       </Button>
-      <section
-        role="dialog"
-        aria-label="Subagents"
-        hidden={!open}
-        className="fixed inset-y-0 right-0 z-40 flex w-[min(640px,100vw)] flex-col border-l border-line bg-panel text-ui text-fg shadow-pop"
+      <SidePanel
+        open={open}
+        title="Subagents"
+        closeLabel="Close subagents"
+        className="gap-3"
+        onClose={() => {
+          setOpen(false);
+        }}
       >
-        <header className="flex min-h-14 items-center gap-2 border-b border-line px-4">
-          <h2 className="flex-1 font-semibold text-fg-strong">Subagents</h2>
-          <Button
-            variant="ghost"
-            iconOnly
-            aria-label="Close subagents"
-            onClick={() => {
-              setOpen(false);
-            }}
-          >
-            <Icon name="x" />
-          </Button>
-        </header>
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-4">
-          {missions.map((mission) => (
-            <Mission key={mission.id} mission={mission} session={session} />
-          ))}
-          {runs.map((run) => (
-            <div
-              key={run.id}
-              className="overflow-hidden rounded-lg border border-line bg-elevated shadow-xs"
-            >
-              <Run run={run} session={session} />
-            </div>
-          ))}
-        </div>
-      </section>
+        {missions.map((mission) => (
+          <Mission key={mission.id} mission={mission} session={session} />
+        ))}
+        {runs.map((run) => (
+          <Card padding="none" key={run.id} className="overflow-hidden">
+            <Run run={run} session={session} />
+          </Card>
+        ))}
+      </SidePanel>
     </>
   );
 }
 
 // The message that wakes the parent with a finished run's outputs.
-function FinishedNotice({ data }: NoticeProps): ReactElement {
+function FinishedNotice({ data }: NoticeData): ReactElement {
   const run = data as RunView;
 
   return (
@@ -534,7 +501,7 @@ function FinishedNotice({ data }: NoticeProps): ReactElement {
 }
 
 // The message that tells the parent which runs a restart cut off.
-function InterruptedNotice({ data }: NoticeProps): ReactElement {
+function InterruptedNotice({ data }: NoticeData): ReactElement {
   const cutOff = data as readonly RunView[];
 
   return (
@@ -549,7 +516,7 @@ function InterruptedNotice({ data }: NoticeProps): ReactElement {
 
 // A watchdog review of a turn's changes. Only its high findings reached the
 // agent (ADR 0058).
-function WatchdogNotice({ data }: NoticeProps): ReactElement {
+function WatchdogNotice({ data }: NoticeData): ReactElement {
   const review = data as Review;
 
   if (review.error !== undefined) {
@@ -572,7 +539,7 @@ function WatchdogNotice({ data }: NoticeProps): ReactElement {
           <summary className="cursor-pointer">
             <span
               className={cn(
-                "mr-2 text-mono-sm uppercase",
+                "mr-2 text-mono-sm",
                 finding.importance === "high" ? "text-failed" : "text-fg-dim",
               )}
             >
@@ -615,7 +582,7 @@ function Mission({
   return (
     <section
       aria-label={`Mission ${mission.title}`}
-      className="flex flex-col gap-2 rounded-lg border border-line bg-elevated px-3 py-2 shadow-xs"
+      className={cn(cardClass, "flex flex-col gap-2 px-3 py-2")}
     >
       <div className="flex items-center gap-2">
         <Icon name="pin" className="size-3.5 shrink-0 text-fg-dim" />
@@ -697,7 +664,7 @@ function Decide({
           }
         }}
       >
-        <input
+        <TextInput
           aria-label="Your answer"
           value={text}
           placeholder={
@@ -706,7 +673,7 @@ function Decide({
           onChange={(event) => {
             setText(event.target.value);
           }}
-          className="min-w-0 flex-1 rounded-md border border-line bg-panel px-2 py-1 text-label"
+          className="min-w-0 flex-1"
         />
       </form>
     </div>
@@ -714,7 +681,7 @@ function Decide({
 }
 
 // The message that brings the person's decision to the agent.
-function DecidedNotice({ data }: NoticeProps): ReactElement {
+function DecidedNotice({ data }: NoticeData): ReactElement {
   const { decision } = data as {
     readonly decision: { readonly question: string; readonly answer?: string };
   };

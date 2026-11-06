@@ -15,10 +15,12 @@ import {
   createAgentSession,
   DefaultResourceLoader,
   type ExtensionError,
+  ExtensionRunner,
   hasTrustRequiringProjectResources,
   initTheme,
   type InlineExtension,
   type McpExtensionOptions,
+  ModelRegistry,
   ModelRuntime,
   resolveCliModel,
   SessionManager,
@@ -27,15 +29,15 @@ import {
   SettingsManager,
   type ToolExposure,
 } from "@earendil-works/pi-coding-agent";
-import type { Checkout, ChildOptions, SessionLogins } from "@pipoca/plugins";
+import type { Checkout, SessionLogins } from "@pipoca/plugins";
+import type { ChildOptions } from "@pipoca/plugins/host";
 import type { ModelRef, ThinkingLevel } from "@pipoca/protocol";
 import chalk from "chalk";
-import { pluginPackages } from "./packages";
 import type { Surfaces } from "./surfaces";
 import type { RemoteUI } from "./ui";
 import "./codemode";
 
-export interface ModelOptions {
+interface ModelOptions {
   // The Pi agent folder: a Session's is its Profile's (ADR 0031).
   readonly agentDir: string;
   // The machine's own logins and custom models, shared by all its Profiles.
@@ -66,8 +68,6 @@ export interface SessionHost {
   readonly ui: RemoteUI & Surfaces;
   readonly tools: readonly ToolDefinition[];
   readonly extensions: readonly InlineExtension[];
-  // Pi package sources plugins load in every Session.
-  readonly packages: readonly string[];
   readonly onError: (error: ExtensionError) => void;
   // Logins kept elsewhere than the machine's files (ADR 0045).
   readonly logins?: SessionLogins;
@@ -166,10 +166,24 @@ export async function startSession(
       ...(host ? [toolFinders(host.tools)] : []),
       ...(host?.extensions ?? []),
     ],
-    ...(host && { packages: host.packages, onError: host.onError }),
     ...(host?.logins && { credentials: host.logins.models }),
   });
 
+  try {
+    return await sessionFrom(services, cwd, options, host);
+  } catch (error) {
+    await shutDown(services);
+
+    throw error;
+  }
+}
+
+async function sessionFrom(
+  services: AgentSessionServices,
+  cwd: string,
+  options: SessionOptions,
+  host: SessionHost | undefined,
+): Promise<AgentSession> {
   const sessionManager = SessionManager.continueRecent(cwd, options.sessionDir);
   recordInterruptedToolCalls(sessionManager);
 
@@ -339,8 +353,6 @@ async function loadServices(
   cwd: string,
   options: ModelOptions,
   {
-    packages = [],
-    onError = () => undefined,
     projectTrusted = true,
     credentials,
     ...resources
@@ -349,8 +361,6 @@ async function loadServices(
     readonly projectTrusted?: boolean;
     readonly appendSystemPromptOverride?: (base: string[]) => string[];
     readonly extensionFactories?: InlineExtension[];
-    readonly packages?: readonly string[];
-    readonly onError?: (error: ExtensionError) => void;
   } = {},
 ): Promise<AgentSessionServices> {
   const { agentDir } = options;
@@ -359,20 +369,13 @@ async function loadServices(
     projectTrusted,
   });
 
-  const plugins = await pluginPackages(
-    packages,
-    { cwd, agentDir, settingsManager },
-    onError,
-  );
-
   const services = await createAgentSessionServices({
     cwd,
     agentDir,
     settingsManager,
     resourceLoaderOptions: {
       ...resources,
-      additionalExtensionPaths: [...plugins.sources, ...options.extensionPaths],
-      extensionsOverride: plugins.override,
+      additionalExtensionPaths: [...options.extensionPaths],
       skillsOverride: withoutHomeSkills,
       agentsFilesOverride: withoutHomeContext,
     },
@@ -386,11 +389,29 @@ async function loadServices(
 
   const { errors } = services.resourceLoader.getExtensions();
   if (errors.length > 0) {
+    await shutDown(services);
     const details = errors.map((e) => `${e.path}: ${e.error}`).join("; ");
     throw new Error(`extensions failed to load: ${details}`);
   }
 
   return services;
+}
+
+// Extensions run as they load, and some start work then, such as following
+// the server until the session shuts down. A session that never starts tells
+// them it shut down, or that work would outlive it.
+async function shutDown(services: AgentSessionServices): Promise<void> {
+  const { extensions, runtime } = services.resourceLoader.getExtensions();
+
+  await new ExtensionRunner(
+    extensions,
+    runtime,
+    services.cwd,
+    SessionManager.inMemory(services.cwd),
+    new ModelRegistry(services.modelRuntime),
+  )
+    .emit({ type: "session_shutdown", reason: "quit" })
+    .catch(() => undefined);
 }
 
 // Pi always loads ~/.agents/skills as the user's own. Sessions take the

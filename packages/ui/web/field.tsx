@@ -1,4 +1,5 @@
 import type { ReactElement, ReactNode } from "react";
+import { ErrorText } from "./feedback";
 
 // Text inputs, selects and textareas share one look: a quiet border that
 // darkens on hover and a soft ring on focus, as in Claude's own inputs.
@@ -8,10 +9,13 @@ export const fieldClass =
 export function Field({
   label,
   hint,
+  error,
   children,
 }: {
   readonly label: string;
   readonly hint?: ReactNode;
+  // Why the value was refused, under the control.
+  readonly error?: ReactNode;
   readonly children: ReactNode;
 }): ReactElement {
   return (
@@ -21,6 +25,7 @@ export function Field({
       {hint !== undefined && (
         <span className="text-caption text-fg-dim">{hint}</span>
       )}
+      <ErrorText size="caption">{error}</ErrorText>
     </label>
   );
 }

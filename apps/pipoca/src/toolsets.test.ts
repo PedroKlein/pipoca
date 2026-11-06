@@ -16,8 +16,12 @@ import {
   fauxToolCall,
 } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { meta } from "@pipoca/meta/server";
-import type { ServerPlugin } from "@pipoca/plugins";
+import {
+  definePlugin,
+  defineServer,
+  type ServerContext,
+} from "@pipoca/plugins";
+import type { ServerPart } from "@pipoca/plugins/host";
 import type {
   PluginInfo,
   Prompt,
@@ -25,16 +29,22 @@ import type {
   SessionEvent,
   UiAction,
 } from "@pipoca/protocol";
-import { serve, type ServeOptions } from "./serve";
-import { builtInPlugins } from "./session-parts";
-import { firstUser } from "./testdata/sign-in";
-import { readSse } from "./sse";
+import type { ServeOptions } from "./serve";
+import { builtInParts } from "./built-in";
+import { readSse } from "@pipoca/protocol";
+import { json, testServer, type TestServer } from "./testdata/harness";
+import { until } from "@pipoca/testing/until";
 
 let root: string;
 let faux: ReturnType<typeof fauxProvider>;
-let server: ReturnType<typeof serve>;
-let signedIn: () => Promise<string>;
+let server: TestServer;
 let runtime: ModelRuntime;
+
+// The assistant's chat, the coordinator of a Project of the person's own
+// (ADR 0052).
+const projectsPart = builtInParts.filter(
+  ({ plugin }) => plugin.id === "projects",
+);
 
 beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), "pipoca-toolsets-")));
@@ -50,29 +60,24 @@ beforeEach(async () => {
   start();
 });
 
+function probe(register: (context: ServerContext) => void): ServerPart {
+  return defineServer(
+    definePlugin({ id: "probe", title: "Probe", description: "" }),
+    register,
+  );
+}
+
 function start(
-  plugins?: ServeOptions["plugins"],
+  servers?: readonly ServerPart[],
   installed?: ServeOptions["installed"],
 ): void {
-  const logs: string[] = [];
-
-  server = serve({
-    ...(plugins && {
-      plugins,
-      manifests: plugins.map(
-        ({ name }) =>
-          builtInPlugins.find(({ id }) => id === name) ?? {
-            id: name,
-            title: name,
-            description: "",
-            capabilities: ["toolsets", "routes"],
-          },
-      ),
+  server = testServer({
+    ...(servers && {
+      builtIns: false,
+      servers: [...projectsPart, ...servers],
     }),
     ...(installed && { installed }),
-    port: 0,
-    database: ":memory:",
-    sessions: { pollWaitMs: 100, offlineAfterMs: 1000 },
+    runners: { pollWaitMs: 100, offlineAfterMs: 1000 },
     agent: {
       provider: "local",
       dataDir: join(root, "local"),
@@ -81,56 +86,43 @@ function start(
       models: { runtime, model: faux.getModel() },
     },
     disabledPlugins: ["subagents"],
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
   });
-
-  signedIn = firstUser(server, logs);
 }
 
 afterEach(async () => {
-  await server.stop();
+  await server.close();
   await rm(root, { recursive: true, force: true });
 });
 
-async function api(path: string, body?: unknown): Promise<Response> {
-  return fetch(new URL(path, server.url), {
-    method: body === undefined ? "GET" : "POST",
-    headers: {
-      cookie: await signedIn(),
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
-}
-
-async function json<T>(response: Promise<Response>): Promise<T> {
-  return (await (await response).json()) as T;
-}
-
 async function environmentReady(): Promise<void> {
-  while ((await json<unknown[]>(api("/api/environments"))).length === 0) {
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
+  await until(
+    async () =>
+      (await json<unknown[]>(server.api("/api/environments"))).length > 0,
+  );
 }
 
+// Each call asks the person's assistant, whose coordinator is the Session
+// that answers.
 async function startMeta(text: string): Promise<Session> {
   await environmentReady();
 
-  return json<Session>(api("/api/plugins/meta/sessions", { text }));
+  const { coordinatorId } = await json<{ coordinatorId: string }>(
+    server.api("/api/ext/projects/assistant", { body: { text } }),
+  );
+
+  return json<Session>(server.api(`/api/sessions/${coordinatorId}`));
 }
 
 async function follow(
   sessionId: string,
-  until: (events: readonly SessionEvent[]) => boolean,
+  done: (events: readonly SessionEvent[]) => boolean,
 ): Promise<SessionEvent[]> {
   const events: SessionEvent[] = [];
   for await (const event of readSse(
-    await api(`/api/sessions/${sessionId}/events`),
+    await server.api(`/api/sessions/${sessionId}/events`),
   )) {
     events.push(event as SessionEvent);
-    if (until(events)) {
+    if (done(events)) {
       break;
     }
   }
@@ -166,10 +158,12 @@ async function allowNext(sessionId: string): Promise<Prompt> {
     throw new Error("no prompt");
   }
 
-  await api(`/api/sessions/${sessionId}/commands`, {
-    type: "answer",
-    id: asked.id,
-    value: "once",
+  await server.api(`/api/sessions/${sessionId}/commands`, {
+    body: {
+      type: "answer",
+      id: asked.id,
+      value: "once",
+    },
   });
 
   return asked;
@@ -184,10 +178,10 @@ test("starts a Session from a meta-session through the Sessions route without as
   const metaSession = await startMeta("Start a Session in my folder");
   const events = await follow(metaSession.id, entriesInclude("started it"));
 
-  const [started] = await json<Session[]>(api("/api/sessions"));
+  const [started] = await json<Session[]>(server.api("/api/sessions"));
 
   const profiles = await json<{ id: string; isDefault: boolean }[]>(
-    api("/api/profiles"),
+    server.api("/api/profiles"),
   );
 
   expect(prompts(events)).toEqual([]);
@@ -202,20 +196,28 @@ test("starts a Session from a meta-session through the Sessions route without as
 
 test("hands the route's own validation error back to the model", async () => {
   faux.setResponses([
-    call("sessions_start", { workspace: { kind: "folder" } }),
+    call("sessions_start", {
+      workspace: { kind: "clone", repository: "https://me:secret@host/r.git" },
+    }),
     fauxAssistantMessage([fauxText("that failed")]),
   ]);
 
   const metaSession = await startMeta("Start a Session");
   const events = await follow(metaSession.id, entriesInclude("that failed"));
 
-  expect(transcriptOf(events)).toContain("workspace must be a folder");
-  expect(await json<Session[]>(api("/api/sessions"))).toEqual([]);
+  expect(transcriptOf(events)).toContain(
+    "workspace.repository can't hold credentials",
+  );
+
+  expect(await json<Session[]>(server.api("/api/sessions"))).toEqual([]);
 });
 
 test("finds deferred tools through tool_search, and asks before changing an Environment", async () => {
   await environmentReady();
-  const [environment] = await json<{ id: string }[]>(api("/api/environments"));
+
+  const [environment] = await json<{ id: string }[]>(
+    server.api("/api/environments"),
+  );
 
   const update = { id: environment?.id ?? "", setupScript: "echo ready" };
 
@@ -231,7 +233,7 @@ test("finds deferred tools through tool_search, and asks before changing an Envi
   const events = await follow(metaSession.id, entriesInclude("changed it"));
 
   const [changed] = await json<{ setupScript: string }[]>(
-    api("/api/environments"),
+    server.api("/api/environments"),
   );
 
   expect(asked.title).toBe("Change the Environment “local”?");
@@ -249,9 +251,9 @@ test("keeps an Environment's new key out of the meta-session", async () => {
   const metaSession = await startMeta("Create an Environment called lab");
   const events = await follow(metaSession.id, entriesInclude("created it"));
 
-  const names = (await json<{ name: string }[]>(api("/api/environments"))).map(
-    ({ name }) => name,
-  );
+  const names = (
+    await json<{ name: string }[]>(server.api("/api/environments"))
+  ).map(({ name }) => name);
 
   expect(names).toContain("lab");
   expect(transcriptOf(events)).toContain("Replace key");
@@ -276,18 +278,20 @@ test("creates a Project through the Projects plugin's route", async () => {
   );
 
   const projects = await json<{ id: string; name: string }[]>(
-    api("/api/plugins/projects/projects"),
+    server.api("/api/ext/projects/projects"),
   );
 
   const project = await json<{ goal: string; coordinatorId: string }>(
-    api(`/api/plugins/projects/projects/${projects[0]?.id ?? ""}`),
+    server.api(`/api/ext/projects/projects/${projects[0]?.id ?? ""}`),
   );
 
   const coordinator = await json<Session>(
-    api(`/api/sessions/${project.coordinatorId}`),
+    server.api(`/api/sessions/${project.coordinatorId}`),
   );
 
-  const { user } = await json<{ user: { id: string } }>(api("/api/auth"));
+  const { user } = await json<{ user: { id: string } }>(
+    server.api("/api/auth"),
+  );
 
   expect(prompts(events)).toEqual([]);
   expect(projects.map(({ name }) => name)).toEqual(["Shop"]);
@@ -299,7 +303,7 @@ test("never acts as an admin from a meta-session, even one an admin started", as
   await environmentReady();
 
   const [shared] = await json<{ id: string; name: string }[]>(
-    api("/api/profiles"),
+    server.api("/api/profiles"),
   );
 
   const id = shared?.id ?? "";
@@ -314,7 +318,7 @@ test("never acts as an admin from a meta-session, even one an admin started", as
   await allowNext(metaSession.id);
   const events = await follow(metaSession.id, entriesInclude("tried it"));
 
-  const after = await json<{ name: string }>(api(`/api/profiles/${id}`));
+  const after = await json<{ name: string }>(server.api(`/api/profiles/${id}`));
 
   expect(transcriptOf(events)).toContain("admin_only");
   expect(after.name).toBe(shared?.name ?? "");
@@ -324,15 +328,17 @@ test("changes a Project's goal from a meta-session", async () => {
   await environmentReady();
 
   // On an Environment without runners, so its coordinator takes no turn.
-  const { environment } = await json<{ environment: { id: string } }>(
-    api("/api/environments", { name: "nowhere" }),
+  const environment = await json<{ id: string }>(
+    server.api("/api/environments", { body: { name: "nowhere" } }),
   );
 
   const { id } = await json<{ id: string }>(
-    api("/api/plugins/projects/projects", {
-      name: "Shop",
-      repositories: ["https://example.com/shop.git"],
-      environment: environment.id,
+    server.api("/api/ext/projects/projects", {
+      body: {
+        name: "Shop",
+        repositories: ["https://example.com/shop.git"],
+        environment: environment.id,
+      },
     }),
   );
 
@@ -347,7 +353,7 @@ test("changes a Project's goal from a meta-session", async () => {
   await follow(metaSession.id, entriesInclude("changed the goal"));
 
   const project = await json<{ goal: string }>(
-    api(`/api/plugins/projects/projects/${id}`),
+    server.api(`/api/ext/projects/projects/${id}`),
   );
 
   expect(asked.title).toBe("Change the settings of “Shop”?");
@@ -363,72 +369,17 @@ test("gives an ordinary Session none of the toolsets", async () => {
   await environmentReady();
 
   const session = await json<Session>(
-    api("/api/sessions", {
-      workspace: { kind: "folder", path: root },
-      firstMessage: "List the Sessions",
+    server.api("/api/sessions", {
+      body: {
+        workspace: { kind: "folder", path: root },
+        firstMessage: "List the Sessions",
+      },
     }),
   );
 
   const events = await follow(session.id, entriesInclude("all done"));
 
   expect(transcriptOf(events)).toContain("Tool sessions_list not found");
-});
-
-test("gives another plugin's Session on a toolset plugin's shared Profile its toolsets", async () => {
-  const lead: ServerPlugin = {
-    name: "lead",
-    register: (context) => {
-      context.toolsets.loadInOwnSessions();
-
-      context.profiles.provide(
-        "desk",
-        {
-          name: "Desk",
-          packages: [],
-          agentsMd: "",
-          systemMd: "",
-          appendSystemMd: "",
-          mcpServers: {},
-          settings: {},
-        },
-        { sharedWith: ["crew"] },
-      );
-    },
-  };
-
-  const starter = (name: string): ServerPlugin => ({
-    name,
-    register: (context) => {
-      context.routes.handle((_request, _path, caller) =>
-        Response.json(
-          context.sessions.start(
-            {
-              actor: caller.actor,
-              profile: "lead.desk",
-              workspace: { kind: "folder", path: root },
-              firstMessage: "List the Sessions",
-            },
-            "desk",
-          ),
-        ),
-      );
-    },
-  });
-
-  await server.stop();
-  start([lead, starter("crew"), starter("stranger")]);
-  await environmentReady();
-
-  faux.setResponses([
-    call("sessions_list", {}),
-    fauxAssistantMessage([fauxText("listed")]),
-  ]);
-
-  const session = await json<Session>(api("/api/plugins/crew/start", {}));
-  const events = await follow(session.id, entriesInclude("listed"));
-
-  expect(transcriptOf(events)).not.toContain("Tool sessions_list not found");
-  expect((await api("/api/plugins/stranger/start", {})).ok).toBe(false);
 });
 
 test("runs the person's assistant as a Project of their own, on the assistant's Profiles", async () => {
@@ -455,20 +406,16 @@ test("runs the person's assistant as a Project of their own, on the assistant's 
 
   await environmentReady();
 
-  const asked = {
-    profile: "meta.assistant",
-    threadProfile: "meta.builder",
-  };
-
   const assistant = await json<{
     id: string;
     coordinatorId: string;
     assistant: boolean;
     repositories: string[];
   }>(
-    api("/api/plugins/projects/assistant", {
-      ...asked,
-      text: "Build me a Profile",
+    server.api("/api/ext/projects/assistant", {
+      body: {
+        text: "Build me a Profile",
+      },
     }),
   );
 
@@ -484,7 +431,7 @@ test("runs the person's assistant as a Project of their own, on the assistant's 
 
   const [thread] = (
     await json<{ threads: { sessionId: string }[] }>(
-      api(`/api/plugins/projects/projects/${assistant.id}`),
+      server.api(`/api/ext/projects/projects/${assistant.id}`),
     )
   ).threads;
 
@@ -494,21 +441,25 @@ test("runs the person's assistant as a Project of their own, on the assistant's 
   expect(seen.thread).toContain('{"name":"bash"');
   expect(seen.thread).toContain('{"name":"sessions_list"');
 
-  expect(await json<unknown[]>(api("/api/plugins/projects/projects"))).toEqual(
-    [],
-  );
+  expect(
+    await json<unknown[]>(server.api("/api/ext/projects/projects")),
+  ).toEqual([]);
 
   const again = await json<{ id: string }>(
-    api("/api/plugins/projects/assistant", { ...asked, text: "And another" }),
+    server.api("/api/ext/projects/assistant", {
+      body: { text: "And another" },
+    }),
   );
 
   expect(again.id).toBe(assistant.id);
 }, 20_000);
 
 test("shows a Profile's MCP servers by name only", async () => {
-  await api("/api/profiles", {
-    name: "With MCP",
-    mcpServers: { github: { env: { GITHUB_TOKEN: "token-in-env" } } },
+  await server.api("/api/profiles", {
+    body: {
+      name: "With MCP",
+      mcpServers: { github: { env: { GITHUB_TOKEN: "token-in-env" } } },
+    },
   });
 
   faux.setResponses([
@@ -525,49 +476,42 @@ test("shows a Profile's MCP servers by name only", async () => {
 });
 
 test("keeps a plugin's tool inside the plugin's own routes", async () => {
-  const probe: ServerPlugin = {
-    name: "probe",
-    register: (context) => {
-      context.routes.handle((_request, path) =>
-        path === "text"
-          ? new Response("plain words")
-          : Response.json({ reached: "probe" }),
+  await server.close();
+
+  start([
+    probe(({ routes }) => {
+      routes.get(
+        "items/:id",
+        {
+          auth: "person",
+          tool: {
+            name: "probe_run",
+            description: "Runs an item",
+            exposure: "direct",
+            annotations: { readOnlyHint: true },
+          },
+        },
+        ({ params }) => ({ reached: params.id }),
       );
 
-      context.toolsets.register({
-        namespace: { name: "probe" },
-        tools: [
-          {
-            name: "run",
-            description: "Runs an item",
-            parameters: { type: "object" },
-            exposure: "direct",
-            annotations: { readOnlyHint: true },
-            request: (input) => ({
-              method: "GET",
-              path: `items/${String(input["id"])}`,
-            }),
-          },
-          {
-            name: "text",
+      routes.get(
+        "text",
+        {
+          auth: "person",
+          tool: {
+            name: "probe_text",
             description: "Answers in plain text",
-            parameters: { type: "object" },
             exposure: "direct",
             annotations: { readOnlyHint: true },
-            request: () => ({ method: "GET", path: "text" }),
           },
-        ],
-      });
-    },
-  };
-
-  await server.stop();
-  start([meta, probe]);
+        },
+        () => new Response("plain words"),
+      );
+    }),
+  ]);
 
   faux.setResponses([
     call("probe_run", { id: "../../../profiles" }),
-    call("probe_run", { id: "%2e%2e/%2e%2e/%2e%2e/profiles" }),
-    call("probe_run", { id: "7" }),
     call("probe_text", {}),
     fauxAssistantMessage([fauxText("tried them")]),
   ]);
@@ -578,34 +522,9 @@ test("keeps a plugin's tool inside the plugin's own routes", async () => {
     await follow(metaSession.id, entriesInclude("tried them")),
   );
 
-  expect(transcript.match(/isn't one of its routes/g)).toHaveLength(2);
-  expect(transcript).toContain("reached");
+  expect(transcript).toContain(String.raw`\"reached\":\"../../../profiles\"`);
   expect(transcript).not.toContain("isDefault");
   expect(transcript).toMatch(/"plain words".*"isError":false/);
-});
-
-test("refuses a plugin's toolset in a namespace the kernel has", async () => {
-  const squatter: ServerPlugin = {
-    name: "squatter",
-    register: (context) => {
-      context.toolsets.register({
-        namespace: { name: "sessions" },
-        tools: [],
-      });
-    },
-  };
-
-  await server.stop();
-  start([meta, squatter]);
-
-  const plugins = await json<{ id: string; state: string; error?: string }[]>(
-    api("/api/plugins"),
-  );
-
-  expect(plugins.find(({ id }) => id === "squatter")).toMatchObject({
-    state: "failed",
-    error: "toolset sessions belongs to kernel",
-  });
 });
 
 const uiActions = (events: readonly SessionEvent[]): UiAction[] =>
@@ -630,20 +549,22 @@ test("opens what a tool started or asked for in the browsers watching, once", as
     for (const prompt of prompts(all).filter(({ id }) => !answered.has(id))) {
       answered.add(prompt.id);
 
-      void api(`/api/sessions/${metaSession.id}/commands`, {
-        type: "answer",
-        id: prompt.id,
-        value: true,
+      void server.api(`/api/sessions/${metaSession.id}/commands`, {
+        body: {
+          type: "answer",
+          id: prompt.id,
+          value: true,
+        },
       });
     }
 
     return entriesInclude("all opened")(all);
   });
 
-  const [started] = await json<Session[]>(api("/api/sessions"));
+  const [started] = await json<Session[]>(server.api("/api/sessions"));
 
   const [project] = await json<{ id: string }[]>(
-    api("/api/plugins/projects/projects"),
+    server.api("/api/ext/projects/projects"),
   );
 
   expect(uiActions(events)).toEqual([
@@ -673,34 +594,33 @@ test("opens what a tool started or asked for in the browsers watching, once", as
 });
 
 test("opens a Session on request without asking, and only routes of the app", async () => {
-  const probe: ServerPlugin = {
-    name: "probe",
-    register: (context) => {
-      context.routes.handle(() => Response.json({}));
+  await server.close();
 
-      context.toolsets.register({
-        namespace: { name: "probe" },
-        tools: [
-          {
-            name: "escape",
+  start([
+    probe(({ routes }) => {
+      routes.get(
+        "x",
+        {
+          auth: "person",
+          tool: {
+            name: "probe_escape",
             description: "Opens a route outside the app",
-            parameters: { type: "object" },
             exposure: "direct",
             annotations: { readOnlyHint: true },
-            request: () => ({ method: "GET", path: "x" }),
             opens: () => ({ route: "../../elsewhere", label: "elsewhere" }),
           },
-        ],
-      });
-    },
-  };
+        },
+        () => ({}),
+      );
+    }),
+  ]);
 
-  await server.stop();
-  start([meta, probe]);
   await environmentReady();
 
   const target = await json<Session>(
-    api("/api/sessions", { workspace: { kind: "folder", path: root } }),
+    server.api("/api/sessions", {
+      body: { workspace: { kind: "folder", path: root } },
+    }),
   );
 
   faux.setResponses([
@@ -758,7 +678,7 @@ test("runs Pi's own tools without asking", async () => {
 });
 
 test("keeps the tools that installs use away from the model", async () => {
-  await server.stop();
+  await server.close();
   start(undefined, { root: join(root, "plugins"), plugins: [] });
 
   faux.setResponses([
@@ -781,7 +701,7 @@ test("keeps the tools that installs use away from the model", async () => {
 });
 
 test("installs an in-place plugin from a folder after asking, and leaves turning it on to the user", async () => {
-  await server.stop();
+  await server.close();
   start(undefined, { root: join(root, "plugins"), plugins: [] });
 
   const folder = join(root, "work", "hello");
@@ -790,20 +710,21 @@ test("installs an in-place plugin from a folder after asking, and leaves turning
   await writeFile(
     join(folder, "package.json"),
     JSON.stringify({
-      pipoca: {
-        id: "hello",
-        title: "Hello",
-        description: "Says hi.",
-        engine: 1,
-        capabilities: ["routes"],
-        parts: { server: "server.ts" },
-      },
+      description: "Says hi.",
+      pipoca: { id: "hello", entry: "plugin.ts" },
     }),
   );
 
   await writeFile(
-    join(folder, "server.ts"),
-    `export default { name: "hello", register: () => undefined };\n`,
+    join(folder, "plugin.ts"),
+    `import { definePlugin } from "@pipoca/plugins";
+
+export const plugin = definePlugin({
+  id: "hello",
+  title: "Hello",
+  description: "Says hi.",
+});
+`,
   );
 
   await writeFile(join(folder, "node_modules", "left-out", "index.js"), "");
@@ -817,7 +738,7 @@ test("installs an in-place plugin from a folder after asking, and leaves turning
   const asked = await allowNext(metaSession.id);
   const events = await follow(metaSession.id, entriesInclude("built it"));
 
-  const hello = (await json<PluginInfo[]>(api("/api/plugins"))).find(
+  const hello = (await json<PluginInfo[]>(server.api("/api/plugins"))).find(
     ({ id }) => id === "hello",
   );
 
@@ -833,7 +754,7 @@ test("installs an in-place plugin from a folder after asking, and leaves turning
   ).toBe(true);
 
   expect(
-    await json<unknown>(api("/api/plugin-files/hello")),
+    await json<unknown>(server.api("/api/plugins/hello/files")),
   ).not.toContainEqual(expect.stringContaining("node_modules"));
 });
 
@@ -854,7 +775,7 @@ test("installs a folder as a new Profile without asking, leaving out what isn't 
   const events = await follow(metaSession.id, entriesInclude("installed it"));
 
   const profile = (
-    await json<{ id: string; name: string }[]>(api("/api/profiles"))
+    await json<{ id: string; name: string }[]>(server.api("/api/profiles"))
   ).find(({ name }) => name === "dotfiles");
 
   expect(prompts(events)).toEqual([]);
@@ -865,7 +786,7 @@ test("installs a folder as a new Profile without asking, leaving out what isn't 
   );
 
   const files = JSON.stringify(
-    await json<unknown>(api(`/api/profiles/${profile?.id ?? ""}/files`)),
+    await json<unknown>(server.api(`/api/profiles/${profile?.id ?? ""}/files`)),
   );
 
   expect(files).toContain("AGENTS.md");

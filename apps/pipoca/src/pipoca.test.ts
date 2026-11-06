@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { once } from "node:events";
 import { execFile } from "node:child_process";
 import {
@@ -29,22 +29,22 @@ import {
   type Session,
   type SessionEvent,
   type Work,
+  versionHeader,
 } from "@pipoca/protocol";
-import { runAgent } from "./agent";
-import { serve } from "./serve";
-import { readSse } from "./sse";
+import { runAgent } from "@pipoca/runner";
+import { binary } from "./binary";
+import { readSse } from "@pipoca/protocol";
+import { testServer, type TestServer } from "./testdata/harness";
+import { until } from "@pipoca/testing/until";
 import { runnerCredentials } from "./testdata/runners";
-import { firstUserCookie, setupTokenOf } from "./testdata/sign-in";
 
 let root: string;
-let server: ReturnType<typeof serve>;
+let server: TestServer;
 let faux: ReturnType<typeof fauxProvider>;
 let runtime: ModelRuntime;
 let agents: (() => Promise<void>)[];
 let laptop: () => Promise<void>;
 let agentLogs: string[];
-let serverLogs: string[];
-let cookie: Promise<string> | undefined;
 let runners: ReturnType<typeof runnerCredentials>;
 
 async function startAgent(
@@ -56,6 +56,7 @@ async function startAgent(
   const controller = new AbortController();
 
   const done = runAgent({
+    binary,
     server: serverUrl.href,
     provider,
     credential: { token: await runners.token(provider, environment) },
@@ -79,15 +80,9 @@ async function startAgent(
   return stop;
 }
 
-function startServer(
-  builtInProvider?: string,
-  now?: () => number,
-): ReturnType<typeof serve> {
-  const started = serve({
-    port: 0,
-    database: ":memory:",
-    ...(now !== undefined && { now }),
-    sessions: { pollWaitMs: 100, offlineAfterMs: 200 },
+function startServer(builtInProvider?: string): TestServer {
+  const started = testServer({
+    runners: { pollWaitMs: 100, offlineAfterMs: 200 },
     ...(builtInProvider !== undefined && {
       agent: {
         provider: builtInProvider,
@@ -97,28 +92,16 @@ function startServer(
         models: { runtime, model: faux.getModel() },
       },
     }),
-    log: (message, fields) => {
-      serverLogs.push(`${message} ${JSON.stringify(fields)}`);
-    },
   });
 
-  cookie = undefined;
-  runners = runnerCredentials(started, signedIn);
+  runners = runnerCredentials(started, started.signedIn);
 
   return started;
-}
-
-// The Cookie header of the current server's first user.
-async function signedIn(): Promise<string> {
-  cookie ??= firstUserCookie(fetch, server.url, setupTokenOf(serverLogs));
-
-  return cookie;
 }
 
 beforeEach(async () => {
   // macOS tmpdir is a symlink, and the shell reports the resolved path.
   root = await realpath(await mkdtemp(join(tmpdir(), "pipoca-")));
-  serverLogs = [];
 
   faux = fauxProvider({
     models: [{ id: "faux-small" }, { id: "faux-large", reasoning: true }],
@@ -139,43 +122,34 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await Promise.all(agents.map(async (stop) => stop()));
-  await server.stop();
+  await server.close();
   await rm(root, { recursive: true, force: true });
 });
 
 // The server sees an agent's connections close a moment after it stops.
 async function untilOffline(provider: string): Promise<void> {
-  while (
-    ((await (await api("/api/environments")).json()) as Environment[]).some(
-      (environment) => environment.provider === provider && environment.online,
-    )
-  ) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-}
-
-async function api(path: string, body?: unknown): Promise<Response> {
-  return fetch(new URL(path, server.url), {
-    method: body === undefined ? "GET" : "POST",
-    headers: {
-      cookie: await signedIn(),
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
+  await until(
+    async () =>
+      !(
+        (await (await server.api("/api/environments")).json()) as Environment[]
+      ).some(
+        (environment) =>
+          environment.provider === provider && environment.online,
+      ),
+  );
 }
 
 // The server creates a provider's Environment on its first poll. Providers
 // without a running agent poll once here, as a test agent would.
 async function environmentOf(provider: string): Promise<string> {
   const find = async (): Promise<Environment | undefined> =>
-    ((await (await api("/api/environments")).json()) as Environment[]).find(
-      (environment) => environment.provider === provider,
-    );
+    (
+      (await (await server.api("/api/environments")).json()) as Environment[]
+    ).find((environment) => environment.provider === provider);
 
   let found = await find();
   if (!found) {
-    await asAgent(provider, "/agent/work", {
+    await asAgent(provider, "/runner/work", {
       running: [],
       folders: [],
       models: [],
@@ -196,9 +170,11 @@ async function createSession(
   workspace: CreateSession["workspace"] = { kind: "folder", path: root },
 ): Promise<Session> {
   return (await (
-    await api("/api/sessions", {
-      environment: await environmentOf(provider),
-      workspace,
+    await server.api("/api/sessions", {
+      body: {
+        environment: await environmentOf(provider),
+        workspace,
+      },
     })
   ).json()) as Session;
 }
@@ -208,7 +184,7 @@ async function watch(
   headers: Record<string, string> = {},
 ): Promise<
   (
-    until: (events: readonly SessionEvent[]) => boolean,
+    done: (events: readonly SessionEvent[]) => boolean,
   ) => Promise<SessionEvent[]>
 > {
   const controller = new AbortController();
@@ -217,15 +193,15 @@ async function watch(
     new URL(`/api/sessions/${sessionId}/events`, server.url),
     {
       signal: controller.signal,
-      headers: { cookie: await signedIn(), ...headers },
+      headers: { cookie: await server.signedIn(), ...headers },
     },
   );
 
-  return async (until) => {
+  return async (done) => {
     const events: SessionEvent[] = [];
     for await (const event of readSse(response)) {
       events.push(event as SessionEvent);
-      if (until(events)) {
+      if (done(events)) {
         break;
       }
     }
@@ -238,9 +214,9 @@ async function watch(
 
 async function follow(
   sessionId: string,
-  until: (events: readonly SessionEvent[]) => boolean,
+  done: (events: readonly SessionEvent[]) => boolean,
 ): Promise<SessionEvent[]> {
-  return (await watch(sessionId))(until);
+  return (await watch(sessionId))(done);
 }
 
 const status =
@@ -262,7 +238,7 @@ function roles(events: readonly SessionEvent[]): string[] {
 }
 
 test("reports itself healthy", async () => {
-  const response = await api("/healthz");
+  const response = await server.api("/healthz");
 
   expect(response.status).toBe(200);
 
@@ -281,9 +257,11 @@ test("chats with a session on an agent and replays it later", async () => {
 
   await follow(session.id, status("idle"));
 
-  const sent = await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "hi",
+  const sent = await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "hi",
+    },
   });
 
   expect(sent.status).toBe(202);
@@ -320,10 +298,12 @@ test("delivers a retried message once and a new one with the same text", async (
     ["b", "one"],
     ["c", "two"],
   ]) {
-    const sent = await api(`/api/sessions/${session.id}/commands`, {
-      type: "message",
-      text,
-      requestId,
+    const sent = await server.api(`/api/sessions/${session.id}/commands`, {
+      body: {
+        type: "message",
+        text,
+        requestId,
+      },
     });
 
     expect(sent.status).toBe(202);
@@ -358,10 +338,12 @@ test("lists the slash commands Pi knows, also for a browser that joins later", a
       : [],
   );
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "answer",
-    id: asked?.id,
-    value: "Trust it",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "answer",
+      id: asked?.id,
+      value: "Trust it",
+    },
   });
 
   const hasReview = (events: readonly SessionEvent[]): boolean =>
@@ -406,10 +388,12 @@ test("sends a message's images to the model and keeps them in the transcript", a
   const session = await createSession("laptop");
   await follow(session.id, status("idle"));
 
-  const sent = await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "what is this?",
-    images: [{ mimeType: "image/png", data: pixel }],
+  const sent = await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "what is this?",
+      images: [{ mimeType: "image/png", data: pixel }],
+    },
   });
 
   expect(sent.status).toBe(202);
@@ -464,9 +448,11 @@ test("resumes the event stream after the last received line", async () => {
   const session = await createSession("laptop");
   await follow(session.id, status("idle"));
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "hi",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "hi",
+    },
   });
 
   const live = await follow(session.id, (events) =>
@@ -492,14 +478,16 @@ test("labels transcript events with their line", async () => {
   const session = await createSession("laptop");
   await follow(session.id, status("idle"));
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "hi",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "hi",
+    },
   });
 
   await follow(session.id, (events) => roles(events).includes("assistant"));
 
-  const response = await api(`/api/sessions/${session.id}/events`);
+  const response = await server.api(`/api/sessions/${session.id}/events`);
 
   const reader = response.body
     ?.pipeThrough(new TextDecoderStream())
@@ -536,9 +524,11 @@ test("streams text as it is generated", async () => {
       ) && roles(events).includes("assistant"),
   );
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "hi",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "hi",
+    },
   });
 
   const events = await done;
@@ -602,16 +592,16 @@ test("rejects commands a browser may not send", async () => {
       { type: "reboot" },
       "abort",
     ].map(async (command) => {
-      const response = await api(
+      const response = await server.api(
         `/api/sessions/${session.id}/commands`,
-        command,
+        { body: command },
       );
 
       return response.status;
     }),
   );
 
-  expect(statuses).toEqual(statuses.map(() => 400));
+  expect(statuses).toEqual(statuses.map(() => 422));
 });
 
 test("takes only answers shaped like a prompt's answer", async () => {
@@ -619,10 +609,12 @@ test("takes only answers shaped like a prompt's answer", async () => {
   await follow(session.id, status("idle"));
 
   const answer = async (value: unknown): Promise<number> => {
-    const response = await api(`/api/sessions/${session.id}/commands`, {
-      type: "answer",
-      id: "prompt-1",
-      value,
+    const response = await server.api(`/api/sessions/${session.id}/commands`, {
+      body: {
+        type: "answer",
+        id: "prompt-1",
+        value,
+      },
     });
 
     return response.status;
@@ -672,7 +664,7 @@ test("takes only answers shaped like a prompt's answer", async () => {
   );
 
   expect(accepted).toEqual([202, 202, 202, 202]);
-  expect(rejected).toEqual(Array.from({ length: 8 }, () => 400));
+  expect(rejected).toEqual(Array.from({ length: 8 }, () => 422));
 });
 
 async function asAgent(
@@ -684,7 +676,7 @@ async function asAgent(
   return fetch(new URL(path, server.url), {
     method: body === undefined ? "GET" : "POST",
     headers: {
-      "pipoca-protocol": version,
+      [versionHeader]: version,
       authorization: `Bearer ${await runners.token(provider)}`,
       "content-type": "application/json",
     },
@@ -696,13 +688,17 @@ test("keeps transcript lines once and in order across resends", async () => {
   const session = await createSession("vm");
 
   const work = (await (
-    await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] })
+    await asAgent("vm", "/runner/work", {
+      running: [],
+      folders: [],
+      models: [],
+    })
   ).json()) as {
     start: { generation: number }[];
   };
 
   const generation = work.start[0]?.generation;
-  const path = `/agent/sessions/${session.id}/transcript`;
+  const path = `/runner/sessions/${session.id}/transcript`;
 
   const first = await asAgent("vm", path, {
     generation,
@@ -738,17 +734,21 @@ test("titles a session with its first user message until Pi names it", async () 
   const session = await createSession("vm");
 
   const work = (await (
-    await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] })
+    await asAgent("vm", "/runner/work", {
+      running: [],
+      folders: [],
+      models: [],
+    })
   ).json()) as {
     start: { generation: number }[];
   };
 
   const generation = work.start[0]?.generation;
-  const path = `/agent/sessions/${session.id}/transcript`;
+  const path = `/runner/sessions/${session.id}/transcript`;
 
   const titled = async (): Promise<string | null> =>
     (
-      (await (await api(`/api/sessions/${session.id}`)).json()) as {
+      (await (await server.api(`/api/sessions/${session.id}`)).json()) as {
         title: string | null;
       }
     ).title;
@@ -794,21 +794,25 @@ test("follows the model Pi switches a session to", async () => {
   const session = await createSession("vm");
 
   const work = (await (
-    await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] })
+    await asAgent("vm", "/runner/work", {
+      running: [],
+      folders: [],
+      models: [],
+    })
   ).json()) as {
     start: { generation: number }[];
   };
 
   const model = async (): Promise<unknown> =>
     (
-      (await (await api(`/api/sessions/${session.id}`)).json()) as {
+      (await (await server.api(`/api/sessions/${session.id}`)).json()) as {
         model: unknown;
       }
     ).model;
 
   const before = await model();
 
-  await asAgent("vm", `/agent/sessions/${session.id}/transcript`, {
+  await asAgent("vm", `/runner/sessions/${session.id}/transcript`, {
     generation: work.start[0]?.generation,
     start: 0,
     lines: [
@@ -836,17 +840,21 @@ test("keeps the last character whole when it shortens a long title", async () =>
   const session = await createSession("vm");
 
   const work = (await (
-    await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] })
+    await asAgent("vm", "/runner/work", {
+      running: [],
+      folders: [],
+      models: [],
+    })
   ).json()) as {
     start: { generation: number }[];
   };
 
   const generation = work.start[0]?.generation;
-  const path = `/agent/sessions/${session.id}/transcript`;
+  const path = `/runner/sessions/${session.id}/transcript`;
 
   const titled = async (): Promise<string | null> =>
     (
-      (await (await api(`/api/sessions/${session.id}`)).json()) as {
+      (await (await server.api(`/api/sessions/${session.id}`)).json()) as {
         title: string | null;
       }
     ).title;
@@ -890,11 +898,11 @@ test("keeps the last character whole when it shortens a long title", async () =>
 
 test("drops messages from an older generation", async () => {
   const session = await createSession("vm");
-  await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] });
+  await asAgent("vm", "/runner/work", { running: [], folders: [], models: [] });
 
   const stale = await asAgent(
     "vm",
-    `/agent/sessions/${session.id}/transcript`,
+    `/runner/sessions/${session.id}/transcript`,
     {
       generation: 0,
       start: 0,
@@ -915,7 +923,7 @@ test("drops transcript lines for a session no attempt has claimed", async () => 
 
   const early = await asAgent(
     "vm",
-    `/agent/sessions/${session.id}/transcript`,
+    `/runner/sessions/${session.id}/transcript`,
     { generation: 0, start: 0, lines: ["early"] },
   );
 
@@ -926,15 +934,23 @@ test("keeps transcript lines the current attempt sends after its session is arch
   const session = await createSession("vm");
 
   const work = (await (
-    await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] })
+    await asAgent("vm", "/runner/work", {
+      running: [],
+      folders: [],
+      models: [],
+    })
   ).json()) as {
     start: { generation: number }[];
   };
 
   const generation = work.start[0]?.generation ?? 0;
-  const path = `/agent/sessions/${session.id}/transcript`;
+  const path = `/runner/sessions/${session.id}/transcript`;
   await asAgent("vm", path, { generation, start: 0, lines: ["a"] });
-  await api(`/api/sessions/${session.id}/archive`, {});
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
   const late = await asAgent("vm", path, {
     generation,
@@ -968,14 +984,14 @@ test("rejects agent requests with another protocol version or provider", async (
 
   const version = await asAgent(
     "vm",
-    "/agent/work",
+    "/runner/work",
     { running: [], folders: [], models: [] },
     "99",
   );
 
   const provider = await asAgent(
     "laptop-2",
-    `/agent/sessions/${session.id}/live`,
+    `/runner/sessions/${session.id}/events`,
     {
       generation: 0,
       events: [],
@@ -986,40 +1002,56 @@ test("rejects agent requests with another protocol version or provider", async (
   expect(provider.status).toBe(404);
 });
 
-test("rejects malformed requests with 400", async () => {
+test("rejects malformed requests", async () => {
   const session = await createSession("vm");
 
   const malformed = await fetch(new URL("/api/sessions", server.url), {
     method: "POST",
-    headers: { cookie: await signedIn() },
+    headers: {
+      cookie: await server.signedIn(),
+      "content-type": "application/json",
+    },
     body: "{not json",
+  });
+
+  const notJson = await fetch(new URL("/api/sessions", server.url), {
+    method: "POST",
+    headers: { cookie: await server.signedIn() },
+    body: "{}",
   });
 
   const noGeneration = await asAgent(
     "vm",
-    `/agent/sessions/${session.id}/commands`,
+    `/runner/sessions/${session.id}/commands`,
   );
 
   const environment = await environmentOf("vm");
-  const noWorkspace = await api("/api/sessions", { environment });
 
-  const unknownWorkspace = await api("/api/sessions", {
-    environment,
-    workspace: { kind: "volume", path: root },
+  const noWorkspace = await server.api("/api/sessions", {
+    body: { environment },
   });
 
-  const optionStartPoint = await api("/api/sessions", {
-    environment,
-    workspace: {
-      kind: "clone",
-      repository: root,
-      startPoint: "--upload-pack=x",
+  const unknownWorkspace = await server.api("/api/sessions", {
+    body: {
+      environment,
+      workspace: { kind: "volume", path: root },
+    },
+  });
+
+  const optionStartPoint = await server.api("/api/sessions", {
+    body: {
+      environment,
+      workspace: {
+        kind: "clone",
+        repository: root,
+        startPoint: "--upload-pack=x",
+      },
     },
   });
 
   const negativeStart = await asAgent(
     "vm",
-    `/agent/sessions/${session.id}/transcript`,
+    `/runner/sessions/${session.id}/transcript`,
     {
       generation: 0,
       start: -1,
@@ -1028,37 +1060,42 @@ test("rejects malformed requests with 400", async () => {
   );
 
   expect(malformed.status).toBe(400);
-  expect(noWorkspace.status).toBe(400);
-  expect(unknownWorkspace.status).toBe(400);
-  expect(optionStartPoint.status).toBe(400);
-  expect(noGeneration.status).toBe(400);
-  expect(negativeStart.status).toBe(400);
+  expect(notJson.status).toBe(415);
+  expect(noWorkspace.status).toBe(422);
+  expect(unknownWorkspace.status).toBe(422);
+  expect(optionStartPoint.status).toBe(422);
+  expect(noGeneration.status).toBe(422);
+  expect(negativeStart.status).toBe(422);
 });
 
-test("rejects agent bodies outside the protocol with 400", async () => {
+test("rejects agent bodies outside the protocol", async () => {
   const session = await createSession("vm");
 
   const work = (await (
-    await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] })
+    await asAgent("vm", "/runner/work", {
+      running: [],
+      folders: [],
+      models: [],
+    })
   ).json()) as {
     start: { generation: number }[];
   };
 
   const generation = work.start[0]?.generation;
-  const base = `/agent/sessions/${session.id}`;
+  const base = `/runner/sessions/${session.id}`;
 
   const claimed = (await (
-    await api(`/api/sessions/${session.id}`)
+    await server.api(`/api/sessions/${session.id}`)
   ).json()) as Session;
 
   const statuses = await Promise.all(
     [
-      asAgent("vm", `${base}/live`, {
+      asAgent("vm", `${base}/events`, {
         generation,
         events: [{ type: "status", status: "bogus" }],
       }),
-      asAgent("vm", `${base}/live`, { generation, events: [null] }),
-      asAgent("vm", `${base}/live`, {
+      asAgent("vm", `${base}/events`, { generation, events: [null] }),
+      asAgent("vm", `${base}/events`, {
         generation,
         events: [
           {
@@ -1067,23 +1104,32 @@ test("rejects agent bodies outside the protocol with 400", async () => {
           },
         ],
       }),
-      asAgent("vm", `${base}/live`, { events: [] }),
-      asAgent("vm", `${base}/live`, {
+      asAgent("vm", `${base}/events`, { events: [] }),
+      asAgent("vm", `${base}/events`, {
         generation,
         events: [{ type: "status", status: "idle", transcriptLength: -1 }],
       }),
-      asAgent("vm", `${base}/live`, {
+      asAgent("vm", `${base}/events`, {
         generation,
         events: [{ type: "status", status: "idle", transcriptLength: "3" }],
       }),
       asAgent("vm", `${base}/transcript`, { generation, start: 0, lines: [1] }),
-      asAgent("vm", `${base}/failed`, { generation, error: 5 }),
-      asAgent("vm", `${base}/workspace`, { generation, outcome: "lost" }),
-      asAgent("vm", `${base}/workspace`, { generation, outcome: "removed" }),
-      asAgent("vm", `${base}/workspace`, { outcome: "kept", reason: "dirty" }),
+      asAgent("vm", `${base}/start-failure`, { generation, error: 5 }),
+      asAgent("vm", `${base}/workspace-removal`, {
+        generation,
+        outcome: "lost",
+      }),
+      asAgent("vm", `${base}/workspace-removal`, {
+        generation,
+        outcome: "removed",
+      }),
+      asAgent("vm", `${base}/workspace-removal`, {
+        outcome: "kept",
+        reason: "dirty",
+      }),
       asAgent("vm", `${base}/tool-calls`, { generation, name: "lookup" }),
-      asAgent("vm", "/agent/work", {}),
-      asAgent("vm", "/agent/work", {
+      asAgent("vm", "/runner/work", {}),
+      asAgent("vm", "/runner/work", {
         running: [{ sessionId: session.id }],
         folders: [],
         models: [],
@@ -1092,10 +1138,10 @@ test("rejects agent bodies outside the protocol with 400", async () => {
   );
 
   const after = (await (
-    await api(`/api/sessions/${session.id}`)
+    await server.api(`/api/sessions/${session.id}`)
   ).json()) as Session;
 
-  expect(statuses).toEqual(Array.from({ length: 14 }, () => 400));
+  expect(statuses).toEqual(Array.from({ length: 14 }, () => 422));
   expect(after.status).toBe(claimed.status);
 });
 
@@ -1114,21 +1160,25 @@ test("aborts a running turn and stores the session as idle", async () => {
   await follow(session.id, status("idle"));
   const watching = await watch(session.id);
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "hi",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "hi",
+    },
   });
 
   await watching(status("running"));
 
-  const aborted = await api(`/api/sessions/${session.id}/commands`, {
-    type: "abort",
+  const aborted = await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "abort",
+    },
   });
 
   await follow(session.id, status("idle"));
 
   const stored = (await (
-    await api(`/api/sessions/${session.id}`)
+    await server.api(`/api/sessions/${session.id}`)
   ).json()) as Session;
 
   expect(aborted.status).toBe(202);
@@ -1146,9 +1196,11 @@ test("rejects commands once the agent stops", async () => {
     events.some((e) => e.type === "session" && !e.session.online),
   );
 
-  const sent = await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "hi",
+  const sent = await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "hi",
+    },
   });
 
   expect(sent.status).toBe(409);
@@ -1175,9 +1227,11 @@ test("restarts an interrupted session as a new attempt with its transcript", asy
   const session = await createSession("laptop");
   await follow(session.id, status("idle"));
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "one",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "one",
+    },
   });
 
   await follow(session.id, (events) => roles(events).includes("assistant"));
@@ -1202,9 +1256,11 @@ test("restarts an interrupted session as a new attempt with its transcript", asy
       ),
   );
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "two",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "two",
+    },
   });
 
   const replay = await follow(
@@ -1213,7 +1269,7 @@ test("restarts an interrupted session as a new attempt with its transcript", asy
   );
 
   const stored = (await (
-    await api(`/api/sessions/${session.id}`)
+    await server.api(`/api/sessions/${session.id}`)
   ).json()) as Session;
 
   expect(roles(replay).filter((r) => r !== "system")).toEqual([
@@ -1247,9 +1303,11 @@ test("restarts a session on a runner without its files from the server's transcr
   const session = await createSession("laptop");
   await follow(session.id, status("idle"));
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "one",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "one",
+    },
   });
 
   await follow(session.id, (events) => roles(events).includes("assistant"));
@@ -1280,9 +1338,11 @@ test("restarts a session on a runner without its files from the server's transcr
       ),
   );
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "two",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "two",
+    },
   });
 
   const replay = await follow(
@@ -1291,7 +1351,7 @@ test("restarts a session on a runner without its files from the server's transcr
   );
 
   const stored = (await (
-    await api(`/api/sessions/${session.id}`)
+    await server.api(`/api/sessions/${session.id}`)
   ).json()) as Session;
 
   expect(roles(replay).filter((r) => r !== "system")).toEqual([
@@ -1316,7 +1376,7 @@ test("marks a session failed when its host cannot start", async () => {
   await follow(session.id, status("failed"));
 
   const stored = (await (
-    await api(`/api/sessions/${session.id}`)
+    await server.api(`/api/sessions/${session.id}`)
   ).json()) as Session;
 
   expect(stored).toMatchObject({ status: "failed", generation: 1 });
@@ -1326,16 +1386,16 @@ test("marks a session failed when its host cannot start", async () => {
 test("keeps a session running through a provider outage", async () => {
   const session = await createSession("vm");
   const running = [{ sessionId: session.id, generation: 1 }];
-  await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] });
+  await asAgent("vm", "/runner/work", { running: [], folders: [], models: [] });
 
   const offline = await follow(session.id, (events) =>
     events.some((e) => e.type === "session" && !e.session.online),
   );
 
-  await asAgent("vm", "/agent/work", { running, folders: [], models: [] });
+  await asAgent("vm", "/runner/work", { running, folders: [], models: [] });
 
   const stored = (await (
-    await api(`/api/sessions/${session.id}`)
+    await server.api(`/api/sessions/${session.id}`)
   ).json()) as Session;
 
   expect(offline.at(-1)).toMatchObject({
@@ -1355,7 +1415,7 @@ test("takes a session back when another poll claims it", async () => {
   const session = await createSession("laptop");
   await follow(session.id, status("idle"));
 
-  await asAgent("laptop", "/agent/work", {
+  await asAgent("laptop", "/runner/work", {
     running: [],
     folders: [],
     models: [],
@@ -1381,14 +1441,14 @@ test("takes a session back when another poll claims it", async () => {
 
 test("closes the command stream of an interrupted attempt", async () => {
   const session = await createSession("vm");
-  await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] });
+  await asAgent("vm", "/runner/work", { running: [], folders: [], models: [] });
 
   const commands = await asAgent(
     "vm",
-    `/agent/sessions/${session.id}/commands?generation=1`,
+    `/runner/sessions/${session.id}/commands?generation=1`,
   );
 
-  await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] });
+  await asAgent("vm", "/runner/work", { running: [], folders: [], models: [] });
   const received: unknown[] = [];
   for await (const command of readSse(commands)) {
     received.push(command);
@@ -1403,7 +1463,7 @@ async function openTerminal(
   terminalId?: string,
 ): Promise<{
   readonly socket: WebSocket;
-  readonly output: (until: string) => Promise<string>;
+  readonly output: (wanted: string) => Promise<string>;
   readonly closed: Promise<void>;
 }> {
   const url = new URL(
@@ -1416,7 +1476,11 @@ async function openTerminal(
   }
 
   url.protocol = "ws:";
-  const socket = new WebSocket(url, { headers: { cookie: await signedIn() } });
+
+  const socket = new WebSocket(url, {
+    headers: { cookie: await server.signedIn() },
+  });
+
   socket.binaryType = "arraybuffer";
   const decoder = new TextDecoder();
   let text = "";
@@ -1440,8 +1504,8 @@ async function openTerminal(
   return {
     socket,
     closed,
-    output: async (until) => {
-      while (!text.includes(until)) {
+    output: async (wanted) => {
+      while (!text.includes(wanted)) {
         await new Promise<void>((resolve) => {
           changed = resolve;
         });
@@ -1471,7 +1535,7 @@ async function stalledTerminal(
     [
       `GET /api/sessions/${sessionId}/terminal?cols=80&rows=24 HTTP/1.1`,
       `Host: ${server.url.host}`,
-      `Cookie: ${await signedIn()}`,
+      `Cookie: ${await server.signedIn()}`,
       ...Object.entries(webSocketUpgrade).map(([k, v]) => `${k}: ${v}`),
       "",
       "",
@@ -1511,13 +1575,13 @@ test("runs a shell in the session's directory over a terminal socket", async () 
 test("opens a terminal on a runner named apart from its Environment", async () => {
   await startAgent("mac-1", [], server.url, "pool");
 
-  while (
-    !((await (await api("/api/environments")).json()) as Environment[]).some(
+  await until(async () =>
+    (
+      (await (await server.api("/api/environments")).json()) as Environment[]
+    ).some(
       (environment) => environment.provider === "pool" && environment.online,
-    )
-  ) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+    ),
+  );
 
   const session = await createSession("pool");
   await follow(session.id, status("idle"));
@@ -1532,14 +1596,10 @@ async function updateEnvironment(
   provider: string,
   update: Record<string, unknown>,
 ): Promise<Response> {
-  return fetch(
-    new URL(`/api/environments/${await environmentOf(provider)}`, server.url),
-    {
-      method: "PATCH",
-      headers: { "content-type": "application/json", cookie: await signedIn() },
-      body: JSON.stringify(update),
-    },
-  );
+  return server.api(`/api/environments/${await environmentOf(provider)}`, {
+    method: "PATCH",
+    body: update,
+  });
 }
 
 test("runs the Environment's setup script once and gives its Sessions its variables and secrets", async () => {
@@ -1561,7 +1621,7 @@ test("runs the Environment's setup script once and gives its Sessions its variab
   const output = await terminal.output("token=s3cret.");
 
   const [environment] = (await (
-    await api("/api/environments")
+    await server.api("/api/environments")
   ).json()) as Environment[];
 
   expect(updated.status).toBe(200);
@@ -1587,7 +1647,7 @@ test("marks a session failed with the output of its failed setup script", async 
   await follow(session.id, status("failed"));
 
   const stored = (await (
-    await api(`/api/sessions/${session.id}`)
+    await server.api(`/api/sessions/${session.id}`)
   ).json()) as Session;
 
   expect(stored.error).toContain("exited with code 3");
@@ -1602,7 +1662,7 @@ test("fails a container Session on an agent with no Linux binary to run in it", 
   await follow(session.id, status("failed"));
 
   const stored = (await (
-    await api(`/api/sessions/${session.id}`)
+    await server.api(`/api/sessions/${session.id}`)
   ).json()) as Session;
 
   expect(stored.error).toContain("--session-binary");
@@ -1620,10 +1680,10 @@ test("rejects an Environment update with a malformed or huge variable", async ()
   const badIsolation = await updateEnvironment("laptop", { isolation: "vm" });
   const badImage = await updateEnvironment("laptop", { image: "--privileged" });
 
-  expect(badName.status).toBe(400);
-  expect(badIsolation.status).toBe(400);
-  expect(badImage.status).toBe(400);
-  expect(tooLarge.status).toBe(400);
+  expect(badName.status).toBe(422);
+  expect(badIsolation.status).toBe(422);
+  expect(badImage.status).toBe(422);
+  expect(tooLarge.status).toBe(422);
 });
 
 async function gitRepository(): Promise<string> {
@@ -1648,12 +1708,33 @@ async function gitRepository(): Promise<string> {
   return repository;
 }
 
+test("names Sessions by time and their branches by the random rest of the id", async () => {
+  const workspace = {
+    kind: "clone",
+    repository: "https://example.com/r.git",
+  } as const;
+
+  const sessions = await Promise.all(
+    Array.from({ length: 5 }, async () => createSession("laptop", workspace)),
+  );
+
+  const branches = sessions.map((session) =>
+    session.workspace.kind === "clone" ? session.workspace.branch : "",
+  );
+
+  expect(sessions.map(({ id }) => id.charAt(14))).toEqual(
+    sessions.map(() => "7"),
+  );
+
+  expect(new Set(branches).size).toBe(sessions.length);
+});
+
 test("runs a session in a fresh clone on the server's own provider", async () => {
-  await server.stop();
+  await server.close();
   server = startServer("cloud");
   const repository = await gitRepository();
   const session = await createSession("cloud", { kind: "clone", repository });
-  const branch = `pipoca/${session.id.slice(0, 8)}`;
+  const branch = `pipoca/${session.id.slice(-8)}`;
 
   expect(session.workspace).toEqual({ kind: "clone", repository, branch });
 
@@ -1676,14 +1757,17 @@ test("runs a session in a fresh clone on the server's own provider", async () =>
 });
 
 test("fails a fork of a clone session whose branch isn't pushed", async () => {
-  await server.stop();
+  await server.close();
   server = startServer("cloud");
   const repository = await gitRepository();
   const source = await createSession("cloud", { kind: "clone", repository });
 
   await follow(source.id, status("idle"));
 
-  const response = await api(`/api/sessions/${source.id}/fork`, {});
+  const response = await server.api("/api/sessions", {
+    body: { from: { session: source.id } },
+  });
+
   const fork = (await response.json()) as Session;
 
   const events = await follow(fork.id, status("failed"));
@@ -1697,7 +1781,7 @@ test("fails a fork of a clone session whose branch isn't pushed", async () => {
 });
 
 test("keeps the server's own runner when its Environment gets a key", async () => {
-  await server.stop();
+  await server.close();
   server = startServer("cloud");
   await environmentOf("cloud");
   await runners.key("cloud");
@@ -1709,7 +1793,7 @@ test("keeps the server's own runner when its Environment gets a key", async () =
 
   await follow(session.id, status("idle"));
 
-  expect([...serverLogs, ...agentLogs].join("\n")).not.toContain("pct_");
+  expect([...server.logs, ...agentLogs].join("\n")).not.toContain("pct_");
 });
 
 test("stops a runner the server let go when its Environment got a new key", async () => {
@@ -1717,6 +1801,7 @@ test("stops a runner the server let go when its Environment got a new key", asyn
   const polling = Promise.withResolvers<undefined>();
 
   const done = runAgent({
+    binary,
     server: server.url.href,
     provider: "mac",
     credential: { key: await runners.key("pool") },
@@ -1738,7 +1823,10 @@ test("stops a runner the server let go when its Environment got a new key", asyn
   });
 
   await polling.promise;
-  await api(`/api/environments/${await environmentOf("pool")}/key`, {});
+
+  await server.api(`/api/environments/${await environmentOf("pool")}/keys`, {
+    body: {},
+  });
 
   const stopped = await done.then(
     () => undefined,
@@ -1753,6 +1841,7 @@ function startMac(key: string, logs: string[]): () => Promise<void> {
   const controller = new AbortController();
 
   const done = runAgent({
+    binary,
     server: server.url.href,
     provider: "mac",
     credential: { key },
@@ -1778,15 +1867,15 @@ function startMac(key: string, logs: string[]): () => Promise<void> {
 
 async function untilMacOnline(wanted: boolean): Promise<void> {
   const macOnline = async (): Promise<boolean> =>
-    ((await (await api("/api/environments")).json()) as Environment[]).some(
+    (
+      (await (await server.api("/api/environments")).json()) as Environment[]
+    ).some(
       ({ provider, runners: polled }) =>
         provider === "pool" &&
         polled.some(({ name, online }) => name === "mac" && online),
     );
 
-  while ((await macOnline()) !== wanted) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+  await until(async () => (await macOnline()) === wanted);
 }
 
 test("joins again when the server no longer knows the token an agent saved", async () => {
@@ -1808,13 +1897,12 @@ test("joins again when the server no longer knows the token an agent saved", asy
 const day = 24 * 60 * 60_000;
 
 test("refuses a runner token nobody used for 30 days, but not one used since", async () => {
-  let now = Date.now();
-  await server.stop();
-  server = startServer(undefined, () => now);
+  await server.close();
+  server = startServer();
 
   const poll = async (): Promise<number> =>
     (
-      await asAgent("mac", "/agent/work", {
+      await asAgent("mac", "/runner/work", {
         running: [],
         folders: [],
         models: [],
@@ -1823,23 +1911,22 @@ test("refuses a runner token nobody used for 30 days, but not one used since", a
 
   expect(await poll()).toBe(200);
 
-  now += 29 * day;
+  await server.clock.advance(29 * day);
   expect(await poll()).toBe(200);
 
-  now += 29 * day;
+  await server.clock.advance(29 * day);
   expect(await poll()).toBe(200);
 
-  now += 31 * day;
+  await server.clock.advance(31 * day);
   expect(await poll()).toBe(401);
 
-  now -= 31 * day;
+  await server.clock.advance(-31 * day);
   expect(await poll()).toBe(401);
 });
 
 test("joins again with its key when its saved token expired", async () => {
-  let now = Date.now();
-  await server.stop();
-  server = startServer(undefined, () => now);
+  await server.close();
+  server = startServer();
 
   const key = await runners.key("pool");
   const logs: string[] = [];
@@ -1849,7 +1936,8 @@ test("joins again with its key when its saved token expired", async () => {
   await stop();
   await untilMacOnline(false);
 
-  now += 31 * day;
+  await server.clock.advance(31 * day);
+  await server.signIn();
   startMac(key, logs);
   await untilMacOnline(true);
 
@@ -1870,6 +1958,7 @@ test("stops a runner whose server speaks another protocol version instead of ret
     credential: { readonly key: string } | { readonly token: string },
   ): Promise<unknown> =>
     runAgent({
+      binary,
       server: older.url.href,
       provider: "mac",
       credential,
@@ -1901,11 +1990,11 @@ test("lists an Environment for each provider with the folders and models its age
   let environments: Environment[] = [];
   while (!environments.some((e) => e.provider === "laptop" && e.online)) {
     environments = (await (
-      await api("/api/environments")
+      await server.api("/api/environments")
     ).json()) as Environment[];
   }
 
-  const { user } = (await (await api("/api/auth")).json()) as {
+  const { user } = (await (await server.api("/api/auth")).json()) as {
     user: { id: string };
   };
 
@@ -1932,19 +2021,23 @@ test("runs a session on the model it was created with", async () => {
   const model = { provider: faux.getModel().provider, id: "faux-large" };
 
   const session = (await (
-    await api("/api/sessions", {
-      environment: await environmentOf("laptop"),
-      workspace: { kind: "folder", path: root },
-      model,
+    await server.api("/api/sessions", {
+      body: {
+        environment: await environmentOf("laptop"),
+        workspace: { kind: "folder", path: root },
+        model,
+      },
     })
   ).json()) as Session;
 
   expect(session.model).toEqual(model);
   await follow(session.id, status("idle"));
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "hi",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "hi",
+    },
   });
 
   const events = await follow(session.id, (seen) =>
@@ -1968,10 +2061,12 @@ test("runs a session on the model it was created with", async () => {
 
 test("fails a session whose model its provider cannot use", async () => {
   const session = (await (
-    await api("/api/sessions", {
-      environment: await environmentOf("laptop"),
-      workspace: { kind: "folder", path: root },
-      model: { provider: "nowhere", id: "none" },
+    await server.api("/api/sessions", {
+      body: {
+        environment: await environmentOf("laptop"),
+        workspace: { kind: "folder", path: root },
+        model: { provider: "nowhere", id: "none" },
+      },
     })
   ).json()) as Session;
 
@@ -1984,22 +2079,32 @@ test("fails a session whose model its provider cannot use", async () => {
 });
 
 test("rejects a session request with a malformed model", async () => {
-  const response = await api("/api/sessions", {
-    environment: await environmentOf("laptop"),
-    workspace: { kind: "folder", path: root },
-    model: "faux-large",
+  const response = await server.api("/api/sessions", {
+    body: {
+      environment: await environmentOf("laptop"),
+      workspace: { kind: "folder", path: root },
+      model: "faux-large",
+    },
   });
 
-  expect(response.status).toBe(400);
+  expect(response.status).toBe(422);
+
+  expect(await response.json()).toEqual({
+    error: "invalid",
+    message: "model must be object",
+    field: "model",
+  });
 });
 
 test("starts a session at the reasoning level it was created with", async () => {
   const session = (await (
-    await api("/api/sessions", {
-      environment: await environmentOf("laptop"),
-      workspace: { kind: "folder", path: root },
-      model: { provider: faux.getModel().provider, id: "faux-large" },
-      thinking: "high",
+    await server.api("/api/sessions", {
+      body: {
+        environment: await environmentOf("laptop"),
+        workspace: { kind: "folder", path: root },
+        model: { provider: faux.getModel().provider, id: "faux-large" },
+        thinking: "high",
+      },
     })
   ).json()) as Session;
 
@@ -2014,12 +2119,14 @@ test("starts a session at the reasoning level it was created with", async () => 
     ),
   );
 
-  const unknown = await api("/api/sessions", {
-    workspace: { kind: "folder", path: root },
-    thinking: "huge",
+  const unknown = await server.api("/api/sessions", {
+    body: {
+      workspace: { kind: "folder", path: root },
+      thinking: "huge",
+    },
   });
 
-  expect(unknown.status).toBe(400);
+  expect(unknown.status).toBe(422);
 });
 
 test("runs a laptop session in its own worktree of a listed checkout", async () => {
@@ -2030,7 +2137,7 @@ test("runs a laptop session in its own worktree of a listed checkout", async () 
     path: checkout,
   });
 
-  const branch = `pipoca/${session.id.slice(0, 8)}`;
+  const branch = `pipoca/${session.id.slice(-8)}`;
 
   expect(session.workspace).toEqual({
     kind: "worktree",
@@ -2081,21 +2188,28 @@ test("forks a session into a new one that remembers its chat and starts from its
 
   await follow(source.id, status("idle"));
 
-  await api(`/api/sessions/${source.id}/commands`, {
-    type: "message",
-    text: first,
+  await server.api(`/api/sessions/${source.id}/commands`, {
+    body: {
+      type: "message",
+      text: first,
+    },
   });
 
   await follow(source.id, (events) => roles(events).includes("assistant"));
 
-  const response = await api(`/api/sessions/${source.id}/fork`, {});
+  const response = await server.api("/api/sessions", {
+    body: { from: { session: source.id } },
+  });
+
   const fork = (await response.json()) as Session;
 
   await follow(fork.id, status("idle"));
 
-  await api(`/api/sessions/${fork.id}/commands`, {
-    type: "message",
-    text: "two",
+  await server.api(`/api/sessions/${fork.id}/commands`, {
+    body: {
+      type: "message",
+      text: "two",
+    },
   });
 
   const replay = await follow(
@@ -2103,10 +2217,10 @@ test("forks a session into a new one that remembers its chat and starts from its
     (events) => roles(events).filter((r) => r === "assistant").length === 2,
   );
 
-  const missing = await api("/api/sessions/nope/fork", {});
+  const missing = await server.api("/api/sessions/nope/fork", { body: {} });
 
   const stored = (await (
-    await api(`/api/sessions/${fork.id}`)
+    await server.api(`/api/sessions/${fork.id}`)
   ).json()) as Session;
 
   expect(response.status).toBe(201);
@@ -2114,8 +2228,8 @@ test("forks a session into a new one that remembers its chat and starts from its
   expect(fork.workspace).toEqual({
     kind: "worktree",
     path: checkout,
-    branch: `pipoca/${fork.id.slice(0, 8)}`,
-    startPoint: `pipoca/${source.id.slice(0, 8)}`,
+    branch: `pipoca/${fork.id.slice(-8)}`,
+    startPoint: `pipoca/${source.id.slice(-8)}`,
   });
 
   expect(
@@ -2148,7 +2262,9 @@ test("forks from a user message into a session that remembers only what came bef
   await follow(source.id, status("idle"));
 
   for (const text of ["one", "two"]) {
-    await api(`/api/sessions/${source.id}/commands`, { type: "message", text });
+    await server.api(`/api/sessions/${source.id}/commands`, {
+      body: { type: "message", text },
+    });
   }
 
   const events = await follow(
@@ -2172,17 +2288,19 @@ test("forks from a user message into a session that remembers only what came bef
       : [];
   });
 
-  const response = await api(`/api/sessions/${source.id}/fork`, {
-    entry: second[0],
+  const response = await server.api("/api/sessions", {
+    body: { from: { session: source.id, entry: second[0] } },
   });
 
   const fork = (await response.json()) as ForkedSession;
 
   await follow(fork.id, status("idle"));
 
-  await api(`/api/sessions/${fork.id}/commands`, {
-    type: "message",
-    text: fork.editorText ?? "",
+  await server.api(`/api/sessions/${fork.id}/commands`, {
+    body: {
+      type: "message",
+      text: fork.editorText ?? "",
+    },
   });
 
   const replay = await follow(fork.id, (seen) =>
@@ -2191,7 +2309,9 @@ test("forks from a user message into a session that remembers only what came bef
     ),
   );
 
-  const invalid = await api(`/api/sessions/${source.id}/fork`, { entry: 5 });
+  const invalid = await server.api("/api/sessions", {
+    body: { from: { session: source.id, entry: 5 } },
+  });
 
   expect(response.status).toBe(201);
   expect(fork.editorText).toBe("two");
@@ -2204,7 +2324,7 @@ test("forks from a user message into a session that remembers only what came bef
     "assistant",
   ]);
 
-  expect(invalid.status).toBe(400);
+  expect(invalid.status).toBe(422);
 });
 
 test("marks a session failed when its folder is not listed", async () => {
@@ -2220,7 +2340,7 @@ test("marks a session failed when its folder is not listed", async () => {
   await follow(session.id, status("failed"));
 
   const stored = (await (
-    await api(`/api/sessions/${session.id}`)
+    await server.api(`/api/sessions/${session.id}`)
   ).json()) as Session;
 
   expect(stored.error).toContain(`folder not allowed: ${unlisted}`);
@@ -2228,7 +2348,7 @@ test("marks a session failed when its folder is not listed", async () => {
 });
 
 test("marks a session failed when its repository cannot be cloned", async () => {
-  await server.stop();
+  await server.close();
   server = startServer("cloud");
 
   const session = await createSession("cloud", {
@@ -2239,7 +2359,7 @@ test("marks a session failed when its repository cannot be cloned", async () => 
   await follow(session.id, status("failed"));
 
   const stored = (await (
-    await api(`/api/sessions/${session.id}`)
+    await server.api(`/api/sessions/${session.id}`)
   ).json()) as Session;
 
   expect(stored.error).toContain("git clone failed");
@@ -2326,17 +2446,17 @@ test("refuses a terminal for a session whose agent is gone", async () => {
 
   const response = await fetch(
     new URL(`/api/sessions/${session.id}/terminal`, server.url),
-    { headers: { ...webSocketUpgrade, cookie: await signedIn() } },
+    { headers: { ...webSocketUpgrade, cookie: await server.signedIn() } },
   );
 
   expect(response.status).toBe(409);
 });
 
 test("serves the web UI with its bundled script", async () => {
-  const page = await api("/");
+  const page = await server.api("/");
   const html = await page.text();
   const script = /<script[^>]*src="([^"]+)"/.exec(html)?.[1] ?? "";
-  const bundle = await api(script);
+  const bundle = await server.api(script);
 
   expect(page.headers.get("content-type")).toContain("text/html");
   expect(bundle.status).toBe(200);
@@ -2345,14 +2465,14 @@ test("serves the web UI with its bundled script", async () => {
 
 test("replays open prompts to a client that connects later", async () => {
   const session = await createSession("vm");
-  await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] });
+  await asAgent("vm", "/runner/work", { running: [], folders: [], models: [] });
 
   const prompt = {
     type: "prompt",
     prompt: { id: "p1", kind: "confirm", title: "Deploy?", message: "Sure?" },
   } as const;
 
-  await asAgent("vm", `/agent/sessions/${session.id}/live`, {
+  await asAgent("vm", `/runner/sessions/${session.id}/events`, {
     generation: 1,
     events: [prompt],
   });
@@ -2361,14 +2481,14 @@ test("replays open prompts to a client that connects later", async () => {
     events.some((e) => e.type === "live"),
   );
 
-  await asAgent("vm", `/agent/sessions/${session.id}/live`, {
+  await asAgent("vm", `/runner/sessions/${session.id}/events`, {
     generation: 1,
     events: [{ type: "prompt_end", id: "p1" }],
   });
 
   const later = await watch(session.id);
 
-  await asAgent("vm", `/agent/sessions/${session.id}/live`, {
+  await asAgent("vm", `/runner/sessions/${session.id}/events`, {
     generation: 1,
     events: [{ type: "status", status: "idle" }],
   });
@@ -2386,15 +2506,18 @@ test("replays open prompts to a client that connects later", async () => {
 
 test("marks a session as waiting on a person while one of its prompts is open", async () => {
   const session = await createSession("vm");
-  await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] });
+  await asAgent("vm", "/runner/work", { running: [], folders: [], models: [] });
 
   const waiting = async (): Promise<boolean> =>
-    ((await (await api(`/api/sessions/${session.id}`)).json()) as Session)
-      .waiting;
+    (
+      (await (
+        await server.api(`/api/sessions/${session.id}`)
+      ).json()) as Session
+    ).waiting;
 
   const prompted = await watch(session.id);
 
-  await asAgent("vm", `/agent/sessions/${session.id}/live`, {
+  await asAgent("vm", `/runner/sessions/${session.id}/events`, {
     generation: 1,
     events: [
       {
@@ -2415,7 +2538,7 @@ test("marks a session as waiting on a person while one of its prompts is open", 
 
   expect(await waiting()).toBe(true);
 
-  await asAgent("vm", `/agent/sessions/${session.id}/live`, {
+  await asAgent("vm", `/runner/sessions/${session.id}/events`, {
     generation: 1,
     events: [{ type: "prompt_end", id: "p1" }],
   });
@@ -2425,11 +2548,14 @@ test("marks a session as waiting on a person while one of its prompts is open", 
 
 test("marks a session as waiting on a person while a plugin's data waits on them", async () => {
   const session = await createSession("vm");
-  await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] });
+  await asAgent("vm", "/runner/work", { running: [], folders: [], models: [] });
 
   const waiting = async (): Promise<boolean> =>
-    ((await (await api(`/api/sessions/${session.id}`)).json()) as Session)
-      .waiting;
+    (
+      (await (
+        await server.api(`/api/sessions/${session.id}`)
+      ).json()) as Session
+    ).waiting;
 
   const published = (open: boolean) => ({
     type: "plugin",
@@ -2439,14 +2565,14 @@ test("marks a session as waiting on a person while a plugin's data waits on them
     ...(open && { waiting: true }),
   });
 
-  await asAgent("vm", `/agent/sessions/${session.id}/live`, {
+  await asAgent("vm", `/runner/sessions/${session.id}/events`, {
     generation: 1,
     events: [published(true)],
   });
 
   expect(await waiting()).toBe(true);
 
-  await asAgent("vm", `/agent/sessions/${session.id}/live`, {
+  await asAgent("vm", `/runner/sessions/${session.id}/events`, {
     generation: 1,
     events: [published(false)],
   });
@@ -2454,90 +2580,11 @@ test("marks a session as waiting on a person while a plugin's data waits on them
   expect(await waiting()).toBe(false);
 });
 
-test("tells a person's subscribed browser when one of their sessions starts waiting on them", async () => {
-  const pushed: string[] = [];
-  const realFetch = globalThis.fetch;
-
-  const spy = spyOn(globalThis, "fetch").mockImplementation((async (
-    input: string | URL | Request,
-    init?: RequestInit,
-  ) => {
-    const url = input instanceof Request ? input.url : input.toString();
-
-    if (url.startsWith("https://fcm.googleapis.com/")) {
-      pushed.push(new Headers(init?.headers).get("urgency") ?? "");
-
-      return new Response(null, { status: 201 });
-    }
-
-    return realFetch(input, init);
-  }) as typeof fetch);
-
-  try {
-    const session = await createSession("vm");
-
-    await asAgent("vm", "/agent/work", {
-      running: [],
-      folders: [],
-      models: [],
-    });
-
-    const keys = await crypto.subtle.generateKey(
-      { name: "ECDH", namedCurve: "P-256" },
-      true,
-      ["deriveBits"],
-    );
-
-    const subscribed = await fetch(
-      new URL("/api/plugins/push/subscriptions", server.url),
-      {
-        method: "PUT",
-        headers: { cookie: await signedIn() },
-        body: JSON.stringify({
-          endpoint: "https://fcm.googleapis.com/fcm/send/device-1",
-          keys: {
-            p256dh: Buffer.from(
-              await crypto.subtle.exportKey("raw", keys.publicKey),
-            ).toString("base64url"),
-            auth: Buffer.from(
-              crypto.getRandomValues(new Uint8Array(16)),
-            ).toString("base64url"),
-          },
-        }),
-      },
-    );
-
-    await asAgent("vm", `/agent/sessions/${session.id}/live`, {
-      generation: 1,
-      events: [
-        {
-          type: "prompt",
-          prompt: {
-            id: "p1",
-            kind: "confirm",
-            title: "Deploy?",
-            message: "Sure?",
-          },
-        },
-      ],
-    });
-
-    while (pushed.length === 0) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-
-    expect(subscribed.status).toBe(200);
-    expect(pushed).toEqual(["high"]);
-  } finally {
-    spy.mockRestore();
-  }
-});
-
 test("replays the current extension status, widgets and title to a client that connects later", async () => {
   const session = await createSession("vm");
-  await asAgent("vm", "/agent/work", { running: [], folders: [], models: [] });
+  await asAgent("vm", "/runner/work", { running: [], folders: [], models: [] });
 
-  await asAgent("vm", `/agent/sessions/${session.id}/live`, {
+  await asAgent("vm", `/runner/sessions/${session.id}/events`, {
     generation: 1,
     events: [
       { type: "extension_status", key: "build", text: "1 running" },
@@ -2594,7 +2641,7 @@ test("rejects requests from other sites", async () => {
     (
       await fetch(new URL(path, server.url), {
         method: path.endsWith("/commands") ? "POST" : "GET",
-        headers: { cookie: await signedIn(), ...headers },
+        headers: { cookie: await server.signedIn(), ...headers },
         ...(path.endsWith("/commands") && {
           body: JSON.stringify({ type: "message", text: "hi" }),
         }),
@@ -2633,13 +2680,14 @@ test("accepts a runner's calls under Docker's host name with its token alone", a
       await fetch(new URL(path, server.url), {
         headers: {
           host,
-          "pipoca-protocol": "4",
+          [versionHeader]: String(protocolVersion),
+          "content-type": "application/json",
           ...(token !== undefined && { authorization: `Bearer ${token}` }),
         },
       })
     ).status;
 
-  const transcript = `/agent/sessions/${session.id}/transcript`;
+  const transcript = `/runner/sessions/${session.id}/transcript`;
 
   expect(await reached(transcript, await runners.token("laptop"))).toBe(200);
   expect(await reached(transcript)).toBe(401);
@@ -2651,7 +2699,7 @@ test("does not open a terminal for a request that is not a WebSocket", async () 
   const session = await createSession("laptop");
   await follow(session.id, status("idle"));
 
-  const response = await api(`/api/sessions/${session.id}/terminal`);
+  const response = await server.api(`/api/sessions/${session.id}/terminal`);
   await new Promise((resolve) => setTimeout(resolve, 200));
 
   expect(response.status).toBe(400);
@@ -2717,13 +2765,14 @@ test("does not let a host take another session's terminal", async () => {
   const terminalId = /"terminalId":"([^"]+)"/.exec(line ?? "")?.[1] ?? "";
 
   const url = new URL(
-    `/agent/sessions/${second.id}/terminals/${terminalId}?generation=${String(generation?.type === "session" ? generation.session.generation : 0)}`,
+    `/runner/sessions/${second.id}/terminals/${terminalId}?generation=${String(generation?.type === "session" ? generation.session.generation : 0)}`,
     server.url,
   );
 
   const response = await fetch(url, {
     headers: {
-      "pipoca-protocol": "4",
+      [versionHeader]: String(protocolVersion),
+      "content-type": "application/json",
       authorization: `Bearer ${await runners.token("laptop")}`,
       ...webSocketUpgrade,
     },
@@ -2742,9 +2791,9 @@ test("closes a terminal whose browser stops reading while others keep working", 
     "head -c 100000000 /dev/zero | tr '\\0' x\n",
   );
 
-  while (!serverLogs.some((line) => line.includes("browser fell behind"))) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+  await until(() =>
+    server.logs.some((line) => line.includes("browser fell behind")),
+  );
 
   healthy.socket.send(encoder.encode("echo still=$((40+2))\n"));
   const output = await healthy.output("still=42");
@@ -2774,21 +2823,19 @@ async function sessionWhere(
 }
 
 async function agentLogged(message: string, generation: number): Promise<void> {
-  while (
-    !agentLogs.some(
+  await until(() =>
+    agentLogs.some(
       (line) =>
         line.startsWith(message) &&
         line.includes(`"generation":${String(generation)}`),
-    )
-  ) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+    ),
+  );
 }
 
 async function listed(query = ""): Promise<string[]> {
-  return ((await (await api(`/api/sessions${query}`)).json()) as Session[]).map(
-    (session) => session.id,
-  );
+  return (
+    (await (await server.api(`/api/sessions${query}`)).json()) as Session[]
+  ).map((session) => session.id);
 }
 
 const run = promisify(execFile);
@@ -2823,14 +2870,19 @@ test("archives a session: unloads it, hides it, refuses messages and replays it"
   const session = await createSession("laptop");
   await follow(session.id, status("idle"));
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "hi",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "hi",
+    },
   });
 
   await follow(session.id, (events) => roles(events).includes("assistant"));
 
-  const archived = await api(`/api/sessions/${session.id}/archive`, {});
+  const archived = await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
   expect(archived.status).toBe(200);
 
@@ -2840,13 +2892,15 @@ test("archives a session: unloads it, hides it, refuses messages and replays it"
     workspaceRemoval: null,
   });
 
-  while (!agentLogs.some((line) => line.startsWith("unloading session"))) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+  await until(() =>
+    agentLogs.some((line) => line.startsWith("unloading session")),
+  );
 
-  const sent = await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "again",
+  const sent = await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "again",
+    },
   });
 
   const replay = await follow(session.id, (events) =>
@@ -2884,13 +2938,19 @@ test("keeps the end of a turn that was running when its session was archived", a
   await follow(session.id, status("idle"));
   const watching = await watch(session.id);
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "hi",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "hi",
+    },
   });
 
   await watching(status("running"));
-  await api(`/api/sessions/${session.id}/archive`, {});
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
   const replay = await follow(session.id, (events) =>
     roles(events).includes("assistant"),
@@ -2918,23 +2978,35 @@ test("unarchives a session and reloads it idle with its transcript", async () =>
   const session = await createSession("laptop");
   await follow(session.id, status("idle"));
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "one",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "one",
+    },
   });
 
   await follow(session.id, (events) => roles(events).includes("assistant"));
-  await api(`/api/sessions/${session.id}/archive`, {});
-  await api(`/api/sessions/${session.id}/unarchive`, {});
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: false },
+  });
 
   await sessionWhere(
     session.id,
     (s) => s.archivedAt === null && s.generation === 2 && s.status === "idle",
   );
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "two",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "two",
+    },
   });
 
   const replay = await follow(
@@ -2957,7 +3029,7 @@ test("removes a clean worktree on archive and brings its pushed work back on una
     path: checkout,
   });
 
-  const branch = `pipoca/${session.id.slice(0, 8)}`;
+  const branch = `pipoca/${session.id.slice(-8)}`;
   const dir = join(root, "laptop", "workspaces", session.id);
   await follow(session.id, status("idle"));
   await writeFile(join(dir, "work.txt"), "work\n");
@@ -2965,7 +3037,10 @@ test("removes a clean worktree on archive and brings its pushed work back on una
   await inRepository(dir, "commit", "--quiet", "-m", "work");
   await inRepository(dir, "push", "--quiet", "origin", branch);
 
-  await api(`/api/sessions/${session.id}/archive`, {});
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
   const removed = await sessionWhere(
     session.id,
@@ -2978,7 +3053,10 @@ test("removes a clean worktree on archive and brings its pushed work back on una
 
   expect(stat(dir)).rejects.toThrow();
 
-  await api(`/api/sessions/${session.id}/unarchive`, {});
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: false },
+  });
 
   await sessionWhere(
     session.id,
@@ -2996,7 +3074,7 @@ test("brings pushed work back when unarchived while its worktree is being remove
     path: checkout,
   });
 
-  const branch = `pipoca/${session.id.slice(0, 8)}`;
+  const branch = `pipoca/${session.id.slice(-8)}`;
   const dir = join(root, "laptop", "workspaces", session.id);
   await follow(session.id, status("idle"));
   await writeFile(join(dir, "work.txt"), "work\n");
@@ -3004,13 +3082,19 @@ test("brings pushed work back when unarchived while its worktree is being remove
   await inRepository(dir, "commit", "--quiet", "-m", "work");
   await inRepository(dir, "push", "--quiet", "origin", branch);
 
-  await api(`/api/sessions/${session.id}/archive`, {});
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
-  while (!agentLogs.some((line) => line.startsWith("unloading session"))) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+  await until(() =>
+    agentLogs.some((line) => line.startsWith("unloading session")),
+  );
 
-  await api(`/api/sessions/${session.id}/unarchive`, {});
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: false },
+  });
 
   const restarted = await sessionWhere(
     session.id,
@@ -3044,7 +3128,7 @@ function reportLosingProxy(
       const url = new URL(request.url);
 
       const loss =
-        request.method === "POST" && url.pathname.endsWith("/workspace")
+        request.method === "POST" && url.pathname.endsWith("/workspace-removal")
           ? lose(++reports)
           : undefined;
 
@@ -3081,14 +3165,18 @@ async function archivedWithPushedWork(): Promise<{
     path: checkout,
   });
 
-  const branch = `pipoca/${session.id.slice(0, 8)}`;
+  const branch = `pipoca/${session.id.slice(-8)}`;
   const dir = join(root, "laptop", "workspaces", session.id);
   await follow(session.id, status("idle"));
   await writeFile(join(dir, "work.txt"), "work\n");
   await inRepository(dir, "add", ".");
   await inRepository(dir, "commit", "--quiet", "-m", "work");
   await inRepository(dir, "push", "--quiet", "origin", branch);
-  await api(`/api/sessions/${session.id}/archive`, {});
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
   return { session, dir };
 }
@@ -3103,7 +3191,11 @@ test("sends a lost removal report again instead of removing the worktree twice",
   try {
     const { session, dir } = await archivedWithPushedWork();
     await sessionWhere(session.id, (s) => s.workspaceRemoval === "removed");
-    await api(`/api/sessions/${session.id}/unarchive`, {});
+
+    await server.api(`/api/sessions/${session.id}`, {
+      method: "PATCH",
+      body: { archived: false },
+    });
 
     await sessionWhere(
       session.id,
@@ -3124,15 +3216,16 @@ test("brings pushed work back when unarchived before a lost removal report gets 
   try {
     const { session, dir } = await archivedWithPushedWork();
 
-    while (
-      !agentLogs.some((line) =>
+    await until(() =>
+      agentLogs.some((line) =>
         line.startsWith("workspace removal not reported"),
-      )
-    ) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
+      ),
+    );
 
-    await api(`/api/sessions/${session.id}/unarchive`, {});
+    await server.api(`/api/sessions/${session.id}`, {
+      method: "PATCH",
+      body: { archived: false },
+    });
 
     await sessionWhere(
       session.id,
@@ -3166,9 +3259,18 @@ test("forces a removal whose kept report reached the server but not its reply", 
     await writeFile(join(dir, "work.txt"), "work\n");
     await inRepository(dir, "add", ".");
     await inRepository(dir, "commit", "--quiet", "-m", "work");
-    await api(`/api/sessions/${session.id}/archive`, {});
+
+    await server.api(`/api/sessions/${session.id}`, {
+      method: "PATCH",
+      body: { archived: true },
+    });
+
     await sessionWhere(session.id, (s) => s.workspaceRemoval === "kept");
-    await api(`/api/sessions/${session.id}/remove-workspace`, {});
+
+    await server.api(`/api/sessions/${session.id}/workspace`, {
+      method: "DELETE",
+    });
+
     await sessionWhere(session.id, (s) => s.workspaceRemoval === "removed");
     const leftover = await stat(dir).catch(() => undefined);
 
@@ -3187,7 +3289,7 @@ test("leaves no worktree behind when archived again while its first removal runs
     path: checkout,
   });
 
-  const branch = `pipoca/${session.id.slice(0, 8)}`;
+  const branch = `pipoca/${session.id.slice(-8)}`;
   const dir = join(root, "laptop", "workspaces", session.id);
   await follow(session.id, status("idle"));
 
@@ -3207,17 +3309,34 @@ test("leaves no worktree behind when archived again while its first removal runs
 
   const watching = await watch(session.id);
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "hi",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "hi",
+    },
   });
 
   await watching(status("running"));
-  await api(`/api/sessions/${session.id}/archive`, {});
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
+
   await agentLogged("unloading session", 1);
-  await api(`/api/sessions/${session.id}/unarchive`, {});
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: false },
+  });
+
   await agentLogged("starting session", 2);
-  await api(`/api/sessions/${session.id}/archive`, {});
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
+
   await agentLogged("unloading session", 2);
   answer();
   await sessionWhere(session.id, (s) => s.workspaceRemoval === "removed");
@@ -3241,10 +3360,13 @@ test("stores the restore point of a removal reported after unarchive", async () 
     path: root,
   });
 
-  await api(`/api/sessions/${session.id}/archive`, {});
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
   const work = (await (
-    await asAgent("vm", "/agent/work", {
+    await asAgent("vm", "/runner/work", {
       running: [],
       folders: [],
       models: [],
@@ -3253,7 +3375,10 @@ test("stores the restore point of a removal reported after unarchive", async () 
 
   expect(work).toMatchObject({ remove: [{ sessionId: session.id }] });
 
-  await api(`/api/sessions/${session.id}/unarchive`, {});
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: false },
+  });
 
   const restore = {
     ...session.workspace,
@@ -3262,12 +3387,12 @@ test("stores the restore point of a removal reported after unarchive", async () 
 
   const reported = await asAgent(
     "vm",
-    `/agent/sessions/${session.id}/workspace`,
+    `/runner/sessions/${session.id}/workspace-removal`,
     { generation: work.remove[0]?.generation, outcome: "removed", restore },
   );
 
   const stored = (await (
-    await api(`/api/sessions/${session.id}`)
+    await server.api(`/api/sessions/${session.id}`)
   ).json()) as Session;
 
   expect(reported.status).toBe(204);
@@ -3284,7 +3409,7 @@ test("settles a removal only with the report for the archive it was handed out f
 
   const poll = async (generation?: number): Promise<Work> =>
     (await (
-      await asAgent("vm", "/agent/work", {
+      await asAgent("vm", "/runner/work", {
         running:
           generation === undefined
             ? []
@@ -3297,7 +3422,7 @@ test("settles a removal only with the report for the archive it was handed out f
   const report = async (
     removal: Work["remove"][number] | undefined,
   ): Promise<Session> => {
-    await asAgent("vm", `/agent/sessions/${session.id}/workspace`, {
+    await asAgent("vm", `/runner/sessions/${session.id}/workspace-removal`, {
       generation: removal?.generation,
       outcome: "removed",
       restore: {
@@ -3306,15 +3431,32 @@ test("settles a removal only with the report for the archive it was handed out f
       },
     });
 
-    return (await (await api(`/api/sessions/${session.id}`)).json()) as Session;
+    return (await (
+      await server.api(`/api/sessions/${session.id}`)
+    ).json()) as Session;
   };
 
   await poll();
-  await api(`/api/sessions/${session.id}/archive`, {});
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
+
   const [first] = (await poll(1)).remove;
-  await api(`/api/sessions/${session.id}/unarchive`, {});
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: false },
+  });
+
   await poll();
-  await api(`/api/sessions/${session.id}/archive`, {});
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
+
   const overtaken = await report(first);
   const [second] = (await poll(2)).remove;
   const settled = await report(second);
@@ -3336,7 +3478,7 @@ test("keeps a session's workspace when a removal report's restore has no kind", 
 
   const reported = await asAgent(
     "vm",
-    `/agent/sessions/${session.id}/workspace`,
+    `/runner/sessions/${session.id}/workspace-removal`,
     {
       generation: 0,
       outcome: "removed",
@@ -3345,10 +3487,10 @@ test("keeps a session's workspace when a removal report's restore has no kind", 
   );
 
   const stored = (await (
-    await api(`/api/sessions/${session.id}`)
+    await server.api(`/api/sessions/${session.id}`)
   ).json()) as Session;
 
-  expect(reported.status).toBe(400);
+  expect(reported.status).toBe(422);
   expect(stored.workspace).toEqual(session.workspace);
 });
 
@@ -3358,10 +3500,13 @@ test("keeps the restore points a partly failed removal reports", async () => {
     path: root,
   });
 
-  await api(`/api/sessions/${session.id}/archive`, {});
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
   const work = (await (
-    await asAgent("vm", "/agent/work", {
+    await asAgent("vm", "/runner/work", {
       running: [],
       folders: [],
       models: [],
@@ -3373,7 +3518,7 @@ test("keeps the restore points a partly failed removal reports", async () => {
     restorePoint: "origin/pipoca/restored",
   };
 
-  await asAgent("vm", `/agent/sessions/${session.id}/workspace`, {
+  await asAgent("vm", `/runner/sessions/${session.id}/workspace-removal`, {
     generation: work.remove[0]?.generation,
     outcome: "kept",
     reason: "git failed",
@@ -3381,7 +3526,7 @@ test("keeps the restore points a partly failed removal reports", async () => {
   });
 
   const stored = (await (
-    await api(`/api/sessions/${session.id}`)
+    await server.api(`/api/sessions/${session.id}`)
   ).json()) as Session;
 
   expect(stored).toMatchObject({
@@ -3415,9 +3560,11 @@ test("checks several repositories out in one workspace and shows each one's chan
   await writeFile(join(dir, "tools", "draft.txt"), "draft\n");
   faux.setResponses([fauxAssistantMessage([fauxText("noted")])]);
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "look around",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "look around",
+    },
   });
 
   const events = await follow(session.id, (seen) =>
@@ -3438,7 +3585,10 @@ test("checks several repositories out in one workspace and shows each one's chan
     { name: "tools", files: [{ status: "A", path: "draft.txt" }] },
   ]);
 
-  await api(`/api/sessions/${session.id}/archive`, {});
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
   const kept = await sessionWhere(
     session.id,
@@ -3450,22 +3600,25 @@ test("checks several repositories out in one workspace and shows each one's chan
 });
 
 test("rejects repositories that would share a folder", async () => {
-  const response = await api("/api/sessions", {
-    environment: await environmentOf("laptop"),
-    workspace: {
-      kind: "repositories",
-      repositories: [
-        { repository: "https://example.com/a/tool.git" },
-        { repository: "git@example.com:b/tool" },
-      ],
+  const response = await server.api("/api/sessions", {
+    body: {
+      environment: await environmentOf("laptop"),
+      workspace: {
+        kind: "repositories",
+        repositories: [
+          { repository: "https://example.com/a/tool.git" },
+          { repository: "git@example.com:b/tool" },
+        ],
+      },
     },
   });
 
-  expect(response.status).toBe(400);
+  expect(response.status).toBe(422);
 
   expect(await response.json()).toEqual({
-    error: "bad_request",
-    message: "repositories need different names",
+    error: "invalid",
+    message: "workspace.repositories need different names",
+    field: "workspace.repositories",
   });
 });
 
@@ -3475,12 +3628,14 @@ test("rejects a repository whose URL leaves no name for its folder", async () =>
     "https://example.com/org/.",
     "/home/me/app/.git",
   ]) {
-    const response = await api("/api/sessions", {
-      environment: await environmentOf("laptop"),
-      workspace: { kind: "repositories", repositories: [{ repository }] },
+    const response = await server.api("/api/sessions", {
+      body: {
+        environment: await environmentOf("laptop"),
+        workspace: { kind: "repositories", repositories: [{ repository }] },
+      },
     });
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(422);
   }
 });
 
@@ -3495,14 +3650,21 @@ test("rejects a repository URL that carries credentials", async () => {
       repositories: [{ repository: "ssh://git:secret@example.com/org/app" }],
     },
   ]) {
-    const response = await api("/api/sessions", { environment, workspace });
+    const response = await server.api("/api/sessions", {
+      body: { environment, workspace },
+    });
 
-    expect(response.status).toBe(400);
+    const field =
+      workspace.kind === "clone"
+        ? "workspace.repository"
+        : "workspace.repositories.0.repository";
+
+    expect(response.status).toBe(422);
 
     expect(await response.json()).toEqual({
-      error: "bad_request",
-      message:
-        "repository URLs can't hold credentials: connect the git host instead",
+      error: "invalid",
+      message: `${field} can't hold credentials: connect the git host instead`,
+      field,
     });
   }
 });
@@ -3521,23 +3683,33 @@ test("keeps a worktree with unpushed work on archive until the user forces remov
   await inRepository(dir, "add", ".");
   await inRepository(dir, "commit", "--quiet", "-m", "work");
 
-  const early = await api(`/api/sessions/${session.id}/remove-workspace`, {});
-  await api(`/api/sessions/${session.id}/archive`, {});
+  const early = await server.api(`/api/sessions/${session.id}/workspace`, {
+    method: "DELETE",
+  });
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
+
   await sessionWhere(session.id, (s) => s.workspaceRemoval === "kept");
 
   const kept = (await (
-    await api(`/api/sessions/${session.id}`)
+    await server.api(`/api/sessions/${session.id}`)
   ).json()) as Session;
 
   expect(early.status).toBe(409);
   expect(kept.workspaceKeptReason).toBe("unpushed commits");
   expect(await readFile(join(dir, "work.txt"), "utf8")).toBe("work\n");
 
-  const forced = await api(`/api/sessions/${session.id}/remove-workspace`, {});
+  const forced = await server.api(`/api/sessions/${session.id}/workspace`, {
+    method: "DELETE",
+  });
+
   await sessionWhere(session.id, (s) => s.workspaceRemoval === "removed");
 
   const removed = (await (
-    await api(`/api/sessions/${session.id}`)
+    await server.api(`/api/sessions/${session.id}`)
   ).json()) as Session;
 
   expect(forced.status).toBe(200);
@@ -3557,12 +3729,19 @@ test("keeps a workspace whose removal fails until the user forces removal", asyn
   await follow(session.id, status("idle"));
   await rm(join(checkout, ".git"), { recursive: true, force: true });
 
-  await api(`/api/sessions/${session.id}/archive`, {});
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
+
   await sessionWhere(session.id, (s) => s.workspaceRemoval === "kept");
 
   expect((await stat(dir)).isDirectory()).toBe(true);
 
-  const forced = await api(`/api/sessions/${session.id}/remove-workspace`, {});
+  const forced = await server.api(`/api/sessions/${session.id}/workspace`, {
+    method: "DELETE",
+  });
+
   await sessionWhere(session.id, (s) => s.workspaceRemoval === "removed");
 
   expect(forced.status).toBe(200);
@@ -3581,8 +3760,13 @@ test("removes an archived session's workspace when its provider comes back", asy
   await follow(session.id, status("idle"));
 
   await laptop();
-  await api(`/api/sessions/${session.id}/archive`, {});
-  const pending = await api(`/api/sessions/${session.id}`);
+
+  await server.api(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
+
+  const pending = await server.api(`/api/sessions/${session.id}`);
 
   expect(await pending.json()).toMatchObject({ workspaceRemoval: "pending" });
 
@@ -3597,18 +3781,21 @@ test("creates a session in the first Environment unless the request names one", 
   await environmentOf("vm");
 
   const first = (await (
-    await api("/api/sessions", { workspace: { kind: "folder", path: root } })
+    await server.api("/api/sessions", {
+      body: { workspace: { kind: "folder", path: root } },
+    })
   ).json()) as Session;
 
-  const unknown = await api("/api/sessions", {
-    environment: "nowhere",
-    workspace: { kind: "folder", path: root },
+  const unknown = await server.api("/api/sessions", {
+    body: {
+      environment: "nowhere",
+      workspace: { kind: "folder", path: root },
+    },
   });
 
   expect(first).toMatchObject({
     environmentId: laptopEnvironment,
     provider: "laptop",
-    ownerId: "local",
   });
 
   expect(unknown.status).toBe(400);
@@ -3620,21 +3807,23 @@ test("creates a session in the first Environment unless the request names one", 
 });
 
 test("sends browser commands to the session as the signed-in user, whatever the browser claims", async () => {
-  const { user } = (await (await api("/api/auth")).json()) as {
+  const { user } = (await (await server.api("/api/auth")).json()) as {
     user: { id: string };
   };
 
   const session = await createSession("laptop");
   await follow(session.id, status("idle"));
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "abort",
-    actor: "plugin:impostor",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "abort",
+      actor: "plugin:impostor",
+    },
   });
 
-  while (!agentLogs.some((line) => line.startsWith("command received"))) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+  await until(() =>
+    agentLogs.some((line) => line.startsWith("command received")),
+  );
 
   expect(
     agentLogs.filter((line) => line.startsWith("command received")),
@@ -3702,10 +3891,11 @@ async function startProcessAgent(
   extensionPaths: readonly string[] = [],
 ): Promise<() => Promise<void>> {
   const dataDir = join(root, "process");
-  await mkdir(dataDir, { recursive: true });
+  const logins = join(dataDir, "logins");
+  await mkdir(logins, { recursive: true });
 
   await writeFile(
-    join(dataDir, "models.json"),
+    join(logins, "models.json"),
     JSON.stringify({
       providers: {
         fake: {
@@ -3721,6 +3911,7 @@ async function startProcessAgent(
   const controller = new AbortController();
 
   const done = runAgent({
+    binary,
     server: server.url.href,
     provider: "process",
     credential: { key: await runners.key("process") },
@@ -3784,18 +3975,22 @@ test("runs each session in its own process and reloads it when the process dies"
 
   try {
     const session = (await (
-      await api("/api/sessions", {
-        environment: await environmentOf("process"),
-        workspace: { kind: "folder", path: root },
-        model: { provider: "fake", id: "fake-model" },
+      await server.api("/api/sessions", {
+        body: {
+          environment: await environmentOf("process"),
+          workspace: { kind: "folder", path: root },
+          model: { provider: "fake", id: "fake-model" },
+        },
       })
     ).json()) as Session;
 
     await follow(session.id, status("idle"));
 
-    await api(`/api/sessions/${session.id}/commands`, {
-      type: "message",
-      text: "hi",
+    await server.api(`/api/sessions/${session.id}/commands`, {
+      body: {
+        type: "message",
+        text: "hi",
+      },
     });
 
     const reply = await follow(session.id, (events) =>
@@ -3828,10 +4023,12 @@ test("runs each session in its own process and reloads it when the process dies"
 
     expect(await terminal.output("sum=42")).toContain(`dir=${root}`);
 
-    await api(`/api/sessions/${session.id}/archive`, {});
-    while (second !== undefined && alive(second)) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
+    await server.api(`/api/sessions/${session.id}`, {
+      method: "PATCH",
+      body: { archived: true },
+    });
+
+    await until(() => second === undefined || !alive(second));
   } finally {
     await model.stop(true);
   }
@@ -3844,18 +4041,22 @@ test("records a tool cut off by its host going down as interrupted, not by its e
 
   try {
     const session = (await (
-      await api("/api/sessions", {
-        environment: await environmentOf("process"),
-        workspace: { kind: "folder", path: root },
-        model: { provider: "fake", id: "fake-model" },
+      await server.api("/api/sessions", {
+        body: {
+          environment: await environmentOf("process"),
+          workspace: { kind: "folder", path: root },
+          model: { provider: "fake", id: "fake-model" },
+        },
       })
     ).json()) as Session;
 
     await follow(session.id, status("idle"));
 
-    await api(`/api/sessions/${session.id}/commands`, {
-      type: "message",
-      text: "run something slow",
+    await server.api(`/api/sessions/${session.id}/commands`, {
+      body: {
+        type: "message",
+        text: "run something slow",
+      },
     });
 
     let toolPid = Number.NaN;
@@ -3898,11 +4099,13 @@ test("sends a session process its first message", async () => {
 
   try {
     const session = (await (
-      await api("/api/sessions", {
-        environment: await environmentOf("process"),
-        workspace: { kind: "folder", path: root },
-        model: { provider: "fake", id: "fake-model" },
-        firstMessage: "start here",
+      await server.api("/api/sessions", {
+        body: {
+          environment: await environmentOf("process"),
+          workspace: { kind: "folder", path: root },
+          model: { provider: "fake", id: "fake-model" },
+          firstMessage: "start here",
+        },
       })
     ).json()) as Session;
 
@@ -3922,10 +4125,12 @@ test("marks a session failed when its process cannot start it", async () => {
 
   try {
     const session = (await (
-      await api("/api/sessions", {
-        environment: await environmentOf("process"),
-        workspace: { kind: "folder", path: root },
-        model: { provider: "nowhere", id: "none" },
+      await server.api("/api/sessions", {
+        body: {
+          environment: await environmentOf("process"),
+          workspace: { kind: "folder", path: root },
+          model: { provider: "nowhere", id: "none" },
+        },
       })
     ).json()) as Session;
 
@@ -3957,18 +4162,22 @@ test("keeps a session process working when its extensions print JSON", async () 
 
   try {
     const session = (await (
-      await api("/api/sessions", {
-        environment: await environmentOf("process"),
-        workspace: { kind: "folder", path: root },
-        model: { provider: "fake", id: "fake-model" },
+      await server.api("/api/sessions", {
+        body: {
+          environment: await environmentOf("process"),
+          workspace: { kind: "folder", path: root },
+          model: { provider: "fake", id: "fake-model" },
+        },
       })
     ).json()) as Session;
 
     await follow(session.id, status("idle"));
 
-    await api(`/api/sessions/${session.id}/commands`, {
-      type: "message",
-      text: "hi",
+    await server.api(`/api/sessions/${session.id}/commands`, {
+      body: {
+        type: "message",
+        text: "hi",
+      },
     });
 
     const reply = await follow(session.id, (events) =>
@@ -4040,9 +4249,11 @@ async function openedPage(url: string): Promise<Session> {
   const session = await createSession("laptop");
   await follow(session.id, status("idle"));
 
-  await api(`/api/sessions/${session.id}/commands`, {
-    type: "message",
-    text: "open it",
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: {
+      type: "message",
+      text: "open it",
+    },
   });
 
   await follow(session.id, (events) =>
@@ -4064,18 +4275,9 @@ async function visitPreview(
   port: number,
   path: string,
 ): Promise<{ host: string; cookie: string; location: string | null }> {
-  const opened = await fetch(
-    new URL(
-      `/api/sessions/${sessionId}/previews/${String(port)}?path=${encodeURIComponent(path)}`,
-      server.url,
-    ),
-    {
-      redirect: "manual",
-      headers: {
-        cookie: await signedIn(),
-        host: `localhost:${server.url.port}`,
-      },
-    },
+  const opened = await server.api(
+    `/api/sessions/${sessionId}/previews/${String(port)}?path=${encodeURIComponent(path)}`,
+    { headers: { host: `localhost:${server.url.port}` }, redirect: "manual" },
   );
 
   const admit = new URL(opened.headers.get("location") ?? "");
@@ -4123,9 +4325,9 @@ test("previews a page the Session opened in a browser at its own origin", async 
     body: "approve",
   });
 
-  const moved = await fetch(new URL("/moved", server.url), {
+  const moved = await server.as(preview.cookie)("/moved", {
+    headers: { host: preview.host },
     redirect: "manual",
-    headers: { host: preview.host, cookie: preview.cookie },
   });
 
   expect(moved.headers.get("location")).toBe("/plan");
@@ -4142,10 +4344,7 @@ test("ends a preview's visit when its user signs out", async () => {
 
   const before = await fetch(new URL("/", server.url), { headers });
 
-  const signedOut = await fetch(new URL("/api/auth/logout", server.url), {
-    method: "POST",
-    headers: { cookie: await signedIn() },
-  });
+  const signedOut = await server.api("/api/auth/session", { method: "DELETE" });
 
   const after = await fetch(new URL("/", server.url), { headers });
 
@@ -4172,19 +4371,13 @@ test("keeps Pipoca's API and other ports out of a preview's origin", async () =>
     fetch(new URL("/api/sessions", server.url), {
       headers: { host: preview.host },
     }),
-    fetch(new URL("/api/sessions", server.url), {
-      headers: { host: preview.host, cookie: await signedIn() },
-    }),
-    fetch(new URL("/", server.url), {
-      headers: { host: otherPort.host, cookie: otherPort.cookie },
-    }),
+    server.api("/api/sessions", { headers: { host: preview.host } }),
+    server.as(otherPort.cookie)("/", { headers: { host: otherPort.host } }),
   ]);
 
   const proxied = await Promise.all(
     ["/", "/api/sessions"].map(async (path) =>
-      fetch(new URL(path, server.url), {
-        headers: { host: preview.host, cookie: preview.cookie },
-      }),
+      server.as(preview.cookie)(path, { headers: { host: preview.host } }),
     ),
   );
 

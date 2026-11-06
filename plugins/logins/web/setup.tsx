@@ -1,13 +1,13 @@
+import { logins } from "../plugin";
+import { type SetupStep, useLoaded, useApi } from "@pipoca/plugins/web";
 import {
-  json,
-  type SetupStep,
-  useLoaded,
-  type WebContext,
-} from "@pipoca/plugins/web";
-import {
+  Avatar,
   Badge,
   Button,
+  cardClass,
+  ChoiceTiles,
   cn,
+  ErrorText,
   initialsOf,
   Picker,
   Row,
@@ -39,28 +39,27 @@ export const modelStep: SetupStep = {
   description:
     "Pick who runs the thinking. Your login stays on this server and works on every machine you connect.",
   // A runner's own login counts too, as it did before the setup.
-  done: async (context) =>
-    (await json<Environment[]>(context.request("/api/environments"))).some(
+  done: async (api) =>
+    (await api.get<Environment[]>("/api/environments")).some(
       ({ models }) => models.length > 0,
     ),
-  topics: ["logins.logins", "environments"],
+  topics: ["environments"],
+  changes: ["logins"],
   wide: true,
   Step: ModelStep,
 };
 
-function ModelStep({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement | null {
+function ModelStep(): ReactElement | null {
+  const api = useApi(logins);
+
   const { value: account, reload } = useLoaded(
-    async () => json<Account>(context.request("account")),
+    async () => api.get<Account>("account"),
     "account",
-    { topics: ["logins.logins"] },
+    { changes: ["logins"] },
   );
 
   const { value: providers } = useLoaded(
-    async () => json<readonly Connectable[]>(context.request("providers")),
+    async () => api.get<readonly Connectable[]>("providers"),
     "providers",
   );
 
@@ -88,8 +87,8 @@ function ModelStep({
 
   const type = provider?.methods.find((each) => each.type === method)?.type;
 
-  const send = (path: string, init: RequestInit): void => {
-    json(context.request(path, init)).then(
+  const send = (call: Promise<unknown>): void => {
+    call.then(
       () => {
         setError(undefined);
         reload();
@@ -103,39 +102,20 @@ function ModelStep({
 
   return (
     <div className="flex flex-col gap-4">
-      <ul
-        aria-label="Model providers"
-        className="grid grid-cols-2 gap-2.5 md:grid-cols-4"
+      <ChoiceTiles
+        label="Model providers"
+        name="provider"
+        columns={4}
+        value={chosen}
+        onChange={choose}
+        tiles={shown.map((each) => ({
+          value: each.id,
+          title: each.name,
+          description: each.methods.map(({ label }) => label).join(" or "),
+          leading: <Avatar name={each.name} square size="md" />,
+        }))}
       >
-        {shown.map((each) => (
-          <li key={each.id}>
-            <button
-              type="button"
-              aria-pressed={each.id === chosen}
-              onClick={() => {
-                choose(each.id);
-              }}
-              className={cn(
-                "flex h-full w-full cursor-pointer flex-col items-start gap-2 rounded-lg border border-line bg-elevated p-3.5 text-left hover:border-line-strong",
-                "aria-pressed:border-fg-strong aria-pressed:shadow-xs",
-              )}
-            >
-              <span
-                aria-hidden="true"
-                className="grid size-8.5 place-items-center rounded-md border border-line bg-hover text-label font-semibold text-fg-strong"
-              >
-                {initialsOf(each.name)}
-              </span>
-              <span className="text-ui font-medium text-fg-strong">
-                {each.name}
-              </span>
-              <span className="text-label text-fg-dim">
-                {each.methods.map(({ label }) => label).join(" or ")}
-              </span>
-            </button>
-          </li>
-        ))}
-        <li className="flex flex-col items-start justify-center gap-2 rounded-lg border border-dashed border-line-strong p-3.5">
+        <div className="flex flex-col items-start justify-center gap-2 rounded-lg border border-dashed border-line-strong p-3.5">
           <span className="text-ui font-medium text-fg-strong">
             Another provider
           </span>
@@ -155,8 +135,8 @@ function ModelStep({
           >
             All {providers.length} providers
           </Picker>
-        </li>
-      </ul>
+        </div>
+      </ChoiceTiles>
       <p className="text-caption text-fg-dim">
         Every sign-in happens right here, with no Session needed. You can
         connect more than one.
@@ -167,7 +147,7 @@ function ModelStep({
       {account.connection === undefined && provider !== undefined && (
         <section
           aria-label={`Connect ${provider.name}`}
-          className="flex flex-col items-start gap-3 rounded-lg border border-line bg-elevated p-5 shadow-xs"
+          className={cn(cardClass, "flex flex-col items-start gap-3 p-5")}
         >
           {provider.methods.length > 1 && (
             <Segmented
@@ -183,21 +163,14 @@ function ModelStep({
           <Button
             variant="primary"
             onClick={() => {
-              send("connect", {
-                method: "POST",
-                body: JSON.stringify({ provider: provider.id, type }),
-              });
+              send(api.post("connect", { provider: provider.id, type }));
             }}
           >
             Connect {provider.name}
           </Button>
         </section>
       )}
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
       {account.logins.length > 0 && (
         <Rows label="Your model logins">
           {account.logins.map((login) => (

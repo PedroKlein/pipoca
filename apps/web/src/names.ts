@@ -49,7 +49,7 @@ export function modelRef(name: string): ModelRef | undefined {
     : undefined;
 }
 
-export interface SessionBadge {
+interface SessionBadge {
   readonly state: "working" | "waiting" | "failed" | "offline";
   readonly label: string;
 }
@@ -108,9 +108,4 @@ export function shortName(workspace: Workspace): string {
       return rest.length === 0 ? name : `${name} +${String(rest.length)}`;
     }
   }
-}
-
-// Team work opens inside the team's area (ADR 0065).
-export function teamSessionHref(sessionId: string): string {
-  return `#team/sessions/${sessionId}`;
 }

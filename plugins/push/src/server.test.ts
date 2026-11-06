@@ -1,70 +1,78 @@
-import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { createPublicKey, verify } from "node:crypto";
+import { server as logins } from "@pipoca/logins/server";
 import {
-  eventBus,
-  type PluginRoute,
-  type ServerPluginContext,
-} from "@pipoca/plugins";
-import {
-  fakeContext,
-  fakeSession,
-  fakeUser,
-  served,
-} from "@pipoca/plugins/testing";
-import type { Session } from "@pipoca/protocol";
-import { push } from "./server";
+  type PluginTest,
+  person,
+  type TestSession,
+  testPlugin,
+  until,
+} from "@pipoca/testing";
+import { server as usage } from "@pipoca/usage/server";
+import { server } from "./server";
 
 interface Sent {
   readonly url: string;
   readonly headers: Headers;
-  readonly body: Uint8Array;
+  readonly body: Uint8Array<ArrayBuffer>;
 }
 
-// Bun runs every test file in one process, so a Session another file left
-// running can still fetch while this file's spy is in place.
-const realFetch = globalThis.fetch;
-const pushService = "https://fcm.googleapis.com/";
+const people = [
+  { id: "owner", name: "Owner" },
+  { id: "ana", name: "Ana" },
+  { id: "boss", name: "Boss", admin: true },
+];
 
-let sent: Sent[];
-let gone: Set<string>;
-let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">>;
+const device = (name: string) => `https://fcm.googleapis.com/fcm/send/${name}`;
 
-beforeEach(() => {
-  sent = [];
-  gone = new Set();
+// The browsers' push service, which answers 410 for an endpoint that's gone,
+// and Anthropic, answering each call with the tokens its body asks for.
+function services(): {
+  readonly sent: Sent[];
+  readonly gone: Set<string>;
+  readonly fetch: (request: Request) => Promise<Response>;
+} {
+  const sent: Sent[] = [];
+  const gone = new Set<string>();
 
-  fetchSpy = spyOn(globalThis, "fetch").mockImplementation((async (
-    input: string | URL | Request,
-    init?: RequestInit,
-  ) => {
-    const url = input instanceof Request ? input.url : input.toString();
+  return {
+    sent,
+    gone,
+    fetch: async (request) => {
+      if (request.url.startsWith("https://api.anthropic.com/")) {
+        const { input } = (await request.json()) as { input: number };
 
-    if (!url.startsWith(pushService)) {
-      return realFetch(input, init);
-    }
+        const events = [
+          {
+            type: "message_start",
+            message: { usage: { input_tokens: input } },
+          },
+          { type: "message_delta", usage: { output_tokens: 0 } },
+        ];
 
-    sent.push({
-      url,
-      headers: new Headers(init?.headers),
-      body: new Uint8Array(init?.body as Uint8Array),
-    });
+        return new Response(
+          events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+          { headers: { "content-type": "text/event-stream" } },
+        );
+      }
 
-    return Promise.resolve(
-      new Response(null, { status: gone.has(url) ? 410 : 201 }),
-    );
-  }) as typeof fetch);
-});
+      sent.push({
+        url: request.url,
+        headers: request.headers,
+        body: new Uint8Array(await request.arrayBuffer()),
+      });
 
-afterEach(() => {
-  fetchSpy.mockRestore();
-});
-
-const endpoint = "https://fcm.googleapis.com/fcm/send/device-1";
+      return new Response(null, { status: gone.has(request.url) ? 410 : 201 });
+    },
+  };
+}
 
 // A browser's side of a subscription: its keys, to read what it is sent.
-async function browser(at = endpoint): Promise<{
+async function browser(at = device("device-1")): Promise<{
   readonly subscription: object;
-  readonly read: (body: Uint8Array) => Promise<unknown>;
+  readonly read: (
+    body: Uint8Array<ArrayBuffer> | undefined,
+  ) => Promise<unknown>;
 }> {
   const keys = await crypto.subtle.generateKey(
     { name: "ECDH", namedCurve: "P-256" },
@@ -78,7 +86,31 @@ async function browser(at = endpoint): Promise<{
 
   const auth = crypto.getRandomValues(new Uint8Array(16));
 
-  const read = async (body: Uint8Array): Promise<unknown> => {
+  const derive = async (
+    ikm: Uint8Array<ArrayBuffer>,
+    salt: Uint8Array<ArrayBuffer>,
+    info: string | Uint8Array<ArrayBuffer>,
+    length: number,
+  ): Promise<Uint8Array<ArrayBuffer>> =>
+    new Uint8Array(
+      await crypto.subtle.deriveBits(
+        {
+          name: "HKDF",
+          hash: "SHA-256",
+          salt,
+          info:
+            typeof info === "string"
+              ? Uint8Array.from(Buffer.from(info))
+              : info,
+        },
+        await crypto.subtle.importKey("raw", ikm, "HKDF", false, [
+          "deriveBits",
+        ]),
+        length * 8,
+      ),
+    );
+
+  const read = async (body = new Uint8Array()): Promise<unknown> => {
     const salt = body.slice(0, 16);
     const senderKey = body.slice(21, 21 + 65);
 
@@ -96,30 +128,6 @@ async function browser(at = endpoint): Promise<{
       256,
     );
 
-    const derive = async (
-      ikm: Uint8Array<ArrayBuffer>,
-      saltBytes: Uint8Array<ArrayBuffer>,
-      info: string | Uint8Array<ArrayBuffer>,
-      length: number,
-    ): Promise<Uint8Array<ArrayBuffer>> =>
-      new Uint8Array(
-        await crypto.subtle.deriveBits(
-          {
-            name: "HKDF",
-            hash: "SHA-256",
-            salt: saltBytes,
-            info:
-              typeof info === "string"
-                ? Uint8Array.from(Buffer.from(info))
-                : info,
-          },
-          await crypto.subtle.importKey("raw", ikm, "HKDF", false, [
-            "deriveBits",
-          ]),
-          length * 8,
-        ),
-      );
-
     const ikm = await derive(
       new Uint8Array(shared),
       auth,
@@ -130,7 +138,6 @@ async function browser(at = endpoint): Promise<{
     );
 
     const cek = await derive(ikm, salt, "Content-Encoding: aes128gcm\0", 16);
-
     const nonce = await derive(ikm, salt, "Content-Encoding: nonce\0", 12);
 
     const plain = new Uint8Array(
@@ -160,96 +167,55 @@ async function browser(at = endpoint): Promise<{
   };
 }
 
-type Bus = ReturnType<typeof eventBus>;
-
-function registered(members: Partial<ServerPluginContext> = {}): {
-  readonly route: PluginRoute;
-  readonly events: Bus;
-} {
-  const routes: PluginRoute[] = [];
-
-  const events = eventBus((_type, error) => {
-    throw error;
-  });
-
-  const context = fakeContext({
-    events: { ...events, declared: () => [] },
-    auth: {
-      ...fakeContext().auth,
-      users: () => [
-        { id: "owner", name: "Owner", admin: false },
-        { id: "ana", name: "Ana", admin: false },
-        { id: "boss", name: "Boss", admin: true },
-      ],
-    },
-    routes: {
-      handle: (route) => {
-        routes.push(route);
-      },
-    },
-    ...members,
-  });
-
-  push.register(context);
-  const [route] = routes;
-  if (route === undefined) {
-    throw new Error("push registered no route");
-  }
-
-  return { route: served(route), events };
-}
-
-async function call(
-  route: PluginRoute,
-  method: string,
-  path: string,
-  body?: unknown,
-  user = "owner",
-): Promise<Response> {
-  return route(
-    new Request(`http://pipoca.test/api/plugins/push/${path}`, {
-      method,
-      ...(body !== undefined && { body: JSON.stringify(body) }),
-    }),
-    path,
-    fakeUser({ id: user }),
+// Waits until the push service got this many messages, and each delivery
+// has handled the service's answer.
+async function delivered(sent: readonly Sent[], count: number): Promise<void> {
+  await until(
+    () => sent.length,
+    (length) => length >= count,
   );
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
 }
 
-// Waits until the push service got this many messages. Each delivery
-// handles the service's answer before the next timer runs.
-async function delivered(count: number): Promise<void> {
-  while (sent.length < count) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-
-  await new Promise((resolve) => setTimeout(resolve, 0));
+// A turn of Pi's that ends.
+async function finish(session: TestSession): Promise<void> {
+  await session.report([{ type: "status", status: "running" }]);
+  await session.report([{ type: "status", status: "idle" }]);
 }
 
-function finish(events: Bus, session: Session): void {
-  events.publish({
-    type: "SessionStateChanged",
-    session: { ...session, status: "idle" },
-    previous: "running",
-  });
+async function subscribe(
+  t: PluginTest,
+  who: string,
+  subscription: object,
+): Promise<void> {
+  expect(
+    (
+      await t.as(who).raw("subscriptions", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(subscription),
+      })
+    ).ok,
+  ).toBe(true);
 }
 
 test("sends a subscribed browser a notification it can read when its Session finishes", async () => {
-  const { route, events } = registered();
-  const device = await browser();
+  const { sent, fetch } = services();
+  await using t = await testPlugin(server, { people, fetch });
+  const own = await browser();
+  const { key } = await t.as("owner").get<{ key: string }>("key");
 
-  const { key } = (await (await call(route, "GET", "key")).json()) as {
-    key: string;
-  };
+  await subscribe(t, "owner", own.subscription);
 
-  await call(route, "PUT", "subscriptions", device.subscription);
+  const session = await t.session({ owner: person("owner") });
 
-  finish(
-    events,
-    fakeSession({ startedBy: "owner", title: "Fix the login page" }),
-  );
+  await session.transcript([
+    { type: "session_info", name: "Fix the login page" },
+  ]);
 
-  await delivered(1);
+  await finish(session);
+  await delivered(sent, 1);
 
   const [message] = sent;
 
@@ -272,7 +238,7 @@ test("sends a subscribed browser a notification it can read when its Session fin
     format: "jwk",
   });
 
-  expect(sent.map(({ url }) => url)).toEqual([endpoint]);
+  expect(sent.map(({ url }) => url)).toEqual([device("device-1")]);
   expect(publicKey).toBe(key);
   expect(message?.headers.get("content-encoding")).toBe("aes128gcm");
 
@@ -285,142 +251,218 @@ test("sends a subscribed browser a notification it can read when its Session fin
     ),
   ).toBe(true);
 
-  expect(JSON.parse(Buffer.from(claims, "base64url").toString())).toMatchObject(
-    { aud: "https://fcm.googleapis.com" },
-  );
+  expect(JSON.parse(Buffer.from(claims, "base64url").toString())).toEqual({
+    aud: "https://fcm.googleapis.com",
+    exp: Math.floor(t.clock.now() / 1000) + 12 * 60 * 60,
+    sub: "https://github.com/PedroKlein/pipoca",
+  });
 
-  expect(await device.read(message?.body ?? new Uint8Array())).toEqual({
+  expect(await own.read(message?.body)).toEqual({
     title: "Pi finished",
     body: "Fix the login page",
-    session: "session-1",
-    url: "/#session-1",
+    session: session.id,
+    url: `/#${session.id}`,
   });
 });
 
+test("keeps its signing key across a restart", async () => {
+  await using t = await testPlugin(server, { people });
+  const before = await t.as("owner").get("key");
+
+  await t.restart();
+
+  expect(await t.as("owner").get("key")).toEqual(before);
+});
+
 test("tells the browser urgently when Pi needs an answer", async () => {
-  const { route, events } = registered();
-  const device = await browser();
+  const { sent, fetch } = services();
+  await using t = await testPlugin(server, { people, fetch });
+  const own = await browser();
 
-  await call(route, "PUT", "subscriptions", device.subscription);
+  await subscribe(t, "owner", own.subscription);
 
-  events.publish({
-    type: "SessionWaiting",
-    session: fakeSession({
-      startedBy: "owner",
-      status: "running",
-      waiting: true,
-    }),
-  });
+  const session = await t.session({ owner: person("owner") });
 
-  await delivered(1);
+  await session.report([
+    { type: "status", status: "running" },
+    {
+      type: "prompt",
+      prompt: { id: "q1", kind: "confirm", title: "Go on?", message: "" },
+    },
+  ]);
+
+  await delivered(sent, 1);
 
   expect(sent[0]?.headers.get("urgency")).toBe("high");
 
-  expect(await device.read(sent[0]?.body ?? new Uint8Array())).toMatchObject({
+  expect(await own.read(sent[0]?.body)).toMatchObject({
     title: "Pi needs you",
   });
 });
 
 test("sends nothing for another person's Session or one a plugin owns", async () => {
-  const { route, events } = registered();
-  const device = await browser();
+  const { sent, fetch } = services();
+  await using t = await testPlugin(server, { people, fetch });
+  const own = await browser();
 
-  await call(route, "PUT", "subscriptions", device.subscription);
-  finish(events, fakeSession({ startedBy: "someone-else" }));
+  await subscribe(t, "owner", own.subscription);
 
-  finish(
-    events,
-    fakeSession({
-      startedBy: "owner",
-      owner: { plugin: "projects", key: "project-1" },
-    }),
-  );
+  await finish(await t.session({ owner: person("ana") }));
+  await finish(await t.session({ owner: person("owner"), key: "thread-1" }));
 
-  finish(events, fakeSession({ startedBy: "owner", title: "mine" }));
-  await delivered(1);
+  const mine = await t.session({ owner: person("owner") });
+
+  await finish(mine);
+  await delivered(sent, 1);
 
   expect(sent.length).toBe(1);
-
-  expect(await device.read(sent[0]?.body ?? new Uint8Array())).toMatchObject({
-    body: "mine",
-  });
+  expect(await own.read(sent[0]?.body)).toMatchObject({ session: mine.id });
 });
 
 // A second device that stays subscribed shows when each round was sent.
 test("stops sending to a browser that unsubscribed or whose subscription is gone", async () => {
-  const { route, events } = registered();
-  const device = await browser();
-  const other = "https://fcm.googleapis.com/fcm/send/device-2";
+  const { sent, gone, fetch } = services();
+  await using t = await testPlugin(server, { people, fetch });
+  const first = await browser(device("device-1"));
 
-  await call(route, "PUT", "subscriptions", device.subscription);
+  await subscribe(t, "owner", first.subscription);
+  await subscribe(t, "owner", (await browser(device("device-2"))).subscription);
 
-  await call(
-    route,
-    "PUT",
-    "subscriptions",
-    (await browser(other)).subscription,
-  );
+  const session = await t.session({ owner: person("owner") });
 
-  gone.add(endpoint);
-  finish(events, fakeSession({ startedBy: "owner" }));
-  await delivered(2);
+  gone.add(device("device-1"));
+  await finish(session);
+  await delivered(sent, 2);
 
   gone.clear();
-  finish(events, fakeSession({ startedBy: "owner" }));
-  await delivered(3);
+  await finish(session);
+  await delivered(sent, 3);
 
-  await call(route, "PUT", "subscriptions", device.subscription);
-  await call(route, "DELETE", "subscriptions", { endpoint });
-  finish(events, fakeSession({ startedBy: "owner" }));
-  await delivered(4);
+  await subscribe(t, "owner", first.subscription);
 
-  expect(sent.map(({ url }) => url).sort()).toEqual(
-    [endpoint, other, other, other].sort(),
-  );
+  // Another person can't unsubscribe the owner's browser.
+  await t.as("ana").delete("subscriptions", { endpoint: device("device-1") });
+  await finish(session);
+  await delivered(sent, 5);
+
+  await t.as("owner").delete("subscriptions", { endpoint: device("device-1") });
+  await finish(session);
+  await delivered(sent, 6);
+
+  expect(
+    sent
+      .map(({ url }) => url.split("/").at(-1) ?? "")
+      .toSorted((a, b) => a.localeCompare(b)),
+  ).toEqual([
+    "device-1",
+    "device-1",
+    "device-2",
+    "device-2",
+    "device-2",
+    "device-2",
+  ]);
 });
 
 test("refuses an endpoint that isn't a browser's push service", async () => {
-  const { route } = registered();
+  await using t = await testPlugin(server, { people });
   const { subscription } = await browser();
 
-  const response = await call(route, "PUT", "subscriptions", {
-    ...subscription,
-    endpoint: "http://169.254.169.254/latest/meta-data",
+  const response = await t.as("owner").raw("subscriptions", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      ...subscription,
+      endpoint: "http://169.254.169.254/latest/meta-data",
+    }),
   });
 
   expect(response.status).toBe(400);
 });
 
 test("tells the person whose cap team work reached, and every admin, but no one else", async () => {
-  const { route, events } = registered();
+  const { sent, fetch } = services();
 
-  const [own, anas, boss] = await Promise.all(
-    ["device-1", "device-2", "device-3"].map(async (device) =>
-      browser(`https://fcm.googleapis.com/fcm/send/${device}`),
+  await using t = await testPlugin(server, {
+    people,
+    fetch,
+    plugins: [logins, usage],
+  });
+
+  expect(
+    (
+      await t.as("boss").raw("/api/plugins/usage/config", {
+        method: "PUT",
+        body: JSON.stringify({
+          value: {
+            prices: { "anthropic/claude-sonnet-4-5": { input: 1, output: 0 } },
+            budgets: { team: 0, person: 50 },
+          },
+        }),
+      })
+    ).status,
+  ).toBe(200);
+
+  const devices = await Promise.all(
+    ["device-1", "device-2", "device-3"].map(async (name) =>
+      browser(device(name)),
     ),
   );
 
-  await call(route, "PUT", "subscriptions", own?.subscription, "owner");
-  await call(route, "PUT", "subscriptions", anas?.subscription, "ana");
-  await call(route, "PUT", "subscriptions", boss?.subscription, "boss");
+  const [owns, anas, boss] = devices;
 
-  events.publish({
-    type: "usage.budget_warned",
-    person: "ana",
-    share: 80,
-    spent: 40,
-    limit: 50,
-  });
+  await subscribe(t, "owner", owns?.subscription ?? {});
+  await subscribe(t, "ana", anas?.subscription ?? {});
+  await subscribe(t, "boss", boss?.subscription ?? {});
 
-  await delivered(2);
+  expect(
+    (
+      await t.as("boss").raw("/api/ext/logins/save", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "anthropic",
+          credential: { type: "api_key", key: "sk-team" },
+          layer: "base",
+        }),
+      })
+    ).status,
+  ).toBe(200);
 
-  const bodyTo = (device: string): Uint8Array =>
-    sent.find(({ url }) => url.endsWith(device))?.body ?? new Uint8Array();
+  const work = await t.session({ owner: "team", startedBy: "ana" });
+
+  // Pi's providers load in the background when logins registers.
+  const { token = "" } = await until(
+    async () =>
+      (await (
+        await work.api.raw(`/runner/sessions/${work.id}/ext/logins/proxy`)
+      ).json()) as {
+        providers: readonly unknown[];
+        token?: string;
+      },
+    ({ providers }) => providers.length > 0,
+  );
+
+  const answered = await t
+    .as("boss")
+    .raw("/api/ext/logins/proxy/anthropic/v1/messages", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "claude-sonnet-4-5",
+        stream: true,
+        input: 40_000_000,
+      }),
+      headers: { "x-api-key": token },
+    });
+
+  await answered.text();
+  await delivered(sent, 2);
+
+  const bodyTo = (name: string): Uint8Array<ArrayBuffer> | undefined =>
+    sent.find(({ url }) => url.endsWith(name))?.body;
 
   expect(
     sent
-      .map(({ url }) => url.split("/").at(-1))
-      .toSorted((a = "", b = "") => a.localeCompare(b)),
+      .map(({ url }) => url.split("/").at(-1) ?? "")
+      .toSorted((a, b) => a.localeCompare(b)),
   ).toEqual(["device-2", "device-3"]);
 
   expect(await anas?.read(bodyTo("device-2"))).toEqual({
@@ -436,43 +478,64 @@ test("tells the person whose cap team work reached, and every admin, but no one 
 });
 
 test("tells the person Pi asks in team work, and the starter once nobody answers in time", async () => {
-  const waiting = fakeSession({
-    startedBy: "owner",
-    ownedBy: "team",
-    status: "running",
-    waiting: true,
+  const { sent, fetch } = services();
+
+  await using t = await testPlugin(server, {
+    people,
+    fetch,
+    config: { answerMinutes: 5 },
   });
 
-  const { route, events } = registered({
-    settings: { get: () => ({ answerMinutes: 0.0005 }) },
-    sessions: {
-      ...fakeContext().sessions,
-      get: () => waiting,
-    },
-  });
-
-  const [own, anas] = await Promise.all(
-    ["device-1", "device-2"].map(async (device) =>
-      browser(`https://fcm.googleapis.com/fcm/send/${device}`),
-    ),
+  const [owns, anas] = await Promise.all(
+    ["device-1", "device-2"].map(async (name) => browser(device(name))),
   );
 
-  await call(route, "PUT", "subscriptions", own?.subscription, "owner");
-  await call(route, "PUT", "subscriptions", anas?.subscription, "ana");
+  await subscribe(t, "owner", owns?.subscription ?? {});
+  await subscribe(t, "ana", anas?.subscription ?? {});
 
-  events.publish({ type: "SessionWaiting", session: waiting, for: "Ana" });
-  await delivered(2);
+  const ask = async (session: TestSession, id: string) =>
+    session.report([
+      { type: "status", status: "running" },
+      {
+        type: "prompt",
+        prompt: {
+          id,
+          kind: "questions",
+          title: "Which one?",
+          questions: [],
+          explain: false,
+          for: "Ana",
+        },
+      },
+    ]);
+
+  const answered = await t.session({ owner: "team", startedBy: "owner" });
+  const waiting = await t.session({ owner: "team", startedBy: "owner" });
+
+  await ask(answered, "q1");
+  await ask(waiting, "q2");
+  await delivered(sent, 2);
+
+  await answered.report([{ type: "prompt_end", id: "q1" }]);
+  await t.clock.advance("4m");
+
+  expect(sent.length).toBe(2);
+
+  await t.clock.advance("1m");
+  await delivered(sent, 3);
 
   expect(sent.map(({ url }) => url.split("/").at(-1))).toEqual([
+    "device-2",
     "device-2",
     "device-1",
   ]);
 
-  expect(await anas?.read(sent[0]?.body ?? new Uint8Array())).toMatchObject({
+  expect(await anas?.read(sent[0]?.body)).toMatchObject({
     title: "Pi has a question for you",
   });
 
-  expect(await own?.read(sent[1]?.body ?? new Uint8Array())).toMatchObject({
+  expect(await owns?.read(sent[2]?.body)).toMatchObject({
     title: "Nobody answered Pi's question for Ana",
+    session: waiting.id,
   });
 });

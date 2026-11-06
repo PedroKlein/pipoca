@@ -1,3 +1,4 @@
+import type { Log } from "@pipoca/protocol";
 import { call, SlackRefused } from "./slack";
 
 const firstRetryMs = 1_000;
@@ -6,6 +7,8 @@ const longestRetryMs = 60_000;
 export interface Connection {
   readonly connected: () => boolean;
   readonly error: () => string | null;
+  // Opens it again once the wait retryIn asked for is over.
+  readonly reopen: () => void;
   readonly close: () => void;
 }
 
@@ -15,15 +18,18 @@ export interface Connection {
 export function connect(
   api: string,
   appToken: string,
-  onEvent: (event: Readonly<Record<string, unknown>>) => void,
-  log: (message: string, fields?: Readonly<Record<string, unknown>>) => void,
+  o: {
+    readonly onEvent: (event: Readonly<Record<string, unknown>>) => void;
+    readonly retryIn: (ms: number) => void;
+    readonly log: Log;
+  },
 ): Connection {
   let socket: WebSocket | undefined;
   let open = false;
   let closed = false;
+  let waiting = false;
   let error: string | null = null;
   let retryMs = firstRetryMs;
-  let retry: ReturnType<typeof setTimeout> | undefined;
 
   const again = (): void => {
     open = false;
@@ -32,7 +38,8 @@ export function connect(
       return;
     }
 
-    retry = setTimeout(start, retryMs);
+    waiting = true;
+    o.retryIn(retryMs);
     retryMs = Math.min(retryMs * 2, longestRetryMs);
   };
 
@@ -60,11 +67,11 @@ export function connect(
     const event = envelope.payload?.event;
 
     if (envelope.type === "events_api" && typeof event === "object") {
-      onEvent(event as Readonly<Record<string, unknown>>);
+      o.onEvent(event as Readonly<Record<string, unknown>>);
     }
   };
 
-  function start(): void {
+  const start = (): void => {
     call(api, appToken, "apps.connections.open").then(
       ({ url }) => {
         if (closed || typeof url !== "string") {
@@ -77,7 +84,7 @@ export function connect(
           try {
             received(data);
           } catch (failure) {
-            log("couldn't read a message from Slack", {
+            o.log("couldn't read a message from Slack", {
               error: String(failure),
             });
           }
@@ -89,20 +96,25 @@ export function connect(
         error =
           failure instanceof SlackRefused ? failure.message : String(failure);
 
-        log("couldn't connect to Slack", { error });
+        o.log("couldn't connect to Slack", { error });
         again();
       },
     );
-  }
+  };
 
   start();
 
   return {
     connected: () => open,
     error: () => error,
+    reopen: () => {
+      if (waiting && !closed) {
+        waiting = false;
+        start();
+      }
+    },
     close: () => {
       closed = true;
-      clearTimeout(retry);
       socket?.close();
     },
   };

@@ -1,19 +1,30 @@
 import type { Session } from "@pipoca/protocol";
 import type { ProjectNotice, RunState, ThreadView } from "./model";
-import type { Member, Project } from "./projects";
-import type { RecentChat } from "./transcript";
+import type { Member, Project } from "./store";
+
+// What a fresh coordinator needs from the one it replaces: Pi's latest
+// compaction summary and the chat since.
+interface RecentChat {
+  readonly summary: string | undefined;
+  readonly messages: readonly {
+    readonly role: string;
+    readonly text: string;
+  }[];
+}
 
 // Enough to tell what a thread did; the rest stays in the thread, which the
 // coordinator reads with read_thread when it needs to.
 const replyLimit = 300;
 const handoffLimit = 12_000;
 
+type Draft = Omit<Project, "coordinatorId" | "createdAt">;
+
 export function coordinatorPrompt(
-  project: Project,
+  project: Draft,
   memoryIndex: string | undefined,
 ): string {
   return [
-    ...(project.assistant
+    ...(project.assistantOf !== null
       ? [
           "You are the person's Pipoca assistant, as the coordinator of their assistant Project.",
           "Answer questions and do one-shot actions yourself with your Pipoca tools, such as starting a Session for the person's own goal, creating a Project or renaming something. Start a thread with start_thread for work the person will iterate on, such as building a Profile, a plugin or an Environment's setup. A thread is a full Pi session with a shell in a workspace of its own, possibly on another machine, with your Pipoca tools too.",
@@ -36,10 +47,10 @@ export function threadPrompt(
   memoryIndex: string | undefined,
 ): string {
   return [
-    project.assistant
+    project.assistantOf !== null
       ? `You are a thread of the person's Pipoca assistant, working on: ${title}.`
       : `You are a thread of the Pipoca Project "${project.name}", working on: ${title}.`,
-    project.assistant
+    project.assistantOf !== null
       ? "Your working directory starts empty: clone the repositories you need into it with git, which is signed in to the person's git hosts."
       : "Your working directory holds each of the Project's repositories in its own folder, all on your branch.",
     "Use message_coordinator when you need a decision or have a result the coordinator must act on. Don't use it for progress updates or to acknowledge the coordinator's messages: the coordinator already gets a notice with your reply after each of your turns.",
@@ -51,7 +62,7 @@ export function threadPrompt(
 }
 
 function projectContext(
-  project: Project,
+  project: Draft,
   memoryIndex: string | undefined,
 ): string[] {
   return [
@@ -131,7 +142,7 @@ export function threadView(
     workState: thread.workState,
     environmentId: session?.environmentId ?? "",
     branch: workspace && "branch" in workspace ? workspace.branch : null,
-    lastActivity: thread.lastActivity,
+    lastActivity: new Date(thread.lastActivity).toISOString(),
   };
 }
 

@@ -2,36 +2,40 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ServerWebSocket } from "bun";
-import { askServer } from "@pipoca/ask/server";
-import { gitHosts } from "@pipoca/git-hosts/server";
-import { kubernetesPlugin } from "@pipoca/kubernetes/server";
-import { library } from "@pipoca/library/server";
-import { push } from "@pipoca/push/server";
-import { local, type LocalOptions } from "@pipoca/local/server";
-import { logins as loginsPlugin } from "@pipoca/logins/server";
-import { meta } from "@pipoca/meta/server";
-import { models } from "@pipoca/models/server";
-import { oidc } from "@pipoca/oidc/server";
-import { projects } from "@pipoca/projects/server";
-import { email } from "@pipoca/email/server";
-import { routines } from "@pipoca/routines/server";
-import { usage } from "@pipoca/usage/server";
-import { slack } from "@pipoca/slack/server";
-import { kernelToolsets, startPlugins } from "@pipoca/pluginhost";
-import { eventBus, type ServerPlugin } from "@pipoca/plugins";
-import type { PluginManifest } from "@pipoca/protocol";
-import type { Log } from "@pipoca/providers";
+import { pluginSwitches, startPlugins } from "@pipoca/pluginhost";
+import type { PluginDefinition } from "@pipoca/plugins";
+import {
+  type EventBus,
+  eventBus,
+  type Runtime,
+  type ServerPart,
+} from "@pipoca/plugins/host";
+import {
+  apiPath,
+  type Clock,
+  type Log,
+  systemClock,
+  systemTimer,
+  type Timer,
+} from "@pipoca/protocol";
 import { ProfileFolders, Profiles } from "@pipoca/profiles";
-import { Sessions, type SessionsOptions } from "@pipoca/sessions";
+import { Sessions } from "@pipoca/sessions";
+import {
+  environmentTemplates,
+  Environments,
+  type EnvironmentsOptions,
+  RunnerCredentials,
+} from "@pipoca/environments";
+import { People, SignIn } from "@pipoca/people";
 import web from "@pipoca/web/index.html";
-import { type AgentOptions, runAgent } from "./agent";
-import { Auth } from "./auth";
+import { type AgentOptions, runAgent } from "@pipoca/runner";
+import { binary, pipoca } from "./binary";
 import { configFiles, configFolder } from "./config";
 import { sessionDocs } from "./docs";
-import { hubLayout } from "./hub";
+import { hubSettings } from "./hub";
 import { newcomerSetup } from "./newcomers";
+import { serverConfig } from "./server-config";
 import { teamSettings } from "./team";
-import { environmentTemplates } from "./templates";
 import {
   buildPlugin,
   pluginFiles,
@@ -43,40 +47,23 @@ import {
   install,
   remove,
   reread,
-  turnOn,
   update,
 } from "./installed";
-import { latestOf } from "./sources";
-import { builtInPlugins, sessionPlugins } from "./session-parts";
-import { errorReply } from "./replies";
+import { latestCommit } from "@pipoca/repositories";
+import { builtInDefinitions, builtInParts, definedManifest } from "./built-in";
+import { errorReply } from "./server/http/replies";
 import { previewBroker } from "./previews";
 import { webAppFile } from "./web-app";
-import { changeFeed } from "./changes";
-import { createHandler, fromAddress, onBehalfOf } from "./server";
+import { changeFeed, type Changes } from "./changes";
+import { createApi } from "./server/http/api";
+import { fromAddress, onBehalfOf } from "./server/http/router";
 import type { PreviewData, SocketData, TerminalData } from "./sockets";
-import { pipoca } from "./session-process";
-import { openStore } from "./store";
+import { openStore, type Store } from "./sqlite/store";
 import { terminalBroker } from "./terminals";
 
-const serverPlugins: readonly ServerPlugin[] = [
-  askServer,
-  projects,
-  library,
-  models,
-  kubernetesPlugin,
-  meta,
-  oidc,
-  gitHosts,
-  loginsPlugin,
-  push,
-  routines,
-  slack,
-  email,
-  usage,
-];
-
-const repositorySyncMs = 15 * 60_000;
 const updateCheckMs = 6 * 60 * 60_000;
+const outboxSweepMs = 5000;
+
 export interface ServeOptions {
   // 127.0.0.1 unless a proxy or other machines reach the server directly.
   readonly hostname?: string;
@@ -108,15 +95,25 @@ export interface ServeOptions {
   // front added. Only behind one, since without it anyone can send that
   // header and pick the address their failed sign-ins count against.
   readonly trustProxy?: boolean;
-  readonly sessions?: SessionsOptions;
+  // How the runner pool times polls, going offline and leases.
+  readonly runners?: Pick<
+    EnvironmentsOptions,
+    "pollWaitMs" | "offlineAfterMs" | "leaseMs"
+  >;
   readonly agent?: Omit<
     AgentOptions,
-    "server" | "credential" | "log" | "signal"
+    "server" | "credential" | "binary" | "log" | "signal"
   >;
-  // Replaces the built-in plugins. A plugin without a manifest gets one with
-  // just its name.
-  readonly plugins?: readonly ServerPlugin[];
-  readonly manifests?: readonly PluginManifest[];
+  // What plugins that start runners on this machine run, the pipoca binary
+  // unless it says.
+  readonly command?: readonly string[];
+  // The environment plugins read, the server's own unless it says.
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  // False leaves out the built-in plugins.
+  readonly builtIns?: boolean;
+  // Plugins besides the built-in ones, by their definitions or server parts.
+  readonly definitions?: readonly PluginDefinition[];
+  readonly servers?: readonly ServerPart[];
   readonly disabledPlugins?: readonly string[];
   // The plugins folder and what was found in it (ADR 0022).
   readonly installed?: {
@@ -129,26 +126,15 @@ export interface ServeOptions {
   // Seconds a connection may go quiet before the server closes it; 30 when
   // unset.
   readonly idleTimeout?: number;
-  // The clock runner tokens expire by; the system's when unset.
-  readonly now?: () => number;
+  // The clock leases, tokens and stored times follow, and the timer plugins'
+  // schedules wake by; the system's when unset.
+  readonly clock?: Clock;
+  readonly timer?: Timer;
+  // The event bus and change feed the kernel and plugins publish on; new
+  // ones when unset.
+  readonly events?: EventBus;
+  readonly changes?: Changes;
   readonly log: Log;
-}
-
-// Installing, updating or building a plugin, or importing a Profile from
-// git, can take minutes with nothing sent until it is done.
-const longRoutes = [
-  ["POST", /^\/api\/plugins$/],
-  ["PATCH", /^\/api\/plugins\/[^/]+$/],
-  ["POST", /^\/api\/plugin-builds\/[^/]+$/],
-  ["POST", /^\/api\/profiles\/import$/],
-] as const;
-
-function takesLong(request: Request): boolean {
-  const { pathname } = new URL(request.url);
-
-  return longRoutes.some(
-    ([method, path]) => request.method === method && path.test(pathname),
-  );
 }
 
 export function serve(options: ServeOptions): {
@@ -171,96 +157,148 @@ export function serve(options: ServeOptions): {
     join(configDir, "people"),
   );
 
-  const store = openStore(options.database, options.secretKey, profiles);
+  const clock = options.clock ?? systemClock;
 
-  // A team server's machine holds everyone's data and the sealing key, so
-  // only a solo install runs runners on it, and a solo install signs in no
-  // one else (ADR 0053).
-  const disabled = [
-    ...(options.disabledPlugins ?? []),
-    ...(options.solo === undefined ? ["local"] : ["oidc"]),
-  ];
+  // Which plugins are on, under "plugins" in pipoca.json.
+  const switches = pluginSwitches(config("plugins"), options.log);
 
   const folder = options.installed;
   const installed = folder?.plugins ?? [];
-  let seed: LocalOptions["seed"];
+  let solo: Runtime["solo"];
 
-  const thisMachine = local(() => ({
-    command: pipoca,
-    server: () => server.url.href,
-    dataDir:
-      options.database === ":memory:"
-        ? mkdtempSync(join(tmpdir(), "pipoca-local-"))
-        : join(dirname(options.database), "local"),
-    ...(seed !== undefined && { seed }),
-  }));
+  const runnersDir =
+    options.database === ":memory:"
+      ? mkdtempSync(join(tmpdir(), "pipoca-runners-"))
+      : join(dirname(options.database), "runners");
 
-  const plugins = [
-    ...(options.plugins ?? [...serverPlugins, thisMachine]),
-    ...installed.flatMap(({ server }) => (server ? [server] : [])),
+  // The server listens only after its plugins register.
+  const runtime = (): Runtime => ({
+    command: options.command ?? pipoca,
+    get serverUrl() {
+      return server.url.href;
+    },
+    dataDir: runnersDir,
+    ...(solo !== undefined && { solo }),
+  });
+
+  const builtIns = options.builtIns !== false;
+
+  const ownServers = [
+    ...(builtIns ? builtInParts : []),
+    ...(options.servers ?? []),
   ];
 
-  const builtIn =
-    options.plugins?.map(
-      ({ name }) =>
-        options.manifests?.find(({ id }) => id === name) ??
-        builtInPlugins.find(({ id }) => id === name) ?? {
-          id: name,
-          title: name,
-          description: "",
-        },
-    ) ?? builtInPlugins;
+  const ownDefinitions = [
+    ...new Set([
+      ...(builtIns ? builtInDefinitions : []),
+      ...(options.definitions ?? []),
+      ...(options.servers ?? []).map(({ plugin }) => plugin),
+    ]),
+  ];
 
-  const known = [...builtIn, ...installed.map(({ manifest }) => manifest)];
+  const definitions = [
+    ...ownDefinitions,
+    ...installed.flatMap(({ definition }) =>
+      definition === undefined ? [] : [definition],
+    ),
+  ];
+
+  const defined = ownDefinitions.map(definedManifest);
+
+  const known = [...defined, ...installed.map(({ manifest }) => manifest)];
+
+  const onByDefault = (name: string): boolean => {
+    const defaultOn = definitions.find(({ id }) => id === name)?.defaultOn;
+
+    if (defaultOn === undefined) {
+      return true;
+    }
+
+    const alone = options.solo !== undefined;
+
+    return {
+      always: true,
+      solo: alone,
+      team: !alone,
+      never: false,
+    }[defaultOn];
+  };
 
   const enabled = [
-    ...builtIn.map(({ id }) => id).filter((name) => !disabled.includes(name)),
+    ...defined
+      .map(({ id }) => id)
+      .filter(
+        (name) =>
+          options.disabledPlugins?.includes(name) !== true &&
+          (switches.get(name).personal ?? onByDefault(name)),
+      ),
     ...installed.flatMap(({ manifest: { id }, on }) => (on ? [id] : [])),
   ];
 
-  // A Session on the server's own runner would share the server pod's files,
-  // its sealing key among them, so a server that can start runner pods runs
-  // no runner itself (ADR 0049). The chart names the runners' URL only when
-  // it lets the server start them.
-  const startsPods =
-    enabled.includes("kubernetes") &&
-    process.env["KUBERNETES_SERVICE_HOST"] !== undefined &&
-    process.env["PIPOCA_RUNNER_URL"] !== undefined;
+  const store = openStore(
+    options.database,
+    options.secretKey,
+    profiles,
+    clock,
+    definitions
+      .filter(({ id }) => enabled.includes(id))
+      .map(({ id, schema }) => ({
+        name: id,
+        ...(schema !== undefined && { schema }),
+      })),
+  );
 
-  const ownAgent = startsPods ? undefined : options.agent;
+  // Until the plugins have registered, which can turn it off.
+  let ownAgent = options.agent;
 
-  if (options.agent !== undefined && ownAgent === undefined) {
-    options.log(
-      "the server's own runner is off, since it starts runner pods in its cluster",
-      { runner: options.agent.provider },
-    );
-  }
+  const events =
+    options.events ??
+    eventBus((type, error) => {
+      options.log("event listener failed", { type, error: String(error) });
+    });
 
-  const events = eventBus((type, error) => {
-    options.log("event listener failed", { type, error: String(error) });
-  });
-
-  const changes = changeFeed();
+  const changes = options.changes ?? changeFeed();
 
   const templates = environmentTemplates(config("templates"), options.log);
+  const ownConfig = serverConfig(config("server"), options.log);
+  const team = teamSettings(config("team"), options.log);
 
-  const sessions = new Sessions(store, {
-    ...options.sessions,
+  const environments: Environments = new Environments(store.environments, {
+    ...options.runners,
+    clock,
+    templates: () => templates.list(),
+    offeredModels: (environment, userId) =>
+      pluginHost.offeredModels(environment, userId),
+    startsRunners: (environment) => pluginHost.startsRunners(environment),
+    sessions: () => ({
+      running: (provider, runner) => sessions.running(provider, runner),
+      inUse: (id) => sessions.inUse(id),
+      removed: () => {
+        changes.publish("sessions");
+      },
+    }),
+    onlineChanged: (provider, runner) => {
+      sessions.runnerChanged(provider, runner);
+    },
+    changed: () => {
+      changes.publish("environments");
+    },
+  });
+
+  const sessions: Sessions = new Sessions(store.sessions, environments, {
+    clock,
     events: events.publish,
     changed: () => {
       changes.publish("sessions");
     },
-    runnersChanged: () => {
-      changes.publish("environments");
-    },
     sessionPlugins: () => pluginHost.sessionPlugins(),
     offeredModels: (environment, userId) =>
       pluginHost.offeredModels(environment, userId),
-    startsRunners: (environment) => pluginHost.startsRunners(environment),
     pluginProfile: (id) => pluginHost.profile(id),
-    gitLogins: (userId, session) => pluginHost.gitLogins(userId, session),
-    templates: () => templates.list(),
-    names: (person) => auth.userById(person)?.name,
+    gitLogins: (owner, session) => pluginHost.gitLogins(owner, session),
+    teamMessagesRead: team.messagesRead,
+    names: (person) => people.userById(person)?.name,
+    log: options.log,
     docs: sessionDocs(
       folder === undefined
         ? []
@@ -272,66 +310,115 @@ export function serve(options: ServeOptions): {
 
   const pluginsStop = new AbortController();
 
-  const auth = new Auth(
-    store.auth,
-    options.passwordLogin,
-    options.now,
-    options.solo?.name,
-  );
+  // Outside a cluster, the built-in runner's Environment is the first
+  // person's (ADR 0049): made when the setup link, a sign-in or a solo
+  // install makes them, and until then its runner polls for nothing.
+  const ownEnvironment = (person: string): void => {
+    if (ownAgent !== undefined) {
+      store.environments.ensureEnvironment(ownAgent.provider, person);
+    }
+  };
 
-  if (options.solo !== undefined && store.environments().length === 0) {
-    seed = thisMachineEnvironment(store, options.solo.folders ?? []);
+  const peopleStore = {
+    ...store.people,
+    insertUser: (user: Parameters<typeof store.people.insertUser>[0]) => {
+      store.people.insertUser(user);
+
+      if (store.people.userCount() === 1) {
+        ownEnvironment(user.id);
+      }
+    },
+  };
+
+  const people = new People(peopleStore, {
+    clock,
+    ...(options.solo && { solo: options.solo.name }),
+  });
+
+  const signIn = new SignIn(people, peopleStore, {
+    clock,
+    ...(options.passwordLogin !== undefined && {
+      passwordLogin: options.passwordLogin,
+    }),
+    sessionDays: () => ownConfig().sessionDays,
+  });
+
+  const runners = new RunnerCredentials(store.credentials, {
+    clock,
+    runnerTokenDays: () => ownConfig().runnerTokenDays,
+  });
+
+  const auth = { people, signIn, runners };
+
+  if (
+    options.solo !== undefined &&
+    store.environments.environments().length === 0
+  ) {
+    solo = thisMachineEnvironment(store, options.solo.folders ?? []);
   }
 
-  const userProfiles = new Profiles(profiles, store);
+  const userProfiles = new Profiles(profiles, store.profiles);
 
   // Profiles and templates that follow a repository keep up with it
   // (ADR 0063).
-  const syncing = setInterval(() => {
-    void userProfiles.sync(options.log).then(async () => templates.sync());
-  }, repositorySyncMs);
+  let syncing: ReturnType<typeof setTimeout> | undefined;
 
-  const pluginHost = startPlugins(plugins, enabled, {
+  const syncLater = (): void => {
+    syncing = setTimeout(() => {
+      void userProfiles.sync(options.log).then(async () => templates.sync());
+      syncLater();
+    }, ownConfig().repositorySyncMinutes * 60_000);
+  };
+
+  syncLater();
+
+  const pluginHost = startPlugins(enabled, {
+    definitions,
+    servers: [
+      ...ownServers,
+      ...installed.flatMap(({ part }) => (part ? [part] : [])),
+    ],
+    url: () => options.url ?? server.url,
+    ...(options.env && { env: options.env }),
     manifests: known,
     sessions,
+    environments,
     runners: {
-      token: (environment, runner) => auth.runnerToken(environment, runner),
+      token: (environment, runner) => runners.runnerToken(environment, runner),
       revoke: (environment, runner) => {
-        auth.revokeRunner(environment, runner);
+        runners.revokeRunner(environment, runner);
       },
     },
     events,
     changes: changes.publish,
     store: store.plugin,
-    settings: store.pluginSettings,
+    dataFailure: store.pluginFailure,
+    resetData: store.resetPlugin,
     config,
-    toolsets: kernelToolsets,
-    api: async (onBehalf, request) => handler(onBehalfOf(onBehalf, request)),
+    api: async (onBehalf, request) => api.handle(onBehalfOf(onBehalf, request)),
     auth: {
-      userOf: (request) => auth.userOf(request),
-      users: () => auth.users(),
-      createUser: (name, admin) => auth.createUser(name, admin),
+      users: () => people.users(),
+      create: (name, admin) => people.createUser(name, admin),
       setAdmin: (userId, admin) => {
-        auth.setAdmin(userId, admin);
+        people.setAdmin(userId, admin);
       },
-      invited: (token, address) => auth.inviteFor(token, address),
+      invited: (token, address) => people.inviteFor(token, address),
       acceptInvite: (id) => {
-        auth.acceptInvite(id);
+        people.acceptInvite(id);
       },
-      passwordLogin: () => auth.passwordLogin,
+      passwordLogin: () => signIn.passwordLogin,
       startSession: (userId, request) => {
-        const user = auth.userById(userId);
+        const user = people.userById(userId);
 
-        return user && auth.startSession(user, request);
+        return user && signIn.startSession(user, request);
       },
     },
     ...(folder && {
       installed: {
         plugins: installed,
-        turnOn: async (id, on) => turnOn(folder.root, id, on),
         install: async (url, taken) => install(folder.root, url, taken),
         update: async (id) => update(folder.root, id),
-        latest: latestOf,
+        latest: latestCommit,
         remove: async (id) => remove(folder.root, id),
         reread: async (id) => reread(folder.root, id),
         files: async (id) => pluginFiles(folder.root, id),
@@ -341,13 +428,27 @@ export function serve(options: ServeOptions): {
         build: async (id) => buildPlugin(folder.root, id),
       },
     }),
-    sessionParts: sessionPlugins,
     mcpServers: () => userProfiles.mcpServers(),
-    teamPlugins: config("teamPlugins"),
+    switches,
+    templates,
     buildsOn: (id) => profiles.buildsOn(id),
+    runtime,
+    schedules: store.schedules,
+    clock,
+    timer: options.timer ?? systemTimer,
     signal: pluginsStop.signal,
     log: options.log,
   });
+
+  // A Session on the server's own runner would share the server's files,
+  // its sealing key among them, such as in a cluster's pod (ADR 0049).
+  if (ownAgent !== undefined && pluginHost.replacesServerRunner()) {
+    options.log("the server's own runner is off, since a plugin replaces it", {
+      runner: ownAgent.provider,
+    });
+
+    ownAgent = undefined;
+  }
 
   // Asked at start and a few times a day, since each check reaches every
   // installed plugin's repository.
@@ -357,15 +458,23 @@ export function serve(options: ServeOptions): {
     void pluginHost.checkUpdates();
   }, updateCheckMs);
 
-  const handler = createHandler(
-    auth,
+  const flushingOutbox = setInterval(() => {
+    sessions.flushOutbox();
+  }, outboxSweepMs);
+
+  const api = createApi({
+    people,
+    signIn,
+    runners,
     sessions,
-    userProfiles,
-    pluginHost,
+    environments,
+    profiles: userProfiles,
+    plugins: pluginHost,
     changes,
-    store.check,
-    options.log,
-    options.restart && {
+    checkStore: store.check,
+    log: options.log,
+    url: options.url,
+    restart: options.restart && {
       busy: () =>
         sessions
           .list()
@@ -378,11 +487,11 @@ export function serve(options: ServeOptions): {
       now: options.restart,
     },
     templates,
-    configFiles(configDir, options.lockedConfig),
-    hubLayout(config("hub")),
-    newcomerSetup(config("newcomers")),
-    teamSettings(config("team")),
-  );
+    config: configFiles(configDir, options.lockedConfig),
+    hub: hubSettings(config("hub"), options.log),
+    newcomers: newcomerSetup(config("newcomers"), options.log),
+    team,
+  });
 
   const terminals = terminalBroker(sessions, auth, options.log);
 
@@ -446,14 +555,16 @@ export function serve(options: ServeOptions): {
         return undefined;
       }
 
-      if (takesLong(request)) {
+      const router = api;
+
+      if (router.takesLong(request)) {
         bunServer.timeout(request, 0);
       }
 
       return (
         upgraded ??
         previews.open(request) ??
-        handler(
+        router.handle(
           fromAddress(
             clientAddress(request, bunServer, options.trustProxy === true),
             request,
@@ -493,40 +604,47 @@ export function serve(options: ServeOptions): {
     soloSocket(options.solo.socket, {
       link: () =>
         new URL(
-          `/api/auth/link/${auth.signInLink()}`,
+          apiPath("auth.link", { params: { token: signIn.link() } }),
           options.url ?? server.url,
         ),
       runner: (name) => {
-        const [owner] = store.auth.users();
-        store.ensureEnvironment(name, owner?.id);
+        const [owner] = people.users();
 
-        return auth.runnerToken(name, name);
+        if (owner === undefined) {
+          throw new Error("a solo install has no user yet");
+        }
+
+        store.environments.ensureEnvironment(name, owner.id);
+
+        return runners.runnerToken(name, name);
       },
     });
 
-  if (auth.setupToken !== undefined) {
+  if (signIn.setupToken !== undefined) {
     options.log("open the setup link to create the first user", {
-      link: new URL(`/#setup/${auth.setupToken}`, options.url ?? server.url)
+      link: new URL(`/#setup/${signIn.setupToken}`, options.url ?? server.url)
         .href,
     });
   }
 
   const agentStop = new AbortController();
 
-  // The built-in provider is the same agent a laptop runs, talking to this
-  // server over loopback, so both providers share one tested path.
-  const ownRunner = ownAgent?.provider;
-  if (ownRunner !== undefined) {
-    store.ensureEnvironment(ownRunner);
+  const [firstPerson] = people.users();
+
+  if (firstPerson !== undefined) {
+    ownEnvironment(firstPerson.id);
   }
 
+  // The built-in provider is the same agent a laptop runs, talking to this
+  // server over loopback, so both providers share one tested path.
   const agent =
     ownAgent &&
     runAgent({
+      binary,
       ...ownAgent,
       server: server.url.href,
       credential: {
-        token: auth.ownRunnerToken(ownAgent.provider, ownAgent.provider),
+        token: runners.ownRunnerToken(ownAgent.provider, ownAgent.provider),
       },
       log: options.log,
       signal: agentStop.signal,
@@ -535,14 +653,15 @@ export function serve(options: ServeOptions): {
   return {
     url: server.url,
     stop: async () => {
-      clearInterval(syncing);
+      clearTimeout(syncing);
       clearInterval(checkingUpdates);
+      clearInterval(flushingOutbox);
       agentStop.abort();
       pluginsStop.abort();
       await agent;
       await links?.stop(true);
       await server.stop(true);
-      sessions.close();
+      environments.close();
       store.close();
       options.log("server stopped");
     },
@@ -643,7 +762,7 @@ function fromThisSite(request: Request, hosts: ReadonlySet<string>): boolean {
     return true;
   }
 
-  if (pathname.startsWith("/agent/")) {
+  if (pathname.startsWith("/runner/")) {
     return origin === null;
   }
 
@@ -656,15 +775,19 @@ function fromThisSite(request: Request, hosts: ReadonlySet<string>): boolean {
 
 // The Environment a new solo install starts with, its runner on this machine.
 function thisMachineEnvironment(
-  store: ReturnType<typeof openStore>,
+  store: Store,
   folders: readonly string[],
-): LocalOptions["seed"] {
+): Runtime["solo"] {
   const provider = "this-machine";
-  const [owner] = store.auth.users();
+  const [owner] = store.people.users();
 
-  store.ensureEnvironment(provider, owner?.id);
+  if (owner === undefined) {
+    return undefined;
+  }
 
-  const created = store
+  store.environments.ensureEnvironment(provider, owner.id);
+
+  const created = store.environments
     .environments()
     .find((environment) => environment.provider === provider);
 
@@ -672,7 +795,7 @@ function thisMachineEnvironment(
     return undefined;
   }
 
-  store.updateEnvironment({ ...created, name: "This machine" });
+  store.environments.updateEnvironment({ ...created, name: "This machine" });
 
   return { environmentId: created.id, folders };
 }

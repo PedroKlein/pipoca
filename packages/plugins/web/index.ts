@@ -1,9 +1,6 @@
 import type {
   Environment,
   EnvironmentTemplate,
-  PluginSettings,
-  RepositoryChoice,
-  Session,
   SessionEvent,
 } from "@pipoca/protocol";
 import {
@@ -13,15 +10,27 @@ import {
   useEffectEvent,
   useState,
 } from "react";
+import type { TypedClient } from "../src/client";
+import { watchChanges } from "./changes";
 import { responseOrder } from "./responses";
+import { topicOf, useScope } from "./shell";
 
+export { ConfigForm } from "./config-form";
 export {
-  type ModelOption,
-  modelOptions,
-  rememberModel,
-  shownModels,
-} from "./models";
-export { responseOrder } from "./responses";
+  defineWeb,
+  Hidden,
+  href,
+  SessionView,
+  Slot,
+  type Slots,
+  useApi,
+  useConfig,
+  useSessionState,
+  useToolResults,
+  useViewer,
+  type WebPage,
+  type WebPart,
+} from "./parts";
 
 // The shell's own Session view, for a plugin page to show a Session in
 // (ADR 0028). A side view is a narrow panel next to the page's main view.
@@ -38,30 +47,6 @@ export interface EmbeddedSessionProps {
 
 export type SettingsGroup = "you" | "workspace" | "server" | "integrations";
 
-export interface WebContext {
-  // A fetch of the plugin's own routes under /api/plugins/<name>/, or of the
-  // server's, such as /api/sessions, for a path that starts with /.
-  readonly request: (path: string, init?: RequestInit) => Promise<Response>;
-  readonly openSession: (sessionId: string) => void;
-  // The link to a path inside the plugin's own page.
-  readonly href: (path: string) => string;
-  // The plugin's settings when the page loaded (ADR 0036).
-  readonly settings: PluginSettings;
-  readonly SessionView: ComponentType<EmbeddedSessionProps>;
-  // What every enabled plugin shows about a pull request, such as its checks
-  // on the git host (ADR 0051).
-  readonly PullRequestStatus: ComponentType<PullRequestStatusProps>;
-}
-
-export interface PullRequestStatusProps {
-  readonly session: MountedSession;
-  readonly url: string;
-}
-
-export interface PullRequestProps extends PullRequestStatusProps {
-  readonly context: WebContext;
-}
-
 export interface MountedSession {
   readonly id: string;
   // Every event the Session view receives, from the start of its stream.
@@ -71,14 +56,12 @@ export interface MountedSession {
 }
 
 export interface PageProps {
-  readonly context: WebContext;
   // The rest of the address after the plugin's page, "" on the page itself.
   readonly path: string;
 }
 
 // The home screen, at the root of the app (ADR 0035).
 export interface HomeProps {
-  readonly context: WebContext;
   readonly onNewSession: () => void;
 }
 
@@ -96,43 +79,41 @@ export interface SetupStep {
   readonly optional?: boolean;
   // Gives the step's page more room, such as for a grid of providers.
   readonly wide?: boolean;
-  readonly done: (context: WebContext) => Promise<boolean>;
+  // A client of the plugin's routes, and of the kernel's for a path that
+  // starts with /.
+  readonly done: (api: TypedClient) => Promise<boolean>;
+  // The kernel's topics, and the plugin's own changes as its routes name them.
   readonly topics?: readonly string[];
-  readonly Step: ComponentType<{ readonly context: WebContext }>;
+  readonly changes?: readonly string[];
+  readonly Step: ComponentType;
 }
 
 export interface NavItemsProps {
-  readonly context: WebContext;
   // The open path inside the plugin's page, undefined when it isn't open.
   readonly path: string | undefined;
 }
 
 // A notice the plugin sent a Session, drawn in its chat (ADR 0028).
 export interface NoticeProps {
-  readonly context: WebContext;
   readonly text: string;
   readonly data: unknown;
 }
 
 // A link of the plugin's own scheme in a chat answer, as [label](scheme:target).
 export interface LinkProps {
-  readonly context: WebContext;
   readonly target: string;
   readonly label: string;
 }
 
 export interface SessionPartProps {
-  readonly context: WebContext;
   readonly session: MountedSession;
 }
 
 export interface EnvironmentSectionProps {
-  readonly context: WebContext;
   readonly environment: Environment;
 }
 
 export interface TemplateSectionProps {
-  readonly context: WebContext;
   readonly template: EnvironmentTemplate;
 }
 
@@ -153,259 +134,10 @@ export interface ToolCallProps extends SessionPartProps {
   readonly call: ToolCall;
 }
 
-export interface WidgetProps extends SessionPartProps {
-  // The widget's lines as Pi's TUI renders them, with SGR escape codes.
-  readonly lines: readonly string[];
-}
-
-// A card on a team hub page, which admins place by "<plugin>/<key>"
-// (ADR 0067).
-export interface HubPanel {
-  readonly title: string;
-  readonly Panel: ComponentType<{ readonly context: WebContext }>;
-}
-
-// A screen of its own in the team hub's menu.
-export interface HubScreen {
-  readonly label: string;
-  readonly Page: ComponentType<{ readonly context: WebContext }>;
-}
-
-// A screen of Team setup, which only admins open, listed with what team work
-// runs on or with its rules.
-export interface SetupScreen extends HubScreen {
-  readonly group: "runs-on" | "rules";
-}
-
-// Each slot is a React component rendered by the web app (ADR 0015).
-export interface WebPlugin {
-  readonly name: string;
-  readonly nav?: {
-    readonly label: string;
-    readonly Page: ComponentType<PageProps>;
-    // Links listed under the entry in the sidebar, such as each Project.
-    readonly Items?: ComponentType<NavItemsProps>;
-    // Paths whose page fills the window, such as an open Project, instead of
-    // scrolling in the shell's column.
-    readonly fills?: (path: string) => boolean;
-  };
-  // What the plugin gives the team hub, by key (ADR 0067).
-  readonly hub?: {
-    readonly panels?: Readonly<Record<string, HubPanel>>;
-    readonly pages?: Readonly<Record<string, HubScreen>>;
-    readonly setup?: Readonly<Record<string, SetupScreen>>;
-  };
-  // The first enabled plugin with a home screen draws the app's root.
-  readonly Home?: ComponentType<HomeProps>;
-  // Where a Session this plugin owns opens, as a path in its page. Links,
-  // search results and notices for it go there (ADR 0028).
-  readonly sessionPath?: (session: Session) => string;
-  // Renderers for the plugin's notices in a chat, by kind.
-  readonly notices?: Readonly<Record<string, ComponentType<NoticeProps>>>;
-  // Renderers for links in chat answers, by URL scheme.
-  readonly links?: Readonly<Record<string, ComponentType<LinkProps>>>;
-  readonly SessionPanel?: ComponentType<SessionPartProps>;
-  // A section on the Environments page for the open Environment, such as the
-  // plugin's settings for it (ADR 0032).
-  readonly EnvironmentSection?: ComponentType<EnvironmentSectionProps>;
-  // A section in an Environment template, such as where the runners of
-  // Environments made from it come from (ADR 0049).
-  readonly TemplateSection?: ComponentType<TemplateSectionProps>;
-  // The plugin's own page in Settings, listed in settingsGroup ("you" unless
-  // it says otherwise). "integrations" makes it a tab of the Integrations
-  // page, and "server" shows it to admins only (ADR 0063).
-  readonly SettingsSection?: ComponentType<{ readonly context: WebContext }>;
-  readonly settingsGroup?: SettingsGroup;
-  readonly setupStep?: SetupStep;
-  // What the plugin adds to Settings' own pages, such as the person's logins
-  // on Accounts.
-  readonly settingsParts?: {
-    readonly General?: ComponentType<{ readonly context: WebContext }>;
-    readonly Accounts?: ComponentType<{ readonly context: WebContext }>;
-    // On a Profile's page, such as which logins it keeps of its own.
-    readonly Profile?: ComponentType<{
-      readonly context: WebContext;
-      readonly profileId: string;
-    }>;
-  };
-  readonly SessionHeader?: ComponentType<SessionPartProps>;
-  // Drawn above a Session's composer, such as the agent's checklist.
-  readonly Composer?: ComponentType<SessionPartProps>;
-  // Drawn beside a pull request that a Session opened, on its Changes panel.
-  readonly PullRequest?: ComponentType<PullRequestProps>;
-  // Tools whose calls the plugin draws instead of a work step, by name.
-  readonly tools?: Readonly<Record<string, ComponentType<ToolCallProps>>>;
-  // Extension widgets the plugin draws in their place, by widget key.
-  readonly widgets?: Readonly<Record<string, ComponentType<WidgetProps>>>;
-  // Repositories New Session offers for what the person typed, such as the
-  // ones on the git hosts they connected (ADR 0043), or for team work the
-  // ones the team's bots reach.
-  readonly repositories?: (
-    context: WebContext,
-    query: string,
-    team: boolean,
-  ) => Promise<readonly RepositoryChoice[]>;
-}
-
-// Rejects with the server's error message when the response isn't ok, with
-// its code as the cause (ADR 0047).
-export async function json<T>(response: Promise<Response>): Promise<T> {
-  return (await (await ok(response)).json()) as T;
-}
-
-// Like json, for responses without a body.
-export async function ok(response: Promise<Response>): Promise<Response> {
-  const settled = await response;
-
-  if (!settled.ok) {
-    const { error, message } = (await settled.json().catch(() => ({}))) as {
-      error?: unknown;
-      message?: unknown;
-    };
-
-    const code = typeof error === "string" ? error : undefined;
-
-    throw new Error(
-      typeof message === "string"
-        ? message
-        : (code ?? `${String(settled.status)} ${settled.statusText}`),
-      { cause: code },
-    );
-  }
-
-  return settled;
-}
-
-interface Watcher {
-  readonly topics: readonly string[];
-  readonly onChange: () => void;
-  timer?: ReturnType<typeof setTimeout>;
-}
-
-// The part of a browser EventSource that watchChanges uses.
-interface ChangeStream {
-  readonly readyState: number;
-  addEventListener(
-    type: "open" | "error" | "message",
-    listener: (event: { readonly data: string }) => void,
-  ): void;
-  close(): void;
-}
-
-const closedState = 2;
-
-// A burst of changes, such as a turn starting and its title arriving,
-// becomes one fetch.
-const settleMs = 250;
-
-const watchers = new Set<Watcher>();
-let stream: ChangeStream | undefined;
-let retry: ReturnType<typeof setTimeout> | undefined;
-let failures = 0;
-
-function notify(watcher: Watcher): void {
-  clearTimeout(watcher.timer);
-  watcher.timer = setTimeout(watcher.onChange, settleMs);
-}
-
-// A browser reconnects by itself after the connection drops, but not after
-// an error response, such as while the server restarts. Either way changes
-// were missed, so watchers fetch again once the stream opens.
-function connect(): void {
-  const { EventSource } = globalThis as unknown as {
-    EventSource: new (url: string) => ChangeStream;
-  };
-
-  const source = new EventSource("/api/changes");
-  let lost = failures > 0;
-  stream = source;
-
-  source.addEventListener("message", (event) => {
-    const { topic } = JSON.parse(event.data) as { topic: string };
-
-    for (const watcher of watchers) {
-      if (watcher.topics.includes(topic)) {
-        notify(watcher);
-      }
-    }
-  });
-
-  source.addEventListener("error", () => {
-    lost = true;
-
-    if (source.readyState === closedState && stream === source) {
-      void reconnect(source);
-    }
-  });
-
-  source.addEventListener("open", () => {
-    failures = 0;
-
-    if (lost) {
-      lost = false;
-      watchers.forEach(notify);
-    }
-  });
-}
-
-// An EventSource doesn't say which error response closed it, and a signed
-// out browser would otherwise retry forever.
-async function reconnect(source: ChangeStream): Promise<void> {
-  const status = await fetch("/api/changes").then(
-    async (response) => {
-      await response.body?.cancel();
-
-      return response.status;
-    },
-    () => undefined,
-  );
-
-  if (stream !== source) {
-    return;
-  }
-
-  if (status === 401) {
-    (
-      globalThis as unknown as { location: { reload: () => void } }
-    ).location.reload();
-
-    return;
-  }
-
-  retry = setTimeout(connect, Math.min(1000 * 2 ** failures, 30_000));
-  failures++;
-}
-
-// Calls onChange when the server says one of the topics changed, and after
-// the page reconnects, since changes sent while it was away are not resent
-// (ADR 0038). One stream serves the whole page.
-export function watchChanges(
-  topics: readonly string[],
-  onChange: () => void,
-): () => void {
-  const watcher: Watcher = { topics, onChange };
-  watchers.add(watcher);
-
-  if (stream === undefined) {
-    connect();
-  }
-
-  return () => {
-    clearTimeout(watcher.timer);
-    watchers.delete(watcher);
-
-    if (watchers.size === 0) {
-      clearTimeout(retry);
-      stream?.close();
-      stream = undefined;
-      failures = 0;
-    }
-  };
-}
-
 // Loads data for a component, again when key changes, on reload(), when one
-// of the topics changes, and every everyMs for data that changes outside
-// Pipoca. Stale results for an old key, and results older than the ones
+// of the topics or the plugin's changes changes, and every everyMs for data
+// that changes outside Pipoca. changes are named as the plugin's routes name
+// them. Stale results for an old key, and results older than the ones
 // shown, are dropped.
 // A failed first load is thrown during render, for the error boundary the
 // web app puts around every plugin part; a failed refresh keeps the last
@@ -415,15 +147,30 @@ export function useLoaded<T>(
   key: string,
   {
     topics = [],
+    changes = [],
     everyMs,
-  }: { readonly topics?: readonly string[]; readonly everyMs?: number } = {},
+  }: {
+    readonly topics?: readonly string[];
+    readonly changes?: readonly string[];
+    readonly everyMs?: number;
+  } = {},
 ): { readonly value: T | undefined; readonly reload: () => void } {
+  const plugin = useScope();
   const [loaded, setLoaded] = useState<{ key: string; value: T }>();
   const [failed, setFailed] = useState<{ key: string; error: unknown }>();
   const [version, setVersion] = useState(0);
   const run = useEffectEvent(load);
+  if (changes.length > 0 && plugin === undefined) {
+    throw new Error(
+      "changes name a plugin's topics, so only its parts watch them",
+    );
+  }
+
   // A string, so a new array with the same topics doesn't fetch again.
-  const watched = topics.join(" ");
+  const watched = [
+    ...topics,
+    ...changes.map((name) => topicOf(plugin ?? "", name)),
+  ].join(" ");
 
   useEffect(() => {
     const order = responseOrder();

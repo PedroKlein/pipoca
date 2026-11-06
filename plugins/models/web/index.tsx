@@ -1,24 +1,24 @@
-import {
-  json,
-  useLoaded,
-  type WebContext,
-  type WebPlugin,
-} from "@pipoca/plugins/web";
+import { defineWeb, useApi, useLoaded } from "@pipoca/plugins/web";
 import type { Environment, ModelRef } from "@pipoca/protocol";
 import {
+  Avatar,
   Badge,
   Button,
+  cardClass,
+  Checkbox,
   cn,
-  fieldClass,
+  ErrorText,
   Icon,
   initialsOf,
-  PageTitle,
+  Page,
   Row,
   Rows,
   Section,
   Select,
+  TextInput,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
+import { models } from "../plugin";
 import {
   aliasesOf,
   gatewayProvider,
@@ -38,18 +38,18 @@ import {
 
 const schedules = ["", "utc-hourly", "utc-midnight", "utc-monthly-1st"];
 
-export const models: WebPlugin = {
-  name: "models",
-  SettingsSection: Page,
-  settingsGroup: "workspace",
-};
+export const web = defineWeb(models, {
+  settings: { group: "workspace", Section: ModelsPage },
+});
 
-function Page({ context }: { readonly context: WebContext }): ReactElement {
+function ModelsPage(): ReactElement {
+  const api = useApi(models);
+
   const { value, reload } = useLoaded(
     async () =>
       Promise.all([
-        json<Environment[]>(context.request("/api/environments")),
-        json<EnvironmentModels[]>(context.request("environments")),
+        api.get<Environment[]>("/api/environments"),
+        api.get<EnvironmentModels[]>("environments"),
       ]),
     "models",
   );
@@ -62,25 +62,23 @@ function Page({ context }: { readonly context: WebContext }): ReactElement {
     environments.find(({ id }) => id === chosen) ?? environments[0];
 
   return (
-    <>
-      <PageTitle
-        description='Name a choice once, like "smart" or "fast", and list models to try in order. If one is down or out of quota, the next one answers.'
-        actions={
-          environment !== undefined &&
-          !adding && (
-            <Button
-              onClick={() => {
-                setAdding(true);
-              }}
-            >
-              <Icon name="plus" />
-              New alias
-            </Button>
-          )
-        }
-      >
-        Models
-      </PageTitle>
+    <Page
+      title="Models"
+      description='Name a choice once, like "smart" or "fast", and list models to try in order. If one is down or out of quota, the next one answers.'
+      actions={
+        environment !== undefined &&
+        !adding && (
+          <Button
+            onClick={() => {
+              setAdding(true);
+            }}
+          >
+            <Icon name="plus" />
+            New alias
+          </Button>
+        )
+      }
+    >
       {value !== undefined && environment === undefined && (
         <Rows>
           <Row
@@ -110,7 +108,6 @@ function Page({ context }: { readonly context: WebContext }): ReactElement {
       {environment !== undefined && (
         <Aliases
           key={environment.id}
-          context={context}
           environment={environment}
           saved={configs.find(
             ({ environmentId }) => environmentId === environment.id,
@@ -120,10 +117,8 @@ function Page({ context }: { readonly context: WebContext }): ReactElement {
           onSaved={reload}
         />
       )}
-      {environment !== undefined && (
-        <InThePicker context={context} environment={environment} />
-      )}
-    </>
+      {environment !== undefined && <InThePicker environment={environment} />}
+    </Page>
   );
 }
 
@@ -134,14 +129,14 @@ interface HiddenModels {
 
 // Admins hide the models nobody here should use from every model picker.
 function InThePicker({
-  context,
   environment,
 }: {
-  readonly context: WebContext;
   readonly environment: Environment;
 }): ReactElement | null {
+  const api = useApi(models);
+
   const { value, reload } = useLoaded(
-    async () => json<HiddenModels>(context.request("hidden")),
+    async () => api.get<HiddenModels>("hidden"),
     "models.hidden",
   );
 
@@ -173,12 +168,7 @@ function InThePicker({
   const save = (next: readonly string[]): void => {
     setSaving(next);
 
-    json(
-      context.request("hidden", {
-        method: "POST",
-        body: JSON.stringify({ hidden: next }),
-      }),
-    ).then(
+    api.post("hidden", { hidden: next }).then(
       () => {
         setError(undefined);
         reload();
@@ -195,11 +185,7 @@ function InThePicker({
       title="In the model picker"
       description="Hide models nobody here should use"
     >
-      {error !== undefined && (
-        <p role="alert" className="text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption">{error}</ErrorText>
       <Rows label="Providers in the model picker">
         {[...byProvider].map(([provider, listed]) => {
           const shown = listed.filter(
@@ -230,23 +216,23 @@ function InThePicker({
                         const key = modelKey(model);
 
                         return (
-                          <label
+                          <Checkbox
                             key={key}
-                            className="flex items-center gap-2 font-mono text-mono-sm text-fg"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={!hidden.includes(key)}
-                              onChange={(event) => {
-                                save(
-                                  event.target.checked
-                                    ? hidden.filter((each) => each !== key)
-                                    : [...hidden, key],
-                                );
-                              }}
-                            />
-                            {model.id}
-                          </label>
+                            size="sm"
+                            label={
+                              <span className="font-mono text-mono-sm text-fg">
+                                {model.id}
+                              </span>
+                            }
+                            checked={!hidden.includes(key)}
+                            onChange={(event) => {
+                              save(
+                                event.target.checked
+                                  ? hidden.filter((each) => each !== key)
+                                  : [...hidden, key],
+                              );
+                            }}
+                          />
                         );
                       })}
                     </span>
@@ -276,40 +262,36 @@ function InThePicker({
 }
 
 function Aliases({
-  context,
   environment,
   saved,
   adding,
   onAdding,
   onSaved,
 }: {
-  readonly context: WebContext;
   readonly environment: Environment;
   readonly saved: EnvironmentModels | undefined;
   readonly adding: boolean;
   readonly onAdding: (adding: boolean) => void;
   readonly onSaved: () => void;
 }): ReactElement {
+  const api = useApi(models);
   const health = saved?.health ?? noHealth;
   const config = saved?.aliases ?? { models: {} };
   const [error, setError] = useState<string>();
   const list = `models-${environment.id}`;
 
   const save = (aliases: AliasConfig | null): void => {
-    json(
-      context.request(`environments/${encodeURIComponent(environment.id)}`, {
-        method: "POST",
-        body: JSON.stringify({ aliases }),
-      }),
-    ).then(
-      () => {
-        setError(undefined);
-        onSaved();
-      },
-      (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
-      },
-    );
+    api
+      .post(`environments/${encodeURIComponent(environment.id)}`, { aliases })
+      .then(
+        () => {
+          setError(undefined);
+          onSaved();
+        },
+        (reason: unknown) => {
+          setError(reason instanceof Error ? reason.message : String(reason));
+        },
+      );
   };
 
   const setModels = (
@@ -349,11 +331,9 @@ function Aliases({
             <option key={modelKey(model)} value={modelKey(model)} />
           ))}
       </datalist>
-      {error !== undefined && (
-        <p role="alert" className="mt-4 text-caption text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText size="caption" className="mt-4">
+        {error}
+      </ErrorText>
       <div className="mt-6 flex flex-col gap-4">
         {adding && (
           <NewAlias
@@ -446,15 +426,14 @@ function Aliases({
       {saved?.aliases !== null && saved?.aliases !== undefined && (
         <p className="mt-6 text-caption text-fg-dim">
           Sessions see each alias as {gatewayProvider}/name.{" "}
-          <button
-            type="button"
-            className="cursor-pointer text-fg underline underline-offset-2"
+          <Button
+            variant="link"
             onClick={() => {
               save(null);
             }}
           >
             Turn aliases off
-          </button>
+          </Button>
         </p>
       )}
     </>
@@ -480,7 +459,7 @@ function NewAlias({
   return (
     <form
       aria-label="New alias"
-      className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-elevated p-4 shadow-xs"
+      className={cn(cardClass, "flex flex-wrap items-center gap-2 p-4")}
       onSubmit={(event) => {
         event.preventDefault();
 
@@ -489,7 +468,7 @@ function NewAlias({
         }
       }}
     >
-      <input
+      <TextInput
         aria-label="New alias name"
         placeholder="smart"
         value={name}
@@ -497,9 +476,9 @@ function NewAlias({
         onChange={(event) => {
           setName(event.target.value.trim());
         }}
-        className={cn(fieldClass, "w-40 font-mono text-mono-sm")}
+        className="w-40 font-mono text-mono-sm"
       />
-      <input
+      <TextInput
         list={list}
         aria-label="First model"
         placeholder="provider/model to try first"
@@ -507,7 +486,7 @@ function NewAlias({
         onChange={(event) => {
           setModel(event.target.value.trim());
         }}
-        className={cn(fieldClass, "flex-1 font-mono text-mono-sm")}
+        className="flex-1 font-mono text-mono-sm"
       />
       <Button variant="primary" type="submit" disabled={!ready}>
         Add alias
@@ -516,9 +495,9 @@ function NewAlias({
         Cancel
       </Button>
       {clash && (
-        <p role="alert" className="w-full text-caption text-failed">
+        <ErrorText size="caption" className="w-full">
           {name} is already an alias.
-        </p>
+        </ErrorText>
       )}
     </form>
   );
@@ -562,7 +541,7 @@ function AliasCard({
   return (
     <section
       aria-label={`Alias ${name}`}
-      className="flex flex-col gap-3 rounded-lg border border-line bg-elevated p-4 shadow-xs"
+      className={cn(cardClass, "flex flex-col gap-3 p-4")}
     >
       <header className="flex flex-wrap items-center gap-2">
         {renaming ? (
@@ -581,12 +560,12 @@ function AliasCard({
               setRenaming(false);
             }}
           >
-            <input
+            <TextInput
               name="name"
               aria-label="Alias name"
               defaultValue={name}
               autoFocus
-              className={cn(fieldClass, "flex-1 font-mono text-mono-sm")}
+              className="flex-1 font-mono text-mono-sm"
             />
             <Button type="submit">Save</Button>
           </form>
@@ -637,12 +616,7 @@ function AliasCard({
               >
                 {index + 1}
               </span>
-              <span
-                aria-hidden="true"
-                className="grid size-7 place-items-center rounded-md bg-hover text-caption font-semibold text-fg-strong"
-              >
-                {initialsOf(ref?.provider ?? value)}
-              </span>
+              <Avatar name={ref?.provider ?? value} square />
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className="truncate text-ui text-fg-strong">
                   {ref?.id ?? value}
@@ -791,7 +765,7 @@ function ProviderEditor({
       <div className="flex flex-wrap items-center gap-4 text-label text-fg-dim">
         <label className="flex items-center gap-2">
           Cap status codes
-          <input
+          <TextInput
             placeholder="402"
             defaultValue={(settings.capStatusCodes ?? []).join(", ")}
             onBlur={(event) => {
@@ -808,7 +782,7 @@ function ProviderEditor({
                   : { ...rest, capStatusCodes: parsed },
               );
             }}
-            className={cn(fieldClass, "w-28")}
+            className="w-28"
           />
         </label>
         <label className="flex items-center gap-2">

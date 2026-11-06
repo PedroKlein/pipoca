@@ -62,7 +62,7 @@ export interface Cluster {
   readonly deleteClaim: (name: string) => Promise<void>;
 }
 
-export interface ApiAccess {
+interface ApiAccess {
   readonly url: string;
   readonly namespace: string;
   readonly token: () => string;
@@ -72,13 +72,18 @@ export interface ApiAccess {
 export const environmentLabel = "pipoca.dev/environment";
 export const sessionLabel = "pipoca.dev/session";
 
-const serviceAccount = "/var/run/secrets/kubernetes.io/serviceaccount";
-
 // The server reaches the API with its pod's service account, so no kubeconfig
-// is stored (ADR 0032). Outside a cluster there is none.
-export function inClusterApi(dir = serviceAccount): ApiAccess | undefined {
-  const host = process.env["KUBERNETES_SERVICE_HOST"];
-  const port = process.env["KUBERNETES_SERVICE_PORT"] ?? "443";
+// is stored (ADR 0032). Outside a cluster there is none. Tests name a folder
+// of their own.
+export function inClusterApi(
+  env: (name: string) => string | undefined,
+): ApiAccess | undefined {
+  const dir =
+    env("PIPOCA_SERVICE_ACCOUNT_DIR") ??
+    "/var/run/secrets/kubernetes.io/serviceaccount";
+
+  const host = env("KUBERNETES_SERVICE_HOST");
+  const port = env("KUBERNETES_SERVICE_PORT") ?? "443";
 
   let namespace: string;
   let ca: string;
@@ -102,7 +107,7 @@ export function inClusterApi(dir = serviceAccount): ApiAccess | undefined {
   };
 }
 
-export function clusterAt(options: ApiAccess): Cluster {
+export function clusterAt(options: ApiAccess, now: () => number): Cluster {
   const base = `${options.url}/api/v1/namespaces/${options.namespace}`;
 
   const call = async (
@@ -169,7 +174,7 @@ export function clusterAt(options: ApiAccess): Cluster {
         environmentId: metadata.labels?.[environmentLabel] ?? "",
         sessionId: metadata.labels?.[sessionLabel],
         phase: status?.phase ?? "Pending",
-        createdAt: Date.parse(metadata.creationTimestamp ?? "") || Date.now(),
+        createdAt: Date.parse(metadata.creationTimestamp ?? "") || now(),
         problem: [
           ...(status?.initContainerStatuses ?? []),
           ...(status?.containerStatuses ?? []),

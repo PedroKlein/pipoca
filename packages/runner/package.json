@@ -1,0 +1,15 @@
+{
+  "name": "@pipoca/runner",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@pipoca/plugins": "workspace:*",
+    "@pipoca/protocol": "workspace:*",
+    "@pipoca/sessionhost": "workspace:*",
+    "@pipoca/workspaces": "workspace:*"
+  },
+  "devDependencies": {
+    "@pipoca/testing": "workspace:*"
+  }
+}

@@ -26,7 +26,7 @@ const thinkingLevels: readonly string[] = [
   "max",
 ];
 
-export const builtinAgents: readonly Agent[] = [
+const builtinAgents: readonly Agent[] = [
   {
     name: "scout",
     description:
@@ -78,7 +78,7 @@ export function thinkingLevel(value: unknown): ThinkingLevel | undefined {
     : undefined;
 }
 
-export function parseAgent(text: string, fallbackName: string): Agent {
+function parseAgent(text: string, fallbackName: string): Agent {
   const { frontmatter, body } = parseFrontmatter(text);
 
   const string = (key: string): string | undefined => {

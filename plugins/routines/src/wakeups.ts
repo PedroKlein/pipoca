@@ -1,199 +1,208 @@
 import {
   NotFound,
-  type ServerPluginContext,
-  type ServerTool,
+  type ServerContext,
+  type Session,
+  type Static,
+  StringEnum,
+  ToolError,
+  Type,
 } from "@pipoca/plugins";
-import type { Session, ToolResult } from "@pipoca/protocol";
+import type { routines } from "../plugin";
 import type { WakeUp } from "./model";
+import { isZonedTime } from "./routine";
 
 const minuteMs = 60_000;
 const dayMs = 24 * 60 * minuteMs;
-const maxAheadMs = 30 * dayMs;
 const maxPending = 10;
 const maxDeliveredPerDay = 48;
-const offlineRetryMs = 30_000;
-// setTimeout fires at once past about 24.8 days, so a later wake-up re-arms.
-const maxTimerMs = 60 * minuteMs;
 const maxReasonLength = 120;
 const maxMessageLength = 4000;
+const prefix = "wakeup:";
 
-const toolName = "schedule_wakeup";
-const noticeKind = "wakeup";
+type Context = Pick<
+  ServerContext<typeof routines>,
+  | "store"
+  | "sessions"
+  | "tools"
+  | "events"
+  | "routes"
+  | "schedule"
+  | "clock"
+  | "config"
+  | "log"
+>;
 
-interface Row {
-  readonly id: string;
-  readonly session_id: string;
-  readonly user_id: string;
-  readonly due_at: number;
+interface Payload {
   readonly reason: string;
   readonly message: string;
 }
 
-export interface WakeUps {
-  // The person's pending wake-ups in one of their Sessions.
-  readonly pending: (userId: string, sessionId: string) => readonly WakeUp[];
-  readonly cancel: (userId: string, id: string) => void;
+interface WakeUps {
+  readonly pending: (sessionId: string) => readonly WakeUp[];
+  // Cancels a wake-up of a Session the check lets through.
+  readonly cancel: (id: string, may: (sessionId: string) => boolean) => void;
 }
 
-// One-time wake-ups a Session schedules for itself (ADR 0059). One timer is
-// armed for the earliest due one.
-export function wakeUps(
-  context: Pick<
-    ServerPluginContext,
-    "store" | "sessions" | "tools" | "events" | "changes" | "signal" | "log"
-  >,
-): WakeUps {
-  const { store, sessions, changes, log } = context;
+const params = Type.Object(
+  {
+    action: Type.Optional(
+      StringEnum(["schedule", "list", "cancel"] as const, {
+        description: "schedule when left out",
+      }),
+    ),
+    delay_minutes: Type.Optional(
+      Type.Number({ description: "How long from now. Give this or at." }),
+    ),
+    at: Type.Optional(
+      Type.String({
+        description:
+          "When, as an ISO 8601 time with a time zone, such as 2026-11-03T08:00:00+01:00. Give this or delay_minutes.",
+      }),
+    ),
+    reason: Type.Optional(
+      Type.String({
+        description: "A short line the user sees, such as Check CI on #552.",
+      }),
+    ),
+    message: Type.Optional(
+      Type.String({
+        description:
+          "What you get back at that time: enough to pick the work up without remembering it.",
+      }),
+    ),
+    id: Type.Optional(Type.String({ description: "The wake-up to cancel." })),
+  },
+  { additionalProperties: false },
+);
 
-  store.exec(
-    "create table if not exists routines_wakeups (id text primary key, session_id text not null, user_id text not null, due_at integer not null, try_at integer not null, reason text not null, message text not null, delivered_at integer)",
-  );
+type Input = Static<typeof params>;
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
+// One-time wake-ups a Session schedules for itself (ADR 0059), each a
+// firing in the plugin's schedule keyed by its Session.
+export function wakeUps(context: Context): WakeUps {
+  const { store, sessions, routes, schedule, clock, config, log } = context;
 
-  const pendingRows = (where: string, ...params: string[]): Row[] =>
-    store.all(
-      `select id, session_id, user_id, due_at, reason, message from routines_wakeups where delivered_at is null and ${where} order by due_at`,
-      ...params,
-    ) as Row[];
+  const keyOf = (sessionId: string, id: string): string =>
+    `${prefix}${sessionId}:${id}`;
 
-  const arm = (): void => {
-    clearTimeout(timer);
+  const pending = (sessionId: string): WakeUp[] =>
+    schedule.pending(`${prefix}${sessionId}:`).map(({ key, when, payload }) => {
+      const { reason, message } = payload as Payload;
 
-    const [next] = store.all(
-      "select try_at from routines_wakeups where delivered_at is null order by try_at limit 1",
-    ) as { try_at: number }[];
-
-    if (next === undefined || context.signal.aborted) {
-      return;
-    }
-
-    timer = setTimeout(
-      fire,
-      Math.min(Math.max(next.try_at - Date.now(), 0), maxTimerMs),
-    );
-  };
-
-  const deliver = (row: Row): void => {
-    const sent = sessions.send(
-      row.session_id,
-      `Wake-up you scheduled: ${row.reason}\n\n${row.message}`,
-      "plugin:routines",
-      { kind: noticeKind, data: { reason: row.reason } },
-    );
-
-    if (sent.ok) {
-      store.run(
-        "update routines_wakeups set delivered_at = ? where id = ?",
-        Date.now(),
-        row.id,
-      );
-
-      log("wake-up delivered", { id: row.id, sessionId: row.session_id });
-
-      return;
-    }
-
-    if (sent.reason === "offline") {
-      store.run(
-        "update routines_wakeups set try_at = ? where id = ?",
-        Date.now() + offlineRetryMs,
-        row.id,
-      );
-
-      log("wake-up waits for its Session to come online", {
-        id: row.id,
-        sessionId: row.session_id,
-      });
-
-      return;
-    }
-
-    store.run("delete from routines_wakeups where id = ?", row.id);
-
-    log("wake-up dropped", {
-      id: row.id,
-      sessionId: row.session_id,
-      reason: sent.reason,
+      return {
+        id: key.slice(`${prefix}${sessionId}:`.length),
+        sessionId,
+        dueAt: new Date(when).toISOString(),
+        reason,
+        message,
+      };
     });
+
+  const changed = (): void => {
+    routes.topic("wakeups");
   };
 
-  function fire(): void {
-    const due = store.all(
-      "select id, session_id, user_id, due_at, reason, message from routines_wakeups where delivered_at is null and try_at <= ? order by due_at",
-      Date.now(),
-    ) as Row[];
+  schedule.on(prefix, (payload, key) => {
+    const [sessionId = "", id = ""] = key.slice(prefix.length).split(":");
+    const { reason, message } = payload as Payload;
+    const now = clock.now();
 
-    due.forEach(deliver);
+    const sent = sessions.send(sessionId, {
+      text: `Wake-up you scheduled: ${reason}\n\n${message}`,
+      turn: true,
+      notice: { kind: "wakeup", data: { reason } },
+      dedupe: id,
+    });
 
-    store.run(
-      "delete from routines_wakeups where delivered_at < ?",
-      Date.now() - dayMs,
-    );
+    if (sent === "queued") {
+      store.run(
+        "insert into routines_wakeups (id, session_id, delivered_at) values (?, ?, ?)",
+        id,
+        sessionId,
+        now,
+      );
 
-    if (due.length > 0) {
-      changes.publish("wakeups");
+      store.run(
+        "delete from routines_wakeups where delivered_at < ?",
+        now - dayMs,
+      );
+
+      log("wake-up delivered", { id, sessionId });
+    } else {
+      log("wake-up dropped, since its Session is gone", { id, sessionId });
     }
 
-    arm();
-  }
+    changed();
+  });
 
-  const schedule = (session: Session, input: Input): string => {
+  const dueOf = ({ delay_minutes: delay, at }: Input): number => {
+    if ((delay === undefined) === (at === undefined)) {
+      throw new ToolError("give either delay_minutes or at");
+    }
+
+    if (delay !== undefined) {
+      return clock.now() + delay * minuteMs;
+    }
+
+    if (at === undefined || !isZonedTime(at)) {
+      throw new ToolError("at must be an ISO 8601 time with a time zone");
+    }
+
+    return Date.parse(at);
+  };
+
+  const scheduled = (session: Session, input: Input): string => {
     const reason = input.reason?.trim() ?? "";
     const message = input.message?.trim() ?? "";
+    const days = config.get().wakeUpDays;
 
     if (reason === "" || reason.length > maxReasonLength) {
-      throw new Error(
+      throw new ToolError(
         `reason must be a short line of at most ${String(maxReasonLength)} characters`,
       );
     }
 
     if (message === "" || message.length > maxMessageLength) {
-      throw new Error(
+      throw new ToolError(
         `message must be text of at most ${String(maxMessageLength)} characters`,
       );
     }
 
     const dueAt = dueOf(input);
-    const ahead = dueAt - Date.now();
+    const ahead = dueAt - clock.now();
 
-    if (ahead < minuteMs || ahead > maxAheadMs) {
-      throw new Error("a wake-up must be 1 minute to 30 days ahead");
+    if (ahead < minuteMs || ahead > days * dayMs) {
+      throw new ToolError(
+        `a wake-up must be 1 minute to ${String(days)} days ahead`,
+      );
     }
 
-    if (pendingRows("session_id = ?", session.id).length >= maxPending) {
-      throw new Error(
+    if (pending(session.id).length >= maxPending) {
+      throw new ToolError(
         `this Session already has ${String(maxPending)} pending wake-ups; cancel one first`,
       );
     }
 
-    const [delivered] = store.all(
+    const delivered = store.get<{ count: number }>(
       "select count(*) as count from routines_wakeups where session_id = ? and delivered_at >= ?",
       session.id,
-      Date.now() - dayMs,
-    ) as { count: number }[];
+      clock.now() - dayMs,
+    );
 
     if ((delivered?.count ?? 0) >= maxDeliveredPerDay) {
-      throw new Error(
+      throw new ToolError(
         `this Session woke up ${String(maxDeliveredPerDay)} times in the last day, the most it may`,
       );
     }
 
-    const id = crypto.randomUUID().slice(0, 8);
+    const id = Bun.randomUUIDv7();
 
-    store.run(
-      "insert into routines_wakeups (id, session_id, user_id, due_at, try_at, reason, message) values (?, ?, ?, ?, ?, ?, ?)",
-      id,
-      session.id,
-      session.startedBy ?? session.ownerId,
-      dueAt,
-      dueAt,
+    schedule.at(keyOf(session.id, id), dueAt, {
       reason,
       message,
-    );
+    } satisfies Payload);
 
-    changes.publish("wakeups");
-    arm();
+    changed();
 
     log("wake-up scheduled", {
       id,
@@ -204,165 +213,72 @@ export function wakeUps(
     return `Scheduled wake-up ${id} for ${new Date(dueAt).toISOString()}. End your turn now; the message comes back to you then.`;
   };
 
-  const list = (session: Session): string => {
-    const rows = pendingRows("session_id = ?", session.id);
-
-    if (rows.length === 0) {
-      return "No pending wake-ups.";
+  const cancelled = (sessionId: string, id: string): boolean => {
+    if (!pending(sessionId).some((each) => each.id === id)) {
+      return false;
     }
 
-    return rows
-      .map(
-        (row) =>
-          `${row.id}: ${new Date(row.due_at).toISOString()}, ${row.reason}`,
-      )
-      .join("\n");
+    schedule.cancel(keyOf(sessionId, id));
+    changed();
+
+    return true;
   };
 
-  const cancelOf = (session: Session, id: string): string => {
-    if (pendingRows("id = ? and session_id = ?", id, session.id).length === 0) {
-      throw new Error(`this Session has no pending wake-up ${id}`);
-    }
-
-    store.run("delete from routines_wakeups where id = ?", id);
-    changes.publish("wakeups");
-    arm();
-
-    return `Cancelled wake-up ${id}.`;
-  };
-
-  context.tools.register({
-    name: toolName,
-    description:
-      "Come back to something later: at the time, this Session gets the message as a new turn. Use it instead of sleeping or polling, such as to check CI again in 15 minutes. 1 minute to 30 days ahead. action list shows the pending ones and cancel removes one by id.",
-    parameters: {
-      type: "object",
-      properties: {
-        action: {
-          type: "string",
-          enum: ["schedule", "list", "cancel"],
-          description: "schedule when left out",
-        },
-        delay_minutes: {
-          type: "number",
-          description: "How long from now. Give this or at.",
-        },
-        at: {
-          type: "string",
-          description:
-            "When, as an ISO 8601 time with a time zone, such as 2026-11-03T08:00:00+01:00. Give this or delay_minutes.",
-        },
-        reason: {
-          type: "string",
-          description: "A short line the user sees, such as Check CI on #552.",
-        },
-        message: {
-          type: "string",
-          description:
-            "What you get back at that time: enough to pick the work up without remembering it.",
-        },
-        id: { type: "string", description: "The wake-up to cancel." },
-      },
-      additionalProperties: false,
-    },
+  context.tools.define({
+    name: "schedule_wakeup",
+    description: `Come back to something later: at the time, this Session gets the message as a new turn. Use it instead of sleeping or polling, such as to check CI again in 15 minutes. 1 minute to ${String(config.get().wakeUpDays)} days ahead. action list shows the pending ones and cancel removes one by id.`,
+    params,
     exposure: "direct",
-    annotations: { readOnlyHint: false, destructiveHint: false },
-    appliesTo: () => true,
-    run: async (raw, { session }) => {
-      const input = (raw ?? {}) as Input;
+    annotations: { readOnly: false, destructive: false },
+    run: (input, { session }) => {
+      switch (input.action ?? "schedule") {
+        case "schedule":
+          return scheduled(session, input);
+        case "list": {
+          const rows = pending(session.id);
 
-      return Promise.resolve(
-        answer(() => {
-          switch (input.action ?? "schedule") {
-            case "schedule":
-              return schedule(session, input);
-            case "list":
-              return list(session);
-            case "cancel":
-              return cancelOf(session, input.id ?? "");
+          return rows.length === 0
+            ? "No pending wake-ups."
+            : rows
+                .map(({ id, dueAt, reason }) => `${id}: ${dueAt}, ${reason}`)
+                .join("\n");
+        }
+
+        case "cancel": {
+          const id = input.id ?? "";
+
+          if (!cancelled(session.id, id)) {
+            throw new ToolError(`this Session has no pending wake-up ${id}`);
           }
-        }),
-      );
+
+          return `Cancelled wake-up ${id}.`;
+        }
+      }
     },
-  } satisfies ServerTool);
-
-  context.events.subscribe("SessionArchived", ({ session }) => {
-    store.run(
-      "delete from routines_wakeups where session_id = ? and delivered_at is null",
-      session.id,
-    );
-
-    changes.publish("wakeups");
-    arm();
   });
 
-  context.signal.addEventListener("abort", () => {
-    clearTimeout(timer);
-  });
+  context.events.on("SessionArchived", ({ session }) => {
+    for (const { id } of pending(session.id)) {
+      schedule.cancel(keyOf(session.id, id));
+    }
 
-  arm();
+    changed();
+  });
 
   return {
-    pending: (userId, sessionId) =>
-      pendingRows("user_id = ? and session_id = ?", userId, sessionId).map(
-        (row) => ({
-          id: row.id,
-          sessionId: row.session_id,
-          dueAt: new Date(row.due_at).toISOString(),
-          reason: row.reason,
-          message: row.message,
-        }),
-      ),
-    cancel: (userId, id) => {
-      if (pendingRows("id = ? and user_id = ?", id, userId).length === 0) {
+    pending,
+    cancel: (id, may) => {
+      const found = schedule
+        .pending(prefix)
+        .find(({ key }) => key.endsWith(`:${id}`));
+
+      const sessionId = found?.key.slice(prefix.length).split(":")[0];
+
+      if (sessionId === undefined || !may(sessionId)) {
         throw new NotFound(`no pending wake-up ${id}`);
       }
 
-      store.run("delete from routines_wakeups where id = ?", id);
-      changes.publish("wakeups");
-      arm();
+      cancelled(sessionId, id);
     },
   };
-}
-
-interface Input {
-  readonly action?: "schedule" | "list" | "cancel";
-  readonly delay_minutes?: number;
-  readonly at?: string;
-  readonly reason?: string;
-  readonly message?: string;
-  readonly id?: string;
-}
-
-function dueOf({ delay_minutes: delay, at }: Input): number {
-  if ((delay === undefined) === (at === undefined)) {
-    throw new Error("give either delay_minutes or at");
-  }
-
-  if (delay !== undefined) {
-    if (!Number.isFinite(delay)) {
-      throw new Error("delay_minutes must be a number");
-    }
-
-    return Date.now() + delay * minuteMs;
-  }
-
-  const due = Date.parse(at ?? "");
-
-  if (Number.isNaN(due) || !/(Z|[+-]\d\d:?\d\d)$/i.test(at ?? "")) {
-    throw new Error("at must be an ISO 8601 time with a time zone");
-  }
-
-  return due;
-}
-
-function answer(run: () => string): ToolResult {
-  try {
-    return { text: run(), isError: false };
-  } catch (failure) {
-    return {
-      text: failure instanceof Error ? failure.message : String(failure),
-      isError: true,
-    };
-  }
 }

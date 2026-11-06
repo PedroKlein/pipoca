@@ -1,4 +1,4 @@
-import type { Log } from "@pipoca/providers";
+import type { Log } from "@pipoca/protocol";
 
 export function stderrLog(component: string): Log {
   return (message, fields) => {

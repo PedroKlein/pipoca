@@ -1,10 +1,12 @@
 import { expect, test } from "bun:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
-  eventBus,
-  type ServerPlugin,
-  type ServerPluginContext,
+  definePlugin,
+  defineServer,
+  type ServerContext,
+  Type,
 } from "@pipoca/plugins";
+import { eventBus, type ServerPart } from "@pipoca/plugins/host";
 import {
   type Assignment,
   protocolVersion,
@@ -12,59 +14,135 @@ import {
   versionHeader,
   type WorkPoll,
 } from "@pipoca/protocol";
-import type { Log } from "@pipoca/providers";
-import { startPlugins } from "@pipoca/pluginhost";
+import { type Log, systemClock, systemTimer } from "@pipoca/protocol";
+import { type PluginHost, startPlugins } from "@pipoca/pluginhost";
 import { ProfileFolders, Profiles } from "@pipoca/profiles";
-import { Sessions } from "@pipoca/sessions";
-import { Auth } from "./auth";
-import { changeFeed } from "./changes";
-import { createHandler } from "./server";
-import { readSse } from "./sse";
-import { openStore } from "./store";
+import { Sessions, type SessionStore } from "@pipoca/sessions";
+import {
+  Environments,
+  type EnvironmentsOptions,
+  RunnerCredentials,
+} from "@pipoca/environments";
+import { People, SignIn } from "@pipoca/people";
+import { type Changes, changeFeed } from "./changes";
+import { createApi } from "./server/http/api";
+import type { Auth } from "./server/http/deps";
+import { readSse } from "@pipoca/protocol";
+import { openStore, type Store } from "./sqlite/store";
 import { firstUserCookie } from "./testdata/sign-in";
 
 // No folder: only the shared default Profile, which is plain Pi.
 const noProfiles = new ProfileFolders("/nonexistent/profiles", () => undefined);
 
+// Sessions and their Environments, wired as serve wires them.
+function domainsOf(
+  store: Store,
+  timing: Pick<EnvironmentsOptions, "pollWaitMs" | "offlineAfterMs"> = {},
+  sessionStore: SessionStore = store.sessions,
+  log: Log = () => undefined,
+): { readonly sessions: Sessions; readonly environments: Environments } {
+  const environments: Environments = new Environments(store.environments, {
+    ...timing,
+    sessions: () => ({
+      running: (provider, runner) => sessions.running(provider, runner),
+      inUse: (id) => sessions.inUse(id),
+      removed: () => undefined,
+    }),
+    onlineChanged: (provider, runner) => {
+      sessions.runnerChanged(provider, runner);
+    },
+  });
+
+  const sessions: Sessions = new Sessions(sessionStore, environments, {
+    log,
+  });
+
+  return { sessions, environments };
+}
+
+function authOf(store: Store): Auth {
+  const people = new People(store.people);
+
+  return {
+    people,
+    signIn: new SignIn(people, store.people),
+    runners: new RunnerCredentials(store.credentials),
+  };
+}
+
+function createHandler(
+  auth: Auth,
+  sessions: Sessions,
+  environments: Environments,
+  profiles: Profiles,
+  plugins: PluginHost,
+  changes: Changes,
+  checkStore: () => void,
+  log: Log,
+): (request: Request) => Promise<Response> {
+  return createApi({
+    ...auth,
+    sessions,
+    environments,
+    profiles,
+    plugins,
+    changes,
+    checkStore,
+    log,
+  }).handle;
+}
+
 test("reports unhealthy when the database can't be read, keeping why in the log", async () => {
   const store = openStore(":memory:", undefined, noProfiles);
   const logged: string[] = [];
 
-  const sessions = new Sessions(store);
+  const { sessions, environments } = domainsOf(store);
+  const people = new People(store.people);
 
   const handler = createHandler(
-    new Auth(store.auth),
+    {
+      people,
+      signIn: new SignIn(people, store.people),
+      runners: new RunnerCredentials(store.credentials),
+    },
     sessions,
-    new Profiles(noProfiles, store),
-    startPlugins([], [], {
+    environments,
+    new Profiles(noProfiles, store.profiles),
+    startPlugins([], {
       sessions,
-      sessionParts: [],
+      environments,
       runners: { token: () => "pct_test", revoke: () => undefined },
       events: eventBus(() => undefined),
       changes: () => undefined,
       manifests: [],
       store: store.plugin,
-      settings: store.pluginSettings,
+      dataFailure: store.pluginFailure,
+      resetData: store.resetPlugin,
+      switches: { get: () => ({}), set: () => undefined },
       config: (name) => ({
         get: () => undefined,
         set: () => undefined,
         lockedIn: () => undefined,
         dir: name,
       }),
-      toolsets: [],
       api: () => {
         throw new Error("no toolsets here");
       },
       auth: {
-        userOf: () => undefined,
         users: () => [],
-        createUser: () => undefined,
+        create: () => undefined,
         setAdmin: () => undefined,
         invited: () => undefined,
         acceptInvite: () => undefined,
         passwordLogin: () => true,
         startSession: () => undefined,
       },
+      definitions: [],
+      servers: [],
+      url: () => new URL("http://pipoca"),
+      schedules: store.schedules,
+      clock: systemClock,
+      timer: systemTimer,
       signal: new AbortController().signal,
       log: () => undefined,
     }),
@@ -84,23 +162,22 @@ test("reports unhealthy when the database can't be read, keeping why in the log"
   expect(logged.join("\n")).toContain("database unavailable");
 });
 
-function echo(answered: Promise<void> = Promise.resolve()): ServerPlugin {
-  return {
-    name: "echo",
-    register: ({ tools }) => {
-      tools.register({
+function echo(answered: Promise<void> = Promise.resolve()): ServerPart {
+  return defineServer(
+    definePlugin({ id: "echo", title: "Echo", description: "" }),
+    ({ tools }) => {
+      tools.define({
         name: "echo",
         description: "Says its input back",
-        parameters: { type: "object" },
-        appliesTo: () => true,
+        params: Type.Object({ say: Type.Optional(Type.String()) }),
         run: async (input) => {
           await answered;
 
-          return { text: JSON.stringify(input), isError: false };
+          return JSON.stringify(input);
         },
       });
     },
-  };
+  );
 }
 
 const poll: WorkPoll = { running: [], folders: [], models: [] };
@@ -109,50 +186,66 @@ function startServer(
   log: Log,
   { offlineAfterMs = 30_000, plugin = echo() } = {},
 ): {
-  readonly call: (path: string, body?: unknown) => Promise<Response>;
+  readonly call: (
+    path: string,
+    body?: unknown,
+    method?: string,
+  ) => Promise<Response>;
   readonly claim: () => Promise<Assignment>;
   readonly stop: () => void;
 } {
   const store = openStore(":memory:", undefined, noProfiles);
-  const sessions = new Sessions(store, { pollWaitMs: 0, offlineAfterMs });
+
+  const { sessions, environments } = domainsOf(
+    store,
+    { pollWaitMs: 0, offlineAfterMs },
+    store.sessions,
+    log,
+  );
+
   const stopped = new AbortController();
-  const auth = new Auth(store.auth);
+  const auth = authOf(store);
 
   const handler = createHandler(
     auth,
     sessions,
-    new Profiles(noProfiles, store),
-    startPlugins([plugin], [plugin.name], {
+    environments,
+    new Profiles(noProfiles, store.profiles),
+    startPlugins([plugin.plugin.id], {
       sessions,
-      sessionParts: [],
+      environments,
       runners: { token: () => "pct_test", revoke: () => undefined },
       events: eventBus(() => undefined),
       changes: () => undefined,
-      manifests: [
-        { id: "echo", title: "Echo", description: "", capabilities: ["tools"] },
-      ],
+      manifests: [{ id: "echo", title: "Echo", description: "" }],
       store: store.plugin,
-      settings: store.pluginSettings,
+      dataFailure: store.pluginFailure,
+      resetData: store.resetPlugin,
+      switches: { get: () => ({}), set: () => undefined },
       config: (name) => ({
         get: () => undefined,
         set: () => undefined,
         lockedIn: () => undefined,
         dir: name,
       }),
-      toolsets: [],
       api: () => {
         throw new Error("no toolsets here");
       },
       auth: {
-        userOf: () => undefined,
         users: () => [],
-        createUser: () => undefined,
+        create: () => undefined,
         setAdmin: () => undefined,
         invited: () => undefined,
         acceptInvite: () => undefined,
         passwordLogin: () => true,
         startSession: () => undefined,
       },
+      definitions: [plugin.plugin],
+      servers: [plugin],
+      url: () => new URL("http://pipoca"),
+      schedules: store.schedules,
+      clock: systemClock,
+      timer: systemTimer,
       signal: stopped.signal,
       log,
     }),
@@ -164,15 +257,26 @@ function startServer(
   const cookie = firstUserCookie(
     handler,
     "http://127.0.0.1",
-    auth.setupToken ?? "",
-  );
+    auth.signIn.setupToken ?? "",
+  ).then((signedIn) => {
+    store.environments.ensureEnvironment(
+      "local",
+      store.people.users()[0]?.id ?? "",
+    );
 
-  const token = auth.ownRunnerToken("local", "local");
+    return signedIn;
+  });
 
-  const call = async (path: string, body?: unknown): Promise<Response> =>
+  const token = auth.runners.ownRunnerToken("local", "local");
+
+  const call = async (
+    path: string,
+    body?: unknown,
+    method = body === undefined ? "GET" : "POST",
+  ): Promise<Response> =>
     handler(
       new Request(`http://127.0.0.1${path}`, {
-        method: body === undefined ? "GET" : "POST",
+        method,
         headers: {
           [versionHeader]: String(protocolVersion),
           authorization: `Bearer ${token}`,
@@ -186,13 +290,13 @@ function startServer(
   return {
     call,
     claim: async () => {
-      await call("/agent/work", poll);
+      await call("/runner/work", poll);
 
       await call("/api/sessions", {
         workspace: { kind: "folder", path: "/srv/app" },
       });
 
-      const work = (await (await call("/agent/work", poll)).json()) as {
+      const work = (await (await call("/runner/work", poll)).json()) as {
         start: Assignment[];
       };
 
@@ -205,7 +309,7 @@ function startServer(
     },
     stop: () => {
       stopped.abort();
-      sessions.close();
+      environments.close();
       store.close();
     },
   };
@@ -215,7 +319,7 @@ test("delivers a server tool's result that finished while the command stream was
   const server = startServer(() => undefined);
   const { sessionId, generation } = await server.claim();
 
-  const called = await server.call(`/agent/sessions/${sessionId}/tool-calls`, {
+  const called = await server.call(`/runner/sessions/${sessionId}/tool-calls`, {
     generation,
     id: "call-1",
     name: "echo",
@@ -225,7 +329,7 @@ test("delivers a server tool's result that finished while the command stream was
   await sleep(0);
 
   const stream = await server.call(
-    `/agent/sessions/${sessionId}/commands?generation=${String(generation)}`,
+    `/runner/sessions/${sessionId}/commands?generation=${String(generation)}`,
   );
 
   const commands: unknown[] = [];
@@ -234,7 +338,7 @@ test("delivers a server tool's result that finished while the command stream was
     break;
   }
 
-  await server.call(`/api/sessions/${sessionId}/archive`, {});
+  await server.call(`/api/sessions/${sessionId}`, { archived: true }, "PATCH");
   server.stop();
 
   expect(called.status).toBe(202);
@@ -249,19 +353,19 @@ test("delivers a server tool's result that finished while the command stream was
   ]);
 });
 
-test("drops and logs a waiting tool result once its attempt is no longer current", async () => {
+test("drops and logs a waiting tool result once its Session is archived", async () => {
   const { promise: dropped, resolve } =
     Promise.withResolvers<Readonly<Record<string, unknown>>>();
 
   const server = startServer((message, fields) => {
-    if (message === "tool result dropped") {
+    if (message === "message to a Session dropped") {
       resolve(fields ?? {});
     }
   });
 
   const { sessionId, generation } = await server.claim();
 
-  await server.call(`/agent/sessions/${sessionId}/tool-calls`, {
+  await server.call(`/runner/sessions/${sessionId}/tool-calls`, {
     generation,
     id: "call-1",
     name: "echo",
@@ -269,14 +373,15 @@ test("drops and logs a waiting tool result once its attempt is no longer current
   });
 
   await sleep(0);
-  await server.call(`/api/sessions/${sessionId}/archive`, {});
+  await server.call(`/api/sessions/${sessionId}`, { archived: true }, "PATCH");
 
   expect(await dropped).toEqual({
     sessionId,
+    plugin: "echo",
+    kind: "tool_result",
     generation,
-    tool: "echo",
     callId: "call-1",
-    reason: "stale_generation",
+    reason: "archived",
   });
 
   server.stop();
@@ -284,7 +389,7 @@ test("drops and logs a waiting tool result once its attempt is no longer current
 
 test("holds a message sent before the session's runner connects and delivers it when it does", async () => {
   const server = startServer(() => undefined);
-  await server.call("/agent/work", poll);
+  await server.call("/runner/work", poll);
 
   const created = (await (
     await server.call("/api/sessions", {
@@ -297,14 +402,14 @@ test("holds a message sent before the session's runner connects and delivers it 
     text: "hi early",
   });
 
-  const work = (await (await server.call("/agent/work", poll)).json()) as {
+  const work = (await (await server.call("/runner/work", poll)).json()) as {
     start: Assignment[];
   };
 
   const generation = work.start[0]?.generation ?? 0;
 
   const stream = await server.call(
-    `/agent/sessions/${created.id}/commands?generation=${String(generation)}`,
+    `/runner/sessions/${created.id}/commands?generation=${String(generation)}`,
   );
 
   const commands: unknown[] = [];
@@ -313,7 +418,7 @@ test("holds a message sent before the session's runner connects and delivers it 
     break;
   }
 
-  await server.call(`/api/sessions/${created.id}/archive`, {});
+  await server.call(`/api/sessions/${created.id}`, { archived: true }, "PATCH");
   server.stop();
 
   expect(sent.status).toBe(202);
@@ -325,7 +430,7 @@ test("holds a message sent before the session's runner connects and delivers it 
 
 test("keeps a held message for the next attempt when the runner restarts before it connects", async () => {
   const server = startServer(() => undefined);
-  await server.call("/agent/work", poll);
+  await server.call("/runner/work", poll);
 
   const created = (await (
     await server.call("/api/sessions", {
@@ -338,16 +443,18 @@ test("keeps a held message for the next attempt when the runner restarts before 
     text: "hi early",
   });
 
-  await server.call("/agent/work", poll);
+  await server.call("/runner/work", poll);
 
-  const restarted = (await (await server.call("/agent/work", poll)).json()) as {
+  const restarted = (await (
+    await server.call("/runner/work", poll)
+  ).json()) as {
     start: Assignment[];
   };
 
   const generation = restarted.start[0]?.generation ?? 0;
 
   const stream = await server.call(
-    `/agent/sessions/${created.id}/commands?generation=${String(generation)}`,
+    `/runner/sessions/${created.id}/commands?generation=${String(generation)}`,
   );
 
   const commands: unknown[] = [];
@@ -356,7 +463,7 @@ test("keeps a held message for the next attempt when the runner restarts before 
     break;
   }
 
-  await server.call(`/api/sessions/${created.id}/archive`, {});
+  await server.call(`/api/sessions/${created.id}`, { archived: true }, "PATCH");
   server.stop();
 
   expect(generation).toBe(2);
@@ -374,7 +481,7 @@ test("refuses messages from when the provider goes offline until a new command s
 
   // Nobody reads this stream, like one whose tunnel died without closing.
   await server.call(
-    `/agent/sessions/${sessionId}/commands?generation=${String(generation)}`,
+    `/runner/sessions/${sessionId}/commands?generation=${String(generation)}`,
   );
 
   await sleep(offlineAfterMs * 2);
@@ -388,7 +495,7 @@ test("refuses messages from when the provider goes offline until a new command s
     { type: "message", text: "hi" },
   );
 
-  await server.call("/agent/work", {
+  await server.call("/runner/work", {
     ...poll,
     running: [{ sessionId, generation }],
   });
@@ -398,7 +505,7 @@ test("refuses messages from when the provider goes offline until a new command s
     { type: "message", text: "hi again" },
   );
 
-  await server.call(`/api/sessions/${sessionId}/archive`, {});
+  await server.call(`/api/sessions/${sessionId}`, { archived: true }, "PATCH");
   server.stop();
 
   expect(view.online).toBe(false);
@@ -430,12 +537,12 @@ test("delivers a server tool's result that finished while the provider was offli
   });
 
   const { sessionId, generation } = await server.claim();
-  const commandsPath = `/agent/sessions/${sessionId}/commands?generation=${String(generation)}`;
+  const commandsPath = `/runner/sessions/${sessionId}/commands?generation=${String(generation)}`;
 
   // Nobody reads this stream, like one whose tunnel died without closing.
   await server.call(commandsPath);
 
-  await server.call(`/agent/sessions/${sessionId}/tool-calls`, {
+  await server.call(`/runner/sessions/${sessionId}/tool-calls`, {
     generation,
     id: "call-1",
     name: "echo",
@@ -447,7 +554,7 @@ test("delivers a server tool's result that finished while the provider was offli
   await sleep(0);
 
   const polling = setInterval(() => {
-    void server.call("/agent/work", {
+    void server.call("/runner/work", {
       ...poll,
       running: [{ sessionId, generation }],
     });
@@ -462,7 +569,7 @@ test("delivers a server tool's result that finished while the provider was offli
   }
 
   clearInterval(polling);
-  await server.call(`/api/sessions/${sessionId}/archive`, {});
+  await server.call(`/api/sessions/${sessionId}`, { archived: true }, "PATCH");
   server.stop();
 
   expect(commands).toEqual([
@@ -477,18 +584,17 @@ test("delivers a server tool's result that finished while the provider was offli
 
 test("lists a plugin's own Sessions only while the plugin is on", async () => {
   const store = openStore(":memory:", undefined, noProfiles);
-  const sessions = new Sessions(store, { pollWaitMs: 0 });
-  store.ensureEnvironment("local");
-  let context: ServerPluginContext | undefined;
+  const { sessions, environments } = domainsOf(store, { pollWaitMs: 0 });
+  let context: ServerContext | undefined;
 
-  const keeper: ServerPlugin = {
-    name: "keeper",
-    register: (registered) => {
+  const keeper = defineServer(
+    definePlugin({ id: "keeper", title: "Keeper", description: "" }),
+    (registered) => {
       context = registered;
     },
-  };
+  );
 
-  const auth = new Auth(store.auth);
+  const auth = authOf(store);
   let cookie: Promise<string> | undefined;
 
   const handler = (
@@ -497,43 +603,43 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
     const handle = createHandler(
       auth,
       sessions,
-      new Profiles(noProfiles, store),
-      startPlugins([keeper], enabled, {
+      environments,
+      new Profiles(noProfiles, store.profiles),
+      startPlugins(enabled, {
         sessions,
-        sessionParts: [],
+        environments,
         runners: { token: () => "pct_test", revoke: () => undefined },
         events: eventBus(() => undefined),
         changes: () => undefined,
-        manifests: [
-          {
-            id: "keeper",
-            title: "Keeper",
-            description: "",
-            capabilities: ["sessions"],
-          },
-        ],
+        manifests: [{ id: "keeper", title: "Keeper", description: "" }],
         store: store.plugin,
-        settings: store.pluginSettings,
+        dataFailure: store.pluginFailure,
+        resetData: store.resetPlugin,
+        switches: { get: () => ({}), set: () => undefined },
         config: (name) => ({
           get: () => undefined,
           set: () => undefined,
           lockedIn: () => undefined,
           dir: name,
         }),
-        toolsets: [],
         api: () => {
           throw new Error("no toolsets here");
         },
         auth: {
-          userOf: () => undefined,
           users: () => [],
-          createUser: () => undefined,
+          create: () => undefined,
           setAdmin: () => undefined,
           invited: () => undefined,
           acceptInvite: () => undefined,
           passwordLogin: () => true,
           startSession: () => undefined,
         },
+        definitions: [keeper.plugin],
+        servers: [keeper],
+        url: () => new URL("http://pipoca"),
+        schedules: store.schedules,
+        clock: systemClock,
+        timer: systemTimer,
         signal: new AbortController().signal,
         log: () => undefined,
       }),
@@ -545,7 +651,7 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
     const signedIn = (cookie ??= firstUserCookie(
       handle,
       "http://127.0.0.1",
-      auth.setupToken ?? "",
+      auth.signIn.setupToken ?? "",
     ));
 
     return async (path) =>
@@ -561,40 +667,48 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
   const on = handler(["keeper"]);
   const workspace = { kind: "folder", path: "/srv/app" } as const;
 
-  const owned = context?.sessions.start(
-    { actor: "plugin:keeper", workspace },
-    "k1",
+  await on("/api/sessions");
+
+  store.environments.ensureEnvironment(
+    "local",
+    store.people.users()[0]?.id ?? "",
   );
 
+  const owned = context?.sessions.start({
+    actor: "plugin:keeper",
+    workspace,
+    key: "k1",
+  });
+
   const plain = sessions.start({ actor: "plugin:keeper", workspace });
-  const adopted = sessions.start({ actor: "plugin:keeper", workspace });
-  if (!owned || !plain.ok || !adopted.ok) {
+
+  const other = context?.sessions.start({
+    actor: "plugin:keeper",
+    workspace,
+    key: "k2",
+  });
+
+  if (!owned || !plain.ok || !other) {
     throw new Error("sessions not started");
   }
-
-  context?.sessions.adopt(adopted.value.id, "k1");
-  context?.sessions.adopt(plain.value.id, "k2");
-  context?.sessions.adopt(plain.value.id, "k1");
 
   const ids = (list: readonly Session[]): string[] =>
     list.map(({ id }) => id).toSorted();
 
-  expect(owned.owner).toEqual({ plugin: "keeper", key: "k1" });
-  expect(ids(await on("/api/sessions"))).toEqual([]);
+  expect(owned.plugin).toEqual({ id: "keeper", key: "k1" });
+  expect(ids(await on("/api/sessions"))).toEqual(ids([plain.value]));
 
-  expect(ids(await on("/api/sessions?owner=all"))).toEqual(
-    ids([owned, plain.value, adopted.value]),
+  expect(ids(await on("/api/sessions?plugins=true"))).toEqual(
+    ids([owned, plain.value, other]),
   );
 
-  expect(ids(context?.sessions.owned("k1") ?? [])).toEqual(
-    ids([owned, adopted.value]),
-  );
+  expect(ids(context?.sessions.owned("k1") ?? [])).toEqual(ids([owned]));
 
   expect(ids(await handler([])("/api/sessions"))).toEqual(
-    ids([owned, plain.value, adopted.value]),
+    ids([owned, plain.value, other]),
   );
 
-  sessions.close();
+  environments.close();
   store.close();
 });
 
@@ -602,28 +716,38 @@ test("fails only the Session whose Profile can't be read when a runner claims wo
   const store = openStore(":memory:", undefined, noProfiles);
   let reads = 0;
 
-  const sessions = new Sessions(
+  const { sessions, environments } = domainsOf(
+    store,
+    { pollWaitMs: 0 },
     {
-      ...store,
+      ...store.sessions,
       profileFiles: (id, personId) => {
         reads++;
         if (reads === 1) {
           throw new Error("EIO: i/o error, read");
         }
 
-        return store.profileFiles(id, personId);
+        return store.sessions.profileFiles(id, personId);
       },
     },
-    { pollWaitMs: 0 },
   );
 
   const runner = { name: "vm", environment: "local" };
-  store.ensureEnvironment("local");
+
+  store.people.insertUser({
+    id: "ana",
+    name: "ana",
+    admin: true,
+    passwordHash: "",
+    createdAt: new Date().toISOString(),
+  });
+
+  store.environments.ensureEnvironment("local", "ana");
 
   const start = (path: string): string => {
     const started = sessions.start({
       workspace: { kind: "clone", repository: `https://example.com/${path}` },
-      actor: "user:local",
+      actor: "plugin:test",
     });
 
     if (!started.ok) {
@@ -643,7 +767,7 @@ test("fails only the Session whose Profile can't be read when a runner claims wo
   );
 
   const failed = sessions.get(broken);
-  sessions.close();
+  environments.close();
   store.close();
 
   expect(claimed.start.map(({ sessionId }) => sessionId)).toEqual([fine]);

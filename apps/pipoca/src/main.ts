@@ -6,20 +6,20 @@ import { parseArgs } from "node:util";
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { main as piMain } from "@earendil-works/pi-coding-agent";
 import { installPackage } from "@pipoca/sessionhost";
-import { runAgent } from "./agent";
-import { JoinRefused } from "./client";
+import { JoinRefused, runAgent, runSessionProcess } from "@pipoca/runner";
+import { binary, pipoca } from "./binary";
 import { connectFolder, dataFolder, runnerFolder } from "./data-folder";
 import { fauxModels } from "./faux";
 import { help, overview, version } from "./help";
+import { installedTurnedOn } from "./config";
 import { installedPlugins } from "./installed";
 import { restartExitCode, supervise, supervised } from "./restart";
 import { stderrLog } from "./log";
-import { parseSecretKey } from "./secret-box";
+import { parseSecretKey } from "./sqlite/secret-box";
 import { openInBrowser } from "./browser";
 import { connect } from "./connect";
 import { serve } from "./serve";
 import { installService, uninstallService } from "./service";
-import { pipoca, runSessionProcess } from "./session-process";
 
 const dataRoot = dataFolder();
 
@@ -145,9 +145,24 @@ switch (command) {
 
     const log = stderrLog("server");
 
+    // Bun exits on a rejection nothing handles, which would drop every
+    // Session stream for one plugin's stray promise (spec 2.8a).
+    process.on("unhandledRejection", (reason) => {
+      log("unhandled rejection", { error: String(reason) });
+    });
+
     const pluginsRoot = absolutePath(
       values.plugins ?? join(dirname(values.database), "plugins"),
     );
+
+    const configDir = absolutePath(
+      values["config-dir"] ?? join(dirname(values.database), "config"),
+    );
+
+    const lockedConfig =
+      values["locked-config"] === undefined
+        ? undefined
+        : absolutePath(values["locked-config"]);
 
     let restarting: Promise<never> | undefined;
 
@@ -156,12 +171,8 @@ switch (command) {
       ...(values.url !== undefined && { url: new URL(values.url) }),
       port: Number(values.port),
       database: values.database,
-      ...(values["config-dir"] !== undefined && {
-        configDir: absolutePath(values["config-dir"]),
-      }),
-      ...(values["locked-config"] !== undefined && {
-        lockedConfig: absolutePath(values["locked-config"]),
-      }),
+      configDir,
+      ...(lockedConfig !== undefined && { lockedConfig }),
       passwordLogin: !values["sso-only"],
       trustProxy: values["trust-proxy"],
       ...(solo && {
@@ -182,7 +193,11 @@ switch (command) {
       }),
       installed: {
         root: pluginsRoot,
-        plugins: await installedPlugins(pluginsRoot, log),
+        plugins: await installedPlugins(
+          pluginsRoot,
+          log,
+          installedTurnedOn(configDir, log, lockedConfig),
+        ),
       },
       ...(supervised(process.env) && {
         restart: () => {
@@ -269,6 +284,7 @@ switch (command) {
     const fauxReply = process.env["PIPOCA_FAUX_REPLY"];
 
     await runAgent({
+      binary,
       server: values.server,
       provider: name,
       credential,
@@ -385,7 +401,7 @@ switch (command) {
   }
 
   case "session":
-    await runSessionProcess();
+    await runSessionProcess(binary, stderrLog("session"));
     break;
 
   // A solo server signs its person in through a one-time link that only the

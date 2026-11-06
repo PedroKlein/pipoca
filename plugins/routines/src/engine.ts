@@ -1,9 +1,4 @@
-import {
-  createHash,
-  createHmac,
-  randomBytes,
-  timingSafeEqual,
-} from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -17,9 +12,12 @@ import { join } from "node:path";
 import {
   BadRequest,
   NotFound,
-  type ServerPluginContext,
+  type Owner,
+  owners,
+  type ServerContext,
+  type Session,
 } from "@pipoca/plugins";
-import type { Session } from "@pipoca/protocol";
+import type { routines } from "../plugin";
 import type {
   RoutineDetail,
   RoutineView,
@@ -29,7 +27,7 @@ import type {
 } from "./model";
 import {
   eventsText,
-  isFor,
+  type Heard,
   keyOf,
   matches,
   namePattern,
@@ -39,25 +37,44 @@ import {
 } from "./routine";
 
 const failuresToPause = 3;
+// The kernel takes an interrupted Session again, so one that keeps dying
+// would run forever (ADR 0059).
+const deathsToPark = 5;
+// Overdue firings wait this long after a start, so runners can come back.
 const startGraceMs = 30_000;
-const maxTimerMs = 60 * 60_000;
 const keptRuns = 200;
 // Events with the same key within the quiet window go as one; a busy key
 // still gets through when the window has been open this long (ADR 0059).
 const quietMs = 30_000;
-
-// Keyed runs that go at once, unless the routine says otherwise.
-const defaultMaxRunning = 3;
 const longestQuietMs = 5 * 60_000;
 const maxBatch = 20;
+// Keyed runs that go at once, unless the routine says otherwise.
+const defaultMaxRunning = 3;
+// Hand edits of a routine's file come in bursts.
+const settleMs = 200;
 
-interface Event {
-  readonly type: `${string}.${string}`;
-  readonly [field: string]: unknown;
-}
+// The git host plugin whose technical users a run acts as (ADR 0060).
+const technicalUsers = "git-hosts";
+
+type Context = Pick<
+  ServerContext<typeof routines>,
+  | "store"
+  | "sessions"
+  | "events"
+  | "routes"
+  | "schedule"
+  | "environments"
+  | "config"
+  | "secrets"
+  | "clock"
+  | "timer"
+  | "signal"
+  | "log"
+  | "transcript"
+>;
 
 interface Loaded {
-  readonly userId: string;
+  readonly owner: Owner;
   readonly name: string;
   readonly version: string;
   readonly routine?: Routine;
@@ -65,17 +82,14 @@ interface Loaded {
 }
 
 interface StateRow {
-  readonly user_id: string;
-  readonly name: string;
   readonly version: string;
-  readonly next_at: number | null;
-  readonly paused: string | null;
+  readonly paused_reason: string | null;
   readonly failures: number;
 }
 
 interface RunRow {
   readonly id: string;
-  readonly user_id: string;
+  readonly owner_user_id: string | null;
   readonly name: string;
   readonly fired_at: number;
   readonly cause: string;
@@ -90,125 +104,137 @@ interface RunRow {
 
 interface HookRow {
   readonly id: string;
-  readonly user_id: string;
+  readonly owner_user_id: string | null;
   readonly name: string;
   readonly secret: string;
 }
 
-interface PendingRow {
-  readonly user_id: string;
+// A routine's firing time and its key's waiting events live in the plugin's
+// schedule under these keys, with this as their payload.
+interface Firing {
+  readonly owner: Owner;
   readonly name: string;
-  readonly key: string;
-  readonly events: string;
-  readonly first_at: number;
-  readonly last_at: number;
 }
 
+interface Batch extends Firing {
+  readonly key: string;
+  readonly events: readonly Heard[];
+  readonly firstAt: number;
+  readonly lastAt: number;
+}
+
+const firingKey = ({ owner, name }: Firing): string => `fire:${owner}:${name}`;
+
+const batchKey = (firing: Firing, key: string): string =>
+  `batch:${firing.owner}:${firing.name}:${key}`;
+
 export interface Routines {
-  readonly list: (userId: string) => readonly RoutineView[];
-  readonly get: (userId: string, name: string) => RoutineDetail;
-  readonly save: (userId: string, name: string, value: unknown) => void;
-  readonly remove: (userId: string, name: string) => void;
-  readonly runNow: (userId: string, name: string) => Run;
-  readonly pause: (userId: string, name: string, paused: boolean) => void;
+  readonly list: (owner: Owner) => readonly RoutineView[];
+  readonly get: (owner: Owner, name: string) => RoutineDetail;
+  readonly save: (owner: Owner, name: string, value: unknown) => void;
+  readonly remove: (owner: Owner, name: string) => void;
+  readonly runNow: (owner: Owner, name: string) => Run;
+  readonly pause: (owner: Owner, name: string, paused: boolean) => void;
+  readonly exists: (owner: Owner, name: string) => boolean;
   // Ends the run a Session belongs to, as its agent says (ADR 0061).
   readonly endRun: (
     session: Session,
     result: RunResult,
     summary: string,
   ) => string;
-  // A webhook's delivery, checked against its hook's secret.
-  readonly hook: (
-    id: string,
-    body: string,
-    signature: string | null,
-  ) => "accepted" | "unknown" | "unsigned";
+  // The secret a webhook's deliveries are signed with.
+  readonly hookSecret: (id: string) => string | undefined;
+  // A webhook's signed delivery.
+  readonly hook: (id: string, body: string) => void;
 }
 
-export const ownerPrefix = (userId: string, name: string): string =>
-  `${userId}:${name}`;
+// A routine's file is in its owner's folder: a person's id, or team.
+function folderOf(owner: Owner): string {
+  return owners.personId(owner) ?? "team";
+}
 
-// The routines anyone on the team made for the team, kept apart from each
-// person's own (ADR 0067). Their runs are team work started by no one.
-export const teamRoutines = "team";
+function ownerOfFolder(folder: string): Owner {
+  return folder === "team" ? "team" : owners.of(folder);
+}
 
-// Fires every person's routines from their JSON files and records each
-// firing as a run (ADR 0059). One timer is armed for the earliest firing.
-export function routinesEngine(
-  context: Pick<
-    ServerPluginContext,
-    | "store"
-    | "sessions"
-    | "events"
-    | "changes"
-    | "environments"
-    | "config"
-    | "signal"
-    | "log"
-  >,
-): Routines {
-  const { store, sessions, changes, config, log } = context;
-  const startedAt = Date.now();
-  let timer: ReturnType<typeof setTimeout> | undefined;
+// The key a routine's Sessions are owned by, which its page reads back.
+function sessionKey(owner: Owner, name: string): string {
+  return `${owner}/${name}`;
+}
+
+// Fires each person's and the team's routines from their JSON files and
+// records each firing as a run (ADR 0059). The plugin's schedule keeps each
+// routine's next firing and each key's waiting events.
+export function routinesEngine(context: Context): Routines {
+  const { store, sessions, routes, schedule, config, secrets, clock, log } =
+    context;
+
+  const startedAt = clock.now();
+  const sql = owners.toSql;
   let loaded = new Map<string, Loaded>();
+  const listening = new Set<string>();
+  const idOf = sessionKey;
 
-  store.exec(
-    "create table if not exists routines_state (user_id text not null, name text not null, version text not null, next_at integer, paused text, failures integer not null default 0, primary key (user_id, name))",
-  );
+  const changed = (): void => {
+    routes.topic("routines");
+  };
 
-  store.exec(
-    "create table if not exists routines_runs (id text primary key, user_id text not null, name text not null, fired_at integer not null, cause text not null, session_id text, outcome text not null, reason text, ended_at integer)",
-  );
+  const fileOf = (owner: Owner, name: string) =>
+    join(config.dir, folderOf(owner), `${name}.json`);
 
-  const columns = (
-    store.all("pragma table_info(routines_runs)") as { name: string }[]
-  ).map(({ name }) => name);
-
-  if (!columns.includes("key")) {
-    store.exec(
-      "alter table routines_runs add column key text not null default ''",
+  const stateOf = (owner: Owner, name: string): StateRow | undefined =>
+    store.get<StateRow>(
+      "select version, paused_reason, failures from routines_state where owner_user_id is ? and name = ?",
+      sql(owner),
+      name,
     );
-  }
 
-  if (!columns.includes("events")) {
-    store.exec("alter table routines_runs add column events text");
-  }
-
-  store.exec(
-    "create table if not exists routines_hooks (id text primary key, user_id text not null, name text not null, secret text not null, unique (user_id, name))",
-  );
-
-  store.exec(
-    "create table if not exists routines_pending (user_id text not null, name text not null, key text not null, events text not null, first_at integer not null, last_at integer not null, primary key (user_id, name, key))",
-  );
-
-  const key = (userId: string, name: string) => ownerPrefix(userId, name);
-  const listening = new Map<string, () => void>();
-
-  const fileOf = (userId: string, name: string) =>
-    join(config.dir, userId, `${name}.json`);
-
-  const stateOf = (userId: string, name: string): StateRow | undefined =>
-    (
-      store.all(
-        "select * from routines_state where user_id = ? and name = ?",
-        userId,
-        name,
-      ) as StateRow[]
-    )[0];
-
-  const runsOf = (where: string, ...params: (string | number)[]): RunRow[] =>
-    store.all(
+  const runsOf = (where: string, ...params: (string | null)[]): RunRow[] =>
+    store.all<RunRow>(
       `select * from routines_runs where ${where} order by fired_at desc, rowid desc`,
       ...params,
-    ) as RunRow[];
+    );
 
-  const nextOf = (routine: Routine, after: number): number | null => {
+  const runsOfRoutine = (
+    owner: Owner,
+    name: string,
+    where = "true",
+    ...params: string[]
+  ): RunRow[] =>
+    runsOf(
+      `owner_user_id is ? and name = ? and ${where}`,
+      sql(owner),
+      name,
+      ...params,
+    );
+
+  const nextOf = (routine: Routine, after: number): number | undefined => {
     const times = routine.triggers
       .map((each) => nextFiring(each, after))
       .filter((at): at is number => at !== undefined);
 
-    return times.length === 0 ? null : Math.min(...times);
+    return times.length === 0 ? undefined : Math.min(...times);
+  };
+
+  const pausedOf = (owner: Owner, name: string): string | null =>
+    stateOf(owner, name)?.paused_reason ?? null;
+
+  // Arms the routine's next firing, or takes it away while it is paused.
+  const plan = (each: Loaded): number | undefined => {
+    const firing = { owner: each.owner, name: each.name };
+
+    const next =
+      each.routine === undefined || pausedOf(each.owner, each.name) !== null
+        ? undefined
+        : nextOf(each.routine, clock.now());
+
+    if (next === undefined) {
+      schedule.cancel(firingKey(firing));
+    } else {
+      schedule.at(firingKey(firing), next, firing);
+    }
+
+    return next;
   };
 
   const read = (): Map<string, Loaded> => {
@@ -218,34 +244,36 @@ export function routinesEngine(
       return found;
     }
 
-    for (const person of readdirSync(config.dir, { withFileTypes: true })) {
-      if (!person.isDirectory()) {
+    for (const folder of readdirSync(config.dir, { withFileTypes: true })) {
+      if (!folder.isDirectory()) {
         continue;
       }
 
-      for (const file of readdirSync(join(config.dir, person.name))) {
+      const owner = ownerOfFolder(folder.name);
+
+      for (const file of readdirSync(join(config.dir, folder.name))) {
         const name = file.replace(/\.json$/, "");
 
         if (!file.endsWith(".json") || !namePattern.test(name)) {
           continue;
         }
 
-        const text = readFileSync(join(config.dir, person.name, file), "utf8");
+        const text = readFileSync(join(config.dir, folder.name, file), "utf8");
         const version = createHash("sha256").update(text).digest("hex");
 
         try {
-          found.set(key(person.name, name), {
-            userId: person.name,
+          found.set(idOf(owner, name), {
+            owner,
             name,
             version,
             routine: routineOf(JSON.parse(text)),
           });
         } catch (error) {
-          found.set(key(person.name, name), {
-            userId: person.name,
+          found.set(idOf(owner, name), {
+            owner,
             name,
             version,
-            error: error instanceof Error ? error.message : String(error),
+            error: messageOf(error),
           });
         }
       }
@@ -254,80 +282,7 @@ export function routinesEngine(
     return found;
   };
 
-  const reload = (): void => {
-    loaded = read();
-
-    for (const each of loaded.values()) {
-      const state = stateOf(each.userId, each.name);
-
-      if (state?.version === each.version) {
-        continue;
-      }
-
-      const next =
-        each.routine === undefined ? null : nextOf(each.routine, Date.now());
-
-      store.run(
-        "insert into routines_state (user_id, name, version, next_at) values (?, ?, ?, ?) on conflict (user_id, name) do update set version = excluded.version, next_at = excluded.next_at",
-        each.userId,
-        each.name,
-        each.version,
-        next,
-      );
-
-      log("routine loaded", {
-        userId: each.userId,
-        name: each.name,
-        nextAt: next === null ? null : new Date(next).toISOString(),
-        error: each.error,
-      });
-    }
-
-    for (const state of store.all(
-      "select * from routines_state",
-    ) as StateRow[]) {
-      if (!loaded.has(key(state.user_id, state.name))) {
-        store.run(
-          "delete from routines_state where user_id = ? and name = ?",
-          state.user_id,
-          state.name,
-        );
-      }
-    }
-
-    const types = new Set(
-      [...loaded.values()].flatMap(
-        ({ routine }) =>
-          routine?.triggers.flatMap((each) =>
-            "event" in each ? [each.event] : [],
-          ) ?? [],
-      ),
-    );
-
-    for (const [type, stop] of listening) {
-      if (!types.has(type)) {
-        stop();
-        listening.delete(type);
-      }
-    }
-
-    for (const type of types) {
-      if (!listening.has(type)) {
-        listening.set(
-          type,
-          context.events.subscribe(type as Event["type"], (event) => {
-            heard(event);
-          }),
-        );
-      }
-    }
-
-    keepHooks();
-    changes.publish("routines");
-    arm();
-  };
-
-  const heard = (event: Event): void => {
+  const heard = (event: Heard & { readonly to: readonly Owner[] }): void => {
     for (const each of loaded.values()) {
       const triggered = each.routine?.triggers.some(
         (trigger) =>
@@ -336,64 +291,134 @@ export function routinesEngine(
           matches(event, trigger.filter),
       );
 
-      if (triggered === true && isFor(event, each.userId)) {
-        wait(each, event);
+      if (triggered === true && event.to.includes(each.owner)) {
+        wait(each, { type: event.type, fields: event.fields });
+      }
+    }
+  };
+
+  const reload = (): void => {
+    loaded = read();
+
+    for (const each of loaded.values()) {
+      if (stateOf(each.owner, each.name)?.version === each.version) {
+        continue;
+      }
+
+      try {
+        store.run(
+          "insert into routines_state (owner_user_id, name, version) values (?, ?, ?) on conflict (coalesce(owner_user_id, ''), name) do update set version = excluded.version",
+          sql(each.owner),
+          each.name,
+          each.version,
+        );
+      } catch (error) {
+        // A folder left by a person who is gone, or one no person has.
+        loaded.delete(idOf(each.owner, each.name));
+
+        log("routine skipped", {
+          owner: each.owner,
+          name: each.name,
+          error: messageOf(error),
+        });
+
+        continue;
+      }
+
+      const next = plan(each);
+
+      log("routine loaded", {
+        owner: each.owner,
+        name: each.name,
+        nextAt: next === undefined ? null : new Date(next).toISOString(),
+        error: each.error,
+      });
+    }
+
+    for (const state of store.all<{
+      owner_user_id: string | null;
+      name: string;
+    }>("select owner_user_id, name from routines_state")) {
+      const owner = owners.fromSql(state.owner_user_id);
+
+      if (!loaded.has(idOf(owner, state.name))) {
+        store.run(
+          "delete from routines_state where owner_user_id is ? and name = ?",
+          state.owner_user_id,
+          state.name,
+        );
+
+        schedule.cancel(firingKey({ owner, name: state.name }));
       }
     }
 
-    arm();
+    // A listener stays once added: heard looks only at loaded routines.
+    for (const each of loaded.values()) {
+      for (const trigger of each.routine?.triggers ?? []) {
+        if ("event" in trigger && !listening.has(trigger.event)) {
+          listening.add(trigger.event);
+
+          context.events.on(
+            trigger.event as `${string}.${string}`,
+            ({ type, fields, to }) => {
+              heard({ type, fields, to });
+            },
+          );
+        }
+      }
+    }
+
+    keepHooks();
+    changed();
   };
 
   // Keeps the event with others of its key until the quiet window ends.
-  const wait = (each: Loaded, event: Event): void => {
+  const wait = (each: Loaded, event: Heard): void => {
     if (
       each.routine === undefined ||
-      (stateOf(each.userId, each.name)?.paused ?? null) !== null
+      pausedOf(each.owner, each.name) !== null
     ) {
       return;
     }
 
+    const firing = { owner: each.owner, name: each.name };
     const eventKey = keyOf(event, each.routine.key);
+    const scheduled = batchKey(firing, eventKey);
+    const now = clock.now();
 
-    const [pending] = store.all(
-      "select * from routines_pending where user_id = ? and name = ? and key = ?",
-      each.userId,
-      each.name,
-      eventKey,
-    ) as PendingRow[];
+    const waiting = schedule
+      .pending(scheduled)
+      .find(({ key }) => key === scheduled)?.payload as Batch | undefined;
 
-    const events = [
-      ...(pending === undefined ? [] : (JSON.parse(pending.events) as Event[])),
-      event,
-    ].slice(-maxBatch);
+    const batch: Batch = {
+      ...firing,
+      key: eventKey,
+      events: [...(waiting?.events ?? []), event].slice(-maxBatch),
+      firstAt: waiting?.firstAt ?? now,
+      lastAt: now,
+    };
 
-    store.run(
-      "insert into routines_pending (user_id, name, key, events, first_at, last_at) values (?, ?, ?, ?, ?, ?) on conflict (user_id, name, key) do update set events = excluded.events, last_at = excluded.last_at",
-      each.userId,
-      each.name,
-      eventKey,
-      JSON.stringify(events),
-      Date.now(),
-      Date.now(),
+    schedule.at(
+      scheduled,
+      Math.min(batch.lastAt + quietMs, batch.firstAt + longestQuietMs),
+      batch,
     );
 
     log("routine heard an event", {
-      userId: each.userId,
+      owner: each.owner,
       name: each.name,
       type: event.type,
       key: eventKey,
-      waiting: events.length,
+      waiting: batch.events.length,
     });
   };
 
-  const hookOf = (userId: string, name: string): HookRow | undefined =>
-    (
-      store.all(
-        "select * from routines_hooks where user_id = ? and name = ?",
-        userId,
-        name,
-      ) as HookRow[]
-    )[0];
+  const hookOf = (owner: Owner, name: string): HookRow | undefined =>
+    store.get<HookRow>(
+      "select * from routines_hooks where owner_user_id is ? and name = ?",
+      sql(owner),
+      name,
+    );
 
   // Every routine with a webhook trigger has a hook with a secret of its own.
   const keepHooks = (): void => {
@@ -401,89 +426,59 @@ export function routinesEngine(
       const wanted =
         each.routine?.triggers.some((trigger) => "webhook" in trigger) === true;
 
-      const hook = hookOf(each.userId, each.name);
+      const hook = hookOf(each.owner, each.name);
 
       if (wanted && hook === undefined) {
         const id = randomBytes(18).toString("base64url");
 
         store.run(
-          "insert into routines_hooks (id, user_id, name, secret) values (?, ?, ?, ?)",
+          "insert into routines_hooks (id, owner_user_id, name, secret) values (?, ?, ?, ?)",
           id,
-          each.userId,
+          sql(each.owner),
           each.name,
-          store.seal(randomBytes(32).toString("hex"), id),
+          secrets.seal("routines_hooks", id, randomBytes(32).toString("hex")),
         );
       } else if (!wanted && hook !== undefined) {
         store.run("delete from routines_hooks where id = ?", hook.id);
       }
     }
 
-    for (const hook of store.all("select * from routines_hooks") as HookRow[]) {
-      if (!loaded.has(key(hook.user_id, hook.name))) {
+    for (const hook of store.all<HookRow>("select * from routines_hooks")) {
+      if (!loaded.has(idOf(owners.fromSql(hook.owner_user_id), hook.name))) {
         store.run("delete from routines_hooks where id = ?", hook.id);
       }
     }
   };
 
-  const pendingDue = (row: PendingRow): number =>
-    Math.min(row.last_at + quietMs, row.first_at + longestQuietMs);
-
-  const arm = (): void => {
-    clearTimeout(timer);
-
-    const [next] = store.all(
-      "select next_at from routines_state where next_at is not null and paused is null order by next_at limit 1",
-    ) as { next_at: number }[];
-
-    const pending = (
-      store.all("select * from routines_pending") as PendingRow[]
-    ).map(pendingDue);
-
-    const soonest = Math.min(
-      ...pending,
-      ...(next === undefined ? [] : [next.next_at]),
-    );
-
-    if (soonest === Infinity || context.signal.aborted) {
-      return;
-    }
-
-    const at = Math.max(soonest, startedAt + startGraceMs);
-
-    timer = setTimeout(
-      fire,
-      Math.min(Math.max(at - Date.now(), 0), maxTimerMs),
-    );
-  };
-
   const record = (
-    userId: string,
+    owner: Owner,
     name: string,
     cause: string,
     outcome: RunOutcome,
     reason: string | null = null,
     runKey = "",
-    events: readonly Event[] = [],
+    events: readonly Heard[] = [],
   ): RunRow => {
+    const now = clock.now();
+
     const row: RunRow = {
-      id: crypto.randomUUID(),
-      user_id: userId,
+      id: Bun.randomUUIDv7(),
+      owner_user_id: sql(owner),
       name,
-      fired_at: Date.now(),
+      fired_at: now,
       cause,
       session_id: null,
       outcome,
       reason,
-      ended_at:
-        outcome === "running" || outcome === "queued" ? null : Date.now(),
+      ended_at: outcome === "running" || outcome === "queued" ? null : now,
       key: runKey,
       events: events.length === 0 ? null : JSON.stringify(events),
     };
 
     store.run(
-      "insert into routines_runs (id, user_id, name, fired_at, cause, session_id, outcome, reason, ended_at, key, events) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "insert into routines_runs (id, owner_user_id, name, fired_at, cause, session_id, outcome, reason, ended_at, key, events) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       row.id,
-      userId,
+      row.owner_user_id,
       name,
       row.fired_at,
       cause,
@@ -496,10 +491,10 @@ export function routinesEngine(
     );
 
     store.run(
-      "delete from routines_runs where user_id = ? and name = ? and id not in (select id from routines_runs where user_id = ? and name = ? order by fired_at desc, rowid desc limit ?)",
-      userId,
+      "delete from routines_runs where owner_user_id is ? and name = ? and id not in (select id from routines_runs where owner_user_id is ? and name = ? order by fired_at desc, rowid desc limit ?)",
+      row.owner_user_id,
       name,
-      userId,
+      row.owner_user_id,
       name,
       keptRuns,
     );
@@ -507,19 +502,31 @@ export function routinesEngine(
     return row;
   };
 
+  const running = (owner: Owner, name: string): number =>
+    runsOfRoutine(owner, name, "outcome = 'running'").filter(
+      ({ session_id }) =>
+        session_id === null || sessions.get(session_id)?.archivedAt === null,
+    ).length;
+
+  const hasRoom = (owner: Owner, name: string): boolean =>
+    running(owner, name) <
+    (loaded.get(idOf(owner, name))?.routine?.maxRunning ?? defaultMaxRunning);
+
   const end = (
-    run: Pick<RunRow, "id" | "user_id" | "name">,
+    run: Pick<RunRow, "id" | "owner_user_id" | "name">,
     outcome: RunOutcome,
     reason: string | null = null,
     // An agent that says it is blocked did its job. Only runs that failed
     // or couldn't start count towards pausing the routine.
     failure = outcome === "failed" || outcome === "blocked",
   ): void => {
+    const owner = owners.fromSql(run.owner_user_id);
+
     store.run(
       "update routines_runs set outcome = ?, reason = ?, ended_at = ? where id = ?",
       outcome,
       reason,
-      Date.now(),
+      clock.now(),
       run.id,
     );
 
@@ -527,68 +534,51 @@ export function routinesEngine(
 
     if (failure) {
       store.run(
-        "update routines_state set failures = failures + 1 where user_id = ? and name = ?",
-        run.user_id,
+        "update routines_state set failures = failures + 1 where owner_user_id is ? and name = ?",
+        run.owner_user_id,
         run.name,
       );
 
-      const state = stateOf(run.user_id, run.name);
+      const state = stateOf(owner, run.name);
 
-      if (state !== undefined && state.failures >= failuresToPause) {
+      if (state?.paused_reason === null && state.failures >= failuresToPause) {
         store.run(
-          "update routines_state set paused = ? where user_id = ? and name = ?",
+          "update routines_state set paused_at = ?, paused_reason = ? where owner_user_id is ? and name = ?",
+          clock.now(),
           `Paused after ${String(failuresToPause)} failed runs in a row. The last: ${reason ?? outcome}`,
-          run.user_id,
+          run.owner_user_id,
           run.name,
         );
 
-        log("routine paused after failures", {
-          userId: run.user_id,
-          name: run.name,
-        });
+        schedule.cancel(firingKey({ owner, name: run.name }));
+        log("routine paused after failures", { owner, name: run.name });
       }
     } else {
       store.run(
-        "update routines_state set failures = 0 where user_id = ? and name = ?",
-        run.user_id,
+        "update routines_state set failures = 0 where owner_user_id is ? and name = ?",
+        run.owner_user_id,
         run.name,
       );
     }
 
-    changes.publish("routines");
+    changed();
 
-    const queued = runsOf(
-      "user_id = ? and name = ? and outcome = 'queued'",
-      run.user_id,
-      run.name,
-    ).at(-1);
+    const queued = runsOfRoutine(owner, run.name, "outcome = 'queued'").at(-1);
 
     if (
       queued !== undefined &&
       (queued.key === ""
-        ? !busy(run.user_id, run.name)
-        : hasRoom(run.user_id, run.name))
+        ? running(owner, run.name) === 0
+        : hasRoom(owner, run.name))
     ) {
       deliver(queued);
     }
-
-    arm();
   };
 
-  const running = (userId: string, name: string): number =>
-    runsOf("user_id = ? and name = ? and outcome = 'running'", userId, name)
-      .length;
-
-  const hasRoom = (userId: string, name: string): boolean =>
-    running(userId, name) <
-    (loaded.get(key(userId, name))?.routine?.maxRunning ?? defaultMaxRunning);
-
-  const busy = (userId: string, name: string): boolean =>
-    runsOf("user_id = ? and name = ? and outcome = 'running'", userId, name)
-      .length > 0;
-
   const deliver = (run: RunRow): void => {
-    const routine = loaded.get(key(run.user_id, run.name))?.routine;
+    const owner = owners.fromSql(run.owner_user_id);
+    const person = owners.personId(owner);
+    const routine = loaded.get(idOf(owner, run.name))?.routine;
 
     if (routine === undefined) {
       end(run, "blocked", "the routine's file is gone or doesn't load");
@@ -606,23 +596,23 @@ export function routinesEngine(
     const events =
       run.events === null
         ? ""
-        : `\n\n${eventsText(JSON.parse(run.events) as Event[])}`;
-
-    if ("session" in target && run.user_id === teamRoutines) {
-      end(run, "blocked", "a team routine starts a Session of its own");
-
-      return;
-    }
+        : `\n\n${eventsText(JSON.parse(run.events) as Heard[])}`;
 
     if ("session" in target) {
-      const sent = sessions.send(
-        target.session,
-        `${target.prompt}${events}`,
-        "plugin:routines",
-        { kind: "routine", data: { title: routine.title } },
-      );
+      if (person === undefined || !sessions.sees(target.session, person)) {
+        end(run, "blocked", `no Session ${target.session} of the owner's`);
 
-      if (sent.ok) {
+        return;
+      }
+
+      const sent = sessions.send(target.session, {
+        text: `${target.prompt}${events}`,
+        turn: true,
+        notice: { kind: "routine", data: { title: routine.title } },
+        dedupe: run.id,
+      });
+
+      if (sent === "queued") {
         store.run(
           "update routines_runs set session_id = ? where id = ?",
           target.session,
@@ -631,7 +621,7 @@ export function routinesEngine(
 
         end(run, "ok");
       } else {
-        end(run, "blocked", `the Session is ${sent.reason.replace("_", " ")}`);
+        end(run, "blocked", "the Session is archived or gone");
       }
 
       return;
@@ -639,7 +629,7 @@ export function routinesEngine(
 
     if (
       target.environment !== undefined &&
-      !context.environments.list().some(({ id }) => id === target.environment)
+      context.environments.get(target.environment) === undefined
     ) {
       end(run, "blocked", `no Environment ${target.environment}`);
 
@@ -649,26 +639,26 @@ export function routinesEngine(
     const [provider, ...model] = target.model?.split("/") ?? [];
 
     try {
-      const session = sessions.start(
-        {
-          ...(run.user_id === teamRoutines
-            ? { actor: "plugin:routines", team: true }
-            : { actor: `user:${run.user_id}` }),
-          workspace: target.workspace,
-          ...(target.environment !== undefined && {
-            environment: target.environment,
+      const session = sessions.start({
+        ...(person === undefined
+          ? { actor: "plugin:routines", team: true }
+          : { actor: `user:${person}` }),
+        workspace: target.workspace,
+        ...(target.environment !== undefined && {
+          environment: target.environment,
+        }),
+        ...(target.profile !== undefined && { profile: target.profile }),
+        ...(target.as !== undefined && {
+          actsAs: { plugin: technicalUsers, name: target.as },
+        }),
+        ...(provider !== undefined &&
+          model.length > 0 && {
+            model: { provider, id: model.join("/") },
           }),
-          ...(target.profile !== undefined && { profile: target.profile }),
-          ...(target.as !== undefined && { actsAs: target.as }),
-          ...(provider !== undefined &&
-            model.length > 0 && {
-              model: { provider, id: model.join("/") },
-            }),
-          systemPrompt: runPrompt(routine.title),
-          firstMessage: `${target.prompt}${events}`,
-        },
-        key(run.user_id, run.name),
-      );
+        systemPrompt: runPrompt(routine.title),
+        firstMessage: `${target.prompt}${events}`,
+        key: idOf(owner, run.name),
+      });
 
       store.run(
         "update routines_runs set session_id = ? where id = ?",
@@ -682,35 +672,30 @@ export function routinesEngine(
         sessionId: session.id,
       });
 
-      changes.publish("routines");
+      changed();
     } catch (error) {
-      end(
-        run,
-        "blocked",
-        error instanceof Error ? error.message : String(error),
-      );
+      end(run, "blocked", messageOf(error));
     }
   };
 
   const trigger = (
-    userId: string,
+    owner: Owner,
     name: string,
     cause: string,
     runKey = "",
-    events: readonly Event[] = [],
+    events: readonly Heard[] = [],
   ): RunRow => {
-    const routine = loaded.get(key(userId, name))?.routine;
+    const routine = loaded.get(idOf(owner, name))?.routine;
 
-    if (routine !== undefined && runKey === "" && busy(userId, name)) {
+    if (routine !== undefined && runKey === "" && running(owner, name) > 0) {
       const queued =
         (routine.overlap ?? "skip") === "queue" &&
-        runsOf("user_id = ? and name = ? and outcome = 'queued'", userId, name)
-          .length === 0;
+        runsOfRoutine(owner, name, "outcome = 'queued'").length === 0;
 
       const row = queued
-        ? record(userId, name, cause, "queued", null, runKey, events)
+        ? record(owner, name, cause, "queued", null, runKey, events)
         : record(
-            userId,
+            owner,
             name,
             cause,
             "skipped",
@@ -719,53 +704,46 @@ export function routinesEngine(
             events,
           );
 
-      changes.publish("routines");
+      changed();
 
       return row;
     }
 
-    if (runKey !== "" && !hasRoom(userId, name)) {
-      const row = record(userId, name, cause, "queued", null, runKey, events);
-      changes.publish("routines");
+    if (runKey !== "" && !hasRoom(owner, name)) {
+      const row = record(owner, name, cause, "queued", null, runKey, events);
+      changed();
 
       return row;
     }
 
-    const row = record(userId, name, cause, "running", null, runKey, events);
+    const row = record(owner, name, cause, "running", null, runKey, events);
     deliver(row);
 
-    return row;
+    return runsOf("id = ?", row.id)[0] ?? row;
   };
 
   // A key whose last run has a Session that is still there gets the events
   // as a message, instead of a run of its own.
-  const flush = (pending: PendingRow): void => {
-    store.run(
-      "delete from routines_pending where user_id = ? and name = ? and key = ?",
-      pending.user_id,
-      pending.name,
-      pending.key,
-    );
-
-    const routine = loaded.get(key(pending.user_id, pending.name))?.routine;
-    const events = JSON.parse(pending.events) as Event[];
+  const flush = (batch: Batch): void => {
+    const { owner, name, key, events } = batch;
+    const routine = loaded.get(idOf(owner, name))?.routine;
 
     if (routine === undefined) {
       return;
     }
 
-    const [waiting] = runsOf(
-      "user_id = ? and name = ? and key = ? and outcome = 'queued'",
-      pending.user_id,
-      pending.name,
-      pending.key,
+    const [waiting] = runsOfRoutine(
+      owner,
+      name,
+      "key = ? and outcome = 'queued'",
+      key,
     );
 
     if (waiting !== undefined) {
       store.run(
         "update routines_runs set events = ? where id = ?",
         JSON.stringify(
-          [...(JSON.parse(waiting.events ?? "[]") as Event[]), ...events].slice(
+          [...(JSON.parse(waiting.events ?? "[]") as Heard[]), ...events].slice(
             -maxBatch,
           ),
         ),
@@ -776,43 +754,39 @@ export function routinesEngine(
     }
 
     const [last] =
-      pending.key === "" || "session" in routine.run
+      key === "" || "session" in routine.run
         ? []
-        : runsOf(
-            "user_id = ? and name = ? and key = ? and session_id is not null",
-            pending.user_id,
-            pending.name,
-            pending.key,
-          );
+        : runsOfRoutine(owner, name, "key = ? and session_id is not null", key);
 
     const session =
-      last === undefined || last.session_id === null
+      last?.session_id === null || last === undefined
         ? undefined
         : sessions.get(last.session_id);
 
     if (session?.archivedAt !== null) {
-      trigger(pending.user_id, pending.name, "event", pending.key, events);
+      trigger(owner, name, "event", key, events);
 
       return;
     }
 
-    const sent = sessions.send(
-      session.id,
-      eventsText(events),
-      "plugin:routines",
-      {
+    const sent = sessions.send(session.id, {
+      text: eventsText(events),
+      turn: true,
+      notice: {
         kind: "routine_events",
         data: { title: routine.title, count: events.length },
       },
-    );
+    });
 
     const row = record(
-      pending.user_id,
-      pending.name,
+      owner,
+      name,
       "event",
-      sent.ok ? "ok" : "blocked",
-      sent.ok ? "sent to the key's Session" : `the Session is ${sent.reason}`,
-      pending.key,
+      sent === "queued" ? "ok" : "blocked",
+      sent === "queued"
+        ? "sent to the key's Session"
+        : "the key's Session is gone",
+      key,
       events,
     );
 
@@ -822,68 +796,127 @@ export function routinesEngine(
       row.id,
     );
 
-    changes.publish("routines");
+    changed();
   };
 
-  function fire(): void {
-    for (const pending of store.all(
-      "select * from routines_pending",
-    ) as PendingRow[]) {
-      if (pendingDue(pending) <= Date.now()) {
-        flush(pending);
-      }
+  const fire = (firing: Firing): void => {
+    const each = loaded.get(idOf(firing.owner, firing.name));
+    const now = clock.now();
+
+    if (each?.routine === undefined) {
+      return;
     }
 
-    const due = store.all(
-      "select * from routines_state where next_at is not null and next_at <= ? and paused is null",
-      Date.now(),
-    ) as StateRow[];
+    if (now < startedAt + startGraceMs) {
+      schedule.at(firingKey(firing), startedAt + startGraceMs, firing);
 
-    for (const state of due) {
-      const routine = loaded.get(key(state.user_id, state.name))?.routine;
-
-      store.run(
-        "update routines_state set next_at = ? where user_id = ? and name = ?",
-        routine === undefined ? null : nextOf(routine, Date.now()),
-        state.user_id,
-        state.name,
-      );
-
-      if (routine !== undefined) {
-        trigger(state.user_id, state.name, "schedule");
-      }
+      return;
     }
 
-    arm();
-  }
+    if (plan(each) === undefined && pausedOf(each.owner, each.name) !== null) {
+      return;
+    }
+
+    trigger(firing.owner, firing.name, "schedule");
+  };
+
+  schedule.on("fire:", (payload) => {
+    fire(payload as Firing);
+  });
+
+  schedule.on("batch:", (payload) => {
+    flush(payload as Batch);
+  });
 
   const runOfSession = (sessionId: string): RunRow | undefined =>
     runsOf("session_id = ? and outcome = 'running'", sessionId)[0];
 
-  context.events.subscribe("TurnEnded", ({ session }) => {
+  context.events.on("TurnEnded", ({ session }) => {
     const run =
-      session.owner?.plugin === "routines"
-        ? runOfSession(session.id)
-        : undefined;
+      session.plugin?.id === "routines" ? runOfSession(session.id) : undefined;
 
     if (run !== undefined) {
       end(run, "stopped", "the turn ended without end_run");
     }
   });
 
-  context.events.subscribe("SessionStateChanged", ({ session }) => {
+  context.events.on("SessionStateChanged", ({ session }) => {
     const run =
-      session.owner?.plugin === "routines"
-        ? runOfSession(session.id)
-        : undefined;
+      session.plugin?.id === "routines" ? runOfSession(session.id) : undefined;
 
     if (run !== undefined && session.status === "failed") {
       end(run, "failed", session.error ?? "the run's Session failed");
     }
+
+    if (run !== undefined && session.status === "stopped") {
+      end(run, "stopped", "the run's Session stopped");
+    }
+
+    if (run !== undefined && session.status === "interrupted") {
+      died(run, session.id);
+    }
   });
 
-  const owned = (userId: string, name: string): Loaded => {
-    const found = loaded.get(key(userId, name));
+  const died = (run: RunRow, sessionId: string): void => {
+    // A run can work through tools for a long time without saying anything.
+    const progress =
+      context.transcript.messages(sessionId).length +
+      context.transcript.called(sessionId).length;
+
+    const before = store.get<{ deaths: number; progress: number }>(
+      "select deaths, progress from routines_runs where id = ?",
+      run.id,
+    );
+
+    const deaths =
+      before === undefined || progress > before.progress
+        ? 1
+        : before.deaths + 1;
+
+    store.run(
+      "update routines_runs set deaths = ?, progress = ? where id = ?",
+      deaths,
+      progress,
+      run.id,
+    );
+
+    if (deaths < deathsToPark) {
+      return;
+    }
+
+    const owner = owners.fromSql(run.owner_user_id);
+
+    store.run(
+      "update routines_state set paused_at = ?, paused_reason = ? where owner_user_id is ? and name = ? and paused_reason is null",
+      clock.now(),
+      `Parked after a run's Session died ${String(deathsToPark)} times without progress.`,
+      run.owner_user_id,
+      run.name,
+    );
+
+    schedule.cancel(firingKey({ owner, name: run.name }));
+    log("routine parked", { owner, name: run.name, sessionId });
+
+    end(
+      run,
+      "failed",
+      `the run's Session died ${String(deathsToPark)} times without progress`,
+    );
+
+    sessions.archive(sessionId);
+  };
+
+  context.events.on("SessionArchived", ({ session }) => {
+    const run =
+      session.plugin?.id === "routines" ? runOfSession(session.id) : undefined;
+
+    if (run !== undefined) {
+      end(run, "stopped", "the run's Session was archived");
+    }
+  });
+
+  const owned = (owner: Owner, name: string): Loaded => {
+    const found = loaded.get(idOf(owner, name));
 
     if (found === undefined) {
       throw new NotFound(`no routine ${name}`);
@@ -892,35 +925,20 @@ export function routinesEngine(
     return found;
   };
 
-  const webhookOf = (
-    userId: string,
-    name: string,
-  ): Pick<RoutineDetail, "webhook"> => {
-    const hook = hookOf(userId, name);
-
-    return hook === undefined
-      ? {}
-      : {
-          webhook: {
-            path: `/api/plugins/routines/hooks/${hook.id}`,
-            secret: store.open(hook.secret, hook.id),
-          },
-        };
-  };
-
   const viewOf = (each: Loaded): RoutineView => {
-    const state = stateOf(each.userId, each.name);
-    const [last] = runsOf("user_id = ? and name = ?", each.userId, each.name);
+    const key = firingKey(each);
+    const [last] = runsOfRoutine(each.owner, each.name);
+
+    const next = schedule
+      .pending(key)
+      .find((scheduled) => scheduled.key === key)?.when;
 
     return {
       name: each.name,
       title: each.routine?.title ?? each.name,
       ...(each.error !== undefined && { error: each.error }),
-      paused: state?.paused ?? null,
-      nextAt:
-        state === undefined || state.next_at === null
-          ? null
-          : new Date(state.next_at).toISOString(),
+      paused: pausedOf(each.owner, each.name),
+      nextAt: next === undefined ? null : new Date(next).toISOString(),
       lastRun: last === undefined ? null : runView(last),
     };
   };
@@ -928,36 +946,48 @@ export function routinesEngine(
   mkdirSync(config.dir, { recursive: true });
   reload();
 
-  let settle: ReturnType<typeof setTimeout> | undefined;
+  let settle: (() => void) | undefined;
 
   const watcher = watch(config.dir, { recursive: true }, () => {
-    clearTimeout(settle);
-    settle = setTimeout(reload, 200);
+    settle?.();
+
+    settle = context.timer.after(settleMs, async () => {
+      settle = undefined;
+      reload();
+
+      await Promise.resolve();
+    });
   });
 
   context.signal.addEventListener("abort", () => {
-    clearTimeout(timer);
-    clearTimeout(settle);
+    settle?.();
     watcher.close();
   });
 
   return {
-    list: (userId) =>
+    list: (owner) =>
       [...loaded.values()]
-        .filter((each) => each.userId === userId)
+        .filter((each) => each.owner === owner)
         .map(viewOf)
         .sort((a, b) => a.title.localeCompare(b.title)),
-    get: (userId, name) => {
-      const each = owned(userId, name);
+    get: (owner, name) => {
+      const each = owned(owner, name);
+      const hook = hookOf(owner, name);
 
       return {
         ...viewOf(each),
-        file: readFileSync(fileOf(userId, name), "utf8"),
-        ...webhookOf(userId, name),
-        runs: runsOf("user_id = ? and name = ?", userId, name).map(runView),
+        file: readFileSync(fileOf(owner, name), "utf8"),
+        ...(hook && {
+          webhook: {
+            path: `/api/ext/routines/hooks/${hook.id}`,
+            secret: secrets.open("routines_hooks", hook.id, hook.secret),
+          },
+        }),
+        runs: runsOfRoutine(owner, name).map(runView),
       };
     },
-    save: (userId, name, value) => {
+    exists: (owner, name) => loaded.has(idOf(owner, name)),
+    save: (owner, name, value) => {
       if (!namePattern.test(name)) {
         throw new BadRequest(
           "a routine's name is lower-case letters, digits and dashes",
@@ -969,79 +999,70 @@ export function routinesEngine(
       try {
         routine = routineOf(value);
       } catch (error) {
-        throw new BadRequest(
-          error instanceof Error ? error.message : String(error),
-        );
+        throw new BadRequest(messageOf(error));
       }
 
-      if (userId === teamRoutines && "session" in routine.run) {
+      if (owner === "team" && "session" in routine.run) {
         throw new BadRequest(
           "a team routine starts a Session of its own each time",
         );
       }
 
-      mkdirSync(join(config.dir, userId), { recursive: true });
+      mkdirSync(join(config.dir, folderOf(owner)), { recursive: true });
 
-      writeFileSync(
-        fileOf(userId, name),
-        `${JSON.stringify(value, null, 2)}\n`,
-      );
+      writeFileSync(fileOf(owner, name), `${JSON.stringify(value, null, 2)}\n`);
 
       reload();
     },
-    remove: (userId, name) => {
-      owned(userId, name);
-      rmSync(fileOf(userId, name));
+    remove: (owner, name) => {
+      owned(owner, name);
+      rmSync(fileOf(owner, name));
       reload();
     },
-    runNow: (userId, name) => {
-      const each = owned(userId, name);
+    runNow: (owner, name) => {
+      const each = owned(owner, name);
 
       if (each.routine === undefined) {
         throw new BadRequest(each.error ?? "the routine doesn't load");
       }
 
-      return runView(trigger(userId, name, "by hand"));
+      return runView(trigger(owner, name, "by hand"));
     },
-    pause: (userId, name, paused) => {
-      owned(userId, name);
+    pause: (owner, name, paused) => {
+      const each = owned(owner, name);
 
       store.run(
-        "update routines_state set paused = ?, failures = 0 where user_id = ? and name = ?",
+        "update routines_state set paused_at = ?, paused_reason = ?, failures = 0 where owner_user_id is ? and name = ?",
+        paused ? clock.now() : null,
         paused ? "Paused by you" : null,
-        userId,
+        sql(owner),
         name,
       );
 
-      changes.publish("routines");
-      arm();
+      plan(each);
+      changed();
     },
-    hook: (id, body, signature) => {
-      const [hook] = store.all(
+    hookSecret: (id) => {
+      const hook = store.get<HookRow>(
         "select * from routines_hooks where id = ?",
         id,
-      ) as HookRow[];
+      );
+
+      return hook && secrets.open("routines_hooks", hook.id, hook.secret);
+    },
+    hook: (id, body) => {
+      const hook = store.get<HookRow>(
+        "select * from routines_hooks where id = ?",
+        id,
+      );
 
       const each =
         hook === undefined
           ? undefined
-          : loaded.get(key(hook.user_id, hook.name));
+          : loaded.get(idOf(owners.fromSql(hook.owner_user_id), hook.name));
 
-      if (hook === undefined || each === undefined) {
-        return "unknown";
-      }
-
-      const expected = Buffer.from(
-        `sha256=${createHmac("sha256", store.open(hook.secret, hook.id)).update(body).digest("hex")}`,
-      );
-
-      const given = Buffer.from(signature ?? "");
-
-      if (
-        given.length !== expected.length ||
-        !timingSafeEqual(given, expected)
-      ) {
-        return "unsigned";
+      if (each === undefined) {
+        throw new NotFound("no such webhook");
       }
 
       let fields: unknown;
@@ -1049,27 +1070,24 @@ export function routinesEngine(
       try {
         fields = JSON.parse(body);
       } catch {
-        fields = { body };
+        fields = body;
       }
 
       wait(each, {
-        ...(typeof fields === "object" &&
-        fields !== null &&
-        !Array.isArray(fields)
-          ? fields
-          : { body: fields }),
         type: "routines.webhook",
+        fields:
+          typeof fields === "object" &&
+          fields !== null &&
+          !Array.isArray(fields)
+            ? (fields as Readonly<Record<string, unknown>>)
+            : { body: fields },
       });
-
-      arm();
-
-      return "accepted";
     },
     endRun: (session, result, summary) => {
       const run = runOfSession(session.id);
 
       if (run === undefined) {
-        throw new Error("this Session isn't a routine run that is going");
+        throw new BadRequest("this Session isn't a routine run that is going");
       }
 
       const outcomes = {
@@ -1104,4 +1122,8 @@ function runPrompt(title: string): string {
     "Do the task in the first message. Your final reply is the result the person reads later, not a plan or a question.",
     "When you finish, call end_run with done and a one-line summary. When there is nothing to do this time, call it with nothing. When you can't go on without a person, such as a question only they can answer, call it with blocked and say why. Then end your turn.",
   ].join(" ");
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

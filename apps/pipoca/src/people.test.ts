@@ -12,73 +12,41 @@ import type {
   Person,
   Session,
 } from "@pipoca/protocol";
-import { serve } from "./serve";
-import { firstUser } from "./testdata/sign-in";
+import { protocolVersion, versionHeader } from "@pipoca/protocol";
+import { definePlugin, defineServer } from "@pipoca/plugins";
+import { json, testServer, type TestServer } from "./testdata/harness";
 
 let root: string;
-let server: ReturnType<typeof serve>;
-let pedro: () => Promise<string>;
+let server: TestServer;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "people-"));
 
-  const logs: string[] = [];
-
-  server = serve({
-    port: 0,
+  server = testServer({
     database: join(root, "server.db"),
     configDir: join(root, "config"),
-    sessions: { pollWaitMs: 0 },
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
+    runners: { pollWaitMs: 0 },
   });
-
-  pedro = firstUser(server, logs);
 });
 
 afterEach(async () => {
-  await server.stop();
+  await server.close();
   await rm(root, { recursive: true, force: true });
 });
 
-async function api(
-  path: string,
-  cookie: string,
-  body?: unknown,
-  method = body === undefined ? "GET" : "POST",
-): Promise<Response> {
-  return fetch(new URL(path, server.url), {
-    method,
-    headers: {
-      cookie,
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
-}
-
-async function json<T>(response: Promise<Response>): Promise<T> {
-  return (await (await response).json()) as T;
-}
-
 // Signs in a second user, who isn't an admin, and returns their cookie.
 async function ana(): Promise<string> {
-  await pedro();
+  await server.signedIn();
 
   const db = new DatabaseSync(join(root, "server.db"));
 
   db.prepare(
     "insert into users (id, name, password_hash, created_at, admin) values (?, 'ana', ?, ?, 0)",
-  ).run(
-    randomUUID(),
-    await Bun.password.hash("battery staple"),
-    new Date().toISOString(),
-  );
+  ).run(randomUUID(), await Bun.password.hash("battery staple"), Date.now());
 
   db.close();
 
-  const response = await fetch(new URL("/api/auth/login", server.url), {
+  const response = await fetch(new URL("/api/auth/session", server.url), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name: "ana", password: "battery staple" }),
@@ -88,11 +56,11 @@ async function ana(): Promise<string> {
 }
 
 async function environment(cookie: string, name: string): Promise<string> {
-  const created = await json<{ environment: Environment }>(
-    api("/api/environments", cookie, { name }),
+  const created = await json<Environment>(
+    server.as(cookie)("/api/environments", { body: { name } }),
   );
 
-  return created.environment.id;
+  return created.id;
 }
 
 async function session(
@@ -100,10 +68,12 @@ async function session(
   environmentId?: string,
 ): Promise<Session> {
   return json(
-    api("/api/sessions", cookie, {
-      ...(environmentId !== undefined && { environment: environmentId }),
-      workspace: { kind: "folder", path: root },
-      firstMessage: "hello",
+    server.as(cookie)("/api/sessions", {
+      body: {
+        ...(environmentId !== undefined && { environment: environmentId }),
+        workspace: { kind: "folder", path: root },
+        firstMessage: "hello",
+      },
     }),
   );
 }
@@ -113,29 +83,36 @@ const names = (environments: readonly Environment[]): string[] =>
 
 test("a person sees, changes and starts Sessions only in their own Environments", async () => {
   const anas = await ana();
-  const mac = await environment(await pedro(), "mac");
+  const mac = await environment(await server.signedIn(), "mac");
   const laptop = await environment(anas, "laptop");
 
-  expect(names(await json(api("/api/environments", await pedro())))).toEqual([
-    "mac",
+  expect(names(await json(server.api("/api/environments")))).toEqual(["mac"]);
+
+  expect(names(await json(server.as(anas)("/api/environments")))).toEqual([
+    "laptop",
   ]);
-
-  expect(names(await json(api("/api/environments", anas)))).toEqual(["laptop"]);
-
-  expect(
-    (await api(`/api/environments/${mac}`, anas, { name: "x" }, "PATCH"))
-      .status,
-  ).toBe(404);
-
-  expect((await api(`/api/environments/${mac}/key`, anas, {})).status).toBe(
-    404,
-  );
 
   expect(
     (
-      await api("/api/sessions", anas, {
-        environment: mac,
-        workspace: { kind: "folder", path: root },
+      await server.as(anas)(`/api/environments/${mac}`, {
+        method: "PATCH",
+        body: { name: "x" },
+      })
+    ).status,
+  ).toBe(404);
+
+  expect(
+    (await server.as(anas)(`/api/environments/${mac}/keys`, { body: {} }))
+      .status,
+  ).toBe(404);
+
+  expect(
+    (
+      await server.as(anas)("/api/sessions", {
+        body: {
+          environment: mac,
+          workspace: { kind: "folder", path: root },
+        },
       })
     ).status,
   ).toBe(400);
@@ -146,57 +123,64 @@ test("a person sees, changes and starts Sessions only in their own Environments"
 test("only admins make and change team Environments, which users list apart", async () => {
   const anas = await ana();
 
-  const created = await api("/api/environments", await pedro(), {
-    name: "team-pods",
-    team: true,
+  const created = await server.api("/api/environments", {
+    body: {
+      name: "team-pods",
+      team: true,
+    },
   });
 
   expect(created.status).toBe(201);
 
-  const { environment: team } = (await created.json()) as {
-    environment: Environment;
-  };
+  const team = (await created.json()) as Environment;
 
   expect(team.ownerId).toBe("team");
-  expect(names(await json(api("/api/environments", anas)))).toEqual([]);
+  expect(names(await json(server.as(anas)("/api/environments")))).toEqual([]);
 
   const listed = await json<Environment[]>(
-    api("/api/environments?owner=team", anas),
+    server.as(anas)("/api/environments?scope=team"),
   );
 
   expect(names(listed)).toEqual(["team-pods"]);
   expect(listed[0]?.variables).toEqual({});
 
   const refused = await Promise.all([
-    api("/api/environments", anas, { name: "mine-for-all", team: true }),
-    api(`/api/environments/${team.id}`, anas, { name: "x" }, "PATCH"),
-    api(`/api/environments/${team.id}/key`, anas, {}),
-    api(`/api/environments/${team.id}`, anas, undefined, "DELETE"),
+    server.as(anas)("/api/environments", {
+      body: { name: "mine-for-all", team: true },
+    }),
+    server.as(anas)(`/api/environments/${team.id}`, {
+      method: "PATCH",
+      body: { name: "x" },
+    }),
+    server.as(anas)(`/api/environments/${team.id}/keys`, { body: {} }),
+    server.as(anas)(`/api/environments/${team.id}`, { method: "DELETE" }),
   ]);
 
   expect(refused.map(({ status }) => status)).toEqual([403, 404, 404, 404]);
 
   const changed = await Promise.all([
-    api(
-      `/api/environments/${team.id}`,
-      await pedro(),
-      { variables: { REGION: "eu" } },
-      "PATCH",
-    ),
-    api(`/api/environments/${team.id}/key`, await pedro(), {}),
+    server.api(`/api/environments/${team.id}`, {
+      method: "PATCH",
+      body: { variables: { REGION: "eu" } },
+    }),
+    server.api(`/api/environments/${team.id}/keys`, { body: {} }),
   ]);
 
-  expect(changed.map(({ status }) => status)).toEqual([200, 200]);
+  expect(changed.map(({ status }) => status)).toEqual([200, 201]);
 });
 
 test("a personal Session never runs in a team Environment", async () => {
-  const { environment: team } = await json<{ environment: Environment }>(
-    api("/api/environments", await pedro(), { name: "team-pods", team: true }),
+  const team = await json<Environment>(
+    server.api("/api/environments", {
+      body: { name: "team-pods", team: true },
+    }),
   );
 
-  const response = await api("/api/sessions", await pedro(), {
-    environment: team.id,
-    workspace: { kind: "folder", path: root },
+  const response = await server.api("/api/sessions", {
+    body: {
+      environment: team.id,
+      workspace: { kind: "folder", path: root },
+    },
   });
 
   expect(response.status).toBe(400);
@@ -205,48 +189,60 @@ test("a personal Session never runs in a team Environment", async () => {
 test("an Environment a runner makes with a join key is the key maker's", async () => {
   const anas = await ana();
 
-  const { key } = await json<{ key: string }>(api("/api/join-key", anas, {}));
+  const { key } = await json<{ key: string }>(
+    server.as(anas)("/api/join-keys", { body: {} }),
+  );
 
   await json<Joined>(
-    fetch(new URL("/agent/join", server.url), {
+    fetch(new URL("/runner/join", server.url), {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "pipoca-protocol": "4",
+        [versionHeader]: String(protocolVersion),
         authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({ name: "vm" }),
     }),
   );
 
-  expect(names(await json(api("/api/environments", anas)))).toEqual(["vm"]);
-  expect(await json(api("/api/environments", await pedro()))).toEqual([]);
+  expect(names(await json(server.as(anas)("/api/environments")))).toEqual([
+    "vm",
+  ]);
+
+  expect(await json(server.api("/api/environments"))).toEqual([]);
 });
 
 test("a person sees and drives only their own Sessions", async () => {
   const anas = await ana();
-  await environment(await pedro(), "mac");
+  await environment(await server.signedIn(), "mac");
   await environment(anas, "laptop");
 
-  const his = await session(await pedro());
+  const his = await session(await server.signedIn());
   const hers = await session(anas);
 
   const ids = (sessions: readonly Session[]): string[] =>
     sessions.map(({ id }) => id);
 
-  expect(ids(await json(api("/api/sessions", anas)))).toEqual([hers.id]);
+  expect(ids(await json(server.as(anas)("/api/sessions")))).toEqual([hers.id]);
 
-  expect(ids(await json(api("/api/sessions?owner=all", anas)))).toEqual([
-    hers.id,
-  ]);
+  expect(
+    ids(await json(server.as(anas)("/api/sessions?plugins=true"))),
+  ).toEqual([hers.id]);
 
   const refused = [
-    api(`/api/sessions/${his.id}`, anas),
-    api(`/api/sessions/${his.id}/events`, anas),
-    api(`/api/sessions/${his.id}/commands`, anas, { type: "abort" }),
-    api(`/api/sessions/${his.id}/fork`, anas, {}),
-    api(`/api/sessions/${his.id}/archive`, anas, {}),
-    api(`/api/sessions/${his.id}/terminal`, anas),
+    server.as(anas)(`/api/sessions/${his.id}`),
+    server.as(anas)(`/api/sessions/${his.id}/events`),
+    server.as(anas)(`/api/sessions/${his.id}/commands`, {
+      body: { type: "abort" },
+    }),
+    server.as(anas)("/api/sessions", {
+      body: { from: { session: his.id } },
+    }),
+    server.as(anas)(`/api/sessions/${his.id}`, {
+      method: "PATCH",
+      body: { archived: true },
+    }),
+    server.as(anas)(`/api/sessions/${his.id}/terminal`),
   ];
 
   for (const response of await Promise.all(refused)) {
@@ -256,47 +252,43 @@ test("a person sees and drives only their own Sessions", async () => {
 
 test("an admin sees everyone's Environments and Sessions as an outline and can stop them", async () => {
   const anas = await ana();
-  await environment(await pedro(), "mac");
+  await environment(await server.signedIn(), "mac");
   const laptop = await environment(anas, "laptop");
 
-  await api(
-    `/api/environments/${laptop}`,
-    anas,
-    { variables: { TEAM: "blue" } },
-    "PATCH",
-  );
+  await server.as(anas)(`/api/environments/${laptop}`, {
+    method: "PATCH",
+    body: { variables: { TEAM: "blue" } },
+  });
 
   const hers = await session(anas);
 
   const everyone = await json<Environment[]>(
-    api("/api/environments?people=all", await pedro()),
+    server.api("/api/environments?scope=all"),
   );
 
   expect(names(everyone).toSorted()).toEqual(["laptop", "mac"]);
   expect(everyone.find(({ id }) => id === laptop)?.variables).toEqual({});
 
-  const sessions = await json<Session[]>(
-    api("/api/sessions?people=all", await pedro()),
-  );
+  const sessions = await json<Session[]>(server.api("/api/sessions?scope=all"));
 
   expect(sessions.map(({ id }) => id)).toContain(hers.id);
 
-  const outline = await json<Session>(
-    api(`/api/sessions/${hers.id}`, await pedro()),
-  );
+  const outline = await json<Session>(server.api(`/api/sessions/${hers.id}`));
 
   expect(outline.id).toBe(hers.id);
   expect(outline.firstMessage).toBeNull();
 
-  expect(
-    (await api(`/api/sessions/${hers.id}/events`, await pedro())).status,
-  ).toBe(404);
+  expect((await server.api(`/api/sessions/${hers.id}/events`)).status).toBe(
+    404,
+  );
 
   expect(
     (
-      await api(`/api/sessions/${hers.id}/commands`, await pedro(), {
-        type: "message",
-        text: "hi",
+      await server.api(`/api/sessions/${hers.id}/commands`, {
+        body: {
+          type: "message",
+          text: "hi",
+        },
       })
     ).status,
   ).toBe(404);
@@ -304,35 +296,41 @@ test("an admin sees everyone's Environments and Sessions as an outline and can s
   // Reaches the Session, which isn't running yet.
   expect(
     (
-      await api(`/api/sessions/${hers.id}/commands`, await pedro(), {
-        type: "abort",
+      await server.api(`/api/sessions/${hers.id}/commands`, {
+        body: {
+          type: "abort",
+        },
       })
     ).status,
   ).toBe(409);
 
   expect(
-    (await api(`/api/sessions/${hers.id}/archive`, await pedro(), {})).status,
+    (
+      await server.api(`/api/sessions/${hers.id}`, {
+        method: "PATCH",
+        body: { archived: true },
+      })
+    ).status,
   ).toBe(200);
 
-  expect(names(await json(api("/api/environments?people=all", anas)))).toEqual([
-    "laptop",
-  ]);
+  expect((await server.as(anas)("/api/environments?scope=all")).status).toBe(
+    403,
+  );
 });
 
 test("an owner or an admin deletes an Environment once its Sessions are archived", async () => {
   const anas = await ana();
 
-  const { environment: laptop, key } = await json<{
-    environment: Environment;
-    key: string;
-  }>(api("/api/environments", anas, { name: "laptop" }));
+  const { key, ...laptop } = await json<Environment & { key: string }>(
+    server.as(anas)("/api/environments", { body: { name: "laptop" } }),
+  );
 
   const { token } = await json<Joined>(
-    fetch(new URL("/agent/join", server.url), {
+    fetch(new URL("/runner/join", server.url), {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "pipoca-protocol": "4",
+        [versionHeader]: String(protocolVersion),
         authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({ name: "mac" }),
@@ -342,25 +340,26 @@ test("an owner or an admin deletes an Environment once its Sessions are archived
   const hers = await session(anas, laptop.id);
   const path = `/api/environments/${laptop.id}`;
 
-  const whileActive = await api(path, anas, undefined, "DELETE");
-  await api(`/api/sessions/${hers.id}/archive`, anas, {});
+  const whileActive = await server.as(anas)(path, { method: "DELETE" });
 
-  const theirs = await environment(await pedro(), "mac");
+  await server.as(anas)(`/api/sessions/${hers.id}`, {
+    method: "PATCH",
+    body: { archived: true },
+  });
 
-  const byOther = await api(
-    `/api/environments/${theirs}`,
-    anas,
-    undefined,
-    "DELETE",
-  );
+  const theirs = await environment(await server.signedIn(), "mac");
 
-  const byAdmin = await api(path, await pedro(), undefined, "DELETE");
+  const byOther = await server.as(anas)(`/api/environments/${theirs}`, {
+    method: "DELETE",
+  });
 
-  const work = await fetch(new URL("/agent/work", server.url), {
+  const byAdmin = await server.api(path, { method: "DELETE" });
+
+  const work = await fetch(new URL("/runner/work", server.url), {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "pipoca-protocol": "4",
+      [versionHeader]: String(protocolVersion),
       authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ running: [], folders: [root], models: [] }),
@@ -370,16 +369,16 @@ test("an owner or an admin deletes an Environment once its Sessions are archived
     409, 404, 204,
   ]);
 
-  expect(await json(api("/api/environments", anas))).toEqual([]);
-  expect((await api(`/api/sessions/${hers.id}`, anas)).status).toBe(404);
+  expect(await json(server.as(anas)("/api/environments"))).toEqual([]);
+  expect((await server.as(anas)(`/api/sessions/${hers.id}`)).status).toBe(404);
   expect(work.status).toBe(401);
 });
 
-test("only an admin lists everyone", async () => {
+test("only an admin lists everyone in full; others see names", async () => {
   const anas = await ana();
 
-  const everyone = await json<{ name: string; admin: boolean }[]>(
-    api("/api/people", await pedro()),
+  const everyone = await json<{ id: string; name: string; admin: boolean }[]>(
+    server.api("/api/people"),
   );
 
   expect(everyone.map(({ name, admin }) => [name, admin])).toEqual([
@@ -387,47 +386,41 @@ test("only an admin lists everyone", async () => {
     ["ana", false],
   ]);
 
-  expect((await api("/api/people", anas)).status).toBe(403);
+  expect(await json(server.as(anas)("/api/people"))).toEqual(
+    everyone.map(({ id, name }) => ({ id, name })),
+  );
 });
 
 test("an admin changes roles, but never leaves the server without an admin", async () => {
   const anas = await ana();
-  const pedros = await pedro();
+  const pedros = await server.signedIn();
 
-  const people = await json<Person[]>(api("/api/people", pedros));
+  const people = await json<Person[]>(server.as(pedros)("/api/people"));
 
   const idOf = (name: string): string =>
     people.find((person) => person.name === name)?.id ?? "";
 
-  const byMember = await api(
-    `/api/people/${idOf("pedro")}`,
-    anas,
-    { admin: false },
-    "PATCH",
-  );
+  const byMember = await server.as(anas)(`/api/people/${idOf("pedro")}`, {
+    method: "PATCH",
+    body: { admin: false },
+  });
 
-  const promoted = await api(
-    `/api/people/${idOf("ana")}`,
-    pedros,
-    { admin: true },
-    "PATCH",
-  );
+  const promoted = await server.as(pedros)(`/api/people/${idOf("ana")}`, {
+    method: "PATCH",
+    body: { admin: true },
+  });
 
-  const listedByAna = await api("/api/people", anas);
+  const listedByAna = await server.as(anas)("/api/people");
 
-  const demoted = await api(
-    `/api/people/${idOf("pedro")}`,
-    anas,
-    { admin: false },
-    "PATCH",
-  );
+  const demoted = await server.as(anas)(`/api/people/${idOf("pedro")}`, {
+    method: "PATCH",
+    body: { admin: false },
+  });
 
-  const lastAdmin = await api(
-    `/api/people/${idOf("ana")}`,
-    anas,
-    { admin: false },
-    "PATCH",
-  );
+  const lastAdmin = await server.as(anas)(`/api/people/${idOf("ana")}`, {
+    method: "PATCH",
+    body: { admin: false },
+  });
 
   expect([
     byMember.status,
@@ -438,10 +431,9 @@ test("an admin changes roles, but never leaves the server without an admin", asy
   ]).toEqual([403, 200, 200, 200, 409]);
 
   expect(
-    (await json<Person[]>(api("/api/people", anas))).map(({ name, admin }) => [
-      name,
-      admin,
-    ]),
+    (await json<Person[]>(server.as(anas)("/api/people"))).map(
+      ({ name, admin }) => [name, admin],
+    ),
   ).toEqual([
     ["pedro", false],
     ["ana", true],
@@ -451,13 +443,16 @@ test("an admin changes roles, but never leaves the server without an admin", asy
 test("lists who is still setting up and when each person was last active", async () => {
   const before = new Date().toISOString();
   const anas = await ana();
-  const pedros = await pedro();
+  const pedros = await server.signedIn();
 
-  await api("/api/environments", anas);
+  await server.as(anas)("/api/environments");
 
-  await api("/api/setup", pedros, { finished: true });
+  await server.as(pedros)("/api/me/setup", {
+    method: "PATCH",
+    body: { finished: true },
+  });
 
-  const people = await json<Person[]>(api("/api/people", pedros));
+  const people = await json<Person[]>(server.as(pedros)("/api/people"));
 
   expect(people.map(({ name, settingUp }) => [name, settingUp])).toEqual([
     ["pedro", false],
@@ -470,7 +465,7 @@ test("lists who is still setting up and when each person was last active", async
 });
 
 async function joinWith(token: string, name: string): Promise<Response> {
-  return fetch(new URL(`/api/auth/join/${token}`, server.url), {
+  return fetch(new URL(`/api/auth/invites/${token}`, server.url), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name, password: "correct horse" }),
@@ -479,18 +474,18 @@ async function joinWith(token: string, name: string): Promise<Response> {
 
 test("lets anyone with an invite link join with a password, as the role it names", async () => {
   const anas = await ana();
-  const pedros = await pedro();
+  const pedros = await server.signedIn();
 
-  const byMember = await api("/api/invites", anas, {});
+  const byMember = await server.as(anas)("/api/invites", { body: {} });
 
   const [link] = await json<(Invite & { token: string })[]>(
-    api("/api/invites", pedros, { admin: false, days: 3 }),
+    server.as(pedros)("/api/invites", { body: { admin: false, days: 3 } }),
   );
 
   const token = link?.token ?? "";
 
   const info = await json<JoinInfo>(
-    fetch(new URL(`/api/auth/join/${token}`, server.url)),
+    fetch(new URL(`/api/auth/invites/${token}`, server.url)),
   );
 
   const bea = await joinWith(token, "bea");
@@ -507,38 +502,39 @@ test("lets anyone with an invite link join with a password, as the role it names
   });
 
   expect([bea.status, cid.status, taken.status]).toEqual([201, 201, 409]);
-  expect((await api("/api/people", beas)).status).toBe(403);
+  expect((await server.as(beas)("/api/invites")).status).toBe(403);
 
-  expect(await json(api("/api/invites", pedros))).toEqual([
+  expect(await json(server.as(pedros)("/api/invites"))).toEqual([
     { ...link, token: undefined, uses: 2 },
   ]);
 });
 
 test("lets an email invite in once, and not after an admin revokes it", async () => {
   await ana();
-  const pedros = await pedro();
+  const pedros = await server.signedIn();
 
-  const badEmail = await api("/api/invites", pedros, { emails: ["nobody"] });
+  const badEmail = await server.as(pedros)("/api/invites", {
+    body: { emails: ["nobody"] },
+  });
 
   const [dan, eve] = await json<(Invite & { token: string })[]>(
-    api("/api/invites", pedros, {
-      emails: ["Dan@Example.com ", "eve@example.com"],
-      admin: true,
+    server.as(pedros)("/api/invites", {
+      body: {
+        emails: ["Dan@Example.com ", "eve@example.com"],
+        admin: true,
+      },
     }),
   );
 
-  const revoked = await api(
-    `/api/invites/${eve?.id ?? ""}`,
-    pedros,
-    undefined,
-    "DELETE",
-  );
+  const revoked = await server.as(pedros)(`/api/invites/${eve?.id ?? ""}`, {
+    method: "DELETE",
+  });
 
   const joined = await joinWith(dan?.token ?? "", "dan");
   const twice = await joinWith(dan?.token ?? "", "dan2");
   const afterRevoke = await joinWith(eve?.token ?? "", "eve");
 
-  expect(badEmail.status).toBe(400);
+  expect(badEmail.status).toBe(422);
   expect(dan?.email).toBe("dan@example.com");
   expect(revoked.status).toBe(204);
 
@@ -547,22 +543,204 @@ test("lets an email invite in once, and not after an admin revokes it", async ()
   ]);
 
   expect(await joined.json()).toMatchObject({ name: "dan", admin: true });
-  expect(await json(api("/api/invites", pedros))).toEqual([]);
+  expect(await json(server.as(pedros)("/api/invites"))).toEqual([]);
 });
 
-test("a person lists only the meta-sessions they started", async () => {
-  const anas = await ana();
-  await environment(await pedro(), "mac");
+// An admin who invites through a port-forward still mails the public link.
+test("links an email invite to the server's configured URL, not the host it came through", async () => {
+  const links: string[] = [];
 
-  const started = await api("/api/plugins/meta/sessions", await pedro(), {
-    text: "what can you do?",
+  const forwarded = testServer({
+    url: new URL("https://pipoca.example.com"),
+    servers: [
+      defineServer(
+        definePlugin({ id: "mailer", title: "Mailer", description: "" }),
+        ({ events }) => {
+          events.on("PersonInvited", ({ link }) => {
+            links.push(link);
+          });
+        },
+      ),
+    ],
   });
 
-  expect(started.status).toBe(201);
+  await forwarded.api("/api/invites", {
+    body: { emails: ["dan@example.com"] },
+    headers: { host: "localhost:7420" },
+  });
 
-  expect(
-    await json<Session[]>(api("/api/plugins/meta/sessions", await pedro())),
-  ).toHaveLength(1);
+  await forwarded.close();
 
-  expect(await json(api("/api/plugins/meta/sessions", anas))).toEqual([]);
+  expect(links).toHaveLength(1);
+  expect(links[0]).toStartWith("https://pipoca.example.com/#join/");
+});
+
+test("a person's assistant is theirs alone", async () => {
+  const anas = await ana();
+  await environment(await server.signedIn(), "mac");
+
+  const started = await server.api("/api/ext/projects/assistant", {
+    body: { text: "what can you do?" },
+  });
+
+  expect(started.status).toBe(200);
+  expect((await server.api("/api/ext/projects/assistant")).status).toBe(200);
+
+  expect((await server.as(anas)("/api/ext/projects/assistant")).status).toBe(
+    404,
+  );
+});
+
+test("a person renames themselves, and their Sessions start in the Environment they chose", async () => {
+  const anas = await ana();
+  await environment(anas, "laptop");
+  const desk = await environment(anas, "desk");
+  const mac = await environment(await server.signedIn(), "mac");
+
+  const named = await server.as(anas)("/api/me", {
+    method: "PATCH",
+    body: { displayName: " Ana Souza ", defaultEnvironment: desk },
+  });
+
+  const someoneElses = await server.as(anas)("/api/me", {
+    method: "PATCH",
+    body: { defaultEnvironment: mac },
+  });
+
+  expect(await named.json()).toMatchObject({
+    name: "ana",
+    displayName: "Ana Souza",
+    defaultEnvironment: desk,
+  });
+
+  expect(someoneElses.status).toBe(400);
+  expect((await session(anas)).environmentId).toBe(desk);
+
+  const cleared = await json(
+    server.as(anas)("/api/me", {
+      method: "PATCH",
+      body: { displayName: "", defaultEnvironment: null },
+    }),
+  );
+
+  expect(cleared).toMatchObject({
+    displayName: null,
+    defaultEnvironment: null,
+  });
+});
+
+test("signing out everywhere ends every browser session and access token of that person only", async () => {
+  const anas = await ana();
+  const other = await server.signIn();
+
+  const second = await fetch(new URL("/api/auth/session", server.url), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "ana", password: "battery staple" }),
+  });
+
+  const anasOther = second.headers.get("set-cookie")?.split(";")[0] ?? "";
+
+  const { secret } = await json<{ secret: string }>(
+    server.as(anas)("/api/me/access-tokens", { body: { name: "laptop" } }),
+  );
+
+  const byToken = async (): Promise<number> =>
+    (
+      await server.as()("/api/mcp", {
+        body: { jsonrpc: "2.0", id: 1, method: "ping" },
+        headers: {
+          authorization: `Bearer ${secret}`,
+          accept: "application/json, text/event-stream",
+        },
+      })
+    ).status;
+
+  expect(await byToken()).toBe(200);
+
+  const out = await server.as(anas)("/api/me/sign-ins", { method: "DELETE" });
+
+  expect(out.status).toBe(204);
+  expect(out.headers.get("set-cookie")).toContain("Max-Age=0");
+
+  const after = [
+    (await server.as(anas)("/api/me")).status,
+    (await server.as(anasOther)("/api/me")).status,
+    await byToken(),
+    (await server.as(other)("/api/me")).status,
+  ];
+
+  expect(after).toEqual([401, 401, 401, 200]);
+});
+
+test("only admins change plugins or restart the server", async () => {
+  const cookie = await ana();
+
+  const statuses = [
+    (
+      await server.as(cookie)("/api/plugins", {
+        body: { url: "file:///nowhere" },
+      })
+    ).status,
+    (
+      await server.as(cookie)("/api/plugins/oidc", {
+        method: "PATCH",
+        body: { settings: {} },
+      })
+    ).status,
+    (await server.as(cookie)("/api/plugins/oidc", { method: "DELETE" })).status,
+    (await server.as(cookie)("/api/server/restart", { body: {} })).status,
+  ];
+
+  expect(statuses).toEqual([403, 403, 403, 403]);
+});
+
+test("only admins change a template's Kubernetes settings", async () => {
+  const cookie = await ana();
+
+  const template = (await (
+    await server.api("/api/environment-templates", { body: { name: "pods" } })
+  ).json()) as { id: string };
+
+  const path = `/api/ext/kubernetes/templates/${template.id}`;
+  const patch = { spec: { volumes: [{ name: "key", secret: {} }] } };
+
+  const statuses = [
+    (await server.as(cookie)(path)).status,
+    (await server.as(cookie)(path, { body: { settings: { podPatch: patch } } }))
+      .status,
+    (await server.as(cookie)(path, { body: { settings: null } })).status,
+    (await server.api(path, { body: { settings: { podPatch: patch } } }))
+      .status,
+  ];
+
+  expect(statuses).toEqual([200, 403, 403, 200]);
+});
+
+test("only admins change model aliases, and anyone changes a Project's goal", async () => {
+  const cookie = await ana();
+
+  const laptop = (await (
+    await server.as(cookie)("/api/environments", { body: { name: "laptop" } })
+  ).json()) as { id: string };
+
+  const project = (await (
+    await server.as(cookie)("/api/ext/projects/projects", {
+      body: {
+        name: "Release",
+        repositories: ["https://example.com/app.git"],
+      },
+    })
+  ).json()) as { id: string };
+
+  const aliases = `/api/ext/models/environments/${laptop.id}`;
+  const settings = `/api/ext/projects/projects/${project.id}/settings`;
+
+  const statuses = [
+    (await server.as(cookie)(aliases, { body: { aliases: null } })).status,
+    (await server.api(aliases, { body: { aliases: null } })).status,
+    (await server.as(cookie)(settings, { body: { goal: "Ship it" } })).status,
+  ];
+
+  expect(statuses).toEqual([403, 200, 200]);
 });

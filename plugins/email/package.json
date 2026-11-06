@@ -2,11 +2,6 @@
   "name": "@pipoca/email",
   "private": true,
   "type": "module",
-  "exports": {
-    "./server": "./src/server.ts",
-    "./web": "./web/index.tsx",
-    "./package.json": "./package.json"
-  },
   "dependencies": {
     "@pipoca/plugins": "workspace:*",
     "@pipoca/protocol": "workspace:*",
@@ -16,76 +11,16 @@
     "react": "19.3.1"
   },
   "devDependencies": {
+    "@pipoca/testing": "workspace:*",
     "@types/nodemailer": "8.0.2",
-    "@types/react": "19.3.0"
+    "@types/react": "19.3.0",
+    "@types/smtp-server": "3.5.13",
+    "smtp-server": "3.20.2"
   },
   "pipoca": {
-    "id": "email",
-    "title": "Email",
-    "description": "Turns new mail in a mailbox into routine triggers, and lets Sessions send mail and hear replies. Admins add mailboxes in Settings.",
-    "settings": {
-      "pollSeconds": {
-        "type": "number",
-        "title": "Seconds between mail checks",
-        "description": "How often each mailbox is checked for new mail over IMAP.",
-        "default": 60,
-        "min": 1,
-        "max": 3600
-      }
-    },
-    "capabilities": [
-      "routes",
-      "tools",
-      "events",
-      "sessions"
-    ],
-    "events": {
-      "received": {
-        "title": "Email received",
-        "description": "New mail arrived in a mailbox. Replies to mail a Session sent go to that Session instead.",
-        "fields": {
-          "type": "object",
-          "properties": {
-            "mailbox": {
-              "type": "string",
-              "description": "The mailbox it arrived in"
-            },
-            "from": {
-              "type": "string",
-              "description": "The sender's address"
-            },
-            "fromName": {
-              "type": "string"
-            },
-            "to": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "subject": {
-              "type": "string"
-            },
-            "date": {
-              "type": "string"
-            },
-            "messageId": {
-              "type": "string"
-            },
-            "inReplyTo": {
-              "type": "string"
-            },
-            "text": {
-              "type": "string",
-              "description": "The plain-text body, cut at 8000 characters"
-            }
-          }
-        }
-      }
-    },
-    "works": [
-      "personal",
-      "team"
-    ]
+    "entry": "plugin.ts"
+  },
+  "exports": {
+    "./plugin": "./plugin.ts"
   }
 }

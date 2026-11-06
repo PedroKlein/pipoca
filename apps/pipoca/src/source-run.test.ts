@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pipoca } from "./session-process";
+import { pipoca } from "./binary";
 
 const folder = mkdtempSync(join(tmpdir(), "pipoca-source-"));
 
@@ -28,18 +28,25 @@ afterAll(() => {
   server.kill();
 });
 
+// Reads stderr to its end, since the server logs after it listens, such as
+// the plugins that register late.
 async function listening(): Promise<URL> {
-  let output = "";
+  return new Promise((resolve, reject) => {
+    let output = "";
 
-  for await (const chunk of server.stderr) {
-    output += String(chunk);
-    const url = /"server listening","url":"([^"]+)"/.exec(output)?.[1];
-    if (url !== undefined) {
-      return new URL(url);
-    }
-  }
+    server.stderr.on("data", (chunk) => {
+      output += String(chunk);
+      const url = /"server listening","url":"([^"]+)"/.exec(output)?.[1];
 
-  throw new Error(`the server stopped before listening:\n${output}`);
+      if (url !== undefined) {
+        resolve(new URL(url));
+      }
+    });
+
+    server.on("exit", () => {
+      reject(new Error(`the server stopped before listening:\n${output}`));
+    });
+  });
 }
 
 // Started as a service, a server run from source has another working folder,

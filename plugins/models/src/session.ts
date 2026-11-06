@@ -4,7 +4,8 @@ import type {
   ModelRoute,
   ModelRouteRequest,
 } from "@earendil-works/pi-coding-agent";
-import type { SessionCloud, SessionPlugin } from "@pipoca/plugins";
+import { defineSession, type SessionContext } from "@pipoca/plugins";
+import { models } from "../plugin";
 import { aliasesOf, candidates, failure, gatewayProvider } from "./gateway";
 import {
   mergeHealth,
@@ -20,12 +21,11 @@ const retryMs = 5000;
 // provider. Each request goes to the alias's first healthy model, and a model
 // or provider that fails is reported so every Session in the Environment
 // stops using it.
-export const models: SessionPlugin = {
-  name: "models",
-  extension: (cloud) => async (pi) => {
-    const first = await read(cloud, undefined, undefined).catch(
+export const session = defineSession(models, (s) => {
+  s.extension(async (pi) => {
+    const first = await read(s, undefined, undefined).catch(
       (error: unknown) => {
-        cloud.log("model aliases not read", { error: String(error) });
+        s.log("model aliases not read", { error: String(error) });
 
         return undefined;
       },
@@ -50,10 +50,11 @@ export const models: SessionPlugin = {
             id: alias,
             name: alias,
             thinkingLevels,
-            route: (request, ctx) => routeModel(config, alias, request, ctx),
+            route: (request, ctx) =>
+              routeModel(config, alias, request, ctx, s.clock.now()),
           });
         } catch (error) {
-          cloud.log("model alias not registered", {
+          s.log("model alias not registered", {
             alias,
             error: String(error),
           });
@@ -66,7 +67,7 @@ export const models: SessionPlugin = {
     register();
 
     const report = (model: ModelRef, errorMessage: string): void => {
-      const now = new Date();
+      const now = new Date(s.clock.now());
 
       const failed = config.aliases
         ? failure(config.aliases, model, errorMessage, now)
@@ -85,17 +86,11 @@ export const models: SessionPlugin = {
       );
 
       config = { ...config, health };
-      cloud.log("model unhealthy", { model: key, until: entry.until });
+      s.log("model unhealthy", { model: key, until: entry.until });
 
-      void cloud
-        .request("health", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(health),
-        })
-        .catch((error: unknown) => {
-          cloud.log("model health not reported", { error: String(error) });
-        });
+      s.api.post("health", health).catch((error: unknown) => {
+        s.log("model health not reported", { error: String(error) });
+      });
     };
 
     pi.on("message_end", (event, ctx) => {
@@ -112,7 +107,7 @@ export const models: SessionPlugin = {
       }
     });
 
-    follow(pi, cloud, first?.version, (next) => {
+    follow(pi, s, first?.version, (next) => {
       const aliasesChanged =
         JSON.stringify(next.aliases) !== JSON.stringify(config.aliases);
 
@@ -121,8 +116,8 @@ export const models: SessionPlugin = {
         register();
       }
     });
-  },
-};
+  });
+});
 
 // Tool follow-ups and retries stay on the model that answered, which keeps
 // the prompt cache, unless that model has since become unhealthy.
@@ -143,12 +138,13 @@ function routeModel(
   alias: string,
   request: ModelRouteRequest,
   ctx: ExtensionContext,
+  now: number,
 ): ModelRoute {
   const routable = candidates(
     config.aliases ?? { models: {} },
     config.health,
     alias,
-    new Date(),
+    new Date(now),
   );
 
   const sticky = stickyOf(request);
@@ -178,24 +174,18 @@ function routeModel(
 }
 
 async function read(
-  cloud: SessionCloud,
+  { api }: Pick<SessionContext, "api">,
   after: number | undefined,
   signal: AbortSignal | undefined,
 ): Promise<SessionConfig> {
-  const path = after === undefined ? "config" : `config?after=${String(after)}`;
-  const response = await cloud.request(path, signal ? { signal } : {});
-  if (!response.ok) {
-    throw new Error(`models answered ${String(response.status)}`);
-  }
-
-  return (await response.json()) as SessionConfig;
+  return api.get<SessionConfig>("config", { after }, signal && { signal });
 }
 
 // Waits for the server's next change to the config or health, until the
 // Session shuts down. Without a version it reads the config at once.
 function follow(
   pi: ExtensionAPI,
-  cloud: SessionCloud,
+  s: Pick<SessionContext, "api" | "log" | "timer">,
   version: number | undefined,
   changed: (config: SessionConfig) => void,
 ): void {
@@ -210,7 +200,7 @@ function follow(
     let seen = version;
     while (!stop.signal.aborted) {
       try {
-        const next = await read(cloud, seen, stop.signal);
+        const next = await read(s, seen, stop.signal);
         if (next.version !== seen) {
           seen = next.version;
           changed(next);
@@ -220,8 +210,15 @@ function follow(
           return;
         }
 
-        cloud.log("model aliases not followed", { error: String(error) });
-        await new Promise((resolve) => setTimeout(resolve, retryMs));
+        s.log("model aliases not followed", { error: String(error) });
+
+        await new Promise<void>((resolve) => {
+          s.timer.after(retryMs, async () => {
+            resolve();
+
+            return Promise.resolve();
+          });
+        });
       }
     }
   })();

@@ -1,38 +1,23 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { serve } from "./serve";
-import { firstUser } from "./testdata/sign-in";
+import { testServer, type TestServer } from "./testdata/harness";
 
-let server: ReturnType<typeof serve>;
-let signedIn: () => Promise<string>;
+let server: TestServer;
 
 beforeEach(() => {
-  const logs: string[] = [];
-
-  server = serve({
-    port: 0,
-    database: ":memory:",
-    sessions: { pollWaitMs: 0 },
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
+  server = testServer({
+    runners: { pollWaitMs: 0 },
   });
-
-  signedIn = firstUser(server, logs);
 });
 
 afterEach(async () => {
-  await server.stop();
+  await server.close();
 });
 
 async function setup(body?: unknown): Promise<Response> {
-  return fetch(new URL("/api/setup", server.url), {
-    method: body === undefined ? "GET" : "POST",
-    headers: {
-      cookie: await signedIn(),
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
+  return server.api(
+    "/api/me/setup",
+    body === undefined ? {} : { method: "PATCH", body },
+  );
 }
 
 test("a new person has the setup ahead of them until they finish it", async () => {
@@ -41,7 +26,7 @@ test("a new person has the setup ahead of them until they finish it", async () =
     dismissed: [],
   });
 
-  expect((await setup({ finished: true })).status).toBe(204);
+  expect((await setup({ finished: true })).status).toBe(200);
 
   expect(await (await setup()).json()).toEqual({
     finished: true,
@@ -61,10 +46,10 @@ test("keeps the reminders a person dismissed, once each", async () => {
 });
 
 test("refuses a change that isn't finishing or a step's name", async () => {
-  expect((await setup({ finished: "yes" })).status).toBe(400);
-  expect((await setup({ dismiss: "" })).status).toBe(400);
+  expect((await setup({ finished: "yes" })).status).toBe(422);
+  expect((await setup({ dismiss: "" })).status).toBe(422);
 });
 
 test("needs a signed-in user", async () => {
-  expect((await fetch(new URL("/api/setup", server.url))).status).toBe(401);
+  expect((await fetch(new URL("/api/me/setup", server.url))).status).toBe(401);
 });

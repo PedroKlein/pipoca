@@ -1,31 +1,41 @@
-import { json, useLoaded, type WebContext } from "@pipoca/plugins/web";
-import { Button, Field, fieldClass, Select } from "@pipoca/ui";
+import { logins } from "../plugin";
+import { useLoaded, useApi } from "@pipoca/plugins/web";
+import {
+  Button,
+  cardClass,
+  cn,
+  ErrorText,
+  Field,
+  Select,
+  TextArea,
+  TextInput,
+} from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type { Connectable, Connection, ConnectionPrompt } from "../src/model";
 
-type Send = (path: string, init: RequestInit) => void;
+type Send = (call: Promise<unknown>) => void;
 
 // Picks a provider and a way in, and asks the server to sign the person in.
 // With a provider it signs in to that one, and with a layer it keeps the
 // login there, such as one Profile's own (ADR 0063). An admin may instead
 // keep an API key on the server base, for everyone.
 export function ConnectForm({
-  context,
   send,
   onClose,
   provider: fixed,
   layer,
   admin = false,
 }: {
-  readonly context: WebContext;
   readonly send: Send;
   readonly onClose: () => void;
   readonly provider?: string;
   readonly layer?: string;
   readonly admin?: boolean;
 }): ReactElement | null {
+  const api = useApi(logins);
+
   const { value: providers } = useLoaded(
-    async () => json<readonly Connectable[]>(context.request("providers")),
+    async () => api.get<readonly Connectable[]>("providers"),
     "providers",
   );
 
@@ -50,33 +60,31 @@ export function ConnectForm({
     const form = new FormData(event.currentTarget);
 
     if (provider?.paste === true) {
-      send("save", {
-        method: "POST",
-        body: JSON.stringify({
+      send(
+        api.post("save", {
           provider: provider.id,
           credential: { type: "api_key", key: form.get("key") },
           layer: chosenLayer,
         }),
-      });
+      );
 
       return;
     }
 
-    send("connect", {
-      method: "POST",
-      body: JSON.stringify({
+    send(
+      api.post("connect", {
         provider: provider?.id,
         type: form.get("type"),
         layer: chosenLayer,
       }),
-    });
+    );
   };
 
   return (
     <form
       aria-label={`Connect ${fixed === undefined ? "a model provider" : (provider?.name ?? fixed)}`}
       onSubmit={connect}
-      className="flex flex-col gap-3 rounded-lg border border-line bg-elevated shadow-xs p-3"
+      className={cn(cardClass, "flex flex-col gap-3 p-3")}
     >
       {fixed === undefined && (
         <Field label="Provider">
@@ -109,13 +117,13 @@ export function ConnectForm({
       )}
       {provider?.paste === true ? (
         <Field label="Key">
-          <textarea
+          <TextArea
             name="key"
             required
             rows={4}
             autoComplete="off"
             spellCheck={false}
-            className={`${fieldClass} font-mono`}
+            className="font-mono"
           />
         </Field>
       ) : (
@@ -148,16 +156,18 @@ export function ConnectionCard({
   readonly connection: Connection;
   readonly send: Send;
 }): ReactElement {
+  const api = useApi(logins);
+
   const { name } = connection;
 
   const dismiss = (): void => {
-    send("connection", { method: "DELETE" });
+    send(api.delete("connection"));
   };
 
   return (
     <section
       aria-label={`Connecting ${name}`}
-      className="flex flex-col gap-3 rounded-lg border border-line bg-elevated shadow-xs p-3 text-ui"
+      className={cn(cardClass, "flex flex-col gap-3 p-3 text-ui")}
     >
       <p className="font-medium text-fg">
         {connection.state === "done"
@@ -175,9 +185,9 @@ export function ConnectionCard({
         />
       )}
       {connection.state === "failed" && (
-        <p role="alert" className="text-caption text-failed">
+        <ErrorText size="caption">
           {connection.error ?? "The sign-in didn't finish."}
-        </p>
+        </ErrorText>
       )}
       <div>
         <Button onClick={dismiss}>
@@ -257,11 +267,10 @@ function PromptForm({
   readonly prompt: ConnectionPrompt;
   readonly send: Send;
 }): ReactElement {
+  const api = useApi(logins);
+
   const answer = (value: unknown): void => {
-    send("connection/answer", {
-      method: "POST",
-      body: JSON.stringify({ prompt: prompt.id, answer: value }),
-    });
+    send(api.post("connection/answer", { prompt: prompt.id, answer: value }));
   };
 
   const submit = (event: SubmitEvent<HTMLFormElement>): void => {
@@ -285,12 +294,11 @@ function PromptForm({
             ))}
           </Select>
         ) : (
-          <input
+          <TextInput
             name="answer"
             type={prompt.type === "secret" ? "password" : "text"}
             autoComplete="off"
             placeholder={prompt.placeholder}
-            className={fieldClass}
           />
         )}
       </Field>

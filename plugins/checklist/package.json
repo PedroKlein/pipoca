@@ -3,29 +3,18 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./session": "./src/session.ts",
-    "./web": "./web/index.tsx",
-    "./package.json": "./package.json"
+    "./plugin": "./plugin.ts"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "1.3.0",
-    "@earendil-works/pi-coding-agent": "1.3.0",
     "@pipoca/plugins": "workspace:*",
-    "@pipoca/protocol": "workspace:*",
     "@pipoca/ui": "workspace:*",
     "react": "19.3.1"
   },
   "devDependencies": {
+    "@pipoca/testing": "workspace:*",
     "@types/react": "19.3.0"
   },
   "pipoca": {
-    "id": "checklist",
-    "title": "Checklist",
-    "description": "Lets the agent keep a checklist of its steps, shown above the composer.",
-    "capabilities": [],
-    "works": [
-      "personal",
-      "team"
-    ]
+    "entry": "plugin.ts"
   }
 }

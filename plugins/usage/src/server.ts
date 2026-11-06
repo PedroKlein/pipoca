@@ -1,21 +1,18 @@
+import { logins } from "@pipoca/logins/plugin";
 import {
-  BadRequest,
-  fieldsOf,
-  isObject,
-  NotFound,
-  readJson,
-  requireAdmin,
-  type PluginEvent,
-  type PluginStore,
-  type RouteCaller,
-  type ServerPlugin,
+  defineServer,
+  type Owner,
+  owners,
+  type Store,
+  Type,
 } from "@pipoca/plugins";
+import { usage } from "../plugin";
 import { auditedAction, auditLog, csv } from "./audit";
 
 // One proxied model call of team work (ADR 0066).
 interface Call {
   readonly at: string;
-  readonly owner: string;
+  readonly owner: Owner;
   readonly person: string | null;
   readonly sessionId: string;
   readonly provider: string;
@@ -32,18 +29,11 @@ interface Totals {
   readonly cost: number;
 }
 
-// Dollars per million tokens, by "<provider>/<model>".
-interface Price {
-  readonly input: number;
-  readonly output: number;
-}
+const budget = Type.Union([Type.Number({ exclusiveMinimum: 0 }), Type.Null()]);
 
-// Dollars a month, from "budgets" in pipoca.json: the team's whole spend and
-// each person's share of it.
-interface Budgets {
-  readonly team: number | null;
-  readonly person: number | null;
-}
+const budgetsSet = Type.Object({ team: budget, person: budget });
+
+const format = Type.Object({ format: Type.Optional(Type.Literal("csv")) });
 
 const shownCalls = 500;
 
@@ -69,39 +59,35 @@ const auditColumns = ["at", "actor", "sessionId", "action", "detail"] as const;
 // Records every call the proxy makes for team work, priced from the table
 // admins keep in pipoca.json, so admins see all of it and each person their
 // own and the team's totals (ADR 0066).
-export const usage: ServerPlugin = {
-  name: "usage",
-  register: (context) => {
-    const calls = callStore(context.store);
-    const audit = auditLog(context.store);
+export const server = defineServer(
+  usage,
+  ({ clock, config, events, people, routes, sessions, store }) => {
+    const calls = callStore(store);
+    const audit = auditLog(store, clock);
 
-    const record = (event: Parameters<typeof auditedAction>[0]) => {
+    const audited = (event: Parameters<typeof auditedAction>[0]): void => {
       const entry = auditedAction(event);
 
       if (entry !== undefined) {
         audit.add(entry);
-        context.changes.publish("audit");
+        routes.topic("audit");
       }
     };
 
-    context.events.subscribe("SessionCreated", record);
-    context.events.subscribe("SessionArchived", record);
-    context.events.subscribe("SessionUnarchived", record);
-    context.events.subscribe("StopAsked", record);
-    context.events.subscribe("SessionMoved", record);
-    context.events.subscribe("AccessChanged", record);
+    events.on("SessionCreated", audited);
+    events.on("SessionArchived", audited);
+    events.on("SessionUnarchived", audited);
+    events.on("StopAsked", audited);
+    events.on("SessionMoved", audited);
+    events.on("AccessChanged", audited);
 
-    const priceOf = (provider: string, model: string | null) => {
-      const prices = objectAt(context.config.get(), "prices");
-      const price = prices[`${provider}/${model ?? ""}`];
+    const budgets = () => {
+      const { team, person } = config.get().budgets;
 
-      return isPrice(price) ? price : undefined;
-    };
-
-    const budgets = (): Budgets => {
-      const set = objectAt(context.config.get(), "budgets");
-
-      return { team: dollars(set["team"]), person: dollars(set["person"]) };
+      return {
+        team: team > 0 ? team : null,
+        person: person > 0 ? person : null,
+      };
     };
 
     const warn = (
@@ -109,31 +95,42 @@ export const usage: ServerPlugin = {
       limit: number,
       spent: number,
       cost: number,
-    ) => {
+    ): void => {
       for (const share of warnedShares) {
         const line = (limit * share) / 100;
 
         if (spent - cost < line && spent >= line) {
-          context.events.publish({
-            type: "usage.budget_warned",
-            person,
-            share,
-            spent,
-            limit,
-          });
+          events.emit(
+            "budget_warned",
+            { person, share, spent, limit },
+            { to: person === null ? ["team"] : [`person:${person}`, "team"] },
+          );
         }
       }
     };
 
-    context.events.subscribe("logins.model_called", (event) => {
-      const call = callOf(event, priceOf);
+    events.on(logins.events.model_called, ({ fields, to }) => {
+      const price =
+        config.get().prices[`${fields.provider}/${fields.model ?? ""}`];
 
-      if (call === undefined) {
-        return;
-      }
+      const call: Call = {
+        at: new Date(clock.now()).toISOString(),
+        owner: to.includes("team") ? "team" : (to[0] ?? "team"),
+        person: fields.person,
+        sessionId: fields.sessionId,
+        provider: fields.provider,
+        model: fields.model,
+        input: fields.input,
+        output: fields.output,
+        cost:
+          price === undefined
+            ? null
+            : (fields.input * price.input + fields.output * price.output) /
+              1_000_000,
+      };
 
       calls.add(call);
-      context.changes.publish("totals");
+      routes.topic("totals");
 
       audit.add({
         actor: null,
@@ -142,13 +139,13 @@ export const usage: ServerPlugin = {
         detail: `${call.provider}/${call.model ?? ""}`,
       });
 
-      context.changes.publish("audit");
+      routes.topic("audit");
 
       if (call.cost === null || call.cost === 0) {
         return;
       }
 
-      const since = monthStart(new Date());
+      const since = monthStart(clock.now());
       const { team, person } = budgets();
 
       if (team !== null) {
@@ -165,95 +162,81 @@ export const usage: ServerPlugin = {
       }
     });
 
-    context.routes.handle(async (request, path, caller) => {
-      if (caller.kind === "user" && request.method === "PUT") {
-        if (path !== "budgets") {
-          throw new NotFound(`no route ${path}`);
-        }
-
-        requireAdmin(caller, "Only admins set the team's budgets.");
-
-        const set = budgetsOf(await readJson(request));
-        const config = context.config.get();
-
-        context.config.set({
-          ...(isObject(config) ? config : {}),
-          budgets: set,
+    routes.put(
+      "budgets",
+      { auth: "admin", body: budgetsSet, changes: ["totals"] },
+      ({ body }) => {
+        config.set({
+          budgets: { team: body.team ?? 0, person: body.person ?? 0 },
         });
+      },
+    );
 
-        context.changes.publish("totals");
+    routes.get(
+      "calls",
+      { auth: "person", query: format },
+      ({ caller: { person }, query }) => {
+        const exported = query.format === "csv";
 
-        return new Response(null, { status: 204 });
-      }
-
-      if (caller.kind !== "user" || request.method !== "GET") {
-        throw new NotFound(`no route ${path}`);
-      }
-
-      const exported =
-        new URL(request.url).searchParams.get("format") === "csv";
-
-      const limit = exported ? undefined : shownCalls;
-
-      if (path === "calls") {
         const rows = calls.recent(
-          caller.admin ? undefined : personOf(caller),
-          limit,
+          person.admin ? undefined : person.id,
+          exported ? undefined : shownCalls,
         );
 
-        return exported
-          ? csvResponse(csv(rows, callColumns), "usage")
-          : Response.json(rows);
-      }
+        return exported ? csvResponse(csv(rows, callColumns), "usage") : rows;
+      },
+    );
 
-      if (path === "audit") {
+    routes.get(
+      "audit",
+      { auth: "person", query: format },
+      ({ caller: { person }, query }) => {
+        const exported = query.format === "csv";
+
         const rows = audit.entries(
-          caller.admin ? undefined : caller.actor,
-          limit,
+          person.admin ? undefined : `user:${person.id}`,
+          exported ? undefined : shownCalls,
         );
 
-        return exported
-          ? csvResponse(csv(rows, auditColumns), "audit")
-          : Response.json(rows);
-      }
+        return exported ? csvResponse(csv(rows, auditColumns), "audit") : rows;
+      },
+    );
 
-      // What people did to the team work the caller can see, for the hub.
-      if (path === "activity") {
-        const person = personOf(caller);
-        const actions = audit.actions(activityRead);
+    // What people did to the team work the caller can see, for the hub.
+    routes.get("activity", { auth: "person" }, ({ caller: { person } }) => {
+      const actions = audit.actions(activityRead);
 
-        const moved = new Set(
-          actions
-            .filter(({ action }) => action === "moved to the team")
-            .map(({ sessionId }) => sessionId),
-        );
+      const moved = new Set(
+        actions
+          .filter(({ action }) => action === "moved to the team")
+          .map(({ sessionId }) => sessionId),
+      );
 
-        return Response.json(
-          actions
-            .filter(
-              ({ action, sessionId }) =>
-                !(action === "started" && moved.has(sessionId)) &&
-                context.sessions.sees(sessionId, person),
-            )
-            .slice(0, activityShown),
-        );
-      }
+      return actions
+        .filter(
+          ({ action, sessionId }) =>
+            !(action === "started" && moved.has(sessionId)) &&
+            sessions.sees(sessionId, person.id),
+        )
+        .slice(0, activityShown)
+        .map(({ actor, ...action }) => ({
+          ...action,
+          name: people.get(actor?.slice("user:".length) ?? "")?.name ?? null,
+        }));
+    });
 
-      if (path === "totals") {
-        const since = monthStart(new Date());
+    routes.get("totals", { auth: "person" }, ({ caller: { person } }) => {
+      const since = monthStart(clock.now());
 
-        return Response.json({
-          since,
-          team: calls.totals(since),
-          mine: calls.totals(since, personOf(caller)),
-          budgets: budgets(),
-        });
-      }
-
-      throw new NotFound(`no route ${path}`);
+      return {
+        since: new Date(since).toISOString(),
+        team: calls.totals(since),
+        mine: calls.totals(since, person.id),
+        budgets: budgets(),
+      };
     });
   },
-};
+);
 
 function csvResponse(body: string, name: string): Response {
   return new Response(body, {
@@ -264,156 +247,94 @@ function csvResponse(body: string, name: string): Response {
   });
 }
 
-function personOf(caller: RouteCaller & { readonly kind: "user" }): string {
-  return caller.actor.slice("user:".length);
+function monthStart(now: number): number {
+  const at = new Date(now);
+
+  return Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1);
 }
 
-function monthStart(now: Date): string {
-  return new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
-  ).toISOString();
-}
-
-function callOf(
-  event: PluginEvent,
-  priceOf: (provider: string, model: string | null) => Price | undefined,
-): Call | undefined {
-  const { sessionId, owner, person, provider, model, input, output } = event;
-
-  if (
-    typeof sessionId !== "string" ||
-    typeof owner !== "string" ||
-    typeof provider !== "string" ||
-    typeof input !== "number" ||
-    typeof output !== "number"
-  ) {
-    return undefined;
-  }
-
-  const named = typeof model === "string" ? model : null;
-  const price = priceOf(provider, named);
-
-  return {
-    at: new Date().toISOString(),
-    owner,
-    person: typeof person === "string" ? person : null,
-    sessionId,
-    provider,
-    model: named,
-    input,
-    output,
-    cost:
-      price === undefined
-        ? null
-        : (input * price.input + output * price.output) / 1_000_000,
-  };
-}
-
-function budgetsOf(body: unknown): Budgets {
-  const fields = fieldsOf(body);
-
-  const amount = (key: keyof Budgets): number | null => {
-    const value = fields[key];
-
-    if (value === null || value === undefined) {
-      return null;
-    }
-
-    if (typeof value !== "number" || !(value > 0)) {
-      throw new BadRequest(`${key} must be dollars above zero, or null`);
-    }
-
-    return value;
-  };
-
-  return { team: amount("team"), person: amount("person") };
-}
-
-function dollars(value: unknown): number | null {
-  return typeof value === "number" && value > 0 ? value : null;
-}
-
-function isPrice(value: unknown): value is Price {
-  return (
-    isObject(value) &&
-    typeof value["input"] === "number" &&
-    typeof value["output"] === "number"
-  );
-}
-
-function objectAt(value: unknown, key: string): Record<string, unknown> {
-  const inner = isObject(value) ? value[key] : undefined;
-
-  return isObject(inner) ? inner : {};
-}
+const microsPerDollar = 1_000_000;
 
 interface CallRow {
-  readonly at: string;
-  readonly owner: string;
+  readonly at: number;
+  readonly owner_user_id: string | null;
   readonly person: string | null;
   readonly session_id: string;
   readonly provider: string;
   readonly model: string | null;
   readonly input: number;
   readonly output: number;
-  readonly cost: number | null;
+  readonly cost_micros: number | null;
 }
 
-function callStore(store: PluginStore): {
+const totalsOf =
+  "select coalesce(sum(input), 0) as input, coalesce(sum(output), 0) as output, coalesce(sum(cost_micros), 0) / 1000000.0 as cost from usage_calls where at >= ?";
+
+function callStore(store: Store): {
   readonly add: (call: Call) => void;
   readonly recent: (
     person: string | undefined,
     limit: number | undefined,
   ) => readonly Call[];
-  readonly totals: (since: string, person?: string) => Totals;
+  readonly totals: (since: number, person?: string) => Totals;
 } {
-  store.exec(
-    "create table if not exists usage_calls (id integer primary key, at text not null, owner text not null, person text, session_id text not null, provider text not null, model text, input integer not null, output integer not null, cost real)",
-  );
-
   return {
     add: (call) => {
       store.run(
-        "insert into usage_calls (at, owner, person, session_id, provider, model, input, output, cost) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        call.at,
-        call.owner,
+        "insert into usage_calls (id, at, owner_user_id, person, session_id, provider, model, input, output, cost_micros) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        Bun.randomUUIDv7(),
+        Date.parse(call.at),
+        owners.toSql(call.owner),
         call.person,
         call.sessionId,
         call.provider,
         call.model,
         call.input,
         call.output,
-        call.cost,
+        call.cost === null ? null : Math.round(call.cost * microsPerDollar),
       );
     },
     recent: (person, limit = -1) =>
-      (
-        (person === undefined
-          ? store.all(
-              "select * from usage_calls order by id desc limit ?",
-              limit,
-            )
-          : store.all(
-              "select * from usage_calls where person = ? order by id desc limit ?",
-              person,
-              limit,
-            )) as CallRow[]
-      ).map(({ session_id: sessionId, ...row }) => ({ ...row, sessionId })),
-    totals: (since, person) => {
-      const [row] = (
-        person === undefined
-          ? store.all(
-              "select coalesce(sum(input), 0) as input, coalesce(sum(output), 0) as output, coalesce(sum(cost), 0) as cost from usage_calls where at >= ?",
-              since,
-            )
-          : store.all(
-              "select coalesce(sum(input), 0) as input, coalesce(sum(output), 0) as output, coalesce(sum(cost), 0) as cost from usage_calls where at >= ? and person = ?",
-              since,
-              person,
-            )
-      ) as Totals[];
-
-      return row ?? { input: 0, output: 0, cost: 0 };
-    },
+      (person === undefined
+        ? store.all<CallRow>(
+            "select * from usage_calls order by id desc limit ?",
+            limit,
+          )
+        : store.all<CallRow>(
+            "select * from usage_calls where person = ? order by id desc limit ?",
+            person,
+            limit,
+          )
+      ).map(
+        ({
+          session_id: sessionId,
+          at,
+          cost_micros,
+          owner_user_id,
+          provider,
+          model,
+          input,
+          output,
+          person: asked,
+        }) => ({
+          at: new Date(at).toISOString(),
+          owner: owners.fromSql(owner_user_id),
+          person: asked,
+          sessionId,
+          provider,
+          model,
+          input,
+          output,
+          cost: cost_micros === null ? null : cost_micros / microsPerDollar,
+        }),
+      ),
+    totals: (since, person) =>
+      (person === undefined
+        ? store.get<Totals>(totalsOf, since)
+        : store.get<Totals>(`${totalsOf} and person = ?`, since, person)) ?? {
+        input: 0,
+        output: 0,
+        cost: 0,
+      },
   };
 }

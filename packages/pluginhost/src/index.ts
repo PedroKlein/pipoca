@@ -1,9 +1,11 @@
 export {
   type OnBehalf,
   type PluginHost,
-  type PluginSettingsStore,
   startPlugins,
   type UserActor,
   userIdOf,
 } from "./host";
-export { kernelToolsets } from "./toolsets";
+export type { PluginDb } from "./context";
+export type { ExtRoute } from "./routes";
+export type { ScheduleRow, ScheduleStore } from "./scheduler";
+export { kernelKeys, pluginSwitches } from "./switches";

@@ -4,12 +4,12 @@
 
 ## Direction already agreed
 
-- The first product is a self-hosted personal control plane.
+- The first product is a self-hosted personal server.
 - It manages multiple independent Sessions and multiple Projects.
 - Project coordinators and Threads are full Pi Sessions.
 - Every Thread can use its own subagents.
-- One logical control plane can use local, VM, and Kubernetes Runtime Providers.
-- Sessions bind to versioned Profiles and Environments.
+- One server can use local, VM, and Kubernetes runners.
+- Sessions bind to a Profile and an Environment, neither of which has revisions ([ADR 0031](adr/0031-profiles.md), [ADR 0032](adr/0032-environments-and-runners.md)).
 - Pi personalization must remain available in hosted sessions.
 - The platform should be extensible enough for later automations and collaboration.
 - Setup, new Sessions, new Projects and Settings ask for as little as Claude Code does: one composer with remembered pickers, one Settings page grouped by who it is for, and a first-run setup wizard ([ADR 0040](adr/0040-fewer-forms.md), [ADR 0063](adr/0063-settings-and-first-run-setup.md)).
@@ -25,6 +25,7 @@
 
 - Resolved: the product is called Pipoca, written `pipoca` wherever people type it, with a popped-kernel mark, Ink and Ivory in the app and Butter only in the mark ([ADR 0042](adr/0042-pipoca.md)).
 - Resolved: Pipoca owns its control plane and UI ([ADR 0001](adr/0001-own-the-control-plane-and-ui.md)) and uses TypeScript for every component ([ADR 0002](adr/0002-typescript-for-all-components.md)). The web UI is React and Tailwind on the design system's tokens, with as few dependencies as possible ([ADR 0020](adr/0020-web-stack.md)).
+- Resolved: before anyone runs Pipoca with data worth keeping, the code is rebuilt in slices with no backwards compatibility, a fresh database without migrations, one owner model, one route table and a declarative plugin SDK, held to an acceptance list of every feature ([ADR 0068](adr/0068-clean-rebuild.md)).
 - Resolved: Bun runtime, Bun workspaces monorepo ([ADR 0003](adr/0003-bun-runtime-and-workspaces.md)).
 - Resolved: the session host runs Pi, a third-party extension and a PTY terminal on Bun, also from a compiled binary ([ADR 0010](adr/0010-session-host-on-bun.md)).
 - Resolved: apps for entry points, domain-named packages, and a separate folder for Pi extensions ([ADR 0008](adr/0008-monorepo-layout.md)).
@@ -84,7 +85,7 @@
 - Resolved: every Session, Environment and plugin record has an `ownerId`, and every command records its `actor` (`user:<id>`, `session:<id>` or `plugin:<name>`) ([ADR 0015](adr/0015-plugins.md#actors-and-owners)).
 - Resolved: schedules, events and webhooks start work through a `routines` plugin that uses the same start request as people and Projects, and Sessions can schedule their own wake-ups ([ADR 0059](adr/0059-routines-and-wake-ups.md)). Where should scripts that decide whether to wake the model run, and does a graph editor in the style of n8n grow out of routines?
 - Which domain events should exist from the beginning?
-- How should personal Cells later federate into a Team Hub without merging their local trust boundaries?
+- How should personal servers later federate into a Team Hub without merging their local trust boundaries?
 
 ## Deferred to v2
 
@@ -93,7 +94,7 @@ These depend on the Kubernetes provider or the public extension SDK, which [visi
 ### Runtime and isolation
 
 - When Sessions can move between machines, do they follow Claude Code cloud sessions (resume on fresh compute from the server transcript and a fresh clone), and how does a provider that loses its lease stop its own Sessions? pi-durable resumes mid-turn from its own storage, and OpenHands fences writes with a generation lease ([research](research.md#pi-durable)).
-- What is the default Environment isolation mode for a personal Cell?
+- What is the default Environment isolation mode for a personal install?
 - Resolved: Pipoca is for one person or a team of about 10 to 15; one machine hosts several Environments through a `local` machine source in solo installs, and a team server's runner pods share one namespace behind a NetworkPolicy, with a most-pods limit per person ([ADR 0053](adr/0053-ways-to-run-pipoca.md)).
 - Can the `kubernetes` plugin drive a cluster from outside it, such as a local k3s, with a kubeconfig ([ADR 0053](adr/0053-ways-to-run-pipoca.md#a-local-machine-source))?
 - Resolved for v2: a runner's capacity decides how many Sessions share it, and capacity one on Kubernetes is a pod per Session [ADR 0032](adr/0032-environments-and-runners.md). Can a shared Runtime safely host several full Pi Sessions? In v1 each Session is its own process on a shared machine ([ADR 0017](adr/0017-process-per-session.md)). OpenHands runs a container per conversation behind a proxy in the host server ([research](research.md#openhands)).
@@ -120,10 +121,10 @@ These depend on the Kubernetes provider or the public extension SDK, which [visi
 - Resolved: a Session may propose a plugin but only the user enables it, and third-party plugins install turned off ([ADR 0022](adr/0022-plugin-model-v2.md#installing-third-party-plugins)).
 - Resolved for v2: plugins are installed and turned on for the whole installation, and changing them restarts the server; each user's Pi personalization stays in their Profile ([ADR 0022](adr/0022-plugin-model-v2.md#plugins-are-per-installation)).
 - Resolved for v2: third-party web parts run in the page like first-party ones, with no sandboxed iframe ([ADR 0022](adr/0022-plugin-model-v2.md#trust)).
-- Resolved for v2: Pipoca is changed from chat in meta-sessions, which run on a built-in read-only Profile, get toolsets that plugins contribute, ask before destructive calls in words ([ADR 0050](adr/0050-assistant-permission-prompts.md)) and can drive the UI; the same toolsets are served over MCP, and a meta-session can write in-place plugins ([ADR 0035](adr/0035-meta-sessions.md)). The assistant is one Project per person: its coordinator does one-shot actions, and threads build Profiles and plugins in their workspace with all of Pi's tools, install them and check them, with Pipoca's and Pi's docs as files in every Session ([ADR 0052](adr/0052-the-assistant-as-a-project.md)). How a meta-session's powers vary per user is left for v3; each person's Team assistant has tools that follow their role ([ADR 0067](adr/0067-team-plugins-projects-and-assistant.md#each-person-has-a-team-assistant)).
+- Resolved for v2: Pipoca is changed from chat with the assistant, one Project per person in the `projects` plugin ([ADR 0052](adr/0052-the-assistant-as-a-project.md)). Its tools are the server's routes, served over MCP too; they ask before destructive calls in words ([ADR 0050](adr/0050-assistant-permission-prompts.md)), can drive the UI and install in-place plugins ([ADR 0035](adr/0035-meta-sessions.md)). Its coordinator does one-shot actions, and threads build Profiles and plugins in their workspace with all of Pi's tools, install them and check them, with Pipoca's and Pi's docs as files in every Session. How the assistant's powers vary per user is left for v3; each person's Team assistant has tools that follow their role ([ADR 0067](adr/0067-team-plugins-projects-and-assistant.md#each-person-has-a-team-assistant)).
 - Is an integrated browser still wanted, and if so as a preview iframe the agent drives through an injected script, or in a desktop app? The CDP screencast was rejected ([ADR 0022](adr/0022-plugin-model-v2.md#no-browser-plugin-yet)). A Tauri desktop app is decided ([ADR 0055](adr/0055-desktop-app.md)); in it the browser can be a native webview driven by injected scripts, and driving it through the DevTools Protocol would need Electron or a Chromium runtime for Tauri ([ADR 0055](adr/0055-desktop-app.md#the-integrated-browser)).
 - Which native features does the desktop app offer plugins beyond notifications, a folder picker, revealing a path, tray items and deep links, and should the app join its machine as a runner to a team server ([ADR 0055](adr/0055-desktop-app.md#what-the-app-gives-plugins))?
-- Which extension types run inside the control plane, Provider Agent, browser, or Pi Session?
+- Which extension types run inside the server, a runner, the browser, or a Pi Session?
 - Resolved: plugins declare settings with defaults in their manifest, values are stored per installation and edited on a Plugins page, and a plugin that fails to start is turned off and reported instead of stopping the server ([ADR 0036](adr/0036-plugin-settings.md)).
 - Resolved for v2: every plugin declares `capabilities` in its manifest, built-in or installed, and the server holds both to them; only built-ins get `auth`. The exact capability names are open. `requires` isn't read yet and arrives with the first plugin that needs it ([ADR 0022](adr/0022-plugin-model-v2.md#a-small-manifest), amended 2026-10-29).
 - Which first-party features must prove the public extension surface?

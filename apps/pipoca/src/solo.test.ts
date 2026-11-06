@@ -2,23 +2,19 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Auth, InvalidCredentials } from "./auth";
-import { serve } from "./serve";
-import { openStore } from "./store";
+import { testServer, type TestServer } from "./testdata/harness";
 
 let root: string;
 let socket: string;
 let logs: string[];
-let server: ReturnType<typeof serve>;
+let server: TestServer;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "pipoca-solo-"));
   socket = join(root, "run", "pipoca.sock");
   logs = [];
 
-  server = serve({
-    port: 0,
-    database: ":memory:",
+  server = testServer({
     solo: { name: "pedro", socket },
     log: (message) => {
       logs.push(message);
@@ -27,7 +23,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await server.stop();
+  await server.close();
   await rm(root, { recursive: true, force: true });
 });
 
@@ -47,9 +43,10 @@ test("signs a solo install's one user in through a one-time link from its socket
   const visit = await fetch(link, { redirect: "manual" });
   const cookie = visit.headers.get("set-cookie")?.split(";")[0] ?? "";
 
-  const status = (await (
-    await fetch(new URL("/api/auth", server.url), { headers: { cookie } })
-  ).json()) as { user: { name: string; admin: boolean }; solo: boolean };
+  const status = (await (await server.as(cookie)("/api/auth")).json()) as {
+    user: { name: string; admin: boolean };
+    solo: boolean;
+  };
 
   const again = await fetch(link, { redirect: "manual" });
 
@@ -78,21 +75,9 @@ test("makes a solo install's socket and its folder reachable only by the server'
 
 test("refuses a made-up sign-in link", async () => {
   const visit = await fetch(
-    new URL("/api/auth/link/not-a-real-token", server.url),
+    new URL("/api/auth/links/not-a-real-token", server.url),
     { redirect: "manual" },
   );
 
   expect(visit.status).toBe(403);
-});
-
-// Single sign-on plugins add people through the same call, so a solo install
-// can't gain a second person that way.
-test("adds no second user to a solo install", () => {
-  const store = openStore(":memory:");
-  const auth = new Auth(store.auth, true, () => Date.now(), "pedro");
-
-  expect(() => auth.createUser("ana", false)).toThrow(InvalidCredentials);
-  expect(auth.users().map(({ name }) => name)).toEqual(["pedro"]);
-
-  store.close();
 });

@@ -1,6 +1,7 @@
-import { json, useLoaded, type WebContext } from "@pipoca/plugins/web";
+import { logins } from "../plugin";
+import { useLoaded, useApi } from "@pipoca/plugins/web";
 import type { Environment, Profile, ProfileContent } from "@pipoca/protocol";
-import { Badge, initialsOf, PageTitle, Row, Rows, Section } from "@pipoca/ui";
+import { Badge, initialsOf, Page, Row, Rows, Section } from "@pipoca/ui";
 import type { ReactElement } from "react";
 
 interface TeamKey {
@@ -16,25 +17,21 @@ interface Reaching {
 
 // The team's credentials and where each one goes: keys the proxy holds for
 // team work, and secrets that still reach its runners (ADR 0066).
-export function TeamCredentials({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement {
+export function TeamCredentials(): ReactElement {
+  const api = useApi(logins);
+
   const { value: keys = [] } = useLoaded(
-    async () => json<readonly TeamKey[]>(context.request("team-keys")),
-    "team-keys",
-    { topics: ["logins.logins"] },
+    async () => api.get<readonly TeamKey[]>("keys"),
+    "keys",
+    { changes: ["logins"] },
   );
 
   const { value: loaded } = useLoaded(
     async () => {
       const [profiles, base, environments] = await Promise.all([
-        json<readonly Profile[]>(context.request("/api/profiles?owner=team")),
-        json<ProfileContent>(context.request("/api/base")),
-        json<readonly Environment[]>(
-          context.request("/api/environments?owner=team"),
-        ),
+        api.get<readonly Profile[]>("/api/profiles?scope=team"),
+        api.get<ProfileContent>("/api/settings/base-profile"),
+        api.get<readonly Environment[]>("/api/environments?scope=team"),
       ]);
 
       return {
@@ -75,10 +72,10 @@ export function TeamCredentials({
   );
 
   return (
-    <>
-      <PageTitle description="Team work never uses anyone's own logins. Model calls go through the server, which swaps in the team's key, so runners never hold it. What can't go through it yet reaches the runner of every team Session.">
-        Credentials
-      </PageTitle>
+    <Page
+      title="Credentials"
+      description="Team work never uses anyone's own logins. Model calls go through the server, which swaps in the team's key, so runners never hold it. What can't go through it yet reaches the runner of every team Session."
+    >
       <Section
         title="Through the server"
         description="API keys on the Server base, set on Accounts"
@@ -153,7 +150,7 @@ export function TeamCredentials({
         </a>
         .
       </p>
-    </>
+    </Page>
   );
 }
 

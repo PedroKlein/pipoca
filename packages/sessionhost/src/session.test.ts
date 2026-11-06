@@ -31,6 +31,7 @@ import {
   stopSession,
 } from "./session";
 import type { McpLoginState, McpLoginStore } from "@pipoca/plugins";
+import { until } from "@pipoca/testing/until";
 import { fetchingProviderExtension } from "./testdata/fetching-provider";
 import { fauxModels } from "./testdata/models";
 import { sessionOptions } from "./testdata/options";
@@ -136,6 +137,39 @@ test("fails when an extension does not load", async () => {
   expect(String(error)).toContain(broken);
 });
 
+test("tells the extensions that loaded that a session that fails to start shut down", async () => {
+  const { models } = await fauxModels(root);
+  const broken = join(root, "broken.ts");
+  await writeFile(broken, "throw new Error('boom');\n");
+  const stopped: string[] = [];
+
+  // Such as the models plugin's, which follows the server from the moment
+  // it loads until the session shuts down.
+  const following: SessionHost = {
+    ui: {} as SessionHost["ui"],
+    tools: [],
+    extensions: [
+      {
+        name: "following",
+        factory: (pi) => {
+          pi.on("session_shutdown", (event) => {
+            stopped.push(event.reason);
+          });
+        },
+      },
+    ],
+    onError: () => undefined,
+  };
+
+  const error: unknown = await startSession(
+    sessionOptions(root, { extensionPaths: [broken], models }),
+    following,
+  ).catch((e: unknown) => e);
+
+  expect(String(error)).toContain(broken);
+  expect(stopped).toEqual(["quit"]);
+});
+
 test("continues the session already in the session directory", async () => {
   const { faux, models } = await fauxModels(root);
 
@@ -176,7 +210,6 @@ test("keeps tool_search on for deferred tools after a resume and /tree", async (
     ui: {} as SessionHost["ui"],
     tools,
     extensions: [],
-    packages: [],
     onError: () => undefined,
   });
 
@@ -384,7 +417,6 @@ test("starts on a model that the host's logins log in to", async () => {
       ui: {} as SessionHost["ui"],
       tools: [],
       extensions: [],
-      packages: [],
       onError: () => undefined,
       logins: { models: credentials, mcp: noMcpLogins },
     },
@@ -443,15 +475,12 @@ test("connects to an MCP server with the sign-in the host's logins keep", async 
       ui: {} as SessionHost["ui"],
       tools: [],
       extensions: [],
-      packages: [],
       onError: () => undefined,
       logins: { models: memoryLogins([]), mcp: logins },
     },
   );
 
-  for (let tries = 0; tries < 100 && seen.length === 0; tries++) {
-    await Bun.sleep(20);
-  }
+  await until(() => seen.length > 0);
 
   await stopSession(session);
   await mcp.stop(true);
@@ -584,7 +613,6 @@ test("fetches an extension provider's models with the host's login, and the runn
       ui: {} as SessionHost["ui"],
       tools: [],
       extensions: [],
-      packages: [],
       onError: () => undefined,
       logins: {
         models: memoryLogins([
@@ -625,7 +653,6 @@ test("starts a new session on a model its provider lists only from the network",
         ui: {} as SessionHost["ui"],
         tools: [],
         extensions: [],
-        packages: [],
         onError: () => undefined,
         logins: {
           models: memoryLogins([
@@ -643,18 +670,6 @@ test("starts a new session on a model its provider lists only from the network",
     process.env["PI_OFFLINE"] = "1";
   }
 }, 20_000);
-
-async function until(condition: () => boolean): Promise<void> {
-  const deadline = Date.now() + 5000;
-
-  while (!condition()) {
-    if (Date.now() > deadline) {
-      throw new Error("timed out");
-    }
-
-    await Bun.sleep(20);
-  }
-}
 
 test("records an interrupted result for a tool call cut off by a crash", async () => {
   const crashing = spawn(

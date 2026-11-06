@@ -1,27 +1,28 @@
 import { randomBytes } from "node:crypto";
 import {
   BadRequest,
+  type Collection,
   NotFound,
-  readBody,
-  type ServerPluginContext,
+  owners,
+  type ServerContext,
   Type,
 } from "@pipoca/plugins";
+import type { gitHosts, TechnicalUserItem } from "../plugin";
 import { HostRefused, loginOf } from "./github";
-import type { HostStore } from "./hosts";
+import type { Hosts } from "./hosts";
 import type { TechnicalUserView } from "./model";
-import { escaped, hash, originOf, page, redirect, secure } from "./pages";
+import { escaped, html, page, redirect } from "./pages";
 import {
   appManifest,
+  botLogin,
   convertManifest,
   installationsOf,
+  isApp,
   type TechnicalUser,
-  type TechnicalUsers,
-  teamOwner,
 } from "./technical-users";
 
 // An admin has this long to create the App on the host.
 const attemptMs = 60 * 60_000;
-const browserCookie = "pipoca-git-hosts-app";
 
 interface Pending {
   readonly host: string;
@@ -31,10 +32,18 @@ interface Pending {
   readonly expires: number;
 }
 
+const namePattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
 const machineUser = Type.Object({
   name: Type.String(),
   host: Type.String(),
   token: Type.String(),
+});
+
+const newApp = Type.Object({
+  host: Type.String(),
+  name: Type.String(),
+  organization: Type.Optional(Type.String()),
 });
 
 const teamChoice = Type.Object({ team: Type.Boolean() });
@@ -42,54 +51,62 @@ const teamChoice = Type.Object({ team: Type.Boolean() });
 // Admins register technical users: GitHub Apps through GitHub's manifest
 // flow, and machine users by their token (ADR 0060).
 export function technicalUserRoutes(
-  context: ServerPluginContext,
-  hosts: HostStore,
-  users: TechnicalUsers,
+  { routes, urls, clock, log }: ServerContext<typeof gitHosts>,
+  hosts: Hosts,
+  users: Collection<TechnicalUserItem>,
   added: () => void,
-): {
-  readonly manage: (
-    request: Request,
-    path: readonly string[],
-    userId: string,
-  ) => Promise<Response>;
-  readonly created: (request: Request) => Promise<Response>;
-} {
+): void {
   const pending = new Map<string, Pending>();
 
+  const add = (user: TechnicalUserItem): void => {
+    if (!namePattern.test(user.name)) {
+      throw new BadRequest(
+        "a technical user's name is lower-case letters, digits and dashes",
+      );
+    }
+
+    if (users.get(user.name) !== undefined) {
+      throw new BadRequest(`there is a technical user ${user.name} already`);
+    }
+
+    users.put(user);
+  };
+
   const viewOf = async (user: TechnicalUser): Promise<TechnicalUserView> => {
-    if (!("app" in user)) {
+    const base = {
+      name: user.name,
+      host: user.host,
+      login: botLogin(user),
+      team: user.users.includes("team"),
+    };
+
+    if (!isApp(user)) {
       return {
-        name: user.name,
-        host: user.host,
+        ...base,
         kind: "token",
-        login: user.login,
-        team: user.users.includes(teamOwner),
         installUrl: null,
         installedOn: null,
         error: null,
       };
     }
 
-    const base = {
-      name: user.name,
-      host: user.host,
+    const app = {
+      ...base,
       kind: "app" as const,
-      login: `${user.app.slug}[bot]`,
-      team: user.users.includes(teamOwner),
       installUrl: `${user.app.url}/installations/new`,
     };
 
     const host = hosts.get(user.host);
 
     if (host === undefined) {
-      return { ...base, installedOn: [], error: `${user.host} isn't listed` };
+      return { ...app, installedOn: [], error: `${user.host} isn't listed` };
     }
 
     try {
-      const installations = await installationsOf(host, user.app);
+      const installations = await installationsOf(host, user.app, clock.now());
 
       return {
-        ...base,
+        ...app,
         installedOn: installations.map(({ account }) => account),
         error: null,
       };
@@ -98,159 +115,155 @@ export function technicalUserRoutes(
         throw failure;
       }
 
-      return { ...base, installedOn: [], error: failure.message };
+      return { ...app, installedOn: [], error: failure.message };
     }
   };
+
+  routes.get("technical-users", { auth: "admin" }, async () =>
+    Promise.all(users.list().map(viewOf)),
+  );
 
   // Sends the browser to the host with the App's manifest in a form, as the
   // manifest flow asks.
-  const newApp = (request: Request, userId: string): Response => {
-    const params = new URL(request.url).searchParams;
-    const host = hosts.get(params.get("host") ?? "");
-    const name = params.get("name")?.trim() ?? "";
-    const organization = params.get("organization")?.trim() ?? "";
+  routes.get(
+    "technical-users/new-app",
+    { auth: "admin", query: newApp },
+    ({ caller, query }) => {
+      const host = hosts.get(query.host);
+      const name = query.name.trim();
+      const organization = query.organization?.trim() ?? "";
 
-    if (host === undefined) {
-      return page("That host isn't listed.", 404);
-    }
-
-    if (name === "") {
-      return page("Give the App a name.", 400);
-    }
-
-    if (organization !== "" && !/^[A-Za-z0-9-]+$/.test(organization)) {
-      return page("That isn't an organization's name.", 400);
-    }
-
-    const now = Date.now();
-    for (const [state, each] of pending) {
-      if (each.expires < now) {
-        pending.delete(state);
-      }
-    }
-
-    const state = randomBytes(32).toString("base64url");
-    const browser = randomBytes(32).toString("base64url");
-    const hook = randomBytes(16).toString("hex");
-
-    pending.set(state, {
-      host: host.host,
-      userId,
-      hook,
-      browser: hash(browser),
-      expires: now + attemptMs,
-    });
-
-    // The host sends events only to an address it can reach, which a server
-    // on a laptop's http doesn't have.
-    const manifest = appManifest(
-      name,
-      originOf(request),
-      secure(request) ? hook : undefined,
-    );
-
-    const target = `https://${host.host}${organization === "" ? "" : `/organizations/${organization}`}/settings/apps/new?state=${state}`;
-
-    return new Response(
-      `<!doctype html><meta charset="utf-8"><title>Pipoca</title><form method="post" action="${escaped(target)}"><input type="hidden" name="manifest" value="${escaped(JSON.stringify(manifest))}"><p>Taking you to ${escaped(host.host)} to create the App…</p><button type="submit">Continue</button></form><script>document.forms[0].submit()</script>`,
-      {
-        headers: {
-          "content-type": "text/html; charset=utf-8",
-          "cache-control": "no-store",
-          // Lax, since the host's redirect back is a cross-site navigation.
-          "set-cookie": new Bun.Cookie(browserCookie, browser, {
-            path: "/api/plugins/git-hosts/",
-            httpOnly: true,
-            sameSite: "lax",
-            secure: secure(request),
-            maxAge: attemptMs / 1000,
-          }).serialize(),
-        },
-      },
-    );
-  };
-
-  const created = async (request: Request): Promise<Response> => {
-    const params = new URL(request.url).searchParams;
-    const state = params.get("state") ?? "";
-    const attempt = pending.get(state);
-    const host = attempt && hosts.get(attempt.host);
-
-    const browser = new Bun.CookieMap(request.headers.get("cookie") ?? "").get(
-      browserCookie,
-    );
-
-    // The code must come back to the admin's browser that left with the
-    // state, so a link can't plant someone else's App.
-    if (
-      attempt === undefined ||
-      host === undefined ||
-      attempt.expires < Date.now() ||
-      browser === null ||
-      hash(browser) !== attempt.browser
-    ) {
-      return page("This App's creation has expired. Start it again.", 400);
-    }
-
-    pending.delete(state);
-
-    try {
-      const app = await convertManifest(host, params.get("code") ?? "");
-
-      users.add({
-        name: app.slug,
-        host: host.host,
-        users: [attempt.userId],
-        app: { ...app, hook: attempt.hook },
-      });
-
-      added();
-
-      context.log("technical user added", {
-        name: app.slug,
-        host: host.host,
-        kind: "app",
-      });
-    } catch (failure) {
-      if (!(failure instanceof HostRefused || failure instanceof BadRequest)) {
-        throw failure;
+      if (host === undefined) {
+        return page("That host isn't listed.", 404);
       }
 
-      context.log("app creation failed", {
+      if (name === "") {
+        return page("Give the App a name.", 400);
+      }
+
+      if (organization !== "" && !/^[A-Za-z0-9-]+$/.test(organization)) {
+        return page("That isn't an organization's name.", 400);
+      }
+
+      const now = clock.now();
+
+      for (const [state, each] of pending) {
+        if (each.expires < now) {
+          pending.delete(state);
+        }
+      }
+
+      const state = randomBytes(32).toString("base64url");
+      const hook = randomBytes(16).toString("hex");
+
+      // The host sends events only to an address it can reach, which a
+      // server on a laptop's http doesn't have.
+      const reachable = new URL(urls.public("")).protocol === "https:";
+      const manifest = appManifest(name, urls, reachable ? hook : undefined);
+
+      const target = `https://${host.host}${organization === "" ? "" : `/organizations/${organization}`}/settings/apps/new?state=${state}`;
+
+      const response = html(
+        `<title>Pipoca</title><form method="post" action="${escaped(target)}"><input type="hidden" name="manifest" value="${escaped(JSON.stringify(manifest))}"><p>Taking you to ${escaped(host.host)} to create the App…</p><button type="submit">Continue</button></form><script>document.forms[0].submit()</script>`,
+        200,
+      );
+
+      pending.set(state, {
         host: host.host,
-        error: failure.message,
+        userId: caller.person.id,
+        hook,
+        browser: urls.browser.mark(response, attemptMs),
+        expires: now + attemptMs,
       });
 
-      return page(failure.message, 502);
-    }
+      return response;
+    },
+  );
 
-    return redirect("/#settings/git-hosts");
-  };
+  routes.get(
+    "app-created",
+    {
+      auth: "public",
+      query: Type.Object({
+        state: Type.Optional(Type.String()),
+        code: Type.Optional(Type.String()),
+      }),
+    },
+    async ({ query, raw }) => {
+      const state = query.state ?? "";
+      const attempt = pending.get(state);
+      const host = attempt && hosts.get(attempt.host);
 
-  const manage = async (
-    request: Request,
-    path: readonly string[],
-    userId: string,
-  ): Promise<Response> => {
-    const [, name] = path;
+      // The code must come back to the admin's browser that left with the
+      // state, so a link can't plant someone else's App.
+      if (
+        attempt === undefined ||
+        host === undefined ||
+        attempt.expires < clock.now() ||
+        !urls.browser.is(raw, attempt.browser)
+      ) {
+        return page("This App's creation has expired. Start it again.", 400);
+      }
 
-    if (name === undefined && request.method === "GET") {
-      return Response.json(await Promise.all(users.list().map(viewOf)));
-    }
+      pending.delete(state);
 
-    if (name === "new-app" && request.method === "GET") {
-      return newApp(request, userId);
-    }
+      try {
+        const app = await convertManifest(host, query.code ?? "");
 
-    if (name === undefined && request.method === "POST") {
-      const input = await readBody(request, machineUser);
-      const host = hosts.get(input.host);
+        add({
+          name: app.slug,
+          host: host.host,
+          users: [owners.of(attempt.userId)],
+          app: {
+            id: app.id,
+            slug: app.slug,
+            url: app.url,
+            privateKey: app.privateKey,
+            ...(app.webhookSecret !== undefined && {
+              webhookSecret: app.webhookSecret,
+            }),
+            hook: attempt.hook,
+          },
+        });
+
+        added();
+
+        log("technical user added", {
+          name: app.slug,
+          host: host.host,
+          kind: "app",
+        });
+      } catch (failure) {
+        if (!(
+          failure instanceof HostRefused || failure instanceof BadRequest
+        )) {
+          throw failure;
+        }
+
+        log("app creation failed", {
+          host: host.host,
+          error: failure.message,
+        });
+
+        return page(failure.message, 502);
+      }
+
+      return redirect("/#settings/git-hosts");
+    },
+  );
+
+  routes.post(
+    "technical-users",
+    { auth: "admin", body: machineUser, status: 201 },
+    async ({ caller, body }) => {
+      const host = hosts.get(body.host);
 
       if (host === undefined) {
         throw new BadRequest("that host isn't listed");
       }
 
-      const token = input.token.trim();
+      const name = body.name.trim();
+      const token = body.token.trim();
 
       const login = await loginOf(host, token).catch((failure: unknown) => {
         throw failure instanceof HostRefused
@@ -258,52 +271,66 @@ export function technicalUserRoutes(
           : failure;
       });
 
-      users.add({
-        name: input.name.trim(),
+      add({
+        name,
         host: host.host,
-        users: [userId],
+        users: [caller.owner],
         login,
         token,
       });
 
-      context.log("technical user added", {
-        name: input.name.trim(),
-        host: host.host,
-        kind: "token",
-      });
+      log("technical user added", { name, host: host.host, kind: "token" });
 
-      return Response.json({ name: input.name.trim(), login }, { status: 201 });
-    }
+      return { name, login };
+    },
+  );
 
-    if (name !== undefined && request.method === "PATCH") {
-      const { team } = await readBody(request, teamChoice);
+  // Makes it the one team work signs in as on its host, or stops that.
+  routes.patch(
+    "technical-users/:name",
+    { auth: "admin", body: teamChoice },
+    ({ params, body: { team } }) => {
+      const chosen = users.get(params.name);
 
-      if (!users.setTeam(name, team)) {
-        throw new NotFound(`no technical user ${name}`);
+      if (chosen === undefined) {
+        throw new NotFound(`no technical user ${params.name}`);
       }
 
-      context.log(
+      for (const user of users.list()) {
+        if (user.host !== chosen.host) {
+          continue;
+        }
+
+        const others = user.users.filter((each) => each !== "team");
+
+        const next =
+          team && user.name === chosen.name
+            ? [...others, "team" as const]
+            : others;
+
+        if (next.length !== user.users.length) {
+          users.put({ ...user, users: next });
+        }
+      }
+
+      log(
         team
           ? "team work signs in as technical user"
           : "team work stops signing in as technical user",
-        { name },
+        { name: chosen.name },
       );
 
-      return Response.json({ name, team });
+      return { name: chosen.name, team };
+    },
+  );
+
+  routes.delete("technical-users/:name", { auth: "admin" }, ({ params }) => {
+    if (!users.remove(params.name)) {
+      throw new NotFound(`no technical user ${params.name}`);
     }
 
-    if (name !== undefined && request.method === "DELETE") {
-      if (!users.remove(name)) {
-        throw new NotFound(`no technical user ${name}`);
-      }
+    log("technical user removed", { name: params.name });
 
-      context.log("technical user removed", { name });
-
-      return Response.json({ removed: name });
-    }
-
-    throw new NotFound(`no route ${path.join("/")}`);
-  };
-
-  return { manage, created };
+    return { removed: params.name };
+  });
 }

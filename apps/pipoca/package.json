@@ -6,46 +6,33 @@
   "bin": {
     "pipoca": "./src/main.ts"
   },
+  "exports": {
+    "./plugin-test": "./src/testdata/plugin-test.ts"
+  },
   "scripts": {
+    "apirule": "bun src/apirule.ts",
     "build": "bun src/build.ts",
     "dev": "bun src/dev.ts",
     "smoke": "bun src/smoke.ts"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "1.3.0",
-    "@pipoca/ask": "workspace:*",
-    "@pipoca/changes": "workspace:*",
-    "@pipoca/checklist": "workspace:*",
-    "@pipoca/git-hosts": "workspace:*",
-    "@pipoca/kubernetes": "workspace:*",
-    "@pipoca/local": "workspace:*",
-    "@pipoca/library": "workspace:*",
-    "@pipoca/logins": "workspace:*",
-    "@pipoca/meta": "workspace:*",
-    "@pipoca/models": "workspace:*",
-    "@pipoca/oidc": "workspace:*",
+    "@pipoca/environments": "workspace:*",
+    "@pipoca/people": "workspace:*",
     "@pipoca/pluginhost": "workspace:*",
     "@pipoca/plugins": "workspace:*",
     "@pipoca/profiles": "workspace:*",
-    "@pipoca/projects": "workspace:*",
     "@pipoca/protocol": "workspace:*",
-    "@pipoca/providers": "workspace:*",
-    "@pipoca/push": "workspace:*",
-    "@pipoca/email": "workspace:*",
-    "@pipoca/routines": "workspace:*",
-    "@pipoca/slack": "workspace:*",
+    "@pipoca/repositories": "workspace:*",
+    "@pipoca/runner": "workspace:*",
     "@pipoca/sessionhost": "workspace:*",
     "@pipoca/sessions": "workspace:*",
-    "@pipoca/subagents": "workspace:*",
-    "@pipoca/usage": "workspace:*",
     "@pipoca/web": "workspace:*",
-    "@pipoca/workspaces": "workspace:*",
     "typebox": "1.3.27"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "1.3.0",
-    "@types/smtp-server": "3.5.13",
-    "playwright-core": "1.64.0",
-    "smtp-server": "3.20.2"
+    "@pipoca/testing": "workspace:*",
+    "playwright-core": "1.64.0"
   }
 }

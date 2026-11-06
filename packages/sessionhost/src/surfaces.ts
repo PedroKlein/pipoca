@@ -14,7 +14,7 @@ import {
   TuiMainScreen,
 } from "@earendil-works/pi-tui";
 import type { LiveEvent } from "@pipoca/protocol";
-import type { Log } from "./host";
+import type { Log } from "@pipoca/protocol";
 
 export type Surfaces = Pick<
   ExtensionUIContext,
@@ -33,7 +33,7 @@ type Surface =
 
 type Placement = NonNullable<ExtensionWidgetOptions["placement"]>;
 
-export interface SurfaceContext {
+interface SurfaceContext {
   readonly cwd: () => string | undefined;
   readonly providers: () => number;
   readonly log: Log;

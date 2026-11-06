@@ -29,20 +29,17 @@ spec:
     - path: /api/auth
       methods: [GET]
       noAuth: true
-    - path: /api/auth/login
-      methods: [POST]
-      noAuth: true
-    - path: /api/auth/logout
-      methods: [POST]
+    - path: /api/auth/session
+      methods: [POST, DELETE]
       noAuth: true
     # The desktop app's sign-in (ADR 0055).
-    - path: /api/auth/app
+    - path: /api/auth/app-links
       methods: [POST]
       noAuth: true
-    - path: /api/auth/link/{*}
+    - path: /api/auth/links/{*}
       methods: [GET]
       noAuth: true
-    - path: /api/auth/join/{*}
+    - path: /api/auth/invites/{*}
       methods: [GET, POST]
       noAuth: true
     - path: /api/changes
@@ -57,13 +54,17 @@ spec:
       methods: {{ toJson $methods }}
       noAuth: true
       timeout: 3900
-    {{- range list "environments" "templates" "people" "profiles" "base" "defaults" "plugins" "plugin-files" "plugin-builds" "plugin-parts" "pinned-pages" "mcp-tokens" "join-key" "restart" "setup" "invites" "config" "hub" "teammates" "newcomers" "team" }}
+    # The route table's other paths and plugins' under ext, which
+    # `bun run apirule` in apps/pipoca writes. Team Sessions' model calls
+    # stream through the logins proxy under ext.
+    {{- range list "environment-templates" "environments" "ext" "invites" "join-keys" "me" "people" "plugins" "profiles" "repositories" "server" "settings" }}
     - path: /api/{{ . }}
       methods: {{ toJson $methods }}
       noAuth: true
     - path: /api/{{ . }}/{**}
       methods: {{ toJson $methods }}
       noAuth: true
+      timeout: 3900
     {{- end }}
     {{- if .Values.apiRule.exposeMcp }}
     - path: /api/mcp
@@ -72,7 +73,7 @@ spec:
       timeout: 3900
     {{- end }}
     {{- if .Values.apiRule.exposeAgents }}
-    - path: /agent/{**}
+    - path: /runner/{**}
       methods: {{ toJson $methods }}
       noAuth: true
       timeout: 3900
@@ -82,7 +83,8 @@ spec:
 ---
 # The APIRule's policies let in only the gateway, which would also shut out
 # the runner pods that reach the server through its Service. Team Sessions
-# also send their model calls to the logins plugin's proxy (ADR 0066).
+# also send their model calls to the logins plugin's proxy (ADR 0066), at
+# its public route proxy/:provider/*rest.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -100,5 +102,5 @@ spec:
             namespaces: [{{ .Release.Namespace }}]
       to:
         - operation:
-            paths: ["/agent/*", "/api/plugins/logins/proxy/*"]
+            paths: ["/runner/*", "/api/ext/logins/proxy/*"]
 {{- end }}

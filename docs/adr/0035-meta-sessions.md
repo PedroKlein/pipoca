@@ -1,6 +1,6 @@
 # 0035: Meta-sessions
 
-- Status: accepted
+- Status: accepted; the `meta` plugin and meta-sessions superseded by [ADR 0052](0052-the-assistant-as-a-project.md) and [ADR 0068](0068-clean-rebuild.md#what-goes): the assistant is one Project per person in the Projects plugin. Toolsets, permission prompts, UI actions, in-place plugins and MCP stand
 - Date: 2026-10-25
 
 ## Context

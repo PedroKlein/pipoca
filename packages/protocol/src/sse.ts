@@ -1,0 +1,160 @@
+const heartbeatMs = 15_000;
+
+// A client this far behind is not keeping up. Ending its stream bounds
+// server memory; it still reads what was queued, and reconnects with
+// Last-Event-ID without losing events.
+const maxQueuedBytes = 1024 * 1024;
+
+// False when the event wasn't queued for the client, since its stream ended.
+type SseSend = (data: unknown, id?: string) => boolean;
+
+export function sseResponse(
+  open: (send: SseSend, end: () => void) => () => void,
+): Response {
+  const encoder = new TextEncoder();
+  let close = (): void => undefined;
+  let closed = false;
+  let replayed = false;
+
+  const body = new ReadableStream<Uint8Array>(
+    {
+      start(controller) {
+        const write = (text: string): boolean => {
+          if (closed) {
+            return false;
+          }
+
+          if (replayed && (controller.desiredSize ?? 0) < 0) {
+            close();
+            controller.close();
+
+            return false;
+          }
+
+          controller.enqueue(encoder.encode(text));
+
+          return true;
+        };
+
+        write(": open\n\n");
+
+        const heartbeat = setInterval(() => {
+          write(": ping\n\n");
+        }, heartbeatMs);
+
+        let stop = (): void => undefined;
+
+        close = () => {
+          if (!closed) {
+            closed = true;
+            clearInterval(heartbeat);
+            stop();
+          }
+        };
+
+        stop = open(
+          (data, id) => {
+            const field = id === undefined ? "" : `id: ${id}\n`;
+
+            return write(`${field}data: ${JSON.stringify(data)}\n\n`);
+          },
+          () => {
+            if (!closed) {
+              close();
+              controller.close();
+            }
+          },
+        );
+
+        replayed = true;
+      },
+      cancel() {
+        close();
+      },
+    },
+    { highWaterMark: maxQueuedBytes, size: (chunk) => chunk?.byteLength ?? 0 },
+  );
+
+  return new Response(body, {
+    headers: {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+    },
+  });
+}
+
+export async function* readSse(
+  response: Response,
+  idleMs = heartbeatMs * 3,
+): AsyncGenerator {
+  for await (const { data } of readSseEvents(response, idleMs)) {
+    yield data;
+  }
+}
+
+export async function* readSseEvents(
+  response: Response,
+  idleMs = heartbeatMs * 3,
+): AsyncGenerator<{ readonly id?: string; readonly data: unknown }> {
+  if (!response.body) {
+    return;
+  }
+
+  // A command can carry megabytes of base64 images. Searching only the new
+  // chunk, and joining the parts once an event ends, keeps reading it linear.
+  let pending: string[] = [];
+  let lastChar = "";
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+
+  const idle = (): void => {
+    void reader.cancel(new Error("event stream went quiet"));
+  };
+
+  let watchdog = setTimeout(idle, idleMs);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        return;
+      }
+
+      clearTimeout(watchdog);
+      watchdog = setTimeout(idle, idleMs);
+
+      const scanned = lastChar + value;
+      lastChar = scanned.slice(-1);
+      pending.push(value);
+      if (!scanned.includes("\n\n")) {
+        continue;
+      }
+
+      let buffer = pending.join("");
+      let end = buffer.indexOf("\n\n");
+      while (end !== -1) {
+        const lines = buffer.slice(0, end).split("\n");
+
+        const data = lines
+          .filter((line) => line.startsWith("data: "))
+          .map((line) => line.slice("data: ".length))
+          .join("\n");
+
+        const id = lines
+          .findLast((line) => line.startsWith("id: "))
+          ?.slice("id: ".length);
+
+        buffer = buffer.slice(end + 2);
+        if (data !== "") {
+          yield { ...(id !== undefined && { id }), data: JSON.parse(data) };
+        }
+
+        end = buffer.indexOf("\n\n");
+      }
+
+      pending = [buffer];
+    }
+  } finally {
+    clearTimeout(watchdog);
+    // A reader that stops early lets the connection go.
+    reader.cancel().catch(() => undefined);
+  }
+}

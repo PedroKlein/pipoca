@@ -1,112 +1,146 @@
 import { expect, test } from "bun:test";
-import { type PluginEvent, type PluginRoute, eventBus } from "@pipoca/plugins";
+import { server as logins } from "@pipoca/logins/server";
+import type { Session } from "@pipoca/protocol";
 import {
-  fakeContext,
-  fakeSession,
-  fakeUser,
-  served,
-} from "@pipoca/plugins/testing";
-import { usage } from "./server";
+  type PluginTest,
+  type TestPluginOptions,
+  type TestSession,
+  testPlugin,
+  until,
+} from "@pipoca/testing";
+import type { usage } from "../plugin";
+import { server } from "./server";
 
-function registered(
-  prices: unknown = {},
-  budgets: unknown = {},
-): {
-  readonly route: PluginRoute;
-  readonly called: (fields: Record<string, unknown>) => void;
-  readonly warnings: readonly PluginEvent[];
-  readonly events: ReturnType<typeof eventBus>;
-  readonly config: () => unknown;
-} {
-  const events = eventBus((_type, error) => {
-    throw error;
+const people = [
+  { id: "admin", name: "Admin", admin: true },
+  { id: "ana", name: "Ana" },
+  { id: "bo", name: "Bo" },
+];
+
+// Anthropic, answering each call with the tokens its body asks for.
+async function anthropic(request: Request): Promise<Response> {
+  const { input, output } = (await request.json()) as {
+    input: number;
+    output: number;
+  };
+
+  const events = [
+    { type: "message_start", message: { usage: { input_tokens: input } } },
+    { type: "message_delta", usage: { output_tokens: output } },
+  ];
+
+  return new Response(
+    events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+    { headers: { "content-type": "text/event-stream" } },
+  );
+}
+
+async function started(
+  config: TestPluginOptions<typeof usage>["config"] = {},
+): Promise<PluginTest> {
+  const t = await testPlugin(server, {
+    people,
+    config,
+    plugins: [logins],
+    fetch: anthropic,
   });
 
-  const warnings: PluginEvent[] = [];
-
-  events.subscribe("usage.budget_warned", (event) => {
-    warnings.push(event);
-  });
-
-  let route: PluginRoute | undefined;
-  let config: unknown = { prices, budgets };
-
-  usage.register(
-    fakeContext({
-      events: { ...events, declared: () => [] },
-      // Team work limited to named people that leaves Ana out.
-      sessions: {
-        ...fakeContext().sessions,
-        sees: (id, person) => !(id === "limited" && person === "ana"),
-      },
-      config: {
-        get: () => config,
-        set: (value) => {
-          config = value;
-        },
-        lockedIn: () => undefined,
-        dir: "",
-      },
-      routes: {
-        handle: (handler) => {
-          route = served(handler);
-        },
-      },
+  const saved = await t.as("admin").raw("/api/ext/logins/save", {
+    method: "POST",
+    body: JSON.stringify({
+      provider: "anthropic",
+      credential: { type: "api_key", key: "sk-team" },
+      layer: "base",
     }),
+  });
+
+  expect(saved.status).toBe(200);
+
+  return t;
+}
+
+interface Team {
+  readonly session: TestSession;
+  readonly token: string;
+}
+
+// A team Session started by the person, with its token for the proxy.
+async function team(t: PluginTest, startedBy: string): Promise<Team> {
+  const session = await t.session({ owner: "team", startedBy });
+
+  // Pi's providers load in the background when logins registers.
+  const { token } = await until(
+    async () =>
+      (await (
+        await session.api.raw(`/runner/sessions/${session.id}/ext/logins/proxy`)
+      ).json()) as {
+        providers: readonly unknown[];
+        token?: string;
+      },
+    ({ providers }) => providers.length > 0,
   );
 
-  if (route === undefined) {
-    throw new Error("usage registered no route");
-  }
-
-  return {
-    route,
-    warnings,
-    events,
-    config: () => config,
-    called: (fields) => {
-      events.publish({
-        type: "logins.model_called",
-        owner: "team",
-        provider: "anthropic",
-        model: "claude-sonnet-4-5",
-        ...fields,
-      });
-    },
-  };
+  return { session, token: token ?? "" };
 }
 
-async function get(
-  route: PluginRoute,
-  path: string,
-  caller = fakeUser({ id: "ana" }),
-): Promise<unknown> {
-  return (
-    await route(new Request(`http://usage/${path}`), path, caller)
-  ).json();
+let spent = 0;
+
+// One model call of the team's work through the logins proxy.
+async function call(
+  t: PluginTest,
+  { token }: Team,
+  tokens: { readonly model?: string; input: number; output: number },
+): Promise<void> {
+  const answered = await t
+    .as("admin")
+    .raw("/api/ext/logins/proxy/anthropic/v1/messages", {
+      method: "POST",
+      body: JSON.stringify({
+        model: tokens.model ?? "claude-sonnet-4-5",
+        stream: true,
+        ...tokens,
+      }),
+      headers: { "x-api-key": token },
+    });
+
+  expect(answered.status).toBe(200);
+  await answered.text();
+
+  spent += 1;
+  const wanted = spent;
+
+  await until(
+    () => t.emitted("logins.model_called").length,
+    (heard) => heard >= wanted,
+  );
+
+  await until(
+    () =>
+      t.store.get<{ count: number }>(
+        "select count(*) as count from usage_calls",
+      )?.count ?? 0,
+    (count) => count >= t.emitted("logins.model_called").length,
+  );
 }
+
+const sonnet = (input: number, output: number) => ({
+  "anthropic/claude-sonnet-4-5": { input, output },
+});
 
 test("prices each team model call from the admins' table, and leaves an unpriced model's cost out", async () => {
-  const { route, called } = registered({
-    "anthropic/claude-sonnet-4-5": { input: 3, output: 15 },
-  });
+  spent = 0;
+  await using t = await started({ prices: sonnet(3, 15) });
+  const work = await team(t, "ana");
 
-  called({ sessionId: "s1", person: "ana", input: 1_000_000, output: 100_000 });
+  await call(t, work, { input: 1_000_000, output: 100_000 });
+  await call(t, work, { model: "other", input: 10, output: 5 });
 
-  called({
-    sessionId: "s1",
-    person: "ana",
-    model: "other",
-    input: 10,
-    output: 5,
-  });
-
-  expect(await get(route, "calls")).toMatchObject([
+  expect(await t.as("admin").get("calls")).toMatchObject([
     { model: "other", input: 10, output: 5, cost: null },
     {
       owner: "team",
       person: "ana",
-      sessionId: "s1",
+      sessionId: work.session.id,
       provider: "anthropic",
       model: "claude-sonnet-4-5",
       cost: 4.5,
@@ -115,96 +149,104 @@ test("prices each team model call from the admins' table, and leaves an unpriced
 });
 
 test("a person sees their own calls and the team's totals; an admin sees every call", async () => {
-  const { route, called } = registered({
-    "anthropic/claude-sonnet-4-5": { input: 1, output: 1 },
+  spent = 0;
+
+  await using t = await started({
+    prices: sonnet(1, 1),
   });
 
-  called({ sessionId: "s1", person: "ana", input: 500_000, output: 0 });
-  called({ sessionId: "s2", person: "bo", input: 1_500_000, output: 0 });
+  await call(t, await team(t, "ana"), { input: 500_000, output: 0 });
+  await call(t, await team(t, "bo"), { input: 1_500_000, output: 0 });
 
-  const anas = (await get(route, "calls")) as { person: string }[];
+  const askers = async (id: string) =>
+    (await t.as(id).get<readonly { person: string }[]>("calls")).map(
+      ({ person }) => person,
+    );
 
-  const all = (await get(
-    route,
-    "calls",
-    fakeUser({ id: "x", admin: true }),
-  )) as {
-    person: string;
-  }[];
+  expect(await askers("ana")).toEqual(["ana"]);
+  expect(await askers("admin")).toEqual(["bo", "ana"]);
 
-  expect(anas.map(({ person }) => person)).toEqual(["ana"]);
-  expect(all.map(({ person }) => person)).toEqual(["bo", "ana"]);
-
-  expect(await get(route, "totals")).toMatchObject({
+  expect(await t.as("ana").get("totals")).toMatchObject({
     team: { input: 2_000_000, output: 0, cost: 2 },
     mine: { input: 500_000, output: 0, cost: 0.5 },
   });
 });
 
 test("warns once as the team's month reaches 80% and then 100% of its budget, and as a person reaches their cap", async () => {
-  const { route, called, warnings } = registered(
-    { "anthropic/claude-sonnet-4-5": { input: 1, output: 0 } },
-    { team: 10, person: 5 },
-  );
+  spent = 0;
 
-  const spend = (person: string, dollars: number) => {
-    called({ sessionId: "s1", person, input: dollars * 1_000_000, output: 0 });
+  await using t = await started({
+    prices: sonnet(1, 0),
+    budgets: { team: 10, person: 5 },
+  });
+
+  const works = { ana: await team(t, "ana"), bo: await team(t, "bo") };
+
+  const spend = async (who: "ana" | "bo", dollars: number) => {
+    await call(t, works[who], { input: dollars * 1_000_000, output: 0 });
   };
 
-  spend("ana", 3);
-  spend("bo", 4);
-  spend("ana", 1);
-  spend("bo", 1);
-  spend("ana", 2);
+  await spend("ana", 3);
+  await spend("bo", 4);
+  await spend("ana", 1);
+  await spend("bo", 1);
+  await spend("ana", 2);
 
-  expect(
-    warnings.map(({ person, share, spent, limit }) => ({
-      person,
-      share,
-      spent,
-      limit,
-    })),
-  ).toEqual([
-    { person: "bo", share: 80, spent: 4, limit: 5 },
-    { person: null, share: 80, spent: 8, limit: 10 },
-    { person: "ana", share: 80, spent: 4, limit: 5 },
-    { person: "bo", share: 100, spent: 5, limit: 5 },
-    { person: null, share: 100, spent: 11, limit: 10 },
-    { person: "ana", share: 100, spent: 6, limit: 5 },
+  expect(t.emitted("usage.budget_warned")).toEqual([
+    {
+      fields: { person: "bo", share: 80, spent: 4, limit: 5 },
+      to: ["person:bo", "team"],
+    },
+    { fields: { person: null, share: 80, spent: 8, limit: 10 }, to: ["team"] },
+    {
+      fields: { person: "ana", share: 80, spent: 4, limit: 5 },
+      to: ["person:ana", "team"],
+    },
+    {
+      fields: { person: "bo", share: 100, spent: 5, limit: 5 },
+      to: ["person:bo", "team"],
+    },
+    {
+      fields: { person: null, share: 100, spent: 11, limit: 10 },
+      to: ["team"],
+    },
+    {
+      fields: { person: "ana", share: 100, spent: 6, limit: 5 },
+      to: ["person:ana", "team"],
+    },
   ]);
 
-  expect(await get(route, "totals")).toMatchObject({
+  expect(await t.as("ana").get("totals")).toMatchObject({
     budgets: { team: 10, person: 5 },
   });
 });
 
+async function sessionOf(t: PluginTest, id: string): Promise<Session> {
+  return (await (
+    await t.as("admin").raw(`/api/sessions/${id}`, { method: "GET" })
+  ).json()) as Session;
+}
+
 test("logs who started, stopped and archived team work, and each use of the team's key; a person sees their own, an admin exports all", async () => {
-  const { route, called, events } = registered();
-  const team = fakeSession({ id: "t1", ownedBy: "team", title: 'Fix, "now"' });
+  spent = 0;
+  await using t = await started();
+  const work = await team(t, "ana");
+  const { id } = work.session;
 
-  events.publish({ type: "SessionCreated", session: team, actor: "user:ana" });
+  await call(t, work, { input: 1, output: 1 });
 
-  events.publish({
-    type: "SessionCreated",
-    session: fakeSession({ id: "own" }),
-    actor: "user:ana",
-  });
+  const session = { ...(await sessionOf(t, id)), title: 'Fix, "now"' };
 
-  called({ sessionId: "t1", person: "ana", input: 1, output: 1 });
-  events.publish({ type: "StopAsked", session: team, actor: "user:bo" });
-  events.publish({ type: "SessionArchived", session: team, actor: "user:ana" });
+  t.emit({ type: "StopAsked", session, actor: "user:bo" });
+  t.emit({ type: "SessionArchived", session, actor: "user:ana" });
 
-  const anas = (await get(route, "audit")) as { action: string }[];
+  const anas = await t.as("ana").get<readonly { action: string }[]>("audit");
 
   expect(anas.map(({ action }) => action)).toEqual(["archived", "started"]);
 
-  const admin = fakeUser({ id: "boss", admin: true });
-
-  const exported = await route(
-    new Request("http://usage/audit?format=csv"),
-    "audit",
-    admin,
-  );
+  const exported = await t
+    .as("admin")
+    .raw("audit?format=csv", { method: "GET" });
 
   expect(exported.headers.get("content-type")).toStartWith("text/csv");
 
@@ -214,96 +256,101 @@ test("logs who started, stopped and archived team work, and each use of the team
       .map((line) => line.replace(/^"[^"]*",/, "")),
   ).toEqual([
     '"actor","sessionId","action","detail"',
-    '"user:ana","t1","archived","Fix, ""now"""',
-    '"user:bo","t1","stopped","Fix, ""now"""',
-    '"","t1","used the team\'s key","anthropic/claude-sonnet-4-5"',
-    '"user:ana","t1","started","Fix, ""now"""',
+    `"user:ana","${id}","archived","Fix, ""now"""`,
+    `"user:bo","${id}","stopped","Fix, ""now"""`,
+    `"","${id}","used the team's key","anthropic/claude-sonnet-4-5"`,
+    `"user:ana","${id}","started",""`,
   ]);
 });
 
 test("only an admin sets the team's monthly budget and each person's cap, and an empty one means none", async () => {
-  const { route, config } = registered({
-    "anthropic/x": { input: 1, output: 1 },
-  });
+  await using t = await started({ prices: sonnet(3, 15) });
 
-  const put = async (body: unknown, admin: boolean) =>
-    route(
-      new Request("http://usage/budgets", {
-        method: "PUT",
-        body: JSON.stringify(body),
-      }),
-      "budgets",
-      fakeUser({ id: "ana", admin }),
-    );
+  const put = async (id: string, body: unknown) =>
+    t.as(id).raw("budgets", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
 
-  expect((await put({ team: 50, person: 10 }, false)).status).toBe(403);
+  expect((await put("ana", { team: 50, person: 10 })).status).toBe(403);
+  expect((await put("admin", { team: 50, person: 10 })).status).toBe(204);
 
-  expect((await put({ team: 50, person: 10 }, true)).status).toBe(204);
-
-  expect(await get(route, "totals")).toMatchObject({
+  expect(await t.as("ana").get("totals")).toMatchObject({
     budgets: { team: 50, person: 10 },
   });
 
-  await put({ team: 80, person: null }, true);
+  await put("admin", { team: 80, person: null });
 
-  expect(config()).toMatchObject({ prices: { "anthropic/x": {} } });
+  expect(await t.config()).toMatchObject({
+    prices: sonnet(3, 15),
+    budgets: { team: 80, person: 0 },
+  });
 
-  expect(await get(route, "totals")).toMatchObject({
+  expect(await t.as("ana").get("totals")).toMatchObject({
     budgets: { team: 80, person: null },
   });
 
-  expect((await put({ team: -1, person: null }, true)).status).toBe(400);
+  expect((await put("admin", { team: -1, person: null })).status).toBe(422);
 });
 
 test("shows everyone what people did lately to the team work they can see", async () => {
-  const { route, called, events } = registered();
-  const team = fakeSession({ id: "t1", ownedBy: "team", title: "Release" });
+  spent = 0;
+  await using t = await started();
+  const release = await team(t, "ana");
 
-  const moved = fakeSession({
-    id: "t2",
-    ownedBy: "team",
-    title: "Handbook",
-    access: { kind: "view" },
+  await call(t, release, { input: 1, output: 1 });
+
+  const handbook = await t.session({ owner: "team", startedBy: "bo" });
+  const limited = await t.session({ owner: "team", startedBy: "bo" });
+
+  t.emit({
+    type: "StopAsked",
+    session: await sessionOf(t, release.session.id),
+    actor: "user:bo",
   });
 
-  const limited = fakeSession({
-    id: "limited",
-    ownedBy: "team",
-    title: "Budget",
-  });
-
-  events.publish({ type: "SessionCreated", session: team, actor: "user:ana" });
-  called({ sessionId: "t1", person: "ana", input: 1, output: 1 });
-  events.publish({ type: "StopAsked", session: team, actor: "user:bo" });
-  events.publish({ type: "SessionCreated", session: moved, actor: "user:bo" });
-
-  events.publish({
+  t.emit({
     type: "SessionMoved",
-    session: moved,
-    from: "own",
+    session: await sessionOf(t, handbook.id),
+    from: "person:bo",
     actor: "user:bo",
   });
 
-  events.publish({ type: "AccessChanged", session: moved, actor: "user:bo" });
+  const access = async (id: string, to: unknown) => {
+    const changed = await t.as("bo").raw(`/api/sessions/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ access: to }),
+    });
 
-  events.publish({
-    type: "SessionCreated",
-    session: limited,
-    actor: "user:bo",
-  });
+    expect(changed.status).toBe(200);
+  };
 
-  const seen = (await get(route, "activity")) as {
-    actor: string;
-    action: string;
-    detail: string;
-  }[];
+  await access(handbook.id, { kind: "view" });
+  // Named people that leave Ana out.
+  await access(limited.id, { kind: "named", people: ["bo"] });
+
+  const seen = await t
+    .as("ana")
+    .get<readonly { name: string; action: string; sessionId: string }[]>(
+      "activity",
+    );
+
+  const names: Readonly<Record<string, string>> = {
+    [release.session.id]: "release",
+    [handbook.id]: "handbook",
+    [limited.id]: "limited",
+  };
 
   expect(
-    seen.map(({ actor, action, detail }) => `${actor} ${action} ${detail}`),
+    seen.map(
+      ({ name, action, sessionId }) =>
+        `${name} ${action} ${names[sessionId] ?? sessionId}`,
+    ),
   ).toEqual([
-    "user:bo made view only Handbook",
-    "user:bo moved to the team Handbook",
-    "user:bo stopped Release",
-    "user:ana started Release",
+    "Bo made view only handbook",
+    "Bo moved to the team handbook",
+    "Bo stopped release",
+    "Ana started release",
   ]);
 });

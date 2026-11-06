@@ -13,7 +13,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Command, LiveEvent } from "@pipoca/protocol";
-import { subagents } from "@pipoca/subagents/session";
+import { session as subagentsPart } from "@pipoca/subagents/session";
 import { hostSession, type SessionStream } from "./index";
 
 // What the plugin publishes about its runs, as far as these tests read it.
@@ -194,6 +194,7 @@ async function hosted(
     },
     tools: async () => Promise.resolve([]),
     callTool: async () => Promise.resolve(),
+    toolQuestion: async () => Promise.resolve(undefined),
     answerTrust: async () => Promise.resolve(),
     pluginRequest: async () => Promise.resolve(Response.json({})),
   };
@@ -207,7 +208,7 @@ async function hosted(
       sessionDir: join(root, "sessions"),
       extensionPaths: [],
       models: { runtime, model: faux.getModel() },
-      plugins: [subagents],
+      parts: [subagentsPart],
     },
     stream,
     () => undefined,
@@ -412,6 +413,26 @@ Only report lint problems.
 
   expect(session.children[0]?.tools).toEqual(["read", "grep"]);
   expect(session.children[0]?.system).toContain("Only report lint problems.");
+});
+
+test("isn't offered in a Session whose Profile can't change files, such as the assistant's coordinator", async () => {
+  await mkdir(join(root, "agent"), { recursive: true });
+
+  await writeFile(
+    join(root, "agent", "settings.json"),
+    JSON.stringify({ defaultTools: ["-bash", "-edit", "-write", "+grep"] }),
+  );
+
+  const session = await hosted([
+    call({ agent: "worker", task: "rm -rf ~", wait: true }),
+  ]);
+
+  session.send("tidy up");
+  await session.waitFor(() => session.children.length > 0);
+  await session.stop();
+
+  expect(session.offered).toEqual([]);
+  expect(session.children.flatMap(({ tools }) => tools)).not.toContain("bash");
 });
 
 test("names the agents there are when asked for one that doesn't exist", async () => {

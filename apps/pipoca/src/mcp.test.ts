@@ -1,53 +1,32 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { serve } from "./serve";
-import { firstUser } from "./testdata/sign-in";
+import { testServer, type TestServer } from "./testdata/harness";
 
-let server: ReturnType<typeof serve>;
-let signedIn: () => Promise<string>;
+let server: TestServer;
 
 beforeEach(() => {
-  const logs: string[] = [];
-
-  server = serve({
-    port: 0,
-    database: ":memory:",
-    sessions: { pollWaitMs: 0 },
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
+  server = testServer({
+    runners: { pollWaitMs: 0 },
   });
-
-  signedIn = firstUser(server, logs);
 });
 
 afterEach(async () => {
-  await server.stop();
+  await server.close();
 });
 
-async function browser(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<Response> {
-  return fetch(new URL(path, server.url), {
-    method,
-    headers: {
-      cookie: await signedIn(),
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
-}
-
 async function newToken(name = "Claude Code"): Promise<{
-  token: { id: string; name: string };
+  id: string;
+  name: string;
   secret: string;
 }> {
-  const response = await browser("POST", "/api/mcp-tokens", { name });
+  const response = await server.api("/api/me/access-tokens", {
+    body: { name },
+  });
+
   expect(response.status).toBe(201);
 
   return (await response.json()) as {
-    token: { id: string; name: string };
+    id: string;
+    name: string;
     secret: string;
   };
 }
@@ -149,6 +128,34 @@ test("serves the meta toolsets to an MCP client with a token", async () => {
   ).toBe(true);
 });
 
+test("lists the kernel's route tools by the names the meta toolsets had, and none that only plugins call", async () => {
+  const { secret } = await newToken();
+  const { tools } = await result<ToolsList>(rpc(secret, "tools/list"));
+
+  expect(tools.map(({ name }) => name).sort()).toEqual([
+    "environments_create",
+    "environments_list",
+    "environments_update",
+    "plugins_files",
+    "plugins_list",
+    "plugins_read_file",
+    "profiles_create",
+    "profiles_get",
+    "profiles_list",
+    "profiles_make_default",
+    "profiles_update",
+    "projects_create",
+    "projects_get",
+    "projects_list",
+    "projects_update",
+    "sessions_archive",
+    "sessions_get",
+    "sessions_list",
+    "sessions_open",
+    "sessions_start",
+  ]);
+});
+
 test("runs a tool as the token's user, through the same route", async () => {
   const { secret } = await newToken();
 
@@ -167,7 +174,7 @@ test("runs a tool as the token's user, through the same route", async () => {
   );
 
   const environments = (await (
-    await browser("GET", "/api/environments")
+    await server.api("/api/environments")
   ).json()) as { name: string }[];
 
   expect(created.isError).toBe(false);
@@ -178,19 +185,26 @@ test("runs a tool as the token's user, through the same route", async () => {
 });
 
 test("lets a revoked token, a missing one or another site's page in no more", async () => {
-  const { token, secret } = await newToken();
+  const token = await newToken();
+  const { secret } = token;
 
-  const listed = await (await browser("GET", "/api/mcp-tokens")).json();
+  const listed = await (await server.api("/api/me/access-tokens")).json();
 
   const foreign = await rpc(secret, "ping", undefined, {
     origin: "https://evil.example",
   });
 
-  const revoked = await browser("DELETE", `/api/mcp-tokens/${token.id}`);
+  const revoked = await server.api(`/api/me/access-tokens/${token.id}`, {
+    method: "DELETE",
+  });
+
   const after = await rpc(secret, "ping");
   const missing = await rpc("pcm_unknown", "ping");
   const streamed = await fetch(new URL("/api/mcp", server.url));
-  const again = await browser("DELETE", `/api/mcp-tokens/${token.id}`);
+
+  const again = await server.api(`/api/me/access-tokens/${token.id}`, {
+    method: "DELETE",
+  });
 
   expect(listed).toMatchObject([{ id: token.id, name: "Claude Code" }]);
 

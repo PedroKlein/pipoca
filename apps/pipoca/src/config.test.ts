@@ -2,8 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { serve } from "./serve";
-import { firstUser } from "./testdata/sign-in";
+import { testServer, type TestServer } from "./testdata/harness";
 
 interface ConfigEntry {
   readonly name: string;
@@ -27,24 +26,14 @@ const ias = {
 };
 
 let root: string;
-let server: ReturnType<typeof serve>;
-let pedro: () => Promise<string>;
+let server: TestServer;
 
 function start(lockedConfig?: string): void {
-  const logs: string[] = [];
-
-  server = serve({
-    port: 0,
-    database: ":memory:",
+  server = testServer({
     configDir: join(root, "config"),
     ...(lockedConfig !== undefined && { lockedConfig }),
-    sessions: { pollWaitMs: 0 },
-    log: (message, fields) => {
-      logs.push(`${message} ${JSON.stringify(fields)}`);
-    },
+    runners: { pollWaitMs: 0 },
   });
-
-  pedro = firstUser(server, logs);
 }
 
 beforeEach(async () => {
@@ -52,28 +41,13 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await server.stop();
+  await server.close();
   await rm(root, { recursive: true, force: true });
 });
 
-async function call(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<Response> {
-  return fetch(new URL(path, server.url), {
-    method,
-    headers: {
-      cookie: await pedro(),
-      ...(body !== undefined && { "content-type": "application/json" }),
-    },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  });
-}
-
 async function open(name: string): Promise<ConfigText> {
   return (await (
-    await call("GET", `/api/config/file?name=${encodeURIComponent(name)}`)
+    await server.api(`/api/settings/config/files/${encodeURIComponent(name)}`)
   ).json()) as ConfigText;
 }
 
@@ -82,12 +56,15 @@ async function save(
   text: string,
   version: string | null,
 ): Promise<Response> {
-  return call("PUT", "/api/config/file", { name, text, version });
+  return server.api(`/api/settings/config/files/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    body: { text, version },
+  });
 }
 
 async function labels(): Promise<readonly string[]> {
   const providers = (await (
-    await call("GET", "/api/plugins/oidc/providers")
+    await server.api("/api/ext/oidc/providers")
   ).json()) as { label: string }[];
 
   return providers.map(({ label }) => label);
@@ -136,7 +113,7 @@ test("lists shared Profiles to edit, and leaves people's own folders out", async
   await writeFile(join(config, "profiles", "default", "AGENTS.md"), "Hi\n");
   await writeFile(join(config, "people", "someone", "AGENTS.md"), "Mine\n");
 
-  const listed = (await (await call("GET", "/api/config")).json()) as {
+  const listed = (await (await server.api("/api/settings/config")).json()) as {
     files: ConfigEntry[];
   };
 
@@ -160,8 +137,11 @@ test("lists shared Profiles to edit, and leaves people's own folders out", async
   expect((await save("../escape.json", "{}", null)).status).toBe(400);
 
   expect(
-    (await call("GET", "/api/config/file?name=people%2Fsomeone%2FAGENTS.md"))
-      .status,
+    (
+      await server.api(
+        "/api/settings/config/files/people%2Fsomeone%2FAGENTS.md",
+      )
+    ).status,
   ).toBe(404);
 });
 
@@ -180,12 +160,12 @@ test("a locked file's keys win, show read-only, and can't be changed from Settin
   expect(await labels()).toEqual(["Sign in with IAS"]);
 
   const account = (await (
-    await call("GET", "/api/plugins/oidc/account")
+    await server.api("/api/ext/oidc/account")
   ).json()) as { lockedIn: string | null };
 
   expect(account.lockedIn).toBe(locked);
 
-  const listed = (await (await call("GET", "/api/config")).json()) as {
+  const listed = (await (await server.api("/api/settings/config")).json()) as {
     files: ConfigEntry[];
   };
 
@@ -193,10 +173,12 @@ test("a locked file's keys win, show read-only, and can't be changed from Settin
   expect((await open(locked)).locked).toBe(true);
   expect((await save(locked, "{}", null)).status).toBe(400);
 
-  const added = await call("POST", "/api/plugins/oidc/providers", {
-    label: "Another",
-    issuer: "https://other.example.com",
-    clientId: "x",
+  const added = await server.api("/api/ext/oidc/providers", {
+    body: {
+      label: "Another",
+      issuer: "https://other.example.com",
+      clientId: "x",
+    },
   });
 
   expect(added.ok).toBe(false);
@@ -204,13 +186,56 @@ test("a locked file's keys win, show read-only, and can't be changed from Settin
   expect(await labels()).toEqual(["Sign in with IAS"]);
 });
 
+test("reads the team from pipoca.json, and a team field that doesn't fit takes its default while the name stays", async () => {
+  const file = join(root, "config", "pipoca.json");
+
+  await mkdir(join(root, "config"), { recursive: true });
+
+  await writeFile(
+    file,
+    JSON.stringify({ team: { name: " Acme ", messagesRead: 12 } }),
+  );
+
+  start();
+
+  const team = async (): Promise<unknown> =>
+    (await server.api("/api/settings/team")).json();
+
+  expect(await team()).toEqual({ name: "Acme", messagesRead: 12 });
+
+  await server.api("/api/settings/team", {
+    method: "PUT",
+    body: { name: "Beta" },
+  });
+
+  expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
+    team: { name: "Beta", messagesRead: 12 },
+  });
+
+  await writeFile(
+    file,
+    JSON.stringify({ team: { name: "Beta", messagesRead: 0 } }),
+  );
+
+  expect(await team()).toEqual({ name: "Beta", messagesRead: 40 });
+  expect(await team()).toEqual({ name: "Beta", messagesRead: 40 });
+
+  expect(
+    server.logs.filter((line) => line.startsWith("config field skipped")),
+  ).toEqual([
+    'config field skipped {"field":"messagesRead","error":"messagesRead must be >= 1"}',
+  ]);
+});
+
 test("keeps the files to admins", async () => {
   start();
 
-  expect((await fetch(new URL("/api/config", server.url))).status).toBe(401);
+  expect(
+    (await fetch(new URL("/api/settings/config", server.url))).status,
+  ).toBe(401);
 
   expect(
-    (await fetch(new URL("/api/config/file?name=pipoca.json", server.url)))
+    (await fetch(new URL("/api/settings/config/files/pipoca.json", server.url)))
       .status,
   ).toBe(401);
 });

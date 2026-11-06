@@ -12,7 +12,7 @@ export interface MissionChange {
   readonly close?: string;
 }
 
-export interface Missions {
+interface Missions {
   readonly create: (title: string, objective: string) => MissionView;
   readonly update: (
     id: string,
@@ -35,10 +35,10 @@ export interface Missions {
 // it in the transcript and publish it.
 export function missions({
   recorded,
-  now = Date.now,
+  now,
 }: {
   readonly recorded: (mission: MissionView) => void;
-  readonly now?: () => number;
+  readonly now: () => number;
 }): Missions {
   const all = new Map<string, MissionView>();
 

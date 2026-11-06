@@ -1,6 +1,8 @@
 import { readFile, realpath, rm } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import * as sdk from "@pipoca/plugins";
+import type { PluginDefinition } from "@pipoca/plugins";
+import type { ServerPart } from "@pipoca/plugins/host";
 
 export interface PluginParts {
   readonly server?: string;
@@ -17,6 +19,7 @@ const sharedWebModules = [
   "react-dom",
   "react-dom/client",
   "@pipoca/ui",
+  "@pipoca/plugins",
   "@pipoca/plugins/web",
 ];
 
@@ -30,30 +33,73 @@ export function provideSdk(): void {
   Object.assign(globalThis, { [Symbol.for(sdkKey)]: sdk });
 }
 
-// Installs an installed plugin's dependencies and bundles its parts into
-// .build in its folder, so their bare imports resolve from the plugin's own
-// node_modules (ADR 0022). Returns the bundles' paths, and throws with what
-// went wrong.
-export async function bundleParts(
+// Installs a plugin's dependencies and bundles its server part, or its
+// definition when it has none, and its web and Session parts, each on its
+// own, into .build in its folder, so their bare imports resolve from the
+// plugin's own node_modules (ADR 0022). Throws with what went wrong.
+export async function bundlePlugin(
   folder: string,
-  entries: PluginParts,
-): Promise<PluginParts> {
+  entry: string,
+  { server, web, session }: PluginParts,
+): Promise<{
+  readonly definition: string;
+  readonly web?: string;
+  readonly session?: string;
+}> {
   await installDependencies(folder);
 
   const outdir = join(folder, ".build");
   await rm(outdir, { recursive: true, force: true });
 
   return {
-    ...(entries.server !== undefined && {
-      server: await bundle(entries.server, outdir, "server"),
+    definition: await bundle(server ?? entry, outdir, "server", [
+      sdkFromServer,
+    ]),
+    ...(web !== undefined && {
+      web: await bundle(web, outdir, "web", [sharedWithShell]),
     }),
-    ...(entries.web !== undefined && {
-      web: await bundle(entries.web, outdir, "web"),
-    }),
-    ...(entries.session !== undefined && {
-      session: await bundle(entries.session, outdir, "session"),
+    ...(session !== undefined && {
+      session: await bundle(session, outdir, "session", [sdkFromServer]),
     }),
   };
+}
+
+// The definition a bundle exports with the plugin's id, as its server part's
+// or as itself.
+export async function importedDefinition(
+  path: string,
+  id: string,
+): Promise<{
+  readonly definition: PluginDefinition;
+  readonly server?: ServerPart;
+}> {
+  provideSdk();
+
+  const module = (await import(path)) as Readonly<Record<string, unknown>>;
+  const server = module["server"] as ServerPart | undefined;
+
+  if (server !== undefined) {
+    if (server.plugin.id !== id) {
+      throw new Error(`its server part must be one for ${id}`);
+    }
+
+    return { definition: server.plugin, server };
+  }
+
+  const found = Object.values(module).filter(
+    (value): value is PluginDefinition =>
+      typeof value === "object" &&
+      value !== null &&
+      (value as { readonly id?: unknown }).id === id,
+  );
+
+  const [definition] = found;
+
+  if (definition === undefined || found.length > 1) {
+    throw new Error(`its entry must export one definePlugin with the id ${id}`);
+  }
+
+  return { definition };
 }
 
 // A macro runs while the bundle is built, so building a plugin that isn't
@@ -66,6 +112,7 @@ async function bundle(
   entry: string,
   outdir: string,
   part: "server" | "web" | "session",
+  plugins: Bun.BunPlugin[],
 ): Promise<string> {
   const result = await Bun.build({
     entrypoints: [entry],
@@ -73,10 +120,9 @@ async function bundle(
     target: part === "web" ? "browser" : "bun",
     naming: `${part}-[hash].[ext]`,
     throw: false,
+    plugins,
     ...noMacros,
-    ...(part === "web"
-      ? { plugins: [sharedWithShell], jsx: { development: false } }
-      : { plugins: [sdkFromServer] }),
+    ...(part === "web" && { jsx: { development: false } }),
   });
 
   const [output, ...others] = result.outputs;
@@ -89,7 +135,7 @@ async function bundle(
 
   // Only the bundle itself is served to the page or the runner, so a
   // stylesheet or file it imports would be missing there.
-  if (part !== "server" && others.length > 0) {
+  if ((part === "web" || part === "session") && others.length > 0) {
     throw new Error(
       part === "web"
         ? `${basename(entry)} imports CSS or other files, which a web part can't have yet; style it with @pipoca/ui`

@@ -17,7 +17,7 @@ import type { Readable } from "node:stream";
 import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
 import type { Environment, Session, SessionEvent } from "@pipoca/protocol";
-import { readSse } from "./sse";
+import { readSse } from "@pipoca/protocol";
 import { runnerCredentials } from "./testdata/runners";
 import { firstUserCookie, setupTokenOf } from "./testdata/sign-in";
 
@@ -88,37 +88,45 @@ test("shuts down cleanly on SIGTERM when another library also handles it", async
   expect(log).toContain("server stopped");
 });
 
-test("keeps using the data folder from before the product was renamed", async () => {
-  const home = await mkdtemp(join(tmpdir(), "pipoca-home-"));
-  await mkdir(join(home, ".pi-cloud"));
-
+test("logs a promise nothing awaited that rejects, and keeps serving", async () => {
   const server = spawn(
     process.execPath,
-    [join(import.meta.dirname, "main.ts"), "server", "--port", "0"],
-    {
-      stdio: ["ignore", "ignore", "pipe"],
-      env: { ...process.env, HOME: home },
-    },
+    [
+      "--preload",
+      join(import.meta.dirname, "testdata", "stray-rejection.ts"),
+      join(import.meta.dirname, "main.ts"),
+      "server",
+      "--port",
+      "0",
+      "--database",
+      ":memory:",
+    ],
+    { stdio: ["ignore", "ignore", "pipe"] },
   );
 
-  try {
-    await signedIn(server);
+  const exited = once(server, "exit");
+  let log = "";
+  server.stderr.setEncoding("utf8");
 
-    const exists = async (path: string): Promise<boolean> =>
-      stat(path).then(
-        () => true,
-        () => false,
-      );
+  await new Promise<void>((resolve) => {
+    server.stderr.on("data", (chunk: string) => {
+      log += chunk;
+      if (log.includes("server listening")) {
+        resolve();
+      }
+    });
+  });
 
-    expect([
-      await exists(join(home, ".pi-cloud", "server.db")),
-      await exists(join(home, ".pipoca")),
-    ]).toEqual([true, false]);
-  } finally {
-    server.kill("SIGTERM");
-    await once(server, "exit");
-    await rm(home, { recursive: true, force: true });
-  }
+  await sleep(500);
+
+  const running = server.exitCode === null;
+  server.kill("SIGTERM");
+
+  const [code] = (await exited) as [number | null];
+
+  expect(running).toBe(true);
+  expect(code).toBe(0);
+  expect(log).toContain('"message":"unhandled rejection"');
 });
 
 test("restarts a supervised server in place and stops it through the server on SIGTERM", async () => {
@@ -151,7 +159,7 @@ test("restarts a supervised server in place and stops it through the server on S
   try {
     const { url, cookie } = await signedIn(supervisor);
 
-    const restart = await fetch(new URL("/api/restart", url), {
+    const restart = await fetch(new URL("/api/server/restart", url), {
       method: "POST",
       headers: { cookie, "content-type": "application/json" },
       body: "{}",
@@ -309,7 +317,7 @@ test("joins an agent started with only a join key under its host's name, sharing
   try {
     const { url, cookie } = await signedIn(server);
 
-    const made = await fetch(new URL("/api/join-key", url), {
+    const made = await fetch(new URL("/api/join-keys", url), {
       method: "POST",
       headers: { cookie },
     });

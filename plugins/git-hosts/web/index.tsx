@@ -1,31 +1,37 @@
 import {
-  json,
+  defineWeb,
+  type MountedSession,
   type NoticeProps,
-  type PullRequestProps,
+  useApi,
   useLoaded,
-  type WebContext,
-  type WebPlugin,
 } from "@pipoca/plugins/web";
 import {
   Badge,
   Button,
+  buttonClass,
+  cardClass,
+  Checkbox,
+  cn,
+  ErrorText,
   Field,
-  fieldClass,
   Icon,
   initialsOf,
-  PageTitle,
+  Page,
   Picker,
   Row,
   Rows,
   Section,
+  Select,
+  Step,
+  Stepper,
+  type StepState,
   Switch,
+  TextInput,
+  useConfirm,
 } from "@pipoca/ui";
-import {
-  type ReactElement,
-  type ReactNode,
-  type SubmitEvent,
-  useState,
-} from "react";
+import type { RepositoryChoice } from "@pipoca/protocol";
+import { type ReactElement, type SubmitEvent, useState } from "react";
+import { gitHosts } from "../plugin";
 import type {
   Account,
   HostInput,
@@ -35,45 +41,58 @@ import type {
   TechnicalUserView,
 } from "../src/model";
 
-export const gitHosts: WebPlugin = {
-  name: "git-hosts",
-  SettingsSection,
-  settingsGroup: "server",
-  settingsParts: { General: CodeChoices, Accounts },
-  setupStep: {
-    title: "Your code",
-    summary: "GitHub or another git host",
-    heading: "Connect your code",
-    description:
-      "Sessions clone, push and open pull requests as you. Connect the hosts where your repositories live.",
-    optional: true,
-    done: async (context) => {
-      const account = await json<Account>(context.request("account"));
+// The pull request a Session opened, as the changes plugin's panel shows it
+// (ADR 0051). Declared here as changes declares it, since a plugin imports
+// no other plugin.
+declare module "@pipoca/plugins/web" {
+  interface Slots {
+    "pullRequest.status": {
+      readonly session: MountedSession;
+      readonly url: string;
+    };
+  }
+}
 
-      return account.hosts.length === 0 || account.connections.length > 0;
+export const web = defineWeb(gitHosts, {
+  settings: { group: "server", Section: SettingsSection },
+  setup: [
+    {
+      title: "Your code",
+      summary: "GitHub or another git host",
+      heading: "Connect your code",
+      description:
+        "Sessions clone, push and open pull requests as you. Connect the hosts where your repositories live.",
+      optional: true,
+      done: async (api) => {
+        const account = await api.get<Account>("account");
+
+        return account.hosts.length === 0 || account.connections.length > 0;
+      },
+      changes: ["account"],
+      Step: CodeStep,
     },
-    Step: CodeStep,
+  ],
+  slots: {
+    "settings.general": CodeChoices,
+    "settings.accounts": Accounts,
+    "pullRequest.status": PullRequest,
+    "notice:pull_request": PullRequestNotice,
   },
-  PullRequest,
-  notices: { pull_request: PullRequestNotice },
-  repositories: async (context, query, team) =>
-    json(
-      context.request(
-        `repositories?q=${encodeURIComponent(query)}${team ? "&team" : ""}`,
-      ),
-    ),
-};
+  repositories: async (query, team, api) =>
+    api.get<readonly RepositoryChoice[]>(`${team ? "team/" : ""}repositories`, {
+      q: query,
+    }),
+});
 
 // Admins pick the hosts people can connect and the bots routines act as
 // (ADR 0063).
-function SettingsSection({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement | null {
+function SettingsSection(): ReactElement | null {
+  const api = useApi(gitHosts);
+
   const { value, reload } = useLoaded(
-    async () => json<Account>(context.request("account")),
+    async () => api.get<Account>("account"),
     "account",
+    { changes: ["account", "hosts"] },
   );
 
   const [adding, setAdding] = useState(false);
@@ -83,43 +102,35 @@ function SettingsSection({
   }
 
   return (
-    <>
-      <PageTitle
-        description="Only admins see this page. It lists the hosts people can connect and the bots routines act as. Everyone else connects their own account in Accounts."
-        actions={
-          !adding && (
-            <Button
-              onClick={() => {
-                setAdding(true);
-              }}
-            >
-              <Icon name="plus" />
-              Add a host
-            </Button>
-          )
-        }
-      >
-        Git hosts
-      </PageTitle>
-      <Hosts
-        context={context}
-        adding={adding}
-        onAdding={setAdding}
-        onChange={reload}
-      />
-      <Bots context={context} hosts={value.hosts.map(({ host }) => host)} />
-    </>
+    <Page
+      title="Git hosts"
+      description="Only admins see this page. It lists the hosts people can connect and the bots routines act as. Everyone else connects their own account in Accounts."
+      actions={
+        !adding && (
+          <Button
+            onClick={() => {
+              setAdding(true);
+            }}
+          >
+            <Icon name="plus" />
+            Add a host
+          </Button>
+        )
+      }
+    >
+      <Hosts adding={adding} onAdding={setAdding} onChange={reload} />
+      <Bots hosts={value.hosts.map(({ host }) => host)} />
+    </Page>
   );
 }
 
-function Accounts({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement | null {
+function Accounts(): ReactElement | null {
+  const api = useApi(gitHosts);
+
   const { value, reload } = useLoaded(
-    async () => json<Account>(context.request("account")),
+    async () => api.get<Account>("account"),
     "account",
+    { changes: ["account", "hosts"] },
   );
 
   if (value === undefined) {
@@ -138,7 +149,6 @@ function Accounts({
         {value.hosts.map((host) => (
           <HostRow
             key={host.host}
-            context={context}
             host={host}
             login={
               value.connections.find((each) => each.host === host.host)?.login
@@ -151,24 +161,20 @@ function Accounts({
   );
 }
 
-function CodeStep({ context }: { readonly context: WebContext }): ReactElement {
+function CodeStep(): ReactElement {
   return (
     <div className="-mt-8 flex flex-col">
-      <Accounts context={context} />
-      <CodeChoices context={context} />
+      <Accounts />
+      <CodeChoices />
     </div>
   );
 }
 
-function CodeChoices({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement {
+function CodeChoices(): ReactElement {
   return (
     <>
-      <CommitAs context={context} />
-      <PullRequestChoices context={context} />
+      <CommitAs />
+      <PullRequestChoices />
     </>
   );
 }
@@ -179,13 +185,11 @@ interface Identity {
 }
 
 // The name and email the person's Sessions commit as, on every runner.
-function CommitAs({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement | null {
+function CommitAs(): ReactElement | null {
+  const api = useApi(gitHosts);
+
   const { value, reload } = useLoaded(
-    async () => json<Identity | null>(context.request("commit-as")),
+    async () => api.get<Identity | null>("commit-as"),
     "commit-as",
   );
 
@@ -200,26 +204,25 @@ function CommitAs({
     event.preventDefault();
     const form = new FormData(event.currentTarget);
 
-    json(
-      context.request("commit-as", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          name: form.get("name"),
-          email: form.get("email"),
-        }),
-      }),
-    ).then(
-      () => {
-        setError(undefined);
-        setSaved(true);
-        reload();
-      },
-      (failure: unknown) => {
-        setSaved(false);
-        setError(failure instanceof Error ? failure.message : String(failure));
-      },
-    );
+    api
+      .post("commit-as", {
+        name: form.get("name"),
+        email: form.get("email"),
+      })
+      .then(
+        () => {
+          setError(undefined);
+          setSaved(true);
+          reload();
+        },
+        (failure: unknown) => {
+          setSaved(false);
+
+          setError(
+            failure instanceof Error ? failure.message : String(failure),
+          );
+        },
+      );
   };
 
   return (
@@ -234,20 +237,18 @@ function CommitAs({
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Name">
-            <input
+            <TextInput
               name="name"
               defaultValue={value?.name ?? ""}
               autoComplete="name"
-              className={fieldClass}
             />
           </Field>
           <Field label="Email">
-            <input
+            <TextInput
               name="email"
               type="email"
               defaultValue={value?.email ?? ""}
               autoComplete="email"
-              className={fieldClass}
             />
           </Field>
         </div>
@@ -260,7 +261,9 @@ function CommitAs({
         </div>
         <p role="status" className="text-caption">
           {error !== undefined ? (
-            <span className="text-failed">{error}</span>
+            <ErrorText inline size="inherit">
+              {error}
+            </ErrorText>
           ) : (
             saved && <span className="text-fg-dim">Saved</span>
           )}
@@ -272,13 +275,11 @@ function CommitAs({
 
 // What a Session may do on its own about the pull requests it watches
 // (ADR 0051).
-function PullRequestChoices({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement | null {
+function PullRequestChoices(): ReactElement | null {
+  const api = useApi(gitHosts);
+
   const { value, reload } = useLoaded(
-    async () => json<Preferences>(context.request("preferences")),
+    async () => api.get<Preferences>("preferences"),
     "preferences",
   );
 
@@ -291,15 +292,11 @@ function PullRequestChoices({
   const save = (change: Partial<Preferences>): void => {
     setError(undefined);
 
-    json(
-      context.request("preferences", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...value, ...change }),
-      }),
-    ).then(reload, (failure: unknown) => {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    });
+    api
+      .post("preferences", { ...value, ...change })
+      .then(reload, (failure: unknown) => {
+        setError(failure instanceof Error ? failure.message : String(failure));
+      });
   };
 
   return (
@@ -332,11 +329,7 @@ function PullRequestChoices({
           />
         </Row>
       </Rows>
-      {error !== undefined && (
-        <p role="alert" className="text-label text-failed">
-          {error}
-        </p>
-      )}
+      <ErrorText>{error}</ErrorText>
     </Section>
   );
 }
@@ -344,19 +337,19 @@ function PullRequestChoices({
 // A watched pull request's checks, reviews and conflicts, with Auto-fix and
 // Merge, beside it on the Changes panel (ADR 0051).
 function PullRequest({
-  context,
   session,
   url,
-}: PullRequestProps): ReactElement | null {
+}: {
+  readonly session: MountedSession;
+  readonly url: string;
+}): ReactElement | null {
+  const api = useApi(gitHosts);
+
   const { value, reload } = useLoaded(
     async () =>
-      json<readonly PullWatch[]>(
-        context.request(
-          `pull-requests?session=${encodeURIComponent(session.id)}`,
-        ),
-      ),
+      api.get<readonly PullWatch[]>("pull-requests", { session: session.id }),
     `pull-requests ${session.id}`,
-    { topics: ["git-hosts.pull-requests"] },
+    { changes: ["pull-requests"] },
   );
 
   const [error, setError] = useState<string>();
@@ -371,15 +364,11 @@ function PullRequest({
   const post = (action: string, body: unknown): void => {
     setError(undefined);
 
-    json(
-      context.request(`pull-requests/${watch.id}/${action}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      }),
-    ).then(reload, (failure: unknown) => {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    });
+    api
+      .post(`pull-requests/${watch.id}/${action}`, body)
+      .then(reload, (failure: unknown) => {
+        setError(failure instanceof Error ? failure.message : String(failure));
+      });
   };
 
   return (
@@ -409,9 +398,7 @@ function PullRequest({
         <Icon name="more" className="size-3.5" />
       </Picker>
       {problem !== null && (
-        <p role="alert" className="w-full text-right text-label text-failed">
-          {problem}
-        </p>
+        <ErrorText className="w-full text-right">{problem}</ErrorText>
       )}
     </div>
   );
@@ -446,7 +433,7 @@ function PullBadges({
 }
 
 // The news Pipoca sent the Session about a pull request it watches.
-function PullRequestNotice({ data }: NoticeProps): ReactElement {
+function PullRequestNotice({ data }: Pick<NoticeProps, "data">): ReactElement {
   const { url, news } = (data ?? {}) as {
     url?: unknown;
     news?: unknown;
@@ -488,16 +475,15 @@ function PullRequestNotice({ data }: NoticeProps): ReactElement {
 }
 
 function HostRow({
-  context,
   host,
   login,
   onChange,
 }: {
-  readonly context: WebContext;
   readonly host: Account["hosts"][number];
   readonly login: string | undefined;
   readonly onChange: () => void;
 }): ReactElement {
+  const api = useApi(gitHosts);
   const [pasting, setPasting] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -505,12 +491,7 @@ function HostRow({
     event.preventDefault();
     const token = new FormData(event.currentTarget).get("token");
 
-    json(
-      context.request("connect", {
-        method: "POST",
-        body: JSON.stringify({ host: host.host, token }),
-      }),
-    ).then(
+    api.post("connect", { host: host.host, token }).then(
       () => {
         setPasting(false);
         setError(undefined);
@@ -552,7 +533,7 @@ function HostRow({
             <Button
               onClick={() => {
                 location.assign(
-                  `/api/plugins/git-hosts/sign-in/${encodeURIComponent(host.host)}`,
+                  `/api/ext/${gitHosts.id}/sign-in/${encodeURIComponent(host.host)}`,
                 );
               }}
             >
@@ -565,11 +546,9 @@ function HostRow({
           variant="ghost"
           aria-label={`Disconnect ${host.label}`}
           onClick={() => {
-            void json(
-              context.request(`connections/${encodeURIComponent(host.host)}`, {
-                method: "DELETE",
-              }),
-            ).then(onChange, onChange);
+            void api
+              .delete(`connections/${encodeURIComponent(host.host)}`)
+              .then(onChange, onChange);
           }}
         >
           Disconnect
@@ -581,13 +560,13 @@ function HostRow({
           aria-label={`Connect ${host.label} with a token`}
           className="flex basis-full flex-wrap items-center gap-2"
         >
-          <input
+          <TextInput
             name="token"
             type="password"
             autoComplete="off"
             aria-label="Personal access token"
             placeholder="Personal access token with repo scope"
-            className={`${fieldClass} flex-1`}
+            className="flex-1"
           />
           <Button variant="primary" type="submit">
             Connect
@@ -599,11 +578,9 @@ function HostRow({
           >
             Cancel
           </Button>
-          {error !== undefined && (
-            <p role="alert" className="w-full text-caption text-failed">
-              {error}
-            </p>
-          )}
+          <ErrorText size="caption" className="w-full">
+            {error}
+          </ErrorText>
         </form>
       )}
     </Row>
@@ -611,18 +588,19 @@ function HostRow({
 }
 
 function Hosts({
-  context,
   adding,
   onAdding,
   onChange,
 }: {
-  readonly context: WebContext;
   readonly adding: boolean;
   readonly onAdding: (adding: boolean) => void;
   readonly onChange: () => void;
 }): ReactElement {
+  const api = useApi(gitHosts);
+  const [ask, asking] = useConfirm();
+
   const { value, reload } = useLoaded(
-    async () => json<readonly HostView[]>(context.request("hosts")),
+    async () => api.get<readonly HostView[]>("hosts"),
     "hosts",
   );
 
@@ -637,24 +615,27 @@ function Hosts({
   };
 
   const save = async (path: string, input: object): Promise<void> => {
-    await json(
-      context.request(path, { method: "POST", body: JSON.stringify(input) }),
-    );
+    await api.post(path, input);
 
     reload();
     onChange();
   };
 
   const remove = (host: HostView): void => {
-    if (!confirm(`Sessions will stop signing in to ${host.host}.`)) {
-      return;
-    }
+    void ask({
+      title: `Remove ${host.host}?`,
+      description: `Sessions will stop signing in to ${host.host}.`,
+      confirm: "Remove",
+      danger: true,
+    }).then((yes) => {
+      if (!yes) {
+        return;
+      }
 
-    void json(
-      context.request(`hosts/${encodeURIComponent(host.host)}`, {
-        method: "DELETE",
-      }),
-    ).then(changed, changed);
+      void api
+        .delete(`hosts/${encodeURIComponent(host.host)}`)
+        .then(changed, changed);
+    });
   };
 
   const form = adding ? "new" : editing;
@@ -662,6 +643,7 @@ function Hosts({
 
   return (
     <Section title="Hosts">
+      {asking}
       {form !== undefined && (
         <HostForm
           key={form === "new" ? "new" : form.host}
@@ -782,7 +764,7 @@ function ConnectSetup({
   const [opened, setOpened] = useState(false);
   const [error, setError] = useState<string>();
   const saved = host.clientId !== "";
-  const callback = `${location.origin}/api/plugins/git-hosts/callback`;
+  const callback = `${location.origin}/api/ext/git-hosts/callback`;
 
   const submit = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -811,7 +793,7 @@ function ConnectSetup({
       return "done";
     }
 
-    return step === at ? "on" : "next";
+    return step === at ? "current" : "next";
   };
 
   return (
@@ -827,7 +809,7 @@ function ConnectSetup({
           {saved ? "Done" : "Cancel"}
         </Button>
       </div>
-      <ol className="flex flex-col">
+      <Stepper>
         <Step
           number={1}
           state={stepState(1)}
@@ -863,36 +845,29 @@ function ConnectSetup({
               onSubmit={submit}
               className="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr_auto]"
             >
-              <input
+              <TextInput
                 name="clientId"
                 required
                 aria-label="Client ID"
                 placeholder="Client ID"
-                className={fieldClass}
                 onFocus={() => {
                   setOpened(true);
                 }}
               />
-              <input
+              <TextInput
                 name="clientSecret"
                 type="password"
                 autoComplete="off"
                 required
                 aria-label="Client secret"
                 placeholder="Client secret"
-                className={fieldClass}
               />
               <Button variant="primary" type="submit">
                 Save
               </Button>
-              {error !== undefined && (
-                <p
-                  role="alert"
-                  className="text-caption text-failed sm:col-span-3"
-                >
-                  {error}
-                </p>
-              )}
+              <ErrorText size="caption" className="sm:col-span-3">
+                {error}
+              </ErrorText>
             </form>
           )}
         </Step>
@@ -907,7 +882,7 @@ function ConnectSetup({
               className="mt-2 self-start"
               onClick={() => {
                 location.assign(
-                  `/api/plugins/git-hosts/sign-in/${encodeURIComponent(host.host)}`,
+                  `/api/ext/${gitHosts.id}/sign-in/${encodeURIComponent(host.host)}`,
                 );
               }}
             >
@@ -915,50 +890,8 @@ function ConnectSetup({
             </Button>
           )}
         </Step>
-      </ol>
+      </Stepper>
     </section>
-  );
-}
-
-type StepState = "done" | "on" | "next";
-
-function Step({
-  number,
-  state,
-  title,
-  description,
-  children,
-}: {
-  readonly number: number;
-  readonly state: StepState;
-  readonly title: ReactNode;
-  readonly description?: string;
-  readonly children?: ReactNode;
-}): ReactElement {
-  const marks: Record<StepState, string> = {
-    done: "border-done bg-done text-bg",
-    on: "border-fg-strong text-fg-strong",
-    next: "border-line-strong text-fg-dim",
-  };
-
-  return (
-    <li
-      aria-current={state === "on" ? "step" : undefined}
-      className="relative flex gap-3.5 pb-5 last:pb-0 before:absolute before:top-7 before:bottom-1 before:left-3 before:w-px before:bg-line last:before:hidden"
-    >
-      <span
-        className={`grid size-6 shrink-0 place-items-center rounded-full border-[1.5px] bg-elevated text-caption font-semibold ${marks[state]}`}
-      >
-        {state === "done" ? <Icon name="check" /> : number}
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="text-ui text-fg-strong">{title}</span>
-        {description !== undefined && (
-          <span className="text-label text-fg-dim">{description}</span>
-        )}
-        <span className="flex flex-col text-label text-fg-dim">{children}</span>
-      </span>
-    </li>
   );
 }
 
@@ -1000,45 +933,31 @@ function HostForm({
     <form
       onSubmit={submit}
       aria-label={host ? `Edit ${host.host}` : "New host"}
-      className="grid gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 md:grid-cols-2"
+      className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
     >
       <Field label="Host">
-        <input
+        <TextInput
           name="host"
           defaultValue={host?.host ?? ""}
           disabled={host !== undefined}
           placeholder="github.example.com"
-          className={fieldClass}
         />
       </Field>
       <Field label="Label">
-        <input
+        <TextInput
           name="label"
           defaultValue={host?.label ?? ""}
           placeholder="Company GitHub"
-          className={fieldClass}
         />
       </Field>
       <Field label="OAuth app client ID (optional)">
-        <input
-          name="clientId"
-          defaultValue={host?.clientId ?? ""}
-          className={fieldClass}
-        />
+        <TextInput name="clientId" defaultValue={host?.clientId ?? ""} />
       </Field>
       <Field label={secretLabel(host)}>
-        <input
-          name="clientSecret"
-          type="password"
-          autoComplete="off"
-          className={fieldClass}
-        />
+        <TextInput name="clientSecret" type="password" autoComplete="off" />
       </Field>
       {host?.hasClientSecret === true && (
-        <label className="flex items-center gap-2 text-fg-dim">
-          <input type="checkbox" name="removeSecret" />
-          Remove the client secret
-        </label>
+        <Checkbox name="removeSecret" label="Remove the client secret" />
       )}
       <div className="flex flex-wrap items-center gap-2 md:col-span-2">
         <Button variant="primary" type="submit">
@@ -1047,31 +966,21 @@ function HostForm({
         <Button onClick={cancel}>Cancel</Button>
         {remove !== undefined && (
           <Button
-            variant="ghost"
-            className="ml-auto text-failed"
+            variant="danger"
+            className="ml-auto"
             aria-label={`Remove ${host?.host ?? ""}`}
             onClick={remove}
           >
             Remove host
           </Button>
         )}
-        {error !== undefined && (
-          <p role="alert" className="text-caption text-failed">
-            {error}
-          </p>
-        )}
+        <ErrorText size="caption">{error}</ErrorText>
       </div>
     </form>
   );
 }
 
 function secretLabel(host: HostView | undefined): string {
-  const env = host?.clientSecretEnv ?? null;
-
-  if (env !== null) {
-    return `Client secret (from ${env}; leave empty to keep it)`;
-  }
-
   return host?.hasClientSecret === true
     ? "Client secret (set; leave empty to keep it)"
     : "OAuth app client secret";
@@ -1089,16 +998,12 @@ function botDescription(user: TechnicalUserView): string {
 
 // Bot identities that routines and the factory act as instead of a person
 // (ADR 0060).
-function Bots({
-  context,
-  hosts,
-}: {
-  readonly context: WebContext;
-  readonly hosts: readonly string[];
-}): ReactElement {
+function Bots({ hosts }: { readonly hosts: readonly string[] }): ReactElement {
+  const api = useApi(gitHosts);
+  const [ask, asking] = useConfirm();
+
   const { value, reload } = useLoaded(
-    async () =>
-      json<readonly TechnicalUserView[]>(context.request("technical-users")),
+    async () => api.get<readonly TechnicalUserView[]>("technical-users"),
     "technical-users",
   );
 
@@ -1123,7 +1028,7 @@ function Bots({
     });
 
     location.assign(
-      `/api/plugins/git-hosts/technical-users/new-app?${params.toString()}`,
+      `/api/ext/${gitHosts.id}/technical-users/new-app?${params.toString()}`,
     );
   };
 
@@ -1131,57 +1036,56 @@ function Bots({
     event.preventDefault();
     const form = new FormData(event.currentTarget);
 
-    json(
-      context.request("technical-users", {
-        method: "POST",
-        body: JSON.stringify({
-          host: text(form, "host"),
-          name: text(form, "name"),
-          token: text(form, "token"),
-        }),
-      }),
-    ).then(
-      () => {
-        setAdding(undefined);
-        setError(undefined);
-        reload();
-      },
-      (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
-      },
-    );
+    api
+      .post("technical-users", {
+        host: text(form, "host"),
+        name: text(form, "name"),
+        token: text(form, "token"),
+      })
+      .then(
+        () => {
+          setAdding(undefined);
+          setError(undefined);
+          reload();
+        },
+        (reason: unknown) => {
+          setError(reason instanceof Error ? reason.message : String(reason));
+        },
+      );
   };
 
   const remove = (user: TechnicalUserView): void => {
-    if (!confirm(`Routines acting as ${user.name} will stop.`)) {
-      return;
-    }
+    void ask({
+      title: `Remove ${user.name}?`,
+      description: `Routines acting as ${user.name} will stop.`,
+      confirm: "Remove",
+      danger: true,
+    }).then((yes) => {
+      if (!yes) {
+        return;
+      }
 
-    void json(
-      context.request(`technical-users/${encodeURIComponent(user.name)}`, {
-        method: "DELETE",
-      }),
-    ).then(reload, reload);
+      void api
+        .delete(`technical-users/${encodeURIComponent(user.name)}`)
+        .then(reload, reload);
+    });
   };
 
   const setTeam = (user: TechnicalUserView, team: boolean): void => {
-    void json(
-      context.request(`technical-users/${encodeURIComponent(user.name)}`, {
-        method: "PATCH",
-        body: JSON.stringify({ team }),
-      }),
-    ).then(reload, reload);
+    void api
+      .patch(`technical-users/${encodeURIComponent(user.name)}`, { team })
+      .then(reload, reload);
   };
 
   const hostField = (
     <Field label="Host">
-      <select name="host" className={fieldClass}>
+      <Select name="host">
         {hosts.map((host) => (
           <option key={host} value={host}>
             {host}
           </option>
         ))}
-      </select>
+      </Select>
     </Field>
   );
 
@@ -1190,6 +1094,7 @@ function Bots({
       title="Bots"
       description="Routines can open pull requests and comment as a bot instead of a person. Team work signs in to each host as the bot chosen for it."
     >
+      {asking}
       <Rows label="Bots">
         {value?.length === 0 && (
           <Row
@@ -1213,9 +1118,9 @@ function Bots({
             description={
               <span className="flex flex-col gap-0.5">
                 <span>{botDescription(user)}</span>
-                {user.error !== null && (
-                  <span className="text-failed">{user.error}</span>
-                )}
+                <ErrorText inline size="inherit">
+                  {user.error}
+                </ErrorText>
               </span>
             }
           >
@@ -1226,7 +1131,7 @@ function Bots({
                     href={user.installUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex h-control items-center rounded-md px-3 text-ui font-medium text-fg-dim hover:bg-hover hover:text-fg"
+                    className={buttonClass({ variant: "ghost" })}
                   >
                     Install
                   </a>
@@ -1296,19 +1201,14 @@ function Bots({
         <form
           onSubmit={createApp}
           aria-label="New GitHub App"
-          className="grid gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 md:grid-cols-2"
+          className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
         >
           {hostField}
           <Field label="App name">
-            <input
-              name="name"
-              required
-              placeholder="Acme Pipoca bot"
-              className={fieldClass}
-            />
+            <TextInput name="name" required placeholder="Acme Pipoca bot" />
           </Field>
           <Field label="Organization that owns it (optional)">
-            <input name="organization" className={fieldClass} />
+            <TextInput name="organization" />
           </Field>
           <p className="text-label text-fg-dim md:col-span-2">
             The host asks you to confirm the App, then sends you back here.
@@ -1332,24 +1232,18 @@ function Bots({
         <form
           onSubmit={addMachineUser}
           aria-label="New machine user"
-          className="grid gap-4 rounded-lg border border-line bg-elevated shadow-xs p-5 md:grid-cols-2"
+          className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
         >
           {hostField}
           <Field label="Name">
-            <input
-              name="name"
-              required
-              placeholder="ci-bot"
-              className={fieldClass}
-            />
+            <TextInput name="name" required placeholder="ci-bot" />
           </Field>
           <Field label="The account's personal access token">
-            <input
+            <TextInput
               name="token"
               type="password"
               autoComplete="off"
               required
-              className={fieldClass}
             />
           </Field>
           <div className="flex flex-wrap items-center gap-2 md:col-span-2">
@@ -1364,11 +1258,7 @@ function Bots({
             >
               Cancel
             </Button>
-            {error !== undefined && (
-              <p role="alert" className="text-caption text-failed">
-                {error}
-              </p>
-            )}
+            <ErrorText size="caption">{error}</ErrorText>
           </div>
         </form>
       )}
