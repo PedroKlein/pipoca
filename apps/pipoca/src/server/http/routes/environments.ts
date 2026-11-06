@@ -223,11 +223,11 @@ export function templateRoutes({
     // Read once for both kinds, so a person picks Profiles and admins
     // templates from the same answer.
     "repositories.manifest": async ({ query: { url }, caller }) => {
-      await checkFetchable(url, caller.id, plugins);
+      const clone = await checkFetchable(url, caller.id, plugins);
 
       const [listedProfiles, listedTemplates] = await Promise.all([
-        profiles.listed(url),
-        templates?.listed(url) ?? [],
+        profiles.listed(url, clone),
+        templates?.listed(url, clone) ?? [],
       ]);
 
       return { profiles: listedProfiles, templates: listedTemplates };

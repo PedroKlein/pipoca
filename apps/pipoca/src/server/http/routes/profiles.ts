@@ -89,12 +89,17 @@ export function profileRoutes({
     }
 
     if (source !== undefined) {
-      await checkFetchable(source.url, caller.id, plugins);
+      const clone = await checkFetchable(source.url, caller.id, plugins);
 
       const [imported] =
         source.path === undefined
-          ? [await profiles.importFromGit(caller.id, source.url)]
-          : await profiles.importListed(caller.id, source.url, [source.path]);
+          ? [await profiles.importFromGit(caller.id, source.url, clone)]
+          : await profiles.importListed(
+              caller.id,
+              source.url,
+              [source.path],
+              clone,
+            );
 
       if (imported === undefined) {
         throw new NotFound("The repository lists no Profile there.");

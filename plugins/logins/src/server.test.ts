@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect, mock, test } from "bun:test";
+import * as dns from "node:dns/promises";
 import {
   type PluginTest,
   person,
@@ -9,6 +10,21 @@ import {
 import type { Environment, Profile } from "@pipoca/protocol";
 import type { Account, Connectable } from "./model";
 import { server } from "./server";
+
+// What the server's own lookups of a name answer, where a test says.
+const answers = new Map<string, string>();
+const { lookup } = dns;
+
+await mock.module("node:dns/promises", () => ({
+  ...dns,
+  lookup: async (host: string, options: unknown) => {
+    const answer = answers.get(host);
+
+    return answer === undefined
+      ? lookup(host, options as never)
+      : [{ address: answer, family: 4 }];
+  },
+}));
 
 const people = [
   { id: "admin", name: "Admin", admin: true },
@@ -510,6 +526,40 @@ test("signs in to an MCP server on a private address only when an admin allows i
   expect(done.connection).toMatchObject({ state: "failed" });
   expect(JSON.stringify(done.connection)).toContain("private address");
   expect(done.mcp).toEqual([]);
+});
+
+// A name can answer one address when the server checks it and another when
+// the fetch connects, so the fetch connects only to the one it checked.
+test("an MCP sign-in connects only to the address it checked, under the server's name", async () => {
+  const reached: string[] = [];
+
+  await using t = await started({
+    fetch: (request) => {
+      reached.push(
+        `${new URL(request.url).hostname} ${request.headers.get("host") ?? ""}`,
+      );
+
+      return new Response("not here", { status: 404 });
+    },
+  });
+
+  answers.set("mcp.example.com", "203.0.113.7");
+
+  try {
+    const url = "https://mcp.example.com/mcp";
+    await profile(t, "ana", { name: "Tools", mcpServers: { tools: { url } } });
+    await t.as("ana").post("connect-mcp", { server: `tools ${url}` });
+
+    await until(
+      async () => account(t, "ana"),
+      ({ connection }) => connection?.state !== "running",
+    );
+  } finally {
+    answers.clear();
+  }
+
+  expect(reached.length).toBeGreaterThan(0);
+  expect(new Set(reached)).toEqual(new Set(["203.0.113.7 mcp.example.com"]));
 });
 
 test("a person signs in to an MCP server of their Profiles from Settings, and the sign-in page sends them back to Pipoca", async () => {

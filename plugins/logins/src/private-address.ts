@@ -25,7 +25,7 @@ for (const [network, prefix] of [
 
 // A fetch that keeps away from private, loopback and link-local addresses,
 // such as a cluster's own Services, on every redirect too, unless an admin
-// allows the host.
+// allows the host. It connects only to the address it checked.
 export function publicFetch(
   allowed: readonly string[],
 ): (input: string | URL, init?: RequestInit) => Promise<Response> {
@@ -33,13 +33,10 @@ export function publicFetch(
     let url = new URL(input);
 
     for (let hop = 0; hop < 5; hop++) {
-      if (!allowed.includes(url.host) && (await privateAddress(url.hostname))) {
-        throw new Error(
-          `${url.host} is on a private address, which an admin allows in the logins plugin's privateHosts`,
-        );
-      }
+      const response = allowed.includes(url.host)
+        ? await fetch(url, { ...init, redirect: "manual" })
+        : await pinnedFetch(url, init);
 
-      const response = await fetch(url, { ...init, redirect: "manual" });
       const location = response.headers.get("location");
 
       if (response.status < 300 || response.status > 399 || location === null) {
@@ -53,15 +50,39 @@ export function publicFetch(
   };
 }
 
-async function privateAddress(host: string): Promise<boolean> {
-  const bare = host.replace(/^\[(.*)\]$/, "$1");
+async function pinnedFetch(url: URL, init?: RequestInit): Promise<Response> {
+  const bare = url.hostname.replace(/^\[(.*)\]$/, "$1");
 
   const addresses =
     isIP(bare) === 0
       ? await lookup(bare, { all: true }).catch(() => [])
       : [{ address: bare, family: isIP(bare) }];
 
-  return addresses.some(({ address, family }) =>
-    privateRanges.check(address, family === 6 ? "ipv6" : "ipv4"),
-  );
+  const [first] = addresses;
+
+  if (
+    first === undefined ||
+    addresses.some(({ address, family }) =>
+      privateRanges.check(address, family === 6 ? "ipv6" : "ipv4"),
+    )
+  ) {
+    throw new Error(
+      first === undefined
+        ? `${url.host} has no address`
+        : `${url.host} is on a private address, which an admin allows in the logins plugin's privateHosts`,
+    );
+  }
+
+  const pinned = new URL(url);
+  pinned.hostname = first.family === 6 ? `[${first.address}]` : first.address;
+
+  const headers = new Headers(init?.headers);
+  headers.set("host", url.host);
+
+  return fetch(pinned, {
+    ...init,
+    headers,
+    redirect: "manual",
+    ...(isIP(bare) === 0 && { tls: { serverName: bare } }),
+  });
 }

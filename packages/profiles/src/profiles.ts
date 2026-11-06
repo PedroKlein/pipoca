@@ -20,6 +20,7 @@ import {
 } from "./folders";
 import { InvalidProfile } from "./invalid";
 import {
+  type CloneOptions,
   listedIn,
   picked,
   repositoryFolder,
@@ -392,25 +393,36 @@ export class Profiles {
 
   // A repository with a Profile folder at its root, or an older one with a
   // pipoca-profile.json, becomes a Profile the importer owns.
-  async importFromGit(userId: string, url: string): Promise<Profile> {
-    return withClone(url, async ({ dir }) => {
-      const file = join(dir, exportFile);
-      const info = await lstat(file).catch(() => undefined);
-      if (info?.isFile() === true && info.size <= maxExportBytes) {
-        return this.import(userId, parsedJson(await readFile(file, "utf8")));
-      }
+  async importFromGit(
+    userId: string,
+    url: string,
+    clone: CloneOptions = {},
+  ): Promise<Profile> {
+    return withClone(
+      url,
+      async ({ dir }) => {
+        const file = join(dir, exportFile);
+        const info = await lstat(file).catch(() => undefined);
+        if (info?.isFile() === true && info.size <= maxExportBytes) {
+          return this.import(userId, parsedJson(await readFile(file, "utf8")));
+        }
 
-      return this.#createWith(
-        userId,
-        basename(url).replace(/\.git$/, ""),
-        folderFiles(dir, "."),
-      );
-    });
+        return this.#createWith(
+          userId,
+          basename(url).replace(/\.git$/, ""),
+          folderFiles(dir, "."),
+        );
+      },
+      clone,
+    );
   }
 
   // The Profiles a repository's pipoca.json lists (ADR 0063).
-  async listed(url: string): Promise<readonly ManifestEntry[]> {
-    return withClone(url, ({ dir }) => listedIn(dir, "profiles"));
+  async listed(
+    url: string,
+    clone: CloneOptions = {},
+  ): Promise<readonly ManifestEntry[]> {
+    return withClone(url, ({ dir }) => listedIn(dir, "profiles"), clone);
   }
 
   // Each picked folder becomes a Profile of the importer's that follows the
@@ -419,15 +431,19 @@ export class Profiles {
     userId: string,
     url: string,
     paths: readonly string[],
+    clone: CloneOptions = {},
   ): Promise<readonly Profile[]> {
-    return withClone(url, ({ dir, commit }) =>
-      picked(listedIn(dir, "profiles"), paths).map(({ name, path }) =>
-        this.#createWith(userId, name, folderFiles(dir, path), {
-          url,
-          path,
-          commit,
-        }),
-      ),
+    return withClone(
+      url,
+      ({ dir, commit }) =>
+        picked(listedIn(dir, "profiles"), paths).map(({ name, path }) =>
+          this.#createWith(userId, name, folderFiles(dir, path), {
+            url,
+            path,
+            commit,
+          }),
+        ),
+      clone,
     );
   }
 

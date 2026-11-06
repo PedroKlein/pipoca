@@ -2,6 +2,7 @@ import { lookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
 import { BadRequest } from "@pipoca/plugins";
 import type { PluginHost } from "@pipoca/pluginhost";
+import type { CloneOptions } from "@pipoca/repositories";
 
 const privateRanges = new BlockList();
 
@@ -25,36 +26,34 @@ for (const [network, prefix] of [
   privateRanges.addSubnet(network, prefix, "ipv6");
 }
 
-// Whether a host name or address reaches a private, loopback or link-local
-// address, such as a cluster's own Services, which a fetch the server makes
-// for someone stays away from unless an admin allows the host.
-async function privateAddress(host: string): Promise<boolean> {
+// The addresses a host name or address reaches. A host on a private,
+// loopback or link-local address, such as a cluster's own Services, is one a
+// fetch the server makes for someone stays away from unless an admin allows
+// the host.
+async function addressesOf(
+  host: string,
+): Promise<readonly { readonly address: string; readonly family: number }[]> {
   const bare = host.replace(/^\[(.*)\]$/, "$1");
 
-  const addresses =
-    isIP(bare) === 0
-      ? await lookup(bare, { all: true }).catch(() => [])
-      : [{ address: bare, family: isIP(bare) }];
-
-  return addresses.some(({ address, family }) =>
-    privateRanges.check(address, family === 6 ? "ipv6" : "ipv4"),
-  );
+  return isIP(bare) === 0
+    ? lookup(bare, { all: true }).catch(() => [])
+    : [{ address: bare, family: isIP(bare) }];
 }
 
 // A repository the server clones for a person: on a host they have a git
-// login for, or on no private address. A URL that doesn't parse is left to
-// the clone to refuse.
+// login for, or on no private address, and then only from the address it
+// checked. A URL that doesn't parse is left to the clone to refuse.
 export async function checkFetchable(
   url: string,
   person: string,
   plugins: Pick<PluginHost, "gitLogins">,
-): Promise<void> {
+): Promise<CloneOptions> {
   let parsed: URL;
 
   try {
     parsed = new URL(url);
   } catch {
-    return;
+    return {};
   }
 
   const logins = plugins.gitLogins(`person:${person}`, {
@@ -63,12 +62,30 @@ export async function checkFetchable(
   });
 
   if (logins.some(({ host }) => host === parsed.host)) {
-    return;
+    return {};
   }
 
-  if (await privateAddress(parsed.hostname)) {
+  const addresses = await addressesOf(parsed.hostname);
+
+  if (
+    addresses.some(({ address, family }) =>
+      privateRanges.check(address, family === 6 ? "ipv6" : "ipv4"),
+    )
+  ) {
     throw new BadRequest(
       "The server clones from a private address only on a host you have a git login for.",
     );
   }
+
+  const [first] = addresses;
+
+  if (first === undefined || parsed.protocol !== "https:") {
+    return {};
+  }
+
+  const address = first.family === 6 ? `[${first.address}]` : first.address;
+
+  return {
+    resolve: `${parsed.hostname}:${parsed.port || "443"}:${address}`,
+  };
 }
