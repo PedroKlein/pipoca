@@ -79,7 +79,6 @@ test("only admins change templates, and everyone reads them", async () => {
     id: "cluster-pods",
     isolation: "process",
     image: null,
-    aliases: null,
     source: null,
     runnersFrom: null,
     ...pods,
@@ -221,8 +220,7 @@ test("reads templates an admin wrote into pipoca.json", async () => {
       isolation: "container",
       image: "debian:12",
       setupScript: "",
-      aliases: null,
-      source: null,
+        source: null,
       variables: {},
       runnersFrom: null,
     },
@@ -239,9 +237,11 @@ test("offers a template's model aliases on Environments made from it", async () 
         {
           id: "team",
           name: "Team",
-          aliases: {
-            models: { fast: ["openai/gpt-5-mini"] },
-            defaultAlias: "fast",
+          models: {
+            aliases: {
+              models: { fast: ["openai/gpt-5-mini"] },
+              defaultAlias: "fast",
+            },
           },
         },
       ],
@@ -271,11 +271,15 @@ test("skips a template's aliases it can't read, and still offers the rest", asyn
     join(root, "config", "pipoca.json"),
     JSON.stringify({
       templates: [
-        { id: "broken", name: "Broken", aliases: { backends: { x: {} } } },
+        {
+          id: "broken",
+          name: "Broken",
+          models: { aliases: { models: { fast: [] } } },
+        },
         {
           id: "team",
           name: "Team",
-          aliases: { models: { fast: ["openai/gpt-5-mini"] } },
+          models: { aliases: { models: { fast: ["openai/gpt-5-mini"] } } },
         },
       ],
     }),

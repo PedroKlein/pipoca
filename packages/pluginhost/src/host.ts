@@ -13,6 +13,7 @@ import type {
   ToolDef,
 } from "@pipoca/plugins";
 import {
+  checked,
   type ConfigKey,
   configOf,
   envSecrets,
@@ -22,6 +23,7 @@ import {
   pluginEvents,
   type PluginEnvironments,
   type RunnerProvider,
+  type Runners,
   type Runtime,
   sealedConfig,
   secretRefs,
@@ -176,15 +178,14 @@ export interface PluginHost {
   readonly extRoutes: () => readonly ExtRoute[];
 }
 
-function pluginEnvironments(
+function runnersOf(
   sessions: Sessions,
   environments: Environments,
   runners: {
     readonly token: (environment: string, runner: string) => string;
     readonly revoke: (environment: string, runner: string) => void;
   },
-  templateConfig: PluginEnvironments["templateConfig"],
-): PluginEnvironments {
+): Runners {
   const provider = (environmentId: string): string => {
     const found = environments.get(environmentId);
 
@@ -196,15 +197,12 @@ function pluginEnvironments(
   };
 
   return {
-    list: () => environments.list(),
-    templates: () => environments.templates(),
     unplaced: (environmentId) => sessions.unplaced(environmentId),
-    runnerToken: (environmentId, runner) =>
+    token: (environmentId, runner) =>
       runners.token(provider(environmentId), runner),
-    revokeRunner: (environmentId, runner) => {
+    revoke: (environmentId, runner) => {
       runners.revoke(provider(environmentId), runner);
     },
-    templateConfig,
   };
 }
 
@@ -505,18 +503,41 @@ export function startPlugins(
     );
   };
 
-  const templateConfigOf = (
-    plugin: string,
-  ): PluginEnvironments["templateConfig"] => ({
-    get: (templateId) => deps.templates?.config(templateId, plugin),
-    set: (templateId, value) => {
-      if (deps.templates === undefined) {
-        throw new Error("this server keeps no templates");
-      }
+  const runners = runnersOf(deps.sessions, deps.environments, deps.runners);
 
-      deps.templates.setConfig(templateId, plugin, value);
-    },
-  });
+  const templateConfigOf =
+    (plugin: string, log: Log): PluginEnvironments["templateConfig"] =>
+    (schema) => {
+      const fitted = (value: unknown) =>
+        value === undefined || value === null
+          ? undefined
+          : checked(Value.Default(schema, structuredClone(value)), schema, plugin);
+
+      return {
+        get: (templateId) => {
+          try {
+            return fitted(deps.templates?.config(templateId, plugin));
+          } catch (error) {
+            log("template config doesn't fit", {
+              templateId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+
+            return undefined;
+          }
+        },
+        set: (templateId, value) => {
+          if (deps.templates === undefined) {
+            throw new Error("this server keeps no templates");
+          }
+
+          const kept = fitted(value);
+          deps.templates.setConfig(templateId, plugin, kept);
+
+          return kept;
+        },
+      };
+    };
 
   // The kernel's own tools have no plugin.
   const loadsIn = (session: Session, plugin: string | undefined): boolean =>
@@ -693,6 +714,8 @@ export function startPlugins(
             runners: (provider) => {
               provided.add("runners");
               staged.runners.push(provider);
+
+              return runners;
             },
             runtime: () => {
               provided.add("runtime");
@@ -745,12 +768,15 @@ export function startPlugins(
             },
           },
           secrets: secretsOf(store),
-          environments: pluginEnvironments(
-            deps.sessions,
-            deps.environments,
-            deps.runners,
-            templateConfigOf(id),
-          ),
+          environments: {
+            list: () => deps.environments.list(),
+            get: (environmentId) =>
+              deps.environments
+                .list()
+                .find((each) => each.id === environmentId),
+            templates: () => deps.environments.templates(),
+            templateConfig: templateConfigOf(id, log),
+          },
           profiles: {
             mcpServers: deps.mcpServers ?? (() => []),
             buildsOn: deps.buildsOn ?? (() => []),
@@ -1371,14 +1397,7 @@ export function startPlugins(
       return found && { plugin: found.plugin, ...found.kind };
     },
     replacesServerRunner: () =>
-      starters.some(({ plugin, replacesServerRunner }) =>
-        guarded(
-          plugin,
-          "replacesServerRunner",
-          false,
-          () => replacesServerRunner?.() === true,
-        ),
-      ),
+      starters.some(({ replacesServerRunner }) => replacesServerRunner === true),
     // A Session acting as someone gets only the logins of the plugin it
     // names, so no other plugin's account signs in beside a bot's.
     gitLogins: (owner, session) =>

@@ -24,6 +24,7 @@ import {
   type KernelEvent,
   NotFound,
   type PluginDefinition,
+  type Runners,
   type ServerContext,
   StringEnum,
   Type,
@@ -56,6 +57,11 @@ afterEach(async () => {
   await closeServers();
   await rm(root, { recursive: true, force: true });
 });
+
+const pool = {
+  kind: { label: "Pool", icon: "cloud" },
+  starts: () => false,
+};
 
 function plugin(
   id: string,
@@ -143,9 +149,9 @@ const entriesInclude =
 
 async function toolsOf(
   session: Session,
-  environments: ServerContext["environments"] | undefined,
+  runners: Runners | undefined,
 ): Promise<unknown> {
-  const token = environments?.runnerToken(session.environmentId, "local");
+  const token = runners?.token(session.environmentId, "local");
 
   const tools = await fetch(
     new URL(`/runner/sessions/${session.id}/tools?generation=1`, server.url),
@@ -165,11 +171,11 @@ async function toolsOf(
 
 test("serves a plugin's tools to the sessions they apply to and returns their result", async () => {
   const called: KernelEvent[] = [];
-  let machines: ServerContext["environments"] | undefined;
+  let machines: Runners | undefined;
 
   await start([
-    plugin("lookup", ({ tools, events, environments }) => {
-      machines = environments;
+    plugin("lookup", ({ tools, events, provide }) => {
+      machines = provide.runners(pool);
 
       events.on("ToolCalled", (event) => {
         called.push(event);
@@ -298,11 +304,11 @@ test("tells open pages which kind of thing changed, never what", async () => {
 });
 
 test("serves a tool's exposure and hints to its sessions", async () => {
-  let machines: ServerContext["environments"] | undefined;
+  let machines: Runners | undefined;
 
   await start([
-    plugin("keys", ({ tools, environments }) => {
-      machines = environments;
+    plugin("keys", ({ tools, provide }) => {
+      machines = provide.runners(pool);
 
       tools.define({
         name: "keys_list",
@@ -886,11 +892,11 @@ async function poolEnvironment(): Promise<Environment> {
 }
 
 test("lets a plugin start a runner for a Session no runner can take, until it revokes it", async () => {
-  let context: ServerContext | undefined;
+  let machines: Runners | undefined;
 
   await start([
-    plugin("machines", (registered) => {
-      context = registered;
+    plugin("machines", ({ provide }) => {
+      machines = provide.runners(pool);
     }),
   ]);
 
@@ -903,12 +909,12 @@ test("lets a plugin start a runner for a Session no runner can take, until it re
   });
 
   expect(
-    context?.environments.unplaced(environment.id).map(({ id }) => id),
+    machines?.unplaced(environment.id).map(({ id }) => id),
   ).toEqual([session.id]);
 
   const pod = startRunner(
     "pod-1",
-    context?.environments.runnerToken(environment.id, "pod-1") ?? "",
+    machines?.token(environment.id, "pod-1") ?? "",
   );
 
   await follow(
@@ -918,7 +924,7 @@ test("lets a plugin start a runner for a Session no runner can take, until it re
       events.some((e) => e.type === "session" && e.session.runner === "pod-1"),
   );
 
-  expect(context?.environments.unplaced(environment.id)).toEqual([]);
+  expect(machines?.unplaced(environment.id)).toEqual([]);
 
   await server.api(`/api/environments/${environment.id}/keys`, { body: {} });
 
@@ -928,7 +934,7 @@ test("lets a plugin start a runner for a Session no runner can take, until it re
     pod.logs.filter((line) => line.includes("let this runner go")),
   ).toEqual([]);
 
-  context?.environments.revokeRunner(environment.id, "pod-1");
+  machines?.revoke(environment.id, "pod-1");
 
   const stopped = await pod.done.then(
     () => undefined,
@@ -939,11 +945,11 @@ test("lets a plugin start a runner for a Session no runner can take, until it re
 });
 
 test("stops a runner started to exit when idle once it runs no Session", async () => {
-  let context: ServerContext | undefined;
+  let machines: Runners | undefined;
 
   await start([
-    plugin("machines", (registered) => {
-      context = registered;
+    plugin("machines", ({ provide }) => {
+      machines = provide.runners(pool);
     }),
   ]);
 
@@ -957,7 +963,7 @@ test("stops a runner started to exit when idle once it runs no Session", async (
 
   const pod = startRunner(
     "pod-1",
-    context?.environments.runnerToken(environment.id, "pod-1") ?? "",
+    machines?.token(environment.id, "pod-1") ?? "",
     300,
   );
 

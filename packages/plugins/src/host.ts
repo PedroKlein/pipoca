@@ -1,4 +1,4 @@
-export { checkBody } from "./body";
+export { checkBody, checked } from "./body";
 export { type ClientOptions, pluginClient } from "./client";
 export {
   type ConfigKey,
@@ -22,6 +22,7 @@ export type {
   PluginEnvironments,
   PluginProfile,
   RunnerProvider,
+  Runners,
   Runtime,
   ServerPart,
   StartRequest,

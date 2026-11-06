@@ -521,7 +521,7 @@ test("reads a template's pod settings from its entry in pipoca.json, and saves t
   expect(
     t.log.some(
       ({ message, fields }) =>
-        message === "kubernetes template settings don't fit" &&
+        message === "template config doesn't fit" &&
         (fields as { templateId?: string }).templateId === "broken",
     ),
   ).toBe(true);
@@ -577,7 +577,7 @@ test("refuses Kubernetes settings it can't use, and changes from anyone but admi
   const inContainers = await postSettings(template.id, { settings: {} });
 
   expect(responses.map(({ status }) => status)).toEqual([
-    422, 422, 422, 400, 422, 404, 403,
+    422, 422, 422, 422, 422, 404, 403,
   ]);
 
   expect(unsaved).toEqual({

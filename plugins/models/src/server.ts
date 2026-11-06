@@ -57,56 +57,39 @@ export const server = defineServer(models, (context) => {
   const store = modelsStore(context.store);
   const versions = changes(context);
 
+  const byTemplate = environments.templateConfig(
+    Type.Object({ aliases: aliasConfig }),
+  );
+
   // An Environment without aliases of its own takes its template's
   // (ADR 0063).
   const templateAliases = (templateId: string | null): AliasConfig | null => {
-    const aliases = environments
-      .templates()
-      .find(({ id }) => id === templateId)?.aliases;
+    const aliases =
+      templateId === null ? undefined : byTemplate.get(templateId)?.aliases;
 
-    if (!aliases) {
+    if (aliases === undefined) {
       return null;
     }
 
-    const read = (): { stored: AliasConfig } | { problem: string } => {
-      try {
-        const stored = storedAliases(aliases);
+    const problem = aliasProblem(aliases);
 
-        const problem =
-          typeof stored.models === "object"
-            ? aliasProblem(stored)
-            : "aliases need models";
-
-        return problem === undefined ? { stored } : { problem };
-      } catch (error) {
-        return {
-          problem: error instanceof Error ? error.message : String(error),
-        };
-      }
-    };
-
-    const found = read();
-
-    if ("problem" in found) {
-      log("template aliases unreadable", { templateId, ...found });
+    if (problem !== undefined) {
+      log("template aliases unreadable", { templateId, problem });
 
       return null;
     }
 
-    return found.stored;
+    return aliases;
   };
 
-  // The template is looked up only when it can matter, since listing
-  // Environments asks for this offer.
   const effective = (
     environmentId: string,
-    templateId: () => string | null,
+    templateId: string | null,
   ): EnvironmentModels => {
     const saved = store.get(environmentId);
 
-    return saved.aliases === null &&
-      environments.templates().some(({ aliases }) => aliases)
-      ? { ...saved, aliases: templateAliases(templateId()) }
+    return saved.aliases === null
+      ? { ...saved, aliases: templateAliases(templateId) }
       : saved;
   };
 
@@ -114,7 +97,7 @@ export const server = defineServer(models, (context) => {
   const hidden = (): readonly string[] => config.get().hidden;
 
   context.provide.models(({ id, templateId }) => ({
-    ...offered(effective(id, () => templateId).aliases),
+    ...offered(effective(id, templateId).aliases),
     hidden: hidden(),
   }));
 
@@ -138,9 +121,7 @@ export const server = defineServer(models, (context) => {
         version: versions.of(environmentId),
         ...effective(
           environmentId,
-          () =>
-            environments.list().find(({ id }) => id === environmentId)
-              ?.templateId ?? null,
+          environments.get(environmentId)?.templateId ?? null,
         ),
       } satisfies SessionConfig;
     },

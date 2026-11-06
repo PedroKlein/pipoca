@@ -52,7 +52,6 @@ const templateFields = new Set([
   "image",
   "setupScript",
   "variables",
-  "aliases",
   "source",
 ]);
 
@@ -84,10 +83,15 @@ export function environmentTemplates(config: ConfigKey, log: Log): Templates {
       ),
     );
 
-  const save = (templates: readonly EnvironmentTemplate[]): void => {
+  // A template file's plugin keys replace the entry's.
+  const save = (
+    templates: readonly EnvironmentTemplate[],
+    fromFiles: ReadonlyMap<string, PluginKeys> = new Map(),
+  ): void => {
     config.set(
       templates.map((template) => ({
         ...pluginKeys(template.id),
+        ...fromFiles.get(template.id),
         ...template,
       })),
     );
@@ -106,21 +110,27 @@ export function environmentTemplates(config: ConfigKey, log: Log): Templates {
 
   const sync = async (url?: string): Promise<void> => {
     const updated = new Map<string, EnvironmentTemplate>();
+    const fromFiles = new Map<string, PluginKeys>();
 
     await syncFollowers(list(), {
       kind: "template",
       url,
       log,
       update: (template, { dir }, source) => {
-        updated.set(template.id, {
-          ...fromFile(dir, template.name, source),
-          id: template.id,
-        });
+        const { plugins, ...settings } = fromFile(dir, template.name, source);
+
+        updated.set(template.id, { ...settings, id: template.id });
+        fromFiles.set(template.id, plugins);
       },
       updated: () => {
         if (updated.size > 0) {
-          save(list().map((template) => updated.get(template.id) ?? template));
+          save(
+            list().map((template) => updated.get(template.id) ?? template),
+            fromFiles,
+          );
+
           updated.clear();
+          fromFiles.clear();
         }
       },
     });
@@ -141,7 +151,6 @@ export function environmentTemplates(config: ConfigKey, log: Log): Templates {
         image: fields.image ?? null,
         setupScript: fields.setupScript ?? "",
         variables: fields.variables ?? {},
-        aliases: null,
         source: null,
       };
 
@@ -182,21 +191,26 @@ export function environmentTemplates(config: ConfigKey, log: Log): Templates {
     importListed: async (url, paths) =>
       withClone(url, ({ dir, commit }) => {
         const taken = new Set(list().map(({ id }) => id));
+        const fromFiles = new Map<string, PluginKeys>();
 
         const imported = picked(listedIn(dir, "templates"), paths).map(
           ({ name, path }) => {
-            const template = {
-              ...fromFile(dir, name, { url, path, commit }),
-              id: freeId(name, taken),
-            };
+            const { plugins, ...settings } = fromFile(dir, name, {
+              url,
+              path,
+              commit,
+            });
+
+            const template = { ...settings, id: freeId(name, taken) };
 
             taken.add(template.id);
+            fromFiles.set(template.id, plugins);
 
             return template;
           },
         );
 
-        save([...list(), ...imported]);
+        save([...list(), ...imported], fromFiles);
 
         return imported;
       }),
@@ -232,12 +246,15 @@ export function environmentTemplates(config: ConfigKey, log: Log): Templates {
   };
 }
 
-// A template file holds what Settings shows for a template, without its name.
+type PluginKeys = Readonly<Record<string, unknown>>;
+
+// A template file holds what Settings shows for a template, without its
+// name, and a key per plugin.
 function fromFile(
   dir: string,
   name: string,
   source: RepositorySource,
-): Omit<EnvironmentTemplate, "id"> {
+): Omit<EnvironmentTemplate, "id"> & { readonly plugins: PluginKeys } {
   let value: unknown;
   try {
     value = JSON.parse(repositoryFile(dir, source.path));
@@ -247,8 +264,15 @@ function fromFile(
       : error;
   }
 
-  const { aliases, ...settings } = (value ?? {}) as Record<string, unknown>;
-  const fields = settingsOf({ ...settings, name });
+  const entries = Object.entries(isObject(value) ? value : {});
+
+  const own = (key: string): boolean =>
+    Object.hasOwn(environmentUpdate.properties, key);
+
+  const fields = settingsOf({
+    ...Object.fromEntries(entries.filter(([key]) => own(key))),
+    name,
+  });
 
   return {
     name,
@@ -256,8 +280,10 @@ function fromFile(
     image: fields.image ?? null,
     setupScript: fields.setupScript ?? "",
     variables: fields.variables ?? {},
-    aliases: aliasesOf(aliases),
     source,
+    plugins: Object.fromEntries(
+      entries.filter(([key]) => !own(key) && !templateFields.has(key)),
+    ),
   };
 }
 
@@ -279,22 +305,8 @@ function templateOf(entry: Static<typeof templateEntry>): EnvironmentTemplate {
     image: entry.image ?? null,
     setupScript: entry.setupScript ?? "",
     variables: entry.variables ?? {},
-    aliases: entry.aliases ?? null,
     source: entry.source ?? null,
   };
-}
-
-// The models plugin checks the aliases themselves.
-function aliasesOf(value: unknown): Readonly<Record<string, unknown>> | null {
-  if (value === undefined || value === null) {
-    return null;
-  }
-
-  if (typeof value !== "object" || Array.isArray(value)) {
-    throw new BadRequest("aliases must be an object");
-  }
-
-  return value as Readonly<Record<string, unknown>>;
 }
 
 function slug(name: string): string {

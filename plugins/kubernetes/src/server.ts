@@ -1,16 +1,15 @@
 import { randomBytes } from "node:crypto";
 import {
-  BadRequest,
   defineServer,
   HttpError,
   NotFound,
+  type Runners,
   type RunnerSource,
   type ServerContext,
-  type Static,
+  StringEnum,
   Type,
 } from "@pipoca/plugins";
 import { type Environment, movable } from "@pipoca/protocol";
-import { Value } from "typebox/value";
 import { kubernetes } from "../plugin";
 import {
   type Cluster,
@@ -21,32 +20,40 @@ import {
 import { type FailedPod, PodFailures } from "./failures";
 import { runnerPod, sessionClaim, sessionPodName } from "./pods";
 import {
+  defaultSettings,
   type KubernetesEnvironment,
   type KubernetesSettings,
-  settingsFrom,
   workspaces,
 } from "./settings";
 
 type Context = ServerContext<typeof kubernetes>;
 
-const positive = Type.Integer({
-  minimum: 1,
-  maximum: Number.MAX_SAFE_INTEGER,
+const positive = (fallback: number) =>
+  Type.Integer({
+    minimum: 1,
+    maximum: Number.MAX_SAFE_INTEGER,
+    default: fallback,
+  });
+
+const podSettings = Type.Object({
+  workspace: StringEnum(workspaces, { default: defaultSettings.workspace }),
+  capacity: positive(defaultSettings.capacity),
+  maxPods: positive(defaultSettings.maxPods),
+  idleSeconds: positive(defaultSettings.idleSeconds),
+  claimSize: Type.String({
+    pattern: "^\\d+(Ki|Mi|Gi|Ti)$",
+    default: defaultSettings.claimSize,
+  }),
+  storageClass: Type.Union([Type.String(), Type.Null()], {
+    default: defaultSettings.storageClass,
+  }),
+  podPatch: Type.Record(Type.String(), Type.Unknown(), { default: {} }),
 });
 
-const settingsFields = Type.Object({
-  workspace: Type.Optional(Type.Enum(workspaces)),
-  capacity: Type.Optional(positive),
-  maxPods: Type.Optional(positive),
-  idleSeconds: Type.Optional(positive),
-  claimSize: Type.Optional(Type.String()),
-  storageClass: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-  podPatch: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-});
-
-// Null settings stop runner pods in the Environment.
+// Null settings stop runner pods in the Environment. A setting left out
+// takes its default.
 const settingsChange = Type.Object({
-  settings: Type.Union([settingsFields, Type.Null()]),
+  settings: Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()]),
 });
 
 const intervalMs = 2000;
@@ -56,6 +63,7 @@ const intervalMs = 2000;
 const retryAfterMs = 10_000;
 
 interface Pods {
+  readonly runners: Runners;
   readonly cluster: Cluster;
   readonly image: string;
   readonly imagePullPolicy: string | undefined;
@@ -70,20 +78,6 @@ const finished = new Set(["Succeeded", "Failed"]);
 
 // Longer than pulling a large image takes.
 const stuckAfterMs = 10 * 60_000;
-
-function fitting(saved: unknown): KubernetesSettings | string {
-  const [misfit] = Value.Errors(settingsFields, saved);
-
-  if (misfit !== undefined) {
-    return `${misfit.instancePath || "settings"} ${misfit.message}`;
-  }
-
-  return settingsFrom(
-    Value.Clean(settingsFields, structuredClone(saved)) as Static<
-      typeof settingsFields
-    >,
-  );
-}
 
 // Starts runner pods for the Sessions of a Kubernetes Environment that no
 // runner can take, and removes the pods that stopped (ADR 0032). The chart
@@ -102,27 +96,7 @@ export const server = defineServer(kubernetes, (context) => {
     api !== undefined && image !== undefined && runnerUrl !== undefined;
 
   // Pod settings live in their template's entry in pipoca.json (ADR 0049).
-  // Ones that stop fitting are logged and start no pods.
-  const byTemplate = (id: string): KubernetesSettings | undefined => {
-    const saved = environments.templateConfig.get(id);
-
-    if (saved === undefined) {
-      return undefined;
-    }
-
-    const settings = fitting(saved);
-
-    if (typeof settings === "string") {
-      log("kubernetes template settings don't fit", {
-        templateId: id,
-        error: settings,
-      });
-
-      return undefined;
-    }
-
-    return settings;
-  };
+  const byTemplate = environments.templateConfig(podSettings);
 
   const template = (id: string | null) =>
     environments.templates().find((each) => each.id === id);
@@ -133,7 +107,7 @@ export const server = defineServer(kubernetes, (context) => {
     environment.templateId === null ||
     template(environment.templateId) === undefined
       ? undefined
-      : byTemplate(environment.templateId);
+      : byTemplate.get(environment.templateId);
 
   const answer = (
     settings: KubernetesSettings | undefined,
@@ -152,7 +126,7 @@ export const server = defineServer(kubernetes, (context) => {
       throw new NotFound(`no template ${params.id}`);
     }
 
-    return answer(byTemplate(params.id), caller.person.admin);
+    return answer(byTemplate.get(params.id), caller.person.admin);
   });
 
   // A pod patch can mount the namespace's Secrets or run privileged, so it
@@ -167,18 +141,11 @@ export const server = defineServer(kubernetes, (context) => {
         throw new NotFound(`no template ${id}`);
       }
 
-      const settings =
-        body.settings === null ? undefined : settingsFrom(body.settings);
-
-      if (typeof settings === "string") {
-        throw new BadRequest(settings);
-      }
-
-      if (settings !== undefined && found.isolation !== "process") {
+      if (body.settings !== null && found.isolation !== "process") {
         throw new HttpError(409, "runner pods run Sessions as processes");
       }
 
-      environments.templateConfig.set(id, settings);
+      const settings = byTemplate.set(id, body.settings);
 
       for (const environment of environments.list()) {
         if (environment.templateId === id) {
@@ -196,9 +163,7 @@ export const server = defineServer(kubernetes, (context) => {
   );
 
   routes.get("environments/:id", { auth: "person" }, ({ caller, params }) => {
-    const environment = environments
-      .list()
-      .find((each) => each.id === params.id);
+    const environment = environments.get(params.id);
 
     if (
       environment === undefined ||
@@ -210,11 +175,11 @@ export const server = defineServer(kubernetes, (context) => {
     return answer(settingsOf(environment), false, environment.id);
   });
 
-  provide.runners({
+  const runners = provide.runners({
     kind: { label: "Kubernetes", icon: "cloud" },
     starts: (environment) =>
       startsPods && settingsOf(environment) !== undefined,
-    replacesServerRunner: () => startsPods,
+    replacesServerRunner: startsPods,
   });
 
   if (api === undefined || image === undefined || runnerUrl === undefined) {
@@ -231,6 +196,7 @@ export const server = defineServer(kubernetes, (context) => {
   let imageId: string | undefined;
 
   const pods: Pods = {
+    runners,
     cluster,
     image,
     imagePullPolicy,
@@ -323,7 +289,7 @@ async function reconcile(
   const removed = new Set(removing.map(({ pod }) => pod.name));
 
   for (const { pod, reason, problem } of removing) {
-    context.environments.revokeRunner(pod.environmentId, pod.name);
+    pods.runners.revoke(pod.environmentId, pod.name);
 
     // One pod the API won't delete holds back no other Environment.
     try {
@@ -382,7 +348,7 @@ async function reconcile(
       continue;
     }
 
-    context.environments.revokeRunner(secret.environmentId, secret.name);
+    pods.runners.revoke(secret.environmentId, secret.name);
     await pods.cluster.deleteSecret(secret.name);
 
     context.log("runner secret removed", {
@@ -525,7 +491,7 @@ async function scale(
   // made again there.
   const joining = active.filter(({ name }) => !online.has(name)).length;
 
-  const unplaced = context.environments
+  const unplaced = pods.runners
     .unplaced(environmentId)
     .filter(
       (session) => session.runner === null || movable(session.workspace),
@@ -539,7 +505,7 @@ async function scale(
 
   for (let i = 0; i < starting; i++) {
     const name = `pi-runner-${randomBytes(4).toString("hex")}`;
-    await startPod(context, pods, environment, settings, name);
+    await startPod(pods, environment, settings, name);
     context.log("runner pod started", { environmentId, pod: name, unplaced });
   }
 
@@ -560,7 +526,7 @@ async function scaleSessions(
   const running = new Set(active.map(({ name }) => name));
   let started = 0;
 
-  for (const session of context.environments.unplaced(environment.id)) {
+  for (const session of pods.runners.unplaced(environment.id)) {
     const name = sessionPodName(session.id);
     if (running.has(name) || started >= room || waiting(name)) {
       continue;
@@ -570,7 +536,7 @@ async function scaleSessions(
       sessionClaim(session.id, environment.id, settings),
     );
 
-    await startPod(context, pods, environment, settings, name, session.id);
+    await startPod(pods, environment, settings, name, session.id);
     started++;
 
     context.log("session pod started", {
@@ -584,8 +550,14 @@ async function scaleSessions(
 }
 
 async function startPod(
-  context: Context,
-  { cluster, image, imagePullPolicy, server: serverUrl, variables }: Pods,
+  {
+    runners,
+    cluster,
+    image,
+    imagePullPolicy,
+    server: serverUrl,
+    variables,
+  }: Pods,
   environment: Environment,
   settings: KubernetesSettings,
   name: string,
@@ -595,7 +567,7 @@ async function startPod(
   await cluster.deleteSecret(name);
 
   await cluster.createSecret(name, environment.id, {
-    token: context.environments.runnerToken(environment.id, name),
+    token: runners.token(environment.id, name),
   });
 
   try {
@@ -613,7 +585,7 @@ async function startPod(
       }),
     );
   } catch (error) {
-    context.environments.revokeRunner(environment.id, name);
+    runners.revoke(environment.id, name);
     await cluster.deleteSecret(name);
     throw error;
   }

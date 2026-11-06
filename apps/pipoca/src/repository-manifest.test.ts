@@ -201,7 +201,7 @@ test("imports the templates a repository's pipoca.json lists and follows the rep
         image: "golang:1.25",
         setupScript: "go install golang.org/x/tools/gopls@latest",
         variables: { CGO_ENABLED: "0" },
-        aliases: { models: { fast: ["openai/gpt-5-mini"] } },
+        models: { aliases: { models: { fast: ["openai/gpt-5-mini"] } } },
       }),
     },
     "platform",
@@ -227,7 +227,6 @@ test("imports the templates a repository's pipoca.json lists and follows the rep
     isolation: "container",
     image: "golang:1.25",
     variables: { CGO_ENABLED: "0" },
-    aliases: { models: { fast: ["openai/gpt-5-mini"] } },
     source: { url, path: "environments/go.json" },
   });
 

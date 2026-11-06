@@ -44,24 +44,3 @@ export const defaultSettings: KubernetesSettings = {
   storageClass: null,
   podPatch: {},
 };
-
-// A setting the change leaves out takes its default.
-export function settingsFrom(
-  change: Partial<KubernetesSettings>,
-): KubernetesSettings | string {
-  const settings = { ...defaultSettings, ...change };
-
-  if (!/^\d+(Ki|Mi|Gi|Ti)$/.test(settings.claimSize)) {
-    return "claimSize must be a size such as 10Gi";
-  }
-
-  return {
-    workspace: settings.workspace,
-    capacity: settings.capacity,
-    maxPods: settings.maxPods,
-    idleSeconds: settings.idleSeconds,
-    claimSize: settings.claimSize,
-    storageClass: settings.storageClass,
-    podPatch: settings.podPatch,
-  };
-}

@@ -14,7 +14,7 @@ const pods = defineServer(
     provide.runners({
       kind: { label: "Pods", icon: "cloud" },
       starts: () => true,
-      replacesServerRunner: () => true,
+      replacesServerRunner: true,
     });
   },
 );
@@ -121,9 +121,6 @@ const broken = defineServer(
       starts: () => {
         throw new Error("can't tell");
       },
-      replacesServerRunner: () => {
-        throw new Error("can't tell either");
-      },
     });
   },
 );
@@ -154,10 +151,6 @@ test("a runner plugin whose checks throw counts as starting nothing, and the nex
 
     expect(logs).toContain(
       'the server\'s own runner is off, since a plugin replaces it {"runner":"server"}',
-    );
-
-    expect(logs).toContain(
-      'plugin call failed {"plugin":"broken","call":"replacesServerRunner","error":"can\'t tell either"}',
     );
 
     expect(logs).toContain(

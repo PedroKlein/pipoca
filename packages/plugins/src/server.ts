@@ -441,20 +441,31 @@ export interface PluginConfig<P extends PluginDefinition = PluginDefinition> {
 
 export interface PluginEnvironments {
   readonly list: () => readonly Environment[];
+  readonly get: (id: string) => Environment | undefined;
   readonly templates: () => readonly EnvironmentTemplate[];
+  // The plugin's key in a template's entry in pipoca.json, such as its pod
+  // settings, with the schema's defaults filled. A key that doesn't fit is
+  // logged and read as none; set throws when the value doesn't fit or no
+  // template has the id.
+  readonly templateConfig: <const S extends TSchema>(
+    schema: S,
+  ) => TemplateConfig<Static<S>>;
+}
+
+export interface TemplateConfig<T> {
+  readonly get: (templateId: string) => T | undefined;
+  readonly set: (templateId: string, value: unknown) => T | undefined;
+}
+
+// What a plugin that starts runners does with them.
+export interface Runners {
   // Sessions no online runner in the pool can take now: queued ones beyond
   // the room its runners have, and ones held by a runner that went away.
   readonly unplaced: (environmentId: string) => readonly Session[];
   // The token a runner the plugin starts polls with. It lasts until revoked,
   // and a new Environment key leaves it be.
-  readonly runnerToken: (environmentId: string, runner: string) => string;
-  readonly revokeRunner: (environmentId: string, runner: string) => void;
-  // The plugin's key in a template's entry in pipoca.json, such as its pod
-  // settings. Set throws when no template has the id.
-  readonly templateConfig: {
-    readonly get: (templateId: string) => unknown;
-    readonly set: (templateId: string, value: unknown) => void;
-  };
+  readonly token: (environmentId: string, runner: string) => string;
+  readonly revoke: (environmentId: string, runner: string) => void;
 }
 
 // The plugin that starts runners for an Environment when its Sessions need
@@ -465,7 +476,7 @@ export interface RunnerProvider {
   readonly starts: (environment: RunnerSource) => boolean;
   // The server then runs no runner of its own, such as in a cluster where
   // its Sessions would share the server's files.
-  readonly replacesServerRunner?: () => boolean;
+  readonly replacesServerRunner?: boolean;
 }
 
 // What a plugin needs to start runners on the server's own machine. Read it
@@ -524,7 +535,7 @@ export interface PluginProfiles {
 }
 
 export interface Providers {
-  readonly runners: (provider: RunnerProvider) => void;
+  readonly runners: (provider: RunnerProvider) => Runners;
   readonly runtime: () => Runtime;
   readonly models: (offer: ModelOffer) => void;
   // One plugin per server signs people in without a password.

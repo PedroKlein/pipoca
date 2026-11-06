@@ -625,7 +625,7 @@ export function routinesEngine(context: Context): Routines {
 
     if (
       target.environment !== undefined &&
-      !context.environments.list().some(({ id }) => id === target.environment)
+      context.environments.get(target.environment) === undefined
     ) {
       end(run, "blocked", `no Environment ${target.environment}`);
 

@@ -14,7 +14,7 @@ import {
   type WorkPoll,
 } from "@pipoca/protocol";
 import { definePlugin, defineServer } from "@pipoca/plugins";
-import type { PluginEnvironments } from "@pipoca/plugins/host";
+import type { Runners } from "@pipoca/plugins";
 import { readSse } from "@pipoca/protocol";
 import { runnerCredentials } from "./testdata/runners";
 import { json, testServer, type TestServer } from "./testdata/harness";
@@ -24,12 +24,15 @@ const leaseMs = 200;
 let server: TestServer;
 let runners: ReturnType<typeof runnerCredentials>;
 
-let machines: PluginEnvironments | undefined;
+let machines: Runners | undefined;
 
 const machinesPart = defineServer(
   definePlugin({ id: "machines", title: "Machines", description: "" }),
-  ({ environments }) => {
-    machines = environments;
+  ({ provide }) => {
+    machines = provide.runners({
+      kind: { label: "Machines", icon: "cloud" },
+      starts: () => false,
+    });
   },
 );
 
@@ -846,11 +849,11 @@ test("gives no work to a runner revoked while it waited for some", async () => {
   await runners.key("pods");
 
   const id = await environmentId("pods");
-  const token = machines?.runnerToken(id, "pod-1");
+  const token = machines?.token(id, "pod-1");
   const waited = asRunner(token, "/runner/work", emptyPoll);
 
   await sleep(100);
-  machines?.revokeRunner(id, "pod-1");
+  machines?.revoke(id, "pod-1");
 
   await server.api("/api/sessions", {
     body: {
