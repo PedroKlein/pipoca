@@ -8,6 +8,7 @@ import {
   type Command,
   type Environment,
   readSse,
+  readSseEvents,
   type Session,
   type ToolResult,
 } from "@pipoca/protocol";
@@ -131,10 +132,13 @@ async function received(
   token: string,
   { sessionId, generation }: Assignment,
   count: number,
+  ack?: string,
 ): Promise<readonly Command[]> {
+  const acked = ack === undefined ? "" : `&ack=${ack}`;
+
   const stream = await fetch(
     new URL(
-      `/runner/sessions/${sessionId}/commands?generation=${String(generation)}`,
+      `/runner/sessions/${sessionId}/commands?generation=${String(generation)}${acked}`,
       server.url,
     ),
     { headers: runnerHeaders(token) },
@@ -278,16 +282,23 @@ test("loses nothing sent to a host whose stream falls behind, and sends the rest
     );
 
   const first: unknown[] = [];
+  let taken: string | undefined;
 
   try {
-    for await (const command of readSse(behind, 3000)) {
-      first.push(command);
+    for await (const { id, data } of readSseEvents(behind, 3000)) {
+      first.push(data);
+      taken = id;
     }
   } catch {
     // The stream ends when it falls behind.
   }
 
-  const rest = await received(token, assigned, sent.length - first.length);
+  const rest = await received(
+    token,
+    assigned,
+    sent.length - first.length,
+    taken,
+  );
 
   expect([...texts(first), ...texts(rest)]).toEqual(sent);
 });

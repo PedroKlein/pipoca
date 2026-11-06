@@ -168,10 +168,11 @@ create table session_messages (
   check ((kind = 'notice') = (plugin is not null and notice is not null))
 ) strict, without rowid;
 
--- What plugins and the kernel send a Session, kept until its host takes it.
--- Ids are UUIDv7, so id order is send order.
+-- What plugins and the kernel send a Session, kept until its host
+-- acknowledges the seq, which never repeats. A message with a dedupe key
+-- stays a while after that, acked, so a repeat is still a no-op.
 create table session_outbox (
-  id text primary key,
+  seq integer primary key autoincrement,
   session_id text not null references sessions (id) on delete cascade,
   plugin text,
   actor text not null check (actor like 'user:_%' or actor like 'session:_%' or actor like 'plugin:_%'),
@@ -183,13 +184,17 @@ create table session_outbox (
   payload text check (payload is null or json_valid(payload)),
   dedupe text,
   created_at integer not null,
-  unique (session_id, plugin, dedupe),
+  sent_at integer,
+  acked_at integer,
   check ((kind = 'tool_result') = (generation is not null and payload is not null)),
   check ((kind = 'tool_result') = (text is null)),
   check ((kind = 'notice') = (notice is not null)),
-  check (kind <> 'notice' or plugin is not null)
+  check (kind <> 'notice' or plugin is not null),
+  check (acked_at is null or (sent_at is not null and dedupe is not null))
 ) strict;
-create index session_outbox_session on session_outbox (session_id, id);
+create index session_outbox_session on session_outbox (session_id, seq) where acked_at is null;
+-- The kernel's own sends have no plugin, and SQLite tells NULLs apart.
+create unique index session_outbox_dedupe on session_outbox (session_id, coalesce(plugin, ''), dedupe) where dedupe is not null;
 
 -- An external thread a plugin follows, such as a Slack thread, and the
 -- Session it talks to.

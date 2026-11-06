@@ -705,3 +705,49 @@ test("keeps who said what in a Session as an actor, once per request", () => {
 
   db.close();
 });
+
+test("holds the kernel's dedupe keys as it holds a plugin's, until they expire", () => {
+  const store = openStore(join(root, "server.db"));
+
+  store.environments.ensureEnvironment("vm", "team");
+  const [environment] = store.environments.environments();
+  defaultProfile = store.sessions.defaultProfileId("local");
+
+  store.sessions.insert(
+    sessionIn(environment?.id ?? "", "vm", {
+      id: "s1",
+      createdAt: "2026-11-02T00:00:00.000Z",
+    }),
+  );
+
+  const { outbox } = store.sessions;
+
+  const add = (keysSince: number): boolean =>
+    outbox.add(
+      {
+        kind: "context",
+        text: "Checks failed",
+        sessionId: "s1",
+        plugin: null,
+        actor: "plugin:kernel",
+        dedupe: "pr-1",
+        createdAt: 100,
+      },
+      keysSince,
+    );
+
+  const added = [add(0), add(0)];
+  const first = outbox.after("s1", 0)?.seq ?? 0;
+
+  outbox.sent(first, 200);
+  outbox.acked("s1", first, 300);
+
+  const taken = [add(300), outbox.after("s1", 0)];
+
+  expect(added).toEqual([true, false]);
+  expect(taken).toEqual([false, undefined]);
+  expect(add(301)).toBe(true);
+  expect(outbox.after("s1", 0)?.seq).toBeGreaterThan(first);
+
+  store.close();
+});

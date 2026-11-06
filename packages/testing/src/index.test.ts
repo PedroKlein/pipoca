@@ -142,6 +142,50 @@ test("a restart keeps what waits for an offline Session, and what is scheduled",
   expect(session.queued()).toEqual([]);
 });
 
+const notes = defineServer(
+  definePlugin({ id: "notes", title: "Notes", description: "Notes once." }),
+  ({ routes, sessions }) => {
+    routes.post(
+      "notes",
+      {
+        auth: "person",
+        body: Type.Object({ session: Type.String(), key: Type.String() }),
+      },
+      ({ body }) => ({
+        sent: sessions.send(body.session, {
+          text: `About ${body.key}.`,
+          turn: false,
+          dedupe: body.key,
+        }),
+      }),
+    );
+  },
+);
+
+test("a repeat send with a dedupe key is a no-op also after the first was delivered", async () => {
+  const t = await started(notes, { people });
+  const session = await t.session({ owner: person("ana") });
+
+  const note = async (key: string) =>
+    t.as("ana").post("notes", { session: session.id, key });
+
+  await note("pr-1");
+  await until(() => session.delivered().length === 1);
+  await t.restart();
+  await note("pr-1");
+  await note("pr-2");
+
+  expect(
+    await until(
+      () => session.delivered(),
+      (delivered) => delivered.length === 2,
+    ),
+  ).toEqual([
+    { text: "About pr-1.", turn: false },
+    { text: "About pr-2.", turn: false },
+  ]);
+});
+
 const rung: string[] = [];
 
 // Rings at a time a person picks.

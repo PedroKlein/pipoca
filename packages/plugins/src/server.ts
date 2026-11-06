@@ -330,8 +330,8 @@ export interface Sessions {
       readonly turn: boolean;
       readonly as?: Actor;
       readonly notice?: { readonly kind: string; readonly data?: unknown };
-      // A repeat with the key of a message still queued for the Session is
-      // a no-op. Once that one is delivered, the key sends again.
+      // A repeat with the key of a message queued for the Session, or
+      // delivered in the last day, is a no-op.
       readonly dedupe?: string;
     },
   ) => "queued" | "gone";

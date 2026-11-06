@@ -133,25 +133,7 @@ test("stops an attempt the server fenced without failing its live events", async
 
   const stream = httpSessionStream(
     server.url.href,
-    {
-      token: "pct_test",
-      sessionId: "s1",
-      generation: 1,
-      profile: { id: "profile-1", hash: "h1" },
-      trusted: null,
-      workspace: { kind: "folder", path: tmpdir() },
-      model: null,
-      thinking: null,
-      systemPrompt: null,
-      firstMessage: null,
-      plugins: [],
-      environment: {
-        isolation: "process",
-        image: null,
-        setupScript: "",
-        variables: {},
-      },
-    },
+    assignment,
     () => undefined,
     () => {
       fences += 1;
@@ -166,3 +148,81 @@ test("stops an attempt the server fenced without failing its live events", async
 
   expect(fences).toBe(1);
 });
+
+test("takes a command the server sends again once, and acknowledges what it took", async () => {
+  const opened: (string | null)[] = [];
+  const acked: unknown[] = [];
+
+  const events = (seqs: readonly number[]): string =>
+    seqs
+      .map(
+        (seq) =>
+          `id: ${String(seq)}\ndata: ${JSON.stringify(context(seq))}\n\n`,
+      )
+      .join("");
+
+  const server = Bun.serve({
+    port: 0,
+    fetch: async (request) => {
+      const url = new URL(request.url);
+
+      if (url.pathname.endsWith("/acks")) {
+        acked.push(await request.json());
+
+        return new Response(null, { status: 204 });
+      }
+
+      opened.push(url.searchParams.get("ack"));
+
+      return new Response(events(opened.length === 1 ? [1, 2] : [2, 3]), {
+        headers: { "content-type": "text/event-stream" },
+      });
+    },
+  });
+
+  const taken: unknown[] = [];
+
+  const stop = httpSessionStream(
+    server.url.href,
+    assignment,
+    () => undefined,
+    () => undefined,
+  ).commands((command) => {
+    taken.push(command);
+  });
+
+  try {
+    await until(() => opened.length > 2 && acked.length > 1);
+  } finally {
+    stop();
+    await server.stop(true);
+  }
+
+  expect(taken).toEqual([context(1), context(2), context(3)]);
+  expect(opened.slice(0, 3)).toEqual([null, "2", "3"]);
+  expect(acked).toContainEqual({ generation: 1, seq: 3 });
+});
+
+const assignment = {
+  token: "pct_test",
+  sessionId: "s1",
+  generation: 1,
+  profile: { id: "profile-1", hash: "h1" },
+  trusted: null,
+  workspace: { kind: "folder", path: tmpdir() },
+  model: null,
+  thinking: null,
+  systemPrompt: null,
+  firstMessage: null,
+  plugins: [],
+  environment: {
+    isolation: "process",
+    image: null,
+    setupScript: "",
+    variables: {},
+  },
+} as const;
+
+function context(seq: number): object {
+  return { actor: "plugin:p", type: "context", text: String(seq) };
+}

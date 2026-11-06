@@ -147,13 +147,13 @@ export function runnerRoutes({
 
       return undefined;
     },
-    "runner.commands": ({ params: { id }, query: { generation } }) => {
+    "runner.commands": ({ params: { id }, query: { generation, ack } }) => {
       // Commands held for the Session arrive while it attaches, before the
       // stream opens.
-      const early: Command[] = [];
+      const early: [Command, number | undefined][] = [];
 
-      let send = (command: Command): boolean => {
-        early.push(command);
+      let send = (command: Command, seq?: number): boolean => {
+        early.push([command, seq]);
 
         return true;
       };
@@ -164,23 +164,31 @@ export function runnerRoutes({
         sessions.attach(
           id,
           generation,
-          (command) => send(command),
+          (command, seq) => send(command, seq),
           () => {
             end();
           },
+          ack,
         ),
       );
 
       return sseResponse((sendEvent, endStream) => {
-        send = sendEvent;
+        send = (command, seq) =>
+          sendEvent(command, seq === undefined ? undefined : String(seq));
+
         end = endStream;
 
-        early.forEach((command) => {
-          sendEvent(command);
+        early.forEach(([command, seq]) => {
+          send(command, seq);
         });
 
         return stop;
       });
+    },
+    "runner.acks.create": ({ params: { id }, body: { generation, seq } }) => {
+      ok(sessions.ack(id, generation, seq));
+
+      return undefined;
     },
     "runner.tools": ({ params: { id }, query }) => {
       current(id, query.generation);

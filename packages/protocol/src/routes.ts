@@ -1079,12 +1079,25 @@ export const routes = {
     body: livePost,
     status: 204,
   },
+  // ack: the last sequence the host took, when it opens the stream again.
   "runner.commands": {
     method: "GET",
     path: "/runner/sessions/:id/commands",
     auth: "session",
-    query: generation,
+    query: Type.Object({
+      generation: Type.Integer(),
+      ack: Type.Optional(Type.Integer()),
+    }),
     response: "stream",
+  },
+  // The host took every command up to this sequence, so the server forgets
+  // them.
+  "runner.acks.create": {
+    method: "POST",
+    path: "/runner/sessions/:id/acks",
+    auth: "session",
+    body: Type.Object({ generation: Type.Integer(), seq: Type.Integer() }),
+    status: 204,
   },
   "runner.tools": {
     method: "GET",
