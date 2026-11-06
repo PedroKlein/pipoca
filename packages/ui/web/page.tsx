@@ -52,7 +52,7 @@ export function Page({
   );
 }
 
-export function PageTitle({
+function PageTitle({
   children,
   description,
   actions,

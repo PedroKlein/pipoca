@@ -87,11 +87,11 @@ The function runs once, synchronously, when the plugin starts. What it gets:
 
 ```tsx
 import { defineWeb, useApi } from "@pipoca/plugins/web";
-import { Button, PageTitle } from "@pipoca/ui";
+import { Button, Page } from "@pipoca/ui";
 import { useState } from "react";
 import { greeter } from "../plugin";
 
-function Page() {
+function Greeter() {
   const api = useApi(greeter);
   const [greeting, setGreeting] = useState("");
 
@@ -102,22 +102,22 @@ function Page() {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-8">
-      <PageTitle description="An example plugin.">Greeter</PageTitle>
+    <Page title="Greeter" description="An example plugin." className="gap-4">
       <Button onClick={() => void greet()}>Greet me</Button>
       <p>{greeting}</p>
-    </div>
+    </Page>
   );
 }
 
 export const web = defineWeb(greeter, {
-  pages: [{ path: "", label: "Greeter", Page, nav: {} }],
+  pages: [{ path: "", label: "Greeter", Page: Greeter, nav: {} }],
   settings: { group: "server", form: "auto" },
 });
 ```
 
 - `pages` are the plugin's pages, under `#plugin/<id>/<path>`. `nav` puts one in the sidebar, and `area` puts it on the team hub or in Team setup instead. `href(plugin, path)` links to one.
 - `settings` is its section on the Settings page: `form: "auto"` draws a form from its config, or give your own `Section`.
+- A page or `Section` puts its title, description and actions in `Page` from `@pipoca/ui`. Inside the app's own column it draws only those and its content.
 - `setup` adds steps to the first-run setup, each with `done(api)` and a `Step` component.
 - `slots` fills places the app draws in: `session.composer`, `session.header`, `session.toolCall:<tool>`, `notice:<kind>`, `link:<scheme>`, `home`, `environment.section`, `template.section` and `settings.general`, `settings.accounts` and `settings.profile`.
 - `panels` are panels admins lay out on the team hub, `sessionPath` is where a Session the plugin owns opens, and `repositories` adds to what New Session offers.

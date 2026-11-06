@@ -22,7 +22,7 @@ export {
   useConfirm,
 } from "./dialog";
 export { EmptyState, ErrorText, Notice, Spinner } from "./feedback";
-export { Field, fieldClass } from "./field";
+export { Field } from "./field";
 export { FileButton } from "./file-button";
 export { Icon, type IconName, isIconName } from "./icon";
 export { initialsOf, plural } from "./initials";
@@ -31,7 +31,7 @@ export { isComposing } from "./keys";
 export { type KeyValue, KeyValues } from "./key-values";
 export { ListInput } from "./list-input";
 export { Menu, type MenuItem, popClass } from "./menu";
-export { Page, PageTitle, Section } from "./page";
+export { Page, Section } from "./page";
 export { Picker, type PickerOption } from "./picker";
 export { Row, Rows } from "./rows";
 export { Segmented } from "./segmented";

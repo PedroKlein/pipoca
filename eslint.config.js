@@ -260,6 +260,14 @@ export default tseslint.config(
           { selector: `TemplateElement[value.raw=/${pattern}/]`, message },
         ]),
         {
+          selector: "Identifier[name='fieldClass']",
+          message: "Use TextInput, TextArea or Select from @pipoca/ui.",
+        },
+        {
+          selector: "Identifier[name='PageTitle']",
+          message: "Give Page from @pipoca/ui its title and actions.",
+        },
+        {
           selector: "JSXOpeningElement[name.name='select']",
           message: "Use Select from @pipoca/ui.",
         },
@@ -277,7 +285,11 @@ export default tseslint.config(
   },
   {
     // The app asks with useConfirm and shows errors in the page.
-    files: ["apps/web/src/**/*.tsx", "packages/ui/web/**/*.tsx"],
+    files: [
+      "apps/web/src/**/*.tsx",
+      "packages/ui/web/**/*.tsx",
+      "plugins/*/web/**/*.tsx",
+    ],
     rules: {
       "no-alert": "error",
     },
