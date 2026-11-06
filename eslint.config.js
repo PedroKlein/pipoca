@@ -138,8 +138,6 @@ export default tseslint.config(
       "plugins/logins/src/locks.ts",
       "plugins/oidc/src/oidc.ts",
       "plugins/push/src/server.ts",
-      "plugins/routines/src/engine.ts",
-      "plugins/routines/src/wakeups.ts",
     ],
     rules: {
       "no-restricted-globals": [

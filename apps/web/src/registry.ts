@@ -11,7 +11,7 @@ import { web as modelsWeb } from "../../../plugins/models/web/index";
 import * as oidcWeb from "../../../plugins/oidc/web/index";
 import { web as projectsWeb } from "../../../plugins/projects/web/index";
 import * as pushWeb from "../../../plugins/push/web/index";
-import * as routinesWeb from "../../../plugins/routines/web/index";
+import { web as routinesWeb } from "../../../plugins/routines/web/index";
 import { web as slackWeb } from "../../../plugins/slack/web/index";
 import { web as subagentsWeb } from "../../../plugins/subagents/web/index";
 import * as usageWeb from "../../../plugins/usage/web/index";
@@ -29,7 +29,7 @@ export const webRegistry = [
   { id: "oidc", plugin: oidcWeb },
   { id: "projects", web: projectsWeb },
   { id: "push", plugin: pushWeb },
-  { id: "routines", plugin: routinesWeb },
+  { id: "routines", web: routinesWeb },
   { id: "slack", web: slackWeb },
   { id: "subagents", web: subagentsWeb },
   { id: "usage", plugin: usageWeb },
