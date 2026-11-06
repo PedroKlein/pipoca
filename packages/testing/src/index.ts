@@ -10,6 +10,7 @@ import {
   owners,
   type PluginDefinition,
   type SessionCloud,
+  type SessionLogins,
   type SessionPart,
   type SessionPlugin,
   type Store,
@@ -74,6 +75,13 @@ export interface TestSession {
   readonly environmentId: string;
   // The plugin's routes, called as its Session part calls them.
   readonly api: TypedClient;
+  // The same, as a Session part's cloud request takes a path and init.
+  readonly request: (
+    path: string,
+    init?: RequestInit,
+    // Another plugin of the test's, by id.
+    plugin?: string,
+  ) => Promise<Response>;
   // Connects or drops its host. Connected, it has taken what the outbox
   // held once this settles.
   readonly online: (on: boolean) => Promise<void>;
@@ -83,6 +91,9 @@ export interface TestSession {
     readonly notice?: unknown;
   }[];
   readonly queued: () => readonly { readonly text: string }[];
+  // Live events its host reports, such as a status or a prompt, which the
+  // kernel acts on as it would a runner's.
+  readonly report: (events: readonly unknown[]) => Promise<void>;
   // What its runner signed git in with when it last took the Session.
   readonly gitLogins: () => readonly GitLogin[];
   // A person's message to Pi, as one of the test's people sends it. It has
@@ -138,6 +149,8 @@ export interface PluginTest {
     readonly startedBy?: string;
     readonly key?: string;
     readonly plugin?: string;
+    // A Profile of the starter's, by id, in place of their default.
+    readonly profile?: string;
     readonly actsAs?: ActsAs;
     // A folder of the test's own unless it says.
     readonly workspace?: WorkspaceRequest;
@@ -197,6 +210,10 @@ export function person(id: string): Owner {
 export interface SessionTest {
   readonly tool: (name: string, input: unknown) => Promise<ToolAnswer>;
   readonly published: (key: string) => unknown;
+  // What the part pointed a model provider at, by its name.
+  readonly provider: (name: string) => unknown;
+  // The logins the part keeps for Pi, if it provides them.
+  readonly modelCredentials: () => Promise<SessionLogins | undefined>;
 }
 
 export type SessionFakes = Partial<SessionCloud> & {
@@ -218,7 +235,9 @@ export async function testSession(
   };
 
   const published = new Map<string, unknown>();
+  const providers = new Map<string, unknown>();
   const tools: ToolDefinition[] = [];
+  let modelCredentials: (() => Promise<SessionLogins>) | undefined;
 
   const given: SessionCloud = {
     askQuestions: notFaked("askQuestions"),
@@ -240,6 +259,9 @@ export async function testSession(
       tools.push(tool);
     },
     registerCommand: () => undefined,
+    registerProvider: (name: string, config: unknown) => {
+      providers.set(name, config);
+    },
     on: () => undefined,
   };
 
@@ -256,7 +278,9 @@ export async function testSession(
       timer: systemTimer,
     };
 
-    const { tools: direct, extensions } = await setUpPart(plugin, host);
+    const set = await setUpPart(plugin, host);
+    const { tools: direct, extensions } = set;
+    modelCredentials = set.modelCredentials;
 
     for (const extension of extensions) {
       if ("factory" in extension) {
@@ -311,5 +335,7 @@ export async function testSession(
       }
     },
     published: (key) => published.get(key),
+    provider: (named) => providers.get(named),
+    modelCredentials: async () => modelCredentials?.(),
   };
 }

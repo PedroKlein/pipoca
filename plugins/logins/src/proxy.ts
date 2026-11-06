@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { PluginStore } from "@pipoca/plugins";
+import type { Store } from "@pipoca/plugins";
 import type { Clock } from "@pipoca/protocol";
 
 // Where a provider's requests go, and how its key travels: the proxy
@@ -55,7 +55,7 @@ export interface ProxyTokens {
   readonly sessionOf: (token: string) => string | undefined;
 }
 
-export function proxyTokens(store: PluginStore, clock: Clock): ProxyTokens {
+export function proxyTokens(store: Store, clock: Clock): ProxyTokens {
   return {
     issue: (sessionId) => {
       const token = `ppx_${randomBytes(24).toString("base64url")}`;
@@ -69,14 +69,11 @@ export function proxyTokens(store: PluginStore, clock: Clock): ProxyTokens {
 
       return token;
     },
-    sessionOf: (token) => {
-      const [row] = store.all(
+    sessionOf: (token) =>
+      store.get<{ session_id: string }>(
         "select session_id from logins_proxy_tokens where token_hash = ?",
         hash(token),
-      ) as { session_id: string }[];
-
-      return row?.session_id;
-    },
+      )?.session_id,
   };
 }
 

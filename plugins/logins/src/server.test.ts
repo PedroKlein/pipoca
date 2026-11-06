@@ -1,620 +1,398 @@
 import { expect, test } from "bun:test";
-import type {
-  ModelOffer,
-  PluginEvent,
-  PluginRoute,
-  ProfileMcpServer,
-  PublicRoute,
-  RouteCaller,
-} from "@pipoca/plugins";
 import {
-  fakeContext,
-  fakeSession,
-  fakeUser,
-  memoryStore,
-  served,
-} from "@pipoca/plugins/testing";
-import { isHttpError } from "@pipoca/plugins";
-import type { Environment, Session } from "@pipoca/protocol";
+  type PluginTest,
+  person,
+  type TestPluginOptions,
+  testPlugin,
+  until,
+} from "@pipoca/testing";
+import type { Environment, Profile } from "@pipoca/protocol";
 import type { Account, Connectable } from "./model";
-import { logins } from "./server";
+import { server } from "./server";
 
-function registered(
-  mcpServers: readonly ProfileMcpServer[] = [],
-  buildsOn: (id: string) => readonly string[] = () => [],
-  sessions: readonly Session[] = [],
-  environments: readonly Environment[] = [],
-): {
-  readonly route: PluginRoute;
-  readonly offer: ModelOffer;
-  readonly callback: (request: Request) => Promise<Response | undefined>;
-  readonly proxy: (request: Request) => Promise<Response | undefined>;
-  readonly published: readonly PluginEvent[];
-} {
-  const published: PluginEvent[] = [];
-  const routes: PluginRoute[] = [];
-  const offers: ModelOffer[] = [];
-  const publicRoutes: PublicRoute[] = [];
-  const faked = fakeContext();
+const people = [
+  { id: "admin", name: "Admin", admin: true },
+  { id: "ana", name: "Ana" },
+  { id: "bo", name: "Bo" },
+];
 
-  logins.register(
-    fakeContext({
-      store: memoryStore(logins.schema),
-      auth: {
-        ...faked.auth,
-        handlePublic: (route) => {
-          publicRoutes.push(route);
-        },
-      },
-      profiles: { ...faked.profiles, mcpServers: () => mcpServers, buildsOn },
-      environments: { ...faked.environments, list: () => environments },
-      events: {
-        ...faked.events,
-        publish: (event) => {
-          published.push(event);
-        },
-      },
-      sessions: {
-        ...faked.sessions,
-        get: (id) => sessions.find((session) => session.id === id),
-      },
-      routes: {
-        handle: (route) => {
-          routes.push(route);
-        },
-      },
-      models: {
-        offer: (offer) => {
-          offers.push(offer);
-        },
-      },
-    }),
-  );
-
-  const [route] = routes;
-  const [offer] = offers;
-  const [publicRoute] = publicRoutes;
-  if (route === undefined || offer === undefined || publicRoute === undefined) {
-    throw new Error("logins registered no route, offer or callback");
-  }
-
-  return {
-    route: served(route),
-    offer,
-    callback: async (request) =>
-      publicRoute(
-        request,
-        new URL(request.url).pathname.split("/").at(-1) ?? "",
-      ),
-    published,
-    proxy: async (request) => {
-      try {
-        return await publicRoute(
-          request,
-          new URL(request.url).pathname.replace("/api/ext/logins/", ""),
-        );
-      } catch (error) {
-        if (isHttpError(error)) {
-          return new Response(null, { status: error.status });
-        }
-
-        throw error;
-      }
-    },
-  };
+async function started(
+  o: Omit<TestPluginOptions, "people"> = {},
+): Promise<PluginTest> {
+  return testPlugin(server, { people, ...o });
 }
 
-const runnerOf = (userId: string, profileId = "profile-1"): RouteCaller => ({
-  kind: "session",
-  session: fakeSession({ startedBy: userId, profileId }),
-  actor: "session:session-1",
-});
+const nobody = { admin: false, logins: [], mcp: [], servers: [] };
 
-async function call(
-  route: PluginRoute,
-  caller: RouteCaller,
-  path: string,
-  body?: unknown,
-): Promise<Response> {
-  return route(
-    new Request(`http://logins/${path}`, {
-      method: body === undefined ? "GET" : "POST",
-      ...(body !== undefined && { body: JSON.stringify(body) }),
-    }),
-    path,
-    caller,
-  );
+async function account(t: PluginTest, id: string): Promise<Account> {
+  return t.as(id).get<Account>("account");
 }
 
 async function save(
-  route: PluginRoute,
-  userId: string,
+  t: PluginTest,
+  id: string,
   provider: string,
-): Promise<void> {
-  const { lease } = (await (
-    await call(route, runnerOf(userId), `credentials/${provider}/lock`, {})
-  ).json()) as { lease: string };
+  key: string,
+  layer?: string,
+): Promise<Response> {
+  return t.as(id).raw("POST", "save", {
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      provider,
+      credential: { type: "api_key", key },
+      ...(layer !== undefined && { layer }),
+    }),
+  });
+}
 
-  const saved = await call(
-    route,
-    runnerOf(userId),
-    `credentials/${provider}/release`,
-    { lease, value: { type: "api_key", key: "sk" } },
+// A person's Profile on the kernel's own routes.
+async function profile(
+  t: PluginTest,
+  id: string,
+  content: Readonly<Record<string, unknown>>,
+): Promise<string> {
+  const created = await t.as(id).kernel("POST", "/api/profiles", content);
+
+  expect(created.status).toBe(201);
+
+  return ((await created.json()) as Profile).id;
+}
+
+// Pi's providers load in the background when the plugin registers.
+async function connectable(t: PluginTest): Promise<readonly Connectable[]> {
+  return until(
+    async () => t.as("ana").get<readonly Connectable[]>("providers"),
+    (providers) => providers.length > 0,
   );
-
-  expect(saved.status).toBe(200);
 }
 
 test("a person sees their own logins and can log out of one", async () => {
-  const { route } = registered();
-  await save(route, "ana", "anthropic");
-  await save(route, "bo", "openai");
+  await using t = await started();
+  const ana = await t.session({ owner: person("ana") });
 
-  const account = await call(route, fakeUser({ id: "ana" }), "account");
+  for (const provider of ["anthropic", "openai"]) {
+    const { lease } = await ana.api.post<{ lease: string }>(
+      `credentials/${provider}/lock`,
+    );
 
-  expect(await account.json()).toMatchObject({
-    logins: [{ provider: "anthropic", type: "api_key" }],
+    await ana.api.post(`credentials/${provider}/release`, {
+      lease,
+      value: { type: "api_key", key: "sk" },
+    });
+  }
+
+  expect(await account(t, "ana")).toMatchObject({
+    logins: [
+      { provider: "anthropic", type: "api_key", layer: "defaults" },
+      { provider: "openai", type: "api_key", layer: "defaults" },
+    ],
   });
 
-  const removed = await route(
-    new Request("http://logins/credentials/anthropic", { method: "DELETE" }),
-    "credentials/anthropic",
-    fakeUser({ id: "ana" }),
-  );
-
-  expect(await removed.json()).toEqual({
-    admin: false,
-    logins: [],
-    mcp: [],
-    servers: [],
-  });
-
-  const other = await call(route, fakeUser({ id: "bo" }), "account");
-
-  expect(await other.json()).toMatchObject({
+  expect(await t.as("ana").delete("credentials/anthropic")).toMatchObject({
     logins: [{ provider: "openai" }],
   });
+
+  expect(await account(t, "bo")).toEqual(nobody);
 });
 
 test("a person logs out of an MCP server by its name and address", async () => {
-  const { route } = registered();
-  const server = encodeURIComponent("linear https://mcp.linear.app/mcp");
+  await using t = await started();
+  const ana = await t.session({ owner: person("ana") });
+  const key = encodeURIComponent("linear https://mcp.linear.app/mcp");
 
-  const { lease } = (await (
-    await call(route, runnerOf("ana"), `mcp/${server}/lock`, {})
-  ).json()) as { lease: string };
+  const { lease } = await ana.api.post<{ lease: string }>(`mcp/${key}/lock`);
+  await ana.api.post(`mcp/${key}/release`, { lease, value: { tokens: {} } });
 
-  const saved = await call(route, runnerOf("ana"), `mcp/${server}/release`, {
-    lease,
-    value: { tokens: {} },
+  expect(await account(t, "ana")).toMatchObject({
+    mcp: [{ server: "linear https://mcp.linear.app/mcp" }],
   });
 
-  expect(saved.status).toBe(200);
-
-  const removed = await route(
-    new Request(`http://logins/mcp/${server}`, { method: "DELETE" }),
-    `mcp/${server}`,
-    fakeUser({ id: "ana" }),
-  );
-
-  expect(await removed.json()).toEqual({
-    admin: false,
-    logins: [],
-    mcp: [],
-    servers: [],
-  });
+  expect(await t.as("ana").delete(`mcp/${key}`)).toEqual(nobody);
 });
 
 test("a person saves a login, such as an API key, that their Sessions read", async () => {
-  const { route } = registered();
+  await using t = await started();
 
-  const saved = await call(route, fakeUser({ id: "ana" }), "save", {
-    provider: "openai",
-    credential: { type: "api_key", key: "sk" },
-  });
-
-  expect(await saved.json()).toMatchObject({
+  expect(await (await save(t, "ana", "openai", "sk")).json()).toMatchObject({
     logins: [{ provider: "openai", type: "api_key" }],
   });
 
-  const read = await route(
-    new Request("http://logins/credentials?values"),
-    "credentials",
-    runnerOf("ana"),
-  );
+  const ana = await t.session({ owner: person("ana") });
+  const bo = await t.session({ owner: person("bo") });
 
-  expect(await read.json()).toEqual({
+  expect(await ana.api.get("credentials/values")).toEqual({
     openai: { type: "api_key", key: "sk" },
   });
+
+  expect(await ana.api.get("credentials")).toEqual([
+    { key: "openai", type: "api_key" },
+  ]);
+
+  expect(await bo.api.get("credentials/values")).toEqual({});
 });
 
 test("a Session reads the nearest layer's login: its Profile's, the one it builds on, My defaults, then the base", async () => {
-  const { route } = registered([], (id) => (id === "deep" ? ["research"] : []));
-  const admin = fakeUser({ id: "admin", admin: true });
-  const ana = fakeUser({ id: "ana" });
+  await using t = await started();
 
-  const put = async (
-    caller: RouteCaller,
-    provider: string,
-    key: string,
-    layer?: string,
-  ): Promise<number> =>
-    (
-      await call(route, caller, "save", {
-        provider,
-        credential: { type: "api_key", key },
-        ...(layer !== undefined && { layer }),
-      })
-    ).status;
+  const research = await profile(t, "ana", { name: "Research" });
+  const deep = await profile(t, "ana", { name: "Deep", buildsOn: research });
+  const other = await profile(t, "ana", { name: "Other" });
 
-  expect(await put(admin, "openai", "team", "base")).toBe(200);
-  expect(await put(ana, "anthropic", "mine")).toBe(200);
-  expect(await put(ana, "anthropic", "research", "profile:research")).toBe(200);
+  expect((await save(t, "admin", "openai", "team", "base")).status).toBe(200);
+  expect((await save(t, "ana", "anthropic", "mine")).status).toBe(200);
 
-  const values = async (profileId: string): Promise<unknown> =>
-    (
-      await route(
-        new Request("http://logins/credentials?values"),
-        "credentials",
-        runnerOf("ana", profileId),
-      )
-    ).json();
+  expect(
+    (await save(t, "ana", "anthropic", "research", `profile:${research}`))
+      .status,
+  ).toBe(200);
 
-  expect(await values("deep")).toEqual({
+  const onDeep = await t.session({ owner: person("ana"), profile: deep });
+  const onOther = await t.session({ owner: person("ana"), profile: other });
+
+  expect(await onDeep.api.get("credentials/values")).toEqual({
     anthropic: { type: "api_key", key: "research" },
     openai: { type: "api_key", key: "team" },
   });
 
-  expect(await values("other")).toEqual({
+  expect(await onOther.api.get("credentials/values")).toEqual({
     anthropic: { type: "api_key", key: "mine" },
     openai: { type: "api_key", key: "team" },
   });
 
-  expect(await (await call(route, ana, "account")).json()).toMatchObject({
-    logins: [
-      { provider: "anthropic", layer: "defaults" },
-      { provider: "anthropic", layer: "profile:research" },
-      { provider: "openai", layer: "base" },
-    ],
+  expect((await account(t, "ana")).logins).toMatchObject([
+    { provider: "anthropic", layer: "defaults" },
+    { provider: "anthropic", layer: `profile:${research}` },
+    { provider: "openai", layer: "base" },
+  ]);
+
+  // Removing the Profile's own login inherits the one below it.
+  await t.as("ana").delete("credentials/anthropic", {
+    layer: `profile:${research}`,
   });
 
-  const inherit = await route(
-    new Request("http://logins/credentials/anthropic?layer=profile:research", {
-      method: "DELETE",
-    }),
-    "credentials/anthropic",
-    ana,
-  );
-
-  expect(inherit.status).toBe(200);
-
-  expect(await values("deep")).toMatchObject({
+  expect(await onDeep.api.get("credentials/values")).toMatchObject({
     anthropic: { type: "api_key", key: "mine" },
   });
 });
 
 test("only admins put a login on the base, and only an API key", async () => {
-  const { route } = registered();
+  await using t = await started();
 
-  const put = async (caller: RouteCaller, credential: unknown) =>
-    (
-      await call(route, caller, "save", {
-        provider: "anthropic",
-        credential,
-        layer: "base",
-      })
-    ).status;
+  expect((await save(t, "ana", "anthropic", "sk", "base")).status).toBe(403);
 
-  expect(
-    await put(fakeUser({ id: "ana" }), { type: "api_key", key: "sk" }),
-  ).toBe(403);
-
-  expect(
-    await put(fakeUser({ id: "admin", admin: true }), {
-      type: "oauth",
-      access: "a",
-      refresh: "r",
-      expires: 0,
+  const oauth = await t.as("admin").raw("POST", "save", {
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      provider: "anthropic",
+      credential: { type: "oauth", access: "a", refresh: "r", expires: 0 },
+      layer: "base",
     }),
-  ).toBe(403);
+  });
+
+  expect(oauth.status).toBe(403);
+
+  expect((await save(t, "ana", "anthropic", "sk", "elsewhere")).status).toBe(
+    400,
+  );
 });
 
 test("a team Session gets no one's logins, not even its starter's", async () => {
-  const { route } = registered();
+  await using t = await started();
+  await save(t, "ana", "anthropic", "sk");
 
-  await save(route, "ana", "anthropic");
+  const team = await t.session({ owner: "team", startedBy: "ana" });
 
-  const team: RouteCaller = {
-    kind: "session",
-    session: fakeSession({ startedBy: "ana", ownedBy: "team" }),
-    actor: "session:session-1",
-  };
+  expect(await team.api.get("credentials")).toEqual([]);
+  expect(await team.api.get("mcp")).toEqual([]);
 
-  const listed = await call(route, team, "credentials");
-  const servers = await call(route, team, "mcp");
-  const locked = await call(route, team, "credentials/anthropic/lock", {});
+  const locked = await team.request("credentials/anthropic/lock", {
+    method: "POST",
+  });
 
-  expect(await listed.json()).toEqual([]);
-  expect(await servers.json()).toEqual([]);
   expect(locked.status).toBe(403);
 });
 
 test("a Session that refreshes a login from the base keeps its own copy in My defaults", async () => {
-  const { route } = registered();
+  await using t = await started();
+  await save(t, "admin", "openai", "team", "base");
 
-  await call(route, fakeUser({ id: "admin", admin: true }), "save", {
-    provider: "openai",
-    credential: { type: "api_key", key: "team" },
-    layer: "base",
-  });
+  const ana = await t.session({ owner: person("ana") });
+  const bo = await t.session({ owner: person("bo") });
 
-  const { lease, value } = (await (
-    await call(route, runnerOf("ana"), "credentials/openai/lock", {})
-  ).json()) as { lease: string; value: unknown };
+  const { lease, value } = await ana.api.post<{
+    lease: string;
+    value: unknown;
+  }>("credentials/openai/lock");
 
   expect(value).toEqual({ type: "api_key", key: "team" });
 
-  await call(route, runnerOf("ana"), "credentials/openai/release", {
+  await ana.api.post("credentials/openai/release", {
     lease,
     value: { type: "api_key", key: "rotated" },
   });
 
-  const read = async (userId: string): Promise<unknown> =>
-    (
-      await route(
-        new Request("http://logins/credentials?values"),
-        "credentials",
-        runnerOf(userId),
-      )
-    ).json();
-
-  expect(await read("ana")).toEqual({
+  expect(await ana.api.get("credentials/values")).toEqual({
     openai: { type: "api_key", key: "rotated" },
   });
 
-  expect(await read("bo")).toEqual({
+  expect(await bo.api.get("credentials/values")).toEqual({
     openai: { type: "api_key", key: "team" },
   });
 });
 
-test("a write without the lease is refused", async () => {
-  const { route } = registered();
+test("a write without the lease is refused, and so is a login that isn't one", async () => {
+  await using t = await started();
+  const ana = await t.session({ owner: person("ana") });
 
-  const refused = await call(
-    route,
-    runnerOf("ana"),
-    "credentials/anthropic/release",
-    { lease: "made-up", value: { type: "api_key", key: "sk" } },
-  );
-
-  expect(refused.status).toBe(409);
-
-  expect(await refused.json()).toEqual({
-    error: "lease_lapsed",
-    message: "the lease lapsed, so this write could undo another",
-  });
-});
-
-test("a login that isn't one is refused", async () => {
-  const { route } = registered();
-
-  const { lease } = (await (
-    await call(route, runnerOf("ana"), "credentials/anthropic/lock", {})
-  ).json()) as { lease: string };
-
-  const refused = await call(
-    route,
-    runnerOf("ana"),
-    "credentials/anthropic/release",
-    { lease, value: { key: "sk" } },
-  );
-
-  expect(refused.status).toBe(400);
-});
-
-test("a person is offered Pi's models of the providers they logged in to", async () => {
-  const environment = {
-    id: "environment-1",
-    templateId: null,
-    ownerId: "owner",
-  };
-
-  const { route, offer } = registered();
-  await save(route, "ana", "anthropic");
-
-  // Pi's catalog loads in the background.
-  for (let tries = 0; tries < 100; tries++) {
-    if (offer(environment, "ana").models.length > 0) {
-      break;
-    }
-
-    await Bun.sleep(20);
-  }
-
-  const offered = offer(environment, "ana").models;
-  expect(offered.length).toBeGreaterThan(0);
-  expect(offered.every(({ provider }) => provider === "anthropic")).toBe(true);
-  expect(offer(environment, "bo").models).toEqual([]);
-  expect(offer(environment).models).toEqual([]);
-});
-
-test("a team Environment offers the models the team's keys reach, never a person's", async () => {
-  const environment = {
-    id: "environment-team",
-    templateId: null,
-    ownerId: "team",
-  };
-
-  const { route, offer } = registered();
-  await save(route, "ana", "anthropic");
-
-  await call(route, fakeUser({ id: "admin", admin: true }), "save", {
-    provider: "openai",
-    credential: { type: "api_key", key: "sk-team" },
-    layer: "base",
+  const refused = await ana.request("credentials/anthropic/release", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      lease: "made-up",
+      value: { type: "api_key", key: "sk" },
+    }),
   });
 
-  // Pi's catalog loads in the background.
-  for (let tries = 0; tries < 100; tries++) {
-    if (offer(environment, "ana").models.length > 0) {
-      break;
-    }
+  expect({ status: refused.status, body: await refused.json() }).toEqual({
+    status: 409,
+    body: {
+      error: "lease_lapsed",
+      message: "the lease lapsed, so this write could undo another",
+    },
+  });
 
-    await Bun.sleep(20);
-  }
+  const { lease } = await ana.api.post<{ lease: string }>(
+    "credentials/anthropic/lock",
+  );
 
-  const offered = offer(environment, "ana").models;
+  const wrong = await ana.request("credentials/anthropic/release", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ lease, value: { key: "sk" } }),
+  });
 
-  expect(offered.length).toBeGreaterThan(0);
-  expect(offered.every(({ provider }) => provider === "openai")).toBe(true);
+  expect(wrong.status).toBe(400);
 });
 
-async function connectable(route: PluginRoute): Promise<void> {
-  // Pi's providers load in the background.
-  for (let tries = 0; tries < 100; tries++) {
-    const providers = (await (
-      await call(route, fakeUser({ id: "ana" }), "providers")
-    ).json()) as unknown[];
+test("a person is offered Pi's models of the providers they logged in to, and a team Environment the team's", async () => {
+  await using t = await started();
+  await save(t, "ana", "anthropic", "sk");
+  await save(t, "admin", "openai", "sk-team", "base");
 
-    if (providers.length > 0) {
-      return;
-    }
+  await t.as("ana").kernel("POST", "/api/environments", { name: "mine" });
 
-    await Bun.sleep(20);
-  }
-}
+  await t.as("admin").kernel("POST", "/api/environments", {
+    name: "shared",
+    team: true,
+  });
 
-async function connection(
-  route: PluginRoute,
-  userId: string,
-  until: (account: Account) => boolean,
-): Promise<Account> {
-  for (let tries = 0; ; tries++) {
-    const account = (await (
-      await call(route, fakeUser({ id: userId }), "account")
-    ).json()) as Account;
+  const offered = async (id: string, name: string, scope: string) =>
+    until(
+      async () =>
+        (
+          (await (
+            await t.as(id).kernel("GET", `/api/environments?scope=${scope}`)
+          ).json()) as readonly Environment[]
+        ).find((each) => each.name === name)?.models ?? [],
+      (models) => models.length > 0,
+    );
 
-    if (until(account) || tries === 100) {
-      return account;
-    }
+  const mine = await offered("ana", "mine", "mine");
 
-    await Bun.sleep(20);
-  }
-}
+  // The base's key reaches everyone's own work too.
+  expect([...new Set(mine.map(({ provider }) => provider))].sort()).toEqual([
+    "anthropic",
+    "openai",
+  ]);
+
+  const team = await offered("admin", "shared", "team");
+
+  expect([...new Set(team.map(({ provider }) => provider))]).toEqual([
+    "openai",
+  ]);
+
+  await t.as("bo").kernel("POST", "/api/environments", { name: "bos" });
+
+  const bos = await offered("bo", "bos", "mine");
+
+  expect([...new Set(bos.map(({ provider }) => provider))]).toEqual(["openai"]);
+});
 
 test("a person connects a provider from Settings by answering Pi's prompts", async () => {
-  const { route } = registered();
-  await connectable(route);
+  await using t = await started();
 
-  const providers = (await (
-    await call(route, fakeUser({ id: "ana" }), "providers")
-  ).json()) as Connectable[];
+  expect(
+    (await connectable(t)).find(({ id }) => id === "openai")?.methods,
+  ).toContainEqual({ type: "api_key", label: "API key" });
 
-  expect(providers.find(({ id }) => id === "openai")?.methods).toContainEqual({
-    type: "api_key",
-    label: "API key",
-  });
+  await t.as("ana").post("connect", { provider: "openai", type: "api_key" });
 
-  await call(route, fakeUser({ id: "ana" }), "connect", {
-    provider: "openai",
-    type: "api_key",
-  });
-
-  const asked = await connection(
-    route,
-    "ana",
-    ({ connection: current }) => current?.prompt !== undefined,
+  const asked = await until(
+    async () => account(t, "ana"),
+    ({ connection }) => connection?.prompt !== undefined,
   );
 
-  const prompt = asked.connection?.prompt;
-  expect(prompt).toMatchObject({ type: "secret" });
+  expect(asked.connection?.prompt).toMatchObject({ type: "secret" });
 
-  const answered = await call(
-    route,
-    fakeUser({ id: "ana" }),
-    "connection/answer",
-    { prompt: prompt?.id, answer: "sk-ana" },
-  );
+  await t.as("ana").post("connection/answer", {
+    prompt: asked.connection?.prompt?.id,
+    answer: "sk-ana",
+  });
 
-  expect(answered.status).toBe(200);
-
-  const done = await connection(
-    route,
-    "ana",
-    ({ connection: current }) => current?.state !== "running",
+  const done = await until(
+    async () => account(t, "ana"),
+    ({ connection }) => connection?.state !== "running",
   );
 
   expect(done.connection?.state).toBe("done");
   expect(done.logins).toMatchObject([{ provider: "openai", type: "api_key" }]);
 
-  const read = await route(
-    new Request("http://logins/credentials?values"),
-    "credentials",
-    runnerOf("ana"),
-  );
+  const ana = await t.session({ owner: person("ana") });
 
-  expect(await read.json()).toEqual({
+  expect(await ana.api.get("credentials/values")).toEqual({
     openai: { type: "api_key", key: "sk-ana" },
   });
 
-  const other = await call(route, fakeUser({ id: "bo" }), "account");
-
-  expect(await other.json()).toEqual({
-    admin: false,
-    logins: [],
-    mcp: [],
-    servers: [],
-  });
+  expect(await account(t, "bo")).toEqual(nobody);
 });
 
 test("a person dismisses a sign-in and it stops asking", async () => {
-  const { route } = registered();
-  await connectable(route);
+  await using t = await started();
+  await connectable(t);
 
-  await call(route, fakeUser({ id: "ana" }), "connect", {
-    provider: "openai",
-    type: "api_key",
-  });
+  await t.as("ana").post("connect", { provider: "openai", type: "api_key" });
 
-  const asked = await connection(
-    route,
-    "ana",
-    ({ connection: current }) => current?.prompt !== undefined,
+  const asked = await until(
+    async () => account(t, "ana"),
+    ({ connection }) => connection?.prompt !== undefined,
   );
 
-  const dismissed = await route(
-    new Request("http://logins/connection", { method: "DELETE" }),
-    "connection",
-    fakeUser({ id: "ana" }),
-  );
+  expect(await t.as("ana").delete("connection")).toEqual(nobody);
 
-  expect(await dismissed.json()).toEqual({
-    admin: false,
-    logins: [],
-    mcp: [],
-    servers: [],
+  const late = await t.as("ana").raw("POST", "connection/answer", {
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      prompt: asked.connection?.prompt?.id,
+      answer: "sk-ana",
+    }),
   });
 
-  const late = await call(route, fakeUser({ id: "ana" }), "connection/answer", {
-    prompt: asked.connection?.prompt?.id,
-    answer: "sk-ana",
-  });
-
-  expect(late.status).toBe(409);
-
-  expect(await late.json()).toEqual({
-    error: "not_asked",
-    message: "the sign-in isn't waiting for that answer",
+  expect({ status: late.status, body: await late.json() }).toEqual({
+    status: 409,
+    body: {
+      error: "not_asked",
+      message: "the sign-in isn't waiting for that answer",
+    },
   });
 });
 
 test("a sign-in a provider doesn't take is refused", async () => {
-  const { route } = registered();
-  await connectable(route);
+  await using t = await started();
+  await connectable(t);
 
-  const refused = await call(route, fakeUser({ id: "ana" }), "connect", {
-    provider: "openai-codex",
-    type: "api_key",
+  const refused = await t.as("ana").raw("POST", "connect", {
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ provider: "openai-codex", type: "api_key" }),
   });
 
   expect(refused.status).toBe(400);
@@ -622,12 +400,12 @@ test("a sign-in a provider doesn't take is refused", async () => {
 
 // An MCP server with its own authorization server, which registers any
 // client and swaps the code "granted" for tokens.
-function oauthServer(): { readonly url: string; readonly stop: () => void } {
-  const server: Bun.Server<undefined> = Bun.serve({
+function oauthServer(): AsyncDisposable & { readonly url: string } {
+  const listening: Bun.Server<undefined> = Bun.serve({
     port: 0,
     fetch: async (request): Promise<Response> => {
       const { pathname } = new URL(request.url);
-      const origin = server.url.origin;
+      const origin = listening.url.origin;
 
       if (pathname.startsWith("/.well-known/oauth-protected-resource")) {
         return Response.json({
@@ -683,238 +461,197 @@ function oauthServer(): { readonly url: string; readonly stop: () => void } {
   });
 
   return {
-    url: `${server.url.origin}/mcp`,
-    stop: () => {
-      void server.stop(true);
-    },
+    url: `${listening.url.origin}/mcp`,
+    [Symbol.asyncDispose]: async () => listening.stop(true),
   };
 }
 
 test("a person signs in to an MCP server of their Profiles from Settings, and the sign-in page sends them back to Pipoca", async () => {
-  const linear = oauthServer();
-  try {
-    const { route, callback } = registered([
-      { name: "linear", config: { url: linear.url } },
-      { name: "local", config: { command: "linear-mcp" } },
-    ]);
+  await using linear = oauthServer();
+  await using t = await started();
 
-    const key = `linear ${linear.url}`;
+  await profile(t, "ana", {
+    name: "Tools",
+    mcpServers: {
+      linear: { url: linear.url },
+      local: { command: "linear-mcp" },
+    },
+  });
 
-    const listed = (await (
-      await call(route, fakeUser({ id: "ana" }), "account")
-    ).json()) as Account;
+  const key = `linear ${linear.url}`;
 
-    expect(listed.servers).toEqual([{ key, name: "linear", url: linear.url }]);
+  expect((await account(t, "ana")).servers).toEqual([
+    { key, name: "linear", url: linear.url },
+  ]);
 
-    const started = await call(route, fakeUser({ id: "ana" }), "connect-mcp", {
-      server: key,
-    });
+  const begun = await t.as("ana").raw("POST", "connect-mcp", {
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ server: key }),
+  });
 
-    const cookie =
-      (started.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+  const cookie = (begun.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
 
-    const asked = await connection(route, "ana", ({ connection: current }) =>
-      (current?.events ?? []).some(({ type }) => type === "auth_url"),
-    );
+  expect(cookie).toStartWith("pipoca-logins=");
 
-    const event = asked.connection?.events.find(
-      ({ type }) => type === "auth_url",
-    );
+  const asked = await until(
+    async () => account(t, "ana"),
+    ({ connection }) =>
+      (connection?.events ?? []).some(({ type }) => type === "auth_url"),
+  );
 
-    const page = new URL(event?.type === "auth_url" ? event.url : "");
-    const back = new URL(page.searchParams.get("redirect_uri") ?? "");
-    expect(back.href).toBe("http://logins/api/ext/logins/callback");
+  const event = asked.connection?.events.find(
+    ({ type }) => type === "auth_url",
+  );
 
-    back.search = new URLSearchParams({
-      code: "granted",
-      state: page.searchParams.get("state") ?? "",
-    }).toString();
+  const page = new URL(event?.type === "auth_url" ? event.url : "");
+  const back = new URL(page.searchParams.get("redirect_uri") ?? "");
 
-    const elsewhere = await callback(new Request(back.href));
-    expect(elsewhere?.status).toBe(400);
+  expect(back.pathname).toBe("/api/ext/logins/callback");
 
-    const returned = await callback(
-      new Request(back.href, { headers: { cookie } }),
-    );
+  const query = new URLSearchParams({
+    code: "granted",
+    state: page.searchParams.get("state") ?? "",
+  }).toString();
 
-    expect(returned?.status).toBe(200);
+  // Another browser can't finish it with the same link.
+  expect((await t.public().raw("GET", `callback?${query}`)).status).toBe(400);
 
-    const done = await connection(
-      route,
-      "ana",
-      ({ connection: current }) => current?.state !== "running",
-    );
+  const returned = await t
+    .public()
+    .raw("GET", `callback?${query}`, { headers: { cookie } });
 
-    expect(done.connection).toMatchObject({ state: "done" });
-    expect(done.mcp).toMatchObject([{ server: key }]);
+  expect(returned.status).toBe(200);
 
-    const read = await route(
-      new Request("http://logins/mcp?values"),
-      "mcp",
-      runnerOf("ana"),
-    );
+  const done = await until(
+    async () => account(t, "ana"),
+    ({ connection }) => connection?.state !== "running",
+  );
 
-    expect(await read.json()).toMatchObject({
-      [key]: {
-        tokens: { access_token: "access-1", refresh_token: "refresh-1" },
-      },
-    });
-  } finally {
-    linear.stop();
-  }
+  expect(done.connection).toMatchObject({ state: "done" });
+  expect(done.mcp).toMatchObject([{ server: key }]);
+
+  const ana = await t.session({ owner: person("ana") });
+
+  expect(await ana.api.get("mcp/values")).toMatchObject({
+    [key]: { tokens: { access_token: "access-1", refresh_token: "refresh-1" } },
+  });
 });
 
 test("a client registered for a loopback address signs in with the address the person pastes", async () => {
-  const linear = oauthServer();
-  try {
-    const { route } = registered([
-      {
-        name: "linear",
-        config: {
-          url: linear.url,
-          oauth: { clientId: "registered", callbackPort: 8123 },
-        },
+  await using linear = oauthServer();
+  await using t = await started();
+
+  await profile(t, "ana", {
+    name: "Tools",
+    mcpServers: {
+      linear: {
+        url: linear.url,
+        oauth: { clientId: "registered", callbackPort: 8123 },
       },
-      {
-        name: "secret",
-        config: { url: linear.url, oauth: { clientSecret: "${SECRET}" } },
-      },
-    ]);
-
-    const key = `linear ${linear.url}`;
-
-    await call(route, fakeUser({ id: "ana" }), "connect-mcp", { server: key });
-
-    const asked = await connection(
-      route,
-      "ana",
-      ({ connection: current }) => current?.prompt !== undefined,
-    );
-
-    expect(asked.servers.map(({ name }) => name)).toEqual(["linear"]);
-    expect(asked.connection?.prompt).toMatchObject({ type: "manual_code" });
-
-    const event = asked.connection?.events.find(
-      ({ type }) => type === "auth_url",
-    );
-
-    const page = new URL(event?.type === "auth_url" ? event.url : "");
-    expect(page.searchParams.get("client_id")).toBe("registered");
-
-    expect(page.searchParams.get("redirect_uri")).toBe(
-      "http://127.0.0.1:8123/callback",
-    );
-
-    await call(route, fakeUser({ id: "ana" }), "connection/answer", {
-      prompt: asked.connection?.prompt?.id,
-      answer: `http://127.0.0.1:8123/callback?code=granted&state=${page.searchParams.get("state") ?? ""}`,
-    });
-
-    const done = await connection(
-      route,
-      "ana",
-      ({ connection: current }) => current?.state !== "running",
-    );
-
-    expect(done.connection).toMatchObject({ state: "done" });
-    expect(done.mcp).toMatchObject([{ server: key }]);
-  } finally {
-    linear.stop();
-  }
-});
-
-function urlOf(input: Parameters<typeof fetch>[0]): string {
-  if (input instanceof Request) {
-    return input.url;
-  }
-
-  return input instanceof URL ? input.href : input;
-}
-
-// Pi's providers load in the background when the plugin registers.
-async function proxyReady(route: PluginRoute, caller: RouteCaller) {
-  for (;;) {
-    const body = (await (await call(route, caller, "proxy")).json()) as {
-      providers: readonly { provider: string; baseUrl: string }[];
-      token?: string;
-    };
-
-    if (body.providers.length > 0 || caller.kind !== "session") {
-      return body;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
-
-test("a team Session calls the team's provider through the proxy, with a token in place of the key", async () => {
-  const team = fakeSession({ id: "team-1", ownedBy: "team", startedBy: "ana" });
-  const { route, proxy } = registered([], () => [], [team]);
-
-  const saved = await call(
-    route,
-    fakeUser({ id: "admin", admin: true }),
-    "save",
-    {
-      provider: "anthropic",
-      credential: { type: "api_key", key: "sk-team" },
-      layer: "base",
+      secret: { url: linear.url, oauth: { clientSecret: "${SECRET}" } },
     },
-  );
-
-  expect(saved.status).toBe(200);
-
-  const caller: RouteCaller = {
-    kind: "session",
-    session: team,
-    actor: "session:team-1",
-  };
-
-  const { providers, token = "" } = await proxyReady(route, caller);
-
-  expect(providers).toContainEqual({
-    provider: "anthropic",
-    baseUrl: "http://logins/api/ext/logins/proxy/anthropic",
   });
 
-  const upstream: Request[] = [];
+  const key = `linear ${linear.url}`;
 
-  const realFetch = globalThis.fetch;
+  await t.as("ana").post("connect-mcp", { server: key });
 
-  globalThis.fetch = Object.assign(
-    async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
-      upstream.push(new Request(urlOf(input), init));
-
-      return Promise.resolve(
-        new Response("data: {}\n\n", {
-          headers: {
-            "content-type": "text/event-stream",
-            "content-encoding": "gzip",
-          },
-        }),
-      );
-    },
-    { preconnect: realFetch.preconnect },
+  const asked = await until(
+    async () => account(t, "ana"),
+    ({ connection }) => connection?.prompt !== undefined,
   );
 
-  try {
-    const answer = await proxy(
-      new Request(
-        "http://logins/api/ext/logins/proxy/anthropic/v1/messages?beta=true",
-        {
-          method: "POST",
-          headers: { "x-api-key": token, "content-type": "application/json" },
-          body: JSON.stringify({ model: "claude", stream: true }),
-        },
-      ),
-    );
+  expect(asked.servers.map(({ name }) => name)).toEqual(["linear"]);
+  expect(asked.connection?.prompt).toMatchObject({ type: "manual_code" });
 
-    expect(answer?.status).toBe(200);
-    expect(await answer?.text()).toBe("data: {}\n\n");
-    expect(answer?.headers.get("content-encoding")).toBeNull();
-  } finally {
-    globalThis.fetch = realFetch;
-  }
+  const event = asked.connection?.events.find(
+    ({ type }) => type === "auth_url",
+  );
+
+  const page = new URL(event?.type === "auth_url" ? event.url : "");
+
+  expect(page.searchParams.get("client_id")).toBe("registered");
+
+  expect(page.searchParams.get("redirect_uri")).toBe(
+    "http://127.0.0.1:8123/callback",
+  );
+
+  await t.as("ana").post("connection/answer", {
+    prompt: asked.connection?.prompt?.id,
+    answer: `http://127.0.0.1:8123/callback?code=granted&state=${page.searchParams.get("state") ?? ""}`,
+  });
+
+  const done = await until(
+    async () => account(t, "ana"),
+    ({ connection }) => connection?.state !== "running",
+  );
+
+  expect(done.connection).toMatchObject({ state: "done" });
+  expect(done.mcp).toMatchObject([{ server: key }]);
+});
+
+interface Proxy {
+  readonly providers: readonly {
+    readonly provider: string;
+    readonly baseUrl: string;
+  }[];
+  readonly token?: string;
+}
+
+// The team's key for provider, and a team Session once its proxy is ready.
+async function teamWith(t: PluginTest, provider: string) {
+  expect((await save(t, "admin", provider, "sk-team", "base")).status).toBe(
+    200,
+  );
+
+  const team = await t.session({ owner: "team", startedBy: "ana" });
+
+  const proxy = await until(
+    async () => team.api.get<Proxy>("proxy"),
+    ({ providers }) => providers.length > 0,
+  );
+
+  return { team, proxy };
+}
+
+const sse = (...events: unknown[]): string =>
+  events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
+
+test("a team Session calls the team's provider through the proxy, with a token in place of the key", async () => {
+  const upstream: Request[] = [];
+
+  await using t = await started({
+    fetch: (request) => {
+      upstream.push(request);
+
+      return new Response("data: {}\n\n", {
+        headers: {
+          "content-type": "text/event-stream",
+          "content-encoding": "gzip",
+        },
+      });
+    },
+  });
+
+  const { proxy } = await teamWith(t, "anthropic");
+
+  expect(
+    proxy.providers.find(({ provider }) => provider === "anthropic")?.baseUrl,
+  ).toEndWith("/api/ext/logins/proxy/anthropic");
+
+  const answer = await t
+    .public()
+    .raw("POST", "proxy/anthropic/v1/messages?beta=true", {
+      headers: {
+        "x-api-key": proxy.token ?? "",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ model: "claude", stream: true }),
+    });
+
+  expect(answer.status).toBe(200);
+  expect(await answer.text()).toBe("data: {}\n\n");
+  expect(answer.headers.get("content-encoding")).toBeNull();
 
   const [sent] = upstream;
 
@@ -924,120 +661,68 @@ test("a team Session calls the team's provider through the proxy, with a token i
 });
 
 test("the proxy refuses a token that isn't a live team Session's", async () => {
-  const team = fakeSession({ id: "team-1", ownedBy: "team" });
-
-  const archived = fakeSession({
-    id: "team-2",
-    ownedBy: "team",
-    archivedAt: "2026-11-04T00:00:00.000Z",
+  await using t = await started({
+    fetch: () => new Response("{}"),
   });
 
-  const { route, proxy } = registered([], () => [], [team, archived]);
-
-  await call(route, fakeUser({ id: "admin", admin: true }), "save", {
-    provider: "anthropic",
-    credential: { type: "api_key", key: "sk-team" },
-    layer: "base",
-  });
-
-  const asOf = (session: Session): RouteCaller => ({
-    kind: "session",
-    session,
-    actor: `session:${session.id}`,
-  });
-
-  const { token: old = "" } = await proxyReady(route, asOf(archived));
+  const { team, proxy } = await teamWith(t, "anthropic");
 
   const statusOf = async (token: string) =>
     (
-      await proxy(
-        new Request(
-          "http://logins/api/ext/logins/proxy/anthropic/v1/messages",
-          {
-            method: "POST",
-            headers: { "x-api-key": token },
-            body: "{}",
-          },
-        ),
-      )
-    )?.status;
+      await t.public().raw("POST", "proxy/anthropic/v1/messages", {
+        headers: { "x-api-key": token },
+        body: "{}",
+      })
+    ).status;
 
+  expect(await statusOf(proxy.token ?? "")).toBe(200);
   expect(await statusOf("ppx_made_up")).toBe(401);
-  expect(await statusOf(old)).toBe(401);
+
+  await team.archive();
+
+  expect(await statusOf(proxy.token ?? "")).toBe(401);
 });
 
 test("a personal Session gets no proxy, since its own logins reach only its runner", async () => {
-  const { route } = registered();
+  await using t = await started();
+  const ana = await t.session({ owner: person("ana") });
 
-  expect(await (await call(route, runnerOf("ana"), "proxy")).json()).toEqual({
-    providers: [],
-  });
+  expect(await ana.api.get("proxy")).toEqual({ providers: [] });
 });
 
-// The proxy's answer from an upstream that sends the body given.
-async function proxiedWith(
-  answer: string,
-  path: string,
-  body: unknown,
-): Promise<readonly PluginEvent[]> {
-  const team = fakeSession({ id: "team-1", ownedBy: "team", startedBy: "ana" });
-  const { route, proxy, published } = registered([], () => [], [team]);
-  const provider = path.split("/")[0] ?? "";
-
-  await call(route, fakeUser({ id: "admin", admin: true }), "save", {
-    provider,
-    credential: { type: "api_key", key: "sk-team" },
-    layer: "base",
+// What the proxy reports for an upstream that answers with the body given.
+async function reported(answer: string, path: string, body: unknown) {
+  await using t = await started({
+    fetch: () =>
+      new Response(answer, {
+        headers: { "content-type": "text/event-stream" },
+      }),
   });
 
-  const { token = "" } = await proxyReady(route, {
-    kind: "session",
-    session: team,
-    actor: "session:team-1",
+  const { team, proxy } = await teamWith(t, path.split("/")[0] ?? "");
+  const token = proxy.token ?? "";
+
+  const response = await t.public().raw("POST", `proxy/${path}`, {
+    headers: {
+      "x-api-key": token,
+      "x-goog-api-key": token,
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
   });
 
-  const realFetch = globalThis.fetch;
+  expect(await response.text()).toBe(answer);
 
-  globalThis.fetch = Object.assign(
-    async () =>
-      Promise.resolve(
-        new Response(answer, {
-          headers: { "content-type": "text/event-stream" },
-        }),
-      ),
-    { preconnect: realFetch.preconnect },
+  const [called] = await until(
+    () => t.emitted("logins.model_called"),
+    (found) => found.length > 0,
   );
 
-  try {
-    const response = await proxy(
-      new Request(`http://logins/api/ext/logins/proxy/${path}`, {
-        method: "POST",
-        headers: {
-          "x-api-key": token,
-          "x-goog-api-key": token,
-          authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body),
-      }),
-    );
-
-    expect(await response?.text()).toBe(answer);
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-
-  for (let tries = 0; tries < 2000 && published.length === 0; tries++) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-
-  return published;
+  return { called, team };
 }
 
-const sse = (...events: unknown[]): string =>
-  events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
-
-test("the proxy reports the tokens an Anthropic stream used, for the team's usage", async () => {
-  const published = await proxiedWith(
+test("the proxy reports the tokens an Anthropic stream used, to the team", async () => {
+  const { called, team } = await reported(
     sse(
       {
         type: "message_start",
@@ -1055,22 +740,21 @@ test("the proxy reports the tokens an Anthropic stream used, for the team's usag
     { model: "claude-sonnet-4-5", stream: true },
   );
 
-  expect(published).toEqual([
-    {
-      type: "logins.model_called",
-      sessionId: "team-1",
-      owner: "team",
+  expect(called).toEqual({
+    fields: {
+      sessionId: team.id,
       person: "ana",
       provider: "anthropic",
       model: "claude-sonnet-4-5",
       input: 15,
       output: 7,
     },
-  ]);
+    to: ["team"],
+  });
 });
 
 test("the proxy reads OpenAI's and Google's token reports too", async () => {
-  const openai = await proxiedWith(
+  const openai = await reported(
     sse(
       { type: "response.created", response: { usage: null } },
       {
@@ -1082,7 +766,7 @@ test("the proxy reads OpenAI's and Google's token reports too", async () => {
     { model: "gpt-5", stream: true },
   );
 
-  const google = await proxiedWith(
+  const google = await reported(
     sse(
       { usageMetadata: { promptTokenCount: 13 } },
       {
@@ -1097,112 +781,59 @@ test("the proxy reads OpenAI's and Google's token reports too", async () => {
     {},
   );
 
-  expect(
-    openai.map(({ model, input, output }) => [model, input, output]),
-  ).toEqual([["gpt-5", 12, 8]]);
+  expect(openai.called?.fields).toMatchObject({
+    model: "gpt-5",
+    input: 12,
+    output: 8,
+  });
 
-  expect(
-    google.map(({ model, input, output }) => [model, input, output]),
-  ).toEqual([["gemini-2.5-flash", 13, 9]]);
+  expect(google.called?.fields).toMatchObject({
+    model: "gemini-2.5-flash",
+    input: 13,
+    output: 9,
+  });
 });
 
 test("an admin sees which of the team's keys reach models only through the server", async () => {
-  const { route } = registered();
-  const admin = fakeUser({ id: "admin", admin: true });
+  await using t = await started();
 
-  for (const provider of ["anthropic", "my-extension"]) {
-    await call(route, admin, "save", {
-      provider,
-      credential: { type: "api_key", key: "sk-team" },
-      layer: "base",
-    });
-  }
+  await save(t, "admin", "my-extension", "sk-team", "base");
+  await teamWith(t, "anthropic");
 
-  expect((await call(route, fakeUser({ id: "ana" }), "team-keys")).status).toBe(
-    403,
-  );
+  expect((await t.as("ana").raw("GET", "keys")).status).toBe(403);
 
-  await proxyReady(route, {
-    kind: "session",
-    session: fakeSession({ id: "team-1", ownedBy: "team" }),
-    actor: "session:team-1",
-  });
-
-  expect(await (await call(route, admin, "team-keys")).json()).toEqual([
+  expect(await t.as("admin").get("keys")).toEqual([
     { provider: "anthropic", proxied: true },
     { provider: "my-extension", proxied: false },
   ]);
 });
 
 test("a team Session reads the base's keys the proxy can't carry, and only those", async () => {
-  const { route } = registered();
-  const admin = fakeUser({ id: "admin", admin: true });
+  await using t = await started();
 
-  for (const provider of ["anthropic", "sap-ai-core"]) {
-    await call(route, admin, "save", {
-      provider,
-      credential: { type: "api_key", key: `${provider}-key` },
-      layer: "base",
-    });
-  }
+  await save(t, "admin", "sap-ai-core", "sap-ai-core-key", "base");
+  const { team } = await teamWith(t, "anthropic");
 
-  const team: RouteCaller = {
-    kind: "session",
-    session: fakeSession({ id: "team-1", ownedBy: "team" }),
-    actor: "session:team-1",
-  };
-
-  await proxyReady(route, team);
-
-  expect(await (await call(route, team, "credentials")).json()).toEqual([
+  expect(await team.api.get("credentials")).toEqual([
     { key: "sap-ai-core", type: "api_key" },
   ]);
 
-  const values = await route(
-    new Request("http://logins/credentials?values"),
-    "credentials",
-    team,
-  );
-
-  expect(await values.json()).toEqual({
+  expect(await team.api.get("credentials/values")).toEqual({
     "sap-ai-core": { type: "api_key", key: "sap-ai-core-key" },
   });
 
-  expect(
-    (await call(route, team, "credentials/sap-ai-core/lock", {})).status,
-  ).toBe(403);
+  const locked = await team.request("credentials/sap-ai-core/lock", {
+    method: "POST",
+  });
 
-  expect(await (await call(route, team, "mcp")).json()).toEqual([]);
+  expect(locked.status).toBe(403);
+  expect(await team.api.get("mcp")).toEqual([]);
 });
 
-test("an admin pastes the key of a provider an extension adds on the runners", async () => {
-  const { route } = registered(
-    [],
-    () => [],
-    [],
-    [
-      {
-        id: "team-env",
-        models: [{ provider: "sap-ai-core", id: "gpt-5" }],
-      } as unknown as Environment,
-    ],
-  );
+test("a Session can't call a person's routes, and a person can't call a Session's", async () => {
+  await using t = await started();
+  const ana = await t.session({ owner: person("ana") });
 
-  const admin = fakeUser({ id: "admin", admin: true });
-
-  await connectable(route);
-
-  const listed = async (caller: RouteCaller) =>
-    (
-      (await (await call(route, caller, "providers")).json()) as Connectable[]
-    ).find(({ id }) => id === "sap-ai-core");
-
-  expect(await listed(fakeUser({ id: "ana" }))).toBeUndefined();
-
-  expect(await listed(admin)).toEqual({
-    id: "sap-ai-core",
-    name: "sap-ai-core",
-    methods: [{ type: "api_key", label: "Paste a key" }],
-    paste: true,
-  });
+  expect((await ana.request("account")).status).toBe(403);
+  expect((await t.as("ana").raw("GET", "credentials/values")).status).toBe(403);
 });

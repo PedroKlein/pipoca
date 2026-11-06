@@ -130,24 +130,16 @@ export function isZonedTime(text: string): boolean {
   return !Number.isNaN(Date.parse(text)) && /(Z|[+-]\d\d:?\d\d)$/i.test(text);
 }
 
-interface Event {
+// What a routine hears: another plugin's event, or a webhook's delivery.
+export interface Heard {
   readonly type: string;
-  readonly [field: string]: unknown;
-}
-
-// Whether a person may see the event: a plugin names whose it is with
-// userId, or userIds when several people's.
-export function isFor(event: Event, userId: string): boolean {
-  return (
-    event["userId"] === userId ||
-    (Array.isArray(event["userIds"]) && event["userIds"].includes(userId))
-  );
+  readonly fields: Readonly<Record<string, unknown>>;
 }
 
 // Each filter field, a dotted path, must equal its value or be one of a list
 // of values. A field that is a list, such as labels, needs to hold it.
 export function matches(
-  event: Event,
+  event: Heard,
   filter: Readonly<Record<string, unknown>> = {},
 ): boolean {
   return Object.entries(filter).every(([path, wanted]) => {
@@ -160,7 +152,7 @@ export function matches(
   });
 }
 
-export function keyOf(event: Event, paths: readonly string[] = []): string {
+export function keyOf(event: Heard, paths: readonly string[] = []): string {
   return paths
     .map((path) => {
       const value = fieldOf(event, path);
@@ -172,8 +164,8 @@ export function keyOf(event: Event, paths: readonly string[] = []): string {
     .join("/");
 }
 
-function fieldOf(event: Event, path: string): unknown {
-  let value: unknown = event;
+function fieldOf(event: Heard, path: string): unknown {
+  let value: unknown = event.fields;
 
   for (const part of path.split(".")) {
     value =
@@ -187,10 +179,10 @@ function fieldOf(event: Event, path: string): unknown {
 
 const maxEventLength = 4000;
 
-export function eventsText(events: readonly Event[]): string {
+export function eventsText(events: readonly Heard[]): string {
   return events
     .map((event) => {
-      const json = JSON.stringify(event, null, 2);
+      const json = JSON.stringify(event.fields, null, 2);
 
       return `Event ${event.type}:\n\`\`\`json\n${json.length > maxEventLength ? `${json.slice(0, maxEventLength)}\n…` : json}\n\`\`\``;
     })

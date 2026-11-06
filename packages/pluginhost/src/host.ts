@@ -1012,6 +1012,10 @@ export function startPlugins(
           },
           secrets: secretsOf(store),
           environments,
+          profiles: {
+            mcpServers: deps.mcpServers ?? (() => []),
+            buildsOn: deps.buildsOn ?? (() => []),
+          },
           clock: deps.clock,
           timer: deps.timer,
           log,
@@ -1910,7 +1914,7 @@ function inOrder(definitions: readonly PluginDefinition[]): PluginDefinition[] {
 // A meta-session's tools act as the person who started it, never as an admin
 // (ADR 0035). An admin's Team assistant changes team setup too, so its
 // tools follow the person's role (ADR 0067).
-// Undefined for a Session nobody started, such as a routine's team work,
+// Undefined for a Session nobody started, such as a plugin's team work,
 // which has no person to act as.
 function ownerOf(
   session: Session,

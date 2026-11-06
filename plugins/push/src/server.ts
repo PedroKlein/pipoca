@@ -1,14 +1,16 @@
 import { createPrivateKey, generateKeyPairSync, sign } from "node:crypto";
 import {
   BadRequest,
-  NotFound,
-  type PluginStore,
-  readBody,
-  type ServerPlugin,
-  type ServerPluginContext,
+  defineServer,
+  type Person,
+  type Secrets,
+  type ServerContext,
+  type Store,
   Type,
 } from "@pipoca/plugins";
 import type { Session, SessionStatus } from "@pipoca/protocol";
+import { usage } from "@pipoca/usage/plugin";
+import { push } from "../plugin";
 import { encrypt, newSender } from "./encrypt";
 
 // Browsers hand out endpoints on their vendor's push service. Sending only
@@ -33,6 +35,8 @@ const unsubscription = Type.Object({ endpoint: Type.String() });
 
 const busy: readonly SessionStatus[] = ["queued", "starting", "running"];
 
+const remind = "remind:";
+
 interface Subscription {
   readonly endpoint: string;
   readonly p256dh: string;
@@ -48,44 +52,35 @@ interface Notice {
   readonly url: string;
 }
 
-const schema = `
-create table push_vapid (
-  id integer primary key check (id = 1),
-  private_key text not null
-) strict;
+interface Reminder {
+  readonly sessionId: string;
+  readonly asked: string;
+}
 
-create table push_subscriptions (
-  endpoint text primary key,
-  user_id text not null references users (id) on delete cascade,
-  p256dh text not null,
-  auth text not null,
-  created_at integer not null
-) strict, without rowid;
-create index push_subscriptions_user on push_subscriptions (user_id);
-`;
+// Web Push to each browser a person subscribed: when their Session finishes
+// or Pi needs them, and of budget warnings.
+export const server = defineServer(
+  push,
+  ({
+    clock,
+    config,
+    events,
+    log,
+    people,
+    routes,
+    schedule,
+    secrets,
+    sessions,
+    store,
+  }) => {
+    const keys = vapidKeys(store, secrets);
 
-export const push: ServerPlugin = {
-  name: "push",
-  schema,
-  register: (context) => {
-    const { store } = context;
-    const keys = vapidKeys(store);
+    routes.get("key", { auth: "person" }, () => ({ key: keys.publicKey }));
 
-    context.routes.handle(async (request, path, caller) => {
-      if (caller.kind !== "user") {
-        throw new NotFound(`no route ${path}`);
-      }
-
-      if (path === "key" && request.method === "GET") {
-        return Response.json({ key: keys.publicKey });
-      }
-
-      if (path === "subscriptions" && request.method === "PUT") {
-        const { endpoint, keys: browser } = await readBody(
-          request,
-          subscription,
-        );
-
+    routes.put(
+      "subscriptions",
+      { auth: "person", body: subscription },
+      ({ body: { endpoint, keys: browser }, caller: { person } }) => {
         if (!isPushService(endpoint)) {
           throw new BadRequest("endpoint must be a browser's push service");
         }
@@ -93,38 +88,36 @@ export const push: ServerPlugin = {
         store.run(
           "insert into push_subscriptions (endpoint, user_id, p256dh, auth, created_at) values (?, ?, ?, ?, ?) on conflict (endpoint) do update set user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth",
           endpoint,
-          caller.actor.slice("user:".length),
+          person.id,
           browser.p256dh,
           browser.auth,
-          Date.now(),
+          clock.now(),
         );
+      },
+    );
 
-        return Response.json({ ok: true });
-      }
-
-      if (path === "subscriptions" && request.method === "DELETE") {
-        const { endpoint } = await readBody(request, unsubscription);
-
+    routes.delete(
+      "subscriptions",
+      { auth: "person", query: unsubscription },
+      ({ query: { endpoint }, caller: { person } }) => {
         store.run(
           "delete from push_subscriptions where endpoint = ? and user_id = ?",
           endpoint,
-          caller.actor.slice("user:".length),
+          person.id,
         );
+      },
+    );
 
-        return Response.json({ ok: true });
-      }
-
-      throw new NotFound(`no route ${path}`);
-    });
+    const sender = { store, clock, log, keys };
 
     const tell = (userId: string, notice: Notice, urgent: boolean): void => {
-      const subscriptions = store.all(
+      const subscriptions = store.all<Subscription>(
         "select endpoint, p256dh, auth from push_subscriptions where user_id = ?",
         userId,
-      ) as Subscription[];
+      );
 
       for (const target of subscriptions) {
-        void deliver(target, notice, urgent, keys, store, context);
+        void deliver(target, notice, urgent, sender);
       }
     };
 
@@ -133,37 +126,18 @@ export const push: ServerPlugin = {
         return;
       }
 
-      tell(
-        session.startedBy,
-        {
-          title,
-          body: session.title ?? "",
-          session: session.id,
-          url: `/#${session.id}`,
-        },
-        urgent,
-      );
+      tell(session.startedBy, sessionNotice(session, title), urgent);
     };
 
     // The person whose cap it is and every admin hear of a budget warning
     // (ADR 0066).
-    context.events.subscribe("usage.budget_warned", (event) => {
-      const { person, share, spent, limit } = event;
-
-      if (
-        typeof share !== "number" ||
-        typeof spent !== "number" ||
-        typeof limit !== "number"
-      ) {
-        return;
-      }
-
-      const users = context.auth.users();
-      const capped = users.find(({ id }) => id === person);
+    events.on(usage.events.budget_warned, ({ fields }) => {
+      const { person, share, spent, limit } = fields;
+      const capped = person === null ? undefined : people.get(person);
       const body = `$${spent.toFixed(2)} of $${limit.toFixed(2)} this month`;
 
-      const title = (user: { readonly id: string }) => {
-        if (user === capped) {
+      const title = (user: Person): string => {
+        if (user.id === capped?.id) {
           return `Your team work reached ${String(share)}% of your monthly cap`;
         }
 
@@ -172,8 +146,8 @@ export const push: ServerPlugin = {
           : `${capped.name}'s team work reached ${String(share)}% of their monthly cap`;
       };
 
-      for (const user of users) {
-        if (user === capped || user.admin) {
+      for (const user of people.list()) {
+        if (user.id === capped?.id || user.admin) {
           tell(
             user.id,
             { title: title(user), body, tag: "usage.budget", url: "/" },
@@ -185,10 +159,10 @@ export const push: ServerPlugin = {
 
     // In team work Pi asks a named person, and whoever started the work hears
     // of it too if nobody answers in time (ADR 0065).
-    context.events.subscribe("SessionWaiting", ({ session, for: person }) => {
+    events.on("SessionWaiting", ({ session, for: name }) => {
       const asked =
-        session.ownedBy === "team" && person !== undefined
-          ? context.auth.users().find(({ name }) => name === person)
+        session.ownedBy === "team" && name !== undefined
+          ? people.byName(name)
           : undefined;
 
       if (asked === undefined) {
@@ -197,40 +171,31 @@ export const push: ServerPlugin = {
         return;
       }
 
-      tell(
-        asked.id,
-        {
-          title: "Pi has a question for you",
-          body: session.title ?? "",
-          session: session.id,
-          url: `/#${session.id}`,
-        },
-        true,
-      );
+      tell(asked.id, sessionNotice(session, "Pi has a question for you"), true);
 
-      if (asked.id === session.startedBy) {
-        return;
+      if (asked.id !== session.startedBy) {
+        const reminder: Reminder = { sessionId: session.id, asked: asked.name };
+
+        schedule.at(
+          `${remind}${session.id}`,
+          clock.now() + config.get().answerMinutes * 60_000,
+          reminder,
+        );
       }
+    });
 
-      const minutes = context.settings.get()["answerMinutes"];
+    schedule.on(remind, (payload) => {
+      const { sessionId, asked } = payload as Reminder;
+      const session = sessions.get(sessionId);
 
-      setTimeout(
-        () => {
-          if (context.sessions.get(session.id)?.waiting === true) {
-            send(
-              session,
-              `Nobody answered Pi's question for ${asked.name}`,
-              true,
-            );
-          }
-        },
-        Number(minutes) * 60_000,
-      ).unref();
+      if (session?.waiting === true) {
+        send(session, `Nobody answered Pi's question for ${asked}`, true);
+      }
     });
 
     // Sessions a plugin owns, such as a Project's threads, report to it
     // instead of to a person.
-    context.events.subscribe("SessionStateChanged", ({ session, previous }) => {
+    events.on("SessionStateChanged", ({ session, previous }) => {
       const stopped =
         busy.includes(previous) &&
         !busy.includes(session.status) &&
@@ -241,7 +206,16 @@ export const push: ServerPlugin = {
       }
     });
   },
-};
+);
+
+function sessionNotice(session: Session, title: string): Notice {
+  return {
+    title,
+    body: session.title ?? "",
+    session: session.id,
+    url: `/#${session.id}`,
+  };
+}
 
 function finishedTitle(status: SessionStatus): string {
   switch (status) {
@@ -264,15 +238,15 @@ interface VapidKeys {
   readonly privateKey: string;
 }
 
-function vapidKeys(store: PluginStore): VapidKeys {
-  const [row] = store.all("select private_key from push_vapid") as {
-    private_key: string;
-  }[];
+function vapidKeys(store: Store, secrets: Secrets): VapidKeys {
+  const row = store.get<{ private_key: string }>(
+    "select private_key from push_vapid",
+  );
 
   const pem =
     row === undefined
-      ? createVapidKey(store)
-      : store.open(row.private_key, "push.vapid");
+      ? createVapidKey(store, secrets)
+      : secrets.open("push_vapid", "1", row.private_key);
 
   const jwk = createPrivateKey(pem).export({ format: "jwk" });
 
@@ -285,13 +259,13 @@ function vapidKeys(store: PluginStore): VapidKeys {
   return { publicKey: point.toString("base64url"), privateKey: pem };
 }
 
-function createVapidKey(store: PluginStore): string {
+function createVapidKey(store: Store, secrets: Secrets): string {
   const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
   const pem = privateKey.export({ format: "pem", type: "pkcs8" });
 
   store.run(
     "insert into push_vapid (id, private_key) values (1, ?)",
-    store.seal(pem, "push.vapid"),
+    secrets.seal("push_vapid", "1", pem),
   );
 
   return pem;
@@ -312,13 +286,13 @@ function isPushService(endpoint: string): boolean {
 
 // RFC 8292: a token signed with the server's key that the push service
 // checks against the key the browser subscribed with.
-function vapidToken(audience: string, keys: VapidKeys): string {
+function vapidToken(audience: string, keys: VapidKeys, now: number): string {
   const encode = (value: object): string =>
     Buffer.from(JSON.stringify(value)).toString("base64url");
 
   const unsigned = `${encode({ typ: "JWT", alg: "ES256" })}.${encode({
     aud: audience,
-    exp: Math.floor(Date.now() / 1000) + 12 * 60 * 60,
+    exp: Math.floor(now / 1000) + 12 * 60 * 60,
     sub: contact,
   })}`;
 
@@ -330,13 +304,15 @@ function vapidToken(audience: string, keys: VapidKeys): string {
   return `${unsigned}.${signature.toString("base64url")}`;
 }
 
+interface Sender extends Pick<ServerContext, "store" | "clock" | "log"> {
+  readonly keys: VapidKeys;
+}
+
 async function deliver(
   target: Subscription,
   notice: Notice,
   urgent: boolean,
-  keys: VapidKeys,
-  store: PluginStore,
-  context: ServerPluginContext,
+  { store, clock, log, keys }: Sender,
 ): Promise<void> {
   const endpoint = new URL(target.endpoint);
 
@@ -351,7 +327,7 @@ async function deliver(
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
-        authorization: `vapid t=${vapidToken(endpoint.origin, keys)}, k=${keys.publicKey}`,
+        authorization: `vapid t=${vapidToken(endpoint.origin, keys, clock.now())}, k=${keys.publicKey}`,
         "content-encoding": "aes128gcm",
         "content-type": "application/octet-stream",
         ttl: String(24 * 60 * 60),
@@ -367,7 +343,7 @@ async function deliver(
         target.endpoint,
       );
 
-      context.log("push subscription gone, removed", {
+      log("push subscription gone, removed", {
         service: endpoint.hostname,
         status: response.status,
       });
@@ -376,14 +352,14 @@ async function deliver(
     }
 
     if (!response.ok) {
-      context.log("push service refused a notification", {
+      log("push service refused a notification", {
         service: endpoint.hostname,
         status: response.status,
         body: (await response.text()).slice(0, 200),
       });
     }
   } catch (error) {
-    context.log("could not send a push notification", {
+    log("could not send a push notification", {
       service: endpoint.hostname,
       error: String(error),
     });

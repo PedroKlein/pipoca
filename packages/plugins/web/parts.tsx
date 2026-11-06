@@ -43,7 +43,6 @@ export interface Slots {
   [notice: `notice:${string}`]: Own<NoticeProps>;
   [link: `link:${string}`]: Own<LinkProps>;
   home: Own<HomeProps>;
-  [panel: `hub.panel:${string}`]: { readonly title: string };
   "environment.section": Own<EnvironmentSectionProps>;
   "template.section": Own<TemplateSectionProps>;
   "settings.general": Nothing;
@@ -62,7 +61,10 @@ export interface WebPage {
     readonly pinned?: boolean;
     readonly fills?: (path: string) => boolean;
   };
-  readonly area?: "personal" | "hub";
+  // A screen of Team setup, which only admins open, is listed with what
+  // team work runs on or with its rules.
+  readonly area?: "personal" | "hub" | "setup";
+  readonly group?: "runs-on" | "rules";
 }
 
 export interface WebPart<P extends PluginDefinition = PluginDefinition> {
@@ -75,6 +77,10 @@ export interface WebPart<P extends PluginDefinition = PluginDefinition> {
     readonly Section?: ComponentType;
   };
   readonly setup?: readonly SetupStep[];
+  // Panels an admin lays out on the team hub's pages, by key (ADR 0067).
+  readonly panels?: Readonly<
+    Record<string, { readonly title: string; readonly Panel: ComponentType }>
+  >;
   readonly slots?: { readonly [K in keyof Slots]?: ComponentType<Slots[K]> };
   readonly sessionPath?: (session: Session) => string;
   // Repositories New Session offers for what the person typed, such as the

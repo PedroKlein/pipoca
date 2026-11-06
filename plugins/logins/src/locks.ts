@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Timer } from "@pipoca/protocol";
 
 export interface Locks {
   // A lease once the key is free, or undefined when it stays held past the
@@ -11,25 +12,26 @@ export interface Locks {
 
 interface Held {
   readonly lease: string;
-  readonly timer: ReturnType<typeof setTimeout>;
+  readonly cancel: () => void;
 }
 
 // One holder per key at a time. A holder that never releases, such as a
-// runner that went away, loses its lease after holdMs.
-export function locks(holdMs: number, waitMs: number): Locks {
+// runner that went away, loses its lease after holdMs. Leases live in
+// memory, since a restart ends every request that held one.
+export function locks(timer: Timer, holdMs: number, waitMs: number): Locks {
   const held = new Map<string, Held>();
   const waiting = new Map<string, ((lease: string) => void)[]>();
 
   const grant = (key: string): string => {
     const lease = randomUUID();
 
-    const timer = setTimeout(() => {
+    const cancel = timer.after(holdMs, async () => {
       free(key, lease);
-    }, holdMs);
 
-    timer.unref();
+      return Promise.resolve();
+    });
 
-    held.set(key, { lease, timer });
+    held.set(key, { lease, cancel });
 
     return lease;
   };
@@ -40,7 +42,7 @@ export function locks(holdMs: number, waitMs: number): Locks {
       return false;
     }
 
-    clearTimeout(holder.timer);
+    holder.cancel();
     held.delete(key);
 
     const next = waiting.get(key)?.shift();
@@ -63,21 +65,21 @@ export function locks(holdMs: number, waitMs: number): Locks {
         const queue = waiting.get(key) ?? [];
         waiting.set(key, queue);
 
-        const timer = setTimeout(() => {
+        const granted = (lease: string): void => {
+          stop();
+          resolve(lease);
+        };
+
+        const stop = timer.after(waitMs, async () => {
           queue.splice(queue.indexOf(granted), 1);
           if (queue.length === 0) {
             waiting.delete(key);
           }
 
           resolve(undefined);
-        }, waitMs);
 
-        timer.unref();
-
-        const granted = (lease: string): void => {
-          clearTimeout(timer);
-          resolve(lease);
-        };
+          return Promise.resolve();
+        });
 
         queue.push(granted);
       });

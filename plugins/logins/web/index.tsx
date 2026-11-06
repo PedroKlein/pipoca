@@ -1,9 +1,4 @@
-import {
-  json,
-  useLoaded,
-  type WebContext,
-  type WebPlugin,
-} from "@pipoca/plugins/web";
+import { defineWeb, json, useLoaded } from "@pipoca/plugins/web";
 import {
   Badge,
   Button,
@@ -16,27 +11,31 @@ import {
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import type { Profile } from "@pipoca/protocol";
+import { logins } from "../plugin";
 import type { Account } from "../src/model";
 import { ConnectForm, ConnectionCard } from "./connect";
 import { layerName } from "./layers";
 import { ProfileLogins } from "./profile";
+import { request } from "./request";
 import { modelStep } from "./setup";
 import { TeamCredentials } from "./team";
 
-export const logins: WebPlugin = {
-  name: "logins",
-  settingsParts: { Accounts, Profile: ProfileLogins },
-  setupStep: modelStep,
-  hub: {
-    setup: {
-      credentials: {
-        label: "Credentials",
-        group: "runs-on",
-        Page: TeamCredentials,
-      },
+export const web = defineWeb(logins, {
+  setup: [modelStep],
+  pages: [
+    {
+      path: "credentials",
+      label: "Credentials",
+      area: "setup",
+      group: "runs-on",
+      Page: TeamCredentials,
     },
+  ],
+  slots: {
+    "settings.accounts": Accounts,
+    "settings.profile": ProfileLogins,
   },
-};
+});
 
 function layerPlace(
   layer: Account["logins"][number]["layer"],
@@ -56,19 +55,15 @@ const typeLabels = {
   api_key: "API key",
 } as const;
 
-function Accounts({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement | null {
+function Accounts(): ReactElement | null {
   const { value, reload } = useLoaded(
-    async () => json<Account>(context.request("account")),
+    async () => json<Account>(request("account")),
     "account",
     { topics: ["logins.logins"] },
   );
 
   const { value: profiles = [] } = useLoaded(
-    async () => json<readonly Profile[]>(context.request("/api/profiles")),
+    async () => json<readonly Profile[]>(request("/api/profiles")),
     "profiles",
     { topics: ["profiles"] },
   );
@@ -95,7 +90,7 @@ function Accounts({
     .map((key) => ({ key, signedIn: stored.has(key) }));
 
   const send = (path: string, init: RequestInit): void => {
-    json(context.request(path, init)).then(
+    json(request(path, init)).then(
       () => {
         setChoosing(false);
         setError(undefined);
@@ -131,7 +126,6 @@ function Accounts({
         )}
         {value.connection === undefined && choosing && (
           <ConnectForm
-            context={context}
             send={send}
             admin={value.admin}
             onClose={() => {
@@ -167,7 +161,7 @@ function Accounts({
                   aria-label={`Log out of ${login.provider} in ${layerName(login.layer, profiles)}`}
                   onClick={() => {
                     void json(
-                      context.request(
+                      request(
                         `credentials/${encodeURIComponent(login.provider)}?layer=${login.layer}`,
                         { method: "DELETE" },
                       ),

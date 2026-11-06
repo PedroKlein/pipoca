@@ -1,11 +1,6 @@
-import {
-  ago,
-  json,
-  useLoaded,
-  useNow,
-  type WebContext,
-} from "@pipoca/plugins/web";
+import { ago, json, useLoaded, useNow } from "@pipoca/plugins/web";
 import type { ReactElement } from "react";
+import { request } from "./request";
 
 interface Action {
   readonly at: string;
@@ -17,24 +12,18 @@ interface Action {
 
 // Who started, stopped, moved and limited the team's work lately, for the
 // hub's Home (ADR 0065).
-export function Activity({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement {
+export function Activity(): ReactElement {
   const now = useNow();
 
   const { value: actions } = useLoaded(
-    async () => json<readonly Action[]>(context.request("activity")),
+    async () => json<readonly Action[]>(request("activity")),
     "activity",
     { topics: ["usage.audit"] },
   );
 
   const { value: teammates = [] } = useLoaded(
     async () =>
-      json<readonly { id: string; name: string }[]>(
-        context.request("/api/people"),
-      ),
+      json<readonly { id: string; name: string }[]>(request("/api/people")),
     "teammates",
   );
 

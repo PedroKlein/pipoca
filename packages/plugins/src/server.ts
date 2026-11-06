@@ -22,6 +22,7 @@ import type {
   KernelEvent,
   ModelOffer,
   PluginProfile,
+  ProfileMcpServer,
   SqlValue,
   StartRequest,
 } from "./plugin";
@@ -61,6 +62,17 @@ export interface PluginEvents<P extends PluginDefinition> {
       def: EventDef<F>,
       fn: (event: {
         readonly fields: Static<F>;
+        readonly to: readonly Owner[];
+        readonly plugin: string;
+      }) => void,
+    ): void;
+    // Another plugin's event by its name, for a plugin whose people name
+    // events at run time, such as in a trigger they write.
+    (
+      type: `${string}.${string}`,
+      fn: (event: {
+        readonly type: `${string}.${string}`;
+        readonly fields: Readonly<Record<string, unknown>>;
         readonly to: readonly Owner[];
         readonly plugin: string;
       }) => void,
@@ -426,6 +438,15 @@ export interface SignInApi {
   ) => string | undefined;
 }
 
+// What Profiles hold that a plugin reads, such as the MCP servers people
+// sign in to.
+export interface PluginProfiles {
+  // Every MCP server of the base, everyone's My defaults and every Profile.
+  readonly mcpServers: () => readonly ProfileMcpServer[];
+  // The Profiles one builds on, nearest first.
+  readonly buildsOn: (profileId: string) => readonly string[];
+}
+
 export interface Providers {
   readonly models: (offer: ModelOffer) => void;
   // One plugin per server signs people in without a password.
@@ -462,6 +483,7 @@ export interface ServerContext<P extends PluginDefinition = PluginDefinition> {
   readonly provide: Providers;
   readonly secrets: Secrets;
   readonly environments: PluginEnvironments;
+  readonly profiles: PluginProfiles;
   readonly clock: Clock;
   // In-memory time, lost on restart, for waits such as a long poll.
   readonly timer: Timer;

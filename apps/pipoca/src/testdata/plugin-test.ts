@@ -569,6 +569,32 @@ export async function pluginTest(
         headers: { authorization: `Bearer ${host.token}` },
         fetch: async (path, init) => request(path, init),
       }),
+      request: async (path, init = {}, of = plugin.id) => {
+        const headers = new Headers(init.headers);
+
+        headers.set(versionHeader, String(protocolVersion));
+        headers.set("authorization", `Bearer ${host.token}`);
+
+        return request(
+          `/runner/sessions/${host.id}/ext/${of}/${path.replace(/^\//, "")}`,
+          { ...init, headers },
+        );
+      },
+      report: async (reports) => {
+        const reported = await request(
+          `/runner/sessions/${host.id}/events`,
+          runner(host.token, {
+            generation: host.generation,
+            events: reports,
+          }),
+        );
+
+        if (!reported.ok) {
+          throw new Error(
+            `the events answered ${String(reported.status)}: ${await reported.text()}`,
+          );
+        }
+      },
       online: async (on) => {
         if (on && host.stream === undefined) {
           await reconnect(host);
@@ -723,6 +749,7 @@ export async function pluginTest(
       startedBy,
       key,
       plugin: by = plugin.id,
+      profile,
       actsAs,
       workspace = { kind: "folder", path: root },
     }) => {
@@ -744,6 +771,7 @@ export async function pluginTest(
         workspace,
         actor: starter === undefined ? `plugin:${by}` : `user:${starter}`,
         ...(key !== undefined && { key }),
+        ...(profile !== undefined && { profile }),
         ...(actsAs !== undefined && { actsAs }),
         ...(personal === undefined && {
           team: true,

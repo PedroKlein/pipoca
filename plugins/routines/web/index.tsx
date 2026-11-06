@@ -1,12 +1,11 @@
 import {
+  defineWeb,
+  href as pageHref,
   json,
-  type NoticeProps,
-  ok,
-  type PageProps,
-  type SessionPartProps,
+  type MountedSession,
+  SessionView,
+  useApi,
   useLoaded,
-  type WebContext,
-  type WebPlugin,
 } from "@pipoca/plugins/web";
 import {
   Badge,
@@ -20,8 +19,10 @@ import {
   Section,
   useConfirm,
 } from "@pipoca/ui";
+import type { TypedClient } from "@pipoca/plugins";
 import type { DeclaredEvent } from "@pipoca/protocol";
 import { type ReactElement, useState } from "react";
+import { routines } from "../plugin";
 import type {
   RoutineDetail,
   RoutineView,
@@ -31,74 +32,67 @@ import type {
 } from "../src/model";
 import { starters } from "./starters";
 
-const watched = { topics: ["routines.routines"] };
+const changes = ["routines"];
+
+// The address of a path inside the routines page, "" for the page.
+const pageAt = (path: string): string => pageHref(routines, path);
 
 // A person's own routines, or the team's, which anyone on the team makes
-// and changes (ADR 0067).
+// and changes (ADR 0067). The team's routes and pages start with team/.
 interface Scope {
-  readonly api: "routines" | "team-routines";
-  readonly page: "" | "team/";
+  readonly prefix: "" | "team/";
 }
 
-const yours: Scope = { api: "routines", page: "" };
-const teams: Scope = { api: "team-routines", page: "team/" };
+const yours: Scope = { prefix: "" };
+const teams: Scope = { prefix: "team/" };
 
 // Routines, a Session's pending wake-ups above its composer, and the notice
 // each wake-up sends when it comes (ADR 0059).
-export const routines: WebPlugin = {
-  name: "routines",
-  nav: {
-    label: "Routines",
-    Page,
-    fills: (path) => path.split("/").length > 1,
-  },
+export const web = defineWeb(routines, {
+  pages: [
+    {
+      path: "",
+      label: "Routines",
+      Page,
+      nav: { fills: (path) => path.split("/").length > 1 },
+    },
+  ],
+  // A run's Session is owned by "<owner>/<routine>".
   sessionPath: (session) => {
-    const [owner = "", name = ""] = session.owner?.key.split(":") ?? [];
+    const key = session.owner?.key ?? "";
+    const owner = key.slice(0, key.lastIndexOf("/"));
+    const name = key.slice(key.lastIndexOf("/") + 1);
 
-    return `${owner === "team" ? teams.page : ""}${name}/${session.id}`;
+    return `${owner === "team" ? teams.prefix : ""}${name}/${session.id}`;
   },
-  Composer: PendingWakeUps,
-  notices: { wakeup: WakeUpNotice, routine: RoutineNotice },
-};
+  slots: {
+    "session.composer": PendingWakeUps,
+    "notice:wakeup": WakeUpNotice,
+    "notice:routine": RoutineNotice,
+  },
+});
 
-function Page({ context, path }: PageProps): ReactElement {
-  const scope = path.startsWith(teams.page) ? teams : yours;
-  const [name = "", sessionId] = path.slice(scope.page.length).split("/");
+function Page({ path }: { readonly path: string }): ReactElement {
+  const scope = path.startsWith(teams.prefix) ? teams : yours;
+  const [name = "", sessionId] = path.slice(scope.prefix.length).split("/");
 
   if (name === "") {
-    return <RoutineList context={context} />;
+    return <RoutineList />;
   }
 
   if (sessionId !== undefined) {
-    return (
-      <RunSession
-        context={context}
-        scope={scope}
-        name={name}
-        sessionId={sessionId}
-      />
-    );
+    return <RunSession scope={scope} name={name} sessionId={sessionId} />;
   }
 
   return (
-    <RoutinePage
-      key={`${scope.page}${name}`}
-      context={context}
-      scope={scope}
-      name={name}
-    />
+    <RoutinePage key={`${scope.prefix}${name}`} scope={scope} name={name} />
   );
 }
 
-function RoutineList({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement {
+function RoutineList(): ReactElement {
   const team =
     useLoaded(
-      async () =>
-        json<unknown[]>(context.request("/api/environments?scope=team")),
+      async () => json<unknown[]>(fetch("/api/environments?scope=team")),
       "team-environments",
       { topics: ["environments"] },
     ).value ?? [];
@@ -109,38 +103,36 @@ function RoutineList({
         Routines
       </PageTitle>
       <div className="flex flex-wrap gap-2">
-        <a href={context.href("new")} className="inline-flex">
+        <a href={pageAt("new")} className="inline-flex">
           <Button variant="primary" tabIndex={-1}>
             New routine
           </Button>
         </a>
         {team.length > 0 && (
-          <a href={context.href(`${teams.page}new`)} className="inline-flex">
+          <a href={pageAt(`${teams.prefix}new`)} className="inline-flex">
             <Button tabIndex={-1}>New team routine</Button>
           </a>
         )}
       </div>
-      <Routines context={context} scope={yours} title="Yours" />
-      {team.length > 0 && (
-        <Routines context={context} scope={teams} title="The team's" />
-      )}
+      <Routines scope={yours} title="Yours" />
+      {team.length > 0 && <Routines scope={teams} title="The team's" />}
     </>
   );
 }
 
 function Routines({
-  context,
   scope,
   title,
 }: {
-  readonly context: WebContext;
   readonly scope: Scope;
   readonly title: string;
 }): ReactElement {
+  const api = useApi(routines);
+
   const list = useLoaded(
-    async () => json<RoutineView[]>(context.request(scope.api)),
-    scope.api,
-    watched,
+    async () => api.get<RoutineView[]>(`${scope.prefix}routines`),
+    scope.prefix,
+    { changes },
   ).value;
 
   return (
@@ -150,7 +142,7 @@ function Routines({
         {list?.map((routine) => (
           <li key={routine.name}>
             <a
-              href={context.href(`${scope.page}${routine.name}`)}
+              href={pageAt(`${scope.prefix}${routine.name}`)}
               className={cn(
                 linkCardClass,
                 "flex min-w-0 items-center gap-3 px-3 py-2",
@@ -179,38 +171,36 @@ function startText(index: number): string {
   return `${JSON.stringify(starters[index]?.routine ?? {}, null, 2)}\n`;
 }
 
+function failureOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function RoutinePage({
-  context,
   scope,
   name,
 }: {
-  readonly context: WebContext;
   readonly scope: Scope;
   readonly name: string;
 }): ReactElement {
+  const api = useApi(routines);
   const [ask, asking] = useConfirm();
   const creating = name === "new";
   const [editing, setEditing] = useState(creating);
   const [failure, setFailure] = useState<string>();
+  const path = `${scope.prefix}routines/${encodeURIComponent(name)}`;
 
   const { value: routine, reload } = useLoaded(
-    async () =>
-      creating
-        ? undefined
-        : json<RoutineDetail>(context.request(`${scope.api}/${name}`)),
-    name,
-    watched,
+    async () => (creating ? undefined : api.get<RoutineDetail>(path)),
+    `${scope.prefix}${name}`,
+    { changes },
   );
 
-  const act = (action: string, method = "POST"): void => {
+  const act = (action: string): void => {
     setFailure(undefined);
 
-    ok(context.request(`${scope.api}/${name}/${action}`, { method })).then(
-      reload,
-      (error: unknown) => {
-        setFailure(String(error instanceof Error ? error.message : error));
-      },
-    );
+    api.post(`${path}/${action}`).then(reload, (error: unknown) => {
+      setFailure(failureOf(error));
+    });
   };
 
   return (
@@ -218,7 +208,7 @@ function RoutinePage({
       {asking}
       <PageTitle
         description={
-          <a href={context.href("")} className="hover:underline">
+          <a href={pageAt("")} className="hover:underline">
             All routines
           </a>
         }
@@ -269,13 +259,8 @@ function RoutinePage({
                     return;
                   }
 
-                  await ok(
-                    context.request(`${scope.api}/${name}`, {
-                      method: "DELETE",
-                    }),
-                  );
-
-                  location.hash = context.href("");
+                  await api.delete(path);
+                  location.hash = pageAt("");
                 });
               }}
             >
@@ -290,7 +275,7 @@ function RoutinePage({
       {routine?.webhook !== undefined && <Webhook {...routine.webhook} />}
       {editing && (creating || routine !== undefined) && (
         <Editor
-          context={context}
+          api={api}
           scope={scope}
           name={creating ? undefined : name}
           text={routine?.file ?? startText(0)}
@@ -298,7 +283,7 @@ function RoutinePage({
             setEditing(false);
 
             if (creating) {
-              location.hash = context.href(`${scope.page}${saved}`);
+              location.hash = pageAt(`${scope.prefix}${saved}`);
             } else {
               reload();
             }
@@ -314,9 +299,7 @@ function RoutinePage({
             {routine.runs.map((run) => (
               <RunRow
                 key={run.id}
-                href={context.href(
-                  `${scope.page}${name}/${run.sessionId ?? ""}`,
-                )}
+                href={pageAt(`${scope.prefix}${name}/${run.sessionId ?? ""}`)}
                 run={run}
               />
             ))}
@@ -365,13 +348,13 @@ function Webhook({
 }
 
 function Editor({
-  context,
+  api,
   scope,
   name,
   text: initial,
   onSaved,
 }: {
-  readonly context: WebContext;
+  readonly api: TypedClient;
   readonly scope: Scope;
   readonly name: string | undefined;
   readonly text: string;
@@ -393,19 +376,16 @@ function Editor({
       return;
     }
 
-    ok(
-      context.request(`${scope.api}/${encodeURIComponent(target)}`, {
-        method: "PUT",
-        body: JSON.stringify(value),
-      }),
-    ).then(
-      () => {
-        onSaved(target);
-      },
-      (error: unknown) => {
-        setFailure(String(error instanceof Error ? error.message : error));
-      },
-    );
+    api
+      .put(`${scope.prefix}routines/${encodeURIComponent(target)}`, value)
+      .then(
+        () => {
+          onSaved(target);
+        },
+        (error: unknown) => {
+          setFailure(failureOf(error));
+        },
+      );
   };
 
   return (
@@ -457,7 +437,7 @@ function Editor({
       {failure !== undefined && (
         <p className="text-ui text-failed">{failure}</p>
       )}
-      <DeclaredEvents context={context} />
+      <DeclaredEvents api={api} />
       <div>
         <Button type="submit" variant="primary">
           Save
@@ -469,12 +449,12 @@ function Editor({
 
 // What an event trigger can name, with the fields its filter and key read.
 function DeclaredEvents({
-  context,
+  api,
 }: {
-  readonly context: WebContext;
+  readonly api: TypedClient;
 }): ReactElement | null {
   const events = useLoaded(
-    async () => json<DeclaredEvent[]>(context.request("events")),
+    async () => api.get<DeclaredEvent[]>("events"),
     "events",
   ).value;
 
@@ -550,18 +530,14 @@ function RunRow({
 }
 
 function RunSession({
-  context,
   scope,
   name,
   sessionId,
 }: {
-  readonly context: WebContext;
   readonly scope: Scope;
   readonly name: string;
   readonly sessionId: string;
 }): ReactElement {
-  const { SessionView } = context;
-
   return (
     <SessionView
       sessionId={sessionId}
@@ -569,7 +545,7 @@ function RunSession({
       crumb={
         <>
           <a
-            href={context.href(`${scope.page}${name}`)}
+            href={pageAt(`${scope.prefix}${name}`)}
             className="shrink-0 font-normal text-fg-dim hover:text-fg hover:underline"
           >
             {name}
@@ -622,16 +598,16 @@ function summaryOf(routine: RoutineView): string {
 }
 
 function PendingWakeUps({
-  context,
   session,
-}: SessionPartProps): ReactElement | null {
+}: {
+  readonly session: MountedSession;
+}): ReactElement | null {
+  const api = useApi(routines);
+
   const { value, reload } = useLoaded(
-    async () =>
-      json<readonly WakeUp[]>(
-        context.request(`wakeups?session=${encodeURIComponent(session.id)}`),
-      ),
+    async () => api.get<readonly WakeUp[]>("wakeups", { session: session.id }),
     session.id,
-    { topics: ["routines.wakeups"] },
+    { changes: ["wakeups"] },
   );
 
   if (value === undefined || value.length === 0) {
@@ -660,9 +636,7 @@ function PendingWakeUps({
             className="h-6 px-2"
             aria-label={`Cancel wake-up: ${wakeUp.reason}`}
             onClick={() => {
-              void ok(
-                context.request(`wakeups/${wakeUp.id}`, { method: "DELETE" }),
-              ).finally(reload);
+              void api.delete(`wakeups/${wakeUp.id}`).finally(reload);
             }}
           >
             Cancel
@@ -673,7 +647,7 @@ function PendingWakeUps({
   );
 }
 
-function WakeUpNotice({ data }: NoticeProps): ReactElement {
+function WakeUpNotice({ data }: { readonly data: unknown }): ReactElement {
   const { reason } = (data ?? {}) as { reason?: unknown };
 
   return (
@@ -686,7 +660,13 @@ function WakeUpNotice({ data }: NoticeProps): ReactElement {
   );
 }
 
-function RoutineNotice({ data, text }: NoticeProps): ReactElement {
+function RoutineNotice({
+  data,
+  text,
+}: {
+  readonly data: unknown;
+  readonly text: string;
+}): ReactElement {
   const { title } = (data ?? {}) as { title?: unknown };
 
   return (
