@@ -59,7 +59,7 @@ export async function checkFetchable(
 
   const logins = plugins.gitLogins(`person:${person}`, {
     actsAs: null,
-    workspace: { kind: "clone", repository: url },
+    workspace: { kind: "clone", repository: url, branch: "" },
   });
 
   if (logins.some(({ host }) => host === parsed.host)) {

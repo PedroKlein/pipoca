@@ -17,7 +17,7 @@ const people = [
 ];
 
 async function started(
-  o: Omit<TestPluginOptions, "people"> = {},
+  o: Omit<TestPluginOptions<typeof server.plugin>, "people"> = {},
 ): Promise<PluginTest> {
   return testPlugin(server, { people, ...o });
 }
