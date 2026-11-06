@@ -19,6 +19,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p apps/web && tsc --noEmit -p packages/ui/web && tsc --noEmit -p packages/plugins/web && tsc --noEmit -p plugins && tsc --noEmit -p examples",
     "test:e2e": "bun test ./apps/pipoca/src/web.e2e.ts"
   },
+  "overrides": {
+    "undici": "8.12.3"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@stylistic/eslint-plugin": "5.10.0",

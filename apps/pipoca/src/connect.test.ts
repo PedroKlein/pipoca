@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { type ChildProcess, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import {
   chmod,
@@ -86,6 +87,10 @@ async function listening(server: { readonly stderr: Readable }): Promise<URL> {
       }
     });
   });
+}
+
+function sha256(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
 }
 
 async function executable(path: string, content: string): Promise<void> {
@@ -225,15 +230,21 @@ fi
 exec ${process.execPath} ${main} "$@"
 `;
 
+  const platform = `${process.platform}-${process.arch}`;
   const downloads: string[] = [];
 
   const releases = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
     fetch: (request) => {
-      downloads.push(new URL(request.url).pathname);
+      const { pathname } = new URL(request.url);
+      downloads.push(pathname);
 
-      return new Response(release);
+      return new Response(
+        pathname.endsWith("/SHA256SUMS")
+          ? `${sha256("other")}  pipoca-other\n${sha256(release)}  pipoca-${platform}\n`
+          : release,
+      );
     },
   });
 
@@ -286,14 +297,12 @@ exec ${process.execPath} ${main} "$@"
     const signedIn = await fetch(url, { redirect: "manual" });
     const installed = await stat(join(home, ".pipoca", "bin", "pipoca"));
 
-    const platform = `${process.platform}-${process.arch}`;
-
     expect({
       downloads,
       signedIn: signedIn.status,
       executable: (installed.mode & 0o100) !== 0,
     }).toEqual({
-      downloads: [`/v${version}/pipoca-${platform}`],
+      downloads: [`/v${version}/SHA256SUMS`, `/v${version}/pipoca-${platform}`],
       signedIn: 303,
       executable: true,
     });
@@ -309,6 +318,79 @@ exec ${process.execPath} ${main} "$@"
       process.kill(Number(pid), "SIGKILL");
     }
 
+    await rm(root, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("connect refuses a release whose binary does not match its SHA256SUMS", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "pipoca-install-")));
+  const bin = join(root, "bin");
+  const home = join(root, "home");
+  await mkdir(bin);
+  await mkdir(home);
+  await executable(join(bin, "ssh"), fakeSsh);
+
+  const ran = join(root, "ran");
+  const platform = `${process.platform}-${process.arch}`;
+  const published = "#!/bin/sh\nexit 0\n";
+
+  const releases = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: (request) =>
+      new URL(request.url).pathname.endsWith("/SHA256SUMS")
+        ? new Response(`${sha256(published)}  pipoca-${platform}\n`)
+        : new Response(`#!/bin/sh\ntouch ${ran}\n`),
+  });
+
+  const connecting = spawn(
+    process.execPath,
+    [
+      main,
+      "connect",
+      "me@vm",
+      "--port",
+      String(await freePort()),
+      "--local-port",
+      String(await freePort()),
+      "--remote-pipoca",
+      "pipoca-that-is-not-installed",
+      "--name",
+      "laptop",
+      "--data-dir",
+      join(root, "connect"),
+      "--folder",
+      root,
+      "--print-link",
+    ],
+    {
+      env: {
+        ...process.env,
+        HOME: home,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+        PIPOCA_RELEASES: releases.url.href.replace(/\/$/, ""),
+      },
+      stdio: ["ignore", "ignore", "ignore"],
+    },
+  );
+
+  try {
+    const [code] = (await once(connecting, "exit")) as [number | null];
+
+    const exists = async (path: string): Promise<boolean> =>
+      stat(path).then(
+        () => true,
+        () => false,
+      );
+
+    expect({
+      code,
+      installed: await exists(join(home, ".pipoca", "bin", "pipoca")),
+      ran: await exists(ran),
+    }).toEqual({ code: 1, installed: false, ran: false });
+  } finally {
+    connecting.kill("SIGKILL");
+    await releases.stop(true);
     await rm(root, { recursive: true, force: true });
   }
 }, 60_000);
