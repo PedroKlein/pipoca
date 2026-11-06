@@ -1,4 +1,4 @@
-import { Button, Icon } from "@pipoca/ui";
+import { Button, Icon, Page } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { ShellMenu } from "../session/embedded-session";
 import { PluginBoundary } from "../plugin-boundary";
@@ -31,12 +31,12 @@ export function PluginPage({
   readonly path: string;
   readonly onMenu: () => void;
 }): ReactElement {
-  const Page = enabledPlugins().find((plugin) => plugin.name === name)?.nav
+  const Body = enabledPlugins().find((plugin) => plugin.name === name)?.nav
     ?.Page;
 
-  const body = Page ? (
+  const body = Body ? (
     <PluginBoundary key={name} name={name}>
-      <Page path={path} />
+      <Body path={path} />
     </PluginBoundary>
   ) : (
     <p className="text-fg-dim">This page isn&apos;t available.</p>
@@ -61,13 +61,7 @@ export function PluginPage({
       <div className="p-2 md:hidden">
         <MenuButton onMenu={onMenu} />
       </div>
-      <div
-        id="plugin-page"
-        data-plugin={name}
-        className="mx-auto flex w-full max-w-form flex-col px-4 py-10 md:px-10"
-      >
-        {body}
-      </div>
+      <Page id="plugin-page">{body}</Page>
     </div>
   );
 }
