@@ -4,7 +4,6 @@ export const notes = definePlugin({
   id: "notes",
   title: "Notes",
   description: "Keeps notes for people and the team",
-  works: ["personal", "team"],
 });
 
 export const diary = definePlugin({

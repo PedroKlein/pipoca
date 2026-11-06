@@ -5,7 +5,6 @@ export const logins = definePlugin({
   title: "Logins",
   description:
     "Keeps each person's model provider and MCP server logins on the server, so their Sessions use them on every runner. Log in once with /login or /mcp login in any Session.",
-  works: ["personal", "team"],
   events: {
     model_called: event({
       title: "Team model call",

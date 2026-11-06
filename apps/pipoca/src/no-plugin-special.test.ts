@@ -188,7 +188,6 @@ const throwing = defineServer(
     id: "throwing",
     title: "Throwing",
     description: "",
-    works: ["personal", "team"],
   }),
   ({ provide }) => {
     provide.models(() => {

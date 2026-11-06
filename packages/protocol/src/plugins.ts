@@ -22,9 +22,6 @@ export const declaredEvent = Type.Object({
 
 export type DeclaredEvent = Wire<typeof declaredEvent>;
 
-export const pluginWork = Type.Enum(["personal", "team"]);
-
-export type PluginWork = Wire<typeof pluginWork>;
 
 const pluginPart = Type.Enum(["server", "session", "web"]);
 
@@ -35,9 +32,6 @@ export const pluginManifest = Type.Object({
   title: Type.String(),
   description: Type.String(),
   parts: Type.Optional(Type.Array(pluginPart)),
-  // Where it works. Without "team" its parts never load in team work
-  // (ADR 0067).
-  works: Type.Optional(Type.Array(pluginWork)),
 });
 
 export type PluginManifest = Wire<typeof pluginManifest>;

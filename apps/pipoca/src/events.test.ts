@@ -171,7 +171,7 @@ test("keeps a plugin off while a plugin it requires is off or failed", async () 
         id: `needs-${requires}`,
         title: "Needs",
         description: "",
-        requires: { [requires]: "required" },
+        requires: [requires],
       }),
       () => undefined,
     );

@@ -770,7 +770,6 @@ test("turns plugins on and off, and in team work, under plugins in pipoca.json",
       () => {
         registered.push(id);
       },
-      { works: ["personal", "team"] },
     );
 
   server = testServer({
@@ -835,7 +834,7 @@ test("a switch in pipoca.json that doesn't fit is logged and leaves the others a
   );
 
   const named = (id: string): ServerPart =>
-    plugin(id, () => undefined, { works: ["personal", "team"] });
+    plugin(id);
 
   server = testServer({
     configDir,

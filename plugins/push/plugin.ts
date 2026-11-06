@@ -5,8 +5,6 @@ export const push = definePlugin({
   title: "Notifications",
   description:
     "Tells your devices when Pi finishes or needs you, even with Pipoca closed.",
-  works: ["personal", "team"],
-  requires: { usage: "optional" },
   config: Config.object({
     answerMinutes: Config.number({
       title: "Minutes before a question goes to the starter",

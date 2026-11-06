@@ -80,7 +80,6 @@ export const gitHosts = definePlugin({
   title: "Git hosts",
   description:
     "Lets each person connect their own GitHub and GitHub Enterprise accounts, so their Sessions clone, push, use gh and install Profile packages as them. Admins list the hosts in Settings.",
-  works: ["personal", "team"],
   config: Config.object({
     pollSeconds: Config.number({
       title: "Seconds between pull request checks",

@@ -95,7 +95,6 @@ export const plugin = definePlugin({
   id: ${JSON.stringify(id)},
   title: "The ${id} plugin",
   description: "Says hi.",
-  works: ["personal", "team"],
 });
 `,
   );

@@ -498,7 +498,6 @@ export function startPlugins(
   const inTeamWork = (name: string): boolean => {
     return (
       running.includes(name) &&
-      manifest(name)?.works?.includes("team") === true &&
       (deps.switches.get(name).team ?? !installedIds.has(name))
     );
   };
@@ -594,7 +593,6 @@ export function startPlugins(
     const unsubscribes: (() => void)[] = [];
 
     const declared = pluginRoutes(id, {
-      team: definition.works?.includes("team") === true,
       inTeamWork: () => inTeamWork(id),
       publish: deps.changes,
     });
@@ -623,8 +621,8 @@ export function startPlugins(
         );
       }
 
-      for (const [needed, need] of Object.entries(definition.requires ?? {})) {
-        if (need === "required" && !settled.has(needed)) {
+      for (const needed of definition.requires ?? []) {
+        if (!settled.has(needed)) {
           throw new Error(
             `${id} needs ${needed}, which ${failures.has(needed) ? "failed" : "is off"}`,
           );
@@ -1255,10 +1253,6 @@ export function startPlugins(
         return undefined;
       }
 
-      if (found.works?.includes("team") !== true) {
-        return `${name} doesn't say it works in team work`;
-      }
-
       deps.switches.set(name, { team: on });
       deps.log("plugin team work set", { plugin: name, on });
 
@@ -1511,10 +1505,10 @@ function inOrder(definitions: readonly PluginDefinition[]): PluginDefinition[] {
       return;
     }
 
-    for (const [id, need] of Object.entries(definition.requires ?? {})) {
+    for (const id of definition.requires ?? []) {
       const required = definitions.find((each) => each.id === id);
 
-      if (need === "required" && required !== undefined) {
+      if (required !== undefined) {
         visit(required, [...seen, definition.id]);
       }
     }

@@ -10,14 +10,9 @@ const servers: readonly {
 }[] = serverRegistry;
 
 export function definedManifest(definition: PluginDefinition): PluginManifest {
-  const { id, title, description, works } = definition;
+  const { id, title, description } = definition;
 
-  return {
-    id,
-    title,
-    description,
-    ...(works !== undefined && { works: [...works] }),
-  };
+  return { id, title, description };
 }
 
 // The plugins built into this binary (ADR 0015), in the order of their

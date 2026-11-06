@@ -8,7 +8,6 @@ export const projects = definePlugin({
   title: "Projects",
   description:
     "Groups Sessions around a coordinator that works across repositories, with shared memory and files, and runs the Pipoca assistant.",
-  works: ["personal", "team"],
   config: Config.object({
     fileLimitMb: Config.number({
       title: "Library file size limit in MB",

@@ -31,7 +31,6 @@ export interface ExtRoute {
 export function pluginRoutes(
   plugin: string,
   o: {
-    readonly team: boolean;
     readonly inTeamWork: () => boolean;
     readonly publish: (topic: string) => void;
   },
@@ -59,7 +58,7 @@ export function pluginRoutes(
         throw new Error(`${path} answers the team, so it needs auth person`);
       }
 
-      const twinned = spec.team === true && o.team;
+      const twinned = spec.team === true;
 
       declare({
         method,

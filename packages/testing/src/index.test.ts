@@ -323,7 +323,6 @@ const huddles = defineServer(
     id: "huddles",
     title: "Huddles",
     description: "Huddles.",
-    works: ["personal", "team"],
   }),
   ({ tools, sessions }) => {
     tools.define({
@@ -399,7 +398,6 @@ const tallies = defineServer(
     id: "tallies",
     title: "Tallies",
     description: "Tallies.",
-    works: ["personal", "team"],
   }),
   ({ provide, routes, sessions, tools }) => {
     const helper = provide.profile(

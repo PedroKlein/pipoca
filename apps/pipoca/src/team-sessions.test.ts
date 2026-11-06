@@ -39,7 +39,6 @@ const actingPart = defineServer(
     id: "acting",
     title: "Acting",
     description: "",
-    works: ["personal", "team"],
   }),
   (context) => {
     context.provide.gitCredentials((owner, { actsAs }) =>
@@ -68,7 +67,6 @@ beforeEach(async () => {
           id: "starter",
           title: "Starter",
           description: "",
-          works: ["personal", "team"],
         }),
         (context) => {
           starter = context.sessions;
@@ -1179,7 +1177,7 @@ test("team work nobody started uses no toolset tool, since it has no person to a
   });
 });
 
-test("team work loads only plugins that say they work there and that admins leave on", async () => {
+test("team work loads only the plugins admins leave on", async () => {
   const team = await teamSetup();
 
   const startTeamWork = async () =>
@@ -1197,7 +1195,7 @@ test("team work loads only plugins that say they work there and that admins leav
   const [first] = await poll(team.runner);
 
   expect(first?.plugins).toContain("ask");
-  expect(first?.plugins).not.toContain("notes");
+  expect(first?.plugins).toContain("notes");
 
   const listed = await json<readonly PluginInfo[]>(server.api("/api/plugins"));
 
@@ -1207,17 +1205,8 @@ test("team work loads only plugins that say they work there and that admins leav
       .map(({ id, teamWork }) => ({ id, teamWork })),
   ).toEqual([
     { id: "ask", teamWork: true },
-    { id: "notes", teamWork: false },
+    { id: "notes", teamWork: true },
   ]);
-
-  expect(
-    (
-      await server.api("/api/plugins/notes", {
-        method: "PATCH",
-        body: { teamWork: true },
-      })
-    ).status,
-  ).toBe(400);
 
   expect(
     (
@@ -1242,7 +1231,7 @@ test("team work loads only plugins that say they work there and that admins leav
   const tools = await toolsOf(team.runner);
 
   expect(tools).not.toContain("open_vote");
-  expect(tools).not.toContain("jot");
+  expect(tools).toContain("jot");
 
   const [, second] = await poll(team.runner);
 

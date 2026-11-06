@@ -13,8 +13,6 @@ export const usage = definePlugin({
   title: "Usage",
   description:
     "Shows a Session's token use and cost in its header, and records what team work spends through the server's proxy.",
-  works: ["personal", "team"],
-  requires: { logins: "optional" },
   config: Config.object({
     // Dollars per million tokens of a model, keyed by provider/model, which
     // a collection's name can't hold.

@@ -7,7 +7,6 @@ export const local = definePlugin({
   title: "This machine",
   description:
     "Starts runners on the server's own machine for an Environment's Sessions, in a solo install.",
-  works: ["personal", "team"],
   defaultOn: "solo",
   schema: `
 create table local_environments (
