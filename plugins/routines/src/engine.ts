@@ -829,9 +829,7 @@ export function routinesEngine(context: Context): Routines {
 
   context.events.on("TurnEnded", ({ session }) => {
     const run =
-      session.plugin?.id === "routines"
-        ? runOfSession(session.id)
-        : undefined;
+      session.plugin?.id === "routines" ? runOfSession(session.id) : undefined;
 
     if (run !== undefined) {
       end(run, "stopped", "the turn ended without end_run");
@@ -840,9 +838,7 @@ export function routinesEngine(context: Context): Routines {
 
   context.events.on("SessionStateChanged", ({ session }) => {
     const run =
-      session.plugin?.id === "routines"
-        ? runOfSession(session.id)
-        : undefined;
+      session.plugin?.id === "routines" ? runOfSession(session.id) : undefined;
 
     if (run !== undefined && session.status === "failed") {
       end(run, "failed", session.error ?? "the run's Session failed");
@@ -855,9 +851,7 @@ export function routinesEngine(context: Context): Routines {
 
   context.events.on("SessionArchived", ({ session }) => {
     const run =
-      session.plugin?.id === "routines"
-        ? runOfSession(session.id)
-        : undefined;
+      session.plugin?.id === "routines" ? runOfSession(session.id) : undefined;
 
     if (run !== undefined) {
       end(run, "stopped", "the run's Session was archived");

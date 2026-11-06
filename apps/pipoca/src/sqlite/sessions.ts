@@ -150,7 +150,6 @@ export function sessionStore(
     "select session_id from session_bindings where plugin = ? and key = ?",
   );
 
-
   const selectAccess = db.prepare("select access from sessions where id = ?");
 
   const selectAccessPeople = db.prepare(

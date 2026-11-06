@@ -255,7 +255,9 @@ export async function update(
 
 // Turning a plugin on trusted where its parts ran then.
 function asksForMore(trusted: PluginManifest, next: PluginManifest): boolean {
-  return (next.parts ?? []).some((part) => trusted.parts?.includes(part) !== true);
+  return (next.parts ?? []).some(
+    (part) => trusted.parts?.includes(part) !== true,
+  );
 }
 
 // A folder that links to a plugin elsewhere loses only the link.

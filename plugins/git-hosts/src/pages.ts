@@ -1,4 +1,3 @@
-
 // A page that moves on by itself instead of a 302: the browser came here from
 // the host's site, and would leave the Strict session cookie off a redirect
 // it follows straight away.
@@ -32,4 +31,3 @@ export function escaped(text: string): string {
     (character) => `&#${String(character.charCodeAt(0))};`,
   );
 }
-

@@ -765,12 +765,9 @@ test("turns plugins on and off, and in team work, under plugins in pipoca.json",
   );
 
   const named = (id: string): ServerPart =>
-    plugin(
-      id,
-      () => {
-        registered.push(id);
-      },
-    );
+    plugin(id, () => {
+      registered.push(id);
+    });
 
   server = testServer({
     configDir,
@@ -833,8 +830,7 @@ test("a switch in pipoca.json that doesn't fit is logged and leaves the others a
     }),
   );
 
-  const named = (id: string): ServerPart =>
-    plugin(id);
+  const named = (id: string): ServerPart => plugin(id);
 
   server = testServer({
     configDir,
@@ -907,9 +903,9 @@ test("lets a plugin start a runner for a Session no runner can take, until it re
     workspace: { kind: "folder", path: root },
   });
 
-  expect(
-    machines?.unplaced(environment.id).map(({ id }) => id),
-  ).toEqual([session.id]);
+  expect(machines?.unplaced(environment.id).map(({ id }) => id)).toEqual([
+    session.id,
+  ]);
 
   const pod = startRunner(
     "pod-1",

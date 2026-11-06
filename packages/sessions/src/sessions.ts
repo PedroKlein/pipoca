@@ -375,8 +375,7 @@ export class Sessions {
           (team
             ? stored.ownerId === teamOwner
             : stored.ownerId === null || stored.ownerId === startedBy)
-        : (!team || provided.team === true) &&
-          provided.plugin === ownedBy?.id;
+        : (!team || provided.team === true) && provided.plugin === ownedBy?.id;
 
     if (!usable) {
       return { ok: false, reason: "unknown_profile" };

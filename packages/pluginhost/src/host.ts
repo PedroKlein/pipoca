@@ -511,7 +511,11 @@ export function startPlugins(
       const fitted = (value: unknown) =>
         value === undefined || value === null
           ? undefined
-          : checked(Value.Default(schema, structuredClone(value)), schema, plugin);
+          : checked(
+              Value.Default(schema, structuredClone(value)),
+              schema,
+              plugin,
+            );
 
       return {
         get: (templateId) => {
@@ -1393,7 +1397,9 @@ export function startPlugins(
       return found && { plugin: found.plugin, ...found.kind };
     },
     replacesServerRunner: () =>
-      starters.some(({ replacesServerRunner }) => replacesServerRunner === true),
+      starters.some(
+        ({ replacesServerRunner }) => replacesServerRunner === true,
+      ),
     // A Session acting as someone gets only the logins of the plugin it
     // names, so no other plugin's account signs in beside a bot's.
     gitLogins: (owner, session) =>

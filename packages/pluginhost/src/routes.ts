@@ -129,9 +129,9 @@ export function pluginUrls(plugin: string, server: () => URL): Urls {
         return kept;
       },
       is: (request, kept) => {
-        const value = new Bun.CookieMap(request.headers.get("cookie") ?? "").get(
-          browserCookie(kept),
-        );
+        const value = new Bun.CookieMap(
+          request.headers.get("cookie") ?? "",
+        ).get(browserCookie(kept));
 
         return (
           value !== null &&

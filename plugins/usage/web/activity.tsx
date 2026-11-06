@@ -23,7 +23,6 @@ export function Activity(): ReactElement {
     { changes: ["audit"] },
   );
 
-
   if (actions === undefined) {
     return <p className="text-label text-fg-dim">Loading…</p>;
   }
@@ -41,7 +40,9 @@ export function Activity(): ReactElement {
       {actions.map(({ at, name, sessionId, action, detail }) => (
         <li key={`${at}-${sessionId}-${action}`} className="flex gap-2">
           <span className="min-w-0 flex-1">
-            <span className="font-medium text-fg-strong">{name ?? "Someone"}</span>{" "}
+            <span className="font-medium text-fg-strong">
+              {name ?? "Someone"}
+            </span>{" "}
             {action}{" "}
             <a href={`#${sessionId}`} className="text-fg hover:underline">
               {detail ?? "a Session"}

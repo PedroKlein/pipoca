@@ -17,9 +17,7 @@ export function SettingsSlot(props: Slot): ReactElement {
         if (props.slot === "Profile") {
           const Part = settingsParts.Profile;
 
-          part = Part && (
-            <Part profileId={props.profileId} />
-          );
+          part = Part && <Part profileId={props.profileId} />;
         } else {
           const Part = settingsParts[props.slot];
 

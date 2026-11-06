@@ -22,7 +22,6 @@ export const declaredEvent = Type.Object({
 
 export type DeclaredEvent = Wire<typeof declaredEvent>;
 
-
 const pluginPart = Type.Enum(["server", "session", "web"]);
 
 // A plugin as its definition, or before an installed one runs, its folder

@@ -1,5 +1,11 @@
 import { logins } from "@pipoca/logins/plugin";
-import { defineServer, type Owner, owners, type Store, Type } from "@pipoca/plugins";
+import {
+  defineServer,
+  type Owner,
+  owners,
+  type Store,
+  Type,
+} from "@pipoca/plugins";
 import { usage } from "../plugin";
 import { auditedAction, auditLog, csv } from "./audit";
 

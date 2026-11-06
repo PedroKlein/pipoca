@@ -462,7 +462,6 @@ function escaped(text: string): string {
   );
 }
 
-
 interface IdentityStore {
   readonly find: (identity: Identity) =>
     | {

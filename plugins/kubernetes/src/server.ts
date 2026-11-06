@@ -53,7 +53,10 @@ const podSettings = Type.Object({
 // Null settings stop runner pods in the Environment. A setting left out
 // takes its default.
 const settingsChange = Type.Object({
-  settings: Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()]),
+  settings: Type.Union([
+    Type.Record(Type.String(), Type.Unknown()),
+    Type.Null(),
+  ]),
 });
 
 const intervalMs = 2000;
