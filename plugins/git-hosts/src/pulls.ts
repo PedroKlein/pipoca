@@ -84,7 +84,10 @@ export async function pullStateOf(
       );
     }
 
-    const body: unknown = await response.json();
+    const body: unknown = await response.json().catch(() => {
+      throw new HostRefused(`${host.host} didn't answer ${path} with JSON`);
+    });
+
     const etag = response.headers.get("etag");
 
     if (etag !== null) {
