@@ -4754,7 +4754,7 @@ test("an admin pastes the key of a team runner's extension provider, and Credent
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "pipoca-protocol": "4",
+          "pipoca-protocol": "5",
           authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(body),

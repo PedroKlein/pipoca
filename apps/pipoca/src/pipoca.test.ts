@@ -2679,7 +2679,7 @@ test("accepts a runner's calls under Docker's host name with its token alone", a
       await fetch(new URL(path, server.url), {
         headers: {
           host,
-          "pipoca-protocol": "4",
+          "pipoca-protocol": "5",
           "content-type": "application/json",
           ...(token !== undefined && { authorization: `Bearer ${token}` }),
         },
@@ -2770,7 +2770,7 @@ test("does not let a host take another session's terminal", async () => {
 
   const response = await fetch(url, {
     headers: {
-      "pipoca-protocol": "4",
+      "pipoca-protocol": "5",
       "content-type": "application/json",
       authorization: `Bearer ${await runners.token("laptop")}`,
       ...webSocketUpgrade,

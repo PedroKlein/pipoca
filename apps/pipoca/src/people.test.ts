@@ -196,7 +196,7 @@ test("an Environment a runner makes with a join key is the key maker's", async (
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "pipoca-protocol": "4",
+        "pipoca-protocol": "5",
         authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({ name: "vm" }),
@@ -328,7 +328,7 @@ test("an owner or an admin deletes an Environment once its Sessions are archived
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "pipoca-protocol": "4",
+        "pipoca-protocol": "5",
         authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({ name: "mac" }),
@@ -357,7 +357,7 @@ test("an owner or an admin deletes an Environment once its Sessions are archived
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "pipoca-protocol": "4",
+      "pipoca-protocol": "5",
       authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ running: [], folders: [root], models: [] }),

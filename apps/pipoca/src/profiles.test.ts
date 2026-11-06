@@ -76,7 +76,7 @@ async function poll(
     fetch(new URL("/runner/work", server.url), {
       method: "POST",
       headers: {
-        "pipoca-protocol": "4",
+        "pipoca-protocol": "5",
         authorization: `Bearer ${await runners.token("vm")}`,
         "content-type": "application/json",
       },
@@ -604,7 +604,7 @@ test("keeps a repository trust answer for the next Session in it", async () => {
     {
       method: "POST",
       headers: {
-        "pipoca-protocol": "4",
+        "pipoca-protocol": "5",
         authorization: `Bearer ${await runners.token("vm")}`,
         "content-type": "application/json",
       },
@@ -833,7 +833,7 @@ test("hands runners a Profile's whole folder, without what machines keep", async
   const files = await json<ProfileFiles>(
     fetch(new URL(`/runner/sessions/${session.id}/profile`, server.url), {
       headers: {
-        "pipoca-protocol": "4",
+        "pipoca-protocol": "5",
         "content-type": "application/json",
         authorization: `Bearer ${await runners.token("vm")}`,
       },
@@ -900,7 +900,7 @@ async function runnerFilesOf(
   const files = await json<ProfileFiles>(
     fetch(new URL(`/runner/sessions/${session.id}/profile`, server.url), {
       headers: {
-        "pipoca-protocol": "4",
+        "pipoca-protocol": "5",
         "content-type": "application/json",
         authorization: `Bearer ${await runners.token("vm")}`,
       },
@@ -1049,7 +1049,7 @@ test("gives assistant sessions the base Profile's extensions and packages only",
   const { files } = await json<ProfileFiles>(
     fetch(new URL(`/runner/sessions/${session.id}/profile`, server.url), {
       headers: {
-        "pipoca-protocol": "4",
+        "pipoca-protocol": "5",
         "content-type": "application/json",
         authorization: `Bearer ${await runners.token("vm")}`,
       },

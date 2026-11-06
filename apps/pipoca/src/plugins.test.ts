@@ -210,7 +210,7 @@ test("serves a plugin's tools to the sessions they apply to and returns their re
     new URL(`/runner/sessions/${toolless.id}/tools?generation=1`, server.url),
     {
       headers: {
-        "pipoca-protocol": "4",
+        "pipoca-protocol": "5",
         "content-type": "application/json",
         authorization: `Bearer ${token ?? ""}`,
       },
@@ -359,7 +359,7 @@ test("serves a tool's exposure, namespace and hints to its sessions", async () =
     new URL(`/runner/sessions/${session.id}/tools?generation=1`, server.url),
     {
       headers: {
-        "pipoca-protocol": "4",
+        "pipoca-protocol": "5",
         "content-type": "application/json",
         authorization: `Bearer ${token ?? ""}`,
       },

@@ -205,7 +205,7 @@ beforeEach(async () => {
 });
 
 const runnerHeaders = (token: string): Record<string, string> => ({
-  "pipoca-protocol": "4",
+  "pipoca-protocol": "5",
   authorization: `Bearer ${token}`,
   "content-type": "application/json",
 });

@@ -54,7 +54,7 @@ export function runnerCredentials(
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "pipoca-protocol": "4",
+        "pipoca-protocol": "5",
         authorization: `Bearer ${await key(environment)}`,
       },
       body: JSON.stringify({ name: runner }),
