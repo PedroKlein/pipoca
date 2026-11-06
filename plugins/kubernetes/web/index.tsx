@@ -3,13 +3,12 @@ import type { Environment, EnvironmentTemplate } from "@pipoca/protocol";
 import {
   Button,
   Card,
-  cn,
   Code,
   ErrorText,
   Field,
-  fieldClass,
   Section,
   Select,
+  TextArea,
   TextInput,
 } from "@pipoca/ui";
 import { Fragment, type ReactElement, type SubmitEvent, useState } from "react";
@@ -268,30 +267,30 @@ function Settings({
       {workspace === "claim" && (
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Claim size">
-            <input
+            <TextInput
               name="claimSize"
               required
               defaultValue={shown.claimSize}
               placeholder="10Gi"
-              className={cn(fieldClass, "font-mono")}
+              className="font-mono"
             />
           </Field>
           <Field label="Storage class, empty for the cluster's default">
-            <input
+            <TextInput
               name="storageClass"
               defaultValue={shown.storageClass ?? ""}
-              className={cn(fieldClass, "font-mono")}
+              className="font-mono"
             />
           </Field>
         </div>
       )}
       <Field label="Pod patch, a JSON merge patch on each pod">
-        <textarea
+        <TextArea
           name="podPatch"
           rows={3}
           defaultValue={JSON.stringify(shown.podPatch, null, 2)}
           placeholder='{"spec": {"nodeSelector": {"pool": "agents"}}}'
-          className={cn(fieldClass, "min-h-20 resize-y font-mono text-mono-sm")}
+          className="min-h-20 resize-y font-mono text-mono-sm"
         />
       </Field>
       <div className="flex flex-wrap items-center gap-2">

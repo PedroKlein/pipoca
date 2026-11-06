@@ -2838,7 +2838,12 @@ test("creates a Project and shares a file through its library", async () => {
   await card.getByRole("link", { name: "Open Docs fullscreen" }).waitFor();
   expect(await page.locator("#chat").getByText("start_thread").count()).toBe(0);
 
-  const row = rail.getByRole("listitem", { name: "Docs" });
+  // A thread's row moves between groups as its run state changes, so the
+  // menu opens once it has settled as idle.
+  const row = rail
+    .getByRole("region", { name: "Idle" })
+    .getByRole("listitem", { name: "Docs" });
+
   await row.getByText(/^e2e · /).waitFor();
   await row.getByRole("button", { name: "Actions for Docs" }).click();
 
@@ -2949,7 +2954,7 @@ test("creates a Project and shares a file through its library", async () => {
 
   await rail
     .getByRole("listitem", { name: "Docs" })
-    .getByText(/^Archived · /)
+    .getByText("Archived", { exact: true })
     .waitFor();
 
   await page
@@ -2970,7 +2975,7 @@ test("creates a Project and shares a file through its library", async () => {
 
   await rail
     .getByRole("listitem", { name: "Docs" })
-    .getByText(/^Archived · /)
+    .getByText("Archived", { exact: true })
     .waitFor({ state: "detached" });
 
   await settings.getByRole("button", { name: "Archive Project" }).click();

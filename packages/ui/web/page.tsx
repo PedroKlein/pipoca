@@ -1,7 +1,11 @@
-import type { ReactElement, ReactNode } from "react";
+import { createContext, type ReactElement, type ReactNode, use } from "react";
 import { cn } from "./cn";
 
+const InPage = createContext(false);
+
 // The column a Settings or plugin page sits in, with its title when given.
+// Inside another Page, such as a plugin's page in the shell's column, it
+// draws only its title and content.
 export function Page({
   id,
   title,
@@ -22,13 +26,19 @@ export function Page({
   readonly className?: string;
   readonly children: ReactNode;
 }): ReactElement {
+  const nested = use(InPage);
+
   return (
     <div
       id={id}
       aria-label={label}
       className={cn(
-        "mx-auto flex w-full flex-col px-4 pt-8 pb-12 md:px-12 md:pt-11 md:pb-18",
-        wide ? "max-w-page-wide" : "max-w-page",
+        "flex w-full flex-col",
+        !nested &&
+          cn(
+            "mx-auto px-4 pt-8 pb-12 md:px-12 md:pt-11 md:pb-18",
+            wide ? "max-w-page-wide" : "max-w-page",
+          ),
         className,
       )}
     >
@@ -37,12 +47,12 @@ export function Page({
           {title}
         </PageTitle>
       )}
-      {children}
+      <InPage value>{children}</InPage>
     </div>
   );
 }
 
-export function PageTitle({
+function PageTitle({
   children,
   description,
   actions,

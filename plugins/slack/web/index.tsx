@@ -11,7 +11,7 @@ import {
   cn,
   ErrorText,
   Field,
-  fieldClass,
+  TextInput,
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
@@ -157,9 +157,7 @@ function Bots(): ReactElement {
                 Remove
               </Button>
             </div>
-            {bot.error !== null && (
-              <p className="text-caption text-failed">{bot.error}</p>
-            )}
+            <ErrorText size="caption">{bot.error}</ErrorText>
           </li>
         ))}
       </ul>
@@ -170,29 +168,22 @@ function Bots(): ReactElement {
           className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
         >
           <Field label="Name">
-            <input
-              name="name"
-              required
-              placeholder="team-bot"
-              className={fieldClass}
-            />
+            <TextInput name="name" required placeholder="team-bot" />
           </Field>
           <Field label="Bot token (xoxb-…)">
-            <input
+            <TextInput
               name="botToken"
               type="password"
               autoComplete="off"
               required
-              className={fieldClass}
             />
           </Field>
           <Field label="App-level token (xapp-…)">
-            <input
+            <TextInput
               name="appToken"
               type="password"
               autoComplete="off"
               required
-              className={fieldClass}
             />
           </Field>
           <div className="flex flex-wrap items-center gap-2 md:col-span-2">

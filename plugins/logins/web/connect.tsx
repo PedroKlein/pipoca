@@ -6,8 +6,9 @@ import {
   cn,
   ErrorText,
   Field,
-  fieldClass,
   Select,
+  TextArea,
+  TextInput,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type { Connectable, Connection, ConnectionPrompt } from "../src/model";
@@ -116,13 +117,13 @@ export function ConnectForm({
       )}
       {provider?.paste === true ? (
         <Field label="Key">
-          <textarea
+          <TextArea
             name="key"
             required
             rows={4}
             autoComplete="off"
             spellCheck={false}
-            className={`${fieldClass} font-mono`}
+            className="font-mono"
           />
         </Field>
       ) : (
@@ -293,12 +294,11 @@ function PromptForm({
             ))}
           </Select>
         ) : (
-          <input
+          <TextInput
             name="answer"
             type={prompt.type === "secret" ? "password" : "text"}
             autoComplete="off"
             placeholder={prompt.placeholder}
-            className={fieldClass}
           />
         )}
       </Field>

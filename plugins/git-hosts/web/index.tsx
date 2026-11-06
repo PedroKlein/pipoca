@@ -8,14 +8,15 @@ import {
 import {
   Badge,
   Button,
+  buttonClass,
   cardClass,
+  Checkbox,
   cn,
   ErrorText,
   Field,
-  fieldClass,
   Icon,
   initialsOf,
-  PageTitle,
+  Page,
   Picker,
   Row,
   Rows,
@@ -25,6 +26,7 @@ import {
   Stepper,
   type StepState,
   Switch,
+  TextInput,
   useConfirm,
 } from "@pipoca/ui";
 import type { RepositoryChoice } from "@pipoca/protocol";
@@ -100,27 +102,25 @@ function SettingsSection(): ReactElement | null {
   }
 
   return (
-    <>
-      <PageTitle
-        description="Only admins see this page. It lists the hosts people can connect and the bots routines act as. Everyone else connects their own account in Accounts."
-        actions={
-          !adding && (
-            <Button
-              onClick={() => {
-                setAdding(true);
-              }}
-            >
-              <Icon name="plus" />
-              Add a host
-            </Button>
-          )
-        }
-      >
-        Git hosts
-      </PageTitle>
+    <Page
+      title="Git hosts"
+      description="Only admins see this page. It lists the hosts people can connect and the bots routines act as. Everyone else connects their own account in Accounts."
+      actions={
+        !adding && (
+          <Button
+            onClick={() => {
+              setAdding(true);
+            }}
+          >
+            <Icon name="plus" />
+            Add a host
+          </Button>
+        )
+      }
+    >
       <Hosts adding={adding} onAdding={setAdding} onChange={reload} />
       <Bots hosts={value.hosts.map(({ host }) => host)} />
-    </>
+    </Page>
   );
 }
 
@@ -237,20 +237,18 @@ function CommitAs(): ReactElement | null {
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Name">
-            <input
+            <TextInput
               name="name"
               defaultValue={value?.name ?? ""}
               autoComplete="name"
-              className={fieldClass}
             />
           </Field>
           <Field label="Email">
-            <input
+            <TextInput
               name="email"
               type="email"
               defaultValue={value?.email ?? ""}
               autoComplete="email"
-              className={fieldClass}
             />
           </Field>
         </div>
@@ -263,7 +261,9 @@ function CommitAs(): ReactElement | null {
         </div>
         <p role="status" className="text-caption">
           {error !== undefined ? (
-            <span className="text-failed">{error}</span>
+            <ErrorText inline size="inherit">
+              {error}
+            </ErrorText>
           ) : (
             saved && <span className="text-fg-dim">Saved</span>
           )}
@@ -560,13 +560,13 @@ function HostRow({
           aria-label={`Connect ${host.label} with a token`}
           className="flex basis-full flex-wrap items-center gap-2"
         >
-          <input
+          <TextInput
             name="token"
             type="password"
             autoComplete="off"
             aria-label="Personal access token"
             placeholder="Personal access token with repo scope"
-            className={`${fieldClass} flex-1`}
+            className="flex-1"
           />
           <Button variant="primary" type="submit">
             Connect
@@ -845,24 +845,22 @@ function ConnectSetup({
               onSubmit={submit}
               className="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr_auto]"
             >
-              <input
+              <TextInput
                 name="clientId"
                 required
                 aria-label="Client ID"
                 placeholder="Client ID"
-                className={fieldClass}
                 onFocus={() => {
                   setOpened(true);
                 }}
               />
-              <input
+              <TextInput
                 name="clientSecret"
                 type="password"
                 autoComplete="off"
                 required
                 aria-label="Client secret"
                 placeholder="Client secret"
-                className={fieldClass}
               />
               <Button variant="primary" type="submit">
                 Save
@@ -938,42 +936,28 @@ function HostForm({
       className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
     >
       <Field label="Host">
-        <input
+        <TextInput
           name="host"
           defaultValue={host?.host ?? ""}
           disabled={host !== undefined}
           placeholder="github.example.com"
-          className={fieldClass}
         />
       </Field>
       <Field label="Label">
-        <input
+        <TextInput
           name="label"
           defaultValue={host?.label ?? ""}
           placeholder="Company GitHub"
-          className={fieldClass}
         />
       </Field>
       <Field label="OAuth app client ID (optional)">
-        <input
-          name="clientId"
-          defaultValue={host?.clientId ?? ""}
-          className={fieldClass}
-        />
+        <TextInput name="clientId" defaultValue={host?.clientId ?? ""} />
       </Field>
       <Field label={secretLabel(host)}>
-        <input
-          name="clientSecret"
-          type="password"
-          autoComplete="off"
-          className={fieldClass}
-        />
+        <TextInput name="clientSecret" type="password" autoComplete="off" />
       </Field>
       {host?.hasClientSecret === true && (
-        <label className="flex items-center gap-2 text-fg-dim">
-          <input type="checkbox" name="removeSecret" />
-          Remove the client secret
-        </label>
+        <Checkbox name="removeSecret" label="Remove the client secret" />
       )}
       <div className="flex flex-wrap items-center gap-2 md:col-span-2">
         <Button variant="primary" type="submit">
@@ -982,8 +966,8 @@ function HostForm({
         <Button onClick={cancel}>Cancel</Button>
         {remove !== undefined && (
           <Button
-            variant="ghost"
-            className="ml-auto text-failed"
+            variant="danger"
+            className="ml-auto"
             aria-label={`Remove ${host?.host ?? ""}`}
             onClick={remove}
           >
@@ -1134,9 +1118,9 @@ function Bots({ hosts }: { readonly hosts: readonly string[] }): ReactElement {
             description={
               <span className="flex flex-col gap-0.5">
                 <span>{botDescription(user)}</span>
-                {user.error !== null && (
-                  <span className="text-failed">{user.error}</span>
-                )}
+                <ErrorText inline size="inherit">
+                  {user.error}
+                </ErrorText>
               </span>
             }
           >
@@ -1147,7 +1131,7 @@ function Bots({ hosts }: { readonly hosts: readonly string[] }): ReactElement {
                     href={user.installUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex h-control items-center rounded-md px-3 text-ui font-medium text-fg-dim hover:bg-hover hover:text-fg"
+                    className={buttonClass({ variant: "ghost" })}
                   >
                     Install
                   </a>
@@ -1221,15 +1205,10 @@ function Bots({ hosts }: { readonly hosts: readonly string[] }): ReactElement {
         >
           {hostField}
           <Field label="App name">
-            <input
-              name="name"
-              required
-              placeholder="Acme Pipoca bot"
-              className={fieldClass}
-            />
+            <TextInput name="name" required placeholder="Acme Pipoca bot" />
           </Field>
           <Field label="Organization that owns it (optional)">
-            <input name="organization" className={fieldClass} />
+            <TextInput name="organization" />
           </Field>
           <p className="text-label text-fg-dim md:col-span-2">
             The host asks you to confirm the App, then sends you back here.
@@ -1257,20 +1236,14 @@ function Bots({ hosts }: { readonly hosts: readonly string[] }): ReactElement {
         >
           {hostField}
           <Field label="Name">
-            <input
-              name="name"
-              required
-              placeholder="ci-bot"
-              className={fieldClass}
-            />
+            <TextInput name="name" required placeholder="ci-bot" />
           </Field>
           <Field label="The account's personal access token">
-            <input
+            <TextInput
               name="token"
               type="password"
               autoComplete="off"
               required
-              className={fieldClass}
             />
           </Field>
           <div className="flex flex-wrap items-center gap-2 md:col-span-2">
