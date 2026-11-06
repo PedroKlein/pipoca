@@ -1,5 +1,5 @@
 // Two letters for a name's mark: its first letter, then the first letter of
-// its next word or capital ("GitHub" is Gh), or else its second letter.
+// its next word or capital ("GitHub" is GH), or else its second letter.
 export function initialsOf(name: string): string {
   const [first = "", ...rest] =
     name
@@ -8,7 +8,7 @@ export function initialsOf(name: string): string {
 
   const second = rest[0]?.[0] ?? first[1] ?? "";
 
-  return first.slice(0, 1).toUpperCase() + second.toLowerCase();
+  return (first.slice(0, 1) + second).toUpperCase();
 }
 
 // "1 person", "3 Sessions": a count with its noun, plural unless it is one.

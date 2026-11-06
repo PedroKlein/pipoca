@@ -2,9 +2,10 @@ import { expect, test } from "bun:test";
 import { initialsOf, plural } from "./initials";
 
 test("takes two letters for a name's mark", () => {
-  expect(initialsOf("GitHub")).toBe("Gh");
-  expect(initialsOf("maria silva")).toBe("Ms");
-  expect(initialsOf("Bea")).toBe("Be");
+  expect(initialsOf("GitHub")).toBe("GH");
+  expect(initialsOf("maria silva")).toBe("MS");
+  expect(initialsOf("Pedro Klein")).toBe("PK");
+  expect(initialsOf("Bea")).toBe("BE");
 });
 
 test("counts a noun, plural unless there is one", () => {

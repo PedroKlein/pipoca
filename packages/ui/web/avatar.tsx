@@ -9,7 +9,7 @@ const sizes = {
   lg: "size-11 text-prose",
 } as const;
 
-// A person's round mark, or with square an item's logo, such as "Gh" for
+// A person's round mark, or with square an item's logo, such as "GH" for
 // GitHub. It shows the name's initials unless given something else.
 export function Avatar({
   name,
