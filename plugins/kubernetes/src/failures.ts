@@ -1,4 +1,4 @@
-import { type Backoff, backoff } from "@pipoca/plugins";
+import { type Retry, retryAfter } from "@pipoca/plugins";
 import type { PodFailure } from "./settings";
 
 export interface FailedPod {
@@ -10,13 +10,13 @@ export interface FailedPod {
   readonly problem: string;
 }
 
-interface Failure extends Backoff {
+interface Failure extends Retry {
   readonly environmentId: string;
   readonly last: PodFailure;
 }
 
 // Runner pods that failed in a row. The next pod for the same key waits as
-// backoff says.
+// retryAfter says.
 export class PodFailures {
   readonly #retryAfterMs: number;
   readonly #byKey = new Map<string, Failure>();
@@ -30,7 +30,7 @@ export class PodFailures {
     const keys = new Map(failed.map((each) => [each.key, each]));
 
     for (const { key, environmentId, pod, problem } of keys.values()) {
-      const next = backoff(this.#byKey.get(key), now, this.#retryAfterMs);
+      const next = retryAfter(this.#byKey.get(key), now, this.#retryAfterMs);
 
       this.#byKey.set(key, {
         ...next,

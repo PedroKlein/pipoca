@@ -3,7 +3,7 @@ import type { ReactElement, ReactNode } from "react";
 import { useMe, useQuery } from "../data/hooks";
 import { EnvironmentsPage } from "../settings/environments/environments";
 import { PluginBoundary } from "../plugin-boundary";
-import { enabledPlugins, pluginContext } from "../plugins";
+import { enabledPlugins } from "../plugins";
 import { ProfilesPage } from "../settings/profiles/profiles";
 import { href } from "../router";
 import {
@@ -23,7 +23,7 @@ interface Entry {
 
 function screens() {
   return enabledPlugins().flatMap(({ name, hub }) =>
-    Object.entries(hub?.setup ?? {}).map(([key, screen]) => ({
+    Object.entries(hub.setup).map(([key, screen]) => ({
       ...screen,
       section: "plugin",
       rest: `${name}/${key}`,
@@ -119,7 +119,7 @@ export function TeamSetup({
       screen !== undefined && (
         <Page>
           <PluginBoundary name={screen.plugin}>
-            <screen.Page context={pluginContext(screen.plugin)} />
+            <screen.Page />
           </PluginBoundary>
         </Page>
       )

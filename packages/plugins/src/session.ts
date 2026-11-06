@@ -2,18 +2,89 @@ import type {
   AgentSession,
   ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
-import type { Clock, Log, Timer } from "@pipoca/protocol";
+import type { CredentialStore } from "@earendil-works/pi-ai";
+import type {
+  Clock,
+  Log,
+  Permission,
+  PermissionDetail,
+  Question,
+  QuestionsAnswer,
+  ThinkingLevel,
+  Timer,
+} from "@pipoca/protocol";
 import type { Static, TSchema } from "typebox";
 import type { TypedClient } from "./client";
 import type { PluginDefinition } from "./definition";
 import type { ToolDef } from "./server";
-import type {
-  AskPermission,
-  AskQuestions,
-  Checkout,
-  ChildOptions,
-  SessionLogins,
-} from "./plugin";
+
+export type Explain = (
+  questionId: string,
+  value: string,
+  question: string | null,
+) => Promise<string>;
+
+export type AskQuestions = (
+  questions: readonly Question[],
+  explain: Explain | undefined,
+  signal: AbortSignal | undefined,
+  // In team work, the name of the person the questions are for.
+  person?: string,
+) => Promise<QuestionsAnswer | null>;
+
+// Asks the user whether a tool call may run, and resolves to "deny" when the
+// prompt goes away unanswered.
+export type AskPermission = (
+  title: string,
+  details: readonly PermissionDetail[],
+  signal: AbortSignal | undefined,
+) => Promise<Permission>;
+
+// A git checkout in the Session's workspace, and the commit its session
+// branch started from when it has one.
+export interface Checkout {
+  readonly path: string;
+  readonly base: string | null;
+}
+
+export interface ChildOptions {
+  readonly tools: readonly string[];
+  // As Pi's --model takes it, such as "anthropic/claude-sonnet-4-5". The
+  // Session's current model when left out.
+  readonly model?: string;
+  readonly thinking?: ThinkingLevel;
+  // Added to Pi's system prompt.
+  readonly systemPrompt?: string;
+  // A child's session file to carry on from, when it is still there.
+  readonly continueFrom?: string;
+}
+
+export interface SessionLogins {
+  readonly models: CredentialStore;
+  readonly mcp: McpLoginStore;
+}
+
+// What Pi's MCP extension asks of its sign-in store, which Pi keeps in
+// mcp-auth.json by default. Its calls don't wait, except a token refresh,
+// which runs while no other process refreshes the same server.
+export interface McpLoginStore {
+  readonly forServer: (
+    name: string,
+    serverUrl: string,
+  ) => {
+    readonly load: () => McpLoginState | undefined;
+    readonly save: (state: McpLoginState) => void;
+    readonly withRefreshLock: <T>(fn: () => Promise<T>) => Promise<T>;
+  };
+  readonly tokens: (name: string, serverUrl: string) => unknown;
+  readonly remove: (name: string, serverUrl: string) => boolean;
+}
+
+// One MCP server's client registration and tokens, as Pi keeps them.
+export interface McpLoginState {
+  readonly tokens?: unknown;
+  readonly [field: string]: unknown;
+}
 
 export interface SessionToolCall {
   readonly id: string;

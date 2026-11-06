@@ -1,5 +1,5 @@
-import { Config, type ConfigKey, type Static, Type } from "@pipoca/plugins";
-import { kernelConfig } from "@pipoca/plugins/host";
+import { Config, type Static, Type } from "@pipoca/plugins";
+import { type ConfigKey, kernelConfig } from "@pipoca/plugins/host";
 import type { Log } from "@pipoca/protocol";
 
 const serverOptions = Config.object({

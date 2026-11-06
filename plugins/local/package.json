@@ -14,5 +14,8 @@
   },
   "pipoca": {
     "entry": "plugin.ts"
+  },
+  "exports": {
+    "./plugin": "./plugin.ts"
   }
 }

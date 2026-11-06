@@ -53,7 +53,8 @@ async function saveAliases(
   session: TestSession,
   body: string,
 ): Promise<Response> {
-  return kernel.as("ada").raw("POST", `environments/${session.environmentId}`, {
+  return kernel.as("ada").raw(`environments/${session.environmentId}`, {
+    method: "POST",
     headers: { "content-type": "application/json" },
     body,
   });
@@ -89,7 +90,8 @@ test("only admins change an Environment's aliases", async () => {
 
   const response = await kernel
     .as("ana")
-    .raw("POST", `environments/${session.environmentId}`, {
+    .raw(`environments/${session.environmentId}`, {
+      method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ aliases }),
     });
@@ -168,7 +170,8 @@ test("an admin hides models, which the config keeps", async () => {
   const { kernel } = await started();
 
   const hide = async (who: string, hidden: readonly string[]) =>
-    kernel.as(who).raw("POST", "hidden", {
+    kernel.as(who).raw("hidden", {
+      method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ hidden }),
     });

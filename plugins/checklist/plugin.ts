@@ -5,5 +5,4 @@ export const checklist = definePlugin({
   title: "Checklist",
   description:
     "Lets the agent keep a checklist of its steps, shown above the composer.",
-  works: ["personal", "team"],
 });

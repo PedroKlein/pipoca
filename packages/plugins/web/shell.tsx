@@ -10,7 +10,6 @@ import type { EmbeddedSessionProps } from "./index";
 
 export interface Viewer {
   readonly person: Pick<Person, "id" | "name" | "admin">;
-  readonly admin: boolean;
   readonly team: boolean;
 }
 

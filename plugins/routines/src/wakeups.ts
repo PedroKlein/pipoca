@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import {
   NotFound,
   type ServerContext,
@@ -38,7 +37,7 @@ interface Payload {
   readonly message: string;
 }
 
-export interface WakeUps {
+interface WakeUps {
   readonly pending: (sessionId: string) => readonly WakeUp[];
   // Cancels a wake-up of a Session the check lets through.
   readonly cancel: (id: string, may: (sessionId: string) => boolean) => void;
@@ -196,7 +195,7 @@ export function wakeUps(context: Context): WakeUps {
       );
     }
 
-    const id = randomUUID();
+    const id = Bun.randomUUIDv7();
 
     schedule.at(keyOf(session.id, id), dueAt, {
       reason,

@@ -8,5 +8,8 @@
     "@pipoca/protocol": "workspace:*",
     "@pipoca/sessionhost": "workspace:*",
     "@pipoca/workspaces": "workspace:*"
+  },
+  "devDependencies": {
+    "@pipoca/testing": "workspace:*"
   }
 }

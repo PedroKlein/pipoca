@@ -565,8 +565,6 @@ export const routes = {
     auth: "person",
     response: "bytes",
   },
-  // A v1 plugin's own API, for people signed in (ADR 0015).
-  ext: { method: "ANY", path: "/api/ext/:plugin/*path", auth: "public" },
 
   "environments.list": {
     method: "GET",
@@ -1143,12 +1141,6 @@ export const routes = {
     path: "/runner/sessions/:id/parts/:plugin/:hash",
     auth: "session",
     response: "bytes",
-  },
-  // Plugin routes a Session part calls as its Session.
-  "runner.ext": {
-    method: "ANY",
-    path: "/runner/sessions/:id/ext/:plugin/*path",
-    auth: "session",
   },
 } as const satisfies Readonly<Record<string, RouteSpec>>;
 

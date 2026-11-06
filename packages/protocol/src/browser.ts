@@ -272,9 +272,6 @@ const environmentTemplate = Type.Object({
   image: nullable(Type.String()),
   setupScript: Type.String(),
   variables: textMap,
-  // Model aliases for Environments made from it that have none of their
-  // own, which the models plugin reads (ADR 0063).
-  aliases: nullable(anyMap),
   // The repository file a synced template follows (ADR 0063).
   source: nullable(repositorySource),
 });
@@ -288,7 +285,6 @@ const { secrets: _, ...templateSettings } = environmentUpdate.properties;
 export const templateEntry = Type.Object({
   ...templateSettings,
   id: Type.String(),
-  aliases: Type.Optional(environmentTemplate.properties.aliases),
   source: Type.Optional(environmentTemplate.properties.source),
 });
 

@@ -13,7 +13,7 @@ export interface Account {
 
 type Outcome = "news" | "quiet" | "failed";
 
-export interface Poller {
+interface Poller {
   // Polls one watch soon, such as one just added.
   readonly soon: (id: string) => void;
   // Polls one watch now, such as after a merge.

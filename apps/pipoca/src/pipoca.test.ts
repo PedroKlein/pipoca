@@ -34,7 +34,7 @@ import { runAgent } from "@pipoca/runner";
 import { binary } from "./binary";
 import { readSse } from "@pipoca/protocol";
 import { testServer, type TestServer } from "./testdata/harness";
-import { until } from "@pipoca/plugins/testing";
+import { until } from "@pipoca/testing/until";
 import { runnerCredentials } from "./testdata/runners";
 
 let root: string;

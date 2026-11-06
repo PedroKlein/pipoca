@@ -2,7 +2,7 @@ import { Button, Icon } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { ShellMenu } from "../session/embedded-session";
 import { PluginBoundary } from "../plugin-boundary";
-import { enabledPlugins, pageFills, pluginContext } from "../plugins";
+import { enabledPlugins, pageFills } from "../plugins";
 
 export function MenuButton({
   onMenu,
@@ -36,7 +36,7 @@ export function PluginPage({
 
   const body = Page ? (
     <PluginBoundary key={name} name={name}>
-      <Page context={pluginContext(name)} path={path} />
+      <Page path={path} />
     </PluginBoundary>
   ) : (
     <p className="text-fg-dim">This page isn&apos;t available.</p>

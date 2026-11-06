@@ -26,7 +26,7 @@ export interface Mail {
   readonly text: string;
 }
 
-export interface Checked {
+interface Checked {
   readonly uidValidity: string;
   // The highest UID the mailbox has, which the next check starts after.
   readonly last: number;

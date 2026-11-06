@@ -22,7 +22,7 @@ export interface WorkflowHost {
   };
 }
 
-export interface WorkflowResult {
+interface WorkflowResult {
   readonly output: string;
   readonly error?: string;
 }

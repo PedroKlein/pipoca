@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 // A page that moves on by itself instead of a 302: the browser came here from
 // the host's site, and would leave the Strict session cookie off a redirect
 // it follows straight away.
@@ -32,8 +30,4 @@ export function escaped(text: string): string {
     /[&<>"']/g,
     (character) => `&#${String(character.charCodeAt(0))};`,
   );
-}
-
-export function hash(text: string): string {
-  return createHash("sha256").update(text).digest("hex");
 }

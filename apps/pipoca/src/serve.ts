@@ -3,18 +3,17 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ServerWebSocket } from "bun";
 import { pluginSwitches, startPlugins } from "@pipoca/pluginhost";
-import type {
-  PluginDefinition,
-  Runtime,
-  ServerPart,
-  ServerPlugin,
-} from "@pipoca/plugins";
-import { eventBus, type TypedBus } from "@pipoca/plugins/host";
+import type { PluginDefinition } from "@pipoca/plugins";
+import {
+  type EventBus,
+  eventBus,
+  type Runtime,
+  type ServerPart,
+} from "@pipoca/plugins/host";
 import {
   apiPath,
   type Clock,
   type Log,
-  type PluginManifest,
   systemClock,
   systemTimer,
   type Timer,
@@ -51,14 +50,7 @@ import {
   update,
 } from "./installed";
 import { latestCommit } from "@pipoca/repositories";
-import {
-  builtInDefinitions,
-  builtInParts,
-  builtInPlugins,
-  builtInServers,
-  builtInSessions,
-  definedManifest,
-} from "./built-in";
+import { builtInDefinitions, builtInParts, definedManifest } from "./built-in";
 import { errorReply } from "./server/http/replies";
 import { previewBroker } from "./previews";
 import { webAppFile } from "./web-app";
@@ -115,14 +107,13 @@ export interface ServeOptions {
   // What plugins that start runners on this machine run, the pipoca binary
   // unless it says.
   readonly command?: readonly string[];
-  // Replaces the built-in plugins. A plugin without a manifest gets one with
-  // just its name.
-  readonly plugins?: readonly ServerPlugin[];
-  // Plugins defined with definePlugin, besides the ones above, and their
-  // server parts.
+  // The environment plugins read, the server's own unless it says.
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  // False leaves out the built-in plugins.
+  readonly builtIns?: boolean;
+  // Plugins besides the built-in ones, by their definitions or server parts.
   readonly definitions?: readonly PluginDefinition[];
   readonly servers?: readonly ServerPart[];
-  readonly manifests?: readonly PluginManifest[];
   readonly disabledPlugins?: readonly string[];
   // The plugins folder and what was found in it (ADR 0022).
   readonly installed?: {
@@ -141,7 +132,7 @@ export interface ServeOptions {
   readonly timer?: Timer;
   // The event bus and change feed the kernel and plugins publish on; new
   // ones when unset.
-  readonly events?: TypedBus;
+  readonly events?: EventBus;
   readonly changes?: Changes;
   readonly log: Log;
 }
@@ -190,33 +181,16 @@ export function serve(options: ServeOptions): {
     ...(solo !== undefined && { solo }),
   });
 
-  const plugins = [
-    ...(options.plugins ?? builtInServers()),
-    ...installed.flatMap(({ server }) => (server ? [server] : [])),
-  ];
-
-  const builtIn =
-    options.plugins?.map(
-      ({ name }) =>
-        options.manifests?.find(({ id }) => id === name) ??
-        builtInPlugins.find(({ id }) => id === name) ?? {
-          id: name,
-          title: name,
-          description: "",
-        },
-    ) ??
-    builtInPlugins.filter(
-      ({ id }) => !builtInDefinitions.some((each) => each.id === id),
-    );
+  const builtIns = options.builtIns !== false;
 
   const ownServers = [
-    ...(options.plugins === undefined ? builtInParts : []),
+    ...(builtIns ? builtInParts : []),
     ...(options.servers ?? []),
   ];
 
   const ownDefinitions = [
     ...new Set([
-      ...(options.plugins === undefined ? builtInDefinitions : []),
+      ...(builtIns ? builtInDefinitions : []),
       ...(options.definitions ?? []),
       ...(options.servers ?? []).map(({ plugin }) => plugin),
     ]),
@@ -231,11 +205,7 @@ export function serve(options: ServeOptions): {
 
   const defined = ownDefinitions.map(definedManifest);
 
-  const known = [
-    ...builtIn,
-    ...defined,
-    ...installed.map(({ manifest }) => manifest),
-  ];
+  const known = [...defined, ...installed.map(({ manifest }) => manifest)];
 
   const onByDefault = (name: string): boolean => {
     const defaultOn = definitions.find(({ id }) => id === name)?.defaultOn;
@@ -255,7 +225,7 @@ export function serve(options: ServeOptions): {
   };
 
   const enabled = [
-    ...[...builtIn, ...defined]
+    ...defined
       .map(({ id }) => id)
       .filter(
         (name) =>
@@ -270,13 +240,12 @@ export function serve(options: ServeOptions): {
     options.secretKey,
     profiles,
     clock,
-    [
-      ...plugins,
-      ...definitions.map(({ id, schema }) => ({
+    definitions
+      .filter(({ id }) => enabled.includes(id))
+      .map(({ id, schema }) => ({
         name: id,
         ...(schema !== undefined && { schema }),
       })),
-    ].filter(({ name }) => enabled.includes(name)),
   );
 
   // Until the plugins have registered, which can turn it off.
@@ -403,13 +372,14 @@ export function serve(options: ServeOptions): {
 
   syncLater();
 
-  const pluginHost = startPlugins(plugins, enabled, {
+  const pluginHost = startPlugins(enabled, {
     definitions,
     servers: [
       ...ownServers,
       ...installed.flatMap(({ part }) => (part ? [part] : [])),
     ],
     url: () => options.url ?? server.url,
+    ...(options.env && { env: options.env }),
     manifests: known,
     sessions,
     environments,
@@ -458,9 +428,6 @@ export function serve(options: ServeOptions): {
         build: async (id) => buildPlugin(folder.root, id),
       },
     }),
-    sessionParts: builtInSessions.flatMap(({ plugin }) =>
-      plugin === undefined ? [] : [plugin],
-    ),
     mcpServers: () => userProfiles.mcpServers(),
     switches,
     templates,

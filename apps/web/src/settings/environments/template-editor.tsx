@@ -13,7 +13,7 @@ import { type ReactElement, type SubmitEvent, useState } from "react";
 import { request } from "../../data/client";
 import { useAction } from "../../data/hooks";
 import { PluginBoundary } from "../../plugin-boundary";
-import { enabledPlugins, pluginContext } from "../../plugins";
+import { enabledPlugins } from "../../plugins";
 
 export function TemplateEditor({
   template,
@@ -180,10 +180,7 @@ export function TemplateEditor({
           ({ name, TemplateSection }) =>
             TemplateSection && (
               <PluginBoundary key={name} name={name}>
-                <TemplateSection
-                  context={pluginContext(name)}
-                  template={template}
-                />
+                <TemplateSection template={template} />
               </PluginBoundary>
             ),
         )}

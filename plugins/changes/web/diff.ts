@@ -5,7 +5,7 @@ export interface DiffLine {
   readonly newLine: number | undefined;
 }
 
-export interface DiffHunk {
+interface DiffHunk {
   readonly header: string;
   readonly lines: readonly DiffLine[];
 }

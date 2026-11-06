@@ -39,7 +39,6 @@ const keys = defineServer(
     id: "keys",
     title: "Keys",
     description: "Keeps keys.",
-    works: ["personal", "team"],
   }),
   ({ tools, routes, sessions, provide }) => {
     tools.define({
@@ -159,7 +158,6 @@ const lists = defineServer(
     id: "lists",
     title: "Lists",
     description: "Keeps lists.",
-    works: ["personal", "team"],
   }),
   ({ routes, sessions, provide }) => {
     const profile = provide.profile(

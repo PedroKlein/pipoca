@@ -456,7 +456,8 @@ test("keeps the team's routines apart from a person's, stored as owned by no one
     { owner_user_id: null, name: "weekly" },
   ]);
 
-  const refused = await t.as("ana").raw("PUT", "team/routines/ping", {
+  const refused = await t.as("ana").raw("team/routines/ping", {
+    method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       title: "Ping",
@@ -471,7 +472,8 @@ test("keeps the team's routines apart from a person's, stored as owned by no one
 test("a routine's file that doesn't fit names the field", async () => {
   await using t = await started();
 
-  const bad = await t.as("ana").raw("PUT", "routines/nightly", {
+  const bad = await t.as("ana").raw("routines/nightly", {
+    method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ title: "", triggers: [], run: {} }),
   });
@@ -785,11 +787,13 @@ test("a wake-up keeps to its limits: 1 minute to the configured days, 10 pending
     .get<{ id: string }[]>("wakeups", { session: session.id });
 
   expect(
-    (await t.as("bo").raw("DELETE", `wakeups/${first?.id ?? ""}`)).status,
+    (await t.as("bo").raw(`wakeups/${first?.id ?? ""}`, { method: "DELETE" }))
+      .status,
   ).toBe(404);
 
   expect(
-    (await t.as("ana").raw("DELETE", `wakeups/${first?.id ?? ""}`)).status,
+    (await t.as("ana").raw(`wakeups/${first?.id ?? ""}`, { method: "DELETE" }))
+      .status,
   ).toBe(200);
 
   await session.archive();

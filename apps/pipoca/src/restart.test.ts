@@ -22,7 +22,7 @@ import type { ServeOptions } from "./serve";
 import { readSse } from "@pipoca/protocol";
 import { runnerCredentials } from "./testdata/runners";
 import { closeServers, testServer, type TestServer } from "./testdata/harness";
-import { until } from "@pipoca/plugins/testing";
+import { until } from "@pipoca/testing/until";
 
 let root: string | undefined;
 let server: TestServer;

@@ -5,7 +5,7 @@ import { type Clock, systemClock } from "@pipoca/protocol";
 import type { CredentialStore, EnvironmentStore } from "@pipoca/environments";
 import type { PeopleStore } from "@pipoca/people";
 import type { ScheduleStore } from "@pipoca/pluginhost";
-import type { PluginStore, ServerPlugin } from "@pipoca/plugins";
+import type { PluginDb } from "@pipoca/pluginhost";
 import type { ProfileFolders, ProfileStore } from "@pipoca/profiles";
 import type { SessionStore } from "@pipoca/sessions";
 import { credentialStore, environmentStore } from "./environments";
@@ -23,7 +23,7 @@ export interface Store {
   readonly profiles: ProfileStore;
   readonly people: PeopleStore;
   readonly credentials: CredentialStore;
-  readonly plugin: (name: string) => PluginStore;
+  readonly plugin: (name: string) => PluginDb;
   readonly schedules: ScheduleStore;
   // Why a plugin's tables can't be used, if they can't.
   readonly pluginFailure: (name: string) => string | undefined;
@@ -38,7 +38,7 @@ export function openStore(
   secretKey?: Buffer,
   profiles?: ProfileFolders,
   clock: Clock = systemClock,
-  plugins: readonly Pick<ServerPlugin, "name" | "schema">[] = [],
+  plugins: readonly { readonly name: string; readonly schema?: string }[] = [],
 ): Store {
   if (path !== ":memory:") {
     mkdirSync(dirname(path), { recursive: true });
@@ -70,7 +70,7 @@ export function openStore(
   }
 
   const selectAnySession = db.prepare("select 1 from sessions limit 1");
-  const pluginStores = new Map<string, PluginStore>();
+  const pluginStores = new Map<string, PluginDb>();
 
   return {
     sessions: sessionStore(db, clock, profiles),

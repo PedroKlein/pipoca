@@ -1,6 +1,13 @@
 import { expect, test } from "bun:test";
-import { BadRequest, readBody, Type } from "@pipoca/plugins";
+import { BadRequest, type Static, Type } from "@pipoca/plugins";
+import type { TSchema } from "typebox";
 import { checkBody } from "./body";
+import { readJson } from "./http";
+
+const readBody = async <const S extends TSchema>(
+  request: Request,
+  schema: S,
+): Promise<Static<S>> => checkBody<S>(await readJson(request), schema);
 
 const post = (body: string): Request =>
   new Request("http://plugin/items", { method: "POST", body });

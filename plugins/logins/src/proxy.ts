@@ -50,7 +50,7 @@ export function upstreams(
 }
 
 // Tokens that stand in for a key in one team Session, kept as hashes.
-export interface ProxyTokens {
+interface ProxyTokens {
   readonly issue: (sessionId: string) => string;
   readonly sessionOf: (token: string) => string | undefined;
 }
@@ -107,7 +107,7 @@ const dropped = new Set([
 ]);
 
 // What one model call used, as the provider's answer reports it.
-export interface CallUsage {
+interface CallUsage {
   readonly model: string | null;
   readonly input: number;
   readonly output: number;

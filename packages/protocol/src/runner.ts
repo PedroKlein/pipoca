@@ -1,6 +1,5 @@
 import { Type } from "typebox";
 import { postedEvent } from "./events";
-import { pluginSettings } from "./plugins";
 import { isolation, modelRef, thinkingLevel, workspace } from "./session";
 import type { Workspace } from "./session";
 import { integer, nullable, strings, textMap, type Wire } from "./wire";
@@ -74,9 +73,6 @@ const assignment = Type.Object({
   systemPrompt: nullable(Type.String()),
   firstMessage: nullable(Type.String()),
   plugins: strings,
-  // Each plugin's settings when the Session started (ADR 0036). Older
-  // servers leave it out, and Session parts get their defaults.
-  pluginSettings: Type.Optional(Type.Record(Type.String(), pluginSettings)),
   // Each defined plugin's config when the Session started, without its
   // secrets.
   pluginConfig: Type.Optional(Type.Record(Type.String(), Type.Unknown())),

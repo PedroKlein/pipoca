@@ -1,7 +1,8 @@
 import { readFile, realpath, rm } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import * as sdk from "@pipoca/plugins";
-import type { PluginDefinition, ServerPart } from "@pipoca/plugins";
+import type { PluginDefinition } from "@pipoca/plugins";
+import type { ServerPart } from "@pipoca/plugins/host";
 
 export interface PluginParts {
   readonly server?: string;
@@ -32,37 +33,11 @@ export function provideSdk(): void {
   Object.assign(globalThis, { [Symbol.for(sdkKey)]: sdk });
 }
 
-// Installs an installed plugin's dependencies and bundles its parts into
-// .build in its folder, so their bare imports resolve from the plugin's own
-// node_modules (ADR 0022). Returns the bundles' paths, and throws with what
-// went wrong.
-export async function bundleParts(
-  folder: string,
-  entries: PluginParts,
-): Promise<PluginParts> {
-  await installDependencies(folder);
-
-  const outdir = join(folder, ".build");
-  await rm(outdir, { recursive: true, force: true });
-
-  return {
-    ...(entries.server !== undefined && {
-      server: await bundle(entries.server, outdir, "server", [sdkFromServer]),
-    }),
-    ...(entries.web !== undefined && {
-      web: await bundle(entries.web, outdir, "web", [sharedWithShell]),
-    }),
-    ...(entries.session !== undefined && {
-      session: await bundle(entries.session, outdir, "session", [
-        sdkFromServer,
-      ]),
-    }),
-  };
-}
-
-// A plugin defined with definePlugin: its server part, or its definition
-// when it has none, and its web and Session parts, each bundled on its own.
-export async function bundleDefined(
+// Installs a plugin's dependencies and bundles its server part, or its
+// definition when it has none, and its web and Session parts, each on its
+// own, into .build in its folder, so their bare imports resolve from the
+// plugin's own node_modules (ADR 0022). Throws with what went wrong.
+export async function bundlePlugin(
   folder: string,
   entry: string,
   { server, web, session }: PluginParts,
@@ -136,7 +111,7 @@ const noMacros = { macros: false };
 async function bundle(
   entry: string,
   outdir: string,
-  part: "server" | "web" | "session" | "parts",
+  part: "server" | "web" | "session",
   plugins: Bun.BunPlugin[],
 ): Promise<string> {
   const result = await Bun.build({

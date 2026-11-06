@@ -1,4 +1,4 @@
-import { defineWeb, json, useLoaded } from "@pipoca/plugins/web";
+import { defineWeb, useLoaded, useApi } from "@pipoca/plugins/web";
 import {
   Badge,
   Button,
@@ -16,7 +16,6 @@ import type { Account } from "../src/model";
 import { ConnectForm, ConnectionCard } from "./connect";
 import { layerName } from "./layers";
 import { ProfileLogins } from "./profile";
-import { request } from "./request";
 import { modelStep } from "./setup";
 import { TeamCredentials } from "./team";
 
@@ -56,14 +55,16 @@ const typeLabels = {
 } as const;
 
 function Accounts(): ReactElement | null {
+  const api = useApi(logins);
+
   const { value, reload } = useLoaded(
-    async () => json<Account>(request("account")),
+    async () => api.get<Account>("account"),
     "account",
-    { topics: ["logins.logins"] },
+    { changes: ["logins"] },
   );
 
   const { value: profiles = [] } = useLoaded(
-    async () => json<readonly Profile[]>(request("/api/profiles")),
+    async () => api.get<readonly Profile[]>("/api/profiles"),
     "profiles",
     { topics: ["profiles"] },
   );
@@ -89,8 +90,8 @@ function Accounts(): ReactElement | null {
     .sort()
     .map((key) => ({ key, signedIn: stored.has(key) }));
 
-  const send = (path: string, init: RequestInit): void => {
-    json(request(path, init)).then(
+  const send = (call: Promise<unknown>): void => {
+    call.then(
       () => {
         setChoosing(false);
         setError(undefined);
@@ -160,12 +161,11 @@ function Accounts(): ReactElement | null {
                   variant="ghost"
                   aria-label={`Log out of ${login.provider} in ${layerName(login.layer, profiles)}`}
                   onClick={() => {
-                    void json(
-                      request(
+                    void api
+                      .delete(
                         `credentials/${encodeURIComponent(login.provider)}?layer=${login.layer}`,
-                        { method: "DELETE" },
-                      ),
-                    ).then(reload, reload);
+                      )
+                      .then(reload, reload);
                   }}
                 >
                   Log out
@@ -206,9 +206,7 @@ function Accounts(): ReactElement | null {
                     variant="ghost"
                     aria-label={`Log out of ${name}`}
                     onClick={() => {
-                      send(`mcp/${encodeURIComponent(key)}`, {
-                        method: "DELETE",
-                      });
+                      send(api.delete(`mcp/${encodeURIComponent(key)}`));
                     }}
                   >
                     Sign out
@@ -219,10 +217,7 @@ function Accounts(): ReactElement | null {
                     aria-label={`Sign in to ${name}`}
                     disabled={value.connection?.state === "running"}
                     onClick={() => {
-                      send("connect-mcp", {
-                        method: "POST",
-                        body: JSON.stringify({ server: key }),
-                      });
+                      send(api.post("connect-mcp", { server: key }));
                     }}
                   >
                     Sign in

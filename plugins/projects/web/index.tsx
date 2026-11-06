@@ -1,17 +1,16 @@
 import {
-  json,
   type LinkProps,
   type NavItemsProps,
   type NoticeProps,
   type ToolCall,
   type ToolCallProps,
-  ok,
   type PageProps,
   useLoaded,
   useNow,
   defineWeb,
   href as pageHref,
   SessionView,
+  useApi,
 } from "@pipoca/plugins/web";
 import {
   checkoutName,
@@ -49,6 +48,7 @@ import {
   type SubmitEvent,
   useState,
 } from "react";
+import type { TypedClient } from "@pipoca/plugins";
 import { projects } from "../plugin";
 import {
   AssistantItems,
@@ -72,7 +72,7 @@ import {
 } from "../src/model";
 
 // Thread states follow their Sessions.
-const watched = { topics: ["sessions", "projects.projects"] };
+const watched = { topics: ["sessions"], changes: ["projects"] };
 
 export const web = defineWeb(projects, {
   pages: [
@@ -95,7 +95,7 @@ export const web = defineWeb(projects, {
       area: "hub",
     },
   ],
-  sessionPath: (session) => `${session.owner?.key ?? ""}/${session.id}`,
+  sessionPath: (session) => `${session.plugin?.key ?? ""}/${session.id}`,
   slots: {
     home: Home,
     "notice:thread": ThreadNotice,
@@ -107,31 +107,16 @@ export const web = defineWeb(projects, {
   },
 });
 
-type Own<T> = Omit<T, "context">;
-
-const base = `/api/ext/${projects.id}/`;
-
-// The plugin's own routes by their path, the server's by an absolute one.
-async function request(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(path.startsWith("/") ? path : `${base}${path}`, {
-    ...init,
-    headers: {
-      ...(typeof init?.body === "string" && {
-        "content-type": "application/json",
-      }),
-      ...(init?.headers as Readonly<Record<string, string>> | undefined),
-    },
-  });
-}
-
 // The person's own Projects, then the team's. A person outside team work
 // gets none of the team's.
-async function allProjects(): Promise<ProjectSummary[]> {
+async function allProjects(api: TypedClient): Promise<ProjectSummary[]> {
   const [own, team] = await Promise.all([
-    json<ProjectSummary[]>(request("projects")),
-    request("team/projects").then(async (response) =>
-      response.ok ? ((await response.json()) as ProjectSummary[]) : [],
-    ),
+    api.get<ProjectSummary[]>("projects"),
+    api
+      .raw("team/projects")
+      .then(async (response) =>
+        response.ok ? ((await response.json()) as ProjectSummary[]) : [],
+      ),
   ]);
 
   return [...own, ...team];
@@ -142,11 +127,13 @@ function link(path: string): string {
 }
 
 function useThread(id: string | undefined): ThreadLinkView | undefined {
+  const api = useApi(projects);
+
   return useLoaded(
     async () =>
       id === undefined
         ? undefined
-        : json<ThreadLinkView>(request(`threads/${encodeURIComponent(id)}`)),
+        : api.get<ThreadLinkView>(`threads/${encodeURIComponent(id)}`),
     id ?? "",
     watched,
   ).value;
@@ -173,7 +160,7 @@ function StateDot({
   );
 }
 
-function ThreadLink({ target, label }: Own<LinkProps>): ReactElement {
+function ThreadLink({ target, label }: LinkProps): ReactElement {
   const thread = useThread(target);
 
   return (
@@ -200,7 +187,7 @@ function argument(args: unknown, name: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-function StartThreadCard({ call }: Own<ToolCallProps>): ReactElement {
+function StartThreadCard({ call }: ToolCallProps): ReactElement {
   const threadId = /as (\S+)\.$/.exec(call.result?.text ?? "")?.[1];
   const thread = useThread(threadId);
   const title = thread?.title ?? argument(call.args, "title") ?? "Thread";
@@ -275,7 +262,7 @@ function startStatus(call: ToolCall, thread: ThreadView | undefined): string {
     .join(" · ");
 }
 
-function MessageThreadCard({ call }: Own<ToolCallProps>): ReactElement {
+function MessageThreadCard({ call }: ToolCallProps): ReactElement {
   const threadId = argument(call.args, "thread");
   const thread = useThread(threadId);
 
@@ -301,13 +288,13 @@ function MessageThreadCard({ call }: Own<ToolCallProps>): ReactElement {
 
 // The server tags each notice it sends with the data its kind draws.
 function noticeData<K extends keyof ProjectNotices>(
-  { data }: Own<NoticeProps>,
+  { data }: NoticeProps,
   _kind: K,
 ): ProjectNotices[K] {
   return data as ProjectNotices[K];
 }
 
-function ThreadNotice(props: Own<NoticeProps>): ReactElement {
+function ThreadNotice(props: NoticeProps): ReactElement {
   const { threadId, title, event, workState, runState, reply } = noticeData(
     props,
     "thread",
@@ -353,7 +340,7 @@ function ThreadNotice(props: Own<NoticeProps>): ReactElement {
   );
 }
 
-function ThreadMessageNotice(props: Own<NoticeProps>): ReactElement {
+function ThreadMessageNotice(props: NoticeProps): ReactElement {
   const { threadId, title, text } = noticeData(props, "thread_message");
 
   return (
@@ -368,7 +355,7 @@ function ThreadMessageNotice(props: Own<NoticeProps>): ReactElement {
   );
 }
 
-function CoordinatorMessageNotice(props: Own<NoticeProps>): ReactElement {
+function CoordinatorMessageNotice(props: NoticeProps): ReactElement {
   const { text } = noticeData(props, "coordinator_message");
 
   return <MessageNotice from="Coordinator" text={text} />;
@@ -392,8 +379,14 @@ function MessageNotice({
   );
 }
 
-function Items({ path }: Own<NavItemsProps>): ReactElement {
-  const list = useLoaded(async () => allProjects(), "projects", watched).value;
+function Items({ path }: NavItemsProps): ReactElement {
+  const api = useApi(projects);
+
+  const list = useLoaded(
+    async () => allProjects(api),
+    "projects",
+    watched,
+  ).value;
 
   return (
     <>
@@ -434,7 +427,9 @@ function counted(count: number, one: string, many: string): string {
   return `${String(count)} ${count === 1 ? one : many}`;
 }
 
-function Page({ path }: Own<PageProps>): ReactElement {
+function Page({ path }: PageProps): ReactElement {
+  const api = useApi(projects);
+
   const [open = "", ...rest] = path.split("/");
 
   const go = (to: string): void => {
@@ -443,7 +438,7 @@ function Page({ path }: Own<PageProps>): ReactElement {
 
   const environments =
     useLoaded(
-      async () => json<Environment[]>(request("/api/environments")),
+      async () => api.get<Environment[]>("/api/environments"),
       "environments",
       { topics: ["environments"] },
     ).value ?? [];
@@ -475,7 +470,13 @@ function ProjectList({
   readonly environments: readonly Environment[];
   readonly onOpen: (id: string) => void;
 }): ReactElement {
-  const list = useLoaded(async () => allProjects(), "projects", watched).value;
+  const api = useApi(projects);
+
+  const list = useLoaded(
+    async () => allProjects(api),
+    "projects",
+    watched,
+  ).value;
 
   const active = list?.filter(
     ({ coordinatorState }) => coordinatorState !== "archived",
@@ -564,12 +565,12 @@ function ProfileSelect({
     readonly target: { readonly value: string };
   }) => void;
 }): ReactElement {
+  const api = useApi(projects);
+
   const profiles =
     useLoaded(
       async () =>
-        json<Profile[]>(
-          request(team ? "/api/profiles?scope=team" : "/api/profiles"),
-        ),
+        api.get<Profile[]>(team ? "/api/profiles?scope=team" : "/api/profiles"),
       team ? "team-profiles" : "profiles",
       {
         topics: ["profiles"],
@@ -623,25 +624,23 @@ function CreateForm({
   readonly environments: readonly Environment[];
   readonly onCreated: (id: string) => void;
 }): ReactElement {
+  const api = useApi(projects);
+
   const sessions =
-    useLoaded(
-      async () => json<Session[]>(request("/api/sessions")),
-      "sessions",
-      {
-        topics: ["sessions"],
-      },
-    ).value ?? [];
+    useLoaded(async () => api.get<Session[]>("/api/sessions"), "sessions", {
+      topics: ["sessions"],
+    }).value ?? [];
 
   const teamEnvironments =
     useLoaded(
-      async () => json<Environment[]>(request("/api/environments?scope=team")),
+      async () => api.get<Environment[]>("/api/environments?scope=team"),
       "team-environments",
       { topics: ["environments"] },
     ).value ?? [];
 
   const [teamProfile] =
     useLoaded(
-      async () => json<Profile[]>(request("/api/profiles?scope=team")),
+      async () => api.get<Profile[]>("/api/profiles?scope=team"),
       "team-profiles",
       { topics: ["profiles"] },
     ).value ?? [];
@@ -673,26 +672,23 @@ function CreateForm({
 
     setCreating(true);
 
-    json<ProjectView>(
-      request(forTeam ? "team/projects" : "projects", {
-        method: "POST",
-        body: JSON.stringify({
-          name: field("name"),
-          goal: field("goal"),
-          repositories,
-          environment: chosen?.id ?? offered[0]?.id ?? "",
-          ...(forTeam && { profile: teamProfile?.id ?? "" }),
-        }),
-      }),
-    ).then(
-      (project) => {
-        onCreated(project.id);
-      },
-      (error: unknown) => {
-        setCreating(false);
-        alert(error instanceof Error ? error.message : String(error));
-      },
-    );
+    api
+      .post<ProjectView>(forTeam ? "team/projects" : "projects", {
+        name: field("name"),
+        goal: field("goal"),
+        repositories,
+        environment: chosen?.id ?? offered[0]?.id ?? "",
+        ...(forTeam && { profile: teamProfile?.id ?? "" }),
+      })
+      .then(
+        (project) => {
+          onCreated(project.id);
+        },
+        (error: unknown) => {
+          setCreating(false);
+          alert(error instanceof Error ? error.message : String(error));
+        },
+      );
   };
 
   return (
@@ -837,18 +833,20 @@ function ProjectPage({
   readonly rest: string;
   readonly environments: readonly Environment[];
 }): ReactElement {
+  const api = useApi(projects);
+
   const path = `projects/${encodeURIComponent(id)}`;
   const [railOpen, setRailOpen] = useRail();
 
   const { value: project, reload } = useLoaded(
     async () => {
-      const response = request(path);
+      const response = await api.raw(path);
 
-      if ((await response).status === 404) {
+      if (response.status === 404) {
         return null;
       }
 
-      return json<ProjectView>(response);
+      return api.get<ProjectView>(path);
     },
     path,
     watched,
@@ -1327,12 +1325,14 @@ function ThreadRow({
 }
 
 function ThreadMenu({ thread }: { readonly thread: ThreadView }): ReactElement {
+  const api = useApi(projects);
+
   const [error, setError] = useState("");
 
-  const run = (sent: Promise<Response>): void => {
+  const run = (sent: Promise<unknown>): void => {
     setError("");
 
-    ok(sent).catch((failure: unknown) => {
+    sent.catch((failure: unknown) => {
       setError(failure instanceof Error ? failure.message : String(failure));
     });
   };
@@ -1348,9 +1348,9 @@ function ThreadMenu({ thread }: { readonly thread: ThreadView }): ReactElement {
             checked: thread.workState === state,
             run: () => {
               run(
-                request(
+                api.post(
                   `threads/${encodeURIComponent(thread.sessionId)}/state`,
-                  { method: "POST", body: JSON.stringify({ state }) },
+                  { state },
                 ),
               );
             },
@@ -1361,13 +1361,9 @@ function ThreadMenu({ thread }: { readonly thread: ThreadView }): ReactElement {
             divided: true,
             run: () => {
               run(
-                request(
+                api.patch(
                   `/api/sessions/${encodeURIComponent(thread.sessionId)}`,
-                  {
-                    method: "PATCH",
-                    headers: { "content-type": "application/json" },
-                    body: JSON.stringify({ archived: true }),
-                  },
+                  { archived: true },
                 ),
               );
             },
@@ -1419,6 +1415,8 @@ function Settings({
   readonly onSaved: () => void;
   readonly models: readonly string[];
 }): ReactElement {
+  const api = useApi(projects);
+
   const saved = {
     name: project.name,
     goal: project.goal,
@@ -1448,12 +1446,8 @@ function Settings({
         setError("");
         setSaving(true);
 
-        ok(
-          request(`${path}/settings`, {
-            method: "POST",
-            body: JSON.stringify(draft),
-          }),
-        )
+        api
+          .post(`${path}/settings`, draft)
           .then(onSaved, (failure: unknown) => {
             setError(
               failure instanceof Error ? failure.message : String(failure),
@@ -1537,6 +1531,8 @@ function StartFresh({
   readonly href: (where: string) => string;
   readonly onDone: () => void;
 }): ReactElement {
+  const api = useApi(projects);
+
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -1556,7 +1552,8 @@ function StartFresh({
           setError("");
           setBusy(true);
 
-          ok(request(`${path}/fresh`, { method: "POST" }))
+          api
+            .post(`${path}/fresh`)
             .then(onDone, (failure: unknown) => {
               setError(
                 failure instanceof Error ? failure.message : String(failure),
@@ -1596,6 +1593,8 @@ function ArchiveProject({
   readonly project: ProjectView;
   readonly onDone: () => void;
 }): ReactElement {
+  const api = useApi(projects);
+
   const [ask, asking] = useConfirm();
   const archived = project.coordinatorState === "archived";
   const [error, setError] = useState("");
@@ -1625,20 +1624,16 @@ function ArchiveProject({
 
             setError("");
 
-            ok(
-              request(
+            api
+              .patch(
                 `/api/sessions/${encodeURIComponent(project.coordinatorId)}`,
-                {
-                  method: "PATCH",
-                  headers: { "content-type": "application/json" },
-                  body: JSON.stringify({ archived: !archived }),
-                },
-              ),
-            ).then(onDone, (failure: unknown) => {
-              setError(
-                failure instanceof Error ? failure.message : String(failure),
-              );
-            });
+                { archived: !archived },
+              )
+              .then(onDone, (failure: unknown) => {
+                setError(
+                  failure instanceof Error ? failure.message : String(failure),
+                );
+              });
           });
         }}
       >
@@ -1657,6 +1652,8 @@ function Memory({
   readonly path: string;
   readonly project: ProjectView;
 }): ReactElement {
+  const api = useApi(projects);
+
   const [shown, setShown] = useState<string>();
   const open = project.memory.find(({ name }) => name === shown);
   const version = open ? `${open.name} ${open.updatedAt}` : "";
@@ -1666,7 +1663,7 @@ function Memory({
       return "";
     }
 
-    const reply = await request(`${path}/memory/${encodeURIComponent(shown)}`);
+    const reply = await api.raw(`${path}/memory/${encodeURIComponent(shown)}`);
 
     return reply.ok
       ? ((await reply.json()) as { content: string }).content

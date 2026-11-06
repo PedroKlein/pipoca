@@ -147,8 +147,8 @@ export function sessionRoutes({
         ? all
         : all.filter(
             (session) =>
-              session.owner === null ||
-              !plugins.names.includes(session.owner.plugin),
+              session.plugin === null ||
+              !plugins.names.includes(session.plugin.id),
           );
     },
     // A fork and a move to the team make a new Session too.

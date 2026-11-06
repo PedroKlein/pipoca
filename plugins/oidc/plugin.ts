@@ -30,7 +30,6 @@ export const oidc = definePlugin({
   title: "Sign-in",
   description:
     "Signs people in through OpenID Connect providers, such as SAP IAS, Okta or Google, and lets in the groups or emails you choose. Admins add providers in Settings.",
-  works: ["personal", "team"],
   defaultOn: "team",
   config: Config.object({
     providers: Config.collection({

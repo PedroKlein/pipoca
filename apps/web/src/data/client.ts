@@ -1,4 +1,4 @@
-import { watchChanges } from "@pipoca/plugins/web";
+import { watchChanges } from "@pipoca/plugins/web/host";
 import {
   type ApiArgs,
   type ApiClient,

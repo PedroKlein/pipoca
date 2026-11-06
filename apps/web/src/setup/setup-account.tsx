@@ -41,14 +41,18 @@ export function Welcome({
   );
 }
 
+// Plugins aren't loaded before anyone signs in, so only the kernel's own
+// steps are named here.
 const comingSteps = [
   { title: "Your account", summary: "You, as the server's admin" },
   {
     title: "Where Pi works",
     summary: "This computer, another machine or a cluster",
   },
-  { title: "A model", summary: "Sign in with a subscription or add a key" },
-  { title: "Your code", summary: "GitHub or another git host", optional: true },
+  {
+    title: "What your plugins add",
+    summary: "Such as a model to work with",
+  },
   {
     title: "Your Profile",
     summary: "Bring your ~/.pi/agent or start fresh",
@@ -66,7 +70,7 @@ export function SetupAccount({
   readonly error: string | undefined;
 }): ReactElement {
   return (
-    <SetupShell steps={{ total: 6, at: 0 }} aside="Step 1 of 6">
+    <SetupShell aside="Step 1">
       <main className="mx-auto grid w-full max-w-258 animate-rise-in gap-14 px-4 pt-8 pb-16 md:grid-cols-[1.5fr_1fr] md:pt-11">
         <div className="flex flex-col gap-8">
           <Hero title="Welcome to Pipoca">

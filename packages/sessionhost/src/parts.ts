@@ -9,11 +9,15 @@ import {
 import type {
   SessionContext,
   SessionLogins,
-  SessionPart,
   SessionTool,
   SessionToolCall,
 } from "@pipoca/plugins";
-import { pluginClient, toolAnswer, toolSpecOf } from "@pipoca/plugins/host";
+import {
+  pluginClient,
+  type SessionPart,
+  toolAnswer,
+  toolSpecOf,
+} from "@pipoca/plugins/host";
 import { piToolOf } from "./tools";
 
 export type PartHost = Omit<
@@ -65,8 +69,15 @@ export async function setUpPart(
     config: host.config as SessionContext["config"],
     api: pluginClient(part.plugin, {
       session: "this",
-      fetch: async (url, init) =>
-        host.request(url.slice(url.indexOf(marker) + marker.length), init),
+      fetch: async (url, init) => {
+        const at = url.indexOf(marker);
+
+        if (at === -1) {
+          throw new Error("a Session part reaches only its plugin's routes");
+        }
+
+        return host.request(url.slice(at + marker.length), init);
+      },
     }),
   });
 

@@ -1,27 +1,17 @@
-import type { SessionPart, SessionPlugin } from "@pipoca/plugins";
-import { settingValues } from "@pipoca/plugins/host";
-import type { Assignment, PluginSettings } from "@pipoca/protocol";
+import type { SessionPart } from "@pipoca/plugins/host";
+import type { Assignment } from "@pipoca/protocol";
 import { builtInSessions } from "./built-in";
 import { provideSdk } from "./bundle";
 
-type Loaded = SessionPlugin | SessionPart;
-
-// The Session parts an assignment names, each with its settings or config.
-// A server from before settings sends none, so they take their defaults. An
-// installed plugin's part comes from installed, by its bundle's hash.
+// The Session parts an assignment names, with their config. An installed
+// plugin's part comes from installed, by its bundle's hash.
 export async function sessionParts(
   assignment: Pick<
     Assignment,
-    | "plugins"
-    | "pluginSettings"
-    | "pluginConfig"
-    | "requiredPlugins"
-    | "installedParts"
+    "plugins" | "pluginConfig" | "requiredPlugins" | "installedParts"
   >,
-  installed: (name: string, hash: string) => Promise<Loaded>,
+  installed: (name: string, hash: string) => Promise<SessionPart>,
 ): Promise<{
-  readonly plugins: readonly SessionPlugin[];
-  readonly pluginSettings: Readonly<Record<string, PluginSettings>>;
   readonly parts: readonly SessionPart[];
   readonly pluginConfig: Readonly<Record<string, unknown>>;
 }> {
@@ -31,7 +21,7 @@ export async function sessionParts(
 
   const unknown = (assignment.requiredPlugins ?? []).filter(
     (name) =>
-      !builtInSessions.some(({ id }) => id === name) &&
+      !builtInSessions.some(({ plugin }) => plugin.id === name) &&
       !bundles.some(([part]) => part === name),
   );
 
@@ -41,49 +31,17 @@ export async function sessionParts(
     );
   }
 
-  const builtIn = builtInSessions.filter(({ id }) =>
-    assignment.plugins.includes(id),
-  );
-
   const fetched = await Promise.all(
     bundles.map(async ([name, hash]) => installed(name, hash)),
   );
 
-  const fetchedPlugins = fetched.filter(
-    (part): part is SessionPlugin => !isPart(part),
-  );
-
-  const defined = builtIn.flatMap(({ part }) =>
-    part === undefined ? [] : [part],
-  );
-
   return {
-    plugins: [
-      ...builtIn.flatMap(({ plugin }) =>
-        plugin === undefined ? [] : [plugin],
+    parts: [
+      ...builtInSessions.filter(({ plugin }) =>
+        assignment.plugins.includes(plugin.id),
       ),
-      ...fetchedPlugins,
+      ...fetched,
     ],
-    parts: [...defined, ...fetched.filter(isPart)],
-    pluginSettings: Object.fromEntries<PluginSettings>([
-      ...builtIn.flatMap(({ id, plugin, manifest }) =>
-        plugin === undefined
-          ? []
-          : [
-              [
-                id,
-                settingValues(
-                  manifest?.settings,
-                  assignment.pluginSettings?.[id],
-                ),
-              ] as const,
-            ],
-      ),
-      ...fetchedPlugins.map(({ name }): [string, PluginSettings] => [
-        name,
-        assignment.pluginSettings?.[name] ?? {},
-      ]),
-    ]),
     pluginConfig: assignment.pluginConfig ?? {},
   };
 }
@@ -93,28 +51,18 @@ export async function sessionParts(
 export async function installedPart(
   name: string,
   path: string,
-): Promise<Loaded> {
+): Promise<SessionPart> {
   provideSdk();
 
-  const { default: plugin, session } = (await import(path)) as {
-    readonly default?: SessionPlugin;
+  const { session } = (await import(path)) as {
     readonly session?: SessionPart;
   };
 
-  const part: Loaded | undefined = session ?? plugin;
-
-  if (
-    part !== undefined &&
-    (isPart(part) ? part.plugin.id : part.name) === name
-  ) {
-    return part;
+  if (session?.plugin.id === name) {
+    return session;
   }
 
   throw new Error(
     `the ${name} plugin's Session part must export a Session part for ${name} as session`,
   );
-}
-
-function isPart(part: Loaded): part is SessionPart {
-  return "setup" in part;
 }

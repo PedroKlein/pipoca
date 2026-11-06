@@ -2,7 +2,7 @@ import type { MountedSession } from "@pipoca/plugins/web";
 import type { UiAction } from "@pipoca/protocol";
 import type { ReactElement } from "react";
 import { PluginBoundary } from "../../plugin-boundary";
-import { pluginContext, toolRenderer } from "../../plugins";
+import { toolRenderer } from "../../plugins";
 import { addressHref } from "../../router";
 import { openedOf, type Step } from "./chat";
 
@@ -49,7 +49,6 @@ export function ToolCard({
   return (
     <PluginBoundary name={plugin}>
       <Component
-        context={pluginContext(plugin)}
         session={session}
         call={{
           id: step.id,

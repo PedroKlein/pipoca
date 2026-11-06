@@ -84,7 +84,7 @@ export const server = defineServer(routines, (context) => {
     params: routinesTool,
     when: {
       owner: "person",
-      available: (session) => session.owner?.plugin !== "routines",
+      available: (session) => session.plugin?.id !== "routines",
     },
     exposure: "deferred",
     annotations: { readOnly: false, destructive: true },

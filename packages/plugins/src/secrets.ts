@@ -1,5 +1,4 @@
 import { BadRequest, isObject } from "./http";
-import type { PluginStore } from "./plugin";
 
 // A secret in pipoca.json: sealed with the server's key, as Settings saves
 // it, or named by an environment variable, for config kept in Git (ADR 0039).
@@ -38,7 +37,10 @@ export function envSecrets(env: NodeJS.ProcessEnv): EnvSecrets {
 }
 
 export function secretRefs(
-  store: Pick<PluginStore, "seal" | "open">,
+  store: {
+    readonly seal: (text: string, context: string) => string;
+    readonly open: (sealed: string, context: string) => string;
+  },
   fromEnv: EnvSecrets,
 ): SecretRefs {
   return {

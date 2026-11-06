@@ -12,7 +12,7 @@ export interface MissionChange {
   readonly close?: string;
 }
 
-export interface Missions {
+interface Missions {
   readonly create: (title: string, objective: string) => MissionView;
   readonly update: (
     id: string,

@@ -1,12 +1,18 @@
 import { logins } from "@pipoca/logins/plugin";
-import { defineServer, type Store, Type } from "@pipoca/plugins";
+import {
+  defineServer,
+  type Owner,
+  owners,
+  type Store,
+  Type,
+} from "@pipoca/plugins";
 import { usage } from "../plugin";
 import { auditedAction, auditLog, csv } from "./audit";
 
 // One proxied model call of team work (ADR 0066).
 interface Call {
   readonly at: string;
-  readonly owner: string;
+  readonly owner: Owner;
   readonly person: string | null;
   readonly sessionId: string;
   readonly provider: string;
@@ -55,7 +61,7 @@ const auditColumns = ["at", "actor", "sessionId", "action", "detail"] as const;
 // own and the team's totals (ADR 0066).
 export const server = defineServer(
   usage,
-  ({ clock, config, events, routes, sessions, store }) => {
+  ({ clock, config, events, people, routes, sessions, store }) => {
     const calls = callStore(store);
     const audit = auditLog(store, clock);
 
@@ -212,7 +218,11 @@ export const server = defineServer(
             !(action === "started" && moved.has(sessionId)) &&
             sessions.sees(sessionId, person.id),
         )
-        .slice(0, activityShown);
+        .slice(0, activityShown)
+        .map(({ actor, ...action }) => ({
+          ...action,
+          name: people.get(actor?.slice("user:".length) ?? "")?.name ?? null,
+        }));
     });
 
     routes.get("totals", { auth: "person" }, ({ caller: { person } }) => {
@@ -271,11 +281,10 @@ function callStore(store: Store): {
   return {
     add: (call) => {
       store.run(
-        "insert into usage_calls (at, owner_user_id, person, session_id, provider, model, input, output, cost_micros) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "insert into usage_calls (id, at, owner_user_id, person, session_id, provider, model, input, output, cost_micros) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        Bun.randomUUIDv7(),
         Date.parse(call.at),
-        call.owner.startsWith("person:")
-          ? call.owner.slice("person:".length)
-          : null,
+        owners.toSql(call.owner),
         call.person,
         call.sessionId,
         call.provider,
@@ -309,7 +318,7 @@ function callStore(store: Store): {
           person: asked,
         }) => ({
           at: new Date(at).toISOString(),
-          owner: owner_user_id === null ? "team" : `person:${owner_user_id}`,
+          owner: owners.fromSql(owner_user_id),
           person: asked,
           sessionId,
           provider,

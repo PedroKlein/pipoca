@@ -55,7 +55,7 @@ export const web = defineWeb(slack, {
 });
 
 function Section(): ReactElement | null {
-  return useViewer().admin ? <Bots /> : null;
+  return useViewer().person.admin ? <Bots /> : null;
 }
 
 function Bots(): ReactElement {

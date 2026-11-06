@@ -201,7 +201,7 @@ export const server = defineServer(
         !busy.includes(session.status) &&
         (previous === "running" || session.status !== "idle");
 
-      if (stopped && session.owner === null) {
+      if (stopped && session.plugin === null) {
         send(session, finishedTitle(session.status), false);
       }
     });

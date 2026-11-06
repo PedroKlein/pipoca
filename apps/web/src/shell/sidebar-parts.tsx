@@ -12,9 +12,9 @@ import {
 } from "../names";
 import { enabledPlugins, sessionHref } from "../plugins";
 
-export function ownedByEnabled({ owner }: Session): boolean {
+export function ownedByEnabled({ plugin }: Session): boolean {
   return (
-    owner !== null && enabledPlugins().some(({ name }) => name === owner.plugin)
+    plugin !== null && enabledPlugins().some(({ name }) => name === plugin.id)
   );
 }
 
@@ -31,7 +31,7 @@ export function SidebarSession({
   const now = useNow();
 
   const meta = [
-    ...(session.owner === null ? [] : [ownerLabel(session.owner.plugin)]),
+    ...(session.plugin === null ? [] : [ownerLabel(session.plugin.id)]),
     ...(session.title === null ? [] : [shortName(session.workspace)]),
     environment?.name ?? session.provider,
     ...(session.model ? [modelName(session.model)] : []),

@@ -4,7 +4,8 @@ import type {
   ExtensionUIContext,
   ExtensionUIDialogOptions,
 } from "@earendil-works/pi-coding-agent";
-import type { AskPermission, AskQuestions, Explain } from "@pipoca/plugins";
+import type { AskQuestions, Explain } from "@pipoca/plugins";
+import type { AskPermission } from "@pipoca/plugins/host";
 import type { Answer, Command, LiveEvent, Prompt } from "@pipoca/protocol";
 
 export type RemoteUI = Pick<

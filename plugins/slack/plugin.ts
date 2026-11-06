@@ -23,7 +23,6 @@ export const slack = definePlugin({
   title: "Slack",
   description:
     "Turns messages, mentions and reactions in Slack into routine triggers, and lets Sessions post and reply in threads as a bot. Admins add bots in Settings.",
-  works: ["personal", "team"],
   config: Config.object({
     api: Config.string({
       title: "Web API",

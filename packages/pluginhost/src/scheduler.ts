@@ -29,7 +29,7 @@ export interface ScheduleStore {
   readonly pending: (plugin: string, prefix: string) => readonly ScheduleRow[];
 }
 
-export interface Scheduler {
+interface Scheduler {
   readonly part: (plugin: string) => {
     readonly schedule: Schedule;
     readonly commit: () => void;

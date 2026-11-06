@@ -4,7 +4,7 @@ import type { Member, Project } from "./store";
 
 // What a fresh coordinator needs from the one it replaces: Pi's latest
 // compaction summary and the chat since.
-export interface RecentChat {
+interface RecentChat {
   readonly summary: string | undefined;
   readonly messages: readonly {
     readonly role: string;

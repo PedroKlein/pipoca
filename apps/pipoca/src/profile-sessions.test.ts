@@ -28,7 +28,7 @@ import { binary } from "./binary";
 import { runnerCredentials } from "./testdata/runners";
 import { readSse } from "@pipoca/protocol";
 import { json, testServer, type TestServer } from "./testdata/harness";
-import { until } from "@pipoca/plugins/testing";
+import { until } from "@pipoca/testing/until";
 
 let root: string;
 let server: TestServer;

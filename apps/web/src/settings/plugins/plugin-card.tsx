@@ -70,12 +70,12 @@ export function PluginCard({
         return "It already has the newest version.";
       }
 
-      const added = (next.capabilities ?? []).filter(
-        (capability) => !(plugin.capabilities ?? []).includes(capability),
+      const added = (next.parts ?? []).filter(
+        (part) => !(plugin.parts ?? []).includes(part),
       );
 
       return plugin.turnedOn && !next.turnedOn
-        ? `Its newest version asks for more${added.length > 0 ? `, ${added.join(", ")}` : ""}, so it stays off until you turn it on again.`
+        ? `Its newest version runs in more places${added.length > 0 ? `, its ${added.join(" and ")} part` : ""}, so it stays off until you turn it on again.`
         : undefined;
     });
   };
@@ -120,7 +120,6 @@ export function PluginCard({
 
   const meta = [
     installed ? "Installed" : "Built in",
-    plugin.version,
     plugin.state === "off" && !switchesAtRestart(plugin) ? "Off" : undefined,
   ].filter((part) => part !== undefined);
 
@@ -160,6 +159,16 @@ export function PluginCard({
         </span>
       </div>
       <p className="text-label text-fg-dim">{plugin.description}</p>
+      {(plugin.provides ?? []).length > 0 && (
+        <p className="text-label text-fg-dim">
+          Provides {(plugin.provides ?? []).join(", ")}
+        </p>
+      )}
+      {(plugin.uses ?? []).length > 0 && (
+        <p className="text-caption text-fg-dim">
+          Uses {(plugin.uses ?? []).join(", ")}
+        </p>
+      )}
       {installed && (
         <p className="break-all font-mono text-mono-sm text-fg-dim">
           {plugin.installedFrom === undefined
@@ -225,21 +234,18 @@ function shortPin(pinned: string): string {
 
 // What turning a plugin on lets it do, since its code runs unsandboxed.
 function trustQuestion(plugin: PluginInfo): string {
-  const declared = plugin.capabilities ?? [];
-  const parts = plugin.parts ?? {};
+  const parts = plugin.parts ?? [];
 
   return [
-    `Its code runs inside the Pipoca server, with the server's access. It asks for ${declared.length > 0 ? declared.join(", ") : "nothing more"}.`,
-    ...(parts.web === undefined
-      ? []
-      : ["Its web part runs in the page of everyone who opens Pipoca."]),
-    ...(parts.session === undefined
-      ? []
-      : [
-          plugin.ownSessionsOnly === true
-            ? "Its Session part runs in its own Sessions, on the machines that run them."
-            : "Its Session part runs in every Session, on every machine that runs one, laptops included.",
-        ]),
+    "Its code runs inside the Pipoca server, with the server's access.",
+    ...(parts.includes("web")
+      ? ["Its web part runs in the page of everyone who opens Pipoca."]
+      : []),
+    ...(parts.includes("session")
+      ? [
+          "Its Session part runs in every Session, on every machine that runs one, laptops included.",
+        ]
+      : []),
     "Turn on only plugins you trust.",
   ].join(" ");
 }

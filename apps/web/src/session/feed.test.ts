@@ -5,7 +5,7 @@ import { type EventStream, type Feed, feedReader, followEvents } from "./feed";
 const session = (waiting: boolean, change: Partial<Session> = {}): Session => ({
   id: "s",
   environmentId: "e",
-  owner: null,
+  plugin: null,
   provider: "laptop",
   runner: null,
   profileId: "profile-1",

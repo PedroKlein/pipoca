@@ -1,7 +1,6 @@
 import {
   defineWeb,
   href as pageHref,
-  json,
   type MountedSession,
   SessionView,
   useApi,
@@ -59,7 +58,7 @@ export const web = defineWeb(routines, {
   ],
   // A run's Session is owned by "<owner>/<routine>".
   sessionPath: (session) => {
-    const key = session.owner?.key ?? "";
+    const key = session.plugin?.key ?? "";
     const owner = key.slice(0, key.lastIndexOf("/"));
     const name = key.slice(key.lastIndexOf("/") + 1);
 
@@ -90,9 +89,11 @@ function Page({ path }: { readonly path: string }): ReactElement {
 }
 
 function RoutineList(): ReactElement {
+  const api = useApi(routines);
+
   const team =
     useLoaded(
-      async () => json<unknown[]>(fetch("/api/environments?scope=team")),
+      async () => api.get<unknown[]>("/api/environments?scope=team"),
       "team-environments",
       { topics: ["environments"] },
     ).value ?? [];

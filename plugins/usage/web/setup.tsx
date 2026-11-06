@@ -1,4 +1,5 @@
-import { json, ok, useLoaded } from "@pipoca/plugins/web";
+import { usage } from "../plugin";
+import { useLoaded, useApi } from "@pipoca/plugins/web";
 import {
   Button,
   Card,
@@ -10,7 +11,6 @@ import {
   Section,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import { request } from "./request";
 import { Spend, type Totals } from "./spend";
 
 interface AuditEntry {
@@ -24,10 +24,12 @@ interface AuditEntry {
 // The team's monthly budget and each person's cap, which only warn
 // (ADR 0066).
 export function Budgets(): ReactElement {
+  const api = useApi(usage);
+
   const { value: totals, reload } = useLoaded(
-    async () => json<Totals>(request("totals")),
+    async () => api.get<Totals>("totals"),
     "totals",
-    { topics: ["usage.totals"] },
+    { changes: ["totals"] },
   );
 
   const [error, setError] = useState<string>();
@@ -47,15 +49,11 @@ export function Budgets(): ReactElement {
 
     setSaved(false);
 
-    ok(
-      request("budgets", {
-        method: "PUT",
-        body: JSON.stringify({
-          team: amount("team"),
-          person: amount("person"),
-        }),
-      }),
-    )
+    api
+      .put("budgets", {
+        team: amount("team"),
+        person: amount("person"),
+      })
       .then(() => {
         setError(undefined);
         setSaved(true);
@@ -131,15 +129,16 @@ const shownEntries = 100;
 // Who started, stopped and archived team work, and each use of the team's
 // key (ADR 0066).
 export function AuditLog(): ReactElement {
+  const api = useApi(usage);
+
   const { value: entries } = useLoaded(
-    async () => json<readonly AuditEntry[]>(request("audit")),
+    async () => api.get<readonly AuditEntry[]>("audit"),
     "audit",
-    { topics: ["usage.audit"] },
+    { changes: ["audit"] },
   );
 
   const { value: teammates = [] } = useLoaded(
-    async () =>
-      json<readonly { id: string; name: string }[]>(request("/api/people")),
+    async () => api.get<readonly { id: string; name: string }[]>("/api/people"),
     "teammates",
   );
 

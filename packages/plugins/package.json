@@ -5,10 +5,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./host": "./src/host.ts",
-    "./testing": "./src/testing.ts",
     "./web": "./web/index.ts",
-    "./web/shell": "./web/shell.tsx",
-    "./web/testing": "./web/testing.tsx"
+    "./web/testing": "./web/testing.tsx",
+    "./web/host": "./web/host.ts"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "1.3.0",

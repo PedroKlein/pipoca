@@ -1,4 +1,4 @@
-import type { ModelOffer } from "@pipoca/plugins";
+import type { ModelOffer } from "@pipoca/plugins/host";
 import {
   type Clock,
   type Environment,

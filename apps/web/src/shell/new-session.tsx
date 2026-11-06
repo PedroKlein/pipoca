@@ -1,3 +1,4 @@
+import { modelOptions, rememberModel, shownModels } from "../models";
 import {
   availability,
   type ApiInput,
@@ -24,7 +25,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { modelOptions, rememberModel, shownModels } from "@pipoca/plugins/web";
 import { request } from "../data/client";
 import { useAction, useMe, useQuery } from "../data/hooks";
 import { href, navigate } from "../router";

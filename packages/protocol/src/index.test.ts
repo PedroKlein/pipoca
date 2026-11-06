@@ -35,7 +35,6 @@ test("logs a Session's start without its messages, settings or URL credentials",
     systemPrompt: "private prompt",
     firstMessage: "private message",
     plugins: ["changes"],
-    pluginSettings: { changes: { apiKey: "secret" } },
     environment: {
       isolation: "process",
       image: null,

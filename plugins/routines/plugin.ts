@@ -7,7 +7,6 @@ export const routines = definePlugin({
   title: "Routines",
   description:
     "Runs your routines on a schedule, and lets a Session schedule a wake-up to come back to something later.",
-  works: ["personal", "team"],
   config: Config.object({
     wakeUpDays: Config.number({
       title: "Days ahead a wake-up may be",

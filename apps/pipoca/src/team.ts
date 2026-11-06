@@ -1,5 +1,5 @@
-import { Config, fieldsOf, type ConfigKey, Type } from "@pipoca/plugins";
-import { kernelConfig } from "@pipoca/plugins/host";
+import { Config, Type } from "@pipoca/plugins";
+import { type ConfigKey, fieldsOf, kernelConfig } from "@pipoca/plugins/host";
 import {
   type Log,
   type TeamName,

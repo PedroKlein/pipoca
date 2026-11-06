@@ -5,7 +5,6 @@ export const ask = definePlugin({
   title: "Ask",
   description:
     "Lets the agent ask you structured questions in a form, and the team vote.",
-  works: ["personal", "team"],
   config: Config.object({
     voteMinutes: Config.number({
       title: "Minutes a vote stays open",

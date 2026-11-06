@@ -191,7 +191,8 @@ async function subscribe(
 ): Promise<void> {
   expect(
     (
-      await t.as(who).raw("PUT", "subscriptions", {
+      await t.as(who).raw("subscriptions", {
+        method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(subscription),
       })
@@ -366,7 +367,8 @@ test("refuses an endpoint that isn't a browser's push service", async () => {
   await using t = await testPlugin(server, { people });
   const { subscription } = await browser();
 
-  const response = await t.as("owner").raw("PUT", "subscriptions", {
+  const response = await t.as("owner").raw("subscriptions", {
+    method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       ...subscription,
@@ -388,11 +390,14 @@ test("tells the person whose cap team work reached, and every admin, but no one 
 
   expect(
     (
-      await t.as("boss").kernel("PUT", "/api/plugins/usage/config", {
-        value: {
-          prices: { "anthropic/claude-sonnet-4-5": { input: 1, output: 0 } },
-          budgets: { team: 0, person: 50 },
-        },
+      await t.as("boss").raw("/api/plugins/usage/config", {
+        method: "PUT",
+        body: JSON.stringify({
+          value: {
+            prices: { "anthropic/claude-sonnet-4-5": { input: 1, output: 0 } },
+            budgets: { team: 0, person: 50 },
+          },
+        }),
       })
     ).status,
   ).toBe(200);
@@ -411,10 +416,13 @@ test("tells the person whose cap team work reached, and every admin, but no one 
 
   expect(
     (
-      await t.as("boss").kernel("POST", "/api/ext/logins/save", {
-        provider: "anthropic",
-        credential: { type: "api_key", key: "sk-team" },
-        layer: "base",
+      await t.as("boss").raw("/api/ext/logins/save", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "anthropic",
+          credential: { type: "api_key", key: "sk-team" },
+          layer: "base",
+        }),
       })
     ).status,
   ).toBe(200);
@@ -424,7 +432,9 @@ test("tells the person whose cap team work reached, and every admin, but no one 
   // Pi's providers load in the background when logins registers.
   const { token = "" } = await until(
     async () =>
-      (await (await work.request("proxy", {}, "logins")).json()) as {
+      (await (
+        await work.api.raw(`/runner/sessions/${work.id}/ext/logins/proxy`)
+      ).json()) as {
         providers: readonly unknown[];
         token?: string;
       },
@@ -433,12 +443,15 @@ test("tells the person whose cap team work reached, and every admin, but no one 
 
   const answered = await t
     .as("boss")
-    .kernel(
-      "POST",
-      "/api/ext/logins/proxy/anthropic/v1/messages",
-      { model: "claude-sonnet-4-5", stream: true, input: 40_000_000 },
-      { "x-api-key": token },
-    );
+    .raw("/api/ext/logins/proxy/anthropic/v1/messages", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "claude-sonnet-4-5",
+        stream: true,
+        input: 40_000_000,
+      }),
+      headers: { "x-api-key": token },
+    });
 
   await answered.text();
   await delivered(sent, 2);
