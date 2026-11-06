@@ -95,6 +95,13 @@ const runnerPrefix = "/runner/";
 
 const webhookMaxBytes = 1024 * 1024;
 
+// A signed timestamp further from now than this is a delivery sent again.
+const webhookWindowMs = 5 * 60_000;
+
+// How long and how many delivery ids a webhook remembers.
+const deliveryWindowMs = 24 * 60 * 60_000;
+const deliveriesKept = 10_000;
+
 const kindOrder = { static: 0, param: 1, rest: 2 } as const;
 
 // One place answers every route: it finds the route, checks who calls and
@@ -215,6 +222,40 @@ export function createRouter(
     return runner;
   };
 
+  // A webhook delivery's id, such as GitHub's, is taken once. One that
+  // fails is let go, so the sender can deliver it again.
+  const delivered = new Map<string, number>();
+  const taking = new WeakMap<Request, string>();
+
+  const take = (request: Request): void => {
+    const id =
+      request.headers.get("x-github-delivery") ??
+      request.headers.get("x-pipoca-delivery");
+
+    if (id === null) {
+      return;
+    }
+
+    const now = Date.now();
+
+    for (const [key, at] of delivered) {
+      if (at > now - deliveryWindowMs && delivered.size < deliveriesKept) {
+        break;
+      }
+
+      delivered.delete(key);
+    }
+
+    const key = `${new URL(request.url).pathname} ${id}`;
+
+    if (delivered.has(key)) {
+      throw new HttpError(409, "This delivery came already.", "replayed");
+    }
+
+    delivered.set(key, now);
+    taking.set(request, key);
+  };
+
   const answer = async (
     route: Compiled,
     request: Request,
@@ -225,6 +266,7 @@ export function createRouter(
 
     if (typeof spec.auth === "object") {
       await signed(request, spec.auth.webhook, route.secret?.(params));
+      take(request);
     }
 
     const query =
@@ -312,6 +354,12 @@ export function createRouter(
         }
       }
 
+      const taken = taking.get(request);
+
+      if (taken !== undefined && !response.ok) {
+        delivered.delete(taken);
+      }
+
       if (request.method !== "GET" && response.ok) {
         for (const topic of spec.changes ?? []) {
           deps.publish(topic);
@@ -350,7 +398,9 @@ export function createRouter(
   };
 }
 
-// A webhook's body, signed as sha256=<hex> in its header or in GitHub's.
+// A webhook's body, signed as sha256=<hex> in its header or in GitHub's,
+// with the time it was sent in x-pipoca-timestamp (seconds) if the sender
+// stamps it.
 async function signed(
   request: Request,
   webhook: { readonly header?: string; readonly maxBytes?: number },
@@ -380,10 +430,16 @@ async function signed(
     ""
   ).replace(/^sha256=/, "");
 
+  // A sender that stamps its delivery signs <timestamp>.<body>.
+  const stamp = request.headers.get("x-pipoca-timestamp");
+
   const expected =
     secret === undefined
       ? ""
-      : createHmac("sha256", secret).update(body).digest("hex");
+      : createHmac("sha256", secret)
+          .update(stamp === null ? "" : `${stamp}.`)
+          .update(body)
+          .digest("hex");
 
   if (
     expected === "" ||
@@ -394,6 +450,17 @@ async function signed(
       401,
       "The signature doesn't match the body.",
       "bad_signature",
+    );
+  }
+
+  if (
+    stamp !== null &&
+    !(Math.abs(Date.now() - Number(stamp) * 1000) <= webhookWindowMs)
+  ) {
+    throw new HttpError(
+      401,
+      "The delivery was signed more than 5 minutes from now.",
+      "stale_delivery",
     );
   }
 }
