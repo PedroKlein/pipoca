@@ -1,7 +1,7 @@
 import { logins } from "../plugin";
 import { useLoaded, useApi } from "@pipoca/plugins/web";
 import type { Environment, Profile, ProfileContent } from "@pipoca/protocol";
-import { Badge, initialsOf, PageTitle, Row, Rows, Section } from "@pipoca/ui";
+import { Badge, initialsOf, Page, Row, Rows, Section } from "@pipoca/ui";
 import type { ReactElement } from "react";
 
 interface TeamKey {
@@ -72,10 +72,10 @@ export function TeamCredentials(): ReactElement {
   );
 
   return (
-    <>
-      <PageTitle description="Team work never uses anyone's own logins. Model calls go through the server, which swaps in the team's key, so runners never hold it. What can't go through it yet reaches the runner of every team Session.">
-        Credentials
-      </PageTitle>
+    <Page
+      title="Credentials"
+      description="Team work never uses anyone's own logins. Model calls go through the server, which swaps in the team's key, so runners never hold it. What can't go through it yet reaches the runner of every team Session."
+    >
       <Section
         title="Through the server"
         description="API keys on the Server base, set on Accounts"
@@ -150,7 +150,7 @@ export function TeamCredentials(): ReactElement {
         </a>
         .
       </p>
-    </>
+    </Page>
   );
 }
 

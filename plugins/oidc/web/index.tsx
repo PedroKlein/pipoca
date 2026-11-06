@@ -3,19 +3,22 @@ import {
   Badge,
   Button,
   cardClass,
+  Checkbox,
   cn,
   ErrorText,
   Field,
-  fieldClass,
   Icon,
   initialsOf,
   linkCardClass,
-  PageTitle,
+  Notice,
+  Page,
   Row,
   Rows,
   Section,
   Segmented,
   Switch,
+  TextArea,
+  TextInput,
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
@@ -52,10 +55,10 @@ function SettingsSection(): ReactElement | null {
   }
 
   return (
-    <>
-      <PageTitle description="How people get into this server, and who may join.">
-        Sign-in
-      </PageTitle>
+    <Page
+      title="Sign-in"
+      description="How people get into this server, and who may join."
+    >
       {value.lockedIn !== null && <LockedNotice file={value.lockedIn} />}
       <Providers providers={providers.value} locked={value.lockedIn !== null} />
       <Rules
@@ -63,34 +66,29 @@ function SettingsSection(): ReactElement | null {
         providers={providers.value}
         locked={value.lockedIn !== null}
       />
-    </>
+    </Page>
   );
 }
 
 function LockedNotice({ file }: { readonly file: string }): ReactElement {
   return (
-    <aside
-      aria-label="Set in a config file"
-      className="mt-6 flex items-start gap-3 rounded-lg bg-hover px-4 py-3"
+    <Notice
+      icon="lock"
+      className="mt-6"
+      title="Some of this is set in the server's config file"
+      action={
+        <Button
+          onClick={() => {
+            location.hash = "#settings/configuration";
+          }}
+        >
+          View file
+        </Button>
+      }
     >
-      <Icon name="lock" />
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="text-ui font-medium text-fg-strong">
-          Some of this is set in the server&apos;s config file
-        </span>
-        <span className="text-label text-fg-muted">
-          <code className="font-mono">{file}</code> sets oidc, so its providers
-          and who can join are read-only here.
-        </span>
-      </span>
-      <Button
-        onClick={() => {
-          location.hash = "#settings/configuration";
-        }}
-      >
-        View file
-      </Button>
-    </aside>
+      <code className="font-mono">{file}</code> sets oidc, so its providers and
+      who can join are read-only here.
+    </Notice>
   );
 }
 
@@ -595,11 +593,10 @@ function ProviderForm({
     placeholder?: string,
   ): ReactElement => (
     <Field label={label}>
-      <input
+      <TextInput
         name={name}
         defaultValue={provider?.[name] ?? starting[name]}
         placeholder={placeholder}
-        className={fieldClass}
       />
     </Field>
   );
@@ -610,12 +607,11 @@ function ProviderForm({
     placeholder: string,
   ): ReactElement => (
     <Field label={label}>
-      <textarea
+      <TextArea
         name={name}
         rows={2}
         defaultValue={provider?.[name].join("\n") ?? ""}
         placeholder={placeholder}
-        className={fieldClass}
       />
     </Field>
   );
@@ -638,12 +634,7 @@ function ProviderForm({
       )}
       {textField("clientId", "Client ID")}
       <Field label={secretLabel(provider, secret)}>
-        <input
-          name="clientSecret"
-          type="password"
-          autoComplete="off"
-          className={fieldClass}
-        />
+        <TextInput name="clientSecret" type="password" autoComplete="off" />
       </Field>
       {textField("groupsClaim", "Groups claim", "groups")}
       {textField("accessGroup", "Access group", "pipoca-users")}
@@ -652,10 +643,7 @@ function ProviderForm({
       {listField("allowedDomains", "Allowed domains", "example.com")}
       {listField("adminEmails", "Admin emails", "ana@example.com")}
       {provider?.hasClientSecret === true && (
-        <label className="flex items-center gap-2 text-fg-dim">
-          <input type="checkbox" name="removeSecret" />
-          Remove the client secret
-        </label>
+        <Checkbox name="removeSecret" label="Remove the client secret" />
       )}
       <div className="flex flex-wrap items-center gap-2 md:col-span-2">
         <Button variant="primary" type="submit">

@@ -22,17 +22,17 @@ import {
   Badge,
   type BadgeState,
   Button,
+  buttonClass,
   Card,
   cardClass,
   cn,
   Code,
   ErrorText,
   Field,
-  fieldClass,
   Icon,
   linkCardClass,
   Menu,
-  PageTitle,
+  Page,
   Picker,
   type PickerOption,
   popClass,
@@ -40,6 +40,10 @@ import {
   Segmented,
   Select,
   SessionRow,
+  StatusDot,
+  type DotTone,
+  TextArea,
+  TextInput,
   useConfirm,
 } from "@pipoca/ui";
 import {
@@ -81,7 +85,7 @@ export const web = defineWeb(projects, {
     {
       path: "",
       label: "Assistant",
-      Page,
+      Page: ProjectsPage,
       nav: {
         Items,
         fills: (path) => path !== "" && path !== projectList,
@@ -144,18 +148,12 @@ function StateDot({
 }: {
   readonly thread: ThreadView | undefined;
 }): ReactElement {
-  const group = thread && groupOf(thread);
-
   return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "size-2 shrink-0 rounded-full",
-        group === undefined && "bg-line",
-        thread?.workState === "failed"
-          ? "bg-failed"
-          : group !== undefined && dots[group],
-      )}
+    <StatusDot
+      tone={
+        thread &&
+        (thread.workState === "failed" ? "failed" : dots[groupOf(thread)])
+      }
     />
   );
 }
@@ -221,14 +219,14 @@ function StartThreadCard({ call }: ToolCallProps): ReactElement {
           <a
             href={open}
             aria-label={`Open ${title} beside the coordinator`}
-            className="grid size-7 place-items-center rounded-md text-fg-dim hover:bg-hover hover:text-fg"
+            className={iconLinkClass}
           >
             <Icon name="panel-right" className="size-4" />
           </a>
           <a
             href={`${open}/full`}
             aria-label={`Open ${title} fullscreen`}
-            className="grid size-7 place-items-center rounded-md text-fg-dim hover:bg-hover hover:text-fg"
+            className={iconLinkClass}
           >
             <Icon name="maximize" className="size-4" />
           </a>
@@ -237,6 +235,12 @@ function StartThreadCard({ call }: ToolCallProps): ReactElement {
     </Card>
   );
 }
+
+const iconLinkClass = buttonClass({
+  variant: "ghost",
+  size: "sm",
+  iconOnly: true,
+});
 
 function startStatus(call: ToolCall, thread: ThreadView | undefined): string {
   if (call.status === "running") {
@@ -427,7 +431,7 @@ function counted(count: number, one: string, many: string): string {
   return `${String(count)} ${count === 1 ? one : many}`;
 }
 
-function Page({ path }: PageProps): ReactElement {
+function ProjectsPage({ path }: PageProps): ReactElement {
   const api = useApi(projects);
 
   const [open = "", ...rest] = path.split("/");
@@ -487,10 +491,10 @@ function ProjectList({
   );
 
   return (
-    <>
-      <PageTitle description="A Project is a coordinator session that starts threads across one or more repositories.">
-        Projects
-      </PageTitle>
+    <Page
+      title="Projects"
+      description="A Project is a coordinator session that starts threads across one or more repositories."
+    >
       {active?.length === 0 && <p className="text-fg-dim">No Projects yet.</p>}
       <ProjectCards projects={active ?? []} onOpen={onOpen} />
       {archived !== undefined && archived.length > 0 && (
@@ -501,7 +505,7 @@ function ProjectList({
       <Section title="New Project">
         <CreateForm environments={environments} onCreated={onOpen} />
       </Section>
-    </>
+    </Page>
   );
 }
 
@@ -528,11 +532,7 @@ function ProjectCards({
           >
             <span className="flex min-w-0 items-center gap-2 font-medium text-fg-strong">
               {project.name}
-              {project.team && (
-                <span className="rounded bg-hover px-1.5 text-caption font-normal text-fg-dim">
-                  Team
-                </span>
-              )}
+              {project.team && <Badge>Team</Badge>}
             </span>
             <span className="text-caption text-fg-dim">
               {project.threads} {project.threads === 1 ? "thread" : "threads"}
@@ -649,6 +649,7 @@ function CreateForm({
   const [environment, setEnvironment] = useState("");
   const [forTeam, setForTeam] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string>();
   const offered = forTeam ? teamEnvironments : environments;
   const chosen = offered.find(({ id }) => id === environment);
 
@@ -671,6 +672,7 @@ function CreateForm({
     };
 
     setCreating(true);
+    setError(undefined);
 
     api
       .post<ProjectView>(forTeam ? "team/projects" : "projects", {
@@ -684,9 +686,12 @@ function CreateForm({
         (project) => {
           onCreated(project.id);
         },
-        (error: unknown) => {
+        (failure: unknown) => {
           setCreating(false);
-          alert(error instanceof Error ? error.message : String(error));
+
+          setError(
+            failure instanceof Error ? failure.message : String(failure),
+          );
         },
       );
   };
@@ -711,14 +716,13 @@ function CreateForm({
         />
       )}
       <Field label="Name">
-        <input name="name" required className={fieldClass} />
+        <TextInput name="name" required />
       </Field>
       <Field label="Goal">
-        <textarea
+        <TextArea
           name="goal"
           rows={2}
           placeholder="What is this Project for? Every thread sees it."
-          className={fieldClass}
         />
       </Field>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -768,6 +772,7 @@ function CreateForm({
           Create Project
         </Button>
       </div>
+      <ErrorText size="caption">{error}</ErrorText>
     </form>
   );
 }
@@ -904,7 +909,7 @@ function ProjectPage({
     >
       <Icon name="panel-right" />
       {needsYou(project.threads) > 0 && (
-        <span className="absolute top-1 right-1 size-2 rounded-full bg-waiting" />
+        <StatusDot tone="waiting" className="absolute top-1 right-1" />
       )}
     </Button>
   );
@@ -1172,12 +1177,12 @@ function groupOf({ workState, runState }: ThreadView): Group {
   return workState === "review_ready" ? "Review" : "Idle";
 }
 
-const dots: Readonly<Record<Group, string>> = {
-  "Needs you": "bg-waiting",
-  Working: "bg-working",
-  Review: "bg-accent",
-  Idle: "border border-fg-dim",
-  Finished: "bg-done",
+const dots: Readonly<Record<Group, DotTone>> = {
+  "Needs you": "waiting",
+  Working: "working",
+  Review: "accent",
+  Idle: "offline",
+  Finished: "done",
 };
 
 function Rail({
@@ -1297,7 +1302,7 @@ function ThreadRow({
   readonly href: string;
   readonly meta: string;
 }): ReactElement {
-  const group = groupOf(thread);
+  const badge = runBadges[thread.runState];
 
   return (
     <SessionRow
@@ -1305,20 +1310,9 @@ function ThreadRow({
       href={href}
       current={current}
       title={thread.title}
-      leading={
-        <span
-          aria-hidden="true"
-          className={cn(
-            "size-2 shrink-0 rounded-full",
-            thread.workState === "failed" ? "bg-failed" : dots[group],
-          )}
-        />
-      }
-      meta={
-        thread.runState === "working" || thread.runState === "idle"
-          ? meta
-          : `${runBadges[thread.runState]?.label ?? thread.runState} · ${meta}`
-      }
+      leading={<StateDot thread={thread} />}
+      meta={meta}
+      {...(badge && { badge })}
       actions={<ThreadMenu thread={thread} />}
     />
   );
@@ -1370,17 +1364,12 @@ function ThreadMenu({ thread }: { readonly thread: ThreadView }): ReactElement {
           },
         ]}
       />
-      {error !== "" && (
-        <p
-          role="alert"
-          className={cn(
-            "absolute top-full right-0 z-30 w-48 p-2 text-caption text-failed",
-            popClass,
-          )}
-        >
-          {error}
-        </p>
-      )}
+      <ErrorText
+        size="caption"
+        className={cn("absolute top-full right-0 z-30 w-48 p-2", popClass)}
+      >
+        {error}
+      </ErrorText>
     </div>
   );
 }
@@ -1460,28 +1449,18 @@ function Settings({
       className="grid max-w-xl gap-3"
     >
       <Field label="Name">
-        <input
-          required
-          value={draft.name}
-          onChange={edit("name")}
-          className={fieldClass}
-        />
+        <TextInput required value={draft.name} onChange={edit("name")} />
       </Field>
       <Field label="Goal">
-        <textarea
-          rows={2}
-          value={draft.goal}
-          onChange={edit("goal")}
-          className={fieldClass}
-        />
+        <TextArea rows={2} value={draft.goal} onChange={edit("goal")} />
       </Field>
       <Field label="Thread model">
-        <input
+        <TextInput
           list="project-settings-models"
           placeholder="The coordinator's model"
           value={draft.threadModel}
           onChange={edit("threadModel")}
-          className={cn(fieldClass, "font-mono text-mono-sm")}
+          className="font-mono text-mono-sm"
         />
       </Field>
       <Field label="Profile">
@@ -1497,11 +1476,10 @@ function Settings({
         ))}
       </datalist>
       <Field label="Instructions">
-        <textarea
+        <TextArea
           rows={4}
           value={draft.instructions}
           onChange={edit("instructions")}
-          className={fieldClass}
         />
       </Field>
       <p className="text-caption text-fg-dim">

@@ -303,10 +303,9 @@ async function run(
 }
 
 function failure(command: string, label: string, error: unknown): string {
-  const { code, killed, stderr } = error as {
+  const { code, killed } = error as {
     code?: unknown;
     killed?: boolean;
-    stderr?: string;
   };
 
   if (code === "ENOENT") {
@@ -317,5 +316,6 @@ function failure(command: string, label: string, error: unknown): string {
     return `${label} took longer than ${String(timeoutMs / 60_000)} minutes`;
   }
 
-  return `${label} failed: ${(stderr ?? String(error)).trim()}`;
+  // What git said can describe hosts the person can't reach themselves.
+  return `${label} failed. Check that the URL is right and that the server may read the repository.`;
 }

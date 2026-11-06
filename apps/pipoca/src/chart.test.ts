@@ -61,6 +61,20 @@ test("the chart trusts the proxy in front only when there is one", () => {
   expect(main).toContain('trustProxy: values["trust-proxy"]');
 });
 
+// The APIRule's policy for runners matches only mesh peers, so runner pods
+// join the mesh whenever the server is in it, in any namespace.
+test("the chart puts runner pods in the mesh along with the server", () => {
+  expect(deployment).toContain(
+    '{{- if .Values.apiRule.enabled }}\n        # APIRules reach only workloads in the Istio mesh.\n        sidecar.istio.io/inject: "true"',
+  );
+
+  expect(deployment).toMatch(
+    /\{\{- if \.Values\.apiRule\.enabled \}\}\n(?: +#.*\n)? +- name: PIPOCA_RUNNER_MESH\n +value: "true"/,
+  );
+
+  expect(plugin).toContain('env("PIPOCA_RUNNER_MESH") === "true"');
+});
+
 // The kubelet counts every exit as a crash and backs off for up to five
 // minutes, so the server restarts inside the container instead.
 test("the chart's server restarts inside its container, not through the kubelet", () => {

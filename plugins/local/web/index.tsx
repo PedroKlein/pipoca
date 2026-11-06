@@ -3,11 +3,10 @@ import type { Environment } from "@pipoca/protocol";
 import {
   Button,
   Card,
-  cn,
   ErrorText,
   Field,
-  fieldClass,
   Section,
+  TextArea,
   TextInput,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
@@ -152,12 +151,12 @@ function Settings({
         </Field>
       </div>
       <Field label="Folders Sessions can work in, one per line">
-        <textarea
+        <TextArea
           name="folders"
           rows={3}
           defaultValue={shown.folders.join("\n")}
           placeholder="~/code"
-          className={cn(fieldClass, "min-h-20 resize-y font-mono text-mono-sm")}
+          className="min-h-20 resize-y font-mono text-mono-sm"
         />
       </Field>
       <div className="flex flex-wrap items-center gap-2">

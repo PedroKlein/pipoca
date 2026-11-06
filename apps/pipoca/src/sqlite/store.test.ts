@@ -64,6 +64,71 @@ test("opens its own database again", () => {
   store.close();
 });
 
+// The Sessions list reads only the rows the person or the team owns, rather
+// than every Session on the server.
+test("lists only one person's Sessions, or only the team's", () => {
+  const store = openStore(":memory:");
+  defaultProfile = store.sessions.defaultProfileId("local");
+
+  for (const id of ["ana", "bo"]) {
+    store.people.insertUser({
+      id,
+      name: id,
+      admin: false,
+      passwordHash: "",
+      createdAt: new Date().toISOString(),
+    });
+
+    store.environments.ensureEnvironment(id, id);
+  }
+
+  store.environments.ensureEnvironment("pods", "team");
+
+  const environmentOf = (slug: string): string =>
+    store.environments.environments().find((each) => each.provider === slug)
+      ?.id ?? "";
+
+  store.sessions.insert(
+    sessionIn(environmentOf("ana"), "ana", {
+      id: "anas",
+      createdAt: "2026-10-24T00:00:01.000Z",
+      startedBy: "ana",
+    }),
+  );
+
+  store.sessions.insert(
+    sessionIn(environmentOf("ana"), "ana", {
+      id: "anas-plugin",
+      createdAt: "2026-10-24T00:00:02.000Z",
+    }),
+  );
+
+  store.sessions.insert(
+    sessionIn(environmentOf("bo"), "bo", {
+      id: "bos",
+      createdAt: "2026-10-24T00:00:03.000Z",
+      startedBy: "bo",
+    }),
+  );
+
+  store.sessions.insert(
+    sessionIn(environmentOf("pods"), "pods", {
+      id: "teams",
+      createdAt: "2026-10-24T00:00:04.000Z",
+      startedBy: "ana",
+    }),
+  );
+
+  const ids = (owner: string | null): string[] =>
+    store.sessions.list({ includeArchived: false, owner }).map(({ id }) => id);
+
+  expect(ids("ana")).toEqual(["anas-plugin", "anas"]);
+  expect(ids("bo")).toEqual(["bos"]);
+  expect(ids(null)).toEqual(["teams"]);
+
+  store.close();
+});
+
 test("lists the Sessions one owner holds", () => {
   const store = openStore(":memory:");
   defaultProfile = store.sessions.defaultProfileId("local");
