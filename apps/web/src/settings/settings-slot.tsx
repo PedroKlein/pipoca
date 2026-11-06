@@ -15,13 +15,13 @@ export function SettingsSlot(props: Slot): ReactElement {
         let part: ReactNode;
 
         if (props.slot === "Profile") {
-          const Part = settingsParts?.Profile;
+          const Part = settingsParts.Profile;
 
           part = Part && (
             <Part profileId={props.profileId} />
           );
         } else {
-          const Part = settingsParts?.[props.slot];
+          const Part = settingsParts[props.slot];
 
           part = Part && <Part />;
         }
@@ -40,6 +40,6 @@ export function SettingsSlot(props: Slot): ReactElement {
 
 export function hasSettingsParts(slot: "General" | "Accounts"): boolean {
   return enabledPlugins().some(
-    ({ settingsParts }) => settingsParts?.[slot] !== undefined,
+    ({ settingsParts }) => settingsParts[slot] !== undefined,
   );
 }
