@@ -157,6 +157,8 @@ export class Outbox {
   }
 
   drop(sessionId: string, reason: Exclude<Delivery, "sent" | "waits">): void {
+    this.#written.delete(sessionId);
+
     for (const message of this.#store.removeAll(sessionId)) {
       this.#dropped(message, reason);
     }
