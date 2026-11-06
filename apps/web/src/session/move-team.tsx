@@ -4,9 +4,10 @@ import {
   Dialog,
   ErrorText,
   Field,
-  fieldClass,
   Icon,
+  Notice,
   Select,
+  TextArea,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { command, request } from "../data/client";
@@ -139,9 +140,9 @@ function MoveForm({
       </p>
 
       {environments.length === 0 || profiles.length === 0 ? (
-        <p role="alert" className="text-label text-fg-dim">
+        <Notice role="alert">
           An admin has to set up a team Environment and Profile first.
-        </p>
+        </Notice>
       ) : (
         <div className="grid grid-cols-2 gap-3">
           <Field label="Environment">
@@ -176,8 +177,8 @@ function MoveForm({
       )}
 
       <Field label="Handoff summary">
-        <textarea
-          className={`${fieldClass} min-h-40 resize-y`}
+        <TextArea
+          className="min-h-40 resize-y"
           value={summary}
           onChange={(event) => {
             setDraft(event.target.value);

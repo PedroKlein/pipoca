@@ -1,8 +1,7 @@
 import type { ReactElement } from "react";
 import { Button } from "./button";
-import { cn } from "./cn";
-import { fieldClass } from "./field";
 import { Icon } from "./icon";
+import { TextInput } from "./inputs";
 
 export interface KeyValue {
   readonly name: string;
@@ -39,7 +38,7 @@ export function KeyValues({
 
         return (
           <div key={index} className="flex items-center gap-1.5">
-            <input
+            <TextInput
               aria-label={`Name of ${name}`}
               value={row.name}
               readOnly={row.saved}
@@ -60,9 +59,9 @@ export function KeyValues({
                   ]);
                 }
               }}
-              className={cn(fieldClass, "w-2/5 min-w-0 font-mono text-mono-sm")}
+              className="w-2/5 min-w-0 font-mono text-mono-sm"
             />
-            <input
+            <TextInput
               aria-label={`Value of ${name}`}
               type={row.secret ? "password" : "text"}
               autoComplete="off"
@@ -71,10 +70,7 @@ export function KeyValues({
               onChange={(event) => {
                 change(index, { value: event.target.value });
               }}
-              className={cn(
-                fieldClass,
-                "min-w-0 flex-1 font-mono text-mono-sm",
-              )}
+              className="min-w-0 flex-1 font-mono text-mono-sm"
             />
             <Button
               variant="ghost"

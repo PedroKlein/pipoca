@@ -11,6 +11,8 @@ const variants = {
 } as const;
 
 const sizes = {
+  // For a small mark beside text, such as a row's remove button.
+  xs: ["h-6 text-caption", "px-1.5", "w-6"],
   sm: ["h-7 text-label", "px-2.5", "w-7"],
   md: ["h-control text-ui", "px-3", "w-control"],
   lg: ["h-11 rounded-[11px] text-prose", "px-5", "w-11"],
@@ -19,7 +21,7 @@ const sizes = {
 export type ButtonVariant = keyof typeof variants | "link";
 export type ButtonSize = keyof typeof sizes;
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   readonly variant?: ButtonVariant;
   readonly size?: ButtonSize;
   readonly iconOnly?: boolean;

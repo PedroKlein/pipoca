@@ -8,7 +8,6 @@ import {
   ErrorText,
   Icon,
   Page,
-  PageTitle,
   Row,
   Rows,
   Section,
@@ -63,36 +62,35 @@ export function LayoutPage({
   };
 
   return (
-    <Page wide>
-      <PageTitle
-        description={
-          home
-            ? "What the team is working on now. Team work runs on the team's Profiles, Environments and keys."
-            : undefined
-        }
-        actions={
-          <>
-            {admin && (
-              <Button
-                aria-pressed={editing}
-                onClick={() => {
-                  setEditing(!editing);
-                }}
-              >
-                {editing ? "Done" : "Edit layout"}
-              </Button>
-            )}
-            {home && (
-              <Button variant="primary" onClick={onStart}>
-                <Icon name="plus" />
-                Start team work
-              </Button>
-            )}
-          </>
-        }
-      >
-        {home ? "Team home" : page.title}
-      </PageTitle>
+    <Page
+      wide
+      title={home ? "Team home" : page.title}
+      description={
+        home
+          ? "What the team is working on now. Team work runs on the team's Profiles, Environments and keys."
+          : undefined
+      }
+      actions={
+        <>
+          {admin && (
+            <Button
+              aria-pressed={editing}
+              onClick={() => {
+                setEditing(!editing);
+              }}
+            >
+              {editing ? "Done" : "Edit layout"}
+            </Button>
+          )}
+          {home && (
+            <Button variant="primary" onClick={onStart}>
+              <Icon name="plus" />
+              Start team work
+            </Button>
+          )}
+        </>
+      }
+    >
       <ErrorText className="mb-4">{error}</ErrorText>
       {editing && (
         <Section
@@ -223,10 +221,10 @@ export function TeamSessions({
   readonly sessions: readonly Session[];
 }): ReactElement {
   return (
-    <Page>
-      <PageTitle description="Every Session the team has, newest first. Anyone on the team can open one.">
-        Sessions
-      </PageTitle>
+    <Page
+      title="Sessions"
+      description="Every Session the team has, newest first. Anyone on the team can open one."
+    >
       <SessionRows sessions={sessions} empty="The team has no Sessions yet." />
     </Page>
   );

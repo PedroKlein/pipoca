@@ -1,5 +1,5 @@
 import type { Question, QuestionOption } from "@pipoca/protocol";
-import { Button, cn, fieldClass } from "@pipoca/ui";
+import { Button, cn, TextInput } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import type { Explanation } from "../feed";
 import type { QuestionState } from "./questions";
@@ -42,7 +42,7 @@ export function Annotation({
   readonly onChange: (state: QuestionState) => void;
 }): ReactElement {
   return (
-    <input
+    <TextInput
       aria-label="Note for this choice"
       placeholder="Add a note to this choice"
       value={state.annotations[value] ?? ""}
@@ -52,7 +52,7 @@ export function Annotation({
           annotations: { ...state.annotations, [value]: event.target.value },
         });
       }}
-      className={cn(fieldClass, "py-1 text-label")}
+      className="py-1 text-label"
     />
   );
 }
@@ -141,14 +141,14 @@ export function Detail({
             }}
             className="flex gap-2"
           >
-            <input
+            <TextInput
               aria-label="Ask about this option"
               placeholder="Ask about this option (empty explains it)"
               value={text}
               onChange={(event) => {
                 setText(event.target.value);
               }}
-              className={cn(fieldClass, "min-w-0 flex-1")}
+              className="min-w-0 flex-1"
             />
             <Button type="submit">Ask</Button>
           </form>

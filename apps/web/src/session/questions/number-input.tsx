@@ -1,4 +1,4 @@
-import { Button, cn, fieldClass } from "@pipoca/ui";
+import { Button, TextInput } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { type QuestionState, setNumber, typeNumber } from "./questions";
 import type { NumberQuestion } from "./question-parts";
@@ -47,7 +47,7 @@ export function NumberInput({
         </span>
       </div>
       <label className="flex items-center gap-2 text-ui">
-        <input
+        <TextInput
           type="number"
           aria-label={`${question.prompt} (value)`}
           {...bounds}
@@ -58,7 +58,7 @@ export function NumberInput({
           onBlur={() => {
             onChange({ ...state, text: String(state.value) });
           }}
-          className={cn(fieldClass, "w-28")}
+          className="w-28"
         />
         {unit}
       </label>

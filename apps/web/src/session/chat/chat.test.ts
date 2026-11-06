@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import {
-  ago,
   type ChatItem,
   chatItems,
   describeTool,
@@ -386,14 +385,6 @@ test("tallies a turn's work by kind of step", () => {
   ]);
 
   expect(tally([])).toEqual([]);
-});
-
-test("says how long ago an answer came", () => {
-  const now = Date.parse("2026-10-22T12:00:00Z");
-
-  expect(ago("2026-10-22T11:59:30Z", now)).toBe("just now");
-  expect(ago("2026-10-22T11:58:00Z", now)).toBe("2 min ago");
-  expect(ago("2026-10-22T09:00:00Z", now)).toBe("3 h ago");
 });
 
 test("takes the tool calls a plugin draws out of the work, with their result details", () => {

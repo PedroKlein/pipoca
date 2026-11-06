@@ -1,14 +1,13 @@
 import { useNow } from "@pipoca/plugins/web";
 import type { Person, Session } from "@pipoca/protocol";
 import {
+  Avatar,
   Button,
   Card,
   Cell,
   ErrorText,
   Icon,
-  initialsOf,
   Page,
-  PageTitle,
   Select,
   Table,
   Tabs,
@@ -69,23 +68,21 @@ export function PeoplePage(): ReactElement {
   const now = useNow();
 
   return (
-    <Page>
-      <PageTitle
-        description="Who can use this server. Admins see names and states, never transcripts, files or secret values."
-        actions={
-          <Button
-            variant="primary"
-            onClick={() => {
-              setInviting(true);
-            }}
-          >
-            <Icon name="plus" />
-            Invite people
-          </Button>
-        }
-      >
-        People
-      </PageTitle>
+    <Page
+      title="People"
+      description="Who can use this server. Admins see names and states, never transcripts, files or secret values."
+      actions={
+        <Button
+          variant="primary"
+          onClick={() => {
+            setInviting(true);
+          }}
+        >
+          <Icon name="plus" />
+          Invite people
+        </Button>
+      }
+    >
       <InviteDialog
         open={inviting}
         onClose={() => {
@@ -155,12 +152,7 @@ export function PeoplePage(): ReactElement {
                   <tr aria-label={person.name}>
                     <Cell>
                       <span className="flex items-center gap-2.5">
-                        <span
-                          aria-hidden="true"
-                          className="grid size-7 shrink-0 place-items-center rounded-full bg-hover text-caption font-semibold text-fg-strong"
-                        >
-                          {initialsOf(person.name)}
-                        </span>
+                        <Avatar name={person.name} />
                         <span className="flex min-w-0 flex-col">
                           <span className="truncate text-fg-strong">
                             {person.name}

@@ -1,5 +1,6 @@
 import {
   Button,
+  Chip,
   cn,
   CopyButton,
   Dialog,
@@ -110,22 +111,15 @@ function InviteForm({
               </span>
               <span className="flex min-h-11 flex-wrap items-center gap-1.5 rounded-md border border-line bg-elevated px-2 py-1.5 focus-within:border-line-strong">
                 {emails.map((email) => (
-                  <span
+                  <Chip
                     key={email}
-                    className="inline-flex h-7 items-center gap-1 rounded-full border border-line pr-1 pl-2.5 text-label text-fg"
+                    removeLabel={`Remove ${email}`}
+                    onRemove={() => {
+                      setEmails(emails.filter((each) => each !== email));
+                    }}
                   >
                     {email}
-                    <button
-                      type="button"
-                      aria-label={`Remove ${email}`}
-                      className="grid size-5 cursor-pointer place-items-center rounded-full text-fg-dim hover:bg-hover"
-                      onClick={() => {
-                        setEmails(emails.filter((each) => each !== email));
-                      }}
-                    >
-                      <Icon name="x" />
-                    </button>
-                  </span>
+                  </Chip>
                 ))}
                 <input
                   value={typed}

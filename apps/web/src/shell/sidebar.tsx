@@ -1,5 +1,5 @@
 import type { Session } from "@pipoca/protocol";
-import { Button, Checkbox, Icon, Mark, TextInput } from "@pipoca/ui";
+import { Avatar, Button, Checkbox, Icon, Mark, TextInput } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { useMe, useQuery } from "../data/hooks";
 import { matches } from "../notices";
@@ -14,7 +14,7 @@ import {
 import { AccountMenu } from "./account-menu";
 import { PluginNav } from "./plugin-nav";
 
-export interface SidebarProps {
+interface SidebarProps {
   readonly nav: readonly NavEntry[];
   readonly route: Route;
   readonly sessions: readonly Session[];
@@ -91,12 +91,14 @@ export function Sidebar({
           href={href("team")}
           className="mx-2 flex items-center gap-2.5 rounded-md px-2 py-1.5 text-ui text-fg hover:bg-hover"
         >
-          <span
-            aria-hidden="true"
-            className="grid size-6 place-items-center rounded-md border border-line bg-elevated text-fg-dim"
+          <Avatar
+            name={team}
+            size="xs"
+            square
+            className="bg-elevated text-fg-dim"
           >
             <Icon name="users" className="size-3.5" />
-          </span>
+          </Avatar>
           <span className="truncate">{team}</span>
         </a>
       )}

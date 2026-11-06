@@ -14,7 +14,7 @@ import {
   useState,
 } from "react";
 import { request } from "../data/client";
-import { ago } from "./chat/chat";
+import { ago } from "../names";
 import type { Feed } from "./feed";
 
 export function SessionActions({

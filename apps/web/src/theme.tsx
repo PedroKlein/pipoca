@@ -1,4 +1,4 @@
-import { Icon, type IconName } from "@pipoca/ui";
+import { Button, Icon, type IconName } from "@pipoca/ui";
 import { type ReactElement, useEffect, useState } from "react";
 
 const choices = ["system", "light", "dark"] as const;
@@ -79,16 +79,17 @@ export function ThemeSwitch(): ReactElement {
   const next = choices[(choices.indexOf(choice) + 1) % choices.length];
 
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="xs"
+      iconOnly
       title={`Theme: ${choice}`}
       aria-label={`Theme: ${choice}. Switch to ${next ?? "system"}`}
       onClick={() => {
         choose(next ?? "system");
       }}
-      className="flex size-6 cursor-pointer items-center justify-center rounded-md text-fg-dim hover:bg-hover hover:text-fg"
     >
       <Icon name={icons[choice]} className="size-3.5" />
-    </button>
+    </Button>
   );
 }
