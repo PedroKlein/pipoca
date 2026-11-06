@@ -108,11 +108,9 @@ export class SignIn {
   // Names the request's browser session without its token, so something
   // that lasts only as long as the session can check it is still there.
   browserSessionOf(request: Request): string | undefined {
-    const token = new Bun.CookieMap(request.headers.get("cookie") ?? "").get(
-      cookieName,
-    );
+    const token = sessionToken(request);
 
-    return token === null ? undefined : tokenHash(token);
+    return token === undefined ? undefined : tokenHash(token);
   }
 
   userOfSession(session: string): User | undefined {
@@ -344,7 +342,7 @@ export class SignIn {
       expires.toISOString(),
     );
 
-    return new Bun.Cookie(cookieName, token, {
+    return new Bun.Cookie(cookieNameOf(request), token, {
       ...cookieOptions(request),
       maxAge: days * 24 * 60 * 60,
     }).serialize();
@@ -360,15 +358,13 @@ export class SignIn {
 
   // The Set-Cookie value that clears the browser's session.
   endSession(request: Request): string {
-    const token = new Bun.CookieMap(request.headers.get("cookie") ?? "").get(
-      cookieName,
-    );
+    const token = sessionToken(request);
 
-    if (token !== null) {
+    if (token !== undefined) {
       this.#store.deleteBrowserSession(tokenHash(token));
     }
 
-    return new Bun.Cookie(cookieName, "", {
+    return new Bun.Cookie(cookieNameOf(request), "", {
       ...cookieOptions(request),
       maxAge: 0,
     }).serialize();
@@ -382,15 +378,40 @@ export class SignIn {
 const unknownUserHash = Bun.password.hash(secretToken("", 16));
 
 // HTTPS usually ends in a gateway in front of the server (ADR 0034).
+function secure(request: Request): boolean {
+  return (
+    new URL(request.url).protocol === "https:" ||
+    request.headers.get("x-forwarded-proto") === "https"
+  );
+}
+
 function cookieOptions(request: Request): Bun.CookieInit {
   return {
     path: "/",
     httpOnly: true,
     sameSite: "strict",
-    secure:
-      new URL(request.url).protocol === "https:" ||
-      request.headers.get("x-forwarded-proto") === "https",
+    secure: secure(request),
   };
+}
+
+// Browsers refuse a __Host- cookie that names a Domain, so a preview page on
+// a subdomain can't plant one for Pipoca's host. The prefix needs Secure.
+function cookieNameOf(request: Request): string {
+  return secure(request) ? `__Host-${cookieName}` : cookieName;
+}
+
+// Two session cookies mean one was planted, and browsers send the planted
+// one first, so neither counts.
+function sessionToken(request: Request): string | undefined {
+  const name = cookieNameOf(request);
+
+  const tokens = (request.headers.get("cookie") ?? "")
+    .split(";")
+    .map((cookie) => cookie.trim())
+    .filter((cookie) => cookie.startsWith(`${name}=`))
+    .map((cookie) => cookie.slice(name.length + 1));
+
+  return tokens.length === 1 ? tokens[0] : undefined;
 }
 
 function checkCredentials({ name, password }: Credentials): void {

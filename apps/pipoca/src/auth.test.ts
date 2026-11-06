@@ -328,6 +328,48 @@ test("marks the cookie Secure behind an HTTPS gateway", async () => {
   expect(signedIn.headers.get("set-cookie")).toContain("; Secure");
 });
 
+test("names the cookie __Host- behind an HTTPS gateway, so a subdomain can't plant one", async () => {
+  await setUp();
+  const https = { "x-forwarded-proto": "https" };
+
+  const signedIn = await server.as()("/api/auth/session", {
+    body: pedro,
+    headers: https,
+  });
+
+  const cookie = cookieOf(signedIn);
+  const token = cookie.split("=")[1] ?? "";
+
+  expect(signedIn.headers.get("set-cookie")).toMatch(
+    /^__Host-pipoca-session=[\w-]+; Path=\/; Max-Age=\d+; Secure; HttpOnly; SameSite=Strict$/,
+  );
+
+  expect(
+    (await server.as(cookie)("/api/sessions", { headers: https })).status,
+  ).toBe(200);
+
+  expect(
+    (
+      await server.as(`pipoca-session=${token}`)("/api/sessions", {
+        headers: https,
+      })
+    ).status,
+  ).toBe(401);
+});
+
+test("treats a request carrying two session cookies as signed out", async () => {
+  const cookie = await setUp();
+
+  expect((await server.as(cookie)("/api/sessions")).status).toBe(200);
+
+  for (const both of [
+    `pipoca-session=planted; ${cookie}`,
+    `${cookie}; pipoca-session=planted`,
+  ]) {
+    expect((await server.as(both)("/api/sessions")).status).toBe(401);
+  }
+});
+
 test("logs a new setup link after a restart while there are no users", async () => {
   await server.close();
   const database = join(root, "server.db");
