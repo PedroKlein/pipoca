@@ -415,6 +415,26 @@ Only report lint problems.
   expect(session.children[0]?.system).toContain("Only report lint problems.");
 });
 
+test("isn't offered in a Session whose Profile can't change files, such as the assistant's coordinator", async () => {
+  await mkdir(join(root, "agent"), { recursive: true });
+
+  await writeFile(
+    join(root, "agent", "settings.json"),
+    JSON.stringify({ defaultTools: ["-bash", "-edit", "-write", "+grep"] }),
+  );
+
+  const session = await hosted([
+    call({ agent: "worker", task: "rm -rf ~", wait: true }),
+  ]);
+
+  session.send("tidy up");
+  await session.waitFor(() => session.children.length > 0);
+  await session.stop();
+
+  expect(session.offered).toEqual([]);
+  expect(session.children.flatMap(({ tools }) => tools)).not.toContain("bash");
+});
+
 test("names the agents there are when asked for one that doesn't exist", async () => {
   const session = await hosted([call({ agent: "nobody", task: "anything" })]);
 

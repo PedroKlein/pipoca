@@ -304,12 +304,10 @@ test("keeps the role an admin gave when the provider names no admins", async () 
 
   const id = listed.find(({ name }) => name === "ana@example.com")?.id ?? "";
 
-  const made = await t
-    .as("pedro")
-    .raw(`/api/people/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ admin: true }),
-    });
+  const made = await t.as("pedro").raw(`/api/people/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ admin: true }),
+  });
 
   const again = await signIn(t, ana);
 
@@ -545,13 +543,11 @@ test("signs in with a client secret the config names by environment variable, an
 test("keeps the providers Settings adds in the config, without what is empty or default", async () => {
   await using t = await started({ config: { providers: [] } });
 
-  const added = await t
-    .as("pedro")
-    .raw("providers", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(providerInput({ groupsClaim: "groups" })),
-    });
+  const added = await t.as("pedro").raw("providers", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(providerInput({ groupsClaim: "groups" })),
+  });
 
   expect(added.status).toBe(201);
   expect(await t.config()).toEqual({ providers: [ias] });
@@ -565,13 +561,11 @@ test("refuses a provider without an issuer URL or a client ID", async () => {
     [{ issuer: "not a url" }, { clientId: "" }].map(
       async (more) =>
         (
-          await t
-            .as("pedro")
-            .raw("providers", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify(providerInput(more)),
-            })
+          await t.as("pedro").raw("providers", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(providerInput(more)),
+          })
         ).status,
     ),
   );
@@ -728,12 +722,10 @@ test("fails a sign-in with a page when the token endpoint can't be reached", asy
 
   t.provider.down = true;
 
-  const response = await t
-    .public()
-    .raw(`callback${back.search}`, {
-      method: "GET",
-      headers: { cookie: cookieOf(leaving) },
-    });
+  const response = await t.public().raw(`callback${back.search}`, {
+    method: "GET",
+    headers: { cookie: cookieOf(leaving) },
+  });
 
   expect(response.status).toBe(502);
   expect(await response.text()).toContain("Sign-in failed");

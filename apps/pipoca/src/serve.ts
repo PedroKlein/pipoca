@@ -50,11 +50,7 @@ import {
   update,
 } from "./installed";
 import { latestCommit } from "@pipoca/repositories";
-import {
-  builtInDefinitions,
-  builtInParts,
-  definedManifest,
-} from "./built-in";
+import { builtInDefinitions, builtInParts, definedManifest } from "./built-in";
 import { errorReply } from "./server/http/replies";
 import { previewBroker } from "./previews";
 import { webAppFile } from "./web-app";
@@ -207,10 +203,7 @@ export function serve(options: ServeOptions): {
 
   const defined = ownDefinitions.map(definedManifest);
 
-  const known = [
-    ...defined,
-    ...installed.map(({ manifest }) => manifest),
-  ];
+  const known = [...defined, ...installed.map(({ manifest }) => manifest)];
 
   const onByDefault = (name: string): boolean => {
     const defaultOn = definitions.find(({ id }) => id === name)?.defaultOn;

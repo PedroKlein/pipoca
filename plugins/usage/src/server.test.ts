@@ -267,13 +267,11 @@ test("only an admin sets the team's monthly budget and each person's cap, and an
   await using t = await started({ prices: sonnet(3, 15) });
 
   const put = async (id: string, body: unknown) =>
-    t
-      .as(id)
-      .raw("budgets", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
+    t.as(id).raw("budgets", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
 
   expect((await put("ana", { team: 50, person: 10 })).status).toBe(403);
   expect((await put("admin", { team: 50, person: 10 })).status).toBe(204);
@@ -320,12 +318,10 @@ test("shows everyone what people did lately to the team work they can see", asyn
   });
 
   const access = async (id: string, to: unknown) => {
-    const changed = await t
-      .as("bo")
-      .raw(`/api/sessions/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ access: to }),
-      });
+    const changed = await t.as("bo").raw(`/api/sessions/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ access: to }),
+    });
 
     expect(changed.status).toBe(200);
   };

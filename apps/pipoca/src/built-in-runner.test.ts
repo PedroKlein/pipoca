@@ -111,3 +111,59 @@ test("says which plugin starts an Environment's runners, and with what label and
     await server.close();
   }
 });
+
+// A runner plugin whose checks throw, before one that works.
+const broken = defineServer(
+  definePlugin({ id: "broken", title: "Broken", description: "" }),
+  ({ provide }) => {
+    provide.runners({
+      kind: { label: "Broken", icon: "cloud" },
+      starts: () => {
+        throw new Error("can't tell");
+      },
+      replacesServerRunner: () => {
+        throw new Error("can't tell either");
+      },
+    });
+  },
+);
+
+test("a runner plugin whose checks throw counts as starting nothing, and the next one still does", async () => {
+  const logs: string[] = [];
+
+  const server = testServer({
+    agent: {
+      provider: "server",
+      dataDir: join(root, "server"),
+      extensionPaths: [],
+      folders: [],
+    },
+    builtIns: false,
+    servers: [broken, pods],
+    log: (message, fields) => {
+      logs.push(`${message} ${JSON.stringify(fields)}`);
+    },
+  });
+
+  try {
+    const made = (await (
+      await server.api("/api/environments", { body: { name: "cluster" } })
+    ).json()) as Environment;
+
+    expect(made.runnersFrom).toMatchObject({ plugin: "pods" });
+
+    expect(logs).toContain(
+      'the server\'s own runner is off, since a plugin replaces it {"runner":"server"}',
+    );
+
+    expect(logs).toContain(
+      'plugin call failed {"plugin":"broken","call":"replacesServerRunner","error":"can\'t tell either"}',
+    );
+
+    expect(logs).toContain(
+      'plugin call failed {"plugin":"broken","call":"startsRunners","error":"can\'t tell"}',
+    );
+  } finally {
+    await server.close();
+  }
+});

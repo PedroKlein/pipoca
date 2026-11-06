@@ -99,13 +99,11 @@ test("the team votes, whoever started the work closes it, and Pi reads the resul
 
   const pick = async (by: string, option: string): Promise<number> =>
     (
-      await t
-        .as(by)
-        .raw(`votes/${id}/pick`, {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ option }),
-        })
+      await t.as(by).raw(`votes/${id}/pick`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ option }),
+      })
     ).status;
 
   expect(await pick("ana", "Ship")).toBe(200);
@@ -213,13 +211,11 @@ test("only a signed-in person picks", async () => {
     options: ["Yes", "No"],
   });
 
-  const response = await t
-    .public()
-    .raw(`votes/${id}/pick`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ option: "Yes" }),
-    });
+  const response = await t.public().raw(`votes/${id}/pick`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ option: "Yes" }),
+  });
 
   expect(response.status).toBe(401);
   expect((await openVotes(t, session)).votes[0]?.picks).toEqual([]);

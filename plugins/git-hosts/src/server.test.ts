@@ -6,6 +6,7 @@ import {
   type TestPluginOptions,
   type TestSession,
   testPlugin,
+  until,
 } from "@pipoca/testing";
 import type { gitHosts } from "../plugin";
 import { server } from "./server";
@@ -59,6 +60,11 @@ interface Pull {
   merged: boolean;
   comments: { id: number; login: string; body: string }[];
   mergedWith: string | undefined;
+  // Answers the next read of the pull request with a sign-in page, as an
+  // SSO proxy in front of the host does.
+  pageOnce: boolean;
+  // Holds reads of the checks until it settles, to catch a poll midway.
+  held: Promise<void> | undefined;
 }
 
 // The host's REST API, which knows one person's token and one App.
@@ -69,6 +75,8 @@ function fakeHost(now: () => number) {
     merged: false,
     comments: [],
     mergedWith: undefined,
+    pageOnce: false,
+    held: undefined,
   };
 
   const asked: string[] = [];
@@ -140,6 +148,14 @@ function fakeHost(now: () => number) {
 
     switch (url.pathname) {
       case `${repo}/pulls/7`:
+        if (pull.pageOnce) {
+          pull.pageOnce = false;
+
+          return new Response("<html>Sign in</html>", {
+            headers: { "content-type": "text/html" },
+          });
+        }
+
         return Response.json({
           html_url: pullUrl,
           title: "Tidy the dotfiles",
@@ -149,6 +165,8 @@ function fakeHost(now: () => number) {
           head: { sha: "abc1234def" },
         });
       case `${repo}/commits/abc1234def/check-runs`:
+        await pull.held;
+
         return Response.json({
           check_runs: [
             {
@@ -325,13 +343,11 @@ test("connects a host with a token and signs the person's Sessions in with it", 
   await using run = await start();
   const { t } = run;
 
-  const answered = await t
-    .as("pedro")
-    .raw("connect", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ host, token: goodToken }),
-    });
+  const answered = await t.as("pedro").raw("connect", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ host, token: goodToken }),
+  });
 
   const page = await answered.text();
 
@@ -378,13 +394,11 @@ test("refuses a token the host doesn't accept, saying so", async () => {
   await using run = await start();
   const { t } = run;
 
-  const refused = await t
-    .as("pedro")
-    .raw("connect", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ host, token: "ghp_wrong" }),
-    });
+  const refused = await t.as("pedro").raw("connect", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ host, token: "ghp_wrong" }),
+  });
 
   expect(refused.status).toBe(400);
 
@@ -402,13 +416,11 @@ test("lists a host an admin adds once, beside the default github.com", async () 
 
   await t.as("pedro").post("hosts", { host: "git.example.com" });
 
-  const again = await t
-    .as("pedro")
-    .raw("hosts", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ host: "git.example.com" }),
-    });
+  const again = await t.as("pedro").raw("hosts", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ host: "git.example.com" }),
+  });
 
   expect(again.status).toBe(400);
 
@@ -533,12 +545,10 @@ test("connects an account through the host's OAuth app, only in the browser that
   expect(elsewhere.status).toBe(400);
   expect(await t.as("pedro").get("account")).toMatchObject({ connections: [] });
 
-  const back = await t
-    .public()
-    .raw(`callback?state=${state}&code=c0de`, {
-      method: "GET",
-      headers: { cookie },
-    });
+  const back = await t.public().raw(`callback?state=${state}&code=c0de`, {
+    method: "GET",
+    headers: { cookie },
+  });
 
   expect(back.status).toBe(200);
   expect(await back.text()).toContain("#settings/accounts");
@@ -547,12 +557,10 @@ test("connects an account through the host's OAuth app, only in the browser that
     connections: [{ host, login: "pedro-gh" }],
   });
 
-  const again = await t
-    .public()
-    .raw(`callback?state=${state}&code=c0de`, {
-      method: "GET",
-      headers: { cookie },
-    });
+  const again = await t.public().raw(`callback?state=${state}&code=c0de`, {
+    method: "GET",
+    headers: { cookie },
+  });
 
   expect(again.status).toBe(400);
 });
@@ -899,13 +907,11 @@ test("adds a machine user by a token its host accepts, and removes it", async ()
   const { t } = run;
 
   const add = async (token: string): Promise<Response> =>
-    t
-      .as("pedro")
-      .raw("technical-users", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: "ci-bot", host, token }),
-      });
+    t.as("pedro").raw("technical-users", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "ci-bot", host, token }),
+    });
 
   expect((await add("ghp_bad")).status).toBe(400);
 
@@ -979,13 +985,11 @@ test("has a person's Sessions commit as the name and email they chose", async ()
 
   expect(
     (
-      await t
-        .as("pedro")
-        .raw("commit-as", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ name: "Pedro Klein", email: "" }),
-        })
+      await t.as("pedro").raw("commit-as", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Pedro Klein", email: "" }),
+      })
     ).status,
   ).toBe(400);
 
@@ -1079,13 +1083,11 @@ test("signs team work in as the technical user an admin chose for the team on ea
 
   const choose = async (name: string, team: boolean): Promise<number> =>
     (
-      await t
-        .as("pedro")
-        .raw(`technical-users/${name}`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ team }),
-        })
+      await t.as("pedro").raw(`technical-users/${name}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ team }),
+      })
     ).status;
 
   expect(await choose("no-bot", true)).toBe(404);
@@ -1145,4 +1147,68 @@ test("team work reaches only what the team's GitHub App is installed on", async 
   expect(
     (await t.session({ owner: "team", startedBy: "pedro" })).gitLogins(),
   ).toEqual([{ host, token: "ghs_installation" }]);
+});
+
+test("a pull request whose host answers with a page instead of JSON doesn't stop the others' news", async () => {
+  await using run = await start();
+  const { t, fake } = run;
+
+  const first = await watching(t);
+  const second = await t.session({ owner: person("pedro") });
+  await t.tool("git_hosts_watch", { url: pullUrl }, { session: second });
+  await t.clock.advance(0);
+
+  fake.pull.checks = "failure";
+  fake.pull.pageOnce = true;
+  await t.clock.advance("60s");
+
+  expect(
+    [first, second]
+      .map((session) => notices(session).length)
+      .sort((a, b) => a - b),
+  ).toEqual([0, 1]);
+
+  await t.clock.advance("60s");
+
+  expect([first, second].map((session) => notices(session).length)).toEqual([
+    1, 1,
+  ]);
+});
+
+test("a merge pressed during a poll tells the Session it merged once", async () => {
+  await using run = await start();
+  const { t, fake } = run;
+
+  const session = await watching(t);
+  const [{ id }] = (await watched(t, session)) as [{ id: string }];
+
+  const checks = (): number =>
+    fake.asked.filter((each) => each.endsWith("/check-runs")).length;
+
+  let release = (): void => undefined;
+
+  fake.pull.held = new Promise((resolve) => {
+    release = resolve;
+  });
+
+  fake.pull.merged = true;
+  const before = checks();
+  const polling = t.clock.advance("60s");
+  await until(() => checks() === before + 1);
+
+  const merging = t.as("pedro").post(`pull-requests/${id}/merge`);
+  await until(() => fake.pull.mergedWith !== undefined);
+
+  // The merge's own poll reads the checks too only while the first one
+  // still goes.
+  await until(() => checks() === before + 2, Boolean, 300).catch(
+    () => undefined,
+  );
+
+  release();
+  await Promise.all([polling, merging]);
+
+  expect(
+    notices(session).filter((text) => text.includes("It merged.")),
+  ).toHaveLength(1);
 });

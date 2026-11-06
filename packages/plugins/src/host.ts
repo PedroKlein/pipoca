@@ -26,10 +26,6 @@ export type {
   ServerPart,
   StartRequest,
 } from "./server";
-export type {
-  AskPermission,
-  ChildOptions,
-  SessionPart,
-} from "./session";
+export type { AskPermission, ChildOptions, SessionPart } from "./session";
 export { toolAnswer, toolSpecOf } from "./tools";
 export { transcriptReader } from "./transcript";

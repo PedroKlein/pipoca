@@ -49,6 +49,10 @@ export const session = defineSession(subagents, (s) => {
 
 const publishMs = 250;
 
+// A child gets the tools its agent names, so a Session that can't change
+// files, such as the assistant's coordinator, gets no subagents (ADR 0052).
+const fileTools = ["bash", "edit", "write"];
+
 const stepSchema = Type.Object({
   agent: Type.String({ description: "The agent's name" }),
   task: Type.String({
@@ -253,7 +257,16 @@ function extension(s: SessionContext, pi: ExtensionAPI): void {
       ...(projectAgents === undefined ? [] : [projectAgents]),
     ]);
 
+  const readOnly = (): boolean =>
+    !fileTools.every((name) => pi.getActiveTools().includes(name));
+
   pi.on("session_start", (_event, ctx) => {
+    if (readOnly()) {
+      pi.setActiveTools(
+        pi.getActiveTools().filter((name) => name !== "subagent"),
+      );
+    }
+
     projectAgents = ctx.isProjectTrusted()
       ? join(ctx.cwd, ".pi", "agents")
       : undefined;
@@ -388,6 +401,12 @@ function extension(s: SessionContext, pi: ExtensionAPI): void {
     parameters,
     prepareArguments: withoutEmptyFields,
     execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
+      if (readOnly()) {
+        throw new Error(
+          "This Session can't change files, so it can't start subagents.",
+        );
+      }
+
       if (manages(params)) {
         return text(await manage(params));
       }

@@ -302,8 +302,7 @@ export class Sessions {
     this.#events = options.events ?? (() => undefined);
     this.#changed = options.changed ?? (() => undefined);
 
-    this.#sessionPlugins =
-      options.sessionPlugins ?? (() => ({ plugins: [] }));
+    this.#sessionPlugins = options.sessionPlugins ?? (() => ({ plugins: [] }));
 
     this.#docs = options.docs;
 

@@ -88,12 +88,10 @@ async function environment(
   name = "laptop",
 ): Promise<Environment> {
   return json(
-    pt
-      .as("ana")
-      .raw("/api/environments", {
-        method: "POST",
-        body: JSON.stringify({ name }),
-      }),
+    pt.as("ana").raw("/api/environments", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
   );
 }
 
@@ -118,13 +116,11 @@ async function save(
   settings: object | null,
   as = "ana",
 ): Promise<Response> {
-  return pt
-    .as(as)
-    .raw(`environments/${environmentId}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ settings }),
-    });
+  return pt.as(as).raw(`environments/${environmentId}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ settings }),
+  });
 }
 
 async function shown(

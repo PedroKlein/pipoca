@@ -50,7 +50,10 @@ export function pluginClient(
       ? `/api/ext/${plugin.id}/`
       : `/runner/sessions/${encodeURIComponent(options.session)}/ext/${plugin.id}/`;
 
-  const request = async (path: string, init: RequestInit): Promise<Response> => {
+  const request = async (
+    path: string,
+    init: RequestInit,
+  ): Promise<Response> => {
     const url = path.startsWith("/") ? path : `${base}${path}`;
 
     return send(

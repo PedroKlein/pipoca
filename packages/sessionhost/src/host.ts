@@ -444,10 +444,7 @@ export async function hostSession(
 
   const session = await startSession(options, {
     ui,
-    tools: [
-      ...parts.flatMap(({ tools }) => tools),
-      ...calls.tools,
-    ],
+    tools: [...parts.flatMap(({ tools }) => tools), ...calls.tools],
     extensions: [
       { name: "pi-view", factory: view.extension },
       ...parts.flatMap(({ extensions }) => extensions),

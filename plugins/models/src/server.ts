@@ -68,20 +68,32 @@ export const server = defineServer(models, (context) => {
       return null;
     }
 
-    const stored = storedAliases(aliases);
+    const read = (): { stored: AliasConfig } | { problem: string } => {
+      try {
+        const stored = storedAliases(aliases);
 
-    const problem =
-      typeof stored.models === "object"
-        ? aliasProblem(stored)
-        : "aliases need models";
+        const problem =
+          typeof stored.models === "object"
+            ? aliasProblem(stored)
+            : "aliases need models";
 
-    if (problem !== undefined) {
-      log("template aliases unreadable", { templateId, problem });
+        return problem === undefined ? { stored } : { problem };
+      } catch (error) {
+        return {
+          problem: error instanceof Error ? error.message : String(error),
+        };
+      }
+    };
+
+    const found = read();
+
+    if ("problem" in found) {
+      log("template aliases unreadable", { templateId, ...found });
 
       return null;
     }
 
-    return stored;
+    return found.stored;
   };
 
   // The template is looked up only when it can matter, since listing
@@ -187,7 +199,22 @@ export const server = defineServer(models, (context) => {
     },
   );
 
-  routes.get("environments", { auth: "person" }, () => store.all());
+  // A person sees their own Environments and the team's; an admin, all.
+  routes.get("environments", { auth: "person" }, ({ caller }) => {
+    const { person } = caller;
+
+    const seen = new Set(
+      environments
+        .list()
+        .filter(
+          ({ ownerId }) =>
+            person.admin || ownerId === person.id || ownerId === "team",
+        )
+        .map(({ id }) => id),
+    );
+
+    return store.all().filter(({ environmentId }) => seen.has(environmentId));
+  });
 
   routes.post(
     "environments/:id",

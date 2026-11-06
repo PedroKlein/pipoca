@@ -283,12 +283,10 @@ test("a person is offered Pi's models of the providers they logged in to, and a 
   await save(t, "ana", "anthropic", "sk");
   await save(t, "admin", "openai", "sk-team", "base");
 
-  await t
-    .as("ana")
-    .raw("/api/environments", {
-      method: "POST",
-      body: JSON.stringify({ name: "mine" }),
-    });
+  await t.as("ana").raw("/api/environments", {
+    method: "POST",
+    body: JSON.stringify({ name: "mine" }),
+  });
 
   await t.as("admin").raw("/api/environments", {
     method: "POST",
@@ -325,12 +323,10 @@ test("a person is offered Pi's models of the providers they logged in to, and a 
     "openai",
   ]);
 
-  await t
-    .as("bo")
-    .raw("/api/environments", {
-      method: "POST",
-      body: JSON.stringify({ name: "bos" }),
-    });
+  await t.as("bo").raw("/api/environments", {
+    method: "POST",
+    body: JSON.stringify({ name: "bos" }),
+  });
 
   const bos = await offered("bo", "bos", "mine");
 
@@ -410,13 +406,11 @@ test("a sign-in a provider doesn't take is refused", async () => {
   await using t = await started();
   await connectable(t);
 
-  const refused = await t
-    .as("ana")
-    .raw("connect", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ provider: "openai-codex", type: "api_key" }),
-    });
+  const refused = await t.as("ana").raw("connect", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ provider: "openai-codex", type: "api_key" }),
+  });
 
   expect(refused.status).toBe(400);
 });
@@ -507,13 +501,11 @@ test("a person signs in to an MCP server of their Profiles from Settings, and th
     { key, name: "linear", url: linear.url },
   ]);
 
-  const begun = await t
-    .as("ana")
-    .raw("connect-mcp", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ server: key }),
-    });
+  const begun = await t.as("ana").raw("connect-mcp", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ server: key }),
+  });
 
   const cookie = (begun.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
 
@@ -696,13 +688,11 @@ test("the proxy refuses a token that isn't a live team Session's", async () => {
 
   const statusOf = async (token: string) =>
     (
-      await t
-        .public()
-        .raw("proxy/anthropic/v1/messages", {
-          method: "POST",
-          headers: { "x-api-key": token },
-          body: "{}",
-        })
+      await t.public().raw("proxy/anthropic/v1/messages", {
+        method: "POST",
+        headers: { "x-api-key": token },
+        body: "{}",
+      })
     ).status;
 
   expect(await statusOf(proxy.token ?? "")).toBe(200);
@@ -869,4 +859,58 @@ test("a Session can't call a person's routes, and a person can't call a Session'
   expect(
     (await t.as("ana").raw("credentials/values", { method: "GET" })).status,
   ).toBe(403);
+});
+
+test("the proxy reports what a stream cut off midway counted so far", async () => {
+  const opening = sse({
+    type: "message_start",
+    message: { usage: { input_tokens: 20, output_tokens: 1 } },
+  });
+
+  let pulls = 0;
+
+  await using t = await started({
+    fetch: () =>
+      new Response(
+        new ReadableStream({
+          pull: async (controller) => {
+            pulls += 1;
+
+            if (pulls === 1) {
+              controller.enqueue(new TextEncoder().encode(opening));
+
+              return;
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            controller.error(new Error("the person stopped the turn"));
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      ),
+  });
+
+  const { proxy } = await teamWith(t, "anthropic");
+
+  await t
+    .public()
+    .raw("proxy/anthropic/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": proxy.token ?? "" },
+      body: JSON.stringify({ model: "claude-sonnet-4-5", stream: true }),
+    })
+    .then(async (response) => response.text())
+    .catch(() => "");
+
+  const [called] = await until(
+    () => t.emitted("logins.model_called"),
+    (found) => found.length > 0,
+    2000,
+  );
+
+  expect(called?.fields).toMatchObject({
+    model: "claude-sonnet-4-5",
+    input: 20,
+    output: 1,
+  });
 });

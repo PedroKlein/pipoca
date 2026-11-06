@@ -191,13 +191,11 @@ async function subscribe(
 ): Promise<void> {
   expect(
     (
-      await t
-        .as(who)
-        .raw("subscriptions", {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(subscription),
-        })
+      await t.as(who).raw("subscriptions", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(subscription),
+      })
     ).ok,
   ).toBe(true);
 }

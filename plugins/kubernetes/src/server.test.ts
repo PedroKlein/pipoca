@@ -259,13 +259,11 @@ async function postSettings(
   body: unknown,
   as = "ana",
 ): Promise<Response> {
-  return t
-    .as(as)
-    .raw(`templates/${templateId ?? ""}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
+  return t.as(as).raw(`templates/${templateId ?? ""}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 // An Environment made from a new pod template.
