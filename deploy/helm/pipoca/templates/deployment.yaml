@@ -30,7 +30,7 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
-      {{- if .Values.config }}
+      {{- if include "pipoca.config" . }}
       initContainers:
         # Seeds the config folder on the data volume once. After that Settings
         # and people edit the file there (ADR 0039).
@@ -132,7 +132,7 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: {{ .Release.Name }}-data
-        {{- if .Values.config }}
+        {{- if include "pipoca.config" . }}
         - name: config
           configMap:
             name: {{ .Release.Name }}-config

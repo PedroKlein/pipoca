@@ -366,6 +366,29 @@ test("says which templates have runner pods started for them", async () => {
   expect(listed.find(({ id }) => id === plain.id)?.runnersFrom).toBeNull();
 });
 
+// The chart seeds this entry when its config names no templates.
+test("offers runner pods from a template that pipoca.json gives only a workspace", async () => {
+  await t.close();
+  await start({
+    kernelConfig: {
+      templates: [
+        {
+          id: "kubernetes-pods",
+          name: "Kubernetes pods",
+          isolation: "process",
+          kubernetes: { workspace: "pod" },
+        },
+      ],
+    },
+  });
+
+  const listed = await kernel<ListedTemplate[]>("/api/environment-templates");
+
+  expect(listed).toMatchObject([
+    { id: "kubernetes-pods", runnersFrom: fromKubernetes },
+  ]);
+});
+
 test("starts no more runner pods for one person than the per-person limit, across their Environments", async () => {
   await t.close();
   await start({ config: { maxPodsPerPerson: 3 } });

@@ -1,4 +1,4 @@
-{{- with .Values.config }}
+{{- with include "pipoca.config" . }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -7,7 +7,7 @@ metadata:
     {{- include "pipoca.labels" $ | nindent 4 }}
 data:
   pipoca.json: |
-    {{- toPrettyJson . | nindent 4 }}
+    {{- . | nindent 4 }}
 {{- end }}
 {{- with .Values.lockedConfig }}
 ---
