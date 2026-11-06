@@ -170,6 +170,8 @@ export function person(id: string): Owner {
 export interface SessionTest {
   readonly tool: (name: string, input: unknown) => Promise<ToolAnswer>;
   readonly published: (key: string) => unknown;
+  // What the part pointed a model provider at, by its name.
+  readonly provider: (name: string) => unknown;
   // The logins the part keeps for Pi, if it provides them.
   readonly modelCredentials: () => Promise<SessionLogins | undefined>;
 }
@@ -191,6 +193,7 @@ export async function testSession(
   };
 
   const published = new Map<string, unknown>();
+  const providers = new Map<string, unknown>();
   const tools: ToolDefinition[] = [];
   let modelCredentials: (() => Promise<SessionLogins>) | undefined;
 
@@ -214,6 +217,9 @@ export async function testSession(
       tools.push(tool);
     },
     registerCommand: () => undefined,
+    registerProvider: (name: string, config: unknown) => {
+      providers.set(name, config);
+    },
     on: () => undefined,
   };
 
@@ -287,6 +293,7 @@ export async function testSession(
       }
     },
     published: (key) => published.get(key),
+    provider: (named) => providers.get(named),
     modelCredentials: async () => modelCredentials?.(),
   };
 }
