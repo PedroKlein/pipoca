@@ -17,6 +17,7 @@ import {
   readSseEvents,
   type Session,
 } from "@pipoca/protocol";
+import { protocolVersion, versionHeader } from "@pipoca/protocol";
 import { runnerCredentials } from "./testdata/runners";
 import { json, testServer, type TestServer } from "./testdata/harness";
 
@@ -71,7 +72,7 @@ function start(cookie?: string): TestServer {
 }
 
 const runnerHeaders = (token: string): Record<string, string> => ({
-  "pipoca-protocol": "5",
+  [versionHeader]: String(protocolVersion),
   authorization: `Bearer ${token}`,
   "content-type": "application/json",
 });
