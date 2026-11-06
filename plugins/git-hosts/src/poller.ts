@@ -129,7 +129,7 @@ export function startPoller(
 
     // Team work never replies as a person (ADR 0071).
     const reply =
-      session.ownedBy !== "team" && watches.preferences(watch.userId).reply;
+      watch.userId !== null && watches.preferences(watch.userId).reply;
 
     if (watch.autoFix) {
       deliver(

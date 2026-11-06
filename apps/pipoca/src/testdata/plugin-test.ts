@@ -740,6 +740,7 @@ export async function pluginTest(
       plugin: by = plugin.id,
       profile,
       actsAs,
+      access,
       workspace = { kind: "folder", path: root },
     }) => {
       const personal = owners.personId(owner);
@@ -762,6 +763,7 @@ export async function pluginTest(
         ...(key !== undefined && { key }),
         ...(profile !== undefined && { profile }),
         ...(actsAs !== undefined && { actsAs }),
+        ...(access !== undefined && { access }),
         ...(personal === undefined && {
           team: true,
           profile: await teamProfileOf(),

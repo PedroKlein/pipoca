@@ -1,4 +1,4 @@
-import { canSee } from "@pipoca/people";
+import { canSee, canSteer } from "@pipoca/people";
 import type {
   Secrets,
   Sessions as PluginSessions,
@@ -63,6 +63,8 @@ export function sessionsFor(
     },
     sees: (id, person) =>
       canSee({ id: person, admin: false }, sessions.owned(id)),
+    steers: (id, person) =>
+      canSteer({ id: person, admin: false }, sessions.owned(id)),
     send: (id, { text, turn, as, notice, dedupe }) =>
       sessions.enqueue(id, {
         ...(notice

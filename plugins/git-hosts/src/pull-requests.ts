@@ -50,14 +50,15 @@ export function pullRequests(
   const accountOf = (watch: Watch): Account | string => {
     const session = sessions.get(watch.sessionId);
 
-    if (session?.ownedBy !== "team") {
+    if (watch.userId !== null) {
       return (
         accounts(watch.userId).find(({ host }) => host === watch.host) ??
         `Connect ${watch.host} first.`
       );
     }
 
-    const bot = teamBots(session).find(({ host }) => host === watch.host);
+    const bot =
+      session && teamBots(session).find(({ host }) => host === watch.host);
 
     if (bot === undefined) {
       return noBot(watch.host);
@@ -70,11 +71,18 @@ export function pullRequests(
 
   const poller = startPoller(watches, hosts, accountOf, context);
 
-  const watch = (session: Session, url: string): Watch => {
-    const userId = session.startedBy;
-    const team = session.ownedBy === "team";
+  // A person's watch is theirs, and team work's is whoever steers its
+  // Session's.
+  const mayUse = (watch: Watch, person: string): boolean =>
+    watch.userId === null
+      ? sessions.steers(watch.sessionId, person)
+      : watch.userId === person;
 
-    if (userId === null) {
+  const watch = (session: Session, url: string): Watch => {
+    const team = session.ownedBy === "team";
+    const userId = team ? null : session.startedBy;
+
+    if (!team && userId === null) {
       throw new BadRequest("only a Session a person started can watch");
     }
 
@@ -97,7 +105,7 @@ export function pullRequests(
       userId,
       url.trim(),
       ref,
-      team || watches.preferences(userId).autoFix,
+      userId === null || watches.preferences(userId).autoFix,
     );
 
     routes.topic("pull-requests");
@@ -171,7 +179,7 @@ export function pullRequests(
     ({ caller, query }) =>
       watches
         .ofSession(query.session)
-        .filter((each) => each.userId === caller.person.id)
+        .filter((each) => mayUse(each, caller.person.id))
         .map(({ view }): PullWatch => view),
   );
 
@@ -189,7 +197,7 @@ export function pullRequests(
   const owned = (id: string, userId: string): Watch => {
     const found = watches.get(id);
 
-    if (found?.userId !== userId) {
+    if (found === undefined || !mayUse(found, userId)) {
       throw new NotFound(`no watched pull request ${id}`);
     }
 
@@ -235,7 +243,8 @@ export function pullRequests(
 
       log("pull request merged", {
         url: found.url,
-        owner: owners.of(userId),
+        owner: owners.fromSql(found.userId),
+        by: owners.of(userId),
       });
 
       await poller.poll(found.id);

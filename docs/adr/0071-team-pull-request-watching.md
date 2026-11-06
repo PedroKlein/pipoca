@@ -14,10 +14,10 @@ Team work already signs git in as a bot: the technical user it acts as, or on ea
 - Team Sessions can watch and stop watching pull requests, with the tools and with `/pr` (decided 2026-11-06).
 - The poller polls a team Session's watch with the same bot team work's git signs in as on that host. It never uses the starter's personal token, even when they connected the host.
 - A team Session can't watch a pull request on a host with no bot marked for team work. The refusal tells the admin to mark one in Settings > Git hosts. A watch whose bot is unmarked later shows the same message on its card.
-- Merge on a team watch goes through the bot. Auto-fix starts on for every team watch, since a person's defaults don't apply to team work.
+- Whoever may steer the team Session sees its pull requests on the Changes card and uses Auto-fix and Merge there, not only its starter. Merge on a team watch goes through the bot, and the log names the person who pressed it. Auto-fix starts on for every team watch, since a person's defaults don't apply to team work.
 - "Reply on review threads as me" is ignored in team work: the rules always tell the Session to report in the chat and never comment on GitHub as a person.
 
 ## Consequences
 
 - This amends ADR 0051's polling with the person's token: it holds for a person's Sessions only.
-- A team watch still records its starter, since the watch table names a person, and only a team Session a person started can watch.
+- A team watch records no person: its `user_id` is NULL, as an owner of NULL is the team elsewhere, so team work no one started, such as a routine's, can watch too.

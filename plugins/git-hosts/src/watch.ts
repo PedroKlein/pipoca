@@ -14,7 +14,8 @@ export interface Seen {
 export interface Watch extends PullRef {
   readonly id: string;
   readonly sessionId: string;
-  readonly userId: string;
+  // Null for team work's.
+  readonly userId: string | null;
   readonly url: string;
   readonly autoFix: boolean;
   readonly briefed: boolean;
@@ -28,7 +29,7 @@ export interface WatchStore {
   readonly ofSession: (sessionId: string) => readonly Watch[];
   readonly add: (
     sessionId: string,
-    userId: string,
+    userId: string | null,
     url: string,
     ref: PullRef,
     autoFix: boolean,
@@ -42,7 +43,7 @@ export interface WatchStore {
 interface Row {
   id: string;
   session_id: string;
-  user_id: string;
+  user_id: string | null;
   url: string;
   host: string;
   repository: string;

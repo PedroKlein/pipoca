@@ -933,6 +933,80 @@ test("stops watching for a Session that was archived", async () => {
   expect(await watched(t, session)).toEqual([]);
 });
 
+test("watches a pull request for a team Session no one started, as the team's bot", async () => {
+  await using run = await start();
+  const { t, fake } = run;
+
+  await teamBot(t);
+  const team = await t.session({ owner: "team" });
+
+  expect(
+    (await t.tool("git_hosts_watch", { url: pullUrl }, { session: team }))
+      .isError,
+  ).toBe(false);
+
+  await t.clock.advance(0);
+  fake.pull.checks = "failure";
+  await t.clock.advance("60s");
+
+  expect(notices(team)[0]).toStartWith(`News on ${pullUrl}:`);
+  expect(new Set(fake.readWith)).toEqual(new Set([botToken]));
+
+  expect(
+    t.store.all(
+      "select user_id from git_hosts_watches where session_id = ?",
+      team.id,
+    ),
+  ).toEqual([{ user_id: null }]);
+});
+
+test("lets whoever steers a team Session use its pull request's controls, and merges as the bot", async () => {
+  await using run = await start();
+  const { t, fake } = run;
+
+  await teamBot(t);
+  const open = await t.session({ owner: "team", startedBy: "pedro" });
+
+  const viewOnly = await t.session({
+    owner: "team",
+    startedBy: "pedro",
+    access: { kind: "view" },
+  });
+
+  for (const session of [open, viewOnly]) {
+    await t.tool("git_hosts_watch", { url: pullUrl }, { session });
+  }
+
+  await t.clock.advance(0);
+
+  const shown = async (who: string, session: TestSession) =>
+    t.as(who).get<{ id: string }[]>("pull-requests", { session: session.id });
+
+  expect(await shown("ana", viewOnly)).toEqual([]);
+  const [{ id: hidden }] = (await shown("pedro", viewOnly)) as [{ id: string }];
+
+  expect(
+    (await t.as("ana").raw(`pull-requests/${hidden}/merge`, { method: "POST" }))
+      .status,
+  ).toBe(404);
+
+  const [{ id }] = (await shown("ana", open)) as [{ id: string }];
+
+  expect(
+    await t.as("ana").post(`pull-requests/${id}/auto-fix`, { on: false }),
+  ).toMatchObject({ autoFix: false });
+
+  expect(await t.as("ana").post(`pull-requests/${id}/merge`)).toEqual({
+    merged: pullUrl,
+  });
+
+  expect(new Set(fake.readWith)).toEqual(new Set([botToken]));
+
+  expect(
+    t.log.find(({ message }) => message === "pull request merged")?.fields,
+  ).toMatchObject({ url: pullUrl, owner: "team", by: "person:ana" });
+});
+
 test("lists the team's watched pull requests on the team half, and a person's own on theirs", async () => {
   await using run = await start();
   const { t } = run;
@@ -945,7 +1019,7 @@ test("lists the team's watched pull requests on the team half, and a person's ow
     "insert into git_hosts_watches (id, session_id, user_id, url, host, repository, number, auto_fix) values (?, ?, ?, ?, ?, ?, ?, 0)",
     "w-team",
     team.id,
-    "pedro",
+    null,
     teamUrl,
     host,
     "acme/site",
