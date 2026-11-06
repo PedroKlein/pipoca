@@ -1,4 +1,4 @@
-import { json, ok, useLoaded, type WebContext } from "@pipoca/plugins/web";
+import { json, ok, useLoaded } from "@pipoca/plugins/web";
 import {
   Button,
   Card,
@@ -10,6 +10,7 @@ import {
   Section,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
+import { request } from "./request";
 import { Spend, type Totals } from "./spend";
 
 interface AuditEntry {
@@ -22,13 +23,9 @@ interface AuditEntry {
 
 // The team's monthly budget and each person's cap, which only warn
 // (ADR 0066).
-export function Budgets({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement {
+export function Budgets(): ReactElement {
   const { value: totals, reload } = useLoaded(
-    async () => json<Totals>(context.request("totals")),
+    async () => json<Totals>(request("totals")),
     "totals",
     { topics: ["usage.totals"] },
   );
@@ -51,7 +48,7 @@ export function Budgets({
     setSaved(false);
 
     ok(
-      context.request("budgets", {
+      request("budgets", {
         method: "PUT",
         body: JSON.stringify({
           team: amount("team"),
@@ -74,7 +71,7 @@ export function Budgets({
       <PageTitle description="What team work spends through the team's keys each month. Budgets only warn: at 80% and 100% Pipoca tells admins, and the person whose cap it is. Work keeps running.">
         Budgets
       </PageTitle>
-      <Spend context={context} />
+      <Spend />
       {totals !== undefined && (
         <Section title="Each month">
           <form
@@ -133,22 +130,16 @@ const shownEntries = 100;
 
 // Who started, stopped and archived team work, and each use of the team's
 // key (ADR 0066).
-export function AuditLog({
-  context,
-}: {
-  readonly context: WebContext;
-}): ReactElement {
+export function AuditLog(): ReactElement {
   const { value: entries } = useLoaded(
-    async () => json<readonly AuditEntry[]>(context.request("audit")),
+    async () => json<readonly AuditEntry[]>(request("audit")),
     "audit",
     { topics: ["usage.audit"] },
   );
 
   const { value: teammates = [] } = useLoaded(
     async () =>
-      json<readonly { id: string; name: string }[]>(
-        context.request("/api/people"),
-      ),
+      json<readonly { id: string; name: string }[]>(request("/api/people")),
     "teammates",
   );
 

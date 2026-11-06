@@ -30,8 +30,8 @@ import * as routinesServer from "../../../plugins/routines/src/server";
 import { slack } from "../../../plugins/slack/plugin";
 import { server as slackServer } from "../../../plugins/slack/src/server";
 import { subagents } from "../../../plugins/subagents/plugin";
-import usagePackage from "../../../plugins/usage/package.json";
-import * as usageServer from "../../../plugins/usage/src/server";
+import { usage } from "../../../plugins/usage/plugin";
+import { server as usageServer } from "../../../plugins/usage/src/server";
 
 export const serverRegistry = [
   { id: "ask", definition: ask, server: askServer },
@@ -55,5 +55,5 @@ export const serverRegistry = [
   { id: "routines", manifest: routinesPackage.pipoca, server: routinesServer },
   { id: "slack", definition: slack, server: slackServer },
   { id: "subagents", definition: subagents },
-  { id: "usage", manifest: usagePackage.pipoca, server: usageServer },
+  { id: "usage", definition: usage, server: usageServer },
 ] as const;

@@ -1,24 +1,34 @@
-import type { SessionPartProps, WebPlugin } from "@pipoca/plugins/web";
+import { defineWeb, type MountedSession } from "@pipoca/plugins/web";
 import { type ReactElement, useEffect, useState } from "react";
+import { usage } from "../plugin";
 import { Activity } from "./activity";
 import { AuditLog, Budgets } from "./setup";
 import { Spend } from "./spend";
 import { addUsage, describeContext, describeUsage, type Usage } from "./usage";
 
-export const usage: WebPlugin = {
-  name: "usage",
-  SessionHeader,
-  hub: {
-    panels: {
-      activity: { title: "Activity", Panel: Activity },
-      spend: { title: "Spend this month", Panel: Spend },
+export const web = defineWeb(usage, {
+  pages: [
+    {
+      path: "budgets",
+      label: "Budgets",
+      area: "setup",
+      group: "rules",
+      Page: Budgets,
     },
-    setup: {
-      budgets: { label: "Budgets", group: "rules", Page: Budgets },
-      audit: { label: "Audit log", group: "rules", Page: AuditLog },
+    {
+      path: "audit",
+      label: "Audit log",
+      area: "setup",
+      group: "rules",
+      Page: AuditLog,
     },
+  ],
+  slots: {
+    "session.header": SessionHeader,
+    "hub.panel:activity": Activity,
+    "hub.panel:spend": Spend,
   },
-};
+});
 
 interface Context {
   readonly tokens: number | null;
@@ -27,7 +37,11 @@ interface Context {
 
 // A ring for how full the context is and the cost so far, like Claude Code's
 // context meter. The numbers behind them show on hover.
-function SessionHeader({ session }: SessionPartProps): ReactElement {
+function SessionHeader({
+  session,
+}: {
+  readonly session: MountedSession;
+}): ReactElement {
   const [totals, setTotals] = useState<ReadonlyMap<string, Usage>>(new Map());
   const [context, setContext] = useState<Context>();
 

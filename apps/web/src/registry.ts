@@ -16,7 +16,7 @@ import * as pushWeb from "../../../plugins/push/web/index";
 import * as routinesWeb from "../../../plugins/routines/web/index";
 import { web as slackWeb } from "../../../plugins/slack/web/index";
 import { web as subagentsWeb } from "../../../plugins/subagents/web/index";
-import * as usageWeb from "../../../plugins/usage/web/index";
+import { web as usageWeb } from "../../../plugins/usage/web/index";
 
 export const webRegistry = [
   { id: "ask", web: askWeb },
@@ -36,5 +36,5 @@ export const webRegistry = [
   { id: "routines", plugin: routinesWeb },
   { id: "slack", web: slackWeb },
   { id: "subagents", web: subagentsWeb },
-  { id: "usage", plugin: usageWeb },
+  { id: "usage", web: usageWeb },
 ] as const;
