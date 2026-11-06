@@ -50,6 +50,11 @@ export interface PullWatch {
   readonly error: string | null;
 }
 
+// A watched pull request with its repository, as the team hub lists it.
+export interface WatchedPull extends PullWatch {
+  readonly repository: string;
+}
+
 export interface Preferences {
   readonly autoFix: boolean;
   readonly reply: boolean;

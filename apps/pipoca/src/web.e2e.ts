@@ -4440,6 +4440,11 @@ test("shows plugin panels on the team hub and lets an admin lay out a page of th
     .getByText(/you used \$0\.00/)
     .waitFor();
 
+  await page
+    .getByRole("region", { name: "Pull requests" })
+    .getByText("No pull requests to show yet.")
+    .waitFor();
+
   const nav = page.getByRole("navigation", { name: "Team" });
 
   await nav.getByRole("button", { name: "Add page" }).click();

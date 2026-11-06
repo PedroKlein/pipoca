@@ -39,6 +39,7 @@ import type {
   Preferences,
   PullWatch,
   TechnicalUserView,
+  WatchedPull,
 } from "../src/model";
 
 // The pull request a Session opened, as the changes plugin's panel shows it
@@ -72,6 +73,7 @@ export const web = defineWeb(gitHosts, {
       Step: CodeStep,
     },
   ],
+  panels: { pulls: { title: "Pull requests", Panel: TeamPullRequests } },
   slots: {
     "settings.general": CodeChoices,
     "settings.accounts": Accounts,
@@ -401,6 +403,48 @@ function PullRequest({
         <ErrorText className="w-full text-right">{problem}</ErrorText>
       )}
     </div>
+  );
+}
+
+// The pull requests team work watches, for the team hub.
+function TeamPullRequests(): ReactElement {
+  const api = useApi(gitHosts);
+
+  const list = useLoaded(
+    async () => api.get<readonly WatchedPull[]>("team/watched"),
+    "team-pulls",
+    { changes: ["pull-requests"] },
+  ).value;
+
+  if (list === undefined) {
+    return <p className="text-label text-fg-dim">Loading…</p>;
+  }
+
+  if (list.length === 0) {
+    return (
+      <p className="text-label text-fg-dim">No pull requests to show yet.</p>
+    );
+  }
+
+  return (
+    <ul aria-label="Pull requests" className="flex flex-col gap-2.5">
+      {list.map((pull) => (
+        <li key={pull.id} className="flex flex-wrap items-center gap-1.5">
+          <span className="flex min-w-0 flex-1 basis-40 flex-col">
+            <a
+              href={pull.url}
+              target="_blank"
+              rel="noreferrer"
+              className="truncate text-label font-medium text-fg-strong hover:underline focus-visible:underline"
+            >
+              {pull.title}
+            </a>
+            <span className="text-caption text-fg-dim">{pull.repository}</span>
+          </span>
+          <PullBadges watch={pull} />
+        </li>
+      ))}
+    </ul>
   );
 }
 

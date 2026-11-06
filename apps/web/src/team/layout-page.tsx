@@ -213,15 +213,8 @@ export function LayoutPage({
           </div>
         </>
       )}
-      {(home || bottom.length > 0) && (
+      {bottom.length > 0 && (
         <div className="mt-8 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {home && (
-            <PanelCard title="Pull requests">
-              <p className="text-label text-fg-dim">
-                No pull requests to show yet.
-              </p>
-            </PanelCard>
-          )}
           {bottom.map(({ id, title, plugin, Panel }) => (
             <PanelCard key={id} title={title}>
               <PluginBoundary name={plugin}>

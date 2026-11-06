@@ -841,6 +841,46 @@ test("stops watching for a Session that was archived", async () => {
   expect(await watched(t, session)).toEqual([]);
 });
 
+test("lists the team's watched pull requests on the team half, and a person's own on theirs", async () => {
+  await using run = await start();
+  const { t } = run;
+
+  await watching(t);
+  const team = await t.session({ owner: "team", startedBy: "pedro" });
+  const teamUrl = `https://${host}/acme/site/pull/8`;
+
+  t.store.run(
+    "insert into git_hosts_watches (id, session_id, user_id, url, host, repository, number, auto_fix) values (?, ?, ?, ?, ?, ?, ?, 0)",
+    "w-team",
+    team.id,
+    "pedro",
+    teamUrl,
+    host,
+    "acme/site",
+    8,
+  );
+
+  expect(await t.as("ana").get("team/watched")).toEqual([
+    expect.objectContaining({
+      url: teamUrl,
+      title: "acme/site#8",
+      repository: "acme/site",
+      state: "open",
+    }) as unknown,
+  ]);
+
+  expect(await t.as("pedro").get("watched")).toEqual([
+    expect.objectContaining({
+      url: pullUrl,
+      title: "Tidy the dotfiles",
+      repository: "acme/dotfiles",
+      checks: { passed: 0, failed: 0, pending: 1 },
+    }) as unknown,
+  ]);
+
+  expect(await t.as("ana").get("watched")).toEqual([]);
+});
+
 test("merges a watched pull request the way its repository allows, and stops watching", async () => {
   await using run = await start();
   const { t, fake } = run;

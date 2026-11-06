@@ -10,7 +10,7 @@ import type { Session } from "@pipoca/protocol";
 import type { gitHosts } from "../plugin";
 import { HostRefused } from "./github";
 import type { Hosts } from "./hosts";
-import type { PullWatch } from "./model";
+import type { PullWatch, WatchedPull } from "./model";
 import { type Account, startPoller } from "./poller";
 import { mergePull, pullRefOf } from "./pulls";
 import { type Watch, watchStore } from "./watch";
@@ -37,7 +37,7 @@ export function pullRequests(
   hosts: Hosts,
   accounts: (userId: string) => readonly Account[],
 ): void {
-  const { routes, tools, log } = context;
+  const { routes, tools, sessions, log } = context;
   const watches = watchStore(context.store);
   const poller = startPoller(watches, hosts, accounts, context);
 
@@ -140,6 +140,17 @@ export function pullRequests(
         .ofSession(query.session)
         .filter((each) => each.userId === caller.person.id)
         .map(({ view }): PullWatch => view),
+  );
+
+  // What the caller's own Sessions watch, or on the team half what team
+  // work watches, for the team hub.
+  routes.get("watched", { auth: "person", team: true }, ({ caller }) =>
+    watches
+      .all()
+      .filter(
+        ({ sessionId }) => sessions.get(sessionId)?.ownedBy === caller.owner,
+      )
+      .map(({ view, repository }): WatchedPull => ({ ...view, repository })),
   );
 
   const owned = (id: string, userId: string): Watch => {
