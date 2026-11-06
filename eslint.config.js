@@ -271,6 +271,13 @@ export default tseslint.config(
     },
   },
   {
+    // The app asks with useConfirm and shows errors in the page.
+    files: ["apps/web/src/**/*.tsx", "packages/ui/web/**/*.tsx"],
+    rules: {
+      "no-alert": "error",
+    },
+  },
+  {
     files: ["**/*.js"],
     extends: [tseslint.configs.disableTypeChecked],
   },

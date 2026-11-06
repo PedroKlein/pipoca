@@ -62,7 +62,7 @@ export function Drawer({
         aria-hidden="true"
         onClick={onClose}
         className={cn(
-          "fixed inset-0 z-10 bg-scrim backdrop-blur-[2px] md:hidden",
+          "fixed inset-0 z-10 bg-scrim backdrop-blur-scrim md:hidden",
           !open && "hidden",
         )}
       />

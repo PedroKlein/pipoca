@@ -1,6 +1,7 @@
 import {
   Badge,
   buttonClass,
+  EmptyState,
   ErrorText,
   Icon,
   initialsOf,
@@ -193,9 +194,9 @@ export function ProfilesPage({
         </Rows>
       )}
       {selected === "" && team && profiles.length === 0 && (
-        <p className="rounded-lg border border-dashed border-line-strong p-5 text-ui text-fg-dim">
+        <EmptyState>
           No team Profile yet. Team work can't start until there is one.
-        </p>
+        </EmptyState>
       )}
     </Page>
   );
