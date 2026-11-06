@@ -213,8 +213,6 @@ function adapted(part: WebPart): ShellPlugin {
   ): Readonly<Record<string, ComponentType<never>>> =>
     Component === undefined ? {} : { [key]: Component };
 
-  const panels = slotted<{ readonly title: string }>("hub.panel:");
-
   return {
     name: id,
     part,
@@ -233,12 +231,9 @@ function adapted(part: WebPart): ShellPlugin {
     }),
     hub: {
       panels: Object.fromEntries(
-        Object.entries(panels).map(([key, Panel]) => [
+        Object.entries(part.panels ?? {}).map(([key, { title, Panel }]) => [
           key,
-          {
-            title: pluginTitle(id),
-            Panel: () => createElement(Panel, { title: pluginTitle(id) }),
-          },
+          { title, Panel: () => createElement(Panel) },
         ]),
       ),
       setup: Object.fromEntries(

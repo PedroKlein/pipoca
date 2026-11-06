@@ -23,11 +23,11 @@ export const web = defineWeb(usage, {
       Page: AuditLog,
     },
   ],
-  slots: {
-    "session.header": SessionHeader,
-    "hub.panel:activity": Activity,
-    "hub.panel:spend": Spend,
+  panels: {
+    activity: { title: "Activity", Panel: Activity },
+    spend: { title: "Spend this month", Panel: Spend },
   },
+  slots: { "session.header": SessionHeader },
 });
 
 interface Context {
