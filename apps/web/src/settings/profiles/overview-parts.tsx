@@ -21,11 +21,6 @@ export interface Skill {
   readonly from?: string;
 }
 
-export interface Below {
-  readonly name: string;
-  readonly url: string;
-}
-
 type SystemPrompt = "own" | "add" | "replace";
 
 const previewLines = 3;

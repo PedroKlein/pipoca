@@ -1,6 +1,6 @@
 import type { Environment, EnvironmentTemplate } from "@pipoca/protocol";
 import type { ConfirmOptions, KeyValue } from "@pipoca/ui";
-import { api } from "../../api";
+import { request } from "../../data/client";
 
 // Whether the person went ahead. The server refuses while any of its
 // Sessions isn't archived.
@@ -20,7 +20,7 @@ export async function deleteEnvironment(
     return false;
   }
 
-  await api("environments.remove", { params: { id: environment.id } });
+  await request("environments.remove", { params: { id: environment.id } });
 
   return true;
 }

@@ -1,9 +1,7 @@
 import {
   availability,
-  type Environment,
-  type Profile,
+  type ApiInput,
   type RepositoryChoice,
-  type Session,
   thinkingLevels,
 } from "@pipoca/protocol";
 import {
@@ -21,23 +19,15 @@ import {
   type ReactElement,
   type ReactNode,
   type SubmitEvent,
-  useContext,
   useEffect,
   useEffectEvent,
   useRef,
   useState,
 } from "react";
 import { modelOptions, rememberModel, shownModels } from "@pipoca/plugins/web";
-import { api } from "../api";
-import {
-  useEnvironments,
-  useProfiles,
-  useSessions,
-  useTeamEnvironments,
-  useTeamProfiles,
-  useTeamSessions,
-} from "../hooks";
-import { Me } from "../me";
+import { request } from "../data/client";
+import { useAction, useMe, useQuery } from "../data/hooks";
+import { href, navigate } from "../router";
 import { modelRef } from "../names";
 import { searchRepositories } from "../plugins";
 import {
@@ -87,7 +77,7 @@ function Starter({
   readonly onClose: () => void;
 }): ReactElement {
   const [forTeam, setForTeam] = useState(team);
-  const hasTeam = useContext(Me).team;
+  const hasTeam = useMe().team;
 
   const header = (
     <header className="flex flex-col gap-2 pt-3 pr-3 pb-1 pl-5">
@@ -134,9 +124,6 @@ function OwnForm({
 }): ReactElement {
   return (
     <NewSessionForm
-      environments={useEnvironments().value}
-      profiles={useProfiles().value}
-      sessions={useSessions(false).value}
       placeholder="What should Pi do? Leave it empty to start idle."
       onStarted={onStarted}
     >
@@ -154,9 +141,6 @@ function TeamForm({
 }): ReactElement {
   return (
     <NewSessionForm
-      environments={useTeamEnvironments().value}
-      profiles={useTeamProfiles().value}
-      sessions={useTeamSessions().value}
       team
       placeholder="What should the team's Pi do? Anyone on the team can follow it."
       onStarted={onStarted}
@@ -169,28 +153,53 @@ function TeamForm({
 // The composer that starts a Session: what Pi should do, where, and with
 // which model and Profile.
 export function NewSessionForm({
-  environments,
-  profiles,
-  sessions,
   team = false,
   placeholder,
   onStarted,
   children,
 }: {
-  readonly environments: readonly Environment[];
-  readonly profiles: readonly Profile[];
-  readonly sessions: readonly Session[];
   readonly team?: boolean;
   readonly placeholder: string;
   readonly onStarted: () => void;
   readonly children?: ReactNode;
 }): ReactElement {
+  const scope = team ? { query: { scope: "team" } as const } : undefined;
+  const environments = useQuery("environments.list", scope).data ?? [];
+  const profiles = useQuery("profiles.list", scope).data ?? [];
+
+  const sessions =
+    useQuery("sessions.list", {
+      query: team ? { scope: "team" } : { archived: false, plugins: true },
+    }).data ?? [];
+
   const message = useRef<HTMLTextAreaElement>(null);
   const [choices, setChoices] = useState(() => remembered(team));
   const [text, setText] = useState("");
   const [startPoint, setStartPoint] = useState("");
-  const [error, setError] = useState<string>();
-  const [submitting, setSubmitting] = useState(false);
+  const [invalid, setInvalid] = useState<string>();
+
+  const start = useAction(async (body: ApiInput<"sessions.create">["body"]) => {
+    const started = await request("sessions.create", { body });
+
+    setText("");
+    setStartPoint("");
+    onStarted();
+    navigate(href("session", { id: started.id }));
+  });
+
+  const submitting = start.pending;
+
+  const error =
+    invalid ??
+    (start.error === undefined
+      ? undefined
+      : `Couldn't start the session. ${start.error}`);
+
+  const setError = (reason: string): void => {
+    start.clear();
+    setInvalid(reason);
+  };
+
   const [found, setFound] = useState<readonly RepositoryChoice[]>([]);
   const searches = useRef(0);
 
@@ -299,33 +308,18 @@ export function NewSessionForm({
 
     const model = choices.model === "" ? null : modelRef(choices.model);
 
-    setSubmitting(true);
+    setInvalid(undefined);
     remember(choices, team);
 
-    api("sessions.create", {
-      body: {
-        ...(team && { team }),
-        ...(chosen && { environment: chosen.id }),
-        workspace: workspaceRequest(choices.where, choices.share, startPoint),
-        ...(model && { model }),
-        ...(profile && { profile: profile.id }),
-        ...(choices.thinking !== "" && { thinking: choices.thinking }),
-        ...(text.trim() !== "" && { firstMessage: text.trim() }),
-      },
-    })
-      .then((started) => {
-        setError(undefined);
-        setText("");
-        setStartPoint("");
-        onStarted();
-        location.hash = started.id;
-      })
-      .catch((reason: unknown) => {
-        setError(`Couldn't start the session. ${String(reason)}`);
-      })
-      .finally(() => {
-        setSubmitting(false);
-      });
+    void start.run({
+      ...(team && { team }),
+      ...(chosen && { environment: chosen.id }),
+      workspace: workspaceRequest(choices.where, choices.share, startPoint),
+      ...(model && { model }),
+      ...(profile && { profile: profile.id }),
+      ...(choices.thinking !== "" && { thinking: choices.thinking }),
+      ...(text.trim() !== "" && { firstMessage: text.trim() }),
+    });
   };
 
   return (

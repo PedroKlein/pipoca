@@ -8,41 +8,34 @@ import {
   TextInput,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import { api } from "../../api";
+import { request } from "../../data/client";
+import { useAction } from "../../data/hooks";
 import { TemplateEditor } from "./template-editor";
+
+const textOf = (form: HTMLFormElement, name: string): string => {
+  const value = new FormData(form).get(name);
+
+  return typeof value === "string" ? value.trim() : "";
+};
 
 // What admins share for everyone's Environments (ADR 0049). The server
 // answers anyone else's change with why it can't.
 export function Templates({
   templates,
-  onChange,
 }: {
   readonly templates: readonly EnvironmentTemplate[];
-  readonly onChange: () => void;
 }): ReactElement {
-  const [error, setError] = useState<string>();
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
 
-  const create = (event: SubmitEvent<HTMLFormElement>): void => {
-    event.preventDefault();
-    const form = event.currentTarget;
+  const create = useAction(async (form: HTMLFormElement) => {
+    await request("environmentTemplates.create", {
+      body: { name: textOf(form, "name") },
+    });
 
-    const name = new FormData(form).get("name");
-
-    void api("environmentTemplates.create", {
-      body: { name: typeof name === "string" ? name : "" },
-    })
-      .then(() => {
-        setError(undefined);
-        form.reset();
-        setAdding(false);
-        onChange();
-      })
-      .catch((reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
-      });
-  };
+    form.reset();
+    setAdding(false);
+  });
 
   return (
     <Section
@@ -72,13 +65,15 @@ export function Templates({
         <FromRepository
           onImported={() => {
             setImporting(false);
-            onChange();
           }}
         />
       )}
       {adding && (
         <form
-          onSubmit={create}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void create.run(event.currentTarget);
+          }}
           aria-label="New template"
           className="flex flex-wrap items-center gap-2"
         >
@@ -90,17 +85,13 @@ export function Templates({
             className="w-48"
           />
           <Button type="submit">Create</Button>
-          <ErrorText size="caption">{error}</ErrorText>
+          <ErrorText size="caption">{create.error}</ErrorText>
         </form>
       )}
       {templates.length > 0 && (
         <Card padding="none" className="divide-y divide-line overflow-hidden">
           {templates.map((template) => (
-            <TemplateEditor
-              key={template.id}
-              template={template}
-              onChange={onChange}
-            />
+            <TemplateEditor key={template.id} template={template} />
           ))}
         </Card>
       )}
@@ -115,59 +106,57 @@ function FromRepository({
 }: {
   readonly onImported: () => void;
 }): ReactElement {
-  const [error, setError] = useState<string>();
-
   const [listed, setListed] = useState<{
     readonly url: string;
     readonly templates: readonly ManifestEntry[];
   }>();
 
-  const failed = (reason: unknown): void => {
-    setError(reason instanceof Error ? reason.message : String(reason));
-  };
+  const list = useAction(async (url: string) => {
+    const { templates } = await request("repositories.manifest", {
+      query: { url },
+    });
 
-  const list = (event: SubmitEvent<HTMLFormElement>): void => {
-    event.preventDefault();
-    const url = new FormData(event.currentTarget).get("url");
-    const repository = typeof url === "string" ? url.trim() : "";
+    setListed({ url, templates });
+  });
 
-    api("repositories.manifest", { query: { url: repository } })
-      .then(({ templates }) => {
-        setError(
-          templates.length === 0
-            ? "Its pipoca.json lists no templates."
-            : undefined,
-        );
+  const bring = useAction(async (url: string, paths: readonly string[]) => {
+    await Promise.all(
+      paths.map(async (path) =>
+        request("environmentTemplates.create", {
+          body: { source: { url, path } },
+        }),
+      ),
+    );
 
-        setListed({ url: repository, templates });
-      })
-      .catch(failed);
-  };
+    onImported();
+  });
 
-  const bring = (event: SubmitEvent<HTMLFormElement>): void => {
+  const submitBring = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
 
     if (!listed) {
       return;
     }
 
-    const paths = new FormData(event.currentTarget).getAll("path");
+    const paths = new FormData(event.currentTarget)
+      .getAll("path")
+      .flatMap((path) => (typeof path === "string" ? [path] : []));
 
-    Promise.all(
-      paths
-        .flatMap((path) => (typeof path === "string" ? [path] : []))
-        .map(async (path) =>
-          api("environmentTemplates.create", {
-            body: { source: { url: listed.url, path } },
-          }),
-        ),
-    ).then(onImported, failed);
+    void bring.run(listed.url, paths);
   };
+
+  const empty =
+    listed?.templates.length === 0
+      ? "Its pipoca.json lists no templates."
+      : undefined;
 
   return (
     <Card padding="none" className="flex flex-col gap-3 p-4">
       <form
-        onSubmit={list}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void list.run(textOf(event.currentTarget, "url"));
+        }}
         aria-label="Templates from a repository"
         className="flex flex-wrap items-center gap-2"
       >
@@ -181,7 +170,7 @@ function FromRepository({
         <Button type="submit">List templates</Button>
       </form>
       {listed && listed.templates.length > 0 && (
-        <form onSubmit={bring} className="flex flex-col gap-2">
+        <form onSubmit={submitBring} className="flex flex-col gap-2">
           <span className="text-label text-fg-dim">
             Each one you bring follows the repository from then on.
           </span>
@@ -208,7 +197,7 @@ function FromRepository({
           </span>
         </form>
       )}
-      <ErrorText size="caption">{error}</ErrorText>
+      <ErrorText size="caption">{list.error ?? bring.error ?? empty}</ErrorText>
     </Card>
   );
 }

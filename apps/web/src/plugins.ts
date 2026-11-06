@@ -30,10 +30,11 @@ import {
 import * as reactDom from "react-dom";
 import * as reactDomClient from "react-dom/client";
 import * as jsxRuntime from "react/jsx-runtime";
-import { api } from "./api";
-import { EmbeddedSession } from "./embedded-session";
+import { request } from "./data/client";
+import { EmbeddedSession } from "./session/embedded-session";
 import { PluginBoundary } from "./plugin-boundary";
 import { webRegistry } from "./registry";
+import { href, navigate } from "./router";
 
 type Module = Readonly<Record<string, unknown>>;
 
@@ -74,7 +75,7 @@ Object.assign(globalThis, {
 });
 
 export async function loadPlugins(): Promise<void> {
-  const listed = await api("plugins.list");
+  const listed = await request("plugins.list");
   const on = listed.filter(({ state }) => state === "on");
 
   const installed = await Promise.all(
@@ -99,7 +100,7 @@ export async function loadPlugins(): Promise<void> {
 
   // Admins turn plugins on and off in team work while pages stay open.
   plugins.watchChanges(["plugins"], () => {
-    void api("plugins.list")
+    void request("plugins.list")
       .then((changed) => {
         inTeamWork = teamWorkOf(changed);
 
@@ -394,9 +395,9 @@ export function pluginContext(name: string): WebContext {
         init,
       ),
     openSession: (sessionId) => {
-      location.hash = sessionId;
+      navigate(href("session", { id: sessionId }));
     },
-    href: (path) => `#plugin/${name}/${path}`,
+    href: (path) => href("plugin", { name, path }),
     settings: settings.get(name) ?? {},
     SessionView: EmbeddedSession,
   };
@@ -490,8 +491,8 @@ export function sessionHref(session: Session): string {
   const path = guarded(() => plugin?.sessionPath?.(session));
 
   return plugin && path !== undefined
-    ? `#plugin/${plugin.name}/${path}`
-    : `#${session.id}`;
+    ? href("plugin", { name: plugin.name, path })
+    : href("session", { id: session.id });
 }
 
 export function pageFills(name: string, path: string): boolean {

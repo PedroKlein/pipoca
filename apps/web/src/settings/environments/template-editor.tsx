@@ -10,19 +10,24 @@ import {
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import { api } from "../../api";
+import { request } from "../../data/client";
+import { useAction } from "../../data/hooks";
 import { PluginBoundary } from "../../plugin-boundary";
 import { enabledPlugins, pluginContext } from "../../plugins";
 
 export function TemplateEditor({
   template,
-  onChange,
 }: {
   readonly template: EnvironmentTemplate;
-  readonly onChange: () => void;
 }): ReactElement {
-  const [error, setError] = useState<string>();
   const [saved, setSaved] = useState(false);
+
+  const action = useAction(async (work: () => Promise<unknown>) => {
+    setSaved(false);
+    await work();
+  });
+
+  const error = action.error;
   const [ask, asking] = useConfirm();
 
   const [rows, setRows] = useState<readonly KeyValue[]>(() =>
@@ -32,11 +37,6 @@ export function TemplateEditor({
       secret: false,
     })),
   );
-
-  const failed = (reason: unknown): void => {
-    setSaved(false);
-    setError(reason instanceof Error ? reason.message : String(reason));
-  };
 
   const save = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -48,35 +48,32 @@ export function TemplateEditor({
       return typeof value === "string" ? value : "";
     };
 
-    const named = rows.filter(({ name }) => name.trim() !== "");
-    if (named.some(({ secret }) => secret)) {
-      failed(
-        new Error(
+    void action.run(async () => {
+      const named = rows.filter(({ name }) => name.trim() !== "");
+
+      if (named.some(({ secret }) => secret)) {
+        throw new Error(
           "A template holds no secrets. Set them on each Environment instead.",
-        ),
-      );
+        );
+      }
 
-      return;
-    }
+      const image = text("image").trim();
 
-    const image = text("image").trim();
+      await request("environmentTemplates.update", {
+        params: { id: template.id },
+        body: {
+          name: text("name"),
+          setupScript: text("setupScript"),
+          isolation: text("isolation"),
+          image: image === "" ? null : image,
+          variables: Object.fromEntries(
+            named.map(({ name, value }) => [name.trim(), value]),
+          ),
+        },
+      });
 
-    api("environmentTemplates.update", {
-      params: { id: template.id },
-      body: {
-        name: text("name"),
-        setupScript: text("setupScript"),
-        isolation: text("isolation"),
-        image: image === "" ? null : image,
-        variables: Object.fromEntries(
-          named.map(({ name, value }) => [name.trim(), value]),
-        ),
-      },
-    }).then(() => {
-      setError(undefined);
       setSaved(true);
-      onChange();
-    }, failed);
+    });
   };
 
   const remove = (): void => {
@@ -87,9 +84,11 @@ export function TemplateEditor({
       danger: true,
     }).then((yes) => {
       if (yes) {
-        api("environmentTemplates.remove", {
-          params: { id: template.id },
-        }).then(onChange, failed);
+        void action.run(async () =>
+          request("environmentTemplates.remove", {
+            params: { id: template.id },
+          }),
+        );
       }
     });
   };
@@ -152,9 +151,11 @@ export function TemplateEditor({
           {template.source ? (
             <Button
               onClick={() => {
-                api("environmentTemplates.syncs.create", {
-                  params: { id: template.id },
-                }).then(onChange, failed);
+                void action.run(async () =>
+                  request("environmentTemplates.syncs.create", {
+                    params: { id: template.id },
+                  }),
+                );
               }}
             >
               Sync now

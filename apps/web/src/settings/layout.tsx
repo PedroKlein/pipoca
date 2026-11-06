@@ -1,24 +1,22 @@
-import type { Environment, Profile } from "@pipoca/protocol";
 import { AreaLayout, Avatar, cn, Icon, linkCardClass, Page } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
 import { AccountsPage } from "./accounts/accounts";
+import { useMe } from "../data/hooks";
 import { EnvironmentsPage } from "./environments/environments";
 import { GeneralPage } from "./general/general";
-import { PeoplePage } from "./people/people";
 import { PluginBoundary } from "../plugin-boundary";
 import { enabledPlugins, pluginContext } from "../plugins";
-import { ConfigurationPage } from "./configuration/configuration";
-import { PluginsPage } from "./plugins/plugins";
 import { ProfilesPage } from "./profiles/profiles";
+import { href } from "../router";
 import { TokensPage } from "./tokens/tokens";
 import {
   type Entry,
   pluginPages,
-  integrationsPath,
+  serverPageHref,
+  ServerPageView,
   serverPages,
   SharedNote,
 } from "./server-pages";
-import { IntegrationsPage } from "./integrations/integrations";
 
 interface Group {
   readonly label: string;
@@ -32,166 +30,103 @@ function groups(admin: boolean, people: boolean): readonly Group[] {
     {
       label: "You",
       entries: [
-        { path: "settings/general", label: "General" },
-        { path: "settings/accounts", label: "Accounts" },
+        { page: "general", label: "General" },
+        { page: "accounts", label: "Accounts" },
         ...pluginPages("you"),
-        { path: "settings/tokens", label: "Access tokens" },
+        { page: "tokens", label: "Access tokens" },
       ],
     },
     {
       label: "Workspace",
       entries: [
-        { path: "environments", label: "Environments" },
-        { path: "profiles", label: "Profiles" },
+        { page: "environments", label: "Environments" },
+        { page: "profiles", label: "Profiles" },
         ...pluginPages("workspace"),
       ],
     },
     ...(admin
-      ? [
-          {
-            label: "Server, for admins",
-            entries: serverPages(people).map(({ path, label }) => ({
-              path,
-              label,
-            })),
-          },
-        ]
+      ? [{ label: "Server, for admins", entries: serverPages(people) }]
       : []),
   ];
 }
 
-function opens(route: string, path: string): boolean {
-  return (
-    route === path ||
-    route.startsWith(`${path}/`) ||
-    (route === "settings" && path === "settings/general")
-  );
-}
-
-export function isSettingsRoute(route: string): boolean {
-  return /^(environments|profiles|plugins|people|settings)(\/|$)/.test(route);
-}
-
 export function SettingsLayout({
-  route,
-  user,
-  admin,
-  people,
-  team,
-  environments,
-  profiles,
-  onEnvironmentsChange,
-  onProfilesChange,
+  page,
+  rest,
 }: {
-  readonly route: string;
-  readonly user: string;
-  readonly admin: boolean;
-  readonly people: boolean;
-  readonly team: boolean;
-  readonly environments: readonly Environment[];
-  readonly profiles: readonly Profile[];
-  readonly onEnvironmentsChange: () => void;
-  readonly onProfilesChange: () => void;
+  // "" on a phone's menu of the pages.
+  readonly page: string;
+  readonly rest: string;
 }): ReactElement {
-  const menu = groups(admin, people);
+  const { user, admin, team } = useMe();
+  const people = admin && team;
+  const open = page === "" ? "general" : page;
 
   const shared = admin
-    ? serverPages(people).find(({ path }) => opens(route, path))
+    ? serverPages(people).find((entry) => entry.page === open)
     : undefined;
 
-  const page = (): ReactNode => {
-    const profilesRoute = /^profiles\/?(.*)$/.exec(route);
-    if (profilesRoute) {
-      return (
-        <ProfilesPage
-          profiles={profiles}
-          admin={admin}
-          selected={profilesRoute[1] ?? ""}
-          onChange={onProfilesChange}
-        />
-      );
+  const content = (): ReactNode => {
+    switch (open) {
+      case "profiles":
+        return <ProfilesPage selected={rest} />;
+      case "environments":
+        return <EnvironmentsPage selected={rest} />;
+      case "accounts":
+        return <AccountsPage />;
+      case "tokens":
+        return <TokensPage />;
+      case "general":
+        return <GeneralPage />;
     }
 
-    const environmentsRoute = /^environments\/?(.*)$/.exec(route);
-    if (environmentsRoute) {
-      return (
-        <EnvironmentsPage
-          environments={environments}
-          selected={environmentsRoute[1] ?? ""}
-          onChange={onEnvironmentsChange}
-        />
-      );
+    if (shared !== undefined) {
+      return <ServerPageView page={open} rest={rest} team={false} />;
     }
-
-    if (route === "plugins") {
-      return <PluginsPage />;
-    }
-
-    if (route === "people" && people) {
-      return <PeoplePage user={user} />;
-    }
-
-    if (route === "settings/accounts") {
-      return <AccountsPage />;
-    }
-
-    if (route === "settings/configuration" && admin) {
-      return <ConfigurationPage />;
-    }
-
-    if (route === "settings/tokens") {
-      return <TokensPage />;
-    }
-
-    if (opens(route, integrationsPath)) {
-      return <IntegrationsPage route={route} base={integrationsPath} />;
-    }
-
-    const name = /^settings\/(.+)$/.exec(route)?.[1];
 
     const Section = enabledPlugins().find(
-      (plugin) => plugin.name === name,
+      (plugin) => plugin.name === open,
     )?.SettingsSection;
 
-    if (name !== undefined && Section) {
+    if (Section) {
       return (
         <Page>
-          <PluginBoundary name={name}>
-            <Section context={pluginContext(name)} />
+          <PluginBoundary name={open}>
+            <Section context={pluginContext(open)} />
           </PluginBoundary>
         </Page>
       );
     }
 
-    return <GeneralPage user={user} admin={admin} />;
+    return <GeneralPage />;
   };
 
   return (
     <AreaLayout
       label="Settings"
-      back={{ href: "#", label: "Back to Pipoca" }}
+      back={{ href: href("home"), label: "Back to Pipoca" }}
       heading="Settings"
-      groups={menu.map((group) => ({
+      groups={groups(admin, people).map((group) => ({
         label: group.label,
-        items: group.entries.map(({ path, label }) => ({
-          href: `#${path}`,
-          label,
-          current: opens(route, path),
+        items: group.entries.map((entry) => ({
+          href: href("settings", { page: entry.page }),
+          label: entry.label,
+          current: entry.page === open,
         })),
       }))}
       phone="menu"
-      menuOpen={route === "settings"}
-      menuHref="#settings"
+      menuOpen={page === ""}
+      menuHref={href("settings")}
       menuTop={
         <a
-          href="#settings/general"
+          href={href("settings", { page: "general" })}
           className={cn("mt-1 flex items-center gap-3 p-3.5", linkCardClass)}
         >
-          <Avatar name={user} size="lg" className="size-10 text-ui">
-            {user.slice(0, 1).toUpperCase()}
+          <Avatar name={user.name} size="lg" className="size-10 text-ui">
+            {user.name.slice(0, 1).toUpperCase()}
           </Avatar>
           <span className="flex-1 text-ui font-medium text-fg-strong">
-            {user}
+            {user.name}
           </span>
           <Icon name="chevron-right" className="text-fg-dim" />
         </a>
@@ -202,7 +137,7 @@ export function SettingsLayout({
           Server-wide, for personal and team work alike. Team setup shows this
           same page:{" "}
           <a
-            href={`#team/setup/server/${shared.key}`}
+            href={serverPageHref(true, shared.page)}
             className="text-fg underline"
           >
             open it there
@@ -210,7 +145,7 @@ export function SettingsLayout({
           .
         </SharedNote>
       )}
-      {page()}
+      {content()}
     </AreaLayout>
   );
 }

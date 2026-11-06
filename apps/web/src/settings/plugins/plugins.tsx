@@ -1,12 +1,12 @@
 import { Button, Icon, Page, PageTitle, Segmented } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import { usePlugins } from "../../hooks";
+import { useQuery } from "../../data/hooks";
 import { PluginCard } from "./plugin-card";
 import { waitsForRestart, Restart } from "./restart";
 import { Install } from "./install";
 
 export function PluginsPage(): ReactElement {
-  const { value: plugins, reload } = usePlugins();
+  const plugins = useQuery("plugins.list").data ?? [];
   const [installing, setInstalling] = useState(false);
   const [query, setQuery] = useState("");
   const [shown, setShown] = useState<"all" | "updates">("all");
@@ -43,7 +43,6 @@ export function PluginsPage(): ReactElement {
       {plugins.some(waitsForRestart) && <Restart />}
       {installing && (
         <Install
-          onInstalled={reload}
           onClose={() => {
             setInstalling(false);
           }}
@@ -75,7 +74,7 @@ export function PluginsPage(): ReactElement {
       </div>
       <ul aria-label="Plugins" className="mt-6 grid gap-3 md:grid-cols-2">
         {listed.map((plugin) => (
-          <PluginCard key={plugin.id} plugin={plugin} onChange={reload} />
+          <PluginCard key={plugin.id} plugin={plugin} />
         ))}
       </ul>
       {listed.length === 0 && (

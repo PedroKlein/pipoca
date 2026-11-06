@@ -14,8 +14,8 @@ import {
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import { api } from "../../api";
-import { useEnvironments, useProfiles } from "../../hooks";
+import { request } from "../../data/client";
+import { useAction, useQuery } from "../../data/hooks";
 
 export function EditProfile({
   account,
@@ -23,22 +23,23 @@ export function EditProfile({
   readonly account: Account | undefined;
 }): ReactElement {
   const [open, setOpen] = useState(false);
-  const [error, setError] = useState<string>();
 
-  const close = (): void => {
+  const rename = useAction(async (displayName: string) => {
+    await request("me.update", { body: { displayName } });
+    close();
+  });
+
+  const error = rename.error;
+
+  function close(): void {
     setOpen(false);
-    setError(undefined);
-  };
+    rename.clear();
+  }
 
   const save = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
     const name = new FormData(event.currentTarget).get("displayName");
-
-    api("me.update", {
-      body: { displayName: typeof name === "string" ? name : "" },
-    }).then(close, (reason: unknown) => {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    });
+    void rename.run(typeof name === "string" ? name : "");
   };
 
   return (
@@ -86,13 +87,10 @@ export function StartWith({
 }: {
   readonly account: Account | undefined;
 }): ReactElement {
-  const environments = useEnvironments().value;
-  const profiles = useProfiles().value;
-  const [error, setError] = useState<string>();
-
-  const failed = (reason: unknown): void => {
-    setError(reason instanceof Error ? reason.message : String(reason));
-  };
+  const environments = useQuery("environments.list").data ?? [];
+  const profiles = useQuery("profiles.list").data ?? [];
+  const action = useAction(async (work: () => Promise<unknown>) => work());
+  const error = action.error;
 
   const chosen = environments.some(
     ({ id }) => id === account?.defaultEnvironment,
@@ -114,11 +112,11 @@ export function StartWith({
             onChange={(event) => {
               const picked = event.target.value;
 
-              api("me.update", {
-                body: { defaultEnvironment: picked === "" ? null : picked },
-              }).then(() => {
-                setError(undefined);
-              }, failed);
+              void action.run(async () =>
+                request("me.update", {
+                  body: { defaultEnvironment: picked === "" ? null : picked },
+                }),
+              );
             }}
           >
             <option value="">
@@ -141,12 +139,14 @@ export function StartWith({
             aria-label="Profile"
             value={profiles.find(({ isDefault }) => isDefault)?.id ?? ""}
             onChange={(event) => {
-              api("profiles.update", {
-                params: { id: event.target.value },
-                body: { isDefault: true },
-              }).then(() => {
-                setError(undefined);
-              }, failed);
+              const id = event.target.value;
+
+              void action.run(async () =>
+                request("profiles.update", {
+                  params: { id },
+                  body: { isDefault: true },
+                }),
+              );
             }}
           >
             {profiles.map(({ id, name }) => (
@@ -178,7 +178,7 @@ export function SignOutEverywhere(): ReactElement {
             danger: true,
           }).then((yes) => {
             if (yes) {
-              void api("me.signIns.remove").finally(() => {
+              void request("me.signIns.remove").finally(() => {
                 location.replace("/");
               });
             }

@@ -1,4 +1,3 @@
-import { apiPath, type Profile } from "@pipoca/protocol";
 import {
   Badge,
   buttonClass,
@@ -9,18 +8,14 @@ import {
   Rows,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import { api } from "../../api";
-import { messageOf } from "./upload";
-import { ProfileOverview, profilesPath } from "./overview";
+import { errorText, request } from "../../data/client";
+import { useMe, useQuery } from "../../data/hooks";
+import { href, scopedHref } from "../../router";
+import { layerFolder, profileFolder } from "./folder";
+import { ProfileOverview } from "./overview";
 import { PluginBoundary } from "../../plugin-boundary";
 import { enabledPlugins, pluginContext } from "../../plugins";
-import {
-  layerHashes,
-  type Layer,
-  layerRoutes,
-  layerNames,
-  chipClass,
-} from "./layers";
+import { layerHashes, type Layer, layerNames, chipClass } from "./layers";
 import { Editor } from "./editor";
 import { ProfileTabs } from "./tabs";
 import { BuildsOn, LayerEditor } from "./builds-on";
@@ -29,21 +24,21 @@ import { Import } from "./import";
 
 // A person's Profiles in Settings, or with team the team's in Team setup.
 export function ProfilesPage({
-  profiles,
-  admin,
   team = false,
   selected,
-  onChange,
 }: {
-  readonly profiles: readonly Profile[];
-  readonly admin: boolean;
   readonly team?: boolean;
   readonly selected: string;
-  readonly onChange: () => void;
 }): ReactElement {
+  const { admin } = useMe();
+
+  const profiles =
+    useQuery("profiles.list", team ? { query: { scope: "team" } } : undefined)
+      .data ?? [];
+
   const [id = "", tab = "overview"] = selected.split("/");
   const profile = profiles.find((each) => each.id === id);
-  const root = profilesPath(team);
+  const root = scopedHref(team, "profiles");
 
   const layer = team
     ? undefined
@@ -65,7 +60,7 @@ export function ProfilesPage({
       }
       actions={
         <a
-          href={`#${root}/new`}
+          href={`${root}/new`}
           aria-current={selected === "new" ? "page" : undefined}
           className={buttonClass({ variant: "primary" })}
         >
@@ -79,7 +74,7 @@ export function ProfilesPage({
           {profiles.map((each) => (
             <a
               key={each.id}
-              href={`#${root}/${each.id}`}
+              href={`${root}/${each.id}`}
               aria-current={each.id === id ? "page" : undefined}
               className={chipClass}
             >
@@ -93,7 +88,10 @@ export function ProfilesPage({
             (Object.keys(layerHashes) as Layer[]).map((each) => (
               <a
                 key={each}
-                href={`#profiles/${layerHashes[each]}`}
+                href={href("settings", {
+                  page: "profiles",
+                  rest: layerHashes[each],
+                })}
                 aria-current={id === layerHashes[each] ? "page" : undefined}
                 className={chipClass}
               >
@@ -112,11 +110,11 @@ export function ProfilesPage({
                 team={team}
                 disabled={profile.source !== null}
                 onChange={(buildsOn) => {
-                  api("profiles.update", {
+                  request("profiles.update", {
                     params: { id: profile.id },
                     body: { buildsOn },
-                  }).then(onChange, (reason: unknown) => {
-                    alert(messageOf(reason));
+                  }).catch((reason: unknown) => {
+                    alert(errorText(reason));
                   });
                 }}
               />
@@ -126,23 +124,18 @@ export function ProfilesPage({
       )}
       {profile && (
         <ProfileTabs
-          url={apiPath("profiles.files", { params: { id: profile.id } })}
-          hash={`${root}/${profile.id}`}
+          folder={profileFolder(profile.id)}
+          base={`${root}/${profile.id}`}
           tab={tab}
           overview={
             <>
               {profile.source && (
-                <Synced
-                  profile={profile}
-                  source={profile.source}
-                  onChange={onChange}
-                />
+                <Synced profile={profile} source={profile.source} />
               )}
               <ProfileOverview
                 profile={profile}
                 profiles={profiles}
                 editable={profile.source === null}
-                onChange={onChange}
               >
                 {!team && <ProfileParts profileId={profile.id} />}
               </ProfileOverview>
@@ -154,7 +147,6 @@ export function ProfilesPage({
                 onSaved={() => {
                   setSavedId(profile.id);
                 }}
-                onChange={onChange}
               />
             </>
           }
@@ -163,16 +155,19 @@ export function ProfilesPage({
       {layer && (
         <ProfileTabs
           key={layer}
-          url={apiPath(`${layerRoutes[layer]}.files`)}
-          hash={`profiles/${layerHashes[layer]}`}
+          folder={layerFolder(layer)}
+          base={href("settings", {
+            page: "profiles",
+            rest: layerHashes[layer],
+          })}
           tab={tab}
           overview={<LayerEditor layer={layer} />}
         />
       )}
       {selected === "new" && (
-        <Editor key="new" profiles={profiles} team={team} onChange={onChange} />
+        <Editor key="new" profiles={profiles} team={team} />
       )}
-      {selected === "" && !team && <Import onChange={onChange} />}
+      {selected === "" && !team && <Import />}
       {selected === "" && team && profiles.length > 0 && (
         <Rows label="Team Profiles">
           {profiles.map((each) => (
@@ -183,7 +178,7 @@ export function ProfilesPage({
               description={`Builds on ${profiles.find(({ id: under }) => under === each.buildsOn)?.name ?? "the Server base"}`}
             >
               <a
-                href={`#${root}/${each.id}`}
+                href={`${root}/${each.id}`}
                 className="inline-flex h-control items-center rounded-md border border-line bg-elevated px-3 text-ui font-medium text-fg shadow-xs hover:bg-hover"
               >
                 Edit

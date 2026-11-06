@@ -1,10 +1,7 @@
-import {
-  type SetupStep,
-  useLoaded,
-  type WebContext,
-} from "@pipoca/plugins/web";
+import type { SetupStep, WebContext } from "@pipoca/plugins/web";
 import type { Environment, Profile } from "@pipoca/protocol";
 import { useState } from "react";
+import { useLoad } from "../data/hooks";
 
 export interface WizardStep {
   readonly id: string;
@@ -32,14 +29,14 @@ export function useDone({
 }: WizardStep): boolean | undefined {
   const [waiting, setWaiting] = useState(true);
 
-  const { value } = useLoaded(async () => step.done(context), `setup ${id}`, {
+  const { data } = useLoad(`setup ${id}`, async () => step.done(context), {
     topics: step.topics ?? [],
     ...(waiting && { everyMs: 2000 }),
   });
 
-  if (waiting !== (value !== true)) {
-    setWaiting(value !== true);
+  if (waiting !== (data !== true)) {
+    setWaiting(data !== true);
   }
 
-  return value;
+  return data;
 }

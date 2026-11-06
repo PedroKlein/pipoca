@@ -1,38 +1,32 @@
 import type { Profile, RepositorySource } from "@pipoca/protocol";
 import { Button, ErrorText, Icon } from "@pipoca/ui";
-import { type ReactElement, useState } from "react";
-import { api } from "../../api";
-import { messageOf } from "./upload";
+import type { ReactElement } from "react";
+import { request } from "../../data/client";
+import { useAction } from "../../data/hooks";
+import { href, navigate } from "../../router";
 
 // A Profile that follows a folder in a repository (ADR 0063). It changes only
 // when the repository does, so editing starts from a copy.
 export function Synced({
   profile,
   source,
-  onChange,
 }: {
   readonly profile: Profile;
   readonly source: RepositorySource;
-  readonly onChange: () => void;
 }): ReactElement {
-  const [error, setError] = useState<string>();
-  const [busy, setBusy] = useState(false);
+  const sync = useAction(async () =>
+    request("profiles.syncs.create", { params: { id: profile.id } }),
+  );
 
-  const act = (action: () => Promise<void>): void => {
-    setBusy(true);
+  const copy = useAction(async () => {
+    const made = await request("profiles.create", {
+      body: { from: profile.id },
+    });
 
-    action().then(
-      () => {
-        setBusy(false);
-        setError(undefined);
-        onChange();
-      },
-      (reason: unknown) => {
-        setBusy(false);
-        setError(messageOf(reason));
-      },
-    );
-  };
+    navigate(href("settings", { page: "profiles", rest: made.id }));
+  });
+
+  const busy = sync.pending || copy.pending;
 
   return (
     <div
@@ -53,11 +47,7 @@ export function Synced({
         <Button
           disabled={busy}
           onClick={() => {
-            act(async () => {
-              await api("profiles.syncs.create", {
-                params: { id: profile.id },
-              });
-            });
+            void sync.run();
           }}
         >
           Sync now
@@ -65,19 +55,13 @@ export function Synced({
         <Button
           disabled={busy}
           onClick={() => {
-            act(async () => {
-              const copy = await api("profiles.create", {
-                body: { from: profile.id },
-              });
-
-              location.hash = `profiles/${copy.id}`;
-            });
+            void copy.run();
           }}
         >
           Make a copy
         </Button>
         <ErrorText inline size="caption">
-          {error}
+          {sync.error ?? copy.error}
         </ErrorText>
       </div>
     </div>

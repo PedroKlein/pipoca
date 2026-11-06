@@ -2,9 +2,10 @@ import type { HubPanel, HubScreen } from "@pipoca/plugins/web";
 import type { HubPage } from "@pipoca/protocol";
 import type { IconName } from "@pipoca/ui";
 import { enabledPlugins } from "../plugins";
+import { href } from "../router";
 
 export interface Entry {
-  readonly path: string;
+  readonly href: string;
   readonly label: string;
   readonly icon: IconName;
   readonly count?: number;
@@ -16,7 +17,7 @@ interface Placed extends HubPanel {
 }
 
 interface Screen extends HubScreen {
-  readonly path: string;
+  readonly href: string;
   readonly plugin: string;
 }
 
@@ -34,7 +35,7 @@ export function screens(): readonly Screen[] {
   return enabledPlugins().flatMap(({ name, hub }) =>
     Object.entries(hub?.pages ?? {}).map(([key, screen]) => ({
       ...screen,
-      path: `team/plugin/${name}/${key}`,
+      href: href("teamPlugin", { plugin: name, key }),
       plugin: name,
     })),
   );
@@ -49,8 +50,8 @@ export function pagesOf(laid: readonly HubPage[] | null): readonly HubPage[] {
   );
 }
 
-export function pathOf({ id }: HubPage): string {
-  return id === "home" ? "team" : `team/page/${id}`;
+export function hrefOf({ id }: HubPage): string {
+  return id === "home" ? href("team") : href("teamPage", { id });
 }
 
 export function newPageId(title: string, pages: readonly HubPage[]): string {

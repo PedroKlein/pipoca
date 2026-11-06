@@ -1,8 +1,8 @@
 import type { Newcomers, Profile } from "@pipoca/protocol";
 import { Button, Checkbox, ErrorText, Select } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import { api } from "../../api";
-import { useProfiles, useTemplates } from "../../hooks";
+import { request } from "../../data/client";
+import { useAction, useQuery } from "../../data/hooks";
 import { skippableSteps } from "../../setup/steps";
 
 export function NewcomersForm({
@@ -12,15 +12,19 @@ export function NewcomersForm({
   readonly saved: Newcomers;
   readonly onDone: () => void;
 }): ReactElement {
-  const templates = useTemplates().value;
+  const templates = useQuery("environmentTemplates.list").data ?? [];
 
-  const shared = useProfiles().value.filter(
+  const shared = (useQuery("profiles.list").data ?? []).filter(
     (profile: Profile) => profile.ownerId === null,
   );
 
   const steps = skippableSteps();
   const [draft, setDraft] = useState(saved);
-  const [error, setError] = useState<string>();
+
+  const save = useAction(async () => {
+    await request("settings.newcomers.update", { body: draft });
+    onDone();
+  });
 
   const toggled = (list: readonly string[], id: string): readonly string[] =>
     list.includes(id) ? list.filter((each) => each !== id) : [...list, id];
@@ -32,12 +36,7 @@ export function NewcomersForm({
       onSubmit={(event) => {
         event.preventDefault();
 
-        api("settings.newcomers.update", { body: draft }).then(
-          onDone,
-          (reason: unknown) => {
-            setError(reason instanceof Error ? reason.message : String(reason));
-          },
-        );
+        void save.run();
       }}
     >
       <label className="flex flex-col gap-1.5">
@@ -102,7 +101,7 @@ export function NewcomersForm({
           />
         ))}
       </fieldset>
-      <ErrorText size="caption">{error}</ErrorText>
+      <ErrorText size="caption">{save.error}</ErrorText>
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={onDone}>
           Cancel

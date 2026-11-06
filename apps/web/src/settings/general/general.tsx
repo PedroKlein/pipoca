@@ -13,12 +13,16 @@ import {
   StatusMark,
 } from "@pipoca/ui";
 import type { ReactElement } from "react";
-import { api } from "../../api";
-import { useAccount } from "../../hooks";
+import { request } from "../../data/client";
+import { useMe, useQuery } from "../../data/hooks";
 import { PluginBoundary } from "../../plugin-boundary";
 import { enabledPlugins, pluginContext } from "../../plugins";
 import { useTheme } from "../../theme";
-import { useVerbosity, type Verbosity, verbosities } from "../../verbosity";
+import {
+  useVerbosity,
+  type Verbosity,
+  verbosities,
+} from "../../session/chat/verbosity";
 import { EditProfile, SignOutEverywhere, StartWith } from "./account";
 
 const verbosityLabels = {
@@ -27,16 +31,12 @@ const verbosityLabels = {
   verbose: "Verbose",
 } as const;
 
-export function GeneralPage({
-  user,
-  admin,
-}: {
-  readonly user: string;
-  readonly admin: boolean;
-}): ReactElement {
+export function GeneralPage(): ReactElement {
+  const { user: me, admin } = useMe();
+  const user = me.name;
   const [theme, setTheme] = useTheme();
   const [verbosity, setVerbosity] = useVerbosity();
-  const account = useAccount();
+  const account = useQuery("me").data;
   const shown = account?.displayName ?? user;
 
   return (
@@ -105,7 +105,7 @@ export function GeneralPage({
       <div className="mt-8 flex gap-2">
         <Button
           onClick={() => {
-            void api("auth.session.remove").finally(() => {
+            void request("auth.session.remove").finally(() => {
               location.replace("/");
             });
           }}

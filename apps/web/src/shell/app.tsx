@@ -1,196 +1,169 @@
 import { Button, Icon, Mark } from "@pipoca/ui";
-import type { SetupState } from "@pipoca/protocol";
-import { type ReactElement, useEffect, useState } from "react";
 import {
-  useEnvironments,
-  useHash,
-  useProfiles,
-  useSessions,
-  useSettledNotices,
-  useTeam,
-} from "../hooks";
+  type ReactElement,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import { useMe, useQuery } from "../data/hooks";
+import { useSettledNotices } from "./settled-notices";
 import { Drawer } from "./drawer";
 import { NewSessionDialog } from "./new-session";
 import { PluginBoundary } from "../plugin-boundary";
 import {
   enabledPlugins,
-  type NavEntry,
+  navEntries,
   pluginContext,
-  pluginRoute,
+  PluginShell,
   sessionHref,
 } from "../plugins";
-import { SessionView } from "../session-view";
-import { isSettingsRoute, SettingsLayout } from "../settings/layout";
+import { href, navigate, type Route, useRoute } from "../router";
+import { SessionView } from "../session/session-view";
+import { SettingsLayout } from "../settings/layout";
 import { SetupReminders } from "../setup/reminders";
 import { SetupWizard } from "../setup/wizard";
 import { Sidebar } from "./sidebar";
-import { isTeamRoute, TeamHub } from "../team/hub";
-import { isTeamSetupRoute, TeamSetup } from "../team/setup";
+import { TeamHub } from "../team/hub";
+import { TeamSetup } from "../team/setup";
 import { MenuButton, PluginPage } from "./plugin-page";
 
-export function App({
-  nav,
-  user,
-  admin,
-  people,
-  team,
-  setup: initialSetup,
-}: {
-  readonly nav: readonly NavEntry[];
-  readonly user: string;
-  readonly admin: boolean;
-  // An admin of a server several people use sees the People page.
-  readonly people: boolean;
-  // A server several people use has a team, with its own hub (ADR 0064).
-  readonly team: boolean;
-  readonly setup: SetupState;
-}): ReactElement {
-  const route = useHash();
-  const [setup, setSetup] = useState(initialSetup);
+export function App(): ReactElement {
+  const { user, admin, team } = useMe();
+
+  const viewer = useMemo(
+    () => ({
+      person: { id: user.id, name: user.name, admin: user.admin },
+      admin,
+      team,
+    }),
+    [user.id, user.name, user.admin, admin, team],
+  );
+
+  return (
+    <PluginShell viewer={viewer}>
+      <Screens />
+    </PluginShell>
+  );
+}
+
+function Screens(): ReactElement {
+  const route = useRoute();
+  const { admin, team } = useMe();
+  const setup = useQuery("me.setup").data;
+
+  if (setup?.finished === false || route.name === "getStarted") {
+    return (
+      <SetupWizard
+        key={route.name === "getStarted" ? route.params.step : ""}
+        start={route.name === "getStarted" ? route.params.step : undefined}
+      />
+    );
+  }
+
+  if (route.name === "settings") {
+    return (
+      <Area>
+        <SettingsLayout page={route.params.page} rest={route.params.rest} />
+      </Area>
+    );
+  }
+
+  if (route.name === "teamSetup" && team && admin) {
+    return (
+      <Area>
+        <TeamSetup section={route.params.section} rest={route.params.rest} />
+      </Area>
+    );
+  }
+
+  if (route.name.startsWith("team") && team) {
+    return (
+      <Area>
+        <TeamHub route={route} />
+      </Area>
+    );
+  }
+
+  return <Work route={route} />;
+}
+
+function Area({ children }: { readonly children: ReactNode }): ReactElement {
+  return (
+    <div className="flex h-dvh overflow-hidden bg-bg font-sans text-ui text-fg">
+      {children}
+    </div>
+  );
+}
+
+// A person's own work: the sidebar beside home, a Session or a plugin's page.
+function Work({ route }: { readonly route: Route }): ReactElement {
   const [showArchived, setShowArchived] = useState(false);
   const [creating, setCreating] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [drawerRoute, setDrawerRoute] = useState(route);
-  const sessions = useSessions(showArchived);
-  const environments = useEnvironments();
-  const profiles = useProfiles();
-  const teamName = useTeam().name;
-  useSettledNotices(sessions.value, route);
+
+  const sessions =
+    useQuery("sessions.list", {
+      query: { archived: showArchived, plugins: true },
+    }).data ?? [];
+
+  const opened = route.name === "session" ? route.params.id : "";
+  useSettledNotices(sessions, opened);
 
   if (drawerRoute !== route) {
     setDrawerRoute(route);
     setDrawer(false);
   }
 
-  const page = pluginRoute(route);
-  const listed = sessions.value.find(({ id }) => id === route);
-  const moved = listed ? sessionHref(listed) : undefined;
+  const listed = sessions.find(({ id }) => id === opened);
+  const shownAt = listed ? sessionHref(listed) : undefined;
 
-  // Old links and notices name a Session its plugin now shows (ADR 0028).
+  const moved =
+    shownAt === href("session", { id: opened }) ? undefined : shownAt;
+
+  // A Session a plugin shows opens in the plugin's page (ADR 0028).
   useEffect(() => {
-    if (moved !== undefined && moved !== `#${route}`) {
-      location.replace(moved);
+    if (moved !== undefined) {
+      navigate(moved, { replace: true });
     }
-  }, [moved, route]);
+  }, [moved]);
 
   const openDrawer = (): void => {
     setDrawer(true);
   };
 
+  const newSession = (): void => {
+    setCreating(true);
+  };
+
   const content = (): ReactElement => {
-    if (page !== undefined) {
+    if (route.name === "plugin") {
       return (
         <PluginPage
-          key={page.name}
-          name={page.name}
-          path={page.path}
+          key={route.params.name}
+          name={route.params.name}
+          path={route.params.path}
           onMenu={openDrawer}
         />
       );
     }
 
-    if (moved !== undefined && moved !== `#${route}`) {
-      return <div className="flex-1" />;
-    }
-
-    if (route === "") {
-      const home = enabledPlugins().find(({ Home }) => Home !== undefined);
-
-      const newSession = (): void => {
-        setCreating(true);
-      };
-
+    if (route.name === "session" && moved === undefined) {
       return (
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-          <div className="p-2 md:hidden">
-            <MenuButton onMenu={openDrawer} />
-          </div>
-          <SetupReminders
-            setup={setup}
-            onDismiss={(step) => {
-              setSetup({ ...setup, dismissed: [...setup.dismissed, step] });
-            }}
-          />
-          {home?.Home ? (
-            <PluginBoundary name={home.name}>
-              <home.Home
-                context={pluginContext(home.name)}
-                onNewSession={newSession}
-              />
-            </PluginBoundary>
-          ) : (
-            <Empty onNewSession={newSession} />
-          )}
-        </div>
+        <SessionView key={opened} sessionId={opened} onMenu={openDrawer} />
       );
     }
 
-    return (
-      <SessionView
-        key={route}
-        sessionId={route}
-        environments={environments.value}
-        onSessionChange={sessions.reload}
-        onMenu={openDrawer}
-      />
-    );
+    if (route.name === "session") {
+      return <div className="flex-1" />;
+    }
+
+    return <Home onMenu={openDrawer} onNewSession={newSession} />;
   };
 
-  const reminded = /^get-started\/(.+)$/.exec(route)?.[1];
-
-  if (!setup.finished || reminded !== undefined) {
-    return (
-      <SetupWizard
-        key={reminded}
-        user={user}
-        admin={admin}
-        start={reminded}
-        onFinish={() => {
-          setSetup({ ...setup, finished: true });
-        }}
-      />
-    );
-  }
-
-  // Settings is a page of its own, with its own menu in place of the
-  // sidebar (ADR 0063).
-  if (page === undefined && isSettingsRoute(route)) {
-    return (
-      <div className="flex h-dvh overflow-hidden bg-bg font-sans text-ui text-fg">
-        <SettingsLayout
-          route={route}
-          user={user}
-          admin={admin}
-          people={people}
-          team={team}
-          environments={environments.value}
-          profiles={profiles.value}
-          onEnvironmentsChange={environments.reload}
-          onProfilesChange={profiles.reload}
-        />
-      </div>
-    );
-  }
-
-  if (page === undefined && team && isTeamRoute(route)) {
-    return (
-      <div className="flex h-dvh overflow-hidden bg-bg font-sans text-ui text-fg">
-        {admin && isTeamSetupRoute(route) ? (
-          <TeamSetup
-            route={route}
-            user={user}
-            people={people}
-            teamName={teamName}
-          />
-        ) : (
-          <TeamHub route={route} admin={admin} name={teamName} />
-        )}
-      </div>
-    );
-  }
-
   return (
-    <div className="flex h-dvh overflow-hidden bg-bg font-sans text-ui text-fg">
+    <Area>
       <Drawer
         open={drawer}
         onClose={() => {
@@ -198,17 +171,12 @@ export function App({
         }}
       >
         <Sidebar
-          nav={nav}
+          nav={navEntries()}
           route={route}
-          sessions={sessions.value}
-          environments={environments.value}
+          sessions={sessions}
           showArchived={showArchived}
           onShowArchived={setShowArchived}
-          user={user}
-          team={team ? (teamName ?? "Team") : undefined}
-          onNewSession={() => {
-            setCreating(true);
-          }}
+          onNewSession={newSession}
         />
       </Drawer>
 
@@ -222,6 +190,35 @@ export function App({
           setCreating(false);
         }}
       />
+    </Area>
+  );
+}
+
+function Home({
+  onMenu,
+  onNewSession,
+}: {
+  readonly onMenu: () => void;
+  readonly onNewSession: () => void;
+}): ReactElement {
+  const home = enabledPlugins().find(({ Home: Page }) => Page !== undefined);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="p-2 md:hidden">
+        <MenuButton onMenu={onMenu} />
+      </div>
+      <SetupReminders />
+      {home?.Home ? (
+        <PluginBoundary name={home.name}>
+          <home.Home
+            context={pluginContext(home.name)}
+            onNewSession={onNewSession}
+          />
+        </PluginBoundary>
+      ) : (
+        <Empty onNewSession={onNewSession} />
+      )}
     </div>
   );
 }

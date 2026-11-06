@@ -1,8 +1,10 @@
-import type { Environment, Session } from "@pipoca/protocol";
+import type { Session } from "@pipoca/protocol";
 import { Button, Checkbox, Icon, Mark, TextInput } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
+import { useMe, useQuery } from "../data/hooks";
 import { matches } from "../notices";
 import type { NavEntry } from "../plugins";
+import { href, type Route } from "../router";
 import {
   ownedByEnabled,
   SidebarSession,
@@ -14,30 +16,32 @@ import { PluginNav } from "./plugin-nav";
 
 export interface SidebarProps {
   readonly nav: readonly NavEntry[];
-  readonly route: string;
+  readonly route: Route;
   readonly sessions: readonly Session[];
-  readonly environments: readonly Environment[];
   readonly showArchived: boolean;
   readonly onShowArchived: (show: boolean) => void;
   readonly onNewSession: () => void;
-  readonly user: string;
-  // What the team is called, on a server several people use.
-  readonly team: string | undefined;
 }
 
 export function Sidebar({
   nav,
   route,
   sessions,
-  environments,
   showArchived,
   onShowArchived,
   onNewSession,
-  user,
-  team,
 }: SidebarProps): ReactElement {
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
+  const me = useMe();
+  const environments = useQuery("environments.list").data ?? [];
+
+  const teamName = useQuery("settings.team", undefined, {
+    enabled: me.team,
+  }).data?.name;
+
+  const team = me.team ? (teamName ?? "Team") : undefined;
+  const opened = route.name === "session" ? route.params.id : undefined;
 
   const environmentName = (session: Session): string =>
     environments.find((e) => e.id === session.environmentId)?.name ??
@@ -84,7 +88,7 @@ export function Sidebar({
 
       {team !== undefined && (
         <a
-          href="#team"
+          href={href("team")}
           className="mx-2 flex items-center gap-2.5 rounded-md px-2 py-1.5 text-ui text-fg hover:bg-hover"
         >
           <span
@@ -149,14 +153,14 @@ export function Sidebar({
             environment={environments.find(
               (e) => e.id === session.environmentId,
             )}
-            current={session.id === route}
+            current={session.id === opened}
           />
         ))}
       </ul>
 
       <NotifyButton />
       <EnvironmentStatus environments={environments} />
-      <AccountMenu user={user} />
+      <AccountMenu user={me.user.name} />
     </nav>
   );
 }

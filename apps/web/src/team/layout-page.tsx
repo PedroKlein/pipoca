@@ -15,7 +15,8 @@ import {
   Select,
 } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useState } from "react";
-import { ago, sessionBadge, shortName, teamSessionHref } from "../names";
+import { ago, sessionBadge, shortName } from "../names";
+import { href } from "../router";
 import { PluginBoundary } from "../plugin-boundary";
 import { pluginContext } from "../plugins";
 import { panels } from "./hub-pages";
@@ -254,7 +255,7 @@ function SessionRows({
             key={session.id}
             title={
               <a
-                href={teamSessionHref(session.id)}
+                href={href("teamSession", { id: session.id })}
                 className="hover:underline focus-visible:underline"
               >
                 {session.title ?? shortName(session.workspace)}

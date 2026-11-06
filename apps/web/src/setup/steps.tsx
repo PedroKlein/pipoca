@@ -1,5 +1,5 @@
 import type { SetupStep } from "@pipoca/plugins/web";
-import { api } from "../api";
+import { request } from "../data/client";
 import { enabledPlugins, pluginContext } from "../plugins";
 import { type WizardStep, connected, hasContent } from "./step";
 import { ProfileStepPage } from "./offered-profiles";
@@ -11,7 +11,7 @@ const whereStep: SetupStep = {
   heading: "Where should Pi work?",
   description:
     "Each place becomes an Environment, and you choose between them when you start a Session.",
-  done: async () => (await api("environments.list")).some(connected),
+  done: async () => (await request("environments.list")).some(connected),
   topics: ["environments"],
   Step: WhereStep,
 };
@@ -24,7 +24,7 @@ const profileStep: SetupStep = {
     "A Profile is how Pi behaves: its instructions, skills, extensions and tools. Every Session runs with one.",
   optional: true,
   done: async () =>
-    (await api("profiles.list")).some(
+    (await request("profiles.list")).some(
       (profile) =>
         hasContent(profile) ||
         (profile.ownerId !== null && profile.buildsOn !== null),

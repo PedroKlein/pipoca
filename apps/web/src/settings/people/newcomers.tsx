@@ -1,25 +1,14 @@
-import { useLoaded } from "@pipoca/plugins/web";
 import type { Newcomers } from "@pipoca/protocol";
 import { Button, cardClass, cn } from "@pipoca/ui";
 import type { ReactElement } from "react";
-import { api } from "../../api";
-import { useProfiles, useTemplates } from "../../hooks";
+import { useQuery } from "../../data/hooks";
 import { skippableSteps } from "../../setup/steps";
 import { NewcomersForm } from "./newcomers-form";
 
 const nothingSet: Newcomers = { template: null, profiles: [], required: [] };
 
-export function useNewcomers(): {
-  readonly value: Newcomers;
-  readonly reload: () => void;
-} {
-  const { value, reload } = useLoaded(
-    async () => api("settings.newcomers"),
-    "newcomers",
-    { topics: ["newcomers"] },
-  );
-
-  return { value: value ?? nothingSet, reload };
+export function useNewcomers(): Newcomers {
+  return useQuery("settings.newcomers").data ?? nothingSet;
 }
 
 // Names for what an admin set up, in the words new people read.
@@ -28,8 +17,8 @@ export function useNewcomerSummary(newcomers: Newcomers): {
   readonly profiles: readonly string[];
   readonly required: readonly string[];
 } {
-  const templates = useTemplates().value;
-  const profiles = useProfiles().value;
+  const templates = useQuery("environmentTemplates.list").data ?? [];
+  const profiles = useQuery("profiles.list").data ?? [];
   const steps = skippableSteps();
 
   return {
@@ -52,7 +41,7 @@ export function NewcomersCard({
   readonly editing: boolean;
   readonly onEditing: (editing: boolean) => void;
 }): ReactElement {
-  const { value, reload } = useNewcomers();
+  const value = useNewcomers();
   const summary = useNewcomerSummary(value);
 
   const chips = [
@@ -93,7 +82,6 @@ export function NewcomersCard({
           saved={value}
           onDone={() => {
             onEditing(false);
-            reload();
           }}
         />
       ) : (
@@ -118,7 +106,7 @@ export function TheirSetup({
 }: {
   readonly onChange: () => void;
 }): ReactElement {
-  const summary = useNewcomerSummary(useNewcomers().value);
+  const summary = useNewcomerSummary(useNewcomers());
 
   const ready = [
     ...(summary.template === undefined ? [] : [summary.template]),
