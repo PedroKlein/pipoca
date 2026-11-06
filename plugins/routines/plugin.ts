@@ -41,7 +41,11 @@ create table routines_runs (
   reason text,
   events text check (events is null or json_valid(events)),
   fired_at integer not null,
-  ended_at integer
+  ended_at integer,
+  -- How often its Session died since Pi's messages last grew, and how many
+  -- there were then.
+  deaths integer not null default 0,
+  progress integer not null default 0
 ) strict;
 create index routines_runs_routine on routines_runs (coalesce(owner_user_id, ''), name, fired_at);
 create index routines_runs_session on routines_runs (session_id) where session_id is not null;
