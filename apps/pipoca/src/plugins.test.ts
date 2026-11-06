@@ -20,29 +20,27 @@ import {
   BadRequest,
   definePlugin,
   defineServer,
-  fieldsOf,
   HttpError,
   type KernelEvent,
   NotFound,
-  type ServerPart,
-  readBody,
-  type ServerPlugin,
-  type ServerPluginContext,
+  type PluginDefinition,
+  type Runners,
+  type ServerContext,
+  StringEnum,
   Type,
 } from "@pipoca/plugins";
-import {
-  capabilities,
-  type Environment,
-  type PluginInfo,
-  type PluginManifest,
-  type Session,
-  type SessionEvent,
+import type { ServerPart } from "@pipoca/plugins/host";
+import type {
+  Environment,
+  PluginInfo,
+  Session,
+  SessionEvent,
 } from "@pipoca/protocol";
 import { runAgent } from "@pipoca/runner";
 import { binary } from "./binary";
 import { sessionParts } from "./session-parts";
 import { closeServers, testServer, type TestServer } from "./testdata/harness";
-import { until } from "@pipoca/plugins/testing";
+import { until } from "@pipoca/testing/until";
 import { readSse } from "@pipoca/protocol";
 
 let root: string;
@@ -60,10 +58,25 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
+const pool = {
+  kind: { label: "Pool", icon: "cloud" },
+  starts: () => false,
+};
+
+function plugin(
+  id: string,
+  register: (ctx: ServerContext) => void = () => undefined,
+  definition: Partial<PluginDefinition> = {},
+): ServerPart {
+  return defineServer(
+    definePlugin({ id, title: id, description: "", ...definition }),
+    register,
+  );
+}
+
 async function start(
-  plugins: readonly ServerPlugin[],
+  servers: readonly ServerPart[],
   disabledPlugins: readonly string[] = [],
-  events: Readonly<Record<string, PluginManifest["events"]>> = {},
 ): Promise<void> {
   runtime = await ModelRuntime.create({
     authPath: join(root, "auth.json"),
@@ -82,14 +95,8 @@ async function start(
       folders: [root],
       models: { runtime, model: faux.getModel() },
     },
-    plugins,
-    manifests: plugins.map(({ name }) => ({
-      id: name,
-      title: name,
-      description: "",
-      capabilities,
-      ...(events[name] !== undefined && { events: events[name] }),
-    })),
+    builtIns: false,
+    servers,
     disabledPlugins,
   });
 }
@@ -119,7 +126,6 @@ async function follow(
   sessionId: string,
   done: (events: readonly SessionEvent[]) => boolean,
 ): Promise<SessionEvent[]> {
-  const controller = new AbortController();
   const response = await server.api(`/api/sessions/${sessionId}/events`);
   const events: SessionEvent[] = [];
   for await (const event of readSse(response)) {
@@ -128,8 +134,6 @@ async function follow(
       break;
     }
   }
-
-  controller.abort();
 
   return events;
 }
@@ -143,37 +147,48 @@ const entriesInclude =
   (events: readonly SessionEvent[]): boolean =>
     events.some((e) => e.type === "entry" && e.entry.includes(text));
 
-test("serves a plugin's tools to the sessions they apply to and returns their result", async () => {
-  const called: KernelEvent[] = [];
-  let machines: ServerPluginContext["environments"] | undefined;
+async function toolsOf(
+  session: Session,
+  runners: Runners | undefined,
+): Promise<unknown> {
+  const token = runners?.token(session.environmentId, "local");
 
-  await start([
+  const tools = await fetch(
+    new URL(`/runner/sessions/${session.id}/tools?generation=1`, server.url),
     {
-      name: "lookup",
-      register: ({ tools, events, environments }) => {
-        machines = environments;
-
-        events.subscribe("ToolCalled", (event) => {
-          called.push(event);
-        });
-
-        tools.register({
-          name: "lookup",
-          description: "Looks a key up on the server",
-          parameters: {
-            type: "object",
-            properties: { key: { type: "string" } },
-            required: ["key"],
-          },
-          appliesTo: (session) => session.systemPrompt === null,
-          run: async (input, caller) =>
-            Promise.resolve({
-              text: `${(input as { key: string }).key} is 42 for ${caller.actor}`,
-              isError: false,
-            }),
-        });
+      headers: {
+        "pipoca-protocol": "4",
+        "content-type": "application/json",
+        authorization: `Bearer ${token ?? ""}`,
       },
     },
+  );
+
+  await follow(session.id, idle);
+
+  return tools.json();
+}
+
+test("serves a plugin's tools to the sessions they apply to and returns their result", async () => {
+  const called: KernelEvent[] = [];
+  let machines: Runners | undefined;
+
+  await start([
+    plugin("lookup", ({ tools, events, provide }) => {
+      machines = provide.runners(pool);
+
+      events.on("ToolCalled", (event) => {
+        called.push(event);
+      });
+
+      tools.define({
+        name: "lookup",
+        description: "Looks a key up on the server",
+        params: Type.Object({ key: Type.String() }),
+        when: { available: (session) => session.systemPrompt === null },
+        run: ({ key }, { session }) => `${key} is 42 for ${session.id}`,
+      });
+    }),
   ]);
 
   faux.setResponses([
@@ -187,68 +202,41 @@ test("serves a plugin's tools to the sessions they apply to and returns their re
   await follow(session.id, idle);
 
   await server.api(`/api/sessions/${session.id}/commands`, {
-    body: {
-      type: "message",
-      text: "look it up",
-    },
+    body: { type: "message", text: "look it up" },
   });
 
   const events = await follow(session.id, entriesInclude('"done"'));
 
-  expect(entriesInclude(`answer is 42 for session:${session.id}`)(events)).toBe(
-    true,
-  );
+  expect(entriesInclude(`answer is 42 for ${session.id}`)(events)).toBe(true);
 
   expect(called).toMatchObject([
     { type: "ToolCalled", tool: "lookup", actor: `session:${session.id}` },
   ]);
 
   const toolless = await createSession({ systemPrompt: "No tools here." });
-  const token = machines?.runnerToken(toolless.environmentId, "local");
 
-  const tools = await fetch(
-    new URL(`/runner/sessions/${toolless.id}/tools?generation=1`, server.url),
-    {
-      headers: {
-        "pipoca-protocol": "4",
-        "content-type": "application/json",
-        authorization: `Bearer ${token ?? ""}`,
-      },
-    },
-  );
-
-  await follow(toolless.id, idle);
-
-  expect(await tools.json()).toEqual([]);
+  expect(await toolsOf(toolless, machines)).toEqual([]);
 });
 
 test("repairs JSON-encoded tool arguments and names the allowed choices", async () => {
   const inputs: unknown[] = [];
 
   await start([
-    {
-      name: "states",
-      register: ({ tools }) => {
-        tools.register({
-          name: "set_state",
-          description: "Sets a state",
-          parameters: {
-            type: "object",
-            properties: {
-              state: { type: "string", enum: ["open", "done"] },
-              tags: { type: "array", items: { type: "string" } },
-            },
-            required: ["state"],
-          },
-          appliesTo: () => true,
-          run: async (input) => {
-            inputs.push(input);
+    plugin("states", ({ tools }) => {
+      tools.define({
+        name: "set_state",
+        description: "Sets a state",
+        params: Type.Object({
+          state: StringEnum(["open", "done"]),
+          tags: Type.Optional(Type.Array(Type.String())),
+        }),
+        run: (input) => {
+          inputs.push(input);
 
-            return Promise.resolve({ text: "set", isError: false });
-          },
-        });
-      },
-    },
+          return "set";
+        },
+      });
+    }),
   ]);
 
   faux.setResponses([
@@ -266,10 +254,7 @@ test("repairs JSON-encoded tool arguments and names the allowed choices", async 
   await follow(session.id, idle);
 
   await server.api(`/api/sessions/${session.id}/commands`, {
-    body: {
-      type: "message",
-      text: "set it",
-    },
+    body: { type: "message", text: "set it" },
   });
 
   const events = await follow(session.id, entriesInclude('"finished"'));
@@ -285,16 +270,9 @@ test("repairs JSON-encoded tool arguments and names the allowed choices", async 
 
 test("tells open pages which kind of thing changed, never what", async () => {
   await start([
-    {
-      name: "notes",
-      register: ({ routes, changes }) => {
-        routes.handle(() => {
-          changes.publish("entries");
-
-          return new Response(null, { status: 204 });
-        });
-      },
-    },
+    plugin("notes", ({ routes }) => {
+      routes.post("add", { auth: "person", changes: ["entries"] }, () => ({}));
+    }),
   ]);
 
   const response = await server.api("/api/changes");
@@ -325,90 +303,69 @@ test("tells open pages which kind of thing changed, never what", async () => {
   );
 });
 
-test("serves a tool's exposure, namespace and hints to its sessions", async () => {
-  const spec = {
-    name: "keys_list",
-    description: "Lists the keys on the server",
-    parameters: { type: "object", properties: {} },
-    exposure: "deferred",
-    namespace: { name: "keys", description: "Keys on the server" },
-    annotations: { readOnlyHint: true },
-  } as const;
-
-  let machines: ServerPluginContext["environments"] | undefined;
+test("serves a tool's exposure and hints to its sessions", async () => {
+  let machines: Runners | undefined;
 
   await start([
-    {
-      name: "keys",
-      register: ({ tools, environments }) => {
-        machines = environments;
+    plugin("keys", ({ tools, provide }) => {
+      machines = provide.runners(pool);
 
-        tools.register({
-          ...spec,
-          appliesTo: () => true,
-          run: async () => Promise.resolve({ text: "none", isError: false }),
-        });
-      },
-    },
+      tools.define({
+        name: "keys_list",
+        description: "Lists the keys on the server",
+        params: Type.Object({}),
+        exposure: "deferred",
+        annotations: { readOnly: true },
+        run: () => "none",
+      });
+    }),
   ]);
 
-  const session = await createSession();
-  const token = machines?.runnerToken(session.environmentId, "local");
-
-  const tools = await fetch(
-    new URL(`/runner/sessions/${session.id}/tools?generation=1`, server.url),
+  expect(await toolsOf(await createSession(), machines)).toMatchObject([
     {
-      headers: {
-        "pipoca-protocol": "4",
-        "content-type": "application/json",
-        authorization: `Bearer ${token ?? ""}`,
-      },
+      name: "keys_list",
+      description: "Lists the keys on the server",
+      exposure: "deferred",
+      annotations: { readOnlyHint: true },
     },
-  );
-
-  await follow(session.id, idle);
-
-  expect(await tools.json()).toEqual([spec]);
+  ]);
 });
 
 test("starts a plugin's own Sessions on the Profile it provides, and no others", async () => {
   await start([
-    {
-      name: "meta",
-      register: ({ profiles, routes, sessions }) => {
-        const profile = profiles.provide("assistant", {
-          name: "Assistant",
-          packages: [],
-          agentsMd: "",
-          systemMd: "",
-          appendSystemMd: "You are the Pipoca assistant.",
-          mcpServers: {},
-          settings: {},
-        });
+    plugin("meta", ({ provide, routes, sessions }) => {
+      const profile = provide.profile("assistant", {
+        name: "Assistant",
+        packages: [],
+        agentsMd: "",
+        systemMd: "",
+        appendSystemMd: "You are the Pipoca assistant.",
+        mcpServers: {},
+        settings: {},
+      });
 
-        routes.handle((_request, path, caller) => {
-          const [last] = sessions.owned("chat");
+      routes.post("again", { auth: "person" }, () => {
+        const [last] = sessions.owned("chat");
 
-          if (path === "again" && last !== undefined) {
-            sessions.archive(last.id);
-            sessions.unarchive(last.id);
+        if (last === undefined) {
+          throw new NotFound("no chat");
+        }
 
-            return Response.json(sessions.get(last.id));
-          }
+        sessions.archive(last.id);
+        sessions.unarchive(last.id);
 
-          return Response.json(
-            sessions.start(
-              {
-                actor: caller.actor,
-                workspace: { kind: "folder", path: root },
-                profile,
-              },
-              "chat",
-            ),
-          );
-        });
-      },
-    },
+        return sessions.get(last.id);
+      });
+
+      routes.post("start", { auth: "person" }, ({ caller }) =>
+        sessions.start({
+          actor: `user:${caller.person.id}`,
+          workspace: { kind: "folder", path: root },
+          profile,
+          key: "chat",
+        }),
+      );
+    }),
   ]);
 
   faux.setResponses([
@@ -433,10 +390,7 @@ test("starts a plugin's own Sessions on the Profile it provides, and no others",
   await follow(owned.id, idle);
 
   await server.api(`/api/sessions/${owned.id}/commands`, {
-    body: {
-      type: "message",
-      text: "hello",
-    },
+    body: { type: "message", text: "hello" },
   });
 
   await follow(owned.id, entriesInclude("on the assistant Profile"));
@@ -474,159 +428,25 @@ test("starts a plugin's own Sessions on the Profile it provides, and no others",
   expect(listed.map(({ id }) => id)).not.toContain(owned.profileId);
 });
 
-test("routes requests to a plugin that keeps its own tables", async () => {
-  await start([
-    {
-      name: "notes",
-      schema: "create table notes_items (text text) strict",
-      register: ({ routes, store }) => {
-        routes.handle(async (request, path) => {
-          if (request.method === "POST" && path === "items") {
-            const { text } = (await request.json()) as { text: string };
-            store.run("insert into notes_items (text) values (?)", text);
+test("resets a plugin whose tables another version made, and starts it at the restart", async () => {
+  const database = join(root, "server.db");
 
-            return new Response(null, { status: 204 });
-          }
+  const tally = (sql: string): ServerPart =>
+    plugin(
+      "tally",
+      ({ routes, store }) => {
+        routes.post("marks", { auth: "person" }, () => {
+          store.run("insert into tally_marks (n) values (1)");
 
-          return path === "items"
-            ? Response.json(store.all("select text from notes_items"))
-            : Response.json({ error: "not_found" }, { status: 404 });
+          return { ok: true };
         });
+
+        routes.get("marks", { auth: "person" }, () =>
+          store.all("select n from tally_marks"),
+        );
       },
-    },
-    {
-      name: "copier",
-      schema: "create table sessions_copy (id text)",
-      register: () => undefined,
-    },
-  ]);
-
-  const added = await server.api("/api/ext/notes/items", {
-    body: { text: "hello" },
-  });
-
-  const items = await server.api("/api/ext/notes/items");
-  const unknown = await server.api("/api/ext/nobody/items");
-
-  expect(added.status).toBe(204);
-  expect(await items.json()).toEqual([{ text: "hello" }]);
-  expect(unknown.status).toBe(404);
-
-  expect(await (await server.api("/api/plugins")).json()).toMatchObject([
-    { id: "notes", state: "on" },
-    {
-      id: "copier",
-      state: "failed",
-      error: "plugin copier may only create copier_ tables",
-    },
-  ]);
-});
-
-test("resets a plugin whose tables another version made, once an admin asks", async () => {
-  const database = join(root, "server.db");
-
-  const notes = (sql: string): ServerPlugin => ({
-    name: "notes",
-    schema: sql,
-    register: ({ routes, store }) => {
-      routes.handle(async (request) => {
-        if (request.method === "POST") {
-          const { text } = (await request.json()) as { text: string };
-          store.run("insert into notes_items (text) values (?)", text);
-
-          return new Response(null, { status: 204 });
-        }
-
-        return Response.json(store.all("select * from notes_items"));
-      });
-    },
-  });
-
-  const manifests = [
-    { id: "notes", title: "Notes", description: "", capabilities },
-  ];
-
-  server = testServer({
-    database,
-    plugins: [notes("create table notes_items (text text) strict")],
-    manifests,
-  });
-
-  await server.api("/api/ext/notes/items", { body: { text: "old" } });
-
-  const cookie = await server.signedIn();
-  await server.close();
-
-  server = testServer({
-    database,
-    cookie,
-    plugins: [
-      notes(
-        "create table notes_items (text text, pinned integer not null default 0) strict",
-      ),
-    ],
-    manifests,
-  });
-
-  expect(await (await server.api("/api/plugins")).json()).toMatchObject([
-    {
-      id: "notes",
-      state: "failed",
-      resettable: true,
-      error:
-        "its tables were made by another version of notes; its data is kept until an admin resets it",
-    },
-  ]);
-
-  const reset = await server.api("/api/plugins/notes/data", {
-    method: "DELETE",
-  });
-
-  expect(reset.status).toBe(200);
-  expect(await reset.json()).toMatchObject({ id: "notes", state: "on" });
-
-  expect(await (await server.api("/api/ext/notes/items")).json()).toEqual([]);
-
-  await server.api("/api/ext/notes/items", { body: { text: "new" } });
-
-  expect(await (await server.api("/api/ext/notes/items")).json()).toEqual([
-    { text: "new", pinned: 0 },
-  ]);
-
-  const again = await server.api("/api/plugins/notes/data", {
-    method: "DELETE",
-  });
-
-  expect(again.status).toBe(400);
-
-  expect(
-    (await server.api("/api/plugins/nobody/data", { method: "DELETE" })).status,
-  ).toBe(404);
-});
-
-test("resets a plugin made with definePlugin whose tables another version made, and starts it at the restart", async () => {
-  const database = join(root, "server.db");
-
-  const tally = (sql: string): ServerPart => {
-    const plugin = definePlugin({
-      id: "tally",
-      title: "Tally",
-      description: "",
-      schema: sql,
-    });
-
-    return defineServer(plugin, ({ routes, store }) => {
-      routes.post("marks", { auth: "person" }, () => {
-        store.run("insert into tally_marks (n) values (1)");
-
-        return { ok: true };
-      });
-
-      routes.get("marks", { auth: "person" }, () =>
-        store.all("select n from tally_marks"),
-      );
-    });
-  };
+      { schema: sql },
+    );
 
   const before = tally("create table tally_marks (n integer) strict");
 
@@ -634,16 +454,22 @@ test("resets a plugin made with definePlugin whose tables another version made, 
     "create table tally_marks (n integer, m integer not null default 0) strict",
   );
 
-  server = testServer({ database, plugins: [], servers: [before] });
+  server = testServer({ database, builtIns: false, servers: [before] });
   await server.api("/api/ext/tally/marks", { body: {} });
 
   const cookie = await server.signedIn();
   await server.close();
 
-  server = testServer({ database, cookie, plugins: [], servers: [after] });
+  server = testServer({ database, cookie, builtIns: false, servers: [after] });
 
   expect(await (await server.api("/api/plugins")).json()).toMatchObject([
-    { id: "tally", state: "failed", resettable: true },
+    {
+      id: "tally",
+      state: "failed",
+      resettable: true,
+      error:
+        "its tables were made by another version of tally; its data is kept until an admin resets it",
+    },
   ]);
 
   const reset = await server.api("/api/plugins/tally/data", {
@@ -658,8 +484,16 @@ test("resets a plugin made with definePlugin whose tables another version made, 
     error: "its data was reset; it starts when the server restarts",
   });
 
+  expect(
+    (await server.api("/api/plugins/tally/data", { method: "DELETE" })).status,
+  ).toBe(400);
+
+  expect(
+    (await server.api("/api/plugins/nobody/data", { method: "DELETE" })).status,
+  ).toBe(404);
+
   await server.close();
-  server = testServer({ database, cookie, plugins: [], servers: [after] });
+  server = testServer({ database, cookie, builtIns: false, servers: [after] });
 
   expect(await (await server.api("/api/plugins")).json()).toMatchObject([
     { id: "tally", state: "on" },
@@ -672,38 +506,34 @@ test("keeps the data of a plugin that failed for another reason than its tables"
   const database = join(root, "server.db");
   let configured = true;
 
-  const notes: ServerPlugin = {
-    name: "notes",
-    schema: "create table notes_items (text text) strict",
-    register: ({ routes, store }) => {
+  const notes = plugin(
+    "notes",
+    ({ routes, store }) => {
       if (!configured) {
         throw new Error("notes needs a folder");
       }
 
-      routes.handle((request) => {
-        if (request.method === "POST") {
-          store.run("insert into notes_items (text) values ('kept')");
+      routes.post("items", { auth: "person" }, () => {
+        store.run("insert into notes_items (text) values ('kept')");
 
-          return new Response(null, { status: 204 });
-        }
-
-        return Response.json(store.all("select text from notes_items"));
+        return {};
       });
+
+      routes.get("items", { auth: "person" }, () =>
+        store.all("select text from notes_items"),
+      );
     },
-  };
+    { schema: "create table notes_items (text text) strict" },
+  );
 
-  const manifests = [
-    { id: "notes", title: "Notes", description: "", capabilities },
-  ];
-
-  server = testServer({ database, plugins: [notes], manifests });
+  server = testServer({ database, builtIns: false, servers: [notes] });
   await server.api("/api/ext/notes/items", { body: {} });
 
   const cookie = await server.signedIn();
   await server.close();
 
   configured = false;
-  server = testServer({ database, cookie, plugins: [notes], manifests });
+  server = testServer({ database, cookie, builtIns: false, servers: [notes] });
 
   const [listed] = (await (
     await server.api("/api/plugins")
@@ -716,7 +546,7 @@ test("keeps the data of a plugin that failed for another reason than its tables"
   await server.close();
 
   configured = true;
-  server = testServer({ database, cookie, plugins: [notes], manifests });
+  server = testServer({ database, cookie, builtIns: false, servers: [notes] });
 
   expect(listed).toMatchObject({
     state: "failed",
@@ -733,50 +563,40 @@ test("keeps the data of a plugin that failed for another reason than its tables"
 
 test("answers the errors a plugin's route throws as the server's own", async () => {
   await start([
-    {
-      name: "notes",
-      register: ({ routes }) => {
-        routes.handle(async (request, path) => {
-          const { text } = fieldsOf(await readBody(request, Type.Unknown()));
-
+    plugin("notes", ({ routes }) => {
+      routes.post(
+        ":kind",
+        {
+          auth: "person",
+          body: Type.Object({ text: Type.Optional(Type.Unknown()) }),
+        },
+        ({ params, body: { text } }) => {
           if (typeof text !== "string") {
             throw new BadRequest("text must be text");
           }
 
-          throw path === "full"
+          throw params.kind === "full"
             ? new HttpError(409, "notes are full", "notes_full")
             : new NotFound(`no note ${text}`);
-        });
-      },
-    },
+        },
+      );
+    }),
   ]);
 
-  const answer = async (
-    response: Promise<Response>,
-  ): Promise<readonly unknown[]> => {
-    const { status } = await response;
+  const answer = async (path: string, body: object): Promise<unknown[]> => {
+    const response = await server.api(path, { body });
 
-    return [status, await (await response).json()];
+    return [response.status, await response.json()];
   };
 
-  const answers = [
-    await answer(server.api("/api/ext/notes/items", { body: { text: 1 } })),
-    await answer(server.api("/api/ext/notes/items", { body: { text: "a" } })),
-    await answer(server.api("/api/ext/notes/full", { body: { text: "a" } })),
-    await answer(
-      fetch(new URL("/api/ext/notes/items", server.url), {
-        method: "POST",
-        headers: { cookie: await server.signedIn() },
-        body: "{not json",
-      }),
-    ),
-  ];
-
-  expect(answers).toEqual([
+  expect([
+    await answer("/api/ext/notes/items", { text: 1 }),
+    await answer("/api/ext/notes/items", { text: "a" }),
+    await answer("/api/ext/notes/full", { text: "a" }),
+  ]).toEqual([
     [400, { error: "bad_request", message: "text must be text" }],
     [404, { error: "not_found", message: "no note a" }],
     [409, { error: "notes_full", message: "notes are full" }],
-    [400, { error: "bad_request", message: "body must be JSON" }],
   ]);
 });
 
@@ -785,39 +605,36 @@ test("publishes kernel events and starts sessions for plugins", async () => {
   let started: Session | undefined;
 
   await start([
-    {
-      name: "starter",
-      register: ({ events, sessions, routes }) => {
-        for (const type of [
-          "SessionCreated",
-          "TurnStarted",
-          "TurnEnded",
-          "StopAsked",
-          "SessionArchived",
-        ] as const) {
-          events.subscribe(type, (event) => {
-            const by = "actor" in event ? event.actor : undefined;
+    plugin("starter", ({ events, sessions, routes }) => {
+      for (const type of [
+        "SessionCreated",
+        "TurnStarted",
+        "TurnEnded",
+        "StopAsked",
+        "SessionArchived",
+      ] as const) {
+        events.on(type, (event) => {
+          const by = "actor" in event ? event.actor : undefined;
 
-            seen.push(
-              by === undefined
-                ? event.type
-                : `${event.type} by ${by.slice(0, by.indexOf(":"))}`,
-            );
-          });
-        }
-
-        routes.handle(() => {
-          started = sessions.start({
-            actor: "plugin:starter",
-            workspace: { kind: "folder", path: root },
-            systemPrompt: "You help the starter plugin.",
-            firstMessage: "begin the work",
-          });
-
-          return Response.json(started);
+          seen.push(
+            by === undefined
+              ? event.type
+              : `${event.type} by ${by.slice(0, by.indexOf(":"))}`,
+          );
         });
-      },
-    },
+      }
+
+      routes.post("start", { auth: "person" }, () => {
+        started = sessions.start({
+          actor: "plugin:starter",
+          workspace: { kind: "folder", path: root },
+          systemPrompt: "You help the starter plugin.",
+          firstMessage: "begin the work",
+        });
+
+        return started;
+      });
+    }),
   ]);
 
   faux.setResponses([fauxAssistantMessage([fauxText("working on it")])]);
@@ -835,7 +652,6 @@ test("publishes kernel events and starts sessions for plugins", async () => {
   });
 
   expect(entriesInclude("begin the work")(events)).toBe(true);
-
   expect(entriesInclude("You help the starter plugin.")(events)).toBe(true);
 
   expect(seen).toEqual([
@@ -848,20 +664,17 @@ test("publishes kernel events and starts sessions for plugins", async () => {
 });
 
 test("lets a plugin archive and bring back only the Sessions it owns", async () => {
-  let context: ServerPluginContext | undefined;
+  let context: ServerContext | undefined;
   const seen: string[] = [];
 
   await start([
-    {
-      name: "owner",
-      register: (registered) => {
-        context = registered;
+    plugin("owner", (registered) => {
+      context = registered;
 
-        registered.events.subscribe("SessionUnarchived", ({ archivedAt }) => {
-          seen.push(archivedAt);
-        });
-      },
-    },
+      registered.events.on("SessionUnarchived", ({ archivedAt }) => {
+        seen.push(archivedAt);
+      });
+    }),
   ]);
 
   await environmentReady();
@@ -871,7 +684,7 @@ test("lets a plugin archive and bring back only the Sessions it owns", async () 
     workspace: { kind: "folder", path: root },
   } as const;
 
-  const owned = context?.sessions.start(request, "board");
+  const owned = context?.sessions.start({ ...request, key: "board" });
   const other = context?.sessions.start(request);
 
   context?.sessions.archive(owned?.id ?? "");
@@ -887,84 +700,18 @@ test("lets a plugin archive and bring back only the Sessions it owns", async () 
   );
 });
 
-test("tells a plugin why a message did not reach a session", async () => {
-  let sessions: ServerPluginContext["sessions"] | undefined;
-
-  await start([
-    {
-      name: "sender",
-      register: (context) => {
-        sessions = context.sessions;
-      },
-    },
-  ]);
-
-  const session = await createSession();
-  await follow(session.id, idle);
-  const reached = sessions?.notify(session.id, "a note", "plugin:sender");
-
-  await server.api(`/api/sessions/${session.id}`, {
-    method: "PATCH",
-    body: { archived: true },
-  });
-
-  const archived = sessions?.send(session.id, "hello", "plugin:sender");
-  const unknown = sessions?.send("missing", "hello", "plugin:sender");
-
-  expect([reached, archived, unknown]).toEqual([
-    { ok: true },
-    { ok: false, reason: "archived" },
-    { ok: false, reason: "not_found" },
-  ]);
-});
-
-test("tells a plugin how many lines a session's transcript has", async () => {
-  let sessions: ServerPluginContext["sessions"] | undefined;
-
-  await start([
-    {
-      name: "counter",
-      register: (context) => {
-        sessions = context.sessions;
-      },
-    },
-  ]);
-
-  faux.setResponses([fauxAssistantMessage([fauxText("counted")])]);
-
-  const session = await createSession();
-  await follow(session.id, idle);
-
-  await server.api(`/api/sessions/${session.id}/commands`, {
-    body: {
-      type: "message",
-      text: "count with me",
-    },
-  });
-
-  await follow(session.id, entriesInclude('"counted"'));
-  const lines = sessions?.transcript(session.id) ?? [];
-
-  expect(lines.some((line) => line.includes('"counted"'))).toBe(true);
-  expect(sessions?.transcriptLength(session.id)).toBe(lines.length);
-  expect(sessions?.transcriptLength("missing")).toBe(0);
-});
-
 test("tells a plugin how many transcript lines a turn ended with", async () => {
   const ended: (number | undefined)[] = [];
-  let sessions: ServerPluginContext["sessions"] | undefined;
+  let transcript: ServerContext["transcript"] | undefined;
 
   await start([
-    {
-      name: "turns",
-      register: (context) => {
-        sessions = context.sessions;
+    plugin("turns", (context) => {
+      transcript = context.transcript;
 
-        context.events.subscribe("TurnEnded", ({ transcriptLength }) => {
-          ended.push(transcriptLength);
-        });
-      },
-    },
+      context.events.on("TurnEnded", ({ transcriptLength }) => {
+        ended.push(transcriptLength);
+      });
+    }),
   ]);
 
   faux.setResponses([fauxAssistantMessage([fauxText("all done")])]);
@@ -973,46 +720,14 @@ test("tells a plugin how many transcript lines a turn ended with", async () => {
   await follow(session.id, idle);
 
   await server.api(`/api/sessions/${session.id}/commands`, {
-    body: {
-      type: "message",
-      text: "finish up",
-    },
+    body: { type: "message", text: "finish up" },
   });
 
   await follow(session.id, entriesInclude('"all done"'));
   await follow(session.id, idle);
 
-  expect(ended).toEqual([sessions?.transcriptLength(session.id)]);
-  expect(sessions?.transcript(session.id).at(-1)).toContain('"all done"');
-});
-
-test("tells a plugin the events that enabled plugins declare", async () => {
-  let declared: ServerPluginContext["events"]["declared"] | undefined;
-
-  const pull = {
-    title: "A pull request changed",
-    fields: { type: "object", properties: { url: { type: "string" } } },
-  };
-
-  await start(
-    [
-      {
-        name: "listener",
-        register: ({ events }) => {
-          declared = events.declared;
-        },
-      },
-      { name: "hosts", register: () => undefined },
-      { name: "off", register: () => undefined },
-    ],
-    ["off"],
-    {
-      hosts: { pull_request: pull },
-      off: { ignored: { title: "Never", fields: {} } },
-    },
-  );
-
-  expect(declared?.()).toEqual([{ type: "hosts.pull_request", ...pull }]);
+  expect(ended).toEqual([transcript?.length(session.id)]);
+  expect(transcript?.lastReply(session.id)?.text).toBe("all done");
 });
 
 test("leaves out plugins that are turned off", async () => {
@@ -1020,12 +735,10 @@ test("leaves out plugins that are turned off", async () => {
 
   await start(
     [
-      {
-        name: "off",
-        register: () => {
-          registered = true;
-        },
-      },
+      plugin("off", ({ routes }) => {
+        registered = true;
+        routes.get("anything", { auth: "person" }, () => ({}));
+      }),
     ],
     ["off"],
   );
@@ -1051,22 +764,15 @@ test("turns plugins on and off, and in team work, under plugins in pipoca.json",
     JSON.stringify({ plugins: { quiet: { personal: false } } }),
   );
 
-  const plugin = (name: string): ServerPlugin => ({
-    name,
-    register: () => {
-      registered.push(name);
-    },
-  });
+  const named = (id: string): ServerPart =>
+    plugin(id, () => {
+      registered.push(id);
+    });
 
   server = testServer({
     configDir,
-    plugins: [plugin("quiet"), plugin("chatty"), plugin("team")],
-    manifests: ["quiet", "chatty", "team"].map((id) => ({
-      id,
-      title: id,
-      description: "",
-      works: ["personal", "team"],
-    })),
+    builtIns: false,
+    servers: [named("quiet"), named("chatty"), named("team")],
   });
 
   const listed = async (): Promise<unknown> =>
@@ -1124,20 +830,12 @@ test("a switch in pipoca.json that doesn't fit is logged and leaves the others a
     }),
   );
 
-  const plugin = (name: string): ServerPlugin => ({
-    name,
-    register: () => undefined,
-  });
+  const named = (id: string): ServerPart => plugin(id);
 
   server = testServer({
     configDir,
-    plugins: [plugin("quiet"), plugin("broken"), plugin("chatty")],
-    manifests: ["quiet", "broken", "chatty"].map((id) => ({
-      id,
-      title: id,
-      description: "",
-      works: ["personal", "team"],
-    })),
+    builtIns: false,
+    servers: [named("quiet"), named("broken"), named("chatty")],
   });
 
   expect(await (await server.api("/api/plugins")).json()).toMatchObject([
@@ -1189,15 +887,12 @@ async function poolEnvironment(): Promise<Environment> {
 }
 
 test("lets a plugin start a runner for a Session no runner can take, until it revokes it", async () => {
-  let context: ServerPluginContext | undefined;
+  let machines: Runners | undefined;
 
   await start([
-    {
-      name: "machines",
-      register: (registered) => {
-        context = registered;
-      },
-    },
+    plugin("machines", ({ provide }) => {
+      machines = provide.runners(pool);
+    }),
   ]);
 
   const environment = await poolEnvironment();
@@ -1208,13 +903,13 @@ test("lets a plugin start a runner for a Session no runner can take, until it re
     workspace: { kind: "folder", path: root },
   });
 
-  expect(
-    context?.environments.unplaced(environment.id).map(({ id }) => id),
-  ).toEqual([session.id]);
+  expect(machines?.unplaced(environment.id).map(({ id }) => id)).toEqual([
+    session.id,
+  ]);
 
   const pod = startRunner(
     "pod-1",
-    context?.environments.runnerToken(environment.id, "pod-1") ?? "",
+    machines?.token(environment.id, "pod-1") ?? "",
   );
 
   await follow(
@@ -1224,7 +919,7 @@ test("lets a plugin start a runner for a Session no runner can take, until it re
       events.some((e) => e.type === "session" && e.session.runner === "pod-1"),
   );
 
-  expect(context?.environments.unplaced(environment.id)).toEqual([]);
+  expect(machines?.unplaced(environment.id)).toEqual([]);
 
   await server.api(`/api/environments/${environment.id}/keys`, { body: {} });
 
@@ -1234,7 +929,7 @@ test("lets a plugin start a runner for a Session no runner can take, until it re
     pod.logs.filter((line) => line.includes("let this runner go")),
   ).toEqual([]);
 
-  context?.environments.revokeRunner(environment.id, "pod-1");
+  machines?.revoke(environment.id, "pod-1");
 
   const stopped = await pod.done.then(
     () => undefined,
@@ -1245,15 +940,12 @@ test("lets a plugin start a runner for a Session no runner can take, until it re
 });
 
 test("stops a runner started to exit when idle once it runs no Session", async () => {
-  let context: ServerPluginContext | undefined;
+  let machines: Runners | undefined;
 
   await start([
-    {
-      name: "machines",
-      register: (registered) => {
-        context = registered;
-      },
-    },
+    plugin("machines", ({ provide }) => {
+      machines = provide.runners(pool);
+    }),
   ]);
 
   const environment = await poolEnvironment();
@@ -1266,7 +958,7 @@ test("stops a runner started to exit when idle once it runs no Session", async (
 
   const pod = startRunner(
     "pod-1",
-    context?.environments.runnerToken(environment.id, "pod-1") ?? "",
+    machines?.token(environment.id, "pod-1") ?? "",
     300,
   );
 
@@ -1294,23 +986,24 @@ test("stops a runner started to exit when idle once it runs no Session", async (
 test("hosts an installed plugin's Session part the assignment names by hash", async () => {
   const asked: string[] = [];
 
-  const { plugins, pluginSettings } = await sessionParts(
+  const { parts } = await sessionParts(
     {
       plugins: ["extra"],
       requiredPlugins: ["extra"],
       installedParts: { extra: "abc", unused: "def" },
-      pluginSettings: { extra: { greeting: "hi" } },
     },
     async (name, hash) => {
       asked.push(`${name}@${hash}`);
 
-      return Promise.resolve({ name });
+      return Promise.resolve({
+        plugin: definePlugin({ id: name, title: name, description: "" }),
+        setup: () => undefined,
+      });
     },
   );
 
   expect(asked).toEqual(["extra@abc"]);
-  expect(plugins.map(({ name }) => name)).toEqual(["extra"]);
-  expect(pluginSettings["extra"]).toEqual({ greeting: "hi" });
+  expect(parts.map(({ plugin: { id } }) => id)).toEqual(["extra"]);
 });
 
 test("refuses to host a Session part this runner doesn't have", () => {

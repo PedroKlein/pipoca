@@ -35,7 +35,8 @@ async function save(
   key: string,
   layer?: string,
 ): Promise<Response> {
-  return t.as(id).raw("POST", "save", {
+  return t.as(id).raw("save", {
+    method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       provider,
@@ -51,7 +52,9 @@ async function profile(
   id: string,
   content: Readonly<Record<string, unknown>>,
 ): Promise<string> {
-  const created = await t.as(id).kernel("POST", "/api/profiles", content);
+  const created = await t
+    .as(id)
+    .raw("/api/profiles", { method: "POST", body: JSON.stringify(content) });
 
   expect(created.status).toBe(201);
 
@@ -180,7 +183,8 @@ test("only admins put a login on the base, and only an API key", async () => {
 
   expect((await save(t, "ana", "anthropic", "sk", "base")).status).toBe(403);
 
-  const oauth = await t.as("admin").raw("POST", "save", {
+  const oauth = await t.as("admin").raw("save", {
+    method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       provider: "anthropic",
@@ -205,7 +209,7 @@ test("a team Session gets no one's logins, not even its starter's", async () => 
   expect(await team.api.get("credentials")).toEqual([]);
   expect(await team.api.get("mcp")).toEqual([]);
 
-  const locked = await team.request("credentials/anthropic/lock", {
+  const locked = await team.api.raw("credentials/anthropic/lock", {
     method: "POST",
   });
 
@@ -244,7 +248,7 @@ test("a write without the lease is refused, and so is a login that isn't one", a
   await using t = await started();
   const ana = await t.session({ owner: person("ana") });
 
-  const refused = await ana.request("credentials/anthropic/release", {
+  const refused = await ana.api.raw("credentials/anthropic/release", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -265,7 +269,7 @@ test("a write without the lease is refused, and so is a login that isn't one", a
     "credentials/anthropic/lock",
   );
 
-  const wrong = await ana.request("credentials/anthropic/release", {
+  const wrong = await ana.api.raw("credentials/anthropic/release", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ lease, value: { key: "sk" } }),
@@ -279,11 +283,17 @@ test("a person is offered Pi's models of the providers they logged in to, and a 
   await save(t, "ana", "anthropic", "sk");
   await save(t, "admin", "openai", "sk-team", "base");
 
-  await t.as("ana").kernel("POST", "/api/environments", { name: "mine" });
+  await t.as("ana").raw("/api/environments", {
+    method: "POST",
+    body: JSON.stringify({ name: "mine" }),
+  });
 
-  await t.as("admin").kernel("POST", "/api/environments", {
-    name: "shared",
-    team: true,
+  await t.as("admin").raw("/api/environments", {
+    method: "POST",
+    body: JSON.stringify({
+      name: "shared",
+      team: true,
+    }),
   });
 
   const offered = async (id: string, name: string, scope: string) =>
@@ -291,7 +301,9 @@ test("a person is offered Pi's models of the providers they logged in to, and a 
       async () =>
         (
           (await (
-            await t.as(id).kernel("GET", `/api/environments?scope=${scope}`)
+            await t
+              .as(id)
+              .raw(`/api/environments?scope=${scope}`, { method: "GET" })
           ).json()) as readonly Environment[]
         ).find((each) => each.name === name)?.models ?? [],
       (models) => models.length > 0,
@@ -311,7 +323,10 @@ test("a person is offered Pi's models of the providers they logged in to, and a 
     "openai",
   ]);
 
-  await t.as("bo").kernel("POST", "/api/environments", { name: "bos" });
+  await t.as("bo").raw("/api/environments", {
+    method: "POST",
+    body: JSON.stringify({ name: "bos" }),
+  });
 
   const bos = await offered("bo", "bos", "mine");
 
@@ -369,7 +384,8 @@ test("a person dismisses a sign-in and it stops asking", async () => {
 
   expect(await t.as("ana").delete("connection")).toEqual(nobody);
 
-  const late = await t.as("ana").raw("POST", "connection/answer", {
+  const late = await t.as("ana").raw("connection/answer", {
+    method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       prompt: asked.connection?.prompt?.id,
@@ -390,7 +406,8 @@ test("a sign-in a provider doesn't take is refused", async () => {
   await using t = await started();
   await connectable(t);
 
-  const refused = await t.as("ana").raw("POST", "connect", {
+  const refused = await t.as("ana").raw("connect", {
+    method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ provider: "openai-codex", type: "api_key" }),
   });
@@ -484,14 +501,15 @@ test("a person signs in to an MCP server of their Profiles from Settings, and th
     { key, name: "linear", url: linear.url },
   ]);
 
-  const begun = await t.as("ana").raw("POST", "connect-mcp", {
+  const begun = await t.as("ana").raw("connect-mcp", {
+    method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ server: key }),
   });
 
   const cookie = (begun.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
 
-  expect(cookie).toStartWith("pipoca-logins=");
+  expect(cookie).toStartWith("browser-");
 
   const asked = await until(
     async () => account(t, "ana"),
@@ -514,11 +532,13 @@ test("a person signs in to an MCP server of their Profiles from Settings, and th
   }).toString();
 
   // Another browser can't finish it with the same link.
-  expect((await t.public().raw("GET", `callback?${query}`)).status).toBe(400);
+  expect(
+    (await t.public().raw(`callback?${query}`, { method: "GET" })).status,
+  ).toBe(400);
 
   const returned = await t
     .public()
-    .raw("GET", `callback?${query}`, { headers: { cookie } });
+    .raw(`callback?${query}`, { method: "GET", headers: { cookie } });
 
   expect(returned.status).toBe(200);
 
@@ -639,15 +659,14 @@ test("a team Session calls the team's provider through the proxy, with a token i
     proxy.providers.find(({ provider }) => provider === "anthropic")?.baseUrl,
   ).toEndWith("/api/ext/logins/proxy/anthropic");
 
-  const answer = await t
-    .public()
-    .raw("POST", "proxy/anthropic/v1/messages?beta=true", {
-      headers: {
-        "x-api-key": proxy.token ?? "",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ model: "claude", stream: true }),
-    });
+  const answer = await t.public().raw("proxy/anthropic/v1/messages?beta=true", {
+    method: "POST",
+    headers: {
+      "x-api-key": proxy.token ?? "",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ model: "claude", stream: true }),
+  });
 
   expect(answer.status).toBe(200);
   expect(await answer.text()).toBe("data: {}\n\n");
@@ -669,7 +688,8 @@ test("the proxy refuses a token that isn't a live team Session's", async () => {
 
   const statusOf = async (token: string) =>
     (
-      await t.public().raw("POST", "proxy/anthropic/v1/messages", {
+      await t.public().raw("proxy/anthropic/v1/messages", {
+        method: "POST",
         headers: { "x-api-key": token },
         body: "{}",
       })
@@ -702,7 +722,8 @@ async function reported(answer: string, path: string, body: unknown) {
   const { team, proxy } = await teamWith(t, path.split("/")[0] ?? "");
   const token = proxy.token ?? "";
 
-  const response = await t.public().raw("POST", `proxy/${path}`, {
+  const response = await t.public().raw(`proxy/${path}`, {
+    method: "POST",
     headers: {
       "x-api-key": token,
       "x-goog-api-key": token,
@@ -800,7 +821,7 @@ test("an admin sees which of the team's keys reach models only through the serve
   await save(t, "admin", "my-extension", "sk-team", "base");
   await teamWith(t, "anthropic");
 
-  expect((await t.as("ana").raw("GET", "keys")).status).toBe(403);
+  expect((await t.as("ana").raw("keys", { method: "GET" })).status).toBe(403);
 
   expect(await t.as("admin").get("keys")).toEqual([
     { provider: "anthropic", proxied: true },
@@ -822,7 +843,7 @@ test("a team Session reads the base's keys the proxy can't carry, and only those
     "sap-ai-core": { type: "api_key", key: "sap-ai-core-key" },
   });
 
-  const locked = await team.request("credentials/sap-ai-core/lock", {
+  const locked = await team.api.raw("credentials/sap-ai-core/lock", {
     method: "POST",
   });
 
@@ -834,8 +855,11 @@ test("a Session can't call a person's routes, and a person can't call a Session'
   await using t = await started();
   const ana = await t.session({ owner: person("ana") });
 
-  expect((await ana.request("account")).status).toBe(403);
-  expect((await t.as("ana").raw("GET", "credentials/values")).status).toBe(403);
+  expect((await ana.api.raw("account")).status).toBe(403);
+
+  expect(
+    (await t.as("ana").raw("credentials/values", { method: "GET" })).status,
+  ).toBe(403);
 });
 
 test("the proxy reports what a stream cut off midway counted so far", async () => {
@@ -871,7 +895,8 @@ test("the proxy reports what a stream cut off midway counted so far", async () =
 
   await t
     .public()
-    .raw("POST", "proxy/anthropic/v1/messages", {
+    .raw("proxy/anthropic/v1/messages", {
+      method: "POST",
       headers: { "x-api-key": proxy.token ?? "" },
       body: JSON.stringify({ model: "claude-sonnet-4-5", stream: true }),
     })

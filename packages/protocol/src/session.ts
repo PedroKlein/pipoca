@@ -225,12 +225,12 @@ export type WorkspaceRemoval = Wire<typeof workspaceRemoval>;
 
 // The plugin that started a Session and keeps it out of the Session list
 // (ADR 0028), with the plugin's own key, such as a Project's id.
-export const sessionOwner = Type.Object({
-  plugin: Type.String(),
+export const sessionPlugin = Type.Object({
+  id: Type.String(),
   key: Type.String(),
 });
 
-export type SessionOwner = Wire<typeof sessionOwner>;
+export type SessionPlugin = Wire<typeof sessionPlugin>;
 
 // Who may see and steer a team Session (ADR 0064): every user, every user
 // seeing it but only its starter steering, or its starter and named people.
@@ -255,7 +255,7 @@ export type ActsAs = Wire<typeof actsAs>;
 export const session = Type.Object({
   id: Type.String(),
   environmentId: Type.String(),
-  owner: nullable(sessionOwner),
+  plugin: nullable(sessionPlugin),
   provider: Type.String(),
   // The runner that claimed the Session last, null until one does.
   runner: nullable(Type.String()),

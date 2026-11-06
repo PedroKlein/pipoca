@@ -26,7 +26,7 @@ let server: TestServer;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "plugin-routes-"));
-  server = testServer({ plugins: [], servers: [notes, diary] });
+  server = testServer({ builtIns: false, servers: [notes, diary] });
 });
 
 afterEach(async () => {
@@ -203,7 +203,7 @@ test("a body that doesn't fit the route's schema answers 422 naming the field", 
   });
 });
 
-test("a team route serves the caller's own owner and, where the plugin works there, the team", async () => {
+test("a team route serves the caller's own owner and, while the plugin is on in team work, the team", async () => {
   const cookie = await server.signedIn();
   const { user } = await json<SignInStatus>(server.api("/api/auth"));
   const id = user?.id ?? "";
@@ -217,7 +217,7 @@ test("a team route serves the caller's own owner and, where the plugin works the
   });
 
   expect(await pages.get("pages")).toEqual({ owner: `person:${id}` });
-  expect(await status(pages.get("team/pages"))).toBe(404);
+  expect(await pages.get("team/pages")).toEqual({ owner: "team" });
 
   await server.api("/api/plugins/notes", {
     method: "PATCH",

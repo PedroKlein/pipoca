@@ -1,7 +1,6 @@
-import type { HubPanel, HubScreen } from "@pipoca/plugins/web";
 import type { HubPage } from "@pipoca/protocol";
 import type { IconName } from "@pipoca/ui";
-import { enabledPlugins } from "../plugins";
+import { enabledPlugins, type HubPanel, type HubScreen } from "../plugins";
 import { href } from "../router";
 
 export interface Entry {
@@ -23,7 +22,7 @@ interface Screen extends HubScreen {
 
 export function panels(): readonly Placed[] {
   return enabledPlugins().flatMap(({ name, hub }) =>
-    Object.entries(hub?.panels ?? {}).map(([key, panel]) => ({
+    Object.entries(hub.panels).map(([key, panel]) => ({
       ...panel,
       id: `${name}/${key}`,
       plugin: name,
@@ -33,7 +32,7 @@ export function panels(): readonly Placed[] {
 
 export function screens(): readonly Screen[] {
   return enabledPlugins().flatMap(({ name, hub }) =>
-    Object.entries(hub?.pages ?? {}).map(([key, screen]) => ({
+    Object.entries(hub.pages).map(([key, screen]) => ({
       ...screen,
       href: href("teamPlugin", { plugin: name, key }),
       plugin: name,

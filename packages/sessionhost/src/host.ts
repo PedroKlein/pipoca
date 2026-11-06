@@ -12,12 +12,8 @@ import type {
   AgentSessionEvent,
   ExtensionError,
 } from "@earendil-works/pi-coding-agent";
-import type {
-  ChildOptions,
-  SessionLogins,
-  SessionPart,
-  SessionPlugin,
-} from "@pipoca/plugins";
+import type { SessionLogins } from "@pipoca/plugins";
+import type { SessionPart } from "@pipoca/plugins/host";
 import {
   type Command,
   type ImageAttachment,
@@ -25,7 +21,6 @@ import {
   liveSurface,
   noticeType,
   piTerminal,
-  type PluginSettings,
   type SlashCommand,
   systemClock,
   systemTimer,
@@ -79,8 +74,6 @@ export interface SessionStream {
 }
 
 export interface HostOptions extends SessionOptions {
-  readonly plugins?: readonly SessionPlugin[];
-  readonly pluginSettings?: Readonly<Record<string, PluginSettings>>;
   readonly parts?: readonly SessionPart[];
   readonly pluginConfig?: Readonly<Record<string, unknown>>;
   readonly firstMessage?: string | null;
@@ -380,58 +373,39 @@ export async function hostSession(
     options.serverToolTimeoutMs,
   );
 
-  const shared = (name: string) => ({
-    publish: (
-      key: string,
-      data: unknown,
-      { waiting }: { readonly waiting?: boolean } = {},
-    ) => {
-      live.push({
-        type: "plugin",
-        plugin: name,
-        key,
-        data,
-        ...(waiting === true && { waiting }),
-      });
-    },
-    askQuestions: prompts.questions,
-    askPermission: prompts.permission,
-    checkouts: options.checkouts ?? [],
-    log: (message: string, fields?: Readonly<Record<string, unknown>>) => {
-      log(message, { plugin: name, ...fields });
-    },
-    startChild: async (child: ChildOptions) => {
-      if (!started.session) {
-        throw new Error("the Session hasn't started yet");
-      }
-
-      return startChild(started.session, options, child);
-    },
-    request: async (path: string, init?: RequestInit) =>
-      stream.pluginRequest(name, path, init),
-  });
-
-  const plugins = (options.plugins ?? []).map((plugin) => ({
-    plugin,
-    cloud: {
-      ...shared(plugin.name),
-      settings: options.pluginSettings?.[plugin.name] ?? {},
-    },
-  }));
-
   const parts = await Promise.all(
-    (options.parts ?? []).map(async (part) =>
-      setUpPart(part, {
-        ...shared(part.plugin.id),
-        config: options.pluginConfig?.[part.plugin.id] ?? {},
+    (options.parts ?? []).map(async (part) => {
+      const name = part.plugin.id;
+
+      return setUpPart(part, {
+        publish: (key, data, { waiting } = {}) => {
+          live.push({
+            type: "plugin",
+            plugin: name,
+            key,
+            data,
+            ...(waiting === true && { waiting }),
+          });
+        },
+        askQuestions: prompts.questions,
+        askPermission: prompts.permission,
+        checkouts: options.checkouts ?? [],
+        log: (message, fields) => {
+          log(message, { plugin: name, ...fields });
+        },
+        startChild: async (child) => {
+          if (!started.session) {
+            throw new Error("the Session hasn't started yet");
+          }
+
+          return startChild(started.session, options, child);
+        },
+        request: async (path, init) => stream.pluginRequest(name, path, init),
+        config: options.pluginConfig?.[name] ?? {},
         clock: systemClock,
         timer: systemTimer,
-      }),
-    ),
-  );
-
-  const pluginTools = await Promise.all(
-    plugins.map(async ({ plugin, cloud }) => plugin.tools?.(cloud) ?? []),
+      });
+    }),
   );
 
   const logins = await modelCredentialsOf(parts, options.parts ?? [])?.();
@@ -470,27 +444,11 @@ export async function hostSession(
 
   const session = await startSession(options, {
     ui,
-    tools: [
-      ...pluginTools.flat(),
-      ...parts.flatMap(({ tools }) => tools),
-      ...calls.tools,
-    ],
+    tools: [...parts.flatMap(({ tools }) => tools), ...calls.tools],
     extensions: [
       { name: "pi-view", factory: view.extension },
-      ...plugins.flatMap(({ plugin, cloud }) =>
-        plugin.extension
-          ? [
-              {
-                name: plugin.name,
-                factory: plugin.extension(cloud),
-                ...(plugin.replaceable === true && { replaceable: true }),
-              },
-            ]
-          : [],
-      ),
       ...parts.flatMap(({ extensions }) => extensions),
     ],
-    packages: plugins.flatMap(({ plugin }) => plugin.packages ?? []),
     onError,
     ...(logins && { logins }),
     openUrl: pages.open,

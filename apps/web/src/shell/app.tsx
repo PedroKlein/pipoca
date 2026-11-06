@@ -14,7 +14,6 @@ import { PluginBoundary } from "../plugin-boundary";
 import {
   enabledPlugins,
   navEntries,
-  pluginContext,
   PluginShell,
   sessionHref,
 } from "../plugins";
@@ -29,15 +28,14 @@ import { TeamSetup } from "../team/setup";
 import { MenuButton, PluginPage } from "./plugin-page";
 
 export function App(): ReactElement {
-  const { user, admin, team } = useMe();
+  const { user, team } = useMe();
 
   const viewer = useMemo(
     () => ({
       person: { id: user.id, name: user.name, admin: user.admin },
-      admin,
       team,
     }),
-    [user.id, user.name, user.admin, admin, team],
+    [user.id, user.name, user.admin, team],
   );
 
   return (
@@ -211,10 +209,7 @@ function Home({
       <SetupReminders />
       {home?.Home ? (
         <PluginBoundary name={home.name}>
-          <home.Home
-            context={pluginContext(home.name)}
-            onNewSession={onNewSession}
-          />
+          <home.Home onNewSession={onNewSession} />
         </PluginBoundary>
       ) : (
         <Empty onNewSession={onNewSession} />

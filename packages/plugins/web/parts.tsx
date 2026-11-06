@@ -5,7 +5,6 @@ import {
   Fragment,
   type ReactElement,
   useEffect,
-  useEffectEvent,
   useMemo,
   useState,
 } from "react";
@@ -27,24 +26,23 @@ import type {
   TemplateSectionProps,
   ToolCallProps,
 } from "./index";
-import { useLoaded, watchChanges } from "./index";
-import { topicOf, useShell, usePlugin, type Viewer } from "./shell";
-
-type Own<T> = Omit<T, "context">;
+import { storedConfig } from "./config-form";
+import { useLoaded } from "./index";
+import { useShell, usePlugin, type Viewer } from "./shell";
 
 type Nothing = Readonly<Record<string, never>>;
 
 // The places plugins draw in. A plugin adds its own by augmenting this
 // interface, and fills another's by its name.
 export interface Slots {
-  "session.composer": Own<SessionPartProps>;
-  "session.header": Own<SessionPartProps>;
-  [call: `session.toolCall:${string}`]: Own<ToolCallProps>;
-  [notice: `notice:${string}`]: Own<NoticeProps>;
-  [link: `link:${string}`]: Own<LinkProps>;
-  home: Own<HomeProps>;
-  "environment.section": Own<EnvironmentSectionProps>;
-  "template.section": Own<TemplateSectionProps>;
+  "session.composer": SessionPartProps;
+  "session.header": SessionPartProps;
+  [call: `session.toolCall:${string}`]: ToolCallProps;
+  [notice: `notice:${string}`]: NoticeProps;
+  [link: `link:${string}`]: LinkProps;
+  home: HomeProps;
+  "environment.section": EnvironmentSectionProps;
+  "template.section": TemplateSectionProps;
   "settings.general": Nothing;
   "settings.accounts": Nothing;
   "settings.profile": { readonly profileId: string };
@@ -54,10 +52,10 @@ export interface WebPage {
   // Under the plugin's page, "" for the page itself.
   readonly path: string;
   readonly label: string;
-  readonly Page: ComponentType<Own<PageProps>>;
+  readonly Page: ComponentType<PageProps>;
   // In the sidebar. Pinned is for someone who never changed their pins.
   readonly nav?: {
-    readonly Items?: ComponentType<Own<NavItemsProps>>;
+    readonly Items?: ComponentType<NavItemsProps>;
     readonly pinned?: boolean;
     readonly fills?: (path: string) => boolean;
   };
@@ -89,6 +87,7 @@ export interface WebPart<P extends PluginDefinition = PluginDefinition> {
   readonly repositories?: (
     query: string,
     team: boolean,
+    api: TypedClient,
   ) => Promise<readonly RepositoryChoice[]>;
 }
 
@@ -157,35 +156,6 @@ export function useConfig(
   return useLoaded(async () => storedConfig(plugin.id), plugin.id, {
     topics: ["plugins"],
   }).value;
-}
-
-export async function storedConfig(
-  id: string,
-): Promise<Readonly<Record<string, unknown>>> {
-  const response = await fetch(`/api/plugins/${id}/config`);
-
-  if (!response.ok) {
-    throw new Error(`the config didn't load: ${String(response.status)}`);
-  }
-
-  const { value } = (await response.json()) as { readonly value: unknown };
-
-  return (value ?? {}) as Readonly<Record<string, unknown>>;
-}
-
-// Calls fn when one of the plugin's changes, named as its routes name it, or
-// another plugin's <plugin>.<name>, changes.
-export function useTopic(name: string, fn: () => void): void {
-  const changed = useEffectEvent(fn);
-  const topic = topicOf(usePlugin(), name);
-
-  useEffect(
-    () =>
-      watchChanges([topic], () => {
-        changed();
-      }),
-    [topic],
-  );
 }
 
 // What the plugin's Session part last published under key.

@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./plugin.ts"
+    "./plugin": "./plugin.ts"
   },
   "dependencies": {
     "@pipoca/plugins": "workspace:*",
@@ -12,7 +12,6 @@
   },
   "devDependencies": {
     "@pipoca/testing": "workspace:*",
-    "@types/node": "26.6.5",
     "@types/react": "19.3.0"
   },
   "pipoca": {

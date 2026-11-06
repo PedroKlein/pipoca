@@ -1,8 +1,8 @@
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { createInterface } from "node:readline";
-import type { SessionPart, SessionPlugin } from "@pipoca/plugins";
-import type { Log, PluginSettings, SessionStart } from "@pipoca/protocol";
+import type { SessionPart } from "@pipoca/plugins/host";
+import type { Log, SessionStart } from "@pipoca/protocol";
 import {
   type HostedSession,
   hostSession,
@@ -14,8 +14,6 @@ import { type ContainerSession, serverInContainer } from "./container";
 import { installedParts } from "./parts";
 
 interface SessionParts {
-  readonly plugins: readonly SessionPlugin[];
-  readonly pluginSettings: Readonly<Record<string, PluginSettings>>;
   readonly parts: readonly SessionPart[];
   readonly pluginConfig: Readonly<Record<string, unknown>>;
 }

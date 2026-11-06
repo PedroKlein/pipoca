@@ -4,9 +4,22 @@ import { Value } from "typebox/value";
 import { checked } from "./body";
 import { annotation } from "./definition";
 import { fieldsOf, isObject } from "./http";
-import type { ConfigKey } from "./plugin";
 import type { SecretRef, SecretRefs } from "./secrets";
 import type { PluginConfig } from "./server";
+
+// The plugin's part of the server's config folder (ADR 0039).
+export interface ConfigKey {
+  // The plugin's key in the folder's pipoca.json, read again when the file
+  // changes, for the plugin to check.
+  readonly get: () => unknown;
+  // Replaces the plugin's key and leaves the others alone.
+  readonly set: (value: unknown) => void;
+  // A folder of the plugin's own, which may not exist yet.
+  readonly dir: string;
+  // The file that fixes the plugin's key, such as one Helm writes, while set
+  // throws (ADR 0063).
+  readonly lockedIn: () => string | undefined;
+}
 
 export type ConfigSecrets = Pick<SecretRefs, "open">;
 

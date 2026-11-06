@@ -2,8 +2,8 @@ import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import {
-  type Backoff,
-  backoff,
+  type Retry,
+  retryAfter,
   BadRequest,
   defineServer,
   NotFound,
@@ -47,7 +47,7 @@ const intervalMs = 1000;
 // failure in a row.
 const retryAfterMs = 10_000;
 
-interface Failure extends Backoff {
+interface Failure extends Retry {
   readonly problem: string;
   readonly at: number;
 }
@@ -59,10 +59,10 @@ export const server = defineServer(
   ({ clock, environments, log, provide, routes, schedule, signal, store }) => {
     const settings = settingsStore(store);
     const failures = new Map<string, Failure>();
-    const runners = new Map<string, Bun.Subprocess>();
+    const processes = new Map<string, Bun.Subprocess>();
 
     const owned = (person: Person, id: string): Environment => {
-      const found = environments.list().find((each) => each.id === id);
+      const found = environments.get(id);
 
       if (found?.ownerId !== person.id) {
         throw new NotFound(`no Environment ${id}`);
@@ -114,14 +114,14 @@ export const server = defineServer(
       });
     }
 
-    provide.runners({
+    const runners = provide.runners({
       kind: { label: "This machine", icon: "monitor" },
       starts: (environment) => settings.get(environment.id) !== undefined,
     });
 
     const start = (environment: Environment, own: LocalSettings): void => {
       const { command, serverUrl, dataDir } = provide.runtime();
-      const token = environments.runnerToken(environment.id, runnerName);
+      const token = runners.token(environment.id, runnerName);
 
       const runner = Bun.spawn(
         [
@@ -145,7 +145,7 @@ export const server = defineServer(
         },
       );
 
-      runners.set(environment.id, runner);
+      processes.set(environment.id, runner);
 
       log("local runner started", {
         environmentId: environment.id,
@@ -153,14 +153,14 @@ export const server = defineServer(
       });
 
       void runner.exited.then((code) => {
-        runners.delete(environment.id);
+        processes.delete(environment.id);
 
         // The server stopped it, and its database is gone.
         if (signal.aborted) {
           return;
         }
 
-        environments.revokeRunner(environment.id, runnerName);
+        runners.revoke(environment.id, runnerName);
 
         if (code === 0) {
           failures.delete(environment.id);
@@ -172,7 +172,7 @@ export const server = defineServer(
         const now = clock.now();
 
         const failure = {
-          ...backoff(failures.get(environment.id), now, retryAfterMs),
+          ...retryAfter(failures.get(environment.id), now, retryAfterMs),
           problem: `its runner exited with code ${String(code)}`,
           at: now,
         };
@@ -194,9 +194,9 @@ export const server = defineServer(
 
         if (
           own === undefined ||
-          runners.has(environment.id) ||
+          processes.has(environment.id) ||
           (failure !== undefined && failure.retryAt > clock.now()) ||
-          environments.unplaced(environment.id).length === 0
+          runners.unplaced(environment.id).length === 0
         ) {
           continue;
         }
@@ -206,7 +206,7 @@ export const server = defineServer(
     });
 
     signal.addEventListener("abort", () => {
-      for (const runner of runners.values()) {
+      for (const runner of processes.values()) {
         runner.kill("SIGTERM");
       }
     });

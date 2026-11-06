@@ -7,10 +7,14 @@ import {
   owners,
   type PluginDefinition,
   type ServerContext,
-  type ServerPart,
 } from "@pipoca/plugins";
-import { eventBus, pluginClient, type TypedBus } from "@pipoca/plugins/host";
-import { until } from "@pipoca/plugins/testing";
+import {
+  eventBus,
+  pluginClient,
+  type ServerPart,
+  type EventBus,
+} from "@pipoca/plugins/host";
+import { until } from "@pipoca/testing/until";
 import type {
   Duration,
   PluginTest,
@@ -20,7 +24,6 @@ import type {
 import {
   type Command,
   type GitLogin,
-  type Method,
   type Owner,
   protocolVersion,
   readSse,
@@ -38,7 +41,7 @@ const day = 24 * 60 * 60_000;
 
 const units = { s: 1000, m: 60_000, h: 60 * 60_000, d: day } as const;
 
-type Emitted = Parameters<TypedBus["emit"]>[0];
+type Emitted = Parameters<EventBus["emit"]>[0];
 
 type Delivered = ReturnType<TestSession["delivered"]>[number];
 
@@ -144,7 +147,7 @@ export async function pluginTest(
     });
   });
 
-  const events: TypedBus = {
+  const events: EventBus = {
     ...bus,
     emit: (event) => {
       emitted.push(event);
@@ -178,11 +181,12 @@ export async function pluginTest(
       configDir,
       clock,
       runners: { pollWaitMs: 0, offlineAfterMs: longest, leaseMs: longest },
-      plugins: [],
+      builtIns: false,
       servers: captured,
       events,
       changes,
       ...(o.command !== undefined && { command: o.command }),
+      ...(o.env !== undefined && { env: o.env }),
       ...(o.solo === true &&
         soloPerson !== undefined && {
           solo: {
@@ -571,17 +575,6 @@ export async function pluginTest(
         headers: { authorization: `Bearer ${host.token}` },
         fetch: async (path, init) => request(path, init),
       }),
-      request: async (path, init = {}, of = plugin.id) => {
-        const headers = new Headers(init.headers);
-
-        headers.set(versionHeader, String(protocolVersion));
-        headers.set("authorization", `Bearer ${host.token}`);
-
-        return request(
-          `/runner/sessions/${host.id}/ext/${of}/${path.replace(/^\//, "")}`,
-          { ...init, headers },
-        );
-      },
       report: async (reports) => {
         const reported = await request(
           `/runner/sessions/${host.id}/events`,
@@ -700,42 +693,15 @@ export async function pluginTest(
   await ready();
 
   return {
-    as: (personId) => {
-      const raw = async (
-        method: Method,
-        path: string,
-        init: RequestInit = {},
-      ): Promise<Response> =>
-        request(extPath(path), { ...init, method }, await cookieOf(personId));
-
-      return {
-        ...pluginClient(plugin, {
-          fetch: async (path, init) =>
-            request(path, init, await cookieOf(personId)),
-        }),
-        raw,
-        kernel: async (method, path, body, headers = {}) =>
-          request(
-            path,
-            {
-              method,
-              headers: {
-                ...headers,
-                ...(body !== undefined && {
-                  "content-type": "application/json",
-                }),
-              },
-              ...(body !== undefined && { body: JSON.stringify(body) }),
-            },
-            await cookieOf(personId),
-          ),
-      };
-    },
+    as: (personId) =>
+      pluginClient(plugin, {
+        fetch: async (path, init) =>
+          request(path, init, await cookieOf(personId)),
+      }),
     public: () => ({
-      raw: async (method, path, init = {}) =>
-        request(extPath(path), { ...init, method }),
-      kernel: async (method, path, headers = {}) =>
-        request(path, { method, headers }),
+      ...pluginClient(plugin, {
+        fetch: async (path, init) => request(path, init),
+      }),
       webhook: async (path, body, secret) =>
         request(extPath(path), {
           method: "POST",

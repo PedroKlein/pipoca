@@ -1,4 +1,4 @@
-import { modelOptions, rememberModel, shownModels } from "@pipoca/plugins/web";
+import { modelOptions, rememberModel, shownModels } from "../../models";
 import type { ModelRef } from "@pipoca/protocol";
 import { Picker, Slider } from "@pipoca/ui";
 import type { ReactElement, RefObject } from "react";

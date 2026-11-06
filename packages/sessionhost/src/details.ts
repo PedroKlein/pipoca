@@ -1,4 +1,4 @@
-import { isObject } from "@pipoca/plugins";
+import { isObject } from "@pipoca/plugins/host";
 import type { PermissionDetail } from "@pipoca/protocol";
 
 // What the call would change, as labelled values. Ids and empty fields say

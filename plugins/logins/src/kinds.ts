@@ -23,7 +23,7 @@ export interface Owned extends Stored {
   readonly owner: string;
 }
 
-export interface KindSpec<T> {
+interface KindSpec<T> {
   // The first part of the Session routes.
   readonly name: string;
   readonly kind: "model" | "mcp";

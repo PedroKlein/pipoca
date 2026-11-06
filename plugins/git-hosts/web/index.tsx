@@ -1,11 +1,9 @@
 import {
   defineWeb,
-  json,
   type MountedSession,
   type NoticeProps,
   useApi,
   useLoaded,
-  type WebContext,
 } from "@pipoca/plugins/web";
 import {
   Badge,
@@ -63,12 +61,12 @@ export const web = defineWeb(gitHosts, {
       description:
         "Sessions clone, push and open pull requests as you. Connect the hosts where your repositories live.",
       optional: true,
-      done: async (context: WebContext) => {
-        const account = await json<Account>(context.request("account"));
+      done: async (api) => {
+        const account = await api.get<Account>("account");
 
         return account.hosts.length === 0 || account.connections.length > 0;
       },
-      topics: ["git-hosts.account"],
+      changes: ["account"],
       Step: CodeStep,
     },
   ],
@@ -78,12 +76,10 @@ export const web = defineWeb(gitHosts, {
     "pullRequest.status": PullRequest,
     "notice:pull_request": PullRequestNotice,
   },
-  repositories: async (query, team) =>
-    json<readonly RepositoryChoice[]>(
-      fetch(
-        `/api/ext/git-hosts/${team ? "team/" : ""}repositories?q=${encodeURIComponent(query)}`,
-      ),
-    ),
+  repositories: async (query, team, api) =>
+    api.get<readonly RepositoryChoice[]>(`${team ? "team/" : ""}repositories`, {
+      q: query,
+    }),
 });
 
 // Admins pick the hosts people can connect and the bots routines act as
@@ -537,7 +533,7 @@ function HostRow({
             <Button
               onClick={() => {
                 location.assign(
-                  `/api/ext/git-hosts/sign-in/${encodeURIComponent(host.host)}`,
+                  `/api/ext/${gitHosts.id}/sign-in/${encodeURIComponent(host.host)}`,
                 );
               }}
             >
@@ -888,7 +884,7 @@ function ConnectSetup({
               className="mt-2 self-start"
               onClick={() => {
                 location.assign(
-                  `/api/ext/git-hosts/sign-in/${encodeURIComponent(host.host)}`,
+                  `/api/ext/${gitHosts.id}/sign-in/${encodeURIComponent(host.host)}`,
                 );
               }}
             >
@@ -1048,7 +1044,7 @@ function Bots({ hosts }: { readonly hosts: readonly string[] }): ReactElement {
     });
 
     location.assign(
-      `/api/ext/git-hosts/technical-users/new-app?${params.toString()}`,
+      `/api/ext/${gitHosts.id}/technical-users/new-app?${params.toString()}`,
     );
   };
 

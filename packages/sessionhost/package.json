@@ -19,6 +19,7 @@
     "@pipoca/ask": "workspace:*",
     "@pipoca/changes": "workspace:*",
     "@pipoca/subagents": "workspace:*",
+    "@pipoca/testing": "workspace:*",
     "pi-subagents": "0.79.1"
   }
 }

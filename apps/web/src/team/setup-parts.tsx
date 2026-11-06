@@ -1,5 +1,4 @@
 import {
-  Badge,
   Button,
   ErrorText,
   Field,
@@ -78,32 +77,24 @@ export function TeamPlugins(): ReactElement {
   return (
     <Page
       title="Plugins in team work"
-      description="A plugin loads in team Sessions only if it says it works in team work and you leave it on. Built-in ones start on, installed ones start off. New team Sessions pick up a change."
+      description="A plugin loads in team Sessions only if you leave it on. Built-in ones start on, installed ones start off. New team Sessions pick up a change."
     >
       <ErrorText className="mb-4">{turn.error}</ErrorText>
       <Rows label="Plugins in team work">
         {plugins
           .filter(({ state }) => state === "on")
-          .map(({ id, title, description, works, teamWork }) => {
-            const supports = works?.includes("team") === true;
-
-            return (
-              <Row key={id} title={title} description={description}>
-                <Badge state={supports ? "done" : "offline"}>
-                  {supports ? "Works in team work" : "Personal only"}
-                </Badge>
-                <Switch
-                  label={`${title} in team work`}
-                  labelHidden
-                  checked={teamWork}
-                  disabled={!supports}
-                  onChange={(on) => {
-                    void turn.run(id, on);
-                  }}
-                />
-              </Row>
-            );
-          })}
+          .map(({ id, title, description, teamWork }) => (
+            <Row key={id} title={title} description={description}>
+              <Switch
+                label={`${title} in team work`}
+                labelHidden
+                checked={teamWork}
+                onChange={(on) => {
+                  void turn.run(id, on);
+                }}
+              />
+            </Row>
+          ))}
       </Rows>
     </Page>
   );

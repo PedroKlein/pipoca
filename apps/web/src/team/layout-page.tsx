@@ -17,7 +17,6 @@ import { type ReactElement, type ReactNode, useState } from "react";
 import { ago, sessionBadge, shortName } from "../names";
 import { href } from "../router";
 import { PluginBoundary } from "../plugin-boundary";
-import { pluginContext } from "../plugins";
 import { panels } from "./hub-pages";
 
 const busy = new Set<Session["status"]>(["queued", "starting", "running"]);
@@ -198,7 +197,7 @@ export function LayoutPage({
                 {title}
               </h2>
               <PluginBoundary name={plugin}>
-                <Panel context={pluginContext(plugin)} />
+                <Panel />
               </PluginBoundary>
             </section>
           ))}

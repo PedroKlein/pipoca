@@ -1,4 +1,4 @@
-import { PluginScope } from "@pipoca/plugins/web/shell";
+import { PluginScope } from "@pipoca/plugins/web/host";
 import { Button, ErrorText } from "@pipoca/ui";
 import { Component, type ReactNode } from "react";
 import { errorText } from "./data/client";

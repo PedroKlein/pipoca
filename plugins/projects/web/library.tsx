@@ -1,4 +1,4 @@
-import { json, ok, useLoaded } from "@pipoca/plugins/web";
+import { useLoaded, useApi } from "@pipoca/plugins/web";
 import { FileButton, Section } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { projects } from "../plugin";
@@ -7,13 +7,15 @@ import type { LibraryFile, LibraryWrite } from "../src/model";
 // A Project's files, which every Session in it reads and writes (ADR 0018).
 // path is the Project's own, such as projects/<id>.
 export function Library({ path }: { readonly path: string }): ReactElement {
-  const base = `/api/ext/${projects.id}/${path}`;
+  const api = useApi(projects);
+
+  const base = path;
 
   const { value, reload } = useLoaded(
     async () =>
       Promise.all([
-        json<LibraryFile[]>(fetch(`${base}/files`)),
-        json<LibraryWrite[]>(fetch(`${base}/log`)),
+        api.get<LibraryFile[]>(`${base}/files`),
+        api.get<LibraryWrite[]>(`${base}/log`),
       ]),
     base,
     { changes: ["projects"] },
@@ -27,7 +29,13 @@ export function Library({ path }: { readonly path: string }): ReactElement {
   const upload = async (chosen: readonly File[]): Promise<void> => {
     const results = await Promise.allSettled(
       chosen.map(async (file) =>
-        ok(fetch(filePath(file.name), { method: "PUT", body: file })),
+        api
+          .raw(filePath(file.name), { method: "PUT", body: file })
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error(`${file.name} didn't upload`);
+            }
+          }),
       ),
     );
 

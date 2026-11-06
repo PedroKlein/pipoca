@@ -5,7 +5,6 @@ export const models = definePlugin({
   title: "Models",
   description:
     "Model aliases per Environment, with fallbacks when a model fails.",
-  works: ["personal", "team"],
   config: Config.object({
     hidden: Config.strings({
       title: "Models kept out of the model pickers, as provider/id",

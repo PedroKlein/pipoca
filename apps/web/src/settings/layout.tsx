@@ -5,7 +5,7 @@ import { useMe } from "../data/hooks";
 import { EnvironmentsPage } from "./environments/environments";
 import { GeneralPage } from "./general/general";
 import { PluginBoundary } from "../plugin-boundary";
-import { enabledPlugins, pluginContext } from "../plugins";
+import { enabledPlugins } from "../plugins";
 import { ProfilesPage } from "./profiles/profiles";
 import { href } from "../router";
 import { TokensPage } from "./tokens/tokens";
@@ -92,7 +92,7 @@ export function SettingsLayout({
       return (
         <Page>
           <PluginBoundary name={open}>
-            <Section context={pluginContext(open)} />
+            <Section />
           </PluginBoundary>
         </Page>
       );

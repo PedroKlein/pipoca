@@ -29,7 +29,6 @@ function pool(options: { inUse?: boolean } = {}) {
         image: "node:22",
         setupScript: "",
         variables: { REGION: "eu" },
-        aliases: null,
         source: null,
       },
     ],

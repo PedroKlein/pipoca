@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Config, type PluginStore, Secret, Type } from "@pipoca/plugins";
+import { Config, Secret, Type } from "@pipoca/plugins";
 import {
   configOf,
   envSecrets,
@@ -9,7 +9,7 @@ import {
 
 // Seals like the server's key does: a value opens only under the context
 // it was sealed with, and each plugin's store adds its id to the context.
-function storeOf(plugin: string): Pick<PluginStore, "seal" | "open"> {
+function storeOf(plugin: string): Parameters<typeof secretRefs>[0] {
   return {
     seal: (text, context) => JSON.stringify([`${plugin}:${context}`, text]),
     open: (sealed, context) => {

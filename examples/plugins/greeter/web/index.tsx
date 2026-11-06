@@ -1,13 +1,14 @@
-import type { PageProps, WebPlugin } from "@pipoca/plugins/web";
+import { defineWeb, useApi } from "@pipoca/plugins/web";
 import { Button, PageTitle } from "@pipoca/ui";
 import { useState } from "react";
+import { greeter } from "../plugin";
 
-function Page({ context }: PageProps) {
+function Page() {
+  const api = useApi(greeter);
   const [greeting, setGreeting] = useState("");
 
   const greet = async () => {
-    const response = await context.request("greeting");
-    const body = (await response.json()) as { greeting: string };
+    const body = await api.get<{ greeting: string }>("greeting");
 
     setGreeting(body.greeting);
   };
@@ -21,7 +22,7 @@ function Page({ context }: PageProps) {
   );
 }
 
-export default {
-  name: "greeter",
-  nav: { label: "Greeter", Page },
-} satisfies WebPlugin;
+export const web = defineWeb(greeter, {
+  pages: [{ path: "", label: "Greeter", Page, nav: {} }],
+  settings: { group: "server", form: "auto" },
+});

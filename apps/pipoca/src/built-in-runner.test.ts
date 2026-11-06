@@ -14,7 +14,7 @@ const pods = defineServer(
     provide.runners({
       kind: { label: "Pods", icon: "cloud" },
       starts: () => true,
-      replacesServerRunner: () => true,
+      replacesServerRunner: true,
     });
   },
 );
@@ -41,7 +41,7 @@ test("runs no runner of its own where a plugin replaces it (ADR 0049)", async ()
       extensionPaths: [],
       folders: [],
     },
-    plugins: [],
+    builtIns: false,
     servers: [pods],
     log: (message) => {
       logs.push(message);
@@ -87,7 +87,7 @@ test("makes its own runner's Environment for the first person, once they sign up
 });
 
 test("says which plugin starts an Environment's runners, and with what label and icon", async () => {
-  const server = testServer({ plugins: [], servers: [pods] });
+  const server = testServer({ builtIns: false, servers: [pods] });
 
   try {
     const made = (await (
@@ -121,9 +121,6 @@ const broken = defineServer(
       starts: () => {
         throw new Error("can't tell");
       },
-      replacesServerRunner: () => {
-        throw new Error("can't tell either");
-      },
     });
   },
 );
@@ -138,7 +135,7 @@ test("a runner plugin whose checks throw counts as starting nothing, and the nex
       extensionPaths: [],
       folders: [],
     },
-    plugins: [],
+    builtIns: false,
     servers: [broken, pods],
     log: (message, fields) => {
       logs.push(`${message} ${JSON.stringify(fields)}`);
@@ -154,10 +151,6 @@ test("a runner plugin whose checks throw counts as starting nothing, and the nex
 
     expect(logs).toContain(
       'the server\'s own runner is off, since a plugin replaces it {"runner":"server"}',
-    );
-
-    expect(logs).toContain(
-      'plugin call failed {"plugin":"broken","call":"replacesServerRunner","error":"can\'t tell either"}',
     );
 
     expect(logs).toContain(

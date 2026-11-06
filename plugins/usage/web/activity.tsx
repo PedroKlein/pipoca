@@ -1,10 +1,10 @@
-import { ago, json, useLoaded, useNow } from "@pipoca/plugins/web";
+import { usage } from "../plugin";
+import { ago, useLoaded, useNow, useApi } from "@pipoca/plugins/web";
 import type { ReactElement } from "react";
-import { request } from "./request";
 
 interface Action {
   readonly at: string;
-  readonly actor: string;
+  readonly name: string | null;
   readonly sessionId: string;
   readonly action: string;
   readonly detail: string | null;
@@ -13,18 +13,14 @@ interface Action {
 // Who started, stopped, moved and limited the team's work lately, for the
 // hub's Home (ADR 0065).
 export function Activity(): ReactElement {
+  const api = useApi(usage);
+
   const now = useNow();
 
   const { value: actions } = useLoaded(
-    async () => json<readonly Action[]>(request("activity")),
+    async () => api.get<readonly Action[]>("activity"),
     "activity",
-    { topics: ["usage.audit"] },
-  );
-
-  const { value: teammates = [] } = useLoaded(
-    async () =>
-      json<readonly { id: string; name: string }[]>(request("/api/people")),
-    "teammates",
+    { changes: ["audit"] },
   );
 
   if (actions === undefined) {
@@ -39,18 +35,14 @@ export function Activity(): ReactElement {
     );
   }
 
-  const who = (actor: string): string => {
-    const id = actor.slice("user:".length);
-
-    return teammates.find((each) => each.id === id)?.name ?? "Someone";
-  };
-
   return (
     <ul aria-label="Activity" className="flex flex-col gap-2 text-label">
-      {actions.map(({ at, actor, sessionId, action, detail }) => (
+      {actions.map(({ at, name, sessionId, action, detail }) => (
         <li key={`${at}-${sessionId}-${action}`} className="flex gap-2">
           <span className="min-w-0 flex-1">
-            <span className="font-medium text-fg-strong">{who(actor)}</span>{" "}
+            <span className="font-medium text-fg-strong">
+              {name ?? "Someone"}
+            </span>{" "}
             {action}{" "}
             <a href={`#${sessionId}`} className="text-fg hover:underline">
               {detail ?? "a Session"}

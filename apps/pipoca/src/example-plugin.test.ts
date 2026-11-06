@@ -49,11 +49,9 @@ test("runs the guide's example plugin with all three parts", async () => {
     greeting: "Hello",
   });
 
-  await server.api("/api/plugins/greeter", {
-    method: "PATCH",
-    body: {
-      settings: { greeting: "Hi" },
-    },
+  await server.api("/api/plugins/greeter/config", {
+    method: "PUT",
+    body: { value: { greeting: "Hi" } },
   });
 
   expect(await (await server.api("/api/ext/greeter/greeting")).json()).toEqual({
@@ -62,12 +60,5 @@ test("runs the guide's example plugin with all three parts", async () => {
 });
 
 test("answers the example's unknown routes with the server's 404", async () => {
-  const missing = await server.api("/api/ext/greeter/farewell");
-
-  expect(missing.status).toBe(404);
-
-  expect(await missing.json()).toEqual({
-    error: "not_found",
-    message: "the greeter has no farewell",
-  });
+  expect((await server.api("/api/ext/greeter/farewell")).status).toBe(404);
 });

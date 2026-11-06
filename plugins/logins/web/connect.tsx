@@ -1,5 +1,5 @@
-import { json, useLoaded } from "@pipoca/plugins/web";
-import { request } from "./request";
+import { logins } from "../plugin";
+import { useLoaded, useApi } from "@pipoca/plugins/web";
 import {
   Button,
   cardClass,
@@ -12,7 +12,7 @@ import {
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type { Connectable, Connection, ConnectionPrompt } from "../src/model";
 
-type Send = (path: string, init: RequestInit) => void;
+type Send = (call: Promise<unknown>) => void;
 
 // Picks a provider and a way in, and asks the server to sign the person in.
 // With a provider it signs in to that one, and with a layer it keeps the
@@ -31,8 +31,10 @@ export function ConnectForm({
   readonly layer?: string;
   readonly admin?: boolean;
 }): ReactElement | null {
+  const api = useApi(logins);
+
   const { value: providers } = useLoaded(
-    async () => json<readonly Connectable[]>(request("providers")),
+    async () => api.get<readonly Connectable[]>("providers"),
     "providers",
   );
 
@@ -57,26 +59,24 @@ export function ConnectForm({
     const form = new FormData(event.currentTarget);
 
     if (provider?.paste === true) {
-      send("save", {
-        method: "POST",
-        body: JSON.stringify({
+      send(
+        api.post("save", {
           provider: provider.id,
           credential: { type: "api_key", key: form.get("key") },
           layer: chosenLayer,
         }),
-      });
+      );
 
       return;
     }
 
-    send("connect", {
-      method: "POST",
-      body: JSON.stringify({
+    send(
+      api.post("connect", {
         provider: provider?.id,
         type: form.get("type"),
         layer: chosenLayer,
       }),
-    });
+    );
   };
 
   return (
@@ -155,10 +155,12 @@ export function ConnectionCard({
   readonly connection: Connection;
   readonly send: Send;
 }): ReactElement {
+  const api = useApi(logins);
+
   const { name } = connection;
 
   const dismiss = (): void => {
-    send("connection", { method: "DELETE" });
+    send(api.delete("connection"));
   };
 
   return (
@@ -264,11 +266,10 @@ function PromptForm({
   readonly prompt: ConnectionPrompt;
   readonly send: Send;
 }): ReactElement {
+  const api = useApi(logins);
+
   const answer = (value: unknown): void => {
-    send("connection/answer", {
-      method: "POST",
-      body: JSON.stringify({ prompt: prompt.id, answer: value }),
-    });
+    send(api.post("connection/answer", { prompt: prompt.id, answer: value }));
   };
 
   const submit = (event: SubmitEvent<HTMLFormElement>): void => {

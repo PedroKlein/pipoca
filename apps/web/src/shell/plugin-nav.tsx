@@ -3,7 +3,7 @@ import { type ReactElement, useState } from "react";
 import { request } from "../data/client";
 import { seed, useQuery } from "../data/hooks";
 import { PluginBoundary } from "../plugin-boundary";
-import { type NavEntry, pluginContext } from "../plugins";
+import type { NavEntry } from "../plugins";
 import { href, type Route } from "../router";
 
 export function PluginNav({
@@ -91,7 +91,6 @@ export function PluginNav({
       {entry.Items && (
         <PluginBoundary name={entry.name}>
           <entry.Items
-            context={pluginContext(entry.name)}
             path={page?.name === entry.name ? page.path : undefined}
           />
         </PluginBoundary>

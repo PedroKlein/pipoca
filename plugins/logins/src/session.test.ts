@@ -20,7 +20,7 @@ const people = [
 // A runner's Session of the person, its logins kept on the test's server.
 async function runner(t: PluginTest, id: string): Promise<SessionLogins> {
   const started = await t.session({ owner: person(id) });
-  const part = await testSession(session, { request: started.request });
+  const part = await testSession(session, { request: started.api.raw });
   const logins = await part.modelCredentials();
 
   if (logins === undefined) {
@@ -225,7 +225,7 @@ test("a team Session points the team's providers at the proxy, with its token as
     (providers) => providers.length > 0,
   );
 
-  const part = await testSession(session, { request: team.request });
+  const part = await testSession(session, { request: team.api.raw });
 
   const pointed = part.provider("anthropic") as
     { readonly baseUrl: string; readonly apiKey: string } | undefined;
@@ -234,7 +234,7 @@ test("a team Session points the team's providers at the proxy, with its token as
   expect(pointed?.apiKey).toStartWith("ppx_");
 
   const mine = await t.session({ owner: person("ana") });
-  const personal = await testSession(session, { request: mine.request });
+  const personal = await testSession(session, { request: mine.api.raw });
 
   expect(personal.provider("anthropic")).toBeUndefined();
 });

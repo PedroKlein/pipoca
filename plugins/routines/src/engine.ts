@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -154,7 +154,7 @@ function ownerOfFolder(folder: string): Owner {
 }
 
 // The key a routine's Sessions are owned by, which its page reads back.
-export function sessionKey(owner: Owner, name: string): string {
+function sessionKey(owner: Owner, name: string): string {
   return `${owner}/${name}`;
 }
 
@@ -458,7 +458,7 @@ export function routinesEngine(context: Context): Routines {
     const now = clock.now();
 
     const row: RunRow = {
-      id: randomUUID(),
+      id: Bun.randomUUIDv7(),
       owner_user_id: sql(owner),
       name,
       fired_at: now,
@@ -625,7 +625,7 @@ export function routinesEngine(context: Context): Routines {
 
     if (
       target.environment !== undefined &&
-      !context.environments.list().some(({ id }) => id === target.environment)
+      context.environments.get(target.environment) === undefined
     ) {
       end(run, "blocked", `no Environment ${target.environment}`);
 
@@ -829,9 +829,7 @@ export function routinesEngine(context: Context): Routines {
 
   context.events.on("TurnEnded", ({ session }) => {
     const run =
-      session.owner?.plugin === "routines"
-        ? runOfSession(session.id)
-        : undefined;
+      session.plugin?.id === "routines" ? runOfSession(session.id) : undefined;
 
     if (run !== undefined) {
       end(run, "stopped", "the turn ended without end_run");
@@ -840,9 +838,7 @@ export function routinesEngine(context: Context): Routines {
 
   context.events.on("SessionStateChanged", ({ session }) => {
     const run =
-      session.owner?.plugin === "routines"
-        ? runOfSession(session.id)
-        : undefined;
+      session.plugin?.id === "routines" ? runOfSession(session.id) : undefined;
 
     if (run !== undefined && session.status === "failed") {
       end(run, "failed", session.error ?? "the run's Session failed");
@@ -855,9 +851,7 @@ export function routinesEngine(context: Context): Routines {
 
   context.events.on("SessionArchived", ({ session }) => {
     const run =
-      session.owner?.plugin === "routines"
-        ? runOfSession(session.id)
-        : undefined;
+      session.plugin?.id === "routines" ? runOfSession(session.id) : undefined;
 
     if (run !== undefined) {
       end(run, "stopped", "the run's Session was archived");

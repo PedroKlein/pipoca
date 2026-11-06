@@ -19,7 +19,7 @@ import { prefillComposer } from "./composer/prefill";
 import { emptyFeed, type Feed, feedReader, followEvents } from "./feed";
 import { Header } from "./header";
 import { MoveDialog } from "./move-team";
-import { usePluginParts } from "./plugin-parts";
+import { usePluginHeaders } from "./plugin-parts";
 import { PresenceLine, usePresence, useTyping } from "./presence";
 import { SessionActions } from "./session-actions";
 import { sessionChannel } from "./session-channel";
@@ -123,7 +123,7 @@ export function SessionView({
     };
   }, [pageTitle, primary]);
 
-  const plugins = usePluginParts(team, channel.session);
+  const pluginHeaders = usePluginHeaders(team, channel.session);
 
   // The fork starts from this Session's branch, so it gets what was pushed
   // or, on the same machine, committed. From a message, that message comes
@@ -169,7 +169,7 @@ export function SessionView({
           title={title}
           crumb={crumb}
           environments={environments}
-          pluginHeaders={plugins.headers}
+          pluginHeaders={pluginHeaders}
           archived={archived}
           view={view}
           onView={setView}
@@ -198,13 +198,6 @@ export function SessionView({
             )
           }
         />
-
-        <div
-          id={primary ? "plugin-panels" : undefined}
-          className="flex flex-col gap-2 border-b border-line px-4 py-2 text-label not-has-[>:not(:empty)]:hidden"
-        >
-          {plugins.panels}
-        </div>
 
         {shown === "terminal" && (
           <TerminalView sessionId={sessionId} terminals={feed.terminals} />

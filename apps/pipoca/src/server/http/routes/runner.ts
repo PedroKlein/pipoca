@@ -244,28 +244,5 @@ export function runnerRoutes({
 
       return new Response(Bun.file(path));
     },
-    "runner.ext": async ({ request, params: { id, plugin, path } }) => {
-      const session = sessions.get(id);
-
-      const generation = Number(
-        new URL(request.url).searchParams.get("generation") ?? NaN,
-      );
-
-      if (!session || !sessions.isCurrent(id, generation)) {
-        throw rejection("stale_generation");
-      }
-
-      const routed = await plugins.route(request, plugin, path, {
-        kind: "session",
-        session,
-        actor: `session:${id}`,
-      });
-
-      if (routed === undefined) {
-        throw new NotFound("Not found.");
-      }
-
-      return routed;
-    },
   };
 }

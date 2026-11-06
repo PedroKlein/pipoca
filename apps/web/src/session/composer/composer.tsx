@@ -130,7 +130,7 @@ export function Composer({
 
       <PluginParts session={session} team={team} />
 
-      <Widgets widgets={feed.widgetsAbove} session={session} />
+      <Widgets widgets={feed.widgetsAbove} />
 
       {!hidden && (
         <form
@@ -262,7 +262,7 @@ export function Composer({
         </form>
       )}
 
-      <Widgets widgets={feed.widgetsBelow} session={session} />
+      <Widgets widgets={feed.widgetsBelow} />
 
       {feed.footer === undefined ? (
         feed.statuses.length > 0 && (

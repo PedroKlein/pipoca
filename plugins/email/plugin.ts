@@ -23,7 +23,6 @@ export const email = definePlugin({
   title: "Email",
   description:
     "Turns new mail in a mailbox into routine triggers, and lets Sessions send mail and hear replies. Admins add mailboxes in Settings.",
-  works: ["personal", "team"],
   config: Config.object({
     pollSeconds: Config.number({
       title: "Seconds between mail checks",

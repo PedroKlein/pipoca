@@ -1,4 +1,4 @@
-import { defineWeb, json, useApi, useLoaded } from "@pipoca/plugins/web";
+import { defineWeb, useApi, useLoaded } from "@pipoca/plugins/web";
 import type { Environment, ModelRef } from "@pipoca/protocol";
 import {
   Badge,
@@ -46,7 +46,7 @@ function Page(): ReactElement {
   const { value, reload } = useLoaded(
     async () =>
       Promise.all([
-        json<Environment[]>(fetch("/api/environments")),
+        api.get<Environment[]>("/api/environments"),
         api.get<EnvironmentModels[]>("environments"),
       ]),
     "models",

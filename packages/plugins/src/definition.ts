@@ -36,9 +36,9 @@ export interface PluginDefinition<
   readonly id: string;
   readonly title: string;
   readonly description: string;
-  readonly works?: readonly ("personal" | "team")[];
   readonly defaultOn?: "always" | "solo" | "team" | "never";
-  readonly requires?: Readonly<Record<string, "required" | "optional">>;
+  // The plugins it can't run without, which start before it.
+  readonly requires?: readonly string[];
   readonly config?: C;
   readonly schema?: string;
   readonly events?: E;

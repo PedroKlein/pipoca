@@ -82,25 +82,21 @@ async function errorOf(response: Promise<Response>): Promise<string> {
   return message;
 }
 
-const manifest = (parts: Record<string, string> = { server: "server.ts" }) =>
+const manifest = (entry = "src/server.ts") =>
   JSON.stringify({
     type: "module",
-    pipoca: {
-      id: "hello",
-      title: "Hello",
-      description: "Says hi.",
-      engine: 1,
-      capabilities: ["routes"],
-      parts,
-    },
+    description: "Says hi.",
+    pipoca: { id: "hello", entry },
   });
 
-const serverPart = `export default {
-  name: "hello",
-  register: (context) => {
-    context.routes.handle(async () => new Response("hi"));
+const serverPart = `import { definePlugin, defineServer } from "@pipoca/plugins";
+
+export const server = defineServer(
+  definePlugin({ id: "hello", title: "Hello", description: "Says hi." }),
+  ({ routes }) => {
+    routes.get("hi", { auth: "person" }, () => new Response("hi"));
   },
-};
+);
 `;
 
 async function exists(path: string): Promise<boolean> {
@@ -117,7 +113,7 @@ test("writes a new plugin turned off, and lists and reads its files", async () =
 
   expect(await written.json()).toMatchObject({
     id: "hello",
-    title: "Hello",
+    title: "hello",
     source: "installed",
     state: "off",
     turnedOn: false,
@@ -141,7 +137,7 @@ test("builds a plugin turned off without running it, and says why one doesn't bu
 
   await write(
     "hello",
-    "server.ts",
+    "src/server.ts",
     `${serverPart}\nawait Bun.write(${JSON.stringify(join(root, "ran"))}, "");`,
   );
 
@@ -152,9 +148,9 @@ test("builds a plugin turned off without running it, and says why one doesn't bu
   expect(built.status).toBe(201);
   expect(await exists(join(plugins, "hello", ".build"))).toBe(true);
   expect(await exists(join(root, "ran"))).toBe(false);
-  expect((await server.api("/api/ext/hello/")).status).toBe(404);
+  expect((await server.api("/api/ext/hello/hi")).status).toBe(404);
 
-  await write("hello", "server.ts", "export default {");
+  await write("hello", "src/server.ts", "export default {");
 
   expect(
     await errorOf(server.api("/api/plugins/hello/builds", { method: "POST" })),
@@ -193,7 +189,7 @@ test("finishes a build that takes longer than the server's idle timeout", async 
     }),
   );
 
-  await write("hello", "server.ts", serverPart);
+  await write("hello", "src/server.ts", serverPart);
 
   const built = await server.api("/api/plugins/hello/builds", {
     method: "POST",
@@ -201,15 +197,6 @@ test("finishes a build that takes longer than the server's idle timeout", async 
 
   expect(built.status).toBe(201);
 }, 30_000);
-
-test("won't build a plugin with no parts, since it would do nothing", async () => {
-  await start();
-  await write("hello", "package.json", manifest({}));
-
-  expect(
-    await errorOf(server.api("/api/plugins/hello/builds", { method: "POST" })),
-  ).toContain("no parts");
-});
 
 test("builds without running a macro, which would run the plugin's code", async () => {
   const mark = join(root, "macro-ran");
@@ -219,14 +206,14 @@ test("builds without running a macro, which would run the plugin's code", async 
 
   await write(
     "hello",
-    "macro.ts",
+    "src/macro.ts",
     `export function hi() { Bun.write(${JSON.stringify(mark)}, ""); return "hi"; }\n`,
   );
 
   await write(
     "hello",
-    "server.ts",
-    `import { hi } from "./macro.ts" with { type: "macro" };\n\nexport default { name: hi(), register: () => undefined };\n`,
+    "src/server.ts",
+    `import { hi } from "./macro.ts" with { type: "macro" };\n\nexport const server = { name: hi() };\n`,
   );
 
   expect(
@@ -272,14 +259,14 @@ test("keeps writes inside the plugin's own files", async () => {
 test("changes only plugins turned off that are its own to change", async () => {
   await start();
   await write("hello", "package.json", manifest());
-  await write("hello", "server.ts", serverPart);
+  await write("hello", "src/server.ts", serverPart);
 
   await server.api("/api/plugins/hello", {
     method: "PATCH",
     body: { enabled: true },
   });
 
-  expect(await errorOf(write("hello", "server.ts", "x"))).toContain(
+  expect(await errorOf(write("hello", "src/server.ts", "x"))).toContain(
     "turned on",
   );
 
@@ -310,9 +297,9 @@ test("changes only plugins turned off that are its own to change", async () => {
 
   expect(await errorOf(write("linked", "x.ts", "x"))).toContain("elsewhere");
 
-  expect(await readFile(join(plugins, "hello", "server.ts"), "utf8")).toBe(
-    serverPart,
-  );
+  expect(
+    await readFile(join(plugins, "hello", "src", "server.ts"), "utf8"),
+  ).toBe(serverPart);
 });
 
 test("shows a plugin's broken manifest once it is written", async () => {
@@ -338,10 +325,10 @@ test("writes a new plugin turned off even when a removed one of its id was on", 
 
   await start();
   await write("hello", "package.json", manifest());
-  await write("hello", "server.ts", serverPart);
+  await write("hello", "src/server.ts", serverPart);
   await start();
 
-  expect((await server.api("/api/ext/hello/")).status).toBe(404);
+  expect((await server.api("/api/ext/hello/hi")).status).toBe(404);
 });
 
 test("won't turn on a plugin that changed since the user saw it", async () => {
@@ -351,7 +338,7 @@ test("won't turn on a plugin that changed since the user saw it", async () => {
     await write("hello", "package.json", manifest())
   ).json()) as PluginInfo;
 
-  await write("hello", "package.json", manifest({ server: "other.ts" }));
+  await write("hello", "package.json", manifest("src/other.ts"));
 
   expect(
     await errorOf(
@@ -383,10 +370,10 @@ test("won't turn on a plugin whose code changed since the user saw it", async ()
   await write("hello", "package.json", manifest());
 
   const seen = (await (
-    await write("hello", "server.ts", serverPart)
+    await write("hello", "src/server.ts", serverPart)
   ).json()) as PluginInfo;
 
-  await write("hello", "server.ts", serverPart.replace("hi", "bye"));
+  await write("hello", "src/server.ts", serverPart.replace("hi", "bye"));
 
   expect(
     await errorOf(
@@ -421,7 +408,7 @@ test("keeps what the server makes in a plugin's folder out of reach, whatever th
 
 test("won't build a plugin whose install would reach outside its folder", async () => {
   await start();
-  await write("hello", "server.ts", serverPart);
+  await write("hello", "src/server.ts", serverPart);
 
   for (const [field, value] of [
     ["workspaces", ["../other"]],
@@ -509,21 +496,21 @@ test("answers not found for a plugin or file that isn't there", async () => {
 test("lets only an admin write or build a plugin's files", async () => {
   await start();
   await write("hello", "package.json", manifest());
-  await write("hello", "server.ts", serverPart);
+  await write("hello", "src/server.ts", serverPart);
 
   const db = new DatabaseSync(join(root, "server.db"));
   db.exec("update users set admin = 0");
   db.close();
 
   const refused = await Promise.all([
-    write("hello", "server.ts", "export default {};"),
+    write("hello", "src/server.ts", "export default {};"),
     server.api("/api/plugins/hello/builds", { method: "POST" }),
   ]);
 
   expect(refused.map(({ status }) => status)).toEqual([403, 403]);
   expect(await refused[0].json()).toMatchObject({ error: "admin_only" });
 
-  expect(await readFile(join(plugins, "hello", "server.ts"), "utf8")).toBe(
-    serverPart,
-  );
+  expect(
+    await readFile(join(plugins, "hello", "src", "server.ts"), "utf8"),
+  ).toBe(serverPart);
 });

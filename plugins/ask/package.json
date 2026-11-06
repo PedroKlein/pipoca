@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./plugin.ts",
+    "./plugin": "./plugin.ts",
     "./session": "./src/session.ts"
   },
   "dependencies": {

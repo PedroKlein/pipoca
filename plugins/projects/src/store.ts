@@ -322,7 +322,8 @@ export function projectStore(store: Store, clock: Clock) {
         );
 
         store.run(
-          "insert into projects_memory_log (project_id, name, size, actor, at) values (?, ?, ?, ?, ?)",
+          "insert into projects_memory_log (id, project_id, name, size, actor, at) values (?, ?, ?, ?, ?, ?)",
+          Bun.randomUUIDv7(),
           projectId,
           name,
           size,
@@ -379,7 +380,8 @@ export function projectStore(store: Store, clock: Clock) {
         );
 
         store.run(
-          "insert into projects_file_log (project_id, name, size, actor, at) values (?, ?, ?, ?, ?)",
+          "insert into projects_file_log (id, project_id, name, size, actor, at) values (?, ?, ?, ?, ?, ?)",
+          Bun.randomUUIDv7(),
           projectId,
           name,
           content.length,

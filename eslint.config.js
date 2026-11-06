@@ -96,14 +96,13 @@ export default tseslint.config(
     },
   },
   {
-    // A v1 example plugin's parts are loaded by their default export
-    // (docs/plugins.md).
-    files: ["examples/plugins/**/*.ts", "examples/plugins/**/*.tsx"],
-    rules: { "no-restricted-exports": "off" },
-  },
-  {
     // Built-in plugins use only what a third-party plugin gets (ADR 0038).
-    files: ["plugins/**/*.ts", "plugins/**/*.tsx"],
+    files: [
+      "plugins/**/*.ts",
+      "plugins/**/*.tsx",
+      "examples/plugins/**/*.ts",
+      "examples/plugins/**/*.tsx",
+    ],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -111,7 +110,7 @@ export default tseslint.config(
           patterns: [
             {
               regex:
-                "^@pipoca/(?!(plugins|plugins/testing|plugins/web|plugins/web/testing|protocol|testing|ui|[a-z][a-z0-9-]*/plugin)$)",
+                "^@pipoca/(?!(plugins|plugins/web|plugins/web/testing|protocol|testing|testing/until|ui|[a-z][a-z0-9-]*/plugin)$)",
               message:
                 "Plugins import only @pipoca/plugins, @pipoca/protocol, @pipoca/testing, @pipoca/ui and another plugin's definition, as @pipoca/<id>/plugin.",
             },
@@ -135,7 +134,7 @@ export default tseslint.config(
           patterns: [
             {
               regex:
-                "^@pipoca/(?!(plugins|plugins/testing|plugins/web|plugins/web/testing|protocol|testing|ui|[a-z][a-z0-9-]*/plugin|[a-z][a-z0-9-]*/server)$)",
+                "^@pipoca/(?!(plugins|plugins/web|plugins/web/testing|protocol|testing|testing/until|ui|[a-z][a-z0-9-]*/plugin|[a-z][a-z0-9-]*/server)$)",
               message:
                 "Plugin tests import only what plugins do, and another plugin's server part as @pipoca/<id>/server.",
             },
@@ -151,7 +150,13 @@ export default tseslint.config(
   {
     // Plugins tell time by their context's clock and wait through its
     // schedule, so a test's clock moves them too.
-    files: ["plugins/*/src/**/*.ts", "plugins/*/src/**/*.tsx"],
+    files: [
+      "plugins/*/*.ts",
+      "plugins/*/src/**/*.ts",
+      "plugins/*/src/**/*.tsx",
+      "examples/plugins/*/*.ts",
+      "examples/plugins/*/src/**/*.ts",
+    ],
     ignores: ["plugins/*/src/**/*.test.ts"],
     rules: {
       "no-restricted-globals": [

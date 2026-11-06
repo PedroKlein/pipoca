@@ -160,7 +160,7 @@ const cluster = {
 const runnerUrl = cluster.PIPOCA_RUNNER_URL;
 const passMs = 2000;
 const retryMs = 10_000;
-const before = new Map<string, string | undefined>();
+let env: Readonly<Record<string, string>>;
 
 let root: string;
 let api: ReturnType<typeof fakeApi>;
@@ -175,31 +175,17 @@ beforeAll(async () => {
   await writeFile(join(account, "ca.crt"), "ca");
   await writeFile(join(account, "token"), "t");
 
-  for (const [name, value] of Object.entries({
-    ...cluster,
-    PIPOCA_SERVICE_ACCOUNT_DIR: account,
-  })) {
-    before.set(name, process.env[name]);
-    process.env[name] = value;
-  }
+  env = { ...cluster, PIPOCA_SERVICE_ACCOUNT_DIR: account };
 });
 
 afterAll(async () => {
-  for (const [name, value] of before) {
-    if (value === undefined) {
-      Reflect.deleteProperty(process.env, name);
-    } else {
-      process.env[name] = value;
-    }
-  }
-
   await rm(root, { recursive: true, force: true });
 });
 
 async function start(
   o: Omit<TestPluginOptions<typeof server.plugin>, "people" | "fetch"> = {},
 ): Promise<void> {
-  t = await testPlugin(server, { people, fetch: api.fetch, ...o });
+  t = await testPlugin(server, { people, fetch: api.fetch, env, ...o });
 }
 
 beforeEach(async () => {
@@ -227,9 +213,10 @@ async function kernel<T>(
   method?: Method,
 ): Promise<T> {
   return json<T>(
-    t
-      .as("ana")
-      .kernel(method ?? (body === undefined ? "GET" : "POST"), path, body),
+    t.as("ana").raw(path, {
+      method: method ?? (body === undefined ? "GET" : "POST"),
+      ...(body !== undefined && { body: JSON.stringify(body) }),
+    }),
   );
 }
 
@@ -258,7 +245,8 @@ async function postSettings(
   body: unknown,
   as = "ana",
 ): Promise<Response> {
-  return t.as(as).raw("POST", `templates/${templateId ?? ""}`, {
+  return t.as(as).raw(`templates/${templateId ?? ""}`, {
+    method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -313,15 +301,14 @@ const tokenOf = (pod: string): string =>
 
 // A runner's poll, as the agent in a pod sends it.
 async function poll(token: string, body: object = {}): Promise<Response> {
-  return t.as("ana").kernel(
-    "POST",
-    "/runner/work",
-    { running: [], folders: [], models: [], ...body },
-    {
+  return t.as("ana").raw("/runner/work", {
+    method: "POST",
+    body: JSON.stringify({ running: [], folders: [], models: [], ...body }),
+    headers: {
       authorization: `Bearer ${token}`,
       [versionHeader]: String(protocolVersion),
     },
-  );
+  });
 }
 
 function failAll(): void {
@@ -520,7 +507,7 @@ test("reads a template's pod settings from its entry in pipoca.json, and saves t
   expect(
     t.log.some(
       ({ message, fields }) =>
-        message === "kubernetes template settings don't fit" &&
+        message === "template config doesn't fit" &&
         (fields as { templateId?: string }).templateId === "broken",
     ),
   ).toBe(true);
@@ -576,7 +563,7 @@ test("refuses Kubernetes settings it can't use, and changes from anyone but admi
   const inContainers = await postSettings(template.id, { settings: {} });
 
   expect(responses.map(({ status }) => status)).toEqual([
-    422, 422, 422, 400, 422, 404, 403,
+    422, 422, 422, 422, 422, 404, 403,
   ]);
 
   expect(unsaved).toEqual({
@@ -989,19 +976,20 @@ test("keeps an archived Session's claim while its workspace is kept, until force
     "PATCH",
   );
 
-  const reported = await t.as("ana").kernel(
-    "POST",
-    `/runner/sessions/${session.id}/workspace-removal`,
-    {
-      generation: archived.generation,
-      outcome: "kept",
-      reason: "uncommitted changes",
-    },
-    {
-      authorization: `Bearer ${tokenOf(name)}`,
-      [versionHeader]: String(protocolVersion),
-    },
-  );
+  const reported = await t
+    .as("ana")
+    .raw(`/runner/sessions/${session.id}/workspace-removal`, {
+      method: "POST",
+      body: JSON.stringify({
+        generation: archived.generation,
+        outcome: "kept",
+        reason: "uncommitted changes",
+      }),
+      headers: {
+        authorization: `Bearer ${tokenOf(name)}`,
+        [versionHeader]: String(protocolVersion),
+      },
+    });
 
   const pod = api.pods.get(name);
 
@@ -1016,7 +1004,10 @@ test("keeps an archived Session's claim while its workspace is kept, until force
   expect((await sessionOf(session.id)).workspaceRemoval).toBe("kept");
   expect(api.claims.has(name)).toBe(true);
 
-  await t.as("ana").kernel("DELETE", `/api/sessions/${session.id}/workspace`);
+  await t
+    .as("ana")
+    .raw(`/api/sessions/${session.id}/workspace`, { method: "DELETE" });
+
   await pass();
 
   expect(api.claims.has(name)).toBe(false);

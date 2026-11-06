@@ -13,8 +13,6 @@ export const usage = definePlugin({
   title: "Usage",
   description:
     "Shows a Session's token use and cost in its header, and records what team work spends through the server's proxy.",
-  works: ["personal", "team"],
-  requires: { logins: "optional" },
   config: Config.object({
     // Dollars per million tokens of a model, keyed by provider/model, which
     // a collection's name can't hold.
@@ -52,7 +50,7 @@ export const usage = definePlugin({
   // work. Cost is in millionths of a dollar.
   schema: `
 create table usage_calls (
-  id integer primary key,
+  id text primary key,
   at integer not null,
   owner_user_id text,
   person text,
@@ -67,7 +65,7 @@ create index usage_calls_at on usage_calls (at);
 create index usage_calls_person on usage_calls (person, at);
 
 create table usage_audit (
-  id integer primary key,
+  id text primary key,
   at integer not null,
   actor text,
   session_id text not null,

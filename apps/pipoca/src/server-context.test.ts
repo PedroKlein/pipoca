@@ -280,7 +280,7 @@ const gate = (id: string) =>
 
 test("lets one plugin sign people in, and fails another that tries too", async () => {
   const signing = testServer({
-    plugins: [],
+    builtIns: false,
     servers: [gate("gate"), gate("door")],
   });
 
@@ -301,7 +301,7 @@ test("lets one plugin sign people in, and fails another that tries too", async (
 
 test("turns a plugin on by default on a team server as its definition says", async () => {
   const team = testServer({
-    plugins: [],
+    builtIns: false,
     definitions: (["always", "solo", "team", "never"] as const).map(
       (defaultOn) =>
         definePlugin({

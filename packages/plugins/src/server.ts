@@ -1,13 +1,17 @@
 import type {
+  ActsAs,
   Actor,
   Clock,
+  CreateSession,
   DeclaredEvent,
   EnvironmentTemplate,
   Environment,
   GitLogin,
   Log,
   Method,
+  ModelRef,
   Owner,
+  ProfileContent,
   RouteToolSpec,
   Session,
   SessionAccess,
@@ -16,20 +20,53 @@ import type {
 } from "@pipoca/protocol";
 import type { Static, TObject, TSchema } from "typebox";
 import type { EventDef, Events, PluginDefinition } from "./definition";
-import type { KernelEventOf } from "./events";
+import type { KernelEvent, KernelEventOf } from "./events";
 import type { Schedule } from "./schedule";
-import type {
-  KernelEvent,
-  ModelOffer,
-  PluginProfile,
-  ProfileMcpServer,
-  RunnerSource,
-  SqlValue,
-  StartRequest,
-} from "./plugin";
 import type { Transcript } from "./transcript";
 
 export type { ToolResultEntry, Transcript } from "./transcript";
+
+export type StartRequest = CreateSession & {
+  readonly actor: Actor;
+  // The identity a plugin's gitCredentials resolve for its git, such as a
+  // technical user (ADR 0060). Only plugins start Sessions acting as one.
+  readonly actsAs?: ActsAs;
+  // Who steers team work from the start, such as only the person whose
+  // Team assistant it is (ADR 0067).
+  readonly access?: SessionAccess;
+};
+
+// What decides where an Environment's runners come from (ADR 0049).
+export type RunnerSource = Pick<Environment, "id" | "templateId">;
+
+export type SqlValue = string | number | bigint | null | Uint8Array;
+
+export interface ProfileMcpServer {
+  readonly name: string;
+  readonly config: unknown;
+}
+
+// A read-only Profile a plugin ships for the Sessions it owns, such as the
+// meta Profile (ADR 0035). Users don't list or edit it.
+export interface PluginProfile extends ProfileContent {
+  readonly name: string;
+}
+
+// Models a plugin offers for an Environment: listed before the machine's own
+// in model fields, and a default for Sessions that name none.
+export interface OfferedModels {
+  readonly models: readonly ModelRef[];
+  readonly default?: ModelRef;
+  // `provider/id` of models the pickers leave out, such as ones an admin hid.
+  readonly hidden?: readonly string[];
+}
+
+// The user is the one who looks at the models, when there is one, such as
+// models their own logins reach.
+export type ModelOffer = (
+  environment: RunnerSource & Pick<Environment, "ownerId">,
+  userId?: string,
+) => OfferedModels;
 
 export interface Person {
   readonly id: string;
@@ -222,17 +259,13 @@ export interface Routes {
 
 export interface Urls {
   readonly public: (path: string) => string;
-  // A cookie only the plugin's own routes get back, such as the browser's
-  // half of an OAuth state. It is Lax, so it comes back on the redirect
-  // from another site.
-  readonly cookie: {
-    readonly set: (
-      response: Response,
-      name: string,
-      value: string,
-      maxAgeS: number,
-    ) => void;
-    readonly get: (request: Request, name: string) => string | undefined;
+  // Ties a flow such as an OAuth state to the browser that starts it, so a
+  // link can't finish it in another (RFC 6749, 10.12). mark gives the
+  // response's browser a cookie for ttlMs, which comes back on a redirect
+  // from another site, and returns what to keep with the state.
+  readonly browser: {
+    readonly mark: (response: Response, ttlMs: number) => string;
+    readonly is: (request: Request, kept: string) => boolean;
   };
 }
 
@@ -338,7 +371,6 @@ export interface Sessions {
   // A key of the plugin's own, such as a mail thread, names one Session.
   readonly bind: (key: string, sessionId: string) => void;
   readonly boundTo: (key: string) => string | undefined;
-  readonly unbind: (key: string) => void;
 }
 
 export interface Store {
@@ -405,20 +437,31 @@ export interface PluginConfig<P extends PluginDefinition = PluginDefinition> {
 
 export interface PluginEnvironments {
   readonly list: () => readonly Environment[];
+  readonly get: (id: string) => Environment | undefined;
   readonly templates: () => readonly EnvironmentTemplate[];
+  // The plugin's key in a template's entry in pipoca.json, such as its pod
+  // settings, with the schema's defaults filled. A key that doesn't fit is
+  // logged and read as none; set throws when the value doesn't fit or no
+  // template has the id.
+  readonly templateConfig: <const S extends TSchema>(
+    schema: S,
+  ) => TemplateConfig<Static<S>>;
+}
+
+export interface TemplateConfig<T> {
+  readonly get: (templateId: string) => T | undefined;
+  readonly set: (templateId: string, value: unknown) => T | undefined;
+}
+
+// What a plugin that starts runners does with them.
+export interface Runners {
   // Sessions no online runner in the pool can take now: queued ones beyond
   // the room its runners have, and ones held by a runner that went away.
   readonly unplaced: (environmentId: string) => readonly Session[];
   // The token a runner the plugin starts polls with. It lasts until revoked,
   // and a new Environment key leaves it be.
-  readonly runnerToken: (environmentId: string, runner: string) => string;
-  readonly revokeRunner: (environmentId: string, runner: string) => void;
-  // The plugin's key in a template's entry in pipoca.json, such as its pod
-  // settings. Set throws when no template has the id.
-  readonly templateConfig: {
-    readonly get: (templateId: string) => unknown;
-    readonly set: (templateId: string, value: unknown) => void;
-  };
+  readonly token: (environmentId: string, runner: string) => string;
+  readonly revoke: (environmentId: string, runner: string) => void;
 }
 
 // The plugin that starts runners for an Environment when its Sessions need
@@ -429,7 +472,7 @@ export interface RunnerProvider {
   readonly starts: (environment: RunnerSource) => boolean;
   // The server then runs no runner of its own, such as in a cluster where
   // its Sessions would share the server's files.
-  readonly replacesServerRunner?: () => boolean;
+  readonly replacesServerRunner?: boolean;
 }
 
 // What a plugin needs to start runners on the server's own machine. Read it
@@ -488,7 +531,7 @@ export interface PluginProfiles {
 }
 
 export interface Providers {
-  readonly runners: (provider: RunnerProvider) => void;
+  readonly runners: (provider: RunnerProvider) => Runners;
   readonly runtime: () => Runtime;
   readonly models: (offer: ModelOffer) => void;
   // One plugin per server signs people in without a password.
@@ -527,6 +570,8 @@ export interface ServerContext<P extends PluginDefinition = PluginDefinition> {
   readonly environments: PluginEnvironments;
   readonly profiles: PluginProfiles;
   readonly clock: Clock;
+  // The server's environment variables, such as a chart sets.
+  readonly env: (name: string) => string | undefined;
   // In-memory time, lost on restart, for waits such as a long poll.
   readonly timer: Timer;
   readonly log: Log;

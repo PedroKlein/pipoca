@@ -1,4 +1,3 @@
-import { createHash, randomBytes } from "node:crypto";
 import {
   defineServer,
   NotFound,
@@ -35,7 +34,6 @@ import {
 // A browser has this long to come back from the provider.
 const attemptMs = 10 * 60_000;
 const weekMs = 7 * 24 * 60 * 60_000;
-const browserCookie = "sign-in";
 
 interface Pending extends Attempt {
   readonly providerId: string;
@@ -105,7 +103,6 @@ export const server = defineServer(oidc, (context) => {
     }
 
     const attempt = newAttempt();
-    const browser = randomBytes(32).toString("base64url");
 
     let location: string;
 
@@ -126,18 +123,16 @@ export const server = defineServer(oidc, (context) => {
       return page(`Sign-in failed: ${failure.message}`, 502);
     }
 
+    const response = new Response(null, { status: 302, headers: { location } });
+
     pending.set(attempt.state, {
       ...attempt,
       providerId,
-      browser: hash(browser),
+      browser: urls.browser.mark(response, attemptMs),
       linkTo,
       join,
       expires: now + attemptMs,
     });
-
-    const response = new Response(null, { status: 302, headers: { location } });
-
-    urls.cookie.set(response, browserCookie, browser, attemptMs / 1000);
 
     return response;
   };
@@ -250,7 +245,6 @@ export const server = defineServer(oidc, (context) => {
     async ({ query, raw }) => {
       const attempt = pending.get(query.state ?? "");
       const config = attempt && providers.get(attempt.providerId);
-      const browser = urls.cookie.get(raw, browserCookie);
 
       // The state must come back to the browser that left with it, so a
       // link can't sign someone in as another person (RFC 6749, 10.12).
@@ -258,8 +252,7 @@ export const server = defineServer(oidc, (context) => {
         attempt === undefined ||
         config === undefined ||
         attempt.expires < clock.now() ||
-        browser === undefined ||
-        hash(browser) !== attempt.browser
+        !urls.browser.is(raw, attempt.browser)
       ) {
         return page("This sign-in has expired. Start it again.", 400);
       }
@@ -467,10 +460,6 @@ function escaped(text: string): string {
     /[&<>"']/g,
     (character) => `&#${String(character.charCodeAt(0))};`,
   );
-}
-
-function hash(text: string): string {
-  return createHash("sha256").update(text).digest("hex");
 }
 
 interface IdentityStore {

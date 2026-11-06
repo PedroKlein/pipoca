@@ -5,7 +5,6 @@ export const kubernetes = definePlugin({
   title: "Kubernetes",
   description:
     "Starts runner pods for an Environment when the server runs in a cluster.",
-  works: ["personal", "team"],
   config: Config.object({
     maxPodsPerPerson: Config.number({
       title: "Most runner pods per person",

@@ -1,4 +1,3 @@
-import type { WebPlugin } from "@pipoca/plugins/web";
 import {
   type ReactElement,
   memo,
@@ -8,7 +7,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { PluginBoundary } from "../../plugin-boundary";
-import { enabledPlugins, pluginContext } from "../../plugins";
+import { enabledPlugins, type ShellPlugin } from "../../plugins";
 import { renderMarkdown } from "./render-markdown";
 
 function Markdown({ text }: { readonly text: string }): ReactElement {
@@ -30,11 +29,7 @@ function Markdown({ text }: { readonly text: string }): ReactElement {
       {links.map(({ node, plugin, Drawn, target, label }, at) =>
         createPortal(
           <PluginBoundary name={plugin}>
-            <Drawn
-              context={pluginContext(plugin)}
-              target={target}
-              label={label}
-            />
+            <Drawn target={target} label={label} />
           </PluginBoundary>,
           node,
           at,
@@ -47,7 +42,7 @@ function Markdown({ text }: { readonly text: string }): ReactElement {
 interface PluginLink {
   readonly node: Element;
   readonly plugin: string;
-  readonly Drawn: NonNullable<WebPlugin["links"]>[string];
+  readonly Drawn: ShellPlugin["links"][string];
   readonly target: string;
   readonly label: string;
 }
@@ -56,8 +51,8 @@ interface PluginLink {
 function pluginLinks(prose: HTMLElement | null): PluginLink[] {
   return [...(prose?.querySelectorAll("[data-link]") ?? [])].flatMap((node) => {
     const scheme = node.getAttribute("data-link") ?? "";
-    const plugin = enabledPlugins().find(({ links }) => links?.[scheme]);
-    const Drawn = plugin?.links?.[scheme];
+    const plugin = enabledPlugins().find(({ links }) => links[scheme]);
+    const Drawn = plugin?.links[scheme];
 
     if (plugin === undefined || Drawn === undefined) {
       return [];

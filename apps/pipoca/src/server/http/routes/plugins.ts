@@ -8,8 +8,7 @@ import { type Handlers, type PersonCaller, restOf } from "../router";
 export function pluginRoutes({
   plugins,
   people,
-  callers,
-}: ApiDeps): Handlers<Group<"plugins"> | "ext"> {
+}: ApiDeps): Handlers<Group<"plugins">> {
   // A draft runs nothing until an admin turns it on, so an admin's
   // meta-session may write one though it never acts as an admin.
   const drafter = (caller: PersonCaller): void => {
@@ -27,7 +26,7 @@ export function pluginRoutes({
     "plugins.install": async ({ body: { url } }) =>
       changed(await plugins.install(url)),
     "plugins.update": async ({ params: { plugin }, body }) => {
-      const { settings, enabled, update, digest, teamWork } = body;
+      const { enabled, update, digest, teamWork } = body;
 
       if (teamWork !== undefined) {
         return changed(plugins.setTeamWork(plugin, teamWork));
@@ -35,7 +34,6 @@ export function pluginRoutes({
 
       return changed(
         await pluginChange(plugins, plugin, {
-          settings,
           enabled,
           update: update === true,
           ...(digest !== undefined && { digest }),
@@ -94,26 +92,6 @@ export function pluginRoutes({
         },
       });
     },
-    // A v1 plugin's own API, for people who signed in (ADR 0015).
-    ext: async ({ request, params: { plugin, path } }) => {
-      const person = callers.person(request);
-
-      if (person === undefined) {
-        throw new HttpError(401, "Sign in again.", "signed_out");
-      }
-
-      const routed = await plugins.route(request, plugin, path, {
-        kind: "user",
-        actor: person.actor,
-        admin: person.admin,
-      });
-
-      if (routed === undefined) {
-        throw new NotFound("Not found.");
-      }
-
-      return routed;
-    },
   };
 }
 
@@ -134,7 +112,6 @@ async function pluginChange(
   plugins: PluginHost,
   name: string,
   change: {
-    readonly settings: unknown;
     readonly enabled: boolean | undefined;
     readonly update: boolean;
     readonly digest?: string;
@@ -145,7 +122,7 @@ async function pluginChange(
   }
 
   return change.enabled === undefined
-    ? plugins.saveSettings(name, change.settings)
+    ? plugins.list().find(({ id }) => id === name)
     : plugins.turnOn(name, change.enabled, change.digest);
 }
 

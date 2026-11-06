@@ -1,7 +1,7 @@
 import { Page, Tabs } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { PluginBoundary } from "../../plugin-boundary";
-import { enabledPlugins, pluginContext, pluginTitle } from "../../plugins";
+import { enabledPlugins, pluginTitle } from "../../plugins";
 
 // Plugins that bring work in from outside, such as Slack and Email, share
 // one page with a tab each (ADR 0063).
@@ -37,7 +37,7 @@ export function IntegrationsPage({
       />
       {open && Section && (
         <PluginBoundary name={open.name}>
-          <Section context={pluginContext(open.name)} />
+          <Section />
         </PluginBoundary>
       )}
     </Page>

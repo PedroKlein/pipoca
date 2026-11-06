@@ -30,7 +30,7 @@ test("opens its own database again", () => {
   store.sessions.insert({
     id: "s1",
     environmentId: environment?.id ?? "",
-    owner: null,
+    plugin: null,
     provider: "vm",
     runner: null,
     profileId: store.sessions.defaultProfileId("local"),
@@ -70,13 +70,13 @@ test("lists the Sessions one owner holds", () => {
   store.environments.ensureEnvironment("vm", "team");
   const [environment] = store.environments.environments();
   const id = environment?.id ?? "";
-  const project = { plugin: "projects", key: "p1" };
+  const project = { id: "projects", key: "p1" };
 
   store.sessions.insert(
     sessionIn(id, "vm", {
       id: "owned",
       createdAt: "2026-10-24T00:00:01.000Z",
-      owner: project,
+      plugin: project,
     }),
   );
 
@@ -88,17 +88,17 @@ test("lists the Sessions one owner holds", () => {
     sessionIn(id, "vm", {
       id: "other",
       createdAt: "2026-10-24T00:00:03.000Z",
-      owner: { plugin: "projects", key: "p2" },
+      plugin: { id: "projects", key: "p2" },
     }),
   );
 
   expect(
     store.sessions
-      .list({ includeArchived: false, owner: project })
+      .list({ includeArchived: false, plugin: project })
       .map((s) => s.id),
   ).toEqual(["owned"]);
 
-  expect(store.sessions.get("owned")?.owner).toEqual(project);
+  expect(store.sessions.get("owned")?.plugin).toEqual(project);
   expect(store.sessions.list({ includeArchived: false })).toHaveLength(3);
 
   store.close();
@@ -111,7 +111,7 @@ function sessionIn(
 ): StoredSession {
   return {
     environmentId,
-    owner: null,
+    plugin: null,
     provider,
     runner: null,
     profileId: defaultProfile,

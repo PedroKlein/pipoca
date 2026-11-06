@@ -2,23 +2,28 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ServerPluginContext } from "@pipoca/plugins";
+import {
+  definePlugin,
+  defineServer,
+  type ServerContext,
+  type ToolOutput,
+  Type,
+} from "@pipoca/plugins";
 import {
   type Assignment,
   type Command,
   type Environment,
   readSse,
   type Session,
-  type ToolResult,
 } from "@pipoca/protocol";
 import { runnerCredentials } from "./testdata/runners";
 import { json, testServer, type TestServer } from "./testdata/harness";
 
 let root: string;
 let server: TestServer;
-let sender: ServerPluginContext["sessions"];
-let other: ServerPluginContext["sessions"];
-let answer: (result: ToolResult) => void;
+let sender: ServerContext["sessions"];
+let other: ServerContext["sessions"];
+let answer: (result: ToolOutput) => void;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "outbox-"));
@@ -36,44 +41,30 @@ function start(cookie?: string): TestServer {
     configDir: join(root, "config"),
     runners: { pollWaitMs: 0 },
     ...(cookie !== undefined && { cookie }),
-    plugins: [
-      {
-        name: "sender",
-        register: (context) => {
+    builtIns: false,
+    servers: [
+      defineServer(
+        definePlugin({ id: "sender", title: "Sender", description: "" }),
+        (context) => {
           sender = context.sessions;
 
-          context.tools.register({
+          context.tools.define({
             name: "slow",
             description: "Answers when the test says",
-            parameters: { type: "object", properties: {} },
-            appliesTo: () => true,
+            params: Type.Object({}),
             run: async () =>
-              new Promise<ToolResult>((resolve) => {
+              new Promise<ToolOutput>((resolve) => {
                 answer = resolve;
               }),
           });
         },
-      },
-      {
-        name: "other",
-        register: (context) => {
+      ),
+      defineServer(
+        definePlugin({ id: "other", title: "Other", description: "" }),
+        (context) => {
           other = context.sessions;
         },
-      },
-    ],
-    manifests: [
-      {
-        id: "sender",
-        title: "Sender",
-        description: "",
-        capabilities: ["sessions", "tools"],
-      },
-      {
-        id: "other",
-        title: "Other",
-        description: "",
-        capabilities: ["sessions"],
-      },
+      ),
     ],
   });
 }
@@ -156,18 +147,17 @@ async function received(
 test("delivers what a plugin sends a Session before its runner connects, in order", async () => {
   const { token, session } = await laptop();
 
-  expect(sender.send(session.id, "First", "plugin:sender")).toEqual({
-    ok: true,
+  expect(sender.send(session.id, { text: "First", turn: true })).toBe("queued");
+
+  sender.send(session.id, { text: "Some context", turn: false });
+
+  sender.send(session.id, {
+    text: "Build failed",
+    turn: false,
+    notice: { kind: "build", data: { id: 7 } },
   });
 
-  sender.notify(session.id, "Some context", "plugin:sender");
-
-  sender.notify(session.id, "Build failed", "plugin:sender", {
-    kind: "build",
-    data: { id: 7 },
-  });
-
-  sender.send(session.id, "Second", "plugin:sender");
+  sender.send(session.id, { text: "Second", turn: true });
 
   const assigned = await claim(token);
 
@@ -198,7 +188,7 @@ test("delivers what a plugin sends a Session before its runner connects, in orde
 test("keeps what a plugin sends a Session through a restart of the server", async () => {
   const { token, session } = await laptop();
 
-  sender.send(session.id, "Before the restart", "plugin:sender");
+  sender.send(session.id, { text: "Before the restart", turn: true });
 
   const cookie = await server.signedIn();
   await server.close();
@@ -219,14 +209,14 @@ test("keeps what a plugin sends a Session through a restart of the server", asyn
 test("drops what waits for a Session once it is archived", async () => {
   const { token, session } = await laptop();
 
-  sender.send(session.id, "Too late", "plugin:sender");
+  sender.send(session.id, { text: "Too late", turn: true });
 
   await server.api(`/api/sessions/${session.id}`, {
     method: "PATCH",
     body: { archived: true },
   });
 
-  const refused = sender.send(session.id, "Later still", "plugin:sender");
+  const refused = sender.send(session.id, { text: "Later still", turn: true });
 
   await server.api(`/api/sessions/${session.id}`, {
     method: "PATCH",
@@ -234,9 +224,9 @@ test("drops what waits for a Session once it is archived", async () => {
   });
 
   const assigned = await claim(token);
-  sender.send(session.id, "Back again", "plugin:sender");
+  sender.send(session.id, { text: "Back again", turn: true });
 
-  expect(refused).toEqual({ ok: false, reason: "archived" });
+  expect(refused).toBe("gone");
 
   expect(server.logs).toContainEqual(
     `message to a Session dropped ${JSON.stringify({
@@ -267,7 +257,10 @@ test("loses nothing sent to a host whose stream falls behind, and sends the rest
   const sent = Array.from({ length: 6 }, (_, at) => String(at + 1));
 
   for (const n of sent) {
-    sender.send(session.id, `${n} ${"x".repeat(500_000)}`, "plugin:sender");
+    sender.send(session.id, {
+      text: `${n} ${"x".repeat(500_000)}`,
+      turn: true,
+    });
   }
 
   const texts = (commands: readonly unknown[]): string[] =>
@@ -295,9 +288,15 @@ test("loses nothing sent to a host whose stream falls behind, and sends the rest
 test("sends a message with a dedupe key once while it waits", async () => {
   const { token, session } = await laptop();
 
-  sender.send(session.id, "Checks failed", "plugin:sender", undefined, "pr-1");
-  sender.send(session.id, "Checks failed", "plugin:sender", undefined, "pr-1");
-  sender.send(session.id, "Merged", "plugin:sender");
+  for (let i = 0; i < 2; i += 1) {
+    sender.send(session.id, {
+      text: "Checks failed",
+      turn: true,
+      dedupe: "pr-1",
+    });
+  }
+
+  sender.send(session.id, { text: "Merged", turn: true });
 
   const assigned = await claim(token);
 
@@ -329,9 +328,9 @@ test("drops a tool result that finishes after its attempt ended", async () => {
 
   const second = await claim(token);
 
-  answer({ text: "too late", isError: false });
+  answer("too late");
   await Bun.sleep(0);
-  sender.send(session.id, "Next", "plugin:sender");
+  sender.send(session.id, { text: "Next", turn: true });
 
   expect(second.generation).toBe(generation + 1);
 
@@ -357,8 +356,6 @@ test("binds an external thread to a Session per plugin until the Session is gone
 
   sender.bind("C1:1712.3", session.id);
   other.bind("C1:1712.3", another.id);
-  sender.bind("C2:1800.1", another.id);
-  sender.unbind("C2:1800.1");
 
   const bound = [
     sender.boundTo("C1:1712.3"),

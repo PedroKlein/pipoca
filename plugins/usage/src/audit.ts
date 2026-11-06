@@ -37,7 +37,8 @@ export function auditLog(store: Store, clock: Clock): AuditLog {
   return {
     add: ({ actor, sessionId, action, detail }) => {
       store.run(
-        "insert into usage_audit (at, actor, session_id, action, detail) values (?, ?, ?, ?, ?)",
+        "insert into usage_audit (id, at, actor, session_id, action, detail) values (?, ?, ?, ?, ?, ?)",
+        Bun.randomUUIDv7(),
         clock.now(),
         actor,
         sessionId,

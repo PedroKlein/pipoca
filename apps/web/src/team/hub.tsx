@@ -6,7 +6,6 @@ import { useAction, useMe, useQuery } from "../data/hooks";
 import { NewSessionDialog } from "../shell/new-session";
 import { PluginBoundary } from "../plugin-boundary";
 import { SessionView } from "../session/session-view";
-import { pluginContext } from "../plugins";
 import { href, navigate, type Route, routeHref } from "../router";
 import { type Entry, screens, pagesOf, hrefOf, newPageId } from "./hub-pages";
 import { AddPage } from "./add-page";
@@ -64,7 +63,7 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
       return (
         <Page>
           <PluginBoundary name={screen.plugin}>
-            <screen.Page context={pluginContext(screen.plugin)} />
+            <screen.Page />
           </PluginBoundary>
         </Page>
       );
