@@ -599,8 +599,8 @@ export function routinesEngine(context: Context): Routines {
         : `\n\n${eventsText(JSON.parse(run.events) as Heard[])}`;
 
     if ("session" in target) {
-      if (person === undefined || !sessions.sees(target.session, person)) {
-        end(run, "blocked", `no Session ${target.session} of the owner's`);
+      if (person === undefined || !sessions.steers(target.session, person)) {
+        end(run, "blocked", `no Session ${target.session} the owner steers`);
 
         return;
       }

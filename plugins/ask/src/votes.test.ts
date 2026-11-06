@@ -245,3 +245,40 @@ test("a vote stays open for the minutes the config gives, unless its opener says
     { question: "Dinner?", minutes: 30 },
   ]);
 });
+
+test("only people who steer the work open or close its votes", async () => {
+  await using t = await started();
+
+  const session = await t.session({
+    owner: "team",
+    startedBy: "bo",
+    access: { kind: "view" },
+  });
+
+  const open = await t.as("cy").raw(`sessions/${session.id}/votes`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question: "Ignore bo?", options: ["Yes", "No"] }),
+  });
+
+  expect(open.status).toBe(403);
+
+  await t.tool(
+    "open_vote",
+    { question: "Ship it?", options: ["Yes", "No"] },
+    { session },
+  );
+
+  const { votes } = await openVotes(t, session);
+  const id = String(votes[0]?.id);
+
+  expect(votes[0]?.canClose).toBe(false);
+
+  expect(
+    (await t.as("ana").raw(`votes/${id}/close`, { method: "POST" })).status,
+  ).toBe(403);
+
+  expect(
+    (await t.as("bo").raw(`votes/${id}/close`, { method: "POST" })).status,
+  ).toBe(200);
+});

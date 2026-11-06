@@ -81,7 +81,7 @@ export const server = defineServer(ask, (context) => {
     "sessions/:id/votes",
     { auth: "person", body: opening, status: 201, changes: ["votes"] },
     ({ params, caller: { person }, body }) =>
-      votes.open(votes.session(params.id, person), `user:${person.id}`, body),
+      votes.open(votes.steered(params.id, person), `user:${person.id}`, body),
   );
 
   routes.put(
@@ -158,10 +158,25 @@ function ballots(context: ServerContext<typeof ask>) {
     return found;
   };
 
+  const steered = (id: string, person: Person): Session => {
+    const found = session(id, person);
+
+    if (!sessions.steers(id, person.id)) {
+      throw new HttpError(
+        403,
+        "only people who steer the work open or close its votes",
+        "view_only",
+      );
+    }
+
+    return found;
+  };
+
   const canClose = (vote: StoredVote, person: Person, of: Session): boolean =>
-    person.admin ||
-    vote.opener === `user:${person.id}` ||
-    of.startedBy === person.id;
+    sessions.steers(of.id, person.id) &&
+    (person.admin ||
+      vote.opener === `user:${person.id}` ||
+      of.startedBy === person.id);
 
   const finish = (vote: StoredVote, by: string | undefined): void => {
     store.run(
@@ -186,6 +201,7 @@ function ballots(context: ServerContext<typeof ask>) {
 
   return {
     session,
+    steered,
     of: (of: Session, person: Person): Votes => {
       const opened = store.all<StoredVote>(
         "select * from ask_votes where session_id = ? and closed_at is null order by opened_at",
@@ -193,7 +209,10 @@ function ballots(context: ServerContext<typeof ask>) {
       );
 
       return {
-        canOpen: of.ownedBy === "team" && of.archivedAt === null,
+        canOpen:
+          of.ownedBy === "team" &&
+          of.archivedAt === null &&
+          sessions.steers(of.id, person.id),
         votes: opened.map((vote) => {
           const picks = picksOf(vote);
 
@@ -291,7 +310,7 @@ function ballots(context: ServerContext<typeof ask>) {
     close: (id: string, person: Person): void => {
       const vote = open(id);
 
-      if (!canClose(vote, person, session(vote.session_id, person))) {
+      if (!canClose(vote, person, steered(vote.session_id, person))) {
         throw new HttpError(
           403,
           "only whoever opened the vote or started the work closes it",

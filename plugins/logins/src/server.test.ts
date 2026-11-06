@@ -1011,3 +1011,35 @@ test("the proxy reports what a stream cut off midway counted so far", async () =
     output: 1,
   });
 });
+
+test("a person lists and signs in to only the MCP servers of Profiles they see", async () => {
+  await using t = await started();
+  const secret = "https://mcp.example/api/mcp/s/hunter2/mcp";
+  const own = "https://mcp.example/api/mcp/s/swordfish/mcp";
+
+  await profile(t, "ana", {
+    name: "Tools",
+    mcpServers: { tools: { url: secret } },
+  });
+
+  const defaults = await t.as("ana").raw("/api/me/profile-defaults", {
+    method: "PUT",
+    body: JSON.stringify({ mcpServers: { own: { url: own } } }),
+  });
+
+  expect(defaults.status).toBe(200);
+
+  expect(
+    (await account(t, "ana")).servers.map(({ url }) => url).toSorted(),
+  ).toEqual([secret, own].toSorted());
+
+  expect((await account(t, "bo")).servers).toEqual([]);
+
+  const connect = await t.as("bo").raw("connect-mcp", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ server: `tools ${secret}` }),
+  });
+
+  expect(connect.status).toBe(400);
+});

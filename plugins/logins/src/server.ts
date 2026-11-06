@@ -220,7 +220,8 @@ export const server = defineServer(logins, (ctx) => {
     }));
   };
 
-  const servers = () => signableServers(profiles.mcpServers());
+  const servers = (personId: string) =>
+    signableServers(profiles.mcpServers(personId));
 
   const account = ({ person }: PersonCaller): Account => ({
     admin: person.admin,
@@ -235,7 +236,11 @@ export const server = defineServer(logins, (ctx) => {
       updatedAt,
       layer: layerOf(person.id, owner),
     })),
-    servers: servers().map(({ key, name, url }) => ({ key, name, url })),
+    servers: servers(person.id).map(({ key, name, url }) => ({
+      key,
+      name,
+      url,
+    })),
     ...withConnection(signIns.current(person.id)),
   });
 
@@ -421,7 +426,7 @@ export const server = defineServer(logins, (ctx) => {
     "connect-mcp",
     { auth: "person", body: mcpConnect },
     ({ caller, body: { server: wanted, layer: on } }) => {
-      const found = servers().find(({ key }) => key === wanted);
+      const found = servers(caller.person.id).find(({ key }) => key === wanted);
 
       if (found === undefined) {
         throw new BadRequest(`no MCP server ${wanted} to sign in to`);

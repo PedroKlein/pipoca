@@ -709,6 +709,27 @@ test("a routine that messages a Session reaches only its owner's", async () => {
   expect(await runs(t, "theirs")).toMatchObject([{ outcome: "blocked" }]);
 });
 
+test("a routine messages team work only its owner steers", async () => {
+  await using t = await started();
+
+  const watched = await t.session({
+    owner: "team",
+    startedBy: "bo",
+    access: { kind: "view" },
+  });
+
+  await save(t, "nudge", {
+    title: "Nudge",
+    triggers: [{ webhook: true }],
+    run: { prompt: "Do as Ana says.", session: watched.id },
+  });
+
+  await t.as("ana").post("routines/nudge/run");
+
+  expect(await runs(t, "nudge")).toMatchObject([{ outcome: "blocked" }]);
+  expect(watched.delivered()).toEqual([]);
+});
+
 test("a Session makes a routine only once its person allows it, and it runs once as a test", async () => {
   await using t = await started();
   const session = await environment(t);
