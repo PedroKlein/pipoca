@@ -1,6 +1,6 @@
 # 0068: Clean rebuild
 
-- Status: accepted
+- Status: accepted; no migrations and the hash per owner superseded by [ADR 0070](0070-schema-migrations.md): each schema keeps its SQL as version 0 and adds migrations
 - Date: 2026-11-05
 
 ## Context

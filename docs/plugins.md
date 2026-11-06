@@ -49,7 +49,8 @@ export const greeter = definePlugin({
 ```
 
 - `config` is the plugin's key in the server's `pipoca.json`, which admins edit on the Plugins page. Build it with `Config.object`, `Config.string`, `Config.number`, `Config.boolean`, `Config.choice`, `Config.strings`, `Config.collection`, `Config.audience` and `Secret()`. A secret is stored sealed, or as `{ "env": "NAME" }` for config kept in git.
-- `schema` is SQL for the plugin's tables. Name them `<id>_<table>`, with a hyphen in the id written as an underscore, make them `STRICT`, keep times as integer milliseconds and ids as UUIDv7 (`Bun.randomUUIDv7()`). A table may reference the plugin's own tables and `users`, `sessions` and `environments`. There are no migrations: when the schema changes, the plugin fails until an admin resets its data on the Plugins page ([ADR 0068](adr/0068-clean-rebuild.md#storage)).
+- `schema` is SQL for the plugin's tables. Name them `<id>_<table>`, with a hyphen in the id written as an underscore, make them `STRICT`, keep times as integer milliseconds and ids as UUIDv7 (`Bun.randomUUIDv7()`). A table may reference the plugin's own tables and `users`, `sessions` and `environments`. Once a version with it is out, never edit `schema`: add to `migrations` instead.
+- `migrations` is a list of SQL run in order after `schema`, each one version more. The server runs the ones a database hasn't at start, inside its transaction, so a table rebuild uses `pragma defer_foreign_keys = on`. If one fails, or the database is at a newer version, the plugin fails with its data kept until an admin resets it on the Plugins page ([ADR 0070](adr/0070-schema-migrations.md)).
 - `events` declares what the plugin emits, each with a `title` and TypeBox `fields`, so routines can offer it as a trigger.
 - `requires` lists the plugins it can't run without. They start first, and it fails while one is off.
 - `defaultOn` says whether a built-in plugin starts on: `always`, `solo`, `team` or `never`.

@@ -269,6 +269,10 @@ When some of its Sessions can't go to any runner, the plugin starts one pod for 
 
 After a `helm upgrade`, the server compares the Pipoca image each runner pod copied its binary from with its own, at start and on every pass. It deletes a pod whose image differs, even mid-turn, and the plugin starts a new one, so no pod runs an old binary against the new server. The pod gets a grace period of 30 seconds: its agent stops its Sessions first, waiting up to 10 seconds for each, and a tool cut off is recorded as interrupted by a restart. Once the pod is gone its token is revoked, and a Session with its own claim goes on in the new pod. The server compares the image digests the nodes ran, its own pod's found by the `POD_NAME` the chart sets, so a moving tag such as `main` works too. While a digest isn't known yet, such as for a pod still starting, it compares the image names in the pod specs. A `podPatch` that lowers `terminationGracePeriodSeconds` should leave more than 10 seconds. Pods of an Environment whose settings were removed are left to stop on their own.
 
+## Upgrading
+
+At start the server brings the database up to date in place, so data survives an upgrade. It refuses a database a newer Pipoca made, such as after going back to an older image: run the newer version again, or restore a backup taken before the upgrade. A plugin whose tables can't be upgraded shows as failed on the Plugins page, with its data kept until an admin resets it.
+
 ## Upgrading from before the rebuild
 
 The rebuild ([ADR 0068](adr/0068-clean-rebuild.md)) changed the database, the plugin SDK and the HTTP API with no way back and no migration. A server started on a database that older code made stops with `this database was made by another Pipoca version; move it aside to start fresh`.

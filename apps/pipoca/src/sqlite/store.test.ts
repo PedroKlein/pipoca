@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { StoredSession } from "@pipoca/sessions";
+import { openDatabase } from "./database";
+import { kernelSchema } from "./schema";
 import { openStore } from "./store";
 
 let root: string;
@@ -464,53 +466,170 @@ test("refuses a database that an older Pipoca made", () => {
   );
 });
 
-test("refuses a database whose kernel tables came from other SQL", () => {
+test("makes a new database at the latest version, and upgrades an older one keeping its data", () => {
+  const path = join(root, "server.db");
+
+  const kernel = (...migrations: string[]) => ({
+    ...kernelSchema,
+    migrations: [...(kernelSchema.migrations ?? []), ...migrations],
+  });
+
+  const version = () => {
+    const db = new DatabaseSync(path);
+
+    const row = db
+      .prepare("select version from schema_owners where owner = 'kernel'")
+      .get() as { version: number };
+
+    db.close();
+
+    return row.version;
+  };
+
+  openDatabase(path, kernel(), [], Date.now).db.close();
+  expect(version()).toBe(kernelSchema.migrations?.length ?? 0);
+
+  const first = openStore(path);
+
+  first.people.insertUser({
+    id: "ana",
+    name: "ana",
+    admin: true,
+    passwordHash: "",
+    createdAt: new Date().toISOString(),
+  });
+
+  first.close();
+
+  const added = [
+    "create table notes (user_id text not null references users (id), text text not null) strict",
+    "insert into notes select id, 'hello ' || name from users",
+  ];
+
+  const { db } = openDatabase(path, kernel(...added), [], Date.now);
+
+  expect(db.prepare("select text from notes").all()).toEqual([
+    { text: "hello ana" },
+  ]);
+
+  db.close();
+  expect(version()).toBe((kernelSchema.migrations?.length ?? 0) + 2);
+
+  openDatabase(path, kernel(...added), [], Date.now).db.close();
+  expect(version()).toBe((kernelSchema.migrations?.length ?? 0) + 2);
+});
+
+test("runs every migration on a new database, and takes a comment added to its baseline", () => {
+  const path = join(root, "server.db");
+
+  const kernel = {
+    ...kernelSchema,
+    migrations: ["create table notes (text text not null) strict"],
+  };
+
+  openDatabase(path, kernel, [], Date.now).db.close();
+
+  const { db } = openDatabase(
+    path,
+    { ...kernel, sql: `-- Edited after release.\n${kernel.sql}` },
+    [],
+    Date.now,
+  );
+
+  expect(
+    db
+      .prepare(
+        "select version, (select count(*) from notes) as notes from schema_owners where owner = 'kernel'",
+      )
+      .get(),
+  ).toEqual({ version: 1, notes: 0 });
+
+  db.close();
+});
+
+test("refuses a database that a newer Pipoca made", () => {
   const path = join(root, "server.db");
   openStore(path).close();
 
   const db = new DatabaseSync(path);
-  db.exec("update schema_owners set sql_hash = 'other' where owner = 'kernel'");
+
+  db.exec(
+    "update schema_owners set version = version + 1 where owner = 'kernel'",
+  );
+
   db.close();
 
-  expect(() => openStore(path)).toThrow("move it aside to start fresh");
+  expect(() => openStore(path)).toThrow(
+    "this database was made by a newer Pipoca",
+  );
 });
 
-test("fails a plugin whose tables came from other SQL, and keeps its data", () => {
+test("upgrades a plugin's tables keeping its data, and fails one a newer version made", () => {
   const path = join(root, "server.db");
 
-  const notes = (sql: string) => ({
+  const notes = (...migrations: string[]) => ({
     name: "notes",
-    schema: sql,
+    schema: "create table notes_items (text text not null) strict",
+    migrations,
   });
 
-  const first = openStore(path, undefined, undefined, undefined, [
-    notes("create table notes_items (text text not null) strict"),
-  ]);
-
+  const first = openStore(path, undefined, undefined, undefined, [notes()]);
   first.plugin("notes").run("insert into notes_items (text) values ('kept')");
   first.close();
 
-  const changed = notes(
-    "create table notes_items (text text not null, at integer) strict",
+  const upgraded = notes(
+    "alter table notes_items add column at integer not null default 0",
+    "create table notes_tags (tag text not null) strict",
   );
 
-  const second = openStore(path, undefined, undefined, undefined, [changed]);
+  const second = openStore(path, undefined, undefined, undefined, [upgraded]);
 
-  expect(() => second.plugin("notes")).toThrow(
-    "its tables were made by another version of notes",
-  );
+  expect(
+    second.plugin("notes").all("select text, at from notes_items"),
+  ).toEqual([{ text: "kept", at: 0 }]);
 
+  second.plugin("notes").run("insert into notes_tags (tag) values ('new')");
   second.close();
 
-  const same = openStore(path, undefined, undefined, undefined, [
-    notes("create table notes_items (text text not null) strict"),
+  const older = openStore(path, undefined, undefined, undefined, [notes()]);
+
+  expect(() => older.plugin("notes")).toThrow(
+    "its tables were made by a newer version of notes (schema version 2, this one knows 0); its data is kept until an admin resets it",
+  );
+
+  older.close();
+
+  const again = openStore(path, undefined, undefined, undefined, [upgraded]);
+
+  expect(again.plugin("notes").all("select tag from notes_tags")).toEqual([
+    { tag: "new" },
   ]);
 
-  expect(same.plugin("notes").all("select text from notes_items")).toEqual([
-    { text: "kept" },
-  ]);
+  expect(again.resetPlugin("notes")).toBeUndefined();
+  expect(again.plugin("notes").all("select tag from notes_tags")).toEqual([]);
+  again.close();
+});
 
-  same.close();
+test("fails a plugin whose migration makes tables it may not keep", () => {
+  const store = openStore(
+    join(root, "server.db"),
+    undefined,
+    undefined,
+    undefined,
+    [
+      {
+        name: "notes",
+        schema: "create table notes_items (text text) strict",
+        migrations: ["create table notes_loose (text text)"],
+      },
+    ],
+  );
+
+  expect(() => store.plugin("notes")).toThrow(
+    "plugin notes may only create STRICT tables, and notes_loose isn't",
+  );
+
+  store.close();
 });
 
 test("makes the tables of a plugin turned on later, and refuses ones outside its name", () => {

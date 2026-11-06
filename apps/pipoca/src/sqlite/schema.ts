@@ -2,10 +2,12 @@ import type { Schema } from "./database";
 
 // Times are unix milliseconds. An owner_user_id of NULL is the team
 // (ADR 0064). Plugin tables may reference users, sessions and environments.
+// Released databases hold this as version 0: change it with a migration
+// (ADR 0070).
 const sql = `
 create table schema_owners (
   owner text primary key,
-  sql_hash text not null,
+  version integer not null,
   -- A JSON array of the tables and views its schema made.
   tables text not null,
   created_at integer not null
@@ -245,4 +247,4 @@ create table plugin_schedules (
 create index plugin_schedules_due on plugin_schedules (due_at);
 `;
 
-export const kernelSchema: Schema = { owner: "kernel", sql };
+export const kernelSchema: Schema = { owner: "kernel", sql, migrations: [] };

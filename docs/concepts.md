@@ -19,7 +19,7 @@ A plugin is one `definePlugin` in `plugin.ts`, with up to three parts: `server`,
 ### Config, data and secrets
 
 - `pipoca.json`, in the config folder (`~/.pipoca/config/` by default), holds what people set ahead of time: server options, plugin switches, each plugin's typed config, templates ([ADR 0039](adr/0039-plugin-config-files.md)). Settings edits it, and so can you.
-- SQLite holds what the server makes while it runs: people, Sessions, Environments, logins, plugin tables. There are no migrations: the kernel and each plugin declare their schema ([ADR 0068](adr/0068-clean-rebuild.md#storage)).
+- SQLite holds what the server makes while it runs: people, Sessions, Environments, logins, plugin tables. The kernel and each plugin declare their schema, and the server upgrades it in place with their migrations ([ADR 0070](adr/0070-schema-migrations.md)).
 - Folders in the config folder hold Profiles and routines.
 - A secret is sealed with the server's key (`{ "sealed": "…" }`) or names an environment variable (`{ "env": "NAME" }`).
 

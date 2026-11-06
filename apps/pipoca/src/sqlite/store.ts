@@ -9,7 +9,7 @@ import type { PluginDb } from "@pipoca/pluginhost";
 import type { ProfileFolders, ProfileStore } from "@pipoca/profiles";
 import type { SessionStore } from "@pipoca/sessions";
 import { credentialStore, environmentStore } from "./environments";
-import { openDatabase, resetPlugin } from "./database";
+import { openDatabase, resetPlugin, type Schema } from "./database";
 import { peopleStore } from "./people";
 import { pluginStore } from "./plugin-data";
 import { scheduleStore } from "./schedules";
@@ -33,12 +33,22 @@ export interface Store {
   readonly close: () => void;
 }
 
+interface DeclaredTables {
+  readonly name: string;
+  readonly schema?: string;
+  readonly migrations?: readonly string[];
+}
+
+function schemaOf({ name, schema, migrations = [] }: DeclaredTables): Schema[] {
+  return schema === undefined ? [] : [{ owner: name, sql: schema, migrations }];
+}
+
 export function openStore(
   path: string,
   secretKey?: Buffer,
   profiles?: ProfileFolders,
   clock: Clock = systemClock,
-  plugins: readonly { readonly name: string; readonly schema?: string }[] = [],
+  plugins: readonly DeclaredTables[] = [],
 ): Store {
   if (path !== ":memory:") {
     mkdirSync(dirname(path), { recursive: true });
@@ -52,9 +62,7 @@ export function openStore(
   const { db, failures } = openDatabase(
     path,
     kernelSchema,
-    plugins.flatMap(({ name, schema }) =>
-      schema === undefined ? [] : [{ owner: name, sql: schema }],
-    ),
+    plugins.flatMap(schemaOf),
     clock.now,
   );
 
@@ -93,12 +101,14 @@ export function openStore(
     schedules: scheduleStore(db),
     pluginFailure: (name) => failures.get(name),
     resetPlugin: (name) => {
-      const declared = plugins.find((each) => each.name === name)?.schema;
+      const [declared] = plugins
+        .filter((each) => each.name === name)
+        .flatMap(schemaOf);
 
       const failure =
         declared === undefined
           ? undefined
-          : resetPlugin(db, { owner: name, sql: declared }, clock.now());
+          : resetPlugin(db, declared, clock.now());
 
       if (failure === undefined) {
         failures.delete(name);

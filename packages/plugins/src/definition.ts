@@ -41,6 +41,8 @@ export interface PluginDefinition<
   readonly requires?: readonly string[];
   readonly config?: C;
   readonly schema?: string;
+  // SQL run in order after schema; never edit schema once released.
+  readonly migrations?: readonly string[];
   readonly events?: E;
 }
 
