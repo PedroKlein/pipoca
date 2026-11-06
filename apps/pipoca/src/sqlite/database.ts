@@ -7,7 +7,7 @@ export interface Schema {
   readonly sql: string;
 }
 
-export interface Database {
+interface Database {
   readonly db: DatabaseSync;
   // Why each plugin's tables can't be used, by plugin id.
   readonly failures: Map<string, string>;

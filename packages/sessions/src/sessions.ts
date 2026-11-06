@@ -57,7 +57,7 @@ export type StoredSession = Omit<
 >;
 
 // Where Sessions run, which the server's Environments are (ADR 0032).
-export interface SessionEnvironments {
+interface SessionEnvironments {
   readonly all: () => readonly {
     readonly id: string;
     readonly provider: string;
@@ -107,7 +107,7 @@ export type StoredVoice = Omit<Voice, "person"> & {
   readonly requestId?: string;
 };
 
-export interface BindingStore {
+interface BindingStore {
   readonly bind: (
     plugin: string,
     key: string,
@@ -212,7 +212,7 @@ export type SessionPlugins = Required<Pick<Assignment, "plugins">> &
     readonly teamWork?: readonly string[];
   };
 
-export interface SessionsOptions {
+interface SessionsOptions {
   readonly clock?: Clock;
   readonly events?: (event: KernelEvent) => void;
   // Called whenever a Session starts or its view changes (ADR 0038).

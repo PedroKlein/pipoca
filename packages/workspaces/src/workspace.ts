@@ -29,14 +29,14 @@ export interface Checkout {
   readonly base: string | null;
 }
 
-export interface PreparedWorkspace {
+interface PreparedWorkspace {
   readonly cwd: string;
   readonly checkouts: readonly Checkout[];
 }
 
 type SingleWorkspace = Exclude<Workspace, { kind: "repositories" }>;
 
-export interface WorkspaceOptions {
+interface WorkspaceOptions {
   readonly dir: string;
   readonly folders: readonly string[];
   readonly mirrors?: string;

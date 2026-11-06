@@ -21,7 +21,7 @@ export interface ConfigKey {
   readonly lockedIn: () => string | undefined;
 }
 
-export type ConfigSecrets = Pick<SecretRefs, "open">;
+type ConfigSecrets = Pick<SecretRefs, "open">;
 
 const watchMs = 2000;
 

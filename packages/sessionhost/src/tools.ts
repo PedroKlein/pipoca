@@ -7,7 +7,7 @@ import {
 import type { ToolResult, ToolSpec } from "@pipoca/protocol";
 import { repairArguments } from "./arguments";
 
-export interface ServerToolCalls {
+interface ServerToolCalls {
   readonly tools: readonly ToolDefinition[];
   readonly result: (id: string, result: ToolResult) => void;
   readonly cancelAll: () => void;

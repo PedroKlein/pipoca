@@ -92,7 +92,7 @@ export async function syncFolder(
   log("folder files written", { dir, files: paths.length });
 }
 
-export type InstallPackage = (dir: string, source: string) => Promise<void>;
+type InstallPackage = (dir: string, source: string) => Promise<void>;
 
 // Installs one package into a Profile's folder, with the git credentials of
 // this process's environment.

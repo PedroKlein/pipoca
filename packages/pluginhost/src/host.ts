@@ -69,7 +69,7 @@ type GitLoginsOf = (
   session: Pick<Session, "actsAs" | "workspace">,
 ) => readonly GitLogin[];
 
-export interface PluginConfigView {
+interface PluginConfigView {
   readonly value: unknown;
   readonly lockedIn?: string;
 }

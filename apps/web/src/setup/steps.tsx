@@ -36,8 +36,8 @@ const profileStep: SetupStep = {
 // The kernel's steps around the ones plugins add, such as a model and code
 // hosts (ADR 0063). The steps people can't skip come first.
 export function setupSteps(): readonly WizardStep[] {
-  const added = enabledPlugins().flatMap(({ name, setupStep }) =>
-    setupStep ? [{ id: name, step: setupStep }] : [],
+  const added = enabledPlugins().flatMap(({ plugin, setup }) =>
+    setup?.[0] ? [{ id: plugin.id, step: setup[0] }] : [],
   );
 
   return [

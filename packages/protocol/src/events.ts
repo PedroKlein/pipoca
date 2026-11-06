@@ -543,8 +543,6 @@ const terminalResize = Type.Object({
   rows: Type.Number(),
 });
 
-export type TerminalResize = Wire<typeof terminalResize>;
-
 // The text frames a browser sends on a terminal socket. Closing the socket
 // leaves the shell running; a close frame ends it (ADR 0026).
 export const terminalControl = Type.Union([

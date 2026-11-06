@@ -127,8 +127,6 @@ export const createEnvironment = Type.Object({
   team: Type.Optional(Type.Boolean()),
 });
 
-export type CreateEnvironment = Wire<typeof createEnvironment>;
-
 // A null secret removes it.
 export const environmentUpdate = Type.Object({
   name: Type.Optional(said),
@@ -241,7 +239,7 @@ const repositorySource = Type.Object({
 export type RepositorySource = Wire<typeof repositorySource>;
 
 // What a repository's pipoca.json lists that can be imported (ADR 0063).
-export const manifestEntry = Type.Object({
+const manifestEntry = Type.Object({
   name: Type.String(),
   path: Type.String(),
 });
@@ -359,15 +357,6 @@ export const profile = Type.Object({
 
 export type Profile = Wire<typeof profile>;
 
-// The file a Profile is exported to and imported from.
-export const profileExport = Type.Object({
-  ...profileContent.properties,
-  pipocaProfile: Type.Literal(1),
-  name: Type.String(),
-});
-
-export type ProfileExport = Wire<typeof profileExport>;
-
 export const uploadedFiles = Type.Object({ files: textMap });
 
 // Pipoca's own file, and what each machine keeps for itself: logins,
@@ -426,7 +415,7 @@ export type Person = Wire<typeof person>;
 export const personUpdate = Type.Object({ admin: Type.Boolean() });
 
 // Who a user may name in team work, such as the people it is limited to.
-export const teammate = Type.Object({ id: Type.String(), name: Type.String() });
+const teammate = Type.Object({ id: Type.String(), name: Type.String() });
 
 export type Teammate = Wire<typeof teammate>;
 
@@ -435,8 +424,6 @@ export const personView = Type.Object({
   ...teammate.properties,
   ...Type.Partial(Type.Omit(person, ["id", "name"])).properties,
 });
-
-export type PersonView = Wire<typeof personView>;
 
 // An admin's invite to the server (ADR 0063). One with an email lets that
 // one person in once; one without is a link anyone may join with until it

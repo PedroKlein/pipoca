@@ -1,7 +1,7 @@
 import { Page, Tabs } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { PluginBoundary } from "../../plugin-boundary";
-import { enabledPlugins, pluginTitle } from "../../plugins";
+import { enabledPlugins, PluginSettings, pluginTitle } from "../../plugins";
 
 // Plugins that bring work in from outside, such as Slack and Email, share
 // one page with a tab each (ADR 0063).
@@ -13,12 +13,10 @@ export function IntegrationsPage({
   readonly tabHref: (tab: string) => string;
 }): ReactElement {
   const tabs = enabledPlugins().filter(
-    ({ SettingsSection, settingsGroup }) =>
-      SettingsSection !== undefined && settingsGroup === "integrations",
+    ({ settings }) => settings?.group === "integrations",
   );
 
-  const open = tabs.find(({ name }) => name === tab) ?? tabs[0];
-  const Section = open?.SettingsSection;
+  const open = tabs.find(({ plugin }) => plugin.id === tab) ?? tabs[0];
 
   return (
     <Page
@@ -28,16 +26,16 @@ export function IntegrationsPage({
       <Tabs
         label="Integrations"
         className="mb-2"
-        value={open?.name}
-        tabs={tabs.map(({ name }) => ({
-          value: name,
-          label: pluginTitle(name),
-          href: tabHref(name),
+        value={open?.plugin.id}
+        tabs={tabs.map(({ plugin: { id } }) => ({
+          value: id,
+          label: pluginTitle(id),
+          href: tabHref(id),
         }))}
       />
-      {open && Section && (
-        <PluginBoundary name={open.name}>
-          <Section />
+      {open && (
+        <PluginBoundary name={open.plugin.id}>
+          <PluginSettings key={open.plugin.id} part={open} />
         </PluginBoundary>
       )}
     </Page>

@@ -12,8 +12,6 @@ const eventSpec = Type.Object({
   fields: anyMap,
 });
 
-export type EventSpec = Wire<typeof eventSpec>;
-
 // A plugin event an enabled plugin declares, by its full type.
 export const declaredEvent = Type.Object({
   ...eventSpec.properties,
@@ -26,7 +24,7 @@ const pluginPart = Type.Enum(["server", "session", "web"]);
 
 // A plugin as its definition, or before an installed one runs, its folder
 // says (ADR 0069).
-export const pluginManifest = Type.Object({
+const pluginManifest = Type.Object({
   id: Type.String(),
   title: Type.String(),
   description: Type.String(),
@@ -88,8 +86,6 @@ export const pluginUpdate = Type.Object({
   update: Type.Optional(Type.Boolean()),
   teamWork: Type.Optional(Type.Boolean()),
 });
-
-export type PluginUpdate = Wire<typeof pluginUpdate>;
 
 export const pluginFileWrite = Type.Object({
   path: Type.String({

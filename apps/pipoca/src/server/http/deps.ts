@@ -15,7 +15,7 @@ import type { NewcomerSetup } from "../../newcomers";
 import type { Team } from "../../team";
 import type { Callers } from "./router";
 
-export interface ServerRestart {
+interface ServerRestart {
   // Sessions on the server's own runner that are mid-turn.
   readonly busy: () => number;
   readonly now: () => void;

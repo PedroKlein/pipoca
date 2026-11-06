@@ -10,7 +10,7 @@ import {
 } from "@pipoca/plugins";
 import type { Method } from "@pipoca/protocol";
 
-export interface ExtInput {
+interface ExtInput {
   readonly caller: Caller;
   readonly params: Params;
   readonly body: unknown;

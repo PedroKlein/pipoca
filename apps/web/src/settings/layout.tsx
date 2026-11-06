@@ -5,7 +5,7 @@ import { useMe } from "../data/hooks";
 import { EnvironmentsPage } from "./environments/environments";
 import { GeneralPage } from "./general/general";
 import { PluginBoundary } from "../plugin-boundary";
-import { enabledPlugins } from "../plugins";
+import { enabledPlugins, PluginSettings } from "../plugins";
 import { ProfilesPage } from "./profiles/profiles";
 import { href } from "../router";
 import { TokensPage } from "./tokens/tokens";
@@ -84,15 +84,15 @@ export function SettingsLayout({
       return <ServerPageView page={open} rest={rest} team={false} />;
     }
 
-    const Section = enabledPlugins().find(
-      (plugin) => plugin.name === open,
-    )?.SettingsSection;
+    const part = enabledPlugins().find(
+      ({ plugin, settings }) => plugin.id === open && settings !== undefined,
+    );
 
-    if (Section) {
+    if (part) {
       return (
         <Page>
           <PluginBoundary name={open}>
-            <Section />
+            <PluginSettings key={open} part={part} />
           </PluginBoundary>
         </Page>
       );

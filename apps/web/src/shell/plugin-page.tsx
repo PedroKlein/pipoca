@@ -1,8 +1,9 @@
+import type { WebPage } from "@pipoca/plugins/web";
 import { Button, Icon, Page } from "@pipoca/ui";
-import type { ReactElement } from "react";
+import { createElement, type ReactElement } from "react";
 import { ShellMenu } from "../session/embedded-session";
 import { PluginBoundary } from "../plugin-boundary";
-import { enabledPlugins, pageFills } from "../plugins";
+import { ownPages, pageFills } from "../plugins";
 
 export function MenuButton({
   onMenu,
@@ -31,16 +32,16 @@ export function PluginPage({
   readonly path: string;
   readonly onMenu: () => void;
 }): ReactElement {
-  const Body = enabledPlugins().find((plugin) => plugin.name === name)?.nav
-    ?.Page;
+  const pages = ownPages(name);
 
-  const body = Body ? (
-    <PluginBoundary key={name} name={name}>
-      <Body path={path} />
-    </PluginBoundary>
-  ) : (
-    <p className="text-fg-dim">This page isn&apos;t available.</p>
-  );
+  const body =
+    pages.length > 0 ? (
+      <PluginBoundary key={name} name={name}>
+        <PageAt pages={pages} path={path} />
+      </PluginBoundary>
+    ) : (
+      <p className="text-fg-dim">This page isn&apos;t available.</p>
+    );
 
   if (pageFills(name, path)) {
     return (
@@ -64,4 +65,28 @@ export function PluginPage({
       <Page id="plugin-page">{body}</Page>
     </div>
   );
+}
+
+// The page whose path is the longest start of the address, given the rest.
+function PageAt({
+  pages,
+  path,
+}: {
+  readonly pages: readonly WebPage[];
+  readonly path: string;
+}): ReactElement | null {
+  const page = [...pages]
+    .sort((one, other) => other.path.length - one.path.length)
+    .find(
+      (each) =>
+        each.path === "" ||
+        path === each.path ||
+        path.startsWith(`${each.path}/`),
+    );
+
+  return page
+    ? createElement(page.Page, {
+        path: page.path === "" ? path : path.slice(page.path.length + 1),
+      })
+    : null;
 }

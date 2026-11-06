@@ -1,4 +1,6 @@
+import type { LinkProps } from "@pipoca/plugins/web";
 import {
+  type ComponentType,
   type ReactElement,
   memo,
   useLayoutEffect,
@@ -7,7 +9,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { PluginBoundary } from "../../plugin-boundary";
-import { enabledPlugins, type ShellPlugin } from "../../plugins";
+import { fillsOf } from "../../plugins";
 import { renderMarkdown } from "./render-markdown";
 
 function Markdown({ text }: { readonly text: string }): ReactElement {
@@ -42,7 +44,7 @@ function Markdown({ text }: { readonly text: string }): ReactElement {
 interface PluginLink {
   readonly node: Element;
   readonly plugin: string;
-  readonly Drawn: ShellPlugin["links"][string];
+  readonly Drawn: ComponentType<LinkProps>;
   readonly target: string;
   readonly label: string;
 }
@@ -51,10 +53,9 @@ interface PluginLink {
 function pluginLinks(prose: HTMLElement | null): PluginLink[] {
   return [...(prose?.querySelectorAll("[data-link]") ?? [])].flatMap((node) => {
     const scheme = node.getAttribute("data-link") ?? "";
-    const plugin = enabledPlugins().find(({ links }) => links[scheme]);
-    const Drawn = plugin?.links[scheme];
+    const fill = fillsOf(`link:${scheme}`)[0];
 
-    if (plugin === undefined || Drawn === undefined) {
+    if (fill === undefined) {
       return [];
     }
 
@@ -64,8 +65,8 @@ function pluginLinks(prose: HTMLElement | null): PluginLink[] {
     return [
       {
         node,
-        plugin: plugin.name,
-        Drawn,
+        plugin: fill.plugin,
+        Drawn: fill.Component,
         target: node.getAttribute("data-target") ?? "",
         label,
       },

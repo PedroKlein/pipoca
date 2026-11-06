@@ -63,12 +63,10 @@ function holdsCredentials(repository: string): boolean {
   );
 }
 
-export const repositoryCheckout = Type.Object({
+const repositoryCheckout = Type.Object({
   repository: repositoryUrl,
   startPoint: Type.Optional(startPoint),
 });
-
-export type RepositoryCheckout = Wire<typeof repositoryCheckout>;
 
 // The directory a repository is checked out into inside a repositories
 // Workspace: the last segment of its URL, without ".git". Undefined when that
@@ -192,17 +190,13 @@ export function trustedRepository(trusted: Workspace): string | undefined {
 
 // A Session runs as a process on its runner's machine, or as a process in a
 // container from the Environment's image (ADR 0032).
-export const isolations = ["process", "container"] as const;
+const isolations = ["process", "container"] as const;
 
 export const isolation = Type.Enum(isolations);
 
-export type Isolation = Wire<typeof isolation>;
-
 export const activityStatus = Type.Enum(["idle", "running"]);
 
-export type ActivityStatus = Wire<typeof activityStatus>;
-
-export const sessionStatus = Type.Enum([
+const sessionStatus = Type.Enum([
   "queued",
   "starting",
   "idle",
@@ -225,7 +219,7 @@ export type WorkspaceRemoval = Wire<typeof workspaceRemoval>;
 
 // The plugin that started a Session and keeps it out of the Session list
 // (ADR 0028), with the plugin's own key, such as a Project's id.
-export const sessionPlugin = Type.Object({
+const sessionPlugin = Type.Object({
   id: Type.String(),
   key: Type.String(),
 });
