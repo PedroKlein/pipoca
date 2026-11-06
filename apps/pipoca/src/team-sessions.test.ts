@@ -136,6 +136,41 @@ beforeEach(async () => {
             },
             ({ caller }) => `${caller.owner}'s shared diary`,
           );
+
+          routes.get(
+            "pages/:page",
+            { auth: "person", team: true },
+            ({ caller, params }) => ({
+              title: `${caller.owner === "team" ? "the team" : caller.person.name}'s page ${params.page}`,
+            }),
+          );
+
+          for (const [name, lookup] of [
+            ["diary_tear", (page: string) => `pages/${page}`],
+            ["diary_burn", () => "entries"],
+          ] as const) {
+            routes.post(
+              `pages/:page/${name}`,
+              {
+                auth: "person",
+                team: true,
+                tool: {
+                  name,
+                  description: "Takes a page out",
+                  annotations: { destructiveHint: true },
+                  asks: {
+                    lookup: (input) =>
+                      lookup(
+                        typeof input["page"] === "string" ? input["page"] : "",
+                      ),
+                    text: (_input, found) =>
+                      `Take out ${found === undefined ? "a page" : JSON.stringify(found)}?`,
+                  },
+                },
+              },
+              () => "done",
+            );
+          }
         },
       ),
     ],
@@ -1314,6 +1349,58 @@ test("a team Session's plugin route tools reach only their team half, never the 
     isError: false,
     text: expect.stringContaining("team's shared diary") as unknown,
   });
+});
+
+test("a team Session's question looks its record up on the team half", async () => {
+  const pedros = await server.signedIn();
+  const team = await teamSetup();
+
+  const { user } = await json<{ user: { id: string } }>(
+    server.as(pedros)("/api/auth"),
+  );
+
+  starter?.start({
+    team: true,
+    actor: `user:${user.id}`,
+    environment: team.environment,
+    profile: "starter.helper",
+    workspace: workspace(),
+    access: { kind: "named", people: [] },
+    key: "assistant",
+  });
+
+  const [assigned] = await poll(team.runner);
+
+  const question = async (name: string): Promise<string | null> =>
+    (
+      await json<{ question: string | null }>(
+        fetch(
+          new URL(
+            `/runner/sessions/${assigned?.sessionId ?? ""}/tool-questions`,
+            server.url,
+          ),
+          {
+            method: "POST",
+            headers: {
+              [versionHeader]: String(protocolVersion),
+              authorization: `Bearer ${team.runner}`,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              generation: assigned?.generation,
+              name,
+              input: { page: "7" },
+            }),
+          },
+        ),
+      )
+    ).question;
+
+  expect(await question("diary_tear")).toBe(
+    `Take out {"title":"the team's page 7"}?`,
+  );
+
+  expect(await question("diary_burn")).toBe("Take out a page?");
 });
 
 test("team work nobody started uses no toolset tool, since it has no person to act as", async () => {

@@ -83,14 +83,19 @@ export function extRoutes(
 
     const serve = (path: string, as: Auth): Route => ({
       spec: specOf(route, path, as),
-      handler: (context) =>
-        route.handler({
+      handler: (context) => {
+        if (forTeam(context.caller) && route.teamHalf !== true) {
+          throw new NotFound("Not found.");
+        }
+
+        return route.handler({
           caller: callerOf(context.caller, context.request, context.params),
           params: ownParams(context.params),
           body: context.body,
           query: context.query,
           raw: context.request,
-        }),
+        });
+      },
       ...(typeof auth === "object" && {
         secret: (params) => auth.webhook.secret(ownParams(params)),
       }),
@@ -138,6 +143,11 @@ export function extRoutes(
 
     return [serve(api, auth)];
   });
+}
+
+// A team Session's route tool, which acts for the team (ADR 0067).
+function forTeam(caller: AnyCaller): boolean {
+  return "kind" in caller && caller.kind === "person" && caller.team;
 }
 
 function specOf(route: ExtRoute, path: string, auth: Auth): RouteSpec {
