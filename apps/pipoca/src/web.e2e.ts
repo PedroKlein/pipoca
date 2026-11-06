@@ -267,6 +267,16 @@ async function pickWorkspace(
     await form.getByRole("option", { name: /^e2e/ }).click();
   }
 
+  // It remembers the last model and reasoning level too, which picking an
+  // Environment resets only when the form lists more than one by then.
+  const model = form.getByRole("button", { name: "Model" });
+
+  if ((await model.textContent())?.trim() !== "Default model") {
+    await model.click();
+    await form.getByTitle("default", { exact: true }).click();
+    await form.getByRole("option", { name: /^Environment default/ }).click();
+  }
+
   await form.getByRole("button", { name: "Folder or repository" }).click();
   const search = form.getByRole("combobox", { name: "Folder or repository" });
   const picked = form.getByRole("option", { selected: true });
