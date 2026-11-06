@@ -87,8 +87,7 @@ function useStored(id: string): {
   };
 }
 
-// The plugin's config schema as a form, its collections each as a
-// CollectionEditor.
+// The plugin's config schema as a form, with a list for each collection.
 export function ConfigForm({
   plugin,
   path,
@@ -168,48 +167,14 @@ export function ConfigForm({
 
 // The named records of one of the plugin's collections, added, changed and
 // removed one at a time.
-export function CollectionEditor({
-  plugin,
-  name,
-  fields,
-  help,
-}: {
-  readonly plugin: PluginDefinition;
-  readonly name: string;
-  readonly fields?: readonly string[];
-  readonly help?: ReactNode;
-}): ReactElement | null {
-  const stored = useStored(plugin.id);
-
-  if (plugin.config === undefined || stored.value === undefined) {
-    return stored.error === undefined ? null : (
-      <ErrorText>{stored.error}</ErrorText>
-    );
-  }
-
-  return (
-    <Collection
-      schema={plugin.config}
-      name={name}
-      stored={stored}
-      {...(fields !== undefined && { fields })}
-      {...(help !== undefined && { help })}
-    />
-  );
-}
-
 function Collection({
   schema,
   name,
   stored,
-  fields,
-  help,
 }: {
   readonly schema: TObject;
   readonly name: string;
   readonly stored: ReturnType<typeof useStored>;
-  readonly fields?: readonly string[];
-  readonly help?: ReactNode;
 }): ReactElement | null {
   const [editing, setEditing] = useState<{ readonly at: number | undefined }>();
   const [draft, setDraft] = useState<Value>({});
@@ -233,9 +198,7 @@ function Collection({
   const open = editing === undefined ? undefined : items[editing.at ?? -1];
 
   const itemFields = Object.entries(item.properties).filter(
-    ([field, part]) =>
-      (fields === undefined || field === key || fields.includes(field)) &&
-      marks(part)["hidden"] !== true,
+    ([, part]) => marks(part)["hidden"] !== true,
   );
 
   const put = async (next: readonly Value[]): Promise<boolean> =>
@@ -266,7 +229,6 @@ function Collection({
   return (
     <Section
       title={title}
-      {...(help !== undefined && { description: help })}
       actions={
         <Button
           onClick={() => {

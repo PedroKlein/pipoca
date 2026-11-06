@@ -41,7 +41,7 @@ export type Layer = "base" | "defaults";
 type Rejection =
   "not_found" | "default" | "in_use" | "admin_only" | "synced" | "team";
 
-export interface ProfileEntry {
+interface ProfileEntry {
   readonly path: string;
   readonly size: number;
 }

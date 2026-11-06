@@ -1,6 +1,6 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
-export interface Backoff {
+interface Backoff {
   // How long the next wait lasts.
   readonly delayMs: () => number;
   readonly reset: () => void;

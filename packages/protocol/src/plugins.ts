@@ -24,7 +24,7 @@ const pluginPart = Type.Enum(["server", "session", "web"]);
 
 // A plugin as its definition, or before an installed one runs, its folder
 // says (ADR 0069).
-export const pluginManifest = Type.Object({
+const pluginManifest = Type.Object({
   id: Type.String(),
   title: Type.String(),
   description: Type.String(),

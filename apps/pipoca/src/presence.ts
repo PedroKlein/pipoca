@@ -9,7 +9,7 @@ interface Room {
   readonly listeners: Set<Listener>;
 }
 
-export interface Presences {
+interface Presences {
   // Whoever follows a Session's presence is looking at it until they stop.
   readonly join: (id: string, person: string, listener: Listener) => () => void;
   readonly typing: (id: string, person: string) => void;

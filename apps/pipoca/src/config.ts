@@ -170,7 +170,7 @@ export interface ConfigText extends ConfigEntry {
   readonly version: string | null;
 }
 
-export interface ConfigRefusal {
+interface ConfigRefusal {
   readonly changed: boolean;
   readonly reason: string;
 }

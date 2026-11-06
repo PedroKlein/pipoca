@@ -8,7 +8,7 @@ const serverOptions = Config.object({
   repositorySyncMinutes: Type.Number({ exclusiveMinimum: 0, default: 15 }),
 });
 
-export type ServerConfig = Static<typeof serverOptions>;
+type ServerConfig = Static<typeof serverOptions>;
 
 // The server's own options under "server" in pipoca.json, read again when the
 // file changes.

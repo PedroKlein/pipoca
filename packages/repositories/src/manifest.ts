@@ -6,7 +6,7 @@ import type { ManifestEntry } from "@pipoca/protocol";
 export class InvalidRepository extends Error {}
 
 // The file at a repository's root that lists what it shares (ADR 0063).
-export const manifestFile = "pipoca.json";
+const manifestFile = "pipoca.json";
 
 const maxManifestBytes = 256 * 1024;
 

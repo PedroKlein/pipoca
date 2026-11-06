@@ -239,7 +239,7 @@ const repositorySource = Type.Object({
 export type RepositorySource = Wire<typeof repositorySource>;
 
 // What a repository's pipoca.json lists that can be imported (ADR 0063).
-export const manifestEntry = Type.Object({
+const manifestEntry = Type.Object({
   name: Type.String(),
   path: Type.String(),
 });
@@ -415,7 +415,7 @@ export type Person = Wire<typeof person>;
 export const personUpdate = Type.Object({ admin: Type.Boolean() });
 
 // Who a user may name in team work, such as the people it is limited to.
-export const teammate = Type.Object({ id: Type.String(), name: Type.String() });
+const teammate = Type.Object({ id: Type.String(), name: Type.String() });
 
 export type Teammate = Wire<typeof teammate>;
 

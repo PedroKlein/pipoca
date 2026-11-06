@@ -19,7 +19,7 @@ interface ModeInternals {
   readonly ui: { readonly requestRender: (force?: boolean) => void };
 }
 
-export interface PiView {
+interface PiView {
   readonly open: (command: TerminalCommand) => void;
   readonly close: () => void;
 }

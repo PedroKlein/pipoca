@@ -200,7 +200,7 @@ export interface RouteSpec<
   readonly tool?: RouteToolSpec;
 }
 
-export interface RouteInput<
+interface RouteInput<
   P extends string,
   A extends Auth,
   B extends Schema,
@@ -448,7 +448,7 @@ export interface PluginEnvironments {
   ) => TemplateConfig<Static<S>>;
 }
 
-export interface TemplateConfig<T> {
+interface TemplateConfig<T> {
   readonly get: (templateId: string) => T | undefined;
   readonly set: (templateId: string, value: unknown) => T | undefined;
 }
@@ -523,7 +523,7 @@ export interface SignInApi {
 
 // What Profiles hold that a plugin reads, such as the MCP servers people
 // sign in to.
-export interface PluginProfiles {
+interface PluginProfiles {
   // Every MCP server of the base, everyone's My defaults and every Profile.
   readonly mcpServers: () => readonly ProfileMcpServer[];
   // The Profiles one builds on, nearest first.
