@@ -14,7 +14,8 @@ import {
   type ReactElement,
   useState,
 } from "react";
-import { api } from "../../api";
+import { request } from "../../data/client";
+import { useAction } from "../../data/hooks";
 import { TheirSetup } from "./newcomers";
 import { type Made, linkOf } from "./invites";
 
@@ -50,7 +51,7 @@ function InviteForm({
   const [days, setDays] = useState("7");
   const [link, setLink] = useState<string>();
   const [sent, setSent] = useState<readonly Made[]>();
-  const [error, setError] = useState<string>();
+  const [invalid, setError] = useState<string>();
 
   const add = (text: string): void => {
     const found = text
@@ -72,13 +73,12 @@ function InviteForm({
   };
 
   const make = async (list: readonly string[]): Promise<readonly Made[]> =>
-    api("invites.create", {
+    request("invites.create", {
       body: { emails: list, admin: role === "admin", days: Number(days) },
     });
 
-  const failed = (reason: unknown): void => {
-    setError(reason instanceof Error ? reason.message : String(reason));
-  };
+  const invite = useAction(make);
+  const error = invalid ?? invite.error;
 
   const pending = typed.trim() === "" ? [] : [typed];
   const count = emails.length + pending.length;
@@ -200,9 +200,13 @@ function InviteForm({
                 {link === undefined ? (
                   <Button
                     onClick={() => {
-                      make([]).then(([made]) => {
-                        setLink(made && linkOf(made.token));
-                      }, failed);
+                      void invite.run([]).then((made) => {
+                        const first = made?.[0];
+
+                        if (first) {
+                          setLink(linkOf(first.token));
+                        }
+                      });
                     }}
                   >
                     Make a link
@@ -253,7 +257,11 @@ function InviteForm({
                 .map((each) => each.trim().toLowerCase())
                 .filter((each) => emailPattern.test(each));
 
-              make(all).then(setSent, failed);
+              void invite.run(all).then((made) => {
+                if (made) {
+                  setSent(made);
+                }
+              });
             }}
           >
             {count === 1 ? "Invite 1 person" : `Invite ${String(count)} people`}

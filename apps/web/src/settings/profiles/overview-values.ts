@@ -1,23 +1,17 @@
-import { json } from "../../responses";
 import type { Profile } from "@pipoca/protocol";
+import type { Folder } from "./folder";
 import type { Skill } from "./overview-parts";
 
 export async function skillsIn(
-  url: string,
-  from: string | undefined,
+  folder: Folder,
+  from?: string,
 ): Promise<readonly Skill[]> {
-  const entries = await json<{ readonly path: string }[]>(fetch(url)).catch(
-    () => [],
-  );
+  const entries = await folder.list().catch(() => []);
 
   return Promise.all(
     entries
       .filter(({ path }) => /^skills\/(.+\/)?[^/]+\/SKILL\.md$/.test(path))
-      .map(async ({ path }) => {
-        const response = await fetch(`${url}/${encodeURIComponent(path)}`);
-
-        return skillOf(path, response.ok ? await response.text() : "", from);
-      }),
+      .map(async ({ path }) => skillOf(path, await folder.read(path), from)),
   );
 }
 

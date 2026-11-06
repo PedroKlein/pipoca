@@ -1,4 +1,4 @@
-import { apiPath, type ManifestEntry, type Profile } from "@pipoca/protocol";
+import type { ManifestEntry, Profile } from "@pipoca/protocol";
 import {
   Button,
   Card,
@@ -10,45 +10,41 @@ import {
   TextInput,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import { api } from "../../api";
-import { messageOf, upload } from "./upload";
+import { request } from "../../data/client";
+import { useAction } from "../../data/hooks";
+import { href, navigate } from "../../router";
+import { profileFolder, upload } from "./folder";
 
-export function Import({
-  onChange,
-}: {
-  readonly onChange: () => void;
-}): ReactElement {
-  const [error, setError] = useState<string>();
-
+export function Import(): ReactElement {
   const [listed, setListed] = useState<{
     readonly url: string;
     readonly profiles: readonly ManifestEntry[];
   }>();
 
-  const imported = (action: () => Promise<Profile | undefined>): void => {
-    action().then(
-      (profile) => {
-        setError(undefined);
+  const action = useAction(async (work: () => Promise<Profile | undefined>) => {
+    const profile = await work();
 
-        if (profile) {
-          onChange();
-          location.hash = `profiles/${profile.id}`;
-        }
-      },
-      (reason: unknown) => {
-        setError(messageOf(reason));
-      },
-    );
+    if (profile) {
+      navigate(href("settings", { page: "profiles", rest: profile.id }));
+    }
+  });
+
+  const imported = (work: () => Promise<Profile | undefined>): void => {
+    void action.run(work);
   };
+
+  const error = action.error;
 
   const fromFile = async (file: File): Promise<Profile> => {
     if (file.name.endsWith(".json")) {
-      return api("profiles.create", { body: JSON.parse(await file.text()) });
+      return request("profiles.create", {
+        body: JSON.parse(await file.text()),
+      });
     }
 
     const name = file.name.replace(/\.(tar\.gz|tgz)$/, "");
 
-    return api("profiles.archives.create", {
+    return request("profiles.archives.create", {
       query: { name },
       headers: { "content-type": "application/gzip" },
       body: file,
@@ -57,15 +53,9 @@ export function Import({
 
   const fromFolder = async (picked: readonly File[]): Promise<Profile> => {
     const name = picked[0]?.webkitRelativePath.split("/")[0] ?? "Imported";
-    const profile = await api("profiles.create", { body: { name } });
+    const profile = await request("profiles.create", { body: { name } });
 
-    await upload(
-      apiPath("profiles.files", { params: { id: profile.id } }),
-      picked,
-      {
-        picked: true,
-      },
-    );
+    await upload(profileFolder(profile.id), picked, { picked: true });
 
     return profile;
   };
@@ -115,7 +105,7 @@ export function Import({
             const repository = typeof url === "string" ? url.trim() : "";
 
             imported(async () => {
-              const { profiles } = await api("repositories.manifest", {
+              const { profiles } = await request("repositories.manifest", {
                 query: { url: repository },
               });
 
@@ -125,7 +115,7 @@ export function Import({
                 return undefined;
               }
 
-              return api("profiles.create", {
+              return request("profiles.create", {
                 body: { source: { url: repository } },
               });
             });
@@ -160,7 +150,7 @@ export function Import({
                   paths
                     .flatMap((path) => (typeof path === "string" ? [path] : []))
                     .map(async (path) =>
-                      api("profiles.create", {
+                      request("profiles.create", {
                         body: { source: { url: listed.url, path } },
                       }),
                     ),

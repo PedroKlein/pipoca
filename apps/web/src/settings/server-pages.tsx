@@ -4,50 +4,46 @@ import type { ReactElement, ReactNode } from "react";
 import { PeoplePage } from "./people/people";
 import { PluginBoundary } from "../plugin-boundary";
 import { enabledPlugins, pluginTitle } from "../plugins";
+import { href } from "../router";
 import { ConfigurationPage } from "./configuration/configuration";
 import { PluginsPage } from "./plugins/plugins";
 import { IntegrationsPage } from "./integrations/integrations";
 
+// A page of Settings, by its part of the address after settings/.
 export interface Entry {
-  readonly path: string;
+  readonly page: string;
   readonly label: string;
 }
 
 export function pluginPages(group: SettingsGroup): readonly Entry[] {
   return enabledPlugins().flatMap(({ name, SettingsSection, settingsGroup }) =>
     SettingsSection && (settingsGroup ?? "you") === group
-      ? [{ path: `settings/${name}`, label: pluginTitle(name) }]
+      ? [{ page: name, label: pluginTitle(name) }]
       : [],
   );
 }
 
-export const integrationsPath = "settings/integrations";
-
-export interface ServerPage {
-  readonly key: string;
-  readonly path: string;
-  readonly label: string;
+// The pages the whole server shares, which Team setup shows too (ADR 0064).
+export function serverPages(people: boolean): readonly Entry[] {
+  return [
+    ...(people ? [{ page: "people", label: "People" }] : []),
+    ...pluginPages("server"),
+    ...(pluginPages("integrations").length > 0
+      ? [{ page: "integrations", label: "Integrations" }]
+      : []),
+    { page: "plugins", label: "Plugins" },
+    { page: "configuration", label: "Configuration" },
+  ];
 }
 
-// The pages the whole server shares, which Team setup shows too (ADR 0064).
-export function serverPages(people: boolean): readonly ServerPage[] {
-  return [
-    ...(people ? [{ key: "people", path: "people", label: "People" }] : []),
-    ...pluginPages("server").map(({ path, label }) => ({
-      key: path.slice("settings/".length),
-      path,
-      label,
-    })),
-    ...(pluginPages("integrations").length > 0
-      ? [{ key: "integrations", path: integrationsPath, label: "Integrations" }]
-      : []),
-    { key: "plugins", path: "plugins", label: "Plugins" },
-    {
-      key: "configuration",
-      path: "settings/configuration",
-      label: "Configuration",
-    },
-  ];
+// The link to a server page in Settings, or in Team setup.
+export function serverPageHref(team: boolean, page: string, rest = ""): string {
+  return team
+    ? href("teamSetup", {
+        section: "server",
+        rest: rest === "" ? page : `${page}/${rest}`,
+      })
+    : href("settings", { page, rest });
 }
 
 // Says a page is the server's, the same one the other area shows.
@@ -67,37 +63,40 @@ export function SharedNote({
   );
 }
 
-// One of the server's pages, at its key, under base in the address.
+// One of the server's pages, in Settings or in Team setup.
 export function ServerPageView({
   page,
-  route,
-  base,
-  user,
+  rest,
+  team,
 }: {
-  readonly page: ServerPage;
-  readonly route: string;
-  readonly base: string;
-  readonly user: string;
+  readonly page: string;
+  readonly rest: string;
+  readonly team: boolean;
 }): ReactElement {
-  switch (page.key) {
+  switch (page) {
     case "people":
-      return <PeoplePage user={user} />;
+      return <PeoplePage />;
     case "plugins":
       return <PluginsPage />;
     case "configuration":
       return <ConfigurationPage />;
     case "integrations":
-      return <IntegrationsPage route={route} base={base} />;
+      return (
+        <IntegrationsPage
+          tab={rest}
+          tabHref={(tab) => serverPageHref(team, page, tab)}
+        />
+      );
   }
 
   const Section = enabledPlugins().find(
-    (plugin) => plugin.name === page.key,
+    (plugin) => plugin.name === page,
   )?.SettingsSection;
 
   return (
     <Page>
       {Section && (
-        <PluginBoundary name={page.key}>
+        <PluginBoundary name={page}>
           <Section />
         </PluginBoundary>
       )}

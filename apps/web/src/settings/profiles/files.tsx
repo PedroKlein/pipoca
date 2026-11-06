@@ -1,5 +1,3 @@
-import { json, ok } from "../../responses";
-import { useLoaded } from "@pipoca/plugins/web";
 import {
   Button,
   Card,
@@ -12,12 +10,8 @@ import {
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import { messageOf, upload } from "./upload";
-
-interface ProfileFile {
-  readonly path: string;
-  readonly size: number;
-}
+import { useAction, useLoad } from "../../data/hooks";
+import { type Folder, upload } from "./folder";
 
 // One kind of thing Pi loads from an agent folder, such as skills, found by
 // where its files sit.
@@ -42,45 +36,35 @@ function sizeText(bytes: number): string {
     : `${(bytes / 1024).toFixed(1)} KB`;
 }
 
-export function useRun(
-  reload: () => void,
-): readonly [string | undefined, (action: () => Promise<void>) => void] {
-  const [error, setError] = useState<string>();
+// Runs what a person does to a folder's files, with what failed.
+export function useRun(): readonly [
+  string | undefined,
+  (work: () => Promise<unknown>) => void,
+] {
+  const action = useAction(async (work: () => Promise<unknown>) => work());
 
-  const run = (action: () => Promise<void>): void => {
-    action().then(
-      () => {
-        setError(undefined);
-        reload();
-      },
-      (reason: unknown) => {
-        setError(messageOf(reason));
-      },
-    );
-  };
-
-  return [error, run];
+  return [
+    action.error,
+    (work) => {
+      void action.run(work);
+    },
+  ];
 }
 
 // The files of one kind in a Profile's folder, each opened in a text editor.
 export function KindFiles({
-  url,
+  folder,
   kind,
 }: {
-  readonly url: string;
+  readonly folder: Folder;
   readonly kind: Kind;
 }): ReactElement {
-  const { value: files = [], reload } = useLoaded(
-    async () => json<ProfileFile[]>(fetch(url)),
-    url,
-    { topics: ["profiles"] },
-  );
+  const files =
+    useLoad(`${folder.key} files`, folder.list, { topics: ["profiles"] })
+      .data ?? [];
 
   const [open, setOpen] = useState<{ path: string; text: string }>();
-  const [error, run] = useRun(reload);
-
-  const fileUrl = (path: string): string =>
-    `${url}/${encodeURIComponent(path)}`;
+  const [error, run] = useRun();
 
   const listed = files.flatMap((file) => {
     const name = kind.nameOf(file.path);
@@ -94,8 +78,8 @@ export function KindFiles({
       {...(pickedFolder && { webkitdirectory: "" })}
       onFiles={(picked) => {
         run(async () => {
-          await upload(url, picked, {
-            ...(kind.folder !== undefined && { folder: kind.folder }),
+          await upload(folder, picked, {
+            ...(kind.folder !== undefined && { under: kind.folder }),
             picked: pickedFolder,
           });
         });
@@ -116,7 +100,7 @@ export function KindFiles({
                 type="button"
                 onClick={() => {
                   run(async () => {
-                    const text = await (await ok(fetch(fileUrl(path)))).text();
+                    const text = await folder.read(path);
                     setOpen({ path, text });
                   });
                 }}
@@ -166,15 +150,11 @@ export function KindFiles({
             key={open.path}
             file={open}
             onSave={(text) => {
-              run(async () => {
-                await ok(
-                  fetch(fileUrl(open.path), { method: "PUT", body: text }),
-                );
-              });
+              run(async () => folder.write(open.path, text));
             }}
             onDelete={() => {
               run(async () => {
-                await ok(fetch(fileUrl(open.path), { method: "DELETE" }));
+                await folder.remove(open.path);
                 setOpen(undefined);
               });
             }}

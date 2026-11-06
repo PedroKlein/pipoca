@@ -1,28 +1,24 @@
 import type { Profile } from "@pipoca/protocol";
 import { ChoiceCard, ErrorText } from "@pipoca/ui";
-import { type ReactElement, useState } from "react";
-import { api } from "../api";
-import { useProfiles } from "../hooks";
+import type { ReactElement } from "react";
+import { request } from "../data/client";
+import { useAction, useQuery } from "../data/hooks";
 import { useNewcomers } from "../settings/people/newcomers";
 import { ProfileStep } from "./profile-step";
 
 export function ProfileStepPage(): ReactElement {
-  const profiles = useProfiles();
+  const profiles = useQuery("profiles.list").data ?? [];
 
-  const offered = useNewcomers().value.profiles.flatMap(
-    (id) => profiles.value.find((profile) => profile.id === id) ?? [],
+  const offered = useNewcomers().profiles.flatMap(
+    (id) => profiles.find((profile) => profile.id === id) ?? [],
   );
 
   return (
     <>
       {offered.length > 0 && (
-        <OfferedProfiles
-          offered={offered}
-          profiles={profiles.value}
-          onChange={profiles.reload}
-        />
+        <OfferedProfiles offered={offered} profiles={profiles} />
       )}
-      <ProfileStep profiles={profiles.value} onImported={profiles.reload} />
+      <ProfileStep profiles={profiles} />
     </>
   );
 }
@@ -32,17 +28,17 @@ export function ProfileStepPage(): ReactElement {
 function OfferedProfiles({
   offered,
   profiles,
-  onChange,
 }: {
   readonly offered: readonly Profile[];
   readonly profiles: readonly Profile[];
-  readonly onChange: () => void;
 }): ReactElement {
-  const [error, setError] = useState<string>();
-
-  const failed = (reason: unknown): void => {
-    setError(reason instanceof Error ? reason.message : String(reason));
-  };
+  const pick = useAction(async (shared: Profile, mine: Profile | undefined) => {
+    await (mine === undefined
+      ? request("profiles.create", {
+          body: { name: shared.name, buildsOn: shared.id },
+        })
+      : request("profiles.remove", { params: { id: mine.id } }));
+  });
 
   return (
     <div className="flex flex-col gap-2.5">
@@ -66,20 +62,13 @@ function OfferedProfiles({
               description={offeredDescription(shared)}
               checked={mine !== undefined}
               onChange={(checked) => {
-                const change =
-                  checked || mine === undefined
-                    ? api("profiles.create", {
-                        body: { name: shared.name, buildsOn: shared.id },
-                      })
-                    : api("profiles.remove", { params: { id: mine.id } });
-
-                change.then(onChange, failed);
+                void pick.run(shared, checked ? undefined : mine);
               }}
             />
           );
         })}
       </ul>
-      <ErrorText size="caption">{error}</ErrorText>
+      <ErrorText size="caption">{pick.error}</ErrorText>
       <p className="pt-2 text-label font-medium text-fg">Or bring your own</p>
     </div>
   );

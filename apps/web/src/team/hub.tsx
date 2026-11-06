@@ -1,94 +1,63 @@
 import type { HubPage } from "@pipoca/protocol";
 import { AreaLayout, Avatar, Page, plural } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useState } from "react";
-import { api } from "../api";
-import {
-  useHubLayout,
-  useTeamEnvironments,
-  useTeammates,
-  useTeamSessions,
-} from "../hooks";
+import { request } from "../data/client";
+import { useAction, useMe, useQuery } from "../data/hooks";
 import { NewSessionDialog } from "../shell/new-session";
 import { PluginBoundary } from "../plugin-boundary";
-import { SessionView } from "../session-view";
-import { type Entry, screens, pagesOf, pathOf, newPageId } from "./hub-pages";
+import { SessionView } from "../session/session-view";
+import { href, navigate, type Route, routeHref } from "../router";
+import { type Entry, screens, pagesOf, hrefOf, newPageId } from "./hub-pages";
 import { AddPage } from "./add-page";
 import { LayoutPage, TeamSessions } from "./layout-page";
 
-export function isTeamRoute(route: string): boolean {
-  return /^team(\/|$)/.test(route);
-}
-
 // The team's own area, apart from a person's work, with its own menu. Its
 // pages are layouts of the panels plugins give it (ADRs 0065 and 0067).
-export function TeamHub({
-  route,
-  admin,
-  name,
-}: {
-  readonly route: string;
-  readonly admin: boolean;
-  readonly name: string | null;
-}): ReactElement {
-  const people = useTeammates();
-  const sessions = useTeamSessions();
-  const environments = useTeamEnvironments();
-  const layout = useHubLayout();
+export function TeamHub({ route }: { readonly route: Route }): ReactElement {
+  const { admin } = useMe();
+  const name = useQuery("settings.team").data?.name ?? null;
+  const people = useQuery("people.list").data;
+  const sessions = useQuery("sessions.list", { query: { scope: "team" } }).data;
+  const layout = useQuery("settings.hub").data;
   const [starting, setStarting] = useState(false);
-  const pages = pagesOf(layout.pages);
-  const [error, setError] = useState<string>();
+  const pages = pagesOf(layout?.pages ?? null);
+  const current = routeHref(route);
 
-  const lay = (next: readonly HubPage[]): void => {
-    api("settings.hub.update", { body: { pages: next } }).then(
-      () => {
-        setError(undefined);
-        layout.reload();
-      },
-      (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
-      },
-    );
-  };
+  const lay = useAction(async (next: readonly HubPage[]) =>
+    request("settings.hub.update", { body: { pages: next } }),
+  );
 
   const entries: readonly Entry[] = [
     ...pages.map((page) => ({
-      path: pathOf(page),
+      href: hrefOf(page),
       label: page.title,
       icon: page.id === "home" ? ("home" as const) : ("panel-right" as const),
     })),
     {
-      path: "team/sessions",
+      href: href("teamSessions"),
       label: "Sessions",
       icon: "menu",
-      ...(sessions.loaded && { count: sessions.value.length }),
+      ...(sessions !== undefined && { count: sessions.length }),
     },
-    ...screens().map(({ path, label }) => ({
-      path,
-      label,
+    ...screens().map((screen) => ({
+      href: screen.href,
+      label: screen.label,
       icon: "panel-right" as const,
     })),
   ];
 
-  const open = pages.find((page) => pathOf(page) === route);
-  const screen = screens().find(({ path }) => path === route);
-
-  const opened = /^team\/sessions\/(.+)$/.exec(route)?.[1];
+  const opened = route.name === "teamSession" ? route.params.id : undefined;
 
   const content = (): ReactNode => {
     if (opened !== undefined) {
-      return (
-        <SessionView
-          key={opened}
-          sessionId={opened}
-          environments={environments.value}
-          onSessionChange={sessions.reload}
-        />
-      );
+      return <SessionView key={opened} sessionId={opened} />;
     }
 
-    if (route === "team/sessions") {
-      return <TeamSessions sessions={sessions.value} />;
+    if (route.name === "teamSessions") {
+      return <TeamSessions sessions={sessions ?? []} />;
     }
+
+    const screen = screens().find((each) => each.href === current);
 
     if (screen !== undefined) {
       return (
@@ -100,7 +69,7 @@ export function TeamHub({
       );
     }
 
-    const page = open ?? pages[0];
+    const page = pages.find((each) => hrefOf(each) === current) ?? pages[0];
 
     if (page === undefined) {
       return null;
@@ -110,18 +79,20 @@ export function TeamHub({
       <LayoutPage
         key={page.id}
         page={page}
-        sessions={sessions.value}
+        sessions={sessions ?? []}
         admin={admin}
-        error={error}
+        error={lay.error}
         onStart={() => {
           setStarting(true);
         }}
         onChange={(changed) => {
-          lay(pages.map((each) => (each.id === changed.id ? changed : each)));
+          void lay.run(
+            pages.map((each) => (each.id === changed.id ? changed : each)),
+          );
         }}
         onRemove={() => {
-          lay(pages.filter((each) => each.id !== page.id));
-          location.assign("#team");
+          void lay.run(pages.filter((each) => each.id !== page.id));
+          navigate(href("team"));
         }}
       />
     );
@@ -130,31 +101,30 @@ export function TeamHub({
   return (
     <AreaLayout
       label="Team"
-      back={{ href: "#", label: "My work" }}
+      back={{ href: href("home"), label: "My work" }}
       heading={name ?? "Team"}
       mark={<Avatar name={name ?? "Team"} square size="md" />}
       detail={
-        people.loaded
-          ? plural(people.value.length, "person", "people")
-          : undefined
+        people === undefined
+          ? undefined
+          : plural(people.length, "person", "people")
       }
       groups={[
         {
           items: [
-            ...entries.map(({ path, label, icon, count }) => ({
-              href: `#${path}`,
-              label,
-              icon,
-              ...(count !== undefined && { count }),
+            ...entries.map((entry) => ({
+              href: entry.href,
+              label: entry.label,
+              icon: entry.icon,
+              ...(entry.count !== undefined && { count: entry.count }),
               current:
-                route === path ||
-                (route === "team/" && path === "team") ||
-                (opened !== undefined && path === "team/sessions"),
+                entry.href === current ||
+                (opened !== undefined && entry.href === href("teamSessions")),
             })),
             ...(admin
               ? [
                   {
-                    href: "#team/setup",
+                    href: href("teamSetup"),
                     label: "Team setup",
                     icon: "settings" as const,
                   },
@@ -169,8 +139,8 @@ export function TeamHub({
             onAdd={(title) => {
               const page = { id: newPageId(title, pages), title, panels: [] };
 
-              lay([...pages, page]);
-              location.assign(`#${pathOf(page)}`);
+              void lay.run([...pages, page]);
+              navigate(hrefOf(page));
             }}
           />
         )

@@ -1,6 +1,8 @@
 import { Button, ErrorText } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import { api } from "../api";
+import { request } from "../data/client";
+import { useAction } from "../data/hooks";
+import { parse } from "../router";
 import { Welcome } from "./setup-account";
 
 const pendingKey = "pipoca.app-sign-in";
@@ -9,7 +11,12 @@ const pendingKey = "pipoca.app-sign-in";
 // in first, with a password or single sign-on, leaves the page, so the tab
 // keeps the challenge until the person answers.
 export function pendingAppSignIn(): string | undefined {
-  const challenge = /^#app\/([\w-]{43})$/.exec(location.hash)?.[1];
+  const route = parse(location.hash);
+
+  const challenge =
+    route.name === "app" && /^[\w-]{43}$/.test(route.params.challenge)
+      ? route.params.challenge
+      : undefined;
 
   try {
     if (challenge !== undefined) {
@@ -40,23 +47,16 @@ export function AppSignIn({
   readonly user: string;
 }): ReactElement {
   const [state, setState] = useState<"asking" | "opened">("asking");
-  const [error, setError] = useState<string>();
 
-  const open = (): void => {
-    void (async () => {
-      try {
-        const { link } = await api("auth.appLinks.create", {
-          body: { challenge },
-        });
+  const open = useAction(async () => {
+    const { link } = await request("auth.appLinks.create", {
+      body: { challenge },
+    });
 
-        forget();
-        setState("opened");
-        location.assign(link);
-      } catch (reason) {
-        setError(reason instanceof Error ? reason.message : "");
-      }
-    })();
-  };
+    forget();
+    setState("opened");
+    location.assign(link);
+  });
 
   const cancel = (): void => {
     forget();
@@ -78,8 +78,12 @@ export function AppSignIn({
       description={`The app on this computer asked to sign in as ${user}.`}
     >
       <div className="flex flex-col gap-2">
-        <ErrorText size="caption">{error}</ErrorText>
-        <Button variant="primary" className="h-10 w-full" onClick={open}>
+        <ErrorText size="caption">{open.error}</ErrorText>
+        <Button
+          variant="primary"
+          className="h-10 w-full"
+          onClick={() => void open.run()}
+        >
           Open Pipoca
         </Button>
         <Button className="h-10 w-full" onClick={cancel}>

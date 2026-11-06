@@ -25,10 +25,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { api } from "../../api";
+import { request } from "../../data/client";
+import { useAction } from "../../data/hooks";
+import { navigate, scopedHref } from "../../router";
 import { PluginBoundary } from "../../plugin-boundary";
 import { enabledPlugins } from "../../plugins";
-import { environmentsPath, kindAbout } from "./kinds";
+import { kindAbout } from "./kinds";
 import { JoinKey } from "./join-key";
 import { deleteEnvironment, rowsOf, changedValues, fieldsOf } from "./values";
 
@@ -37,17 +39,21 @@ export function Editor({
   template,
   madeKey,
   onKey,
-  onChange,
 }: {
   readonly environment: Environment;
   readonly template: EnvironmentTemplate | undefined;
   readonly madeKey: string | undefined;
   readonly onKey: (key: string) => void;
-  readonly onChange: () => void;
 }): ReactElement {
-  const [error, setError] = useState<string>();
   const [saved, setSaved] = useState(false);
   const [ask, asking] = useConfirm();
+
+  const action = useAction(async (work: () => Promise<unknown>) => {
+    setSaved(false);
+    await work();
+  });
+
+  const error = action.error;
 
   // What the form's fields started from. Only fields edited since are sent,
   // so a save keeps changes made elsewhere meanwhile.
@@ -58,20 +64,13 @@ export function Editor({
   const [rows, setRows] = useState(() => rowsOf(environment));
   const [isolation, setIsolation] = useState(environment.isolation);
 
-  const update = (body: EnvironmentUpdate, then?: () => void): void => {
-    setSaved(false);
+  const update = async (body: EnvironmentUpdate): Promise<void> => {
+    await request("environments.update", {
+      params: { id: environment.id },
+      body,
+    });
 
-    api("environments.update", { params: { id: environment.id }, body }).then(
-      () => {
-        setError(undefined);
-        setSaved(true);
-        then?.();
-        onChange();
-      },
-      (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
-      },
-    );
+    setSaved(true);
   };
 
   const submit = (event: SubmitEvent<HTMLFormElement>): void => {
@@ -92,37 +91,32 @@ export function Editor({
     const edited = (name: string): boolean =>
       fields[name] !== shown.current[name];
 
-    try {
+    void action.run(async () => {
       const image = text("image").trim();
       const { variables, secrets } = changedValues(environment, rows);
 
-      update(
-        {
-          ...(edited("name") && { name: text("name") }),
-          ...(edited("isolation") && {
-            isolation:
-              text("isolation") === "container" ? "container" : "process",
-          }),
-          ...(edited("image") && { image: image === "" ? null : image }),
-          ...(edited("setupScript") && { setupScript: text("setupScript") }),
-          ...(variables !== undefined && { variables }),
-          secrets,
-        },
-        () => {
-          shown.current = fields;
+      await update({
+        ...(edited("name") && { name: text("name") }),
+        ...(edited("isolation") && {
+          isolation:
+            text("isolation") === "container" ? "container" : "process",
+        }),
+        ...(edited("image") && { image: image === "" ? null : image }),
+        ...(edited("setupScript") && { setupScript: text("setupScript") }),
+        ...(variables !== undefined && { variables }),
+        secrets,
+      });
 
-          setRows(
-            rows.map((row) =>
-              row.secret && row.value !== ""
-                ? { ...row, value: "", saved: true }
-                : row,
-            ),
-          );
-        },
+      shown.current = fields;
+
+      setRows(
+        rows.map((row) =>
+          row.secret && row.value !== ""
+            ? { ...row, value: "", saved: true }
+            : row,
+        ),
       );
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    }
+    });
   };
 
   const area = "min-h-24 resize-y font-mono text-mono-sm";
@@ -289,19 +283,13 @@ export function Editor({
             variant="danger"
             aria-label={`Delete ${environment.name}`}
             onClick={() => {
-              deleteEnvironment(environment, ask).then(
-                (deleted) => {
-                  if (deleted) {
-                    location.hash = `#${environmentsPath(environment.ownerId === "team")}`;
-                    onChange();
-                  }
-                },
-                (reason: unknown) => {
-                  setError(
-                    reason instanceof Error ? reason.message : String(reason),
+              void action.run(async () => {
+                if (await deleteEnvironment(environment, ask)) {
+                  navigate(
+                    scopedHref(environment.ownerId === "team", "environments"),
                   );
-                },
-              );
+                }
+              });
             }}
           >
             Delete

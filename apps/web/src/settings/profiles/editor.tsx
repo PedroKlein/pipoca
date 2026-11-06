@@ -11,9 +11,9 @@ import {
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import { api } from "../../api";
-import { messageOf } from "./upload";
-import { profilesPath } from "./overview";
+import { request } from "../../data/client";
+import { navigate, scopedHref } from "../../router";
+import { useRun } from "./files";
 import { packageText, packageOf } from "./layers";
 import { BuildsOn } from "./builds-on";
 
@@ -23,16 +23,13 @@ export function Editor({
   team = false,
   saved = false,
   onSaved,
-  onChange,
 }: {
   readonly profile?: Profile;
   readonly profiles: readonly Profile[];
   readonly team?: boolean;
   readonly saved?: boolean;
   readonly onSaved?: () => void;
-  readonly onChange: () => void;
 }): ReactElement {
-  const [error, setError] = useState<string>();
   const [ask, asking] = useConfirm();
 
   const [packages, setPackages] = useState<readonly string[]>(() =>
@@ -40,18 +37,7 @@ export function Editor({
   );
 
   const [buildsOn, setBuildsOn] = useState(profile?.buildsOn ?? null);
-
-  const run = (action: () => Promise<void>): void => {
-    action().then(
-      () => {
-        setError(undefined);
-        onChange();
-      },
-      (reason: unknown) => {
-        setError(messageOf(reason));
-      },
-    );
-  };
+  const [error, run] = useRun();
 
   const submit = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -81,7 +67,7 @@ export function Editor({
           ),
         );
 
-        await api("profiles.update", {
+        await request("profiles.update", {
           params: { id: profile.id },
           body: changed,
         });
@@ -91,14 +77,14 @@ export function Editor({
         return;
       }
 
-      const created = await api("profiles.create", {
+      const created = await request("profiles.create", {
         body: {
           ...body,
           ...(team ? { team: true } : { shared: form.get("shared") === "on" }),
         },
       });
 
-      location.hash = `${profilesPath(team)}/${created.id}`;
+      navigate(scopedHref(team, "profiles", created.id));
     });
   };
 
@@ -146,7 +132,7 @@ export function Editor({
             <Button
               onClick={() => {
                 run(async () => {
-                  await api("profiles.update", {
+                  await request("profiles.update", {
                     params: { id: profile.id },
                     body: { isDefault: true },
                   });
@@ -181,11 +167,13 @@ export function Editor({
                   }
 
                   run(async () => {
-                    await api("profiles.remove", {
+                    await request("profiles.remove", {
                       params: { id: profile.id },
                     });
 
-                    location.hash = profilesPath(profile.ownerId === "team");
+                    navigate(
+                      scopedHref(profile.ownerId === "team", "profiles"),
+                    );
                   });
                 });
               }}

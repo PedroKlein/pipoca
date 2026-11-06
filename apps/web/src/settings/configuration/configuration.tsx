@@ -11,51 +11,48 @@ import {
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, useEffect, useState } from "react";
-import { api } from "../../api";
-import {
-  type ConfigList,
-  treeOf,
-  shownOf,
-  toggled,
-  jsonError,
-  pretty,
-} from "./tree";
+import { request } from "../../data/client";
+import { useAction, useQuery } from "../../data/hooks";
+import { treeOf, shownOf, toggled, jsonError, pretty } from "./tree";
 
 type ConfigText = ConfigFile;
 
 // The config files every Settings page reads and writes, for admins who'd
 // rather edit them whole (ADR 0039, ADR 0063).
 export function ConfigurationPage(): ReactElement {
-  const [list, setList] = useState<ConfigList>();
+  const list = useQuery("settings.config").data;
   const [chosen, setChosen] = useState("pipoca.json");
   const [folders, setFolders] = useState<ReadonlySet<string>>(new Set());
   const [file, setFile] = useState<ConfigText>();
   const [draft, setDraft] = useState("");
-  const [error, setError] = useState<string>();
   const [ask, asking] = useConfirm();
-
-  const failed = (reason: unknown): void => {
-    setError(reason instanceof Error ? reason.message : String(reason));
-  };
 
   const opened = (view: ConfigText): void => {
     const text = view.name.endsWith(".json") ? pretty(view.text) : view.text;
 
     setFile({ ...view, text });
     setDraft(text);
-    setError(undefined);
   };
 
-  useEffect(() => {
-    api("settings.config").then(setList, failed);
-  }, []);
+  const open = useAction(async (name: string) => {
+    opened(await request("settings.config.file", { params: { name } }));
+  });
+
+  const save = useAction(async () => {
+    opened(
+      await request("settings.config.file.write", {
+        params: { name: chosen },
+        body: { text: draft, version: file?.version ?? null },
+      }),
+    );
+  });
+
+  const { run } = open;
+  const error = save.error ?? open.error;
 
   useEffect(() => {
-    api("settings.config.file", { params: { name: chosen } }).then(
-      opened,
-      failed,
-    );
-  }, [chosen]);
+    void run(chosen);
+  }, [run, chosen]);
 
   const edited = file !== undefined && draft !== file.text;
 
@@ -125,7 +122,7 @@ export function ConfigurationPage(): ReactElement {
                     type="button"
                     aria-expanded={folders.has(item.path)}
                     onClick={() => {
-                      setFolders((open) => toggled(open, item.path));
+                      setFolders((shown) => toggled(shown, item.path));
                     }}
                     style={{ paddingLeft: `${String(0.625 + item.depth)}rem` }}
                     className="flex w-full cursor-pointer items-center rounded-md py-1.5 pr-2.5 text-left font-mono text-mono-sm text-fg-muted hover:bg-hover"
@@ -192,7 +189,7 @@ export function ConfigurationPage(): ReactElement {
                   disabled={!edited}
                   onClick={() => {
                     setDraft(file?.text ?? "");
-                    setError(undefined);
+                    save.clear();
                   }}
                 >
                   Discard
@@ -201,10 +198,7 @@ export function ConfigurationPage(): ReactElement {
                   variant="primary"
                   disabled={!edited || invalid !== undefined}
                   onClick={() => {
-                    api("settings.config.file.write", {
-                      params: { name: chosen },
-                      body: { text: draft, version: file?.version ?? null },
-                    }).then(opened, failed);
+                    void save.run();
                   }}
                 >
                   Save

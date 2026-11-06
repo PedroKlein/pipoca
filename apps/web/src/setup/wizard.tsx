@@ -8,8 +8,9 @@ import {
   type StepState,
 } from "@pipoca/ui";
 import { type ReactElement, useEffect, useRef, useState } from "react";
-import { api } from "../api";
-import { useEnvironments, useTemplates } from "../hooks";
+import { request } from "../data/client";
+import { seed, useMe, useQuery } from "../data/hooks";
+import { href, navigate } from "../router";
 import { useNewcomers } from "../settings/people/newcomers";
 import { PluginBoundary } from "../plugin-boundary";
 import { type WizardStep, useDone } from "./step";
@@ -19,19 +20,15 @@ import { DoneStep } from "./done-step";
 // A full-screen setup, after the account step on the sign-in page, that
 // ends on what Pi will use (ADR 0063).
 export function SetupWizard({
-  user,
-  admin,
   start,
-  onFinish,
 }: {
-  readonly user: string;
-  readonly admin: boolean;
   // The step a reminder on home opened.
   readonly start: string | undefined;
-  readonly onFinish: () => void;
 }): ReactElement {
   const steps = setupSteps();
-  const newcomers = useNewcomers().value;
+  const { user, admin } = useMe();
+  const setup = useQuery("me.setup").data;
+  const newcomers = useNewcomers();
 
   useNewcomerEnvironment(newcomers.template);
 
@@ -44,12 +41,23 @@ export function SetupWizard({
   const step = steps[at];
   const total = steps.length + 2;
 
+  // Finished even when the server can't save it, so no one is stuck here.
   const finish = (): void => {
-    void api("me.setup.update", { body: { finished: true } }).finally(onFinish);
+    request("me.setup.update", { body: { finished: true } }).then(
+      (saved) => {
+        seed("me.setup", saved);
+      },
+      () => {
+        seed("me.setup", {
+          dismissed: setup?.dismissed ?? [],
+          finished: true,
+        });
+      },
+    );
   };
 
   const leave = (): void => {
-    location.hash = "";
+    navigate(href("home"));
     finish();
   };
 
@@ -72,7 +80,7 @@ export function SetupWizard({
             "mx-auto flex w-full max-w-268 flex-col gap-6 px-4 md:flex-row md:gap-14",
         )}
       >
-        {!admin && <JoinSteps user={user} steps={steps} at={at} />}
+        {!admin && <JoinSteps user={user.name} steps={steps} at={at} />}
         <main
           className={cn(
             "mx-auto flex w-full animate-rise-in flex-col gap-8 px-4 pt-8 pb-16 md:pt-11",
@@ -82,13 +90,7 @@ export function SetupWizard({
           )}
         >
           {step === undefined ? (
-            <DoneStep
-              user={user}
-              admin={admin}
-              steps={steps}
-              onStarted={finish}
-              onLeave={finish}
-            />
+            <DoneStep steps={steps} onStarted={finish} onLeave={finish} />
           ) : (
             <CurrentStep
               key={step.id}
@@ -156,8 +158,8 @@ function JoinSteps({
 // Someone who joins gets an Environment from the template an admin picked
 // for new people, once, so Where is ready for them.
 function useNewcomerEnvironment(template: string | null): void {
-  const environments = useEnvironments();
-  const templates = useTemplates().value;
+  const environments = useQuery("environments.list").data;
+  const templates = useQuery("environmentTemplates.list").data ?? [];
   const asked = useRef(false);
   const name = templates.find(({ id }) => id === template)?.name;
 
@@ -166,16 +168,15 @@ function useNewcomerEnvironment(template: string | null): void {
       asked.current ||
       template === null ||
       name === undefined ||
-      !environments.loaded ||
-      environments.value.some(({ templateId }) => templateId === template)
+      environments === undefined ||
+      environments.some(({ templateId }) => templateId === template)
     ) {
       return;
     }
 
     asked.current = true;
 
-    api("environments.create", { body: { name, template } }).then(
-      environments.reload,
+    request("environments.create", { body: { name, template } }).catch(
       () => undefined,
     );
   }, [template, name, environments]);

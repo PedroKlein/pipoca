@@ -110,7 +110,7 @@ export default tseslint.config(
           patterns: [
             {
               regex:
-                "^@pipoca/(?!(plugins|plugins/web|plugins/web/testing|protocol|testing|ui|[a-z][a-z0-9-]*/plugin)$)",
+                "^@pipoca/(?!(plugins|plugins/web|plugins/web/testing|protocol|testing|testing/until|ui|[a-z][a-z0-9-]*/plugin)$)",
               message:
                 "Plugins import only @pipoca/plugins, @pipoca/protocol, @pipoca/testing, @pipoca/ui and another plugin's definition, as @pipoca/<id>/plugin.",
             },
@@ -134,7 +134,7 @@ export default tseslint.config(
           patterns: [
             {
               regex:
-                "^@pipoca/(?!(plugins|plugins/web|plugins/web/testing|protocol|testing|ui|[a-z][a-z0-9-]*/plugin|[a-z][a-z0-9-]*/server)$)",
+                "^@pipoca/(?!(plugins|plugins/web|plugins/web/testing|protocol|testing|testing/until|ui|[a-z][a-z0-9-]*/plugin|[a-z][a-z0-9-]*/server)$)",
               message:
                 "Plugin tests import only what plugins do, and another plugin's server part as @pipoca/<id>/server.",
             },

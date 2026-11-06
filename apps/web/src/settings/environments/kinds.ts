@@ -3,10 +3,6 @@ import { type IconName, isIconName } from "@pipoca/ui";
 
 type Kind = Pick<Environment, "runnersFrom" | "isolation">;
 
-export function environmentsPath(team: boolean): string {
-  return team ? "team/setup/environments" : "environments";
-}
-
 // What an Environment is (ADR 0063): runners a plugin starts, a Docker image
 // on a machine someone connects, or the machines themselves.
 export function kindName({ runnersFrom, isolation }: Kind): string {

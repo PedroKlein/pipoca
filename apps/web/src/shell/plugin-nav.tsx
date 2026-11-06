@@ -1,48 +1,47 @@
 import { Avatar, cn, Icon } from "@pipoca/ui";
-import { type ReactElement, useEffect, useState } from "react";
-import { api } from "../api";
+import { type ReactElement, useState } from "react";
+import { request } from "../data/client";
+import { seed, useQuery } from "../data/hooks";
 import { PluginBoundary } from "../plugin-boundary";
-import { type NavEntry, pluginRoute } from "../plugins";
+import type { NavEntry } from "../plugins";
+import { href, type Route } from "../router";
 
 export function PluginNav({
   nav,
   route,
 }: {
   readonly nav: readonly NavEntry[];
-  readonly route: string;
+  readonly route: Route;
 }): ReactElement | null {
-  const [pins, setPins] = useState<readonly string[]>();
+  const saved = useQuery("me.pinnedPages");
+  const [changing, setChanging] = useState<readonly string[]>();
   const [more, setMore] = useState(false);
-  const page = pluginRoute(route);
+  const page = route.name === "plugin" ? route.params : undefined;
 
-  useEffect(() => {
-    const pinnedAtFirst = nav.flatMap(({ name, pinned }) =>
-      pinned ? [name] : [],
-    );
-
-    void api("me.pinnedPages")
-      .then(({ pages }) => {
-        setPins(pages ?? pinnedAtFirst);
-      })
-      .catch(() => {
-        setPins(pinnedAtFirst);
-      });
-  }, [nav]);
-
-  if (nav.length === 0 || pins === undefined) {
+  if (nav.length === 0 || saved.loading) {
     return null;
   }
+
+  const pins =
+    changing ??
+    saved.data?.pages ??
+    nav.flatMap(({ name, pinned }) => (pinned ? [name] : []));
 
   const pin = (name: string, pinned: boolean): void => {
     const next = pinned
       ? [...pins, name]
       : pins.filter((known) => known !== name);
 
-    setPins(next);
+    setChanging(next);
 
-    api("me.pinnedPages.update", { body: { pages: next } }).catch(() => {
-      setPins(pins);
-    });
+    request("me.pinnedPages.update", { body: { pages: next } })
+      .then((reply) => {
+        seed("me.pinnedPages", reply);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        setChanging(undefined);
+      });
   };
 
   const pinned = nav.filter(({ name }) => pins.includes(name));
@@ -53,8 +52,10 @@ export function PluginNav({
     <div key={entry.name} className="flex flex-col gap-0.5">
       <div className="group/row relative">
         <a
-          href={`#plugin/${entry.name}`}
-          aria-current={route === `plugin/${entry.name}` ? "page" : undefined}
+          href={href("plugin", { name: entry.name })}
+          aria-current={
+            page?.name === entry.name && page.path === "" ? "page" : undefined
+          }
           className="group/nav flex items-center gap-2.5 rounded-md px-2 py-1.5 text-ui text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:text-fg-strong"
         >
           <Avatar

@@ -227,7 +227,7 @@ export const routes = {
     body: credentials,
     response: user,
     status: 201,
-    changes: ["people", "environments"],
+    changes: ["people", "environments", "invites"],
   },
   // Redeemed on GET, since it is a link a browser opens.
   "auth.link": {
@@ -275,6 +275,7 @@ export const routes = {
     auth: "person",
     body: setupChange,
     response: setupState,
+    changes: ["setup"],
   },
   "me.pinnedPages": {
     method: "GET",
@@ -288,6 +289,7 @@ export const routes = {
     auth: "person",
     body: pinnedPagesChange,
     response: pinnedPages,
+    changes: ["pinned-pages"],
   },
   "me.accessTokens": {
     method: "GET",
@@ -379,6 +381,7 @@ export const routes = {
     auth: "admin",
     body: configFileWrite,
     response: configFile,
+    changes: ["config"],
   },
   "settings.baseProfile": base.get,
   "settings.baseProfile.update": base.update,
@@ -415,14 +418,14 @@ export const routes = {
     body: inviteRequest,
     response: Type.Array(madeInvite),
     status: 201,
-    changes: ["people"],
+    changes: ["invites"],
   },
   "invites.remove": {
     method: "DELETE",
     path: "/api/invites/:id",
     auth: "admin",
     status: 204,
-    changes: ["people"],
+    changes: ["invites"],
   },
 
   "plugins.list": {
@@ -665,7 +668,7 @@ export const routes = {
     body: any,
     response: listedTemplate,
     status: 201,
-    changes: ["environments"],
+    changes: ["templates"],
     long: true,
   },
   "environmentTemplates.update": {
@@ -674,14 +677,14 @@ export const routes = {
     auth: "admin",
     body: any,
     response: listedTemplate,
-    changes: ["environments"],
+    changes: ["templates", "environments"],
   },
   "environmentTemplates.remove": {
     method: "DELETE",
     path: "/api/environment-templates/:id",
     auth: "admin",
     status: 204,
-    changes: ["environments"],
+    changes: ["templates", "environments"],
   },
   // Reads its repository again now, rather than at the next sync.
   "environmentTemplates.syncs.create": {
@@ -690,7 +693,7 @@ export const routes = {
     auth: "admin",
     response: listedTemplate,
     status: 201,
-    changes: ["environments"],
+    changes: ["templates", "environments"],
     long: true,
   },
   // What a repository's pipoca.json lists, to pick from (ADR 0063).

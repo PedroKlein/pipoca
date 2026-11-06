@@ -9,34 +9,29 @@ import {
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import { api } from "../../api";
+import { request } from "../../data/client";
+import { useAction } from "../../data/hooks";
 import { webPartError } from "../../plugins";
 import { switchesAtRestart } from "./restart";
 
 export function PluginCard({
   plugin,
-  onChange,
 }: {
   readonly plugin: PluginInfo;
-  readonly onChange: () => void;
 }): ReactElement {
   const failure = webPartError(plugin.id);
-  const [error, setError] = useState<string>();
   const [note, setNote] = useState<string>();
   const installed = plugin.source === "installed";
   const [ask, asking] = useConfirm();
 
-  const run = (change: () => Promise<string | undefined>): void => {
-    change().then(
-      (said) => {
-        setError(undefined);
-        setNote(said);
-        onChange();
-      },
-      (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
-      },
-    );
+  const change = useAction(async (work: () => Promise<string | undefined>) => {
+    setNote(await work());
+  });
+
+  const error = change.error;
+
+  const run = (work: () => Promise<string | undefined>): void => {
+    void change.run(work);
   };
 
   const turn = (): void => {
@@ -54,7 +49,7 @@ export function PluginCard({
       }
 
       run(async () => {
-        await api("plugins.update", {
+        await request("plugins.update", {
           params: { plugin: plugin.id },
           body: { enabled: !plugin.turnedOn, digest: plugin.digest },
         });
@@ -66,7 +61,7 @@ export function PluginCard({
 
   const update = (): void => {
     run(async () => {
-      const next = await api("plugins.update", {
+      const next = await request("plugins.update", {
         params: { plugin: plugin.id },
         body: { update: true },
       });
@@ -96,7 +91,7 @@ export function PluginCard({
       }
 
       run(async () => {
-        await api("plugins.remove", { params: { plugin: plugin.id } });
+        await request("plugins.remove", { params: { plugin: plugin.id } });
 
         return undefined;
       });
@@ -116,7 +111,7 @@ export function PluginCard({
       }
 
       run(async () => {
-        await api("plugins.data.remove", { params: { plugin: plugin.id } });
+        await request("plugins.data.remove", { params: { plugin: plugin.id } });
 
         return undefined;
       });

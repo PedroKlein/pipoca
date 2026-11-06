@@ -7,17 +7,20 @@ import {
   Spinner,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import { api } from "../api";
-import { useEnvironments, useTemplates } from "../hooks";
+import { request } from "../data/client";
+import { useAction, useQuery } from "../data/hooks";
 import { connected } from "./step";
 
 export function WhereStep(): ReactElement {
-  const environments = useEnvironments().value;
+  const environments = useQuery("environments.list").data ?? [];
   const ready = environments.filter(connected);
   const [machine, setMachine] = useState(ready.length === 0);
-  const [error, setError] = useState<string>();
 
-  const templates = useTemplates().value;
+  const add = useAction(async (name: string, template: string) =>
+    request("environments.create", { body: { name, template } }),
+  );
+
+  const templates = useQuery("environmentTemplates.list").data ?? [];
 
   // Templates a plugin starts runners for, which the person has no
   // Environment from yet.
@@ -73,15 +76,13 @@ export function WhereStep(): ReactElement {
           description="Runners start when a Session needs one."
           checked={false}
           onChange={() => {
-            api("environments.create", {
-              body: { name: template.name, template: template.id },
-            }).catch((reason: unknown) => {
-              setError(`Couldn't add it. ${String(reason)}`);
-            });
+            void add.run(template.name, template.id);
           }}
         />
       ))}
-      <ErrorText size="caption">{error}</ErrorText>
+      <ErrorText size="caption">
+        {add.error === undefined ? undefined : `Couldn't add it. ${add.error}`}
+      </ErrorText>
       <ChoiceCard
         type="checkbox"
         as="li"
@@ -98,25 +99,26 @@ export function WhereStep(): ReactElement {
 
 function ConnectMachine(): ReactElement {
   const [key, setKey] = useState<string>();
-  const [error, setError] = useState<string>();
+
+  const make = useAction(async () => {
+    setKey((await request("joinKeys.create")).key);
+  });
 
   if (key === undefined) {
     return (
       <div className="flex flex-wrap items-center gap-2">
         <Button
           onClick={() => {
-            api("joinKeys.create")
-              .then(({ key: made }) => {
-                setKey(made);
-              })
-              .catch((reason: unknown) => {
-                setError(`Couldn't make a key. ${String(reason)}`);
-              });
+            void make.run();
           }}
         >
           Show the command
         </Button>
-        <ErrorText size="caption">{error}</ErrorText>
+        <ErrorText size="caption">
+          {make.error === undefined
+            ? undefined
+            : `Couldn't make a key. ${make.error}`}
+        </ErrorText>
       </div>
     );
   }

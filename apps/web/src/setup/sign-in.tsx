@@ -1,3 +1,4 @@
+import type { SignInStatus } from "@pipoca/protocol";
 import {
   Button,
   cn,
@@ -6,15 +7,10 @@ import {
   raisedCardClass,
   TextInput,
 } from "@pipoca/ui";
-import { type ReactElement, type SubmitEvent, useState } from "react";
-import { api } from "../api";
+import type { ReactElement, SubmitEvent } from "react";
+import { request } from "../data/client";
+import { useAction } from "../data/hooks";
 import { Welcome, SetupAccount } from "./setup-account";
-
-// Another way in that a plugin offers, such as single sign-on (ADR 0038).
-export interface Login {
-  readonly label: string;
-  readonly path: string;
-}
 
 // The desktop app's window signs in through the person's browser, since
 // some identity providers refuse an embedded one (ADR 0055).
@@ -22,21 +18,37 @@ const inDesktopApp = "pipocaDesktop" in window;
 
 // The first user comes from the one-time link in the server's log (ADR 0034).
 export function SignInPage({
-  setup,
+  status: { setup, logins, passwordLogin, solo },
   setupToken: linkToken,
-  logins,
-  passwordLogin,
-  solo,
 }: {
-  // No user exists yet.
-  readonly setup: boolean;
+  readonly status: SignInStatus;
   readonly setupToken: string | undefined;
-  readonly logins: readonly Login[];
-  readonly passwordLogin: boolean;
-  readonly solo: boolean;
 }): ReactElement {
-  const [error, setError] = useState<string>();
   const setupToken = setup ? linkToken : undefined;
+
+  const signIn = useAction(async (form: FormData) => {
+    const text = (name: string): string => {
+      const value = form.get(name);
+
+      return typeof value === "string" ? value : "";
+    };
+
+    const credentials = { name: text("name"), password: text("password") };
+
+    await (setupToken === undefined
+      ? request("auth.session.create", { body: credentials })
+      : request("auth.setup", {
+          body: {
+            ...credentials,
+            displayName: text("displayName"),
+            token: setupToken,
+          },
+        }));
+
+    location.replace("/");
+  });
+
+  const error = signIn.error;
 
   if (solo) {
     return (
@@ -58,33 +70,7 @@ export function SignInPage({
 
   const submit = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-
-    const text = (name: string): string => {
-      const value = form.get(name);
-
-      return typeof value === "string" ? value : "";
-    };
-
-    const credentials = { name: text("name"), password: text("password") };
-
-    void (async () => {
-      try {
-        await (setupToken === undefined
-          ? api("auth.session.create", { body: credentials })
-          : api("auth.setup", {
-              body: {
-                ...credentials,
-                displayName: text("displayName"),
-                token: setupToken,
-              },
-            }));
-
-        location.replace("/");
-      } catch (reason) {
-        setError(reason instanceof Error ? reason.message : "");
-      }
-    })();
+    void signIn.run(new FormData(event.currentTarget));
   };
 
   if (setupToken !== undefined) {

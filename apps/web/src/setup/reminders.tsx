@@ -1,19 +1,16 @@
-import type { SetupState } from "@pipoca/protocol";
 import { Button, Icon, Row, Rows } from "@pipoca/ui";
 import type { ReactElement } from "react";
-import { api } from "../api";
+import { request } from "../data/client";
+import { seed, useQuery } from "../data/hooks";
+import { href } from "../router";
 import { type WizardStep, useDone } from "./step";
 import { setupSteps } from "./steps";
 
 // The steps someone skipped, or never did before the setup existed, stay on
 // home until they're done or dismissed (ADR 0063).
-export function SetupReminders({
-  setup,
-  onDismiss,
-}: {
-  readonly setup: SetupState;
-  readonly onDismiss: (step: string) => void;
-}): ReactElement {
+export function SetupReminders(): ReactElement {
+  const dismissed = useQuery("me.setup").data?.dismissed ?? [];
+
   return (
     <section
       aria-label="Finish setting up"
@@ -22,16 +19,16 @@ export function SetupReminders({
       <h2 className="text-label font-medium text-fg-dim">Finish setting up</h2>
       <Rows>
         {setupSteps()
-          .filter(({ id }) => !setup.dismissed.includes(id))
+          .filter(({ id }) => !dismissed.includes(id))
           .map((step) => (
             <Reminder
               key={step.id}
               step={step}
               onDismiss={() => {
-                void api("me.setup.update", {
+                void request("me.setup.update", {
                   body: { dismiss: step.id },
-                }).then(() => {
-                  onDismiss(step.id);
+                }).then((saved) => {
+                  seed("me.setup", saved);
                 });
               }}
             />
@@ -57,7 +54,7 @@ function Reminder({
   return (
     <Row title={step.step.heading} description={step.step.summary}>
       <a
-        href={`#get-started/${step.id}`}
+        href={href("getStarted", { step: step.id })}
         className="inline-flex h-control items-center rounded-md border border-line bg-elevated px-3 text-label font-medium text-fg shadow-xs hover:border-line-strong"
       >
         Set up

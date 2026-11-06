@@ -1,6 +1,7 @@
 import { Avatar, Icon, Menu } from "@pipoca/ui";
 import type { ReactElement } from "react";
-import { api } from "../api";
+import { request } from "../data/client";
+import { href, navigate } from "../router";
 
 // Settings and signing out, behind the user's name like Claude Code's account
 // menu (ADR 0040).
@@ -26,14 +27,14 @@ export function AccountMenu({ user }: { readonly user: string }): ReactElement {
           label: "Settings",
           icon: "settings",
           run: () => {
-            location.hash = "#settings";
+            navigate(href("settings"));
           },
         },
         {
           label: "Sign out",
           divided: true,
           run: () => {
-            void api("auth.session.remove").finally(() => {
+            void request("auth.session.remove").finally(() => {
               location.replace("/");
             });
           },

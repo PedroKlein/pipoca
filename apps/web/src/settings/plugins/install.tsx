@@ -1,50 +1,32 @@
 import { Button, ErrorText, Section, TextInput } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import { api } from "../../api";
+import { request } from "../../data/client";
+import { useAction } from "../../data/hooks";
 
 // Installing only fetches the plugin; none of its code runs until it is
 // turned on (ADR 0022).
 export function Install({
-  onInstalled,
   onClose,
 }: {
-  readonly onInstalled: () => void;
   readonly onClose: () => void;
 }): ReactElement {
-  const [error, setError] = useState<string>();
   const [installed, setInstalled] = useState<string>();
-  const [installing, setInstalling] = useState(false);
+
+  const install = useAction(async (form: HTMLFormElement) => {
+    const url = new FormData(form).get("url");
+    setInstalled(undefined);
+
+    const plugin = await request("plugins.install", {
+      body: { url: typeof url === "string" ? url.trim() : "" },
+    });
+
+    setInstalled(`Installed ${plugin.title}, turned off. It's listed below.`);
+    form.reset();
+  });
 
   const submit = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
-
-    const form = event.currentTarget;
-    const url = new FormData(form).get("url");
-
-    setInstalling(true);
-    setInstalled(undefined);
-
-    api("plugins.install", {
-      body: { url: typeof url === "string" ? url.trim() : "" },
-    })
-      .then(
-        (plugin) => {
-          setError(undefined);
-
-          setInstalled(
-            `Installed ${plugin.title}, turned off. It's listed below.`,
-          );
-
-          form.reset();
-          onInstalled();
-        },
-        (reason: unknown) => {
-          setError(reason instanceof Error ? reason.message : String(reason));
-        },
-      )
-      .finally(() => {
-        setInstalling(false);
-      });
+    void install.run(event.currentTarget);
   };
 
   return (
@@ -68,8 +50,8 @@ export function Install({
             placeholder="https://github.com/you/plugin.git#v1.0.0"
             className="flex-1 font-mono text-mono-sm"
           />
-          <Button variant="primary" type="submit" disabled={installing}>
-            {installing ? "Installing…" : "Install"}
+          <Button variant="primary" type="submit" disabled={install.pending}>
+            {install.pending ? "Installing…" : "Install"}
           </Button>
           <Button variant="ghost" onClick={onClose}>
             Close
@@ -79,7 +61,7 @@ export function Install({
           A git repository or a .tgz URL. A branch, tag or commit after # pins
           it.
         </p>
-        <ErrorText size="caption">{error}</ErrorText>
+        <ErrorText size="caption">{install.error}</ErrorText>
         {installed !== undefined && (
           <p role="status" className="text-caption text-fg-dim">
             {installed}

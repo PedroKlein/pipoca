@@ -1,6 +1,7 @@
 import { PluginScope } from "@pipoca/plugins/web/host";
 import { Button, ErrorText } from "@pipoca/ui";
 import { Component, type ReactNode } from "react";
+import { errorText } from "./data/client";
 
 interface Props {
   readonly name: string;
@@ -33,8 +34,7 @@ export class PluginBoundary extends Component<Props, State> {
 
     return (
       <ErrorText inline className="inline-flex flex-wrap items-center gap-2">
-        The {this.props.name} plugin failed:{" "}
-        {error instanceof Error ? error.message : String(error)}
+        The {this.props.name} plugin failed: {errorText(error)}
         <Button
           variant="ghost"
           onClick={() => {

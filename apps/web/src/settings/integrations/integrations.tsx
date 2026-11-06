@@ -6,19 +6,18 @@ import { enabledPlugins, pluginTitle } from "../../plugins";
 // Plugins that bring work in from outside, such as Slack and Email, share
 // one page with a tab each (ADR 0063).
 export function IntegrationsPage({
-  route,
-  base,
+  tab,
+  tabHref,
 }: {
-  readonly route: string;
-  readonly base: string;
+  readonly tab: string;
+  readonly tabHref: (tab: string) => string;
 }): ReactElement {
   const tabs = enabledPlugins().filter(
     ({ SettingsSection, settingsGroup }) =>
       SettingsSection !== undefined && settingsGroup === "integrations",
   );
 
-  const chosen = route.slice(base.length + 1);
-  const open = tabs.find(({ name }) => name === chosen) ?? tabs[0];
+  const open = tabs.find(({ name }) => name === tab) ?? tabs[0];
   const Section = open?.SettingsSection;
 
   return (
@@ -33,7 +32,7 @@ export function IntegrationsPage({
         tabs={tabs.map(({ name }) => ({
           value: name,
           label: pluginTitle(name),
-          href: `#${base}/${name}`,
+          href: tabHref(name),
         }))}
       />
       {open && Section && (
