@@ -5,8 +5,11 @@ import { join } from "node:path";
 
 // The server clones only over https and ssh, so a git server with a
 // throwaway certificate stands in for a git host. It serves the bare
-// repositories in the folder.
-export function gitHost(folder: string): {
+// repositories in the folder, and redirects each moved name to its new one.
+export function gitHost(
+  folder: string,
+  moved: Readonly<Record<string, string>> = {},
+): {
   readonly url: (name: string) => string;
   readonly stop: () => Promise<void>;
 } {
@@ -40,7 +43,19 @@ export function gitHost(folder: string): {
       key: Bun.file(join(certs, "key.pem")),
       cert: Bun.file(join(certs, "cert.pem")),
     },
-    fetch: async (request) => httpBackend(request, folder),
+    fetch: async (request) => {
+      const url = new URL(request.url);
+      const [, name = ""] = /^\/([^/]+)\.git\//.exec(url.pathname) ?? [];
+      const to = moved[name];
+
+      if (to !== undefined) {
+        url.pathname = url.pathname.replace(`/${name}.git/`, `/${to}.git/`);
+
+        return Response.redirect(url.href, 302);
+      }
+
+      return httpBackend(request, folder);
+    },
   });
 
   return {

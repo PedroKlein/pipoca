@@ -23,14 +23,21 @@ import { json, testServer, type TestServer } from "./testdata/harness";
 
 const run = promisify(execFile);
 
-// What the server's own lookups of a name answer, where a test says.
-const answers = new Map<string, string>();
+// What the server's own lookups of a name answer, where a test says, or
+// null for a lookup that fails.
+const answers = new Map<string, string | null>();
 const { lookup } = dns;
 
 await mock.module("node:dns/promises", () => ({
   ...dns,
   lookup: async (host: string, options: unknown) => {
     const answer = answers.get(host);
+
+    if (answer === null) {
+      throw Object.assign(new Error(`getaddrinfo ENOTFOUND ${host}`), {
+        code: "ENOTFOUND",
+      });
+    }
 
     return answer === undefined
       ? lookup(host, options as never)
@@ -149,6 +156,78 @@ test("clones only from the address it checked", async () => {
   } finally {
     answers.clear();
     await loginless.close();
+  }
+});
+
+// Git looks the name up again itself, and can reach what the server's lookup
+// couldn't.
+test("refuses a host the server can't look up", async () => {
+  const url = await repository({ "pipoca.json": "{}" });
+  const loginless = testServer({ configDir: join(root, "loginless") });
+
+  answers.set("localhost", null);
+
+  try {
+    const listed = await loginless.api(
+      `/api/repositories/manifest?url=${encodeURIComponent(url)}`,
+    );
+
+    expect(listed.status).toBe(400);
+  } finally {
+    answers.clear();
+    await loginless.close();
+  }
+});
+
+// The server's own keys and agent may reach repositories the person can't.
+test("clones over ssh for a person with none of the server's ssh setup", async () => {
+  const bin = join(root, "bin");
+  const said = join(root, "ssh-said");
+  await mkdir(bin);
+
+  await writeFile(
+    join(bin, "ssh"),
+    `#!/bin/sh\nprintf '%s\\n' "HOME=$HOME" "SSH_AUTH_SOCK=\${SSH_AUTH_SOCK-}" "$@" > '${said}'\nexit 255\n`,
+    { mode: 0o755 },
+  );
+
+  const { PATH: path, SSH_AUTH_SOCK: agent } = process.env;
+  process.env["PATH"] = `${bin}:${path ?? ""}`;
+  process.env["SSH_AUTH_SOCK"] = join(root, "agent.sock");
+  answers.set("git.example.com", "192.0.2.1");
+  const loginless = testServer({ configDir: join(root, "loginless") });
+
+  try {
+    const imported = await loginless.api("/api/profiles", {
+      body: { source: { url: "ssh://git@git.example.com/team.git" } },
+    });
+
+    expect(imported.status).toBe(400);
+  } finally {
+    process.env["PATH"] = path;
+
+    if (agent === undefined) {
+      delete process.env["SSH_AUTH_SOCK"];
+    } else {
+      process.env["SSH_AUTH_SOCK"] = agent;
+    }
+
+    answers.clear();
+    await loginless.close();
+  }
+
+  const lines = (await Bun.file(said).text()).split("\n");
+
+  expect(lines).not.toContain(`HOME=${process.env["HOME"] ?? ""}`);
+  expect(lines).toContain("SSH_AUTH_SOCK=");
+
+  for (const option of [
+    "/dev/null",
+    "IdentitiesOnly=yes",
+    "IdentityFile=none",
+    "IdentityAgent=none",
+  ]) {
+    expect(lines).toContain(option);
   }
 });
 

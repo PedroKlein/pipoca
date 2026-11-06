@@ -82,6 +82,35 @@ test("clones only https and ssh URLs without credentials, and file URLs where lo
   ).toBe(true);
 });
 
+// A redirect would reach a host the server never checked.
+test("doesn't follow a git host's redirect", async () => {
+  await commit({ "README.md": "hi" });
+  const served = join(root, "served");
+  await mkdir(served);
+
+  execFileSync("git", [
+    "clone",
+    "-q",
+    "--bare",
+    repository,
+    join(served, "kit.git"),
+  ]);
+
+  const host = gitHost(served, { old: "kit" });
+
+  try {
+    expect(await withClone(host.url("kit"), () => "cloned")).toBe("cloned");
+
+    expect(
+      await withClone(host.url("old"), () => "cloned").catch(
+        (error: unknown) => error,
+      ),
+    ).toBeInstanceOf(InvalidRepository);
+  } finally {
+    await host.stop();
+  }
+});
+
 test("reads what a repository's manifest lists, and only folders inside it", async () => {
   const head = await commit({
     "pipoca.json": JSON.stringify({

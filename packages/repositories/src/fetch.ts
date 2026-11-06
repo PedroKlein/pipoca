@@ -22,6 +22,9 @@ export interface CloneOptions {
   // A curl resolve entry, host:port:address, so git connects only to the
   // address the server checked.
   readonly resolve?: string;
+  // Fetches for a person use none of the server's own ssh keys, agent,
+  // .netrc or git config, which may reach repositories the person can't.
+  readonly anonymous?: boolean;
 }
 
 const timeoutMs = 2 * 60_000;
@@ -73,7 +76,7 @@ export async function withClone<T>(
   const dir = await mkdtemp(join(tmpdir(), "pipoca-repository-"));
 
   try {
-    const commit = await fetchGit(parsed, dir, options.resolve).catch(
+    const commit = await fetchGit(parsed, dir, options).catch(
       (error: unknown) => {
         throw new InvalidRepository(`could not clone ${url}: ${String(error)}`);
       },
@@ -158,23 +161,36 @@ function refOf(url: URL): {
 async function fetchGit(
   url: URL,
   into: string,
-  resolve?: string,
+  { resolve, anonymous = false }: CloneOptions = {},
 ): Promise<string> {
   const { repository, ref } = refOf(url);
 
   const pinned =
     resolve === undefined ? [] : ["-c", `http.curloptResolve=${resolve}`];
 
-  await git(["init", "-q"], into);
+  const home = anonymous
+    ? await mkdtemp(join(tmpdir(), "pipoca-home-"))
+    : undefined;
 
-  await git(
-    [...pinned, "fetch", "-q", "--depth", "1", "--", repository, ref],
-    into,
-  );
+  const env = environment(home);
 
-  await git(["checkout", "-q", "FETCH_HEAD"], into);
+  try {
+    await git(["init", "-q"], into, env);
 
-  return (await git(["rev-parse", "HEAD"], into)).trim();
+    await git(
+      [...pinned, "fetch", "-q", "--depth", "1", "--", repository, ref],
+      into,
+      env,
+    );
+
+    await git(["checkout", "-q", "FETCH_HEAD"], into, env);
+
+    return (await git(["rev-parse", "HEAD"], into, env)).trim();
+  } finally {
+    if (home !== undefined) {
+      await rm(home, { recursive: true, force: true });
+    }
+  }
 }
 
 // A link could point the server's own writes and reads at any file it can
@@ -277,7 +293,11 @@ async function capped(response: Response): Promise<Uint8Array> {
   return Buffer.concat(chunks);
 }
 
-async function git(args: readonly string[], cwd: string): Promise<string> {
+async function git(
+  args: readonly string[],
+  cwd: string,
+  env = environment(),
+): Promise<string> {
   return run(
     "git",
     [
@@ -291,11 +311,41 @@ async function git(args: readonly string[], cwd: string): Promise<string> {
       "protocol.file.allow=always",
       "-c",
       "credential.helper=",
+      "-c",
+      "http.followRedirects=false",
       ...args,
     ],
     cwd,
     `git ${args[0] ?? ""}`,
+    env,
   );
+}
+
+// Nobody is there to answer a password or host key prompt. With a home, git
+// and ssh read nothing of the server's own setup.
+function environment(home?: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_SSH_COMMAND: "ssh -o BatchMode=yes",
+  };
+
+  if (home === undefined) {
+    return env;
+  }
+
+  delete env["SSH_AUTH_SOCK"];
+  delete env["GIT_ASKPASS"];
+  delete env["SSH_ASKPASS"];
+
+  return {
+    ...env,
+    HOME: home,
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_SSH_COMMAND:
+      "ssh -F /dev/null -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityFile=none -o IdentityAgent=none",
+  };
 }
 
 async function run(
@@ -303,18 +353,14 @@ async function run(
   args: readonly string[],
   cwd: string,
   label = command,
+  env = environment(),
 ): Promise<string> {
   try {
     const { stdout } = await execFiled(command, args, {
       cwd,
       timeout: timeoutMs,
       maxBuffer: 16 * 1024 * 1024,
-      // Nobody is there to answer a password or host key prompt.
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: "0",
-        GIT_SSH_COMMAND: "ssh -o BatchMode=yes",
-      },
+      env,
     });
 
     return stdout;
