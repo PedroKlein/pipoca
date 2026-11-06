@@ -1,7 +1,7 @@
 import { apiPath, type Presence } from "@pipoca/protocol";
 import { type ReactElement, useEffect, useRef, useState } from "react";
-import { request } from "./data/client";
-import { useQuery } from "./data/hooks";
+import { request } from "../data/client";
+import { useQuery } from "../data/hooks";
 
 const typingEveryMs = 3000;
 

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { renderMarkdown } from "./markdown";
+import { renderMarkdown } from "./render-markdown";
 
 test("renders markdown", () => {
   expect(renderMarkdown("**done**, see `x.ts`")).toBe(

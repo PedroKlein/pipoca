@@ -1,6 +1,6 @@
 import { Button, Icon } from "@pipoca/ui";
 import type { ReactElement } from "react";
-import { ShellMenu } from "../embedded-session";
+import { ShellMenu } from "../session/embedded-session";
 import { PluginBoundary } from "../plugin-boundary";
 import { enabledPlugins, pageFills, pluginContext } from "../plugins";
 

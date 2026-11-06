@@ -1,8 +1,8 @@
 import type { Session, SessionAccess } from "@pipoca/protocol";
 import { Button, Dialog, ErrorText, Icon, Picker, Segmented } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import { request } from "./data/client";
-import { useAction, useQuery } from "./data/hooks";
+import { request } from "../data/client";
+import { useAction, useQuery } from "../data/hooks";
 
 type Kind = SessionAccess["kind"];
 

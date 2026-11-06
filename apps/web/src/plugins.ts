@@ -31,7 +31,7 @@ import * as reactDom from "react-dom";
 import * as reactDomClient from "react-dom/client";
 import * as jsxRuntime from "react/jsx-runtime";
 import { request } from "./data/client";
-import { EmbeddedSession } from "./embedded-session";
+import { EmbeddedSession } from "./session/embedded-session";
 import { PluginBoundary } from "./plugin-boundary";
 import { webRegistry } from "./registry";
 import { href, navigate } from "./router";

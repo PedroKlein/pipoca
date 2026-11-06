@@ -31,18 +31,18 @@ import {
   useRef,
   useState,
 } from "react";
-import { command, request } from "./data/client";
-import { useQuery } from "./data/hooks";
+import { command, request } from "../../data/client";
+import { useQuery } from "../../data/hooks";
 import { admit, dataUrl } from "./attachments";
-import type { Feed, Settings, ShownWidget } from "./feed";
-import { modelName, modelRef } from "./names";
-import { usePrimaryId } from "./primary";
-import { PluginBoundary } from "./plugin-boundary";
-import { pluginContext, useSessionPlugins, widgetRenderer } from "./plugins";
-import { PromptCard, type PromptHandlers } from "./prompt-card";
+import type { Feed, Settings, ShownWidget } from "../feed";
+import { modelName, modelRef } from "../../names";
+import { usePrimaryId } from "../../primary";
+import { PluginBoundary } from "../../plugin-boundary";
+import { pluginContext, useSessionPlugins, widgetRenderer } from "../../plugins";
+import { PromptCard, type PromptHandlers } from "../questions/prompt-card";
 import { browserCommand } from "./suggest";
 import { useSuggestions } from "./suggestions";
-import { Styled, TerminalColumns, TerminalText } from "./terminal-text";
+import { Styled, TerminalColumns, TerminalText } from "../terminal/terminal-text";
 
 // Pi reads a message sent now after its current step, and a queued one when
 // it finishes.

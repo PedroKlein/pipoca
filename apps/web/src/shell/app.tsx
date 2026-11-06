@@ -19,7 +19,7 @@ import {
   sessionHref,
 } from "../plugins";
 import { href, navigate, type Route, useRoute } from "../router";
-import { SessionView } from "../session-view";
+import { SessionView } from "../session/session-view";
 import { SettingsLayout } from "../settings/layout";
 import { SetupReminders } from "../setup/reminders";
 import { SetupWizard } from "../setup/wizard";

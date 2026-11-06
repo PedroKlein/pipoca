@@ -14,7 +14,7 @@ import {
 } from "react";
 import type { WebPlugin } from "@pipoca/plugins/web";
 import { createPortal } from "react-dom";
-import { dataUrl } from "./attachments";
+import { dataUrl } from "../composer/attachments";
 import {
   ago,
   describeTool,
@@ -28,14 +28,14 @@ import {
   turns,
   type Work,
 } from "./chat";
-import type { Feed } from "./feed";
-import { useQuery } from "./data/hooks";
-import { renderMarkdown } from "./markdown";
-import { PluginBoundary } from "./plugin-boundary";
-import { enabledPlugins, pluginContext, toolRenderer } from "./plugins";
-import { usePrimaryId } from "./primary";
-import { addressHref } from "./router";
-import { TerminalText } from "./terminal-text";
+import type { Feed } from "../feed";
+import { useQuery } from "../../data/hooks";
+import { renderMarkdown } from "./render-markdown";
+import { PluginBoundary } from "../../plugin-boundary";
+import { enabledPlugins, pluginContext, toolRenderer } from "../../plugins";
+import { usePrimaryId } from "../../primary";
+import { addressHref } from "../../router";
+import { TerminalText } from "../terminal/terminal-text";
 import { useVerbosity } from "./verbosity";
 import { voiced } from "./voices";
 

@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { Feed } from "./feed";
+import type { Feed } from "../feed";
 import { complete, ranked, type Trigger, trigger } from "./suggest";
 
 const shown = 8;

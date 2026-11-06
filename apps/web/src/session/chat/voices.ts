@@ -1,6 +1,6 @@
 import type { Quote, Voice } from "@pipoca/protocol";
 import type { Quoted } from "./chat";
-import type { FeedItem } from "./feed";
+import type { FeedItem } from "../feed";
 
 // Names each team message's sender, matching messages to what was sent in
 // order, and puts what people said to each other, and each stop, where it

@@ -5,7 +5,7 @@ import { request } from "../data/client";
 import { useAction, useMe, useQuery } from "../data/hooks";
 import { NewSessionDialog } from "../shell/new-session";
 import { PluginBoundary } from "../plugin-boundary";
-import { SessionView } from "../session-view";
+import { SessionView } from "../session/session-view";
 import { pluginContext } from "../plugins";
 import { href, navigate, type Route, routeHref } from "../router";
 import { type Entry, screens, pagesOf, hrefOf, newPageId } from "./hub-pages";

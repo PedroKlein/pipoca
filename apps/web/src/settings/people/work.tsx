@@ -6,7 +6,7 @@ import {
 } from "@pipoca/protocol";
 import { Badge, Button, initialsOf, plural, Row, Rows } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
-import { ago } from "../../chat";
+import { ago } from "../../session/chat/chat";
 import { kindName } from "../environments/kinds";
 
 const busy = new Set(["queued", "starting", "running"]);

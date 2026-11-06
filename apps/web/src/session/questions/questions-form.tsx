@@ -6,7 +6,7 @@ import type {
 } from "@pipoca/protocol";
 import { Button, cn, fieldClass, Icon } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import type { Explanation } from "./feed";
+import type { Explanation } from "../feed";
 import { Actions } from "./fields";
 import {
   answered,

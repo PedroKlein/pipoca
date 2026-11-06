@@ -12,7 +12,7 @@ import {
   type UiAction,
   type Voice,
 } from "@pipoca/protocol";
-import { chatItems, type ChatItem } from "./chat";
+import { chatItems, type ChatItem } from "./chat/chat";
 
 type Widget = Extract<LiveEvent, { type: "widget" }>;
 

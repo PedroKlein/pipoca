@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { FeedItem } from "./feed";
+import type { FeedItem } from "../feed";
 import { voiced } from "./voices";
 
 const names = new Map([

@@ -9,10 +9,10 @@ import {
   Select,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import { command, request } from "./data/client";
-import { useAction, useQuery } from "./data/hooks";
+import { command, request } from "../data/client";
+import { useAction, useQuery } from "../data/hooks";
 import type { FeedItem } from "./feed";
-import { href, navigate } from "./router";
+import { href, navigate } from "../router";
 
 const handoff =
   "Write a handoff summary of this work for my team, who will carry it on in a new Session without this conversation: the goal, what is done, what is left, decisions made and why, and where things are in the repository. Leave out secrets and anything personal. Reply with the summary only.";

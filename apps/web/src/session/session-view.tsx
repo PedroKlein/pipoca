@@ -32,23 +32,23 @@ import {
   useRef,
   useState,
 } from "react";
-import { command, request } from "./data/client";
-import { invalidate, useMe, useQuery } from "./data/hooks";
-import { ago } from "./chat";
-import { Composer, prefillComposer, type Replying } from "./composer";
-import { ChatView } from "./chat-view";
+import { command, request } from "../data/client";
+import { invalidate, useMe, useQuery } from "../data/hooks";
+import { ago } from "./chat/chat";
+import { Composer, prefillComposer, type Replying } from "./composer/composer";
+import { ChatView } from "./chat/chat-view";
 import { emptyFeed, type Feed, feedReader, followEvents } from "./feed";
-import { describe, sessionBadge, shortName, workspaceName } from "./names";
-import { PluginBoundary } from "./plugin-boundary";
-import { PrimaryView, usePrimaryId } from "./primary";
-import { pluginContext, useSessionPlugins } from "./plugins";
+import { describe, sessionBadge, shortName, workspaceName } from "../names";
+import { PluginBoundary } from "../plugin-boundary";
+import { PrimaryView, usePrimaryId } from "../primary";
+import { pluginContext, useSessionPlugins } from "../plugins";
 import { sessionChannel } from "./session-channel";
-import { keyBar, type Modifier, modified } from "./keys";
+import { keyBar, type Modifier, modified } from "./terminal/keys";
 import { PresenceLine, usePresence, useTyping } from "./presence";
 import { AccessDialog, accessLabels, steers } from "./team-access";
 import { MoveDialog } from "./move-team";
-import { openTerminal } from "./terminal";
-import { addressHref, href, navigate } from "./router";
+import { openTerminal } from "./terminal/terminal";
+import { addressHref, href, navigate } from "../router";
 
 type View = "chat" | "pi" | "terminal";
 
