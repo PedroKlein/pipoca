@@ -369,6 +369,7 @@ test("says which templates have runner pods started for them", async () => {
 // The chart seeds this entry when its config names no templates.
 test("offers runner pods from a template that pipoca.json gives only a workspace", async () => {
   await t.close();
+
   await start({
     kernelConfig: {
       templates: [
