@@ -8,13 +8,13 @@ import type { EventBus } from "./events";
 import type { Schedule } from "./schedule";
 import type { SecretRefs } from "./secrets";
 import type {
+  ActsAs,
   Actor,
   Clock,
   CreateSession,
   DeclaredEvent,
   Environment,
   EnvironmentTemplate,
-  GitLogin,
   Log,
   ModelRef,
   Permission,
@@ -112,9 +112,9 @@ export interface PluginEvent {
 
 export type StartRequest = CreateSession & {
   readonly actor: Actor;
-  // A technical user's name, which only plugins start Sessions as
-  // (ADR 0060).
-  readonly actsAs?: string;
+  // The identity a plugin's gitCredentials resolve for its git, such as a
+  // technical user (ADR 0060). Only plugins start Sessions acting as one.
+  readonly actsAs?: ActsAs;
   // Who steers team work from the start, such as only the person whose
   // Team assistant it is (ADR 0067).
   readonly access?: SessionAccess;
@@ -436,15 +436,6 @@ export interface ServerPluginContext {
       userId: string,
       request: Request,
     ) => string | undefined;
-    // The git hosts a user connected, which the runner signs in to for the
-    // user's Sessions (ADR 0043), or the technical user a Session acts as
-    // (ADR 0060).
-    readonly gitLogins: (
-      logins: (
-        userId: string,
-        session: Pick<Session, "actsAs" | "workspace">,
-      ) => readonly GitLogin[],
-    ) => void;
   };
   readonly models: { readonly offer: (offer: ModelOffer) => void };
   readonly store: PluginStore;

@@ -1,4 +1,4 @@
-import type { Session } from "@pipoca/protocol";
+import type { RepositoryChoice, Session } from "@pipoca/protocol";
 import {
   type ComponentType,
   createElement,
@@ -77,6 +77,13 @@ export interface WebPart<P extends PluginDefinition = PluginDefinition> {
   readonly setup?: readonly SetupStep[];
   readonly slots?: { readonly [K in keyof Slots]?: ComponentType<Slots[K]> };
   readonly sessionPath?: (session: Session) => string;
+  // Repositories New Session offers for what the person typed, such as the
+  // ones on the git hosts they connected (ADR 0043), or for team work the
+  // ones the team's bots reach.
+  readonly repositories?: (
+    query: string,
+    team: boolean,
+  ) => Promise<readonly RepositoryChoice[]>;
 }
 
 export function defineWeb<P extends PluginDefinition>(

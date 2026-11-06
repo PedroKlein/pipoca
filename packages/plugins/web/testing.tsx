@@ -64,6 +64,8 @@ export function renderPart(
   props: object,
   o: {
     readonly fills?: Readonly<Record<string, ComponentType<never>>>;
+    // What the page's requests get, in place of the network.
+    readonly fetch?: (url: string, init?: RequestInit) => Promise<Response>;
   } = {},
 ): HTMLElement {
   const Part = (part.slots as Readonly<Record<string, unknown>> | undefined)?.[
@@ -76,6 +78,24 @@ export function renderPart(
 
   if (!GlobalRegistrator.isRegistered) {
     GlobalRegistrator.register();
+  }
+
+  // Set once the page exists, which brings a fetch of its own.
+  const realFetch = globalThis.fetch;
+
+  if (o.fetch) {
+    const fake = o.fetch;
+
+    globalThis.fetch = Object.assign(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        if (typeof input === "string") {
+          return fake(input, init);
+        }
+
+        return fake(input instanceof URL ? input.href : input.url, init);
+      },
+      { preconnect: realFetch.preconnect },
+    );
   }
 
   const container = document.createElement("div");
@@ -97,6 +117,8 @@ export function renderPart(
     act(() => {
       root.unmount();
     });
+
+    globalThis.fetch = realFetch;
 
     if (GlobalRegistrator.isRegistered) {
       await GlobalRegistrator.unregister();

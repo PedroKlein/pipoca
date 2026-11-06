@@ -245,6 +245,13 @@ export const sessionAccess = Type.Union([
 
 export type SessionAccess = Wire<typeof sessionAccess>;
 
+export const actsAs = Type.Object({
+  plugin: Type.String(),
+  name: Type.String(),
+});
+
+export type ActsAs = Wire<typeof actsAs>;
+
 export const session = Type.Object({
   id: Type.String(),
   environmentId: Type.String(),
@@ -274,9 +281,9 @@ export const session = Type.Object({
   // The user who started the Session, or the one who started the Session
   // that started it. Its runner signs git in as them (ADR 0043).
   startedBy: nullable(Type.String()),
-  // The technical user its git acts as instead of startedBy, such as a
-  // GitHub App a routine runs as (ADR 0060).
-  actsAs: nullable(Type.String()),
+  // The identity its git acts as instead of startedBy, such as a GitHub App
+  // a routine runs as (ADR 0060). The plugin it names resolves it.
+  actsAs: nullable(actsAs),
   ownedBy: owner,
   // A personal Session's is always team, since only its person reaches it.
   access: sessionAccess,

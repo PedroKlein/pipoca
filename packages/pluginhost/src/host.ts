@@ -43,6 +43,7 @@ import {
   capabilities,
   type DeclaredEvent,
   type GitLogin,
+  type Owner,
   type PluginInfo,
   type PluginManifest,
   type PluginSettings,
@@ -72,7 +73,7 @@ import { type ExtRoute, pluginRoutes, pluginUrls } from "./routes";
 export type UserActor = `user:${string}`;
 
 type GitLoginsOf = (
-  userId: string,
+  owner: Owner,
   session: Pick<Session, "actsAs" | "workspace">,
 ) => readonly GitLogin[];
 
@@ -296,7 +297,7 @@ export function startPlugins(
   const publicRoutes = new Map<string, PublicRoute>();
   const logins: { plugin: string; offered: () => readonly Login[] }[] = [];
   const offers: ModelOffer[] = [];
-  const gitLogins: GitLoginsOf[] = [];
+  const gitLogins: { plugin: string; of: GitLoginsOf }[] = [];
   const fromEnv = envSecrets(process.env);
   const settled = new Set<string>();
   const used = new Map<string, Set<Capability>>();
@@ -608,7 +609,6 @@ export function startPlugins(
       publicRoute: undefined as PublicRoute | undefined,
       logins: [] as (() => readonly Login[])[],
       offers: [] as ModelOffer[],
-      gitLogins: [] as GitLoginsOf[],
       starters: [] as (typeof starters)[number][],
       profiles: new Map<string, PluginProfile>(),
       loadOnly: undefined as readonly string[] | undefined,
@@ -767,9 +767,6 @@ export function startPlugins(
             acceptInvite: deps.auth.acceptInvite,
             passwordLogin: deps.auth.passwordLogin,
             startSession: deps.auth.startSession,
-            gitLogins: (loginsOf) => {
-              staged.gitLogins.push(loginsOf);
-            },
           },
           models: {
             offer: (offer) => {
@@ -829,7 +826,6 @@ export function startPlugins(
     );
 
     offers.push(...staged.offers);
-    gitLogins.push(...staged.gitLogins);
     starters.push(...staged.starters);
 
     for (const [id, profile] of staged.profiles) {
@@ -904,6 +900,7 @@ export function startPlugins(
       profiles: new Map<string, PluginProfile>(),
       routeToolProfiles: [] as string[],
       offers: [] as ModelOffer[],
+      gitCredentials: [] as GitLoginsOf[],
     };
 
     try {
@@ -1004,6 +1001,9 @@ export function startPlugins(
             models: (offer) => {
               staged.offers.push(offer);
             },
+            gitCredentials: (of) => {
+              staged.gitCredentials.push(of);
+            },
             profile: (key, { name: _name, ...content }, o) => {
               const profileId = `${id}.${key}`;
 
@@ -1100,6 +1100,9 @@ export function startPlugins(
     }
 
     offers.push(...staged.offers);
+
+    gitLogins.push(...staged.gitCredentials.map((of) => ({ plugin: id, of })));
+
     scheduled.commit();
     schedules.wake();
     extRoutes.push(...declared.declared);
@@ -1692,8 +1695,15 @@ export function startPlugins(
     },
     startsRunners: (environment) =>
       starters.find(({ starts }) => starts(environment))?.plugin,
-    gitLogins: (userId, session) =>
-      gitLogins.flatMap((loginsOf) => loginsOf(userId, session)),
+    // A Session acting as someone gets only the logins of the plugin it
+    // names, so no other plugin's account signs in beside a bot's.
+    gitLogins: (owner, session) =>
+      gitLogins
+        .filter(
+          ({ plugin }) =>
+            session.actsAs === null || session.actsAs.plugin === plugin,
+        )
+        .flatMap(({ of }) => of(owner, session)),
     route: async (request, name, path, caller) =>
       routes.get(name)?.(request, path, caller),
     publicRoute: async (request, name, path) =>

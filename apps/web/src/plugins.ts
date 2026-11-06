@@ -1,7 +1,6 @@
 import {
   ConfigForm,
   type NavItemsProps,
-  type PullRequestProps,
   type ToolCallProps,
   type WebContext,
   type WebPart,
@@ -137,21 +136,7 @@ function shellPlugin(id: string, module: Module | undefined): ShellPlugin {
     throw new Error(`the ${id} web module exports no web part`);
   }
 
-  return bridged(plugin as WebPlugin);
-}
-
-// A v1 part's PullRequest fills the slot that changes declares.
-function bridged(plugin: WebPlugin): ShellPlugin {
-  const { name, PullRequest } = plugin;
-
-  if (PullRequest === undefined) {
-    return plugin;
-  }
-
-  const Status = (props: Omit<PullRequestProps, "context">): ReactElement =>
-    createElement(PullRequest, { ...props, context: pluginContext(name) });
-
-  return { ...plugin, slots: { "pullRequest.status": Status } };
+  return plugin as WebPlugin;
 }
 
 function isPart(value: unknown): value is WebPart {
@@ -267,6 +252,10 @@ function adapted(part: WebPart): ShellPlugin {
     },
     ...optional("Home", slot("home")),
     ...optional("sessionPath", part.sessionPath),
+    ...(part.repositories && {
+      repositories: async (_context, query, team) =>
+        part.repositories?.(query, team) ?? [],
+    }),
     notices: slotted("notice:"),
     links: slotted("link:"),
     tools: slotted("session.toolCall:"),
@@ -346,7 +335,7 @@ async function importWebPart(
       throw new Error("its nav needs a label and a Page component");
     }
 
-    return bridged(plugin);
+    return plugin;
   } catch (error) {
     webErrors.set(id, error instanceof Error ? error.message : String(error));
 

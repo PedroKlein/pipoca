@@ -333,7 +333,7 @@ export function serve(options: ServeOptions): {
     offeredModels: (environment, userId) =>
       pluginHost.offeredModels(environment, userId),
     pluginProfile: (id) => pluginHost.profile(id),
-    gitLogins: (userId, session) => pluginHost.gitLogins(userId, session),
+    gitLogins: (owner, session) => pluginHost.gitLogins(owner, session),
     teamMessagesRead: team.messagesRead,
     names: (person) => people.userById(person)?.name,
     log: options.log,

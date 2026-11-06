@@ -4,6 +4,7 @@ import type {
   DeclaredEvent,
   EnvironmentTemplate,
   Environment,
+  GitLogin,
   Log,
   Method,
   Owner,
@@ -208,6 +209,18 @@ export interface Routes {
 
 export interface Urls {
   readonly public: (path: string) => string;
+  // A cookie only the plugin's own routes get back, such as the browser's
+  // half of an OAuth state. It is Lax, so it comes back on the redirect
+  // from another site.
+  readonly cookie: {
+    readonly set: (
+      response: Response,
+      name: string,
+      value: string,
+      maxAgeS: number,
+    ) => void;
+    readonly get: (request: Request, name: string) => string | undefined;
+  };
 }
 
 export interface ToolCall {
@@ -284,7 +297,7 @@ export interface ServerTools {
 
 export interface Sessions {
   readonly start: (
-    request: Omit<StartRequest, "actsAs" | "access"> & {
+    request: Omit<StartRequest, "access"> & {
       readonly key?: string;
       readonly access?: SessionAccess;
     },
@@ -384,6 +397,15 @@ export interface PluginEnvironments {
 
 export interface Providers {
   readonly models: (offer: ModelOffer) => void;
+  // The logins a Session's git and gh sign in with: its person's, the
+  // team's, or for a Session that acts as one of this plugin's identities,
+  // that identity's. Called as a runner takes the Session, so it can't wait.
+  readonly gitCredentials: (
+    of: (
+      owner: Owner,
+      session: Pick<Session, "actsAs" | "workspace">,
+    ) => readonly GitLogin[],
+  ) => void;
   // Sessions on the Profile load every route tool when routeTools is true.
   readonly profile: (
     key: string,

@@ -117,7 +117,6 @@ export function fakeContext(
       acceptInvite: notFaked("auth.acceptInvite"),
       passwordLogin: notFaked("auth.passwordLogin"),
       startSession: notFaked("auth.startSession"),
-      gitLogins: notFaked("auth.gitLogins"),
     },
     models: { offer: notFaked("models.offer") },
     store: memoryStore(),

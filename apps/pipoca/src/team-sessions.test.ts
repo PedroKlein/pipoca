@@ -17,16 +17,36 @@ import type {
   SessionEvent,
   Voice,
 } from "@pipoca/protocol";
-import type { ServerPluginContext } from "@pipoca/plugins";
-import { builtInParts, builtInPlugins } from "./built-in";
+import {
+  definePlugin,
+  defineServer,
+  type ServerPluginContext,
+} from "@pipoca/plugins";
+import { builtInParts } from "./built-in";
 import { readSse } from "@pipoca/protocol";
-import { builtInServer } from "./testdata/built-in";
 import { json, testServer, type TestServer } from "./testdata/harness";
 
 let root: string;
 let server: TestServer;
 let starter: ServerPluginContext["sessions"] | undefined;
 let toolsets: ServerPluginContext["toolsets"] | undefined;
+
+// Signs git in as whoever a Session acts as, for its owner.
+const actingPart = defineServer(
+  definePlugin({
+    id: "acting",
+    title: "Acting",
+    description: "",
+    works: ["personal", "team"],
+  }),
+  (context) => {
+    context.provide.gitCredentials((owner, { actsAs }) =>
+      actsAs === null
+        ? []
+        : [{ host: "git.example.com", token: `${actsAs.name} for ${owner}` }],
+    );
+  },
+);
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "team-sessions-"));
@@ -59,15 +79,8 @@ beforeEach(async () => {
 
           context.profiles.provide("own", { ...blank, name: "Own" });
           context.toolsets.loadInOwnSessions();
-
-          context.auth.gitLogins((userId, { actsAs }) =>
-            actsAs === null
-              ? []
-              : [{ host: "git.example.com", token: `${actsAs} for ${userId}` }],
-          );
         },
       },
-      builtInServer("git-hosts"),
       {
         name: "notes",
         register: (context) => {
@@ -96,9 +109,13 @@ beforeEach(async () => {
         description: "",
         capabilities: ["tools"],
       },
-      ...builtInPlugins.filter(({ id }) => id === "git-hosts"),
     ],
-    servers: builtInParts.filter(({ plugin }) => plugin.id === "ask"),
+    servers: [
+      ...builtInParts.filter(({ plugin }) =>
+        ["ask", "git-hosts"].includes(plugin.id),
+      ),
+      actingPart,
+    ],
   });
 });
 
@@ -1058,7 +1075,7 @@ test("team work signs git in as a technical user the team may use, never as its 
   const acting = starter?.start({
     actor: "plugin:routines",
     team: true,
-    actsAs: "release-bot",
+    actsAs: { plugin: "acting", name: "release-bot" },
     environment: team.environment,
     profile: team.profile,
     workspace: workspace(),

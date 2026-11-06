@@ -68,12 +68,6 @@ export interface WebContext {
   readonly SessionView: ComponentType<EmbeddedSessionProps>;
 }
 
-export interface PullRequestProps {
-  readonly context: WebContext;
-  readonly session: MountedSession;
-  readonly url: string;
-}
-
 export interface MountedSession {
   readonly id: string;
   // Every event the Session view receives, from the start of its stream.
@@ -245,8 +239,6 @@ export interface WebPlugin {
   readonly SessionHeader?: ComponentType<SessionPartProps>;
   // Drawn above a Session's composer, such as the agent's checklist.
   readonly Composer?: ComponentType<SessionPartProps>;
-  // Drawn beside a pull request that a Session opened, on its Changes panel.
-  readonly PullRequest?: ComponentType<PullRequestProps>;
   // Tools whose calls the plugin draws instead of a work step, by name.
   readonly tools?: Readonly<Record<string, ComponentType<ToolCallProps>>>;
   // Extension widgets the plugin draws in their place, by widget key.
