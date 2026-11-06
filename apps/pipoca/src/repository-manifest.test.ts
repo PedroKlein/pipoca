@@ -152,6 +152,26 @@ test("clones only from the address it checked", async () => {
   }
 });
 
+// ::ffff:127.0.0.1 is the IPv6 spelling of a loopback address.
+test("refuses an IPv4-mapped IPv6 address as its IPv4 address", async () => {
+  const url = (await repository({ "pipoca.json": "{}" })).replace(
+    "localhost",
+    "[::ffff:127.0.0.1]",
+  );
+
+  const loginless = testServer({ configDir: join(root, "loginless") });
+
+  try {
+    const listed = await loginless.api(
+      `/api/repositories/manifest?url=${encodeURIComponent(url)}`,
+    );
+
+    expect(listed.status).toBe(400);
+  } finally {
+    await loginless.close();
+  }
+});
+
 afterEach(async () => {
   await server.close();
   await rm(root, { recursive: true, force: true });

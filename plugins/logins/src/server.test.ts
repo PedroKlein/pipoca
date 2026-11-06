@@ -528,6 +528,23 @@ test("signs in to an MCP server on a private address only when an admin allows i
   expect(done.mcp).toEqual([]);
 });
 
+// ::ffff:127.0.0.1 is the IPv6 spelling of a loopback address.
+test("an MCP sign-in refuses an IPv4-mapped IPv6 address as its IPv4 address", async () => {
+  await using t = await started();
+  const url = "http://[::ffff:127.0.0.1]:9/mcp";
+
+  await profile(t, "ana", { name: "Tools", mcpServers: { tools: { url } } });
+  await t.as("ana").post("connect-mcp", { server: `tools ${url}` });
+
+  const done = await until(
+    async () => account(t, "ana"),
+    ({ connection }) => connection?.state !== "running",
+  );
+
+  expect(done.connection).toMatchObject({ state: "failed" });
+  expect(JSON.stringify(done.connection)).toContain("private address");
+});
+
 // A name can answer one address when the server checks it and another when
 // the fetch connects, so the fetch connects only to the one it checked.
 test("an MCP sign-in connects only to the address it checked, under the server's name", async () => {
