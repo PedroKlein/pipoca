@@ -68,6 +68,12 @@ export async function setUpPart(
     },
     provide: {
       modelCredentials: (logins) => {
+        if (part.plugin.modelCredentials !== true) {
+          throw new Error(
+            `${id} keeps model logins, so its definition needs modelCredentials: true`,
+          );
+        }
+
         modelCredentials = logins;
       },
     },

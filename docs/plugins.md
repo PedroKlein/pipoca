@@ -53,6 +53,7 @@ export const greeter = definePlugin({
 - `migrations` is a list of SQL run in order after `schema`, each one version more. The server runs the ones a database hasn't at start, inside its transaction, so a table rebuild uses `pragma defer_foreign_keys = on`. If one fails, or the database is at a newer version, the plugin fails with its data kept until an admin resets it on the Plugins page ([ADR 0070](adr/0070-schema-migrations.md)).
 - `events` declares what the plugin emits, each with a `title` and TypeBox `fields`, so routines can offer it as a trigger.
 - `requires` lists the plugins it can't run without. They start first, and it fails while one is off.
+- `modelCredentials: true` says its Session part keeps the Session's model and MCP logins with `provide.modelCredentials`. Only one plugin on a server may say so: another that does fails at start, and a Session part that keeps them without it fails.
 - `defaultOn` says whether a built-in plugin starts on: `always`, `solo`, `team` or `never`.
 
 A plugin imports only `@pipoca/plugins`, `@pipoca/plugins/web`, `@pipoca/protocol`, `@pipoca/ui` and another plugin's definition as `@pipoca/<id>/plugin`. They come from the server it runs on, so don't list them in `dependencies`. It tells time with `clock.now()` and waits with `schedule` or `timer`, never `Date.now()` or `setTimeout`, so its tests can move time. The repository's lint enforces both.

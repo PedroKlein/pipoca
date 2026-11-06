@@ -653,6 +653,18 @@ export function startPlugins(
         }
       }
 
+      if (definition.modelCredentials === true) {
+        const taker = deps.definitions.find(
+          (other) => other.modelCredentials === true && settled.has(other.id),
+        );
+
+        if (taker !== undefined) {
+          throw new Error(`${taker.id} already keeps model logins`);
+        }
+
+        provided.add("modelCredentials");
+      }
+
       const dataFailure = deps.dataFailure(id);
 
       if (dataFailure !== undefined) {

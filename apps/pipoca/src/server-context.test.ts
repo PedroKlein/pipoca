@@ -300,6 +300,38 @@ test("lets one plugin sign people in, and fails another that tries too", async (
   });
 });
 
+const keeper = (id: string) =>
+  defineServer(
+    definePlugin({
+      id,
+      title: id,
+      description: "Keeps model logins.",
+      modelCredentials: true,
+    }),
+    () => undefined,
+  );
+
+test("lets one plugin keep model logins, and fails another that says it does too", async () => {
+  const keeping = testServer({
+    builtIns: false,
+    servers: [keeper("vault"), keeper("safe")],
+  });
+
+  const listed = await json<PluginInfo[]>(keeping.api("/api/plugins"));
+
+  await keeping.close();
+
+  expect(listed.find(({ id }) => id === "vault")).toMatchObject({
+    state: "on",
+    provides: ["modelCredentials"],
+  });
+
+  expect(listed.find(({ id }) => id === "safe")).toMatchObject({
+    state: "failed",
+    error: "vault already keeps model logins",
+  });
+});
+
 // A plugin that fails later, out of an async listener, watcher or timer,
 // costs only a log line under its name, not the server (spec 2.8a).
 test("logs a plugin's async listener, config watcher and timer that reject", async () => {

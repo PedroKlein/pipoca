@@ -39,6 +39,9 @@ export interface PluginDefinition<
   readonly defaultOn?: "always" | "solo" | "team" | "never";
   // The plugins it can't run without, which start before it.
   readonly requires?: readonly string[];
+  // Its Session part keeps the Session's model and MCP logins, through
+  // provide.modelCredentials. One plugin per server does.
+  readonly modelCredentials?: boolean;
   readonly config?: C;
   readonly schema?: string;
   // SQL run in order after schema; never edit schema once released.
