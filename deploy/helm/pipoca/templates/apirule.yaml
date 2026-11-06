@@ -56,7 +56,7 @@ spec:
       timeout: 3900
     # The route table's other paths, which `bun run apirule` in apps/pipoca
     # writes.
-    {{- range list "environment-templates" "environments" "ext" "invites" "join-keys" "me" "people" "plugins" "profiles" "repositories" "server" "settings" }}
+    {{- range list "environment-templates" "environments" "invites" "join-keys" "me" "people" "plugins" "profiles" "repositories" "server" "settings" }}
     - path: /api/{{ . }}
       methods: {{ toJson $methods }}
       noAuth: true
