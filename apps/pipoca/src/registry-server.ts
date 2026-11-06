@@ -13,8 +13,8 @@ import libraryPackage from "../../../plugins/library/package.json";
 import * as libraryServer from "../../../plugins/library/src/server";
 import localPackage from "../../../plugins/local/package.json";
 import * as localServer from "../../../plugins/local/src/server";
-import loginsPackage from "../../../plugins/logins/package.json";
-import * as loginsServer from "../../../plugins/logins/src/server";
+import { logins } from "../../../plugins/logins/plugin";
+import { server as loginsServer } from "../../../plugins/logins/src/server";
 import metaPackage from "../../../plugins/meta/package.json";
 import * as metaServer from "../../../plugins/meta/src/server";
 import { models } from "../../../plugins/models/plugin";
@@ -46,7 +46,7 @@ export const serverRegistry = [
   },
   { id: "library", manifest: libraryPackage.pipoca, server: libraryServer },
   { id: "local", manifest: localPackage.pipoca, server: localServer },
-  { id: "logins", manifest: loginsPackage.pipoca, server: loginsServer },
+  { id: "logins", definition: logins, server: loginsServer },
   { id: "meta", manifest: metaPackage.pipoca, server: metaServer },
   { id: "models", definition: models, server: modelsServer },
   { id: "oidc", manifest: oidcPackage.pipoca, server: oidcServer },

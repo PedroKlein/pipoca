@@ -139,8 +139,6 @@ export default tseslint.config(
       "plugins/kubernetes/src/cluster.ts",
       "plugins/kubernetes/src/server.ts",
       "plugins/local/src/server.ts",
-      "plugins/logins/src/connect.ts",
-      "plugins/logins/src/locks.ts",
       "plugins/oidc/src/oidc.ts",
       "plugins/projects/src/projects.ts",
       "plugins/projects/src/server.ts",

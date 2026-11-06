@@ -1296,7 +1296,7 @@ test("hosts an installed plugin's Session part the assignment names by hash", as
 
   const { plugins, pluginSettings } = await sessionParts(
     {
-      plugins: ["logins", "extra"],
+      plugins: ["meta", "extra"],
       requiredPlugins: ["extra"],
       installedParts: { extra: "abc", unused: "def" },
       pluginSettings: { extra: { greeting: "hi" } },
@@ -1309,7 +1309,7 @@ test("hosts an installed plugin's Session part the assignment names by hash", as
   );
 
   expect(asked).toEqual(["extra@abc"]);
-  expect(plugins.map(({ name }) => name)).toEqual(["logins", "extra"]);
+  expect(plugins.map(({ name }) => name)).toEqual(["meta", "extra"]);
   expect(pluginSettings["extra"]).toEqual({ greeting: "hi" });
 });
 

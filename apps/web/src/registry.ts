@@ -7,7 +7,7 @@ import * as gitHostsWeb from "../../../plugins/git-hosts/web/index";
 import * as kubernetesWeb from "../../../plugins/kubernetes/web/index";
 import * as libraryWeb from "../../../plugins/library/web/index";
 import * as localWeb from "../../../plugins/local/web/index";
-import * as loginsWeb from "../../../plugins/logins/web/index";
+import { web as loginsWeb } from "../../../plugins/logins/web/index";
 import * as metaWeb from "../../../plugins/meta/web/index";
 import { web as modelsWeb } from "../../../plugins/models/web/index";
 import * as oidcWeb from "../../../plugins/oidc/web/index";
@@ -27,7 +27,7 @@ export const webRegistry = [
   { id: "kubernetes", plugin: kubernetesWeb },
   { id: "library", plugin: libraryWeb },
   { id: "local", plugin: localWeb },
-  { id: "logins", plugin: loginsWeb },
+  { id: "logins", web: loginsWeb },
   { id: "meta", plugin: metaWeb },
   { id: "models", web: modelsWeb },
   { id: "oidc", plugin: oidcWeb },

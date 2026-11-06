@@ -185,6 +185,7 @@ function adapted(part: WebPart): ShellPlugin {
   const pages = (part.pages ?? []).filter(
     ({ area }) => area !== "hub" && area !== "setup",
   );
+
   const listed = pages.find(({ nav }) => nav !== undefined);
   const first = listed ?? pages[0];
 

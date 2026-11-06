@@ -3,48 +3,20 @@ import type {
   Credential,
   CredentialStore,
 } from "@earendil-works/pi-ai";
-import type {
-  McpLoginState,
-  McpLoginStore,
-  SessionCloud,
-  SessionPlugin,
+import {
+  defineSession,
+  isHttpError,
+  type McpLoginState,
+  type McpLoginStore,
+  type TypedClient,
 } from "@pipoca/plugins";
+import type { Log } from "@pipoca/protocol";
+import { logins } from "../plugin";
 import { type Lease, mcpKey, type Release } from "./model";
 
 // The server answers busy after waiting a while for another runner's
 // refresh, so a few asks cover a slow one.
 const busyAsks = 5;
-
-// The Session's model and MCP logins are its owner's on the server, so
-// /login, /mcp login and token refreshes reach every runner (ADR 0045).
-export const logins: SessionPlugin = {
-  name: "logins",
-  // A team Session reaches the team's providers through the server's proxy,
-  // with a token of its own in place of the key (ADR 0066).
-  extension: (cloud) => async (pi) => {
-    const response = await cloud.request("proxy");
-
-    if (!response.ok) {
-      cloud.log("team providers not set up", { status: response.status });
-
-      return;
-    }
-
-    const { providers, token } = (await response.json()) as ProxyProviders;
-
-    for (const { provider, baseUrl } of providers) {
-      pi.registerProvider(provider, { baseUrl, apiKey: token ?? "" });
-    }
-  },
-  logins: async (cloud) => {
-    const models = leased<Credential>(cloud, "credentials");
-
-    return {
-      models: modelLogins(models),
-      mcp: await mcpLogins(leased<McpLoginState>(cloud, "mcp"), cloud.log),
-    };
-  },
-};
 
 interface ProxyProviders {
   readonly providers: readonly {
@@ -53,6 +25,31 @@ interface ProxyProviders {
   }[];
   readonly token?: string;
 }
+
+// The Session's model and MCP logins are its owner's on the server, so
+// /login, /mcp login and token refreshes reach every runner (ADR 0045). A
+// team Session reaches the team's providers through the server's proxy,
+// with a token of its own in place of the key (ADR 0066).
+export const session = defineSession(logins, (s) => {
+  s.extension(async (pi) => {
+    const proxy = await s.api
+      .get<ProxyProviders>("proxy")
+      .catch((error: unknown) => {
+        s.log("team providers not set up", { error: String(error) });
+
+        return undefined;
+      });
+
+    for (const { provider, baseUrl } of proxy?.providers ?? []) {
+      pi.registerProvider(provider, { baseUrl, apiKey: proxy?.token ?? "" });
+    }
+  });
+
+  s.provide.modelCredentials(async () => ({
+    models: modelLogins(leased<Credential>(s.api, "credentials")),
+    mcp: await mcpLogins(leased<McpLoginState>(s.api, "mcp"), s.log),
+  }));
+});
 
 interface Leased<T> {
   readonly keys: (
@@ -75,35 +72,9 @@ interface Leased<T> {
 }
 
 // One kind of login on the server, through the Session's requests to it.
-function leased<T>(
-  { request }: Pick<SessionCloud, "request">,
-  kind: string,
-): Leased<T> {
-  const call = async <R>(
-    path: string,
-    init: RequestInit,
-    options?: AuthOperationOptions,
-  ): Promise<R> => {
-    const response = await request(path, {
-      ...init,
-      ...(options?.signal && { signal: options.signal }),
-    });
-
-    if (!response.ok) {
-      const { error, message } = (await response.json().catch(() => ({}))) as {
-        error?: string;
-        message?: string;
-      };
-
-      throw new LoginsError(
-        response.status,
-        error,
-        message ?? `the server answered ${String(response.status)}`,
-      );
-    }
-
-    return (await response.json()) as R;
-  };
+function leased<T>(api: TypedClient, kind: string): Leased<T> {
+  const signal = (options?: AuthOperationOptions) =>
+    options?.signal === undefined ? {} : { signal: options.signal };
 
   const pathOf = (key: string): string => `${kind}/${encodeURIComponent(key)}`;
 
@@ -113,13 +84,16 @@ function leased<T>(
   ): Promise<Lease<T>> => {
     for (let ask = 1; ; ask++) {
       try {
-        return await call<Lease<T>>(
+        return await api.post<Lease<T>>(
           `${pathOf(key)}/lock`,
-          { method: "POST" },
-          options,
+          undefined,
+          signal(options),
         );
       } catch (error) {
-        if (!(error instanceof LoginsError && error.busy) || ask === busyAsks) {
+        const busy =
+          isHttpError(error) && error.status === 409 && error.code === "busy";
+
+        if (!busy || ask === busyAsks) {
           throw error;
         }
       }
@@ -127,16 +101,13 @@ function leased<T>(
   };
 
   const release = async (key: string, body: Release<T>): Promise<void> => {
-    await call(`${pathOf(key)}/release`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    await api.post(`${pathOf(key)}/release`, body);
   };
 
   return {
-    keys: async (options) => call(kind, {}, options),
-    values: async (options) => call(`${kind}?values`, {}, options),
+    keys: async (options) => api.get(kind, undefined, signal(options)),
+    values: async (options) =>
+      api.get(`${kind}/values`, undefined, signal(options)),
     withLease: async (key, fn, options) => {
       const { lease, value } = await lock(key, options);
 
@@ -202,7 +173,7 @@ function modelLogins(models: Leased<Credential>): CredentialStore {
 // first, so two runners don't spend one refresh token.
 async function mcpLogins(
   mcp: Leased<McpLoginState>,
-  log: SessionCloud["log"],
+  log: Log,
 ): Promise<McpLoginStore> {
   const states = new Map(Object.entries(await mcp.values()));
   const refreshing = new Set<string>();
@@ -268,19 +239,4 @@ async function mcpLogins(
       return removed;
     },
   };
-}
-
-class LoginsError extends Error {
-  readonly status: number;
-  readonly code: string | undefined;
-
-  constructor(status: number, code: string | undefined, message: string) {
-    super(message);
-    this.status = status;
-    this.code = code;
-  }
-
-  get busy(): boolean {
-    return this.status === 409 && this.code === "busy";
-  }
 }

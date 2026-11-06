@@ -9,8 +9,8 @@ import gitHostsPackage from "../../../plugins/git-hosts/package.json";
 import * as gitHostsSession from "../../../plugins/git-hosts/src/session";
 import libraryPackage from "../../../plugins/library/package.json";
 import * as librarySession from "../../../plugins/library/src/session";
-import loginsPackage from "../../../plugins/logins/package.json";
-import * as loginsSession from "../../../plugins/logins/src/session";
+import { logins } from "../../../plugins/logins/plugin";
+import { session as loginsSession } from "../../../plugins/logins/src/session";
 import metaPackage from "../../../plugins/meta/package.json";
 import * as metaSession from "../../../plugins/meta/src/session";
 import { models } from "../../../plugins/models/plugin";
@@ -30,7 +30,7 @@ export const sessionRegistry = [
     session: gitHostsSession,
   },
   { id: "library", manifest: libraryPackage.pipoca, session: librarySession },
-  { id: "logins", manifest: loginsPackage.pipoca, session: loginsSession },
+  { id: "logins", definition: logins, session: loginsSession },
   { id: "meta", manifest: metaPackage.pipoca, session: metaSession },
   { id: "models", definition: models, session: modelsSession },
   {

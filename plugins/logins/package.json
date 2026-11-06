@@ -3,10 +3,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./server": "./src/server.ts",
-    "./session": "./src/session.ts",
-    "./web": "./web/index.tsx",
-    "./package.json": "./package.json"
+    "./plugin": "./plugin.ts"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "1.3.0",
@@ -18,23 +15,10 @@
     "react": "19.3.1"
   },
   "devDependencies": {
+    "@pipoca/testing": "workspace:*",
     "@types/react": "19.3.0"
   },
   "pipoca": {
-    "id": "logins",
-    "title": "Logins",
-    "description": "Keeps each person's model provider and MCP server logins on the server, so their Sessions use them on every runner. Log in once with /login or /mcp login in any Session.",
-    "capabilities": [
-      "routes",
-      "models",
-      "profiles",
-      "environments",
-      "sessions",
-      "events"
-    ],
-    "works": [
-      "personal",
-      "team"
-    ]
+    "entry": "plugin.ts"
   }
 }
