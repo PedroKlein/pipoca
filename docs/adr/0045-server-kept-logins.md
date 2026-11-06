@@ -1,6 +1,6 @@
 # 0045: Server-Kept Logins
 
-- Status: accepted, amended by [ADR 0063](0063-settings-and-first-run-setup.md) (logins belong to a Profile layer: a Profile inherits each login or signs in with its own account)
+- Status: accepted, amended by [ADR 0063](0063-settings-and-first-run-setup.md) (logins belong to a Profile layer: a Profile inherits each login or signs in with its own account), amended 2026-11-06 (the callback is `/api/ext/logins/callback`; plugin routes moved under `/api/ext/<id>/` in the rebuild, [ADR 0068](0068-clean-rebuild.md#code-shape))
 - Date: 2026-10-29
 
 ## Context

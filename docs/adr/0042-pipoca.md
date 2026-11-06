@@ -1,6 +1,6 @@
 # 0042: Pipoca
 
-- Status: accepted
+- Status: accepted; the `~/.pi-cloud` and `pi-cloud.json` fallbacks superseded by [ADR 0068](0068-clean-rebuild.md#what-goes)
 - Date: 2026-10-27
 
 ## Context
