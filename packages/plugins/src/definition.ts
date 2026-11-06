@@ -13,13 +13,13 @@ import {
   Type,
 } from "typebox";
 
-export type TConfig = TObject;
+type TConfig = TObject;
 
-export type TSecret = TUnsafe<string>;
+type TSecret = TUnsafe<string>;
 
-export type TCollection<I extends TObject> = TArray<I>;
+type TCollection<I extends TObject> = TArray<I>;
 
-export type TAudience = TArray<typeof owner>;
+type TAudience = TArray<typeof owner>;
 
 export interface EventDef<F extends TObject = TObject> {
   readonly title: string;

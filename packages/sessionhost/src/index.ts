@@ -9,11 +9,6 @@ export {
 } from "./host";
 export type { PreviewExchange } from "./pages";
 export { type ListedModels, modelLister, type SessionOptions } from "./session";
-export {
-  type InstallPackage,
-  installPackage,
-  syncFolder,
-  syncProfile,
-} from "./profile";
+export { installPackage, syncFolder, syncProfile } from "./profile";
 export { type PartHost, setUpPart } from "./parts";
 export { restoreTranscript } from "./restore";

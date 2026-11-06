@@ -11,7 +11,7 @@ import type { Connection, ConnectionPrompt } from "./model";
 // A sign-in nobody finishes stops holding its prompt and callback port.
 const connectionMs = 10 * 60_000;
 
-export interface Connections {
+interface Connections {
   readonly current: (userId: string) => Connection | undefined;
   // Starts the person's sign-in, in place of one still running.
   readonly start: (

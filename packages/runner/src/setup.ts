@@ -6,7 +6,7 @@ import type { SessionEnvironment } from "@pipoca/protocol";
 import type { Log } from "@pipoca/protocol";
 
 // Until Pipoca publishes its own image: glibc, bash, git and npm.
-export const defaultImage = "node:22-bookworm";
+const defaultImage = "node:22-bookworm";
 
 const failedOutputLines = 20;
 

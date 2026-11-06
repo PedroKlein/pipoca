@@ -35,7 +35,7 @@ import type { Surfaces } from "./surfaces";
 import type { RemoteUI } from "./ui";
 import "./codemode";
 
-export interface ModelOptions {
+interface ModelOptions {
   // The Pi agent folder: a Session's is its Profile's (ADR 0031).
   readonly agentDir: string;
   // The machine's own logins and custom models, shared by all its Profiles.

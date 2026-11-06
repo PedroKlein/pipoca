@@ -3,7 +3,7 @@ import { Icon, Page } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
 import { PeoplePage } from "./people/people";
 import { PluginBoundary } from "../plugin-boundary";
-import { enabledPlugins, pluginTitle } from "../plugins";
+import { enabledPlugins, PluginSettings, pluginTitle } from "../plugins";
 import { href } from "../router";
 import { ConfigurationPage } from "./configuration/configuration";
 import { PluginsPage } from "./plugins/plugins";
@@ -16,10 +16,8 @@ export interface Entry {
 }
 
 export function pluginPages(group: SettingsGroup): readonly Entry[] {
-  return enabledPlugins().flatMap(({ name, SettingsSection, settingsGroup }) =>
-    SettingsSection && (settingsGroup ?? "you") === group
-      ? [{ page: name, label: pluginTitle(name) }]
-      : [],
+  return enabledPlugins().flatMap(({ plugin: { id }, settings }) =>
+    settings?.group === group ? [{ page: id, label: pluginTitle(id) }] : [],
   );
 }
 
@@ -89,15 +87,15 @@ export function ServerPageView({
       );
   }
 
-  const Section = enabledPlugins().find(
-    (plugin) => plugin.name === page,
-  )?.SettingsSection;
+  const part = enabledPlugins().find(
+    ({ plugin, settings }) => plugin.id === page && settings !== undefined,
+  );
 
   return (
     <Page>
-      {Section && (
+      {part && (
         <PluginBoundary name={page}>
-          <Section />
+          <PluginSettings key={page} part={part} />
         </PluginBoundary>
       )}
     </Page>

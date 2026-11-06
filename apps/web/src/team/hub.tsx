@@ -63,7 +63,7 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
       return (
         <Page>
           <PluginBoundary name={screen.plugin}>
-            <screen.Page />
+            <screen.Page path="" />
           </PluginBoundary>
         </Page>
       );

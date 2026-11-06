@@ -1,6 +1,8 @@
+import type { PageProps } from "@pipoca/plugins/web";
 import type { HubPage } from "@pipoca/protocol";
 import type { IconName } from "@pipoca/ui";
-import { enabledPlugins, type HubPanel, type HubScreen } from "../plugins";
+import type { ComponentType } from "react";
+import { enabledPlugins } from "../plugins";
 import { href } from "../router";
 
 export interface Entry {
@@ -10,33 +12,44 @@ export interface Entry {
   readonly count?: number;
 }
 
-interface Placed extends HubPanel {
+interface Placed {
   readonly id: string;
   readonly plugin: string;
+  readonly title: string;
+  readonly Panel: ComponentType;
 }
 
-interface Screen extends HubScreen {
+interface Screen {
   readonly href: string;
   readonly plugin: string;
+  readonly label: string;
+  readonly Page: ComponentType<PageProps>;
 }
 
 export function panels(): readonly Placed[] {
-  return enabledPlugins().flatMap(({ name, hub }) =>
-    Object.entries(hub.panels).map(([key, panel]) => ({
+  return enabledPlugins().flatMap(({ plugin: { id }, panels: placed }) =>
+    Object.entries(placed ?? {}).map(([key, panel]) => ({
       ...panel,
-      id: `${name}/${key}`,
-      plugin: name,
+      id: `${id}/${key}`,
+      plugin: id,
     })),
   );
 }
 
 export function screens(): readonly Screen[] {
-  return enabledPlugins().flatMap(({ name, hub }) =>
-    Object.entries(hub.pages).map(([key, screen]) => ({
-      ...screen,
-      href: href("teamPlugin", { plugin: name, key }),
-      plugin: name,
-    })),
+  return enabledPlugins().flatMap(({ plugin: { id }, pages }) =>
+    (pages ?? []).flatMap(({ area, path, label, Page }) =>
+      area === "hub"
+        ? [
+            {
+              href: href("teamPlugin", { plugin: id, key: path }),
+              plugin: id,
+              label,
+              Page,
+            },
+          ]
+        : [],
+    ),
   );
 }
 

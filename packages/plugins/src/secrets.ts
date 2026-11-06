@@ -15,7 +15,7 @@ export interface SecretRefs {
   readonly seal: (secret: string, context: string) => SecretRef;
 }
 
-export type EnvSecrets = (name: string) => string | undefined;
+type EnvSecrets = (name: string) => string | undefined;
 
 // Sessions the server starts inherit its environment, so a secret leaves it
 // once read, and later reads find it here. One per server.

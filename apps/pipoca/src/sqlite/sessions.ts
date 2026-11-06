@@ -118,20 +118,19 @@ export function sessionStore(
 
   const selectSession = db.prepare(`${withProvider} where sessions.id = ?`);
 
+  // Null params match any row. A person's Sessions are those in their own
+  // Environments that they or nobody started, and the team's are those in
+  // its Environments (ADR 0064).
   const selectSessions = db.prepare(
-    `${withProvider} order by sessions.created_at desc`,
-  );
-
-  const selectUnarchivedSessions = db.prepare(
-    `${withProvider} where sessions.archived_at is null order by sessions.created_at desc`,
-  );
-
-  const selectOwnedSessions = db.prepare(
-    `${withProvider} where plugin = ? and plugin_key = ? order by sessions.created_at desc`,
-  );
-
-  const selectUnarchivedOwnedSessions = db.prepare(
-    `${withProvider} where plugin = ? and plugin_key = ? and sessions.archived_at is null order by sessions.created_at desc`,
+    `${withProvider}
+     where (?1 = 1 or sessions.archived_at is null)
+       and (?2 is null or (sessions.plugin = ?2 and sessions.plugin_key = ?3))
+       and (?4 is null
+         or (?4 = 'team' and environments.owner_user_id is null)
+         or (?4 = 'person'
+           and environments.owner_user_id is not null
+           and coalesce(sessions.started_by, environments.owner_user_id) = ?5))
+     order by sessions.created_at desc`,
   );
 
   const selectVoices = db.prepare(
@@ -266,18 +265,18 @@ export function sessionStore(
 
       return row && toSession(row);
     },
-    list: ({ includeArchived, plugin: ownedBy }) =>
-      ownedBy
-        ? sessionRows(
-            includeArchived
-              ? selectOwnedSessions
-              : selectUnarchivedOwnedSessions,
-            ownedBy.id,
-            ownedBy.key,
-          )
-        : sessionRows(
-            includeArchived ? selectSessions : selectUnarchivedSessions,
-          ),
+    list: ({ includeArchived, plugin: ownedBy, owner }) => {
+      const person = owner === undefined ? null : "person";
+
+      return sessionRows(
+        selectSessions,
+        includeArchived ? 1 : 0,
+        ownedBy?.id ?? null,
+        ownedBy?.key ?? null,
+        owner === null ? "team" : person,
+        owner ?? null,
+      );
+    },
     access: (id) => {
       const row = selectAccess.get(id) as
         { access: SessionAccess["kind"] } | undefined;
@@ -486,6 +485,14 @@ function outboxStore(db: DatabaseSync): OutboxStore {
 
   const deleteOne = db.prepare("delete from session_outbox where seq = ?");
 
+  const deleteKept = db.prepare(
+    "delete from session_outbox where seq = ? and dedupe is null",
+  );
+
+  const markKept = db.prepare(
+    "update session_outbox set sent_at = ?, acked_at = ? where seq = ?",
+  );
+
   const deleteAcked = db.prepare(
     "delete from session_outbox where session_id = ? and seq <= ? and sent_at is not null and dedupe is null",
   );
@@ -546,6 +553,10 @@ function outboxStore(db: DatabaseSync): OutboxStore {
     },
     remove: (seq) => {
       deleteOne.run(seq);
+    },
+    kept: (seq, at) => {
+      deleteKept.run(seq);
+      markKept.run(at, at, seq);
     },
     acked: (sessionId, seq, at) => {
       deleteAcked.run(sessionId, seq);

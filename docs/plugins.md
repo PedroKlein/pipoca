@@ -71,7 +71,7 @@ export const server = defineServer(greeter, ({ config, routes }) => {
 
 The function runs once, synchronously, when the plugin starts. What it gets:
 
-- `routes.get/post/put/patch/delete(path, spec, handler)` answers `/api/ext/<id>/<path>`. `:name` in the path is a param. `spec.auth` is `"person"`, `"admin"`, `"session"` (the plugin's own Session part), `"public"` or `{ webhook: { secret } }`. `body` and `query` are TypeBox schemas: a request that doesn't fit gets a 422 that names the field. `changes: ["items"]` tells open pages that `items` changed once the route succeeds. `team: true` also answers at `team/<path>` with the team as the caller's owner, while the plugin is on in team work. `tool: { name, description }` also makes the route a tool. The handler gets `{ caller, params, body, query, raw }` and returns a value, sent as JSON, or a `Response`. Throw `BadRequest`, `Forbidden`, `NotFound` or `HttpError(status, message, code?)` to answer with that status and `{ "error": code, "message": message }` ([ADR 0047](adr/0047-api-errors-and-removal.md)). Name a route for what it serves and let the method say what happens to it.
+- `routes.get/post/put/patch/delete(path, spec, handler)` answers `/api/ext/<id>/<path>`. `:name` in the path is a param. `spec.auth` is `"person"`, `"admin"`, `"session"` (the plugin's own Session part), `"public"` or `{ webhook: { secret } }`. `body` and `query` are TypeBox schemas: a request that doesn't fit gets a 422 that names the field. `changes: ["items"]` tells open pages that `items` changed once the route succeeds. `team: true` also answers at `team/<path>` with the team as the caller's owner, while the plugin is on in team work. `tool: { name, description }` also makes the route a tool. A team Session gets the tool only when the route has `team: true`, and then calls its team half. The handler gets `{ caller, params, body, query, raw }` and returns a value, sent as JSON, or a `Response`. Throw `BadRequest`, `Forbidden`, `NotFound` or `HttpError(status, message, code?)` to answer with that status and `{ "error": code, "message": message }` ([ADR 0047](adr/0047-api-errors-and-removal.md)). Name a route for what it serves and let the method say what happens to it.
 - `tools.define({ name, description, params, run })` adds a tool to Sessions, with `when` to pick which.
 - `store` is the plugin's tables: `all`, `get`, `run` and `transaction`. `secrets` seals what it keeps in them.
 - `config.get()`, `config.set(change)` and `config.watch(fn)` read and change its key in `pipoca.json`. `config.collection(name)` edits a collection in it by key.
@@ -87,11 +87,11 @@ The function runs once, synchronously, when the plugin starts. What it gets:
 
 ```tsx
 import { defineWeb, useApi } from "@pipoca/plugins/web";
-import { Button, PageTitle } from "@pipoca/ui";
+import { Button, Page } from "@pipoca/ui";
 import { useState } from "react";
 import { greeter } from "../plugin";
 
-function Page() {
+function Greeter() {
   const api = useApi(greeter);
   const [greeting, setGreeting] = useState("");
 
@@ -102,22 +102,22 @@ function Page() {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-8">
-      <PageTitle description="An example plugin.">Greeter</PageTitle>
+    <Page title="Greeter" description="An example plugin." className="gap-4">
       <Button onClick={() => void greet()}>Greet me</Button>
       <p>{greeting}</p>
-    </div>
+    </Page>
   );
 }
 
 export const web = defineWeb(greeter, {
-  pages: [{ path: "", label: "Greeter", Page, nav: {} }],
+  pages: [{ path: "", label: "Greeter", Page: Greeter, nav: {} }],
   settings: { group: "server", form: "auto" },
 });
 ```
 
 - `pages` are the plugin's pages, under `#plugin/<id>/<path>`. `nav` puts one in the sidebar, and `area` puts it on the team hub or in Team setup instead. `href(plugin, path)` links to one.
 - `settings` is its section on the Settings page: `form: "auto"` draws a form from its config, or give your own `Section`.
+- A page or `Section` puts its title, description and actions in `Page` from `@pipoca/ui`. Inside the app's own column it draws only those and its content.
 - `setup` adds steps to the first-run setup, each with `done(api)` and a `Step` component.
 - `slots` fills places the app draws in: `session.composer`, `session.header`, `session.toolCall:<tool>`, `notice:<kind>`, `link:<scheme>`, `home`, `environment.section`, `template.section` and `settings.general`, `settings.accounts` and `settings.profile`.
 - `panels` are panels admins lay out on the team hub, `sessionPath` is where a Session the plugin owns opens, and `repositories` adds to what New Session offers.

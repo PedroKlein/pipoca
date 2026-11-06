@@ -33,7 +33,7 @@ type Surface =
 
 type Placement = NonNullable<ExtensionWidgetOptions["placement"]>;
 
-export interface SurfaceContext {
+interface SurfaceContext {
   readonly cwd: () => string | undefined;
   readonly providers: () => number;
   readonly log: Log;

@@ -25,7 +25,7 @@ export interface PreviewExchange {
   readonly fail: (reason: string) => void;
 }
 
-export type PreviewCommand = Extract<Command, { type: "preview" }>;
+type PreviewCommand = Extract<Command, { type: "preview" }>;
 
 export interface Pages {
   readonly open: (url: string) => void;

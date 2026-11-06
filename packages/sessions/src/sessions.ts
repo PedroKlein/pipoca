@@ -57,7 +57,7 @@ export type StoredSession = Omit<
 >;
 
 // Where Sessions run, which the server's Environments are (ADR 0032).
-export interface SessionEnvironments {
+interface SessionEnvironments {
   readonly all: () => readonly {
     readonly id: string;
     readonly provider: string;
@@ -107,7 +107,7 @@ export type StoredVoice = Omit<Voice, "person"> & {
   readonly requestId?: string;
 };
 
-export interface BindingStore {
+interface BindingStore {
   readonly bind: (
     plugin: string,
     key: string,
@@ -145,9 +145,11 @@ export interface SessionStore {
   insert: (session: StoredSession) => void;
   update: (session: StoredSession) => void;
   get: (id: string) => StoredSession | undefined;
+  // A person's id lists only their own Sessions, and null only the team's.
   list: (options: {
     readonly includeArchived: boolean;
     readonly plugin?: SessionPlugin;
+    readonly owner?: string | null;
   }) => readonly StoredSession[];
   // Undefined while the Session is open to the whole team.
   access: (id: string) => SessionAccess | undefined;
@@ -210,7 +212,7 @@ export type SessionPlugins = Required<Pick<Assignment, "plugins">> &
     readonly teamWork?: readonly string[];
   };
 
-export interface SessionsOptions {
+interface SessionsOptions {
   readonly clock?: Clock;
   readonly events?: (event: KernelEvent) => void;
   // Called whenever a Session starts or its view changes (ADR 0038).
@@ -597,15 +599,19 @@ export class Sessions {
     readonly person?: string;
     readonly team?: boolean;
   } = {}): readonly Session[] {
+    const owner = team ? null : person;
+
     return this.#store
-      .list({ includeArchived: archived, ...(ownedBy && { plugin: ownedBy }) })
-      .filter((session) =>
-        team
-          ? this.#team(session) &&
-            (person === undefined ||
-              canSee({ id: person, admin: false }, this.#owned(session)))
-          : person === undefined ||
-            (!this.#team(session) && this.#person(session) === person),
+      .list({
+        includeArchived: archived,
+        ...(ownedBy && { plugin: ownedBy }),
+        ...(owner !== undefined && { owner }),
+      })
+      .filter(
+        (session) =>
+          !team ||
+          person === undefined ||
+          canSee({ id: person, admin: false }, this.#owned(session)),
       )
       .map((session) => this.#view(session));
   }
@@ -1357,19 +1363,6 @@ export class Sessions {
       return { ok: false, reason: "archived" };
     }
 
-    // Pi reads it with the team's messages, which the team sees at once.
-    if (message.kind === "notice" && !message.turn && this.#team(session)) {
-      this.#addVoice(id, {
-        kind: "notice",
-        actor: message.actor,
-        at: new Date(this.#clock.now()).toISOString(),
-        text: message.text,
-        notice: { plugin: message.plugin ?? "", ...message.notice },
-      });
-
-      return { ok: true, value: undefined };
-    }
-
     this.#outbox.enqueue(id, message);
 
     return { ok: true, value: undefined };
@@ -1396,6 +1389,19 @@ export class Sessions {
       !this.#current(session.id, message.generation).ok
     ) {
       return "stale_generation";
+    }
+
+    // Pi reads it with the team's messages, which the team sees at once.
+    if (message.kind === "notice" && !message.turn && this.#team(session)) {
+      this.#addVoice(session.id, {
+        kind: "notice",
+        actor: message.actor,
+        at: new Date(this.#clock.now()).toISOString(),
+        text: message.text,
+        notice: { plugin: message.plugin ?? "", ...message.notice },
+      });
+
+      return "kept";
     }
 
     const host = this.#hosts.get(session.id);

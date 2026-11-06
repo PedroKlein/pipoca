@@ -21,7 +21,7 @@ export interface ConfigKey {
   readonly lockedIn: () => string | undefined;
 }
 
-export type ConfigSecrets = Pick<SecretRefs, "open">;
+type ConfigSecrets = Pick<SecretRefs, "open">;
 
 const watchMs = 2000;
 
@@ -46,7 +46,9 @@ export function pluginConfig(
       configOf(schema, fitting(schema, key.get(), o.log, fits), secrets, o.log),
     );
 
-  const watchers: ((next: never, previous: never) => void)[] = [];
+  const watchers: ((next: never, previous: never) => void | Promise<void>)[] =
+    [];
+
   let last: { readonly raw: string; readonly value: unknown } | undefined;
 
   const check = (): void => {
@@ -60,11 +62,19 @@ export function pluginConfig(
     const next = read();
     last = { raw, value: next };
 
+    const failed = (error: unknown): void => {
+      o.log("config watcher failed", { error: messageOf(error) });
+    };
+
     for (const fn of watchers) {
       try {
-        fn(next as never, previous as never);
+        const heard = fn(next as never, previous as never);
+
+        if (heard instanceof Promise) {
+          heard.catch(failed);
+        }
       } catch (error) {
-        o.log("config watcher failed", { error: messageOf(error) });
+        failed(error);
       }
     }
   };

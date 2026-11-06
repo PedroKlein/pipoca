@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 
 const limit = 5000;
 
-export interface WorkspaceFiles {
+interface WorkspaceFiles {
   readonly paths: readonly string[];
   readonly truncated: boolean;
 }

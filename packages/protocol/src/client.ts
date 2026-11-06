@@ -80,7 +80,7 @@ export interface ApiClient {
   ) => Promise<Response>;
 }
 
-export interface ApiClientOptions {
+interface ApiClientOptions {
   // Where the server is; the page's own origin when unset.
   readonly server?: string | URL;
   readonly headers?: Readonly<Record<string, string>>;

@@ -1,43 +1,41 @@
-import type { ReactElement, ReactNode } from "react";
+import type { ReactElement } from "react";
 import { PluginBoundary } from "../plugin-boundary";
-import { enabledPlugins } from "../plugins";
+import { fillsOf } from "../plugins";
 
 type Slot =
   | { readonly slot: "General" | "Accounts" }
   | { readonly slot: "Profile"; readonly profileId: string };
 
+const slotNames = {
+  General: "settings.general",
+  Accounts: "settings.accounts",
+} as const;
+
 // What plugins add to a Settings page, each inside its own boundary
 // (ADR 0063).
 export function SettingsSlot(props: Slot): ReactElement {
+  const parts =
+    props.slot === "Profile"
+      ? fillsOf("settings.profile").map(({ plugin, Component }) => ({
+          plugin,
+          part: <Component profileId={props.profileId} />,
+        }))
+      : fillsOf(slotNames[props.slot]).map(({ plugin, Component }) => ({
+          plugin,
+          part: <Component />,
+        }));
+
   return (
     <>
-      {enabledPlugins().map(({ name, settingsParts }) => {
-        let part: ReactNode;
-
-        if (props.slot === "Profile") {
-          const Part = settingsParts.Profile;
-
-          part = Part && <Part profileId={props.profileId} />;
-        } else {
-          const Part = settingsParts[props.slot];
-
-          part = Part && <Part />;
-        }
-
-        return (
-          part && (
-            <PluginBoundary key={name} name={name}>
-              {part}
-            </PluginBoundary>
-          )
-        );
-      })}
+      {parts.map(({ plugin, part }) => (
+        <PluginBoundary key={plugin} name={plugin}>
+          {part}
+        </PluginBoundary>
+      ))}
     </>
   );
 }
 
 export function hasSettingsParts(slot: "General" | "Accounts"): boolean {
-  return enabledPlugins().some(
-    ({ settingsParts }) => settingsParts[slot] !== undefined,
-  );
+  return fillsOf(slotNames[slot]).length > 0;
 }

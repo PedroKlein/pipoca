@@ -4,7 +4,7 @@ function modelName({ provider, id }: ModelRef): string {
   return `${provider}/${id}`;
 }
 
-export interface ModelOption {
+interface ModelOption {
   readonly value: string;
   readonly label: string;
   readonly detail?: string;

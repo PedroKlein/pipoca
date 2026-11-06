@@ -13,7 +13,7 @@ export interface Viewer {
   readonly team: boolean;
 }
 
-export interface Fill {
+interface Fill {
   readonly plugin: string;
   readonly Component: ComponentType<never>;
 }

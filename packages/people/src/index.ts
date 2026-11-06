@@ -4,7 +4,6 @@ export {
   InvalidCredentials,
   People,
   type PeopleStore,
-  type StoredUser,
   type User,
 } from "./people";
 export { type Credentials, SignIn, type SignInStatus } from "./sign-in";

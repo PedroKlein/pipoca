@@ -107,6 +107,72 @@ beforeEach(async () => {
           });
         },
       ),
+      defineServer(
+        definePlugin({ id: "diary", title: "Diary", description: "" }),
+        ({ routes }) => {
+          routes.get(
+            "entries",
+            {
+              auth: "person",
+              tool: {
+                name: "diary_entries",
+                description: "Reads the person's diary",
+                annotations: { readOnlyHint: true },
+              },
+            },
+            ({ caller }) => `${caller.person.name}'s diary`,
+          );
+
+          routes.get(
+            "shared",
+            {
+              auth: "person",
+              team: true,
+              tool: {
+                name: "diary_shared",
+                description: "Reads the owner's shared diary",
+                annotations: { readOnlyHint: true },
+              },
+            },
+            ({ caller }) => `${caller.owner}'s shared diary`,
+          );
+
+          routes.get(
+            "pages/:page",
+            { auth: "person", team: true },
+            ({ caller, params }) => ({
+              title: `${caller.owner === "team" ? "the team" : caller.person.name}'s page ${params.page}`,
+            }),
+          );
+
+          for (const [name, lookup] of [
+            ["diary_tear", (page: string) => `pages/${page}`],
+            ["diary_burn", () => "entries"],
+          ] as const) {
+            routes.post(
+              `pages/:page/${name}`,
+              {
+                auth: "person",
+                team: true,
+                tool: {
+                  name,
+                  description: "Takes a page out",
+                  annotations: { destructiveHint: true },
+                  asks: {
+                    lookup: (input) =>
+                      lookup(
+                        typeof input["page"] === "string" ? input["page"] : "",
+                      ),
+                    text: (_input, found) =>
+                      `Take out ${found === undefined ? "a page" : JSON.stringify(found)}?`,
+                  },
+                },
+              },
+              () => "done",
+            );
+          }
+        },
+      ),
     ],
   });
 });
@@ -1149,6 +1215,194 @@ test("a Team assistant runs as team work only its person steers, with tools that
   ).toThrow();
 });
 
+test("a Team assistant's kernel tools act on team work and never reach its person's own", async () => {
+  const pedros = await server.signedIn();
+  const team = await teamSetup();
+
+  const laptop = await json<Environment>(
+    server.as(pedros)("/api/environments", { body: { name: "laptop" } }),
+  );
+
+  const mine = await json<Profile>(
+    server.as(pedros)("/api/profiles", { body: { name: "Mine" } }),
+  );
+
+  const own = await json<Session>(
+    server.as(pedros)("/api/sessions", {
+      body: {
+        environment: laptop.id,
+        profile: mine.id,
+        workspace: workspace(),
+      },
+    }),
+  );
+
+  const { user } = await json<{ user: { id: string } }>(
+    server.as(pedros)("/api/auth"),
+  );
+
+  const assistant = starter?.start({
+    team: true,
+    actor: `user:${user.id}`,
+    environment: team.environment,
+    profile: "starter.helper",
+    workspace: workspace(),
+    access: { kind: "named", people: [] },
+    key: "assistant",
+  });
+
+  const tool = async (name: string, input: unknown) =>
+    (await serverTools?.call(name, input, {
+      session: assistant?.id ?? "",
+    })) ?? {
+      text: "",
+      isError: true,
+    };
+
+  const listed = async (name: string): Promise<readonly string[]> =>
+    (JSON.parse((await tool(name, {})).text) as { id: string }[]).map(
+      ({ id }) => id,
+    );
+
+  expect(await listed("sessions_list")).toEqual([assistant?.id ?? ""]);
+  expect(await listed("profiles_list")).toEqual([team.profile]);
+  expect(await listed("environments_list")).toEqual([team.environment]);
+
+  expect((await tool("sessions_get", { id: own.id })).isError).toBe(true);
+  expect((await tool("profiles_get", { id: mine.id })).isError).toBe(true);
+
+  expect(
+    (await tool("profiles_update", { id: mine.id, name: "Taken" })).isError,
+  ).toBe(true);
+
+  expect(
+    (await tool("environments_update", { id: laptop.id, name: "Taken" }))
+      .isError,
+  ).toBe(true);
+
+  expect(
+    (
+      await tool("sessions_start", {
+        environment: laptop.id,
+        profile: team.profile,
+        workspace: workspace(),
+      })
+    ).isError,
+  ).toBe(true);
+
+  const started = await tool("sessions_start", {
+    profile: team.profile,
+    workspace: workspace(),
+    firstMessage: "Ship it",
+  });
+
+  const { id } = JSON.parse(started.text) as { id: string };
+
+  expect(
+    await json<Session>(server.as(pedros)(`/api/sessions/${id}`)),
+  ).toMatchObject({
+    ownedBy: "team",
+    environmentId: team.environment,
+  });
+
+  expect(
+    (await json<Profile>(server.as(pedros)(`/api/profiles/${mine.id}`))).name,
+  ).toBe("Mine");
+
+  expect(
+    (await json<Environment[]>(server.as(pedros)("/api/environments"))).map(
+      ({ name }) => name,
+    ),
+  ).toEqual(["laptop"]);
+});
+
+test("a team Session's plugin route tools reach only their team half, never the person's own", async () => {
+  const pedros = await server.signedIn();
+  const team = await teamSetup();
+
+  const { user } = await json<{ user: { id: string } }>(
+    server.as(pedros)("/api/auth"),
+  );
+
+  const assistant = starter?.start({
+    team: true,
+    actor: `user:${user.id}`,
+    environment: team.environment,
+    profile: "starter.helper",
+    workspace: workspace(),
+    access: { kind: "named", people: [] },
+    key: "assistant",
+  });
+
+  const tool = async (name: string) =>
+    (await serverTools?.call(
+      name,
+      {},
+      {
+        session: assistant?.id ?? "",
+      },
+    )) ?? { text: "", isError: true };
+
+  expect(await tool("diary_entries")).toMatchObject({ isError: true });
+
+  expect(await tool("diary_shared")).toMatchObject({
+    isError: false,
+    text: expect.stringContaining("team's shared diary") as unknown,
+  });
+});
+
+test("a team Session's question looks its record up on the team half", async () => {
+  const pedros = await server.signedIn();
+  const team = await teamSetup();
+
+  const { user } = await json<{ user: { id: string } }>(
+    server.as(pedros)("/api/auth"),
+  );
+
+  starter?.start({
+    team: true,
+    actor: `user:${user.id}`,
+    environment: team.environment,
+    profile: "starter.helper",
+    workspace: workspace(),
+    access: { kind: "named", people: [] },
+    key: "assistant",
+  });
+
+  const [assigned] = await poll(team.runner);
+
+  const question = async (name: string): Promise<string | null> =>
+    (
+      await json<{ question: string | null }>(
+        fetch(
+          new URL(
+            `/runner/sessions/${assigned?.sessionId ?? ""}/tool-questions`,
+            server.url,
+          ),
+          {
+            method: "POST",
+            headers: {
+              [versionHeader]: String(protocolVersion),
+              authorization: `Bearer ${team.runner}`,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              generation: assigned?.generation,
+              name,
+              input: { page: "7" },
+            }),
+          },
+        ),
+      )
+    ).question;
+
+  expect(await question("diary_tear")).toBe(
+    `Take out {"title":"the team's page 7"}?`,
+  );
+
+  expect(await question("diary_burn")).toBe("Take out a page?");
+});
+
 test("team work nobody started uses no toolset tool, since it has no person to act as", async () => {
   await server.signedIn();
   const team = await teamSetup();
@@ -1341,4 +1595,88 @@ test("keeps a team message that a retried request sends twice once", async () =>
     ["message", "Go"],
     ["aside", "Done"],
   ]);
+});
+
+test("a team notice with a dedupe key reaches the team once", async () => {
+  const anas = await ana();
+  const team = await teamSetup();
+
+  const session = await json<Session>(
+    server.as(anas)("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        profile: team.profile,
+        workspace: workspace(),
+      },
+    }),
+  );
+
+  for (const text of ["Checks failed", "Checks failed", "Done"]) {
+    starter?.send(session.id, {
+      text,
+      turn: false,
+      notice: { kind: "checks" },
+      ...(text !== "Done" && { dedupe: "pr-1" }),
+    });
+  }
+
+  const events = await server.as(anas)(`/api/sessions/${session.id}/events`);
+  const voices: Voice[] = [];
+
+  for await (const event of readSse(events)) {
+    const replayed = event as SessionEvent;
+
+    if (replayed.type === "voice") {
+      voices.push(replayed.voice);
+    }
+
+    if (voices.at(-1)?.text === "Done") {
+      break;
+    }
+  }
+
+  expect(voices.map(({ kind, text }) => [kind, text])).toEqual([
+    ["notice", "Checks failed"],
+    ["notice", "Done"],
+  ]);
+});
+
+test("an admin who only watches team work sends it no message and shows as typing in none", async () => {
+  const anas = await ana();
+  const pedros = await server.signedIn();
+  const team = await teamSetup();
+
+  const session = await json<Session>(
+    server.as(anas)("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        profile: team.profile,
+        workspace: workspace(),
+      },
+    }),
+  );
+
+  await server.as(anas)(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { access: { kind: "view" } },
+  });
+
+  const said = async (cookie: string, path: string, body: unknown) =>
+    (await server.as(cookie)(`/api/sessions/${session.id}/${path}`, { body }))
+      .status;
+
+  expect(await said(pedros, "messages", { to: "team", text: "Hi" })).toBe(403);
+  expect(await said(pedros, "presence", {})).toBe(403);
+  expect(await said(anas, "messages", { to: "team", text: "Hi" })).toBe(201);
+
+  expect(
+    (
+      await server.as(pedros)(`/api/sessions/${session.id}`, {
+        method: "PATCH",
+        body: { archived: true },
+      })
+    ).status,
+  ).toBe(200);
 });

@@ -3,6 +3,7 @@ import { checkBody, isObject } from "@pipoca/plugins/host";
 import { type Profile, repositoryImport } from "@pipoca/protocol";
 import type { Layer, Profiles } from "@pipoca/profiles";
 import type { ApiDeps, Group } from "../deps";
+import { checkFetchable } from "../private-address";
 import { type Handlers, type PersonCaller, restOf } from "../router";
 
 const rejections = {
@@ -44,12 +45,23 @@ const origin = Type.Object({
 // Shared Profiles are changed only by admins (ADR 0041).
 export function profileRoutes({
   profiles,
+  plugins,
   log,
 }: ApiDeps): Handlers<
   | Group<"profiles">
   | Group<"me.profileDefaults">
   | Group<"settings.baseProfile">
 > {
+  // A team Session's route tool reaches only the team's Profiles
+  // (ADR 0067).
+  const reached = (id: string, caller: PersonCaller): string => {
+    if (caller.team && profiles.get(caller.id, id)?.ownerId !== "team") {
+      throw new NotFound("Not found.");
+    }
+
+    return id;
+  };
+
   const created = async (
     body: unknown,
     caller: PersonCaller,
@@ -57,6 +69,17 @@ export function profileRoutes({
     const { from, source, pipocaProfile } = isObject(body)
       ? checkBody(body, origin)
       : {};
+
+    const copies =
+      from !== undefined || source !== undefined || pipocaProfile !== undefined;
+
+    if (caller.team && copies) {
+      throw new HttpError(
+        403,
+        "A team Session's tools make team Profiles only from their content.",
+        "forbidden",
+      );
+    }
 
     if (from !== undefined) {
       const copied = ok(profiles.copy(caller.id, from));
@@ -66,6 +89,8 @@ export function profileRoutes({
     }
 
     if (source !== undefined) {
+      await checkFetchable(source.url, caller.id, plugins);
+
       const [imported] =
         source.path === undefined
           ? [await profiles.importFromGit(caller.id, source.url)]
@@ -87,7 +112,14 @@ export function profileRoutes({
       return imported;
     }
 
-    const made = ok(profiles.create(caller.id, body, caller.admin));
+    const made = ok(
+      profiles.create(
+        caller.id,
+        caller.team && isObject(body) ? { ...body, team: true } : body,
+        caller.admin,
+      ),
+    );
+
     log("profile created", { profileId: made.id });
 
     return made;
@@ -95,7 +127,7 @@ export function profileRoutes({
 
   return {
     "profiles.list": ({ query: { scope }, caller }) =>
-      profiles.list(caller.id, { team: scope === "team" }),
+      profiles.list(caller.id, { team: scope === "team" || caller.team }),
     "profiles.create": async ({ body, caller }) => created(body, caller),
     "profiles.archives.create": async ({ request, query, caller }) => {
       const name = query.name ?? "";
@@ -111,8 +143,10 @@ export function profileRoutes({
       return imported;
     },
     "profiles.get": ({ params: { id }, caller }) =>
-      found(profiles.get(caller.id, id)),
+      found(profiles.get(caller.id, reached(id, caller))),
     "profiles.update": ({ params: { id }, body, caller }) => {
+      reached(id, caller);
+
       const { isDefault, ...content } = isObject(body)
         ? body
         : ({} as Readonly<Record<string, unknown>>);
@@ -131,15 +165,17 @@ export function profileRoutes({
       return found(updated);
     },
     "profiles.remove": ({ params: { id }, caller }) => {
-      ok(profiles.remove(caller.id, id, caller.admin));
+      ok(profiles.remove(caller.id, reached(id, caller), caller.admin));
       log("profile deleted", { profileId: id });
 
       return undefined;
     },
     "profiles.syncs.create": async ({ params: { id }, caller }) =>
-      ok(await profiles.syncOne(log, caller.id, id)),
+      ok(await profiles.syncOne(log, caller.id, reached(id, caller))),
     "profiles.archive": async ({ params: { id }, caller }) => {
-      const archive = found(await profiles.archive(caller.id, id));
+      const archive = found(
+        await profiles.archive(caller.id, reached(id, caller)),
+      );
 
       return new Response(archive, {
         headers: {
@@ -150,18 +186,29 @@ export function profileRoutes({
     },
     // A Profile's folder, file by file (ADR 0041).
     "profiles.files": ({ params: { id }, caller }) =>
-      found(profiles.files(caller.id, id)),
+      found(profiles.files(caller.id, reached(id, caller))),
     // Uploads files and folders as { files: { path: base64 } }, the way
     // runners get them.
     "profiles.files.upload": ({ params: { id }, body, caller }) => {
       const files = decoded(body.files);
-      ok(profiles.writeFiles(caller.id, id, files, caller.admin));
+
+      ok(
+        profiles.writeFiles(
+          caller.id,
+          reached(id, caller),
+          files,
+          caller.admin,
+        ),
+      );
+
       log("profile files uploaded", { profileId: id, files: files.size });
 
       return undefined;
     },
     "profiles.file": ({ params: { id, path: encoded }, caller }) =>
-      new Response(found(profiles.file(caller.id, id, restOf(encoded)))),
+      new Response(
+        found(profiles.file(caller.id, reached(id, caller), restOf(encoded))),
+      ),
     "profiles.file.write": async ({
       request,
       params: { id, path: encoded },
@@ -170,7 +217,7 @@ export function profileRoutes({
       ok(
         profiles.writeFiles(
           caller.id,
-          id,
+          reached(id, caller),
           new Map([[restOf(encoded), Buffer.from(await request.bytes())]]),
           caller.admin,
         ),
@@ -181,7 +228,15 @@ export function profileRoutes({
       return undefined;
     },
     "profiles.file.remove": ({ params: { id, path: encoded }, caller }) => {
-      ok(profiles.deleteFile(caller.id, id, restOf(encoded), caller.admin));
+      ok(
+        profiles.deleteFile(
+          caller.id,
+          reached(id, caller),
+          restOf(encoded),
+          caller.admin,
+        ),
+      );
+
       log("profile file deleted", { profileId: id });
 
       return undefined;

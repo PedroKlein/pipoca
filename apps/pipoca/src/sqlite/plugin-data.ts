@@ -3,7 +3,8 @@ import type { PluginDb } from "@pipoca/pluginhost";
 import { transaction } from "./database";
 import type { SecretBox } from "./secret-box";
 
-// Plugins are trusted in v1 (ADR 0022), so their statements reach any table.
+// A plugin's statements aren't sandboxed and reach any table. Only its
+// declared schema is checked: STRICT tables of its own (ADR 0068).
 export function pluginStore(
   db: DatabaseSync,
   name: string,

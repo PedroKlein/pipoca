@@ -1,9 +1,9 @@
 import { defineWeb, useApi } from "@pipoca/plugins/web";
-import { Button, PageTitle } from "@pipoca/ui";
+import { Button, Page } from "@pipoca/ui";
 import { useState } from "react";
 import { greeter } from "../plugin";
 
-function Page() {
+function Greeter() {
   const api = useApi(greeter);
   const [greeting, setGreeting] = useState("");
 
@@ -14,15 +14,14 @@ function Page() {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-8">
-      <PageTitle description="An example plugin.">Greeter</PageTitle>
+    <Page title="Greeter" description="An example plugin." className="gap-4">
       <Button onClick={() => void greet()}>Greet me</Button>
       <p>{greeting}</p>
-    </div>
+    </Page>
   );
 }
 
 export const web = defineWeb(greeter, {
-  pages: [{ path: "", label: "Greeter", Page, nav: {} }],
+  pages: [{ path: "", label: "Greeter", Page: Greeter, nav: {} }],
   settings: { group: "server", form: "auto" },
 });

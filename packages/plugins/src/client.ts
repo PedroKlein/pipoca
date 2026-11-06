@@ -32,7 +32,7 @@ export interface TypedClient {
   readonly raw: (path: string, init?: RequestInit) => Promise<Response>;
 }
 
-export interface ClientOptions {
+interface ClientOptions {
   readonly server?: string | URL;
   readonly session?: string;
   readonly headers?: Readonly<Record<string, string>>;

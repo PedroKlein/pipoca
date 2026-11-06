@@ -23,7 +23,7 @@ interface Unreported {
 
 // The Sessions the runner hosts, and the workspaces it removes, as the
 // server's work asks.
-export interface HostedSessions {
+interface HostedSessions {
   readonly start: (assignment: SessionStart) => void;
   readonly unload: (attempt: Attempt) => void;
   readonly remove: (removal: Removal) => void;

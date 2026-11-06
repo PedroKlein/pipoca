@@ -9,10 +9,11 @@ import {
 import {
   Button,
   cardClass,
+  Checkbox,
   cn,
   ErrorText,
   Field,
-  fieldClass,
+  TextInput,
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
@@ -137,9 +138,7 @@ function Mailboxes(): ReactElement {
                 Remove
               </Button>
             </div>
-            {mailbox.error !== null && (
-              <p className="text-caption text-failed">{mailbox.error}</p>
-            )}
+            <ErrorText size="caption">{mailbox.error}</ErrorText>
           </li>
         ))}
       </ul>
@@ -150,60 +149,53 @@ function Mailboxes(): ReactElement {
           className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
         >
           <Field label="Name">
-            <input
-              name="name"
-              required
-              placeholder="support"
-              className={fieldClass}
-            />
+            <TextInput name="name" required placeholder="support" />
           </Field>
           <Field label="Address">
-            <input
+            <TextInput
               name="address"
               type="email"
               required
               placeholder="support@example.com"
-              className={fieldClass}
             />
           </Field>
           <Field label="User (the address when empty)">
-            <input name="user" className={fieldClass} />
+            <TextInput name="user" />
           </Field>
           <Field label="Password">
-            <input
+            <TextInput
               name="password"
               type="password"
               autoComplete="off"
               required
-              className={fieldClass}
             />
           </Field>
           <Field label="IMAP server">
-            <input
+            <TextInput
               name="imapHost"
               required
               placeholder="imap.example.com"
-              className={fieldClass}
             />
           </Field>
           <Field label="IMAP port (993 when empty)">
-            <input name="imapPort" inputMode="numeric" className={fieldClass} />
+            <TextInput name="imapPort" inputMode="numeric" />
           </Field>
           <Field label="SMTP server">
-            <input
+            <TextInput
               name="smtpHost"
               required
               placeholder="smtp.example.com"
-              className={fieldClass}
             />
           </Field>
           <Field label="SMTP port (465 when empty)">
-            <input name="smtpPort" inputMode="numeric" className={fieldClass} />
+            <TextInput name="smtpPort" inputMode="numeric" />
           </Field>
-          <label className="flex items-center gap-2 text-fg-dim md:col-span-2">
-            <input type="checkbox" name="secure" defaultChecked />
-            Use TLS from the start
-          </label>
+          <Checkbox
+            name="secure"
+            defaultChecked
+            label="Use TLS from the start"
+            className="md:col-span-2"
+          />
           <div className="flex flex-wrap items-center gap-2 md:col-span-2">
             <Button variant="primary" type="submit">
               Add

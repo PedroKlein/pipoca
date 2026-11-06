@@ -3,7 +3,7 @@ import { type Clone, withClone } from "./fetch";
 
 // Something made from a repository that follows it, such as a Profile or an
 // Environment template (ADR 0063).
-export interface Follower {
+interface Follower {
   readonly id: string;
   readonly source: RepositorySource | null;
 }

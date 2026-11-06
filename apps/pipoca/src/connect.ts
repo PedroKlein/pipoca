@@ -6,7 +6,7 @@ import { runAgent } from "@pipoca/runner";
 import { binary } from "./binary";
 import { openInBrowser } from "./browser";
 
-export interface ConnectOptions {
+interface ConnectOptions {
   // What ssh connects to, such as user@vm or a Host from ~/.ssh/config.
   readonly host: string;
   readonly remotePort: number;

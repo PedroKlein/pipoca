@@ -10,13 +10,16 @@ import {
   Badge,
   type BadgeState,
   Button,
+  buttonClass,
   cn,
-  fieldClass,
+  ErrorText,
   Icon,
   linkCardClass,
-  PageTitle,
+  Page,
   plural,
   Section,
+  TextArea,
+  TextInput,
   useConfirm,
 } from "@pipoca/ui";
 import type { TypedClient } from "@pipoca/plugins";
@@ -53,8 +56,13 @@ export const web = defineWeb(routines, {
     {
       path: "",
       label: "Routines",
-      Page,
-      nav: { fills: (path) => path.split("/").length > 1 },
+      Page: RoutinesPage,
+      nav: {
+        fills: (path) =>
+          path
+            .slice(path.startsWith(teams.prefix) ? teams.prefix.length : 0)
+            .split("/").length > 1,
+      },
     },
   ],
   // A run's Session is owned by "<owner>/<routine>".
@@ -73,7 +81,7 @@ export const web = defineWeb(routines, {
   },
 });
 
-function Page({ path }: { readonly path: string }): ReactElement {
+function RoutinesPage({ path }: { readonly path: string }): ReactElement {
   const scope = path.startsWith(teams.prefix) ? teams : yours;
   const [name = "", sessionId] = path.slice(scope.prefix.length).split("/");
 
@@ -101,25 +109,28 @@ function RoutineList(): ReactElement {
     ).value ?? [];
 
   return (
-    <>
-      <PageTitle description="A routine runs a prompt on a schedule, each time in a new Session of its own, or as a message to one of your Sessions. Ask the assistant to make one, or write its JSON here.">
-        Routines
-      </PageTitle>
-      <div className="flex flex-wrap gap-2">
-        <a href={pageAt("new")} className="inline-flex">
-          <Button variant="primary" tabIndex={-1}>
+    <Page
+      title="Routines"
+      description="A routine runs a prompt on a schedule, each time in a new Session of its own, or as a message to one of your Sessions. Ask the assistant to make one, or write its JSON here."
+      actions={
+        <>
+          {team.length > 0 && (
+            <a href={pageAt(`${teams.prefix}new`)} className={buttonClass()}>
+              New team routine
+            </a>
+          )}
+          <a
+            href={pageAt("new")}
+            className={buttonClass({ variant: "primary" })}
+          >
             New routine
-          </Button>
-        </a>
-        {team.length > 0 && (
-          <a href={pageAt(`${teams.prefix}new`)} className="inline-flex">
-            <Button tabIndex={-1}>New team routine</Button>
           </a>
-        )}
-      </div>
+        </>
+      }
+    >
       <Routines scope={yours} title="Yours" />
       {team.length > 0 && <Routines scope={teams} title="The team's" />}
-    </>
+    </Page>
   );
 }
 
@@ -249,25 +260,25 @@ function RoutinePage({
   };
 
   return (
-    <>
-      {asking}
-      <PageTitle
-        description={
-          <a href={pageAt("")} className="hover:underline">
-            All routines
-          </a>
-        }
-      >
-        {creating
+    <Page
+      title={
+        creating
           ? `New ${scope === teams ? "team " : ""}routine`
-          : (routine?.title ?? name)}
-      </PageTitle>
+          : (routine?.title ?? name)
+      }
+      description={
+        <a href={pageAt("")} className="hover:underline">
+          All routines
+        </a>
+      }
+    >
+      {asking}
       {routine !== undefined && (
         <div className="flex flex-col gap-3">
           <p className="text-ui text-fg-dim">{summaryOf(routine)}</p>
-          {routine.error !== undefined && (
-            <p className="text-ui text-failed">{routine.error}</p>
-          )}
+          <ErrorText size="inherit" className="text-ui">
+            {routine.error}
+          </ErrorText>
           <div className="flex flex-wrap gap-2">
             <Button
               variant="primary"
@@ -314,9 +325,9 @@ function RoutinePage({
           </div>
         </div>
       )}
-      {failure !== undefined && (
-        <p className="mt-3 text-ui text-failed">{failure}</p>
-      )}
+      <ErrorText size="inherit" className="mt-3 text-ui">
+        {failure}
+      </ErrorText>
       {routine?.webhook !== undefined && <Webhook {...routine.webhook} />}
       {editing && (creating || routine !== undefined) && (
         <Editor
@@ -351,7 +362,7 @@ function RoutinePage({
           </ul>
         </Section>
       )}
-    </>
+    </Page>
   );
 }
 
@@ -459,17 +470,16 @@ function Editor({
         </div>
       )}
       {name === undefined && (
-        <input
+        <TextInput
           aria-label="Name"
           placeholder="name, such as daily-issues"
           value={newName}
           onChange={(event) => {
             setNewName(event.target.value);
           }}
-          className={fieldClass}
         />
       )}
-      <textarea
+      <TextArea
         aria-label="Routine JSON"
         rows={14}
         spellCheck={false}
@@ -477,11 +487,11 @@ function Editor({
         onChange={(event) => {
           setText(event.target.value);
         }}
-        className={`${fieldClass} h-auto py-2 font-mono text-label`}
+        className="h-auto font-mono text-label"
       />
-      {failure !== undefined && (
-        <p className="text-ui text-failed">{failure}</p>
-      )}
+      <ErrorText size="inherit" className="text-ui">
+        {failure}
+      </ErrorText>
       <DeclaredEvents api={api} />
       <div>
         <Button type="submit" variant="primary">
@@ -678,7 +688,7 @@ function PendingWakeUps({
           </time>
           <Button
             variant="ghost"
-            className="h-6 px-2"
+            size="xs"
             aria-label={`Cancel wake-up: ${wakeUp.reason}`}
             onClick={() => {
               void api.delete(`wakeups/${wakeUp.id}`).finally(reload);

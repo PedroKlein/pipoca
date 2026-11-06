@@ -1,6 +1,6 @@
 import { ThemeSwitch } from "../theme";
 import { availability, type Environment, type Session } from "@pipoca/protocol";
-import { Button, cn, Icon, SessionRow } from "@pipoca/ui";
+import { Button, Icon, SessionRow, StatusDot } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { useNow } from "@pipoca/plugins/web";
 import {
@@ -10,11 +10,12 @@ import {
   shortName,
   workspaceName,
 } from "../names";
-import { enabledPlugins, sessionHref } from "../plugins";
+import { enabledPlugins, pageLabel, sessionHref } from "../plugins";
 
 export function ownedByEnabled({ plugin }: Session): boolean {
   return (
-    plugin !== null && enabledPlugins().some(({ name }) => name === plugin.id)
+    plugin !== null &&
+    enabledPlugins().some((part) => part.plugin.id === plugin.id)
   );
 }
 
@@ -53,8 +54,7 @@ export function SidebarSession({
 
 function ownerLabel(plugin: string): string {
   const label =
-    enabledPlugins().find(({ name }) => name === plugin)?.nav?.label ??
-    plugin.charAt(0).toUpperCase() + plugin.slice(1);
+    pageLabel(plugin) ?? plugin.charAt(0).toUpperCase() + plugin.slice(1);
 
   return `from ${label}`;
 }
@@ -69,13 +69,10 @@ export function EnvironmentStatus({
       <ul className="flex flex-1 flex-wrap gap-x-4 gap-y-1 pt-1 text-caption text-fg-dim">
         {environments.map((environment) => (
           <li key={environment.id} className="flex items-center gap-1.5">
-            <span
-              className={cn(
-                "size-2 rounded-full",
-                availability(environment) === "Offline"
-                  ? "border border-fg-dim"
-                  : "bg-done",
-              )}
+            <StatusDot
+              tone={
+                availability(environment) === "Offline" ? "offline" : "done"
+              }
             />
             {environment.name}{" "}
             {availability(environment) === "Starts runners on demand"

@@ -10,6 +10,7 @@ import {
 import { canManage, canSteer, type Viewer } from "@pipoca/people";
 import type { Templates } from "@pipoca/environments";
 import type { ApiDeps, Group } from "../deps";
+import { checkFetchable } from "../private-address";
 import { ok } from "../replies";
 import type { Handlers, PersonCaller } from "../router";
 
@@ -26,7 +27,9 @@ export function environmentRoutes({
       .all()
       .find(
         (each) =>
-          each.id === id && may(viewerOf(caller), { owner: each.ownerId }),
+          each.id === id &&
+          (!caller.team || each.ownerId === teamOwner) &&
+          may(viewerOf(caller), { owner: each.ownerId }),
       );
 
     if (environment === undefined) {
@@ -37,7 +40,9 @@ export function environmentRoutes({
   };
 
   return {
-    "environments.list": ({ query: { scope = "mine" }, caller }) => {
+    "environments.list": ({ query, caller }) => {
+      const scope = caller.team ? "team" : (query.scope ?? "mine");
+
       if (scope === "all" && !caller.admin) {
         throw new HttpError(
           403,
@@ -68,8 +73,10 @@ export function environmentRoutes({
             : environmentOutline(environment),
         );
     },
-    "environments.create": ({ body: { name, template, team }, caller }) => {
-      if (team === true && !caller.admin) {
+    "environments.create": ({ body: { name, template, ...body }, caller }) => {
+      const team = body.team === true || caller.team;
+
+      if (team && !caller.admin) {
         throw new HttpError(
           403,
           "Only admins make team Environments.",
@@ -78,11 +85,7 @@ export function environmentRoutes({
       }
 
       const created = ok(
-        environments.create(
-          name,
-          team === true ? teamOwner : caller.id,
-          template,
-        ),
+        environments.create(name, team ? teamOwner : caller.id, template),
       );
 
       const key = runners.newKey(created.provider);
@@ -219,7 +222,9 @@ export function templateRoutes({
     },
     // Read once for both kinds, so a person picks Profiles and admins
     // templates from the same answer.
-    "repositories.manifest": async ({ query: { url } }) => {
+    "repositories.manifest": async ({ query: { url }, caller }) => {
+      await checkFetchable(url, caller.id, plugins);
+
       const [listedProfiles, listedTemplates] = await Promise.all([
         profiles.listed(url),
         templates?.listed(url) ?? [],

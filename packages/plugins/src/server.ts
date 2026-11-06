@@ -94,7 +94,7 @@ export interface PluginEvents<P extends PluginDefinition> {
   readonly on: {
     <T extends KernelEvent["type"]>(
       type: T,
-      fn: (event: KernelEventOf<T>) => void,
+      fn: (event: KernelEventOf<T>) => void | Promise<void>,
     ): void;
     <F extends TObject>(
       def: EventDef<F>,
@@ -102,7 +102,7 @@ export interface PluginEvents<P extends PluginDefinition> {
         readonly fields: Static<F>;
         readonly to: readonly Owner[];
         readonly plugin: string;
-      }) => void,
+      }) => void | Promise<void>,
     ): void;
     // Another plugin's event by its name, for a plugin whose people name
     // events at run time, such as in a trigger they write.
@@ -113,7 +113,7 @@ export interface PluginEvents<P extends PluginDefinition> {
         readonly fields: Readonly<Record<string, unknown>>;
         readonly to: readonly Owner[];
         readonly plugin: string;
-      }) => void,
+      }) => void | Promise<void>,
     ): void;
   };
   readonly declared: () => readonly DeclaredEvent[];
@@ -200,7 +200,7 @@ export interface RouteSpec<
   readonly tool?: RouteToolSpec;
 }
 
-export interface RouteInput<
+interface RouteInput<
   P extends string,
   A extends Auth,
   B extends Schema,
@@ -426,7 +426,10 @@ export interface PluginConfig<P extends PluginDefinition = PluginDefinition> {
   // Seals plain secrets.
   readonly set: (change: DeepPartial<ConfigValue<P>>) => void;
   readonly watch: (
-    fn: (next: ConfigValue<P>, previous: ConfigValue<P>) => void,
+    fn: (
+      next: ConfigValue<P>,
+      previous: ConfigValue<P>,
+    ) => void | Promise<void>,
   ) => void;
   readonly lockedIn: () => string | undefined;
   readonly collection: <K extends CollectionKeys<ConfigValue<P>>>(
@@ -448,7 +451,7 @@ export interface PluginEnvironments {
   ) => TemplateConfig<Static<S>>;
 }
 
-export interface TemplateConfig<T> {
+interface TemplateConfig<T> {
   readonly get: (templateId: string) => T | undefined;
   readonly set: (templateId: string, value: unknown) => T | undefined;
 }
@@ -523,7 +526,7 @@ export interface SignInApi {
 
 // What Profiles hold that a plugin reads, such as the MCP servers people
 // sign in to.
-export interface PluginProfiles {
+interface PluginProfiles {
   // Every MCP server of the base, everyone's My defaults and every Profile.
   readonly mcpServers: () => readonly ProfileMcpServer[];
   // The Profiles one builds on, nearest first.

@@ -10,7 +10,7 @@ import {
 } from "@pipoca/plugins";
 import type { Method } from "@pipoca/protocol";
 
-export interface ExtInput {
+interface ExtInput {
   readonly caller: Caller;
   readonly params: Params;
   readonly body: unknown;
@@ -26,6 +26,7 @@ export interface ExtRoute {
   readonly spec: RouteSpec;
   // A team route's personal half, whose team half is under team/.
   readonly teamTwin?: true;
+  readonly teamHalf?: true;
   readonly handler: (input: ExtInput) => unknown;
 }
 
@@ -79,6 +80,7 @@ export function pluginRoutes(
         method,
         path: joined("team", path),
         spec: withoutTool,
+        teamHalf: true,
         handler: (input) => {
           if (!o.inTeamWork()) {
             throw new NotFound("Not found.");

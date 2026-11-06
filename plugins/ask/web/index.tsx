@@ -8,11 +8,13 @@ import {
   Button,
   cn,
   Dialog,
+  DialogBody,
+  DialogFoot,
   ErrorText,
   Field,
-  fieldClass,
   Icon,
   ListInput,
+  TextInput,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { ask } from "../plugin";
@@ -179,7 +181,7 @@ function OpenVoteDialog({
   readonly onClose: () => void;
 }): ReactElement {
   return (
-    <Dialog open={open} onClose={onClose} labelledBy="vote-title" size="sm">
+    <Dialog open={open} onClose={onClose} title="Open a vote" size="sm">
       <VoteForm session={session} onDone={onClose} />
     </Dialog>
   );
@@ -215,60 +217,47 @@ function VoteForm({
         event.preventDefault();
         submit();
       }}
-      className="flex flex-col gap-4 p-5"
     >
-      <header className="flex items-center gap-2">
-        <h2
-          id="vote-title"
-          className="flex-1 text-ui font-semibold text-fg-strong"
+      <DialogBody>
+        <Field label="Question">
+          <TextInput
+            value={question}
+            onChange={(event) => {
+              setQuestion(event.target.value);
+            }}
+            placeholder="Ship it today?"
+          />
+        </Field>
+
+        <ListInput
+          label="Options"
+          values={options}
+          placeholder="Type an option and press Enter"
+          onChange={setOptions}
+        />
+
+        <Field
+          label="Minutes open"
+          hint="Leave empty for the team's default. You or whoever started the work can close it sooner."
         >
-          Open a vote
-        </h2>
-        <Button variant="ghost" iconOnly aria-label="Close" onClick={onDone}>
-          <Icon name="x" />
-        </Button>
-      </header>
+          <TextInput
+            inputMode="numeric"
+            value={minutes}
+            onChange={(event) => {
+              setMinutes(event.target.value);
+            }}
+          />
+        </Field>
 
-      <Field label="Question">
-        <input
-          className={fieldClass}
-          value={question}
-          onChange={(event) => {
-            setQuestion(event.target.value);
-          }}
-          placeholder="Ship it today?"
-        />
-      </Field>
+        <p className="text-label text-fg-dim">
+          Everyone following this work can vote. Pi reads the result the next
+          time someone asks it something.
+        </p>
 
-      <ListInput
-        label="Options"
-        values={options}
-        placeholder="Type an option and press Enter"
-        onChange={setOptions}
-      />
+        <ErrorText>{error}</ErrorText>
+      </DialogBody>
 
-      <Field
-        label="Minutes open"
-        hint="Leave empty for the team's default. You or whoever started the work can close it sooner."
-      >
-        <input
-          className={fieldClass}
-          inputMode="numeric"
-          value={minutes}
-          onChange={(event) => {
-            setMinutes(event.target.value);
-          }}
-        />
-      </Field>
-
-      <p className="text-label text-fg-dim">
-        Everyone following this work can vote. Pi reads the result the next time
-        someone asks it something.
-      </p>
-
-      <ErrorText>{error}</ErrorText>
-
-      <div className="flex justify-end gap-2">
+      <DialogFoot>
         <Button onClick={onDone}>Cancel</Button>
         <Button
           type="submit"
@@ -277,7 +266,7 @@ function VoteForm({
         >
           Open vote
         </Button>
-      </div>
+      </DialogFoot>
     </form>
   );
 }

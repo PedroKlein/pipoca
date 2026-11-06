@@ -4,7 +4,6 @@ export {
   type AccountChange,
   availability,
   type ConfigFile,
-  createEnvironment,
   createSession,
   type CreateSession,
   emptyProfile,
@@ -28,10 +27,8 @@ export {
   type Newcomers,
   newcomersChange,
   type Person,
-  type PersonView,
   type PiPackage,
   type Profile,
-  profileContent,
   type ProfileContent,
   profilePath,
   type RepositoryChoice,
@@ -45,7 +42,6 @@ export {
   teamNameChange,
   type TeamView,
   templateEntry,
-  uploadedFiles,
   type User,
 } from "./browser";
 export { type ErrorCode } from "./errors";
@@ -96,13 +92,8 @@ export {
 export { readSse, readSseEvents, sseResponse } from "./sse";
 export {
   type DeclaredEvent,
-  pluginFileWrite,
   type PluginInfo,
-  pluginInstall,
   type PluginManifest,
-  pluginUpdate,
-  type ToolAnnotations,
-  type ToolNamespace,
   type ToolSpec,
 } from "./plugins";
 export {
@@ -110,16 +101,13 @@ export {
   type Attempt,
   type GitLogin,
   type Joined,
-  joinRequest,
   type JoinRequest,
   leaseMs,
-  livePost,
   type LivePost,
   loggedStart,
   type ProfileFiles,
   protocolVersion,
   type Removal,
-  removalPost,
   type RemovalPost,
   type RemovalReport,
   type SessionEnvironment,
@@ -131,11 +119,9 @@ export {
   type TranscriptAck,
   transcriptBatch,
   type TranscriptBatch,
-  trustAnswer,
   type TrustAnswer,
   versionHeader,
   type Work,
-  workPoll,
   type WorkPoll,
 } from "./runner";
 export {
@@ -149,7 +135,6 @@ export {
   owner,
   type Owner,
   type Session,
-  sessionAccess,
   type SessionAccess,
   type SessionPlugin,
   type SessionStatus,

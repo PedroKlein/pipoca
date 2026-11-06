@@ -17,7 +17,7 @@ export interface ControlPlane {
   work: (poll: WorkPoll, signal: AbortSignal) => Promise<Work>;
 }
 
-export interface PollOptions {
+interface PollOptions {
   readonly controlPlane: ControlPlane;
   readonly start: (assignment: SessionStart) => void;
   readonly unload: (attempt: Attempt) => void;

@@ -16,6 +16,7 @@ import type {
   ManifestEntry,
   Profile,
 } from "@pipoca/protocol";
+import { definePlugin, defineServer } from "@pipoca/plugins";
 import { json, testServer, type TestServer } from "./testdata/harness";
 
 const run = promisify(execFile);
@@ -63,13 +64,53 @@ afterAll(async () => {
   await rm(certs, { recursive: true, force: true });
 });
 
+// The git host on this machine is one everyone has a login for, so the
+// server fetches from it although it is on a loopback address.
+const hostLogins = defineServer(
+  definePlugin({ id: "host-logins", title: "Host logins", description: "" }),
+  ({ provide }) => {
+    provide.gitCredentials(() => [
+      { host: `localhost:${String(git.port)}`, token: "t" },
+    ]);
+  },
+);
+
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "manifest-"));
 
   server = testServer({
     database: join(root, "server.db"),
     configDir: join(root, "config"),
+    servers: [hostLogins],
   });
+});
+
+// A person can't make the server fetch from the cluster's own network and
+// read what git said about it.
+test("fetches from a private address only from a host the person has a git login for, and keeps git's words to itself", async () => {
+  const url = await repository({ "pipoca.json": "{}" });
+
+  const loginless = testServer({ configDir: join(root, "loginless") });
+
+  const refused = await loginless.api(
+    `/api/repositories/manifest?url=${encodeURIComponent(url)}`,
+  );
+
+  const imported = await loginless.api("/api/profiles", {
+    body: { source: { url } },
+  });
+
+  await loginless.close();
+
+  expect(refused.status).toBe(400);
+  expect(imported.status).toBe(400);
+
+  const missing = await server.api(
+    `/api/repositories/manifest?url=${encodeURIComponent(url.replace("team", "missing"))}`,
+  );
+
+  expect(missing.status).toBe(400);
+  expect(JSON.stringify(await missing.json())).not.toMatch(/fatal|not found/i);
 });
 
 afterEach(async () => {

@@ -439,6 +439,7 @@ export const server = defineServer(logins, (ctx) => {
           mcpStateOfOwner(mcp, owner, found.key),
           urls.public("callback"),
           returns.wait(browser),
+          ctx.config.get().privateHosts,
         ),
       );
 

@@ -15,7 +15,7 @@ import type { NewcomerSetup } from "../../newcomers";
 import type { Team } from "../../team";
 import type { Callers } from "./router";
 
-export interface ServerRestart {
+interface ServerRestart {
   // Sessions on the server's own runner that are mid-turn.
   readonly busy: () => number;
   readonly now: () => void;
@@ -41,6 +41,8 @@ export interface ApiDeps {
   readonly callers: Callers;
   readonly checkStore: () => void;
   readonly log: Log;
+  // The server's public URL, from --url.
+  readonly url?: URL | undefined;
   readonly restart?: ServerRestart | undefined;
   readonly templates?: Templates | undefined;
   readonly config?: ConfigFiles | undefined;

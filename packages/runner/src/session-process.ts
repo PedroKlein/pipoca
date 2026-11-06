@@ -43,7 +43,7 @@ export async function sessionParts(
   );
 }
 
-export interface SessionSpec {
+interface SessionSpec {
   readonly server: string;
   readonly assignment: SessionStart;
   readonly options: Omit<SessionOptions, "models">;

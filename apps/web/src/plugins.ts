@@ -1,14 +1,9 @@
 import {
   ConfigForm,
-  type HomeProps,
-  type LinkProps,
   type NavItemsProps,
-  type NoticeProps,
-  type PageProps,
-  type SessionPartProps,
-  type SettingsGroup,
-  type SetupStep,
+  type Slots,
   type ToolCallProps,
+  type WebPage,
   type WebPart,
 } from "@pipoca/plugins/web";
 import {
@@ -17,13 +12,7 @@ import {
   ShellProvider,
   watchChanges,
 } from "@pipoca/plugins/web/host";
-import type {
-  Environment,
-  EnvironmentTemplate,
-  PluginInfo,
-  RepositoryChoice,
-  Session,
-} from "@pipoca/protocol";
+import type { PluginInfo, RepositoryChoice, Session } from "@pipoca/protocol";
 import * as sdk from "@pipoca/plugins";
 import * as plugins from "@pipoca/plugins/web";
 import * as ui from "@pipoca/ui";
@@ -49,63 +38,7 @@ import { href } from "./router";
 const builtIn: readonly { readonly id: string; readonly web: WebPart }[] =
   webRegistry;
 
-export interface HubPanel {
-  readonly title: string;
-  readonly Panel: ComponentType;
-}
-
-export interface HubScreen {
-  readonly label: string;
-  readonly Page: ComponentType;
-}
-
-export interface SetupScreen extends HubScreen {
-  readonly group: "runs-on" | "rules";
-}
-
-// A plugin's web part as the shell draws it, its slots sorted by place.
-export interface ShellPlugin {
-  readonly name: string;
-  readonly slots: Readonly<Record<string, ComponentType<never>>>;
-  // Its pages have no place in the sidebar.
-  readonly unlisted?: boolean;
-  readonly nav?: {
-    readonly label: string;
-    readonly Page: ComponentType<PageProps>;
-    readonly Items?: ComponentType<NavItemsProps>;
-    readonly fills?: (path: string) => boolean;
-    readonly pinned?: boolean;
-  };
-  readonly hub: {
-    readonly panels: Readonly<Record<string, HubPanel>>;
-    readonly pages: Readonly<Record<string, HubScreen>>;
-    readonly setup: Readonly<Record<string, SetupScreen>>;
-  };
-  readonly Home?: ComponentType<HomeProps>;
-  readonly sessionPath?: (session: Session) => string;
-  readonly notices: Readonly<Record<string, ComponentType<NoticeProps>>>;
-  readonly links: Readonly<Record<string, ComponentType<LinkProps>>>;
-  readonly tools: Readonly<Record<string, ComponentType<ToolCallProps>>>;
-  readonly SessionHeader?: ComponentType<SessionPartProps>;
-  readonly Composer?: ComponentType<SessionPartProps>;
-  readonly EnvironmentSection?: ComponentType<{
-    readonly environment: Environment;
-  }>;
-  readonly TemplateSection?: ComponentType<{
-    readonly template: EnvironmentTemplate;
-  }>;
-  readonly SettingsSection?: ComponentType;
-  readonly settingsGroup?: SettingsGroup;
-  readonly setupStep?: SetupStep;
-  readonly settingsParts: {
-    readonly General?: ComponentType;
-    readonly Accounts?: ComponentType;
-    readonly Profile?: ComponentType<{ readonly profileId: string }>;
-  };
-  readonly repositories?: WebPart["repositories"];
-}
-
-let enabled: readonly ShellPlugin[] = [];
+let enabled: readonly WebPart[] = [];
 const webErrors = new Map<string, string>();
 let titles: ReadonlyMap<string, string> = new Map();
 let inTeamWork: ReadonlySet<string> = new Set();
@@ -139,7 +72,7 @@ export async function loadPlugins(): Promise<void> {
 
   enabled = [
     ...builtIn.flatMap(({ id, web }) =>
-      on.some((each) => each.id === id) ? [adapted(web)] : [],
+      on.some((each) => each.id === id) ? [web] : [],
     ),
     ...installed.flatMap((plugin) => (plugin ? [plugin] : [])),
   ];
@@ -185,137 +118,56 @@ function isPart(value: unknown): value is WebPart {
   );
 }
 
-function adapted(part: WebPart): ShellPlugin {
-  const { id } = part.plugin;
-
-  const slots = (part.slots ?? {}) as Readonly<
-    Record<string, ComponentType<never>>
+// A plugin's slots by name. Plugins add their own, so any name may be filled.
+function slotsOf(
+  part: WebPart,
+): Readonly<Record<string, ComponentType<never> | undefined>> {
+  return (part.slots ?? {}) as Readonly<
+    Record<string, ComponentType<never> | undefined>
   >;
+}
 
-  const slotted = <Props>(prefix: string) =>
-    Object.fromEntries(
-      Object.entries(slots).flatMap(([name, Component]) =>
-        name.startsWith(prefix)
-          ? [[name.slice(prefix.length), Component as ComponentType<Props>]]
-          : [],
-      ),
-    );
+function filled(
+  name: string,
+  parts: readonly WebPart[] = enabled,
+): ReturnType<Shell["fills"]> {
+  return parts.flatMap((part) => {
+    const Component = slotsOf(part)[name];
 
-  const slot = <Props>(name: string): ComponentType<Props> | undefined =>
-    slots[name] as ComponentType<Props> | undefined;
+    return Component === undefined
+      ? []
+      : [{ plugin: part.plugin.id, Component }];
+  });
+}
 
-  const pages = (part.pages ?? []).filter(
-    ({ area }) => area !== "hub" && area !== "setup",
-  );
+interface Claimed<Props> {
+  readonly plugin: string;
+  readonly Component: ComponentType<Props>;
+}
 
-  const listed = pages.find(({ nav }) => nav !== undefined);
-  const first = listed ?? pages[0];
+// What fills a slot, from the given plugins or every enabled one.
+export function fillsOf<K extends keyof Slots>(
+  name: K,
+  parts?: readonly WebPart[],
+): readonly Claimed<Slots[K]>[] {
+  return filled(name, parts) as readonly Claimed<Slots[K]>[];
+}
 
-  const byLength = [...pages].sort(
-    (one, other) => other.path.length - one.path.length,
-  );
+// A plugin's section on the Settings page: its own, or its config's form.
+export function PluginSettings({
+  part,
+}: {
+  readonly part: WebPart;
+}): ReactElement {
+  const Section = part.settings?.Section;
 
-  const Page = ({ path }: { readonly path: string }): ReactElement | null => {
-    const page = byLength.find(
-      (each) =>
-        each.path === "" ||
-        path === each.path ||
-        path.startsWith(`${each.path}/`),
-    );
-
-    return page
-      ? createElement(page.Page, {
-          path: page.path === "" ? path : path.slice(page.path.length + 1),
-        })
-      : null;
-  };
-
-  const settingsSection = part.settings && {
-    SettingsSection:
-      part.settings.Section ??
-      (() => createElement(ConfigForm, { plugin: part.plugin })),
-    settingsGroup: part.settings.group,
-  };
-
-  const optional = <K extends keyof ShellPlugin>(
-    key: K,
-    value: ShellPlugin[K] | undefined,
-  ): Partial<ShellPlugin> => (value === undefined ? {} : { [key]: value });
-
-  const withSlot = (
-    key: string,
-    Component: ComponentType<never> | undefined,
-  ): Readonly<Record<string, ComponentType<never>>> =>
-    Component === undefined ? {} : { [key]: Component };
-
-  return {
-    name: id,
-    slots,
-    ...(listed === undefined && { unlisted: true }),
-    ...(first && {
-      nav: {
-        label: first.label,
-        Page,
-        ...(listed?.nav?.Items && {
-          Items: listed.nav.Items,
-        }),
-        ...(listed?.nav?.fills && { fills: listed.nav.fills }),
-        ...(listed?.nav?.pinned === true && { pinned: true }),
-      },
-    }),
-    hub: {
-      panels: part.panels ?? {},
-      setup: Object.fromEntries(
-        (part.pages ?? [])
-          .filter(({ area }) => area === "setup")
-          .map((page) => [
-            page.path,
-            {
-              label: page.label,
-              group: page.group ?? "runs-on",
-              Page: () => createElement(page.Page, { path: "" }),
-            },
-          ]),
-      ),
-      pages: Object.fromEntries(
-        (part.pages ?? [])
-          .filter(({ area }) => area === "hub")
-          .map((page) => [
-            page.path,
-            {
-              label: page.label,
-              Page: () => createElement(page.Page, { path: "" }),
-            },
-          ]),
-      ),
-    },
-    ...optional("Home", slot("home")),
-    ...optional("sessionPath", part.sessionPath),
-    ...optional("repositories", part.repositories),
-    notices: slotted("notice:"),
-    links: slotted("link:"),
-    tools: slotted("session.toolCall:"),
-    ...optional("SessionHeader", slot("session.header")),
-    ...optional("Composer", slot("session.composer")),
-    ...optional("EnvironmentSection", slot("environment.section")),
-    ...optional("TemplateSection", slot("template.section")),
-    ...settingsSection,
-    ...optional("setupStep", part.setup?.[0]),
-    settingsParts: {
-      ...withSlot("General", slot("settings.general")),
-      ...withSlot("Accounts", slot("settings.accounts")),
-      ...withSlot("Profile", slot("settings.profile")),
-    },
-  };
+  return Section
+    ? createElement(Section)
+    : createElement(ConfigForm, { plugin: part.plugin });
 }
 
 const shell: Omit<Shell, "viewer"> = {
-  fills: (name) =>
-    enabled.flatMap(({ name: plugin, slots }) => {
-      const Component = slots[name];
-
-      return Component === undefined ? [] : [{ plugin, Component }];
-    }),
+  fills: (name) => filled(name),
   part: (plugin, children) =>
     createElement(PluginBoundary, { name: plugin, children }),
   SessionView: EmbeddedSession,
@@ -338,7 +190,7 @@ export function PluginShell({
 async function importWebPart(
   id: string,
   url: string,
-): Promise<ShellPlugin | undefined> {
+): Promise<WebPart | undefined> {
   try {
     // The page waits for every web part before it draws, so one that never
     // finishes loading can't keep it blank.
@@ -355,7 +207,7 @@ async function importWebPart(
       throw new Error(`its web export must be a web part for ${id}`);
     }
 
-    return adapted(web);
+    return web;
   } catch (error) {
     webErrors.set(id, error instanceof Error ? error.message : String(error));
 
@@ -372,46 +224,25 @@ export function pluginTitle(name: string): string {
   return titles.get(name) ?? name;
 }
 
-export function enabledPlugins(): readonly ShellPlugin[] {
+export function enabledPlugins(): readonly WebPart[] {
   return enabled;
 }
 
 // The plugins whose parts draw in a Session: in team work, only the ones
 // that load there (ADR 0067).
-export function useSessionPlugins(team: boolean): readonly ShellPlugin[] {
+export function useSessionPlugins(team: boolean): readonly WebPart[] {
   const switches = useSyncExternalStore(watchTeamWork, () => inTeamWork);
 
   return useMemo(
-    () => (team ? enabled.filter(({ name }) => switches.has(name)) : enabled),
+    () =>
+      team ? enabled.filter(({ plugin }) => switches.has(plugin.id)) : enabled,
     [team, switches],
   );
 }
 
-interface Claimed<Props> {
-  readonly plugin: string;
-  readonly Component: ComponentType<Props>;
-}
-
 // The enabled plugin that draws calls of a tool, if any (ADR 0030).
 export function toolRenderer(name: string): Claimed<ToolCallProps> | undefined {
-  return claimed(name, ({ tools }) => tools);
-}
-
-function claimed<Props>(
-  key: string,
-  slots: (
-    plugin: ShellPlugin,
-  ) => Readonly<Record<string, ComponentType<Props>>> | undefined,
-): Claimed<Props> | undefined {
-  for (const plugin of enabled) {
-    const Component = slots(plugin)?.[key];
-
-    if (Component) {
-      return { plugin: plugin.name, Component };
-    }
-  }
-
-  return undefined;
+  return fillsOf(`session.toolCall:${name}`)[0];
 }
 
 export interface NavEntry {
@@ -421,6 +252,25 @@ export interface NavEntry {
   readonly pinned: boolean;
 }
 
+// A plugin's own pages, outside the team hub and its setup.
+export function ownPages(name: string): readonly WebPage[] {
+  return (
+    enabled
+      .find(({ plugin }) => plugin.id === name)
+      ?.pages?.filter(({ area }) => area !== "hub" && area !== "setup") ?? []
+  );
+}
+
+// The page the sidebar lists, if any.
+function listedPage(name: string): WebPage | undefined {
+  return ownPages(name).find(({ nav }) => nav !== undefined);
+}
+
+// What a plugin's page is called, the listed one first.
+export function pageLabel(name: string): string | undefined {
+  return (listedPage(name) ?? ownPages(name)[0])?.label;
+}
+
 // A plugin whose search fails offers nothing, so the others still show.
 export async function searchRepositories(
   query: string,
@@ -428,8 +278,8 @@ export async function searchRepositories(
 ): Promise<readonly RepositoryChoice[]> {
   const found = await Promise.all(
     enabled.map(
-      async ({ name, repositories }) =>
-        repositories?.(query, team, pluginClient({ id: name })).catch(
+      async ({ plugin, repositories }) =>
+        repositories?.(query, team, pluginClient({ id: plugin.id })).catch(
           () => [],
         ) ?? [],
     ),
@@ -439,36 +289,34 @@ export async function searchRepositories(
 }
 
 export function navEntries(): readonly NavEntry[] {
-  return enabled.flatMap(({ name, nav, unlisted }) =>
-    nav && unlisted !== true
+  return enabled.flatMap(({ plugin: { id } }) => {
+    const listed = listedPage(id);
+
+    return listed
       ? [
           {
-            name,
-            label: nav.label,
-            pinned: nav.pinned === true,
-            ...(nav.Items && { Items: nav.Items }),
+            name: id,
+            label: listed.label,
+            pinned: listed.nav?.pinned === true,
+            ...(listed.nav?.Items && { Items: listed.nav.Items }),
           },
         ]
-      : [],
-  );
+      : [];
+  });
 }
 
 // A Session a plugin owns opens in that plugin's page (ADR 0028).
 export function sessionHref(session: Session): string {
-  const plugin = enabled.find(({ name }) => name === session.plugin?.id);
-  const path = guarded(() => plugin?.sessionPath?.(session));
+  const part = enabled.find(({ plugin }) => plugin.id === session.plugin?.id);
+  const path = guarded(() => part?.sessionPath?.(session));
 
-  return plugin && path !== undefined
-    ? href("plugin", { name: plugin.name, path })
+  return part && path !== undefined
+    ? href("plugin", { name: part.plugin.id, path })
     : href("session", { id: session.id });
 }
 
 export function pageFills(name: string, path: string): boolean {
-  return (
-    guarded(() =>
-      enabled.find((plugin) => plugin.name === name)?.nav?.fills?.(path),
-    ) === true
-  );
+  return guarded(() => listedPage(name)?.nav?.fills?.(path)) === true;
 }
 
 // A plugin's function the shell calls while it draws, outside any plugin's
