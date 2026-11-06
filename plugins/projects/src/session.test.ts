@@ -46,12 +46,21 @@ function routed(api: TypedClient) {
   };
 }
 
-async function part(host: TestSession, cwd: string) {
+async function part(
+  host: TestSession,
+  cwd: string,
+  asked: string[] = [],
+  answer: "once" | "deny" = "once",
+) {
   return testSession(session, {
     request: routed(host.api),
     cwd,
     config: { fileLimitMb: 1 },
-    askPermission: async () => Promise.resolve("once" as const),
+    askPermission: async (question) => {
+      asked.push(question);
+
+      return Promise.resolve(answer);
+    },
   });
 }
 
@@ -112,6 +121,46 @@ test("Sessions in a Project share files through its library, and others get no f
     expect(outside.tool("list_library", {})).rejects.toThrow(
       "projects has no tool list_library",
     );
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
+test("replacing a library file asks first, and reading or adding one doesn't", async () => {
+  await using t = await testPlugin(server, { people });
+  const folder = await mkdtemp(join(tmpdir(), "projects-asks-"));
+
+  try {
+    const coordinator = await project(t);
+    const asked: string[] = [];
+    const tools = await part(coordinator, folder, asked);
+
+    await writeFile(join(folder, "notes.md"), "one\n");
+    await tools.tool("publish_file", { path: "notes.md" });
+    await tools.tool("list_library", {});
+    await tools.tool("fetch_file", { name: "notes.md", path: "n.md" });
+
+    expect(asked).toEqual([]);
+
+    await writeFile(join(folder, "notes.md"), "two\n");
+    await tools.tool("publish_file", { path: "notes.md" });
+
+    expect(asked).toEqual(["Replace the library file “notes.md”?"]);
+
+    const refused = await part(coordinator, folder, [], "deny");
+
+    await writeFile(join(folder, "notes.md"), "three\n");
+
+    expect(await refused.tool("publish_file", { path: "notes.md" })).toEqual({
+      text: "The person said no.",
+      isError: true,
+    });
+
+    expect(
+      await tools.tool("fetch_file", { name: "notes.md", path: "n.md" }),
+    ).toMatchObject({ isError: false });
+
+    expect(await readFile(join(folder, "n.md"), "utf8")).toBe("two\n");
   } finally {
     await rm(folder, { recursive: true, force: true });
   }

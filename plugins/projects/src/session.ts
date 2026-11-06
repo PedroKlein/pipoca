@@ -94,7 +94,22 @@ function libraryTools({ api, config, tools }: Context): void {
         }),
       ),
     }),
-    annotations: { destructive: false },
+    annotations: { destructive: true },
+    // Only replacing a file someone else may rely on asks (ADR 0050).
+    asks: async (input, { cwd, signal }) => {
+      const name = (input.name ?? basename(resolve(cwd, input.path))).normalize(
+        "NFC",
+      );
+
+      const files = await api.get<LibraryFile[]>(
+        "library",
+        signal === undefined ? {} : { signal },
+      );
+
+      return files.some((file) => file.name === name)
+        ? `Replace the library file “${name}”?`
+        : undefined;
+    },
     run: async (input, { cwd, signal }) => {
       const path = resolve(cwd, input.path);
       const name = input.name ?? basename(path);
