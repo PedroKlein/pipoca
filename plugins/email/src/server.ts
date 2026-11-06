@@ -2,8 +2,6 @@ import {
   BadRequest,
   defineServer,
   NotFound,
-  owners,
-  type Person,
   ToolError,
   Type,
 } from "@pipoca/plugins";
@@ -165,9 +163,6 @@ export const server = defineServer(
         .list()
         .filter(({ users }) => users.some((user) => audience.includes(user)));
 
-    const usableBy = (person: Person | undefined): readonly Mailbox[] =>
-      person === undefined ? [] : usable([owners.of(person)]);
-
     // From a mailbox the admin who invited can send from, so the invite
     // comes from someone the person may know.
     events.on("PersonInvited", (invite) => {
@@ -203,9 +198,11 @@ export const server = defineServer(
       params: sendMail,
       exposure: "direct",
       annotations: { readOnly: false, destructive: false },
-      when: { available: (_session, person) => usableBy(person).length > 0 },
-      run: async (input, { session, person }) => {
-        const mine = usableBy(person);
+      when: {
+        available: (session) => usable([session.ownedBy]).length > 0,
+      },
+      run: async (input, { session, owner }) => {
+        const mine = usable([owner]);
 
         const only = mine.length === 1 ? mine[0]?.name : undefined;
 

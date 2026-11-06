@@ -391,3 +391,34 @@ test("slack_post names the bots the person may post as when it can't tell which"
     t.tool("slack_post", { channel: "C1", text: "Hi" }, { session: others }),
   ).rejects.toThrow("slack_post isn't offered in this Session");
 });
+
+test("slack_post posts in team work only as bots the team uses, never a person's", async () => {
+  const fake = fakeSlack();
+  await using t = await started(fake);
+
+  await addBot(t, "anas-bot");
+
+  const team = await t.session({ owner: "team", startedBy: "ana" });
+
+  await expect(
+    t.tool("slack_post", { channel: "C1", text: "Hi" }, { session: team }),
+  ).rejects.toThrow("slack_post isn't offered in this Session");
+
+  const { bots } = (await t.config()) as {
+    bots: readonly Record<string, unknown>[];
+  };
+
+  await t.editConfig({
+    bots: bots.map((bot) => ({ ...bot, users: ["team"] })),
+  });
+
+  expect(
+    await t.tool(
+      "slack_post",
+      { channel: "C1", text: "Hi" },
+      { session: team },
+    ),
+  ).toMatchObject({ isError: false });
+
+  expect(fake.posted).toEqual([{ channel: "C1", text: "Hi" }]);
+});
