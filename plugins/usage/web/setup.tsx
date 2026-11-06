@@ -2,13 +2,17 @@ import { usage } from "../plugin";
 import { useLoaded, useApi } from "@pipoca/plugins/web";
 import {
   Button,
-  Card,
+  buttonClass,
+  Cell,
   cardClass,
   cn,
+  EmptyState,
+  ErrorText,
   Field,
-  fieldClass,
-  PageTitle,
+  Page,
   Section,
+  Table,
+  TextInput,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import { Spend, type Totals } from "./spend";
@@ -65,10 +69,10 @@ export function Budgets(): ReactElement {
   };
 
   return (
-    <>
-      <PageTitle description="What team work spends through the team's keys each month. Budgets only warn: at 80% and 100% Pipoca tells admins, and the person whose cap it is. Work keeps running.">
-        Budgets
-      </PageTitle>
+    <Page
+      title="Budgets"
+      description="What team work spends through the team's keys each month. Budgets only warn: at 80% and 100% Pipoca tells admins, and the person whose cap it is. Work keeps running."
+    >
       <Spend />
       {totals !== undefined && (
         <Section title="Each month">
@@ -82,26 +86,24 @@ export function Budgets(): ReactElement {
                 label="Team budget"
                 hint="Dollars a month. Empty for none."
               >
-                <input
+                <TextInput
                   name="team"
                   type="number"
                   min="0.01"
                   step="0.01"
                   defaultValue={totals.budgets.team ?? ""}
-                  className={fieldClass}
                 />
               </Field>
               <Field
                 label="Each person's cap"
                 hint="Dollars a month of team work. Empty for none."
               >
-                <input
+                <TextInput
                   name="person"
                   type="number"
                   min="0.01"
                   step="0.01"
                   defaultValue={totals.budgets.person ?? ""}
-                  className={fieldClass}
                 />
               </Field>
             </div>
@@ -111,7 +113,9 @@ export function Budgets(): ReactElement {
               </Button>
               <p role="status" className="text-caption">
                 {error !== undefined ? (
-                  <span className="text-failed">{error}</span>
+                  <ErrorText inline size="inherit">
+                    {error}
+                  </ErrorText>
                 ) : (
                   saved && <span className="text-fg-dim">Saved</span>
                 )}
@@ -120,7 +124,7 @@ export function Budgets(): ReactElement {
           </form>
         </Section>
       )}
-    </>
+    </Page>
   );
 }
 
@@ -159,14 +163,14 @@ export function AuditLog(): ReactElement {
       <a
         href="/api/ext/usage/audit?format=csv"
         download
-        className="inline-flex h-control items-center rounded-md border border-line bg-elevated px-3 text-ui font-medium text-fg shadow-xs hover:bg-hover"
+        className={buttonClass()}
       >
         Download CSV
       </a>
       <a
         href="/api/ext/usage/calls?format=csv"
         download
-        className="inline-flex h-control items-center rounded-md border border-line bg-elevated px-3 text-ui font-medium text-fg shadow-xs hover:bg-hover"
+        className={buttonClass()}
       >
         Model calls CSV
       </a>
@@ -174,61 +178,44 @@ export function AuditLog(): ReactElement {
   );
 
   return (
-    <>
-      <PageTitle
-        description="Who started, stopped and archived team work, and each model call on the team's keys. The CSVs have all of it."
-        actions={download}
-      >
-        Audit log
-      </PageTitle>
+    <Page
+      title="Audit log"
+      description="Who started, stopped and archived team work, and each model call on the team's keys. The CSVs have all of it."
+      actions={download}
+    >
       {entries?.length === 0 && (
-        <p className="rounded-lg border border-dashed border-line-strong p-5 text-ui text-fg-dim">
+        <EmptyState>
           Nothing yet. Team work shows up here as it happens.
-        </p>
+        </EmptyState>
       )}
       {entries !== undefined && entries.length > 0 && (
-        <Card padding="none" className="overflow-x-auto">
-          <table aria-label="Audit log" className="w-full text-left text-label">
-            <thead className="text-caption text-fg-dim">
-              <tr className="border-b border-line">
-                <th className="px-3 py-2 font-medium">When</th>
-                <th className="px-3 py-2 font-medium">Who</th>
-                <th className="px-3 py-2 font-medium">What</th>
-                <th className="px-3 py-2 font-medium">Session</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.slice(0, shownEntries).map((entry, index) => (
-                <tr
-                  key={`${entry.at}:${String(index)}`}
-                  className="border-b border-line last:border-b-0"
+        <Table label="Audit log" columns={["When", "Who", "What", "Session"]}>
+          {entries.slice(0, shownEntries).map((entry, index) => (
+            <tr key={`${entry.at}:${String(index)}`}>
+              <Cell className="whitespace-nowrap text-fg-dim tabular-nums">
+                {new Date(entry.at).toLocaleString()}
+              </Cell>
+              <Cell>{who(entry.actor)}</Cell>
+              <Cell>
+                {entry.action}
+                {entry.detail !== null && (
+                  <span className="ml-1.5 font-mono text-mono-sm text-fg-dim">
+                    {entry.detail}
+                  </span>
+                )}
+              </Cell>
+              <Cell>
+                <a
+                  href={`#${entry.sessionId}`}
+                  className="font-mono text-mono-sm text-fg-dim hover:text-fg"
                 >
-                  <td className="px-3 py-2 whitespace-nowrap text-fg-dim tabular-nums">
-                    {new Date(entry.at).toLocaleString()}
-                  </td>
-                  <td className="px-3 py-2">{who(entry.actor)}</td>
-                  <td className="px-3 py-2">
-                    {entry.action}
-                    {entry.detail !== null && (
-                      <span className="ml-1.5 font-mono text-mono-sm text-fg-dim">
-                        {entry.detail}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    <a
-                      href={`#${entry.sessionId}`}
-                      className="font-mono text-mono-sm text-fg-dim hover:text-fg"
-                    >
-                      {entry.sessionId.slice(0, 8)}
-                    </a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+                  {entry.sessionId.slice(0, 8)}
+                </a>
+              </Cell>
+            </tr>
+          ))}
+        </Table>
       )}
-    </>
+    </Page>
   );
 }

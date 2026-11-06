@@ -22,7 +22,7 @@ export {
   useConfirm,
 } from "./dialog";
 export { EmptyState, ErrorText, Notice, Spinner } from "./feedback";
-export { Field, fieldClass } from "./field";
+export { Field } from "./field";
 export { FileButton } from "./file-button";
 export { Icon, type IconName, isIconName } from "./icon";
 export { initialsOf, plural } from "./initials";
@@ -31,14 +31,16 @@ export { isComposing } from "./keys";
 export { type KeyValue, KeyValues } from "./key-values";
 export { ListInput } from "./list-input";
 export { Menu, type MenuItem, popClass } from "./menu";
-export { Page, PageTitle, Section } from "./page";
+export { Page, Section } from "./page";
 export { Picker, type PickerOption } from "./picker";
 export { Row, Rows } from "./rows";
 export { Segmented } from "./segmented";
 export { Select } from "./select";
+export { SidePanel } from "./side-panel";
 export { SessionRow } from "./session-row";
 export { Hero, Mark, SetupShell, Wordmark } from "./setup-shell";
 export { Slider } from "./slider";
+export { type DotTone, StatusDot } from "./status-dot";
 export { type MarkStatus, StatusMark } from "./status-mark";
 export { Step, Stepper, type StepState } from "./stepper";
 export { Switch } from "./switch";

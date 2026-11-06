@@ -1,6 +1,6 @@
 import { useLoaded, useApi } from "@pipoca/plugins/web";
-import { FileButton, Section } from "@pipoca/ui";
-import type { ReactElement } from "react";
+import { ErrorText, FileButton, Section } from "@pipoca/ui";
+import { type ReactElement, useState } from "react";
 import { projects } from "../plugin";
 import type { LibraryFile, LibraryWrite } from "../src/model";
 
@@ -22,11 +22,14 @@ export function Library({ path }: { readonly path: string }): ReactElement {
   );
 
   const [files, writes] = value ?? [[], []];
+  const [error, setError] = useState<string>();
 
   const filePath = (name: string): string =>
     `${base}/files/${encodeURIComponent(name)}`;
 
   const upload = async (chosen: readonly File[]): Promise<void> => {
+    setError(undefined);
+
     const results = await Promise.allSettled(
       chosen.map(async (file) =>
         api
@@ -52,7 +55,7 @@ export function Library({ path }: { readonly path: string }): ReactElement {
     );
 
     if (failures.length > 0) {
-      alert(failures.join("\n"));
+      setError(failures.join("\n"));
     }
   };
 
@@ -93,6 +96,9 @@ export function Library({ path }: { readonly path: string }): ReactElement {
         >
           Upload files
         </FileButton>
+        <ErrorText size="caption" className="whitespace-pre-line">
+          {error}
+        </ErrorText>
       </Section>
       <Section title="Recent writes">
         {writes.length === 0 ? (

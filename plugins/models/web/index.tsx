@@ -1,19 +1,21 @@
 import { defineWeb, useApi, useLoaded } from "@pipoca/plugins/web";
 import type { Environment, ModelRef } from "@pipoca/protocol";
 import {
+  Avatar,
   Badge,
   Button,
   cardClass,
+  Checkbox,
   cn,
   ErrorText,
-  fieldClass,
   Icon,
   initialsOf,
-  PageTitle,
+  Page,
   Row,
   Rows,
   Section,
   Select,
+  TextInput,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { models } from "../plugin";
@@ -37,10 +39,10 @@ import {
 const schedules = ["", "utc-hourly", "utc-midnight", "utc-monthly-1st"];
 
 export const web = defineWeb(models, {
-  settings: { group: "workspace", Section: Page },
+  settings: { group: "workspace", Section: ModelsPage },
 });
 
-function Page(): ReactElement {
+function ModelsPage(): ReactElement {
   const api = useApi(models);
 
   const { value, reload } = useLoaded(
@@ -60,25 +62,23 @@ function Page(): ReactElement {
     environments.find(({ id }) => id === chosen) ?? environments[0];
 
   return (
-    <>
-      <PageTitle
-        description='Name a choice once, like "smart" or "fast", and list models to try in order. If one is down or out of quota, the next one answers.'
-        actions={
-          environment !== undefined &&
-          !adding && (
-            <Button
-              onClick={() => {
-                setAdding(true);
-              }}
-            >
-              <Icon name="plus" />
-              New alias
-            </Button>
-          )
-        }
-      >
-        Models
-      </PageTitle>
+    <Page
+      title="Models"
+      description='Name a choice once, like "smart" or "fast", and list models to try in order. If one is down or out of quota, the next one answers.'
+      actions={
+        environment !== undefined &&
+        !adding && (
+          <Button
+            onClick={() => {
+              setAdding(true);
+            }}
+          >
+            <Icon name="plus" />
+            New alias
+          </Button>
+        )
+      }
+    >
       {value !== undefined && environment === undefined && (
         <Rows>
           <Row
@@ -118,7 +118,7 @@ function Page(): ReactElement {
         />
       )}
       {environment !== undefined && <InThePicker environment={environment} />}
-    </>
+    </Page>
   );
 }
 
@@ -216,23 +216,23 @@ function InThePicker({
                         const key = modelKey(model);
 
                         return (
-                          <label
+                          <Checkbox
                             key={key}
-                            className="flex items-center gap-2 font-mono text-mono-sm text-fg"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={!hidden.includes(key)}
-                              onChange={(event) => {
-                                save(
-                                  event.target.checked
-                                    ? hidden.filter((each) => each !== key)
-                                    : [...hidden, key],
-                                );
-                              }}
-                            />
-                            {model.id}
-                          </label>
+                            size="sm"
+                            label={
+                              <span className="font-mono text-mono-sm text-fg">
+                                {model.id}
+                              </span>
+                            }
+                            checked={!hidden.includes(key)}
+                            onChange={(event) => {
+                              save(
+                                event.target.checked
+                                  ? hidden.filter((each) => each !== key)
+                                  : [...hidden, key],
+                              );
+                            }}
+                          />
                         );
                       })}
                     </span>
@@ -426,15 +426,14 @@ function Aliases({
       {saved?.aliases !== null && saved?.aliases !== undefined && (
         <p className="mt-6 text-caption text-fg-dim">
           Sessions see each alias as {gatewayProvider}/name.{" "}
-          <button
-            type="button"
-            className="cursor-pointer text-fg underline underline-offset-2"
+          <Button
+            variant="link"
             onClick={() => {
               save(null);
             }}
           >
             Turn aliases off
-          </button>
+          </Button>
         </p>
       )}
     </>
@@ -469,7 +468,7 @@ function NewAlias({
         }
       }}
     >
-      <input
+      <TextInput
         aria-label="New alias name"
         placeholder="smart"
         value={name}
@@ -477,9 +476,9 @@ function NewAlias({
         onChange={(event) => {
           setName(event.target.value.trim());
         }}
-        className={cn(fieldClass, "w-40 font-mono text-mono-sm")}
+        className="w-40 font-mono text-mono-sm"
       />
-      <input
+      <TextInput
         list={list}
         aria-label="First model"
         placeholder="provider/model to try first"
@@ -487,7 +486,7 @@ function NewAlias({
         onChange={(event) => {
           setModel(event.target.value.trim());
         }}
-        className={cn(fieldClass, "flex-1 font-mono text-mono-sm")}
+        className="flex-1 font-mono text-mono-sm"
       />
       <Button variant="primary" type="submit" disabled={!ready}>
         Add alias
@@ -561,12 +560,12 @@ function AliasCard({
               setRenaming(false);
             }}
           >
-            <input
+            <TextInput
               name="name"
               aria-label="Alias name"
               defaultValue={name}
               autoFocus
-              className={cn(fieldClass, "flex-1 font-mono text-mono-sm")}
+              className="flex-1 font-mono text-mono-sm"
             />
             <Button type="submit">Save</Button>
           </form>
@@ -617,12 +616,7 @@ function AliasCard({
               >
                 {index + 1}
               </span>
-              <span
-                aria-hidden="true"
-                className="grid size-7 place-items-center rounded-md bg-hover text-caption font-semibold text-fg-strong"
-              >
-                {initialsOf(ref?.provider ?? value)}
-              </span>
+              <Avatar name={ref?.provider ?? value} square />
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className="truncate text-ui text-fg-strong">
                   {ref?.id ?? value}
@@ -771,7 +765,7 @@ function ProviderEditor({
       <div className="flex flex-wrap items-center gap-4 text-label text-fg-dim">
         <label className="flex items-center gap-2">
           Cap status codes
-          <input
+          <TextInput
             placeholder="402"
             defaultValue={(settings.capStatusCodes ?? []).join(", ")}
             onBlur={(event) => {
@@ -788,7 +782,7 @@ function ProviderEditor({
                   : { ...rest, capStatusCodes: parsed },
               );
             }}
-            className={cn(fieldClass, "w-28")}
+            className="w-28"
           />
         </label>
         <label className="flex items-center gap-2">

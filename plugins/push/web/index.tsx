@@ -1,5 +1,5 @@
 import { ConfigForm, defineWeb, useApi, useLoaded } from "@pipoca/plugins/web";
-import { Button, ErrorText, PageTitle, Row, Rows } from "@pipoca/ui";
+import { Button, ErrorText, Page, Row, Rows } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { push } from "../plugin";
 
@@ -83,10 +83,10 @@ function Section(): ReactElement | null {
   };
 
   return (
-    <>
-      <PageTitle description="Where Pipoca tells you that Pi finished or needs you, even with Pipoca closed.">
-        Notifications
-      </PageTitle>
+    <Page
+      title="Notifications"
+      description="Where Pipoca tells you that Pi finished or needs you, even with Pipoca closed."
+    >
       <Rows>
         <Row
           title="This device"
@@ -119,6 +119,6 @@ function Section(): ReactElement | null {
       <ErrorText size="caption" className="mt-2">
         {error}
       </ErrorText>
-    </>
+    </Page>
   );
 }

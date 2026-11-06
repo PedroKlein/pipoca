@@ -8,6 +8,7 @@ import {
 } from "@pipoca/plugins/web";
 import type { SessionEvent } from "@pipoca/protocol";
 import {
+  Badge,
   Button,
   Card,
   cardClass,
@@ -15,7 +16,9 @@ import {
   Code,
   Icon,
   isComposing,
+  SidePanel,
   StatusMark,
+  TextInput,
 } from "@pipoca/ui";
 import { type ReactElement, useEffect, useMemo, useState } from "react";
 import { subagents } from "../plugin";
@@ -350,7 +353,7 @@ function Controls({
 
   return (
     <div className="flex items-center gap-2 border-t border-line px-3 py-2">
-      <input
+      <TextInput
         value={text}
         aria-label="Tell the subagents"
         placeholder="Tell the subagents…"
@@ -363,7 +366,7 @@ function Controls({
             steer();
           }
         }}
-        className="min-w-0 flex-1 rounded-md border border-line bg-panel px-2 py-1 text-label text-fg placeholder:text-fg-dim"
+        className="min-w-0 flex-1"
       />
       <Button variant="ghost" onClick={steer} disabled={text.trim() === ""}>
         Steer
@@ -442,24 +445,6 @@ function FleetButton({
   const asking = openDecisions(missions).length;
   const count = running(runs);
 
-  useEffect(() => {
-    if (!open) {
-      return undefined;
-    }
-
-    const close = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    };
-
-    document.addEventListener("keydown", close);
-
-    return () => {
-      document.removeEventListener("keydown", close);
-    };
-  }, [open]);
-
   if (runs.length === 0 && missions.length === 0) {
     return null;
   }
@@ -474,47 +459,31 @@ function FleetButton({
         }}
       >
         {count > 0 ? (
-          <span className="size-1.5 animate-pulse rounded-full bg-working" />
+          <StatusMark status="running" label="" />
         ) : (
           <Icon name="git-fork" className="size-3.5" />
         )}
         {count > 0 ? `${String(count)} running` : "Subagents"}
-        {asking > 0 && (
-          <span className="rounded-full bg-waiting px-1.5 text-label text-fg-strong">
-            {asking} to decide
-          </span>
-        )}
+        {asking > 0 && <Badge state="waiting">{asking} to decide</Badge>}
       </Button>
-      <section
-        role="dialog"
-        aria-label="Subagents"
-        hidden={!open}
-        className="fixed inset-y-0 right-0 z-40 flex w-[min(640px,100vw)] flex-col border-l border-line bg-panel text-ui text-fg shadow-pop"
+      <SidePanel
+        open={open}
+        title="Subagents"
+        closeLabel="Close subagents"
+        className="gap-3"
+        onClose={() => {
+          setOpen(false);
+        }}
       >
-        <header className="flex min-h-14 items-center gap-2 border-b border-line px-4">
-          <h2 className="flex-1 font-semibold text-fg-strong">Subagents</h2>
-          <Button
-            variant="ghost"
-            iconOnly
-            aria-label="Close subagents"
-            onClick={() => {
-              setOpen(false);
-            }}
-          >
-            <Icon name="x" />
-          </Button>
-        </header>
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-4">
-          {missions.map((mission) => (
-            <Mission key={mission.id} mission={mission} session={session} />
-          ))}
-          {runs.map((run) => (
-            <Card padding="none" key={run.id} className="overflow-hidden">
-              <Run run={run} session={session} />
-            </Card>
-          ))}
-        </div>
-      </section>
+        {missions.map((mission) => (
+          <Mission key={mission.id} mission={mission} session={session} />
+        ))}
+        {runs.map((run) => (
+          <Card padding="none" key={run.id} className="overflow-hidden">
+            <Run run={run} session={session} />
+          </Card>
+        ))}
+      </SidePanel>
     </>
   );
 }
@@ -695,7 +664,7 @@ function Decide({
           }
         }}
       >
-        <input
+        <TextInput
           aria-label="Your answer"
           value={text}
           placeholder={
@@ -704,7 +673,7 @@ function Decide({
           onChange={(event) => {
             setText(event.target.value);
           }}
-          className="min-w-0 flex-1 rounded-md border border-line bg-panel px-2 py-1 text-label"
+          className="min-w-0 flex-1"
         />
       </form>
     </div>

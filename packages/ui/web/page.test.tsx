@@ -23,3 +23,24 @@ test("a page has its title, description, actions and sections", () => {
   expect(byRole(page, "button", "Invite")).toBeDefined();
   expect(page.querySelector("h2")?.textContent).toBe("Members");
 });
+
+test("a page inside another draws its title in the outer column", () => {
+  const page = render(
+    <Page id="outer">
+      <Page
+        id="inner"
+        title="Push"
+        actions={<button type="button">Add</button>}
+      >
+        <p>Devices</p>
+      </Page>
+    </Page>,
+  );
+
+  const inner = page.querySelector("#inner");
+
+  expect(page.querySelector("#outer")?.className).toContain("max-w-page");
+  expect(inner?.className).not.toContain("max-w-page");
+  expect(inner?.querySelector("h1")?.textContent).toBe("Push");
+  expect(byRole(page, "button", "Add")).toBeDefined();
+});

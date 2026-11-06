@@ -1,13 +1,6 @@
 import { href, SessionView, useLoaded, useApi } from "@pipoca/plugins/web";
 import type { Environment, ModelRef, Session } from "@pipoca/protocol";
-import {
-  Button,
-  ErrorText,
-  Icon,
-  isComposing,
-  PageTitle,
-  Picker,
-} from "@pipoca/ui";
+import { Button, ErrorText, Icon, isComposing, Page, Picker } from "@pipoca/ui";
 import {
   type ReactElement,
   type SubmitEvent,
@@ -122,16 +115,16 @@ export function Opening(): ReactElement {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-12">
-      <PageTitle description="Ask it to set up Pipoca, start work in your repositories, or build a plugin. It asks before anything destructive.">
-        Assistant
-      </PageTitle>
+    <Page
+      title="Assistant"
+      description="Ask it to set up Pipoca, start work in your repositories, or build a plugin. It asks before anything destructive."
+    >
       {models !== undefined && models !== null ? (
         <Composer models={models} picksModel />
       ) : (
         <p className="text-fg-dim">Set up an Environment first.</p>
       )}
-    </div>
+    </Page>
   );
 }
 
@@ -197,10 +190,7 @@ export function Earlier({ path }: { readonly path: string }): ReactElement {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <h1 className="text-display font-semibold text-fg-strong">
-        Earlier conversations
-      </h1>
+    <Page title="Earlier conversations" className="gap-4">
       <Continue assistant={assistant === null ? null : assistant?.id} />
       {sessions?.length === 0 ? (
         <p className="text-fg-dim">
@@ -220,7 +210,7 @@ export function Earlier({ path }: { readonly path: string }): ReactElement {
           ))}
         </ul>
       )}
-    </div>
+    </Page>
   );
 }
 
@@ -245,10 +235,10 @@ export function TeamAssistant(): ReactElement {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-12">
-      <PageTitle description="Ask it to start team work, look up what the team is doing, or set up a routine for the team. Its chat is yours alone; what it starts belongs to the team, on the team's key.">
-        Team assistant
-      </PageTitle>
+    <Page
+      title="Team assistant"
+      description="Ask it to start team work, look up what the team is doing, or set up a routine for the team. Its chat is yours alone; what it starts belongs to the team, on the team's key."
+    >
       {models !== undefined && models !== null ? (
         <Composer models={models} picksModel team />
       ) : (
@@ -256,7 +246,7 @@ export function TeamAssistant(): ReactElement {
           An admin has to set up a team Environment first.
         </p>
       )}
-    </div>
+    </Page>
   );
 }
 

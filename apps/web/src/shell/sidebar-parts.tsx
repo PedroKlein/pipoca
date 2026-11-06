@@ -1,6 +1,6 @@
 import { ThemeSwitch } from "../theme";
 import { availability, type Environment, type Session } from "@pipoca/protocol";
-import { Button, cn, Icon, SessionRow } from "@pipoca/ui";
+import { Button, Icon, SessionRow, StatusDot } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { useNow } from "@pipoca/plugins/web";
 import {
@@ -69,13 +69,10 @@ export function EnvironmentStatus({
       <ul className="flex flex-1 flex-wrap gap-x-4 gap-y-1 pt-1 text-caption text-fg-dim">
         {environments.map((environment) => (
           <li key={environment.id} className="flex items-center gap-1.5">
-            <span
-              className={cn(
-                "size-2 rounded-full",
-                availability(environment) === "Offline"
-                  ? "border border-fg-dim"
-                  : "bg-done",
-              )}
+            <StatusDot
+              tone={
+                availability(environment) === "Offline" ? "offline" : "done"
+              }
             />
             {environment.name}{" "}
             {availability(environment) === "Starts runners on demand"
