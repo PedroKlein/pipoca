@@ -35,11 +35,15 @@ export function sessionRoutes({
     }
   };
 
-  const steered = (id: string, caller: PersonCaller): void => {
+  const reached = (
+    id: string,
+    caller: PersonCaller,
+    may: typeof canManage,
+  ): void => {
     const owned = sessions.owned(id);
     const viewer = viewerOf(caller, caller.admin);
 
-    if (!canManage(viewer, owned)) {
+    if (!may(viewer, owned)) {
       throw canSee(viewer, owned)
         ? rejection("view_only")
         : new NotFound("Not found.");
@@ -216,13 +220,13 @@ export function sessionRoutes({
       }
 
       if (archived === true) {
-        steered(id, caller);
+        reached(id, caller, canManage);
         ok(sessions.archive(id, caller.actor));
         log("session archived", { sessionId: id });
       }
 
       if (archived === false) {
-        steered(id, caller);
+        reached(id, caller, canManage);
         ok(sessions.unarchive(id, caller.actor));
         log("session unarchived", { sessionId: id });
       }
@@ -240,7 +244,7 @@ export function sessionRoutes({
       return session;
     },
     "sessions.workspace.remove": ({ params: { id }, caller }) => {
-      steered(id, caller);
+      reached(id, caller, canManage);
 
       const removing = ok(sessions.forceRemoval(id));
       log("workspace removal forced", { sessionId: id });
@@ -248,7 +252,7 @@ export function sessionRoutes({
       return removing;
     },
     "sessions.messages.create": ({ params: { id }, body, caller }) => {
-      steered(id, caller);
+      reached(id, caller, canSteer);
 
       const { text, ...message } = body;
 
@@ -272,7 +276,7 @@ export function sessionRoutes({
       );
     },
     "sessions.presence.typing": ({ params: { id }, caller }) => {
-      steered(id, caller);
+      reached(id, caller, canSteer);
       present.typing(id, caller.id);
 
       return undefined;

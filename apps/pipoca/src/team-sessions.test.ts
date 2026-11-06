@@ -1342,3 +1342,42 @@ test("keeps a team message that a retried request sends twice once", async () =>
     ["aside", "Done"],
   ]);
 });
+
+test("an admin who only watches team work sends it no message and shows as typing in none", async () => {
+  const anas = await ana();
+  const pedros = await server.signedIn();
+  const team = await teamSetup();
+
+  const session = await json<Session>(
+    server.as(anas)("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        profile: team.profile,
+        workspace: workspace(),
+      },
+    }),
+  );
+
+  await server.as(anas)(`/api/sessions/${session.id}`, {
+    method: "PATCH",
+    body: { access: { kind: "view" } },
+  });
+
+  const said = async (cookie: string, path: string, body: unknown) =>
+    (await server.as(cookie)(`/api/sessions/${session.id}/${path}`, { body }))
+      .status;
+
+  expect(await said(pedros, "messages", { to: "team", text: "Hi" })).toBe(403);
+  expect(await said(pedros, "presence", {})).toBe(403);
+  expect(await said(anas, "messages", { to: "team", text: "Hi" })).toBe(201);
+
+  expect(
+    (
+      await server.as(pedros)(`/api/sessions/${session.id}`, {
+        method: "PATCH",
+        body: { archived: true },
+      })
+    ).status,
+  ).toBe(200);
+});
