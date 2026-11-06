@@ -23,6 +23,8 @@ export interface PersonCaller {
   readonly actor: UserActor;
   readonly id: string;
   readonly admin: boolean;
+  // A team Session's route tool, which reaches only team work (ADR 0067).
+  readonly team: boolean;
 }
 
 export interface PublicCaller {

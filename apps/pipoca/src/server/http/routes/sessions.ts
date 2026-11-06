@@ -11,7 +11,13 @@ import {
   type SessionEvent,
   sseResponse,
 } from "@pipoca/protocol";
-import { canManage, canSee, canSteer, type Viewer } from "@pipoca/people";
+import {
+  canManage,
+  canSee,
+  canSteer,
+  type Owned,
+  type Viewer,
+} from "@pipoca/people";
 import { presences } from "../../../presence";
 import type { ApiDeps, Group } from "../deps";
 import { ok, rejection } from "../replies";
@@ -28,9 +34,16 @@ export function sessionRoutes({
 }: ApiDeps): Handlers<Group<"sessions">> {
   const present = presences();
 
+  // A team Session's route tool reaches only team work (ADR 0067).
+  const ownedFor = (id: string, caller: PersonCaller): Owned | undefined => {
+    const owned = sessions.owned(id);
+
+    return caller.team && owned?.owner !== "team" ? undefined : owned;
+  };
+
   // Sessions decide only for people; an admin's rights come from the route.
   const seen = (id: string, caller: PersonCaller): void => {
-    if (!canSee(viewerOf(caller, false), sessions.owned(id))) {
+    if (!canSee(viewerOf(caller, false), ownedFor(id, caller))) {
       throw new NotFound("Not found.");
     }
   };
@@ -40,7 +53,7 @@ export function sessionRoutes({
     caller: PersonCaller,
     may: typeof canManage,
   ): void => {
-    const owned = sessions.owned(id);
+    const owned = ownedFor(id, caller);
     const viewer = viewerOf(caller, caller.admin);
 
     if (!may(viewer, owned)) {
@@ -132,7 +145,7 @@ export function sessionRoutes({
         );
       }
 
-      if (scope === "team") {
+      if (scope === "team" || caller.team) {
         return sessions.list({
           archived,
           team: true,
@@ -160,12 +173,26 @@ export function sessionRoutes({
       // A body that misses one shape can fit another, so each is checked
       // again whole, to say what is wrong with the one it meant.
       if ("from" in body) {
+        if (caller.team) {
+          throw new HttpError(
+            403,
+            "A team Session's tools only start team work.",
+            "forbidden",
+          );
+        }
+
         return "summary" in body || "owner" in body
           ? moved(checkBody(body, moveToTeam), caller)
           : forked(checkBody(body, forkSession), caller);
       }
 
-      const created = ok(sessions.start({ ...body, actor: caller.actor }));
+      const created = ok(
+        sessions.start({
+          ...body,
+          ...(caller.team && { team: true }),
+          actor: caller.actor,
+        }),
+      );
 
       log("session created", {
         sessionId: created.id,
@@ -177,9 +204,10 @@ export function sessionRoutes({
     },
     "sessions.get": ({ params: { id }, caller }) => {
       const session = sessions.get(id);
-      const sees = canSee(viewerOf(caller, false), sessions.owned(id));
+      const owned = ownedFor(id, caller);
+      const sees = canSee(viewerOf(caller, false), owned);
 
-      if (session === undefined || !(sees || caller.admin)) {
+      if (session === undefined || !owned || !(sees || caller.admin)) {
         throw new NotFound("Not found.");
       }
 
@@ -284,7 +312,7 @@ export function sessionRoutes({
     "sessions.commands.create": ({ params: { id }, body, caller }) => {
       const { quote, ...sent } = body;
       const command = { ...sent, actor: caller.actor };
-      const owned = sessions.owned(id);
+      const owned = ownedFor(id, caller);
       const viewer = viewerOf(caller, caller.admin);
 
       if (

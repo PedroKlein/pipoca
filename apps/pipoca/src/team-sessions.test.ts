@@ -1149,6 +1149,107 @@ test("a Team assistant runs as team work only its person steers, with tools that
   ).toThrow();
 });
 
+test("a Team assistant's kernel tools act on team work and never reach its person's own", async () => {
+  const pedros = await server.signedIn();
+  const team = await teamSetup();
+
+  const laptop = await json<Environment>(
+    server.as(pedros)("/api/environments", { body: { name: "laptop" } }),
+  );
+
+  const mine = await json<Profile>(
+    server.as(pedros)("/api/profiles", { body: { name: "Mine" } }),
+  );
+
+  const own = await json<Session>(
+    server.as(pedros)("/api/sessions", {
+      body: {
+        environment: laptop.id,
+        profile: mine.id,
+        workspace: workspace(),
+      },
+    }),
+  );
+
+  const { user } = await json<{ user: { id: string } }>(
+    server.as(pedros)("/api/auth"),
+  );
+
+  const assistant = starter?.start({
+    team: true,
+    actor: `user:${user.id}`,
+    environment: team.environment,
+    profile: "starter.helper",
+    workspace: workspace(),
+    access: { kind: "named", people: [] },
+    key: "assistant",
+  });
+
+  const tool = async (name: string, input: unknown) =>
+    (await serverTools?.call(name, input, {
+      session: assistant?.id ?? "",
+    })) ?? {
+      text: "",
+      isError: true,
+    };
+
+  const listed = async (name: string): Promise<readonly string[]> =>
+    (JSON.parse((await tool(name, {})).text) as { id: string }[]).map(
+      ({ id }) => id,
+    );
+
+  expect(await listed("sessions_list")).toEqual([assistant?.id ?? ""]);
+  expect(await listed("profiles_list")).toEqual([team.profile]);
+  expect(await listed("environments_list")).toEqual([team.environment]);
+
+  expect((await tool("sessions_get", { id: own.id })).isError).toBe(true);
+  expect((await tool("profiles_get", { id: mine.id })).isError).toBe(true);
+
+  expect(
+    (await tool("profiles_update", { id: mine.id, name: "Taken" })).isError,
+  ).toBe(true);
+
+  expect(
+    (await tool("environments_update", { id: laptop.id, name: "Taken" }))
+      .isError,
+  ).toBe(true);
+
+  expect(
+    (
+      await tool("sessions_start", {
+        environment: laptop.id,
+        profile: team.profile,
+        workspace: workspace(),
+      })
+    ).isError,
+  ).toBe(true);
+
+  const started = await tool("sessions_start", {
+    profile: team.profile,
+    workspace: workspace(),
+    firstMessage: "Ship it",
+  });
+
+  const { id } = JSON.parse(started.text) as { id: string };
+
+  expect(
+    await json<Session>(server.as(pedros)(`/api/sessions/${id}`)),
+  ).toMatchObject({
+    ownedBy: "team",
+    environmentId: team.environment,
+  });
+
+  expect(
+    (await json<Profile>(server.as(pedros)(`/api/profiles/${mine.id}`))).name,
+  ).toBe("Mine");
+
+  expect(
+    (await json<Environment[]>(server.as(pedros)("/api/environments"))).map(
+      ({ name }) => name,
+    ),
+  ).toEqual(["laptop"]);
+});
+
 test("team work nobody started uses no toolset tool, since it has no person to act as", async () => {
   await server.signedIn();
   const team = await teamSetup();
