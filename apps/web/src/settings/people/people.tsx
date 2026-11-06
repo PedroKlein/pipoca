@@ -8,7 +8,6 @@ import {
   ErrorText,
   Icon,
   Page,
-  PageTitle,
   Select,
   Table,
   Tabs,
@@ -69,23 +68,21 @@ export function PeoplePage(): ReactElement {
   const now = useNow();
 
   return (
-    <Page>
-      <PageTitle
-        description="Who can use this server. Admins see names and states, never transcripts, files or secret values."
-        actions={
-          <Button
-            variant="primary"
-            onClick={() => {
-              setInviting(true);
-            }}
-          >
-            <Icon name="plus" />
-            Invite people
-          </Button>
-        }
-      >
-        People
-      </PageTitle>
+    <Page
+      title="People"
+      description="Who can use this server. Admins see names and states, never transcripts, files or secret values."
+      actions={
+        <Button
+          variant="primary"
+          onClick={() => {
+            setInviting(true);
+          }}
+        >
+          <Icon name="plus" />
+          Invite people
+        </Button>
+      }
+    >
       <InviteDialog
         open={inviting}
         onClose={() => {

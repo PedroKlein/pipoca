@@ -1,4 +1,4 @@
-import { Page, PageTitle, Row, Rows } from "@pipoca/ui";
+import { Page, Row, Rows } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { hasSettingsParts, SettingsSlot } from "../settings-slot";
 
@@ -6,10 +6,11 @@ import { hasSettingsParts, SettingsSlot } from "../settings-slot";
 // keep it (ADR 0063).
 export function AccountsPage(): ReactElement {
   return (
-    <Page id="accounts-page">
-      <PageTitle description="Everything Pi signs in to on your behalf. Your Sessions use these accounts on every runner.">
-        Accounts
-      </PageTitle>
+    <Page
+      id="accounts-page"
+      title="Accounts"
+      description="Everything Pi signs in to on your behalf. Your Sessions use these accounts on every runner."
+    >
       {!hasSettingsParts("Accounts") && (
         <Rows label="Accounts">
           <Row

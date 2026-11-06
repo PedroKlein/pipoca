@@ -5,7 +5,6 @@ import {
   Code,
   initialsOf,
   Page,
-  PageTitle,
   Row,
   Rows,
   Section,
@@ -39,10 +38,11 @@ export function GeneralPage(): ReactElement {
   const shown = account?.displayName ?? user;
 
   return (
-    <Page id="general-page">
-      <PageTitle description="You, and how Pipoca looks and behaves for you. Changes save as you make them.">
-        General
-      </PageTitle>
+    <Page
+      id="general-page"
+      title="General"
+      description="You, and how Pipoca looks and behaves for you. Changes save as you make them."
+    >
       <Rows label="You">
         <Row
           initials={initialsOf(shown)}

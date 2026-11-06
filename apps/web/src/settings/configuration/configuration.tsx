@@ -7,7 +7,6 @@ import {
   ErrorText,
   Icon,
   Page,
-  PageTitle,
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, useEffect, useState } from "react";
@@ -93,22 +92,20 @@ export function ConfigurationPage(): ReactElement {
   };
 
   return (
-    <Page>
-      <PageTitle
-        description="Every page in Settings reads and writes these files. Edit them here, keep them in git, or let Helm write them."
-        actions={
-          <span className="flex items-center gap-3">
-            <span className="font-mono text-mono-sm text-fg-dim">
-              {list?.root}
-            </span>
-            <Button onClick={download} disabled={file === undefined}>
-              Download
-            </Button>
+    <Page
+      title="Configuration"
+      description="Every page in Settings reads and writes these files. Edit them here, keep them in git, or let Helm write them."
+      actions={
+        <span className="flex items-center gap-3">
+          <span className="font-mono text-mono-sm text-fg-dim">
+            {list?.root}
           </span>
-        }
-      >
-        Configuration
-      </PageTitle>
+          <Button onClick={download} disabled={file === undefined}>
+            Download
+          </Button>
+        </span>
+      }
+    >
       <div className="mt-6 grid gap-4 md:grid-cols-[15rem_1fr]">
         <nav
           aria-label="Config files"
