@@ -35,7 +35,6 @@ function TestShell({
   const shell: Shell = {
     viewer: {
       person: { id: "ana", name: "Ana", admin: false },
-      admin: false,
       team: false,
     },
     fills: (slot) => {

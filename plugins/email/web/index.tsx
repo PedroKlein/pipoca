@@ -25,7 +25,7 @@ export const web = defineWeb(email, {
 });
 
 function Section(): ReactElement | null {
-  if (!useViewer().admin) {
+  if (!useViewer().person.admin) {
     return null;
   }
 
