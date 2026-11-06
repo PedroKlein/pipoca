@@ -51,6 +51,12 @@ jobs:
           rule --set apiRule.exposeAgents=true --set apiRule.exposeMcp=true | grep -E 'path: /runner/'
           rule --set apiRule.exposeMcp=true | grep -E 'path: /api/mcp$'
           rule | grep -A20 'kind: AuthorizationPolicy' | grep -F '"/runner/*"'
+      - name: A server that starts runner pods offers a pod template unless the config names templates
+        run: |
+          config() { helm template pipoca deploy/helm/pipoca "$@" --show-only templates/configmap.yaml; }
+          config | grep -F '"id": "kubernetes-pods"'
+          ! config --set-json 'config={"templates":[]}' | grep -F 'kubernetes-pods'
+          ! helm template pipoca deploy/helm/pipoca --set runnerPods.enabled=false | grep -F 'kubernetes-pods'
       - name: Previews get their own host only when asked
         run: |
           previews() { helm template pipoca deploy/helm/pipoca --set apiRule.enabled=true --set apiRule.host=pi.example.com "$@"; }
