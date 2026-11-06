@@ -140,7 +140,7 @@ fn signed_in(app: &AppHandle, link: &Url) {
         return;
     };
 
-    let Ok(mut redeem) = pending.url.join(&format!("/api/auth/link/{token}")) else {
+    let Ok(mut redeem) = pending.url.join(&format!("/api/auth/links/{token}")) else {
         let _ = app.emit(
             "failed",
             Failed {

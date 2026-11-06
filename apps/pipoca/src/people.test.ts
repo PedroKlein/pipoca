@@ -546,6 +546,31 @@ test("lets an email invite in once, and not after an admin revokes it", async ()
   expect(await json(server.as(pedros)("/api/invites"))).toEqual([]);
 });
 
+test("lets an email invite in once when it is accepted several times at once", async () => {
+  await ana();
+  const pedros = await server.signedIn();
+
+  const [dan] = await json<(Invite & { token: string })[]>(
+    server.as(pedros)("/api/invites", {
+      body: { emails: ["dan@example.com"], admin: true },
+    }),
+  );
+
+  const joined = await Promise.all(
+    ["dan", "dan2", "dan3", "dan4"].map(async (name) =>
+      joinWith(dan?.token ?? "", name),
+    ),
+  );
+
+  const people = await json<Person[]>(server.as(pedros)("/api/people"));
+
+  expect(joined.map(({ status }) => status).sort((a, b) => a - b)).toEqual([
+    201, 404, 404, 404,
+  ]);
+
+  expect(people.filter(({ name }) => name.startsWith("dan"))).toHaveLength(1);
+});
+
 // An admin who invites through a port-forward still mails the public link.
 test("links an email invite to the server's configured URL, not the host it came through", async () => {
   const links: string[] = [];

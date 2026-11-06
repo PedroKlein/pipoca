@@ -124,7 +124,7 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
   const deleteInvite = db.prepare("delete from invites where id = ?");
 
   const useInvite = db.prepare(
-    "update invites set uses = uses + 1 where id = ?",
+    "update invites set uses = uses + 1 where id = ? and (email is null or uses = 0)",
   );
 
   const insertToken = db.prepare(
@@ -306,9 +306,7 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
       return row && inviteOf(row);
     },
     deleteInvite: (id) => deleteInvite.run(id).changes > 0,
-    useInvite: (id) => {
-      useInvite.run(id);
-    },
+    useInvite: (id) => useInvite.run(id).changes > 0,
     insertAccessToken: (token, tokenHash) => {
       insertToken.run(
         token.id,

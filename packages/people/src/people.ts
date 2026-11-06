@@ -70,7 +70,8 @@ export interface PeopleStore {
   readonly inviteByEmail: (email: string, now: string) => Invite | undefined;
   // Whether there was an invite with the id.
   readonly deleteInvite: (id: string) => boolean;
-  readonly useInvite: (id: string) => void;
+  // False when an email's invite was already used, so only one join wins.
+  readonly useInvite: (id: string) => boolean;
   readonly insertAccessToken: (token: AccessToken, tokenHash: string) => void;
   readonly accessTokens: (userId: string) => readonly AccessToken[];
   readonly accessTokenUser: (tokenHash: string) => User | undefined;
@@ -272,8 +273,8 @@ export class People {
     );
   }
 
-  acceptInvite(id: string): void {
-    this.#store.useInvite(id);
+  acceptInvite(id: string): boolean {
+    return this.#store.useInvite(id);
   }
 
   // The secret is shown once, when the token is made.
