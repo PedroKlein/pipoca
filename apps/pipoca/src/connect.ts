@@ -181,8 +181,10 @@ else echo "missing $(uname -s) $(uname -m)"; fi`,
     );
   }
 
-  const url = `${releases}/v${version}/pipoca-${platform}`;
-  options.log("installing pipoca", { host: options.host, url });
+  const release = `${releases}/v${version}`;
+  const url = `${release}/pipoca-${platform}`;
+  const sha256 = await publishedSum(release, `pipoca-${platform}`);
+  options.log("installing pipoca", { host: options.host, url, sha256 });
 
   const database =
     options.remoteDatabase === undefined
@@ -195,17 +197,46 @@ else echo "missing $(uname -s) $(uname -m)"; fi`,
 bin="$HOME/.pipoca/bin"
 mkdir -p "$bin"
 curl -fsSL "$1" -o "$bin/pipoca.download"
+sum=$(sha256sum "$bin/pipoca.download" 2>/dev/null || shasum -a 256 "$bin/pipoca.download")
+if [ "\${sum%% *}" != "$2" ]; then
+  rm -f "$bin/pipoca.download"
+  echo "$1 does not match the SHA256SUMS of its release" >&2
+  exit 1
+fi
 chmod +x "$bin/pipoca.download"
 mv "$bin/pipoca.download" "$bin/pipoca"
-shift
+shift 2
 "$bin/pipoca" service install up "$@" >&2
 echo "$bin/pipoca"`,
-    [url, "--port", String(options.remotePort), ...database],
+    [url, sha256, "--port", String(options.remotePort), ...database],
   );
 
   options.log("installed pipoca", { host: options.host, path: installed });
 
   return installed;
+}
+
+// The release's SHA256SUMS is read from here rather than the host, so the
+// download on the host is checked against what a second path saw.
+async function publishedSum(release: string, file: string): Promise<string> {
+  const response = await fetch(`${release}/SHA256SUMS`);
+  if (!response.ok) {
+    throw new Error(
+      `${release}/SHA256SUMS answered ${String(response.status)}`,
+    );
+  }
+
+  const line = (await response.text())
+    .split("\n")
+    .map((each) => each.trim().split(/\s+\*?/))
+    .find(([, name]) => name === file);
+
+  const sum = line?.[0];
+  if (sum === undefined || !/^[0-9a-f]{64}$/.test(sum)) {
+    throw new Error(`${release}/SHA256SUMS lists no sha256 for ${file}`);
+  }
+
+  return sum;
 }
 
 // Runs a shell script on the host, sent on stdin so no shell quoting
