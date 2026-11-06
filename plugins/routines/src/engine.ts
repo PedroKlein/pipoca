@@ -829,7 +829,7 @@ export function routinesEngine(context: Context): Routines {
 
   context.events.on("TurnEnded", ({ session }) => {
     const run =
-      session.owner?.plugin === "routines"
+      session.plugin?.id === "routines"
         ? runOfSession(session.id)
         : undefined;
 
@@ -840,7 +840,7 @@ export function routinesEngine(context: Context): Routines {
 
   context.events.on("SessionStateChanged", ({ session }) => {
     const run =
-      session.owner?.plugin === "routines"
+      session.plugin?.id === "routines"
         ? runOfSession(session.id)
         : undefined;
 
@@ -855,7 +855,7 @@ export function routinesEngine(context: Context): Routines {
 
   context.events.on("SessionArchived", ({ session }) => {
     const run =
-      session.owner?.plugin === "routines"
+      session.plugin?.id === "routines"
         ? runOfSession(session.id)
         : undefined;
 

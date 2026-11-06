@@ -151,7 +151,7 @@ export {
   type Session,
   sessionAccess,
   type SessionAccess,
-  type SessionOwner,
+  type SessionPlugin,
   type SessionStatus,
   type ThinkingLevel,
   thinkingLevels,

@@ -95,7 +95,7 @@ export const web = defineWeb(projects, {
       area: "hub",
     },
   ],
-  sessionPath: (session) => `${session.owner?.key ?? ""}/${session.id}`,
+  sessionPath: (session) => `${session.plugin?.key ?? ""}/${session.id}`,
   slots: {
     home: Home,
     "notice:thread": ThreadNotice,

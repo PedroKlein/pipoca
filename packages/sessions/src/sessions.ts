@@ -20,7 +20,7 @@ import {
   type Session,
   type SessionAccess,
   type SessionEvent,
-  type SessionOwner,
+  type SessionPlugin,
   type SessionStatus,
   type StartFailure,
   type TranscriptAck,
@@ -147,7 +147,7 @@ export interface SessionStore {
   get: (id: string) => StoredSession | undefined;
   list: (options: {
     readonly includeArchived: boolean;
-    readonly owner?: SessionOwner;
+    readonly plugin?: SessionPlugin;
   }) => readonly StoredSession[];
   // Undefined while the Session is open to the whole team.
   access: (id: string) => SessionAccess | undefined;
@@ -323,7 +323,7 @@ export class Sessions {
   }
 
   // The one way a Session starts, for the UI and plugins alike (ADR 0015).
-  start(request: StartRequest, ownedBy?: SessionOwner): Result<Session> {
+  start(request: StartRequest, ownedBy?: SessionPlugin): Result<Session> {
     // The Profiles a Session may use are its starter's (ADR 0041), and so
     // are the Environments (ADR 0049).
     const startedBy = this.#starter(request.actor);
@@ -376,7 +376,7 @@ export class Sessions {
             ? stored.ownerId === teamOwner
             : stored.ownerId === null || stored.ownerId === startedBy)
         : (!team || provided.team === true) &&
-          provided.plugin === ownedBy?.plugin;
+          provided.plugin === ownedBy?.id;
 
     if (!usable) {
       return { ok: false, reason: "unknown_profile" };
@@ -387,7 +387,7 @@ export class Sessions {
     const session: StoredSession = {
       id,
       environmentId: environment.id,
-      owner: ownedBy ?? null,
+      plugin: ownedBy ?? null,
       provider: environment.provider,
       runner: null,
       profileId,
@@ -488,7 +488,7 @@ export class Sessions {
       workspace: forkedWorkspace(source),
       ...(sameSide && source.model && { model: source.model }),
       ...(source.thinking && { thinking: source.thinking }),
-      ...(source.owner === null &&
+      ...(source.plugin === null &&
         source.systemPrompt !== null && { systemPrompt: source.systemPrompt }),
       actor: request.actor,
     });
@@ -588,17 +588,17 @@ export class Sessions {
   // without a person.
   list({
     archived = false,
-    owner: ownedBy,
+    plugin: ownedBy,
     person,
     team = false,
   }: {
     readonly archived?: boolean;
-    readonly owner?: SessionOwner;
+    readonly plugin?: SessionPlugin;
     readonly person?: string;
     readonly team?: boolean;
   } = {}): readonly Session[] {
     return this.#store
-      .list({ includeArchived: archived, ...(ownedBy && { owner: ownedBy }) })
+      .list({ includeArchived: archived, ...(ownedBy && { plugin: ownedBy }) })
       .filter((session) =>
         team
           ? this.#team(session) &&

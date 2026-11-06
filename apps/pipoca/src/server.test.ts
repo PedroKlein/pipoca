@@ -695,7 +695,7 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
   const ids = (list: readonly Session[]): string[] =>
     list.map(({ id }) => id).toSorted();
 
-  expect(owned.owner).toEqual({ plugin: "keeper", key: "k1" });
+  expect(owned.plugin).toEqual({ id: "keeper", key: "k1" });
   expect(ids(await on("/api/sessions"))).toEqual(ids([plain.value]));
 
   expect(ids(await on("/api/sessions?plugins=true"))).toEqual(

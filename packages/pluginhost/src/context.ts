@@ -32,7 +32,7 @@ export function sessionsFor(
   };
 
   const ownedHere = (id: string): string => {
-    if (sessions.get(id)?.owner?.plugin !== plugin) {
+    if (sessions.get(id)?.plugin?.id !== plugin) {
       throw new Error(`session ${id} isn't owned by ${plugin}`);
     }
 
@@ -43,7 +43,7 @@ export function sessionsFor(
     start: ({ key, ...request }) => {
       const started = sessions.start(
         request,
-        key === undefined ? undefined : { plugin, key },
+        key === undefined ? undefined : { id: plugin, key },
       );
 
       if (!started.ok) {
@@ -54,7 +54,7 @@ export function sessionsFor(
     },
     get: (id) => sessions.get(id),
     owned: (key, { archived = false } = {}) =>
-      sessions.list({ archived, owner: { plugin, key } }),
+      sessions.list({ archived, plugin: { id: plugin, key } }),
     archive: (id) => {
       settle(sessions.archive(ownedHere(id)), "archived");
     },

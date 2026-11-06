@@ -455,7 +455,7 @@ export function navEntries(): readonly NavEntry[] {
 
 // A Session a plugin owns opens in that plugin's page (ADR 0028).
 export function sessionHref(session: Session): string {
-  const plugin = enabled.find(({ name }) => name === session.owner?.plugin);
+  const plugin = enabled.find(({ name }) => name === session.plugin?.id);
   const path = guarded(() => plugin?.sessionPath?.(session));
 
   return plugin && path !== undefined

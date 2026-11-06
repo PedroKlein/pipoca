@@ -58,7 +58,7 @@ export const web = defineWeb(routines, {
   ],
   // A run's Session is owned by "<owner>/<routine>".
   sessionPath: (session) => {
-    const key = session.owner?.key ?? "";
+    const key = session.plugin?.key ?? "";
     const owner = key.slice(0, key.lastIndexOf("/"));
     const name = key.slice(key.lastIndexOf("/") + 1);
 

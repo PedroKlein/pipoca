@@ -71,10 +71,10 @@ export function sessionStore(
   const toSession = (row: SessionRow): StoredSession => ({
     id: row.id,
     environmentId: row.environment_id,
-    owner:
+    plugin:
       row.plugin === null || row.plugin_key === null
         ? null
-        : { plugin: row.plugin, key: row.plugin_key },
+        : { id: row.plugin, key: row.plugin_key },
     provider: row.provider,
     runner: row.runner,
     profileId: row.profile_id,
@@ -224,8 +224,8 @@ export function sessionStore(
       insertSession.run(
         s.id,
         s.environmentId,
-        s.owner?.plugin ?? null,
-        s.owner?.key ?? null,
+        s.plugin?.id ?? null,
+        s.plugin?.key ?? null,
         s.runner,
         s.profileId,
         JSON.stringify(s.workspace),
@@ -267,13 +267,13 @@ export function sessionStore(
 
       return row && toSession(row);
     },
-    list: ({ includeArchived, owner: ownedBy }) =>
+    list: ({ includeArchived, plugin: ownedBy }) =>
       ownedBy
         ? sessionRows(
             includeArchived
               ? selectOwnedSessions
               : selectUnarchivedOwnedSessions,
-            ownedBy.plugin,
+            ownedBy.id,
             ownedBy.key,
           )
         : sessionRows(

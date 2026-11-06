@@ -5,7 +5,7 @@ import { ago, sessionBadge, shortName, workspaceName } from "./names";
 const session = (change: Partial<Session>): Session => ({
   id: "s",
   environmentId: "e",
-  owner: null,
+  plugin: null,
   provider: "laptop",
   runner: null,
   profileId: "profile-1",

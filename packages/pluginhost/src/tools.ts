@@ -225,7 +225,7 @@ export function definedTool(
 
       return (
         (owner === "any" || (owner === "team") === (call.owner === "team")) &&
-        (when?.ownSessions !== true || session.owner?.plugin === plugin) &&
+        (when?.ownSessions !== true || session.plugin?.id === plugin) &&
         available()
       );
     },
