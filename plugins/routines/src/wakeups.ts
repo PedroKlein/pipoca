@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import {
   NotFound,
   type ServerContext,
@@ -196,7 +195,7 @@ export function wakeUps(context: Context): WakeUps {
       );
     }
 
-    const id = randomUUID();
+    const id = Bun.randomUUIDv7();
 
     schedule.at(keyOf(session.id, id), dueAt, {
       reason,

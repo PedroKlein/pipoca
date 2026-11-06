@@ -63,7 +63,7 @@ create table projects_memory (
 ) strict, without rowid;
 
 create table projects_memory_log (
-  id integer primary key,
+  id text primary key,
   project_id text not null references projects_projects (id) on delete cascade,
   name text not null,
   size integer not null,
@@ -90,7 +90,7 @@ create table projects_file_contents (
 ) strict;
 
 create table projects_file_log (
-  id integer primary key,
+  id text primary key,
   project_id text not null references projects_projects (id) on delete cascade,
   name text not null,
   size integer not null,

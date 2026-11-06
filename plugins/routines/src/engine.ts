@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -458,7 +458,7 @@ export function routinesEngine(context: Context): Routines {
     const now = clock.now();
 
     const row: RunRow = {
-      id: randomUUID(),
+      id: Bun.randomUUIDv7(),
       owner_user_id: sql(owner),
       name,
       fired_at: now,

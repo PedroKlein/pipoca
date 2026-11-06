@@ -332,7 +332,7 @@ test("shows everyone what people did lately to the team work they can see", asyn
 
   const seen = await t
     .as("ana")
-    .get<readonly { actor: string; action: string; sessionId: string }[]>(
+    .get<readonly { name: string; action: string; sessionId: string }[]>(
       "activity",
     );
 
@@ -344,13 +344,13 @@ test("shows everyone what people did lately to the team work they can see", asyn
 
   expect(
     seen.map(
-      ({ actor, action, sessionId }) =>
-        `${actor} ${action} ${names[sessionId] ?? sessionId}`,
+      ({ name, action, sessionId }) =>
+        `${name} ${action} ${names[sessionId] ?? sessionId}`,
     ),
   ).toEqual([
-    "user:bo made view only handbook",
-    "user:bo moved to the team handbook",
-    "user:bo stopped release",
-    "user:ana started release",
+    "Bo made view only handbook",
+    "Bo moved to the team handbook",
+    "Bo stopped release",
+    "Ana started release",
   ]);
 });

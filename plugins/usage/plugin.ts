@@ -50,7 +50,7 @@ export const usage = definePlugin({
   // work. Cost is in millionths of a dollar.
   schema: `
 create table usage_calls (
-  id integer primary key,
+  id text primary key,
   at integer not null,
   owner_user_id text,
   person text,
@@ -65,7 +65,7 @@ create index usage_calls_at on usage_calls (at);
 create index usage_calls_person on usage_calls (person, at);
 
 create table usage_audit (
-  id integer primary key,
+  id text primary key,
   at integer not null,
   actor text,
   session_id text not null,
