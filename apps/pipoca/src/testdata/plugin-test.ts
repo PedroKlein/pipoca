@@ -12,7 +12,7 @@ import {
   eventBus,
   pluginClient,
   type ServerPart,
-  type TypedBus,
+  type EventBus,
 } from "@pipoca/plugins/host";
 import { until } from "@pipoca/testing/until";
 import type {
@@ -42,7 +42,7 @@ const day = 24 * 60 * 60_000;
 
 const units = { s: 1000, m: 60_000, h: 60 * 60_000, d: day } as const;
 
-type Emitted = Parameters<TypedBus["emit"]>[0];
+type Emitted = Parameters<EventBus["emit"]>[0];
 
 type Delivered = ReturnType<TestSession["delivered"]>[number];
 
@@ -148,7 +148,7 @@ export async function pluginTest(
     });
   });
 
-  const events: TypedBus = {
+  const events: EventBus = {
     ...bus,
     emit: (event) => {
       emitted.push(event);
@@ -182,7 +182,7 @@ export async function pluginTest(
       configDir,
       clock,
       runners: { pollWaitMs: 0, offlineAfterMs: longest, leaseMs: longest },
-      plugins: [],
+      builtIns: false,
       servers: captured,
       events,
       changes,

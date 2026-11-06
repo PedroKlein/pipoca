@@ -20,12 +20,7 @@ import {
   fauxText,
 } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import {
-  capabilities,
-  type PluginInfo,
-  type Session,
-  type SessionEvent,
-} from "@pipoca/protocol";
+import type { PluginInfo, Session, SessionEvent } from "@pipoca/protocol";
 import { installedTurnedOn } from "./config";
 import { installedPlugins } from "./installed";
 import { latestCommit } from "@pipoca/repositories";
@@ -76,41 +71,59 @@ async function switchesInConfig(): Promise<unknown> {
 // when it is imported.
 async function writePlugin(
   id: string,
-  manifest: Record<string, unknown> = {},
-  register = `context.routes.handle(async () => new Response("hi from ${id}"));`,
+  pipoca: Record<string, unknown> = {},
+  register = `routes.get("hi", { auth: "person" }, () => new Response("hi from ${id}"));`,
   parent = plugins,
 ): Promise<void> {
   const folder = join(parent, id);
-  await mkdir(folder);
+  await mkdir(join(folder, "src"), { recursive: true });
 
   await writeFile(
     join(folder, "package.json"),
     JSON.stringify({
       name: id,
-      pipoca: {
-        id,
-        title: `The ${id} plugin`,
-        description: "Says hi.",
-        engine: 1,
-        parts: { server: "server.ts" },
-        capabilities: ["routes"],
-        ...manifest,
-      },
+      description: "Says hi.",
+      pipoca: { id, entry: "src/plugin.ts", ...pipoca },
     }),
   );
 
   await writeFile(
-    join(folder, "server.ts"),
-    `await Bun.write(${JSON.stringify(join(folder, "imported"))}, "");
+    join(folder, "src", "plugin.ts"),
+    `import { definePlugin } from "@pipoca/plugins";
 
-export default {
-  name: ${JSON.stringify(id)},
-  register: (context) => {
-    ${register}
-  },
-};
+export const plugin = definePlugin({
+  id: ${JSON.stringify(id)},
+  title: "The ${id} plugin",
+  description: "Says hi.",
+  works: ["personal", "team"],
+});
 `,
   );
+
+  await writeServer(folder, register);
+}
+
+async function writeServer(
+  folder: string,
+  register: string,
+  imports = "",
+): Promise<void> {
+  await writeFile(
+    join(folder, "src", "server.ts"),
+    `import { BadRequest, defineServer, Type } from "@pipoca/plugins";
+import { plugin } from "./plugin";
+${imports}
+await Bun.write(${JSON.stringify(join(folder, "imported"))}, "");
+
+export const server = defineServer(plugin, ({ provide, routes }) => {
+  ${register}
+});
+`,
+  );
+}
+
+async function hi(id: string): Promise<string> {
+  return (await server.api(`/api/ext/${id}/hi`)).text();
 }
 
 // Starts the server the way the CLI does, so a restart reads the folder again.
@@ -157,11 +170,12 @@ test("lists an installed plugin turned off, without running its code", async () 
     source: "installed",
     state: "off",
     turnedOn: false,
-    title: "The hello plugin",
+    title: "hello",
+    description: "Says hi.",
   });
 
   expect(await exists(join(plugins, "hello", "imported"))).toBe(false);
-  expect((await server.api("/api/ext/hello/")).status).toBe(404);
+  expect((await server.api("/api/ext/hello/hi")).status).toBe(404);
 });
 
 test("turns an installed plugin on for the next start", async () => {
@@ -179,10 +193,13 @@ test("turns an installed plugin on for the next start", async () => {
 
   await start();
 
-  const route = await server.api("/api/ext/hello/");
+  expect(await listed("hello")).toMatchObject({
+    state: "on",
+    turnedOn: true,
+    title: "The hello plugin",
+  });
 
-  expect(await listed("hello")).toMatchObject({ state: "on", turnedOn: true });
-  expect(await route.text()).toBe("hi from hello");
+  expect(await hi("hello")).toBe("hi from hello");
 
   await server.api("/api/plugins/hello", {
     method: "PATCH",
@@ -198,7 +215,7 @@ test("turns an installed plugin on for the next start", async () => {
 });
 
 test("keeps an installed plugin out of team work until an admin turns it on there", async () => {
-  await writePlugin("board", { works: ["personal", "team"] });
+  await writePlugin("board");
   await start();
 
   await server.api("/api/plugins/board", {
@@ -219,28 +236,8 @@ test("keeps an installed plugin out of team work until an admin turns it on ther
   expect(await listed("board")).toMatchObject({ teamWork: true });
 });
 
-test("fails a plugin that reaches past the capabilities it declared", async () => {
-  await writePlugin(
-    "nosy",
-    { capabilities: [] },
-    "context.sessions.owned('x');",
-  );
-
-  await turnOnInConfig("nosy");
-  await start();
-
-  const nosy = await listed("nosy");
-
-  expect(nosy?.state).toBe("failed");
-  expect(nosy?.error).toContain("sessions without declaring it");
-});
-
 test("fails an installed plugin that tries to sign people in", async () => {
-  await writePlugin(
-    "imposter",
-    { capabilities: [...capabilities] },
-    "context.auth.startSession('someone', new Request('http://x'));",
-  );
+  await writePlugin("imposter", {}, "provide.signIn({ logins: () => [] });");
 
   await turnOnInConfig("imposter");
   await start();
@@ -248,46 +245,21 @@ test("fails an installed plugin that tries to sign people in", async () => {
   const imposter = await listed("imposter");
 
   expect(imposter?.state).toBe("failed");
-  expect(imposter?.error).toContain("context.auth.startSession");
-});
-
-test("fails a plugin whose manifest this server can't load", async () => {
-  await writePlugin("future", { engine: 2 });
-  await writePlugin("misnamed", { id: "other" });
-  await start();
-
-  expect((await listed("future"))?.error).toContain("engine must be 1");
-  expect((await listed("misnamed"))?.error).toContain("folder's name");
+  expect(imposter?.error).toContain("an installed plugin can't sign people in");
 });
 
 test("names the manifest field that doesn't fit, failing only that plugin", async () => {
   await writePlugin("hello");
-  await writePlugin("untitled", { title: 7 });
-  await writePlugin("greedy", { capabilities: ["routes", "root"] });
+  await writePlugin("misnamed", { id: "other" });
+  await writePlugin("pointless", { entry: 7 });
   await start();
 
-  expect((await listed("untitled"))?.error).toBe("pipoca.title must be string");
+  expect((await listed("misnamed"))?.error).toContain("folder's name");
 
-  expect((await listed("greedy"))?.error).toBe(
-    "pipoca.capabilities.1 must be equal to one of the allowed values",
+  expect((await listed("pointless"))?.error).toBe(
+    "pipoca.entry must be string",
   );
 
-  expect(await listed("hello")).toMatchObject({ state: "off" });
-});
-
-test("fails only the plugin whose settings are malformed", async () => {
-  await writePlugin("hello");
-
-  await writePlugin("broken", {
-    settings: {
-      mode: { type: "choice", title: "Mode", default: "fast" },
-      limit: "ten",
-    },
-  });
-
-  await start();
-
-  expect((await listed("broken"))?.error).toContain("pipoca.settings.mode");
   expect(await listed("hello")).toMatchObject({ state: "off" });
 });
 
@@ -345,10 +317,10 @@ test("keeps every switch when several are turned at once", async () => {
 });
 
 test("won't turn on a plugin whose manifest is broken", async () => {
-  await writePlugin("future", { engine: 2 });
+  await writePlugin("pointless", { entry: 7 });
   await start();
 
-  const refused = await server.api("/api/plugins/future", {
+  const refused = await server.api("/api/plugins/pointless", {
     method: "PATCH",
     body: { enabled: true },
   });
@@ -364,18 +336,22 @@ test("loads a plugin whose folder is a link to one elsewhere", async () => {
   await turnOnInConfig("linked");
   await start();
 
-  expect(await (await server.api("/api/ext/linked/")).text()).toBe(
-    "hi from linked",
-  );
+  expect(await hi("linked")).toBe("hi from linked");
 });
 
 test("won't import a server part that links outside the plugin", async () => {
   const elsewhere = join(root, "elsewhere");
   await mkdir(elsewhere);
-  await writeFile(join(elsewhere, "server.ts"), "export default {};");
+  await writeFile(join(elsewhere, "server.ts"), "export const server = {};");
 
-  await writePlugin("sneaky", { parts: { server: "outside/server.ts" } });
-  await symlink(elsewhere, join(plugins, "sneaky", "outside"));
+  await writePlugin("sneaky");
+  await rm(join(plugins, "sneaky", "src", "server.ts"));
+
+  await symlink(
+    join(elsewhere, "server.ts"),
+    join(plugins, "sneaky", "src", "server.ts"),
+  );
+
   await turnOnInConfig("sneaky");
   await start();
 
@@ -420,25 +396,16 @@ test("builds a plugin with its dependencies, without its scripts, before running
     }),
   );
 
-  await writeFile(
-    join(folder, "server.ts"),
-    `import { greeting } from "greeting";
-
-export default {
-  name: "greeter",
-  register: (context) => {
-    context.routes.handle(async () => new Response(greeting));
-  },
-};
-`,
+  await writeServer(
+    folder,
+    `routes.get("hi", { auth: "person" }, () => new Response(greeting));`,
+    `import { greeting } from "greeting";`,
   );
 
   await turnOnInConfig("greeter");
   await start();
 
-  expect(await (await server.api("/api/ext/greeter/")).text()).toBe(
-    "hi from a dependency",
-  );
+  expect(await hi("greeter")).toBe("hi from a dependency");
 });
 
 test("runs a plugin's source as it is at each start", async () => {
@@ -446,20 +413,23 @@ test("runs a plugin's source as it is at each start", async () => {
   await turnOnInConfig("hello");
   await start();
 
-  const part = join(plugins, "hello", "server.ts");
+  const part = join(plugins, "hello", "src", "server.ts");
   const source = await readFile(part, "utf8");
 
   await writeFile(part, source.replace("hi from hello", "hello again"));
   await start();
 
-  expect(await (await server.api("/api/ext/hello/")).text()).toBe(
-    "hello again",
-  );
+  expect(await hi("hello")).toBe("hello again");
 });
 
 test("shows why a plugin doesn't build", async () => {
   await writePlugin("broken");
-  await writeFile(join(plugins, "broken", "server.ts"), "export default {");
+
+  await writeFile(
+    join(plugins, "broken", "src", "server.ts"),
+    "export const server = {",
+  );
+
   await turnOnInConfig("broken");
   await start();
 
@@ -467,7 +437,7 @@ test("shows why a plugin doesn't build", async () => {
 
   expect(broken?.state).toBe("failed");
   expect(broken?.error).toContain("server.ts doesn't build");
-  expect(broken?.error).toMatch(/broken\/server\.ts:1:\d+: /);
+  expect(broken?.error).toMatch(/broken\/src\/server\.ts:1:\d+: /);
 });
 
 // A plugin whose route refuses what it is sent with errors from the SDK it
@@ -475,23 +445,14 @@ test("shows why a plugin doesn't build", async () => {
 async function writeRefusingPlugin(id: string, sdk: string): Promise<void> {
   await writePlugin(id);
 
-  await writeFile(
-    join(plugins, id, "server.ts"),
-    `import { BadRequest, requireAdmin } from ${JSON.stringify(sdk)};
+  await writeServer(
+    join(plugins, id),
+    `routes.post("hi", { auth: "person" }, () => {
+    throw new Refused("say something");
+  });
 
-export default {
-  name: ${JSON.stringify(id)},
-  register: (context) => {
-    context.routes.handle(async (request, path, caller) => {
-      if (path.endsWith("names")) {
-        requireAdmin(caller, "only admins change names");
-      }
-
-      throw new BadRequest("say something");
-    });
-  },
-};
-`,
+  routes.post("names", { auth: "admin" }, () => ({ renamed: true }));`,
+    `import { BadRequest as Refused } from ${JSON.stringify(sdk)};`,
   );
 
   await turnOnInConfig(id);
@@ -519,8 +480,10 @@ test("lets only an admin through a plugin's route that requires one", async () =
   await start();
 
   expect(
-    (await server.api("/api/ext/strict/names", { method: "POST" })).status,
-  ).toBe(400);
+    await (
+      await server.api("/api/ext/strict/names", { method: "POST" })
+    ).json(),
+  ).toEqual({ renamed: true });
 
   const db = new DatabaseSync(join(root, "server.db"));
   db.exec("update users set admin = 0");
@@ -531,31 +494,18 @@ test("lets only an admin through a plugin's route that requires one", async () =
   });
 
   expect(refused.status).toBe(403);
-
-  expect(await refused.json()).toEqual({
-    error: "admin_only",
-    message: "only admins change names",
-  });
 });
 
 test("checks a body against a schema from the server's plugin SDK", async () => {
   await writePlugin("names");
 
-  await writeFile(
-    join(plugins, "names", "server.ts"),
-    `import { readBody, Type } from "@pipoca/plugins";
-
-const rename = Type.Object({ name: Type.String() });
-
-export default {
-  name: "names",
-  register: (context) => {
-    context.routes.handle(async (request) =>
-      Response.json(await readBody(request, rename)),
-    );
-  },
-};
-`,
+  await writeServer(
+    join(plugins, "names"),
+    `routes.post(
+    "rename",
+    { auth: "person", body: Type.Object({ name: Type.String() }) },
+    ({ body }) => body,
+  );`,
   );
 
   await turnOnInConfig("names");
@@ -584,7 +534,7 @@ test("answers the errors of a plugin that bundles its own copy of the SDK", asyn
   await writeRefusingPlugin("vendored", "./sdk");
 
   await writeFile(
-    join(plugins, "vendored", "sdk.ts"),
+    join(plugins, "vendored", "src", "sdk.ts"),
     await readFile(
       join(import.meta.dir, "../../../packages/plugins/src/http.ts"),
     ),
@@ -605,13 +555,14 @@ test("answers the errors of a plugin that bundles its own copy of the SDK", asyn
 });
 
 test("serves a running plugin's web part, built against the page's modules", async () => {
-  await writePlugin("pages", { parts: { web: "web.tsx" } });
+  await writePlugin("pages");
+  await mkdir(join(plugins, "pages", "web"));
 
   await writeFile(
-    join(plugins, "pages", "web.tsx"),
+    join(plugins, "pages", "web", "index.tsx"),
     `import { useState } from "react";
 
-export default { name: "pages", hook: useState };
+export const web = { hook: useState };
 `,
   );
 
@@ -630,29 +581,18 @@ export default { name: "pages", hook: useState };
   );
 });
 
-test("names a web part's bundle so its URL needs no escaping", async () => {
-  await writePlugin("spaced", { parts: { web: "my page.tsx" } });
+test("fails a web part that imports CSS the page would never load", async () => {
+  await writePlugin("styled");
+  await mkdir(join(plugins, "styled", "web"));
 
   await writeFile(
-    join(plugins, "spaced", "my page.tsx"),
-    `export default { name: "spaced" };\n`,
+    join(plugins, "styled", "web", "look.css"),
+    "p { color: red; }\n",
   );
 
-  await turnOnInConfig("spaced");
-  await start();
-
-  const webPart = (await listed("spaced"))?.webPart ?? "";
-
-  expect((await server.api(webPart)).status).toBe(200);
-});
-
-test("fails a web part that imports CSS the page would never load", async () => {
-  await writePlugin("styled", { parts: { web: "web.tsx" } });
-  await writeFile(join(plugins, "styled", "look.css"), "p { color: red; }\n");
-
   await writeFile(
-    join(plugins, "styled", "web.tsx"),
-    `import "./look.css";\n\nexport default { name: "styled" };\n`,
+    join(plugins, "styled", "web", "index.tsx"),
+    `import "./look.css";\n\nexport const web = {};\n`,
   );
 
   await turnOnInConfig("styled");
@@ -662,26 +602,28 @@ test("fails a web part that imports CSS the page would never load", async () => 
 });
 
 // A Session part that adds a slash command, so a Session shows it loaded.
-async function writeSlashPlugin(
-  manifest: Record<string, unknown> = {},
-): Promise<void> {
-  await writePlugin("slash", { parts: { session: "session.ts" }, ...manifest });
+async function writeSlashPlugin(): Promise<void> {
+  await writePlugin("slash");
+  await writeSession(join(plugins, "slash"));
+  await turnOnInConfig("slash");
+}
 
+async function writeSession(folder: string): Promise<void> {
   await writeFile(
-    join(plugins, "slash", "session.ts"),
-    `export default {
-  name: "slash",
-  extension: () => (pi) => {
+    join(folder, "src", "session.ts"),
+    `import { defineSession } from "@pipoca/plugins";
+import { plugin } from "./plugin";
+
+export const session = defineSession(plugin, (s) => {
+  s.extension((pi) => {
     pi.registerCommand("installed-hello", {
       description: "Says hi from an installed plugin",
       handler: async () => undefined,
     });
-  },
-};
+  });
+});
 `,
   );
-
-  await turnOnInConfig("slash");
 }
 
 // Starts the server with its own runner on a faux model, and a Session on it.
@@ -749,45 +691,13 @@ test("runs an installed plugin's Session part in a Session, fetched by its hash"
   expect(cached[0]).toMatch(/^slash-[0-9a-f]{64}\.js$/);
 });
 
-test("runs a Session part that imports the server's plugin SDK", async () => {
-  await writeSlashPlugin();
-
-  await writeFile(
-    join(plugins, "slash", "session.ts"),
-    `import { isObject } from "@pipoca/plugins";
-
-export default {
-  name: "slash",
-  extension: () => (pi) => {
-    pi.registerCommand(isObject({}) ? "sdk-hello" : "no-sdk", {
-      description: "Says hi through the plugin SDK",
-      handler: async () => undefined,
-    });
-  },
-};
-`,
-  );
-
-  expect(await commandsOf(await startSession())).toContain("sdk-hello");
-}, 30_000);
-
-test("keeps a Session part meant for its own Sessions out of others", async () => {
-  await writeSlashPlugin({ ownSessionsOnly: true });
-
-  const session = await startSession();
-  const commands = await commandsOf(session);
-
-  expect(commands).toContain("pr");
-  expect(commands).not.toContain("installed-hello");
-});
-
 test("fails a Session part that imports a file the runner wouldn't get", async () => {
-  await writePlugin("prompted", { parts: { session: "session.ts" } });
-  await writeFile(join(plugins, "prompted", "prompt.png"), "not really");
+  await writePlugin("prompted");
+  await writeFile(join(plugins, "prompted", "src", "prompt.png"), "not really");
 
   await writeFile(
-    join(plugins, "prompted", "session.ts"),
-    `import prompt from "./prompt.png";\n\nexport default { name: "prompted", prompt };\n`,
+    join(plugins, "prompted", "src", "session.ts"),
+    `import prompt from "./prompt.png";\n\nexport const session = { prompt };\n`,
   );
 
   await turnOnInConfig("prompted");
@@ -799,16 +709,12 @@ test("fails a Session part that imports a file the runner wouldn't get", async (
 });
 
 // A git repository holding a plugin, committed, and the URL to install it by.
-async function gitPlugin(
-  id: string,
-  manifest: Record<string, unknown> = {},
-  register?: string,
-): Promise<string> {
+async function gitPlugin(id: string, register?: string): Promise<string> {
   const sources = join(root, "sources");
   const folder = join(sources, id);
 
   await mkdir(sources, { recursive: true });
-  await writePlugin(id, manifest, register, sources);
+  await writePlugin(id, {}, register, sources);
   await $`git -C ${folder} init -q`;
   await commit(folder);
 
@@ -864,10 +770,7 @@ test("installs a plugin from a git repository turned off, pinned to its commit",
 
   await start();
 
-  expect(await (await server.api("/api/ext/hello/")).text()).toBe(
-    "hi from hello",
-  );
-
+  expect(await hi("hello")).toBe("hi from hello");
   expect((await listed("hello"))?.installedFrom).toEqual({ url, pinned });
 });
 
@@ -905,7 +808,7 @@ test("installs a plugin from a tarball, pinned to its SHA-256", async () => {
     installedFrom: { pinned: `sha256:${hash}` },
   });
 
-  expect(await exists(join(plugins, "packed", "server.ts"))).toBe(true);
+  expect(await exists(join(plugins, "packed", "src", "server.ts"))).toBe(true);
 });
 
 test("refuses an install that would take an id already here, leaving nothing behind", async () => {
@@ -962,15 +865,9 @@ test("updates a plugin to its repository's newest commit for the next start", as
 
   expect(await same.json()).not.toHaveProperty("updated");
 
-  await writeFile(
-    join(folder, "server.ts"),
-    `export default {
-  name: "hello",
-  register: (context) => {
-    context.routes.handle(async () => new Response("hi again"));
-  },
-};
-`,
+  await writeServer(
+    folder,
+    `routes.get("hi", { auth: "person" }, () => new Response("hi again"));`,
   );
 
   const newest = await commit(folder);
@@ -987,13 +884,11 @@ test("updates a plugin to its repository's newest commit for the next start", as
     installedFrom: { pinned: newest },
   });
 
-  expect(await (await server.api("/api/ext/hello/")).text()).toBe(
-    "hi from hello",
-  );
+  expect(await hi("hello")).toBe("hi from hello");
 
   await start();
 
-  expect(await (await server.api("/api/ext/hello/")).text()).toBe("hi again");
+  expect(await hi("hello")).toBe("hi again");
 });
 
 test("offers an update once the plugin's repository moves past it, and stops once it updates", async () => {
@@ -1037,7 +932,7 @@ test("follows a tag to its commit when it checks for an update", async () => {
 });
 
 test("forgets why a plugin failed once an update replaces it", async () => {
-  const url = await gitPlugin("hello", {}, `throw new Error("broken");`);
+  const url = await gitPlugin("hello", `throw new Error("broken");`);
   const folder = join(root, "sources", "hello");
 
   await start();
@@ -1052,15 +947,9 @@ test("forgets why a plugin failed once an update replaces it", async () => {
 
   expect((await listed("hello"))?.error).toContain("broken");
 
-  await writeFile(
-    join(folder, "server.ts"),
-    `export default {
-  name: "hello",
-  register: (context) => {
-    context.routes.handle(async () => new Response("fixed"));
-  },
-};
-`,
+  await writeServer(
+    folder,
+    `routes.get("hi", { auth: "person" }, () => new Response("fixed"));`,
   );
 
   await commit(folder);
@@ -1072,39 +961,6 @@ test("forgets why a plugin failed once an update replaces it", async () => {
 
   expect(await updated.json()).not.toHaveProperty("error");
   expect(await listed("hello")).toMatchObject({ state: "off", updated: true });
-});
-
-test("turns off an update that asks for more than was trusted", async () => {
-  const url = await gitPlugin("hello");
-  const folder = join(root, "sources", "hello");
-
-  await start();
-  await install(url);
-
-  await server.api("/api/plugins/hello", {
-    method: "PATCH",
-    body: { enabled: true },
-  });
-
-  const manifest = JSON.parse(
-    await readFile(join(folder, "package.json"), "utf8"),
-  ) as { pipoca: { capabilities: string[] } };
-
-  manifest.pipoca.capabilities = ["routes", "sessions"];
-  await writeFile(join(folder, "package.json"), JSON.stringify(manifest));
-  await commit(folder);
-
-  const updated = await server.api("/api/plugins/hello", {
-    method: "PATCH",
-    body: { update: true },
-  });
-
-  expect(await updated.json()).toMatchObject({
-    turnedOn: false,
-    capabilities: ["routes", "sessions"],
-  });
-
-  expect(await switchesInConfig()).toEqual({ hello: { personal: false } });
 });
 
 test("won't update a plugin put in the folder by hand", async () => {
@@ -1210,58 +1066,6 @@ test("refuses a URL holding credentials, since every user sees where a plugin ca
   );
 });
 
-test("keeps the running version's settings until the server restarts", async () => {
-  const url = await gitPlugin(
-    "hello",
-    {
-      settings: {
-        greeting: { type: "string", title: "Greeting", default: "hi" },
-      },
-    },
-    `context.routes.handle(async () => Response.json(context.settings.get()));`,
-  );
-
-  const folder = join(root, "sources", "hello");
-
-  await start();
-  await install(url);
-
-  await server.api("/api/plugins/hello", {
-    method: "PATCH",
-    body: { enabled: true },
-  });
-
-  await start();
-
-  const manifest = JSON.parse(
-    await readFile(join(folder, "package.json"), "utf8"),
-  ) as { pipoca: Record<string, unknown> };
-
-  manifest.pipoca["settings"] = {
-    salute: { type: "string", title: "Salute", default: "yo" },
-  };
-
-  await writeFile(join(folder, "package.json"), JSON.stringify(manifest));
-  await commit(folder);
-
-  await server.api("/api/plugins/hello", {
-    method: "PATCH",
-    body: { update: true },
-  });
-
-  expect(await (await server.api("/api/ext/hello/")).json()).toEqual({
-    greeting: "hi",
-  });
-
-  expect((await listed("hello"))?.settings).toHaveProperty("salute");
-
-  await start();
-
-  expect(await (await server.api("/api/ext/hello/")).json()).toEqual({
-    salute: "yo",
-  });
-});
-
 test("turns off an update that adds a part running somewhere new", async () => {
   const url = await gitPlugin("hello");
   const folder = join(root, "sources", "hello");
@@ -1274,18 +1078,7 @@ test("turns off an update that adds a part running somewhere new", async () => {
     body: { enabled: true },
   });
 
-  const manifest = JSON.parse(
-    await readFile(join(folder, "package.json"), "utf8"),
-  ) as { pipoca: { parts: Record<string, string> } };
-
-  manifest.pipoca.parts["session"] = "session.ts";
-  await writeFile(join(folder, "package.json"), JSON.stringify(manifest));
-
-  await writeFile(
-    join(folder, "session.ts"),
-    `export default { name: "hello" };\n`,
-  );
-
+  await writeSession(folder);
   await commit(folder);
 
   const updated = await server.api("/api/plugins/hello", {

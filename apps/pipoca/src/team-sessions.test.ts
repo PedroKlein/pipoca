@@ -20,7 +20,8 @@ import type {
 import {
   definePlugin,
   defineServer,
-  type ServerPluginContext,
+  type ServerContext,
+  Type,
 } from "@pipoca/plugins";
 import { builtInParts } from "./built-in";
 import { readSse } from "@pipoca/protocol";
@@ -28,8 +29,9 @@ import { json, testServer, type TestServer } from "./testdata/harness";
 
 let root: string;
 let server: TestServer;
-let starter: ServerPluginContext["sessions"] | undefined;
-let toolsets: ServerPluginContext["toolsets"] | undefined;
+let starter: ServerContext["sessions"] | undefined;
+let transcript: ServerContext["transcript"] | undefined;
+let serverTools: ServerContext["tools"] | undefined;
 
 // Signs git in as whoever a Session acts as, for its owner.
 const actingPart = defineServer(
@@ -55,12 +57,23 @@ beforeEach(async () => {
     database: join(root, "server.db"),
     configDir: join(root, "config"),
     runners: { pollWaitMs: 0 },
-    plugins: [
-      {
-        name: "starter",
-        register: (context) => {
+    builtIns: false,
+    servers: [
+      ...builtInParts.filter(({ plugin }) =>
+        ["ask", "git-hosts"].includes(plugin.id),
+      ),
+      actingPart,
+      defineServer(
+        definePlugin({
+          id: "starter",
+          title: "Starter",
+          description: "",
+          works: ["personal", "team"],
+        }),
+        (context) => {
           starter = context.sessions;
-          toolsets = context.toolsets;
+          transcript = context.transcript;
+          serverTools = context.tools;
 
           const blank = {
             packages: [],
@@ -71,50 +84,30 @@ beforeEach(async () => {
             settings: {},
           };
 
-          context.profiles.provide(
+          context.provide.profile(
             "helper",
             { ...blank, name: "Helper" },
-            { team: true },
+            { team: true, routeTools: true },
           );
 
-          context.profiles.provide("own", { ...blank, name: "Own" });
-          context.toolsets.loadInOwnSessions();
+          context.provide.profile(
+            "own",
+            { ...blank, name: "Own" },
+            { routeTools: true },
+          );
         },
-      },
-      {
-        name: "notes",
-        register: (context) => {
-          context.tools.register({
+      ),
+      defineServer(
+        definePlugin({ id: "notes", title: "Notes", description: "" }),
+        (context) => {
+          context.tools.define({
             name: "jot",
             description: "Jots a note down",
-            parameters: { type: "object", properties: {} },
-            appliesTo: () => true,
-            run: async () =>
-              Promise.resolve({ text: "jotted", isError: false }),
+            params: Type.Object({}),
+            run: () => "jotted",
           });
         },
-      },
-    ],
-    manifests: [
-      {
-        id: "starter",
-        title: "Starter",
-        description: "",
-        capabilities: ["sessions", "profiles", "toolsets"],
-        works: ["personal", "team"],
-      },
-      {
-        id: "notes",
-        title: "Notes",
-        description: "",
-        capabilities: ["tools"],
-      },
-    ],
-    servers: [
-      ...builtInParts.filter(({ plugin }) =>
-        ["ask", "git-hosts"].includes(plugin.id),
       ),
-      actingPart,
     ],
   });
 });
@@ -978,7 +971,7 @@ test("team work forks as team work, or to a person's own side with its transcrip
   expect(mine.ownedBy).toBe(`person:${mine.startedBy ?? ""}`);
   expect(mine.environmentId).toBe(laptop.id);
   expect(mine.profileId).not.toBe(team.profile);
-  expect(starter?.transcript(mine.id)).toEqual(lines);
+  expect(transcript?.length(mine.id)).toBe(lines.length);
 });
 
 test("personal work moves to the team from a summary, leaving its transcript behind", async () => {
@@ -1034,7 +1027,7 @@ test("personal work moves to the team from a summary, leaving its transcript beh
     branch: mine.workspace.kind === "clone" ? mine.workspace.branch : "",
   });
 
-  expect(starter?.transcript(teamWork.id)).toEqual([]);
+  expect(transcript?.length(teamWork.id)).toBe(0);
 
   const again = await server.as(anas)("/api/sessions", {
     body: { from: { session: teamWork.id }, owner: "team", summary },
@@ -1107,17 +1100,15 @@ test("a Team assistant runs as team work only its person steers, with tools that
   );
 
   const assistant = (person: string): Session | undefined =>
-    starter?.start(
-      {
-        team: true,
-        actor: `user:${person}`,
-        environment: team.environment,
-        profile: "starter.helper",
-        workspace: workspace(),
-        access: { kind: "named", people: [] },
-      },
-      `assistant-${person}`,
-    );
+    starter?.start({
+      team: true,
+      actor: `user:${person}`,
+      environment: team.environment,
+      profile: "starter.helper",
+      workspace: workspace(),
+      access: { kind: "named", people: [] },
+      key: `assistant-${person}`,
+    });
 
   const anas = assistant(anaId);
   const admins = assistant(admin.id);
@@ -1134,10 +1125,11 @@ test("a Team assistant runs as team work only its person steers, with tools that
   const rename = async (session: Session | undefined, name: string) =>
     session === undefined
       ? undefined
-      : toolsets?.call(session, "profiles_update", {
-          id: team.profile,
-          name,
-        });
+      : serverTools?.call(
+          "profiles_update",
+          { id: team.profile, name },
+          { session: session.id },
+        );
 
   expect(await rename(anas, "Ana's")).toMatchObject({ isError: true });
   expect((await rename(anas, "Ana's"))?.text).toContain("admin_only");
@@ -1147,16 +1139,14 @@ test("a Team assistant runs as team work only its person steers, with tools that
   });
 
   expect(() =>
-    starter?.start(
-      {
-        team: true,
-        actor: `user:${anaId}`,
-        environment: team.environment,
-        profile: "starter.own",
-        workspace: workspace(),
-      },
-      "own",
-    ),
+    starter?.start({
+      team: true,
+      actor: `user:${anaId}`,
+      environment: team.environment,
+      profile: "starter.own",
+      workspace: workspace(),
+      key: "own",
+    }),
   ).toThrow();
 });
 
@@ -1164,23 +1154,22 @@ test("team work nobody started uses no toolset tool, since it has no person to a
   await server.signedIn();
   const team = await teamSetup();
 
-  const routine = starter?.start(
-    {
-      team: true,
-      actor: "plugin:routines",
-      environment: team.environment,
-      profile: "starter.helper",
-      workspace: workspace(),
-    },
-    "nightly",
-  );
+  const routine = starter?.start({
+    team: true,
+    actor: "plugin:routines",
+    environment: team.environment,
+    profile: "starter.helper",
+    workspace: workspace(),
+    key: "nightly",
+  });
 
   const renamed =
     routine &&
-    (await toolsets?.call(routine, "profiles_update", {
-      id: team.profile,
-      name: "Nightly",
-    }));
+    (await serverTools?.call(
+      "profiles_update",
+      { id: team.profile, name: "Nightly" },
+      { session: routine.id },
+    ));
 
   expect(routine?.startedBy).toBeNull();
 
@@ -1217,8 +1206,8 @@ test("team work loads only plugins that say they work there and that admins leav
       .filter(({ id }) => id === "ask" || id === "notes")
       .map(({ id, teamWork }) => ({ id, teamWork })),
   ).toEqual([
-    { id: "notes", teamWork: false },
     { id: "ask", teamWork: true },
+    { id: "notes", teamWork: false },
   ]);
 
   expect(

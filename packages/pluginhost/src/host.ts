@@ -265,10 +265,12 @@ export function startPlugins(
   const gitLogins: { plugin: string; of: GitLoginsOf }[] = [];
   const fromEnv = envSecrets(process.env);
   const settled = new Set<string>();
+
   const used = new Map<
     string,
     { readonly uses: readonly string[]; readonly provides: readonly string[] }
   >();
+
   const transcript = transcriptReader((id) => deps.sessions.transcript(id));
   const running: string[] = [];
 
@@ -688,6 +690,10 @@ export function startPlugins(
               staged.gitCredentials.push(of);
             },
             signIn: (provider) => {
+              if (installedIds.has(id)) {
+                throw new Error("an installed plugin can't sign people in");
+              }
+
               const taker = signIn?.plugin ?? (staged.signIn && id);
 
               if (taker !== undefined) {
@@ -929,7 +935,9 @@ export function startPlugins(
         return "only the data of a plugin whose tables can't be used is reset";
       }
 
-      const refused = deps.resetData(name) ?? "its data was reset; it starts when the server restarts";
+      const refused =
+        deps.resetData(name) ??
+        "its data was reset; it starts when the server restarts";
 
       failures.set(name, refused);
       deps.log("plugin data reset", { plugin: name, refused });

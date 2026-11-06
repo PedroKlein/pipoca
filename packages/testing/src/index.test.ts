@@ -3,9 +3,9 @@ import {
   Config,
   definePlugin,
   defineServer,
+  defineSession,
   event,
   type PluginDefinition,
-  type SessionPlugin,
   Type,
 } from "@pipoca/plugins";
 import {
@@ -361,34 +361,36 @@ test("a team Session the plugin owns gets its tools for team work", async () => 
 });
 
 test("a Session part's tools run against a stand-in for Pi", async () => {
-  const counter: SessionPlugin = {
-    name: "counter",
-    extension: (cloud) => (pi) => {
-      pi.registerTool({
+  const counter = defineSession(
+    definePlugin({ id: "counter", title: "Counter", description: "" }),
+    (s) => {
+      s.tools.define({
         name: "count",
-        label: "Count",
         description: "Counts to n",
-        parameters: Type.Object({ n: Type.Number() }),
-        execute: async (_id, { n }: { n: number }) => {
-          cloud.publish("count", { n });
+        params: Type.Object({ n: Type.Number() }),
+        run: ({ n }) => {
+          s.publish("count", { n });
 
-          return Promise.resolve({
-            content: [{ type: "text", text: `Counted to ${String(n)}.` }],
-            details: undefined,
-          });
+          return `Counted to ${String(n)}.`;
         },
       });
     },
-  };
+  );
 
-  const session = await testSession(counter);
+  const published = new Map<string, unknown>();
 
-  expect(await session.tool("count", { n: 3 })).toEqual({
+  const session = await testSession(counter, {
+    publish: (key, data) => {
+      published.set(key, data);
+    },
+  });
+
+  expect(await session.tool("count", { n: 3 })).toMatchObject({
     text: "Counted to 3.",
     isError: false,
   });
 
-  expect(session.published("count")).toEqual({ n: 3 });
+  expect(published.get("count")).toEqual({ n: 3 });
 });
 
 // A route with a team half, and a tool that runs it as the Session's person.

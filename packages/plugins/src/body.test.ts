@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { BadRequest, type Static, type TSchema, Type } from "@pipoca/plugins";
+import { BadRequest, type Static, Type } from "@pipoca/plugins";
+import type { TSchema } from "typebox";
 import { checkBody } from "./body";
 import { readJson } from "./http";
 

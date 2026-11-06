@@ -42,7 +42,7 @@ function startServer({
 } = {}): void {
   server = testServer({
     runners: { pollWaitMs, offlineAfterMs, leaseMs },
-    plugins: [],
+    builtIns: false,
     servers: [machinesPart],
   });
 

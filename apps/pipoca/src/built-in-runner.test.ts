@@ -41,7 +41,7 @@ test("runs no runner of its own where a plugin replaces it (ADR 0049)", async ()
       extensionPaths: [],
       folders: [],
     },
-    plugins: [],
+    builtIns: false,
     servers: [pods],
     log: (message) => {
       logs.push(message);
@@ -87,7 +87,7 @@ test("makes its own runner's Environment for the first person, once they sign up
 });
 
 test("says which plugin starts an Environment's runners, and with what label and icon", async () => {
-  const server = testServer({ plugins: [], servers: [pods] });
+  const server = testServer({ builtIns: false, servers: [pods] });
 
   try {
     const made = (await (

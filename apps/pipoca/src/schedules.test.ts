@@ -2,11 +2,13 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-  Schedule,
-  ServerPlugin,
-  ServerPluginContext,
+import {
+  definePlugin,
+  defineServer,
+  type Schedule,
+  type ServerContext,
 } from "@pipoca/plugins";
+import type { ServerPart } from "@pipoca/plugins/host";
 import { until } from "@pipoca/testing/until";
 import { closeServers, testClock, testServer } from "./testdata/harness";
 
@@ -28,14 +30,18 @@ afterEach(async () => {
 });
 
 function timers(
-  register: (context: ServerPluginContext) => void,
+  register: (context: ServerContext) => void,
   schema?: string,
-): ServerPlugin {
-  return {
-    name: "timers",
-    ...(schema !== undefined && { schema }),
+): ServerPart {
+  return defineServer(
+    definePlugin({
+      id: "timers",
+      title: "Timers",
+      description: "",
+      ...(schema !== undefined && { schema }),
+    }),
     register,
-  };
+  );
 }
 
 test("fires an at once, at its time", async () => {
@@ -43,7 +49,8 @@ test("fires an at once, at its time", async () => {
   let schedule: Schedule | undefined;
 
   const server = testServer({
-    plugins: [
+    builtIns: false,
+    servers: [
       timers((context) => {
         schedule = context.schedule;
 
@@ -78,7 +85,7 @@ test("fires what came due while the server was down once it starts", async () =>
   const fired: string[] = [];
   const clock = testClock();
 
-  const plugin = (scheduling: boolean): ServerPlugin =>
+  const plugin = (scheduling: boolean): ServerPart =>
     timers(({ schedule }) => {
       schedule.on("", (_payload, key) => {
         fired.push(key);
@@ -89,12 +96,18 @@ test("fires what came due while the server was down once it starts", async () =>
       }
     });
 
-  await testServer({ database, clock, plugins: [plugin(true)] }).close();
+  await testServer({
+    database,
+    clock,
+    builtIns: false,
+    servers: [plugin(true)],
+  }).close();
+
   await clock.advance(2 * hour);
 
   expect(fired).toEqual([]);
 
-  testServer({ database, clock, plugins: [plugin(false)] });
+  testServer({ database, clock, builtIns: false, servers: [plugin(false)] });
 
   expect(
     await until(
@@ -108,7 +121,8 @@ test("fires an at 40 days out at its time, not before", async () => {
   const fired: string[] = [];
 
   const server = testServer({
-    plugins: [
+    builtIns: false,
+    servers: [
       timers(({ schedule, clock }) => {
         schedule.on("far", (_payload, key) => {
           fired.push(key);
@@ -133,7 +147,8 @@ test("reads an interval again after each run", async () => {
   let runs = 0;
 
   const server = testServer({
-    plugins: [
+    builtIns: false,
+    servers: [
       timers(({ schedule }) => {
         schedule.every(
           "tick",
@@ -169,7 +184,8 @@ test("starts no run of an interval while the last one runs", async () => {
   });
 
   const server = testServer({
-    plugins: [
+    builtIns: false,
+    servers: [
       timers(({ schedule }) => {
         schedule.every("slow", minute, async () => {
           starts += 1;
@@ -199,7 +215,8 @@ test("retries a failing at after 1, 5 and 30 minutes, then drops it", async () =
   let schedule: Schedule | undefined;
 
   const server = testServer({
-    plugins: [
+    builtIns: false,
+    servers: [
       timers((context) => {
         schedule = context.schedule;
 
@@ -250,7 +267,7 @@ test("keeps the schedules of a plugin that is off until it is on again", async (
   const fired: string[] = [];
   const clock = testClock();
 
-  const plugin = (scheduling: boolean): ServerPlugin =>
+  const plugin = (scheduling: boolean): ServerPart =>
     timers(({ schedule }) => {
       schedule.on("", (_payload, key) => {
         fired.push(key);
@@ -261,12 +278,18 @@ test("keeps the schedules of a plugin that is off until it is on again", async (
       }
     });
 
-  await testServer({ database, clock, plugins: [plugin(true)] }).close();
+  await testServer({
+    database,
+    clock,
+    builtIns: false,
+    servers: [plugin(true)],
+  }).close();
 
   const off = testServer({
     database,
     clock,
-    plugins: [plugin(false)],
+    builtIns: false,
+    servers: [plugin(false)],
     disabledPlugins: ["timers"],
   });
 
@@ -275,7 +298,7 @@ test("keeps the schedules of a plugin that is off until it is on again", async (
 
   expect(fired).toEqual([]);
 
-  testServer({ database, clock, plugins: [plugin(false)] });
+  testServer({ database, clock, builtIns: false, servers: [plugin(false)] });
 
   expect(
     await until(
@@ -290,7 +313,7 @@ test("resetting a plugin's data drops its schedules", async () => {
   const clock = testClock();
   let schedule: Schedule | undefined;
 
-  const plugin = (schema: string, scheduling: boolean): ServerPlugin =>
+  const plugin = (schema: string, scheduling: boolean): ServerPart =>
     timers((context) => {
       schedule = context.schedule;
 
@@ -306,7 +329,8 @@ test("resetting a plugin's data drops its schedules", async () => {
   const before = testServer({
     database,
     clock,
-    plugins: [plugin("create table timers_a (a text) strict", true)],
+    builtIns: false,
+    servers: [plugin("create table timers_a (a text) strict", true)],
   });
 
   const cookie = await before.signedIn();
@@ -316,7 +340,8 @@ test("resetting a plugin's data drops its schedules", async () => {
     database,
     clock,
     cookie,
-    plugins: [plugin("create table timers_b (b text) strict", false)],
+    builtIns: false,
+    servers: [plugin("create table timers_b (b text) strict", false)],
   });
 
   await server.clock.advance(2 * hour);
@@ -328,9 +353,19 @@ test("resetting a plugin's data drops its schedules", async () => {
   });
 
   expect(reset.status).toBe(200);
+  await server.close();
+
+  const after = testServer({
+    database,
+    clock,
+    cookie,
+    builtIns: false,
+    servers: [plugin("create table timers_b (b text) strict", false)],
+  });
+
   expect(schedule?.pending("")).toEqual([]);
 
-  await server.clock.advance(day);
+  await after.clock.advance(day);
 
   expect(fired).toEqual([]);
 });

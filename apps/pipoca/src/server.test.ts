@@ -1,7 +1,12 @@
 import { expect, test } from "bun:test";
 import { setTimeout as sleep } from "node:timers/promises";
-import type { ServerPlugin, ServerPluginContext } from "@pipoca/plugins";
-import { eventBus } from "@pipoca/plugins/host";
+import {
+  definePlugin,
+  defineServer,
+  type ServerContext,
+  Type,
+} from "@pipoca/plugins";
+import { eventBus, type ServerPart } from "@pipoca/plugins/host";
 import {
   type Assignment,
   protocolVersion,
@@ -103,10 +108,9 @@ test("reports unhealthy when the database can't be read, keeping why in the log"
     sessions,
     environments,
     new Profiles(noProfiles, store.profiles),
-    startPlugins([], [], {
+    startPlugins([], {
       sessions,
       environments,
-      sessionParts: [],
       runners: { token: () => "pct_test", revoke: () => undefined },
       events: eventBus(() => undefined),
       changes: () => undefined,
@@ -158,23 +162,22 @@ test("reports unhealthy when the database can't be read, keeping why in the log"
   expect(logged.join("\n")).toContain("database unavailable");
 });
 
-function echo(answered: Promise<void> = Promise.resolve()): ServerPlugin {
-  return {
-    name: "echo",
-    register: ({ tools }) => {
-      tools.register({
+function echo(answered: Promise<void> = Promise.resolve()): ServerPart {
+  return defineServer(
+    definePlugin({ id: "echo", title: "Echo", description: "" }),
+    ({ tools }) => {
+      tools.define({
         name: "echo",
         description: "Says its input back",
-        parameters: { type: "object" },
-        appliesTo: () => true,
+        params: Type.Object({ say: Type.Optional(Type.String()) }),
         run: async (input) => {
           await answered;
 
-          return { text: JSON.stringify(input), isError: false };
+          return JSON.stringify(input);
         },
       });
     },
-  };
+  );
 }
 
 const poll: WorkPoll = { running: [], folders: [], models: [] };
@@ -208,16 +211,13 @@ function startServer(
     sessions,
     environments,
     new Profiles(noProfiles, store.profiles),
-    startPlugins([plugin], [plugin.name], {
+    startPlugins([plugin.plugin.id], {
       sessions,
       environments,
-      sessionParts: [],
       runners: { token: () => "pct_test", revoke: () => undefined },
       events: eventBus(() => undefined),
       changes: () => undefined,
-      manifests: [
-        { id: "echo", title: "Echo", description: "", capabilities: ["tools"] },
-      ],
+      manifests: [{ id: "echo", title: "Echo", description: "" }],
       store: store.plugin,
       dataFailure: store.pluginFailure,
       resetData: store.resetPlugin,
@@ -240,8 +240,8 @@ function startServer(
         passwordLogin: () => true,
         startSession: () => undefined,
       },
-      definitions: [],
-      servers: [],
+      definitions: [plugin.plugin],
+      servers: [plugin],
       url: () => new URL("http://pipoca"),
       schedules: store.schedules,
       clock: systemClock,
@@ -585,14 +585,14 @@ test("delivers a server tool's result that finished while the provider was offli
 test("lists a plugin's own Sessions only while the plugin is on", async () => {
   const store = openStore(":memory:", undefined, noProfiles);
   const { sessions, environments } = domainsOf(store, { pollWaitMs: 0 });
-  let context: ServerPluginContext | undefined;
+  let context: ServerContext | undefined;
 
-  const keeper: ServerPlugin = {
-    name: "keeper",
-    register: (registered) => {
+  const keeper = defineServer(
+    definePlugin({ id: "keeper", title: "Keeper", description: "" }),
+    (registered) => {
       context = registered;
     },
-  };
+  );
 
   const auth = authOf(store);
   let cookie: Promise<string> | undefined;
@@ -605,21 +605,13 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
       sessions,
       environments,
       new Profiles(noProfiles, store.profiles),
-      startPlugins([keeper], enabled, {
+      startPlugins(enabled, {
         sessions,
         environments,
-        sessionParts: [],
         runners: { token: () => "pct_test", revoke: () => undefined },
         events: eventBus(() => undefined),
         changes: () => undefined,
-        manifests: [
-          {
-            id: "keeper",
-            title: "Keeper",
-            description: "",
-            capabilities: ["sessions"],
-          },
-        ],
+        manifests: [{ id: "keeper", title: "Keeper", description: "" }],
         store: store.plugin,
         dataFailure: store.pluginFailure,
         resetData: store.resetPlugin,
@@ -642,8 +634,8 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
           passwordLogin: () => true,
           startSession: () => undefined,
         },
-        definitions: [],
-        servers: [],
+        definitions: [keeper.plugin],
+        servers: [keeper],
         url: () => new URL("http://pipoca"),
         schedules: store.schedules,
         clock: systemClock,
@@ -682,17 +674,19 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
     store.people.users()[0]?.id ?? "",
   );
 
-  const owned = context?.sessions.start(
-    { actor: "plugin:keeper", workspace },
-    "k1",
-  );
+  const owned = context?.sessions.start({
+    actor: "plugin:keeper",
+    workspace,
+    key: "k1",
+  });
 
   const plain = sessions.start({ actor: "plugin:keeper", workspace });
 
-  const other = context?.sessions.start(
-    { actor: "plugin:keeper", workspace },
-    "k2",
-  );
+  const other = context?.sessions.start({
+    actor: "plugin:keeper",
+    workspace,
+    key: "k2",
+  });
 
   if (!owned || !plain.ok || !other) {
     throw new Error("sessions not started");

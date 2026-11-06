@@ -1,11 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import {
-  definePlugin,
-  defineServer,
-  event,
-  type ServerPlugin,
-  Type,
-} from "@pipoca/plugins";
+import { definePlugin, defineServer, event, Type } from "@pipoca/plugins";
 import type { ServerPart } from "@pipoca/plugins/host";
 import type { DeclaredEvent, Owner, PluginInfo } from "@pipoca/protocol";
 import {
@@ -54,40 +48,6 @@ const notes = defineServer(
   },
 );
 
-// Publishes what its route is sent as a v1 plugin does.
-const v1Publisher: ServerPlugin = {
-  name: "old-notes",
-  register: ({ routes, events }) => {
-    routes.handle(async (request) => {
-      const { text, to } = (await request.json()) as {
-        text: unknown;
-        to: readonly Owner[];
-      };
-
-      events.publish({
-        type: "notes.noted",
-        text,
-        userIds: to.map((owner) => owner.replace("person:", "")),
-      });
-
-      return new Response(null, { status: 204 });
-    });
-  },
-};
-
-const v1Listener: ServerPlugin = {
-  name: "old",
-  register: ({ routes, events }) => {
-    const heard: unknown[] = [];
-
-    events.subscribe("notes.noted", (each) => {
-      heard.push(each);
-    });
-
-    routes.handle(() => Response.json(heard));
-  },
-};
-
 const board = defineServer(
   definePlugin({ id: "board", title: "Board", description: "Shows notes." }),
   ({ routes, events }) => {
@@ -111,7 +71,7 @@ async function plugins(): Promise<PluginInfo[]> {
 
 test("refuses an event its plugin didn't define, or fields that don't fit it", async () => {
   server = testServer({
-    plugins: [],
+    builtIns: false,
     servers: [
       notes,
       defineServer(
@@ -143,11 +103,8 @@ test("refuses an event its plugin didn't define, or fields that don't fit it", a
   ]);
 });
 
-test("tells v1 listeners whose an event is as user ids, and v2 listeners as owners", async () => {
-  server = testServer({
-    plugins: [v1Publisher, v1Listener],
-    servers: [notes, board],
-  });
+test("tells listeners whose an event is, as owners", async () => {
+  server = testServer({ builtIns: false, servers: [notes, board] });
 
   await server.api("/api/ext/notes/notes", {
     body: { text: "hello", to: ["person:ana", "team"] },
@@ -157,34 +114,23 @@ test("tells v1 listeners whose an event is as user ids, and v2 listeners as owne
     body: { text: "quiet", to: [] },
   });
 
-  await server.api("/api/ext/old-notes/x", {
-    body: { text: "old", to: ["person:bo"] },
-  });
-
   await runnerCredentials(server, server.signedIn).token("laptop");
 
   await server.api("/api/sessions", {
     body: { workspace: { kind: "folder", path: "/work" } },
   });
 
-  expect(await json(server.api("/api/ext/old/x"))).toEqual([
-    { type: "notes.noted", text: "hello", userIds: ["ana", "team"] },
-    { type: "notes.noted", text: "quiet" },
-    { type: "notes.noted", text: "old", userIds: ["bo"] },
-  ]);
-
-  const [hello, quiet, old, created] = await json<
+  const [hello, quiet, created] = await json<
     { fields?: unknown; plugin?: string; ownedBy?: string; to: string[] }[]
   >(server.api("/api/ext/board/heard"));
 
-  expect([hello, quiet, old]).toEqual([
+  expect([hello, quiet]).toEqual([
     {
       fields: { text: "hello" },
       to: ["person:ana", "team"],
       plugin: "notes",
     },
     { fields: { text: "quiet" }, to: [], plugin: "notes" },
-    { fields: { text: "old" }, to: ["person:bo"], plugin: "notes" },
   ]);
 
   expect(created?.ownedBy).toStartWith("person:");
@@ -192,7 +138,7 @@ test("tells v1 listeners whose an event is as user ids, and v2 listeners as owne
 });
 
 test("hears another plugin's events while it is on, and keeps going while it is off", async () => {
-  server = testServer({ plugins: [], servers: [notes, board] });
+  server = testServer({ builtIns: false, servers: [notes, board] });
 
   await server.api("/api/ext/notes/notes", {
     body: { text: "hello", to: ["team"] },
@@ -205,7 +151,7 @@ test("hears another plugin's events while it is on, and keeps going while it is 
   await server.close();
 
   server = testServer({
-    plugins: [],
+    builtIns: false,
     servers: [notes, board],
     disabledPlugins: ["notes"],
   });
@@ -231,15 +177,14 @@ test("keeps a plugin off while a plugin it requires is off or failed", async () 
     );
 
   server = testServer({
-    plugins: [
-      {
-        name: "broken",
-        register: () => {
+    builtIns: false,
+    servers: [
+      defineServer(
+        definePlugin({ id: "broken", title: "Broken", description: "" }),
+        () => {
           throw new Error("broken always fails");
         },
-      },
-    ],
-    servers: [
+      ),
       needing("notes"),
       needing("broken"),
       notes,
@@ -271,7 +216,7 @@ test("keeps a plugin off while a plugin it requires is off or failed", async () 
 
 test("lists the events plugins define, and finds people", async () => {
   server = testServer({
-    plugins: [],
+    builtIns: false,
     servers: [
       notes,
       defineServer(
@@ -314,13 +259,21 @@ test("lists the events plugins define, and finds people", async () => {
   expect(found.byName).toBeString();
 });
 
-test("lists what a plugin's server part reaches of its context", async () => {
-  server = testServer({ plugins: [], servers: [notes, board] });
+test("lists what a plugin's server part reaches of its context and what it provides", async () => {
+  const offers = defineServer(
+    definePlugin({ id: "offers", title: "Offers", description: "" }),
+    ({ provide }) => {
+      provide.models(() => ({ models: [] }));
+    },
+  );
+
+  server = testServer({ builtIns: false, servers: [notes, board, offers] });
 
   expect(
-    (await plugins()).map(({ id, capabilities }) => ({ id, capabilities })),
+    (await plugins()).map(({ id, uses, provides }) => ({ id, uses, provides })),
   ).toEqual([
-    { id: "notes", capabilities: ["events", "routes"] },
-    { id: "board", capabilities: ["events", "routes"] },
+    { id: "notes", uses: ["routes", "events"], provides: [] },
+    { id: "board", uses: ["routes", "events"], provides: [] },
+    { id: "offers", uses: ["provide"], provides: ["models"] },
   ]);
 });

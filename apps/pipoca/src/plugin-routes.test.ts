@@ -26,7 +26,7 @@ let server: TestServer;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "plugin-routes-"));
-  server = testServer({ plugins: [], servers: [notes, diary] });
+  server = testServer({ builtIns: false, servers: [notes, diary] });
 });
 
 afterEach(async () => {

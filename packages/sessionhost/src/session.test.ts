@@ -177,7 +177,6 @@ test("keeps tool_search on for deferred tools after a resume and /tree", async (
     ui: {} as SessionHost["ui"],
     tools,
     extensions: [],
-    packages: [],
     onError: () => undefined,
   });
 
@@ -385,7 +384,6 @@ test("starts on a model that the host's logins log in to", async () => {
       ui: {} as SessionHost["ui"],
       tools: [],
       extensions: [],
-      packages: [],
       onError: () => undefined,
       logins: { models: credentials, mcp: noMcpLogins },
     },
@@ -444,7 +442,6 @@ test("connects to an MCP server with the sign-in the host's logins keep", async 
       ui: {} as SessionHost["ui"],
       tools: [],
       extensions: [],
-      packages: [],
       onError: () => undefined,
       logins: { models: memoryLogins([]), mcp: logins },
     },
@@ -583,7 +580,6 @@ test("fetches an extension provider's models with the host's login, and the runn
       ui: {} as SessionHost["ui"],
       tools: [],
       extensions: [],
-      packages: [],
       onError: () => undefined,
       logins: {
         models: memoryLogins([
@@ -624,7 +620,6 @@ test("starts a new session on a model its provider lists only from the network",
         ui: {} as SessionHost["ui"],
         tools: [],
         extensions: [],
-        packages: [],
         onError: () => undefined,
         logins: {
           models: memoryLogins([

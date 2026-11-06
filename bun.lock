@@ -179,6 +179,9 @@
         "@pipoca/sessionhost": "workspace:*",
         "@pipoca/workspaces": "workspace:*",
       },
+      "devDependencies": {
+        "@pipoca/testing": "workspace:*",
+      },
     },
     "packages/sessionhost": {
       "name": "@pipoca/sessionhost",
@@ -195,6 +198,7 @@
         "@pipoca/ask": "workspace:*",
         "@pipoca/changes": "workspace:*",
         "@pipoca/subagents": "workspace:*",
+        "@pipoca/testing": "workspace:*",
         "pi-subagents": "0.79.1",
       },
     },
