@@ -116,10 +116,12 @@ export const Config = {
     readonly item: I;
     readonly admin?: boolean;
     readonly title: string;
+    // What the collection holds while the file leaves it out.
+    readonly default?: readonly Static<I>[];
   }): TCollection<I> =>
     Type.Array(o.item, {
       title: o.title,
-      default: [],
+      default: o.default ?? [],
       [annotation]: { collection: { key: o.key, admin: o.admin === true } },
     }),
 

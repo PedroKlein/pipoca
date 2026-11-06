@@ -1,4 +1,4 @@
-import type { ServerTool } from "@pipoca/plugins";
+import { type ToolDef, Type } from "@pipoca/plugins";
 import type { Repository } from "./github";
 import type { HostConfig } from "./hosts";
 
@@ -28,53 +28,49 @@ interface Sources {
 // Each line goes into the model's context, so a search names a few.
 const shown = 10;
 
+const params = Type.Object({
+  query: Type.Optional(
+    Type.String({
+      description: "Part of the repository's name, such as dotfiles",
+    }),
+  ),
+  host: Type.Optional(
+    Type.String({ description: "Search only this host, such as github.com" }),
+  ),
+});
+
 // Lets an agent find the person's real repositories instead of guessing
-// their URLs, on every host they connected.
-export function repositoriesTool({ accounts, search }: Sources): ServerTool {
+// their URLs, on every host they connected. It names only the few that
+// match what it asks, never every repository.
+export function repositoriesTool({
+  accounts,
+  search,
+}: Sources): ToolDef<typeof params> {
   return {
     name: "git_hosts_repositories",
     description: `Search the user's git hosts (such as github.com or a GitHub Enterprise host) for repositories by name, and get their clone URLs. Without a query it only names the connected hosts and the account on each. Returns at most ${String(shown)} repositories. Where the Session has a shell, git and gh are already signed in to the same accounts; use gh --hostname <host> for an enterprise host.`,
-    parameters: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description: "Part of the repository's name, such as dotfiles",
-        },
-        host: {
-          type: "string",
-          description: "Search only this host, such as github.com",
-        },
-      },
-      additionalProperties: false,
-    },
-    namespace: {
-      name: "git_hosts",
-      instructions:
-        "Never guess a repository's URL or owner. Find it with git_hosts_repositories, or ask the user when it isn't there.",
-    },
-    exposure: "direct",
-    annotations: { readOnlyHint: true, openWorldHint: true },
+    params,
     // A person's git accounts never serve team work (ADR 0066).
-    appliesTo: ({ startedBy, ownedBy }) =>
-      startedBy !== null && ownedBy !== "team",
+    when: { owner: "person" },
+    exposure: "direct",
+    annotations: { readOnly: true },
+    prompt: {
+      snippet: "Find the user's repositories and their clone URLs by name",
+      guidelines: [
+        "Never guess a repository's URL or owner. Find it with git_hosts_repositories, or ask the user when it isn't there.",
+      ],
+    },
     run: async (input, { session }) => {
       const userId = session.startedBy ?? "";
-
-      const { query, host } = (input ?? {}) as {
-        query?: unknown;
-        host?: unknown;
-      };
-
-      const text = typeof query === "string" ? query.trim() : "";
-      const only = typeof host === "string" ? host.trim().toLowerCase() : "";
+      const text = input.query?.trim() ?? "";
+      const only = input.host?.trim().toLowerCase() ?? "";
 
       const signed = accounts(userId).filter(
         (account) => only === "" || account.host === only,
       );
 
       if (signed.length === 0) {
-        return { text: unconnected(only), isError: false };
+        return unconnected(only);
       }
 
       const heading = `Signed in on ${signed
@@ -82,18 +78,12 @@ export function repositoriesTool({ accounts, search }: Sources): ServerTool {
         .join(", ")}.`;
 
       if (text === "") {
-        return {
-          text: `${heading}\n\nGive a query to search their repositories by name.`,
-          isError: false,
-        };
+        return `${heading}\n\nGive a query to search their repositories by name.`;
       }
 
       const found = await search(userId, text, only || undefined);
 
-      return {
-        text: [heading, ...failures(found), listing(found, text)].join("\n\n"),
-        isError: false,
-      };
+      return [heading, ...failures(found), listing(found, text)].join("\n\n");
     },
   };
 }

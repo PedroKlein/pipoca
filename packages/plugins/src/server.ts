@@ -4,6 +4,7 @@ import type {
   DeclaredEvent,
   EnvironmentTemplate,
   Environment,
+  GitLogin,
   Log,
   Method,
   Owner,
@@ -287,7 +288,7 @@ export interface ServerTools {
 
 export interface Sessions {
   readonly start: (
-    request: Omit<StartRequest, "actsAs" | "access"> & {
+    request: Omit<StartRequest, "access"> & {
       readonly key?: string;
       readonly access?: SessionAccess;
     },
@@ -396,6 +397,15 @@ export interface PluginProfiles {
 
 export interface Providers {
   readonly models: (offer: ModelOffer) => void;
+  // The logins a Session's git and gh sign in with: its person's, the
+  // team's, or for a Session that acts as one of this plugin's identities,
+  // that identity's. Called as a runner takes the Session, so it can't wait.
+  readonly gitCredentials: (
+    of: (
+      owner: Owner,
+      session: Pick<Session, "actsAs" | "workspace">,
+    ) => readonly GitLogin[],
+  ) => void;
   // Sessions on the Profile load every route tool when routeTools is true.
   readonly profile: (
     key: string,

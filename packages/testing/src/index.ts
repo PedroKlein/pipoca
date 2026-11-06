@@ -20,8 +20,11 @@ import {
 } from "@pipoca/plugins";
 import { sessionConfig } from "@pipoca/plugins/host";
 import {
+  type ActsAs,
+  type GitLogin,
   type Method,
   type Owner,
+  type WorkspaceRequest,
   systemClock,
   systemTimer,
 } from "@pipoca/protocol";
@@ -91,6 +94,8 @@ export interface TestSession {
   // Live events its host reports, such as a status or a prompt, which the
   // kernel acts on as it would a runner's.
   readonly report: (events: readonly unknown[]) => Promise<void>;
+  // What its runner signed git in with when it last took the Session.
+  readonly gitLogins: () => readonly GitLogin[];
   // A person's message to Pi, as one of the test's people sends it. It has
   // reached the host, when the host is online, once this settles.
   readonly send: (personId: string, text: string) => Promise<void>;
@@ -133,6 +138,9 @@ export interface PluginTest {
     readonly plugin?: string;
     // A Profile of the starter's, by id, in place of their default.
     readonly profile?: string;
+    readonly actsAs?: ActsAs;
+    // A folder of the test's own unless it says.
+    readonly workspace?: WorkspaceRequest;
   }) => Promise<TestSession>;
   readonly tool: (
     name: string,
