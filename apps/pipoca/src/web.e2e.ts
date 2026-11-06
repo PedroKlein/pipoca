@@ -2937,7 +2937,7 @@ test("creates a Project and shares a file through its library", async () => {
 
   await rail
     .getByRole("listitem", { name: "Docs" })
-    .getByText(/^Archived · /)
+    .getByText("Archived", { exact: true })
     .waitFor();
 
   await page
@@ -2958,7 +2958,7 @@ test("creates a Project and shares a file through its library", async () => {
 
   await rail
     .getByRole("listitem", { name: "Docs" })
-    .getByText(/^Archived · /)
+    .getByText("Archived", { exact: true })
     .waitFor({ state: "detached" });
 
   await settings.getByRole("button", { name: "Archive Project" }).click();
