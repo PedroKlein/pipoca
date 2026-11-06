@@ -97,16 +97,11 @@ export function SettingsLayout({
     plugins: failed > 0 && <Badge state="failed">{failed} failed</Badge>,
   };
 
-  const itemOf = (entry: Entry): AreaItem => {
-    const count = counts[entry.page];
-
-    return {
-      href: href("settings", { page: entry.page }),
-      label: entry.label,
-      current: entry.page === open,
-      ...(count !== undefined && { count }),
-    };
-  };
+  const itemOf = (entry: Entry): AreaItem => ({
+    href: href("settings", { page: entry.page }),
+    label: entry.label,
+    current: entry.page === open,
+  });
 
   const shared = admin
     ? serverPages(people).find((entry) => entry.page === open)
@@ -183,10 +178,15 @@ export function SettingsLayout({
         items: [
           ...group.entries
             .filter((entry) => !more.some((each) => each.page === entry.page))
-            .map((entry) => ({
-              ...itemOf(entry),
-              status: statuses[entry.page],
-            })),
+            .map((entry) => {
+              const count = counts[entry.page];
+
+              return {
+                ...itemOf(entry),
+                ...(count !== undefined && { count }),
+                status: statuses[entry.page],
+              };
+            }),
           ...(group.entries.some((entry) => entry.page === more[0]?.page)
             ? [
                 {
