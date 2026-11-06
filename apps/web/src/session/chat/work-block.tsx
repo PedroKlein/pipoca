@@ -1,7 +1,7 @@
 import { cn, Icon } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
 import { PluginBoundary } from "../../plugin-boundary";
-import { enabledPlugins } from "../../plugins";
+import { fillsOf } from "../../plugins";
 import { describeTool, duration, linkParts, tally, type Turn } from "./chat";
 import { StepRow } from "./step-row";
 import { useVerbosity } from "./verbosity";
@@ -112,8 +112,9 @@ export function Notice({
 }: {
   readonly notice: NonNullable<Turn["notice"]>;
 }): ReactElement {
-  const Drawn = enabledPlugins().find(({ name }) => name === tag.plugin)
-    ?.notices[tag.kind];
+  const Drawn = fillsOf(`notice:${tag.kind}`).find(
+    ({ plugin }) => plugin === tag.plugin,
+  )?.Component;
 
   return Drawn ? (
     <PluginBoundary name={tag.plugin}>

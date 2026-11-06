@@ -11,12 +11,7 @@ import { useSettledNotices } from "./settled-notices";
 import { Drawer } from "./drawer";
 import { NewSessionDialog } from "./new-session";
 import { PluginBoundary } from "../plugin-boundary";
-import {
-  enabledPlugins,
-  navEntries,
-  PluginShell,
-  sessionHref,
-} from "../plugins";
+import { fillsOf, navEntries, PluginShell, sessionHref } from "../plugins";
 import { href, navigate, type Route, useRoute } from "../router";
 import { SessionView } from "../session/session-view";
 import { SettingsLayout } from "../settings/layout";
@@ -199,7 +194,7 @@ function Home({
   readonly onMenu: () => void;
   readonly onNewSession: () => void;
 }): ReactElement {
-  const home = enabledPlugins().find(({ Home: Page }) => Page !== undefined);
+  const home = fillsOf("home")[0];
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -207,9 +202,9 @@ function Home({
         <MenuButton onMenu={onMenu} />
       </div>
       <SetupReminders />
-      {home?.Home ? (
-        <PluginBoundary name={home.name}>
-          <home.Home onNewSession={onNewSession} />
+      {home ? (
+        <PluginBoundary name={home.plugin}>
+          <home.Component onNewSession={onNewSession} />
         </PluginBoundary>
       ) : (
         <Empty onNewSession={onNewSession} />

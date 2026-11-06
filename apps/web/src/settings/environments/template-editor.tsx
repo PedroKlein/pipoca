@@ -13,7 +13,7 @@ import { type ReactElement, type SubmitEvent, useState } from "react";
 import { request } from "../../data/client";
 import { useAction } from "../../data/hooks";
 import { PluginBoundary } from "../../plugin-boundary";
-import { enabledPlugins } from "../../plugins";
+import { fillsOf } from "../../plugins";
 
 export function TemplateEditor({
   template,
@@ -176,14 +176,11 @@ export function TemplateEditor({
         </div>
       </form>
       <div className="flex flex-col gap-4 px-5 pb-5">
-        {enabledPlugins().map(
-          ({ name, TemplateSection }) =>
-            TemplateSection && (
-              <PluginBoundary key={name} name={name}>
-                <TemplateSection template={template} />
-              </PluginBoundary>
-            ),
-        )}
+        {fillsOf("template.section").map(({ plugin, Component }) => (
+          <PluginBoundary key={plugin} name={plugin}>
+            <Component template={template} />
+          </PluginBoundary>
+        ))}
       </div>
       {asking}
     </details>

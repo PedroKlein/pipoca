@@ -30,7 +30,7 @@ import { request } from "../../data/client";
 import { useAction } from "../../data/hooks";
 import { navigate, scopedHref } from "../../router";
 import { PluginBoundary } from "../../plugin-boundary";
-import { enabledPlugins } from "../../plugins";
+import { fillsOf } from "../../plugins";
 import { kindAbout } from "./kinds";
 import { JoinKey } from "./join-key";
 import { deleteEnvironment, rowsOf, changedValues, fieldsOf } from "./values";
@@ -300,14 +300,11 @@ export function Editor({
           </p>
         </div>
       </form>
-      {enabledPlugins().map(
-        ({ name, EnvironmentSection }) =>
-          EnvironmentSection && (
-            <PluginBoundary key={name} name={name}>
-              <EnvironmentSection environment={environment} />
-            </PluginBoundary>
-          ),
-      )}
+      {fillsOf("environment.section").map(({ plugin, Component }) => (
+        <PluginBoundary key={plugin} name={plugin}>
+          <Component environment={environment} />
+        </PluginBoundary>
+      ))}
       {asking}
     </>
   );

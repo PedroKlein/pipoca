@@ -10,11 +10,12 @@ import {
   shortName,
   workspaceName,
 } from "../names";
-import { enabledPlugins, sessionHref } from "../plugins";
+import { enabledPlugins, pageLabel, sessionHref } from "../plugins";
 
 export function ownedByEnabled({ plugin }: Session): boolean {
   return (
-    plugin !== null && enabledPlugins().some(({ name }) => name === plugin.id)
+    plugin !== null &&
+    enabledPlugins().some((part) => part.plugin.id === plugin.id)
   );
 }
 
@@ -53,8 +54,7 @@ export function SidebarSession({
 
 function ownerLabel(plugin: string): string {
   const label =
-    enabledPlugins().find(({ name }) => name === plugin)?.nav?.label ??
-    plugin.charAt(0).toUpperCase() + plugin.slice(1);
+    pageLabel(plugin) ?? plugin.charAt(0).toUpperCase() + plugin.slice(1);
 
   return `from ${label}`;
 }

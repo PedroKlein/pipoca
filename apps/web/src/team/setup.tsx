@@ -22,13 +22,21 @@ interface Entry {
 }
 
 function screens() {
-  return enabledPlugins().flatMap(({ name, hub }) =>
-    Object.entries(hub.setup).map(([key, screen]) => ({
-      ...screen,
-      section: "plugin",
-      rest: `${name}/${key}`,
-      plugin: name,
-    })),
+  return enabledPlugins().flatMap(({ plugin: { id }, pages }) =>
+    (pages ?? []).flatMap((page) =>
+      page.area === "setup"
+        ? [
+            {
+              label: page.label,
+              group: page.group ?? "runs-on",
+              Page: page.Page,
+              section: "plugin",
+              rest: `${id}/${page.path}`,
+              plugin: id,
+            },
+          ]
+        : [],
+    ),
   );
 }
 
@@ -119,7 +127,7 @@ export function TeamSetup({
       screen !== undefined && (
         <Page>
           <PluginBoundary name={screen.plugin}>
-            <screen.Page />
+            <screen.Page path="" />
           </PluginBoundary>
         </Page>
       )

@@ -1,7 +1,7 @@
 import type { MountedSession } from "@pipoca/plugins/web";
 import { memo, type ReactElement } from "react";
 import { PluginBoundary } from "../../plugin-boundary";
-import { useSessionPlugins } from "../../plugins";
+import { fillsOf, useSessionPlugins } from "../../plugins";
 import type { ShownWidget } from "../feed";
 import { TerminalText } from "../terminal/terminal-text";
 
@@ -14,14 +14,12 @@ export const PluginParts = memo(function Parts({
   readonly session: MountedSession;
   readonly team: boolean;
 }): ReactElement[] {
-  return useSessionPlugins(team).flatMap(({ name, Composer: Part }) =>
-    Part
-      ? [
-          <PluginBoundary key={name} name={name}>
-            <Part session={session} />
-          </PluginBoundary>,
-        ]
-      : [],
+  return fillsOf("session.composer", useSessionPlugins(team)).map(
+    ({ plugin, Component }) => (
+      <PluginBoundary key={plugin} name={plugin}>
+        <Component session={session} />
+      </PluginBoundary>
+    ),
   );
 });
 
