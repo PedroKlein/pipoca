@@ -185,3 +185,28 @@ test("an admin hides models, which the config keeps", async () => {
     mayChange: true,
   });
 });
+
+test("a person lists the aliases of the Environments they see, and an admin every one", async () => {
+  const { kernel, session } = await started();
+  const adas = await kernel.environment({ owner: person("ada") });
+  const team = await kernel.environment({ owner: "team" });
+
+  for (const id of [session.environmentId, adas.id, team.id]) {
+    await kernel.as("ada").post(`environments/${id}`, { aliases });
+  }
+
+  const listed = async (who: string): Promise<readonly string[]> =>
+    (
+      await kernel
+        .as(who)
+        .get<readonly { environmentId: string }[]>("environments")
+    )
+      .map(({ environmentId }) => environmentId)
+      .sort();
+
+  expect(await listed("ana")).toEqual([session.environmentId, team.id].sort());
+
+  expect(await listed("ada")).toEqual(
+    [session.environmentId, adas.id, team.id].sort(),
+  );
+});

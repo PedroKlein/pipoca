@@ -192,13 +192,13 @@ interface Tokens {
   readonly output: number;
 }
 
-// Reads an answer to its end: a stream of server-sent events or one JSON
-// body. The last report of each count wins, since streams send running
-// totals.
+// Reads an answer to its end, or to where it was cut off, such as when the
+// person stops the turn: a stream of server-sent events or one JSON body.
+// The last report of each count wins, since streams send running totals.
 async function tokensIn(
   stream: ReadableStream<Uint8Array>,
 ): Promise<Tokens | undefined> {
-  const text = await new Response(stream).text().catch(() => "");
+  const text = await textUntilCut(stream);
 
   const objects = text.trimStart().startsWith("{")
     ? [text]
@@ -220,6 +220,23 @@ async function tokensIn(
   return found.input === undefined && found.output === undefined
     ? undefined
     : { input: found.input ?? 0, output: found.output ?? 0 };
+}
+
+async function textUntilCut(
+  stream: ReadableStream<Uint8Array>,
+): Promise<string> {
+  const decoder = new TextDecoder();
+  let text = "";
+
+  try {
+    for await (const chunk of stream) {
+      text += decoder.decode(chunk, { stream: true });
+    }
+  } catch {
+    return text;
+  }
+
+  return text + decoder.decode();
 }
 
 const count = (value: unknown): number =>

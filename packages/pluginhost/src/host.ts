@@ -289,13 +289,35 @@ export function startPlugins(
   const routes = new Map<string, PluginRoute>();
   let signIn: { plugin: string; provider: SignInProvider } | undefined;
   const { users: _users, ...signInApi } = deps.auth;
-  const offers: ModelOffer[] = [];
+  const offers: { plugin: string; offer: ModelOffer }[] = [];
   const gitLogins: { plugin: string; of: GitLoginsOf }[] = [];
   const fromEnv = envSecrets(process.env);
   const settled = new Set<string>();
   const used = new Map<string, Set<Capability>>();
   const transcript = transcriptReader((id) => deps.sessions.transcript(id));
   const running: string[] = [];
+
+  // A plugin's code the kernel calls, such as for the models it offers,
+  // can't break the kernel: a throw is logged and counts as nothing offered
+  // (spec 2.8a).
+  const guarded = <T>(
+    plugin: string,
+    call: string,
+    nothing: T,
+    run: () => T,
+  ): T => {
+    try {
+      return run();
+    } catch (error) {
+      deps.log("plugin call failed", {
+        plugin,
+        call,
+        error: messageOf(error),
+      });
+
+      return nothing;
+    }
+  };
 
   const schedules = scheduler({
     store: deps.schedules,
@@ -780,7 +802,9 @@ export function startPlugins(
       routes.set(plugin.name, staged.route);
     }
 
-    offers.push(...staged.offers);
+    offers.push(
+      ...staged.offers.map((offer) => ({ plugin: plugin.name, offer })),
+    );
 
     for (const [id, profile] of staged.profiles) {
       profiles.set(id, profile);
@@ -1085,7 +1109,7 @@ export function startPlugins(
       routeToolProfiles.add(profileId);
     }
 
-    offers.push(...staged.offers);
+    offers.push(...staged.offers.map((offer) => ({ plugin: id, offer })));
     starters.push(...staged.runners.map((each) => ({ ...each, plugin: id })));
 
     gitLogins.push(...staged.gitCredentials.map((of) => ({ plugin: id, of })));
@@ -1673,7 +1697,12 @@ export function startPlugins(
           ).catch((error: unknown) => ({ text: String(error), isError: true }));
     },
     offeredModels: (environment, userId) => {
-      const offered = offers.map((offer) => offer(environment, userId));
+      const offered = offers.map(({ plugin, offer }) =>
+        guarded(plugin, "offeredModels", { models: [] }, () =>
+          offer(environment, userId),
+        ),
+      );
+
       const fallback = offered.find((each) => each.default)?.default;
 
       const hidden = [...new Set(offered.flatMap((each) => each.hidden ?? []))];
@@ -1685,13 +1714,20 @@ export function startPlugins(
       };
     },
     startsRunners: (environment) => {
-      const found = starters.find(({ starts }) => starts(environment));
+      const found = starters.find(({ plugin, starts }) =>
+        guarded(plugin, "startsRunners", false, () => starts(environment)),
+      );
 
       return found && { plugin: found.plugin, ...found.kind };
     },
     replacesServerRunner: () =>
-      starters.some(
-        ({ replacesServerRunner }) => replacesServerRunner?.() === true,
+      starters.some(({ plugin, replacesServerRunner }) =>
+        guarded(
+          plugin,
+          "replacesServerRunner",
+          false,
+          () => replacesServerRunner?.() === true,
+        ),
       ),
     // A Session acting as someone gets only the logins of the plugin it
     // names, so no other plugin's account signs in beside a bot's.
@@ -1701,7 +1737,9 @@ export function startPlugins(
           ({ plugin }) =>
             session.actsAs === null || session.actsAs.plugin === plugin,
         )
-        .flatMap(({ of }) => of(owner, session)),
+        .flatMap(({ plugin, of }) =>
+          guarded(plugin, "gitCredentials", [], () => of(owner, session)),
+        ),
     route: async (request, name, path, caller) =>
       routes.get(name)?.(request, path, caller),
     logins: () => {
@@ -1711,10 +1749,12 @@ export function startPlugins(
 
       const { plugin, provider } = signIn;
 
-      return provider.logins().map(({ label, path }) => ({
-        label,
-        path: `/api/ext/${plugin}/${path}`,
-      }));
+      return guarded(plugin, "signIn", [], () => provider.logins()).map(
+        ({ label, path }) => ({
+          label,
+          path: `/api/ext/${plugin}/${path}`,
+        }),
+      );
     },
   };
 }
@@ -1907,7 +1947,8 @@ function inOrder(definitions: readonly PluginDefinition[]): PluginDefinition[] {
 
 // A meta-session's tools act as the person who started it, never as an admin
 // (ADR 0035). An admin's Team assistant changes team setup too, so its
-// tools follow the person's role (ADR 0067).
+// tools follow the person's role (ADR 0067), and only while everyone who
+// steers the Session is an admin.
 // Undefined for a Session nobody started, such as a plugin's team work,
 // which has no person to act as.
 function ownerOf(
@@ -1915,6 +1956,12 @@ function ownerOf(
   users: readonly User[],
 ): OnBehalf | undefined {
   const person = session.startedBy;
+  const { access } = session;
+
+  const steers = (id: string): boolean =>
+    id === person ||
+    access.kind === "team" ||
+    (access.kind === "named" && access.people.includes(id));
 
   return person === null
     ? undefined
@@ -1922,7 +1969,8 @@ function ownerOf(
         actor: `user:${person}`,
         mayAdmin:
           session.ownedBy === "team" &&
-          users.some(({ id, admin }) => id === person && admin),
+          users.some(({ id }) => id === person) &&
+          users.every(({ id, admin }) => admin || !steers(id)),
       };
 }
 

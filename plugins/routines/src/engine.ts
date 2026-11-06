@@ -499,7 +499,10 @@ export function routinesEngine(context: Context): Routines {
   };
 
   const running = (owner: Owner, name: string): number =>
-    runsOfRoutine(owner, name, "outcome = 'running'").length;
+    runsOfRoutine(owner, name, "outcome = 'running'").filter(
+      ({ session_id }) =>
+        session_id === null || sessions.get(session_id)?.archivedAt === null,
+    ).length;
 
   const hasRoom = (owner: Owner, name: string): boolean =>
     running(owner, name) <
@@ -843,6 +846,21 @@ export function routinesEngine(context: Context): Routines {
 
     if (run !== undefined && session.status === "failed") {
       end(run, "failed", session.error ?? "the run's Session failed");
+    }
+
+    if (run !== undefined && session.status === "stopped") {
+      end(run, "stopped", "the run's Session stopped");
+    }
+  });
+
+  context.events.on("SessionArchived", ({ session }) => {
+    const run =
+      session.owner?.plugin === "routines"
+        ? runOfSession(session.id)
+        : undefined;
+
+    if (run !== undefined) {
+      end(run, "stopped", "the run's Session was archived");
     }
   });
 

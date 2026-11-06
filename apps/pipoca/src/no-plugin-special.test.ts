@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { definePlugin, defineServer } from "@pipoca/plugins";
 import type { PluginInfo } from "@pipoca/protocol";
 import { builtInPlugins } from "./built-in";
 import { closeServers, json, testServer } from "./testdata/harness";
@@ -180,4 +181,40 @@ test("a server with any one plugin off loads the rest", async () => {
 
     await server.close();
   }
+});
+
+// A plugin whose code throws whenever the kernel calls it.
+const throwing = defineServer(
+  definePlugin({
+    id: "throwing",
+    title: "Throwing",
+    description: "",
+    works: ["personal", "team"],
+  }),
+  ({ provide }) => {
+    provide.models(() => {
+      throw new Error("no models today");
+    });
+
+    provide.gitCredentials(() => {
+      throw new Error("no logins today");
+    });
+  },
+);
+
+test("a plugin that throws when the kernel calls it offers nothing, and Environments still list", async () => {
+  const server = testServer({ servers: [throwing] });
+
+  const made = await server.api("/api/environments", {
+    body: { name: "mine" },
+  });
+
+  expect(made.status).toBe(201);
+  expect((await server.api("/api/environments")).status).toBe(200);
+
+  expect(
+    server.logs.filter((line) => line.startsWith("plugin call failed")),
+  ).toContain(
+    'plugin call failed {"plugin":"throwing","call":"offeredModels","error":"no models today"}',
+  );
 });
