@@ -29,11 +29,12 @@ import {
   type Work,
 } from "./chat";
 import type { Feed } from "./feed";
-import { useTeammates } from "./hooks";
+import { useQuery } from "./data/hooks";
 import { renderMarkdown } from "./markdown";
 import { PluginBoundary } from "./plugin-boundary";
 import { enabledPlugins, pluginContext, toolRenderer } from "./plugins";
 import { usePrimaryId } from "./primary";
+import { addressHref } from "./router";
 import { TerminalText } from "./terminal-text";
 import { useVerbosity } from "./verbosity";
 import { voiced } from "./voices";
@@ -55,10 +56,10 @@ export function ChatView({
   const scroller = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
   const top = useRef(0);
-  const teammates = useTeammates().value;
+  const people = useQuery("people.list").data;
 
   const shown = useMemo(() => {
-    const names = new Map(teammates.map(({ id, name }) => [id, name]));
+    const names = new Map((people ?? []).map(({ id, name }) => [id, name]));
 
     return turns(
       voiced(
@@ -68,7 +69,7 @@ export function ChatView({
       ),
       claimed,
     );
-  }, [feed.items, feed.voices, teammates]);
+  }, [feed.items, feed.voices, people]);
 
   const chatId = usePrimaryId("chat");
 
@@ -677,7 +678,7 @@ function OpenedCard({ opened }: { readonly opened: UiAction }): ReactElement {
         {opened.label}
       </span>
       <a
-        href={`#${opened.route}`}
+        href={addressHref(opened.route)}
         className="inline-flex h-control items-center rounded-md border border-line bg-elevated px-3 text-ui font-medium text-fg hover:border-line-strong hover:bg-hover pointer-coarse:min-h-touch"
       >
         Open

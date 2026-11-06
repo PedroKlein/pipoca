@@ -38,12 +38,7 @@ import { ago } from "./chat";
 import { Composer, prefillComposer, type Replying } from "./composer";
 import { ChatView } from "./chat-view";
 import { emptyFeed, type Feed, feedReader, followEvents } from "./feed";
-import {
-  describe,
-  sessionBadge,
-  shortName,
-  workspaceName,
-} from "./names";
+import { describe, sessionBadge, shortName, workspaceName } from "./names";
 import { PluginBoundary } from "./plugin-boundary";
 import { PrimaryView, usePrimaryId } from "./primary";
 import { pluginContext, useSessionPlugins } from "./plugins";
@@ -53,7 +48,7 @@ import { PresenceLine, usePresence, useTyping } from "./presence";
 import { AccessDialog, accessLabels, steers } from "./team-access";
 import { MoveDialog } from "./move-team";
 import { openTerminal } from "./terminal";
-import { href, navigate } from "./router";
+import { addressHref, href, navigate } from "./router";
 
 type View = "chat" | "pi" | "terminal";
 
@@ -129,7 +124,11 @@ export function SessionView({
 
   // Team work opens inside the team's area, whichever link led to it.
   useEffect(() => {
-    if (primary && team && location.hash === href("session", { id: sessionId })) {
+    if (
+      primary &&
+      team &&
+      location.hash === href("session", { id: sessionId })
+    ) {
       navigate(href("teamSession", { id: sessionId }), { replace: true });
     }
   }, [primary, team, sessionId]);
@@ -716,7 +715,7 @@ function UiActionNotice({
     handled.current = uiAction.key;
 
     if (goes && matchMedia("(width >= 48rem)").matches) {
-      navigate(`#${uiAction.action.route}`);
+      navigate(addressHref(uiAction.action.route));
     }
   }, [uiAction, goes]);
 
@@ -731,7 +730,7 @@ function UiActionNotice({
         <div className="flex items-center gap-3 pb-2 text-label text-fg-dim">
           <span className="min-w-0 flex-1 truncate">Open {offered.label}?</span>
           <a
-            href={`#${offered.route}`}
+            href={addressHref(offered.route)}
             className="inline-flex h-control items-center rounded-md border border-line bg-elevated px-3 text-ui font-medium text-fg hover:border-line-strong hover:bg-hover pointer-coarse:min-h-touch"
           >
             Open

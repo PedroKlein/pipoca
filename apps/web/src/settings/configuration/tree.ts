@@ -1,6 +1,6 @@
 import type { ApiReply } from "@pipoca/protocol";
 
-export type ConfigList = ApiReply<"settings.config">;
+type ConfigList = ApiReply<"settings.config">;
 
 type ConfigEntry = ConfigList["files"][number];
 

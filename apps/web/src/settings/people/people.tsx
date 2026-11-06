@@ -1,5 +1,5 @@
 import { useNow } from "@pipoca/plugins/web";
-import type { Session } from "@pipoca/protocol";
+import type { Person, Session } from "@pipoca/protocol";
 import {
   Button,
   Card,
@@ -15,51 +15,55 @@ import {
   useConfirm,
 } from "@pipoca/ui";
 import { Fragment, type ReactElement, useState } from "react";
-import { api, command } from "../../api";
+import { command, request } from "../../data/client";
+import { useAction, useMe, useQuery } from "../../data/hooks";
 import { deleteEnvironment } from "../environments/values";
 import { InviteDialog } from "./invite-dialog";
 import { InvitesTable, revoke } from "./invites";
 import { NewcomersCard } from "./newcomers";
-import {
-  useEveryonesEnvironments,
-  useEveryonesSessions,
-  useInvites,
-  usePeople,
-} from "../../hooks";
 import { Doing, lastActive, Work } from "./work";
 
 // Who can use the server, and what an admin sees of their work: names and
 // states, never transcripts, files or variable values (ADR 0049).
-export function PeoplePage({ user }: { readonly user: string }): ReactElement {
-  const people = usePeople();
-  const environments = useEveryonesEnvironments();
-  const sessions = useEveryonesSessions();
-  const invites = useInvites();
+export function PeoplePage(): ReactElement {
+  const user = useMe().user.name;
+
+  // Their outline changes as runners and Sessions come and go.
+  const people = (
+    useQuery("people.list", undefined, {
+      topics: ["environments", "sessions"],
+    }).data ?? []
+  ).map((person): Person => ({
+    ...person,
+    admin: person.admin ?? false,
+    settingUp: person.settingUp ?? false,
+    lastActive: person.lastActive ?? null,
+  }));
+
+  const all = { query: { scope: "all" } } as const;
+  const environments = useQuery("environments.list", all).data ?? [];
+
+  const sessions =
+    useQuery("sessions.list", {
+      query: { scope: "all", archived: false, plugins: true },
+    }).data ?? [];
+
+  const invites = useQuery("invites.list").data ?? [];
   const [tab, setTab] = useState<"members" | "invites">("members");
   const [inviting, setInviting] = useState(false);
   const [editingNewcomers, setEditingNewcomers] = useState(false);
   const [open, setOpen] = useState<string>();
-  const [error, setError] = useState<string>();
   const [ask, asking] = useConfirm();
+  const action = useAction(async (work: Promise<unknown>) => work);
+  const error = action.error;
 
-  const act = (run: Promise<unknown>): void => {
-    run.then(
-      () => {
-        setError(undefined);
-        sessions.reload();
-        people.reload();
-        invites.reload();
-      },
-      (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
-      },
-    );
+  const act = (work: Promise<unknown>): void => {
+    void action.run(work);
   };
 
   const personOf = (session: Session): string | null =>
     session.startedBy ??
-    environments.value.find(({ id }) => id === session.environmentId)
-      ?.ownerId ??
+    environments.find(({ id }) => id === session.environmentId)?.ownerId ??
     null;
 
   const now = useNow();
@@ -86,7 +90,6 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
         open={inviting}
         onClose={() => {
           setInviting(false);
-          invites.reload();
         }}
         onChangeSetup={() => {
           setInviting(false);
@@ -108,18 +111,18 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
         tabs={[
           {
             value: "members",
-            label: `Members · ${String(people.value.length)}`,
+            label: `Members · ${String(people.length)}`,
           },
           {
             value: "invites",
-            label: `Invites · ${String(invites.value.length)}`,
+            label: `Invites · ${String(invites.length)}`,
           },
         ]}
       />
       <Card role="tabpanel" padding="none" className="mt-1.5 overflow-x-auto">
         {tab === "invites" && (
           <InvitesTable
-            invites={invites.value}
+            invites={invites}
             onRevoke={(invite) => {
               act(revoke(invite));
             }}
@@ -138,12 +141,12 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
               </span>,
             ]}
           >
-            {people.value.map((person) => {
-              const theirs = sessions.value.filter(
+            {people.map((person) => {
+              const theirs = sessions.filter(
                 (session) => personOf(session) === person.id,
               );
 
-              const own = environments.value.filter(
+              const own = environments.filter(
                 ({ ownerId }) => ownerId === person.id,
               );
 
@@ -180,7 +183,7 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
                         value={person.admin ? "admin" : "member"}
                         onChange={(event) => {
                           act(
-                            api("people.update", {
+                            request("people.update", {
                               params: { id: person.id },
                               body: { admin: event.target.value === "admin" },
                             }),
@@ -222,18 +225,14 @@ export function PeoplePage({ user }: { readonly user: string }): ReactElement {
                           }}
                           onArchive={(session) => {
                             act(
-                              api("sessions.update", {
+                              request("sessions.update", {
                                 params: { id: session.id },
                                 body: { archived: true },
                               }),
                             );
                           }}
                           onDelete={(environment) => {
-                            act(
-                              deleteEnvironment(environment, ask).then(
-                                environments.reload,
-                              ),
-                            );
+                            act(deleteEnvironment(environment, ask));
                           }}
                         />
                       </Cell>

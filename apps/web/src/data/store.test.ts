@@ -145,6 +145,39 @@ test("invalidating a topic reads only subscribed keys that watch it", async () =
   expect(loads).toEqual(["people", "plugins", "invites", "people"]);
 });
 
+test("a key watches every topic its subscribers name, while they stay", async () => {
+  const changes = topics();
+  const store = createStore(changes.watch);
+  let loads = 0;
+
+  const load = async (): Promise<number> => {
+    loads += 1;
+
+    return Promise.resolve(loads);
+  };
+
+  store.subscribe("people", { load, topics: ["people"] }, () => undefined);
+
+  const leave = store.subscribe(
+    "people",
+    { load, topics: ["people", "sessions"] },
+    () => undefined,
+  );
+
+  await settled();
+  changes.change("sessions");
+  await settled();
+
+  expect(loads).toBe(2);
+
+  leave();
+  changes.change("sessions");
+  await settled();
+
+  expect(loads).toBe(2);
+  expect(changes.watched()).toEqual(["people"]);
+});
+
 test("the last subscriber leaving stops watching but keeps the answer", async () => {
   const changes = topics();
   const store = createStore(changes.watch);

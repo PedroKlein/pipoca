@@ -8,7 +8,8 @@ import {
   TextInput,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import { api } from "../api";
+import { request } from "../data/client";
+import { useAction } from "../data/hooks";
 import { groups, type Picked, pickedOf, filesToImport } from "./profile-import";
 
 type Choice = "folder" | "git" | "clean";
@@ -17,16 +18,14 @@ type Choice = "folder" | "git" | "clean";
 // item, or starts one from a repository (ADR 0063).
 export function ProfileStep({
   profiles,
-  onImported,
 }: {
   readonly profiles: readonly Profile[];
-  readonly onImported: () => void;
 }): ReactElement {
   const [choice, setChoice] = useState<Choice>("folder");
   const [picked, setPicked] = useState<Picked>();
   const [left, setLeft] = useState<ReadonlySet<string>>(new Set());
   const [url, setUrl] = useState("");
-  const [state, setState] = useState<{ error?: string; done?: string }>({});
+  const [done, setDone] = useState<string>();
 
   const target = profiles.find(({ isDefault }) => isDefault);
 
@@ -40,20 +39,13 @@ export function ProfileStep({
     setLeft(next);
   };
 
-  const run = (action: () => Promise<string>): void => {
-    setState({});
+  const action = useAction(async (work: () => Promise<string>) => {
+    setDone(undefined);
+    setDone(await work());
+  });
 
-    action().then(
-      (done) => {
-        setState({ done });
-        onImported();
-      },
-      (reason: unknown) => {
-        setState({
-          error: reason instanceof Error ? reason.message : String(reason),
-        });
-      },
-    );
+  const run = (work: () => Promise<string>): void => {
+    void action.run(work);
   };
 
   const kept = picked?.items.filter(({ id }) => !left.has(id)).length ?? 0;
@@ -157,7 +149,7 @@ export function ProfileStep({
                 className="self-start"
                 onClick={() => {
                   run(async () => {
-                    await api("profiles.files.upload", {
+                    await request("profiles.files.upload", {
                       params: { id: target.id },
                       body: { files: await filesToImport(picked, left) },
                     });
@@ -181,11 +173,11 @@ export function ProfileStep({
               event.preventDefault();
 
               run(async () => {
-                const made = await api("profiles.create", {
+                const made = await request("profiles.create", {
                   body: { source: { url } },
                 });
 
-                await api("profiles.update", {
+                await request("profiles.update", {
                   params: { id: made.id },
                   body: { isDefault: true },
                 });
@@ -215,12 +207,12 @@ export function ProfileStep({
           "Pi's defaults. Add skills and tools later in Settings, Profiles.",
         )}
       </ul>
-      {state.done !== undefined && (
+      {done !== undefined && (
         <p role="status" className="text-label text-done">
-          {state.done}
+          {done}
         </p>
       )}
-      <ErrorText>{state.error}</ErrorText>
+      <ErrorText>{action.error}</ErrorText>
     </div>
   );
 }

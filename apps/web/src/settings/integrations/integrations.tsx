@@ -17,7 +17,6 @@ export function IntegrationsPage({
       SettingsSection !== undefined && settingsGroup === "integrations",
   );
 
-
   const open = tabs.find(({ name }) => name === tab) ?? tabs[0];
   const Section = open?.SettingsSection;
 

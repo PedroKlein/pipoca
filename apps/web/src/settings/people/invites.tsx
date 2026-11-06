@@ -1,7 +1,7 @@
 import type { Invite } from "@pipoca/protocol";
 import { Badge, Button, Cell, Table } from "@pipoca/ui";
 import type { ReactElement } from "react";
-import { api } from "../../api";
+import { request } from "../../data/client";
 
 export type Made = Invite & { readonly token: string };
 
@@ -86,5 +86,5 @@ export function InvitesTable({
 }
 
 export async function revoke(invite: Invite): Promise<void> {
-  await api("invites.remove", { params: { id: invite.id } });
+  await request("invites.remove", { params: { id: invite.id } });
 }

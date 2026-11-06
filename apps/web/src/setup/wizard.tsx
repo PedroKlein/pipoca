@@ -90,11 +90,7 @@ export function SetupWizard({
           )}
         >
           {step === undefined ? (
-            <DoneStep
-              steps={steps}
-              onStarted={finish}
-              onLeave={finish}
-            />
+            <DoneStep steps={steps} onStarted={finish} onLeave={finish} />
           ) : (
             <CurrentStep
               key={step.id}

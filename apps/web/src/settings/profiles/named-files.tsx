@@ -1,6 +1,7 @@
-import { ok, useLoaded } from "@pipoca/plugins/web";
 import { Button, Card, ErrorText, Field, Section, TextArea } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
+import { useLoad } from "../../data/hooks";
+import type { Folder } from "./folder";
 import { useRun } from "./files";
 
 export interface OneFile {
@@ -12,26 +13,19 @@ export interface OneFile {
 // Files Pi reads by a fixed name, such as mcp.json. Saving one empty deletes
 // it.
 export function NamedFiles({
-  url,
+  folder,
   title,
   files,
 }: {
-  readonly url: string;
+  readonly folder: Folder;
   readonly title: string;
   readonly files: readonly OneFile[];
 }): ReactElement {
-  const { value: texts, reload } = useLoaded(
-    async () =>
-      Promise.all(
-        files.map(async ({ path }) => {
-          const response = await fetch(`${url}/${encodeURIComponent(path)}`);
-
-          return response.ok ? response.text() : "";
-        }),
-      ),
-    `${url}:${files.map(({ path }) => path).join()}`,
+  const texts = useLoad(
+    `${folder.key} ${files.map(({ path }) => path).join()}`,
+    async () => Promise.all(files.map(async ({ path }) => folder.read(path))),
     { topics: ["profiles"] },
-  );
+  ).data;
 
   return (
     <Section title={title}>
@@ -40,10 +34,9 @@ export function NamedFiles({
           files.map((file, n) => (
             <NamedFile
               key={`${file.path}:${texts[n] ?? ""}`}
-              url={`${url}/${encodeURIComponent(file.path)}`}
+              folder={folder}
               file={file}
               text={texts[n] ?? ""}
-              onSaved={reload}
             />
           ))}
       </Card>
@@ -52,23 +45,21 @@ export function NamedFiles({
 }
 
 function NamedFile({
-  url,
+  folder,
   file,
   text: saved,
-  onSaved,
 }: {
-  readonly url: string;
+  readonly folder: Folder;
   readonly file: OneFile;
   readonly text: string;
-  readonly onSaved: () => void;
 }): ReactElement {
   const [text, setText] = useState(saved);
-  const [error, run] = useRun(onSaved);
+  const [error, run] = useRun();
 
   const save = async (): Promise<void> => {
     if (text.trim() === "") {
       if (saved !== "") {
-        await ok(fetch(url, { method: "DELETE" }));
+        await folder.remove(file.path);
       }
 
       return;
@@ -82,7 +73,7 @@ function NamedFile({
       }
     }
 
-    await ok(fetch(url, { method: "PUT", body: text }));
+    await folder.write(file.path, text);
   };
 
   return (

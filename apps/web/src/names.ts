@@ -109,4 +109,3 @@ export function shortName(workspace: Workspace): string {
     }
   }
 }
-

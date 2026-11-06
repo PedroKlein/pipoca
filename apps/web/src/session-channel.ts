@@ -1,6 +1,6 @@
 import type { MountedSession } from "@pipoca/plugins/web";
 import { liveSurface, type SessionEvent } from "@pipoca/protocol";
-import { command } from "./api";
+import { command } from "./data/client";
 
 // The Session view hands every event it receives to dispatch, so plugins
 // share its stream instead of opening their own.

@@ -10,8 +10,8 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { useAction, useMe, useQuery } = await import("./hooks");
-const { request, store } = await import("./client");
+const { seed, useAction, useMe, useQuery } = await import("./hooks");
+const { request } = await import("./client");
 
 type Listener = (event: { readonly data: string }) => void;
 
@@ -241,7 +241,7 @@ function Who(): ReactElement {
 }
 
 test("useMe reads who signed in from the page's first read", () => {
-  store.seed("GET /api/auth", {
+  seed("auth.status", {
     user: { id: "u1", name: "Bea", admin: true },
     setup: false,
     passwordLogin: true,

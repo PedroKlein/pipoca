@@ -107,9 +107,8 @@ export function useLoad<T>(
     [key, watched],
   );
 
-  const snapshot = useSyncExternalStore(
-    enabled ? subscribe : ignore,
-    () => (enabled ? store.read<T>(key) : idle),
+  const snapshot = useSyncExternalStore(enabled ? subscribe : ignore, () =>
+    enabled ? store.read<T>(key) : idle,
   );
 
   useEffect(() => {

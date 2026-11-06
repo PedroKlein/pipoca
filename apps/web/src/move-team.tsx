@@ -9,9 +9,10 @@ import {
   Select,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import { api, command } from "./api";
+import { command, request } from "./data/client";
+import { useAction, useQuery } from "./data/hooks";
 import type { FeedItem } from "./feed";
-import { useTeamEnvironments, useTeamProfiles } from "./hooks";
+import { href, navigate } from "./router";
 
 const handoff =
   "Write a handoff summary of this work for my team, who will carry it on in a new Session without this conversation: the goal, what is done, what is left, decisions made and why, and where things are in the repository. Leave out secrets and anything personal. Reply with the summary only.";
@@ -49,15 +50,15 @@ function MoveForm({
   readonly busy: boolean;
   readonly onDone: () => void;
 }): ReactElement {
-  const environments = useTeamEnvironments().value;
-  const profiles = useTeamProfiles().value;
+  const team = { query: { scope: "team" } } as const;
+  const environments = useQuery("environments.list", team).data ?? [];
+  const profiles = useQuery("profiles.list", team).data ?? [];
   const [environmentPick, setEnvironment] = useState("");
   const [profilePick, setProfile] = useState("");
   const environment = environmentPick || (environments[0]?.id ?? "");
   const profile = profilePick || (profiles[0]?.id ?? "");
   const [draft, setDraft] = useState<string>();
   const [asked, setAsked] = useState<number>();
-  const [error, setError] = useState<string>();
 
   const reply =
     asked === undefined || busy
@@ -68,23 +69,20 @@ function MoveForm({
   const summary = draft ?? written;
   const writing = asked !== undefined && reply === undefined;
 
-  const ask = (): void => {
-    setError(undefined);
+  const asking = useAction(async () => {
     setDraft(undefined);
     setAsked(items.length);
 
-    command(session.id, { type: "message", text: handoff }).catch(
-      (failure: unknown) => {
-        setAsked(undefined);
-        setError(failure instanceof Error ? failure.message : String(failure));
-      },
-    );
-  };
+    try {
+      await command(session.id, { type: "message", text: handoff });
+    } catch (failure) {
+      setAsked(undefined);
+      throw failure;
+    }
+  });
 
-  const move = (): void => {
-    setError(undefined);
-
-    api("sessions.create", {
+  const moving = useAction(async () => {
+    const moved = await request("sessions.create", {
       body: {
         from: { session: session.id },
         owner: "team",
@@ -92,14 +90,22 @@ function MoveForm({
         environment,
         profile,
       },
-    })
-      .then((moved) => {
-        onDone();
-        location.hash = moved.id;
-      })
-      .catch((failure: unknown) => {
-        setError(failure instanceof Error ? failure.message : String(failure));
-      });
+    });
+
+    onDone();
+    navigate(href("session", { id: moved.id }));
+  });
+
+  const error = moving.error ?? asking.error;
+
+  const ask = (): void => {
+    moving.clear();
+    void asking.run();
+  };
+
+  const move = (): void => {
+    asking.clear();
+    void moving.run();
   };
 
   const ready =

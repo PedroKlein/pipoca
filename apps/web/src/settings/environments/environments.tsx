@@ -64,9 +64,7 @@ export function EnvironmentsPage({
         <Editor
           key={environment.id}
           environment={environment}
-          template={templates.find(
-            ({ id }) => id === environment.templateId,
-          )}
+          template={templates.find(({ id }) => id === environment.templateId)}
           madeKey={
             madeKey?.environmentId === environment.id ? madeKey.key : undefined
           }
@@ -127,16 +125,12 @@ export function EnvironmentsPage({
           <li key={each.id}>
             <EnvironmentCard
               environment={each}
-              template={templates.find(
-                ({ id }) => id === each.templateId,
-              )}
+              template={templates.find(({ id }) => id === each.templateId)}
             />
           </li>
         ))}
       </ul>
-      {!team && (
-        <Templates templates={templates} />
-      )}
+      {!team && <Templates templates={templates} />}
     </Page>
   );
 }

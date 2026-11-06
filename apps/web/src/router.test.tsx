@@ -12,9 +12,7 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 
 const { href, navigate, parse, routeHref, scopedHref, useRoute } =
-  await import(
-  "./router"
-);
+  await import("./router");
 
 afterAll(async () => {
   await GlobalRegistrator.unregister();
@@ -103,9 +101,7 @@ test("a link and its address open the same page", () => {
 test("environments and profiles are a person's or the team's", () => {
   expect(scopedHref(false, "profiles", "p1")).toBe("#settings/profiles/p1");
 
-  expect(scopedHref(true, "environments")).toBe(
-    "#team/setup/environments",
-  );
+  expect(scopedHref(true, "environments")).toBe("#team/setup/environments");
 });
 
 function Current(): ReactElement {

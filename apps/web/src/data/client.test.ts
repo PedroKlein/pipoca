@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { api, command } from "./api";
+import { command, request } from "./client";
 
 const realFetch = globalThis.fetch;
 
@@ -14,7 +14,7 @@ function respond(response: () => Response): void {
   );
 }
 
-test("api rejects with the status when an error response isn't JSON", async () => {
+test("request rejects with the status when an error response isn't JSON", async () => {
   respond(
     () =>
       new Response("upstream connect error", {
@@ -23,16 +23,18 @@ test("api rejects with the status when an error response isn't JSON", async () =
       }),
   );
 
-  expect(await api("sessions.list").catch(String)).toBe(
+  expect(await request("sessions.list").catch(String)).toBe(
     "Error: 503 Service Unavailable",
   );
 
   expect(
-    await api("me.pinnedPages.update", { body: { pages: [] } }).catch(String),
+    await request("me.pinnedPages.update", { body: { pages: [] } }).catch(
+      String,
+    ),
   ).toBe("Error: 503 Service Unavailable");
 });
 
-test("api rejects with the server's error message and code", async () => {
+test("request rejects with the server's error message and code", async () => {
   respond(() =>
     Response.json(
       { error: "signed_out", message: "Sign in again." },
@@ -40,13 +42,15 @@ test("api rejects with the server's error message and code", async () => {
     ),
   );
 
-  const error = await api("sessions.list").catch((caught: unknown) => caught);
+  const error = await request("sessions.list").catch(
+    (caught: unknown) => caught,
+  );
 
   expect(String(error)).toBe("Error: Sign in again.");
   expect((error as Error).cause).toBe("signed_out");
 });
 
-test("api sends the route's method, path, query and JSON body", async () => {
+test("request sends the route's method, path, query and JSON body", async () => {
   const sent: { url: string; init: RequestInit }[] = [];
 
   globalThis.fetch = Object.assign(async (url: string, init?: RequestInit) => {
@@ -55,12 +59,12 @@ test("api sends the route's method, path, query and JSON body", async () => {
     return Promise.resolve(Response.json({ id: "s1" }));
   }, realFetch);
 
-  await api("sessions.update", {
+  await request("sessions.update", {
     params: { id: "a b" },
     body: { archived: true },
   });
 
-  await api("sessions.list", { query: { scope: "team", archived: true } });
+  await request("sessions.list", { query: { scope: "team", archived: true } });
 
   expect(sent.map(({ url, init }) => [init.method, url, init.body])).toEqual([
     ["PATCH", "/api/sessions/a%20b", JSON.stringify({ archived: true })],

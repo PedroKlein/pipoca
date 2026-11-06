@@ -1,5 +1,6 @@
 import { Tabs } from "@pipoca/ui";
 import type { ReactElement } from "react";
+import type { Folder } from "./folder";
 import { type Kind, KindFiles } from "./files";
 import { NamedFiles, type OneFile } from "./named-files";
 
@@ -124,13 +125,14 @@ const namedFiles: Readonly<
 };
 
 export function ProfileTabs({
-  url,
-  hash,
+  folder,
+  base,
   tab,
   overview,
 }: {
-  readonly url: string;
-  readonly hash: string;
+  readonly folder: Folder;
+  // The link to the open Profile or layer, such as #settings/profiles/p1.
+  readonly base: string;
   readonly tab: string;
   readonly overview: ReactElement;
 }): ReactElement {
@@ -143,7 +145,7 @@ export function ProfileTabs({
     <>
       {overviewShown ? (
         <a
-          href={`#${hash}/files`}
+          href={`${base}/files`}
           className="mt-3 self-start rounded-md px-2 py-1 text-label text-fg-dim hover:bg-hover hover:text-fg"
         >
           Open as files
@@ -156,16 +158,18 @@ export function ProfileTabs({
           tabs={tabs.map(([key, label]) => ({
             value: key,
             label,
-            href: `#${hash}/${key}`,
+            href: `${base}/${key}`,
           }))}
         />
       )}
       {overviewShown && overview}
-      {kind && <KindFiles key={`${url}:${tab}`} url={url} kind={kind} />}
+      {kind && (
+        <KindFiles key={`${folder.key}:${tab}`} folder={folder} kind={kind} />
+      )}
       {named && (
         <NamedFiles
-          key={`${url}:${tab}`}
-          url={url}
+          key={`${folder.key}:${tab}`}
+          folder={folder}
           title={named.title}
           files={named.files}
         />

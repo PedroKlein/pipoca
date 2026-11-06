@@ -28,7 +28,7 @@ export function DoneStep({
         ]
       : []),
     {
-      href: href("settings", { page: "push" }),
+      href: "#settings/push",
       title: "Reach it from your phone",
       text: "Notifications when Pi finishes or needs you.",
     },

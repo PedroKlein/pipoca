@@ -9,11 +9,11 @@ import {
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import { api } from "../../api";
-import { useAccessTokens } from "../../hooks";
+import { request } from "../../data/client";
+import { useAction, useQuery } from "../../data/hooks";
 
 export function TokensPage(): ReactElement {
-  const { value: tokens, reload } = useAccessTokens();
+  const tokens = useQuery("me.accessTokens").data ?? [];
 
   // A token shows once, right after it is made, like an Environment's key.
   const [made, setMade] = useState<{
@@ -21,8 +21,11 @@ export function TokensPage(): ReactElement {
     readonly secret: string;
   }>();
 
-  const [error, setError] = useState<string>();
   const [ask, asking] = useConfirm();
+
+  const remove = useAction(async (id: string) =>
+    request("me.accessTokens.remove", { params: { id } }),
+  );
 
   const revoke = async (id: string, name: string): Promise<void> => {
     const yes = await ask({
@@ -32,20 +35,9 @@ export function TokensPage(): ReactElement {
       danger: true,
     });
 
-    if (!yes) {
-      return;
+    if (yes) {
+      await remove.run(id);
     }
-
-    api("me.accessTokens.remove", { params: { id } }).then(
-      () => {
-        setError(undefined);
-        reload();
-      },
-      (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
-        reload();
-      },
-    );
   };
 
   return (
@@ -58,7 +50,6 @@ export function TokensPage(): ReactElement {
         <NewToken
           onCreated={(name, secret) => {
             setMade({ name, secret });
-            reload();
           }}
         />
         {made && (
@@ -96,7 +87,7 @@ export function TokensPage(): ReactElement {
             </Row>
           ))}
         </Rows>
-        <ErrorText size="caption">{error}</ErrorText>
+        <ErrorText size="caption">{remove.error}</ErrorText>
       </div>
       {asking}
     </Page>
@@ -108,24 +99,20 @@ function NewToken({
 }: {
   readonly onCreated: (name: string, secret: string) => void;
 }): ReactElement {
-  const [error, setError] = useState<string>();
+  const create = useAction(async (form: HTMLFormElement) => {
+    const name = new FormData(form).get("name");
+
+    const created = await request("me.accessTokens.create", {
+      body: { name: typeof name === "string" ? name : "" },
+    });
+
+    form.reset();
+    onCreated(created.name, created.secret);
+  });
 
   const submit = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    const form = event.currentTarget;
-    const name = new FormData(form).get("name");
-
-    void api("me.accessTokens.create", {
-      body: { name: typeof name === "string" ? name : "" },
-    })
-      .then((created) => {
-        setError(undefined);
-        form.reset();
-        onCreated(created.name, created.secret);
-      })
-      .catch((reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
-      });
+    void create.run(event.currentTarget);
   };
 
   return (
@@ -142,7 +129,7 @@ function NewToken({
         className="w-48"
       />
       <Button type="submit">New token</Button>
-      <ErrorText size="caption">{error}</ErrorText>
+      <ErrorText size="caption">{create.error}</ErrorText>
     </form>
   );
 }

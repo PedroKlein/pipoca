@@ -4,6 +4,7 @@ import {
   imageTypes,
   type ModelRef,
   type Quote,
+  teamMessagesRead,
   teamTalkSince,
 } from "@pipoca/protocol";
 import {
@@ -30,8 +31,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { api, command } from "./api";
-import { useTeam } from "./hooks";
+import { command, request } from "./data/client";
+import { useQuery } from "./data/hooks";
 import { admit, dataUrl } from "./attachments";
 import type { Feed, Settings, ShownWidget } from "./feed";
 import { modelName, modelRef } from "./names";
@@ -229,7 +230,7 @@ export function Composer({
     };
 
     if (toPeople) {
-      api("sessions.messages.create", {
+      request("sessions.messages.create", {
         params: { id: sessionId },
         body: {
           to: target,
@@ -744,7 +745,8 @@ function TeamTalk({
   readonly unread: number;
   readonly onFork: (() => void) | undefined;
 }): ReactElement | null {
-  const { messagesRead } = useTeam();
+  const messagesRead =
+    useQuery("settings.team").data?.messagesRead ?? teamMessagesRead;
 
   if (unread === 0) {
     return null;

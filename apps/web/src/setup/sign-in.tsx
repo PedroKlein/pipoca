@@ -73,7 +73,6 @@ export function SignInPage({
     void signIn.run(new FormData(event.currentTarget));
   };
 
-
   if (setupToken !== undefined) {
     return <SetupAccount onSubmit={submit} error={error} />;
   }

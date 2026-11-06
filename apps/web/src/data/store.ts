@@ -32,7 +32,8 @@ interface Entry {
   readonly listeners: Set<() => void>;
   sent: number;
   pending?: Promise<void>;
-  unwatch?: () => void;
+  // Every topic a subscriber watches, and how many do.
+  readonly topics: Map<string, { count: number; readonly unwatch: () => void }>;
   // Seeded, so the first subscriber needs no request.
   fresh?: boolean;
 }
@@ -60,7 +61,13 @@ export function createStore(watch: Watch): Store {
       return found;
     }
 
-    const entry: Entry = { snapshot: empty, listeners: new Set(), sent: 0 };
+    const entry: Entry = {
+      snapshot: empty,
+      listeners: new Set(),
+      sent: 0,
+      topics: new Map(),
+    };
+
     entries.set(key, entry);
 
     return entry;
@@ -114,16 +121,24 @@ export function createStore(watch: Watch): Store {
 
     subscribe: <T>(key: string, source: Source<T>, listener: () => void) => {
       const entry = entryOf(key);
+      const topics = source.topics ?? [];
       entry.source = source;
       entry.listeners.add(listener);
 
-      if (entry.listeners.size === 1) {
-        const topics = source.topics ?? [];
+      for (const topic of topics) {
+        const watcher = entry.topics.get(topic);
 
-        if (topics.length > 0) {
-          entry.unwatch = watch(topics, () => void fetch(entry));
+        if (watcher === undefined) {
+          entry.topics.set(topic, {
+            count: 1,
+            unwatch: watch([topic], () => void fetch(entry)),
+          });
+        } else {
+          watcher.count += 1;
         }
+      }
 
+      if (entry.listeners.size === 1) {
         if (entry.fresh === true) {
           delete entry.fresh;
         } else if (entry.pending === undefined) {
@@ -134,9 +149,13 @@ export function createStore(watch: Watch): Store {
       return () => {
         entry.listeners.delete(listener);
 
-        if (entry.listeners.size === 0) {
-          entry.unwatch?.();
-          delete entry.unwatch;
+        for (const topic of topics) {
+          const watcher = entry.topics.get(topic);
+
+          if (watcher !== undefined && --watcher.count === 0) {
+            watcher.unwatch();
+            entry.topics.delete(topic);
+          }
         }
       };
     },
@@ -145,12 +164,7 @@ export function createStore(watch: Watch): Store {
 
     invalidate: (topics) => {
       for (const entry of entries.values()) {
-        const watched = entry.source?.topics ?? [];
-
-        if (
-          entry.listeners.size > 0 &&
-          watched.some((topic) => topics.includes(topic))
-        ) {
+        if (topics.some((topic) => entry.topics.has(topic))) {
           void fetch(entry);
         }
       }

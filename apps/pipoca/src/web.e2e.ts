@@ -1689,7 +1689,7 @@ test("deletes an Environment from its page", async () => {
     })
   ).json()) as { readonly id: string };
 
-  await page.goto(`${server.url.href}#environments/${environment.id}`);
+  await page.goto(`${server.url.href}#settings/environments/${environment.id}`);
 
   await page.getByRole("button", { name: "Delete throwaway" }).click();
   await confirmIn("Delete");
@@ -2032,7 +2032,7 @@ test("keeps a Profile that follows a repository read-only until it is copied", a
     }),
   );
 
-  await page.goto(`${server.url.href}#profiles/${profile.id}`);
+  await page.goto(`${server.url.href}#settings/profiles/${profile.id}`);
 
   const synced = page.getByLabel("Synced from a repository");
   await synced.getByText("0123456").waitFor();
@@ -4929,7 +4929,7 @@ test("keeps team work inside the team's area, with the server's pages shared fro
   await page.getByRole("note").getByText("Server-wide").waitFor();
   await page.getByRole("navigation", { name: "Team setup" }).waitFor();
 
-  await page.goto(new URL("/#plugins", server.url).href);
+  await page.goto(new URL("/#settings/plugins", server.url).href);
 
   await page
     .getByRole("note")

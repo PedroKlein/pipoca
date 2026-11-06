@@ -39,9 +39,10 @@ if (status === undefined) {
 } else {
   await loadPlugins().catch(() => undefined);
 
-  const setup = await request("me.setup").catch(
-    (): SetupState => ({ finished: true, dismissed: [] }),
-  );
+  const setup = await request("me.setup").catch((): SetupState => ({
+    finished: true,
+    dismissed: [],
+  }));
 
   seed("auth.status", status);
   seed("me.setup", setup);

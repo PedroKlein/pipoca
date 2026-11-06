@@ -1,7 +1,8 @@
 import { ApiError, type PluginInfo } from "@pipoca/protocol";
 import { Button, Card, ErrorText, plural, useConfirm } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import { api } from "../../api";
+import { request } from "../../data/client";
+import { useAction } from "../../data/hooks";
 
 // A failed plugin shows its error instead.
 export function switchesAtRestart(plugin: PluginInfo): boolean {
@@ -26,13 +27,12 @@ export function waitsForRestart(plugin: PluginInfo): boolean {
 // again.
 export function Restart(): ReactElement {
   const [state, setState] = useState<"idle" | "restarting">("idle");
-  const [error, setError] = useState<string>();
   const [ask, asking] = useConfirm();
 
   const restart = async (force: boolean): Promise<void> => {
     const before = await startedAt();
 
-    const refused = await api("server.restart", { body: { force } }).then(
+    const refused = await request("server.restart", { body: { force } }).then(
       () => undefined,
       (reason: unknown) => {
         if (reason instanceof ApiError && reason.status === 409) {
@@ -65,6 +65,8 @@ export function Restart(): ReactElement {
     location.reload();
   };
 
+  const now = useAction(restart);
+
   return (
     <Card
       padding="none"
@@ -78,17 +80,13 @@ export function Restart(): ReactElement {
       {state === "idle" && (
         <Button
           onClick={() => {
-            restart(false).catch((reason: unknown) => {
-              setError(
-                reason instanceof Error ? reason.message : String(reason),
-              );
-            });
+            void now.run(false);
           }}
         >
           Restart now
         </Button>
       )}
-      <ErrorText size="caption">{error}</ErrorText>
+      <ErrorText size="caption">{now.error}</ErrorText>
       {asking}
     </Card>
   );
@@ -109,7 +107,7 @@ async function back(before: string | undefined): Promise<void> {
 }
 
 async function startedAt(): Promise<string | undefined> {
-  return api("health").then(
+  return request("health").then(
     ({ started }) => started,
     () => undefined,
   );

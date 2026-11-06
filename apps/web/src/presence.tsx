@@ -1,7 +1,7 @@
 import { apiPath, type Presence } from "@pipoca/protocol";
 import { type ReactElement, useEffect, useRef, useState } from "react";
-import { api } from "./api";
-import { useTeammates } from "./hooks";
+import { request } from "./data/client";
+import { useQuery } from "./data/hooks";
 
 const typingEveryMs = 3000;
 
@@ -48,7 +48,7 @@ export function useTyping(sessionId: string, team: boolean): () => void {
 
     last.current = now;
 
-    void api("sessions.presence.typing", {
+    void request("sessions.presence.typing", {
       params: { id: sessionId },
     }).catch(() => undefined);
   };
@@ -61,7 +61,7 @@ export function PresenceLine({
   readonly people: readonly Presence[];
   readonly me: string;
 }): ReactElement | null {
-  const teammates = useTeammates().value;
+  const teammates = useQuery("people.list").data ?? [];
   const others = people.filter(({ person }) => person !== me);
 
   if (others.length === 0) {

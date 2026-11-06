@@ -1,5 +1,5 @@
 import { profilePath } from "@pipoca/protocol";
-import { base64 } from "../settings/profiles/upload";
+import { base64 } from "../settings/profiles/folder";
 
 // One thing in a picked Pi agent folder that the person can leave out.
 interface Item {

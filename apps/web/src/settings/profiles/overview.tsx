@@ -1,12 +1,12 @@
-import { json, useLoaded } from "@pipoca/plugins/web";
-import { apiPath, type Profile } from "@pipoca/protocol";
+import type { Profile } from "@pipoca/protocol";
 import { ErrorText, initialsOf, Row, Rows, Section } from "@pipoca/ui";
-import { type ReactElement, type ReactNode, useState } from "react";
-import { api } from "../../api";
-import { messageOf } from "./upload";
+import type { ReactElement, ReactNode } from "react";
+import { request } from "../../data/client";
+import { useAction, useLoad } from "../../data/hooks";
+import { scopedHref } from "../../router";
+import { type Folder, layerFolder, profileFolder } from "./folder";
 import {
   type Skill,
-  type Below,
   Instructions,
   SystemPromptCard,
   Skills,
@@ -21,52 +21,44 @@ import {
   serverOf,
 } from "./overview-values";
 
-// Where Profiles open: the team's in Team setup, which never load anyone's
-// My defaults (ADR 0064).
-export function profilesPath(team: boolean): string {
-  return team ? "team/setup/profiles" : "profiles";
-}
-
 // A Profile at a glance, as the mockups lay it out (ADR 0063). Each card
 // opens its tab to edit the files behind it.
 export function ProfileOverview({
   profile,
   profiles,
   editable,
-  onChange,
   children,
 }: {
   readonly profile: Profile;
   readonly profiles: readonly Profile[];
   readonly editable: boolean;
-  readonly onChange: () => void;
   readonly children?: ReactNode;
 }): ReactElement {
-  const url = apiPath("profiles.files", { params: { id: profile.id } });
+  const own = profileFolder(profile.id);
 
   const tab = (name: string): string =>
-    `#${profilesPath(profile.ownerId === "team")}/${profile.id}/${name}`;
+    scopedHref(profile.ownerId === "team", "profiles", `${profile.id}/${name}`);
 
-  const below: readonly Below[] = [
+  const below: readonly { readonly name: string; readonly folder: Folder }[] = [
     ...chainOf(profile, profiles).map(({ id, name }) => ({
       name,
-      url: apiPath("profiles.files", { params: { id } }),
+      folder: profileFolder(id),
     })),
     ...(profile.ownerId === "team"
       ? []
-      : [{ name: "My defaults", url: apiPath("me.profileDefaults.files") }]),
-    { name: "Server base", url: apiPath("settings.baseProfile.files") },
+      : [{ name: "My defaults", folder: layerFolder("defaults") }]),
+    { name: "Server base", folder: layerFolder("base") },
   ];
 
-  const { value: files } = useLoaded(
+  const files = useLoad(
+    `${own.key} overview ${below.map(({ folder }) => folder.key).join(",")}`,
     async () => {
-      const [own, ...layers] = await Promise.all(
-        [{ name: "", url }, ...below].map(async (layer) =>
-          skillsIn(layer.url, layer.name === "" ? undefined : layer.name),
-        ),
-      );
+      const [mine, ...layers] = await Promise.all([
+        skillsIn(own),
+        ...below.map(async (layer) => skillsIn(layer.folder, layer.name)),
+      ]);
 
-      const skills = [own ?? [], ...layers].reduce<readonly Skill[]>(
+      const skills = [mine, ...layers].reduce<readonly Skill[]>(
         (found, layer) => [
           ...found,
           ...layer.filter(
@@ -76,7 +68,7 @@ export function ProfileOverview({
         [],
       );
 
-      const entries = await json<{ readonly path: string }[]>(fetch(url));
+      const entries = await own.list();
 
       const prompts = entries.flatMap(({ path }) => {
         const name = /^prompts\/([^/]+)\.md$/.exec(path)?.[1];
@@ -86,23 +78,18 @@ export function ProfileOverview({
 
       return { skills, prompts };
     },
-    `${url}:${below.map(({ url: each }) => each).join(",")}`,
     { topics: ["profiles"] },
+  ).data;
+
+  const update = useAction(async (body: Partial<Profile>) =>
+    request("profiles.update", { params: { id: profile.id }, body }),
   );
 
-  const [error, setError] = useState<string>();
-
   const save = (body: Partial<Profile>): void => {
-    api("profiles.update", { params: { id: profile.id }, body }).then(
-      () => {
-        setError(undefined);
-        onChange();
-      },
-      (reason: unknown) => {
-        setError(messageOf(reason));
-      },
-    );
+    void update.run(body);
   };
+
+  const error = update.error;
 
   return (
     <>

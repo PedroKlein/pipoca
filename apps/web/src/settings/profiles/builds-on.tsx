@@ -1,4 +1,3 @@
-import { useLoaded } from "@pipoca/plugins/web";
 import type { Profile, ProfileContent } from "@pipoca/protocol";
 import {
   Button,
@@ -10,8 +9,9 @@ import {
   Section,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import { api } from "../../api";
-import { messageOf } from "./upload";
+import { request } from "../../data/client";
+import { useAction, useQuery } from "../../data/hooks";
+import { href } from "../../router";
 import {
   packageText,
   packageOf,
@@ -51,13 +51,22 @@ export function BuildsOn({
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-label">
       <span className="mr-1 text-fg-dim">Builds on</span>
-      <a href={`#profiles/${layerHashes.base}`} className={chipClass}>
+      <a
+        href={href("settings", { page: "profiles", rest: layerHashes.base })}
+        className={chipClass}
+      >
         {layerNames.base}
       </a>
       {step}
       {!team && (
         <>
-          <a href={`#profiles/${layerHashes.defaults}`} className={chipClass}>
+          <a
+            href={href("settings", {
+              page: "profiles",
+              rest: layerHashes.defaults,
+            })}
+            className={chipClass}
+          >
             {layerNames.defaults}
           </a>
           {step}
@@ -91,11 +100,7 @@ export function LayerEditor({
 }: {
   readonly layer: Layer;
 }): ReactElement | null {
-  const { value: content, reload } = useLoaded(
-    async () => api(layerRoutes[layer]),
-    layer,
-    { topics: ["profiles"] },
-  );
+  const content = useQuery(layerRoutes[layer]).data;
 
   // The form starts again when the layer changes, so it doesn't keep this.
   const [saved, setSaved] = useState(false);
@@ -108,7 +113,6 @@ export function LayerEditor({
       saved={saved}
       onSaved={() => {
         setSaved(true);
-        reload();
       }}
     />
   ) : null;
@@ -129,22 +133,19 @@ function LayerForm({
     content.packages.map(packageText),
   );
 
-  const [error, setError] = useState<string>();
+  const save = useAction(async () => {
+    await request(`${layerRoutes[layer]}.update`, {
+      body: { packages: packages.map(packageOf) },
+    });
+
+    onSaved();
+  });
+
+  const error = save.error;
 
   const submit = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
-
-    api(`${layerRoutes[layer]}.update`, {
-      body: { packages: packages.map(packageOf) },
-    }).then(
-      () => {
-        setError(undefined);
-        onSaved();
-      },
-      (reason: unknown) => {
-        setError(messageOf(reason));
-      },
-    );
+    void save.run();
   };
 
   return (

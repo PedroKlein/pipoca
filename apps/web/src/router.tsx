@@ -41,10 +41,12 @@ type OptionalName<Segment extends string> = Segment extends `:${infer Name}?`
     : never;
 
 type Names<N extends RouteName> =
-  | RequiredName<Segments<Table[N]>>
-  | OptionalName<Segments<Table[N]>>;
+  RequiredName<Segments<Table[N]>> | OptionalName<Segments<Table[N]>>;
 
-export type HrefParams<N extends RouteName> = Readonly<Record<RequiredName<Segments<Table[N]>>, string>> & Readonly<Partial<Record<OptionalName<Segments<Table[N]>>, string>>>;
+export type HrefParams<N extends RouteName> = Readonly<
+  Record<RequiredName<Segments<Table[N]>>, string>
+> &
+  Readonly<Partial<Record<OptionalName<Segments<Table[N]>>, string>>>;
 
 export type Route = {
   [N in RouteName]: {
@@ -134,6 +136,11 @@ function build(
   });
 
   return `#${parts.join("/")}`;
+}
+
+// A page a Session asks to open, by its address after #.
+export function addressHref(address: string): string {
+  return routeHref(parse(address));
 }
 
 // Environments and Profiles are a person's in Settings, and the team's in

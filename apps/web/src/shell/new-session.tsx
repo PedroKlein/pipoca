@@ -169,9 +169,7 @@ export function NewSessionForm({
 
   const sessions =
     useQuery("sessions.list", {
-      query: team
-        ? { scope: "team" }
-        : { archived: false, plugins: true },
+      query: team ? { scope: "team" } : { archived: false, plugins: true },
     }).data ?? [];
 
   const message = useRef<HTMLTextAreaElement>(null);
@@ -180,16 +178,14 @@ export function NewSessionForm({
   const [startPoint, setStartPoint] = useState("");
   const [invalid, setInvalid] = useState<string>();
 
-  const start = useAction(
-    async (body: ApiInput<"sessions.create">["body"]) => {
-      const started = await request("sessions.create", { body });
+  const start = useAction(async (body: ApiInput<"sessions.create">["body"]) => {
+    const started = await request("sessions.create", { body });
 
-      setText("");
-      setStartPoint("");
-      onStarted();
-      navigate(href("session", { id: started.id }));
-    },
-  );
+    setText("");
+    setStartPoint("");
+    onStarted();
+    navigate(href("session", { id: started.id }));
+  });
 
   const submitting = start.pending;
 
@@ -203,6 +199,7 @@ export function NewSessionForm({
     start.clear();
     setInvalid(reason);
   };
+
   const [found, setFound] = useState<readonly RepositoryChoice[]>([]);
   const searches = useRef(0);
 
