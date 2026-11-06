@@ -1688,7 +1688,7 @@ export function startPlugins(
     },
     offeredModels: (environment, userId) => {
       const offered = offers.map(({ plugin, offer }) =>
-        guarded(plugin, "models", { models: [] }, () =>
+        guarded(plugin, "offeredModels", { models: [] }, () =>
           offer(environment, userId),
         ),
       );

@@ -230,6 +230,6 @@ test("a plugin that throws when the kernel calls it offers nothing, and Environm
   expect(
     server.logs.filter((line) => line.startsWith("plugin call failed")),
   ).toContain(
-    'plugin call failed {"plugin":"throwing","call":"models","error":"no models today"}',
+    'plugin call failed {"plugin":"throwing","call":"offeredModels","error":"no models today"}',
   );
 });
