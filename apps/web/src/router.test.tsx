@@ -11,7 +11,8 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 
-const { href, navigate, parse, scopedHref, useRoute } = await import(
+const { href, navigate, parse, routeHref, scopedHref, useRoute } =
+  await import(
   "./router"
 );
 
@@ -94,6 +95,9 @@ test("a link and its address open the same page", () => {
     name: "teamPlugin",
     params: { plugin: "usage", key: "costs" },
   });
+
+  expect(routeHref(parse(link))).toBe(link);
+  expect(routeHref(parse("team/"))).toBe("#team");
 });
 
 test("environments and profiles are a person's or the team's", () => {

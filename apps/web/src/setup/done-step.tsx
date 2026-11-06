@@ -1,44 +1,39 @@
 import { cardClass, cn, Icon, linkCardClass } from "@pipoca/ui";
 import type { ReactElement } from "react";
-import { useEnvironments, useProfiles, useSessions } from "../hooks";
+import { useMe } from "../data/hooks";
+import { href } from "../router";
 import { NewSessionForm } from "../shell/new-session";
 import { type WizardStep, useDone } from "./step";
 import { Heading } from "./wizard";
 
 export function DoneStep({
-  user,
-  admin,
   steps,
   onStarted,
   onLeave,
 }: {
-  readonly user: string;
-  readonly admin: boolean;
   readonly steps: readonly WizardStep[];
   readonly onStarted: () => void;
   readonly onLeave: () => void;
 }): ReactElement {
-  const environments = useEnvironments().value;
-  const profiles = useProfiles().value;
-  const sessions = useSessions(false).value;
+  const { user, admin } = useMe();
 
   const next = [
     ...(admin
       ? [
           {
-            href: "#people",
+            href: href("settings", { page: "people" }),
             title: "Invite people",
             text: "Turn this into a team server. Each person gets their own setup.",
           },
         ]
       : []),
     {
-      href: "#settings/push",
+      href: href("settings", { page: "push" }),
       title: "Reach it from your phone",
       text: "Notifications when Pi finishes or needs you.",
     },
     {
-      href: "#environments",
+      href: href("settings", { page: "environments" }),
       title: "Add another machine",
       text: "A VM for heavier work, connected with one command.",
     },
@@ -47,7 +42,7 @@ export function DoneStep({
   return (
     <>
       <Heading
-        title={`You're set, ${user}`}
+        title={`You're set, ${user.name}`}
         description="Here's what Pi will use. Change any of it in Settings."
         centered
       />
@@ -58,9 +53,6 @@ export function DoneStep({
       </ul>
       <div className="rounded-xl border border-line bg-elevated pt-2 shadow-xs">
         <NewSessionForm
-          environments={environments}
-          profiles={profiles}
-          sessions={sessions}
           placeholder="What do you want to build first?"
           onStarted={onStarted}
         />
@@ -68,10 +60,10 @@ export function DoneStep({
       <section className="flex flex-col gap-2">
         <h2 className="text-label text-fg-dim">When you're ready</h2>
         <ul className="grid gap-2.5 md:grid-cols-3">
-          {next.map(({ href, title, text }) => (
-            <li key={href}>
+          {next.map(({ href: link, title, text }) => (
+            <li key={link}>
               <a
-                href={href}
+                href={link}
                 onClick={onLeave}
                 className={cn(
                   linkCardClass,

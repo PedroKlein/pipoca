@@ -1,4 +1,4 @@
-import { ApiError, type JoinInfo, type JoinItem } from "@pipoca/protocol";
+import type { JoinItem } from "@pipoca/protocol";
 import {
   Avatar,
   Badge,
@@ -15,52 +15,35 @@ import {
   StatusMark,
   TextInput,
 } from "@pipoca/ui";
-import {
-  type ReactElement,
-  type SubmitEvent,
-  useEffect,
-  useState,
-} from "react";
-import { api } from "../api";
+import type { ReactElement, SubmitEvent } from "react";
+import { request } from "../data/client";
+import { useAction, useQuery } from "../data/hooks";
 
 // Where an invite's link lands someone who isn't signed in (ADR 0063).
 export function JoinPage({ token }: { readonly token: string }): ReactElement {
-  const [info, setInfo] = useState<JoinInfo | string>();
-  const [error, setError] = useState<string>();
+  const invite = useQuery("auth.invite", { params: { token } });
+  const info = invite.data ?? invite.error;
 
-  useEffect(() => {
-    api("auth.invite", { params: { token } })
-      .then(setInfo)
-      .catch((reason: unknown) => {
-        setInfo(
-          reason instanceof ApiError
-            ? reason.message
-            : "The server can't be reached. Reload to try again.",
-        );
-      });
-  }, [token]);
-
-  const submit = (event: SubmitEvent<HTMLFormElement>): void => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-
+  const join = useAction(async (form: FormData) => {
     const text = (name: string): string => {
       const value = form.get(name);
 
       return typeof value === "string" ? value : "";
     };
 
-    api("auth.invite.accept", {
+    await request("auth.invite.accept", {
       params: { token },
       body: { name: text("name"), password: text("password") },
-    }).then(
-      () => {
-        location.replace("/");
-      },
-      (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
-      },
-    );
+    });
+
+    location.replace("/");
+  });
+
+  const error = join.error;
+
+  const submit = (event: SubmitEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    void join.run(new FormData(event.currentTarget));
   };
 
   return (

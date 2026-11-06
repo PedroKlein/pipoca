@@ -1,11 +1,12 @@
 import type { SetupState } from "@pipoca/protocol";
 import { createRoot } from "react-dom/client";
-import { api } from "./api";
+import { request } from "./data/client";
+import { seed } from "./data/hooks";
 import { App } from "./shell/app";
 import { AppSignIn, pendingAppSignIn } from "./setup/app-sign-in";
 import { JoinPage } from "./setup/join";
-import { Me } from "./me";
-import { loadPlugins, navEntries, PluginShell } from "./plugins";
+import { loadPlugins } from "./plugins";
+import { parse } from "./router";
 import { SignInPage } from "./setup/sign-in";
 import { applyTheme } from "./theme";
 
@@ -16,24 +17,19 @@ if (!root) {
 
 applyTheme();
 
-const status = await api("auth.status").catch(() => undefined);
-
-const setupToken = /^#setup\/(.+)$/.exec(location.hash)?.[1];
-const joinToken = /^#join\/(.+)$/.exec(location.hash)?.[1];
+const status = await request("auth.status").catch(() => undefined);
+const route = parse(location.hash);
 const appChallenge = pendingAppSignIn();
 
 if (status === undefined) {
   root.textContent = "The server can't be reached. Reload to try again.";
-} else if (status.user === null && joinToken !== undefined) {
-  createRoot(root).render(<JoinPage token={joinToken} />);
+} else if (status.user === null && route.name === "join") {
+  createRoot(root).render(<JoinPage token={route.params.token} />);
 } else if (status.user === null) {
   createRoot(root).render(
     <SignInPage
-      setup={status.setup}
-      setupToken={setupToken}
-      logins={status.logins}
-      passwordLogin={status.passwordLogin}
-      solo={status.solo}
+      status={status}
+      setupToken={route.name === "setup" ? route.params.token : undefined}
     />,
   );
 } else if (appChallenge !== undefined) {
@@ -43,39 +39,11 @@ if (status === undefined) {
 } else {
   await loadPlugins().catch(() => undefined);
 
-  const setup = await api("me.setup").catch((): SetupState => ({
-    finished: true,
-    dismissed: [],
-  }));
-
-  createRoot(root).render(
-    <Me
-      value={{
-        id: status.user.id,
-        admin: status.user.admin,
-        team: !status.solo,
-      }}
-    >
-      <PluginShell
-        viewer={{
-          person: {
-            id: status.user.id,
-            name: status.user.name,
-            admin: status.user.admin,
-          },
-          admin: status.user.admin,
-          team: !status.solo,
-        }}
-      >
-        <App
-          nav={navEntries()}
-          user={status.user.name}
-          admin={status.user.admin}
-          setup={setup}
-          people={status.user.admin && !status.solo}
-          team={!status.solo}
-        />
-      </PluginShell>
-    </Me>,
+  const setup = await request("me.setup").catch(
+    (): SetupState => ({ finished: true, dismissed: [] }),
   );
+
+  seed("auth.status", status);
+  seed("me.setup", setup);
+  createRoot(root).render(<App />);
 }

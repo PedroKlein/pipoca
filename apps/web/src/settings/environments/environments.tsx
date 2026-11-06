@@ -18,28 +18,31 @@ import {
   TextInput,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import { api } from "../../api";
-import { useTemplates } from "../../hooks";
+import { request } from "../../data/client";
+import { useAction, useQuery } from "../../data/hooks";
+import { navigate, scopedHref } from "../../router";
 import { Templates } from "./templates";
-import { environmentsPath, kindIcon, kindName } from "./kinds";
+import { kindIcon, kindName } from "./kinds";
 import { Editor } from "./editor";
 
 // A person's Environments in Settings, or with team the team's in Team
 // setup.
 export function EnvironmentsPage({
-  environments,
   team = false,
   selected,
-  onChange,
 }: {
-  readonly environments: readonly Environment[];
   readonly team?: boolean;
   readonly selected: string;
-  readonly onChange: () => void;
 }): ReactElement {
+  const environments =
+    useQuery(
+      "environments.list",
+      team ? { query: { scope: "team" } } : undefined,
+    ).data ?? [];
+
   const environment = environments.find(({ id }) => id === selected);
-  const root = environmentsPath(team);
-  const templates = useTemplates();
+  const root = scopedHref(team, "environments");
+  const templates = useQuery("environmentTemplates.list").data ?? [];
   const [adding, setAdding] = useState(false);
 
   // A key shows once, right after it is made (ADR 0033).
@@ -52,7 +55,7 @@ export function EnvironmentsPage({
     return (
       <Page id="environments-page">
         <a
-          href={`#${root}`}
+          href={root}
           className="mb-3 inline-flex items-center gap-1 text-label text-fg-dim hover:text-fg"
         >
           <Icon name="chevron-left" className="size-3.5" />
@@ -61,7 +64,7 @@ export function EnvironmentsPage({
         <Editor
           key={environment.id}
           environment={environment}
-          template={templates.value.find(
+          template={templates.find(
             ({ id }) => id === environment.templateId,
           )}
           madeKey={
@@ -69,9 +72,7 @@ export function EnvironmentsPage({
           }
           onKey={(key) => {
             setMadeKey({ environmentId: environment.id, key });
-            onChange();
           }}
-          onChange={onChange}
         />
       </Page>
     );
@@ -100,13 +101,12 @@ export function EnvironmentsPage({
     >
       {adding && (
         <NewEnvironment
-          templates={templates.value}
+          templates={templates}
           team={team}
           onCreated={(environmentId, key) => {
             setMadeKey({ environmentId, key });
             setAdding(false);
-            onChange();
-            location.hash = `#${root}/${environmentId}`;
+            navigate(scopedHref(team, "environments", environmentId));
           }}
         />
       )}
@@ -127,7 +127,7 @@ export function EnvironmentsPage({
           <li key={each.id}>
             <EnvironmentCard
               environment={each}
-              template={templates.value.find(
+              template={templates.find(
                 ({ id }) => id === each.templateId,
               )}
             />
@@ -135,7 +135,7 @@ export function EnvironmentsPage({
         ))}
       </ul>
       {!team && (
-        <Templates templates={templates.value} onChange={templates.reload} />
+        <Templates templates={templates} />
       )}
     </Page>
   );
@@ -165,7 +165,11 @@ function EnvironmentCard({
 
   return (
     <a
-      href={`#${environmentsPath(environment.ownerId === "team")}/${environment.id}`}
+      href={scopedHref(
+        environment.ownerId === "team",
+        "environments",
+        environment.id,
+      )}
       className={cn(linkCardClass, "flex items-center gap-4 p-4")}
     >
       <Avatar name={environment.name} square size="lg">
@@ -213,30 +217,26 @@ function NewEnvironment({
   readonly team: boolean;
   readonly onCreated: (environmentId: string, key: string) => void;
 }): ReactElement {
-  const [error, setError] = useState<string>();
-
-  const submit = (event: SubmitEvent<HTMLFormElement>): void => {
-    event.preventDefault();
-    const form = event.currentTarget;
+  const create = useAction(async (form: HTMLFormElement) => {
     const fields = new FormData(form);
     const template = fields.get("template");
     const name = fields.get("name");
 
-    void api("environments.create", {
+    const created = await request("environments.create", {
       body: {
         name: typeof name === "string" ? name : "",
         ...(typeof template === "string" && template !== "" && { template }),
         ...(team && { team: true }),
       },
-    })
-      .then((created) => {
-        setError(undefined);
-        form.reset();
-        onCreated(created.id, created.key);
-      })
-      .catch((reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
-      });
+    });
+
+    form.reset();
+    onCreated(created.id, created.key);
+  });
+
+  const submit = (event: SubmitEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    void create.run(event.currentTarget);
   };
 
   return (
@@ -263,7 +263,7 @@ function NewEnvironment({
         </Select>
       )}
       <Button type="submit">Create</Button>
-      <ErrorText size="caption">{error}</ErrorText>
+      <ErrorText size="caption">{create.error}</ErrorText>
     </form>
   );
 }

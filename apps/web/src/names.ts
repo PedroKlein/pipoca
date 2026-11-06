@@ -110,7 +110,3 @@ export function shortName(workspace: Workspace): string {
   }
 }
 
-// Team work opens inside the team's area (ADR 0065).
-export function teamSessionHref(sessionId: string): string {
-  return `#team/sessions/${sessionId}`;
-}

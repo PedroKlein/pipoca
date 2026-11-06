@@ -1,7 +1,8 @@
 import type { Environment } from "@pipoca/protocol";
 import { Button, Command, ErrorText, useConfirm } from "@pipoca/ui";
-import { type ReactElement, useState } from "react";
-import { api } from "../../api";
+import type { ReactElement } from "react";
+import { request } from "../../data/client";
+import { useAction } from "../../data/hooks";
 
 export function JoinKey({
   environment,
@@ -12,10 +13,9 @@ export function JoinKey({
   readonly madeKey: string | undefined;
   readonly onKey: (key: string) => void;
 }): ReactElement {
-  const [error, setError] = useState<string>();
   const [ask, asking] = useConfirm();
 
-  const replace = async (): Promise<void> => {
+  const replace = useAction(async () => {
     if (
       environment.hasKey &&
       !(await ask({
@@ -28,14 +28,12 @@ export function JoinKey({
       return;
     }
 
-    void api("environments.keys.create", { params: { id: environment.id } })
-      .then(({ key }) => {
-        onKey(key);
-      })
-      .catch((reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
-      });
-  };
+    const { key } = await request("environments.keys.create", {
+      params: { id: environment.id },
+    });
+
+    onKey(key);
+  });
 
   return (
     <div className="mt-3 flex flex-col gap-2 text-ui">
@@ -58,12 +56,12 @@ export function JoinKey({
       <div className="flex flex-wrap items-center gap-2">
         <Button
           onClick={() => {
-            void replace();
+            void replace.run();
           }}
         >
           {environment.hasKey ? "Replace key" : "Make key"}
         </Button>
-        <ErrorText size="caption">{error}</ErrorText>
+        <ErrorText size="caption">{replace.error}</ErrorText>
       </div>
       {asking}
     </div>

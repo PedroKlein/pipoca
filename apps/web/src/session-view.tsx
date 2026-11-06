@@ -26,14 +26,14 @@ import {
   type ReactNode,
   type RefObject,
   useCallback,
-  useContext,
   useEffect,
   useEffectEvent,
   useMemo,
   useRef,
   useState,
 } from "react";
-import { api, command } from "./api";
+import { command, request } from "./data/client";
+import { invalidate, useMe, useQuery } from "./data/hooks";
 import { ago } from "./chat";
 import { Composer, prefillComposer, type Replying } from "./composer";
 import { ChatView } from "./chat-view";
@@ -42,7 +42,6 @@ import {
   describe,
   sessionBadge,
   shortName,
-  teamSessionHref,
   workspaceName,
 } from "./names";
 import { PluginBoundary } from "./plugin-boundary";
@@ -50,19 +49,16 @@ import { PrimaryView, usePrimaryId } from "./primary";
 import { pluginContext, useSessionPlugins } from "./plugins";
 import { sessionChannel } from "./session-channel";
 import { keyBar, type Modifier, modified } from "./keys";
-import { useTeammates } from "./hooks";
-import { Me } from "./me";
 import { PresenceLine, usePresence, useTyping } from "./presence";
 import { AccessDialog, accessLabels, steers } from "./team-access";
 import { MoveDialog } from "./move-team";
 import { openTerminal } from "./terminal";
+import { href, navigate } from "./router";
 
 type View = "chat" | "pi" | "terminal";
 
 export function SessionView({
   sessionId,
-  environments,
-  onSessionChange,
   onMenu,
   layout = "full",
   title: shownTitle,
@@ -70,8 +66,6 @@ export function SessionView({
   actions,
 }: {
   readonly sessionId: string;
-  readonly environments: readonly Environment[];
-  readonly onSessionChange?: () => void;
   readonly onMenu?: () => void;
 } & Omit<EmbeddedSessionProps, "sessionId" | "layout"> &
   Partial<Pick<EmbeddedSessionProps, "layout">>): ReactElement {
@@ -83,12 +77,14 @@ export function SessionView({
   const [limiting, setLimiting] = useState(false);
   const [moving, setMoving] = useState(false);
   const [ask, asking] = useConfirm();
-  const me = useContext(Me);
+  const { user, admin, team: hasTeam } = useMe();
+  const me = { id: user.id, admin, team: hasTeam };
+  const environments = useQuery("environments.list").data ?? [];
   const report = useRef<(error: unknown) => void>(() => undefined);
   const [channel] = useState(() => sessionChannel(sessionId));
 
   const sessionChanged = useEffectEvent(() => {
-    onSessionChange?.();
+    invalidate(["sessions"]);
   });
 
   const reportError = useCallback((error: unknown) => {
@@ -126,15 +122,15 @@ export function SessionView({
   const present = usePresence(sessionId, team);
   const typed = useTyping(sessionId, team);
   const [replying, setReplying] = useState<Replying>();
-  const teammates = useTeammates().value;
+  const teammates = useQuery("people.list").data ?? [];
 
   const limits =
     session?.ownedBy === "team" && (me.admin || session.startedBy === me.id);
 
   // Team work opens inside the team's area, whichever link led to it.
   useEffect(() => {
-    if (primary && team && location.hash === `#${sessionId}`) {
-      location.replace(teamSessionHref(sessionId));
+    if (primary && team && location.hash === href("session", { id: sessionId })) {
+      navigate(href("teamSession", { id: sessionId }), { replace: true });
     }
   }, [primary, team, sessionId]);
 
@@ -202,7 +198,7 @@ export function SessionView({
     draft = "",
   ): Promise<void> => {
     try {
-      const fork = await api("sessions.create", {
+      const fork = await request("sessions.create", {
         body: {
           from: { session: sessionId, ...(entry !== undefined && { entry }) },
           ...(personal && { personal }),
@@ -215,21 +211,23 @@ export function SessionView({
         prefillComposer(fork.id, editorText);
       }
 
-      location.hash = team && !personal ? teamSessionHref(fork.id) : fork.id;
+      navigate(
+        href(team && !personal ? "teamSession" : "session", { id: fork.id }),
+      );
     } catch (error) {
       reportError(error);
     }
   };
 
   const archive = (to: boolean): void => {
-    api("sessions.update", {
+    request("sessions.update", {
       params: { id: sessionId },
       body: { archived: to },
     }).catch(reportError);
   };
 
   const removeWorkspace = (): void => {
-    api("sessions.workspace.remove", { params: { id: sessionId } }).catch(
+    request("sessions.workspace.remove", { params: { id: sessionId } }).catch(
       reportError,
     );
   };
@@ -718,7 +716,7 @@ function UiActionNotice({
     handled.current = uiAction.key;
 
     if (goes && matchMedia("(width >= 48rem)").matches) {
-      location.hash = `#${uiAction.action.route}`;
+      navigate(`#${uiAction.action.route}`);
     }
   }, [uiAction, goes]);
 

@@ -134,6 +134,24 @@ export function useLoad<T>(
   };
 }
 
+const cacheKey = <Key extends QueryKey>(key: Key, args: ApiArgs<Key>): string =>
+  `GET ${apiPath(key, ...args)}`;
+
+// Reads again what watches the topics, for a change the page learned of
+// another way, such as a Session's own events.
+export function invalidate(topics: readonly string[]): void {
+  store.invalidate(topics);
+}
+
+// An answer the page already has, such as one read before it first drew.
+export function seed<Key extends QueryKey>(
+  key: Key,
+  data: ApiReply<Key>,
+  ...args: ApiArgs<Key>
+): void {
+  store.seed(cacheKey(key, args), data);
+}
+
 // A route's answer, typed by the route table.
 export function useQuery<Key extends QueryKey>(
   key: Key,
@@ -142,7 +160,7 @@ export function useQuery<Key extends QueryKey>(
   const args = [input] as ApiArgs<Key>;
 
   return useLoad(
-    `GET ${apiPath(key, ...args)}`,
+    cacheKey(key, args),
     async () => signedIn(request(key, ...args)),
     {
       ...options,

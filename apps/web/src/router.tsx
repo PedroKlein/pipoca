@@ -111,9 +111,18 @@ export function href<N extends RouteName>(
   name: N,
   ...[params]: HrefArgs<N>
 ): string {
-  const given: Readonly<Record<string, string | undefined>> = params ?? {};
-  const pattern: string = table[name];
+  return build(table[name], params ?? {});
+}
 
+// The link back to a page the address opened.
+export function routeHref(route: Route): string {
+  return build(table[route.name], route.params);
+}
+
+function build(
+  pattern: string,
+  given: Readonly<Record<string, string | undefined>>,
+): string {
   const parts = pattern.split("/").flatMap((segment) => {
     if (!segment.startsWith(":") && !segment.startsWith("*")) {
       return segment === "" ? [] : [segment];
