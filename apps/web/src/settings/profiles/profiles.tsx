@@ -15,8 +15,7 @@ import { useAction, useMe, useQuery } from "../../data/hooks";
 import { href, scopedHref } from "../../router";
 import { layerFolder, profileFolder } from "./folder";
 import { ProfileOverview } from "./overview";
-import { PluginBoundary } from "../../plugin-boundary";
-import { enabledPlugins, pluginContext } from "../../plugins";
+import { SettingsSlot } from "../settings-slot";
 import { layerHashes, type Layer, layerNames, chipClass } from "./layers";
 import { Editor } from "./editor";
 import { ProfileTabs } from "./tabs";
@@ -143,7 +142,9 @@ export function ProfilesPage({
                 profiles={profiles}
                 editable={profile.source === null}
               >
-                {!team && <ProfileParts profileId={profile.id} />}
+                {!team && (
+                  <SettingsSlot slot="Profile" profileId={profile.id} />
+                )}
               </ProfileOverview>
               <Editor
                 key={`${profile.id}:${JSON.stringify(profile.packages)}:${profile.buildsOn ?? ""}`}
@@ -199,28 +200,5 @@ export function ProfilesPage({
         </EmptyState>
       )}
     </Page>
-  );
-}
-
-// What plugins add to a Profile's page, such as its own logins (ADR 0063).
-function ProfileParts({
-  profileId,
-}: {
-  readonly profileId: string;
-}): ReactElement {
-  return (
-    <>
-      {enabledPlugins().map(({ name, settingsParts }) => {
-        const Part = settingsParts?.Profile;
-
-        return (
-          Part && (
-            <PluginBoundary key={name} name={name}>
-              <Part context={pluginContext(name)} profileId={profileId} />
-            </PluginBoundary>
-          )
-        );
-      })}
-    </>
   );
 }

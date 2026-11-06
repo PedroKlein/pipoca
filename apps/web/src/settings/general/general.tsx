@@ -15,8 +15,7 @@ import {
 import type { ReactElement } from "react";
 import { request } from "../../data/client";
 import { useMe, useQuery } from "../../data/hooks";
-import { PluginBoundary } from "../../plugin-boundary";
-import { enabledPlugins, pluginContext } from "../../plugins";
+import { SettingsSlot } from "../settings-slot";
 import { useTheme } from "../../theme";
 import {
   useVerbosity,
@@ -91,17 +90,7 @@ export function GeneralPage(): ReactElement {
         </Rows>
       </Section>
       <StartWith account={account} />
-      {enabledPlugins().map(({ name, settingsParts }) => {
-        const Part = settingsParts?.General;
-
-        return (
-          Part && (
-            <PluginBoundary key={name} name={name}>
-              <Part context={pluginContext(name)} />
-            </PluginBoundary>
-          )
-        );
-      })}
+      <SettingsSlot slot="General" />
       <div className="mt-8 flex gap-2">
         <Button
           onClick={() => {
