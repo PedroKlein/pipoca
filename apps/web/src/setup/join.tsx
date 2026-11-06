@@ -7,12 +7,12 @@ import {
   ErrorText,
   Field,
   Hero,
+  Icon,
   raisedCardClass,
   Row,
   Rows,
   SetupShell,
   Spinner,
-  StatusMark,
   TextInput,
 } from "@pipoca/ui";
 import type { ReactElement, SubmitEvent } from "react";
@@ -172,10 +172,16 @@ function Items({
           <Row
             key={title}
             leading={
-              <StatusMark
-                status={done ? "done" : "pending"}
-                label={done ? "Set up" : "To do"}
-              />
+              <span
+                role="img"
+                aria-label={done ? "Set up" : "To do"}
+                className={cn(
+                  "grid size-5 shrink-0 place-items-center rounded-full",
+                  done ? "bg-done text-on-accent" : "border border-line-strong",
+                )}
+              >
+                {done && <Icon name="check" className="size-3" />}
+              </span>
             }
             title={
               <>

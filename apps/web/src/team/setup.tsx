@@ -157,6 +157,9 @@ export function TeamSetup({
           ...(entry.count !== undefined && { count: entry.count }),
         })),
       }))}
+      phone="menu"
+      menuOpen={given === ""}
+      menuHref={href("teamSetup")}
     >
       {content()}
     </AreaLayout>

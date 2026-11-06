@@ -1,7 +1,7 @@
 import { AreaLayout, Avatar, cn, Icon, linkCardClass, Page } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
 import { AccountsPage } from "./accounts/accounts";
-import { useMe } from "../data/hooks";
+import { useMe, useQuery } from "../data/hooks";
 import { EnvironmentsPage } from "./environments/environments";
 import { GeneralPage } from "./general/general";
 import { PluginBoundary } from "../plugin-boundary";
@@ -59,6 +59,7 @@ export function SettingsLayout({
   readonly rest: string;
 }): ReactElement {
   const { user, admin, team } = useMe();
+  const shown = useQuery("me").data?.displayName ?? user.name;
   const people = admin && team;
   const open = page === "" ? "general" : page;
 
@@ -122,11 +123,12 @@ export function SettingsLayout({
           href={href("settings", { page: "general" })}
           className={cn("mt-1 flex items-center gap-3 p-3.5", linkCardClass)}
         >
-          <Avatar name={user.name} size="lg" className="size-10 text-ui">
-            {user.name.slice(0, 1).toUpperCase()}
-          </Avatar>
-          <span className="flex-1 text-ui font-medium text-fg-strong">
-            {user.name}
+          <Avatar name={shown} size="lg" className="size-10 text-ui" />
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="text-ui font-medium text-fg-strong">{shown}</span>
+            <span className="text-label text-fg-dim">
+              {admin ? `Admin · @${user.name}` : `@${user.name}`}
+            </span>
           </span>
           <Icon name="chevron-right" className="text-fg-dim" />
         </a>

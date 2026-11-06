@@ -116,7 +116,11 @@ export function PeoplePage(): ReactElement {
           },
         ]}
       />
-      <Card role="tabpanel" padding="none" className="mt-1.5 overflow-x-auto">
+      <Card
+        role="tabpanel"
+        padding="none"
+        className="relative mt-1.5 overflow-x-auto"
+      >
         {tab === "invites" && (
           <InvitesTable
             invites={invites}

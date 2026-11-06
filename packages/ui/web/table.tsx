@@ -46,7 +46,9 @@ export function Table({
   return bare ? (
     table
   ) : (
-    <div className={cn("overflow-x-auto", cardClass, className)}>{table}</div>
+    <div className={cn("relative overflow-x-auto", cardClass, className)}>
+      {table}
+    </div>
   );
 }
 

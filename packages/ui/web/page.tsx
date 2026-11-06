@@ -63,7 +63,7 @@ function PageTitle({
   readonly actions?: ReactNode;
 }): ReactElement {
   return (
-    <header className="mb-6 flex items-start gap-6">
+    <header className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:gap-6">
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <h1 className="text-display font-medium tracking-tight text-fg-strong">
           {children}
@@ -73,7 +73,7 @@ function PageTitle({
         )}
       </div>
       {actions !== undefined && (
-        <div className="mt-7 flex shrink-0 gap-2">{actions}</div>
+        <div className="flex shrink-0 flex-wrap gap-2 md:mt-7">{actions}</div>
       )}
     </header>
   );
