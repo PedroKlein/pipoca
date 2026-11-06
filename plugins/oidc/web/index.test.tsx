@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { renderPart } from "@pipoca/plugins/web/testing";
-import { until } from "@pipoca/testing/until";
+import { until } from "@pipoca/testing";
 import { act } from "react";
 import type { Account } from "../src/model";
 import { web } from "./index";

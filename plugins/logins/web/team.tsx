@@ -1,5 +1,5 @@
-import { json, useLoaded } from "@pipoca/plugins/web";
-import { request } from "./request";
+import { logins } from "../plugin";
+import { useLoaded, useApi } from "@pipoca/plugins/web";
 import type { Environment, Profile, ProfileContent } from "@pipoca/protocol";
 import { Badge, initialsOf, PageTitle, Row, Rows, Section } from "@pipoca/ui";
 import type { ReactElement } from "react";
@@ -18,8 +18,10 @@ interface Reaching {
 // The team's credentials and where each one goes: keys the proxy holds for
 // team work, and secrets that still reach its runners (ADR 0066).
 export function TeamCredentials(): ReactElement {
+  const api = useApi(logins);
+
   const { value: keys = [] } = useLoaded(
-    async () => json<readonly TeamKey[]>(request("keys")),
+    async () => api.get<readonly TeamKey[]>("keys"),
     "keys",
     { topics: ["logins.logins"] },
   );
@@ -27,9 +29,9 @@ export function TeamCredentials(): ReactElement {
   const { value: loaded } = useLoaded(
     async () => {
       const [profiles, base, environments] = await Promise.all([
-        json<readonly Profile[]>(request("/api/profiles?scope=team")),
-        json<ProfileContent>(request("/api/settings/base-profile")),
-        json<readonly Environment[]>(request("/api/environments?scope=team")),
+        api.get<readonly Profile[]>("/api/profiles?scope=team"),
+        api.get<ProfileContent>("/api/settings/base-profile"),
+        api.get<readonly Environment[]>("/api/environments?scope=team"),
       ]);
 
       return {

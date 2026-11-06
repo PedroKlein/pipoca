@@ -1,5 +1,5 @@
-import { json, useLoaded } from "@pipoca/plugins/web";
-import { request } from "./request";
+import { logins } from "../plugin";
+import { useLoaded, useApi } from "@pipoca/plugins/web";
 import type { Profile } from "@pipoca/protocol";
 import {
   Badge,
@@ -31,20 +31,22 @@ export function ProfileLogins({
 }: {
   readonly profileId: string;
 }): ReactElement | null {
+  const api = useApi(logins);
+
   const { value: account, reload } = useLoaded(
-    async () => json<Account>(request("account")),
+    async () => api.get<Account>("account"),
     "account",
     { topics: ["logins.logins"] },
   );
 
   const { value: profiles } = useLoaded(
-    async () => json<readonly Profile[]>(request("/api/profiles")),
+    async () => api.get<readonly Profile[]>("/api/profiles"),
     "profiles",
     { topics: ["profiles"] },
   );
 
   const { value: providers = [] } = useLoaded(
-    async () => json<readonly Connectable[]>(request("providers")),
+    async () => api.get<readonly Connectable[]>("providers"),
     "providers",
   );
 
@@ -117,8 +119,8 @@ export function ProfileLogins({
     ),
   ];
 
-  const send = (path: string, init: RequestInit): void => {
-    json(request(path, init)).then(
+  const send = (call: Promise<unknown>): void => {
+    call.then(
       () => {
         setChoosing(undefined);
         setError(undefined);
@@ -137,8 +139,9 @@ export function ProfileLogins({
 
       if (line.own) {
         send(
-          `${line.kind === "model" ? "credentials" : "mcp"}/${encodeURIComponent(line.key)}?layer=${own}`,
-          { method: "DELETE" },
+          api.delete(
+            `${line.kind === "model" ? "credentials" : "mcp"}/${encodeURIComponent(line.key)}?layer=${own}`,
+          ),
         );
       }
 
@@ -146,10 +149,7 @@ export function ProfileLogins({
     }
 
     if (line.kind === "mcp") {
-      send("connect-mcp", {
-        method: "POST",
-        body: JSON.stringify({ server: line.key, layer: own }),
-      });
+      send(api.post("connect-mcp", { server: line.key, layer: own }));
 
       return;
     }

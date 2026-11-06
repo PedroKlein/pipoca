@@ -1021,6 +1021,7 @@ test("keeps an archived Session's claim while its workspace is kept, until force
   await t
     .as("ana")
     .raw(`/api/sessions/${session.id}/workspace`, { method: "DELETE" });
+
   await pass();
 
   expect(api.claims.has(name)).toBe(false);

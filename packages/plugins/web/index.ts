@@ -10,6 +10,7 @@ import {
   useEffectEvent,
   useState,
 } from "react";
+import type { TypedClient } from "../src/client";
 import { watchChanges } from "./changes";
 import { responseOrder } from "./responses";
 import { topicOf, useScope } from "./shell";
@@ -23,6 +24,7 @@ export {
   Slot,
   type Slots,
   useApi,
+  useConfig,
   useSessionState,
   useToolResults,
   useViewer,
@@ -77,7 +79,9 @@ export interface SetupStep {
   readonly optional?: boolean;
   // Gives the step's page more room, such as for a grid of providers.
   readonly wide?: boolean;
-  readonly done: () => Promise<boolean>;
+  // A client of the plugin's routes, and of the kernel's for a path that
+  // starts with /.
+  readonly done: (api: TypedClient) => Promise<boolean>;
   // The kernel's topics, and the plugin's own changes as its routes name them.
   readonly topics?: readonly string[];
   readonly changes?: readonly string[];

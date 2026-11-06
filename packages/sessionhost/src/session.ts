@@ -164,7 +164,6 @@ export async function startSession(
       ...(host ? [toolFinders(host.tools)] : []),
       ...(host?.extensions ?? []),
     ],
-    ...(host && { onError: host.onError }),
     ...(host?.logins && { credentials: host.logins.models }),
   });
 
@@ -337,7 +336,6 @@ async function loadServices(
   cwd: string,
   options: ModelOptions,
   {
-    onError = () => undefined,
     projectTrusted = true,
     credentials,
     ...resources
@@ -346,7 +344,6 @@ async function loadServices(
     readonly projectTrusted?: boolean;
     readonly appendSystemPromptOverride?: (base: string[]) => string[];
     readonly extensionFactories?: InlineExtension[];
-    readonly onError?: (error: ExtensionError) => void;
   } = {},
 ): Promise<AgentSessionServices> {
   const { agentDir } = options;

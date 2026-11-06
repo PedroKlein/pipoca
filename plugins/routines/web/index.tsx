@@ -1,7 +1,6 @@
 import {
   defineWeb,
   href as pageHref,
-  json,
   type MountedSession,
   SessionView,
   useApi,
@@ -90,9 +89,11 @@ function Page({ path }: { readonly path: string }): ReactElement {
 }
 
 function RoutineList(): ReactElement {
+  const api = useApi(routines);
+
   const team =
     useLoaded(
-      async () => json<unknown[]>(fetch("/api/environments?scope=team")),
+      async () => api.get<unknown[]>("/api/environments?scope=team"),
       "team-environments",
       { topics: ["environments"] },
     ).value ?? [];

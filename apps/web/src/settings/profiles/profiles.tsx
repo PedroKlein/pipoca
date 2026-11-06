@@ -210,7 +210,7 @@ function ProfileParts({
   return (
     <>
       {enabledPlugins().map(({ name, settingsParts }) => {
-        const Part = settingsParts?.Profile;
+        const Part = settingsParts.Profile;
 
         return (
           Part && (

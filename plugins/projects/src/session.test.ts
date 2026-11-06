@@ -176,6 +176,7 @@ test("the person's assistant is a Project of their own, outside the Project list
 
   expect(assistant).toMatchObject({ assistant: true, repositories: [] });
   expect(await t.as("ana").get("projects")).toEqual([]);
+
   expect((await t.as("bo").raw("assistant", { method: "GET" })).status).toBe(
     404,
   );

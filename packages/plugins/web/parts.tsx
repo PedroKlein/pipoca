@@ -26,6 +26,8 @@ import type {
   TemplateSectionProps,
   ToolCallProps,
 } from "./index";
+import { storedConfig } from "./config-form";
+import { useLoaded } from "./index";
 import { useShell, usePlugin, type Viewer } from "./shell";
 
 type Nothing = Readonly<Record<string, never>>;
@@ -85,6 +87,7 @@ export interface WebPart<P extends PluginDefinition = PluginDefinition> {
   readonly repositories?: (
     query: string,
     team: boolean,
+    api: TypedClient,
   ) => Promise<readonly RepositoryChoice[]>;
 }
 
@@ -143,6 +146,16 @@ export function useViewer(): Viewer {
 
 export function useApi(plugin: Pick<PluginDefinition, "id">): TypedClient {
   return useMemo(() => pluginClient({ id: plugin.id }), [plugin.id]);
+}
+
+// The plugin's config as pipoca.json keeps it, its secrets sealed or named,
+// for admins.
+export function useConfig(
+  plugin: Pick<PluginDefinition, "id">,
+): Readonly<Record<string, unknown>> | undefined {
+  return useLoaded(async () => storedConfig(plugin.id), plugin.id, {
+    topics: ["plugins"],
+  }).value;
 }
 
 // What the plugin's Session part last published under key.

@@ -92,7 +92,7 @@ export function GeneralPage({
       </Section>
       <StartWith account={account} />
       {enabledPlugins().map(({ name, settingsParts }) => {
-        const Part = settingsParts?.General;
+        const Part = settingsParts.General;
 
         return (
           Part && (

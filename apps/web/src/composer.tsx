@@ -7,7 +7,7 @@ import {
   type Quote,
   teamTalkSince,
 } from "@pipoca/protocol";
-import { type MountedSession } from "@pipoca/plugins/web";
+import type { MountedSession } from "@pipoca/plugins/web";
 import {
   Button,
   FileButton,

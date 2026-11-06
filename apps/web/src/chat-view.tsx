@@ -422,8 +422,8 @@ interface PluginLink {
 function pluginLinks(prose: HTMLElement | null): PluginLink[] {
   return [...(prose?.querySelectorAll("[data-link]") ?? [])].flatMap((node) => {
     const scheme = node.getAttribute("data-link") ?? "";
-    const plugin = enabledPlugins().find(({ links }) => links?.[scheme]);
-    const Drawn = plugin?.links?.[scheme];
+    const plugin = enabledPlugins().find(({ links }) => links[scheme]);
+    const Drawn = plugin?.links[scheme];
 
     if (plugin === undefined || Drawn === undefined) {
       return [];
@@ -612,7 +612,7 @@ function Notice({
   readonly notice: NonNullable<Turn["notice"]>;
 }): ReactElement {
   const Drawn = enabledPlugins().find(({ name }) => name === tag.plugin)
-    ?.notices?.[tag.kind];
+    ?.notices[tag.kind];
 
   return Drawn ? (
     <PluginBoundary name={tag.plugin}>

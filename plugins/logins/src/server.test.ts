@@ -856,6 +856,7 @@ test("a Session can't call a person's routes, and a person can't call a Session'
   const ana = await t.session({ owner: person("ana") });
 
   expect((await ana.api.raw("account")).status).toBe(403);
+
   expect(
     (await t.as("ana").raw("credentials/values", { method: "GET" })).status,
   ).toBe(403);

@@ -14,6 +14,7 @@ import {
 } from "@pipoca/plugins/web";
 import {
   type Shell,
+  pluginClient,
   ShellProvider,
   watchChanges,
 } from "@pipoca/plugins/web/host";
@@ -101,10 +102,7 @@ export interface ShellPlugin {
     readonly Accounts?: ComponentType;
     readonly Profile?: ComponentType<{ readonly profileId: string }>;
   };
-  readonly repositories?: (
-    query: string,
-    team: boolean,
-  ) => Promise<readonly RepositoryChoice[]>;
+  readonly repositories?: WebPart["repositories"];
 }
 
 let enabled: readonly ShellPlugin[] = [];
@@ -259,7 +257,7 @@ function adapted(part: WebPart): ShellPlugin {
         label: first.label,
         Page,
         ...(listed?.nav?.Items && {
-          Items: listed.nav.Items as ComponentType<NavItemsProps>,
+          Items: listed.nav.Items,
         }),
         ...(listed?.nav?.fills && { fills: listed.nav.fills }),
         ...(listed?.nav?.pinned === true && { pinned: true }),
@@ -314,7 +312,7 @@ function adapted(part: WebPart): ShellPlugin {
 const shell: Omit<Shell, "viewer"> = {
   fills: (name) =>
     enabled.flatMap(({ name: plugin, slots }) => {
-      const Component = slots?.[name];
+      const Component = slots[name];
 
       return Component === undefined ? [] : [{ plugin, Component }];
     }),
@@ -430,8 +428,10 @@ export async function searchRepositories(
 ): Promise<readonly RepositoryChoice[]> {
   const found = await Promise.all(
     enabled.map(
-      async ({ repositories }) =>
-        repositories?.(query, team).catch(() => []) ?? [],
+      async ({ name, repositories }) =>
+        repositories?.(query, team, pluginClient({ id: name })).catch(
+          () => [],
+        ) ?? [],
     ),
   );
 

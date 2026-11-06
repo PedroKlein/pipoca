@@ -1,11 +1,4 @@
-import {
-  href,
-  json,
-  modelOptions,
-  rememberModel,
-  SessionView,
-  useLoaded,
-} from "@pipoca/plugins/web";
+import { href, SessionView, useLoaded, useApi } from "@pipoca/plugins/web";
 import type { Environment, ModelRef, Session } from "@pipoca/protocol";
 import {
   Button,
@@ -23,6 +16,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { TypedClient } from "@pipoca/plugins";
 import { projects } from "../plugin";
 import type { ProjectView } from "../src/model";
 
@@ -54,14 +48,12 @@ function useAssistant(team = false): ProjectView | null | undefined {
 
 // Undefined while loading, null when there is no Environment to run on.
 function useModels(scope: "" | "team"): readonly string[] | null | undefined {
+  const api = useApi(projects);
+
   const environments = useLoaded(
     async () =>
-      json<Environment[]>(
-        fetch(
-          scope === "team"
-            ? "/api/environments?scope=team"
-            : "/api/environments",
-        ),
+      api.get<Environment[]>(
+        scope === "team" ? "/api/environments?scope=team" : "/api/environments",
       ),
     `environments-${scope}`,
     { topics: ["environments"] },
@@ -178,13 +170,15 @@ export function AssistantItems({
 // The assistant's earlier coordinators, newest first, each still readable
 // (ADR 0052). path is what follows earlier/ in the address.
 export function Earlier({ path }: { readonly path: string }): ReactElement {
+  const api = useApi(projects);
+
   const assistant = useAssistant();
 
   const sessions = useLoaded(
     async () =>
       Promise.all(
         (assistant?.formerCoordinators ?? []).map(async (id) =>
-          json<Session>(fetch(`/api/sessions/${encodeURIComponent(id)}`)),
+          api.get<Session>(`/api/sessions/${encodeURIComponent(id)}`),
         ),
       ),
     (assistant?.formerCoordinators ?? []).join(" "),
@@ -276,6 +270,7 @@ function Composer({
   readonly picksModel: boolean;
   readonly team?: boolean;
 }): ReactElement {
+  const api = useApi(projects);
   const textId = useId();
   const textRef = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState("");
@@ -283,13 +278,17 @@ function Composer({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
 
-  const { options, openGroups } = modelOptions(
-    [...new Set([model, ...models])].flatMap((name) => {
+  const options = [...new Set([model, ...models])]
+    .flatMap((name) => {
       const ref = modelRef(name);
 
-      return ref ? [ref] : [];
-    }),
-  );
+      return ref ? [{ value: name, label: ref.id, group: ref.provider }] : [];
+    })
+    .sort(
+      (a, b) =>
+        Number(b.group === "alias") - Number(a.group === "alias") ||
+        a.group.localeCompare(b.group),
+    );
 
   const send = (): void => {
     if (text.trim() === "" || sending) {
@@ -301,7 +300,7 @@ function Composer({
 
     const ref = picksModel ? modelRef(model) : undefined;
 
-    ask(text, ref, team).then(
+    ask(api, text, ref, team).then(
       (where) => {
         if (!team) {
           location.hash = where;
@@ -371,16 +370,11 @@ function Composer({
             label="Model"
             quiet
             options={[{ value: "", label: "Default model" }, ...options]}
-            {...(openGroups && { openGroups })}
             selected={[model]}
             {...(models.length > 6 && { placeholder: "Search models" })}
             onChange={([name = ""]) => {
               setModel(name);
               remember(name);
-
-              if (name !== "") {
-                rememberModel(name);
-              }
             }}
           >
             {model === ""
@@ -404,19 +398,17 @@ function Composer({
 }
 
 async function ask(
+  api: TypedClient,
   text: string,
   model: ModelRef | undefined,
   team: boolean,
 ): Promise<string> {
-  const project = await json<{ id: string }>(
-    fetch(team ? teamAssistantPath : assistantPath, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        text,
-        ...(model && { model: `${model.provider}/${model.id}` }),
-      }),
-    }),
+  const project = await api.post<{ id: string }>(
+    team ? teamAssistantPath : assistantPath,
+    {
+      text,
+      ...(model && { model: `${model.provider}/${model.id}` }),
+    },
   );
 
   return href(projects, project.id);

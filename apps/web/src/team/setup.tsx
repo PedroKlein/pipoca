@@ -29,7 +29,7 @@ export function isTeamSetupRoute(route: string): boolean {
 
 function screens(): readonly Screen[] {
   return enabledPlugins().flatMap(({ name, hub }) =>
-    Object.entries(hub?.setup ?? {}).map(([key, screen]) => ({
+    Object.entries(hub.setup).map(([key, screen]) => ({
       ...screen,
       path: `team/setup/plugin/${name}/${key}`,
       plugin: name,

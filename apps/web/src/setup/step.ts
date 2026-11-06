@@ -1,4 +1,5 @@
 import { type SetupStep, useLoaded } from "@pipoca/plugins/web";
+import { pluginClient } from "@pipoca/plugins/web/host";
 import type { Environment, Profile } from "@pipoca/protocol";
 import { useState } from "react";
 
@@ -23,13 +24,17 @@ export function hasContent(profile: Profile): boolean {
 export function useDone({ id, step }: WizardStep): boolean | undefined {
   const [waiting, setWaiting] = useState(true);
 
-  const { value } = useLoaded(async () => step.done(), `setup ${id}`, {
-    topics: [
-      ...(step.topics ?? []),
-      ...(step.changes ?? []).map((name) => `${id}.${name}`),
-    ],
-    ...(waiting && { everyMs: 2000 }),
-  });
+  const { value } = useLoaded(
+    async () => step.done(pluginClient({ id })),
+    `setup ${id}`,
+    {
+      topics: [
+        ...(step.topics ?? []),
+        ...(step.changes ?? []).map((name) => `${id}.${name}`),
+      ],
+      ...(waiting && { everyMs: 2000 }),
+    },
+  );
 
   if (waiting !== (value !== true)) {
     setWaiting(value !== true);

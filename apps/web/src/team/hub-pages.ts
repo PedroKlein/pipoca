@@ -21,7 +21,7 @@ interface Screen extends HubScreen {
 
 export function panels(): readonly Placed[] {
   return enabledPlugins().flatMap(({ name, hub }) =>
-    Object.entries(hub?.panels ?? {}).map(([key, panel]) => ({
+    Object.entries(hub.panels).map(([key, panel]) => ({
       ...panel,
       id: `${name}/${key}`,
       plugin: name,
@@ -31,7 +31,7 @@ export function panels(): readonly Placed[] {
 
 export function screens(): readonly Screen[] {
   return enabledPlugins().flatMap(({ name, hub }) =>
-    Object.entries(hub?.pages ?? {}).map(([key, screen]) => ({
+    Object.entries(hub.pages).map(([key, screen]) => ({
       ...screen,
       path: `team/plugin/${name}/${key}`,
       plugin: name,

@@ -1,6 +1,6 @@
-import { ago, json, useLoaded, useNow } from "@pipoca/plugins/web";
+import { usage } from "../plugin";
+import { ago, useLoaded, useNow, useApi } from "@pipoca/plugins/web";
 import type { ReactElement } from "react";
-import { request } from "./request";
 
 interface Action {
   readonly at: string;
@@ -13,17 +13,18 @@ interface Action {
 // Who started, stopped, moved and limited the team's work lately, for the
 // hub's Home (ADR 0065).
 export function Activity(): ReactElement {
+  const api = useApi(usage);
+
   const now = useNow();
 
   const { value: actions } = useLoaded(
-    async () => json<readonly Action[]>(request("activity")),
+    async () => api.get<readonly Action[]>("activity"),
     "activity",
     { topics: ["usage.audit"] },
   );
 
   const { value: teammates = [] } = useLoaded(
-    async () =>
-      json<readonly { id: string; name: string }[]>(request("/api/people")),
+    async () => api.get<readonly { id: string; name: string }[]>("/api/people"),
     "teammates",
   );
 

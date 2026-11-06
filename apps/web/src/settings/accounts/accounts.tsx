@@ -7,7 +7,7 @@ import { enabledPlugins } from "../../plugins";
 // keep it (ADR 0063).
 export function AccountsPage(): ReactElement {
   const keepers = enabledPlugins().flatMap(({ name, settingsParts }) => {
-    const Part = settingsParts?.Accounts;
+    const Part = settingsParts.Accounts;
 
     return Part === undefined ? [] : [{ name, Part }];
   });

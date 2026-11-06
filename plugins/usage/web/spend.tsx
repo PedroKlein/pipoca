@@ -1,6 +1,6 @@
-import { json, useLoaded } from "@pipoca/plugins/web";
+import { usage } from "../plugin";
+import { useLoaded, useApi } from "@pipoca/plugins/web";
 import type { ReactElement } from "react";
-import { request } from "./request";
 
 export interface Totals {
   readonly team: { readonly cost: number };
@@ -18,8 +18,10 @@ export const dollars = new Intl.NumberFormat("en-US", {
 
 // The team's spend against its budget, and the viewer's share (ADR 0066).
 export function Spend(): ReactElement {
+  const api = useApi(usage);
+
   const { value: totals } = useLoaded(
-    async () => json<Totals>(request("totals")),
+    async () => api.get<Totals>("totals"),
     "totals",
     { topics: ["usage.totals"] },
   );

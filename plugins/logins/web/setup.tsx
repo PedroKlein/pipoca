@@ -1,4 +1,5 @@
-import { json, type SetupStep, useLoaded } from "@pipoca/plugins/web";
+import { logins } from "../plugin";
+import { type SetupStep, useLoaded, useApi } from "@pipoca/plugins/web";
 import {
   Avatar,
   Badge,
@@ -17,7 +18,6 @@ import type { Environment } from "@pipoca/protocol";
 import { type ReactElement, useState } from "react";
 import type { Account, Connectable } from "../src/model";
 import { ConnectionCard } from "./connect";
-import { request } from "./request";
 
 // The providers most people pick first. Any other is one search away.
 const featured = [
@@ -39,8 +39,8 @@ export const modelStep: SetupStep = {
   description:
     "Pick who runs the thinking. Your login stays on this server and works on every machine you connect.",
   // A runner's own login counts too, as it did before the setup.
-  done: async () =>
-    (await json<Environment[]>(request("/api/environments"))).some(
+  done: async (api) =>
+    (await api.get<Environment[]>("/api/environments")).some(
       ({ models }) => models.length > 0,
     ),
   topics: ["logins.logins", "environments"],
@@ -49,14 +49,16 @@ export const modelStep: SetupStep = {
 };
 
 function ModelStep(): ReactElement | null {
+  const api = useApi(logins);
+
   const { value: account, reload } = useLoaded(
-    async () => json<Account>(request("account")),
+    async () => api.get<Account>("account"),
     "account",
     { topics: ["logins.logins"] },
   );
 
   const { value: providers } = useLoaded(
-    async () => json<readonly Connectable[]>(request("providers")),
+    async () => api.get<readonly Connectable[]>("providers"),
     "providers",
   );
 
@@ -84,8 +86,8 @@ function ModelStep(): ReactElement | null {
 
   const type = provider?.methods.find((each) => each.type === method)?.type;
 
-  const send = (path: string, init: RequestInit): void => {
-    json(request(path, init)).then(
+  const send = (call: Promise<unknown>): void => {
+    call.then(
       () => {
         setError(undefined);
         reload();
@@ -160,10 +162,7 @@ function ModelStep(): ReactElement | null {
           <Button
             variant="primary"
             onClick={() => {
-              send("connect", {
-                method: "POST",
-                body: JSON.stringify({ provider: provider.id, type }),
-              });
+              send(api.post("connect", { provider: provider.id, type }));
             }}
           >
             Connect {provider.name}

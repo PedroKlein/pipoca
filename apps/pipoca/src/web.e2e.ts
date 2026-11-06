@@ -67,35 +67,37 @@ beforeAll(async () => {
   await writeFile(
     join(plugins, "hello", "package.json"),
     JSON.stringify({
-      pipoca: {
-        id: "hello",
-        title: "Hello",
-        description: "Says hi.",
-        engine: 1,
-      },
+      description: "Says hi.",
+      pipoca: { id: "hello", entry: "plugin.ts" },
     }),
   );
 
-  await mkdir(join(plugins, "greeter"));
+  await mkdir(join(plugins, "greeter", "web"), { recursive: true });
 
   await writeFile(
     join(plugins, "greeter", "package.json"),
-    JSON.stringify({
-      pipoca: {
-        id: "greeter",
-        title: "Greeter",
-        description: "Counts hellos.",
-        engine: 1,
-        parts: { web: "web.tsx" },
-      },
-    }),
+    JSON.stringify({ pipoca: { id: "greeter", entry: "plugin.ts" } }),
+  );
+
+  await writeFile(
+    join(plugins, "greeter", "plugin.ts"),
+    `import { definePlugin } from "@pipoca/plugins";
+
+export const greeter = definePlugin({
+  id: "greeter",
+  title: "Greeter",
+  description: "Counts hellos.",
+});
+`,
   );
 
   // Hooks only work when the part shares the page's React.
   await writeFile(
-    join(plugins, "greeter", "web.tsx"),
-    `import { Button } from "@pipoca/ui";
+    join(plugins, "greeter", "web", "index.tsx"),
+    `import { defineWeb } from "@pipoca/plugins/web";
+import { Button } from "@pipoca/ui";
 import { useState } from "react";
+import { greeter } from "../plugin";
 
 function Page() {
   const [count, setCount] = useState(0);
@@ -103,27 +105,33 @@ function Page() {
   return <Button onClick={() => setCount(count + 1)}>Hellos: {count}</Button>;
 }
 
-export default { name: "greeter", nav: { label: "Greeter", Page } };
+export const web = defineWeb(greeter, {
+  pages: [{ path: "", label: "Greeter", Page, nav: {} }],
+});
 `,
   );
 
-  await mkdir(join(plugins, "faulty"));
+  await mkdir(join(plugins, "faulty", "web"), { recursive: true });
 
   await writeFile(
     join(plugins, "faulty", "package.json"),
-    JSON.stringify({
-      pipoca: {
-        id: "faulty",
-        title: "Faulty",
-        description: "Throws when it loads.",
-        engine: 1,
-        parts: { web: "web.ts" },
-      },
-    }),
+    JSON.stringify({ pipoca: { id: "faulty", entry: "plugin.ts" } }),
   );
 
   await writeFile(
-    join(plugins, "faulty", "web.ts"),
+    join(plugins, "faulty", "plugin.ts"),
+    `import { definePlugin } from "@pipoca/plugins";
+
+export const faulty = definePlugin({
+  id: "faulty",
+  title: "Faulty",
+  description: "Throws when it loads.",
+});
+`,
+  );
+
+  await writeFile(
+    join(plugins, "faulty", "web", "index.tsx"),
     `throw new Error("faulty on purpose");
 `,
   );
@@ -950,7 +958,7 @@ test("turns an installed plugin on for the next start", async () => {
   await page.goto(server.url.href);
   await openSettings("Plugins");
 
-  const hello = page.getByRole("listitem", { name: "Hello" });
+  const hello = page.getByRole("listitem", { name: "hello" });
   await hello.getByText(/^Installed/).waitFor();
 
   await hello.getByRole("switch", { name: "On" }).click();
@@ -975,13 +983,8 @@ test("installs a plugin from a git repository, asks before turning it on, and re
   await writeFile(
     join(source, "package.json"),
     JSON.stringify({
-      pipoca: {
-        id: "weather",
-        title: "Weather",
-        description: "Says the weather.",
-        engine: 1,
-        capabilities: ["routes"],
-      },
+      description: "Says the weather.",
+      pipoca: { id: "weather", entry: "plugin.ts" },
     }),
   );
 
@@ -1004,16 +1007,16 @@ test("installs a plugin from a git repository, asks before turning it on, and re
 
   await page.getByRole("button", { name: "Install", exact: true }).click();
 
-  await page.getByText("Installed Weather, turned off.").waitFor();
+  await page.getByText("Installed weather, turned off.").waitFor();
 
-  const weather = page.getByRole("listitem", { name: "Weather" });
+  const weather = page.getByRole("listitem", { name: "weather" });
   await weather.getByText(`file://${source} at`).waitFor();
 
   await weather.getByRole("switch", { name: "On" }).click();
 
   expect(
-    await page.getByRole("dialog", { name: "Turn on Weather?" }).textContent(),
-  ).toContain("It asks for routes");
+    await page.getByRole("dialog", { name: "Turn on weather?" }).textContent(),
+  ).toContain("with the server's access");
 
   await confirmIn("Turn on");
   await weather.getByRole("switch", { name: "On", checked: true }).click();

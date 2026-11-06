@@ -59,9 +59,9 @@ export async function registryFiles(
       return JSON.stringify(at.startsWith(".") ? at : `./${at}`);
     };
 
-    const add = (bundle: Bundle, imports: string[], entry: string): void => {
+    const add = (bundle: Bundle, imports: string[], line: string): void => {
       lines[bundle].imports.push(...imports);
-      lines[bundle].entries.push(entry);
+      lines[bundle].entries.push(line);
     };
 
     const name = identifier(id);

@@ -243,8 +243,8 @@ export async function testSession(
       tools.push(tool);
     },
     registerCommand: () => undefined,
-    registerProvider: (name: string, config: unknown) => {
-      providers.set(name, config);
+    registerProvider: (name: string, provider: unknown) => {
+      providers.set(name, provider);
     },
     on: (event: string, hook: (event: unknown, ctx: unknown) => unknown) => {
       if (event === "tool_call") {
