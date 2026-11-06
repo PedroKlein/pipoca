@@ -42,8 +42,60 @@ export const session = defineSession(projects, async (s) => {
 
   if (member.assistant) {
     installTools(s);
+    asksUnhinted(s);
   }
 });
+
+// Pi's own tools carry no hints. They only touch the Session's workspace,
+// and tool_search only loads tools.
+const workspaceTools = new Set([
+  "tool_search",
+  "read",
+  "grep",
+  "find",
+  "ls",
+  "bash",
+  "edit",
+  "write",
+]);
+
+// In the assistant a tool without hints asks before it runs, such as an MCP
+// server's, and the person can let it run for the rest of the Session
+// (ADR 0050).
+function asksUnhinted({ extension, askPermission }: Context): void {
+  extension((pi) => {
+    const allowed = new Set<string>();
+
+    pi.on("tool_call", async (event, ctx) => {
+      const hints = pi
+        .getAllTools()
+        .find((tool) => tool.name === event.toolName)?.annotations;
+
+      if (
+        workspaceTools.has(event.toolName) ||
+        allowed.has(event.toolName) ||
+        hints?.readOnlyHint !== undefined ||
+        hints?.destructiveHint !== undefined
+      ) {
+        return undefined;
+      }
+
+      const answer = await askPermission(
+        `Let the assistant run “${event.toolName.replaceAll("_", " ")}”?`,
+        [],
+        ctx.signal,
+      );
+
+      if (answer === "session") {
+        allowed.add(event.toolName);
+      }
+
+      return answer === "deny"
+        ? { block: true, reason: `The person didn't allow ${event.toolName}.` }
+        : undefined;
+    });
+  });
+}
 
 function libraryPath(name: string): string {
   const composed = name.normalize("NFC");
