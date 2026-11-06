@@ -19,6 +19,7 @@ test("starts over after a quiet spell longer than the longest wait", () => {
   const second = backoff(backoff(undefined, 0, 100), 100, 100);
 
   expect(backoff(second, second.retryAt + 3200, 100).inARow).toBe(3);
+
   expect(backoff(second, second.retryAt + 3201, 100)).toEqual({
     inARow: 1,
     retryAt: second.retryAt + 3301,

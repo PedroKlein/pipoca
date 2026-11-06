@@ -179,8 +179,8 @@ export function serve(options: ServeOptions): {
 
   const runnersDir =
     options.database === ":memory:"
-      ? mkdtempSync(join(tmpdir(), "pipoca-local-"))
-      : join(dirname(options.database), "local");
+      ? mkdtempSync(join(tmpdir(), "pipoca-runners-"))
+      : join(dirname(options.database), "runners");
 
   // The server listens only after its plugins register.
   const runtime = (): Runtime => ({

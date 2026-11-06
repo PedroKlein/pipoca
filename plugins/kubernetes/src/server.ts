@@ -12,7 +12,12 @@ import {
 import { type Environment, movable } from "@pipoca/protocol";
 import { Value } from "typebox/value";
 import { kubernetes } from "../plugin";
-import { type Cluster, clusterAt, type RunnerPod, inClusterApi } from "./cluster";
+import {
+  type Cluster,
+  clusterAt,
+  type RunnerPod,
+  inClusterApi,
+} from "./cluster";
 import { type FailedPod, PodFailures } from "./failures";
 import { runnerPod, sessionClaim, sessionPodName } from "./pods";
 import {
@@ -207,7 +212,8 @@ export const server = defineServer(kubernetes, (context) => {
 
   provide.runners({
     kind: { label: "Kubernetes", icon: "cloud" },
-    starts: (environment) => startsPods && settingsOf(environment) !== undefined,
+    starts: (environment) =>
+      startsPods && settingsOf(environment) !== undefined,
     replacesServerRunner: () => startsPods,
   });
 
@@ -579,7 +585,7 @@ async function scaleSessions(
 
 async function startPod(
   context: Context,
-  { cluster, image, imagePullPolicy, server, variables }: Pods,
+  { cluster, image, imagePullPolicy, server: serverUrl, variables }: Pods,
   environment: Environment,
   settings: KubernetesSettings,
   name: string,
@@ -600,7 +606,7 @@ async function startPod(
         image: environment.image ?? image,
         binaryImage: image,
         binaryPullPolicy: imagePullPolicy,
-        server,
+        server: serverUrl,
         variables,
         settings,
         ...(sessionId !== undefined && { sessionId }),
@@ -624,7 +630,7 @@ function failureOf(
   pod: RunnerPod,
   reason: string,
   joined: boolean,
-  server: string,
+  serverUrl: string,
 ): string | undefined {
   if (reason === "never started") {
     return pod.problem ?? "it didn't start in 10 minutes";
@@ -634,7 +640,9 @@ function failureOf(
     return pod.problem ?? "its agent failed";
   }
 
-  return joined ? undefined : `its agent never reached the server at ${server}`;
+  return joined
+    ? undefined
+    : `its agent never reached the server at ${serverUrl}`;
 }
 
 // The digests the nodes ran decide. Until both are known, as for a pod

@@ -76,10 +76,8 @@ export const server = defineServer(
       lastFailure: publicFailure(failures.get(environmentId)),
     });
 
-    routes.get(
-      "environments/:id",
-      { auth: "person" },
-      ({ caller, params }) => answer(owned(caller.person, params.id).id),
+    routes.get("environments/:id", { auth: "person" }, ({ caller, params }) =>
+      answer(owned(caller.person, params.id).id),
     );
 
     routes.post(

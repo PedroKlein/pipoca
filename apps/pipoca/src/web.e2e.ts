@@ -1961,6 +1961,44 @@ test("shows why an Environment's last runner pod failed", async () => {
   await page.unroute("**/api/ext/kubernetes/environments/*");
 });
 
+test("names the plugin an Environment's runners come from", async () => {
+  const environments = /\/api\/environments(\?.*)?$/;
+
+  await page.route(environments, async (route) => {
+    const real = (await (await route.fetch()).json()) as Environment[];
+
+    await route.fulfill({
+      json: real.map((each) =>
+        each.name === "e2e"
+          ? {
+              ...each,
+              onDemand: true,
+              runnersFrom: { plugin: "pods", label: "Pod farm", icon: "cloud" },
+            }
+          : each,
+      ),
+    });
+  });
+
+  await page.goto(server.url.href);
+  await openSettings("Environments");
+
+  await page
+    .getByRole("list", { name: "Your Environments" })
+    .getByRole("link", { name: /^e2e/ })
+    .getByText("Pod farm", { exact: true })
+    .waitFor();
+
+  await openEnvironment("e2e");
+
+  await page
+    .getByText(/^Its runners come from Pod farm: the server starts one/)
+    .waitFor();
+
+  await page.getByRole("heading", { name: "Runners" }).waitFor();
+  await page.unroute(environments);
+});
+
 test("keeps a Profile that follows a repository read-only until it is copied", async () => {
   const profile = (await (
     await fetch(new URL("/api/profiles", server.url), {

@@ -180,7 +180,9 @@ export interface PluginHost {
   ) => Promise<ToolResult>;
   readonly offeredModels: ModelOffer;
   // The plugin that starts runners for the Environment on demand, if any.
-  readonly startsRunners: (environment: RunnerSource) => RunnersFrom | undefined;
+  readonly startsRunners: (
+    environment: RunnerSource,
+  ) => RunnersFrom | undefined;
   // A plugin starts runners where the server's own would share its files.
   readonly replacesServerRunner: () => boolean;
   readonly gitLogins: GitLoginsOf;

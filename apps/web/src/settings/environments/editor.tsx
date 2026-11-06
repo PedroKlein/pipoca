@@ -140,7 +140,8 @@ export function Editor({
         </Badge>
       </div>
       <p className="mt-1 max-w-prose text-ui text-fg-dim">
-        {kindAbout(environment)} Changes reach a Session the next time it starts.
+        {kindAbout(environment)} Changes reach a Session the next time it
+        starts.
       </p>
       {template !== undefined && (
         <Note icon="lock">
@@ -150,62 +151,58 @@ export function Editor({
         </Note>
       )}
       <Section title={machines}>
-          <Rows label={machines}>
-            {environment.runners.length === 0 && (
-              <Row
-                title={
-                  environment.onDemand
-                    ? "None is running"
-                    : "No machine has joined yet"
-                }
-                description={
-                  environment.onDemand
-                    ? "One starts when a Session needs it."
-                    : "Run the join command below on a machine to connect it."
-                }
-              />
-            )}
-            {environment.runners.map((runner) => (
-              <Row
-                key={runner.name}
-                title={
-                  <>
-                    <span className="font-mono">{runner.name}</span>
-                    <Badge state={runner.online ? "done" : "offline"}>
-                      {runner.online ? "Online" : "Offline"}
-                    </Badge>
-                  </>
-                }
-              >
-                <span className="text-label text-fg-dim">
-                  {runner.capacity === null
-                    ? `${String(runner.running)} running`
-                    : `${String(runner.running)} of ${String(runner.capacity)} running`}
-                </span>
-              </Row>
-            ))}
-          </Rows>
-          {environment.runnersFrom === null && (
-            <JoinKey
-              environment={environment}
-              madeKey={madeKey}
-              onKey={onKey}
+        <Rows label={machines}>
+          {environment.runners.length === 0 && (
+            <Row
+              title={
+                environment.onDemand
+                  ? "None is running"
+                  : "No machine has joined yet"
+              }
+              description={
+                environment.onDemand
+                  ? "One starts when a Session needs it."
+                  : "Run the join command below on a machine to connect it."
+              }
             />
           )}
-          {environment.folders.length > 0 && (
-            <ul aria-label="Folders" className="mt-3 flex flex-wrap gap-1.5">
-              {environment.folders.map((folder) => (
-                <li
-                  key={folder}
-                  title={folder}
-                  className="max-w-full truncate rounded-full border border-line bg-elevated px-2.5 py-1 font-mono text-mono-sm"
-                >
-                  {folder}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Section>
+          {environment.runners.map((runner) => (
+            <Row
+              key={runner.name}
+              title={
+                <>
+                  <span className="font-mono">{runner.name}</span>
+                  <Badge state={runner.online ? "done" : "offline"}>
+                    {runner.online ? "Online" : "Offline"}
+                  </Badge>
+                </>
+              }
+            >
+              <span className="text-label text-fg-dim">
+                {runner.capacity === null
+                  ? `${String(runner.running)} running`
+                  : `${String(runner.running)} of ${String(runner.capacity)} running`}
+              </span>
+            </Row>
+          ))}
+        </Rows>
+        {environment.runnersFrom === null && (
+          <JoinKey environment={environment} madeKey={madeKey} onKey={onKey} />
+        )}
+        {environment.folders.length > 0 && (
+          <ul aria-label="Folders" className="mt-3 flex flex-wrap gap-1.5">
+            {environment.folders.map((folder) => (
+              <li
+                key={folder}
+                title={folder}
+                className="max-w-full truncate rounded-full border border-line bg-elevated px-2.5 py-1 font-mono text-mono-sm"
+              >
+                {folder}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
       <form onSubmit={submit} className="flex flex-col">
         <Section title="Name">
           <TextInput
@@ -247,10 +244,7 @@ export function Editor({
           </Section>
         )}
         {template === undefined && (
-          <div
-            hidden={isolation !== "container"}
-            className="flex flex-col"
-          >
+          <div hidden={isolation !== "container"} className="flex flex-col">
             <Section title="Image">
               <TextInput
                 name="image"

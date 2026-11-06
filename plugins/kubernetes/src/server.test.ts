@@ -1,4 +1,11 @@
-import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  expect,
+  test,
+} from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +19,11 @@ import {
   versionHeader,
   type Work,
 } from "@pipoca/protocol";
-import { type PluginTest, testPlugin, type TestPluginOptions } from "@pipoca/testing";
+import {
+  type PluginTest,
+  testPlugin,
+  type TestPluginOptions,
+} from "@pipoca/testing";
 import { server } from "./server";
 
 interface FakePod {
@@ -56,7 +67,7 @@ function fakeApi(): {
   const secrets = new Map<string, FakeSecret>();
   const claims = new Map<string, Labelled>();
   const undeletable = new Set<string>();
-  const prefix = "https://kubernetes.test:443/api/v1/namespaces/pi/";
+  const prefix = "https://kubernetes.test/api/v1/namespaces/pi/";
 
   const stores: Record<string, Map<string, unknown>> = {
     pods,
@@ -210,9 +221,15 @@ async function json<T>(response: Promise<Response>): Promise<T> {
   return (await answered.json()) as T;
 }
 
-async function kernel<T>(path: string, body?: unknown, method?: Method): Promise<T> {
+async function kernel<T>(
+  path: string,
+  body?: unknown,
+  method?: Method,
+): Promise<T> {
   return json<T>(
-    t.as("ana").kernel(method ?? (body === undefined ? "GET" : "POST"), path, body),
+    t
+      .as("ana")
+      .kernel(method ?? (body === undefined ? "GET" : "POST"), path, body),
   );
 }
 
@@ -313,7 +330,11 @@ function failAll(): void {
   }
 }
 
-const fromKubernetes = { plugin: "kubernetes", label: "Kubernetes", icon: "cloud" };
+const fromKubernetes = {
+  plugin: "kubernetes",
+  label: "Kubernetes",
+  icon: "cloud",
+};
 
 test("reads an Environment that starts runner pods as on demand, from Kubernetes", async () => {
   const plain = await kernel<Environment>("/api/environments", {
@@ -506,7 +527,12 @@ test("reads a template's pod settings from its entry in pipoca.json, and saves t
 
   await postSettings("pods", { settings: { capacity: 4 } });
 
-  await kernel("/api/environment-templates/pods", { name: "Bigger pods" }, "PATCH");
+  await kernel(
+    "/api/environment-templates/pods",
+    { name: "Bigger pods" },
+    "PATCH",
+  );
+
   await t.restart();
 
   expect(await read("pods")).toMatchObject({ capacity: 4, maxPods: 5 });

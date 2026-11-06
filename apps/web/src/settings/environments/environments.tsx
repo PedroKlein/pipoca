@@ -149,6 +149,7 @@ function EnvironmentCard({
   readonly template: EnvironmentTemplate | undefined;
 }): ReactElement {
   const status = availability(environment);
+
   const plain =
     environment.runnersFrom === null && environment.isolation !== "container";
 
@@ -157,16 +158,10 @@ function EnvironmentCard({
     0,
   );
 
-  const image = environment.image ?? template?.image ?? "the default image";
-
-  const summary =
-    environment.isolation === "container"
-      ? `${image} · one container, Sessions share it`
-      : environment.folders.length > 0
-        ? `Folders ${environment.folders.join(", ")}`
-        : environment.runnersFrom === null
-          ? `${plural(environment.runners.length, "machine")} joined`
-          : `${image} · a runner starts when a Session needs one`;
+  const summary = summaryOf(
+    environment,
+    environment.image ?? template?.image ?? "the default image",
+  );
 
   return (
     <a
@@ -193,6 +188,20 @@ function EnvironmentCard({
       <Icon name="chevron-right" className="size-4 text-fg-dim" />
     </a>
   );
+}
+
+function summaryOf(environment: Environment, image: string): string {
+  if (environment.isolation === "container") {
+    return `${image} · one container, Sessions share it`;
+  }
+
+  if (environment.folders.length > 0) {
+    return `Folders ${environment.folders.join(", ")}`;
+  }
+
+  return environment.runnersFrom === null
+    ? `${plural(environment.runners.length, "machine")} joined`
+    : `${image} · a runner starts when a Session needs one`;
 }
 
 function NewEnvironment({

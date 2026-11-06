@@ -113,7 +113,6 @@ function Pods({
   );
 }
 
-
 // What an admin set on the template, for everyone else.
 function Summary({
   settings,
