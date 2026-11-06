@@ -19,7 +19,7 @@ const pluginSwitch = Type.Object({
 
 // Whether a plugin loads at all, and whether its parts load in team work
 // (ADR 0067). What is left out takes the plugin's default.
-export type PluginSwitch = Static<typeof pluginSwitch>;
+type PluginSwitch = Static<typeof pluginSwitch>;
 
 export interface PluginSwitches {
   readonly get: (id: string) => PluginSwitch;

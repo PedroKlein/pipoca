@@ -1422,7 +1422,7 @@ export function startPlugins(
   };
 }
 
-export interface InstalledPlugins {
+interface InstalledPlugins {
   readonly plugins: readonly {
     readonly manifest: PluginManifest;
     readonly on: boolean;

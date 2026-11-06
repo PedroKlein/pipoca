@@ -10,7 +10,7 @@ import { mcpKey } from "./model";
 
 // An MCP server that signs people in with OAuth, as a Profile's mcp.json
 // configures it.
-export interface McpServer {
+interface McpServer {
   readonly key: string;
   readonly name: string;
   readonly url: string;

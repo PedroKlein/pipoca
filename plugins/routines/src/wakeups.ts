@@ -37,7 +37,7 @@ interface Payload {
   readonly message: string;
 }
 
-export interface WakeUps {
+interface WakeUps {
   readonly pending: (sessionId: string) => readonly WakeUp[];
   // Cancels a wake-up of a Session the check lets through.
   readonly cancel: (id: string, may: (sessionId: string) => boolean) => void;

@@ -26,7 +26,7 @@ export interface Run {
   readonly ended: Promise<RunView>;
 }
 
-export interface Fleet {
+interface Fleet {
   readonly start: (shape: Shape, steps: readonly Step[]) => Run;
   readonly startWorkflow: (
     workflow: Workflow,

@@ -154,7 +154,7 @@ function ownerOfFolder(folder: string): Owner {
 }
 
 // The key a routine's Sessions are owned by, which its page reads back.
-export function sessionKey(owner: Owner, name: string): string {
+function sessionKey(owner: Owner, name: string): string {
   return `${owner}/${name}`;
 }
 

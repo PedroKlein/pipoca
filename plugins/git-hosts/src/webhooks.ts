@@ -4,7 +4,7 @@ import type { gitHosts } from "../plugin";
 type Defined = (typeof gitHosts)["events"];
 
 // One of the plugin's events, by its name and fields.
-export type HostEvent = {
+type HostEvent = {
   [N in keyof Defined]: {
     readonly name: N;
     readonly fields: Static<Defined[N]["fields"]>;

@@ -1,7 +1,7 @@
 import { environmentLabel, sessionLabel } from "./cluster";
 import type { KubernetesSettings } from "./settings";
 
-export interface PodOptions {
+interface PodOptions {
   readonly name: string;
   readonly environmentId: string;
   // The Environment's image, which the agent and its Sessions run in.
@@ -151,7 +151,7 @@ export function sessionClaim(
 }
 
 // RFC 7386.
-export function mergePatch(target: unknown, patch: unknown): unknown {
+function mergePatch(target: unknown, patch: unknown): unknown {
   if (!isObject(patch)) {
     return patch;
   }

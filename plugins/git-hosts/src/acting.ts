@@ -23,7 +23,7 @@ interface Cached {
   readonly expiresAt: number;
 }
 
-export interface TeamReach {
+interface TeamReach {
   readonly host: string;
   readonly kind: "app" | "token";
   readonly token: string;

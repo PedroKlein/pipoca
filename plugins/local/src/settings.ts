@@ -30,7 +30,7 @@ export const defaultSettings: LocalSettings = {
   folders: [],
 };
 
-export interface SettingsStore {
+interface SettingsStore {
   readonly get: (environmentId: string) => LocalSettings | undefined;
   readonly set: (environmentId: string, settings: LocalSettings) => void;
   readonly remove: (environmentId: string) => void;

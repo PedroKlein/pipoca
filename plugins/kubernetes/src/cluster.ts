@@ -62,7 +62,7 @@ export interface Cluster {
   readonly deleteClaim: (name: string) => Promise<void>;
 }
 
-export interface ApiAccess {
+interface ApiAccess {
   readonly url: string;
   readonly namespace: string;
   readonly token: () => string;

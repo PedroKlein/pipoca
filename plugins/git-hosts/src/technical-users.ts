@@ -59,7 +59,7 @@ export function appManifest(
   };
 }
 
-export interface CreatedApp {
+interface CreatedApp {
   readonly id: number;
   readonly slug: string;
   readonly url: string;
