@@ -125,6 +125,30 @@ export default tseslint.config(
     },
   },
   {
+    // A plugin's test may run another plugin's server part beside its own,
+    // such as the one whose events it hears.
+    files: ["plugins/*/src/**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex:
+                "^@pipoca/(?!(plugins|plugins/testing|plugins/web|plugins/web/testing|protocol|testing|ui|[a-z][a-z0-9-]*/plugin|[a-z][a-z0-9-]*/server)$)",
+              message:
+                "Plugin tests import only what plugins do, and another plugin's server part as @pipoca/<id>/server.",
+            },
+            {
+              regex: "^\\.\\./\\.\\./",
+              message: "Plugins don't import files outside their own folder.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // Plugins tell time by their context's clock and wait through its
     // schedule, so a test's clock moves them too.
     files: ["plugins/*/src/**/*.ts", "plugins/*/src/**/*.tsx"],

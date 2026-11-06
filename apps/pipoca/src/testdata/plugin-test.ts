@@ -456,15 +456,18 @@ export async function pluginTest(
             request(path, init, await cookieOf(personId)),
         }),
         raw,
-        kernel: async (method, path, body) =>
+        kernel: async (method, path, body, headers = {}) =>
           request(
             path,
             {
               method,
-              ...(body !== undefined && {
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify(body),
-              }),
+              headers: {
+                ...headers,
+                ...(body !== undefined && {
+                  "content-type": "application/json",
+                }),
+              },
+              ...(body !== undefined && { body: JSON.stringify(body) }),
             },
             await cookieOf(personId),
           ),
@@ -553,14 +556,14 @@ export async function pluginTest(
           headers: { authorization: `Bearer ${host.token}` },
           fetch: async (path, init) => request(path, init),
         }),
-        request: async (path, init = {}) => {
+        request: async (path, init = {}, of = plugin.id) => {
           const headers = new Headers(init.headers);
 
           headers.set(versionHeader, String(protocolVersion));
           headers.set("authorization", `Bearer ${host.token}`);
 
           return request(
-            `/runner/sessions/${host.id}/ext/${plugin.id}/${path.replace(/^\//, "")}`,
+            `/runner/sessions/${host.id}/ext/${of}/${path.replace(/^\//, "")}`,
             { ...init, headers },
           );
         },
@@ -769,6 +772,12 @@ export async function pluginTest(
         }
       }
     },
+    config: async () =>
+      (
+        JSON.parse(
+          await readFile(join(configDir, "pipoca.json"), "utf8"),
+        ) as Record<string, unknown>
+      )[plugin.id],
     get store() {
       return contextOf(plugin.id).store;
     },

@@ -228,8 +228,7 @@ test("a team Session points the team's providers at the proxy, with its token as
   const part = await testSession(session, { request: team.request });
 
   const pointed = part.provider("anthropic") as
-    | { readonly baseUrl: string; readonly apiKey: string }
-    | undefined;
+    { readonly baseUrl: string; readonly apiKey: string } | undefined;
 
   expect(pointed?.baseUrl).toEndWith("/api/ext/logins/proxy/anthropic");
   expect(pointed?.apiKey).toStartWith("ppx_");

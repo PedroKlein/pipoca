@@ -73,7 +73,12 @@ export interface TestSession {
   // The plugin's routes, called as its Session part calls them.
   readonly api: TypedClient;
   // The same, as a Session part's cloud request takes a path and init.
-  readonly request: (path: string, init?: RequestInit) => Promise<Response>;
+  readonly request: (
+    path: string,
+    init?: RequestInit,
+    // Another plugin of the test's, by id.
+    plugin?: string,
+  ) => Promise<Response>;
   // Connects or drops its host. Connected, it has taken what the outbox
   // held once this settles.
   readonly online: (on: boolean) => Promise<void>;
@@ -98,10 +103,12 @@ export interface PluginTest {
       init?: RequestInit,
     ) => Promise<Response>;
     // The kernel's own routes, such as /api/profiles, as the person.
+    // A body is sent as JSON.
     readonly kernel: (
       method: Method,
       path: string,
       body?: unknown,
+      headers?: Readonly<Record<string, string>>,
     ) => Promise<Response>;
   };
   readonly public: () => {
@@ -145,6 +152,8 @@ export interface PluginTest {
   // Stops the server and starts a new one on the same database.
   readonly restart: () => Promise<void>;
   readonly store: Store;
+  // The plugin's key in pipoca.json as the file holds it, secrets sealed.
+  readonly config: () => Promise<unknown>;
   readonly topics: readonly string[];
   readonly log: readonly {
     readonly message: string;
