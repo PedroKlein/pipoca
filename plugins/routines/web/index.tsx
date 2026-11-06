@@ -16,6 +16,7 @@ import {
   Icon,
   linkCardClass,
   Page,
+  plural,
   Section,
   TextArea,
   TextInput,
@@ -72,6 +73,7 @@ export const web = defineWeb(routines, {
 
     return `${owner === "team" ? teams.prefix : ""}${name}/${session.id}`;
   },
+  panels: { routines: { title: "Routines", Panel: TeamRoutines } },
   slots: {
     "session.composer": PendingWakeUps,
     "notice:wakeup": WakeUpNotice,
@@ -176,6 +178,48 @@ function Routines({
         ))}
       </ul>
     </Section>
+  );
+}
+
+// The team's next scheduled run and how many are paused, for the hub's Home.
+function TeamRoutines(): ReactElement {
+  const api = useApi(routines);
+
+  const list = useLoaded(
+    async () => api.get<RoutineView[]>(`${teams.prefix}routines`),
+    "team-panel",
+    { changes },
+  ).value;
+
+  if (list === undefined) {
+    return <p className="text-label text-fg-dim">Loading…</p>;
+  }
+
+  const next = list
+    .flatMap(({ title, nextAt, paused }) =>
+      nextAt !== null && paused === null ? [{ title, at: nextAt }] : [],
+    )
+    .sort((a, b) => a.at.localeCompare(b.at))[0];
+
+  const paused = list.filter((routine) => routine.paused !== null).length;
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <p className="text-label text-fg-dim">
+        {list.length === 0 && "The team has no routines yet."}
+        {list.length > 0 && next === undefined && "Nothing scheduled."}
+        {next !== undefined && (
+          <>
+            Next: <b className="font-medium text-fg-strong">{next.title}</b>,{" "}
+            {new Date(next.at).toLocaleString()}.
+          </>
+        )}
+        {paused > 0 && ` ${plural(paused, "routine")} paused.`}
+      </p>
+      <a href={pageAt("")} className="self-start text-label text-fg underline">
+        Open routines
+      </a>
+    </div>
   );
 }
 

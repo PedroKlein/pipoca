@@ -1,4 +1,15 @@
-import { AreaLayout, Avatar, cn, Icon, linkCardClass, Page } from "@pipoca/ui";
+import {
+  type AreaItem,
+  AreaLayout,
+  Avatar,
+  Badge,
+  cn,
+  Icon,
+  linkCardClass,
+  Page,
+  Row,
+  Rows,
+} from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
 import { AccountsPage } from "./accounts/accounts";
 import { useMe, useQuery } from "../data/hooks";
@@ -22,6 +33,9 @@ interface Group {
   readonly label: string;
   readonly entries: readonly Entry[];
 }
+
+// The server pages a phone's menu keeps in view; the rest go under More.
+const upfront = new Set(["people", "integrations"]);
 
 // Settings is grouped by who it is for, and only admins see the server's
 // pages (ADR 0063).
@@ -62,6 +76,32 @@ export function SettingsLayout({
   const shown = useQuery("me").data?.displayName ?? user.name;
   const people = admin && team;
   const open = page === "" ? "general" : page;
+  const environments = useQuery("environments.list").data;
+  const profiles = useQuery("profiles.list").data;
+  const everyone = useQuery("people.list").data;
+  const installed = useQuery("plugins.list").data ?? [];
+  const failed = installed.filter(({ state }) => state === "failed").length;
+
+  const more = admin
+    ? serverPages(people).filter((entry) => !upfront.has(entry.page))
+    : [];
+
+  const counts: Readonly<Record<string, number | undefined>> = {
+    environments: environments?.length,
+    profiles: profiles?.length,
+    people: everyone?.length,
+  };
+
+  const statuses: Readonly<Record<string, ReactNode>> = {
+    integrations: <Badge state="done">On</Badge>,
+    plugins: failed > 0 && <Badge state="failed">{failed} failed</Badge>,
+  };
+
+  const itemOf = (entry: Entry): AreaItem => ({
+    href: href("settings", { page: entry.page }),
+    label: entry.label,
+    current: entry.page === open,
+  });
 
   const shared = admin
     ? serverPages(people).find((entry) => entry.page === open)
@@ -69,6 +109,28 @@ export function SettingsLayout({
 
   const content = (): ReactNode => {
     switch (open) {
+      case "more":
+        return (
+          <Page title="More">
+            <Rows label="More">
+              {more.map((entry) => (
+                <Row
+                  key={entry.page}
+                  title={
+                    <a
+                      href={href("settings", { page: entry.page })}
+                      className="hover:underline focus-visible:underline"
+                    >
+                      {entry.label}
+                    </a>
+                  }
+                >
+                  {statuses[entry.page]}
+                </Row>
+              ))}
+            </Rows>
+          </Page>
+        );
       case "profiles":
         return <ProfilesPage selected={rest} />;
       case "environments":
@@ -109,11 +171,32 @@ export function SettingsLayout({
       heading="Settings"
       groups={groups(admin, people).map((group) => ({
         label: group.label,
-        items: group.entries.map((entry) => ({
-          href: href("settings", { page: entry.page }),
-          label: entry.label,
-          current: entry.page === open,
-        })),
+        items: group.entries.map(itemOf),
+      }))}
+      menuGroups={groups(admin, people).map((group) => ({
+        label: group.label,
+        items: [
+          ...group.entries
+            .filter((entry) => !more.some((each) => each.page === entry.page))
+            .map((entry) => {
+              const count = counts[entry.page];
+
+              return {
+                ...itemOf(entry),
+                ...(count !== undefined && { count }),
+                status: statuses[entry.page],
+              };
+            }),
+          ...(group.entries.some((entry) => entry.page === more[0]?.page)
+            ? [
+                {
+                  href: href("settings", { page: "more" }),
+                  label: "More",
+                  hint: more.map(({ label }) => label).join(", "),
+                },
+              ]
+            : []),
+        ],
       }))}
       phone="menu"
       menuOpen={page === ""}

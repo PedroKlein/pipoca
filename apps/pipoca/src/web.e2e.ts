@@ -4298,7 +4298,13 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
   await form.getByRole("option", { name: `Use ${docs}` }).click();
   await search.press("Escape");
   await form.getByLabel("What should Pi do?").fill("Write the release notes");
-  await form.getByRole("button", { name: "Start session" }).click();
+
+  await form
+    .getByRole("button", { name: "Who steers" })
+    .getByText("Team can steer")
+    .waitFor();
+
+  await form.getByRole("button", { name: "Start", exact: true }).click();
   await page.waitForURL((url) => !url.hash.startsWith("#team"));
 
   await page.getByRole("button", { name: "Session actions" }).click();

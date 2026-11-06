@@ -1,8 +1,8 @@
 import type { ReactElement, ReactNode } from "react";
 import { cn } from "./cn";
 
-// The popped kernel (ADR 0042). Butter shows only here, so it never reads as
-// a state colour; the hull follows the text.
+// The popped kernel (ADR 0042). Butter shows only here and in the team's
+// mark, so it never reads as a state colour; the hull follows the text.
 export function Mark({
   className,
 }: {

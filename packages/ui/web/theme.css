@@ -74,6 +74,7 @@
   --xs-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
   --scrim: rgb(0 0 0 / 0.5);
   --butter: #f3c552;
+  --on-butter: #1a1712;
   /* xterm.js's default 16 colours, for terminal output in either theme. */
   --ansi-0: #2e3436;
   --ansi-1: #cc0000;
@@ -156,6 +157,7 @@
   --color-term-fg: var(--term-fg);
   --color-scrim: var(--scrim);
   --color-butter: var(--butter);
+  --color-on-butter: var(--on-butter);
   --color-transparent: transparent;
   --color-current: currentColor;
 

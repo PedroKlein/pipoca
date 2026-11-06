@@ -29,6 +29,7 @@ import { request } from "../data/client";
 import { useAction, useMe, useQuery } from "../data/hooks";
 import { href, navigate } from "../router";
 import { modelRef } from "../names";
+import { accessLabels } from "../session/team-access";
 import { searchRepositories } from "../plugins";
 import {
   searchDelayMs,
@@ -41,6 +42,13 @@ import {
   recentPlaces,
   placeOption,
 } from "./workspace";
+
+type Steer = "team" | "view";
+
+const steerLabels = {
+  team: "Team can steer",
+  view: accessLabels.view,
+} as const satisfies Record<Steer, string>;
 
 export function NewSessionDialog({
   open,
@@ -177,15 +185,25 @@ export function NewSessionForm({
   const [text, setText] = useState("");
   const [startPoint, setStartPoint] = useState("");
   const [invalid, setInvalid] = useState<string>();
+  const [steer, setSteer] = useState<Steer>("team");
 
-  const start = useAction(async (body: ApiInput<"sessions.create">["body"]) => {
-    const started = await request("sessions.create", { body });
+  const start = useAction(
+    async (body: ApiInput<"sessions.create">["body"], access: Steer) => {
+      const started = await request("sessions.create", { body });
 
-    setText("");
-    setStartPoint("");
-    onStarted();
-    navigate(href("session", { id: started.id }));
-  });
+      if (access === "view") {
+        await request("sessions.update", {
+          params: { id: started.id },
+          body: { access: { kind: "view" } },
+        });
+      }
+
+      setText("");
+      setStartPoint("");
+      onStarted();
+      navigate(href("session", { id: started.id }));
+    },
+  );
 
   const submitting = start.pending;
 
@@ -311,15 +329,18 @@ export function NewSessionForm({
     setInvalid(undefined);
     remember(choices, team);
 
-    void start.run({
-      ...(team && { team }),
-      ...(chosen && { environment: chosen.id }),
-      workspace: workspaceRequest(choices.where, choices.share, startPoint),
-      ...(model && { model }),
-      ...(profile && { profile: profile.id }),
-      ...(choices.thinking !== "" && { thinking: choices.thinking }),
-      ...(text.trim() !== "" && { firstMessage: text.trim() }),
-    });
+    void start.run(
+      {
+        ...(team && { team }),
+        ...(chosen && { environment: chosen.id }),
+        workspace: workspaceRequest(choices.where, choices.share, startPoint),
+        ...(model && { model }),
+        ...(profile && { profile: profile.id }),
+        ...(choices.thinking !== "" && { thinking: choices.thinking }),
+        ...(text.trim() !== "" && { firstMessage: text.trim() }),
+      },
+      team ? steer : "team",
+    );
   };
 
   return (
@@ -481,13 +502,37 @@ export function NewSessionForm({
           </Picker>
         )}
 
+        {team && (
+          <Picker
+            label="Who steers"
+            options={[
+              {
+                value: "team",
+                label: steerLabels.team,
+                detail: "anyone on the team",
+              },
+              {
+                value: "view",
+                label: steerLabels.view,
+                detail: "only you and admins steer",
+              },
+            ]}
+            selected={[steer]}
+            onChange={([kind]) => {
+              setSteer(kind === "view" ? "view" : "team");
+            }}
+          >
+            {steerLabels[steer]}
+          </Picker>
+        )}
+
         <Button
           variant="primary"
           type="submit"
           disabled={submitting}
           className="ml-auto"
         >
-          Start session
+          {team ? "Start" : "Start session"}
         </Button>
       </div>
 
