@@ -1,6 +1,6 @@
 # Pipoca extensibility
 
-> Status: working model. Pi personalization and platform extensibility are foundational requirements. The v1 plugin interface is in [ADR 0015](adr/0015-plugins.md); the public contracts are not yet designed.
+> Status: early design notes, kept for their reasoning. Pi personalization and platform extensibility are foundational requirements. The plugin SDK as built is in [ADR 0069](adr/0069-plugin-sdk-v2.md) and [plugins.md](plugins.md), and Profiles in [concepts.md](concepts.md#profile).
 
 ## Two extension systems
 
@@ -24,7 +24,7 @@ Hosted Sessions use these resources through a Profile ([ADR 0031](adr/0031-profi
 
 ### Pipoca capabilities
 
-Pipoca itself needs installable capabilities around Sessions: Runtime Providers, Workspace implementations, source-control integration, Environment builders, triggers, notifications, artifacts, policies, and browser contributions.
+Pipoca itself needs installable capabilities around Sessions: runner providers, Workspace implementations, source-control integration, Environment builders, triggers, notifications, artifacts, policies, and browser contributions.
 
 The two systems may be shipped together in one package, but they operate at different seams.
 
@@ -69,7 +69,7 @@ Expected responsibilities include:
 - usage and effective-configuration reporting;
 - graceful shutdown checkpoints.
 
-It should not implement Project routing, schedules, automation DAGs, or infrastructure scheduling inside the Pi model loop. Those belong to deterministic Control Plane services exposed through narrow tools.
+It should not implement Project routing, schedules, automation DAGs, or infrastructure scheduling inside the Pi model loop. Those belong to deterministic server services exposed through narrow tools.
 
 ## Platform kernel
 
@@ -80,7 +80,7 @@ Likely kernel resources are:
 - actors and ownership;
 - Profiles;
 - Environments and revisions;
-- Runtime Provider registration and capability discovery;
+- runner provider registration (`provide.runners`) and capability discovery;
 - Workspaces;
 - Sessions, attempts, assignments, and leases;
 - Projects and Threads;
@@ -109,7 +109,7 @@ A Pipoca package may eventually contribute one or more of these capabilities.
 
 | Category                | Examples                                             |
 | ----------------------- | ---------------------------------------------------- |
-| Runtime Provider        | Local process, remote VM agent, Kubernetes namespace |
+| Runner provider         | Local process, remote VM agent, Kubernetes namespace |
 | Workspace Provider      | Git worktree, PVC, devcontainer, remote checkout     |
 | Source Control Provider | GitHub, GitLab, internal Git hosting                 |
 | Environment Builder     | OCI image, setup cache, Nix, devcontainer            |
@@ -271,16 +271,16 @@ Pipoca owns this repository boundary ([ADR 0001](adr/0001-own-the-control-plane-
 
 ## Federation direction
 
-The initial Cell has one owner and one authoritative Control Plane. A later Team Hub could federate personal Cells without immediately merging their provider credentials or filesystem trust boundaries.
+The initial install has one owner and one authoritative server. A later Team Hub could federate personal servers without immediately merging their provider credentials or filesystem trust boundaries.
 
 A possible future shape is:
 
 ```text
 Team Hub
-  Alice Cell
-  Bob Cell
-  documentation automation Cell
-  review automation Cell
+  Alice's server
+  Bob's server
+  documentation automation server
+  review automation server
 ```
 
-The exact federation model is intentionally postponed. The personal Cell should expose versioned APIs and actor attribution without pretending to solve team consistency today.
+The exact federation model is intentionally postponed. The personal server should expose versioned APIs and actor attribution without pretending to solve team consistency today.

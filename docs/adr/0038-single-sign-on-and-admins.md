@@ -1,6 +1,6 @@
 # 0038: Single Sign-On and Admins
 
-- Status: accepted, amended 2026-10-29 (plugin routes and meta-sessions act as the user who calls or starts them, never as an admin from a meta-session; admin-only shared config in plugins), what people see of others' Environments and Sessions replaced by [ADR 0049](0049-personal-environments-and-templates.md)
+- Status: accepted, amended 2026-10-29 (plugin routes and meta-sessions act as the user who calls or starts them, never as an admin from a meta-session; admin-only shared config in plugins), what people see of others' Environments and Sessions replaced by [ADR 0049](0049-personal-environments-and-templates.md), amended 2026-11-06 (the callback is `/api/ext/oidc/callback` on the server's configured URL, not the host the browser used; plugin routes moved under `/api/ext/<id>/` in the rebuild, [ADR 0068](0068-clean-rebuild.md#code-shape))
 - Date: 2026-10-25
 
 ## Context
