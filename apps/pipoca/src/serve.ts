@@ -168,10 +168,8 @@ export function serve(options: ServeOptions): {
 
   const clock = options.clock ?? systemClock;
 
-  // Which plugins are on, under "plugins" in pipoca.json. A solo install
-  // signs in no one else (ADR 0053).
+  // Which plugins are on, under "plugins" in pipoca.json.
   const switches = pluginSwitches(config("plugins"), options.log);
-  const offByDefault = options.solo === undefined ? [] : ["oidc"];
 
   const folder = options.installed;
   const installed = folder?.plugins ?? [];
@@ -243,13 +241,17 @@ export function serve(options: ServeOptions): {
     const defaultOn = definitions.find(({ id }) => id === name)?.defaultOn;
 
     if (defaultOn === undefined) {
-      return !offByDefault.includes(name);
+      return true;
     }
 
-    return (
-      defaultOn === "always" ||
-      (defaultOn === "solo") === (options.solo !== undefined)
-    );
+    const solo = options.solo !== undefined;
+
+    return {
+      always: true,
+      solo,
+      team: !solo,
+      never: false,
+    }[defaultOn];
   };
 
   const enabled = [
@@ -425,9 +427,8 @@ export function serve(options: ServeOptions): {
     config,
     api: async (onBehalf, request) => api.handle(onBehalfOf(onBehalf, request)),
     auth: {
-      userOf: (request) => signIn.userOf(request),
       users: () => people.users(),
-      createUser: (name, admin) => people.createUser(name, admin),
+      create: (name, admin) => people.createUser(name, admin),
       setAdmin: (userId, admin) => {
         people.setAdmin(userId, admin);
       },

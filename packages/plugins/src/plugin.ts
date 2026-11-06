@@ -193,13 +193,6 @@ export type PluginRoute = (
   caller: RouteCaller,
 ) => Response | Promise<Response>;
 
-// Undefined passes the request on to the plugin's routes, which need a
-// signed-in user.
-export type PublicRoute = (
-  request: Request,
-  path: string,
-) => Response | undefined | Promise<Response | undefined>;
-
 export interface User {
   readonly id: string;
   readonly name: string;
@@ -382,40 +375,6 @@ export interface ServerPluginContext {
     readonly buildsOn: (id: string) => readonly string[];
   };
   readonly routes: { readonly handle: (route: PluginRoute) => void };
-  // For a built-in plugin that signs people in without a password, such as
-  // OIDC (ADR 0038). Installed plugins don't get it.
-  readonly auth: {
-    // Asked each time the sign-in page loads, so a plugin that isn't set up
-    // yet offers nothing.
-    readonly offer: (logins: () => readonly Login[]) => void;
-    // Tried before the plugin's own routes, for every browser, signed in or
-    // not, such as an identity provider redirecting back.
-    readonly handlePublic: (route: PublicRoute) => void;
-    readonly userOf: (request: Request) => User | undefined;
-    readonly users: () => readonly User[];
-    // A user who signs in only through the plugin, or undefined when the
-    // name is taken.
-    readonly createUser: (name: string, admin: boolean) => User | undefined;
-    readonly setAdmin: (userId: string, admin: boolean) => void;
-    // The invite that lets someone in past the plugin's own rules: the one
-    // whose link they followed, or else one for their verified email
-    // (ADR 0063).
-    readonly invited: (
-      join: string | undefined,
-      email: string | undefined,
-    ) => { readonly id: string; readonly admin: boolean } | undefined;
-    // Uses the invite up, for someone who just joined with it.
-    readonly acceptInvite: (id: string) => void;
-    // Whether people may sign in with a password, which the server decides
-    // when it starts.
-    readonly passwordLogin: () => boolean;
-    // The Set-Cookie value of a new browser session for the user, or
-    // undefined when no user has the id.
-    readonly startSession: (
-      userId: string,
-      request: Request,
-    ) => string | undefined;
-  };
   readonly models: { readonly offer: (offer: ModelOffer) => void };
   readonly store: PluginStore;
   // Opens the secrets in the plugin's config and seals new ones, reading

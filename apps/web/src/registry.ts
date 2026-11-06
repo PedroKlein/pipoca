@@ -8,7 +8,7 @@ import { web as kubernetesWeb } from "../../../plugins/kubernetes/web/index";
 import { web as localWeb } from "../../../plugins/local/web/index";
 import { web as loginsWeb } from "../../../plugins/logins/web/index";
 import { web as modelsWeb } from "../../../plugins/models/web/index";
-import * as oidcWeb from "../../../plugins/oidc/web/index";
+import { web as oidcWeb } from "../../../plugins/oidc/web/index";
 import { web as projectsWeb } from "../../../plugins/projects/web/index";
 import { web as pushWeb } from "../../../plugins/push/web/index";
 import { web as routinesWeb } from "../../../plugins/routines/web/index";
@@ -26,7 +26,7 @@ export const webRegistry = [
   { id: "local", web: localWeb },
   { id: "logins", web: loginsWeb },
   { id: "models", web: modelsWeb },
-  { id: "oidc", plugin: oidcWeb },
+  { id: "oidc", web: oidcWeb },
   { id: "projects", web: projectsWeb },
   { id: "push", web: pushWeb },
   { id: "routines", web: routinesWeb },

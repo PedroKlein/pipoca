@@ -152,11 +152,7 @@ export default tseslint.config(
     // Plugins tell time by their context's clock and wait through its
     // schedule, so a test's clock moves them too.
     files: ["plugins/*/src/**/*.ts", "plugins/*/src/**/*.tsx"],
-    ignores: [
-      "plugins/*/src/**/*.test.ts",
-      // Until these move to the clock and schedule as their plugins port.
-      "plugins/oidc/src/oidc.ts",
-    ],
+    ignores: ["plugins/*/src/**/*.test.ts"],
     rules: {
       "no-restricted-globals": [
         "error",

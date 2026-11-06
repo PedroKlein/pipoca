@@ -734,6 +734,8 @@ export async function pluginTest(
     public: () => ({
       raw: async (method, path, init = {}) =>
         request(extPath(path), { ...init, method }),
+      kernel: async (method, path, headers = {}) =>
+        request(path, { method, headers }),
       webhook: async (path, body, secret) =>
         request(extPath(path), {
           method: "POST",
