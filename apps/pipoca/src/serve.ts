@@ -244,12 +244,12 @@ export function serve(options: ServeOptions): {
       return true;
     }
 
-    const solo = options.solo !== undefined;
+    const alone = options.solo !== undefined;
 
     return {
       always: true,
-      solo,
-      team: !solo,
+      solo: alone,
+      team: !alone,
       never: false,
     }[defaultOn];
   };
