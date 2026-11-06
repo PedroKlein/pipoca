@@ -498,7 +498,11 @@ test("asks the assistant from the home screen with the model picked, then contin
     { method: "POST", headers: { cookie } },
   );
 
-  await page.getByRole("link", { name: "Earlier conversations" }).click();
+  await page
+    .locator("#plugin-nav")
+    .getByRole("link", { name: "Earlier conversations" })
+    .click();
+
   await page.getByRole("heading", { name: "Earlier conversations" }).waitFor();
   await page.getByRole("link", { name: /What can you do/ }).click();
 
@@ -506,7 +510,21 @@ test("asks the assistant from the home screen with the model picked, then contin
     .locator('#chat li[data-role="assistant"]', { hasText: "Happy to help" })
     .waitFor();
 
-  await page.getByRole("link", { name: "Assistant", exact: true }).click();
+  await page
+    .locator("#plugin-page")
+    .getByRole("link", { name: "Assistant", exact: true })
+    .click();
+
+  await page.waitForURL((url) => url.hash === projectHash);
+
+  // The sidebar's Assistant entry opens the same assistant (ADR 0052).
+  await page.goto(server.url.href);
+
+  await page
+    .locator("#plugin-nav")
+    .getByRole("link", { name: "Assistant", exact: true })
+    .click();
+
   await page.waitForURL((url) => url.hash === projectHash);
 }, 30_000);
 
@@ -1168,7 +1186,7 @@ test("draws a defined plugin's page and slots, pinned for someone who never chan
     await page.goto(server.url.href);
     const nav = page.locator("#plugin-nav");
 
-    await nav.getByRole("link", { name: "Projects" }).waitFor();
+    await nav.getByRole("link", { name: "Assistant", exact: true }).waitFor();
     expect(await nav.getByRole("link", { name: "Routines" }).count()).toBe(0);
 
     await nav.getByRole("link", { name: "Vault" }).click();
@@ -1234,7 +1252,7 @@ test("pins a plugin page to the sidebar and keeps the rest under More", async ()
   const nav = page.locator("#plugin-nav");
   const routines = nav.getByRole("link", { name: "Routines" });
 
-  await nav.getByRole("link", { name: "Projects" }).waitFor();
+  await nav.getByRole("link", { name: "Assistant", exact: true }).waitFor();
   expect(await routines.count()).toBe(0);
 
   await nav.getByRole("button", { name: "More" }).click();
@@ -1247,7 +1265,7 @@ test("pins a plugin page to the sidebar and keeps the rest under More", async ()
 
   await nav.getByRole("button", { name: "Unpin Routines" }).click();
   await page.reload();
-  await nav.getByRole("link", { name: "Projects" }).waitFor();
+  await nav.getByRole("link", { name: "Assistant", exact: true }).waitFor();
   expect(await routines.count()).toBe(0);
 });
 
@@ -2972,12 +2990,9 @@ test("shows a plugin page's failure without taking the app down", async () => {
     }),
   );
 
+  // The failing list takes the sidebar's Project links with it.
   await page.goto(server.url.href);
-
-  await page
-    .locator("#plugin-nav")
-    .getByRole("link", { name: "Projects" })
-    .click();
+  await page.goto(new URL("#plugin/projects/all", server.url).href);
 
   const pluginPage = page.locator("#plugin-page");
 

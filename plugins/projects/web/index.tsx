@@ -50,7 +50,15 @@ import {
   useState,
 } from "react";
 import { projects } from "../plugin";
-import { Earlier, earlier, Home, TeamAssistant } from "./assistant";
+import {
+  AssistantItems,
+  Earlier,
+  earlier,
+  Home,
+  Opening,
+  projectList,
+  TeamAssistant,
+} from "./assistant";
 import { Library } from "./library";
 import {
   type ProjectNotices,
@@ -68,11 +76,17 @@ const watched = { topics: ["sessions", "projects.projects"] };
 
 export const web = defineWeb(projects, {
   pages: [
+    // A plugin has one sidebar entry, so the Assistant is it and the
+    // Project list sits under it (ADR 0052).
     {
       path: "",
-      label: "Projects",
+      label: "Assistant",
       Page,
-      nav: { Items, fills: (path) => path !== "", pinned: true },
+      nav: {
+        Items,
+        fills: (path) => path !== "" && path !== projectList,
+        pinned: true,
+      },
     },
     {
       path: "team-assistant",
@@ -382,34 +396,37 @@ function Items({ path }: Own<NavItemsProps>): ReactElement {
   const list = useLoaded(async () => allProjects(), "projects", watched).value;
 
   return (
-    <ul id="project-nav" className="flex flex-col gap-0.5">
-      {list
-        ?.filter((project) => project.coordinatorState !== "archived")
-        .map((project) => (
-          <li key={project.id}>
-            <a
-              href={link(project.id)}
-              aria-current={
-                path?.split("/")[0] === project.id ? "page" : undefined
-              }
-              className="grid grid-cols-[1fr_auto] items-center gap-x-2 gap-y-0.5 rounded-md py-1.5 pr-2 pl-10.5 text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:text-fg-strong"
-            >
-              <span className="truncate text-label font-medium">
-                {project.name}
-              </span>
-              {project.needsYou > 0 ? (
-                <Badge state="waiting">{project.needsYou} needs you</Badge>
-              ) : (
-                <span />
-              )}
-              <span className="col-span-2 truncate text-caption text-fg-dim">
-                {counted(project.repositories, "repository", "repositories")} ·
-                coordinator {project.coordinatorState}
-              </span>
-            </a>
-          </li>
-        ))}
-    </ul>
+    <>
+      <AssistantItems path={path} />
+      <ul id="project-nav" className="flex flex-col gap-0.5">
+        {list
+          ?.filter((project) => project.coordinatorState !== "archived")
+          .map((project) => (
+            <li key={project.id}>
+              <a
+                href={link(project.id)}
+                aria-current={
+                  path?.split("/")[0] === project.id ? "page" : undefined
+                }
+                className="grid grid-cols-[1fr_auto] items-center gap-x-2 gap-y-0.5 rounded-md py-1.5 pr-2 pl-10.5 text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:text-fg-strong"
+              >
+                <span className="truncate text-label font-medium">
+                  {project.name}
+                </span>
+                {project.needsYou > 0 ? (
+                  <Badge state="waiting">{project.needsYou} needs you</Badge>
+                ) : (
+                  <span />
+                )}
+                <span className="col-span-2 truncate text-caption text-fg-dim">
+                  {counted(project.repositories, "repository", "repositories")}{" "}
+                  · coordinator {project.coordinatorState}
+                </span>
+              </a>
+            </li>
+          ))}
+      </ul>
+    </>
   );
 }
 
@@ -435,7 +452,11 @@ function Page({ path }: Own<PageProps>): ReactElement {
     return <Earlier path={rest.join("/")} />;
   }
 
-  return open === "" ? (
+  if (open === "") {
+    return <Opening />;
+  }
+
+  return open === projectList ? (
     <ProjectList environments={environments} onOpen={go} />
   ) : (
     <ProjectPage

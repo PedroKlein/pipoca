@@ -96,15 +96,12 @@ function libraryTools({ api, config, tools }: Context): void {
     }),
     annotations: { destructive: true },
     // Only replacing a file someone else may rely on asks (ADR 0050).
-    asks: async (input, { cwd, signal }) => {
+    asks: async (input, { cwd }) => {
       const name = (input.name ?? basename(resolve(cwd, input.path))).normalize(
         "NFC",
       );
 
-      const files = await api.get<LibraryFile[]>(
-        "library",
-        signal === undefined ? {} : { signal },
-      );
+      const files = await api.get<LibraryFile[]>("library");
 
       return files.some((file) => file.name === name)
         ? `Replace the library file “${name}”?`

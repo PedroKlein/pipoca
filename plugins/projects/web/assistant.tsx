@@ -18,6 +18,7 @@ import {
 import {
   type ReactElement,
   type SubmitEvent,
+  useEffect,
   useId,
   useRef,
   useState,
@@ -34,6 +35,9 @@ const teamAssistantPath = `/api/ext/${projects.id}/team/assistant`;
 
 // Earlier conversations: the coordinators a fresh one replaced.
 export const earlier = "earlier";
+
+// The Project list, under the Assistant entry.
+export const projectList = "all";
 
 // Undefined while loading, null before the person's first ask.
 function useAssistant(team = false): ProjectView | null | undefined {
@@ -107,6 +111,67 @@ export function Home({
         </Button>
       </div>
     </div>
+  );
+}
+
+// The sidebar's Assistant entry opens the person's one assistant, and asks
+// it the first thing before it exists (ADR 0052).
+export function Opening(): ReactElement {
+  const assistant = useAssistant();
+  const models = useModels("");
+
+  useEffect(() => {
+    if (assistant) {
+      location.replace(href(projects, assistant.id));
+    }
+  }, [assistant]);
+
+  if (assistant !== null) {
+    return <></>;
+  }
+
+  return (
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-12">
+      <PageTitle description="Ask it to set up Pipoca, start work in your repositories, or build a plugin. It asks before anything destructive.">
+        Assistant
+      </PageTitle>
+      {models !== undefined && models !== null ? (
+        <Composer models={models} picksModel />
+      ) : (
+        <p className="text-fg-dim">Set up an Environment first.</p>
+      )}
+    </div>
+  );
+}
+
+// Under the Assistant entry: the Project list, and the assistant's earlier
+// conversations once it has some.
+export function AssistantItems({
+  path,
+}: {
+  readonly path: string | undefined;
+}): ReactElement {
+  const assistant = useAssistant();
+
+  const item = (to: string, label: string): ReactElement => (
+    <li>
+      <a
+        href={href(projects, to)}
+        aria-current={path?.split("/")[0] === to ? "page" : undefined}
+        className="block truncate rounded-md py-1.5 pr-2 pl-10.5 text-label text-fg-dim hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:text-fg-strong"
+      >
+        {label}
+      </a>
+    </li>
+  );
+
+  return (
+    <ul className="flex flex-col gap-0.5">
+      {item(projectList, "Projects")}
+      {assistant && assistant.formerCoordinators.length > 0
+        ? item(earlier, "Earlier conversations")
+        : null}
+    </ul>
   );
 }
 
