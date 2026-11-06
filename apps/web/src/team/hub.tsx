@@ -1,5 +1,5 @@
 import type { HubPage } from "@pipoca/protocol";
-import { AreaLayout, Avatar, Page, plural } from "@pipoca/ui";
+import { AreaLayout, Page, plural } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useState } from "react";
 import { request } from "../data/client";
 import { useAction, useMe, useQuery } from "../data/hooks";
@@ -103,7 +103,14 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
       label="Team"
       back={{ href: href("home"), label: "My work" }}
       heading={name ?? "Team"}
-      mark={<Avatar name={name ?? "Team"} square size="md" />}
+      mark={
+        <span
+          aria-hidden="true"
+          className="grid size-8.5 shrink-0 place-items-center rounded-md bg-butter text-label font-semibold text-on-butter"
+        >
+          {Array.from(name ?? "Team")[0]?.toUpperCase()}
+        </span>
+      }
       detail={
         people === undefined
           ? undefined

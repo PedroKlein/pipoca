@@ -10,6 +10,9 @@ export interface AreaItem {
   readonly current?: boolean;
   // A number at the end of the line, such as how many there are.
   readonly count?: number;
+  // On the phone menu: a few words on what it holds, and a chip such as On.
+  readonly hint?: string;
+  readonly status?: ReactNode;
 }
 
 export interface AreaGroup {
@@ -21,7 +24,8 @@ const itemClass =
   "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-ui text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:font-medium aria-[current=page]:text-fg-strong";
 
 // An area with its own side nav, such as Settings, the Team hub and Team
-// setup: a link back, a serif heading, groups of pages, then the page.
+// setup: a link back, a heading, groups of pages, then the page. The heading
+// is serif unless a mark comes before it.
 //
 // On a phone the nav either becomes a menu page of its own ("menu", shown
 // while menuOpen) or a row of links above the page ("bar").
@@ -37,6 +41,7 @@ export function AreaLayout({
   menuOpen = false,
   menuHref,
   menuTop,
+  menuGroups = groups,
   fill = false,
   children,
 }: {
@@ -56,6 +61,8 @@ export function AreaLayout({
   readonly menuHref?: string;
   // A card at the top of the phone menu, such as the person's own.
   readonly menuTop?: ReactNode;
+  // The phone menu's own groups, when it shows the pages differently.
+  readonly menuGroups?: readonly AreaGroup[];
   // The page fills the area and scrolls itself, such as a Session.
   readonly fill?: boolean;
   readonly children: ReactNode;
@@ -83,7 +90,14 @@ export function AreaLayout({
         <div className="flex items-center gap-2.5 px-2.5 pt-0.5 pb-1.5 max-md:hidden">
           {mark}
           <div className="min-w-0">
-            <h2 className="truncate font-serif text-wordmark font-light text-fg-strong">
+            <h2
+              className={cn(
+                "truncate text-fg-strong",
+                mark === undefined
+                  ? "font-serif text-wordmark font-light"
+                  : "text-prose font-medium",
+              )}
+            >
               {heading}
             </h2>
             {detail !== undefined && (
@@ -127,7 +141,7 @@ export function AreaLayout({
         <PhoneMenu
           back={back}
           heading={heading}
-          groups={groups}
+          groups={menuGroups}
           top={menuTop}
         />
       )}
@@ -201,11 +215,17 @@ function PhoneMenu({
                     className="flex min-h-12 items-center gap-3 px-4 text-ui font-medium text-fg-strong"
                   >
                     <span className="flex-1">{item.label}</span>
+                    {item.hint !== undefined && (
+                      <span className="min-w-0 truncate text-label font-normal text-fg-dim">
+                        {item.hint}
+                      </span>
+                    )}
                     {item.count !== undefined && (
                       <span className="text-label font-normal text-fg-dim tabular-nums">
                         {item.count}
                       </span>
                     )}
+                    {item.status}
                     <Icon name="chevron-right" className="text-fg-dim" />
                   </a>
                 </li>

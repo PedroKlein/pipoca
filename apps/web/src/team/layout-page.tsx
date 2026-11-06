@@ -8,6 +8,7 @@ import {
   ErrorText,
   Icon,
   Page,
+  plural,
   Row,
   Rows,
   Section,
@@ -20,6 +21,9 @@ import { PluginBoundary } from "../plugin-boundary";
 import { panels } from "./hub-pages";
 
 const busy = new Set<Session["status"]>(["queued", "starting", "running"]);
+
+// Home shows this panel beside Running now, as a column of its own.
+const sidePanel = "usage/activity";
 
 export function LayoutPage({
   page,
@@ -49,6 +53,12 @@ export function LayoutPage({
   });
 
   const missing = available.filter(({ id }) => !page.panels.includes(id));
+  const side = home ? shown.find(({ id }) => id === sidePanel) : undefined;
+  const bottom = shown.filter((panel) => panel !== side);
+
+  const running = sessions.filter(
+    ({ status, waiting }) => !waiting && busy.has(status),
+  );
 
   const move = (index: number, by: number): void => {
     const next = [...page.panels];
@@ -175,31 +185,49 @@ export function LayoutPage({
               empty="Nothing is waiting on the team."
             />
           </Section>
-          <Section title="Running now">
-            <SessionRows
-              sessions={sessions.filter(
-                ({ status, waiting }) => !waiting && busy.has(status),
-              )}
-              empty="No team work is running."
-            />
-          </Section>
+          <div className="grid gap-x-6 md:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
+            <Section
+              title="Running now"
+              description={plural(running.length, "Session")}
+            >
+              <SessionRows
+                sessions={running}
+                empty="No team work is running."
+              />
+            </Section>
+            {side && (
+              <section
+                aria-label={side.title}
+                className="mt-8 flex flex-col gap-2.5"
+              >
+                <h2 className="flex min-h-8 items-center text-prose font-semibold text-fg-strong">
+                  {side.title}
+                </h2>
+                <div className={cn(cardClass, "p-4")}>
+                  <PluginBoundary name={side.plugin}>
+                    <side.Panel />
+                  </PluginBoundary>
+                </div>
+              </section>
+            )}
+          </div>
         </>
       )}
-      {shown.length > 0 && (
-        <div className="mt-8 grid gap-4 md:grid-cols-2">
-          {shown.map(({ id, title, plugin, Panel }) => (
-            <section
-              key={id}
-              aria-label={title}
-              className={cn(cardClass, "flex min-w-0 flex-col gap-2.5 p-4")}
-            >
-              <h2 className="text-prose font-semibold text-fg-strong">
-                {title}
-              </h2>
+      {(home || bottom.length > 0) && (
+        <div className="mt-8 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {home && (
+            <PanelCard title="Pull requests">
+              <p className="text-label text-fg-dim">
+                No pull requests to show yet.
+              </p>
+            </PanelCard>
+          )}
+          {bottom.map(({ id, title, plugin, Panel }) => (
+            <PanelCard key={id} title={title}>
               <PluginBoundary name={plugin}>
                 <Panel />
               </PluginBoundary>
-            </section>
+            </PanelCard>
           ))}
         </div>
       )}
@@ -211,6 +239,24 @@ export function LayoutPage({
         </p>
       )}
     </Page>
+  );
+}
+
+function PanelCard({
+  title,
+  children,
+}: {
+  readonly title: string;
+  readonly children: ReactNode;
+}): ReactElement {
+  return (
+    <section
+      aria-label={title}
+      className={cn(cardClass, "flex min-w-0 flex-col gap-2.5 p-4")}
+    >
+      <h2 className="text-prose font-semibold text-fg-strong">{title}</h2>
+      {children}
+    </section>
   );
 }
 
