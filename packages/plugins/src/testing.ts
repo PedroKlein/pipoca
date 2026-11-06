@@ -106,10 +106,6 @@ export function fakeContext(
       buildsOn: () => [],
     },
     routes: { handle: notFaked("routes.handle") },
-    auth: {
-      handlePublic: notFaked("auth.handlePublic"),
-      users: notFaked("auth.users"),
-    },
     models: { offer: notFaked("models.offer") },
     store: memoryStore(),
     secretRefs: secretRefs(memoryStore(), envSecrets({})),

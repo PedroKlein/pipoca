@@ -193,13 +193,6 @@ export type PluginRoute = (
   caller: RouteCaller,
 ) => Response | Promise<Response>;
 
-// Undefined passes the request on to the plugin's routes, which need a
-// signed-in user.
-export type PublicRoute = (
-  request: Request,
-  path: string,
-) => Response | undefined | Promise<Response | undefined>;
-
 export interface User {
   readonly id: string;
   readonly name: string;
@@ -403,13 +396,6 @@ export interface ServerPluginContext {
     readonly buildsOn: (id: string) => readonly string[];
   };
   readonly routes: { readonly handle: (route: PluginRoute) => void };
-  // For built-in plugins. Installed plugins don't get it.
-  readonly auth: {
-    // Tried before the plugin's own routes, for every browser, signed in or
-    // not, such as an identity provider redirecting back.
-    readonly handlePublic: (route: PublicRoute) => void;
-    readonly users: () => readonly User[];
-  };
   readonly models: { readonly offer: (offer: ModelOffer) => void };
   readonly store: PluginStore;
   // Opens the secrets in the plugin's config and seals new ones, reading

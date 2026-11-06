@@ -37,10 +37,6 @@ const attemptMs = 10 * 60_000;
 const weekMs = 7 * 24 * 60 * 60_000;
 const browserCookie = "sign-in";
 
-// The redirect URI every provider has registered (ADR 0038). The server
-// sends it on to the plugin's callback.
-const callbackPath = "/api/plugins/oidc/callback";
-
 interface Pending extends Attempt {
   readonly providerId: string;
   readonly browser: string;
@@ -66,6 +62,7 @@ export const server = defineServer(oidc, (context) => {
   const providers = providerList(context.config.collection("providers"));
   const pending = new Map<string, Pending>();
   const discovered = new Map<string, Promise<Provider>>();
+  const callback = (): string => urls.public("callback");
 
   const people = context.provide.signIn({
     logins: () =>
@@ -89,7 +86,6 @@ export const server = defineServer(oidc, (context) => {
   });
 
   const start = async (
-    request: Request,
     providerId: string,
     linkTo: string | undefined,
     join: string | undefined,
@@ -117,7 +113,7 @@ export const server = defineServer(oidc, (context) => {
       location = authorizationUrl(
         await discovery(config.issuer),
         client(config),
-        redirectUri(request),
+        callback(),
         attempt,
       );
     } catch (failure) {
@@ -245,8 +241,7 @@ export const server = defineServer(oidc, (context) => {
   routes.get(
     "start/:id",
     { auth: "public", query: startQuery },
-    async ({ params, query, raw }) =>
-      start(raw, params.id, undefined, query.join),
+    async ({ params, query }) => start(params.id, undefined, query.join),
   );
 
   routes.get(
@@ -287,7 +282,7 @@ export const server = defineServer(oidc, (context) => {
         const identity = await redeem(
           await discovery(config.issuer),
           client(config),
-          redirectUri(raw),
+          callback(),
           attempt,
           query.code ?? "",
           clock.now(),
@@ -306,8 +301,8 @@ export const server = defineServer(oidc, (context) => {
     },
   );
 
-  routes.get("link/:id", { auth: "person" }, async ({ caller, params, raw }) =>
-    start(raw, params.id, caller.person.id, undefined),
+  routes.get("link/:id", { auth: "person" }, async ({ caller, params }) =>
+    start(params.id, caller.person.id, undefined),
   );
 
   const account = (person: Person): Account => ({
@@ -436,19 +431,6 @@ function access(
         (config.allowedEmails.includes(email) ||
           config.allowedDomains.includes(domain))),
   };
-}
-
-// On whichever host the browser used, which already passed the server's own
-// site check. HTTPS usually ends in a gateway in front of it (ADR 0034).
-function redirectUri(request: Request): string {
-  const url = new URL(request.url);
-  const host = request.headers.get("host") ?? url.host;
-
-  const secure =
-    url.protocol === "https:" ||
-    request.headers.get("x-forwarded-proto") === "https";
-
-  return `${secure ? "https" : "http"}://${host}${callbackPath}`;
 }
 
 // A page that moves on by itself instead of a 302: the browser came here

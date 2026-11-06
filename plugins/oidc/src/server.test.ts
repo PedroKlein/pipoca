@@ -150,8 +150,7 @@ function cookieOf(response: Response): string {
   return response.headers.get("set-cookie")?.split(";")[0] ?? "";
 }
 
-// Walks a browser through the provider and back to the redirect URI the
-// provider has registered. Returns the callback's answer and the Cookie
+// Walks a browser through the provider and back. Returns the callback's answer and the Cookie
 // header the browser sends next.
 async function signIn(
   t: OidcTest,
@@ -169,17 +168,11 @@ async function signIn(
     t.provider.authorize(leaving.headers.get("location") ?? "", account),
   );
 
-  const browser = { cookie: o.browser ?? cookieOf(leaving) };
-
-  const moved = await t
-    .public()
-    .kernel("GET", `${back.pathname}${back.search}`, browser);
-
-  expect(moved.status).toBe(308);
-
   const response = await t
     .public()
-    .kernel("GET", moved.headers.get("location") ?? "", browser);
+    .kernel("GET", `${back.pathname}${back.search}`, {
+      cookie: o.browser ?? cookieOf(leaving),
+    });
 
   return { response, cookie: cookieOf(response) };
 }
@@ -225,7 +218,7 @@ test("offers a button on the sign-in page for each provider in the config", asyn
   ]);
 });
 
-test("makes a user for a member of the access group and signs them in through the registered redirect URI", async () => {
+test("makes a user for a member of the access group and signs them in", async () => {
   await using t = await started();
 
   const { response, cookie } = await signIn(t, ana);
@@ -247,7 +240,7 @@ test("makes a user for a member of the access group and signs them in through th
     {
       authorization: null,
       clientId,
-      redirectUri: "/api/plugins/oidc/callback",
+      redirectUri: "/api/ext/oidc/callback",
       verified: true,
     },
     expect.anything(),

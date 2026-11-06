@@ -14,7 +14,6 @@ import {
   type PluginDefinition,
   type PluginRoute,
   type PluginStore,
-  type PublicRoute,
   type RouteCaller,
   type RouteToolSpec,
   type RunnerSource,
@@ -187,11 +186,6 @@ export interface PluginHost {
     path: string,
     caller: RouteCaller,
   ) => Promise<Response | undefined>;
-  readonly publicRoute: (
-    request: Request,
-    name: string,
-    path: string,
-  ) => Promise<Response | undefined>;
   // The links the sign-in page shows besides the password form, each with
   // its path from the server's root.
   readonly logins: () => readonly Login[];
@@ -258,7 +252,7 @@ export function startPlugins(
     readonly config: (name: string) => ConfigKey;
     // Handles a route tool's request as the person.
     readonly api: (onBehalf: OnBehalf, request: Request) => Promise<Response>;
-    readonly auth: Pick<ServerPluginContext["auth"], "users"> & SignInApi;
+    readonly auth: { readonly users: () => readonly User[] } & SignInApi;
     readonly installed?: InstalledPlugins;
     // The Session parts built into the binary, besides installed ones.
     readonly sessionParts: readonly SessionPlugin[];
@@ -286,7 +280,6 @@ export function startPlugins(
   const toolsetUsers = new Set<string>();
   const routeToolProfiles = new Set<string>();
   const routes = new Map<string, PluginRoute>();
-  const publicRoutes = new Map<string, PublicRoute>();
   let signIn: { plugin: string; provider: SignInProvider } | undefined;
   const { users: _users, ...signInApi } = deps.auth;
   const offers: ModelOffer[] = [];
@@ -599,7 +592,6 @@ export function startPlugins(
       namespaces: new Set<string>(),
       loadsToolsets: false,
       route: undefined as PluginRoute | undefined,
-      publicRoute: undefined as PublicRoute | undefined,
       offers: [] as ModelOffer[],
       starters: [] as (typeof starters)[number][],
       profiles: new Map<string, PluginProfile>(),
@@ -744,12 +736,6 @@ export function startPlugins(
               staged.route = route;
             },
           },
-          auth: {
-            handlePublic: (route) => {
-              staged.publicRoute = route;
-            },
-            users: deps.auth.users,
-          },
           models: {
             offer: (offer) => {
               staged.offers.push(offer);
@@ -797,10 +783,6 @@ export function startPlugins(
 
     if (staged.route !== undefined) {
       routes.set(plugin.name, staged.route);
-    }
-
-    if (staged.publicRoute !== undefined) {
-      publicRoutes.set(plugin.name, staged.publicRoute);
     }
 
     offers.push(...staged.offers);
@@ -1704,8 +1686,6 @@ export function startPlugins(
         .flatMap(({ of }) => of(owner, session)),
     route: async (request, name, path, caller) =>
       routes.get(name)?.(request, path, caller),
-    publicRoute: async (request, name, path) =>
-      publicRoutes.get(name)?.(request, path),
     logins: () => {
       if (signIn === undefined) {
         return [];
@@ -1860,10 +1840,6 @@ function recorded<C extends object>(
 ): C {
   return new Proxy(context, {
     get: (target, key, receiver) => {
-      if (installed && key === "auth") {
-        throw new Error(`${plugin} uses auth, which only built-in plugins get`);
-      }
-
       const capability = capabilities.find((each) => each === key);
 
       if (capability !== undefined) {

@@ -96,7 +96,6 @@ export type {
   PluginStore,
   SqlValue,
   ProfileMcpServer,
-  PublicRoute,
   RouteCaller,
   RouteRequest,
   RouteTool,
