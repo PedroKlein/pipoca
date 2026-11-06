@@ -15,6 +15,7 @@ import {
   testSession,
   until,
 } from "./index";
+import { emptyProfile } from "@pipoca/protocol";
 
 const tests: PluginTest[] = [];
 
@@ -388,4 +389,78 @@ test("a Session part's tools run against a stand-in for Pi", async () => {
   });
 
   expect(session.published("count")).toEqual({ n: 3 });
+});
+
+// A route with a team half, and a tool that runs it as the Session's person.
+const tallies = defineServer(
+  definePlugin({
+    id: "tallies",
+    title: "Tallies",
+    description: "Tallies.",
+    works: ["personal", "team"],
+  }),
+  ({ provide, routes, sessions, tools }) => {
+    const helper = provide.profile(
+      "helper",
+      { ...emptyProfile, name: "Helper" },
+      { team: true, routeTools: true },
+    );
+
+    routes.post(
+      "tally",
+      {
+        auth: "person",
+        team: true,
+        tool: { name: "tallies_add", description: "Adds a tally" },
+      },
+      ({ caller }) => ({ owner: caller.owner }),
+    );
+
+    routes.post(
+      "start",
+      {
+        auth: "person",
+        team: true,
+        body: Type.Object({ environment: Type.String() }),
+      },
+      ({ caller, body }) => ({
+        id: sessions.start({
+          key: "tally",
+          environment: body.environment,
+          actor: `user:${caller.person.id}`,
+          profile: helper,
+          workspace: { kind: "folder", path: "/" },
+          ...(caller.owner === "team" && { team: true }),
+        }).id,
+      }),
+    );
+
+    tools.define({
+      name: "tally_through_call",
+      description: "Adds a tally through tools.call",
+      params: Type.Object({}),
+      when: { ownSessions: true },
+      run: async (_input, { session }) =>
+        (await tools.call("tallies_add", {}, { session: session.id })).text,
+    });
+  },
+);
+
+test("a team Session's route tools reach the route's team half", async () => {
+  const t = await started(tallies, { people });
+  const environment = await t.environment({ owner: "team" });
+
+  const { id } = await t
+    .as("ana")
+    .post<{ id: string }>("team/start", { environment: environment.id });
+
+  const session = await t.attach(id);
+
+  expect(await t.tool("tallies_add", {}, { session })).toMatchObject({
+    text: expect.stringContaining('"owner":"team"') as unknown,
+  });
+
+  expect(await t.tool("tally_through_call", {}, { session })).toMatchObject({
+    text: expect.stringContaining('"owner":"team"') as unknown,
+  });
 });

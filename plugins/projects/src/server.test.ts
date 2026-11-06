@@ -298,6 +298,40 @@ test("a team Project has no owner and every person sees it", async () => {
   ).toBe("Shop");
 });
 
+test("the Team assistant's route tools act on the team's half", async () => {
+  await using t = await testPlugin(server, { people });
+  const environment = await t.environment({ owner: "team" });
+
+  const assistant = await t
+    .as("ana")
+    .post<ProjectView>("team/assistant", { text: "Start a shop project" });
+
+  const coordinator = await t.attach(assistant.coordinatorId);
+
+  const made = await t.tool(
+    "projects_create",
+    {
+      name: "Shop",
+      repositories: [repository],
+      environment: environment.id,
+      profile: "projects.builder",
+    },
+    { session: coordinator },
+  );
+
+  expect(made).toMatchObject({ isError: false });
+
+  expect(
+    t.store.all<{ owner_user_id: string | null }>(
+      "select owner_user_id from projects_projects where name = 'Shop'",
+    ),
+  ).toEqual([{ owner_user_id: null }]);
+
+  expect(await t.as("bo").get("team/projects")).toMatchObject([
+    { name: "Shop", team: true },
+  ]);
+});
+
 test("archiving the coordinator archives the Project's threads", async () => {
   const s = await started();
   await using _ = s.t;
