@@ -178,7 +178,7 @@ test("a request that changes a topic reads its routes again at once", async () =
 
 function Rename(): ReactElement {
   const rename = useAction(async (name: string) =>
-    request("me.update", { body: { name } }),
+    request("me.update", { body: { displayName: name } }),
   );
 
   return (
