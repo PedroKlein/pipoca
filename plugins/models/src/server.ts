@@ -68,20 +68,32 @@ export const server = defineServer(models, (context) => {
       return null;
     }
 
-    const stored = storedAliases(aliases);
+    const read = (): { stored: AliasConfig } | { problem: string } => {
+      try {
+        const stored = storedAliases(aliases);
 
-    const problem =
-      typeof stored.models === "object"
-        ? aliasProblem(stored)
-        : "aliases need models";
+        const problem =
+          typeof stored.models === "object"
+            ? aliasProblem(stored)
+            : "aliases need models";
 
-    if (problem !== undefined) {
-      log("template aliases unreadable", { templateId, problem });
+        return problem === undefined ? { stored } : { problem };
+      } catch (error) {
+        return {
+          problem: error instanceof Error ? error.message : String(error),
+        };
+      }
+    };
+
+    const found = read();
+
+    if ("problem" in found) {
+      log("template aliases unreadable", { templateId, ...found });
 
       return null;
     }
 
-    return stored;
+    return found.stored;
   };
 
   // The template is looked up only when it can matter, since listing

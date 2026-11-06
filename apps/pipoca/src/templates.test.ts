@@ -263,3 +263,49 @@ test("offers a template's model aliases on Environments made from it", async () 
 
   expect(environment?.models.map(({ id }) => id)).toContain("fast");
 });
+
+test("skips a template's aliases it can't read, and still offers the rest", async () => {
+  await mkdir(join(root, "config"), { recursive: true });
+
+  await writeFile(
+    join(root, "config", "pipoca.json"),
+    JSON.stringify({
+      templates: [
+        { id: "broken", name: "Broken", aliases: { backends: { x: {} } } },
+        {
+          id: "team",
+          name: "Team",
+          aliases: { models: { fast: ["openai/gpt-5-mini"] } },
+        },
+      ],
+    }),
+  );
+
+  start();
+  const anas = await ana();
+
+  for (const template of ["broken", "team"]) {
+    await json(
+      server.as(anas)("/api/environments", {
+        body: { name: template, template },
+      }),
+    );
+  }
+
+  const listed = await json<Environment[]>(
+    server.as(anas)("/api/environments"),
+  );
+
+  expect(
+    listed.map(({ name, models }) => [
+      name,
+      models.some(({ id }) => id === "fast"),
+    ]),
+  ).toEqual([
+    ["broken", false],
+    ["team", true],
+  ]);
+
+  expect(server.logs.join("\n")).toContain("template aliases unreadable");
+  expect(server.logs.join("\n")).not.toContain("plugin call failed");
+});
