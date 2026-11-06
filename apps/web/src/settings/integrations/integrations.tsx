@@ -3,7 +3,7 @@ import type { ReactElement } from "react";
 import { PluginBoundary } from "../../plugin-boundary";
 import { enabledPlugins, pluginContext, pluginTitle } from "../../plugins";
 
-// Plugins that start routines from outside, such as Slack and Email, share
+// Plugins that bring work in from outside, such as Slack and Email, share
 // one page with a tab each (ADR 0063).
 export function IntegrationsPage({
   route,
@@ -23,7 +23,7 @@ export function IntegrationsPage({
 
   return (
     <Page>
-      <PageTitle description="Services that start your routines from outside Pipoca and that Sessions can answer through.">
+      <PageTitle description="Services that start work from outside Pipoca and that Sessions can answer through.">
         Integrations
       </PageTitle>
       <Tabs

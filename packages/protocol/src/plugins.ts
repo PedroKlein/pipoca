@@ -115,7 +115,7 @@ export const pluginManifest = Type.Object({
   // part owns. A built-in says so on its Session part instead.
   ownSessionsOnly: Type.Optional(Type.Boolean()),
   // The events the plugin publishes, by name without the plugin's prefix,
-  // such as routines' triggers offer (ADR 0059).
+  // which an editor of triggers offers (ADR 0059).
   events: Type.Optional(
     Type.Record(Type.String({ pattern: "^[a-z][a-z0-9_]*$" }), eventSpec),
   ),

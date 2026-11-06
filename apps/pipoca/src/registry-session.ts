@@ -13,8 +13,6 @@ import { models } from "../../../plugins/models/plugin";
 import { session as modelsSession } from "../../../plugins/models/src/session";
 import { projects } from "../../../plugins/projects/plugin";
 import { session as projectsSession } from "../../../plugins/projects/src/session";
-import routinesPackage from "../../../plugins/routines/package.json";
-import * as routinesSession from "../../../plugins/routines/src/session";
 import { subagents } from "../../../plugins/subagents/plugin";
 import { session as subagentsSession } from "../../../plugins/subagents/src/session";
 
@@ -26,10 +24,5 @@ export const sessionRegistry = [
   { id: "logins", definition: logins, session: loginsSession },
   { id: "models", definition: models, session: modelsSession },
   { id: "projects", definition: projects, session: projectsSession },
-  {
-    id: "routines",
-    manifest: routinesPackage.pipoca,
-    session: routinesSession,
-  },
   { id: "subagents", definition: subagents, session: subagentsSession },
 ] as const;
