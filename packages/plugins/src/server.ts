@@ -529,8 +529,9 @@ export interface SignInApi {
 // What Profiles hold that a plugin reads, such as the MCP servers people
 // sign in to.
 interface PluginProfiles {
-  // Every MCP server of the base, everyone's My defaults and every Profile.
-  readonly mcpServers: () => readonly ProfileMcpServer[];
+  // Every MCP server of the base, the person's My defaults and the
+  // Profiles they see.
+  readonly mcpServers: (personId: string) => readonly ProfileMcpServer[];
   // The Profiles one builds on, nearest first.
   readonly buildsOn: (profileId: string) => readonly string[];
 }

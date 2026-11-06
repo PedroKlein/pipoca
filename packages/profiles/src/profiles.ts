@@ -273,12 +273,17 @@ export class Profiles {
     return this.#layer(userId, which)?.read() ?? emptyProfile;
   }
 
-  // The MCP servers that Sessions may connect to, as the mcp.json files of
-  // the base, everyone's My defaults and every Profile configure them.
-  mcpServers(): readonly { readonly name: string; readonly config: unknown }[] {
-    const profiles = this.ids().flatMap((id) => this.#folders.read(id) ?? []);
+  // The MCP servers a person's Sessions may connect to, as the mcp.json
+  // files of the base, their My defaults and the Profiles they see
+  // configure them.
+  mcpServers(
+    userId: string,
+  ): readonly { readonly name: string; readonly config: unknown }[] {
+    const profiles = this.ids().flatMap(
+      (id) => this.#visible(userId, id) ?? [],
+    );
 
-    const layers = [this.#folders.base, ...this.#folders.everyonesDefaults()]
+    const layers = [this.#folders.base, this.#folders.defaults(userId)]
       .filter((layer) => layer !== undefined)
       .map((layer) => layer.read());
 

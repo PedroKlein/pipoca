@@ -241,7 +241,7 @@ export function startPlugins(
     readonly api: (onBehalf: OnBehalf, request: Request) => Promise<Response>;
     readonly auth: { readonly users: () => readonly Person[] } & SignInApi;
     readonly installed?: InstalledPlugins;
-    readonly mcpServers?: () => readonly ProfileMcpServer[];
+    readonly mcpServers?: (personId: string) => readonly ProfileMcpServer[];
     readonly switches: PluginSwitches;
     // Each plugin's key in a template's entry in pipoca.json.
     readonly templates?: {

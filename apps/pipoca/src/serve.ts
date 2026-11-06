@@ -429,7 +429,7 @@ export function serve(options: ServeOptions): {
         build: async (id) => buildPlugin(folder.root, id),
       },
     }),
-    mcpServers: () => userProfiles.mcpServers(),
+    mcpServers: (personId) => userProfiles.mcpServers(personId),
     switches,
     templates,
     buildsOn: (id) => profiles.buildsOn(id),

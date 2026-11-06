@@ -86,17 +86,6 @@ export class ProfileFolders {
       : new ProfileLayer(join(this.#people, ownerId, "defaults"), this.#log);
   }
 
-  // Everyone's My defaults that exist.
-  everyonesDefaults(): readonly ProfileLayer[] {
-    const people = this.#people;
-
-    return people === undefined
-      ? []
-      : entries(people).flatMap((entry) =>
-          entry.isDirectory() ? (this.defaults(entry.name) ?? []) : [],
-        );
-  }
-
   ids(): readonly string[] {
     const found = entries(this.#root)
       .filter((entry) => entry.isDirectory() && ids.test(entry.name))
