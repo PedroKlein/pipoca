@@ -4205,6 +4205,14 @@ test("keeps a session process working when its extensions print JSON", async () 
   }
 }, 30_000);
 
+const cookiesOfApp = [
+  "theme=dark; Path=/",
+  "pipoca-session=planted; Path=/api",
+  "__Host-pipoca-session=planted; Secure; Path=/",
+  "pipoca-preview=planted; Path=/",
+  "tracker=1; Path=/; domain=localhost",
+];
+
 // An app that, like plannotator and dev servers, answers only requests sent
 // to its own name.
 function localApp(): ReturnType<typeof Bun.serve> {
@@ -4219,6 +4227,15 @@ function localApp(): ReturnType<typeof Bun.serve> {
       const url = new URL(request.url);
       if (url.pathname === "/moved") {
         return Response.redirect(`http://localhost:${String(app.port)}/plan`);
+      }
+
+      if (url.pathname === "/cookies") {
+        const headers = new Headers();
+        for (const cookie of cookiesOfApp) {
+          headers.append("set-cookie", cookie);
+        }
+
+        return new Response("ok", { headers });
       }
 
       return Response.json({
@@ -4331,6 +4348,70 @@ test("previews a page the Session opened in a browser at its own origin", async 
   });
 
   expect(moved.headers.get("location")).toBe("/plan");
+
+  await app.stop(true);
+});
+
+test("keeps a preview's app from setting cookies for Pipoca's host or by its names", async () => {
+  const app = localApp();
+  const port = app.port ?? 0;
+  const session = await openedPage(`http://localhost:${String(port)}/`);
+  const preview = await visitPreview(session.id, port, "/");
+
+  const answer = await server.as(preview.cookie)("/cookies", {
+    headers: { host: preview.host },
+  });
+
+  expect(answer.headers.getSetCookie()).toEqual(["theme=dark; Path=/"]);
+
+  await app.stop(true);
+});
+
+test("sends a preview's admission only to a path on the preview's origin", async () => {
+  const app = localApp();
+  const port = app.port ?? 0;
+  const session = await openedPage(`http://localhost:${String(port)}/`);
+
+  const locations = await Promise.all(
+    ["/\\evil.com", "//evil.com", "/\\/evil.com", "https://evil.com/"].map(
+      async (path) => (await visitPreview(session.id, port, path)).location,
+    ),
+  );
+
+  expect(locations).toEqual(["/", "/", "/", "/"]);
+
+  await app.stop(true);
+});
+
+test("keeps other sites from framing Pipoca, but not a preview's app", async () => {
+  const app = localApp();
+  const port = app.port ?? 0;
+  const session = await openedPage(`http://localhost:${String(port)}/`);
+  const preview = await visitPreview(session.id, port, "/");
+
+  const own = await Promise.all(
+    ["/", "/api/auth", "/api/sessions"].map(async (path) => server.api(path)),
+  );
+
+  const proxied = await server.as(preview.cookie)("/", {
+    headers: { host: preview.host },
+  });
+
+  expect(
+    own.map((response) => [
+      response.status,
+      response.headers.get("content-security-policy"),
+      response.headers.get("x-frame-options"),
+    ]),
+  ).toEqual([
+    [200, "frame-ancestors 'none'", "DENY"],
+    [200, "frame-ancestors 'none'", "DENY"],
+    [200, "frame-ancestors 'none'", "DENY"],
+  ]);
+
+  expect((await server.api("/__pipoca/web")).status).toBe(404);
+  expect(proxied.headers.get("content-security-policy")).toBeNull();
+  expect(proxied.headers.get("x-frame-options")).toBeNull();
 
   await app.stop(true);
 });

@@ -136,12 +136,10 @@ export function previewBroker(options: {
     const cookie = randomBytes(32).toString("base64url");
     visits.set(cookie, { ...grant, expiresAt: Date.now() + visitMs });
 
-    const path = url.searchParams.get("path") ?? "/";
-
     return new Response(null, {
       status: 302,
       headers: {
-        location: path.startsWith("/") && !path.startsWith("//") ? path : "/",
+        location: samePath(url.searchParams.get("path") ?? "/"),
         "set-cookie": `${cookieName}=${cookie}; HttpOnly; SameSite=Lax; Path=/${secure ? "; Secure" : ""}`,
       },
     });
@@ -445,7 +443,7 @@ export function previewBroker(options: {
         const head = JSON.parse(message) as PreviewResponse;
         const headers = new Headers();
         for (const [name, value] of head.headers) {
-          if (!hopByHop.has(name.toLowerCase())) {
+          if (responseHeader(name.toLowerCase(), value)) {
             headers.append(name, value);
           }
         }
@@ -524,6 +522,39 @@ function refused(): Response {
   return new Response("Open this preview from its Session in Pipoca again.", {
     status: 401,
   });
+}
+
+// Browsers read a path like /\evil.com as another host.
+function samePath(path: string): string {
+  const base = "http://preview.invalid";
+  const target = new URL(path, base);
+
+  return target.origin === base && path.startsWith("/")
+    ? `${target.pathname}${target.search}${target.hash}`
+    : "/";
+}
+
+// A preview's origin is a subdomain of Pipoca's, so the app may not set a
+// cookie for a parent domain or one by Pipoca's names (ADR 0037).
+function responseHeader(name: string, value: string): boolean {
+  if (hopByHop.has(name)) {
+    return false;
+  }
+
+  if (name !== "set-cookie") {
+    return true;
+  }
+
+  const [pair = "", ...attributes] = value.split(";");
+  const cookie = (pair.split("=")[0] ?? "").trim().toLowerCase();
+
+  return (
+    !cookie.endsWith("pipoca-session") &&
+    !cookie.endsWith("pipoca-preview") &&
+    !attributes.some((attribute) =>
+      attribute.trim().toLowerCase().startsWith("domain"),
+    )
+  );
 }
 
 // Pipoca's own cookie for the preview stays out of the app's requests.

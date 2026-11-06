@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -512,6 +513,55 @@ export function serve(options: ServeOptions): {
     log: options.log,
   });
 
+  const own = async (
+    request: Request,
+    bunServer: Bun.Server<SocketData>,
+  ): Promise<Response | undefined> => {
+    const { pathname } = new URL(request.url);
+    if (pathname === "/") {
+      return fetch(new URL(webPath, bunServer.url));
+    }
+
+    const appFile = request.method === "GET" ? webAppFile(pathname) : undefined;
+
+    if (appFile !== undefined) {
+      return appFile;
+    }
+
+    if (!fromThisSite(request, siteHosts)) {
+      return errorReply(
+        403,
+        "forbidden",
+        "Requests from another site aren't allowed.",
+      );
+    }
+
+    const upgraded =
+      terminals.upgrade(request, bunServer) ??
+      previews.upgrade(request, bunServer);
+
+    if (upgraded === "upgraded") {
+      return undefined;
+    }
+
+    const router = api;
+
+    if (router.takesLong(request)) {
+      bunServer.timeout(request, 0);
+    }
+
+    return (
+      upgraded ??
+      previews.open(request) ??
+      router.handle(
+        fromAddress(
+          clientAddress(request, bunServer, options.trustProxy === true),
+          request,
+        ),
+      )
+    );
+  };
+
   const server = Bun.serve<SocketData>({
     hostname: options.hostname ?? "127.0.0.1",
     port: options.port,
@@ -528,50 +578,12 @@ export function serve(options: ServeOptions): {
         return preview;
       }
 
-      const { pathname } = new URL(request.url);
-      if (pathname === "/") {
-        return fetch(new URL(webPath, bunServer.url));
-      }
+      const reply = await own(request, bunServer);
 
-      const appFile =
-        request.method === "GET" ? webAppFile(pathname) : undefined;
+      reply?.headers.set("content-security-policy", "frame-ancestors 'none'");
+      reply?.headers.set("x-frame-options", "DENY");
 
-      if (appFile !== undefined) {
-        return appFile;
-      }
-
-      if (!fromThisSite(request, siteHosts)) {
-        return errorReply(
-          403,
-          "forbidden",
-          "Requests from another site aren't allowed.",
-        );
-      }
-
-      const upgraded =
-        terminals.upgrade(request, bunServer) ??
-        previews.upgrade(request, bunServer);
-
-      if (upgraded === "upgraded") {
-        return undefined;
-      }
-
-      const router = api;
-
-      if (router.takesLong(request)) {
-        bunServer.timeout(request, 0);
-      }
-
-      return (
-        upgraded ??
-        previews.open(request) ??
-        router.handle(
-          fromAddress(
-            clientAddress(request, bunServer, options.trustProxy === true),
-            request,
-          ),
-        )
-      );
+      return reply;
     },
     websocket: {
       open: (ws) => {
@@ -741,9 +753,11 @@ function isTerminal(
   return ws.data.kind === "terminal";
 }
 
-// Bun matches routes before fetch and on every host, so the web UI can't be
-// a route at "/", where a preview's own page is.
-const webPath = "/__pipoca/web";
+// Bun matches routes before fetch and on every host, and answers them
+// without the headers fetch adds, so the web UI can't be a route at "/",
+// where a preview's own page is. Only "/" knows its path, so a page on
+// another site can't frame it.
+const webPath = `/__pipoca/web/${randomUUID()}`;
 
 const loopback = ["127.0.0.1", "localhost", "[::1]"];
 const wildcards = new Set(["0.0.0.0", "::", "[::]"]);
