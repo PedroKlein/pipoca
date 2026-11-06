@@ -15,7 +15,6 @@ import {
   versionHeader,
   type WorkPoll,
 } from "@pipoca/protocol";
-import { sessionParts } from "./session-parts";
 import { closeServers, testServer, type TestServer } from "./testdata/harness";
 import { runnerCredentials } from "./testdata/runners";
 
@@ -342,17 +341,3 @@ test("lists what a built-in plugin reaches of its context, whatever its manifest
     { reached: true },
   );
 });
-
-test("gives a Session part its defaults when the server sends no settings", async () => {
-  const { plugins, pluginSettings } = await sessionParts(
-    { plugins: ["library"] },
-    noInstalledParts,
-  );
-
-  expect(plugins.map(({ name }) => name)).toEqual(["library"]);
-  expect(pluginSettings).toEqual({ library: { fileLimitMb: 10 } });
-});
-
-async function noInstalledParts(): Promise<never> {
-  return Promise.reject(new Error("no installed parts here"));
-}

@@ -1,1479 +1,412 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
-import type {
-  PluginNotice,
-  PluginRoute,
-  SendOutcome,
-  ServerPluginContext,
-  ServerTool,
-} from "@pipoca/plugins";
-import { eventBus, type EventBus } from "@pipoca/plugins/testing";
+import { expect, test } from "bun:test";
 import {
-  fakeContext,
-  fakeSession,
-  fakeUser,
-  memoryStore,
-  served,
+  type PluginTest,
+  person,
+  type TestSession,
+  testPlugin,
   until,
-} from "@pipoca/plugins/testing";
-import type { Actor, Session } from "@pipoca/protocol";
+} from "@pipoca/testing";
 import type { ProjectView } from "./model";
-import { projects } from "./server";
+import { server } from "./server";
 
-interface Delivered {
-  readonly kind: "send" | "notify";
-  readonly text: string;
-}
-
-interface Logged {
-  readonly message: string;
-  readonly fields: Readonly<Record<string, unknown>> | undefined;
-}
-
-type FakeKernel = ReturnType<typeof fakeKernel>;
-
-let stop: AbortController;
-
-beforeEach(() => {
-  stop = new AbortController();
-});
-
-afterEach(() => {
-  stop.abort();
-});
-
-const user: Actor = "user:pedro";
-const pedro = fakeUser({ id: "pedro", admin: true });
-
-function fakeKernel(): {
-  readonly context: ServerPluginContext;
-  readonly events: EventBus;
-  readonly delivered: Delivered[];
-  readonly briefs: string[];
-  readonly notices: (PluginNotice | undefined)[];
-  readonly transcripts: Map<string, string[]>;
-  readonly route: () => PluginRoute;
-  readonly tool: (name: string) => ServerTool;
-  readonly session: (id: string) => Session;
-  readonly update: (id: string, changes: Partial<Session>) => void;
-  readonly unreadable: Set<string>;
-  readonly stuck: Set<string>;
-  readonly logged: Logged[];
-} {
-  const sessions = new Map<string, Session>();
-  const transcripts = new Map<string, string[]>();
-  const tools = new Map<string, ServerTool>();
-  const delivered: Delivered[] = [];
-  const briefs: string[] = [];
-  const briefed = new Set<string>();
-  const notices: (PluginNotice | undefined)[] = [];
-  const unreadable = new Set<string>();
-  const stuck = new Set<string>();
-  const logged: Logged[] = [];
-  let route: PluginRoute | undefined;
-
-  const events = eventBus((_type, error) => {
-    throw error;
-  });
-
-  const deliver = (kind: Delivered["kind"], text: string): SendOutcome => {
-    delivered.push({ kind, text });
-
-    return { ok: true };
-  };
-
-  const context = fakeContext({
-    store: memoryStore(projects.schema),
-    tools: {
-      register: (tool) => {
-        tools.set(tool.name, tool);
-      },
-    },
-    events: { ...events, declared: () => [] },
-    sessions: {
-      ...fakeContext().sessions,
-      loadOnly: () => undefined,
-      start: (request, ownerKey) => {
-        const id = `session-${String(sessions.size + 1)}`;
-
-        const session = fakeSession({
-          id,
-          environmentId: request.environment ?? "laptop",
-          owner:
-            ownerKey === undefined
-              ? null
-              : { plugin: "projects", key: ownerKey },
-          profileId: request.profile ?? "profile-1",
-          model: request.model ?? null,
-          thinking: request.thinking ?? null,
-          systemPrompt: request.systemPrompt ?? null,
-          firstMessage: request.firstMessage ?? null,
-          createdAt: new Date().toISOString(),
-          ownedBy: request.team === true ? "team" : "person:pedro",
-        });
-
-        sessions.set(id, session);
-        transcripts.set(id, []);
-
-        return session;
-      },
-      get: (id) => sessions.get(id),
-      owned: (key, { archived = false } = {}) =>
-        [...sessions.values()].filter(
-          (session) =>
-            session.owner?.key === key &&
-            (archived || session.archivedAt === null),
-        ),
-      archive: (id) => {
-        if (stuck.has(id)) {
-          throw new Error(`${id} is stuck`);
-        }
-
-        const session = sessions.get(id);
-        if (session?.archivedAt === null) {
-          const archived: Session = {
-            ...session,
-            status: "stopped",
-            archivedAt: new Date().toISOString(),
-          };
-
-          sessions.set(id, archived);
-          events.publish({ type: "SessionArchived", session: archived });
-        }
-      },
-      unarchive: (id) => {
-        if (stuck.has(id)) {
-          throw new Error(`${id} is stuck`);
-        }
-
-        const session = sessions.get(id);
-        if (session && session.archivedAt !== null) {
-          const back: Session = {
-            ...session,
-            status: "idle",
-            archivedAt: null,
-          };
-
-          sessions.set(id, back);
-
-          events.publish({
-            type: "SessionUnarchived",
-            session: back,
-            archivedAt: session.archivedAt,
-          });
-        }
-      },
-      // A thread's first send is the coordinator's brief, kept apart so the
-      // deliveries are the ones that follow it.
-      send: (id, text, _actor, notice) => {
-        if (notice?.kind === "coordinator_message" && !briefed.has(id)) {
-          briefed.add(id);
-          briefs.push(text);
-
-          return { ok: true };
-        }
-
-        briefed.add(id);
-        notices.push(notice);
-
-        return deliver("send", text);
-      },
-      notify: (_id, text, _actor, notice) => {
-        notices.push(notice);
-
-        return deliver("notify", text);
-      },
-      transcript: (id) => {
-        if (unreadable.has(id)) {
-          throw new Error(`transcript of ${id} is unreadable`);
-        }
-
-        return [...(transcripts.get(id) ?? [])];
-      },
-      transcriptLength: (id) => transcripts.get(id)?.length ?? 0,
-    },
-    toolsets: {
-      register: () => undefined,
-      loadInOwnSessions: () => undefined,
-      asks: async () => Promise.resolve(undefined),
-      call: async () => Promise.resolve({ text: "", isError: false }),
-    },
-    routes: {
-      handle: (handler) => {
-        route = served(handler);
-      },
-    },
-    signal: stop.signal,
-    log: (message, fields) => {
-      logged.push({ message, fields });
-    },
-  });
-
-  return {
-    context,
-    events,
-    delivered,
-    briefs,
-    notices,
-    transcripts,
-    route: () => {
-      if (route === undefined) {
-        throw new Error("no route registered");
-      }
-
-      return route;
-    },
-    tool: (name) => {
-      const found = tools.get(name);
-      if (found === undefined) {
-        throw new Error(`no tool ${name}`);
-      }
-
-      return found;
-    },
-    session: (id) => {
-      const found = sessions.get(id);
-      if (found === undefined) {
-        throw new Error(`no session ${id}`);
-      }
-
-      return found;
-    },
-    update: (id, changes) => {
-      const found = sessions.get(id);
-      if (found !== undefined) {
-        sessions.set(id, { ...found, ...changes });
-      }
-    },
-    unreadable,
-    stuck,
-    logged,
-  };
-}
-
-async function startProject(
-  kernel: FakeKernel,
-): Promise<{ coordinatorId: string; threadId: string }> {
-  const response = await kernel.route()(
-    new Request("http://pipoca/projects", {
-      method: "POST",
-      body: JSON.stringify({
-        name: "Release",
-        repositories: ["https://example.com/app.git"],
-      }),
-    }),
-    "projects",
-    pedro,
-  );
-
-  const { coordinatorId } = (await response.json()) as ProjectView;
-
-  const started = await kernel
-    .tool("start_thread")
-    .run(
-      { title: "Bump version", message: "bump the version" },
-      { session: kernel.session(coordinatorId), actor: user },
-    );
-
-  const threadId = /as (\S+)\.$/.exec(started.text)?.[1] ?? "";
-
-  return { coordinatorId, threadId };
-}
-
-const userLine = (text: string): string =>
-  JSON.stringify({ type: "message", message: { role: "user", content: text } });
-
-const replyLine = (text: string): string =>
-  JSON.stringify({
-    type: "message",
-    message: {
-      role: "assistant",
-      content: [{ type: "text", text }],
-      stopReason: "stop",
-    },
-  });
-
-const errorLine = (error: string): string =>
-  JSON.stringify({
-    type: "message",
-    message: {
-      role: "assistant",
-      content: [],
-      stopReason: "error",
-      errorMessage: error,
-    },
-  });
-
-const toolCallLines = (name: string, result: string): string[] => [
-  JSON.stringify({
-    type: "message",
-    message: {
-      role: "assistant",
-      content: [{ type: "toolCall", id: "call-1", name, arguments: {} }],
-      stopReason: "toolUse",
-    },
-  }),
-  JSON.stringify({
-    type: "message",
-    message: {
-      role: "toolResult",
-      toolCallId: "call-1",
-      toolName: name,
-      content: [{ type: "text", text: result }],
-    },
-  }),
+const people = [
+  { id: "ana", name: "ana", admin: true },
+  { id: "bo", name: "bo" },
 ];
 
-const bashLine = JSON.stringify({
-  type: "message",
-  message: {
-    role: "bashExecution",
-    command: "git status",
-    output: "clean",
-    exitCode: 0,
-    cancelled: false,
-    truncated: false,
-    timestamp: 1,
-  },
-});
+const repository = "https://example.com/shop.git";
 
-const cutLine = '{"type":"message","message":{"role":"assis';
-
-function turnStarted(kernel: FakeKernel, threadId: string): void {
-  kernel.events.publish({
-    type: "TurnStarted",
-    session: { ...kernel.session(threadId), status: "running" },
-  });
+interface Started {
+  readonly t: PluginTest;
+  readonly project: ProjectView;
+  readonly coordinator: TestSession;
 }
 
-// transcriptLength is how many lines the thread's host says the turn ended
-// with, whether or not they have reached the server yet.
-function turnEnded(
-  kernel: FakeKernel,
-  threadId: string,
-  transcriptLength?: number,
-): void {
-  kernel.events.publish({
-    type: "TurnEnded",
-    session: kernel.session(threadId),
-    ...(transcriptLength !== undefined && { transcriptLength }),
-  });
-}
-
-function turn(
-  kernel: FakeKernel,
-  threadId: string,
-  lines: readonly string[],
-): void {
-  const transcript = kernel.transcripts.get(threadId) ?? [];
-
-  turnStarted(kernel, threadId);
-  transcript.push(...lines);
-  turnEnded(kernel, threadId, transcript.length);
-}
-
-test("owns its coordinator and threads", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { coordinatorId, threadId } = await startProject(kernel);
-
-  const listed = await kernel.route()(
-    new Request("http://pipoca/projects"),
-    "projects",
-    pedro,
-  );
-
-  const [project] = (await listed.json()) as ProjectView[];
-  const owner = { plugin: "projects", key: project?.id ?? "" };
-  expect(kernel.session(coordinatorId).owner).toEqual(owner);
-  expect(kernel.session(threadId).owner).toEqual(owner);
-});
-
-test("tags each notice and message with what the chat draws for it", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { coordinatorId, threadId } = await startProject(kernel);
-  const thread = { session: kernel.session(threadId), actor: user };
-
-  turn(kernel, threadId, [userLine("bump it"), replyLine("bumped to 2.0")]);
-  await until(() => kernel.notices.length > 0);
-
-  await kernel
-    .tool("set_status")
-    .run({ state: "review_ready", note: "ready" }, thread);
-
-  await kernel.tool("message_coordinator").run({ text: "which tag?" }, thread);
-
-  await kernel
-    .tool("message_thread")
-    .run(
-      { thread: threadId, text: "use v2.0.0" },
-      { session: kernel.session(coordinatorId), actor: user },
-    );
-
-  await until(() => kernel.notices.length > 3);
-
-  expect(kernel.notices).toEqual([
-    {
-      kind: "thread",
-      data: {
-        threadId,
-        title: "Bump version",
-        event: "finished a turn",
-        runState: "idle",
-        workState: "in_progress",
-        reply: "bumped to 2.0",
-      },
-    },
-    {
-      kind: "thread",
-      data: {
-        threadId,
-        title: "Bump version",
-        event: "set its work state to review_ready: ready",
-        runState: "idle",
-        workState: "review_ready",
-      },
-    },
-    {
-      kind: "thread_message",
-      data: { threadId, title: "Bump version", text: "which tag?" },
-    },
-    { kind: "coordinator_message", data: { text: "use v2.0.0" } },
-  ]);
-}, 10_000);
-
-test("delivers each thread turn with its own reply", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { threadId } = await startProject(kernel);
-
-  turn(kernel, threadId, [
-    userLine("bump the version"),
-    replyLine("first result"),
-  ]);
-
-  turn(kernel, threadId, [
-    userLine("check the tag"),
-    replyLine("second result"),
-  ]);
-
-  await until(() => kernel.delivered.length >= 2);
-
-  expect(kernel.delivered.map(({ kind }) => kind)).toEqual(["send", "send"]);
-  expect(kernel.delivered[0]?.text).toContain("Its last reply: first result");
-  expect(kernel.delivered[1]?.text).toContain("Its last reply: second result");
-}, 10_000);
-
-test("wakes the coordinator only for the thread turns that ended well", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { threadId } = await startProject(kernel);
-
-  turn(kernel, threadId, [
-    userLine("bump the version"),
-    replyLine("first result"),
-  ]);
-
-  turn(kernel, threadId, [userLine("check the tag"), errorLine("429 quota")]);
-
-  await until(() => kernel.delivered.length >= 2);
-
-  expect(kernel.delivered.map(({ kind }) => kind)).toEqual(["send", "notify"]);
-  expect(kernel.delivered[0]?.text).toContain("finished a turn");
-  expect(kernel.delivered[1]?.text).toContain("model error: 429 quota");
-}, 10_000);
-
-test("names a thread turn's model error that reaches the server after the thread's next turn started", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { threadId } = await startProject(kernel);
-  const transcript = kernel.transcripts.get(threadId) ?? [];
-
-  turnStarted(kernel, threadId);
-  transcript.push(userLine("bump the version"), replyLine("working on it"));
-  turnEnded(kernel, threadId, 3);
-  turnStarted(kernel, threadId);
-
-  transcript.push(
-    errorLine("429 quota"),
-    userLine("try again"),
-    replyLine("bumped to v2"),
-  );
-
-  turnEnded(kernel, threadId, 5);
-
-  await until(() => kernel.delivered.length >= 2);
-
-  expect(kernel.delivered.map(({ kind }) => kind)).toEqual(["notify", "send"]);
-  expect(kernel.delivered[0]?.text).toContain("model error: 429 quota");
-  expect(kernel.delivered[1]?.text).toContain("Its last reply: bumped to v2");
-}, 10_000);
-
-test("wakes the coordinator once for a thread turn that messaged it when the next turn's first line arrives early", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { threadId } = await startProject(kernel);
-  const transcript = kernel.transcripts.get(threadId) ?? [];
-
-  turnStarted(kernel, threadId);
-
-  transcript.push(
-    userLine("bump the version"),
-    ...toolCallLines("message_coordinator", "Message queued."),
-    replyLine("asked the coordinator"),
-  );
-
-  turnEnded(kernel, threadId, 4);
-  transcript.push(userLine("carry on"));
-  turnStarted(kernel, threadId);
-  transcript.push(replyLine("carried on"));
-  turnEnded(kernel, threadId, 6);
-
-  await until(() => kernel.delivered.length >= 2);
-
-  expect(kernel.delivered.map(({ kind }) => kind)).toEqual(["notify", "send"]);
-
-  expect(kernel.delivered[0]?.text).toContain(
-    "Its last reply: asked the coordinator",
-  );
-
-  expect(kernel.delivered[1]?.text).toContain("Its last reply: carried on");
-}, 10_000);
-
-test("holds a thread's turn notice, and what follows it, until the rest of the turn reaches the server", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { threadId } = await startProject(kernel);
-  const transcript = kernel.transcripts.get(threadId) ?? [];
-  const messageCoordinator = kernel.tool("message_coordinator");
-
-  const thread = {
-    session: kernel.session(threadId),
-    actor: `session:${threadId}` as const,
-  };
-
-  const asked = messageCoordinator.run({ text: "need a decision" }, thread);
-  turnStarted(kernel, threadId);
-  transcript.push(userLine("bump the version"));
-  turnEnded(kernel, threadId, 2);
-  const followed = messageCoordinator.run({ text: "and another" }, thread);
-  await Promise.all([asked, followed]);
-
-  await until(() => kernel.delivered.length > 0);
-
-  expect(kernel.delivered).toEqual([
-    {
-      kind: "send",
-      text: `[Thread "Bump version" (${threadId})] need a decision`,
-    },
-  ]);
-
-  transcript.push(replyLine("bumped to v2"));
-  await until(() => kernel.delivered.length >= 3);
-
-  expect(kernel.delivered[1]?.text).toContain("Its last reply: bumped to v2");
-  expect(kernel.delivered[2]?.text).toContain("and another");
-}, 10_000);
-
-test("keeps a thread turn's notice as context when its model error reaches the server after the turn ended", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { threadId } = await startProject(kernel);
-  const transcript = kernel.transcripts.get(threadId) ?? [];
-
-  const asked = kernel
-    .tool("message_coordinator")
-    .run(
-      { text: "need a decision" },
-      { session: kernel.session(threadId), actor: `session:${threadId}` },
-    );
-
-  turnStarted(kernel, threadId);
-  transcript.push(userLine("bump the version"));
-  turnEnded(kernel, threadId, 2);
-  await asked;
-
-  await until(() => kernel.delivered.length > 0);
-  expect(kernel.delivered).toHaveLength(1);
-
-  transcript.push(errorLine("429 quota"));
-  await until(() => kernel.delivered.length > 1);
-
-  expect(kernel.delivered[1]?.kind).toBe("notify");
-  expect(kernel.delivered[1]?.text).toContain("model error: 429 quota");
-}, 10_000);
-
-test("gives the coordinator a held turn notice with what reached the server once the thread is archived", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { threadId } = await startProject(kernel);
-  const transcript = kernel.transcripts.get(threadId) ?? [];
-
-  turnStarted(kernel, threadId);
-  transcript.push(userLine("bump the version"), replyLine("working on it"));
-  turnEnded(kernel, threadId, 3);
-  kernel.update(threadId, { archivedAt: new Date().toISOString() });
-
-  await until(() => kernel.delivered.length > 0);
-
-  expect(kernel.delivered[0]?.text).toContain("Its last reply: working on it");
-}, 10_000);
-
-test("reads a thread's whole transcript for a turn notice when its host doesn't say where the turn ended", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { threadId } = await startProject(kernel);
-  const transcript = kernel.transcripts.get(threadId) ?? [];
-
-  turnStarted(kernel, threadId);
-  transcript.push(userLine("bump the version"));
-  turnEnded(kernel, threadId);
-  transcript.push(replyLine("bumped to v2"));
-
-  await until(() => kernel.delivered.length > 0);
-
-  expect(kernel.delivered[0]?.text).toContain("Its last reply: bumped to v2");
-}, 10_000);
-
-test("quotes a thread's last text reply when its turn ends on a tool call", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { threadId } = await startProject(kernel);
-
-  turn(kernel, threadId, [
-    userLine("bump the version"),
-    replyLine("bumped to v2"),
-    ...toolCallLines("set_status", "Work state set to review_ready."),
-  ]);
-
-  await until(() => kernel.delivered.length > 0);
-
-  expect(kernel.delivered[0]?.text).toContain("Its last reply: bumped to v2");
-}, 10_000);
-
-test("gives the coordinator only the start of a long thread reply", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { threadId } = await startProject(kernel);
-  const long = `${"a".repeat(300)}the rest stays in the thread`;
-
-  turn(kernel, threadId, [userLine("bump the version"), replyLine(long)]);
-
-  await until(() => kernel.delivered.length > 0);
-
-  expect(kernel.delivered[0]?.text).toContain(`${"a".repeat(300)}…`);
-  expect(kernel.delivered[0]?.text).not.toContain("the rest stays");
-}, 10_000);
-
-test("drops a delivery it can't build, once, so later ones still reach the coordinator", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { threadId } = await startProject(kernel);
-
-  const thread = {
-    session: kernel.session(threadId),
-    actor: `session:${threadId}` as const,
-  };
-
-  turn(kernel, threadId, [
-    userLine("bump the version"),
-    replyLine("bumped to v2"),
-  ]);
-
-  kernel.unreadable.add(threadId);
-
-  const messageCoordinator = kernel.tool("message_coordinator");
-  await messageCoordinator.run({ text: "need a decision" }, thread);
-  await until(() => kernel.delivered.length > 0);
-
-  await messageCoordinator.run({ text: "still need it" }, thread);
-  await until(() => kernel.delivered.length > 1);
-
-  expect(kernel.delivered).toEqual([
-    {
-      kind: "send",
-      text: `[Thread "Bump version" (${threadId})] need a decision`,
-    },
-    {
-      kind: "send",
-      text: `[Thread "Bump version" (${threadId})] still need it`,
-    },
-  ]);
-
-  const failures = kernel.logged.filter(({ fields }) =>
-    String(fields?.["error"]).includes("unreadable"),
-  );
-
-  expect(failures).toHaveLength(1);
-}, 10_000);
-
-test("sends a thread its brief as the coordinator's message, not as its first user message", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-
-  const { threadId } = await startProject(kernel);
-
-  await until(() => kernel.briefs.length > 0);
-
-  expect(kernel.briefs).toEqual(["bump the version"]);
-  expect(kernel.session(threadId).firstMessage).toBeNull();
-});
-
-test("keeps delivering, and sends nothing twice, while the store can't delete a delivered message", async () => {
-  const kernel = fakeKernel();
-  let locked = true;
-
-  projects.register({
-    ...kernel.context,
-    store: {
-      ...kernel.context.store,
-      run: (sql, ...params) => {
-        if (locked && sql.startsWith("delete from projects_outbox")) {
-          throw new Error("database is locked");
-        }
-
-        kernel.context.store.run(sql, ...params);
-      },
-    },
-  });
-
-  const { threadId } = await startProject(kernel);
-
-  await kernel
-    .tool("message_coordinator")
-    .run(
-      { text: "need a decision" },
-      { session: kernel.session(threadId), actor: `session:${threadId}` },
-    );
-
-  await until(() => kernel.delivered.length > 0);
-
-  await kernel
-    .tool("message_coordinator")
-    .run(
-      { text: "carry on" },
-      { session: kernel.session(threadId), actor: `session:${threadId}` },
-    );
-
-  locked = false;
-  await until(() => kernel.delivered.length > 1);
-
-  expect(kernel.delivered).toEqual([
-    {
-      kind: "send",
-      text: `[Thread "Bump version" (${threadId})] need a decision`,
-    },
-    {
-      kind: "send",
-      text: `[Thread "Bump version" (${threadId})] carry on`,
-    },
-  ]);
-
-  expect(
-    kernel.logged.some(({ fields }) =>
-      String(fields?.["error"]).includes("database is locked"),
-    ),
-  ).toBe(true);
-}, 10_000);
-
-test("refuses memory file names made only of dots", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { coordinatorId } = await startProject(kernel);
-
-  const coordinator = {
-    session: kernel.session(coordinatorId),
-    actor: user,
-  };
-
-  const memoryWrite = kernel.tool("memory_write");
-
-  const results = await Promise.all(
-    [".", "..", ".notes"].map(async (name) =>
-      memoryWrite.run({ name, content: "notes" }, coordinator),
-    ),
-  );
-
-  expect(results.map(({ isError }) => isError)).toEqual([true, true, false]);
-}, 10_000);
-
-test("quotes a thread's reply when later transcript lines can't be read as text", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { threadId } = await startProject(kernel);
-
-  turn(kernel, threadId, [
-    userLine("bump the version"),
-    replyLine("bumped to v2"),
-    bashLine,
-    cutLine,
-  ]);
-
-  await until(() => kernel.delivered.length > 0);
-
-  expect(kernel.delivered[0]?.kind).toBe("send");
-  expect(kernel.delivered[0]?.text).toContain("finished a turn");
-  expect(kernel.delivered[0]?.text).toContain("Its last reply: bumped to v2");
-}, 10_000);
-
-test("reads a thread's messages around transcript lines that aren't text", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { coordinatorId, threadId } = await startProject(kernel);
-
-  kernel.transcripts
-    .get(threadId)
-    ?.push(userLine("bump the version"), cutLine, bashLine, replyLine("done"));
-
-  const read = await kernel
-    .tool("read_thread")
-    .run(
-      { thread: threadId },
-      { session: kernel.session(coordinatorId), actor: user },
-    );
-
-  expect(read).toEqual({
-    text: [
-      'Thread "Bump version", page 1 of 1, oldest first:',
-      "[user] bump the version",
-      "[assistant] done",
-    ].join("\n\n"),
-    isError: false,
-  });
-});
-
-async function projectView(kernel: FakeKernel): Promise<ProjectView> {
-  const list = await kernel.route()(
-    new Request("http://pipoca/projects"),
-    "projects",
-    pedro,
-  );
-
-  const [summary] = (await list.json()) as { id: string }[];
-
-  const response = await kernel.route()(
-    new Request(`http://pipoca/projects/${summary?.id ?? ""}`),
-    `projects/${summary?.id ?? ""}`,
-    pedro,
-  );
-
-  return (await response.json()) as ProjectView;
-}
-
-async function editProject(
-  kernel: FakeKernel,
-  changes: unknown,
-): Promise<Response> {
-  const { id } = await projectView(kernel);
-
-  return kernel.route()(
-    new Request(`http://pipoca/projects/${id}/settings`, {
-      method: "POST",
-      body: JSON.stringify(changes),
-    }),
-    `projects/${id}/settings`,
-    pedro,
-  );
-}
-
-test("renames a Project and changes the model new threads start on", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { coordinatorId } = await startProject(kernel);
-
-  const edited = await editProject(kernel, {
-    name: " Ship ",
-    threadModel: "openai/gpt-5",
-    instructions: "Keep PRs small.",
-  });
-
-  expect(await edited.json()).toMatchObject({
-    name: "Ship",
-    threadModel: "openai/gpt-5",
-    instructions: "Keep PRs small.",
-  });
-
-  const started = await kernel
-    .tool("start_thread")
-    .run(
-      { title: "Docs", message: "write docs" },
-      { session: kernel.session(coordinatorId), actor: user },
-    );
-
-  const threadId = /as (\S+)\.$/.exec(started.text)?.[1] ?? "";
-
-  expect(kernel.session(threadId).model).toEqual({
-    provider: "openai",
-    id: "gpt-5",
-  });
-
-  await editProject(kernel, { threadModel: "" });
-
-  expect(await projectView(kernel)).toMatchObject({
-    name: "Ship",
-    threadModel: null,
-    instructions: "Keep PRs small.",
-  });
-
-  expect((await editProject(kernel, { name: " " })).status).toBe(400);
-  expect((await editProject(kernel, { threadModel: "gpt" })).status).toBe(400);
-  expect((await projectView(kernel)).name).toBe("Ship");
-});
-
-test("keeps a Project's goal in the context of the coordinator and its threads without sending it", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-
-  const response = await kernel.route()(
-    new Request("http://pipoca/projects", {
-      method: "POST",
-      body: JSON.stringify({
-        name: "Release",
-        repositories: ["https://example.com/app.git"],
-        goal: "Ship version 2 by Friday.",
-      }),
-    }),
-    "projects",
-    pedro,
-  );
-
-  const { coordinatorId, goal } = (await response.json()) as ProjectView;
-  const coordinator = kernel.session(coordinatorId);
-
-  expect(goal).toBe("Ship version 2 by Friday.");
-  expect(coordinator.systemPrompt).toContain("Ship version 2 by Friday.");
-  expect(coordinator.firstMessage).toBeNull();
-
-  await editProject(kernel, { goal: "Ship version 3." });
-
-  const started = await kernel
-    .tool("start_thread")
-    .run(
-      { title: "Docs", message: "write docs" },
-      { session: coordinator, actor: user },
-    );
-
-  const threadId = /as (\S+)\.$/.exec(started.text)?.[1] ?? "";
-
-  expect(kernel.session(threadId).systemPrompt).toContain("Ship version 3.");
-  expect((await projectView(kernel)).goal).toBe("Ship version 3.");
-  expect((await editProject(kernel, { goal: 3 })).status).toBe(422);
-});
-
-test("starts the coordinator and new threads with the Project's Profile", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-
-  const response = await kernel.route()(
-    new Request("http://pipoca/projects", {
-      method: "POST",
-      body: JSON.stringify({
-        name: "Release",
-        repositories: ["https://example.com/app.git"],
-        profile: "work",
-      }),
-    }),
-    "projects",
-    pedro,
-  );
-
-  const { coordinatorId, profileId } = (await response.json()) as ProjectView;
-
-  expect(profileId).toBe("work");
-  expect(kernel.session(coordinatorId).profileId).toBe("work");
-
-  const thread = async (input: Record<string, string>): Promise<string> => {
-    const started = await kernel
-      .tool("start_thread")
-      .run(
-        { title: "Docs", message: "write docs", ...input },
-        { session: kernel.session(coordinatorId), actor: user },
-      );
-
-    const id = /as (\S+)\.$/.exec(started.text)?.[1] ?? "";
-
-    return kernel.session(id).profileId;
-  };
-
-  expect(await thread({})).toBe("work");
-  expect(await thread({ profile: "review" })).toBe("review");
-
-  await editProject(kernel, { profile: "" });
-
-  expect((await projectView(kernel)).profileId).toBeNull();
-  expect(await thread({})).toBe("profile-1");
-  expect((await editProject(kernel, { profile: 3 })).status).toBe(422);
-});
-
-test("lists each Project with its repositories, coordinator state and the threads that need you", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { coordinatorId, threadId } = await startProject(kernel);
-
-  await kernel
-    .tool("set_status")
-    .run(
-      { state: "blocked" },
-      { session: kernel.session(threadId), actor: user },
-    );
-
-  const started = await kernel
-    .tool("start_thread")
-    .run(
-      { title: "Ask", message: "ask me" },
-      { session: kernel.session(coordinatorId), actor: user },
-    );
-
-  const asking = /as (\S+)\.$/.exec(started.text)?.[1] ?? "";
-  kernel.update(asking, { waiting: true });
-
-  expect(
-    (await projectView(kernel)).threads.find(
-      ({ sessionId }) => sessionId === asking,
-    ),
-  ).toMatchObject({ runState: "waiting", workState: "in_progress" });
-
-  const list = await kernel.route()(
-    new Request("http://pipoca/projects"),
-    "projects",
-    pedro,
-  );
-
-  expect(await list.json()).toMatchObject([
-    {
-      name: "Release",
-      coordinatorState: "idle",
-      repositories: 1,
-      threads: 2,
-      needsYou: 2,
-    },
-  ]);
-});
-
-test("archives a Project's Sessions with its coordinator and brings back those it archived", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { coordinatorId, threadId } = await startProject(kernel);
-
-  const started = await kernel
-    .tool("start_thread")
-    .run(
-      { title: "Old", message: "old work" },
-      { session: kernel.session(coordinatorId), actor: user },
-    );
-
-  const oldId = /as (\S+)\.$/.exec(started.text)?.[1] ?? "";
-  kernel.context.sessions.archive(oldId);
-  await Bun.sleep(5);
-
-  kernel.context.sessions.archive(coordinatorId);
-
-  expect(kernel.session(threadId).archivedAt).not.toBeNull();
-  expect((await projectView(kernel)).coordinatorState).toBe("archived");
-
-  kernel.context.sessions.unarchive(coordinatorId);
-
-  expect(kernel.session(threadId).archivedAt).toBeNull();
-  expect(kernel.session(oldId).archivedAt).not.toBeNull();
-  expect((await projectView(kernel)).coordinatorState).toBe("idle");
-});
-
-test("archives and brings back a Project's other Sessions when one of them fails", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { coordinatorId, threadId } = await startProject(kernel);
-
-  const started = await kernel
-    .tool("start_thread")
-    .run(
-      { title: "Docs", message: "write the docs" },
-      { session: kernel.session(coordinatorId), actor: user },
-    );
-
-  const docsId = /as (\S+)\.$/.exec(started.text)?.[1] ?? "";
-  kernel.stuck.add(threadId);
-
-  kernel.context.sessions.archive(coordinatorId);
-
-  expect(kernel.session(docsId).archivedAt).not.toBeNull();
-
-  expect(kernel.logged).toContainEqual({
-    message: "could not archive a Session with its Project",
-    fields: { sessionId: threadId, error: `Error: ${threadId} is stuck` },
-  });
-
-  kernel.stuck.delete(threadId);
-  kernel.context.sessions.archive(threadId);
-  kernel.stuck.add(threadId);
-
-  kernel.context.sessions.unarchive(coordinatorId);
-
-  expect(kernel.session(docsId).archivedAt).toBeNull();
-
-  expect(kernel.logged).toContainEqual({
-    message: "could not bring back a Session with its Project",
-    fields: { sessionId: threadId, error: `Error: ${threadId} is stuck` },
-  });
-});
-
-test("shows one thread's state and Project for a link to it", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { coordinatorId, threadId } = await startProject(kernel);
-
-  const thread = async (id: string): Promise<Response> =>
-    kernel.route()(
-      new Request(`http://pipoca/threads/${id}`),
-      `threads/${id}`,
-      pedro,
-    );
-
-  expect(await (await thread(threadId)).json()).toMatchObject({
-    sessionId: threadId,
-    projectId: (await projectView(kernel)).id,
-    runState: "idle",
-    workState: "in_progress",
-  });
-
-  expect((await thread(coordinatorId)).status).toBe(404);
-  expect((await thread("nope")).status).toBe(404);
-});
-
-const restored: Partial<Session> = {
-  status: "idle",
-  error: null,
-  archivedAt: null,
-  online: true,
-};
-
-test("tells the coordinator when a thread can't get its message", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { coordinatorId, threadId } = await startProject(kernel);
-  const coordinator = { session: kernel.session(coordinatorId), actor: user };
-  const messageThread = kernel.tool("message_thread");
-
-  const refuses = async (
-    changes: Partial<Session>,
-    error: string,
-  ): Promise<void> => {
-    kernel.update(threadId, changes);
-
-    const result = await messageThread.run(
-      { thread: threadId, text: "stop" },
-      coordinator,
-    );
-
-    kernel.update(threadId, restored);
-
-    expect(result).toEqual({ text: error, isError: true });
-  };
-
-  await refuses(
-    { status: "stopped", archivedAt: new Date().toISOString() },
-    'thread "Bump version" is archived',
-  );
-
-  await refuses(
-    { status: "failed", error: "clone failed" },
-    'thread "Bump version" failed to start: clone failed',
-  );
-
-  await refuses(
-    { online: false },
-    'thread "Bump version" is on a machine that is offline',
-  );
-
-  expect(
-    await messageThread.run(
-      { thread: threadId, text: "carry on" },
-      coordinator,
-    ),
-  ).toEqual({
-    text: 'Message queued for thread "Bump version".',
-    isError: false,
-  });
-
-  await until(() => kernel.delivered.length > 0);
-
-  expect(kernel.delivered).toEqual([{ kind: "send", text: "carry on" }]);
-}, 10_000);
-
-test("tells the coordinator about a thread that stopped mid-turn, not one a restart caught idle", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { threadId } = await startProject(kernel);
-
-  const stopped = (previous: Session["status"], changes: Partial<Session>) => {
-    kernel.update(threadId, changes);
-
-    kernel.events.publish({
-      type: "SessionStateChanged",
-      session: kernel.session(threadId),
-      previous,
+async function started(o: { team?: boolean } = {}): Promise<Started> {
+  const t = await testPlugin(server, { people });
+  const owner = o.team === true ? "team" : person("ana");
+  const environment = await t.environment({ owner });
+
+  const project = await t
+    .as("ana")
+    .post<ProjectView>(o.team === true ? "team/projects" : "projects", {
+      name: "Shop",
+      repositories: [repository],
+      environment: environment.id,
+      ...(o.team === true && { profile: "projects.builder" }),
     });
 
-    kernel.update(threadId, { status: "idle", error: null });
-  };
+  return { t, project, coordinator: await t.attach(project.coordinatorId) };
+}
 
-  stopped("idle", { status: "interrupted" });
-  stopped("starting", { status: "interrupted" });
-  stopped("running", { status: "interrupted" });
-  stopped("starting", { status: "failed", error: "clone failed" });
+async function threadOf(
+  { t, coordinator }: Started,
+  title: string,
+): Promise<TestSession> {
+  const answer = await t.tool(
+    "start_thread",
+    { title, message: `Do ${title}` },
+    { session: coordinator },
+  );
 
-  // Notices go out in the order they were queued, so the failure comes last.
-  await until(() =>
-    kernel.delivered.some(({ text }) => text.includes("stopped: failed")),
+  const id = /as (\S+)\.$/.exec(answer.text)?.[1] ?? "";
+
+  return t.attach(id);
+}
+
+const reply = (text: string): unknown => ({
+  type: "message",
+  message: { role: "assistant", content: [{ type: "text", text }] },
+});
+
+const asked = (text: string): unknown => ({
+  type: "message",
+  message: { role: "user", content: text },
+});
+
+test("a Project starts its coordinator, which starts threads with the brief as its own", async () => {
+  const s = await started();
+  await using _ = s.t;
+
+  expect(s.project).toMatchObject({
+    name: "Shop",
+    repositories: [repository],
+    team: false,
+    assistant: false,
+    threads: [],
+  });
+
+  const thread = await threadOf(s, "Docs");
+
+  expect(thread.delivered()).toEqual([
+    {
+      text: "Do Docs",
+      turn: true,
+      notice: {
+        kind: "coordinator_message",
+        plugin: "projects",
+        data: { text: "Do Docs" },
+      },
+    },
+  ]);
+
+  expect(
+    (await s.t.as("ana").get<ProjectView>(`projects/${s.project.id}`)).threads,
+  ).toMatchObject([{ sessionId: thread.id, title: "Docs" }]);
+
+  expect(
+    (await s.t.as("bo").raw("GET", `projects/${s.project.id}`)).status,
+  ).toBe(404);
+
+  expect(await s.t.as("bo").get("projects")).toEqual([]);
+});
+
+test("thread reports reach an offline coordinator in order once it is back", async () => {
+  const s = await started();
+  await using _ = s.t;
+  const thread = await threadOf(s, "Docs");
+
+  await s.coordinator.online(false);
+
+  await thread.turn([asked("Do Docs"), reply("Wrote the docs.")]);
+
+  await s.t.tool(
+    "set_status",
+    { state: "review_ready", note: "Ready." },
+    { session: thread },
+  );
+
+  await s.t.tool(
+    "message_coordinator",
+    { text: "Should I add a changelog?" },
+    { session: thread },
+  );
+
+  await s.coordinator.online(true);
+
+  expect(
+    s.coordinator
+      .delivered()
+      .map(({ text, turn }) => [text.split("\n")[0], turn]),
+  ).toEqual([
+    [
+      `[Project notice] Thread "Docs" (${thread.id}) finished a turn. Run state: idle. Work state: in_progress.`,
+      true,
+    ],
+    [
+      `[Project notice] Thread "Docs" (${thread.id}) set its work state to review_ready: Ready. Run state: idle. Work state: review_ready.`,
+      false,
+    ],
+    [`[Thread "Docs" (${thread.id})] Should I add a changelog?`, true],
+  ]);
+
+  expect(s.coordinator.delivered()[0]?.text).toContain(
+    "Its last reply: Wrote the docs.",
+  );
+});
+
+test("a turn report waits for the thread's transcript to hold the whole turn", async () => {
+  const s = await started();
+  await using _ = s.t;
+  const thread = await threadOf(s, "Docs");
+
+  await thread.turn([asked("Do Docs"), reply("Late reply.")], {
+    uploaded: false,
+  });
+
+  await s.t.clock.advance("2s");
+
+  expect(s.coordinator.delivered()).toEqual([]);
+
+  await thread.transcript([asked("Do Docs"), reply("Late reply.")]);
+  await s.t.clock.advance("2s");
+
+  await until(() => s.coordinator.delivered().length === 1);
+
+  expect(s.coordinator.delivered()[0]?.text).toContain(
+    "Its last reply: Late reply.",
+  );
+});
+
+test("a thread's later message never overtakes its waiting turn report", async () => {
+  const s = await started();
+  await using _ = s.t;
+  const thread = await threadOf(s, "Docs");
+
+  await thread.turn([asked("Do Docs"), reply("Half done.")], {
+    uploaded: false,
+  });
+
+  await s.t.tool(
+    "message_coordinator",
+    { text: "Which branch?" },
+    { session: thread },
+  );
+
+  await until(() => s.coordinator.delivered().length === 2);
+
+  const [report, message] = s.coordinator.delivered();
+
+  expect(report?.text).toContain("finished a turn");
+  expect(message?.text).toContain("Which branch?");
+
+  await s.t.clock.advance("2s");
+
+  expect(s.coordinator.delivered()).toHaveLength(2);
+});
+
+test("a thread that messaged the coordinator reports its turn as context", async () => {
+  const s = await started();
+  await using _ = s.t;
+  const thread = await threadOf(s, "Docs");
+
+  await thread.turn([
+    asked("Do Docs"),
+    {
+      type: "message",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: "c1",
+            name: "message_coordinator",
+            arguments: {},
+          },
+        ],
+      },
+    },
+    reply("Asked."),
+  ]);
+
+  await until(() => s.coordinator.delivered().length === 1);
+
+  expect(s.coordinator.delivered()[0]?.turn).toBe(false);
+});
+
+test("memory writes go on top of the revision they read", async () => {
+  const s = await started();
+  await using _ = s.t;
+  const thread = await threadOf(s, "Docs");
+
+  expect(
+    await s.t.tool(
+      "memory_write",
+      { name: "MEMORY.md", content: "one" },
+      { session: thread },
+    ),
+  ).toMatchObject({ text: "Wrote MEMORY.md.", isError: false });
+
+  expect(
+    await s.t.tool(
+      "memory_write",
+      { name: "MEMORY.md", content: "two" },
+      { session: s.coordinator },
+    ),
+  ).toMatchObject({
+    isError: true,
+    text: "MEMORY.md is at revision 1: read it, then write your change on top of what it says now",
+  });
+
+  await s.t.tool(
+    "memory_write",
+    { name: "MEMORY.md", content: "two", revision: 1 },
+    { session: s.coordinator },
   );
 
   expect(
-    kernel.delivered.map(({ text }) => /\) (stopped: \w+)/.exec(text)?.[1]),
-  ).toEqual(["stopped: interrupted", "stopped: failed"]);
-}, 10_000);
-
-test("keeps each Project to the person who started it (ADR 0049)", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { threadId } = await startProject(kernel);
-  const { id } = await projectView(kernel);
-  const ana = fakeUser({ id: "ana" });
-
-  const asAna = async (path: string, body?: unknown): Promise<Response> =>
-    kernel.route()(
-      new Request(`http://pipoca/${path}`, {
-        ...(body !== undefined && {
-          method: "POST",
-          body: JSON.stringify(body),
-        }),
-      }),
-      path,
-      ana,
-    );
-
-  expect(await (await asAna("projects")).json()).toEqual([]);
-
-  for (const response of [
-    await asAna(`projects/${id}`),
-    await asAna(`projects/${id}/settings`, { name: "Mine" }),
-    await asAna(`projects/${id}/memory/notes.md`),
-    await asAna(`threads/${threadId}`),
-    await asAna(`threads/${threadId}/state`, { state: "done" }),
-  ]) {
-    expect(response.status).toBe(404);
-  }
-
-  expect((await projectView(kernel)).name).toBe("Release");
+    await s.t.tool("memory_read", { name: "MEMORY.md" }, { session: thread }),
+  ).toMatchObject({ text: "MEMORY.md, revision 2:\n\ntwo" });
 });
 
-test("a team Project runs its coordinator as team work, and everyone on the team opens it", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const ana = fakeUser({ id: "ana" });
+test("coordinator tools stay out of threads, and thread tools out of the coordinator", async () => {
+  const s = await started();
+  await using _ = s.t;
+  const thread = await threadOf(s, "Docs");
 
-  const created = await kernel.route()(
-    new Request("http://pipoca/projects", {
-      method: "POST",
-      body: JSON.stringify({
-        name: "Handbook",
-        repositories: ["https://example.com/handbook.git"],
-        environment: "team-pods",
-        profile: "team-work",
-        team: true,
-      }),
-    }),
-    "projects",
-    pedro,
+  expect(
+    s.t.tool("start_thread", { title: "x", message: "y" }, { session: thread }),
+  ).rejects.toThrow("start_thread isn't offered in this Session");
+
+  expect(
+    s.t.tool("set_status", { state: "done" }, { session: s.coordinator }),
+  ).rejects.toThrow("set_status isn't offered in this Session");
+
+  const other = await s.t.session({ owner: person("ana") });
+
+  expect(s.t.tool("memory_list", {}, { session: other })).rejects.toThrow(
+    "memory_list isn't offered in this Session",
   );
-
-  const project = (await created.json()) as ProjectView;
-
-  expect(project.team).toBe(true);
-  expect(kernel.session(project.coordinatorId).ownedBy).toBe("team");
-
-  const listed = await kernel.route()(
-    new Request("http://pipoca/projects"),
-    "projects",
-    ana,
-  );
-
-  expect(await listed.json()).toMatchObject([{ id: project.id, team: true }]);
-
-  const opened = await kernel.route()(
-    new Request(`http://pipoca/projects/${project.id}`),
-    `projects/${project.id}`,
-    ana,
-  );
-
-  expect(opened.status).toBe(200);
-
-  const fresh = await kernel.route()(
-    new Request(`http://pipoca/projects/${project.id}/fresh`, {
-      method: "POST",
-    }),
-    `projects/${project.id}/fresh`,
-    ana,
-  );
-
-  const { coordinatorId } = (await fresh.json()) as ProjectView;
-
-  expect(kernel.session(coordinatorId).ownedBy).toBe("team");
 });
 
-async function startFresh(kernel: FakeKernel): Promise<ProjectView> {
-  const { id } = await projectView(kernel);
+test("a fresh coordinator takes over with a handoff once Pi compacts", async () => {
+  const s = await started();
+  await using _ = s.t;
 
-  const response = await kernel.route()(
-    new Request(`http://pipoca/projects/${id}/fresh`, { method: "POST" }),
-    `projects/${id}/fresh`,
-    pedro,
-  );
-
-  expect(response.status).toBe(200);
-
-  return (await response.json()) as ProjectView;
-}
-
-test("starts a fresh coordinator with a handoff and keeps the old one readable", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { coordinatorId, threadId } = await startProject(kernel);
-
-  await kernel
-    .tool("memory_write")
-    .run(
-      { name: "MEMORY.md", content: "- ships on Fridays" },
-      { session: kernel.session(coordinatorId), actor: user },
-    );
-
-  kernel.transcripts
-    .get(coordinatorId)
-    ?.push(userLine("ship v2 next week"), replyLine("Started Bump version."));
-
-  const fresh = await startFresh(kernel);
-  const next = kernel.session(fresh.coordinatorId);
-
-  expect(fresh.coordinatorId).not.toBe(coordinatorId);
-  expect(fresh.formerCoordinators).toEqual([coordinatorId]);
-  expect(kernel.session(coordinatorId).archivedAt).not.toBeNull();
-  expect(fresh.threads.map(({ sessionId }) => sessionId)).toEqual([threadId]);
-  expect(next.systemPrompt).toContain("ships on Fridays");
-  expect(next.owner?.key).toBe(fresh.id);
-
-  expect(next.systemPrompt).toContain("ship v2 next week");
-  expect(next.systemPrompt).toContain("Started Bump version.");
-  expect(next.systemPrompt).toContain(`Bump version (${threadId})`);
-
-  turn(kernel, threadId, [replyLine("Bumped.")]);
-  await until(() => kernel.delivered.length > 0);
-
-  const listThreads = kernel.tool("list_threads");
-
-  expect(kernel.delivered[0]?.text).toContain("Bumped.");
-  expect(listThreads.appliesTo(kernel.session(coordinatorId))).toBe(false);
-  expect(listThreads.appliesTo(next)).toBe(true);
-}, 10_000);
-
-test("starts a fresh coordinator once Pi compacts the old one's context", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { coordinatorId } = await startProject(kernel);
-
-  turn(kernel, coordinatorId, [
-    userLine("first ask"),
-    JSON.stringify({
-      type: "compaction",
-      summary: "The user wants v2 shipped.",
-      firstKeptEntryId: null,
-    }),
-    userLine("latest ask"),
-    replyLine("On it."),
+  await s.coordinator.turn([
+    asked("Plan the shop"),
+    { type: "compaction", summary: "We planned the shop." },
+    reply("Planned."),
   ]);
 
-  const view = await projectView(kernel);
-  expect(view.formerCoordinators).toEqual([coordinatorId]);
+  const project = await until(async () => {
+    const found = await s.t
+      .as("ana")
+      .get<ProjectView>(`projects/${s.project.id}`);
 
-  const text = kernel.session(view.coordinatorId).systemPrompt ?? "";
-  expect(text).toContain("The user wants v2 shipped.");
-  expect(text).toContain("latest ask");
-  expect(text).not.toContain("first ask");
-}, 10_000);
+    return found.coordinatorId === s.project.coordinatorId ? undefined : found;
+  });
 
-test("refuses a memory write made on top of a revision that changed since", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const { coordinatorId, threadId } = await startProject(kernel);
+  expect(project?.formerCoordinators).toEqual([s.project.coordinatorId]);
+  expect(project?.coordinatorState).not.toBe("archived");
+});
 
-  const coordinator = { session: kernel.session(coordinatorId), actor: user };
-  const thread = { session: kernel.session(threadId), actor: user };
-  const write = kernel.tool("memory_write");
+test("a team Project has no owner and every person sees it", async () => {
+  const s = await started({ team: true });
+  await using _ = s.t;
 
-  await write.run({ name: "MEMORY.md", content: "one" }, coordinator);
+  expect(s.project.team).toBe(true);
 
-  const read = await kernel
-    .tool("memory_read")
-    .run({ name: "MEMORY.md" }, thread);
+  expect(
+    s.t.store.get<{ owner_user_id: string | null }>(
+      "select owner_user_id from projects_projects where id = ?",
+      s.project.id,
+    ),
+  ).toEqual({ owner_user_id: null });
 
-  expect(read.text).toContain("revision 1");
-
-  const blind = await write.run({ name: "MEMORY.md", content: "two" }, thread);
-
-  const first = await write.run(
-    { name: "MEMORY.md", content: "two", revision: 1 },
-    thread,
-  );
-
-  const stale = await write.run(
-    { name: "MEMORY.md", content: "three", revision: 1 },
-    coordinator,
-  );
-
-  expect([blind.isError, first.isError, stale.isError]).toEqual([
-    true,
-    false,
-    true,
+  expect(await s.t.as("bo").get("team/projects")).toMatchObject([
+    { id: s.project.id, team: true },
   ]);
 
-  expect(stale.text).toContain("revision 2");
-}, 10_000);
+  expect(await s.t.as("bo").get("projects")).toEqual([]);
 
-test("each person's Team assistant is theirs alone, apart from their own assistant", async () => {
-  const kernel = fakeKernel();
-  projects.register(kernel.context);
-  const ana = fakeUser({ id: "ana" });
+  expect(
+    (await s.t.as("bo").get<ProjectView>(`projects/${s.project.id}`)).name,
+  ).toBe("Shop");
+});
 
-  const call = async (
-    path: string,
-    caller = pedro,
-    body?: unknown,
-  ): Promise<Response> =>
-    kernel.route()(
-      new Request(`http://pipoca/${path}`, {
-        ...(body !== undefined && {
-          method: "POST",
-          body: JSON.stringify(body),
-        }),
-      }),
-      path.split("?")[0] ?? path,
-      caller,
-    );
+test("the Team assistant's route tools act on the team's half", async () => {
+  await using t = await testPlugin(server, { people });
+  const environment = await t.environment({ owner: "team" });
 
-  const asked = await call("assistant", pedro, {
-    text: "Start the release notes as team work",
-    profile: "meta.assistant",
-    threadProfile: "meta.builder",
-    team: true,
+  const assistant = await t
+    .as("ana")
+    .post<ProjectView>("team/assistant", { text: "Start a shop project" });
+
+  const coordinator = await t.attach(assistant.coordinatorId);
+
+  const made = await t.tool(
+    "projects_create",
+    {
+      name: "Shop",
+      repositories: [repository],
+      environment: environment.id,
+      profile: "projects.builder",
+    },
+    { session: coordinator },
+  );
+
+  expect(made).toMatchObject({ isError: false });
+
+  expect(
+    t.store.all<{ owner_user_id: string | null }>(
+      "select owner_user_id from projects_projects where name = 'Shop'",
+    ),
+  ).toEqual([{ owner_user_id: null }]);
+
+  expect(await t.as("bo").get("team/projects")).toMatchObject([
+    { name: "Shop", team: true },
+  ]);
+});
+
+test("archiving the coordinator archives the Project's threads", async () => {
+  const s = await started();
+  await using _ = s.t;
+  const thread = await threadOf(s, "Docs");
+
+  await s.coordinator.archive();
+
+  await until(async () => {
+    const found = await s.t
+      .as("ana")
+      .get<ProjectView>(`projects/${s.project.id}`);
+
+    return found.threads[0]?.runState === "archived" ? found : undefined;
   });
 
-  const teamAssistant = (await asked.json()) as ProjectView;
+  expect(thread.id).not.toBe("");
+});
 
-  expect(teamAssistant).toMatchObject({ assistant: true, team: true });
-  expect(kernel.session(teamAssistant.coordinatorId).ownedBy).toBe("team");
-  expect((await call("assistant")).status).toBe(404);
+test("the library takes files from people, within the size limit", async () => {
+  const s = await started();
+  await using _ = s.t;
+  const path = `projects/${s.project.id}/files/brief.txt`;
 
-  expect(await (await call("assistant?team=true")).json()).toMatchObject({
-    id: teamAssistant.id,
-  });
+  const put = await s.t.as("ana").raw("PUT", path, { body: "the brief\n" });
 
-  expect((await call(`projects/${teamAssistant.id}`, ana)).status).toBe(404);
-  expect(await (await call("projects", ana)).json()).toEqual([]);
+  expect(put.status).toBe(200);
+
+  expect(await (await s.t.as("ana").raw("GET", path)).text()).toBe(
+    "the brief\n",
+  );
+
+  expect(await s.t.as("ana").get(`projects/${s.project.id}/log`)).toMatchObject(
+    [{ name: "brief.txt", size: 10, actor: "user:ana" }],
+  );
+
+  expect((await s.t.as("bo").raw("GET", path)).status).toBe(404);
+
+  expect(
+    (
+      await s.t
+        .as("ana")
+        .raw(
+          "PUT",
+          `projects/${s.project.id}/files/${encodeURIComponent("a/b")}`,
+          {
+            body: "x",
+          },
+        )
+    ).status,
+  ).toBe(400);
 });

@@ -122,6 +122,7 @@ function piTool(
       const call: SessionToolCall = {
         id,
         signal,
+        cwd: ctx.cwd,
         ...(model && { complete: completion(ctx.modelRegistry, model, host) }),
       };
 

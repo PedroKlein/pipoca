@@ -159,9 +159,6 @@ export default tseslint.config(
       "plugins/kubernetes/src/server.ts",
       "plugins/local/src/server.ts",
       "plugins/oidc/src/oidc.ts",
-      "plugins/projects/src/projects.ts",
-      "plugins/projects/src/server.ts",
-      "plugins/projects/src/tools.ts",
       "plugins/routines/src/engine.ts",
       "plugins/routines/src/wakeups.ts",
     ],
@@ -210,7 +207,6 @@ export default tseslint.config(
       "apps/web/src/registry.ts",
       // Until these plugins' tests move into the plugins.
       "apps/pipoca/src/kubernetes.test.ts",
-      "apps/pipoca/src/projects.test.ts",
       "packages/sessionhost/src/host.test.ts",
       "packages/sessionhost/src/subagents.test.ts",
     ],

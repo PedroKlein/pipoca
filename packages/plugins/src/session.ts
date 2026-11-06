@@ -18,6 +18,8 @@ import type {
 export interface SessionToolCall {
   readonly id: string;
   readonly signal: AbortSignal | undefined;
+  // Pi's working directory, where a tool reads and writes the workspace.
+  readonly cwd: string;
   // Asks the Session's model one question outside its conversation, such as
   // to explain an option. Undefined while the Session has no model.
   readonly complete?: (o: {

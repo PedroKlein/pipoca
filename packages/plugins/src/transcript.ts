@@ -23,6 +23,21 @@ export interface Transcript {
     sessionId: string,
   ) => { readonly line: number; readonly text: string } | undefined;
   readonly length: (sessionId: string) => number;
+  // The turn that ends the transcript, or ends at line end: its last reply,
+  // the model error it ended with, and the tools it called. A turn starts
+  // after a person's message.
+  readonly lastTurn: (
+    sessionId: string,
+    o?: { readonly end?: number },
+  ) => {
+    readonly reply?: string;
+    readonly error?: string;
+    readonly called: readonly string[];
+  };
+  // Pi's latest summary of the context it compacted.
+  readonly compaction: (
+    sessionId: string,
+  ) => { readonly line: number; readonly summary: string } | undefined;
 }
 
 interface Message {
@@ -32,6 +47,8 @@ interface Message {
   readonly toolName?: unknown;
   readonly details?: unknown;
   readonly isError?: unknown;
+  readonly stopReason?: unknown;
+  readonly errorMessage?: unknown;
 }
 
 interface Part {
@@ -39,6 +56,7 @@ interface Part {
   readonly text?: unknown;
   readonly id?: unknown;
   readonly arguments?: unknown;
+  readonly name?: unknown;
 }
 
 // The one reader of Pi's session entries. Pi can leave a line cut short by
@@ -105,7 +123,85 @@ export function transcriptReader(
       return reply && { line: reply.line, text: reply.text };
     },
     length: (sessionId) => linesOf(sessionId).length,
+    lastTurn: (sessionId, { end } = {}) => {
+      const read = linesOf(sessionId).slice(0, end);
+      const start = read.findLastIndex(startsTurn);
+
+      const replies = messages(sessionId).filter(
+        ({ line, role }) =>
+          line > start && line < read.length && role === "assistant",
+      );
+
+      const last = replies.at(-1);
+
+      const reply = replies
+        .map(({ content }) => textOf(content))
+        .findLast((text) => text !== "");
+
+      return {
+        ...(reply !== undefined && { reply }),
+        ...(last?.stopReason === "error" && {
+          error:
+            typeof last.errorMessage === "string"
+              ? last.errorMessage
+              : "unknown error",
+        }),
+        called: replies.flatMap(({ content }) =>
+          partsOf(content).flatMap(({ type, name }) =>
+            type === "toolCall" && typeof name === "string" ? [name] : [],
+          ),
+        ),
+      };
+    },
+    compaction: (sessionId) => {
+      const all = linesOf(sessionId);
+
+      for (let line = all.length - 1; line >= 0; line--) {
+        const summary = compactionOf(all[line] ?? "");
+
+        if (summary !== undefined) {
+          return { line, summary };
+        }
+      }
+
+      return undefined;
+    },
   };
+}
+
+// A person's message, or a message a plugin sent, such as a notice.
+function startsTurn(line: string): boolean {
+  if (line.includes('"custom_message"')) {
+    try {
+      return (
+        (JSON.parse(line) as { readonly type?: unknown } | null)?.type ===
+        "custom_message"
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  return messageOf(line)?.role === "user";
+}
+
+function compactionOf(line: string): string | undefined {
+  if (!line.includes('"compaction"')) {
+    return undefined;
+  }
+
+  try {
+    const entry = JSON.parse(line) as {
+      readonly type?: unknown;
+      readonly summary?: unknown;
+    } | null;
+
+    return entry?.type === "compaction" && typeof entry.summary === "string"
+      ? entry.summary
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function messageOf(line: string): Message | undefined {

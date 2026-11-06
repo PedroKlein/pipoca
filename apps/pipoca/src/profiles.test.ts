@@ -1038,9 +1038,11 @@ test("gives assistant sessions the base Profile's extensions and packages only",
     }),
   );
 
-  const session = await json<Session>(
-    server.api("/api/ext/meta/sessions", { body: { text: "hi" } }),
+  const { coordinatorId } = await json<{ coordinatorId: string }>(
+    server.api("/api/ext/projects/assistant", { body: { text: "hi" } }),
   );
+
+  const session = { id: coordinatorId };
 
   await poll();
 
