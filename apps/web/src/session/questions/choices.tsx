@@ -1,4 +1,4 @@
-import { cn, fieldClass } from "@pipoca/ui";
+import { cn, TextInput } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { otherValue, pick, type QuestionState, typeOther } from "./questions";
 import {
@@ -82,17 +82,14 @@ export function Choices({
             otherChosen ? "border-accent bg-accent-tint" : "border-line",
           )}
         >
-          <input
+          <TextInput
             aria-label="Other answer"
             placeholder="Other: type your own…"
             value={state.other}
             onChange={(event) => {
               onChange(typeOther(question, state, event.target.value));
             }}
-            className={cn(
-              fieldClass,
-              "w-full border-transparent bg-transparent px-0",
-            )}
+            className="w-full border-transparent bg-transparent px-0"
           />
         </li>
       </ul>

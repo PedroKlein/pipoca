@@ -1,6 +1,7 @@
 import {
   Badge,
   Button,
+  Chip,
   ChoiceCard,
   Command,
   ErrorText,
@@ -54,12 +55,9 @@ export function WhereStep(): ReactElement {
               </span>
               <span className="flex flex-wrap gap-1.5">
                 {environment.folders.map((folder) => (
-                  <span
-                    key={folder}
-                    className="inline-flex h-7 items-center rounded-full border border-line px-2.5 font-mono text-mono-sm text-fg"
-                  >
+                  <Chip key={folder} mono>
                     {folder}
-                  </span>
+                  </Chip>
                 ))}
               </span>
             </div>

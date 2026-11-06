@@ -96,13 +96,13 @@ export const emptyFeed: Feed = {
 // While a Session is in another status, its Pi is gone with what it was doing.
 const piRuns = new Set<SessionStatus>(["starting", "idle", "running"]);
 
-export interface FollowOptions {
+interface FollowOptions {
   readonly dispatch: (event: SessionEvent) => void;
   readonly onChange: (feed: Feed) => void;
   readonly onSession: (session: Session) => void;
 }
 
-export interface FeedReader {
+interface FeedReader {
   readonly open: () => void;
   readonly receive: (event: SessionEvent) => void;
   readonly lost: () => void;

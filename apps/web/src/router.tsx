@@ -21,7 +21,7 @@ const table = {
 
 type Table = typeof table;
 
-export type RouteName = keyof Table;
+type RouteName = keyof Table;
 
 type Segments<Pattern extends string> =
   Pattern extends `${infer Head}/${infer Rest}`
@@ -43,7 +43,7 @@ type OptionalName<Segment extends string> = Segment extends `:${infer Name}?`
 type Names<N extends RouteName> =
   RequiredName<Segments<Table[N]>> | OptionalName<Segments<Table[N]>>;
 
-export type HrefParams<N extends RouteName> = Readonly<
+type HrefParams<N extends RouteName> = Readonly<
   Record<RequiredName<Segments<Table[N]>>, string>
 > &
   Readonly<Partial<Record<OptionalName<Segments<Table[N]>>, string>>>;

@@ -1,6 +1,7 @@
 import {
   Badge,
   buttonClass,
+  ErrorText,
   Icon,
   initialsOf,
   Page,
@@ -8,8 +9,8 @@ import {
   Rows,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import { errorText, request } from "../../data/client";
-import { useMe, useQuery } from "../../data/hooks";
+import { request } from "../../data/client";
+import { useAction, useMe, useQuery } from "../../data/hooks";
 import { href, scopedHref } from "../../router";
 import { layerFolder, profileFolder } from "./folder";
 import { ProfileOverview } from "./overview";
@@ -48,6 +49,14 @@ export function ProfilesPage({
 
   // The editor starts again when its files change, so it doesn't keep this.
   const [savedId, setSavedId] = useState<string>();
+
+  const buildOn = useAction(
+    async (profileId: string, buildsOn: string | null) =>
+      request("profiles.update", {
+        params: { id: profileId },
+        body: { buildsOn },
+      }),
+  );
 
   return (
     <Page
@@ -110,18 +119,14 @@ export function ProfilesPage({
                 team={team}
                 disabled={profile.source !== null}
                 onChange={(buildsOn) => {
-                  request("profiles.update", {
-                    params: { id: profile.id },
-                    body: { buildsOn },
-                  }).catch((reason: unknown) => {
-                    alert(errorText(reason));
-                  });
+                  void buildOn.run(profile.id, buildsOn);
                 }}
               />
             </span>
           )}
         </nav>
       )}
+      <ErrorText size="caption">{buildOn.error}</ErrorText>
       {profile && (
         <ProfileTabs
           folder={profileFolder(profile.id)}

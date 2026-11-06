@@ -1,10 +1,10 @@
-export interface Snapshot<T> {
+interface Snapshot<T> {
   readonly data: T | undefined;
   readonly error: Error | undefined;
   readonly loading: boolean;
 }
 
-export interface Source<T> {
+interface Source<T> {
   readonly load: () => Promise<T>;
   readonly topics?: readonly string[];
 }
@@ -14,7 +14,7 @@ export type Watch = (
   onChange: () => void,
 ) => () => void;
 
-export interface Store {
+interface Store {
   readonly read: <T>(key: string) => Snapshot<T>;
   readonly subscribe: <T>(
     key: string,
@@ -44,7 +44,7 @@ const empty: Snapshot<never> = {
   loading: true,
 };
 
-export function errorOf(reason: unknown): Error {
+function errorOf(reason: unknown): Error {
   return reason instanceof Error ? reason : new Error(String(reason));
 }
 

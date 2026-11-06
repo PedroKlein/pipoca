@@ -7,6 +7,7 @@ import {
 import {
   Badge,
   Button,
+  Chip,
   ChoiceTiles,
   cn,
   Icon,
@@ -186,12 +187,8 @@ export function Editor({
         {environment.folders.length > 0 && (
           <ul aria-label="Folders" className="mt-3 flex flex-wrap gap-1.5">
             {environment.folders.map((folder) => (
-              <li
-                key={folder}
-                title={folder}
-                className="max-w-full truncate rounded-full border border-line bg-elevated px-2.5 py-1 font-mono text-mono-sm"
-              >
-                {folder}
+              <li key={folder} title={folder} className="max-w-full">
+                <Chip mono>{folder}</Chip>
               </li>
             ))}
           </ul>
