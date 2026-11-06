@@ -4,14 +4,17 @@ import {
   Slot,
   useSessionState,
 } from "@pipoca/plugins/web";
-import { Button, cn, ErrorText, Icon, isComposing, popClass } from "@pipoca/ui";
 import {
-  Fragment,
-  type ReactElement,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+  Button,
+  buttonClass,
+  cn,
+  ErrorText,
+  Icon,
+  isComposing,
+  popClass,
+  SidePanel,
+} from "@pipoca/ui";
+import { Fragment, type ReactElement, useMemo, useState } from "react";
 import { changes } from "../plugin";
 import type { CheckoutChanges, PullRequest } from "../src/report";
 import { type DiffComment, reviewMessage } from "./comments";
@@ -49,24 +52,6 @@ function SessionHeader({
   const pullRequests =
     useSessionState<readonly PullRequest[]>(session, "pull-requests") ?? none;
 
-  useEffect(() => {
-    if (!open) {
-      return undefined;
-    }
-
-    const close = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    };
-
-    document.addEventListener("keydown", close);
-
-    return () => {
-      document.removeEventListener("keydown", close);
-    };
-  }, [open]);
-
   const changed = found.filter(({ files }) => files.length > 0);
   if (changed.length === 0) {
     return null;
@@ -87,38 +72,27 @@ function SessionHeader({
         <Icon name="git-pull-request" className="size-3.5" />
         Diff
       </Button>
-      <section
-        role="dialog"
-        aria-label="Changes"
-        hidden={!open}
-        className="fixed inset-y-0 right-0 z-40 flex w-[min(760px,100vw)] flex-col border-l border-line bg-panel text-ui text-fg shadow-pop"
+      <SidePanel
+        open={open}
+        title="Changes"
+        closeLabel="Close changes"
+        size="lg"
+        className="gap-6"
+        onClose={() => {
+          setOpen(false);
+        }}
       >
-        <header className="flex min-h-14 items-center gap-2 border-b border-line px-4">
-          <h2 className="flex-1 font-semibold text-fg-strong">Changes</h2>
-          <Button
-            variant="ghost"
-            iconOnly
-            aria-label="Close changes"
-            onClick={() => {
-              setOpen(false);
-            }}
-          >
-            <Icon name="x" />
-          </Button>
-        </header>
-        <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-auto p-4">
-          {changed.map((checkout) => (
-            <Checkout
-              key={checkout.name}
-              checkout={checkout}
-              session={session}
-              pullRequest={pullRequests.find(
-                ({ name }) => name === checkout.name,
-              )}
-            />
-          ))}
-        </div>
-      </section>
+        {changed.map((checkout) => (
+          <Checkout
+            key={checkout.name}
+            checkout={checkout}
+            session={session}
+            pullRequest={pullRequests.find(
+              ({ name }) => name === checkout.name,
+            )}
+          />
+        ))}
+      </SidePanel>
     </>
   );
 }
@@ -370,14 +344,7 @@ function ExternalLink({
   readonly children: string;
 }): ReactElement {
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className={cn(
-        "inline-flex h-control items-center gap-1 rounded-md border border-line bg-elevated px-3 text-ui font-medium text-fg hover:border-line-strong hover:bg-hover",
-      )}
-    >
+    <a href={href} target="_blank" rel="noreferrer" className={buttonClass()}>
       {children}
       <Icon name="external-link" className="size-3.5" />
     </a>
@@ -496,16 +463,17 @@ function FileDiff({
                             <span className="flex-1 whitespace-pre-wrap">
                               {comment.text}
                             </span>
-                            <button
-                              type="button"
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              iconOnly
                               aria-label={`Delete comment on ${where}`}
                               onClick={() => {
                                 review.remove(comment);
                               }}
-                              className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-dim hover:bg-hover hover:text-fg"
                             >
                               <Icon name="x" className="size-3.5" />
-                            </button>
+                            </Button>
                           </div>
                         </td>
                       </tr>
