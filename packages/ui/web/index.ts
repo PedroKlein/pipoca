@@ -40,6 +40,7 @@ export { SidePanel } from "./side-panel";
 export { SessionRow } from "./session-row";
 export { Hero, Mark, SetupShell, Wordmark } from "./setup-shell";
 export { Slider } from "./slider";
+export { type DotTone, StatusDot } from "./status-dot";
 export { type MarkStatus, StatusMark } from "./status-mark";
 export { Step, Stepper, type StepState } from "./stepper";
 export { Switch } from "./switch";
