@@ -1,3 +1,4 @@
+import { type Backoff, backoff } from "@pipoca/plugins";
 import type { PodFailure } from "./settings";
 
 export interface FailedPod {
@@ -9,20 +10,16 @@ export interface FailedPod {
   readonly problem: string;
 }
 
-const mostDoublings = 5;
+interface Failure extends Backoff {
+  readonly environmentId: string;
+  readonly last: PodFailure;
+}
 
-// Runner pods that failed in a row. The next pod for the same key waits,
-// twice as long after each failed pass, and a quiet spell starts over.
+// Runner pods that failed in a row. The next pod for the same key waits as
+// backoff says.
 export class PodFailures {
   readonly #retryAfterMs: number;
-  readonly #byKey = new Map<
-    string,
-    {
-      readonly environmentId: string;
-      readonly count: number;
-      readonly last: PodFailure;
-    }
-  >();
+  readonly #byKey = new Map<string, Failure>();
 
   constructor(retryAfterMs: number) {
     this.#retryAfterMs = retryAfterMs;
@@ -33,35 +30,25 @@ export class PodFailures {
     const keys = new Map(failed.map((each) => [each.key, each]));
 
     for (const { key, environmentId, pod, problem } of keys.values()) {
-      const previous = this.#byKey.get(key);
-
-      const quiet =
-        previous === undefined ||
-        now - Date.parse(previous.last.retryAt) >
-          this.#retryAfterMs * 2 ** mostDoublings;
-
-      const count = quiet ? 1 : previous.count + 1;
-
-      const waitMs =
-        this.#retryAfterMs * 2 ** Math.min(count - 1, mostDoublings);
+      const next = backoff(this.#byKey.get(key), now, this.#retryAfterMs);
 
       this.#byKey.set(key, {
+        ...next,
         environmentId,
-        count,
         last: {
           pod,
           problem,
           at: new Date(now).toISOString(),
-          retryAt: new Date(now + waitMs).toISOString(),
+          retryAt: new Date(next.retryAt).toISOString(),
         },
       });
     }
   }
 
   waiting(key: string, now: number): boolean {
-    const retryAt = this.#byKey.get(key)?.last.retryAt;
+    const retryAt = this.#byKey.get(key)?.retryAt;
 
-    return retryAt !== undefined && Date.parse(retryAt) > now;
+    return retryAt !== undefined && retryAt > now;
   }
 
   clear(key: string): void {

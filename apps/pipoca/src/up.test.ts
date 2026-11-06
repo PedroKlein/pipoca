@@ -267,27 +267,16 @@ test("runs runners on its own machine only in a solo install, which signs no one
       await solo.as(cookie)("/api/environments")
     ).json()) as Environment[];
 
-    const refused = await solo.as(cookie)(
-      `/api/ext/local/environments/${environment?.id ?? ""}`,
-      {
-        body: {
-          settings: { folders: [join(root, "missing")] },
-        },
-      },
-    );
-
     expect({
       team: await pluginState(team.url, await team.signedIn(), "local"),
       solo: await pluginState(solo.url, cookie, "local"),
       soloSignIn: await pluginState(solo.url, cookie, "oidc"),
-      status: refused.status,
-      message: ((await refused.json()) as { message: string }).message,
+      runnersFrom: environment?.runnersFrom,
     }).toEqual({
       team: "off",
       solo: "on",
       soloSignIn: "off",
-      status: 400,
-      message: `${join(root, "missing")} isn't a folder on this machine`,
+      runnersFrom: { plugin: "local", label: "This machine", icon: "monitor" },
     });
   } finally {
     await team.close();

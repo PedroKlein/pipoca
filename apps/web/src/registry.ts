@@ -4,8 +4,8 @@ import { web as changesWeb } from "../../../plugins/changes/web/index";
 import { web as checklistWeb } from "../../../plugins/checklist/web/index";
 import { web as emailWeb } from "../../../plugins/email/web/index";
 import { web as gitHostsWeb } from "../../../plugins/git-hosts/web/index";
-import * as kubernetesWeb from "../../../plugins/kubernetes/web/index";
-import * as localWeb from "../../../plugins/local/web/index";
+import { web as kubernetesWeb } from "../../../plugins/kubernetes/web/index";
+import { web as localWeb } from "../../../plugins/local/web/index";
 import { web as loginsWeb } from "../../../plugins/logins/web/index";
 import { web as modelsWeb } from "../../../plugins/models/web/index";
 import { web as oidcWeb } from "../../../plugins/oidc/web/index";
@@ -22,8 +22,8 @@ export const webRegistry = [
   { id: "checklist", web: checklistWeb },
   { id: "email", web: emailWeb },
   { id: "git-hosts", web: gitHostsWeb },
-  { id: "kubernetes", plugin: kubernetesWeb },
-  { id: "local", plugin: localWeb },
+  { id: "kubernetes", web: kubernetesWeb },
+  { id: "local", web: localWeb },
   { id: "logins", web: loginsWeb },
   { id: "models", web: modelsWeb },
   { id: "oidc", web: oidcWeb },

@@ -110,6 +110,7 @@ export async function pluginTest(
   await writeFile(
     configFile,
     JSON.stringify({
+      ...o.kernelConfig,
       ...(o.config !== undefined && { [plugin.id]: o.config }),
       plugins: Object.fromEntries(
         definitions.map(({ id }) => [id, { personal: true }]),
@@ -181,6 +182,7 @@ export async function pluginTest(
       servers: captured,
       events,
       changes,
+      ...(o.command !== undefined && { command: o.command }),
       ...(o.solo === true &&
         soloPerson !== undefined && {
           solo: {

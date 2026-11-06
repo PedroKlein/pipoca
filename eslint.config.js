@@ -152,13 +152,7 @@ export default tseslint.config(
     // Plugins tell time by their context's clock and wait through its
     // schedule, so a test's clock moves them too.
     files: ["plugins/*/src/**/*.ts", "plugins/*/src/**/*.tsx"],
-    ignores: [
-      "plugins/*/src/**/*.test.ts",
-      // Until these move to the clock and schedule as their plugins port.
-      "plugins/kubernetes/src/cluster.ts",
-      "plugins/kubernetes/src/server.ts",
-      "plugins/local/src/server.ts",
-    ],
+    ignores: ["plugins/*/src/**/*.test.ts"],
     rules: {
       "no-restricted-globals": [
         "error",
@@ -203,7 +197,6 @@ export default tseslint.config(
       "apps/pipoca/src/registry-session.ts",
       "apps/web/src/registry.ts",
       // Until these plugins' tests move into the plugins.
-      "apps/pipoca/src/kubernetes.test.ts",
       "packages/sessionhost/src/host.test.ts",
       "packages/sessionhost/src/subagents.test.ts",
     ],

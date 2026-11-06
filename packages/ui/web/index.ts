@@ -23,7 +23,7 @@ export {
 export { EmptyState, ErrorText, Notice, Spinner } from "./feedback";
 export { Field, fieldClass } from "./field";
 export { FileButton } from "./file-button";
-export { Icon, type IconName } from "./icon";
+export { Icon, type IconName, isIconName } from "./icon";
 export { initialsOf, plural } from "./initials";
 export { Checkbox, Radio, TextArea, TextInput } from "./inputs";
 export { isComposing } from "./keys";

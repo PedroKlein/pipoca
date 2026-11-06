@@ -54,6 +54,8 @@ export interface TestPluginOptions<
 > {
   // The plugin's key in pipoca.json.
   readonly config?: InFile<ConfigValue<P>>;
+  // The kernel's keys in pipoca.json, such as its templates.
+  readonly kernelConfig?: Readonly<Record<string, unknown>>;
   readonly people?: readonly TestPerson[];
   // More plugins on the same kernel, by their server parts or, without one,
   // their definitions.
@@ -61,6 +63,8 @@ export interface TestPluginOptions<
   // Answers the plugins' outbound HTTP; without it, any throws.
   readonly fetch?: (request: Request) => Response | Promise<Response>;
   readonly solo?: boolean;
+  // What provide.runtime() names as the pipoca binary.
+  readonly command?: readonly string[];
 }
 
 export interface ToolAnswer {

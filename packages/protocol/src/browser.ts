@@ -165,6 +165,16 @@ const runner = Type.Object({
 
 export type Runner = Wire<typeof runner>;
 
+// The plugin that starts an Environment's runners on demand, and what the
+// Environments page calls them.
+const runnersFrom = Type.Object({
+  plugin: Type.String(),
+  label: Type.String(),
+  icon: Type.String(),
+});
+
+export type RunnersFrom = Wire<typeof runnersFrom>;
+
 // Runners join an Environment's pool by its provider name (ADR 0032).
 export const environment = Type.Object({
   id: Type.String(),
@@ -176,8 +186,7 @@ export const environment = Type.Object({
   // A plugin starts runners for it when a Session needs one, such as
   // Kubernetes pods, so it takes Sessions with no runner online (ADR 0040).
   onDemand: Type.Boolean(),
-  // The plugin that starts its runners, such as kubernetes for pods.
-  runnersFrom: nullable(Type.String()),
+  runnersFrom: nullable(runnersFrom),
   runners: Type.Array(runner),
   folders: strings,
   // The models logged in on its online runners, and every model any of its
@@ -219,20 +228,6 @@ export function availability(
   }
 
   return of.onDemand ? "Starts runners on demand" : "Offline";
-}
-
-// What an Environment is (ADR 0063): machines someone connects, a Docker
-// image on such a machine, or pods on Kubernetes.
-export type EnvironmentKind = "machine" | "docker" | "kubernetes";
-
-export function kindOf(
-  of: Pick<Environment, "runnersFrom" | "isolation">,
-): EnvironmentKind {
-  if (of.runnersFrom === "kubernetes") {
-    return "kubernetes";
-  }
-
-  return of.isolation === "container" ? "docker" : "machine";
 }
 
 // A folder or file a repository's pipoca.json lists, at the commit last
@@ -301,7 +296,7 @@ export const templateEntry = Type.Object({
 // Environments made from it, if any.
 export const listedTemplate = Type.Object({
   ...environmentTemplate.properties,
-  runnersFrom: nullable(Type.String()),
+  runnersFrom: nullable(runnersFrom),
 });
 
 export type ListedTemplate = Wire<typeof listedTemplate>;

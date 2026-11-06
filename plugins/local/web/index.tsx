@@ -1,9 +1,5 @@
-import {
-  type EnvironmentSectionProps,
-  json,
-  useLoaded,
-  type WebPlugin,
-} from "@pipoca/plugins/web";
+import { defineWeb, useApi, useLoaded } from "@pipoca/plugins/web";
+import type { Environment } from "@pipoca/protocol";
 import {
   Button,
   Card,
@@ -15,25 +11,27 @@ import {
   TextInput,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
+import { local } from "../plugin";
 import {
   defaultSettings,
   type LocalEnvironment,
   type RunnerFailure,
 } from "../src/settings";
 
-export const local: WebPlugin = {
-  name: "local",
-  EnvironmentSection,
-};
+export const web = defineWeb(local, {
+  slots: { "environment.section": EnvironmentSection },
+});
 
 function EnvironmentSection({
-  context,
   environment,
-}: EnvironmentSectionProps): ReactElement {
+}: {
+  readonly environment: Environment;
+}): ReactElement {
+  const api = useApi(local);
   const path = `environments/${encodeURIComponent(environment.id)}`;
 
   const { value, reload } = useLoaded(
-    async () => json<LocalEnvironment>(context.request(path)),
+    async () => api.get<LocalEnvironment>(path),
     path,
     { everyMs: 10_000 },
   );
@@ -56,13 +54,7 @@ function EnvironmentSection({
               key={JSON.stringify(value.settings)}
               loaded={value}
               save={async (settings) => {
-                await json(
-                  context.request(path, {
-                    method: "POST",
-                    body: JSON.stringify({ settings }),
-                  }),
-                );
-
+                await api.post(path, { settings });
                 reload();
               }}
             />

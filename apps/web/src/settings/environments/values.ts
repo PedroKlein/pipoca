@@ -1,8 +1,4 @@
-import {
-  type Environment,
-  type EnvironmentTemplate,
-  kindOf,
-} from "@pipoca/protocol";
+import type { Environment, EnvironmentTemplate } from "@pipoca/protocol";
 import type { ConfirmOptions, KeyValue } from "@pipoca/ui";
 import { api } from "../../api";
 
@@ -98,9 +94,7 @@ export function fieldsOf(
   return {
     name: environment.name,
     ...(template === undefined && {
-      ...(kindOf(environment) !== "kubernetes" && {
-        isolation: environment.isolation,
-      }),
+      isolation: environment.isolation,
       image: environment.image ?? "",
       setupScript: environment.setupScript,
     }),

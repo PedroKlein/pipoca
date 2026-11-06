@@ -33,15 +33,6 @@ const meansOther: Readonly<Record<string, readonly string[]>> = {
   "packages/sessions/src/sessions.ts": ["models"],
 };
 
-// v1 plugins the kernel still knows by name, until each one's port.
-const notPortedYet: Readonly<Record<string, readonly string[]>> = {
-  "apps/pipoca/src/serve.ts": ["kubernetes", "local"],
-  "apps/web/src/settings/environments/editor.tsx": ["kubernetes"],
-  "apps/web/src/settings/environments/values.ts": ["kubernetes"],
-  "apps/web/src/setup/where-step.tsx": ["kubernetes"],
-  "packages/protocol/src/browser.ts": ["kubernetes"],
-};
-
 const generated = new Set([
   "apps/pipoca/src/registry-server.ts",
   "apps/pipoca/src/registry-session.ts",
@@ -86,10 +77,7 @@ test("the kernel names no plugin and imports none", async () => {
   for (const path of await kernelFiles()) {
     const source = await readFile(join(root, path), "utf8");
 
-    const allowed = [
-      ...(meansOther[path] ?? []),
-      ...(notPortedYet[path] ?? []),
-    ];
+    const allowed = meansOther[path] ?? [];
 
     for (const id of ids) {
       const literal = new RegExp(`["'\`]${id}(["'\`]|\\.(?!json)\\w)`);
@@ -114,10 +102,7 @@ test("the kernel names no plugin and imports none", async () => {
 test("the allowances name only what the kernel still says", async () => {
   const stale: string[] = [];
 
-  for (const [path, allowed] of Object.entries({
-    ...meansOther,
-    ...notPortedYet,
-  })) {
+  for (const [path, allowed] of Object.entries(meansOther)) {
     const source = await readFile(join(root, path), "utf8");
 
     for (const id of allowed) {
