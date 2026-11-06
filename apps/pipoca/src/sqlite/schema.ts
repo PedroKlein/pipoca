@@ -14,9 +14,11 @@ create table schema_owners (
 create table users (
   id text primary key,
   name text not null unique,
+  display_name text,
   password_hash text,
   admin integer not null default 0 check (admin in (0, 1)),
   default_profile_id text,
+  default_environment_id text references environments (id) on delete set null,
   setup_finished_at integer,
   pinned_at integer,
   created_at integer not null,

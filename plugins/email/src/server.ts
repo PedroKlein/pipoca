@@ -1,29 +1,57 @@
 import {
   BadRequest,
+  defineServer,
   NotFound,
-  readBody,
-  requireAdmin,
-  type ServerPlugin,
+  owners,
+  type Person,
+  ToolError,
   Type,
 } from "@pipoca/plugins";
-import { check, MailRefused, send, verify, type Mail } from "./mail";
-import { type Mailbox, mailboxStore } from "./mailboxes";
-import type { Account, MailboxView } from "./model";
+import type { Owner } from "@pipoca/protocol";
+import { email } from "../plugin";
+import {
+  check,
+  type Mail,
+  type Mailbox,
+  MailRefused,
+  send,
+  verify,
+} from "./mail";
+import type { MailboxView } from "./model";
 
-const server = Type.Object({
+const mailServer = Type.Object({
   host: Type.String({ minLength: 1 }),
   port: Type.Integer({ minimum: 1, maximum: 65_535 }),
   secure: Type.Boolean(),
 });
 
 const newMailbox = Type.Object({
-  name: Type.String(),
+  name: Type.String({ pattern: "^[a-z0-9][a-z0-9-]{0,62}$" }),
   address: Type.String({ minLength: 3 }),
   user: Type.String({ minLength: 1 }),
   password: Type.String({ minLength: 1 }),
-  imap: server,
-  smtp: server,
+  imap: mailServer,
+  smtp: mailServer,
 });
+
+const sendMail = Type.Object(
+  {
+    to: Type.String({ description: "One address, or several split by commas" }),
+    subject: Type.String(),
+    text: Type.String({ description: "Plain text" }),
+    in_reply_to: Type.Optional(
+      Type.String({
+        description: "The Message-ID of the mail this replies to",
+      }),
+    ),
+    mailbox: Type.Optional(
+      Type.String({
+        description: "Which mailbox, when the user has more than one",
+      }),
+    ),
+  },
+  { additionalProperties: false },
+);
 
 interface State {
   readonly uid_validity: string;
@@ -32,105 +60,72 @@ interface State {
 
 // New mail as routine triggers, and Sessions that send from a mailbox, with
 // replies to what they sent coming back to them (ADR 0062).
-const schema = `
-create table email_state (
-  mailbox text primary key,
-  uid_validity text not null,
-  last_uid integer not null
-) strict;
-
-create table email_threads (
-  mailbox text not null,
-  message_id text not null,
-  session_id text not null references sessions (id) on delete cascade,
-  primary key (mailbox, message_id)
-) strict, without rowid;
-create index email_threads_session on email_threads (session_id);
-`;
-
-export const email: ServerPlugin = {
-  name: "email",
-  schema,
-  register: (context) => {
-    const mailboxes = mailboxStore(
-      context.config,
-      context.secretRefs,
-      context.log,
-    );
-
+export const server = defineServer(
+  email,
+  ({
+    config,
+    events,
+    log,
+    routes,
+    schedule,
+    sessions,
+    store,
+    tools,
+    clock,
+  }) => {
+    const mailboxes = config.collection("mailboxes");
     const errors = new Map<string, string>();
 
-    const sessionOf = (
-      mailbox: string,
-      messageId: string,
-    ): string | undefined =>
-      (
-        context.store.all(
-          "select session_id from email_threads where mailbox = ? and message_id = ?",
-          mailbox,
-          messageId,
-        ) as { session_id: string }[]
-      )[0]?.session_id;
+    const threadOf = (mailbox: string, messageId: string): string =>
+      `${mailbox}:${messageId}`;
 
-    // A reply to mail a Session sent goes to that Session. Other mail is an
-    // event.
+    // A reply to mail a Session sent goes to that Session, and so do replies
+    // to that reply. Other mail is an event.
     const received = (mailbox: Mailbox, mail: Mail): void => {
       const sessionId =
         mail.inReplyTo === ""
           ? undefined
-          : sessionOf(mailbox.name, mail.inReplyTo);
+          : sessions.boundTo(threadOf(mailbox.name, mail.inReplyTo));
 
-      if (sessionId !== undefined) {
-        context.store.run(
-          "insert into email_threads (mailbox, message_id, session_id) values (?, ?, ?) on conflict do nothing",
-          mailbox.name,
-          mail.messageId,
-          sessionId,
-        );
+      if (
+        sessionId !== undefined &&
+        sessions.send(sessionId, {
+          text: `A reply to the mail you sent from ${mailbox.address}, from ${mail.from}, subject “${mail.subject}” (Message-ID ${mail.messageId}):\n\n${mail.text}`,
+          turn: true,
+          notice: { kind: "email_reply", data: { from: mail.from } },
+        }) === "queued"
+      ) {
+        sessions.bind(threadOf(mailbox.name, mail.messageId), sessionId);
 
-        const sent = context.sessions.send(
-          sessionId,
-          `A reply to the mail you sent from ${mailbox.address}, from ${mail.from}, subject “${mail.subject}” (Message-ID ${mail.messageId}):\n\n${mail.text}`,
-          "plugin:email",
-          { kind: "email_reply", data: { from: mail.from } },
-        );
-
-        if (sent.ok) {
-          return;
-        }
+        return;
       }
 
-      context.events.publish({
-        type: "email.received",
-        mailbox: mailbox.name,
-        from: mail.from,
-        fromName: mail.fromName,
-        to: mail.to,
-        subject: mail.subject,
-        date: mail.date,
-        messageId: mail.messageId,
-        inReplyTo: mail.inReplyTo,
-        text: mail.text,
-        userIds: mailbox.users,
-      });
+      const { uid: _uid, ...fields } = mail;
+
+      events.emit(
+        "received",
+        { mailbox: mailbox.name, ...fields, to: [...mail.to] },
+        { to: mailbox.users },
+      );
     };
 
     const poll = async (mailbox: Mailbox): Promise<void> => {
-      const [seen] = context.store.all(
+      const seen = store.get<State>(
         "select uid_validity, last_uid from email_state where mailbox = ?",
         mailbox.name,
-      ) as State[];
+      );
 
       const checked = await check(
         mailbox,
         seen && { uidValidity: seen.uid_validity, last: seen.last_uid },
+        clock.now(),
       );
 
       for (const mail of checked.mail) {
         received(mailbox, mail);
       }
 
-      context.store.run(
+      store.run(
         "insert into email_state (mailbox, uid_validity, last_uid) values (?, ?, ?) on conflict (mailbox) do update set uid_validity = excluded.uid_validity, last_uid = excluded.last_uid",
         mailbox.name,
         checked.uidValidity,
@@ -138,67 +133,45 @@ export const email: ServerPlugin = {
       );
 
       if (checked.mail.length > 0) {
-        context.log("new mail", {
-          mailbox: mailbox.name,
-          count: checked.mail.length,
-        });
+        log("new mail", { mailbox: mailbox.name, count: checked.mail.length });
       }
     };
 
-    const checkedAt = new Map<string, number>();
-    let checking: Promise<void> | undefined;
+    const checkOne = async (mailbox: Mailbox): Promise<void> => {
+      try {
+        await poll(mailbox);
+        errors.delete(mailbox.name);
+      } catch (failure) {
+        const error =
+          failure instanceof Error ? failure.message : String(failure);
 
-    // Each mailbox is checked once its interval passed since its last check,
-    // so a changed interval counts from then on.
-    const checkDue = async (): Promise<void> => {
-      const intervalMs = Number(context.settings.get()["pollSeconds"]) * 1000;
-
-      for (const mailbox of mailboxes.list()) {
-        if (Date.now() - (checkedAt.get(mailbox.name) ?? 0) < intervalMs) {
-          continue;
-        }
-
-        checkedAt.set(mailbox.name, Date.now());
-
-        try {
-          await poll(mailbox);
-          errors.delete(mailbox.name);
-        } catch (failure) {
-          const error =
-            failure instanceof Error ? failure.message : String(failure);
-
-          errors.set(mailbox.name, error);
-
-          context.log("couldn't check a mailbox", {
-            mailbox: mailbox.name,
-            error,
-          });
-        }
+        errors.set(mailbox.name, error);
+        log("couldn't check a mailbox", { mailbox: mailbox.name, error });
       }
     };
 
-    const tick = (): void => {
-      checking ??= checkDue().finally(() => {
-        checking = undefined;
-      });
-    };
+    schedule.every(
+      "poll",
+      () => config.get().pollSeconds * 1000,
+      async () => {
+        for (const mailbox of mailboxes.list()) {
+          await checkOne(mailbox);
+        }
+      },
+    );
 
-    const timer = setInterval(tick, 1000);
-    tick();
+    const usable = (audience: readonly Owner[]): readonly Mailbox[] =>
+      mailboxes
+        .list()
+        .filter(({ users }) => users.some((user) => audience.includes(user)));
 
-    context.signal.addEventListener("abort", () => {
-      clearInterval(timer);
-    });
-
-    const usable = (userId: string | null): readonly Mailbox[] =>
-      userId === null
-        ? []
-        : mailboxes.list().filter((each) => each.users.includes(userId));
+    const usableBy = (person: Person | undefined): readonly Mailbox[] =>
+      person === undefined ? [] : usable([owners.of(person)]);
 
     // From a mailbox the admin who invited can send from, so the invite
     // comes from someone the person may know.
-    context.events.subscribe("PersonInvited", (invite) => {
-      const [mailbox] = usable(invite.invitedBy.id);
+    events.on("PersonInvited", (invite) => {
+      const [mailbox] = usable(invite.to);
 
       if (mailbox === undefined) {
         return;
@@ -206,16 +179,16 @@ export const email: ServerPlugin = {
 
       const expires = new Date(invite.expiresAt).toUTCString().slice(5, 16);
 
-      void send(mailbox, {
+      send(mailbox, {
         to: invite.email,
         subject: `${invite.invitedBy.name} invited you to Pipoca`,
         text: `${invite.invitedBy.name} invited you to Pipoca${invite.admin ? " as an admin" : ""}.\n\nJoin with this link: ${invite.link}\n\nIt works once, until ${expires}.\n`,
       }).then(
         () => {
-          context.log("invite emailed", { mailbox: mailbox.name });
+          log("invite emailed", { mailbox: mailbox.name });
         },
         (failure: unknown) => {
-          context.log("couldn't email an invite", {
+          log("couldn't email an invite", {
             mailbox: mailbox.name,
             error: failure instanceof Error ? failure.message : String(failure),
           });
@@ -223,92 +196,45 @@ export const email: ServerPlugin = {
       );
     });
 
-    context.tools.register({
+    tools.define({
       name: "email_send",
       description:
         "Sends an email from one of the user's mailboxes, or replies to one by its Message-ID. Replies to what you send come back to this Session as messages.",
-      parameters: {
-        type: "object",
-        properties: {
-          to: {
-            type: "string",
-            description: "One address, or several split by commas",
-          },
-          subject: { type: "string" },
-          text: { type: "string", description: "Plain text" },
-          in_reply_to: {
-            type: "string",
-            description: "The Message-ID of the mail this replies to",
-          },
-          mailbox: {
-            type: "string",
-            description: "Which mailbox, when the user has more than one",
-          },
-        },
-        required: ["to", "subject", "text"],
-        additionalProperties: false,
-      },
+      params: sendMail,
       exposure: "direct",
-      annotations: { readOnlyHint: false, destructiveHint: false },
-      appliesTo: (session) => usable(session.startedBy).length > 0,
-      run: async (input, { session }) => {
-        const {
-          to,
-          subject,
-          text,
-          in_reply_to: inReplyTo,
-          mailbox: name,
-        } = input as Record<string, unknown>;
+      annotations: { readOnly: false, destructive: false },
+      when: { available: (_session, person) => usableBy(person).length > 0 },
+      run: async (input, { session, person }) => {
+        const mine = usableBy(person);
 
-        const mine = usable(session.startedBy);
-        const only = mine.length === 1 ? mine[0] : undefined;
+        const only = mine.length === 1 ? mine[0]?.name : undefined;
 
-        const mailbox =
-          typeof name === "string"
-            ? mine.find((each) => each.name === name)
-            : only;
+        const mailbox = mine.find(
+          ({ name }) => name === (input.mailbox ?? only),
+        );
 
         if (mailbox === undefined) {
-          return {
-            text: `name one of these mailboxes: ${mine.map((each) => each.name).join(", ")}`,
-            isError: true,
-          };
-        }
-
-        if (
-          typeof to !== "string" ||
-          typeof subject !== "string" ||
-          typeof text !== "string"
-        ) {
-          return { text: "give to, subject and text", isError: true };
-        }
-
-        try {
-          const messageId = await send(mailbox, {
-            to,
-            subject,
-            text,
-            ...(typeof inReplyTo === "string" && { inReplyTo }),
-          });
-
-          context.store.run(
-            "insert into email_threads (mailbox, message_id, session_id) values (?, ?, ?) on conflict do update set session_id = excluded.session_id",
-            mailbox.name,
-            messageId,
-            session.id,
+          throw new ToolError(
+            `name one of these mailboxes: ${mine.map(({ name }) => name).join(", ")}`,
           );
-
-          return {
-            text: `Sent from ${mailbox.address} to ${to} (Message-ID ${messageId}). Replies come back here.`,
-            isError: false,
-          };
-        } catch (failure) {
-          if (!(failure instanceof MailRefused)) {
-            throw failure;
-          }
-
-          return { text: failure.message, isError: true };
         }
+
+        const messageId = await send(mailbox, {
+          to: input.to,
+          subject: input.subject,
+          text: input.text,
+          ...(input.in_reply_to !== undefined && {
+            inReplyTo: input.in_reply_to,
+          }),
+        }).catch((failure: unknown) => {
+          throw failure instanceof MailRefused
+            ? new ToolError(failure.message)
+            : failure;
+        });
+
+        sessions.bind(threadOf(mailbox.name, messageId), session.id);
+
+        return `Sent from ${mailbox.address} to ${input.to} (Message-ID ${messageId}). Replies come back here.`;
       },
     });
 
@@ -318,36 +244,22 @@ export const email: ServerPlugin = {
       error: errors.get(mailbox.name) ?? null,
     });
 
-    context.routes.handle(async (request, path, caller) => {
-      const [route, name] = path.split("/");
+    routes.get("mailboxes", { auth: "admin" }, () =>
+      mailboxes.list().map(viewOf),
+    );
 
-      if (route === "account" && request.method === "GET") {
-        const account: Account = {
-          admin: caller.kind === "user" && caller.admin,
-        };
-
-        return Response.json(account);
-      }
-
-      if (route !== "mailboxes") {
-        throw new NotFound(`no route ${path}`);
-      }
-
-      requireAdmin(caller, "Only admins manage mailboxes.");
-
-      if (name === undefined && request.method === "GET") {
-        return Response.json(mailboxes.list().map(viewOf));
-      }
-
-      if (name === undefined && request.method === "POST") {
-        const input = await readBody(request, newMailbox);
+    routes.post(
+      "mailboxes",
+      { auth: "admin", body: newMailbox, status: 201 },
+      async ({ body, caller }) => {
+        if (mailboxes.get(body.name) !== undefined) {
+          throw new BadRequest(`there is a mailbox ${body.name} already`);
+        }
 
         const mailbox: Mailbox = {
-          ...input,
-          name: input.name.trim(),
-          address: input.address.trim(),
-          users:
-            caller.kind === "user" ? [caller.actor.slice("user:".length)] : [],
+          ...body,
+          address: body.address.trim(),
+          users: [caller.owner],
         };
 
         await verify(mailbox).catch((failure: unknown) => {
@@ -356,25 +268,25 @@ export const email: ServerPlugin = {
             : failure;
         });
 
-        mailboxes.add(mailbox);
-        context.log("mailbox added", { name: mailbox.name });
-        tick();
+        mailboxes.put(mailbox);
+        log("mailbox added", { name: mailbox.name });
+        await checkOne(mailbox);
 
-        return Response.json(viewOf(mailbox), { status: 201 });
+        return viewOf(mailbox);
+      },
+    );
+
+    routes.delete("mailboxes/:name", { auth: "admin" }, ({ params }) => {
+      const { name } = params;
+
+      if (!mailboxes.remove(name)) {
+        throw new NotFound(`no mailbox ${name}`);
       }
 
-      if (name !== undefined && request.method === "DELETE") {
-        if (!mailboxes.remove(name)) {
-          throw new NotFound(`no mailbox ${name}`);
-        }
+      store.run("delete from email_state where mailbox = ?", name);
+      log("mailbox removed", { name });
 
-        context.store.run("delete from email_state where mailbox = ?", name);
-        context.log("mailbox removed", { name });
-
-        return Response.json({ removed: name });
-      }
-
-      throw new NotFound(`no route ${path}`);
+      return { removed: name };
     });
   },
-};
+);

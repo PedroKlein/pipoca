@@ -74,9 +74,55 @@ export function peopleRoutes({
 
 export function meRoutes({
   people,
+  signIn,
+  environments,
   log,
 }: ApiDeps): Handlers<Exclude<Group<"me">, Group<"me.profileDefaults">>> {
   return {
+    me: ({ caller }) => {
+      const account = people.account(caller.id);
+
+      if (account === undefined) {
+        throw new HttpError(401, "Sign in again.", "signed_out");
+      }
+
+      return account;
+    },
+    "me.update": ({ body, caller }) => {
+      const environment = body.defaultEnvironment;
+
+      if (
+        typeof environment === "string" &&
+        !environments
+          .list(caller.id)
+          .some(
+            ({ id, ownerId }) => id === environment && ownerId === caller.id,
+          )
+      ) {
+        throw new HttpError(
+          400,
+          "Pick one of your own Environments.",
+          "unknown_environment",
+        );
+      }
+
+      const account = people.changeAccount(caller.id, body);
+
+      if (account === undefined) {
+        throw new HttpError(401, "Sign in again.", "signed_out");
+      }
+
+      return account;
+    },
+    "me.signIns.remove": ({ request, caller }) => {
+      const cookie = signIn.endEverySession(caller.id, request);
+      log("signed out everywhere", { userId: caller.id });
+
+      return new Response(null, {
+        status: 204,
+        headers: { "set-cookie": cookie },
+      });
+    },
     "me.setup": ({ caller }) => people.setup(caller.id),
     "me.setup.update": ({ body, caller }) => {
       if ("finished" in body) {

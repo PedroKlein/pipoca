@@ -6,7 +6,3 @@ export interface MailboxView {
   // Why the last check of its mail failed.
   readonly error: string | null;
 }
-
-export interface Account {
-  readonly admin: boolean;
-}

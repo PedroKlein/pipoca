@@ -19,7 +19,7 @@ const meansOther: Readonly<Record<string, readonly string[]>> = {
   "apps/pipoca/src/faux.ts": ["models"],
   "apps/pipoca/src/web-app.ts": ["push"],
   "apps/pipoca/src/dev.ts": ["local"],
-  "apps/web/src/profiles.tsx": ["models"],
+  "apps/web/src/settings/profiles/tabs.tsx": ["models"],
   "packages/environments/src/environments.ts": ["models"],
   "packages/environments/src/runner-polls.ts": ["models"],
   "packages/plugins/src/testing.ts": ["local", "models"],
@@ -35,8 +35,9 @@ const meansOther: Readonly<Record<string, readonly string[]>> = {
 // v1 plugins the kernel still knows by name, until each one's port.
 const notPortedYet: Readonly<Record<string, readonly string[]>> = {
   "apps/pipoca/src/serve.ts": ["kubernetes", "local", "oidc"],
-  "apps/web/src/environments.tsx": ["kubernetes"],
-  "apps/web/src/setup.tsx": ["kubernetes"],
+  "apps/web/src/settings/environments/editor.tsx": ["kubernetes"],
+  "apps/web/src/settings/environments/values.ts": ["kubernetes"],
+  "apps/web/src/setup/where-step.tsx": ["kubernetes"],
   "packages/protocol/src/browser.ts": ["kubernetes"],
 };
 

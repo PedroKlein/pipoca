@@ -559,3 +559,85 @@ test("a person's assistant is theirs alone", async () => {
     404,
   );
 });
+
+test("a person renames themselves, and their Sessions start in the Environment they chose", async () => {
+  const anas = await ana();
+  await environment(anas, "laptop");
+  const desk = await environment(anas, "desk");
+  const mac = await environment(await server.signedIn(), "mac");
+
+  const named = await server.as(anas)("/api/me", {
+    method: "PATCH",
+    body: { displayName: " Ana Souza ", defaultEnvironment: desk },
+  });
+
+  const someoneElses = await server.as(anas)("/api/me", {
+    method: "PATCH",
+    body: { defaultEnvironment: mac },
+  });
+
+  expect(await named.json()).toMatchObject({
+    name: "ana",
+    displayName: "Ana Souza",
+    defaultEnvironment: desk,
+  });
+
+  expect(someoneElses.status).toBe(400);
+  expect((await session(anas)).environmentId).toBe(desk);
+
+  const cleared = await json(
+    server.as(anas)("/api/me", {
+      method: "PATCH",
+      body: { displayName: "", defaultEnvironment: null },
+    }),
+  );
+
+  expect(cleared).toMatchObject({
+    displayName: null,
+    defaultEnvironment: null,
+  });
+});
+
+test("signing out everywhere ends every browser session and access token of that person only", async () => {
+  const anas = await ana();
+  const other = await server.signIn();
+
+  const second = await fetch(new URL("/api/auth/session", server.url), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "ana", password: "battery staple" }),
+  });
+
+  const anasOther = second.headers.get("set-cookie")?.split(";")[0] ?? "";
+
+  const { secret } = await json<{ secret: string }>(
+    server.as(anas)("/api/me/access-tokens", { body: { name: "laptop" } }),
+  );
+
+  const byToken = async (): Promise<number> =>
+    (
+      await server.as()("/api/mcp", {
+        body: { jsonrpc: "2.0", id: 1, method: "ping" },
+        headers: {
+          authorization: `Bearer ${secret}`,
+          accept: "application/json, text/event-stream",
+        },
+      })
+    ).status;
+
+  expect(await byToken()).toBe(200);
+
+  const out = await server.as(anas)("/api/me/sign-ins", { method: "DELETE" });
+
+  expect(out.status).toBe(204);
+  expect(out.headers.get("set-cookie")).toContain("Max-Age=0");
+
+  const after = [
+    (await server.as(anas)("/api/me")).status,
+    (await server.as(anasOther)("/api/me")).status,
+    await byToken(),
+    (await server.as(other)("/api/me")).status,
+  ];
+
+  expect(after).toEqual([401, 401, 401, 200]);
+});

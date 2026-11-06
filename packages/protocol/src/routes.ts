@@ -1,5 +1,7 @@
 import { type TObject, type TProperties, Type } from "typebox";
 import {
+  account,
+  accountChange,
   accessToken,
   accessTokenRequest,
   appLink,
@@ -243,6 +245,24 @@ export const routes = {
     response: appLink,
   },
 
+  me: { method: "GET", path: "/api/me", auth: "person", response: account },
+  "me.update": {
+    method: "PATCH",
+    path: "/api/me",
+    auth: "person",
+    body: accountChange,
+    response: account,
+    changes: ["people"],
+  },
+  // Signs the person out in every browser and app, and revokes their
+  // access tokens.
+  "me.signIns.remove": {
+    method: "DELETE",
+    path: "/api/me/sign-ins",
+    auth: "person",
+    status: 204,
+    changes: ["access-tokens"],
+  },
   "me.setup": {
     method: "GET",
     path: "/api/me/setup",

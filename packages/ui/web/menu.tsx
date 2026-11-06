@@ -33,15 +33,20 @@ export function Menu({
   icon = "more",
   trigger,
   align = "end",
+  side = "below",
   className,
   triggerClassName,
 }: {
   readonly label: string;
   readonly items: readonly MenuItem[];
   readonly icon?: IconName;
-  // Draws the button with this content instead of the icon alone.
+  // Draws the button with this content instead of the icon alone. The
+  // label still names it.
   readonly trigger?: ReactNode;
-  readonly align?: "start" | "end";
+  // Stretch spans the menu across the button's box.
+  readonly align?: "start" | "end" | "stretch";
+  // Opens upward, for a button at the bottom of the screen.
+  readonly side?: "below" | "above";
   readonly className?: string;
   readonly triggerClassName?: string;
 }): ReactElement {
@@ -77,7 +82,7 @@ export function Menu({
       <Button
         variant="ghost"
         iconOnly={trigger === undefined}
-        aria-label={trigger === undefined ? label : undefined}
+        aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => {
@@ -92,8 +97,9 @@ export function Menu({
           role="menu"
           aria-label={label}
           className={cn(
-            "absolute top-full z-30 mt-1 flex min-w-48 flex-col",
-            align === "end" ? "right-0" : "left-0",
+            "absolute z-30 flex min-w-48 flex-col",
+            side === "below" ? "top-full mt-1" : "bottom-full mb-1",
+            { start: "left-0", end: "right-0", stretch: "inset-x-0" }[align],
             popClass,
           )}
         >

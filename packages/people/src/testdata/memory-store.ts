@@ -8,6 +8,9 @@ export function memoryStore(): PeopleStore {
   const tokens = new Map<string, AccessToken>();
   const pinned = new Map<string, readonly string[] | null>();
   const setups = new Map<string, SetupState>();
+  const defaults = new Map<string, string | null>();
+
+  const named = new Map<string, string | null>();
 
   const user = (id: string | undefined) => {
     const found = users.find((each) => each.id === id);
@@ -23,6 +26,27 @@ export function memoryStore(): PeopleStore {
     userByName: (name) => users.find((each) => each.name === name),
     userById: user,
     users: () => users.flatMap(({ id }) => user(id) ?? []),
+    account: (id) => {
+      const found = users.find((each) => each.id === id);
+
+      return (
+        found && {
+          id: found.id,
+          name: found.name,
+          admin: found.admin,
+          displayName: named.has(id)
+            ? (named.get(id) ?? null)
+            : (found.displayName ?? null),
+          defaultEnvironment: defaults.get(id) ?? null,
+        }
+      );
+    },
+    setDisplayName: (id, name) => {
+      named.set(id, name);
+    },
+    setDefaultEnvironment: (id, environment) => {
+      defaults.set(id, environment);
+    },
     insertUser: (stored) => {
       users.push(stored);
     },
@@ -55,6 +79,19 @@ export function memoryStore(): PeopleStore {
     },
     deleteBrowserSession: (hash) => {
       sessions.delete(hash);
+    },
+    deleteSignIns: (userId) => {
+      for (const [hash, session] of sessions) {
+        if (session.userId === userId) {
+          sessions.delete(hash);
+        }
+      }
+
+      for (const [id, token] of tokens) {
+        if (token.userId === userId) {
+          tokens.delete(id);
+        }
+      }
     },
     insertInvite: (invite, tokenHash) => {
       invites.set(invite.id, { ...invite, tokenHash });
