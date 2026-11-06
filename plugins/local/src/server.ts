@@ -2,8 +2,8 @@ import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import {
-  type Backoff,
-  backoff,
+  type Retry,
+  retryAfter,
   BadRequest,
   defineServer,
   NotFound,
@@ -47,7 +47,7 @@ const intervalMs = 1000;
 // failure in a row.
 const retryAfterMs = 10_000;
 
-interface Failure extends Backoff {
+interface Failure extends Retry {
   readonly problem: string;
   readonly at: number;
 }
@@ -172,7 +172,7 @@ export const server = defineServer(
         const now = clock.now();
 
         const failure = {
-          ...backoff(failures.get(environment.id), now, retryAfterMs),
+          ...retryAfter(failures.get(environment.id), now, retryAfterMs),
           problem: `its runner exited with code ${String(code)}`,
           at: now,
         };

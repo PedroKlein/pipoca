@@ -22,22 +22,21 @@ import type { ProjectView } from "../src/model";
 
 const modelKey = "pipoca.projects.model";
 
-// Each person's assistant is a Project of their own, and the Team assistant
-// one each person has for team work (ADR 0052, ADR 0067).
-const assistantPath = `/api/ext/${projects.id}/assistant`;
-const teamAssistantPath = `/api/ext/${projects.id}/team/assistant`;
-
 // Earlier conversations: the coordinators a fresh one replaced.
 export const earlier = "earlier";
 
 // The Project list, under the Assistant entry.
 export const projectList = "all";
 
-// Undefined while loading, null before the person's first ask.
+// Each person's assistant is a Project of their own, and the Team assistant
+// one each person has for team work (ADR 0052, ADR 0067). Undefined while
+// loading, null before the person's first ask.
 function useAssistant(team = false): ProjectView | null | undefined {
+  const api = useApi(projects);
+
   return useLoaded(
     async () => {
-      const response = await fetch(team ? teamAssistantPath : assistantPath);
+      const response = await api.raw(team ? "team/assistant" : "assistant");
 
       return response.ok ? ((await response.json()) as ProjectView) : null;
     },
@@ -404,7 +403,7 @@ async function ask(
   team: boolean,
 ): Promise<string> {
   const project = await api.post<{ id: string }>(
-    team ? teamAssistantPath : assistantPath,
+    team ? "team/assistant" : "assistant",
     {
       text,
       ...(model && { model: `${model.provider}/${model.id}` }),

@@ -1,6 +1,6 @@
 export { StringEnum } from "@earendil-works/pi-ai";
 export type { Actor, Owner, Session } from "@pipoca/protocol";
-export { type Backoff, backoff } from "./backoff";
+export { type Retry, retryAfter } from "./retry";
 export type { TypedClient } from "./client";
 export {
   Config,
