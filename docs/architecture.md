@@ -47,7 +47,7 @@ One binary is all of these. The server can run a runner itself (`--provider`), a
 
 The database has no migrations. Tables are `STRICT`, ids are UUIDv7, times are integer milliseconds, and every reference has a foreign key. The kernel and each plugin declare their schema, and the server records a hash per owner: a database made by other code refuses to start, and a plugin whose schema changed fails until an admin resets its data ([ADR 0068](adr/0068-clean-rebuild.md#storage)).
 
-Messages for a Session that isn't running wait in the kernel's outbox, and plugin timers are rows in one schedule table, so both survive a restart.
+Messages for a Session that isn't running wait in the kernel's outbox, and plugin timers are rows in one schedule table, so both survive a restart. Each outbox row has a seq that the Session's host acknowledges, and a row stays until then: a new command stream gets every unacknowledged row again, and the host drops a seq it has seen.
 
 ## Web app
 
