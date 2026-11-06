@@ -1510,6 +1510,51 @@ test("keeps a team message that a retried request sends twice once", async () =>
   ]);
 });
 
+test("a team notice with a dedupe key reaches the team once", async () => {
+  const anas = await ana();
+  const team = await teamSetup();
+
+  const session = await json<Session>(
+    server.as(anas)("/api/sessions", {
+      body: {
+        team: true,
+        environment: team.environment,
+        profile: team.profile,
+        workspace: workspace(),
+      },
+    }),
+  );
+
+  for (const text of ["Checks failed", "Checks failed", "Done"]) {
+    starter?.send(session.id, {
+      text,
+      turn: false,
+      notice: { kind: "checks" },
+      ...(text !== "Done" && { dedupe: "pr-1" }),
+    });
+  }
+
+  const events = await server.as(anas)(`/api/sessions/${session.id}/events`);
+  const voices: Voice[] = [];
+
+  for await (const event of readSse(events)) {
+    const replayed = event as SessionEvent;
+
+    if (replayed.type === "voice") {
+      voices.push(replayed.voice);
+    }
+
+    if (voices.at(-1)?.text === "Done") {
+      break;
+    }
+  }
+
+  expect(voices.map(({ kind, text }) => [kind, text])).toEqual([
+    ["notice", "Checks failed"],
+    ["notice", "Done"],
+  ]);
+});
+
 test("an admin who only watches team work sends it no message and shows as typing in none", async () => {
   const anas = await ana();
   const pedros = await server.signedIn();

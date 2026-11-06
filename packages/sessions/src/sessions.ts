@@ -1363,19 +1363,6 @@ export class Sessions {
       return { ok: false, reason: "archived" };
     }
 
-    // Pi reads it with the team's messages, which the team sees at once.
-    if (message.kind === "notice" && !message.turn && this.#team(session)) {
-      this.#addVoice(id, {
-        kind: "notice",
-        actor: message.actor,
-        at: new Date(this.#clock.now()).toISOString(),
-        text: message.text,
-        notice: { plugin: message.plugin ?? "", ...message.notice },
-      });
-
-      return { ok: true, value: undefined };
-    }
-
     this.#outbox.enqueue(id, message);
 
     return { ok: true, value: undefined };
@@ -1402,6 +1389,19 @@ export class Sessions {
       !this.#current(session.id, message.generation).ok
     ) {
       return "stale_generation";
+    }
+
+    // Pi reads it with the team's messages, which the team sees at once.
+    if (message.kind === "notice" && !message.turn && this.#team(session)) {
+      this.#addVoice(session.id, {
+        kind: "notice",
+        actor: message.actor,
+        at: new Date(this.#clock.now()).toISOString(),
+        text: message.text,
+        notice: { plugin: message.plugin ?? "", ...message.notice },
+      });
+
+      return "kept";
     }
 
     const host = this.#hosts.get(session.id);

@@ -485,6 +485,14 @@ function outboxStore(db: DatabaseSync): OutboxStore {
 
   const deleteOne = db.prepare("delete from session_outbox where seq = ?");
 
+  const deleteKept = db.prepare(
+    "delete from session_outbox where seq = ? and dedupe is null",
+  );
+
+  const markKept = db.prepare(
+    "update session_outbox set sent_at = ?, acked_at = ? where seq = ?",
+  );
+
   const deleteAcked = db.prepare(
     "delete from session_outbox where session_id = ? and seq <= ? and sent_at is not null and dedupe is null",
   );
@@ -545,6 +553,10 @@ function outboxStore(db: DatabaseSync): OutboxStore {
     },
     remove: (seq) => {
       deleteOne.run(seq);
+    },
+    kept: (seq, at) => {
+      deleteKept.run(seq);
+      markKept.run(at, at, seq);
     },
     acked: (sessionId, seq, at) => {
       deleteAcked.run(sessionId, seq);
