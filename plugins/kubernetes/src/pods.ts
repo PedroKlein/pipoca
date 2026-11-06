@@ -56,7 +56,10 @@ export function runnerPod(options: PodOptions): object {
       automountServiceAccountToken: false,
       // A new volume is root's. The Pipoca image and most images built on
       // node run as uid and gid 1000, as the server does.
-      securityContext: { fsGroup: 1000 },
+      securityContext: {
+        fsGroup: 1000,
+        seccompProfile: { type: "RuntimeDefault" },
+      },
       volumes: [
         { name: "pipoca", emptyDir: {} },
         options.sessionId === undefined
@@ -71,6 +74,13 @@ export function runnerPod(options: PodOptions): object {
             imagePullPolicy: options.binaryPullPolicy,
           }),
           command: ["cp", "/usr/local/bin/pipoca", `${binaryDir}/pipoca`],
+          securityContext: {
+            runAsNonRoot: true,
+            runAsUser: 1000,
+            runAsGroup: 1000,
+            allowPrivilegeEscalation: false,
+            capabilities: { drop: ["ALL"] },
+          },
           volumeMounts: [{ name: "pipoca", mountPath: binaryDir }],
         },
       ],

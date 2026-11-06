@@ -260,7 +260,14 @@ export function serve(options: ServeOptions): {
 
   const changes = options.changes ?? changeFeed();
 
-  const templates = environmentTemplates(config("templates"), options.log);
+  const templates = environmentTemplates(
+    config("templates"),
+    options.log,
+    definitions
+      .filter(({ adminTemplateKey }) => adminTemplateKey === true)
+      .map(({ id }) => id),
+  );
+
   const ownConfig = serverConfig(config("server"), options.log);
   const team = teamSettings(config("team"), options.log);
 
