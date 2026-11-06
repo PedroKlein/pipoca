@@ -84,15 +84,14 @@ test("the team votes, whoever started the work closes it, and Pi reads the resul
   await using t = await started();
   const session = await teamWork(t);
 
-  const response = await t
-    .as("bo")
-    .raw("POST", `sessions/${session.id}/votes`, {
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        question: "Ship it today?",
-        options: ["Ship", "Wait"],
-      }),
-    });
+  const response = await t.as("bo").raw(`sessions/${session.id}/votes`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      question: "Ship it today?",
+      options: ["Ship", "Wait"],
+    }),
+  });
 
   expect(response.status).toBe(201);
 
@@ -100,10 +99,13 @@ test("the team votes, whoever started the work closes it, and Pi reads the resul
 
   const pick = async (by: string, option: string): Promise<number> =>
     (
-      await t.as(by).raw("PUT", `votes/${id}/pick`, {
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ option }),
-      })
+      await t
+        .as(by)
+        .raw(`votes/${id}/pick`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ option }),
+        })
     ).status;
 
   expect(await pick("ana", "Ship")).toBe(200);
@@ -124,9 +126,13 @@ test("the team votes, whoever started the work closes it, and Pi reads the resul
     ],
   });
 
-  expect((await t.as("cy").raw("POST", `votes/${id}/close`)).status).toBe(403);
+  expect(
+    (await t.as("cy").raw(`votes/${id}/close`, { method: "POST" })).status,
+  ).toBe(403);
 
-  expect((await t.as("ana").raw("POST", `votes/${id}/close`)).status).toBe(200);
+  expect(
+    (await t.as("ana").raw(`votes/${id}/close`, { method: "POST" })).status,
+  ).toBe(200);
 
   expect(await openVotes(t, session)).toEqual({ canOpen: true, votes: [] });
   expect(t.topics).toContain("ask.votes");
@@ -207,10 +213,13 @@ test("only a signed-in person picks", async () => {
     options: ["Yes", "No"],
   });
 
-  const response = await t.public().raw("PUT", `votes/${id}/pick`, {
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ option: "Yes" }),
-  });
+  const response = await t
+    .public()
+    .raw(`votes/${id}/pick`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ option: "Yes" }),
+    });
 
   expect(response.status).toBe(401);
   expect((await openVotes(t, session)).votes[0]?.picks).toEqual([]);

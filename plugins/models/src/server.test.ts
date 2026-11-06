@@ -53,10 +53,13 @@ async function saveAliases(
   session: TestSession,
   body: string,
 ): Promise<Response> {
-  return kernel.as("ada").raw("POST", `environments/${session.environmentId}`, {
-    headers: { "content-type": "application/json" },
-    body,
-  });
+  return kernel
+    .as("ada")
+    .raw(`environments/${session.environmentId}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
 }
 
 test.each([
@@ -89,7 +92,8 @@ test("only admins change an Environment's aliases", async () => {
 
   const response = await kernel
     .as("ana")
-    .raw("POST", `environments/${session.environmentId}`, {
+    .raw(`environments/${session.environmentId}`, {
+      method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ aliases }),
     });
@@ -168,10 +172,13 @@ test("an admin hides models, which the config keeps", async () => {
   const { kernel } = await started();
 
   const hide = async (who: string, hidden: readonly string[]) =>
-    kernel.as(who).raw("POST", "hidden", {
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ hidden }),
-    });
+    kernel
+      .as(who)
+      .raw("hidden", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ hidden }),
+      });
 
   expect((await hide("ana", ["openai/gpt-4o"])).status).toBe(403);
   expect((await hide("ada", ["no-slash"])).status).toBe(400);

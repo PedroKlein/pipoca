@@ -1,4 +1,4 @@
-import { ok } from "@pipoca/plugins/web";
+import { ok } from "../../responses";
 import { profilePath } from "@pipoca/protocol";
 
 const errors: Readonly<Record<string, string>> = {

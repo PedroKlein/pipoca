@@ -11,7 +11,6 @@ import {
 import { NewSessionDialog } from "../shell/new-session";
 import { PluginBoundary } from "../plugin-boundary";
 import { SessionView } from "../session-view";
-import { pluginContext } from "../plugins";
 import { type Entry, screens, pagesOf, pathOf, newPageId } from "./hub-pages";
 import { AddPage } from "./add-page";
 import { LayoutPage, TeamSessions } from "./layout-page";
@@ -95,7 +94,7 @@ export function TeamHub({
       return (
         <Page>
           <PluginBoundary name={screen.plugin}>
-            <screen.Page context={pluginContext(screen.plugin)} />
+            <screen.Page />
           </PluginBoundary>
         </Page>
       );

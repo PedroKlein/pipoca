@@ -15,7 +15,6 @@ import { PluginBoundary } from "../plugin-boundary";
 import {
   enabledPlugins,
   type NavEntry,
-  pluginContext,
   pluginRoute,
   sessionHref,
 } from "../plugins";
@@ -113,10 +112,7 @@ export function App({
           />
           {home?.Home ? (
             <PluginBoundary name={home.name}>
-              <home.Home
-                context={pluginContext(home.name)}
-                onNewSession={newSession}
-              />
+              <home.Home onNewSession={newSession} />
             </PluginBoundary>
           ) : (
             <Empty onNewSession={newSession} />

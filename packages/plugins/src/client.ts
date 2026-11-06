@@ -20,12 +20,16 @@ type Write = <R = unknown>(
   o?: CallOptions,
 ) => Promise<R>;
 
+// A path that starts with / is the kernel's, such as /api/sessions; any
+// other is the plugin's own route.
 export interface TypedClient {
   readonly get: Read;
   readonly post: Write;
   readonly put: Write;
   readonly patch: Write;
   readonly delete: Read;
+  // The response as it came, such as for bytes or a status to check.
+  readonly raw: (path: string, init?: RequestInit) => Promise<Response>;
 }
 
 export interface ClientOptions {
@@ -46,6 +50,27 @@ export function pluginClient(
       ? `/api/ext/${plugin.id}/`
       : `/runner/sessions/${encodeURIComponent(options.session)}/ext/${plugin.id}/`;
 
+  const request = async (path: string, init: RequestInit): Promise<Response> => {
+    const url = path.startsWith("/") ? path : `${base}${path}`;
+
+    return send(
+      options.server === undefined ? url : new URL(url, options.server).href,
+      {
+        ...init,
+        headers: {
+          ...options.headers,
+          ...(options.session !== undefined && {
+            [versionHeader]: String(protocolVersion),
+          }),
+          ...(typeof init.body === "string" && {
+            "content-type": "application/json",
+          }),
+          ...(init.headers as Readonly<Record<string, string>> | undefined),
+        },
+      },
+    );
+  };
+
   const call = async <R>(
     method: string,
     path: string,
@@ -61,19 +86,10 @@ export function pluginClient(
       }
     }
 
-    const url = `${base}${path}${search.size === 0 ? "" : `?${search.toString()}`}`;
-
-    const answered = await send(
-      options.server === undefined ? url : new URL(url, options.server).href,
+    const answered = await request(
+      `${path}${search.size === 0 ? "" : `?${search.toString()}`}`,
       {
         method,
-        headers: {
-          ...options.headers,
-          ...(options.session !== undefined && {
-            [versionHeader]: String(protocolVersion),
-          }),
-          ...(body !== undefined && { "content-type": "application/json" }),
-        },
         ...(body !== undefined && { body: JSON.stringify(body) }),
         ...(signal !== undefined && { signal }),
       },
@@ -104,6 +120,7 @@ export function pluginClient(
     put: async (path, body, o) => call("PUT", path, undefined, body, o),
     patch: async (path, body, o) => call("PATCH", path, undefined, body, o),
     delete: async (path, query, o) => call("DELETE", path, query, undefined, o),
+    raw: async (path, init = {}) => request(path, init),
   };
 }
 

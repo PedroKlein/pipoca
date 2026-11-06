@@ -192,7 +192,8 @@ async function addMailbox(
   mail: Awaited<ReturnType<typeof fakeMail>>,
   password = "right",
 ): Promise<Response> {
-  return t.as("ana").raw("POST", "mailboxes", {
+  return t.as("ana").raw("mailboxes", {
+    method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       name: "support",

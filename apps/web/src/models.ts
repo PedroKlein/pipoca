@@ -78,7 +78,7 @@ export function modelOptions(
   };
 }
 
-export function recentModels(): readonly string[] {
+function recentModels(): readonly string[] {
   try {
     const saved = JSON.parse(
       localStorage.getItem(recentKey) ?? "[]",

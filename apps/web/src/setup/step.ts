@@ -1,15 +1,10 @@
-import {
-  type SetupStep,
-  useLoaded,
-  type WebContext,
-} from "@pipoca/plugins/web";
+import { type SetupStep, useLoaded } from "@pipoca/plugins/web";
 import type { Environment, Profile } from "@pipoca/protocol";
 import { useState } from "react";
 
 export interface WizardStep {
   readonly id: string;
   readonly step: SetupStep;
-  readonly context: WebContext;
 }
 
 export const connected = ({ online, onDemand }: Environment): boolean =>
@@ -25,15 +20,14 @@ export function hasContent(profile: Profile): boolean {
 
 // Runners come online and report models without a topic, so a step that
 // isn't done yet looks again every few seconds.
-export function useDone({
-  id,
-  step,
-  context,
-}: WizardStep): boolean | undefined {
+export function useDone({ id, step }: WizardStep): boolean | undefined {
   const [waiting, setWaiting] = useState(true);
 
-  const { value } = useLoaded(async () => step.done(context), `setup ${id}`, {
-    topics: step.topics ?? [],
+  const { value } = useLoaded(async () => step.done(), `setup ${id}`, {
+    topics: [
+      ...(step.topics ?? []),
+      ...(step.changes ?? []).map((name) => `${id}.${name}`),
+    ],
     ...(waiting && { everyMs: 2000 }),
   });
 

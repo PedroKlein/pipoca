@@ -95,7 +95,8 @@ test("a Project starts its coordinator, which starts threads with the brief as i
   ).toMatchObject([{ sessionId: thread.id, title: "Docs" }]);
 
   expect(
-    (await s.t.as("bo").raw("GET", `projects/${s.project.id}`)).status,
+    (await s.t.as("bo").raw(`projects/${s.project.id}`, { method: "GET" }))
+      .status,
   ).toBe(404);
 
   expect(await s.t.as("bo").get("projects")).toEqual([]);
@@ -382,11 +383,13 @@ test("the library takes files from people, within the size limit", async () => {
   await using _ = s.t;
   const path = `projects/${s.project.id}/files/brief.txt`;
 
-  const put = await s.t.as("ana").raw("PUT", path, { body: "the brief\n" });
+  const put = await s.t
+    .as("ana")
+    .raw(path, { method: "PUT", body: "the brief\n" });
 
   expect(put.status).toBe(200);
 
-  expect(await (await s.t.as("ana").raw("GET", path)).text()).toBe(
+  expect(await (await s.t.as("ana").raw(path, { method: "GET" })).text()).toBe(
     "the brief\n",
   );
 
@@ -394,19 +397,16 @@ test("the library takes files from people, within the size limit", async () => {
     [{ name: "brief.txt", size: 10, actor: "user:ana" }],
   );
 
-  expect((await s.t.as("bo").raw("GET", path)).status).toBe(404);
+  expect((await s.t.as("bo").raw(path, { method: "GET" })).status).toBe(404);
 
   expect(
     (
       await s.t
         .as("ana")
-        .raw(
-          "PUT",
-          `projects/${s.project.id}/files/${encodeURIComponent("a/b")}`,
-          {
-            body: "x",
-          },
-        )
+        .raw(`projects/${s.project.id}/files/${encodeURIComponent("a/b")}`, {
+          method: "PUT",
+          body: "x",
+        })
     ).status,
   ).toBe(400);
 });

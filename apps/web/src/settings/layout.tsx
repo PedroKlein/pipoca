@@ -6,7 +6,7 @@ import { EnvironmentsPage } from "./environments/environments";
 import { GeneralPage } from "./general/general";
 import { PeoplePage } from "./people/people";
 import { PluginBoundary } from "../plugin-boundary";
-import { enabledPlugins, pluginContext } from "../plugins";
+import { enabledPlugins } from "../plugins";
 import { ConfigurationPage } from "./configuration/configuration";
 import { PluginsPage } from "./plugins/plugins";
 import { ProfilesPage } from "./profiles/profiles";
@@ -157,7 +157,7 @@ export function SettingsLayout({
       return (
         <Page>
           <PluginBoundary name={name}>
-            <Section context={pluginContext(name)} />
+            <Section />
           </PluginBoundary>
         </Page>
       );

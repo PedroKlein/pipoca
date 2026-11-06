@@ -16,7 +16,7 @@ import type { ReactElement } from "react";
 import { api } from "../../api";
 import { useAccount } from "../../hooks";
 import { PluginBoundary } from "../../plugin-boundary";
-import { enabledPlugins, pluginContext } from "../../plugins";
+import { enabledPlugins } from "../../plugins";
 import { useTheme } from "../../theme";
 import { useVerbosity, type Verbosity, verbosities } from "../../verbosity";
 import { EditProfile, SignOutEverywhere, StartWith } from "./account";
@@ -97,7 +97,7 @@ export function GeneralPage({
         return (
           Part && (
             <PluginBoundary key={name} name={name}>
-              <Part context={pluginContext(name)} />
+              <Part />
             </PluginBoundary>
           )
         );

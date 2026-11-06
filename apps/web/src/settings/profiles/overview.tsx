@@ -1,4 +1,5 @@
-import { json, useLoaded } from "@pipoca/plugins/web";
+import { json } from "../../responses";
+import { useLoaded } from "@pipoca/plugins/web";
 import { apiPath, type Profile } from "@pipoca/protocol";
 import { ErrorText, initialsOf, Row, Rows, Section } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useState } from "react";

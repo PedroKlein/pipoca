@@ -1,19 +1,28 @@
 import {
   ConfigForm,
+  type HomeProps,
+  href,
+  type LinkProps,
   type NavItemsProps,
+  type NoticeProps,
+  type PageProps,
+  type SessionPartProps,
+  type SettingsGroup,
+  type SetupStep,
   type ToolCallProps,
-  type WebContext,
   type WebPart,
-  type WebPlugin,
-  type WidgetProps,
 } from "@pipoca/plugins/web";
-import { type Shell, ShellProvider } from "@pipoca/plugins/web/shell";
 import {
-  apiPath,
-  type PluginInfo,
-  type PluginSettings,
-  type RepositoryChoice,
-  type Session,
+  type Shell,
+  ShellProvider,
+  watchChanges,
+} from "@pipoca/plugins/web/host";
+import type {
+  Environment,
+  EnvironmentTemplate,
+  PluginInfo,
+  RepositoryChoice,
+  Session,
 } from "@pipoca/protocol";
 import * as sdk from "@pipoca/plugins";
 import * as plugins from "@pipoca/plugins/web";
@@ -35,26 +44,71 @@ import { EmbeddedSession } from "./embedded-session";
 import { PluginBoundary } from "./plugin-boundary";
 import { webRegistry } from "./registry";
 
-type Module = Readonly<Record<string, unknown>>;
-
 // The web parts of the plugins built into this bundle (ADR 0015).
-const builtIn: readonly {
-  readonly id: string;
-  readonly plugin?: Module;
-  readonly web?: WebPart;
-}[] = webRegistry;
+const builtIn: readonly { readonly id: string; readonly web: WebPart }[] =
+  webRegistry;
 
-// A web part the shell draws, a v2 one drawn through the v1 fields.
-interface ShellPlugin extends WebPlugin {
-  readonly part?: WebPart;
-  readonly slots?: Readonly<Record<string, ComponentType<never>>>;
+export interface HubPanel {
+  readonly title: string;
+  readonly Panel: ComponentType;
+}
+
+export interface HubScreen {
+  readonly label: string;
+  readonly Page: ComponentType;
+}
+
+export interface SetupScreen extends HubScreen {
+  readonly group: "runs-on" | "rules";
+}
+
+// A plugin's web part as the shell draws it, its slots sorted by place.
+export interface ShellPlugin {
+  readonly name: string;
+  readonly slots: Readonly<Record<string, ComponentType<never>>>;
   // Its pages have no place in the sidebar.
   readonly unlisted?: boolean;
+  readonly nav?: {
+    readonly label: string;
+    readonly Page: ComponentType<PageProps>;
+    readonly Items?: ComponentType<NavItemsProps>;
+    readonly fills?: (path: string) => boolean;
+    readonly pinned?: boolean;
+  };
+  readonly hub: {
+    readonly panels: Readonly<Record<string, HubPanel>>;
+    readonly pages: Readonly<Record<string, HubScreen>>;
+    readonly setup: Readonly<Record<string, SetupScreen>>;
+  };
+  readonly Home?: ComponentType<HomeProps>;
+  readonly sessionPath?: (session: Session) => string;
+  readonly notices: Readonly<Record<string, ComponentType<NoticeProps>>>;
+  readonly links: Readonly<Record<string, ComponentType<LinkProps>>>;
+  readonly tools: Readonly<Record<string, ComponentType<ToolCallProps>>>;
+  readonly SessionHeader?: ComponentType<SessionPartProps>;
+  readonly Composer?: ComponentType<SessionPartProps>;
+  readonly EnvironmentSection?: ComponentType<{
+    readonly environment: Environment;
+  }>;
+  readonly TemplateSection?: ComponentType<{
+    readonly template: EnvironmentTemplate;
+  }>;
+  readonly SettingsSection?: ComponentType;
+  readonly settingsGroup?: SettingsGroup;
+  readonly setupStep?: SetupStep;
+  readonly settingsParts: {
+    readonly General?: ComponentType;
+    readonly Accounts?: ComponentType;
+    readonly Profile?: ComponentType<{ readonly profileId: string }>;
+  };
+  readonly repositories?: (
+    query: string,
+    team: boolean,
+  ) => Promise<readonly RepositoryChoice[]>;
 }
 
 let enabled: readonly ShellPlugin[] = [];
 const webErrors = new Map<string, string>();
-let settings: ReadonlyMap<string, PluginSettings> = new Map();
 let titles: ReadonlyMap<string, string> = new Map();
 let inTeamWork: ReadonlySet<string> = new Set();
 const teamWorkListeners = new Set<() => void>();
@@ -83,14 +137,11 @@ export async function loadPlugins(): Promise<void> {
     ),
   );
 
-  settings = new Map(on.map(({ id, values }) => [id, values]));
   titles = new Map(on.map(({ id, title }) => [id, title]));
 
   enabled = [
-    ...builtIn.flatMap(({ id, plugin, web }) =>
-      on.some((each) => each.id === id)
-        ? [web === undefined ? shellPlugin(id, plugin) : adapted(web)]
-        : [],
+    ...builtIn.flatMap(({ id, web }) =>
+      on.some((each) => each.id === id) ? [adapted(web)] : [],
     ),
     ...installed.flatMap((plugin) => (plugin ? [plugin] : [])),
   ];
@@ -98,7 +149,7 @@ export async function loadPlugins(): Promise<void> {
   inTeamWork = teamWorkOf(on);
 
   // Admins turn plugins on and off in team work while pages stay open.
-  plugins.watchChanges(["plugins"], () => {
+  watchChanges(["plugins"], () => {
     void api("plugins.list")
       .then((changed) => {
         inTeamWork = teamWorkOf(changed);
@@ -125,18 +176,6 @@ function watchTeamWork(listener: () => void): () => void {
   return () => {
     teamWorkListeners.delete(listener);
   };
-}
-
-function shellPlugin(id: string, module: Module | undefined): ShellPlugin {
-  const plugin = Object.values(module ?? {}).find(
-    (value) => (value as { readonly name?: unknown } | null)?.name === id,
-  );
-
-  if (plugin === undefined) {
-    throw new Error(`the ${id} web module exports no web part`);
-  }
-
-  return plugin as WebPlugin;
 }
 
 function isPart(value: unknown): value is WebPart {
@@ -194,18 +233,16 @@ function adapted(part: WebPart): ShellPlugin {
   };
 
   const settingsSection = part.settings && {
-    SettingsSection: (part.settings.Section ??
-      (() =>
-        createElement(ConfigForm, { plugin: part.plugin }))) as NonNullable<
-      WebPlugin["SettingsSection"]
-    >,
+    SettingsSection:
+      part.settings.Section ??
+      (() => createElement(ConfigForm, { plugin: part.plugin })),
     settingsGroup: part.settings.group,
   };
 
-  const optional = <K extends keyof WebPlugin>(
+  const optional = <K extends keyof ShellPlugin>(
     key: K,
-    value: WebPlugin[K] | undefined,
-  ): Partial<WebPlugin> => (value === undefined ? {} : { [key]: value });
+    value: ShellPlugin[K] | undefined,
+  ): Partial<ShellPlugin> => (value === undefined ? {} : { [key]: value });
 
   const withSlot = (
     key: string,
@@ -215,7 +252,6 @@ function adapted(part: WebPart): ShellPlugin {
 
   return {
     name: id,
-    part,
     slots,
     ...(listed === undefined && { unlisted: true }),
     ...(first && {
@@ -230,12 +266,7 @@ function adapted(part: WebPart): ShellPlugin {
       },
     }),
     hub: {
-      panels: Object.fromEntries(
-        Object.entries(part.panels ?? {}).map(([key, { title, Panel }]) => [
-          key,
-          { title, Panel: () => createElement(Panel) },
-        ]),
-      ),
+      panels: part.panels ?? {},
       setup: Object.fromEntries(
         (part.pages ?? [])
           .filter(({ area }) => area === "setup")
@@ -262,10 +293,7 @@ function adapted(part: WebPart): ShellPlugin {
     },
     ...optional("Home", slot("home")),
     ...optional("sessionPath", part.sessionPath),
-    ...(part.repositories && {
-      repositories: async (_context, query, team) =>
-        part.repositories?.(query, team) ?? [],
-    }),
+    ...optional("repositories", part.repositories),
     notices: slotted("notice:"),
     links: slotted("link:"),
     tools: slotted("session.toolCall:"),
@@ -316,36 +344,20 @@ async function importWebPart(
   try {
     // The page waits for every web part before it draws, so one that never
     // finishes loading can't keep it blank.
-    const { default: plugin, web } = (await Promise.race([
+    const { web } = (await Promise.race([
       import(url),
       new Promise<never>((_resolve, reject) => {
         setTimeout(() => {
           reject(new Error("it took longer than 10 seconds to load"));
         }, 10_000);
       }),
-    ])) as { default?: WebPlugin; web?: unknown };
+    ])) as { web?: unknown };
 
-    if (web !== undefined) {
-      if (!isPart(web) || web.plugin.id !== id) {
-        throw new Error(`its web export must be a web part for ${id}`);
-      }
-
-      return adapted(web);
+    if (!isPart(web) || web.plugin.id !== id) {
+      throw new Error(`its web export must be a web part for ${id}`);
     }
 
-    if (plugin?.name !== id) {
-      throw new Error(`its default export must be a web part named ${id}`);
-    }
-
-    if (
-      plugin.nav !== undefined &&
-      (typeof plugin.nav.label !== "string" ||
-        typeof plugin.nav.Page !== "function")
-    ) {
-      throw new Error("its nav needs a label and a Page component");
-    }
-
-    return plugin;
+    return adapted(web);
   } catch (error) {
     webErrors.set(id, error instanceof Error ? error.message : String(error));
 
@@ -362,48 +374,19 @@ export function pluginTitle(name: string): string {
   return titles.get(name) ?? name;
 }
 
-export function enabledPlugins(): readonly WebPlugin[] {
+export function enabledPlugins(): readonly ShellPlugin[] {
   return enabled;
 }
 
 // The plugins whose parts draw in a Session: in team work, only the ones
 // that load there (ADR 0067).
-export function useSessionPlugins(team: boolean): readonly WebPlugin[] {
+export function useSessionPlugins(team: boolean): readonly ShellPlugin[] {
   const switches = useSyncExternalStore(watchTeamWork, () => inTeamWork);
 
   return useMemo(
     () => (team ? enabled.filter(({ name }) => switches.has(name)) : enabled),
     [team, switches],
   );
-}
-
-const contexts = new Map<string, WebContext>();
-
-export function pluginContext(name: string): WebContext {
-  const cached = contexts.get(name);
-  if (cached) {
-    return cached;
-  }
-
-  const context: WebContext = {
-    request: async (path, init) =>
-      fetch(
-        path.startsWith("/")
-          ? path
-          : apiPath("ext", { params: { plugin: name, path } }),
-        init,
-      ),
-    openSession: (sessionId) => {
-      location.hash = sessionId;
-    },
-    href: (path) => `#plugin/${name}/${path}`,
-    settings: settings.get(name) ?? {},
-    SessionView: EmbeddedSession,
-  };
-
-  contexts.set(name, context);
-
-  return context;
 }
 
 export interface Claimed<Props> {
@@ -416,15 +399,10 @@ export function toolRenderer(name: string): Claimed<ToolCallProps> | undefined {
   return claimed(name, ({ tools }) => tools);
 }
 
-// The enabled plugin that draws an extension widget, if any (ADR 0030).
-export function widgetRenderer(key: string): Claimed<WidgetProps> | undefined {
-  return claimed(key, ({ widgets }) => widgets);
-}
-
 function claimed<Props>(
   key: string,
   slots: (
-    plugin: WebPlugin,
+    plugin: ShellPlugin,
   ) => Readonly<Record<string, ComponentType<Props>>> | undefined,
 ): Claimed<Props> | undefined {
   for (const plugin of enabled) {
@@ -452,8 +430,8 @@ export async function searchRepositories(
 ): Promise<readonly RepositoryChoice[]> {
   const found = await Promise.all(
     enabled.map(
-      async ({ name, repositories }) =>
-        repositories?.(pluginContext(name), query, team).catch(() => []) ?? [],
+      async ({ repositories }) =>
+        repositories?.(query, team).catch(() => []) ?? [],
     ),
   );
 
@@ -490,7 +468,7 @@ export function sessionHref(session: Session): string {
   const path = guarded(() => plugin?.sessionPath?.(session));
 
   return plugin && path !== undefined
-    ? `#plugin/${plugin.name}/${path}`
+    ? href({ id: plugin.name }, path)
     : `#${session.id}`;
 }
 

@@ -13,7 +13,7 @@ import { api } from "../../api";
 import { messageOf } from "./upload";
 import { ProfileOverview, profilesPath } from "./overview";
 import { PluginBoundary } from "../../plugin-boundary";
-import { enabledPlugins, pluginContext } from "../../plugins";
+import { enabledPlugins } from "../../plugins";
 import {
   layerHashes,
   type Layer,
@@ -215,7 +215,7 @@ function ProfileParts({
         return (
           Part && (
             <PluginBoundary key={name} name={name}>
-              <Part context={pluginContext(name)} profileId={profileId} />
+              <Part profileId={profileId} />
             </PluginBoundary>
           )
         );

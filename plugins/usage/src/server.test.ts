@@ -45,10 +45,13 @@ async function started(
     fetch: anthropic,
   });
 
-  const saved = await t.as("admin").kernel("POST", "/api/ext/logins/save", {
-    provider: "anthropic",
-    credential: { type: "api_key", key: "sk-team" },
-    layer: "base",
+  const saved = await t.as("admin").raw("/api/ext/logins/save", {
+    method: "POST",
+    body: JSON.stringify({
+      provider: "anthropic",
+      credential: { type: "api_key", key: "sk-team" },
+      layer: "base",
+    }),
   });
 
   expect(saved.status).toBe(200);
@@ -68,7 +71,9 @@ async function team(t: PluginTest, startedBy: string): Promise<Team> {
   // Pi's providers load in the background when logins registers.
   const { token } = await until(
     async () =>
-      (await (await session.request("proxy", {}, "logins")).json()) as {
+      (await (
+        await session.api.raw(`/runner/sessions/${session.id}/ext/logins/proxy`)
+      ).json()) as {
         providers: readonly unknown[];
         token?: string;
       },
@@ -86,16 +91,17 @@ async function call(
   { token }: Team,
   tokens: { readonly model?: string; input: number; output: number },
 ): Promise<void> {
-  const answered = await t.as("admin").kernel(
-    "POST",
-    "/api/ext/logins/proxy/anthropic/v1/messages",
-    {
-      model: tokens.model ?? "claude-sonnet-4-5",
-      stream: true,
-      ...tokens,
-    },
-    { "x-api-key": token },
-  );
+  const answered = await t
+    .as("admin")
+    .raw("/api/ext/logins/proxy/anthropic/v1/messages", {
+      method: "POST",
+      body: JSON.stringify({
+        model: tokens.model ?? "claude-sonnet-4-5",
+        stream: true,
+        ...tokens,
+      }),
+      headers: { "x-api-key": token },
+    });
 
   expect(answered.status).toBe(200);
   await answered.text();
@@ -217,7 +223,7 @@ test("warns once as the team's month reaches 80% and then 100% of its budget, an
 
 async function sessionOf(t: PluginTest, id: string): Promise<Session> {
   return (await (
-    await t.as("admin").kernel("GET", `/api/sessions/${id}`)
+    await t.as("admin").raw(`/api/sessions/${id}`, { method: "GET" })
   ).json()) as Session;
 }
 
@@ -238,7 +244,9 @@ test("logs who started, stopped and archived team work, and each use of the team
 
   expect(anas.map(({ action }) => action)).toEqual(["archived", "started"]);
 
-  const exported = await t.as("admin").raw("GET", "audit?format=csv");
+  const exported = await t
+    .as("admin")
+    .raw("audit?format=csv", { method: "GET" });
 
   expect(exported.headers.get("content-type")).toStartWith("text/csv");
 
@@ -259,10 +267,13 @@ test("only an admin sets the team's monthly budget and each person's cap, and an
   await using t = await started({ prices: sonnet(3, 15) });
 
   const put = async (id: string, body: unknown) =>
-    t.as(id).raw("PUT", "budgets", {
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    t
+      .as(id)
+      .raw("budgets", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
 
   expect((await put("ana", { team: 50, person: 10 })).status).toBe(403);
   expect((await put("admin", { team: 50, person: 10 })).status).toBe(204);
@@ -311,7 +322,10 @@ test("shows everyone what people did lately to the team work they can see", asyn
   const access = async (id: string, to: unknown) => {
     const changed = await t
       .as("bo")
-      .kernel("PATCH", `/api/sessions/${id}`, { access: to });
+      .raw(`/api/sessions/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ access: to }),
+      });
 
     expect(changed.status).toBe(200);
   };

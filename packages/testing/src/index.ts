@@ -22,7 +22,6 @@ import {
 import {
   type ActsAs,
   type GitLogin,
-  type Method,
   type Owner,
   type WorkspaceRequest,
   systemClock,
@@ -79,13 +78,6 @@ export interface TestSession {
   readonly environmentId: string;
   // The plugin's routes, called as its Session part calls them.
   readonly api: TypedClient;
-  // The same, as a Session part's cloud request takes a path and init.
-  readonly request: (
-    path: string,
-    init?: RequestInit,
-    // Another plugin of the test's, by id.
-    plugin?: string,
-  ) => Promise<Response>;
   // Connects or drops its host. Connected, it has taken what the outbox
   // held once this settles.
   readonly online: (on: boolean) => Promise<void>;
@@ -115,33 +107,9 @@ export interface TestSession {
 }
 
 export interface PluginTest {
-  readonly as: (personId: string) => TypedClient & {
-    readonly raw: (
-      method: Method,
-      path: string,
-      init?: RequestInit,
-    ) => Promise<Response>;
-    // The kernel's own routes, such as /api/profiles, as the person.
-    // A body is sent as JSON.
-    readonly kernel: (
-      method: Method,
-      path: string,
-      body?: unknown,
-      headers?: Readonly<Record<string, string>>,
-    ) => Promise<Response>;
-  };
-  readonly public: () => {
-    readonly raw: (
-      method: Method,
-      path: string,
-      init?: RequestInit,
-    ) => Promise<Response>;
-    // The kernel's own routes, as a browser that sends only these headers.
-    readonly kernel: (
-      method: Method,
-      path: string,
-      headers?: Readonly<Record<string, string>>,
-    ) => Promise<Response>;
+  readonly as: (personId: string) => TypedClient;
+  // As a browser that is signed in to nothing.
+  readonly public: () => TypedClient & {
     readonly webhook: (
       path: string,
       body: string,

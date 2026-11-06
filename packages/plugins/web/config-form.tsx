@@ -24,7 +24,6 @@ import {
 } from "react";
 import { type TObject, type TSchema, Type } from "typebox";
 import { annotation, type PluginDefinition } from "../src/definition";
-import { storedConfig } from "./parts";
 
 type Value = Readonly<Record<string, unknown>>;
 
@@ -491,4 +490,18 @@ function isRecord(value: unknown): value is Value {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+export async function storedConfig(
+  id: string,
+): Promise<Readonly<Record<string, unknown>>> {
+  const response = await fetch(`/api/plugins/${id}/config`);
+
+  if (!response.ok) {
+    throw new Error(`the config didn't load: ${String(response.status)}`);
+  }
+
+  const { value } = (await response.json()) as { readonly value: unknown };
+
+  return (value ?? {}) as Readonly<Record<string, unknown>>;
 }

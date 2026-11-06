@@ -269,8 +269,8 @@ async function startApp(t: PluginTest): Promise<{
   const started = await t
     .as("pedro")
     .raw(
-      "GET",
       `technical-users/new-app?host=${host}&name=Pipoca%20bot&organization=acme`,
+      { method: "GET" },
     );
 
   const form = await started.text();
@@ -301,7 +301,8 @@ async function createApp(t: PluginTest): Promise<void> {
 
   const created = await t
     .public()
-    .raw("GET", `app-created?code=m4nifest&state=${state}`, {
+    .raw(`app-created?code=m4nifest&state=${state}`, {
+      method: "GET",
       headers: { cookie },
     });
 
@@ -324,10 +325,13 @@ test("connects a host with a token and signs the person's Sessions in with it", 
   await using run = await start();
   const { t } = run;
 
-  const answered = await t.as("pedro").raw("POST", "connect", {
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ host, token: goodToken }),
-  });
+  const answered = await t
+    .as("pedro")
+    .raw("connect", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ host, token: goodToken }),
+    });
 
   const page = await answered.text();
 
@@ -357,7 +361,7 @@ test("tells admins how many people connected on each host", async () => {
     ).map((each) => [each.host, each.connected]),
   ).toEqual([[host, 1]]);
 
-  expect((await t.as("ana").raw("GET", "hosts")).status).toBe(403);
+  expect((await t.as("ana").raw("hosts", { method: "GET" })).status).toBe(403);
 });
 
 test("sends no login for a host after the person disconnects it", async () => {
@@ -374,10 +378,13 @@ test("refuses a token the host doesn't accept, saying so", async () => {
   await using run = await start();
   const { t } = run;
 
-  const refused = await t.as("pedro").raw("POST", "connect", {
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ host, token: "ghp_wrong" }),
-  });
+  const refused = await t
+    .as("pedro")
+    .raw("connect", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ host, token: "ghp_wrong" }),
+    });
 
   expect(refused.status).toBe(400);
 
@@ -395,10 +402,13 @@ test("lists a host an admin adds once, beside the default github.com", async () 
 
   await t.as("pedro").post("hosts", { host: "git.example.com" });
 
-  const again = await t.as("pedro").raw("POST", "hosts", {
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ host: "git.example.com" }),
-  });
+  const again = await t
+    .as("pedro")
+    .raw("hosts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ host: "git.example.com" }),
+    });
 
   expect(again.status).toBe(400);
 
@@ -495,7 +505,7 @@ test("connects an account through the host's OAuth app, only in the browser that
   });
   const { t } = run;
 
-  const sent = await t.as("pedro").raw("GET", `sign-in/${host}`);
+  const sent = await t.as("pedro").raw(`sign-in/${host}`, { method: "GET" });
   const location = new URL(sent.headers.get("location") ?? "");
   const state = location.searchParams.get("state") ?? "";
   const cookie = (sent.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
@@ -518,14 +528,17 @@ test("connects an account through the host's OAuth app, only in the browser that
 
   const elsewhere = await t
     .public()
-    .raw("GET", `callback?state=${state}&code=c0de`);
+    .raw(`callback?state=${state}&code=c0de`, { method: "GET" });
 
   expect(elsewhere.status).toBe(400);
   expect(await t.as("pedro").get("account")).toMatchObject({ connections: [] });
 
   const back = await t
     .public()
-    .raw("GET", `callback?state=${state}&code=c0de`, { headers: { cookie } });
+    .raw(`callback?state=${state}&code=c0de`, {
+      method: "GET",
+      headers: { cookie },
+    });
 
   expect(back.status).toBe(200);
   expect(await back.text()).toContain("#settings/accounts");
@@ -536,7 +549,10 @@ test("connects an account through the host's OAuth app, only in the browser that
 
   const again = await t
     .public()
-    .raw("GET", `callback?state=${state}&code=c0de`, { headers: { cookie } });
+    .raw(`callback?state=${state}&code=c0de`, {
+      method: "GET",
+      headers: { cookie },
+    });
 
   expect(again.status).toBe(400);
 });
@@ -832,7 +848,8 @@ test("merges a watched pull request the way its repository allows, and stops wat
   expect(await watched(t, session)).toEqual([]);
 
   expect(
-    (await t.as("ana").raw("POST", `pull-requests/${id}/merge`)).status,
+    (await t.as("ana").raw(`pull-requests/${id}/merge`, { method: "POST" }))
+      .status,
   ).toBe(404);
 });
 
@@ -850,10 +867,11 @@ test("creates a GitHub App from a manifest as a technical user, with its key sea
 
   const callback = `app-created?code=m4nifest&state=${state}`;
 
-  expect((await t.public().raw("GET", callback)).status).toBe(400);
+  expect((await t.public().raw(callback, { method: "GET" })).status).toBe(400);
 
   expect(
-    (await t.public().raw("GET", callback, { headers: { cookie } })).status,
+    (await t.public().raw(callback, { method: "GET", headers: { cookie } }))
+      .status,
   ).toBe(200);
 
   expect(await t.as("pedro").get("technical-users")).toEqual([
@@ -881,10 +899,13 @@ test("adds a machine user by a token its host accepts, and removes it", async ()
   const { t } = run;
 
   const add = async (token: string): Promise<Response> =>
-    t.as("pedro").raw("POST", "technical-users", {
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "ci-bot", host, token }),
-    });
+    t
+      .as("pedro")
+      .raw("technical-users", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "ci-bot", host, token }),
+      });
 
   expect((await add("ghp_bad")).status).toBe(400);
 
@@ -958,10 +979,13 @@ test("has a person's Sessions commit as the name and email they chose", async ()
 
   expect(
     (
-      await t.as("pedro").raw("POST", "commit-as", {
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: "Pedro Klein", email: "" }),
-      })
+      await t
+        .as("pedro")
+        .raw("commit-as", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: "Pedro Klein", email: "" }),
+        })
     ).status,
   ).toBe(400);
 
@@ -1001,7 +1025,8 @@ test("turns a GitHub App's signed webhooks into events for the people who may us
       },
     });
 
-    const answered = await t.public().raw("POST", `hooks/${to}`, {
+    const answered = await t.public().raw(`hooks/${to}`, {
+      method: "POST",
       headers: {
         "x-github-event": "issues",
         "x-hub-signature-256": `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`,
@@ -1054,10 +1079,13 @@ test("signs team work in as the technical user an admin chose for the team on ea
 
   const choose = async (name: string, team: boolean): Promise<number> =>
     (
-      await t.as("pedro").raw("PATCH", `technical-users/${name}`, {
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ team }),
-      })
+      await t
+        .as("pedro")
+        .raw(`technical-users/${name}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ team }),
+        })
     ).status;
 
   expect(await choose("no-bot", true)).toBe(404);

@@ -160,7 +160,8 @@ async function signIn(
     readonly browser?: string;
   } = {},
 ): Promise<{ readonly response: Response; readonly cookie: string }> {
-  const leaving = await (o.start?.() ?? t.public().raw("GET", "start/ias"));
+  const leaving = await (o.start?.() ??
+    t.public().raw("start/ias", { method: "GET" }));
 
   expect(leaving.status).toBe(302);
 
@@ -168,18 +169,19 @@ async function signIn(
     t.provider.authorize(leaving.headers.get("location") ?? "", account),
   );
 
-  const response = await t
-    .public()
-    .kernel("GET", `${back.pathname}${back.search}`, {
+  const response = await t.public().raw(`${back.pathname}${back.search}`, {
+    method: "GET",
+    headers: {
       cookie: o.browser ?? cookieOf(leaving),
-    });
+    },
+  });
 
   return { response, cookie: cookieOf(response) };
 }
 
 async function userOf(t: PluginTest, cookie: string): Promise<unknown> {
   const status = (await (
-    await t.public().kernel("GET", "/api/auth", { cookie })
+    await t.public().raw("/api/auth", { method: "GET", headers: { cookie } })
   ).json()) as { user: unknown };
 
   return status.user;
@@ -189,7 +191,7 @@ async function logins(
   t: PluginTest,
 ): Promise<readonly { label: string; path: string }[]> {
   const status = (await (
-    await t.public().kernel("GET", "/api/auth")
+    await t.public().raw("/api/auth", { method: "GET" })
   ).json()) as {
     logins: { label: string; path: string }[];
   };
@@ -278,7 +280,8 @@ test("makes a member of the admin group an admin, and reads the groups again on 
   const first = await signIn(t, { ...ana, groups });
 
   const providersAs = async (cookie: string): Promise<number> =>
-    (await t.public().raw("GET", "providers", { headers: { cookie } })).status;
+    (await t.public().raw("providers", { method: "GET", headers: { cookie } }))
+      .status;
 
   const user = await userOf(t, first.cookie);
   const asAdmin = await providersAs(first.cookie);
@@ -296,14 +299,17 @@ test("keeps the role an admin gave when the provider names no admins", async () 
   await signIn(t, ana);
 
   const listed = (await (
-    await t.as("pedro").kernel("GET", "/api/people")
+    await t.as("pedro").raw("/api/people", { method: "GET" })
   ).json()) as { id: string; name: string }[];
 
   const id = listed.find(({ name }) => name === "ana@example.com")?.id ?? "";
 
   const made = await t
     .as("pedro")
-    .kernel("PATCH", `/api/people/${id}`, { admin: true });
+    .raw(`/api/people/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ admin: true }),
+    });
 
   const again = await signIn(t, ana);
 
@@ -384,14 +390,19 @@ test("lets in someone outside the rules who has an invite, with the invite's rol
 
   const before = await signIn(t, zoe);
 
-  const invited = await t.as("pedro").kernel("POST", "/api/invites", {
-    emails: ["zoe@example.com"],
-    admin: true,
+  const invited = await t.as("pedro").raw("/api/invites", {
+    method: "POST",
+    body: JSON.stringify({
+      emails: ["zoe@example.com"],
+      admin: true,
+    }),
   });
 
   const first = await signIn(t, zoe);
   const again = await signIn(t, zoe);
-  const left = await (await t.as("pedro").kernel("GET", "/api/invites")).json();
+  const left = await (
+    await t.as("pedro").raw("/api/invites", { method: "GET" })
+  ).json();
 
   expect([before.response.status, invited.status]).toEqual([403, 201]);
   expect(await userOf(t, first.cookie)).toMatchObject({ admin: true });
@@ -403,13 +414,15 @@ test("lets in whoever follows an invite link through the provider", async () => 
   await using t = await started();
 
   const [link] = (await (
-    await t.as("pedro").kernel("POST", "/api/invites", {})
+    await t
+      .as("pedro")
+      .raw("/api/invites", { method: "POST", body: JSON.stringify({}) })
   ).json()) as { token: string }[];
 
   const token = link?.token ?? "";
 
   const joining = (await (
-    await t.public().kernel("GET", `/api/auth/invites/${token}`)
+    await t.public().raw(`/api/auth/invites/${token}`, { method: "GET" })
   ).json()) as { logins: { path: string }[] };
 
   const path = joining.logins[0]?.path ?? "";
@@ -417,7 +430,7 @@ test("lets in whoever follows an invite link through the provider", async () => 
   const { cookie } = await signIn(
     t,
     { sub: "P000098", email: "out@elsewhere.org", groups: [] },
-    { start: async () => t.public().kernel("GET", path) },
+    { start: async () => t.public().raw(path, { method: "GET" }) },
   );
 
   expect(path).toBe(`/api/ext/oidc/start/ias?join=${token}`);
@@ -439,7 +452,7 @@ test("lets a password user link their account, sign in with it, and unlink it", 
   const pedro = { ...ana, email: "pedro@example.com" };
 
   const linked = await signIn(t, pedro, {
-    start: async () => t.as("pedro").raw("GET", "link/ias"),
+    start: async () => t.as("pedro").raw("link/ias", { method: "GET" }),
   });
 
   const { cookie } = await signIn(t, pedro);
@@ -475,7 +488,7 @@ test("keeps a client secret out of the page and the file, sends it to the provid
     t.as("pedro").post("providers/ias", providerInput({ clientSecret }));
 
   const set = await configure("s3cret value");
-  const listed = await t.as("pedro").raw("GET", "providers");
+  const listed = await t.as("pedro").raw("providers", { method: "GET" });
   const file = JSON.stringify(await t.config());
 
   await signIn(t, ana);
@@ -532,10 +545,13 @@ test("signs in with a client secret the config names by environment variable, an
 test("keeps the providers Settings adds in the config, without what is empty or default", async () => {
   await using t = await started({ config: { providers: [] } });
 
-  const added = await t.as("pedro").raw("POST", "providers", {
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(providerInput({ groupsClaim: "groups" })),
-  });
+  const added = await t
+    .as("pedro")
+    .raw("providers", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(providerInput({ groupsClaim: "groups" })),
+    });
 
   expect(added.status).toBe(201);
   expect(await t.config()).toEqual({ providers: [ias] });
@@ -549,10 +565,13 @@ test("refuses a provider without an issuer URL or a client ID", async () => {
     [{ issuer: "not a url" }, { clientId: "" }].map(
       async (more) =>
         (
-          await t.as("pedro").raw("POST", "providers", {
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(providerInput(more)),
-          })
+          await t
+            .as("pedro")
+            .raw("providers", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(providerInput(more)),
+            })
         ).status,
     ),
   );
@@ -575,7 +594,8 @@ test("lets only admins see and change providers", async () => {
     ).map(
       async ([method, path]) =>
         (
-          await t.public().raw(method, path, {
+          await t.public().raw(path, {
+            method,
             headers: { cookie, "content-type": "application/json" },
             ...(method === "POST" && { body: JSON.stringify(providerInput()) }),
           })
@@ -590,7 +610,7 @@ test("stops offering a provider once it is removed", async () => {
   await using t = await started();
 
   const removed = await t.as("pedro").delete("providers/ias");
-  const start = await t.public().raw("GET", "start/ias");
+  const start = await t.public().raw("start/ias", { method: "GET" });
 
   expect([removed, await logins(t), start.status]).toEqual([
     { removed: "ias" },
@@ -687,7 +707,7 @@ test("fails a sign-in with a page while discovery isn't JSON, and discovers agai
   await using t = await started();
 
   t.provider.broken = true;
-  const failed = await t.public().raw("GET", "start/ias");
+  const failed = await t.public().raw("start/ias", { method: "GET" });
 
   t.provider.broken = false;
   const { response } = await signIn(t, ana);
@@ -700,7 +720,7 @@ test("fails a sign-in with a page while discovery isn't JSON, and discovers agai
 test("fails a sign-in with a page when the token endpoint can't be reached", async () => {
   await using t = await started();
 
-  const leaving = await t.public().raw("GET", "start/ias");
+  const leaving = await t.public().raw("start/ias", { method: "GET" });
 
   const back = new URL(
     t.provider.authorize(leaving.headers.get("location") ?? "", ana),
@@ -708,9 +728,12 @@ test("fails a sign-in with a page when the token endpoint can't be reached", asy
 
   t.provider.down = true;
 
-  const response = await t.public().raw("GET", `callback${back.search}`, {
-    headers: { cookie: cookieOf(leaving) },
-  });
+  const response = await t
+    .public()
+    .raw(`callback${back.search}`, {
+      method: "GET",
+      headers: { cookie: cookieOf(leaving) },
+    });
 
   expect(response.status).toBe(502);
   expect(await response.text()).toContain("Sign-in failed");
@@ -720,7 +743,7 @@ test("fails a sign-in with a page when the provider can't be reached", async () 
   await using t = await started();
 
   t.provider.down = true;
-  const failed = await t.public().raw("GET", "start/ias");
+  const failed = await t.public().raw("start/ias", { method: "GET" });
 
   expect(failed.status).toBe(502);
   expect(await failed.text()).toContain("couldn&#39;t reach idp.example.com");

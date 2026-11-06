@@ -1,6 +1,6 @@
 import type { SetupStep } from "@pipoca/plugins/web";
 import { api } from "../api";
-import { enabledPlugins, pluginContext } from "../plugins";
+import { enabledPlugins } from "../plugins";
 import { type WizardStep, connected, hasContent } from "./step";
 import { ProfileStepPage } from "./offered-profiles";
 import { WhereStep } from "./where-step";
@@ -36,19 +36,15 @@ const profileStep: SetupStep = {
 // The kernel's steps around the ones plugins add, such as a model and code
 // hosts (ADR 0063). The steps people can't skip come first.
 export function setupSteps(): readonly WizardStep[] {
-  const kernel = pluginContext("setup");
-
   const added = enabledPlugins().flatMap(({ name, setupStep }) =>
-    setupStep
-      ? [{ id: name, step: setupStep, context: pluginContext(name) }]
-      : [],
+    setupStep ? [{ id: name, step: setupStep }] : [],
   );
 
   return [
-    { id: "where", step: whereStep, context: kernel },
+    { id: "where", step: whereStep },
     ...added.filter(({ step }) => step.optional !== true),
     ...added.filter(({ step }) => step.optional === true),
-    { id: "profile", step: profileStep, context: kernel },
+    { id: "profile", step: profileStep },
   ];
 }
 

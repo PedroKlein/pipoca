@@ -215,7 +215,7 @@ const remote = defineServer(
 test("a plugin's request to another server that the test doesn't answer fails", async () => {
   const t = await started(remote, { people });
 
-  expect((await t.as("ana").raw("GET", "time")).status).toBe(500);
+  expect((await t.as("ana").raw("time", { method: "GET" })).status).toBe(500);
 
   expect(JSON.stringify(t.log)).toContain(
     "no fetch answers GET https://time.example.com/now",

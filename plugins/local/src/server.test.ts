@@ -80,14 +80,21 @@ async function json<T>(response: Promise<Response>): Promise<T> {
 }
 
 async function environments(pt: PluginTest): Promise<readonly Environment[]> {
-  return json(pt.as("ana").kernel("GET", "/api/environments"));
+  return json(pt.as("ana").raw("/api/environments", { method: "GET" }));
 }
 
 async function environment(
   pt: PluginTest,
   name = "laptop",
 ): Promise<Environment> {
-  return json(pt.as("ana").kernel("POST", "/api/environments", { name }));
+  return json(
+    pt
+      .as("ana")
+      .raw("/api/environments", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      }),
+  );
 }
 
 async function startSession(
@@ -95,9 +102,12 @@ async function startSession(
   environmentId: string,
 ): Promise<Session> {
   return json(
-    pt.as("ana").kernel("POST", "/api/sessions", {
-      environment: environmentId,
-      workspace: { kind: "folder", path: root },
+    pt.as("ana").raw("/api/sessions", {
+      method: "POST",
+      body: JSON.stringify({
+        environment: environmentId,
+        workspace: { kind: "folder", path: root },
+      }),
     }),
   );
 }
@@ -108,17 +118,22 @@ async function save(
   settings: object | null,
   as = "ana",
 ): Promise<Response> {
-  return pt.as(as).raw("POST", `environments/${environmentId}`, {
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ settings }),
-  });
+  return pt
+    .as(as)
+    .raw(`environments/${environmentId}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ settings }),
+    });
 }
 
 async function shown(
   pt: PluginTest,
   environmentId: string,
 ): Promise<LocalEnvironment> {
-  return json(pt.as("ana").raw("GET", `environments/${environmentId}`));
+  return json(
+    pt.as("ana").raw(`environments/${environmentId}`, { method: "GET" }),
+  );
 }
 
 test("starts a solo install's runner on this machine when a Session needs one", async () => {
@@ -246,7 +261,8 @@ test("answers about an Environment only to its owner", async () => {
   const laptop = await environment(pt);
 
   expect(
-    (await pt.as("bo").raw("GET", `environments/${laptop.id}`)).status,
+    (await pt.as("bo").raw(`environments/${laptop.id}`, { method: "GET" }))
+      .status,
   ).toBe(404);
 
   expect((await save(pt, laptop.id, {}, "bo")).status).toBe(404);

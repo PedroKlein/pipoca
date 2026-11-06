@@ -27,7 +27,7 @@ import {
 } from "react";
 import { api } from "../../api";
 import { PluginBoundary } from "../../plugin-boundary";
-import { enabledPlugins, pluginContext } from "../../plugins";
+import { enabledPlugins } from "../../plugins";
 import { environmentsPath, kindAbout } from "./kinds";
 import { JoinKey } from "./join-key";
 import { deleteEnvironment, rowsOf, changedValues, fieldsOf } from "./values";
@@ -319,10 +319,7 @@ export function Editor({
         ({ name, EnvironmentSection }) =>
           EnvironmentSection && (
             <PluginBoundary key={name} name={name}>
-              <EnvironmentSection
-                context={pluginContext(name)}
-                environment={environment}
-              />
+              <EnvironmentSection environment={environment} />
             </PluginBoundary>
           ),
       )}

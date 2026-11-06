@@ -1,4 +1,5 @@
-import { json, ok, useLoaded } from "@pipoca/plugins/web";
+import { json, ok } from "../../responses";
+import { useLoaded } from "@pipoca/plugins/web";
 import {
   Button,
   Card,

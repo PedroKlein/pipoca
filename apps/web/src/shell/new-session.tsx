@@ -1,3 +1,4 @@
+import { modelOptions, rememberModel, shownModels } from "../models";
 import {
   availability,
   type Environment,
@@ -27,7 +28,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { modelOptions, rememberModel, shownModels } from "@pipoca/plugins/web";
 import { api } from "../api";
 import {
   useEnvironments,

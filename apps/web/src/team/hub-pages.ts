@@ -1,7 +1,6 @@
-import type { HubPanel, HubScreen } from "@pipoca/plugins/web";
 import type { HubPage } from "@pipoca/protocol";
 import type { IconName } from "@pipoca/ui";
-import { enabledPlugins } from "../plugins";
+import { enabledPlugins, type HubPanel, type HubScreen } from "../plugins";
 
 export interface Entry {
   readonly path: string;

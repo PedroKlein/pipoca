@@ -137,7 +137,8 @@ test("an admin adds a bot whose token Slack knows, and it connects", async () =>
   const fake = fakeSlack();
   await using t = await started(fake);
 
-  const refused = await t.as("ana").raw("POST", "bots", {
+  const refused = await t.as("ana").raw("bots", {
+    method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       name: "team-bot",
@@ -152,7 +153,7 @@ test("an admin adds a bot whose token Slack knows, and it connects", async () =>
     "Slack refused auth.test: invalid_auth",
   );
 
-  expect((await t.as("bo").raw("GET", "bots")).status).toBe(403);
+  expect((await t.as("bo").raw("bots", { method: "GET" })).status).toBe(403);
 
   await addBot(t, "team-bot");
   await until(() => fake.sockets.length === 1);

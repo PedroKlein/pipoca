@@ -47,7 +47,7 @@ import {
 } from "./names";
 import { PluginBoundary } from "./plugin-boundary";
 import { PrimaryView, usePrimaryId } from "./primary";
-import { pluginContext, useSessionPlugins } from "./plugins";
+import { useSessionPlugins } from "./plugins";
 import { sessionChannel } from "./session-channel";
 import { keyBar, type Modifier, modified } from "./keys";
 import { useTeammates } from "./hooks";
@@ -165,29 +165,9 @@ export function SessionView({
         SessionHeader ? (
           <span key={name} data-plugin={name}>
             <PluginBoundary name={name}>
-              <SessionHeader
-                context={pluginContext(name)}
-                session={channel.session}
-              />
+              <SessionHeader session={channel.session} />
             </PluginBoundary>
           </span>
-        ) : null,
-      ),
-    [channel.session, parts],
-  );
-
-  const pluginPanels = useMemo(
-    () =>
-      parts.map(({ name, SessionPanel }) =>
-        SessionPanel ? (
-          <div key={name} data-plugin={name} className="empty:hidden">
-            <PluginBoundary name={name}>
-              <SessionPanel
-                context={pluginContext(name)}
-                session={channel.session}
-              />
-            </PluginBoundary>
-          </div>
         ) : null,
       ),
     [channel.session, parts],
@@ -391,9 +371,7 @@ export function SessionView({
         <div
           id={primary ? "plugin-panels" : undefined}
           className="flex flex-col gap-2 border-b border-line px-4 py-2 text-label not-has-[>:not(:empty)]:hidden"
-        >
-          {pluginPanels}
-        </div>
+        ></div>
 
         {shown === "terminal" && (
           <TerminalView sessionId={sessionId} terminals={feed.terminals} />

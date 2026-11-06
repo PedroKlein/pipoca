@@ -1,3 +1,4 @@
+import { responseOrder, watchChanges } from "@pipoca/plugins/web/host";
 import {
   useCallback,
   useEffect,
@@ -20,7 +21,6 @@ import type {
   TeamView,
 } from "@pipoca/protocol";
 import { teamMessagesRead } from "@pipoca/protocol";
-import { responseOrder, watchChanges } from "@pipoca/plugins/web";
 import { api } from "./api";
 import { noticeText, settled } from "./notices";
 

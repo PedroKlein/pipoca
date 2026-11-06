@@ -1,10 +1,9 @@
-import type { SetupScreen } from "@pipoca/plugins/web";
 import { AreaLayout, Page } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
 import { EnvironmentsPage } from "../settings/environments/environments";
 import { useTeamEnvironments, useTeamProfiles } from "../hooks";
 import { PluginBoundary } from "../plugin-boundary";
-import { enabledPlugins, pluginContext } from "../plugins";
+import { enabledPlugins, type SetupScreen } from "../plugins";
 import { ProfilesPage } from "../settings/profiles/profiles";
 import {
   ServerPageView,
@@ -144,7 +143,7 @@ export function TeamSetup({
       return (
         <Page>
           <PluginBoundary name={screen.plugin}>
-            <screen.Page context={pluginContext(screen.plugin)} />
+            <screen.Page />
           </PluginBoundary>
         </Page>
       );

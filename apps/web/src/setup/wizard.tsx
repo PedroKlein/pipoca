@@ -217,13 +217,13 @@ function CurrentStep({
   readonly onNext: () => void;
 }): ReactElement {
   const done = useDone(step);
-  const { id, step: about, context } = step;
+  const { id, step: about } = step;
 
   return (
     <>
       <Heading title={about.heading} description={about.description} />
       <PluginBoundary name={id}>
-        <about.Step context={context} />
+        <about.Step />
       </PluginBoundary>
       <div className="flex items-center gap-3">
         {onBack && (

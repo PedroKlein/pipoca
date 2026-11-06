@@ -1,3 +1,4 @@
+import { modelOptions, rememberModel, shownModels } from "./models";
 import {
   type ImageAttachment,
   imageLimits,
@@ -6,12 +7,7 @@ import {
   type Quote,
   teamTalkSince,
 } from "@pipoca/protocol";
-import {
-  type MountedSession,
-  modelOptions,
-  rememberModel,
-  shownModels,
-} from "@pipoca/plugins/web";
+import { type MountedSession } from "@pipoca/plugins/web";
 import {
   Button,
   FileButton,
@@ -37,7 +33,7 @@ import type { Feed, Settings, ShownWidget } from "./feed";
 import { modelName, modelRef } from "./names";
 import { usePrimaryId } from "./primary";
 import { PluginBoundary } from "./plugin-boundary";
-import { pluginContext, useSessionPlugins, widgetRenderer } from "./plugins";
+import { useSessionPlugins } from "./plugins";
 import { PromptCard, type PromptHandlers } from "./prompt-card";
 import { browserCommand } from "./suggest";
 import { useSuggestions } from "./suggestions";
@@ -323,7 +319,7 @@ export function Composer({
 
       <PluginParts session={session} team={team} />
 
-      <Widgets widgets={feed.widgetsAbove} session={session} />
+      <Widgets widgets={feed.widgetsAbove} />
 
       {!hidden && (
         <form
@@ -538,7 +534,7 @@ export function Composer({
         </form>
       )}
 
-      <Widgets widgets={feed.widgetsBelow} session={session} />
+      <Widgets widgets={feed.widgetsBelow} />
 
       {feed.footer === undefined ? (
         feed.statuses.length > 0 && (
@@ -596,66 +592,24 @@ const PluginParts = memo(function Parts({
     Part
       ? [
           <PluginBoundary key={name} name={name}>
-            <Part context={pluginContext(name)} session={session} />
+            <Part session={session} />
           </PluginBoundary>,
         ]
       : [],
   );
 });
 
-// Extensions' widgets as Pi's TUI draws them, one box for each run of
-// widgets no plugin claims (ADR 0030).
+// Extensions' widgets as Pi's TUI draws them (ADR 0030).
 function Widgets({
   widgets,
-  session,
 }: {
   readonly widgets: readonly ShownWidget[];
-  readonly session: MountedSession;
-}): ReactElement[] {
-  const shown: ReactElement[] = [];
-  let lines: string[] = [];
+}): ReactElement | null {
+  const lines = widgets.flatMap((widget) => widget.lines);
 
-  const box = (): void => {
-    if (lines.length > 0) {
-      shown.push(
-        <TerminalText
-          key={`text-${String(shown.length)}`}
-          text={lines.join("\n")}
-          className="rounded-md bg-code py-2"
-        />,
-      );
-
-      lines = [];
-    }
-  };
-
-  for (const widget of widgets) {
-    const renderer = widgetRenderer(widget.key);
-
-    if (!renderer) {
-      lines.push(...widget.lines);
-
-      continue;
-    }
-
-    box();
-
-    const { plugin, Component } = renderer;
-
-    shown.push(
-      <PluginBoundary key={widget.key} name={plugin}>
-        <Component
-          context={pluginContext(plugin)}
-          session={session}
-          lines={widget.lines}
-        />
-      </PluginBoundary>,
-    );
-  }
-
-  box();
-
-  return shown;
+  return lines.length === 0 ? null : (
+    <TerminalText text={lines.join("\n")} className="rounded-md bg-code py-2" />
+  );
 }
 
 // Claude Code's model menu with its effort levels, on Pi's model and reasoning level

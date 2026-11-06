@@ -2,7 +2,7 @@ import { Avatar, cn, Icon } from "@pipoca/ui";
 import { type ReactElement, useEffect, useState } from "react";
 import { api } from "../api";
 import { PluginBoundary } from "../plugin-boundary";
-import { type NavEntry, pluginContext, pluginRoute } from "../plugins";
+import { type NavEntry, pluginRoute } from "../plugins";
 
 export function PluginNav({
   nav,
@@ -90,7 +90,6 @@ export function PluginNav({
       {entry.Items && (
         <PluginBoundary name={entry.name}>
           <entry.Items
-            context={pluginContext(entry.name)}
             path={page?.name === entry.name ? page.path : undefined}
           />
         </PluginBoundary>

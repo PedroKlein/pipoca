@@ -1,4 +1,4 @@
-import { json } from "@pipoca/plugins/web";
+import { json } from "../../responses";
 import type { Profile } from "@pipoca/protocol";
 import type { Skill } from "./overview-parts";
 

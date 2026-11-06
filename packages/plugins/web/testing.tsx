@@ -23,7 +23,7 @@ const { createRoot } = await import("react-dom/client");
 
 // A plugin's part as the web app draws it, for the plugin's own tests: for a
 // signed-in person, with other plugins' parts filling slots by name.
-export function TestShell({
+function TestShell({
   plugin,
   fills = {},
   children,
@@ -128,7 +128,7 @@ export function renderPart(
   return container;
 }
 
-export interface ToolResultRow {
+interface ToolResultRow {
   readonly tool: string;
   readonly text?: string;
   readonly details?: unknown;

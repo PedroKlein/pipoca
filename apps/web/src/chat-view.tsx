@@ -12,7 +12,6 @@ import {
   useRef,
   useState,
 } from "react";
-import type { WebPlugin } from "@pipoca/plugins/web";
 import { createPortal } from "react-dom";
 import { dataUrl } from "./attachments";
 import {
@@ -32,7 +31,7 @@ import type { Feed } from "./feed";
 import { useTeammates } from "./hooks";
 import { renderMarkdown } from "./markdown";
 import { PluginBoundary } from "./plugin-boundary";
-import { enabledPlugins, pluginContext, toolRenderer } from "./plugins";
+import { enabledPlugins, toolRenderer, type ShellPlugin } from "./plugins";
 import { usePrimaryId } from "./primary";
 import { TerminalText } from "./terminal-text";
 import { useVerbosity } from "./verbosity";
@@ -401,11 +400,7 @@ function Markdown({ text }: { readonly text: string }): ReactElement {
       {links.map(({ node, plugin, Drawn, target, label }, at) =>
         createPortal(
           <PluginBoundary name={plugin}>
-            <Drawn
-              context={pluginContext(plugin)}
-              target={target}
-              label={label}
-            />
+            <Drawn target={target} label={label} />
           </PluginBoundary>,
           node,
           at,
@@ -418,7 +413,7 @@ function Markdown({ text }: { readonly text: string }): ReactElement {
 interface PluginLink {
   readonly node: Element;
   readonly plugin: string;
-  readonly Drawn: NonNullable<WebPlugin["links"]>[string];
+  readonly Drawn: ShellPlugin["links"][string];
   readonly target: string;
   readonly label: string;
 }
@@ -621,7 +616,7 @@ function Notice({
 
   return Drawn ? (
     <PluginBoundary name={tag.plugin}>
-      <Drawn context={pluginContext(tag.plugin)} text={text} data={tag.data} />
+      <Drawn text={text} data={tag.data} />
     </PluginBoundary>
   ) : (
     <WorkNote kind="note" text={text} />
@@ -710,7 +705,6 @@ function ToolCard({
   return (
     <PluginBoundary name={plugin}>
       <Component
-        context={pluginContext(plugin)}
         session={session}
         call={{
           id: step.id,

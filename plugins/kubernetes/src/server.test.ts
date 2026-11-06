@@ -227,9 +227,10 @@ async function kernel<T>(
   method?: Method,
 ): Promise<T> {
   return json<T>(
-    t
-      .as("ana")
-      .kernel(method ?? (body === undefined ? "GET" : "POST"), path, body),
+    t.as("ana").raw(path, {
+      method: method ?? (body === undefined ? "GET" : "POST"),
+      ...(body !== undefined && { body: JSON.stringify(body) }),
+    }),
   );
 }
 
@@ -258,10 +259,13 @@ async function postSettings(
   body: unknown,
   as = "ana",
 ): Promise<Response> {
-  return t.as(as).raw("POST", `templates/${templateId ?? ""}`, {
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  return t
+    .as(as)
+    .raw(`templates/${templateId ?? ""}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
 }
 
 // An Environment made from a new pod template.
@@ -313,15 +317,14 @@ const tokenOf = (pod: string): string =>
 
 // A runner's poll, as the agent in a pod sends it.
 async function poll(token: string, body: object = {}): Promise<Response> {
-  return t.as("ana").kernel(
-    "POST",
-    "/runner/work",
-    { running: [], folders: [], models: [], ...body },
-    {
+  return t.as("ana").raw("/runner/work", {
+    method: "POST",
+    body: JSON.stringify({ running: [], folders: [], models: [], ...body }),
+    headers: {
       authorization: `Bearer ${token}`,
       [versionHeader]: String(protocolVersion),
     },
-  );
+  });
 }
 
 function failAll(): void {
@@ -989,19 +992,20 @@ test("keeps an archived Session's claim while its workspace is kept, until force
     "PATCH",
   );
 
-  const reported = await t.as("ana").kernel(
-    "POST",
-    `/runner/sessions/${session.id}/workspace-removal`,
-    {
-      generation: archived.generation,
-      outcome: "kept",
-      reason: "uncommitted changes",
-    },
-    {
-      authorization: `Bearer ${tokenOf(name)}`,
-      [versionHeader]: String(protocolVersion),
-    },
-  );
+  const reported = await t
+    .as("ana")
+    .raw(`/runner/sessions/${session.id}/workspace-removal`, {
+      method: "POST",
+      body: JSON.stringify({
+        generation: archived.generation,
+        outcome: "kept",
+        reason: "uncommitted changes",
+      }),
+      headers: {
+        authorization: `Bearer ${tokenOf(name)}`,
+        [versionHeader]: String(protocolVersion),
+      },
+    });
 
   const pod = api.pods.get(name);
 
@@ -1016,7 +1020,9 @@ test("keeps an archived Session's claim while its workspace is kept, until force
   expect((await sessionOf(session.id)).workspaceRemoval).toBe("kept");
   expect(api.claims.has(name)).toBe(true);
 
-  await t.as("ana").kernel("DELETE", `/api/sessions/${session.id}/workspace`);
+  await t
+    .as("ana")
+    .raw(`/api/sessions/${session.id}/workspace`, { method: "DELETE" });
   await pass();
 
   expect(api.claims.has(name)).toBe(false);

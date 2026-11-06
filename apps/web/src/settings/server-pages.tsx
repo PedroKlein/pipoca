@@ -3,7 +3,7 @@ import { Icon, Page } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
 import { PeoplePage } from "./people/people";
 import { PluginBoundary } from "../plugin-boundary";
-import { enabledPlugins, pluginContext, pluginTitle } from "../plugins";
+import { enabledPlugins, pluginTitle } from "../plugins";
 import { ConfigurationPage } from "./configuration/configuration";
 import { PluginsPage } from "./plugins/plugins";
 import { IntegrationsPage } from "./integrations/integrations";
@@ -98,7 +98,7 @@ export function ServerPageView({
     <Page>
       {Section && (
         <PluginBoundary name={page.key}>
-          <Section context={pluginContext(page.key)} />
+          <Section />
         </PluginBoundary>
       )}
     </Page>
