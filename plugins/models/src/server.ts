@@ -107,8 +107,8 @@ export const server = defineServer(models, (context) => {
     async ({ caller, query, raw }) => {
       const { environmentId } = caller.session;
 
-      // A Session polls again at once after any answer, and backs off only
-      // after an error.
+      // A Session polls again after any answer, pausing briefly after one
+      // that came at once or an error.
       if (query.after !== undefined) {
         if (context.signal.aborted) {
           throw new HttpError(503, "the server is stopping", "stopping");

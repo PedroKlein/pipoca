@@ -15,7 +15,7 @@ import {
   thinkingLevels,
 } from "./model";
 
-const retryMs = 5000;
+const pauseMs = 1000;
 
 // Registers the Environment's aliases as Pi virtual models under the gateway
 // provider. Each request goes to the alias's first healthy model, and a model
@@ -182,10 +182,12 @@ async function read(
 }
 
 // Waits for the server's next change to the config or health, until the
-// Session shuts down. Without a version it reads the config at once.
+// Session shuts down. Without a version it reads the config at once. After an
+// error or an answer that came at once it pauses, so a failing or fast server
+// can't make it spin.
 function follow(
   pi: ExtensionAPI,
-  s: Pick<SessionContext, "api" | "log" | "timer">,
+  s: Pick<SessionContext, "api" | "clock" | "log" | "timer">,
   version: number | undefined,
   changed: (config: SessionConfig) => void,
 ): void {
@@ -199,6 +201,9 @@ function follow(
   void (async () => {
     let seen = version;
     while (!stop.signal.aborted) {
+      const asked = s.clock.now();
+      let failed = false;
+
       try {
         const next = await read(s, seen, stop.signal);
         if (next.version !== seen) {
@@ -210,10 +215,13 @@ function follow(
           return;
         }
 
+        failed = true;
         s.log("model aliases not followed", { error: String(error) });
+      }
 
+      if (failed || s.clock.now() - asked < pauseMs) {
         await new Promise<void>((resolve) => {
-          s.timer.after(retryMs, async () => {
+          s.timer.after(pauseMs, async () => {
             resolve();
 
             return Promise.resolve();
