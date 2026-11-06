@@ -1441,7 +1441,17 @@ test("signs in to an MCP server of the base Profile from Settings and comes back
     });
   };
 
+  // The test's MCP server is on a loopback address, which an admin allows.
+  const allow = async (privateHosts: readonly string[]): Promise<void> => {
+    await fetch(new URL("/api/plugins/logins/config", server.url), {
+      method: "PUT",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ value: { privateHosts } }),
+    });
+  };
+
   try {
+    await allow([linear.url.host]);
     await base({ linear: { url: `${linear.url.origin}/mcp` } });
 
     await page.goto(server.url.href);
@@ -1460,6 +1470,7 @@ test("signs in to an MCP server of the base Profile from Settings and comes back
     await page.getByRole("button", { name: "Log out of linear" }).waitFor();
   } finally {
     await base({});
+    await allow([]);
     await linear.stop(true);
   }
 });
