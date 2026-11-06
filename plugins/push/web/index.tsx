@@ -1,10 +1,20 @@
-import { defineWeb, useApi, useLoaded } from "@pipoca/plugins/web";
+import { ConfigForm, defineWeb, useApi, useLoaded } from "@pipoca/plugins/web";
 import { Button, ErrorText, PageTitle, Row, Rows } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { push } from "../plugin";
 
 export const web = defineWeb(push, {
   settings: { group: "you", Section },
+  // How long a question in team work waits before its starter hears of it.
+  pages: [
+    {
+      path: "notifications",
+      label: "Notifications",
+      area: "setup",
+      group: "rules",
+      Page: () => <ConfigForm plugin={push} />,
+    },
+  ],
 });
 
 const supported =

@@ -820,27 +820,25 @@ test("changes a plugin's setting on the Plugins page", async () => {
   await page.goto(server.url.href);
   await openSettings("Plugins");
 
-  const push = page.getByRole("listitem", { name: "Notifications" });
-  await push.getByRole("switch", { name: "On", checked: true }).waitFor();
-  await push.getByRole("button", { name: "Settings" }).click();
+  const kubernetes = page.getByRole("listitem", { name: "Kubernetes" });
+  await kubernetes.getByRole("switch", { name: "On", checked: true }).waitFor();
+  await kubernetes.getByRole("button", { name: "Settings" }).click();
 
-  const limit = push.getByLabel(
-    /^Minutes before a question goes to the starter/,
-  );
+  const limit = kubernetes.getByLabel(/^Most runner pods per person/);
 
   expect(await limit.inputValue()).toBe("10");
 
   await limit.fill("25");
-  await push.getByRole("button", { name: "Save" }).click();
-  await push.getByText("Saved").waitFor();
+  await kubernetes.getByRole("button", { name: "Save" }).click();
+  await kubernetes.getByText("Saved").waitFor();
 
   await page.reload();
-  await push.getByRole("button", { name: "Settings" }).click();
+  await kubernetes.getByRole("button", { name: "Settings" }).click();
   expect(await limit.inputValue()).toBe("25");
 
   await limit.fill("10");
-  await push.getByRole("button", { name: "Save" }).click();
-  await push.getByText("Saved").waitFor();
+  await kubernetes.getByRole("button", { name: "Save" }).click();
+  await kubernetes.getByText("Saved").waitFor();
 });
 
 test("finds a plugin by a word of its name or description", async () => {
@@ -4475,6 +4473,26 @@ test("an admin sets up team work from Team setup: its Profiles, Environments, cr
   await nav.getByRole("link", { name: "Audit log" }).click();
   await page.getByRole("heading", { name: "Audit log" }).waitFor();
   await page.getByRole("link", { name: "Download CSV" }).waitFor();
+
+  await nav.getByRole("link", { name: "Notifications" }).click();
+
+  const answer = page.getByLabel(
+    /^Minutes before a question goes to the starter/,
+  );
+
+  expect(await answer.inputValue()).toBe("10");
+
+  await answer.fill("25");
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.reload();
+
+  expect(await answer.inputValue()).toBe("25");
+
+  await answer.fill("10");
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.reload();
+
+  expect(await answer.inputValue()).toBe("10");
 
   await nav.getByRole("link", { name: "Team home" }).click();
   await page.getByRole("heading", { name: "Team home" }).waitFor();
