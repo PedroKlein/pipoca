@@ -483,9 +483,38 @@ function oauthServer(): AsyncDisposable & { readonly url: string } {
   };
 }
 
-test("a person signs in to an MCP server of their Profiles from Settings, and the sign-in page sends them back to Pipoca", async () => {
+// The test's MCP server listens on a loopback address, which an admin lets
+// sign-ins reach.
+async function allowing(url: string): Promise<PluginTest> {
+  return started({ config: { privateHosts: [new URL(url).host] } });
+}
+
+// A Profile's MCP server address can't make the server probe its own
+// network, such as the cluster's Services.
+test("signs in to an MCP server on a private address only when an admin allows its host", async () => {
   await using linear = oauthServer();
   await using t = await started();
+
+  await profile(t, "ana", {
+    name: "Tools",
+    mcpServers: { linear: { url: linear.url } },
+  });
+
+  await t.as("ana").post("connect-mcp", { server: `linear ${linear.url}` });
+
+  const done = await until(
+    async () => account(t, "ana"),
+    ({ connection }) => connection?.state !== "running",
+  );
+
+  expect(done.connection).toMatchObject({ state: "failed" });
+  expect(JSON.stringify(done.connection)).toContain("private address");
+  expect(done.mcp).toEqual([]);
+});
+
+test("a person signs in to an MCP server of their Profiles from Settings, and the sign-in page sends them back to Pipoca", async () => {
+  await using linear = oauthServer();
+  await using t = await allowing(linear.url);
 
   await profile(t, "ana", {
     name: "Tools",
@@ -559,7 +588,7 @@ test("a person signs in to an MCP server of their Profiles from Settings, and th
 
 test("a client registered for a loopback address signs in with the address the person pastes", async () => {
   await using linear = oauthServer();
-  await using t = await started();
+  await using t = await allowing(linear.url);
 
   await profile(t, "ana", {
     name: "Tools",

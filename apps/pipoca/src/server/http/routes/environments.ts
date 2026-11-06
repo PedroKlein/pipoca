@@ -10,6 +10,7 @@ import {
 import { canManage, canSteer, type Viewer } from "@pipoca/people";
 import type { Templates } from "@pipoca/environments";
 import type { ApiDeps, Group } from "../deps";
+import { checkFetchable } from "../private-address";
 import { ok } from "../replies";
 import type { Handlers, PersonCaller } from "../router";
 
@@ -221,7 +222,9 @@ export function templateRoutes({
     },
     // Read once for both kinds, so a person picks Profiles and admins
     // templates from the same answer.
-    "repositories.manifest": async ({ query: { url } }) => {
+    "repositories.manifest": async ({ query: { url }, caller }) => {
+      await checkFetchable(url, caller.id, plugins);
+
       const [listedProfiles, listedTemplates] = await Promise.all([
         profiles.listed(url),
         templates?.listed(url) ?? [],

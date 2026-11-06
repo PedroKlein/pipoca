@@ -3,6 +3,7 @@ import { checkBody, isObject } from "@pipoca/plugins/host";
 import { type Profile, repositoryImport } from "@pipoca/protocol";
 import type { Layer, Profiles } from "@pipoca/profiles";
 import type { ApiDeps, Group } from "../deps";
+import { checkFetchable } from "../private-address";
 import { type Handlers, type PersonCaller, restOf } from "../router";
 
 const rejections = {
@@ -44,6 +45,7 @@ const origin = Type.Object({
 // Shared Profiles are changed only by admins (ADR 0041).
 export function profileRoutes({
   profiles,
+  plugins,
   log,
 }: ApiDeps): Handlers<
   | Group<"profiles">
@@ -87,6 +89,8 @@ export function profileRoutes({
     }
 
     if (source !== undefined) {
+      await checkFetchable(source.url, caller.id, plugins);
+
       const [imported] =
         source.path === undefined
           ? [await profiles.importFromGit(caller.id, source.url)]
