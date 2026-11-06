@@ -6,7 +6,8 @@
     "packages/*/src",
     "plugins/*/src",
     "**/*.test.ts",
-    "test-setup.ts"
+    "test-setup.ts",
+    "test-watchdog.ts"
   ],
   "exclude": ["node_modules", "apps/web", "packages/plugins/web"]
 }
