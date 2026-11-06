@@ -187,7 +187,7 @@ export function AuditLog(): ReactElement {
         </p>
       )}
       {entries !== undefined && entries.length > 0 && (
-        <Card padding="none" className="overflow-x-auto">
+        <Card padding="none" className="relative overflow-x-auto">
           <table aria-label="Audit log" className="w-full text-left text-label">
             <thead className="text-caption text-fg-dim">
               <tr className="border-b border-line">

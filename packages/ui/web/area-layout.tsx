@@ -63,7 +63,7 @@ export function AreaLayout({
   const bar = phone === "bar";
 
   return (
-    <div className="flex min-h-0 flex-1 max-md:flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 max-md:flex-col">
       <nav
         aria-label={label}
         className={cn(
@@ -201,6 +201,11 @@ function PhoneMenu({
                     className="flex min-h-12 items-center gap-3 px-4 text-ui font-medium text-fg-strong"
                   >
                     <span className="flex-1">{item.label}</span>
+                    {item.count !== undefined && (
+                      <span className="text-label font-normal text-fg-dim tabular-nums">
+                        {item.count}
+                      </span>
+                    )}
                     <Icon name="chevron-right" className="text-fg-dim" />
                   </a>
                 </li>
