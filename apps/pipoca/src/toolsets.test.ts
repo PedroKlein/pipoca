@@ -16,7 +16,6 @@ import {
   fauxToolCall,
 } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { meta } from "@pipoca/meta/server";
 import type { ServerPlugin } from "@pipoca/plugins";
 import type {
   PluginInfo,
@@ -27,6 +26,7 @@ import type {
 } from "@pipoca/protocol";
 import type { ServeOptions } from "./serve";
 import { builtInPlugins } from "./built-in";
+import { builtInServer } from "./testdata/built-in";
 import { readSse } from "@pipoca/protocol";
 import { json, testServer, type TestServer } from "./testdata/harness";
 import { until } from "@pipoca/plugins/testing";
@@ -35,6 +35,8 @@ let root: string;
 let faux: ReturnType<typeof fauxProvider>;
 let server: TestServer;
 let runtime: ModelRuntime;
+
+const meta = builtInServer("meta");
 
 beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), "pipoca-toolsets-")));

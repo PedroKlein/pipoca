@@ -44,9 +44,4 @@ create table ask_vote_picks (
   foreign key (vote_id, position) references ask_vote_options (vote_id, position) on delete cascade
 ) strict;
 `,
-  server: async () => import("./src/server"),
-  session: async () => import("./src/session"),
-  web: async () =>
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- TypeScript follows only a literal, and the server's project has no DOM to check the web part with
-    import("./web/index" as string) as Promise<{ readonly default: unknown }>,
 });

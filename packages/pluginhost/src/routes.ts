@@ -2,12 +2,12 @@ import {
   type Caller,
   NotFound,
   type Params,
+  type PersonCaller,
   type Routes,
   type RouteSpec,
-  type ScopedRoutes,
   type Urls,
 } from "@pipoca/plugins";
-import type { Method, Owner } from "@pipoca/protocol";
+import type { Method } from "@pipoca/protocol";
 
 export interface ExtInput {
   readonly caller: Caller;
@@ -23,12 +23,10 @@ export interface ExtRoute {
   readonly method: Exclude<Method, "ANY">;
   readonly path: string;
   readonly spec: RouteSpec;
-  // A scoped route's personal half, whose team half is under team/.
+  // A team route's personal half, whose team half is under team/.
   readonly teamTwin?: true;
   readonly handler: (input: ExtInput) => unknown;
 }
-
-type Scoped = (input: ExtInput & { readonly owner: Owner }) => unknown;
 
 export function pluginRoutes(
   plugin: string,
@@ -55,29 +53,23 @@ export function pluginRoutes(
   const route =
     (method: ExtRoute["method"]) =>
     (path: string, spec: RouteSpec, handler: unknown): void => {
+      const run = handler as ExtRoute["handler"];
+
+      if (spec.team === true && spec.auth !== "person") {
+        throw new Error(`${path} answers the team, so it needs auth person`);
+      }
+
+      const twinned = spec.team === true && o.team;
+
       declare({
         method,
         path: joined(path),
         spec,
-        handler: handler as ExtRoute["handler"],
-      });
-    };
-
-  const scoped =
-    (base: string, method: ExtRoute["method"]) =>
-    (path: string, spec: Omit<RouteSpec, "auth">, handler: unknown): void => {
-      const run = handler as Scoped;
-      const own = joined(base, path);
-
-      declare({
-        method,
-        path: own,
-        spec: { ...spec, auth: "person" },
-        ...(o.team && { teamTwin: true }),
-        handler: (input) => run({ ...input, owner: ownerOf(input.caller) }),
+        ...(twinned && { teamTwin: true }),
+        handler: run,
       });
 
-      if (!o.team) {
+      if (!twinned) {
         return;
       }
 
@@ -85,14 +77,16 @@ export function pluginRoutes(
 
       declare({
         method,
-        path: joined("team", own),
-        spec: { ...withoutTool, auth: "person" },
+        path: joined("team", path),
+        spec: withoutTool,
         handler: (input) => {
           if (!o.inTeamWork()) {
             throw new NotFound("Not found.");
           }
 
-          return run({ ...input, owner: "team" });
+          const caller = input.caller as PersonCaller;
+
+          return run({ ...input, caller: { ...caller, owner: "team" } });
         },
       });
     };
@@ -104,17 +98,6 @@ export function pluginRoutes(
       put: route("PUT"),
       patch: route("PATCH"),
       delete: route("DELETE"),
-      scoped: (base, define) => {
-        const routes: ScopedRoutes = {
-          get: scoped(base, "GET"),
-          post: scoped(base, "POST"),
-          put: scoped(base, "PUT"),
-          patch: scoped(base, "PATCH"),
-          delete: scoped(base, "DELETE"),
-        };
-
-        define(routes);
-      },
       topic: (name) => {
         o.publish(`${plugin}.${name}`);
       },
@@ -124,37 +107,10 @@ export function pluginRoutes(
 }
 
 export function pluginUrls(plugin: string, server: () => URL): Urls {
-  const prefix = `/api/ext/${plugin}`;
-  const named = (name: string): string => `${plugin}.${name}`;
-
   return {
-    public: (path) => new URL(`${prefix}/${joined(path)}`, server()).href,
-    cookie: {
-      set: (response, name, value, maxAgeS) => {
-        const cookie = new Bun.Cookie(named(name), value, {
-          path: prefix,
-          maxAge: maxAgeS,
-          httpOnly: true,
-          sameSite: "lax",
-          secure: server().protocol === "https:",
-        });
-
-        response.headers.append("set-cookie", cookie.serialize());
-      },
-      get: (request, name) =>
-        new Bun.CookieMap(request.headers.get("cookie") ?? "").get(
-          named(name),
-        ) ?? undefined,
-    },
+    public: (path) =>
+      new URL(`/api/ext/${plugin}/${joined(path)}`, server()).href,
   };
-}
-
-function ownerOf(caller: Caller): Owner {
-  if (caller.kind === "public") {
-    throw new Error("a scoped route serves only people and Sessions");
-  }
-
-  return caller.owner;
 }
 
 function joined(...paths: readonly string[]): string {

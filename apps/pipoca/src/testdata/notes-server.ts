@@ -11,22 +11,15 @@ function who(caller: Caller): unknown {
   };
 }
 
-export default defineServer(notes, ({ routes, urls }) => {
+export const server = defineServer(notes, ({ routes, urls }) => {
   routes.get("whoami", { auth: "person" }, ({ caller }) => who(caller));
   routes.put("settings", { auth: "admin" }, () => undefined);
   routes.post("beats", { auth: "session" }, ({ caller }) => who(caller));
   routes.get("hello", { auth: "public" }, ({ caller }) => who(caller));
 
-  routes.get("callback", { auth: "public" }, ({ raw }) => {
-    const response = Response.json({
-      url: urls.public("callback"),
-      state: urls.cookie.get(raw, "state") ?? null,
-    });
-
-    urls.cookie.set(response, "state", "abc", 600);
-
-    return response;
-  });
+  routes.get("callback", { auth: "public" }, () => ({
+    url: urls.public("callback"),
+  }));
 
   routes.post(
     "hooks/:name",
@@ -39,7 +32,7 @@ export default defineServer(notes, ({ routes, urls }) => {
       },
       body: note,
     },
-    ({ params, body }) => ({ name: params["name"], text: body.text }),
+    ({ params, body }) => ({ name: params.name, text: body.text }),
   );
 
   routes.post(
@@ -56,7 +49,7 @@ export default defineServer(notes, ({ routes, urls }) => {
 
   routes.post("marks", { auth: "person", changes: ["marks"] }, () => undefined);
 
-  routes.scoped("lists", (scoped) => {
-    scoped.get("", {}, ({ owner }) => ({ owner }));
-  });
+  routes.get("lists", { auth: "person", team: true }, ({ caller }) => ({
+    owner: caller.owner,
+  }));
 });

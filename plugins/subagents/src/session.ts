@@ -1,7 +1,6 @@
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { StringEnum } from "@earendil-works/pi-ai";
 import {
   type ExtensionAPI,
   getAgentDir,
@@ -10,6 +9,7 @@ import {
   defineSession,
   type SessionContext,
   type Static,
+  StringEnum,
   Type,
 } from "@pipoca/plugins";
 import { noticeType } from "@pipoca/protocol";
@@ -40,7 +40,7 @@ import { watchdog } from "./watchdog";
 
 // Subagents as child sessions in the Session's process, on its model runtime
 // and logins (ADR 0057).
-export default defineSession(subagents, (s) => {
+export const session = defineSession(subagents, (s) => {
   s.extension((pi) => {
     extension(s, pi);
     watchdog(s, pi);

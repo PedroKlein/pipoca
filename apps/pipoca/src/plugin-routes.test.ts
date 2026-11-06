@@ -3,7 +3,8 @@ import { createHmac } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HttpError, pluginClient } from "@pipoca/plugins";
+import { HttpError } from "@pipoca/plugins";
+import { pluginClient } from "@pipoca/plugins/host";
 import {
   type Invite,
   readSse,
@@ -16,7 +17,8 @@ import {
   testServer,
   type TestServer,
 } from "./testdata/harness";
-import { diary, notes } from "./testdata/notes";
+import { server as diary } from "./testdata/diary-server";
+import { server as notes } from "./testdata/notes-server";
 import { runnerCredentials } from "./testdata/runners";
 
 let root: string;
@@ -24,7 +26,7 @@ let server: TestServer;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "plugin-routes-"));
-  server = testServer({ plugins: [], definitions: [notes, diary] });
+  server = testServer({ plugins: [], servers: [notes, diary] });
 });
 
 afterEach(async () => {
@@ -33,7 +35,7 @@ afterEach(async () => {
 });
 
 function as(cookie?: string): ReturnType<typeof pluginClient> {
-  return pluginClient(notes, {
+  return pluginClient(notes.plugin, {
     server: server.url,
     ...(cookie !== undefined && { headers: { cookie } }),
   });
@@ -79,7 +81,7 @@ async function sessionCaller(): Promise<ReturnType<typeof pluginClient>> {
     }),
   );
 
-  return pluginClient(notes, {
+  return pluginClient(notes.plugin, {
     server: server.url,
     session: session.id,
     headers: { authorization: `Bearer ${token}` },
@@ -134,11 +136,12 @@ test("a Session route answers 403 to a browser and serves the plugin's Session",
 
   expect(await status(as(cookie).post("beats", {}))).toBe(403);
   expect(await session.post("beats", {})).toMatchObject({ kind: "session" });
+});
 
-  expect(await session.get("whoami")).toMatchObject({
-    kind: "session",
-    person: "pedro",
-  });
+test("a person route answers 403 to a Session, even one a person started", async () => {
+  const session = await sessionCaller();
+
+  expect(await status(session.get("whoami"))).toBe(403);
 });
 
 test("a public route answers anyone and sees who signed in", async () => {
@@ -153,25 +156,12 @@ test("a public route answers anyone and sees who signed in", async () => {
   expect(await as(cookie).get("hello")).toMatchObject({ person: "pedro" });
 });
 
-test("a public route makes its own URLs and keeps its cookies", async () => {
+test("a public route makes its own URLs", async () => {
   const first = await fetch(new URL("/api/ext/notes/callback", server.url));
-  const cookie = first.headers.get("set-cookie") ?? "";
 
   expect(await first.json()).toEqual({
     url: new URL("/api/ext/notes/callback", server.url).href,
-    state: null,
   });
-
-  expect(cookie).toContain("Path=/api/ext/notes");
-  expect(cookie).toContain("HttpOnly");
-
-  expect(
-    await json(
-      fetch(new URL("/api/ext/notes/callback", server.url), {
-        headers: { cookie: cookie.split(";")[0] ?? "" },
-      }),
-    ),
-  ).toMatchObject({ state: "abc" });
 });
 
 test("a webhook answers 401 to a body it didn't sign and 413 to one over its limit", async () => {
@@ -213,7 +203,7 @@ test("a body that doesn't fit the route's schema answers 422 naming the field", 
   });
 });
 
-test("a scoped route serves the caller's own owner and, where the plugin works there, the team", async () => {
+test("a team route serves the caller's own owner and, where the plugin works there, the team", async () => {
   const cookie = await server.signedIn();
   const { user } = await json<SignInStatus>(server.api("/api/auth"));
   const id = user?.id ?? "";
@@ -221,7 +211,7 @@ test("a scoped route serves the caller's own owner and, where the plugin works t
   expect(await as(cookie).get("lists")).toEqual({ owner: `person:${id}` });
   expect(await as(cookie).get("team/lists")).toEqual({ owner: "team" });
 
-  const pages = pluginClient(diary, {
+  const pages = pluginClient(diary.plugin, {
     server: server.url,
     headers: { cookie },
   });

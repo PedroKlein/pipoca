@@ -21,7 +21,7 @@ const retryMs = 5000;
 // provider. Each request goes to the alias's first healthy model, and a model
 // or provider that fails is reported so every Session in the Environment
 // stops using it.
-export default defineSession(models, (s) => {
+export const session = defineSession(models, (s) => {
   s.extension(async (pi) => {
     const first = await read(s, undefined, undefined).catch(
       (error: unknown) => {

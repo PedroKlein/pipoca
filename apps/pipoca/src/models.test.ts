@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { EnvironmentModels } from "@pipoca/models/model";
 import type { Environment, Session } from "@pipoca/protocol";
 import { testServer, type TestServer } from "./testdata/harness";
 import { until } from "@pipoca/plugins/testing";
@@ -141,9 +140,13 @@ test("takes a provider that hit its cap out of routing for the whole Environment
 
   const [models] = await until(
     async () =>
-      (await (
-        await server.api("/api/ext/models/environments")
-      ).json()) as EnvironmentModels[],
+      (await (await server.api("/api/ext/models/environments")).json()) as {
+        readonly health: {
+          readonly unhealthyUntil: Readonly<
+            Record<string, { readonly reason: string }>
+          >;
+        };
+      }[],
     ([found]) =>
       found !== undefined && "primary" in found.health.unhealthyUntil,
   );

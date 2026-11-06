@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { checkBody, HttpError, isHttpError, readJson } from "@pipoca/plugins";
+import { HttpError, isHttpError } from "@pipoca/plugins";
+import { checkBody, readJson } from "@pipoca/plugins/host";
 import type { OnBehalf, UserActor } from "@pipoca/pluginhost";
 import {
   type BodyOf,

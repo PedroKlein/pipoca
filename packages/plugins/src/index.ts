@@ -1,13 +1,8 @@
+export { StringEnum } from "@earendil-works/pi-ai";
+export type { Actor, Owner, Session } from "@pipoca/protocol";
+// checkBody stays for the v1 kubernetes plugin until it ports.
 export { checkBody, readBody } from "./body";
-export { type ClientOptions, pluginClient, type TypedClient } from "./client";
-export {
-  type ConfigSecrets,
-  configOf,
-  kernelConfig,
-  pluginConfig,
-  sealedConfig,
-  sessionConfig,
-} from "./config";
+export type { TypedClient } from "./client";
 export {
   Config,
   definePlugin,
@@ -22,61 +17,48 @@ export {
   type TSecret,
 } from "./definition";
 export {
-  type EventBus,
-  eventBus,
-  type KernelEventOf,
-  pluginEvents,
-  type TypedBus,
-} from "./events";
-export {
   BadRequest,
   fieldsOf,
   Forbidden,
   HttpError,
   isHttpError,
   isObject,
-  isToolError,
   NotFound,
-  readJson,
   requireAdmin,
   ToolError,
 } from "./http";
 export { type Static, Type } from "typebox";
 export { canSee, owners } from "./owners";
-export {
-  envSecrets,
-  type EnvSecrets,
-  type SecretRef,
-  type SecretRefs,
-  secretRefs,
-} from "./secrets";
+export type { SecretRef, SecretRefs } from "./secrets";
 export {
   type Auth,
   type Caller,
+  type CallerOf,
   type Collection,
   defineServer,
   type Handler,
   type Params,
+  type ParamsOf,
+  type PersonCaller,
+  type PublicCaller,
   type People,
   type PluginConfig,
   type PluginEnvironments,
-  type PluginProfiles,
   type Person,
   type PluginEvents,
   type Providers,
   type RouteInput,
   type Routes,
   type RouteSpec,
-  type ScopedRoutes,
   type Secrets,
   type ServerTools,
   type Sessions,
-  type SignInProvider,
   type Store,
   type ToolCall,
   type ToolDef,
   type ToolOutput,
   type ServerContext,
+  type SessionCaller,
   type ServerPart,
   type ToolResultEntry,
   type Transcript,
@@ -84,7 +66,6 @@ export {
   type When,
 } from "./server";
 export type { Schedule, Scheduled } from "./schedule";
-export { transcriptReader } from "./transcript";
 export {
   type ConfigValue,
   defineSession,
@@ -93,7 +74,6 @@ export {
   type SessionTool,
   type SessionToolCall,
 } from "./session";
-export { checkedSettings, settingSpecs, settingValues } from "./settings";
 export type {
   AskPermission,
   AskQuestions,

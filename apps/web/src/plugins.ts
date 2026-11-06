@@ -42,7 +42,7 @@ type Module = Readonly<Record<string, unknown>>;
 const builtIn: readonly {
   readonly id: string;
   readonly plugin?: Module;
-  readonly part?: Module;
+  readonly web?: WebPart;
 }[] = webRegistry;
 
 // A web part the shell draws, a v2 one drawn through the v1 fields.
@@ -88,9 +88,9 @@ export async function loadPlugins(): Promise<void> {
   titles = new Map(on.map(({ id, title }) => [id, title]));
 
   enabled = [
-    ...builtIn.flatMap(({ id, plugin, part }) =>
+    ...builtIn.flatMap(({ id, plugin, web }) =>
       on.some((each) => each.id === id)
-        ? [shellPlugin(id, plugin ?? part)]
+        ? [web === undefined ? shellPlugin(id, plugin) : adapted(web)]
         : [],
     ),
     ...installed.flatMap((plugin) => (plugin ? [plugin] : [])),
@@ -128,14 +128,7 @@ function watchTeamWork(listener: () => void): () => void {
   };
 }
 
-// A v1 web part, or a v2 one as the v1 fields it fills.
 function shellPlugin(id: string, module: Module | undefined): ShellPlugin {
-  const part = module?.["default"];
-
-  if (isPart(part)) {
-    return adapted(part);
-  }
-
   const plugin = Object.values(module ?? {}).find(
     (value) => (value as { readonly name?: unknown } | null)?.name === id,
   );
@@ -323,21 +316,21 @@ async function importWebPart(
   try {
     // The page waits for every web part before it draws, so one that never
     // finishes loading can't keep it blank.
-    const { default: plugin } = (await Promise.race([
+    const { default: plugin, web } = (await Promise.race([
       import(url),
       new Promise<never>((_resolve, reject) => {
         setTimeout(() => {
           reject(new Error("it took longer than 10 seconds to load"));
         }, 10_000);
       }),
-    ])) as { default?: WebPlugin | WebPart };
+    ])) as { default?: WebPlugin; web?: unknown };
 
-    if (isPart(plugin)) {
-      if (plugin.plugin.id !== id) {
-        throw new Error(`its default export must be a web part for ${id}`);
+    if (web !== undefined) {
+      if (!isPart(web) || web.plugin.id !== id) {
+        throw new Error(`its web export must be a web part for ${id}`);
       }
 
-      return adapted(plugin);
+      return adapted(web);
     }
 
     if (plugin?.name !== id) {

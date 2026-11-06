@@ -60,10 +60,6 @@ export function scheduleStore(db: DatabaseSync): ScheduleStore {
     "delete from plugin_schedules where plugin = ? and key = ?",
   );
 
-  const deletePrefix = db.prepare(
-    `delete from plugin_schedules where plugin = ? and ${prefixed}`,
-  );
-
   const selectPending = db.prepare(
     `select ${columns} from plugin_schedules where plugin = ? and ${prefixed} order by due_at, key`,
   );
@@ -105,9 +101,6 @@ export function scheduleStore(db: DatabaseSync): ScheduleStore {
     },
     remove: (plugin, key) => {
       deleteKey.run(plugin, key);
-    },
-    removePrefix: (plugin, prefix) => {
-      deletePrefix.run(plugin, prefix);
     },
     pending: (plugin, prefix) =>
       (selectPending.all(plugin, prefix) as unknown as Row[]).map(rowOf),

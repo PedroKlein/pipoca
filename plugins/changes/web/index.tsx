@@ -12,7 +12,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { about } from "../about";
+import { changes } from "../plugin";
 import type { CheckoutChanges, PullRequest } from "../src/report";
 import { type DiffComment, reviewMessage } from "./comments";
 import { type DiffFile, type DiffLine, parseDiff } from "./diff";
@@ -28,7 +28,7 @@ declare module "@pipoca/plugins/web" {
   }
 }
 
-export default defineWeb(about, {
+export const web = defineWeb(changes, {
   slots: { "session.header": SessionHeader },
 });
 

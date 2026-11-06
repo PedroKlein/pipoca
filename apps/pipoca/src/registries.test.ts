@@ -24,7 +24,7 @@ test("the registry lists every plugin folder once", async () => {
   expect(builtInPlugins.map(({ id }) => id)).toEqual(folders);
 });
 
-test("a defined plugin loads through its definition, and the web app imports its web part", async () => {
+test("a defined plugin loads through its definition, and the web app imports its web part by its path", async () => {
   const at = await mkdtemp(join(tmpdir(), "pipoca-registries-"));
   const folder = join(at, "plugins", "notes");
   await mkdir(join(folder, "web"), { recursive: true });
@@ -40,12 +40,11 @@ test("a defined plugin loads through its definition, and the web app imports its
   id: "notes",
   title: "Notes",
   description: "Keeps notes",
-  web: async () => import("./web/part"),
 };
 `,
   );
 
-  await writeFile(join(folder, "web", "part.tsx"), "");
+  await writeFile(join(folder, "web", "index.tsx"), "");
 
   const files = await registryFiles(at);
 
@@ -58,6 +57,6 @@ test("a defined plugin loads through its definition, and the web app imports its
   );
 
   expect(files.get("apps/web/src/registry.ts")).toContain(
-    'import * as notesWeb from "../../../plugins/notes/web/part";',
+    'import { web as notesWeb } from "../../../plugins/notes/web/index";',
   );
 });

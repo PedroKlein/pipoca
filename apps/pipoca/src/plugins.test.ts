@@ -24,7 +24,7 @@ import {
   HttpError,
   type KernelEvent,
   NotFound,
-  type PluginDefinition,
+  type ServerPart,
   readBody,
   type ServerPlugin,
   type ServerPluginContext,
@@ -607,31 +607,25 @@ test("resets a plugin whose tables another version made, once an admin asks", as
 test("resets a plugin made with definePlugin whose tables another version made, and starts it at the restart", async () => {
   const database = join(root, "server.db");
 
-  const tally = (sql: string): PluginDefinition => {
-    const plugin: PluginDefinition = {
-      ...definePlugin({
-        id: "tally",
-        title: "Tally",
-        description: "",
-        schema: sql,
-      }),
-      server: async () =>
-        Promise.resolve({
-          default: defineServer(plugin, ({ routes, store }) => {
-            routes.post("marks", { auth: "person" }, () => {
-              store.run("insert into tally_marks (n) values (1)");
+  const tally = (sql: string): ServerPart => {
+    const plugin = definePlugin({
+      id: "tally",
+      title: "Tally",
+      description: "",
+      schema: sql,
+    });
 
-              return { ok: true };
-            });
+    return defineServer(plugin, ({ routes, store }) => {
+      routes.post("marks", { auth: "person" }, () => {
+        store.run("insert into tally_marks (n) values (1)");
 
-            routes.get("marks", { auth: "person" }, () =>
-              store.all("select n from tally_marks"),
-            );
-          }),
-        }),
-    };
+        return { ok: true };
+      });
 
-    return plugin;
+      routes.get("marks", { auth: "person" }, () =>
+        store.all("select n from tally_marks"),
+      );
+    });
   };
 
   const before = tally("create table tally_marks (n integer) strict");
@@ -640,13 +634,13 @@ test("resets a plugin made with definePlugin whose tables another version made, 
     "create table tally_marks (n integer, m integer not null default 0) strict",
   );
 
-  server = testServer({ database, plugins: [], definitions: [before] });
+  server = testServer({ database, plugins: [], servers: [before] });
   await server.api("/api/ext/tally/marks", { body: {} });
 
   const cookie = await server.signedIn();
   await server.close();
 
-  server = testServer({ database, cookie, plugins: [], definitions: [after] });
+  server = testServer({ database, cookie, plugins: [], servers: [after] });
 
   expect(await (await server.api("/api/plugins")).json()).toMatchObject([
     { id: "tally", state: "failed", resettable: true },
@@ -665,7 +659,7 @@ test("resets a plugin made with definePlugin whose tables another version made, 
   });
 
   await server.close();
-  server = testServer({ database, cookie, plugins: [], definitions: [after] });
+  server = testServer({ database, cookie, plugins: [], servers: [after] });
 
   expect(await (await server.api("/api/plugins")).json()).toMatchObject([
     { id: "tally", state: "on" },

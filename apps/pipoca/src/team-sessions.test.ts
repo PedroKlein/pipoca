@@ -17,11 +17,10 @@ import type {
   SessionEvent,
   Voice,
 } from "@pipoca/protocol";
-import { ask } from "@pipoca/ask";
-import { gitHosts } from "@pipoca/git-hosts/server";
 import type { ServerPluginContext } from "@pipoca/plugins";
-import { builtInPlugins } from "./built-in";
+import { builtInParts, builtInPlugins } from "./built-in";
 import { readSse } from "@pipoca/protocol";
+import { builtInServer } from "./testdata/built-in";
 import { json, testServer, type TestServer } from "./testdata/harness";
 
 let root: string;
@@ -68,7 +67,7 @@ beforeEach(async () => {
           );
         },
       },
-      gitHosts,
+      builtInServer("git-hosts"),
       {
         name: "notes",
         register: (context) => {
@@ -99,7 +98,7 @@ beforeEach(async () => {
       },
       ...builtInPlugins.filter(({ id }) => id === "git-hosts"),
     ],
-    definitions: [ask],
+    servers: builtInParts.filter(({ plugin }) => plugin.id === "ask"),
   });
 });
 

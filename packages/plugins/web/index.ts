@@ -14,6 +14,7 @@ import {
   useState,
 } from "react";
 import { responseOrder } from "./responses";
+import { topicOf, useScope } from "./shell";
 
 export {
   type ModelOption,
@@ -415,8 +416,9 @@ export function watchChanges(
 }
 
 // Loads data for a component, again when key changes, on reload(), when one
-// of the topics changes, and every everyMs for data that changes outside
-// Pipoca. Stale results for an old key, and results older than the ones
+// of the topics or the plugin's changes changes, and every everyMs for data
+// that changes outside Pipoca. changes are named as the plugin's routes name
+// them. Stale results for an old key, and results older than the ones
 // shown, are dropped.
 // A failed first load is thrown during render, for the error boundary the
 // web app puts around every plugin part; a failed refresh keeps the last
@@ -426,15 +428,30 @@ export function useLoaded<T>(
   key: string,
   {
     topics = [],
+    changes = [],
     everyMs,
-  }: { readonly topics?: readonly string[]; readonly everyMs?: number } = {},
+  }: {
+    readonly topics?: readonly string[];
+    readonly changes?: readonly string[];
+    readonly everyMs?: number;
+  } = {},
 ): { readonly value: T | undefined; readonly reload: () => void } {
+  const plugin = useScope();
   const [loaded, setLoaded] = useState<{ key: string; value: T }>();
   const [failed, setFailed] = useState<{ key: string; error: unknown }>();
   const [version, setVersion] = useState(0);
   const run = useEffectEvent(load);
+  if (changes.length > 0 && plugin === undefined) {
+    throw new Error(
+      "changes name a plugin's topics, so only its parts watch them",
+    );
+  }
+
   // A string, so a new array with the same topics doesn't fetch again.
-  const watched = topics.join(" ");
+  const watched = [
+    ...topics,
+    ...changes.map((name) => topicOf(plugin ?? "", name)),
+  ].join(" ");
 
   useEffect(() => {
     const order = responseOrder();

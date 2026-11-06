@@ -2,11 +2,13 @@ import { afterEach, expect, test } from "bun:test";
 import {
   type PluginTest,
   person,
+  type TestPluginOptions,
   testPlugin,
   until,
-} from "@pipoca/plugins/testing";
+} from "@pipoca/testing";
 import { SMTPServer } from "smtp-server";
-import { email } from "../plugin";
+import type { email } from "../plugin";
+import { server } from "./server";
 
 interface Message {
   readonly uid: number;
@@ -177,16 +179,12 @@ async function fakeMail() {
 }
 
 async function started(
-  config?: Readonly<Record<string, unknown>>,
+  config?: TestPluginOptions<typeof email>["config"],
 ): Promise<PluginTest> {
-  const t = await testPlugin(email, {
+  return testPlugin(server, {
     people,
     ...(config !== undefined && { config }),
   });
-
-  opened.push(t.close);
-
-  return t;
 }
 
 async function addMailbox(
@@ -208,7 +206,7 @@ async function addMailbox(
 
 test("a mailbox is saved only once its logins work, and its new mail is an event", async () => {
   const mail = await fakeMail();
-  const t = await started();
+  await using t = await started();
 
   const refused = await addMailbox(t, mail, "wrong");
 
@@ -272,7 +270,7 @@ test("mailboxes are checked as often as the config says, by hand edits too", asy
     ],
   };
 
-  const t = await started(config);
+  await using t = await started(config);
 
   await t.clock.advance("59s");
 
@@ -292,7 +290,7 @@ test("mailboxes are checked as often as the config says, by hand edits too", asy
 
 test("a reply to mail a Session sent reaches it, even while it is offline", async () => {
   const mail = await fakeMail();
-  const t = await started();
+  await using t = await started();
 
   await addMailbox(t, mail);
 
@@ -350,7 +348,7 @@ test("a reply to mail a Session sent reaches it, even while it is offline", asyn
 
 test("email_send is offered only to people who may send from a mailbox", async () => {
   const mail = await fakeMail();
-  const t = await started();
+  await using t = await started();
 
   await addMailbox(t, mail);
 
@@ -367,7 +365,7 @@ test("email_send is offered only to people who may send from a mailbox", async (
 
 test("an invite goes out by mail from a mailbox the inviting admin sends from", async () => {
   const mail = await fakeMail();
-  const t = await started();
+  await using t = await started();
 
   await addMailbox(t, mail);
 

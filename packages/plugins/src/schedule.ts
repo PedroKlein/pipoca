@@ -19,6 +19,5 @@ export interface Schedule {
     fn: (payload: unknown, key: string) => void | Promise<void>,
   ) => void;
   readonly cancel: (key: string) => void;
-  readonly cancelPrefix: (prefix: string) => void;
   readonly pending: (prefix: string) => readonly Scheduled[];
 }

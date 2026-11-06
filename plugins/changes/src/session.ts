@@ -8,7 +8,7 @@ import type { CheckoutChanges } from "./report";
 // Publishes what the Session changed in each git checkout of its workspace
 // when it starts and after every turn, and opens pull requests with /pr
 // (ADR 0021).
-export default defineSession(changes, (s) => {
+export const session = defineSession(changes, (s) => {
   s.extension((pi) => {
     const tracked = trackChanges(s);
     const pullRequests = pullRequestCommand(s, tracked.refresh);

@@ -1,7 +1,7 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import type { PluginDefinition } from "@pipoca/plugins";
 import { format } from "prettier";
+import { definedParts, type Part } from "./parts";
 
 // The three bundles that load plugins, each from a registry this writes:
 // the server, the Session host and the web app.
@@ -18,8 +18,7 @@ interface Lines {
   readonly entries: string[];
 }
 
-const header =
-  "// Written by `bun run registries` from plugins/*/package.json. Don't edit.";
+const header = "// Written by `bun run registries` from plugins/*. Don't edit.";
 
 // Each file's content by its path from root, from what plugins/ holds now.
 export async function registryFiles(
@@ -67,23 +66,41 @@ export async function registryFiles(
 
     if (entry !== undefined) {
       const path = join(folder, entry);
-      const { exported, definition } = await definitionIn(path, id);
+      const exported = await definitionIn(path, id);
       const named = `import { ${exported} } from ${from("server", path)};`;
+      const parts = definedParts(folder);
 
-      add("server", [named], `{ id: "${id}", definition: ${exported} },`);
+      const imported = (bundle: Bundle, part: Part): string[] => {
+        const at = parts[part];
 
-      if (definition.session !== undefined) {
-        add("session", [named], `{ id: "${id}", definition: ${exported} },`);
+        return at === undefined
+          ? []
+          : [
+              `import { ${part} as ${name}${capitalized(part)} } from ${from(bundle, at)};`,
+            ];
+      };
+
+      const field = (part: Part): string =>
+        parts[part] === undefined
+          ? ""
+          : `, ${part}: ${name}${capitalized(part)}`;
+
+      add(
+        "server",
+        [named, ...imported("server", "server")],
+        `{ id: "${id}", definition: ${exported}${field("server")} },`,
+      );
+
+      if (parts.session !== undefined) {
+        add(
+          "session",
+          [named, ...imported("session", "session")],
+          `{ id: "${id}", definition: ${exported}${field("session")} },`,
+        );
       }
 
-      if (definition.web !== undefined) {
-        const web = partPath(definition.web, path, id);
-
-        add(
-          "web",
-          [`import * as ${name}Web from ${from("web", web)};`],
-          `{ id: "${id}", part: ${name}Web },`,
-        );
+      if (parts.web !== undefined) {
+        add("web", imported("web", "web"), `{ id: "${id}"${field("web")} },`);
       }
 
       continue;
@@ -156,13 +173,7 @@ export async function registryFiles(
   return new Map(rendered);
 }
 
-async function definitionIn(
-  path: string,
-  id: string,
-): Promise<{
-  readonly exported: string;
-  readonly definition: PluginDefinition;
-}> {
+async function definitionIn(path: string, id: string): Promise<string> {
   const module = (await import(path)) as Readonly<Record<string, unknown>>;
 
   const found = Object.entries(module).filter(
@@ -178,21 +189,11 @@ async function definitionIn(
     throw new Error(`${path} must export one definePlugin with the id ${id}`);
   }
 
-  return { exported: first[0], definition: first[1] as PluginDefinition };
+  return first[0];
 }
 
-// A part is loaded as async () => import("./path"), which the web bundle
-// imports itself, since it can't follow the server's parts.
-function partPath(load: () => unknown, entry: string, id: string): string {
-  const match = /import\(\s*["']([^"']+)["']\s*\)/.exec(load.toString());
-
-  if (match?.[1] === undefined) {
-    throw new Error(
-      `${id}'s web part must load as async () => import("./path")`,
-    );
-  }
-
-  return Bun.resolveSync(match[1], dirname(entry));
+function capitalized(word: string): string {
+  return word.charAt(0).toUpperCase() + word.slice(1);
 }
 
 function identifier(id: string): string {

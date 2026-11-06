@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { SettingSpec } from "@pipoca/protocol";
-import { checkedSettings, settingValues } from "@pipoca/plugins";
+import { checkedSettings, settingValues } from "@pipoca/plugins/host";
 
 const schema: Readonly<Record<string, SettingSpec>> = {
   limit: { type: "number", title: "Limit", default: 10, min: 1, max: 100 },

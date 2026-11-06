@@ -24,7 +24,7 @@ interface Props {
 
 // Open votes sit above the composer of team work, and anyone following it
 // opens one from the header (ADR 0065).
-export default defineWeb(ask, {
+export const web = defineWeb(ask, {
   settings: { group: "server", form: "auto" },
   slots: { "session.composer": OpenVotes, "session.header": VoteButton },
 });
@@ -36,7 +36,7 @@ function useVotes({ session }: Props): Votes | undefined {
     async () =>
       api.get<Votes>(`sessions/${encodeURIComponent(session.id)}/votes`),
     session.id,
-    { topics: ["ask.votes"] },
+    { changes: ["votes"] },
   ).value;
 }
 

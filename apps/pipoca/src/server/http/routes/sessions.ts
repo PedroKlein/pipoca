@@ -1,4 +1,5 @@
-import { BadRequest, checkBody, HttpError, NotFound } from "@pipoca/plugins";
+import { BadRequest, HttpError, NotFound } from "@pipoca/plugins";
+import { checkBody } from "@pipoca/plugins/host";
 import {
   type ForkedSession,
   type ForkSession,

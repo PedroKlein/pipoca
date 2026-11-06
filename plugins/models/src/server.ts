@@ -1,16 +1,12 @@
-import { randomUUID } from "node:crypto";
 import {
   BadRequest,
-  type Caller,
   defineServer,
-  Forbidden,
   HttpError,
   type OfferedModels,
   type ServerContext,
   type Store,
   Type,
 } from "@pipoca/plugins";
-import type { Session } from "@pipoca/protocol";
 import { models } from "../plugin";
 import { aliasesOf, gatewayProvider } from "./gateway";
 import {
@@ -56,7 +52,7 @@ const healthReport = Type.Object({
 // Below the server's 30 second idle timeout.
 const waitMs = 20_000;
 
-export default defineServer(models, (context) => {
+export const server = defineServer(models, (context) => {
   const { routes, environments, config, clock, log } = context;
   const store = modelsStore(context.store);
   const versions = changes(context);
@@ -114,7 +110,7 @@ export default defineServer(models, (context) => {
     "config",
     { auth: "session", query: configQuery, long: true },
     async ({ caller, query, raw }) => {
-      const { environmentId } = sessionOf(caller);
+      const { environmentId } = caller.session;
 
       // A Session polls again at once after any answer, and backs off only
       // after an error.
@@ -141,8 +137,7 @@ export default defineServer(models, (context) => {
   routes.post(
     "health",
     { auth: "session", body: healthReport },
-    ({ caller, body }) => {
-      const session = sessionOf(caller);
+    ({ caller: { session }, body }) => {
       const reported = healthFrom(body);
       if (reported === undefined) {
         throw new BadRequest(
@@ -172,7 +167,7 @@ export default defineServer(models, (context) => {
 
   routes.get("hidden", { auth: "person" }, ({ caller }) => ({
     hidden: hidden(),
-    mayChange: caller.kind === "person" && caller.person.admin,
+    mayChange: caller.person.admin,
   }));
 
   routes.post(
@@ -198,7 +193,7 @@ export default defineServer(models, (context) => {
     "environments/:id",
     { auth: "admin", body: aliasesChange },
     ({ params, body: { aliases } }) => {
-      const environmentId = params["id"] ?? "";
+      const environmentId = params.id;
       const problem = aliases === null ? undefined : aliasProblem(aliases);
 
       if (problem !== undefined) {
@@ -213,15 +208,6 @@ export default defineServer(models, (context) => {
     },
   );
 });
-
-// The Session a session route's caller is, which the router guarantees.
-function sessionOf(caller: Caller): Session {
-  if (caller.kind !== "session") {
-    throw new Forbidden("Only the plugin's Sessions call this.");
-  }
-
-  return caller.session;
-}
 
 function offered(aliases: AliasConfig | null): OfferedModels {
   if (aliases === null) {
@@ -352,12 +338,12 @@ function modelsStore(store: Store): ModelsStore {
 
 // A version per Environment that Sessions wait on. It starts from the clock,
 // so a Session that saw a version before a restart never sees it again. A
-// wait ends after waitMs on the schedule.
+// wait ends after waitMs.
 function changes({
   clock,
-  schedule,
+  timer,
   signal,
-}: Pick<ServerContext, "clock" | "schedule" | "signal">): {
+}: Pick<ServerContext, "clock" | "timer" | "signal">): {
   readonly of: (environmentId: string) => number;
   readonly bump: (environmentId: string) => void;
   readonly changed: (
@@ -369,11 +355,6 @@ function changes({
   const start = clock.now();
   const versions = new Map<string, number>();
   const waiting = new Map<string, Set<() => void>>();
-  const timeouts = new Map<string, () => void>();
-
-  schedule.on("wake:", (_payload, key) => {
-    timeouts.get(key)?.();
-  });
 
   const of = (environmentId: string): number =>
     versions.get(environmentId) ?? start;
@@ -395,19 +376,19 @@ function changes({
       }
 
       await new Promise<void>((resolve) => {
-        const key = `wake:${randomUUID()}`;
-
         const wake = (): void => {
-          schedule.cancel(key);
-          timeouts.delete(key);
+          stop();
           request.removeEventListener("abort", wake);
           signal.removeEventListener("abort", wake);
           waiting.get(environmentId)?.delete(wake);
           resolve();
         };
 
-        schedule.at(key, clock.now() + waitMs);
-        timeouts.set(key, wake);
+        const stop = timer.after(waitMs, async () => {
+          wake();
+
+          await Promise.resolve();
+        });
 
         const set = waiting.get(environmentId) ?? new Set();
         set.add(wake);

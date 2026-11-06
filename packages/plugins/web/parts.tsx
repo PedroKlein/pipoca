@@ -27,7 +27,7 @@ import type {
   ToolCallProps,
 } from "./index";
 import { useLoaded, watchChanges } from "./index";
-import { useShell, usePlugin, type Viewer } from "./shell";
+import { topicOf, useShell, usePlugin, type Viewer } from "./shell";
 
 type Own<T> = Omit<T, "context">;
 
@@ -145,8 +145,11 @@ export async function storedConfig(
   return (value ?? {}) as Readonly<Record<string, unknown>>;
 }
 
-export function useTopic(topic: string, fn: () => void): void {
+// Calls fn when one of the plugin's changes, named as its routes name it, or
+// another plugin's <plugin>.<name>, changes.
+export function useTopic(name: string, fn: () => void): void {
   const changed = useEffectEvent(fn);
+  const topic = topicOf(usePlugin(), name);
 
   useEffect(
     () =>

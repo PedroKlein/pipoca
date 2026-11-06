@@ -61,6 +61,17 @@ export function useShell(): Shell {
   return shell;
 }
 
+// The plugin whose part draws this, if a plugin's part does.
+export function useScope(): string | undefined {
+  return useContext(PluginContext);
+}
+
+// A topic as the server publishes it: one of this plugin's changes by the
+// name its routes give it, or another plugin's as <plugin>.<name>.
+export function topicOf(plugin: string, name: string): string {
+  return name.includes(".") ? name : `${plugin}.${name}`;
+}
+
 export function usePlugin(): string {
   const plugin = useContext(PluginContext);
 

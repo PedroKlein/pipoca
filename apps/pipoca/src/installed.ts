@@ -11,11 +11,12 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import {
-  type PluginDefinition,
-  type ServerPlugin,
-  settingSpecs,
+import type {
+  PluginDefinition,
+  ServerPart,
+  ServerPlugin,
 } from "@pipoca/plugins";
+import { settingSpecs } from "@pipoca/plugins/host";
 import {
   capabilities,
   type PluginManifest,
@@ -33,6 +34,7 @@ import {
 } from "./bundle";
 import { kernelKeys } from "@pipoca/pluginhost";
 import { builtInPlugins, definedManifest } from "./built-in";
+import { definedParts } from "./parts";
 import { fetchSnapshot } from "@pipoca/repositories";
 
 // Where an installed plugin came from, and the exact version fetched: a git
@@ -49,8 +51,9 @@ export interface InstalledPlugin {
   readonly manifest: PluginManifest;
   readonly on: boolean;
   readonly server?: ServerPlugin;
-  // Its definePlugin, when it is defined with one and on.
+  // Its definePlugin and server part, when it is defined with one and on.
   readonly definition?: PluginDefinition;
+  readonly part?: ServerPart;
   // The web part's bundle.
   readonly web?: string;
   // The Session part's bundle, and its SHA-256 that runners ask for it by.
@@ -423,10 +426,10 @@ async function loadDefined(
     const bundles = await bundleDefined(
       folder,
       await inside(folder, entry),
-      manifest.id,
+      await partsInside(folder),
     );
 
-    const definition = await importedDefinition(
+    const { definition, server } = await importedDefinition(
       bundles.definition,
       manifest.id,
     );
@@ -435,6 +438,7 @@ async function loadDefined(
       manifest: definedManifest(definition),
       on: true,
       definition,
+      ...(server && { part: server }),
       ...(bundles.web !== undefined && { web: bundles.web }),
       ...(bundles.session !== undefined && {
         session: {
@@ -528,7 +532,11 @@ export async function build(root: string, id: string): Promise<void> {
   const entry = entryOf(packageJson);
 
   if (entry !== undefined) {
-    await bundleDefined(folder, await inside(folder, entry), id);
+    await bundleDefined(
+      folder,
+      await inside(folder, entry),
+      await partsInside(folder),
+    );
 
     return;
   }
@@ -545,6 +553,16 @@ export async function build(root: string, id: string): Promise<void> {
 // Why a plugin can't have this id, if it can't.
 export function idProblem(id: string): string | undefined {
   return skipReason(id, new Set(builtInPlugins.map((each) => each.id)));
+}
+
+async function partsInside(folder: string): Promise<PluginParts> {
+  return Object.fromEntries(
+    await Promise.all(
+      Object.entries(definedParts(folder)).map(
+        async ([part, path]) => [part, await inside(folder, path)] as const,
+      ),
+    ),
+  );
 }
 
 // The real path of a part, which must stay inside the plugin's folder even

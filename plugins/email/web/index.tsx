@@ -16,10 +16,10 @@ import {
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import { about } from "../about";
+import { email } from "../plugin";
 import type { MailboxView } from "../src/model";
 
-export default defineWeb(about, {
+export const web = defineWeb(email, {
   settings: { group: "integrations", Section },
   slots: { "notice:email_reply": EmailReply },
 });
@@ -32,13 +32,13 @@ function Section(): ReactElement | null {
   return (
     <div className="flex flex-col gap-4">
       <Mailboxes />
-      <ConfigForm plugin={about} path="pollSeconds" />
+      <ConfigForm plugin={email} path="pollSeconds" />
     </div>
   );
 }
 
 function Mailboxes(): ReactElement {
-  const api = useApi(about);
+  const api = useApi(email);
   const [ask, asking] = useConfirm();
 
   const { value, reload } = useLoaded(

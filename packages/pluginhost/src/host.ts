@@ -4,37 +4,39 @@ import { Value } from "typebox/value";
 import type { Environments } from "@pipoca/environments";
 import { canSee } from "@pipoca/people";
 import {
-  checkedSettings,
-  configOf,
-  envSecrets,
-  type EventBus,
   fieldsOf,
   type Login,
   type ModelOffer,
   type ConfigKey,
-  pluginConfig,
   type PluginEnvironments,
   type PluginDefinition,
-  pluginEvents,
   type PluginRoute,
   type PluginStore,
   type PublicRoute,
   type RouteCaller,
   type RouteToolSpec,
   type RunnerSource,
-  sealedConfig,
   type ServerPart,
   type ServerPlugin,
   type ServerPluginContext,
-  secretRefs,
-  sessionConfig,
   type SessionPlugin,
-  settingValues,
   type ToolDef,
-  transcriptReader,
-  type TypedBus,
   type User,
 } from "@pipoca/plugins";
+import {
+  checkedSettings,
+  configOf,
+  envSecrets,
+  type EventBus,
+  pluginConfig,
+  pluginEvents,
+  sealedConfig,
+  secretRefs,
+  sessionConfig,
+  settingValues,
+  transcriptReader,
+  type TypedBus,
+} from "@pipoca/plugins/host";
 import {
   type Actor,
   type Capability,
@@ -190,8 +192,6 @@ export interface PluginHost {
   // The links the sign-in page shows besides the password form, each with
   // its path from the server's root.
   readonly logins: () => readonly Login[];
-  // Settles once every plugin defined with definePlugin registered or failed.
-  readonly ready: Promise<void>;
   readonly extRoutes: () => readonly ExtRoute[];
 }
 
@@ -234,6 +234,7 @@ export function startPlugins(
   enabled: readonly string[],
   deps: {
     readonly definitions: readonly PluginDefinition[];
+    readonly servers: readonly ServerPart[];
     // Where people open the server, for plugins' public URLs.
     readonly url: () => URL;
     // What the Plugins page lists, on or not.
@@ -291,7 +292,6 @@ export function startPlugins(
   const routeTools = new Map<string, RouteTool>();
   const toolsetUsers = new Set<string>();
   const routeToolProfiles = new Set<string>();
-  let modelCredentials: string | undefined;
   const routes = new Map<string, PluginRoute>();
   const publicRoutes = new Map<string, PublicRoute>();
   const logins: { plugin: string; offered: () => readonly Login[] }[] = [];
@@ -568,17 +568,9 @@ export function startPlugins(
     },
   });
 
-  const environmentsOf = (plugin: string): PluginEnvironments => {
-    const { startsRunners: _startsRunners, ...environments } =
-      pluginEnvironments(
-        deps.sessions,
-        deps.environments,
-        deps.runners,
-        () => undefined,
-        templateConfigOf(plugin),
-      );
-
-    return environments;
+  const environments: PluginEnvironments = {
+    list: () => deps.environments.list(),
+    templates: () => deps.environments.templates(),
   };
 
   // The kernel's own tools have no plugin.
@@ -892,7 +884,7 @@ export function startPlugins(
     };
   };
 
-  const load = async (definition: PluginDefinition): Promise<void> => {
+  const load = (definition: PluginDefinition): void => {
     const { id } = definition;
 
     const log: Log = (message, fields) => {
@@ -920,11 +912,7 @@ export function startPlugins(
       }[],
       profiles: new Map<string, PluginProfile>(),
       routeToolProfiles: [] as string[],
-      logins: [] as (() => readonly Login[])[],
       offers: [] as ModelOffer[],
-      gitLogins: [] as GitLoginsOf[],
-      starters: [] as (typeof starters)[number][],
-      modelCredentials: false,
     };
 
     try {
@@ -948,11 +936,11 @@ export function startPlugins(
         throw new Error(dataFailure);
       }
 
-      const part = await serverPart(definition);
+      const part = deps.servers.find(({ plugin }) => plugin.id === id);
       const store = deps.store(id);
       const signal = AbortSignal.any([deps.signal, failed.signal]);
 
-      await part?.register(
+      part?.register(
         recorded(id, [], false, touched, {
           id,
           people: {
@@ -994,26 +982,8 @@ export function startPlugins(
           transcript,
           urls: pluginUrls(id, deps.url),
           provide: {
-            runners: ({ starts }) => {
-              staged.starters.push({ plugin: id, starts });
-            },
             models: (offer) => {
               staged.offers.push(offer);
-            },
-            gitCredentials: (fn) => {
-              staged.gitLogins.push(fn);
-            },
-            modelCredentials: () => {
-              if (modelCredentials !== undefined) {
-                throw new Error(
-                  `${modelCredentials} already gives the Sessions' logins`,
-                );
-              }
-
-              staged.modelCredentials = true;
-            },
-            signIn: ({ logins: offered }) => {
-              staged.logins.push(offered);
             },
             profile: (key, { name: _name, ...content }, o) => {
               const profileId = `${id}.${key}`;
@@ -1030,17 +1000,11 @@ export function startPlugins(
 
               return profileId;
             },
-            runtime: () => {
-              throw new Error("this server gives plugins no runtime");
-            },
           },
           secrets: secretsOf(store),
-          environments: environmentsOf(id),
-          profiles: {
-            mcpServers: deps.mcpServers ?? (() => []),
-            buildsOn: deps.buildsOn ?? (() => []),
-          },
+          environments,
           clock: deps.clock,
+          timer: deps.timer,
           log,
           signal,
         }),
@@ -1116,15 +1080,7 @@ export function startPlugins(
       routeToolProfiles.add(profileId);
     }
 
-    if (staged.modelCredentials) {
-      modelCredentials = id;
-    }
-
-    logins.push(...staged.logins.map((offered) => ({ plugin: id, offered })));
-
     offers.push(...staged.offers);
-    gitLogins.push(...staged.gitLogins);
-    starters.push(...staged.starters);
     scheduled.commit();
     schedules.wake();
     extRoutes.push(...declared.declared);
@@ -1133,18 +1089,17 @@ export function startPlugins(
     deps.log("plugin registered", { plugin: id });
   };
 
-  // One at a time, so a plugin loads after the ones it requires.
-  const ready = (async () => {
-    for (const definition of inOrder(
-      deps.definitions.filter(({ id }) => enabled.includes(id)),
-    )) {
-      if (deps.signal.aborted) {
-        return;
-      }
-
-      await load(definition);
+  // In order, so a plugin loads after the ones it requires, and before the
+  // server listens.
+  for (const definition of inOrder(
+    deps.definitions.filter(({ id }) => enabled.includes(id)),
+  )) {
+    if (deps.signal.aborted) {
+      break;
     }
-  })();
+
+    load(definition);
+  }
 
   const info = (found: PluginManifest): PluginInfo => {
     const error = failures.get(found.id);
@@ -1197,7 +1152,6 @@ export function startPlugins(
 
   return {
     names: running,
-    ready,
     extRoutes: () => extRoutes,
     list: () => manifests.map(info),
     checkUpdates: async () => {
@@ -1838,29 +1792,6 @@ export interface InstalledPlugins {
   readonly read: (id: string, path: string) => Promise<string>;
   readonly write: (id: string, path: string, content: string) => Promise<void>;
   readonly build: (id: string) => Promise<void>;
-}
-
-async function serverPart(
-  definition: PluginDefinition,
-): Promise<ServerPart | undefined> {
-  const loaded = (await definition.server?.())?.default;
-
-  if (loaded === undefined) {
-    return undefined;
-  }
-
-  if (
-    typeof loaded !== "object" ||
-    loaded === null ||
-    !("plugin" in loaded) ||
-    loaded.plugin !== definition
-  ) {
-    throw new Error(
-      `the server part of ${definition.id} isn't one defineServer made for it`,
-    );
-  }
-
-  return loaded as ServerPart;
 }
 
 function routeOf(route: ExtRoute): Parameters<typeof routeToolsOf>[1] {

@@ -2,4 +2,4 @@
 preload = ["./test-setup.ts"]
 
 [serve.static]
-plugins = ["bun-plugin-tailwind", "./apps/pipoca/src/web-parts.ts"]
+plugins = ["bun-plugin-tailwind"]

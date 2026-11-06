@@ -96,18 +96,9 @@ export default tseslint.config(
     },
   },
   {
-    // A plugin's parts are loaded by their default export (docs/plugins.md).
-    files: [
-      "examples/plugins/**/*.ts",
-      "examples/plugins/**/*.tsx",
-      "apps/pipoca/src/testdata/*-server.ts",
-      "apps/pipoca/src/testdata/*-session.ts",
-      "apps/pipoca/src/web-parts.ts",
-      "plugins/*/src/server.ts",
-      "plugins/*/web/index.tsx",
-      "plugins/*/web.d.ts",
-      "plugins/*/src/session.ts",
-    ],
+    // A v1 example plugin's parts are loaded by their default export
+    // (docs/plugins.md).
+    files: ["examples/plugins/**/*.ts", "examples/plugins/**/*.tsx"],
     rules: { "no-restricted-exports": "off" },
   },
   {
@@ -120,9 +111,9 @@ export default tseslint.config(
           patterns: [
             {
               regex:
-                "^@pipoca/(?!(plugins|plugins/testing|plugins/web|plugins/web/testing|protocol|ui)$)",
+                "^@pipoca/(?!(plugins|plugins/testing|plugins/web|plugins/web/testing|protocol|testing|ui)$)",
               message:
-                "Plugins import only @pipoca/plugins, @pipoca/protocol and @pipoca/ui.",
+                "Plugins import only @pipoca/plugins, @pipoca/protocol, @pipoca/testing and @pipoca/ui.",
             },
             {
               regex: "^\\.\\./\\.\\./",
@@ -203,10 +194,7 @@ export default tseslint.config(
       "apps/web/src/registry.ts",
       // Until these plugins' tests move into the plugins.
       "apps/pipoca/src/kubernetes.test.ts",
-      "apps/pipoca/src/models.test.ts",
       "apps/pipoca/src/projects.test.ts",
-      "apps/pipoca/src/team-sessions.test.ts",
-      "apps/pipoca/src/toolsets.test.ts",
       "packages/sessionhost/src/host.test.ts",
       "packages/sessionhost/src/subagents.test.ts",
     ],
@@ -217,7 +205,7 @@ export default tseslint.config(
           patterns: [
             {
               regex:
-                "^@pipoca/(?!(environments|people|pluginhost|plugins|profiles|protocol|repositories|runner|sessionhost|sessions|ui|web|workspaces)(/|$))",
+                "^@pipoca/(?!(environments|people|pipoca/plugin-test|pluginhost|plugins|profiles|protocol|repositories|runner|sessionhost|sessions|testing|ui|web|workspaces)(/|$))",
               message: "Only the plugin registries import plugins.",
             },
             {

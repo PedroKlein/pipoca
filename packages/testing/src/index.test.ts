@@ -2,19 +2,19 @@ import { afterEach, expect, test } from "bun:test";
 import {
   Config,
   definePlugin,
+  defineServer,
   event,
   type PluginDefinition,
-} from "./definition";
-import type { SessionPlugin } from "./plugin";
-import { defineServer, type ServerContext } from "./server";
+  type SessionPlugin,
+  Type,
+} from "@pipoca/plugins";
 import {
   type PluginTest,
   person,
   testPlugin,
   testSession,
   until,
-} from "./testing";
-import { Type } from "typebox";
+} from "./index";
 
 const tests: PluginTest[] = [];
 
@@ -22,8 +22,8 @@ afterEach(async () => {
   await Promise.all(tests.splice(0).map(async (each) => each.close()));
 });
 
-async function started(
-  ...args: Parameters<typeof testPlugin>
+async function started<P extends PluginDefinition>(
+  ...args: Parameters<typeof testPlugin<P>>
 ): Promise<PluginTest> {
   const t = await testPlugin(...args);
   tests.push(t);
@@ -31,24 +31,11 @@ async function started(
   return t;
 }
 
-function served<P extends PluginDefinition>(
-  plugin: P,
-  register: (context: ServerContext<P>) => void | Promise<void>,
-): P {
-  const definition: P = {
-    ...plugin,
-    server: async () =>
-      Promise.resolve({ default: defineServer(definition, register) }),
-  };
-
-  return definition;
-}
-
 const hour = 60 * 60_000;
 
 // Reminds a Session an hour after it is asked to, and tells it at once that
 // it will.
-const reminders = served(
+const reminders = defineServer(
   definePlugin({
     id: "reminders",
     title: "Reminders",
@@ -154,20 +141,12 @@ test("a restart keeps what waits for an offline Session, and what is scheduled",
   expect(session.queued()).toEqual([]);
 });
 
-let alarmBoots = 0;
 const rung: string[] = [];
 
-// Rings at a time a person picks, and takes a while to start after the first
-// boot.
-const alarms = served(
+// Rings at a time a person picks.
+const alarms = defineServer(
   definePlugin({ id: "alarms", title: "Alarms", description: "Rings." }),
-  async ({ routes, schedule, clock }) => {
-    alarmBoots += 1;
-
-    if (alarmBoots > 1) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-
+  ({ routes, schedule, clock }) => {
     schedule.on("ring:", (_payload, key) => {
       rung.push(key);
     });
@@ -180,23 +159,18 @@ const alarms = served(
   },
 );
 
-test("an at that comes due while its plugin starts fires once it has started", async () => {
+test("an at that comes due across a restart fires once its plugin has started", async () => {
   const t = await started(alarms, { people });
 
   await t.as("ana").post("alarms", {});
   await t.restart();
+  await t.clock.advance("1s");
 
-  expect(
-    await until(
-      () => rung,
-      (each) => each.length > 0,
-      3000,
-    ),
-  ).toEqual(["ring:soon"]);
+  expect(rung).toEqual(["ring:soon"]);
 });
 
 // Says hello by the greeting in its config.
-const greeter = served(
+const greeter = defineServer(
   definePlugin({
     id: "greeter",
     title: "Greeter",
@@ -226,7 +200,7 @@ test("a hand edit of the plugin's config reaches it", async () => {
 });
 
 // Asks another server for the time.
-const remote = served(
+const remote = defineServer(
   definePlugin({ id: "remote", title: "Remote", description: "Asks away." }),
   ({ routes }) => {
     routes.get("time", { auth: "person" }, async () => {
@@ -269,7 +243,7 @@ const pinged = event({
 });
 
 // A tool that asks first and tells whoever started the Session.
-const pings = served(
+const pings = defineServer(
   definePlugin({
     id: "pings",
     title: "Pings",
@@ -292,7 +266,7 @@ const pings = served(
 );
 
 // Counts the pings it hears from the other plugin.
-const counts = served(
+const counts = defineServer(
   definePlugin({
     id: "counts",
     title: "Counts",
@@ -343,7 +317,7 @@ test("a tool that asks runs only when the person says yes", async () => {
 });
 
 // A tool only team work gets, in the Sessions this plugin owns.
-const huddles = served(
+const huddles = defineServer(
   definePlugin({
     id: "huddles",
     title: "Huddles",

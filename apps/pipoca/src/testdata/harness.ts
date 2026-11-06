@@ -14,11 +14,14 @@ interface Waiting {
 
 const longestTimeoutMs = 2 ** 31 - 1;
 
-// The clock follows the system's until a test moves it.
-export function testClock(): TestClock {
+// The clock follows the system's until a test moves it. A frozen one stays
+// where it started, and its timers fire only when it moves.
+export function testClock(o: { readonly frozen?: boolean } = {}): TestClock {
   let ahead = 0;
   const waiting = new Set<Waiting>();
-  const now = (): number => Date.now() + ahead;
+  const start = Date.now();
+
+  const now = (): number => (o.frozen === true ? start : Date.now()) + ahead;
 
   return {
     now,
@@ -39,7 +42,8 @@ export function testClock(): TestClock {
         },
       };
 
-      const real = setTimeout(() => void timer.fire(), ms);
+      const real =
+        o.frozen === true ? undefined : setTimeout(() => void timer.fire(), ms);
 
       const cancel = (): void => {
         clearTimeout(real);

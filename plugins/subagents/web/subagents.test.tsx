@@ -1,22 +1,8 @@
-import { afterAll, expect, test } from "bun:test";
-import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { expect, test } from "bun:test";
 import type { MountedSession, ToolCall } from "@pipoca/plugins/web";
+import { renderPart } from "@pipoca/plugins/web/testing";
 import type { SessionEvent } from "@pipoca/protocol";
-import type { ComponentType } from "react";
-
-// React reads the page when it loads, so it loads after the page exists.
-GlobalRegistrator.register();
-Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-
-const { act, createElement } = await import("react");
-const { createRoot } = await import("react-dom/client");
-const { TestShell } = await import("@pipoca/plugins/web/testing");
-const { about } = await import("../about");
-const { default: part } = await import("./index");
-
-afterAll(async () => {
-  await GlobalRegistrator.unregister();
-});
+import { web } from "./index";
 
 const running = {
   id: "r1",
@@ -104,26 +90,7 @@ function rendered(
   slot: "session.header" | "session.toolCall:subagent",
   session: MountedSession,
 ): HTMLElement {
-  const Part = part.slots?.[slot] as
-    ComponentType<{ session: MountedSession; call: ToolCall }> | undefined;
-
-  if (Part === undefined) {
-    throw new Error(`subagents fills no ${slot}`);
-  }
-
-  const container = document.createElement("div");
-  document.body.append(container);
-
-  act(() => {
-    createRoot(container).render(
-      createElement(TestShell, {
-        plugin: about,
-        children: createElement(Part, { session, call }),
-      }),
-    );
-  });
-
-  return container;
+  return renderPart(web, slot, { session, call });
 }
 
 const tone = (page: HTMLElement): string | null | undefined =>

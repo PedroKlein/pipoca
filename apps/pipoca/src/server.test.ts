@@ -1,10 +1,7 @@
 import { expect, test } from "bun:test";
 import { setTimeout as sleep } from "node:timers/promises";
-import {
-  eventBus,
-  type ServerPlugin,
-  type ServerPluginContext,
-} from "@pipoca/plugins";
+import type { ServerPlugin, ServerPluginContext } from "@pipoca/plugins";
+import { eventBus } from "@pipoca/plugins/host";
 import {
   type Assignment,
   protocolVersion,
@@ -138,6 +135,7 @@ test("reports unhealthy when the database can't be read, keeping why in the log"
         startSession: () => undefined,
       },
       definitions: [],
+      servers: [],
       url: () => new URL("http://pipoca"),
       schedules: store.schedules,
       clock: systemClock,
@@ -245,6 +243,7 @@ function startServer(
         startSession: () => undefined,
       },
       definitions: [],
+      servers: [],
       url: () => new URL("http://pipoca"),
       schedules: store.schedules,
       clock: systemClock,
@@ -647,6 +646,7 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
           startSession: () => undefined,
         },
         definitions: [],
+        servers: [],
         url: () => new URL("http://pipoca"),
         schedules: store.schedules,
         clock: systemClock,

@@ -15,7 +15,7 @@ import {
   useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
-import { about } from "../about";
+import { slack } from "../plugin";
 import type { BotView } from "../src/model";
 
 // A Slack app with Socket Mode and the scopes the plugin's events and posts
@@ -49,7 +49,7 @@ const manifest = {
   },
 };
 
-export default defineWeb(about, {
+export const web = defineWeb(slack, {
   settings: { group: "integrations", Section },
   slots: { "notice:slack_reply": SlackReply },
 });
@@ -59,7 +59,7 @@ function Section(): ReactElement | null {
 }
 
 function Bots(): ReactElement {
-  const api = useApi(about);
+  const api = useApi(slack);
   const [ask, asking] = useConfirm();
 
   const { value, reload } = useLoaded(

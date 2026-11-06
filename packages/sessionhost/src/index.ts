@@ -15,4 +15,5 @@ export {
   syncFolder,
   syncProfile,
 } from "./profile";
+export { setUpPart } from "./parts";
 export { restoreTranscript } from "./restore";

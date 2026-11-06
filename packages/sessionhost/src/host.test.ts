@@ -21,12 +21,11 @@ import { Type } from "@earendil-works/pi-ai";
 import {
   definePlugin,
   defineSession,
-  type SessionPart,
   type SessionPlugin,
 } from "@pipoca/plugins";
 import type { Command, LiveEvent, ToolSpec } from "@pipoca/protocol";
-import { ask } from "@pipoca/ask";
-import { changes } from "@pipoca/changes";
+import { session as askPart } from "@pipoca/ask/session";
+import { session as changesPart } from "@pipoca/changes/session";
 import {
   hostSession,
   hostTerminals,
@@ -36,10 +35,6 @@ import {
 import { fetchingProviderExtension } from "./testdata/fetching-provider";
 import { fauxModels } from "./testdata/models";
 import { sessionOptions } from "./testdata/options";
-
-const askPart = (await ask.session()).default as SessionPart;
-
-const changesPart = (await changes.session()).default as SessionPart;
 
 let root: string;
 

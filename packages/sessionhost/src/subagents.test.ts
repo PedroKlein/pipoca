@@ -12,12 +12,9 @@ import {
   fauxToolCall,
 } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { SessionPart } from "@pipoca/plugins";
 import type { Command, LiveEvent } from "@pipoca/protocol";
-import { subagents } from "@pipoca/subagents";
+import { session as subagentsPart } from "@pipoca/subagents/session";
 import { hostSession, type SessionStream } from "./index";
-
-const subagentsPart = (await subagents.session()).default as SessionPart;
 
 // What the plugin publishes about its runs, as far as these tests read it.
 interface RunView {

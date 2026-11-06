@@ -1,14 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { Config, type PluginStore, Secret, Type } from "@pipoca/plugins";
 import {
-  Config,
   configOf,
   envSecrets,
   pluginConfig,
-  type PluginStore,
-  Secret,
   secretRefs,
-  Type,
-} from "@pipoca/plugins";
+} from "@pipoca/plugins/host";
 
 // Seals like the server's key does: a value opens only under the context
 // it was sealed with, and each plugin's store adds its id to the context.

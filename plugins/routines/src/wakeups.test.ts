@@ -2,14 +2,14 @@ import { afterEach, beforeEach, expect, jest, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  eventBus,
-  type PluginNotice,
-  type PluginRoute,
-  type PluginStore,
-  type SendOutcome,
-  type ServerTool,
+import type {
+  PluginNotice,
+  PluginRoute,
+  PluginStore,
+  SendOutcome,
+  ServerTool,
 } from "@pipoca/plugins";
+import { eventBus } from "@pipoca/plugins/testing";
 import {
   fakeContext,
   fakeSession,

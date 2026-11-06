@@ -2,7 +2,6 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import tailwind from "bun-plugin-tailwind";
-import webParts from "./web-parts";
 
 const { values } = parseArgs({
   options: {
@@ -49,7 +48,7 @@ const result = await Bun.build({
       target: values.target as Bun.Build.CompileTarget,
     }),
   },
-  plugins: [tailwind, webParts, piVersionPlugin],
+  plugins: [tailwind, piVersionPlugin],
 });
 
 if (!result.success) {

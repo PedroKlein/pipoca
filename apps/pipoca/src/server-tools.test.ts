@@ -2,14 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  definePlugin,
-  defineServer,
-  type PluginDefinition,
-  type ServerContext,
-  ToolError,
-  Type,
-} from "@pipoca/plugins";
+import { definePlugin, defineServer, ToolError, Type } from "@pipoca/plugins";
 import {
   type Assignment,
   type Command,
@@ -31,19 +24,6 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-function served<P extends PluginDefinition>(
-  plugin: P,
-  register: (context: ServerContext<P>) => void,
-): P {
-  const definition: P = {
-    ...plugin,
-    server: async () =>
-      Promise.resolve({ default: defineServer(definition, register) }),
-  };
-
-  return definition;
-}
-
 const desk = {
   name: "Desk",
   packages: [],
@@ -54,7 +34,7 @@ const desk = {
   settings: {},
 };
 
-const keys = served(
+const keys = defineServer(
   definePlugin({
     id: "keys",
     title: "Keys",
@@ -66,6 +46,11 @@ const keys = served(
       name: "count_keys",
       description: "Counts keys",
       params: Type.Object({ count: Type.Integer() }),
+      prompt: {
+        snippet: "Count keys before you wipe them",
+        guidelines: ["Count again after a wipe"],
+      },
+      sequential: true,
       run: (input) => {
         ran.push(input);
 
@@ -139,9 +124,9 @@ const keys = served(
         },
       },
       ({ params, body, caller }) => ({
-        name: params["name"],
+        name: params.name,
         value: body.value,
-        by: caller.kind === "person" ? caller.person.name : caller.kind,
+        by: caller.person.name,
       }),
     );
 
@@ -158,7 +143,7 @@ const keys = served(
       { auth: "person", body: Type.Object({ environment: Type.String() }) },
       ({ caller, body }) =>
         sessions.start({
-          actor: `user:${caller.kind === "person" ? caller.person.id : ""}`,
+          actor: `user:${caller.person.id}`,
           environment: body.environment,
           profile,
           workspace: { kind: "folder", path: root },
@@ -169,7 +154,7 @@ const keys = served(
 );
 
 // A list for each person and one for the team, read by a route tool.
-const lists = served(
+const lists = defineServer(
   definePlugin({
     id: "lists",
     title: "Lists",
@@ -183,20 +168,22 @@ const lists = served(
       { team: true, routeTools: true },
     );
 
-    routes.scoped("lists", (scoped) => {
-      scoped.get(
-        "",
-        { tool: { name: "lists_read", description: "Reads the list" } },
-        ({ owner }) => ({ owner }),
-      );
-    });
+    routes.get(
+      "lists",
+      {
+        auth: "person",
+        team: true,
+        tool: { name: "lists_read", description: "Reads the list" },
+      },
+      ({ caller }) => ({ owner: caller.owner }),
+    );
 
     routes.post(
       "planners",
       { auth: "person", body: Type.Object({ environment: Type.String() }) },
       ({ caller, body }) =>
         sessions.start({
-          actor: `user:${caller.kind === "person" ? caller.person.id : ""}`,
+          actor: `user:${caller.person.id}`,
           environment: body.environment,
           profile,
           team: true,
@@ -213,7 +200,7 @@ beforeEach(async () => {
 
   server = testServer({
     runners: { pollWaitMs: 0 },
-    definitions: [keys, lists],
+    servers: [keys, lists],
   });
 });
 
@@ -385,6 +372,23 @@ test("leaves a team-only tool out of personal work", async () => {
   });
 });
 
+test("tells the Session what the system prompt says about a tool, and that it runs alone", async () => {
+  const { token, environment } = await laptop();
+  await ordinary(environment);
+  const assigned = await claim(token);
+
+  const count = (await toolsOf(token, assigned)).find(
+    ({ name }) => name === "count_keys",
+  );
+
+  expect(count?.prompt).toEqual({
+    snippet: "Count keys before you wipe them",
+    guidelines: ["Count again after a wipe"],
+  });
+
+  expect(count?.sequential).toBe(true);
+});
+
 test("says a tool asks, and what to ask the person, before every call", async () => {
   const { token, environment } = await laptop();
   await ordinary(environment);
@@ -437,7 +441,7 @@ test("leaves out only the tool whose availability check throws", async () => {
   );
 });
 
-test("runs a scoped route's tool on the team's half in a team Session", async () => {
+test("runs a team route's tool on the team's half in a team Session", async () => {
   const office = await json<{ id: string; key: string }>(
     server.api("/api/environments", { body: { name: "office", team: true } }),
   );

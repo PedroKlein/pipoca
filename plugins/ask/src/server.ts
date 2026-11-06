@@ -1,15 +1,13 @@
 import {
   BadRequest,
-  type Caller,
   defineServer,
-  Forbidden,
   HttpError,
   NotFound,
   type Person,
   type ServerContext,
+  type Session,
   Type,
 } from "@pipoca/plugins";
-import type { Session } from "@pipoca/protocol";
 import { ask } from "../plugin";
 import type { Votes } from "./votes";
 
@@ -48,7 +46,7 @@ interface StoredVote {
 // Anyone in team work opens a vote, Pi too. The opener or the starter closes
 // it, or it closes on time, and Pi reads the result on its next turn
 // (ADR 0065).
-export default defineServer(ask, (context) => {
+export const server = defineServer(ask, (context) => {
   const { routes, schedule, tools } = context;
   const votes = ballots(context);
 
@@ -72,30 +70,25 @@ export default defineServer(ask, (context) => {
     },
   });
 
-  routes.get("sessions/:id/votes", { auth: "person" }, ({ params, caller }) => {
-    const person = personOf(caller);
-
-    return votes.of(votes.session(params["id"] ?? "", person), person);
-  });
+  routes.get(
+    "sessions/:id/votes",
+    { auth: "person" },
+    ({ params, caller: { person } }) =>
+      votes.of(votes.session(params.id, person), person),
+  );
 
   routes.post(
     "sessions/:id/votes",
-    { auth: "person", body: opening, changes: ["votes"] },
-    ({ params, caller, body }) => {
-      const person = personOf(caller);
-      const session = votes.session(params["id"] ?? "", person);
-
-      return Response.json(votes.open(session, `user:${person.id}`, body), {
-        status: 201,
-      });
-    },
+    { auth: "person", body: opening, status: 201, changes: ["votes"] },
+    ({ params, caller: { person }, body }) =>
+      votes.open(votes.session(params.id, person), `user:${person.id}`, body),
   );
 
   routes.put(
     "votes/:id/pick",
     { auth: "person", body: picking, changes: ["votes"] },
     ({ params, caller, body }) => {
-      votes.pick(params["id"] ?? "", personOf(caller), body.option);
+      votes.pick(params.id, caller.person, body.option);
 
       return { ok: true };
     },
@@ -105,7 +98,7 @@ export default defineServer(ask, (context) => {
     "votes/:id/close",
     { auth: "person", changes: ["votes"] },
     ({ params, caller }) => {
-      votes.close(params["id"] ?? "", personOf(caller));
+      votes.close(params.id, caller.person);
 
       return { ok: true };
     },
@@ -318,16 +311,6 @@ function ballots(context: ServerContext<typeof ask>) {
       }
     },
   };
-}
-
-// Votes are people's, so only a signed-in person, not a Session, calls the
-// routes.
-function personOf(caller: Caller): Person {
-  if (caller.kind !== "person") {
-    throw new Forbidden("only a person votes", "people_only");
-  }
-
-  return caller.person;
 }
 
 // The result as the team and Pi read it, such as "Ship it today?": Ship 2

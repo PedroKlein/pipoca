@@ -9,15 +9,15 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  eventBus,
-  type PluginRoute,
-  type PluginStore,
-  type PublicRoute,
-  type SendOutcome,
-  type ServerTool,
-  type StartRequest,
+import type {
+  PluginRoute,
+  PluginStore,
+  PublicRoute,
+  SendOutcome,
+  ServerTool,
+  StartRequest,
 } from "@pipoca/plugins";
+import { eventBus } from "@pipoca/plugins/testing";
 import {
   fakeContext,
   fakeSession,

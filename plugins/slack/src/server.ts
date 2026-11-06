@@ -47,7 +47,7 @@ const retryPrefix = "connect:";
 
 // Slack messages as routine triggers, and Sessions that post as a bot, with
 // replies in their threads coming back to them (ADR 0062).
-export default defineServer(
+export const server = defineServer(
   slack,
   ({
     config,
@@ -189,7 +189,10 @@ export default defineServer(
       connections.get(key.slice(retryPrefix.length))?.connection.reopen();
     });
 
-    schedule.cancelPrefix(retryPrefix);
+    for (const { key } of schedule.pending(retryPrefix)) {
+      schedule.cancel(key);
+    }
+
     config.watch(reconcile);
     reconcile();
 
@@ -263,7 +266,7 @@ export default defineServer(
 
     routes.post(
       "bots",
-      { auth: "admin", body: newBot },
+      { auth: "admin", body: newBot, status: 201 },
       async ({ body, caller }) => {
         if (bots.get(body.name) !== undefined) {
           throw new BadRequest(`there is a bot ${body.name} already`);
@@ -284,17 +287,17 @@ export default defineServer(
           botUser: userId,
           appToken: body.appToken.trim(),
           botToken: body.botToken.trim(),
-          users: caller.kind === "person" ? [caller.owner] : [],
+          users: [caller.owner],
         });
 
         log("slack bot added", { name: body.name, team });
 
-        return Response.json({ name: body.name, team }, { status: 201 });
+        return { name: body.name, team };
       },
     );
 
     routes.delete("bots/:name", { auth: "admin" }, ({ params }) => {
-      const name = params["name"] ?? "";
+      const { name } = params;
 
       if (!bots.remove(name)) {
         throw new NotFound(`no bot ${name}`);

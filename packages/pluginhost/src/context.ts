@@ -1,4 +1,3 @@
-import { createHash, randomBytes } from "node:crypto";
 import { canSee } from "@pipoca/people";
 import type {
   PluginStore,
@@ -96,7 +95,5 @@ export function secretsOf(store: PluginStore): Secrets {
   return {
     seal: (table, rowId, text) => store.seal(text, `${table}:${rowId}`),
     open: (table, rowId, sealed) => store.open(sealed, `${table}:${rowId}`),
-    token: (bytes = 32) => randomBytes(bytes).toString("base64url"),
-    hash: (token) => createHash("sha256").update(token).digest("hex"),
   };
 }

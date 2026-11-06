@@ -6,9 +6,7 @@ import {
   Config,
   definePlugin,
   defineServer,
-  type PluginDefinition,
   Secret,
-  type ServerContext,
   Type,
 } from "@pipoca/plugins";
 import type { Environment, Session } from "@pipoca/protocol";
@@ -23,22 +21,9 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-function served<P extends PluginDefinition>(
-  plugin: P,
-  register: (context: ServerContext<P>) => void,
-): P {
-  const definition: P = {
-    ...plugin,
-    server: async () =>
-      Promise.resolve({ default: defineServer(definition, register) }),
-  };
-
-  return definition;
-}
-
 const text = Type.Object({ text: Type.String() });
 
-const ledger = served(
+const ledger = defineServer(
   definePlugin({
     id: "ledger",
     title: "Ledger",
@@ -63,7 +48,6 @@ const ledger = served(
     schedule,
     secrets,
     environments,
-    profiles,
     clock,
   }) => {
     const heard: unknown[] = [];
@@ -87,10 +71,8 @@ const ledger = served(
 
     routes.get("entries/:id", { auth: "person" }, ({ params }) => ({
       one:
-        store.get(
-          "select text from ledger_entries where id = ?",
-          params["id"] ?? "",
-        ) ?? null,
+        store.get("select text from ledger_entries where id = ?", params.id) ??
+        null,
       all: store.all("select text from ledger_entries order by id"),
     }));
 
@@ -113,16 +95,14 @@ const ledger = served(
       "books/:name",
       { auth: "admin", body: Type.Object({ key: Type.String() }) },
       ({ params, body }) => {
-        config
-          .collection("books")
-          .put({ name: params["name"] ?? "", key: body.key });
+        config.collection("books").put({ name: params.name, key: body.key });
 
         return config.collection("books").list();
       },
     );
 
     routes.delete("books/:name", { auth: "admin" }, ({ params }) => ({
-      removed: config.collection("books").remove(params["name"] ?? ""),
+      removed: config.collection("books").remove(params.name),
     }));
 
     routes.get("watched", { auth: "person" }, () => heard);
@@ -131,7 +111,7 @@ const ledger = served(
       "sessions/:id/notes",
       { auth: "person", body: text },
       ({ params, body }) => ({
-        sent: sessions.send(params["id"] ?? "", {
+        sent: sessions.send(params.id, {
           text: body.text,
           turn: false,
         }),
@@ -148,7 +128,6 @@ const ledger = served(
 
     routes.get("secrets", { auth: "person" }, () => {
       const sealed = secrets.seal("ledger_entries", "1", "hush");
-      const token = secrets.token();
 
       return {
         opened: secrets.open("ledger_entries", "1", sealed),
@@ -159,14 +138,11 @@ const ledger = served(
             return "refused";
           }
         })(),
-        token: token.length > 20,
-        hash: secrets.hash(token) === secrets.hash(token),
       };
     });
 
     routes.get("machines", { auth: "person" }, () => ({
       environments: environments.list().map(({ name }) => name),
-      mcpServers: profiles.mcpServers(),
     }));
   },
 );
@@ -177,7 +153,7 @@ beforeEach(async () => {
   server = testServer({
     configDir: join(root, "config"),
     runners: { pollWaitMs: 0 },
-    definitions: [ledger],
+    servers: [ledger],
   });
 });
 
@@ -281,16 +257,13 @@ test("seals secrets for a row that only that row opens", async () => {
   expect(await api("secrets")).toEqual({
     opened: "hush",
     moved: "refused",
-    token: true,
-    hash: true,
   });
 });
 
-test("reads the Environments and Profile MCP servers", async () => {
+test("reads the Environments", async () => {
   await runnerCredentials(server, server.signedIn).token("laptop");
 
   expect(await api("machines")).toEqual({
     environments: expect.arrayContaining(["laptop"]) as unknown,
-    mcpServers: [],
   });
 });

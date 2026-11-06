@@ -1,4 +1,5 @@
-import { Config, kernelConfig, type ConfigKey } from "@pipoca/plugins";
+import { Config, type ConfigKey } from "@pipoca/plugins";
+import { kernelConfig } from "@pipoca/plugins/host";
 import { type HubLayout, hubLayout, type Log } from "@pipoca/protocol";
 
 export interface Hub {

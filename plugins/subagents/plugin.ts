@@ -1,8 +1,8 @@
 import { definePlugin } from "@pipoca/plugins";
-import { about } from "./about";
 
 export const subagents = definePlugin({
-  ...about,
-  session: async () => import("./src/session"),
-  web: async () => import("./web"),
+  id: "subagents",
+  title: "Subagents",
+  description: "Lets a Session start subagents and shows their runs.",
+  works: ["personal", "team"],
 });
