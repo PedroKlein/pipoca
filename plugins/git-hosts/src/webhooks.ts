@@ -1,4 +1,4 @@
-import { fieldsOf, isObject, type Static } from "@pipoca/plugins";
+import type { Static } from "@pipoca/plugins";
 import type { gitHosts } from "../plugin";
 
 type Defined = (typeof gitHosts)["events"];
@@ -182,4 +182,12 @@ function clipped(value: unknown): string {
   const body = text(value);
 
   return body.length > maxBody ? `${body.slice(0, maxBody)}…` : body;
+}
+
+function isObject(value: unknown): value is Fields {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function fieldsOf(value: unknown): Fields {
+  return isObject(value) ? value : {};
 }

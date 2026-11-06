@@ -1,78 +1,10 @@
 import { Type } from "typebox";
 import { anyMap, strings, type Wire } from "./wire";
 
-const settingValue = Type.Union([
-  Type.String(),
-  Type.Number(),
-  Type.Boolean(),
-  strings,
-]);
-
-export type SettingValue = Wire<typeof settingValue>;
-
-export const pluginSettings = Type.Record(Type.String(), settingValue);
-
-export type PluginSettings = Wire<typeof pluginSettings>;
-
 const described = {
   title: Type.String(),
   description: Type.Optional(Type.String()),
 };
-
-// A setting a plugin declares in its manifest (ADR 0036).
-export const settingSpec = Type.Union([
-  Type.Object({
-    ...described,
-    type: Type.Literal("string"),
-    default: Type.String(),
-  }),
-  Type.Object({
-    ...described,
-    type: Type.Literal("number"),
-    default: Type.Number(),
-    min: Type.Optional(Type.Number()),
-    max: Type.Optional(Type.Number()),
-  }),
-  Type.Object({
-    ...described,
-    type: Type.Literal("boolean"),
-    default: Type.Boolean(),
-  }),
-  Type.Object({
-    ...described,
-    type: Type.Literal("choice"),
-    options: strings,
-    default: Type.String(),
-  }),
-  Type.Object({
-    ...described,
-    type: Type.Literal("strings"),
-    default: strings,
-  }),
-]);
-
-export type SettingSpec = Wire<typeof settingSpec>;
-
-// What a plugin's server part may reach on its context besides its own
-// store, settings, signal and log, built-in or installed alike (ADR 0022).
-export const capabilities = [
-  "tools",
-  "toolsets",
-  "events",
-  "sessions",
-  "environments",
-  "profiles",
-  "routes",
-  "models",
-  "people",
-  "transcript",
-] as const;
-
-export type Capability = (typeof capabilities)[number];
-
-// The plugin interface an installed plugin is written for. It changes only
-// when something a plugin can reach goes away or changes meaning (ADR 0036).
-export const pluginEngine = 1;
 
 const eventSpec = Type.Object({
   ...described,
@@ -94,31 +26,15 @@ export const pluginWork = Type.Enum(["personal", "team"]);
 
 export type PluginWork = Wire<typeof pluginWork>;
 
-// The pipoca field of a plugin's package.json (ADR 0022, ADR 0036).
+const pluginPart = Type.Enum(["server", "session", "web"]);
+
+// A plugin as its definition, or before an installed one runs, its folder
+// says (ADR 0069).
 export const pluginManifest = Type.Object({
   id: Type.String(),
   title: Type.String(),
   description: Type.String(),
-  settings: Type.Optional(Type.Record(Type.String(), settingSpec)),
-  version: Type.Optional(Type.String()),
-  engine: Type.Optional(Type.Number()),
-  // Paths inside the plugin's folder.
-  parts: Type.Optional(
-    Type.Object({
-      server: Type.Optional(Type.String()),
-      web: Type.Optional(Type.String()),
-      session: Type.Optional(Type.String()),
-    }),
-  ),
-  capabilities: Type.Optional(Type.Array(Type.Enum(capabilities))),
-  // An installed plugin's Session part loads only in the Sessions its server
-  // part owns. A built-in says so on its Session part instead.
-  ownSessionsOnly: Type.Optional(Type.Boolean()),
-  // The events the plugin publishes, by name without the plugin's prefix,
-  // which an editor of triggers offers (ADR 0059).
-  events: Type.Optional(
-    Type.Record(Type.String({ pattern: "^[a-z][a-z0-9_]*$" }), eventSpec),
-  ),
+  parts: Type.Optional(Type.Array(pluginPart)),
   // Where it works. Without "team" its parts never load in team work
   // (ADR 0067).
   works: Type.Optional(Type.Array(pluginWork)),
@@ -138,7 +54,10 @@ export const pluginInfo = Type.Object({
   // It failed because its tables can't be used, which resetting its data
   // fixes (ADR 0068).
   resettable: Type.Optional(Type.Boolean()),
-  values: pluginSettings,
+  // The members of its context its server part reached, such as routes,
+  // and what it provides the kernel, such as runners (ADR 0069).
+  uses: Type.Optional(strings),
+  provides: Type.Optional(strings),
   // Where the shell loads an installed plugin's web part from.
   webPart: Type.Optional(Type.String()),
   // The git repository or tarball it was installed from, and the commit or
@@ -169,9 +88,7 @@ export const pluginConfig = Type.Object({
   lockedIn: Type.Optional(Type.String()),
 });
 
-// Settings are checked against the plugin's own declared settings.
 export const pluginUpdate = Type.Object({
-  settings: Type.Optional(Type.Unknown()),
   // Only an installed plugin can be turned on or off, or updated, here.
   enabled: Type.Optional(Type.Boolean()),
   digest: Type.Optional(Type.String()),

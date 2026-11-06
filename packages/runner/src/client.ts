@@ -4,7 +4,6 @@ import {
   apiClient,
   ApiError,
   type ApiInput,
-  apiPath,
   type ApiReply,
   type JoinRequest,
   type RouteKey,
@@ -402,7 +401,7 @@ export function httpSessionStream(
     },
     pluginRequest: async (plugin, path, init = {}) => {
       const url = new URL(
-        apiPath("runner.ext", { params: { id: sessionId, plugin, path } }),
+        `/runner/sessions/${encodeURIComponent(sessionId)}/ext/${plugin}/${path}`,
         agent.server,
       );
 

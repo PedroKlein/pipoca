@@ -9,11 +9,15 @@ import {
 import type {
   SessionContext,
   SessionLogins,
-  SessionPart,
   SessionTool,
   SessionToolCall,
 } from "@pipoca/plugins";
-import { pluginClient, toolAnswer, toolSpecOf } from "@pipoca/plugins/host";
+import {
+  pluginClient,
+  type SessionPart,
+  toolAnswer,
+  toolSpecOf,
+} from "@pipoca/plugins/host";
 import { piToolOf } from "./tools";
 
 export type PartHost = Omit<

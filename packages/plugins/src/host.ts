@@ -1,8 +1,7 @@
-// What the server and the Session host use to run plugins. Plugins don't
-// import it.
 export { checkBody } from "./body";
 export { type ClientOptions, pluginClient } from "./client";
 export {
+  type ConfigKey,
   type ConfigSecrets,
   configOf,
   kernelConfig,
@@ -15,10 +14,22 @@ export {
   eventBus,
   type KernelEventOf,
   pluginEvents,
-  type TypedBus,
 } from "./events";
-export { isToolError, readJson } from "./http";
+export { fieldsOf, isObject, isToolError, readJson } from "./http";
 export { envSecrets, type EnvSecrets, secretRefs } from "./secrets";
-export { checkedSettings, settingSpecs, settingValues } from "./settings";
+export type {
+  ModelOffer,
+  PluginEnvironments,
+  PluginProfile,
+  RunnerProvider,
+  Runtime,
+  ServerPart,
+  StartRequest,
+} from "./server";
+export type {
+  AskPermission,
+  ChildOptions,
+  SessionPart,
+} from "./session";
 export { toolAnswer, toolSpecOf } from "./tools";
 export { transcriptReader } from "./transcript";

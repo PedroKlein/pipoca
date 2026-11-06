@@ -27,10 +27,10 @@ import {
   SettingsManager,
   type ToolExposure,
 } from "@earendil-works/pi-coding-agent";
-import type { Checkout, ChildOptions, SessionLogins } from "@pipoca/plugins";
+import type { Checkout, SessionLogins } from "@pipoca/plugins";
+import type { ChildOptions } from "@pipoca/plugins/host";
 import type { ModelRef, ThinkingLevel } from "@pipoca/protocol";
 import chalk from "chalk";
-import { pluginPackages } from "./packages";
 import type { Surfaces } from "./surfaces";
 import type { RemoteUI } from "./ui";
 import "./codemode";
@@ -66,8 +66,6 @@ export interface SessionHost {
   readonly ui: RemoteUI & Surfaces;
   readonly tools: readonly ToolDefinition[];
   readonly extensions: readonly InlineExtension[];
-  // Pi package sources plugins load in every Session.
-  readonly packages: readonly string[];
   readonly onError: (error: ExtensionError) => void;
   // Logins kept elsewhere than the machine's files (ADR 0045).
   readonly logins?: SessionLogins;
@@ -166,7 +164,7 @@ export async function startSession(
       ...(host ? [toolFinders(host.tools)] : []),
       ...(host?.extensions ?? []),
     ],
-    ...(host && { packages: host.packages, onError: host.onError }),
+    ...(host && { onError: host.onError }),
     ...(host?.logins && { credentials: host.logins.models }),
   });
 
@@ -339,7 +337,6 @@ async function loadServices(
   cwd: string,
   options: ModelOptions,
   {
-    packages = [],
     onError = () => undefined,
     projectTrusted = true,
     credentials,
@@ -349,7 +346,6 @@ async function loadServices(
     readonly projectTrusted?: boolean;
     readonly appendSystemPromptOverride?: (base: string[]) => string[];
     readonly extensionFactories?: InlineExtension[];
-    readonly packages?: readonly string[];
     readonly onError?: (error: ExtensionError) => void;
   } = {},
 ): Promise<AgentSessionServices> {
@@ -359,20 +355,13 @@ async function loadServices(
     projectTrusted,
   });
 
-  const plugins = await pluginPackages(
-    packages,
-    { cwd, agentDir, settingsManager },
-    onError,
-  );
-
   const services = await createAgentSessionServices({
     cwd,
     agentDir,
     settingsManager,
     resourceLoaderOptions: {
       ...resources,
-      additionalExtensionPaths: [...plugins.sources, ...options.extensionPaths],
-      extensionsOverride: plugins.override,
+      additionalExtensionPaths: [...options.extensionPaths],
       skillsOverride: withoutHomeSkills,
       agentsFilesOverride: withoutHomeContext,
     },

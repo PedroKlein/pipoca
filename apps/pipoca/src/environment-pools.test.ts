@@ -13,11 +13,8 @@ import {
   type Work,
   type WorkPoll,
 } from "@pipoca/protocol";
-import {
-  definePlugin,
-  defineServer,
-  type PluginEnvironments,
-} from "@pipoca/plugins";
+import { definePlugin, defineServer } from "@pipoca/plugins";
+import type { PluginEnvironments } from "@pipoca/plugins/host";
 import { readSse } from "@pipoca/protocol";
 import { runnerCredentials } from "./testdata/runners";
 import { json, testServer, type TestServer } from "./testdata/harness";

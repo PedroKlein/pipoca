@@ -7,7 +7,7 @@ import type {
   ServerPlugin,
   ServerPluginContext,
 } from "@pipoca/plugins";
-import { until } from "@pipoca/plugins/testing";
+import { until } from "@pipoca/testing/until";
 import { closeServers, testClock, testServer } from "./testdata/harness";
 
 const minute = 60_000;

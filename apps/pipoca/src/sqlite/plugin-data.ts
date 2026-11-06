@@ -1,5 +1,5 @@
 import type { DatabaseSync, StatementSync } from "node:sqlite";
-import type { PluginStore } from "@pipoca/plugins";
+import type { PluginDb } from "@pipoca/pluginhost";
 import { transaction } from "./database";
 import type { SecretBox } from "./secret-box";
 
@@ -8,7 +8,7 @@ export function pluginStore(
   db: DatabaseSync,
   name: string,
   box: SecretBox,
-): PluginStore {
+): PluginDb {
   const statements = new Map<string, StatementSync>();
 
   const prepared = (sql: string): StatementSync => {

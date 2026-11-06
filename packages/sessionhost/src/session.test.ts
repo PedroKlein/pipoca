@@ -31,7 +31,7 @@ import {
   stopSession,
 } from "./session";
 import type { McpLoginState, McpLoginStore } from "@pipoca/plugins";
-import { until } from "@pipoca/plugins/testing";
+import { until } from "@pipoca/testing/until";
 import { fetchingProviderExtension } from "./testdata/fetching-provider";
 import { fauxModels } from "./testdata/models";
 import { sessionOptions } from "./testdata/options";

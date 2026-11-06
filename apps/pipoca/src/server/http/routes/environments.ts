@@ -1,11 +1,5 @@
-import {
-  BadRequest,
-  HttpError,
-  isObject,
-  NotFound,
-  Type,
-} from "@pipoca/plugins";
-import { checkBody } from "@pipoca/plugins/host";
+import { BadRequest, HttpError, NotFound, Type } from "@pipoca/plugins";
+import { checkBody, isObject } from "@pipoca/plugins/host";
 import {
   type Environment,
   type EnvironmentKey,

@@ -1,11 +1,21 @@
 import { canSee } from "@pipoca/people";
 import type {
-  PluginStore,
   Secrets,
   Sessions as PluginSessions,
+  SqlValue,
   Store,
 } from "@pipoca/plugins";
 import type { Sessions } from "@pipoca/sessions";
+
+// A plugin's tables on the server's database, and the server's key that
+// seals its secrets for one context, such as a row.
+export interface PluginDb {
+  readonly all: (sql: string, ...params: readonly SqlValue[]) => unknown[];
+  readonly run: (sql: string, ...params: readonly SqlValue[]) => void;
+  readonly transaction: <T>(fn: () => T) => T;
+  readonly seal: (text: string, context: string) => string;
+  readonly open: (sealed: string, context: string) => string;
+}
 
 export function sessionsFor(
   sessions: Sessions,
@@ -68,13 +78,10 @@ export function sessionsFor(
       settle(sessions.bind(plugin, key, sessionId), "bound");
     },
     boundTo: (key) => sessions.boundTo(plugin, key),
-    unbind: (key) => {
-      sessions.unbind(plugin, key);
-    },
   };
 }
 
-export function storeOf(store: PluginStore): Store {
+export function storeOf(store: PluginDb): Store {
   return {
     get: (sql, ...params) => store.all(sql, ...params)[0] as never,
     all: (sql, ...params) => store.all(sql, ...params) as never,
@@ -91,7 +98,7 @@ export function storeOf(store: PluginStore): Store {
   };
 }
 
-export function secretsOf(store: PluginStore): Secrets {
+export function secretsOf(store: PluginDb): Secrets {
   return {
     seal: (table, rowId, text) => store.seal(text, `${table}:${rowId}`),
     open: (table, rowId, sealed) => store.open(sealed, `${table}:${rowId}`),

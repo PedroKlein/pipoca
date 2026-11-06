@@ -1,14 +1,6 @@
 import { expect, test } from "bun:test";
-import {
-  BadRequest,
-  fieldsOf,
-  HttpError,
-  isHttpError,
-  NotFound,
-  requireAdmin,
-} from "@pipoca/plugins";
-import { fakeSession, fakeUser } from "@pipoca/plugins/testing";
-import { readJson } from "./http";
+import { BadRequest, HttpError, isHttpError, NotFound } from "@pipoca/plugins";
+import { fieldsOf, readJson } from "./http";
 
 const post = (body: string): Request =>
   new Request("http://plugin/items", { method: "POST", body });
@@ -47,29 +39,6 @@ test("carries the status and code the server answers with", () => {
     { status: 409, code: "notes_full", message: "notes are full" },
     { status: 418, code: "error", message: "short and stout" },
   ]);
-});
-
-test("lets only an admin through to a route that changes shared config", () => {
-  const session = fakeSession();
-
-  expect(() => {
-    requireAdmin(fakeUser({ admin: true }), "only admins change names");
-  }).not.toThrow();
-
-  for (const caller of [
-    fakeUser(),
-    { kind: "session", session, actor: `session:${session.id}` } as const,
-  ]) {
-    expect(() => {
-      requireAdmin(caller, "only admins change names");
-    }).toThrow(
-      expect.objectContaining({
-        status: 403,
-        code: "admin_only",
-        message: "only admins change names",
-      }),
-    );
-  }
 });
 
 test("recognizes an HTTP error, also from another copy of the SDK", () => {

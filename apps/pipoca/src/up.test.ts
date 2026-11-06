@@ -16,7 +16,7 @@ import { createInterface } from "node:readline";
 import type { Environment, Session, SessionEvent } from "@pipoca/protocol";
 import { readSse } from "@pipoca/protocol";
 import { testServer } from "./testdata/harness";
-import { until } from "@pipoca/plugins/testing";
+import { until } from "@pipoca/testing/until";
 
 const main = join(import.meta.dirname, "main.ts");
 

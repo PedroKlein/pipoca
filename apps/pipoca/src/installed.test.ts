@@ -32,7 +32,7 @@ import { latestCommit } from "@pipoca/repositories";
 import type { ServeOptions } from "./serve";
 import { readSse } from "@pipoca/protocol";
 import { closeServers, testServer, type TestServer } from "./testdata/harness";
-import { until } from "@pipoca/plugins/testing";
+import { until } from "@pipoca/testing/until";
 
 let root: string;
 let plugins: string;

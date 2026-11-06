@@ -95,18 +95,12 @@ export {
 } from "./log";
 export { readSse, sseResponse } from "./sse";
 export {
-  capabilities,
-  type Capability,
   type DeclaredEvent,
-  pluginEngine,
   pluginFileWrite,
   type PluginInfo,
   pluginInstall,
   type PluginManifest,
-  type PluginSettings,
   pluginUpdate,
-  type SettingSpec,
-  type SettingValue,
   type ToolAnnotations,
   type ToolNamespace,
   type ToolSpec,

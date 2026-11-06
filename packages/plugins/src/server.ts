@@ -1,13 +1,17 @@
 import type {
+  ActsAs,
   Actor,
   Clock,
+  CreateSession,
   DeclaredEvent,
   EnvironmentTemplate,
   Environment,
   GitLogin,
   Log,
   Method,
+  ModelRef,
   Owner,
+  ProfileContent,
   RouteToolSpec,
   Session,
   SessionAccess,
@@ -16,20 +20,53 @@ import type {
 } from "@pipoca/protocol";
 import type { Static, TObject, TSchema } from "typebox";
 import type { EventDef, Events, PluginDefinition } from "./definition";
-import type { KernelEventOf } from "./events";
+import type { KernelEvent, KernelEventOf } from "./events";
 import type { Schedule } from "./schedule";
-import type {
-  KernelEvent,
-  ModelOffer,
-  PluginProfile,
-  ProfileMcpServer,
-  RunnerSource,
-  SqlValue,
-  StartRequest,
-} from "./plugin";
 import type { Transcript } from "./transcript";
 
 export type { ToolResultEntry, Transcript } from "./transcript";
+
+export type StartRequest = CreateSession & {
+  readonly actor: Actor;
+  // The identity a plugin's gitCredentials resolve for its git, such as a
+  // technical user (ADR 0060). Only plugins start Sessions acting as one.
+  readonly actsAs?: ActsAs;
+  // Who steers team work from the start, such as only the person whose
+  // Team assistant it is (ADR 0067).
+  readonly access?: SessionAccess;
+};
+
+// What decides where an Environment's runners come from (ADR 0049).
+export type RunnerSource = Pick<Environment, "id" | "templateId">;
+
+export type SqlValue = string | number | bigint | null | Uint8Array;
+
+export interface ProfileMcpServer {
+  readonly name: string;
+  readonly config: unknown;
+}
+
+// A read-only Profile a plugin ships for the Sessions it owns, such as the
+// meta Profile (ADR 0035). Users don't list or edit it.
+export interface PluginProfile extends ProfileContent {
+  readonly name: string;
+}
+
+// Models a plugin offers for an Environment: listed before the machine's own
+// in model fields, and a default for Sessions that name none.
+export interface OfferedModels {
+  readonly models: readonly ModelRef[];
+  readonly default?: ModelRef;
+  // `provider/id` of models the pickers leave out, such as ones an admin hid.
+  readonly hidden?: readonly string[];
+}
+
+// The user is the one who looks at the models, when there is one, such as
+// models their own logins reach.
+export type ModelOffer = (
+  environment: RunnerSource & Pick<Environment, "ownerId">,
+  userId?: string,
+) => OfferedModels;
 
 export interface Person {
   readonly id: string;
@@ -338,7 +375,6 @@ export interface Sessions {
   // A key of the plugin's own, such as a mail thread, names one Session.
   readonly bind: (key: string, sessionId: string) => void;
   readonly boundTo: (key: string) => string | undefined;
-  readonly unbind: (key: string) => void;
 }
 
 export interface Store {

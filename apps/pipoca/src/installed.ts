@@ -11,30 +11,15 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import type {
-  PluginDefinition,
-  ServerPart,
-  ServerPlugin,
-} from "@pipoca/plugins";
-import { settingSpecs } from "@pipoca/plugins/host";
-import {
-  capabilities,
-  type PluginManifest,
-  pluginEngine,
-} from "@pipoca/protocol";
-import type { Log } from "@pipoca/protocol";
-import { Type } from "typebox";
+import type { PluginDefinition } from "@pipoca/plugins";
+import type { ServerPart } from "@pipoca/plugins/host";
+import type { Log, PluginManifest } from "@pipoca/protocol";
+import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
-import {
-  bundleDefined,
-  bundleParts,
-  importedDefinition,
-  type PluginParts,
-  provideSdk,
-} from "./bundle";
+import { bundlePlugin, importedDefinition, type PluginParts } from "./bundle";
 import { kernelKeys } from "@pipoca/pluginhost";
 import { builtInPlugins, definedManifest } from "./built-in";
-import { definedParts } from "./parts";
+import { definedParts, type Part } from "./parts";
 import { fetchSnapshot } from "@pipoca/repositories";
 
 // Where an installed plugin came from, and the exact version fetched: a git
@@ -50,8 +35,7 @@ interface PluginSource {
 export interface InstalledPlugin {
   readonly manifest: PluginManifest;
   readonly on: boolean;
-  readonly server?: ServerPlugin;
-  // Its definePlugin and server part, when it is defined with one and on.
+  // Its definePlugin and server part, once it is on.
   readonly definition?: PluginDefinition;
   readonly part?: ServerPart;
   // The web part's bundle.
@@ -269,17 +253,9 @@ export async function update(
   });
 }
 
-// Turning a plugin on trusted what it asked for and where its parts ran then.
+// Turning a plugin on trusted where its parts ran then.
 function asksForMore(trusted: PluginManifest, next: PluginManifest): boolean {
-  const had = trusted.capabilities ?? [];
-
-  return (
-    (next.capabilities ?? []).some((each) => !had.includes(each)) ||
-    (next.parts?.web !== undefined && trusted.parts?.web === undefined) ||
-    (next.parts?.session !== undefined &&
-      (trusted.parts?.session === undefined ||
-        (trusted.ownSessionsOnly === true && next.ownSessionsOnly !== true)))
-  );
+  return (next.parts ?? []).some((part) => !trusted.parts?.includes(part));
 }
 
 // A folder that links to a plugin elsewhere loses only the link.
@@ -311,7 +287,7 @@ async function stagedManifest(folder: string): Promise<PluginManifest> {
     throw new Error(`pipoca.id ${id}: ${error}`);
   }
 
-  return manifestOf(packageJson, id);
+  return manifestOf(folder, packageJson, id);
 }
 
 const recordedSource = Type.Object({
@@ -354,76 +330,26 @@ async function load(
   const fallback: PluginManifest = { id: name, title: name, description: "" };
 
   let manifest: PluginManifest;
-  let entry: string | undefined;
+  let entry: string;
   try {
     const packageJson: unknown = JSON.parse(
       await readFile(join(folder, "package.json"), "utf8"),
     );
 
-    manifest = manifestOf(packageJson, name);
+    manifest = manifestOf(folder, packageJson, name);
     entry = entryOf(packageJson);
   } catch (error) {
     return { manifest: fallback, on, error: messageOf(error) };
   }
 
-  if (entry !== undefined) {
-    return on ? loadDefined(folder, entry, manifest) : { manifest, on };
-  }
-
-  const { server, web, session } = manifest.parts ?? {};
-
-  if (
-    !on ||
-    (server === undefined && web === undefined && session === undefined)
-  ) {
+  if (!on) {
     return { manifest, on };
   }
 
+  // Its definition is code, so until it is on the Plugins page shows what its
+  // folder says.
   try {
-    const bundles = await builtParts(folder, manifest);
-
-    provideSdk();
-
-    const part =
-      bundles.server === undefined
-        ? undefined
-        : ((await import(bundles.server)) as { default?: ServerPlugin })
-            .default;
-
-    if (server !== undefined && part?.name !== manifest.id) {
-      throw new Error(
-        `${server} must export as default a server part named ${manifest.id}`,
-      );
-    }
-
-    return {
-      manifest,
-      on,
-      ...(part && { server: part }),
-      ...(bundles.web !== undefined && { web: bundles.web }),
-      ...(bundles.session !== undefined && {
-        session: {
-          path: bundles.session,
-          hash: new Bun.CryptoHasher("sha256")
-            .update(await readFile(bundles.session))
-            .digest("hex"),
-        },
-      }),
-    };
-  } catch (error) {
-    return { manifest, on, error: messageOf(error) };
-  }
-}
-
-// Its definition is code, so until it is on the Plugins page shows what its
-// package.json says.
-async function loadDefined(
-  folder: string,
-  entry: string,
-  manifest: PluginManifest,
-): Promise<InstalledPlugin> {
-  try {
-    const bundles = await bundleDefined(
+    const bundles = await bundlePlugin(
       folder,
       await inside(folder, entry),
       await partsInside(folder),
@@ -435,8 +361,11 @@ async function loadDefined(
     );
 
     return {
-      manifest: definedManifest(definition),
-      on: true,
+      manifest: {
+        ...definedManifest(definition),
+        ...(manifest.parts && { parts: manifest.parts }),
+      },
+      on,
       definition,
       ...(server && { part: server }),
       ...(bundles.web !== undefined && { web: bundles.web }),
@@ -450,21 +379,8 @@ async function loadDefined(
       }),
     };
   } catch (error) {
-    return { manifest, on: true, error: messageOf(error) };
+    return { manifest, on, error: messageOf(error) };
   }
-}
-
-async function builtParts(
-  folder: string,
-  manifest: PluginManifest,
-): Promise<PluginParts> {
-  const { server, web, session } = manifest.parts ?? {};
-
-  return bundleParts(folder, {
-    ...(server !== undefined && { server: await inside(folder, server) }),
-    ...(web !== undefined && { web: await inside(folder, web) }),
-    ...(session !== undefined && { session: await inside(folder, session) }),
-  });
 }
 
 // What a plugin's folder holds now, read again after it changed, without
@@ -528,26 +444,11 @@ export async function build(root: string, id: string): Promise<void> {
     await readFile(join(folder, "package.json"), "utf8"),
   );
 
-  const manifest = manifestOf(packageJson, id);
-  const entry = entryOf(packageJson);
-
-  if (entry !== undefined) {
-    await bundleDefined(
-      folder,
-      await inside(folder, entry),
-      await partsInside(folder),
-    );
-
-    return;
-  }
-
-  if (Object.keys(manifest.parts ?? {}).length === 0) {
-    throw new Error(
-      "it has no parts, so it would do nothing: list a server, web or session file in pipoca.parts",
-    );
-  }
-
-  await builtParts(folder, manifest);
+  await bundlePlugin(
+    folder,
+    await inside(folder, entryOf(packageJson)),
+    await partsInside(folder),
+  );
 }
 
 // Why a plugin can't have this id, if it can't.
@@ -578,43 +479,9 @@ async function inside(folder: string, part: string): Promise<string> {
   return entry;
 }
 
-// The pipoca field of a plugin's package.json (ADR 0022, ADR 0036).
+// A plugin names its entry, the file with its definePlugin, and its id
+// when it is installed from a URL (ADR 0069).
 const pluginPackage = Type.Object({
-  pipoca: Type.Object({
-    id: Type.String(),
-    title: Type.String(),
-    description: Type.String(),
-    version: Type.Optional(Type.String()),
-    engine: Type.Number(),
-    capabilities: Type.Optional(Type.Array(Type.Enum(capabilities))),
-    parts: Type.Optional(
-      Type.Object({
-        server: Type.Optional(Type.String()),
-        web: Type.Optional(Type.String()),
-        session: Type.Optional(Type.String()),
-      }),
-    ),
-    ownSessionsOnly: Type.Optional(Type.Boolean()),
-    works: Type.Optional(
-      Type.Array(Type.Union([Type.Literal("personal"), Type.Literal("team")])),
-    ),
-    settings: Type.Optional(Type.Unknown()),
-    events: Type.Optional(
-      Type.Record(
-        Type.String({ pattern: "^[a-z][a-z0-9_]*$" }),
-        Type.Object({
-          title: Type.String(),
-          description: Type.Optional(Type.String()),
-          fields: Type.Record(Type.String(), Type.Unknown()),
-        }),
-      ),
-    ),
-  }),
-});
-
-// A plugin defined with definePlugin names only its entry, and its id when
-// it is installed from a URL.
-const definedPackage = Type.Object({
   description: Type.Optional(Type.String()),
   pipoca: Type.Object({
     entry: Type.String(),
@@ -622,27 +489,7 @@ const definedPackage = Type.Object({
   }),
 });
 
-function entryOf(packageJson: unknown): string | undefined {
-  return Value.Check(definedPackage, packageJson)
-    ? packageJson.pipoca.entry
-    : undefined;
-}
-
-function manifestOf(packageJson: unknown, folder: string): PluginManifest {
-  if (Value.Check(definedPackage, packageJson)) {
-    const { id } = packageJson.pipoca;
-
-    if (id !== undefined && id !== folder) {
-      throw new Error(`pipoca.id must be the folder's name, ${folder}`);
-    }
-
-    return {
-      id: folder,
-      title: folder,
-      description: packageJson.description ?? "",
-    };
-  }
-
+function checkedPackage(packageJson: unknown): Static<typeof pluginPackage> {
   if (!Value.Check(pluginPackage, packageJson)) {
     const [error] = Value.Errors(pluginPackage, packageJson);
     const field = error?.instancePath.slice(1).replaceAll("/", ".") ?? "";
@@ -652,46 +499,31 @@ function manifestOf(packageJson: unknown, folder: string): PluginManifest {
     );
   }
 
-  const {
-    id,
-    title,
-    description,
-    version,
-    engine,
-    parts,
-    settings,
-    events,
-    works,
-  } = packageJson.pipoca;
+  return packageJson;
+}
 
-  if (id !== folder) {
-    throw new Error(`pipoca.id must be the folder's name, ${folder}`);
+function entryOf(packageJson: unknown): string {
+  return checkedPackage(packageJson).pipoca.entry;
+}
+
+function manifestOf(
+  folder: string,
+  packageJson: unknown,
+  id: string,
+): PluginManifest {
+  const { description, pipoca } = checkedPackage(packageJson);
+
+  if (pipoca.id !== undefined && pipoca.id !== id) {
+    throw new Error(`pipoca.id must be the folder's name, ${id}`);
   }
 
-  if (engine !== pluginEngine) {
-    throw new Error(
-      `pipoca.engine must be ${String(pluginEngine)}, the plugin interface this server has`,
-    );
-  }
+  const parts = Object.keys(definedParts(folder)) as Part[];
 
   return {
     id,
-    title,
-    description,
-    engine,
-    capabilities: packageJson.pipoca.capabilities ?? [],
-    ...(version !== undefined && { version }),
-    ...(packageJson.pipoca.ownSessionsOnly === true && {
-      ownSessionsOnly: true,
-    }),
-    parts: {
-      ...(parts?.server !== undefined && { server: parts.server }),
-      ...(parts?.web !== undefined && { web: parts.web }),
-      ...(parts?.session !== undefined && { session: parts.session }),
-    },
-    ...(settings !== undefined && { settings: settingSpecs(settings) }),
-    ...(events !== undefined && { events }),
-    ...(works !== undefined && { works }),
+    title: id,
+    description: description ?? "",
+    ...(parts.length > 0 && { parts }),
   };
 }
 

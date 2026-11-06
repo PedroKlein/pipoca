@@ -28,7 +28,7 @@ import type { ServeOptions } from "./serve";
 import { builtInParts, builtInPlugins } from "./built-in";
 import { readSse } from "@pipoca/protocol";
 import { json, testServer, type TestServer } from "./testdata/harness";
-import { until } from "@pipoca/plugins/testing";
+import { until } from "@pipoca/testing/until";
 
 let root: string;
 let faux: ReturnType<typeof fauxProvider>;

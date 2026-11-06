@@ -5,7 +5,6 @@
   "exports": {
     ".": "./src/index.ts",
     "./host": "./src/host.ts",
-    "./testing": "./src/testing.ts",
     "./web": "./web/index.ts",
     "./web/shell": "./web/shell.tsx",
     "./web/testing": "./web/testing.tsx"

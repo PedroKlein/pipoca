@@ -67,19 +67,6 @@ export class NotFound extends HttpError {
   }
 }
 
-// For a route that changes config every user shares (ADR 0038). The
-// message is what the user who isn't an admin reads.
-export function requireAdmin(
-  caller:
-    | { readonly kind: "user"; readonly admin: boolean }
-    | { readonly kind: "session" },
-  message: string,
-): void {
-  if (caller.kind !== "user" || !caller.admin) {
-    throw new HttpError(403, message, "admin_only");
-  }
-}
-
 export async function readJson(request: Request): Promise<unknown> {
   try {
     return await request.json();

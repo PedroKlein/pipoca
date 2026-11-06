@@ -7,10 +7,14 @@ import {
   owners,
   type PluginDefinition,
   type ServerContext,
-  type ServerPart,
 } from "@pipoca/plugins";
-import { eventBus, pluginClient, type TypedBus } from "@pipoca/plugins/host";
-import { until } from "@pipoca/plugins/testing";
+import {
+  eventBus,
+  pluginClient,
+  type ServerPart,
+  type TypedBus,
+} from "@pipoca/plugins/host";
+import { until } from "@pipoca/testing/until";
 import type {
   Duration,
   PluginTest,

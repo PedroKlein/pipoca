@@ -9,16 +9,16 @@ import {
   type ConfigValue,
   owners,
   type PluginDefinition,
-  type SessionCloud,
   type SessionLogins,
-  type SessionPart,
-  type SessionPlugin,
   type Store,
-  type ServerPart,
   type TypedClient,
   type KernelEvent,
 } from "@pipoca/plugins";
-import { sessionConfig } from "@pipoca/plugins/host";
+import {
+  type ServerPart,
+  sessionConfig,
+  type SessionPart,
+} from "@pipoca/plugins/host";
 import {
   type ActsAs,
   type GitLogin,
@@ -28,9 +28,9 @@ import {
   systemClock,
   systemTimer,
 } from "@pipoca/protocol";
-import { setUpPart } from "@pipoca/sessionhost";
+import { type PartHost, setUpPart } from "@pipoca/sessionhost";
 
-export { until } from "@pipoca/plugins/testing";
+export { until } from "./until";
 
 export interface TestPerson {
   readonly id: string;
@@ -213,14 +213,15 @@ export function person(id: string): Owner {
 
 export interface SessionTest {
   readonly tool: (name: string, input: unknown) => Promise<ToolAnswer>;
-  readonly published: (key: string) => unknown;
   // What the part pointed a model provider at, by its name.
   readonly provider: (name: string) => unknown;
   // The logins the part keeps for Pi, if it provides them.
   readonly modelCredentials: () => Promise<SessionLogins | undefined>;
 }
 
-export type SessionFakes = Partial<SessionCloud> & {
+export type SessionFakes = Partial<
+  Omit<PartHost, "config" | "clock" | "timer">
+> & {
   // The plugin's key in pipoca.json, for a part defineSession made.
   readonly config?: Readonly<Record<string, unknown>>;
   // Pi's working directory for the part's tools.
@@ -228,35 +229,36 @@ export type SessionFakes = Partial<SessionCloud> & {
 };
 
 // A Session part against a stand-in for Pi, set up as the Session host sets
-// it up. Members of the cloud the test doesn't pass throw when called,
-// except publish, which it records.
+// it up. What the test doesn't fake throws when called.
 export async function testSession(
-  plugin: SessionPlugin | SessionPart,
-  cloud: SessionFakes = {},
+  part: SessionPart,
+  fakes: SessionFakes = {},
 ): Promise<SessionTest> {
   const notFaked = (name: string) => (): never => {
     throw new Error(`${name} is not faked; pass it to testSession`);
   };
 
-  const published = new Map<string, unknown>();
   const providers = new Map<string, unknown>();
   const tools: ToolDefinition[] = [];
-  let modelCredentials: (() => Promise<SessionLogins>) | undefined;
+  const { config, cwd, ...faked } = fakes;
+  const { id, config: schema } = part.plugin;
 
-  const given: SessionCloud = {
+  const set = await setUpPart(part, {
     askQuestions: notFaked("askQuestions"),
     askPermission: notFaked("askPermission"),
     checkouts: [],
-    settings: {},
     request: notFaked("request"),
     log: () => undefined,
     startChild: notFaked("startChild"),
-    ...cloud,
-    publish: (key, data, options) => {
-      published.set(key, data);
-      cloud.publish?.(key, data, options);
-    },
-  };
+    publish: () => undefined,
+    ...faked,
+    config:
+      schema === undefined
+        ? {}
+        : sessionConfig(schema, config ?? {}, faked.log ?? (() => undefined)),
+    clock: systemClock,
+    timer: systemTimer,
+  });
 
   const pi = {
     registerTool: (tool: ToolDefinition) => {
@@ -269,43 +271,20 @@ export async function testSession(
     on: () => undefined,
   };
 
-  if ("setup" in plugin) {
-    const { config } = plugin.plugin;
-
-    const { settings: _settings, ...host } = {
-      ...given,
-      config:
-        config === undefined
-          ? {}
-          : sessionConfig(config, cloud.config ?? {}, given.log),
-      clock: systemClock,
-      timer: systemTimer,
-    };
-
-    const set = await setUpPart(plugin, host);
-    const { tools: direct, extensions } = set;
-    modelCredentials = set.modelCredentials;
-
-    for (const extension of extensions) {
-      if ("factory" in extension) {
-        await extension.factory(pi as unknown as ExtensionAPI);
-      }
+  for (const extension of set.extensions) {
+    if ("factory" in extension) {
+      await extension.factory(pi as unknown as ExtensionAPI);
     }
-
-    tools.push(...direct);
-  } else {
-    await plugin.extension?.(given)(pi as unknown as ExtensionAPI);
-    tools.push(...((await plugin.tools?.(given)) ?? []));
   }
 
-  const name = "setup" in plugin ? plugin.plugin.id : plugin.name;
+  tools.push(...set.tools);
 
   return {
     tool: async (toolName, input) => {
       const tool = tools.findLast((each) => each.name === toolName);
 
       if (tool === undefined) {
-        throw new Error(`${name} has no tool ${toolName}`);
+        throw new Error(`${id} has no tool ${toolName}`);
       }
 
       try {
@@ -321,12 +300,12 @@ export async function testSession(
           args,
           undefined,
           undefined,
-          { cwd: cloud.cwd ?? process.cwd() } as ExtensionToolContext,
+          { cwd: cwd ?? process.cwd() } as ExtensionToolContext,
         );
 
         return {
           text: content
-            .flatMap((part) => (part.type === "text" ? [part.text] : []))
+            .flatMap((piece) => (piece.type === "text" ? [piece.text] : []))
             .join("\n"),
           isError: false,
           ...(details !== undefined && { details }),
@@ -338,8 +317,7 @@ export async function testSession(
         };
       }
     },
-    published: (key) => published.get(key),
     provider: (named) => providers.get(named),
-    modelCredentials: async () => modelCredentials?.(),
+    modelCredentials: async () => set.modelCredentials?.(),
   };
 }

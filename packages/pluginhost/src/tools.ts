@@ -1,13 +1,10 @@
+import type { Person, ToolCall, ToolDef } from "@pipoca/plugins";
 import {
+  checkBody,
   fieldsOf,
-  type Person,
-  type RouteRequest,
-  type ServerTool,
-  type ToolCall,
-  type ToolDef,
-  type Toolset,
-} from "@pipoca/plugins";
-import { checkBody, toolAnswer, toolSpecOf } from "@pipoca/plugins/host";
+  toolAnswer,
+  toolSpecOf,
+} from "@pipoca/plugins/host";
 import {
   type Log,
   type Method,
@@ -23,6 +20,12 @@ import { type TObject, type TSchema, Type } from "typebox";
 import type { OnBehalf } from "./host";
 
 type Input = Readonly<Record<string, unknown>>;
+
+interface RouteRequest {
+  readonly method: Exclude<Method, "ANY">;
+  readonly path: string;
+  readonly body?: unknown;
+}
 
 // A tool that runs on the server for a Session.
 export interface ServedTool {
@@ -178,43 +181,6 @@ function requestOf(
       ...(!reads &&
         sends && { body: { ...Object.fromEntries(inBody), ...fixed } }),
     };
-  };
-}
-
-// A plugin's toolset (v1): its full names are <namespace>_<name>.
-export function toolsetTools(toolset: Toolset, plugin: string): RouteTool[] {
-  const { namespace } = toolset;
-
-  return toolset.tools.map((tool) => {
-    const { request, result, opens, asks, internal, name, exposure, ...spec } =
-      tool;
-
-    return {
-      plugin,
-      internal: internal === true,
-      spec: {
-        ...spec,
-        name: `${namespace.name}_${name}`,
-        exposure: exposure ?? "deferred",
-        namespace,
-      },
-      request,
-      ...(asks && { asks }),
-      ...(result && { result }),
-      ...(opens && { opens }),
-    };
-  });
-}
-
-export function registeredTool(plugin: string, tool: ServerTool): ServedTool {
-  const { appliesTo, run, ...spec } = tool;
-
-  return {
-    plugin,
-    spec,
-    applies: appliesTo,
-    run: async (input, session) =>
-      run(input, { session, actor: `session:${session.id}` }),
   };
 }
 

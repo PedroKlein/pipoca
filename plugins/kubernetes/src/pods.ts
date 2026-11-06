@@ -1,4 +1,3 @@
-import { fieldsOf, isObject } from "@pipoca/plugins";
 import { environmentLabel, sessionLabel } from "./cluster";
 import type { KubernetesSettings } from "./settings";
 
@@ -157,7 +156,7 @@ export function mergePatch(target: unknown, patch: unknown): unknown {
     return patch;
   }
 
-  const merged = new Map(Object.entries(fieldsOf(target)));
+  const merged = new Map(Object.entries(isObject(target) ? target : {}));
 
   for (const [key, value] of Object.entries(patch)) {
     if (value === null) {
@@ -168,4 +167,8 @@ export function mergePatch(target: unknown, patch: unknown): unknown {
   }
 
   return Object.fromEntries(merged);
+}
+
+function isObject(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -3,10 +3,10 @@ import {
   definePlugin,
   defineServer,
   event,
-  type ServerPart,
   type ServerPlugin,
   Type,
 } from "@pipoca/plugins";
+import type { ServerPart } from "@pipoca/plugins/host";
 import type { DeclaredEvent, Owner, PluginInfo } from "@pipoca/protocol";
 import {
   closeServers,

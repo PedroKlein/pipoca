@@ -42,10 +42,13 @@ export async function registryFiles(
 
     const packageJson = JSON.parse(
       await readFile(join(folder, "package.json"), "utf8"),
-    ) as {
-      readonly exports?: Readonly<Record<string, string>>;
-      readonly pipoca?: { readonly entry?: string };
-    };
+    ) as { readonly pipoca?: { readonly entry?: string } };
+
+    const entry = packageJson.pipoca?.entry;
+
+    if (entry === undefined) {
+      throw new Error(`plugins/${id}/package.json names no pipoca.entry`);
+    }
 
     const from = (bundle: Bundle, path: string): string => {
       const at = relative(dirname(join(root, files[bundle])), path).replace(
@@ -62,90 +65,40 @@ export async function registryFiles(
     };
 
     const name = identifier(id);
-    const entry = packageJson.pipoca?.entry;
+    const path = join(folder, entry);
+    const exported = await definitionIn(path, id);
+    const named = `import { ${exported} } from ${from("server", path)};`;
+    const parts = definedParts(folder);
 
-    if (entry !== undefined) {
-      const path = join(folder, entry);
-      const exported = await definitionIn(path, id);
-      const named = `import { ${exported} } from ${from("server", path)};`;
-      const parts = definedParts(folder);
+    const imported = (bundle: Bundle, part: Part): string[] => {
+      const at = parts[part];
 
-      const imported = (bundle: Bundle, part: Part): string[] => {
-        const at = parts[part];
+      return at === undefined
+        ? []
+        : [
+            `import { ${part} as ${name}${capitalized(part)} } from ${from(bundle, at)};`,
+          ];
+    };
 
-        return at === undefined
-          ? []
-          : [
-              `import { ${part} as ${name}${capitalized(part)} } from ${from(bundle, at)};`,
-            ];
-      };
-
-      const field = (part: Part): string =>
-        parts[part] === undefined
-          ? ""
-          : `, ${part}: ${name}${capitalized(part)}`;
-
-      add(
-        "server",
-        [named, ...imported("server", "server")],
-        `{ id: "${id}", definition: ${exported}${field("server")} },`,
-      );
-
-      if (parts.session !== undefined) {
-        add(
-          "session",
-          [named, ...imported("session", "session")],
-          `{ id: "${id}", definition: ${exported}${field("session")} },`,
-        );
-      }
-
-      if (parts.web !== undefined) {
-        add("web", imported("web", "web"), `{ id: "${id}"${field("web")} },`);
-      }
-
-      continue;
-    }
-
-    const exports = packageJson.exports ?? {};
-    const manifest = `import ${name}Package from ${from("server", join(folder, "package.json"))};`;
-
-    const part = (key: string): string | undefined =>
-      exports[key] === undefined ? undefined : join(folder, exports[key]);
-
-    const server = part("./server");
+    const field = (part: Part): string =>
+      parts[part] === undefined ? "" : `, ${part}: ${name}${capitalized(part)}`;
 
     add(
       "server",
-      [
-        manifest,
-        ...(server === undefined
-          ? []
-          : [`import * as ${name}Server from ${from("server", server)};`]),
-      ],
-      `{ id: "${id}", manifest: ${name}Package.pipoca${server === undefined ? "" : `, server: ${name}Server`} },`,
+      [named, ...imported("server", "server")],
+      `{ id: "${id}", definition: ${exported}${field("server")} },`,
     );
 
-    const session = part("./session");
-
-    if (session !== undefined) {
+    if (parts.session !== undefined) {
       add(
         "session",
-        [
-          manifest,
-          `import * as ${name}Session from ${from("session", session)};`,
-        ],
-        `{ id: "${id}", manifest: ${name}Package.pipoca, session: ${name}Session },`,
+        [named, ...imported("session", "session")],
+        `{ id: "${id}", definition: ${exported}${field("session")} },`,
       );
     }
 
-    const web = part("./web");
-
-    if (web !== undefined) {
-      add(
-        "web",
-        [`import * as ${name}Web from ${from("web", web)};`],
-        `{ id: "${id}", plugin: ${name}Web },`,
-      );
+    if (parts.web !== undefined) {
+      add("web", imported("web", "web"), `{ id: "${id}"${field("web")} },`);
     }
   }
 

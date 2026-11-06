@@ -20,16 +20,15 @@ import {
   BadRequest,
   definePlugin,
   defineServer,
-  fieldsOf,
   HttpError,
   type KernelEvent,
   NotFound,
-  type ServerPart,
   readBody,
   type ServerPlugin,
   type ServerPluginContext,
   Type,
 } from "@pipoca/plugins";
+import { fieldsOf, type ServerPart } from "@pipoca/plugins/host";
 import {
   capabilities,
   type Environment,
@@ -42,7 +41,7 @@ import { runAgent } from "@pipoca/runner";
 import { binary } from "./binary";
 import { sessionParts } from "./session-parts";
 import { closeServers, testServer, type TestServer } from "./testdata/harness";
-import { until } from "@pipoca/plugins/testing";
+import { until } from "@pipoca/testing/until";
 import { readSse } from "@pipoca/protocol";
 
 let root: string;

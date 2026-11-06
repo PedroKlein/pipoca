@@ -1,15 +1,82 @@
-import type { Log, Owner } from "@pipoca/protocol";
+import type { Actor, Log, Owner, Session } from "@pipoca/protocol";
 import { Value } from "typebox/value";
 import type { EventDef, PluginDefinition } from "./definition";
 import { owners } from "./owners";
-import type { KernelEvent, PluginEvent } from "./plugin";
 import type { PluginEvents } from "./server";
 
-type AnyEvent = KernelEvent | PluginEvent;
-
-type EventOf<T extends string> = T extends KernelEvent["type"]
-  ? Extract<KernelEvent, { type: T }>
-  : PluginEvent;
+export type KernelEvent =
+  | {
+      readonly type: "SessionCreated";
+      readonly session: Session;
+      readonly actor: Actor;
+    }
+  | {
+      readonly type: "SessionStateChanged";
+      readonly session: Session;
+      readonly previous: Session["status"];
+    }
+  // Pi asked a question and waits for a person to answer it, in team work
+  // maybe a named one.
+  | {
+      readonly type: "SessionWaiting";
+      readonly session: Session;
+      readonly for?: string;
+    }
+  | { readonly type: "TurnStarted"; readonly session: Session }
+  | {
+      readonly type: "TurnEnded";
+      readonly session: Session;
+      // How many transcript lines the turn ended with, when the Session's
+      // host says. The transcript upload can still be behind it.
+      readonly transcriptLength?: number;
+    }
+  // The actor is the person who asked, and absent when a plugin did.
+  | {
+      readonly type: "SessionArchived";
+      readonly session: Session;
+      readonly actor?: Actor;
+    }
+  | {
+      readonly type: "SessionUnarchived";
+      readonly session: Session;
+      readonly actor?: Actor;
+      // When the Session was archived.
+      readonly archivedAt: string;
+    }
+  // Someone moved personal work to the team, which started this Session.
+  | {
+      readonly type: "SessionMoved";
+      readonly session: Session;
+      readonly from: string;
+      readonly actor: Actor;
+    }
+  // Whoever started team work, or an admin, changed who steers it.
+  | {
+      readonly type: "AccessChanged";
+      readonly session: Session;
+      readonly actor: Actor;
+    }
+  // Someone asked Pi to stop the turn it is on.
+  | {
+      readonly type: "StopAsked";
+      readonly session: Session;
+      readonly actor: Actor;
+    }
+  | {
+      readonly type: "ToolCalled";
+      readonly session: Session;
+      readonly tool: string;
+      readonly actor: Actor;
+    }
+  // An admin invited someone by email, whose link works once (ADR 0063).
+  | {
+      readonly type: "PersonInvited";
+      readonly email: string;
+      readonly link: string;
+      readonly invitedBy: { readonly id: string; readonly name: string };
+      readonly admin: boolean;
+      readonly expiresAt: string;
+    };
 
 export type KernelEventOf<T extends KernelEvent["type"]> = Extract<
   KernelEvent,
@@ -26,21 +93,14 @@ export interface Emitted {
 type Heard = KernelEventOf<KernelEvent["type"]> | Emitted;
 
 export interface EventBus {
-  readonly publish: (event: AnyEvent) => void;
-  readonly subscribe: <T extends AnyEvent["type"]>(
-    type: T,
-    listener: (event: EventOf<T>) => void,
-  ) => () => void;
-}
-
-export interface TypedBus extends EventBus {
+  readonly publish: (event: KernelEvent) => void;
   readonly emit: (event: Emitted) => void;
   readonly on: (type: string, listener: (event: Heard) => void) => () => void;
 }
 
 export function eventBus(
   onError: (type: string, error: unknown) => void,
-): TypedBus {
+): EventBus {
   const listeners = new Map<string, Set<(event: Heard) => void>>();
 
   const deliver = (event: Heard): void => {
@@ -53,75 +113,31 @@ export function eventBus(
     }
   };
 
-  const on = (type: string, listener: (event: Heard) => void): (() => void) => {
-    const forType = listeners.get(type) ?? new Set();
-    listeners.set(type, forType);
-    forType.add(listener);
-
-    return () => {
-      forType.delete(listener);
-    };
-  };
-
   return {
     publish: (event) => {
-      deliver(heard(event));
+      deliver({
+        ...event,
+        to:
+          "session" in event
+            ? [event.session.ownedBy]
+            : [owners.of(event.invitedBy.id)],
+      });
     },
     emit: deliver,
-    subscribe: (type, listener) =>
-      on(type, (event) => {
-        (listener as (event: AnyEvent) => void)(v1(event));
-      }),
-    on,
+    on: (type, listener) => {
+      const forType = listeners.get(type) ?? new Set();
+      listeners.set(type, forType);
+      forType.add(listener);
+
+      return () => {
+        forType.delete(listener);
+      };
+    },
   };
-}
-
-function heard(event: AnyEvent): Heard {
-  if (!isPlugin(event)) {
-    return {
-      ...event,
-      to:
-        "session" in event
-          ? [event.session.ownedBy]
-          : [owners.of(event.invitedBy.id)],
-    };
-  }
-
-  const { type, userId, userIds, ...fields } = event;
-  const ids = Array.isArray(userIds) ? userIds : [userId];
-
-  return {
-    type,
-    plugin: type.slice(0, type.indexOf(".")),
-    fields,
-    to: ids.flatMap((id) =>
-      typeof id !== "string" ? [] : [id === "team" ? "team" : owners.of(id)],
-    ),
-  };
-}
-
-function v1(event: Heard): AnyEvent {
-  if (!("fields" in event)) {
-    const { to: _to, ...kernel } = event;
-
-    return kernel;
-  }
-
-  return {
-    type: event.type,
-    ...event.fields,
-    ...(event.to.length > 0 && {
-      userIds: event.to.map((owner) => owners.personId(owner) ?? "team"),
-    }),
-  };
-}
-
-function isPlugin(event: AnyEvent): event is PluginEvent {
-  return event.type.includes(".");
 }
 
 export function pluginEvents<P extends PluginDefinition>(
-  bus: TypedBus,
+  bus: EventBus,
   plugin: P,
   known: readonly PluginDefinition[],
   listening: (stop: () => void) => void,

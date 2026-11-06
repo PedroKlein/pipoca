@@ -1,4 +1,5 @@
-import type { KernelEvent, ModelOffer, StartRequest } from "@pipoca/plugins";
+import type { KernelEvent } from "@pipoca/plugins";
+import type { ModelOffer, StartRequest } from "@pipoca/plugins/host";
 import {
   type Actor,
   type Assignment,
@@ -202,15 +203,8 @@ export type Result<T, R extends Rejection = Rejection> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly reason: R };
 
-export type SessionPlugins = Required<
-  Pick<Assignment, "plugins" | "pluginSettings">
-> &
+export type SessionPlugins = Required<Pick<Assignment, "plugins">> &
   Pick<Assignment, "pluginConfig"> & {
-    // Session plugins that load only in the Sessions their plugin owns.
-    readonly ownSessionsOnly?: readonly string[];
-    // The Session plugins that load in a plugin's own Sessions, for plugins
-    // that limit them.
-    readonly loadOnly?: Readonly<Record<string, readonly string[]>>;
     // The installed plugins' Session parts, by name, with their bundles' hash.
     readonly installedParts?: Readonly<Record<string, string>>;
     // The Session plugins that load in team work (ADR 0067).
@@ -245,8 +239,6 @@ export interface SessionsOptions {
 export interface PluginProfile {
   readonly plugin: string;
   readonly profile: ProfileContent & { readonly id: string };
-  // Other plugins whose own Sessions may run on it.
-  readonly sharedWith?: readonly string[];
   // Team work may run on it too, such as each person's Team assistant
   // (ADR 0067).
   readonly team?: boolean;
@@ -311,7 +303,7 @@ export class Sessions {
     this.#changed = options.changed ?? (() => undefined);
 
     this.#sessionPlugins =
-      options.sessionPlugins ?? (() => ({ plugins: [], pluginSettings: {} }));
+      options.sessionPlugins ?? (() => ({ plugins: [] }));
 
     this.#docs = options.docs;
 
@@ -386,9 +378,7 @@ export class Sessions {
             ? stored.ownerId === teamOwner
             : stored.ownerId === null || stored.ownerId === startedBy)
         : (!team || provided.team === true) &&
-          ownedBy !== undefined &&
-          (provided.plugin === ownedBy.plugin ||
-            provided.sharedWith?.includes(ownedBy.plugin) === true);
+          provided.plugin === ownedBy?.plugin;
 
     if (!usable) {
       return { ok: false, reason: "unknown_profile" };
@@ -1629,29 +1619,15 @@ export class Sessions {
 
   #pluginsOf(
     session: StoredSession,
-  ): Required<
-    Pick<Assignment, "plugins" | "pluginSettings" | "requiredPlugins">
-  > &
+  ): Required<Pick<Assignment, "plugins" | "requiredPlugins">> &
     Pick<Assignment, "installedParts" | "pluginConfig"> {
-    const {
-      plugins,
-      pluginSettings,
-      pluginConfig,
-      ownSessionsOnly,
-      loadOnly,
-      installedParts,
-      teamWork,
-    } = this.#sessionPlugins();
+    const { plugins, pluginConfig, installedParts, teamWork } =
+      this.#sessionPlugins();
 
-    const ownedBy = this.powersOf(session);
-    const limit = ownedBy === undefined ? undefined : loadOnly?.[ownedBy];
     const team = this.#team(session);
 
     const loaded = plugins.filter(
-      (name) =>
-        (limit?.includes(name) ?? true) &&
-        (ownSessionsOnly?.includes(name) !== true || ownedBy === name) &&
-        (!team || (teamWork?.includes(name) ?? true)),
+      (name) => !team || (teamWork?.includes(name) ?? true),
     );
 
     const installed = Object.entries(installedParts ?? {}).filter(([name]) =>
@@ -1660,19 +1636,10 @@ export class Sessions {
 
     return {
       plugins: loaded,
-      requiredPlugins: loaded.filter(
-        (name) =>
-          ownSessionsOnly?.includes(name) === true ||
-          installed.some(([each]) => each === name),
-      ),
+      requiredPlugins: installed.map(([name]) => name),
       ...(installed.length > 0 && {
         installedParts: Object.fromEntries(installed),
       }),
-      pluginSettings: Object.fromEntries(
-        Object.entries(pluginSettings).filter(([name]) =>
-          loaded.includes(name),
-        ),
-      ),
       ...(pluginConfig !== undefined && {
         pluginConfig: Object.fromEntries(
           Object.entries(pluginConfig).filter(([name]) =>
@@ -1681,14 +1648,6 @@ export class Sessions {
         ),
       }),
     };
-  }
-
-  // The plugin whose toolsets and Session parts the Session gets: the one
-  // whose Profile it runs on, or else the one that owns it (ADR 0052).
-  powersOf(session: Pick<Session, "profileId" | "owner">): string | undefined {
-    return (
-      this.#pluginProfile(session.profileId)?.plugin ?? session.owner?.plugin
-    );
   }
 
   // A Session another one started, such as a Project's thread, acts for

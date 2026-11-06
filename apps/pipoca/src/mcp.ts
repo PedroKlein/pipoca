@@ -1,5 +1,5 @@
 import type { PluginHost } from "@pipoca/pluginhost";
-import { fieldsOf } from "@pipoca/plugins";
+import { fieldsOf } from "@pipoca/plugins/host";
 import type { Log } from "@pipoca/protocol";
 import type { People } from "@pipoca/people";
 import { errorReply } from "./server/http/replies";

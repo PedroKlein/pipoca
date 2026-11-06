@@ -1,15 +1,7 @@
 import type { Static, TSchema } from "typebox";
 import type { TLocalizedValidationError } from "typebox/error";
 import { Value } from "typebox/value";
-import { HttpError, readJson } from "./http";
-
-export async function readBody<const Schema extends TSchema>(
-  request: Request,
-  schema: Schema,
-): Promise<Static<Schema>> {
-  // Naming the schema type spares the checker inferring it again.
-  return checkBody<Schema>(await readJson(request), schema);
-}
+import { HttpError } from "./http";
 
 // The body as the schema types it, without fields the schema doesn't name,
 // or a 422 that names the first field that doesn't fit, such as
