@@ -9,7 +9,7 @@ import {
   Secret,
   Type,
 } from "@pipoca/plugins";
-import type { Environment, Session } from "@pipoca/protocol";
+import type { Environment, PluginInfo, Session } from "@pipoca/protocol";
 import { json, testServer, type TestServer } from "./testdata/harness";
 import { runnerCredentials } from "./testdata/runners";
 
@@ -266,4 +266,61 @@ test("reads the Environments", async () => {
   expect(await api("machines")).toEqual({
     environments: expect.arrayContaining(["laptop"]) as unknown,
   });
+});
+
+const gate = (id: string) =>
+  defineServer(
+    definePlugin({ id, title: id, description: "Signs people in." }),
+    ({ provide }) => {
+      provide.signIn({
+        logins: () => [{ label: `Sign in with ${id}`, path: "go" }],
+      });
+    },
+  );
+
+test("lets one plugin sign people in, and fails another that tries too", async () => {
+  const signing = testServer({
+    plugins: [],
+    servers: [gate("gate"), gate("door")],
+  });
+
+  const status = await json<{ logins: unknown }>(signing.api("/api/auth"));
+  const listed = await json<PluginInfo[]>(signing.api("/api/plugins"));
+
+  await signing.close();
+
+  expect(status.logins).toEqual([
+    { label: "Sign in with gate", path: "/api/ext/gate/go" },
+  ]);
+
+  expect(listed.find(({ id }) => id === "door")).toMatchObject({
+    state: "failed",
+    error: "gate already signs people in",
+  });
+});
+
+test("turns a plugin on by default on a team server as its definition says", async () => {
+  const team = testServer({
+    plugins: [],
+    definitions: (["always", "solo", "team", "never"] as const).map(
+      (defaultOn) =>
+        definePlugin({
+          id: `by-${defaultOn}`,
+          title: defaultOn,
+          description: "",
+          defaultOn,
+        }),
+    ),
+  });
+
+  const listed = await json<PluginInfo[]>(team.api("/api/plugins"));
+
+  await team.close();
+
+  expect(listed.map(({ id, state }) => ({ id, state }))).toEqual([
+    { id: "by-always", state: "on" },
+    { id: "by-solo", state: "off" },
+    { id: "by-team", state: "on" },
+    { id: "by-never", state: "off" },
+  ]);
 });

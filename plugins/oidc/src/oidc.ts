@@ -109,6 +109,7 @@ export async function redeem(
   redirectUri: string,
   attempt: Attempt,
   code: string,
+  now: number,
 ): Promise<Identity> {
   const { ok, status, body } = await reach(provider.tokenEndpoint, {
     method: "POST",
@@ -136,7 +137,7 @@ export async function redeem(
     );
   }
 
-  return identityOf(claimsOf(idToken), provider, client, attempt);
+  return identityOf(claimsOf(idToken), provider, client, attempt, now);
 }
 
 function identityOf(
@@ -144,6 +145,7 @@ function identityOf(
   provider: Provider,
   client: Client,
   attempt: Attempt,
+  now: number,
 ): Identity {
   const { iss, sub, aud, azp, exp, nonce, email } = claims;
   const audiences = Array.isArray(aud) ? aud : [aud];
@@ -159,7 +161,7 @@ function identityOf(
     throw new LoginFailed("the ID token is for another client");
   }
 
-  if (typeof exp !== "number" || exp * 1000 < Date.now()) {
+  if (typeof exp !== "number" || exp * 1000 < now) {
     throw new LoginFailed("the ID token has expired");
   }
 
@@ -252,6 +254,10 @@ function basicCredentials({ id, secret }: Client): string {
 
 // Skipping the ID token's signature check relies on TLS.
 function checkSecure(url: string): void {
+  if (!URL.canParse(url)) {
+    throw new LoginFailed(`${url} isn't a URL`);
+  }
+
   const { protocol, hostname } = new URL(url);
 
   if (

@@ -167,10 +167,9 @@ export function serve(options: ServeOptions): {
 
   // Which plugins are on, under "plugins" in pipoca.json. A team server's
   // machine holds everyone's data and the sealing key, so only a solo install
-  // runs runners on it unless admins say otherwise, and a solo install signs
-  // in no one else (ADR 0053).
+  // runs runners on it unless admins say otherwise (ADR 0053).
   const switches = pluginSwitches(config("plugins"), options.log);
-  const offByDefault = options.solo === undefined ? ["local"] : ["oidc"];
+  const offByDefault = options.solo === undefined ? ["local"] : [];
 
   const folder = options.installed;
   const installed = folder?.plugins ?? [];
@@ -240,10 +239,14 @@ export function serve(options: ServeOptions): {
       return !offByDefault.includes(name);
     }
 
-    return (
-      defaultOn === "always" ||
-      (defaultOn === "solo") === (options.solo !== undefined)
-    );
+    const solo = options.solo !== undefined;
+
+    return {
+      always: true,
+      solo,
+      team: !solo,
+      never: false,
+    }[defaultOn];
   };
 
   const enabled = [
@@ -436,9 +439,8 @@ export function serve(options: ServeOptions): {
     config,
     api: async (onBehalf, request) => api.handle(onBehalfOf(onBehalf, request)),
     auth: {
-      userOf: (request) => signIn.userOf(request),
       users: () => people.users(),
-      createUser: (name, admin) => people.createUser(name, admin),
+      create: (name, admin) => people.createUser(name, admin),
       setAdmin: (userId, admin) => {
         people.setAdmin(userId, admin);
       },

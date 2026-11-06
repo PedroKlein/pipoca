@@ -562,8 +562,7 @@ export const routes = {
     auth: "person",
     response: "bytes",
   },
-  // Each plugin's own API: its public routes, then those for people signed
-  // in (ADR 0015).
+  // A v1 plugin's own API, for people signed in (ADR 0015).
   ext: { method: "ANY", path: "/api/ext/:plugin/*path", auth: "public" },
 
   "environments.list": {

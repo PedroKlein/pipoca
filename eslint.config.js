@@ -158,7 +158,6 @@ export default tseslint.config(
       "plugins/kubernetes/src/cluster.ts",
       "plugins/kubernetes/src/server.ts",
       "plugins/local/src/server.ts",
-      "plugins/oidc/src/oidc.ts",
     ],
     rules: {
       "no-restricted-globals": [

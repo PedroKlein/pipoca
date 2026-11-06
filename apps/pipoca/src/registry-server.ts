@@ -15,8 +15,8 @@ import { logins } from "../../../plugins/logins/plugin";
 import { server as loginsServer } from "../../../plugins/logins/src/server";
 import { models } from "../../../plugins/models/plugin";
 import { server as modelsServer } from "../../../plugins/models/src/server";
-import oidcPackage from "../../../plugins/oidc/package.json";
-import * as oidcServer from "../../../plugins/oidc/src/server";
+import { oidc } from "../../../plugins/oidc/plugin";
+import { server as oidcServer } from "../../../plugins/oidc/src/server";
 import { projects } from "../../../plugins/projects/plugin";
 import { server as projectsServer } from "../../../plugins/projects/src/server";
 import { push } from "../../../plugins/push/plugin";
@@ -43,7 +43,7 @@ export const serverRegistry = [
   { id: "local", manifest: localPackage.pipoca, server: localServer },
   { id: "logins", definition: logins, server: loginsServer },
   { id: "models", definition: models, server: modelsServer },
-  { id: "oidc", manifest: oidcPackage.pipoca, server: oidcServer },
+  { id: "oidc", definition: oidc, server: oidcServer },
   { id: "projects", definition: projects, server: projectsServer },
   { id: "push", definition: push, server: pushServer },
   { id: "routines", definition: routines, server: routinesServer },

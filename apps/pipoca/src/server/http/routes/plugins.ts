@@ -94,15 +94,8 @@ export function pluginRoutes({
         },
       });
     },
-    // A plugin's own API: its public routes, then the ones for people who
-    // signed in (ADR 0015).
+    // A v1 plugin's own API, for people who signed in (ADR 0015).
     ext: async ({ request, params: { plugin, path } }) => {
-      const answered = await plugins.publicRoute(request, plugin, path);
-
-      if (answered !== undefined) {
-        return answered;
-      }
-
       const person = callers.person(request);
 
       if (person === undefined) {

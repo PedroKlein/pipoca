@@ -407,6 +407,37 @@ export interface PluginEnvironments {
   readonly templates: () => readonly EnvironmentTemplate[];
 }
 
+// The links the sign-in page shows beside the password form, each a path
+// under the plugin's routes, asked for each time the page loads.
+export interface SignInProvider {
+  readonly logins: () => readonly {
+    readonly label: string;
+    readonly path: string;
+  }[];
+}
+
+// What a sign-in provider's routes do once their own checks pass.
+export interface SignInApi {
+  // A person who signs in only through the plugin, or undefined when the
+  // name is taken.
+  readonly create: (name: string, admin: boolean) => Person | undefined;
+  readonly setAdmin: (personId: string, admin: boolean) => void;
+  // The invite that lets someone in past the plugin's own rules: the one
+  // whose link they followed, or else one for their verified email.
+  readonly invited: (
+    join: string | undefined,
+    email: string | undefined,
+  ) => { readonly id: string; readonly admin: boolean } | undefined;
+  readonly acceptInvite: (id: string) => void;
+  readonly passwordLogin: () => boolean;
+  // The Set-Cookie value of a new browser session, or undefined when no one
+  // has the id.
+  readonly startSession: (
+    personId: string,
+    request: Request,
+  ) => string | undefined;
+}
+
 // What Profiles hold that a plugin reads, such as the MCP servers people
 // sign in to.
 export interface PluginProfiles {
@@ -418,6 +449,8 @@ export interface PluginProfiles {
 
 export interface Providers {
   readonly models: (offer: ModelOffer) => void;
+  // One plugin per server signs people in without a password.
+  readonly signIn: (provider: SignInProvider) => SignInApi;
   // The logins a Session's git and gh sign in with: its person's, the
   // team's, or for a Session that acts as one of this plugin's identities,
   // that identity's. Called as a runner takes the Session, so it can't wait.

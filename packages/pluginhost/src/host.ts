@@ -6,13 +6,14 @@ import { canSee } from "@pipoca/people";
 import {
   fieldsOf,
   type Login,
+  type SignInApi,
+  type SignInProvider,
   type ModelOffer,
   type ConfigKey,
   type PluginEnvironments,
   type PluginDefinition,
   type PluginRoute,
   type PluginStore,
-  type PublicRoute,
   type RouteCaller,
   type RouteToolSpec,
   type RunnerSource,
@@ -185,11 +186,6 @@ export interface PluginHost {
     path: string,
     caller: RouteCaller,
   ) => Promise<Response | undefined>;
-  readonly publicRoute: (
-    request: Request,
-    name: string,
-    path: string,
-  ) => Promise<Response | undefined>;
   // The links the sign-in page shows besides the password form, each with
   // its path from the server's root.
   readonly logins: () => readonly Login[];
@@ -256,17 +252,7 @@ export function startPlugins(
     readonly config: (name: string) => ConfigKey;
     // Handles a route tool's request as the person.
     readonly api: (onBehalf: OnBehalf, request: Request) => Promise<Response>;
-    readonly auth: Pick<
-      ServerPluginContext["auth"],
-      | "userOf"
-      | "users"
-      | "createUser"
-      | "setAdmin"
-      | "invited"
-      | "acceptInvite"
-      | "passwordLogin"
-      | "startSession"
-    >;
+    readonly auth: { readonly users: () => readonly User[] } & SignInApi;
     readonly installed?: InstalledPlugins;
     // The Session parts built into the binary, besides installed ones.
     readonly sessionParts: readonly SessionPlugin[];
@@ -294,8 +280,8 @@ export function startPlugins(
   const toolsetUsers = new Set<string>();
   const routeToolProfiles = new Set<string>();
   const routes = new Map<string, PluginRoute>();
-  const publicRoutes = new Map<string, PublicRoute>();
-  const logins: { plugin: string; offered: () => readonly Login[] }[] = [];
+  let signIn: { plugin: string; provider: SignInProvider } | undefined;
+  const { users: _users, ...signInApi } = deps.auth;
   const offers: ModelOffer[] = [];
   const gitLogins: { plugin: string; of: GitLoginsOf }[] = [];
   const fromEnv = envSecrets(process.env);
@@ -606,8 +592,6 @@ export function startPlugins(
       namespaces: new Set<string>(),
       loadsToolsets: false,
       route: undefined as PluginRoute | undefined,
-      publicRoute: undefined as PublicRoute | undefined,
-      logins: [] as (() => readonly Login[])[],
       offers: [] as ModelOffer[],
       starters: [] as (typeof starters)[number][],
       profiles: new Map<string, PluginProfile>(),
@@ -752,22 +736,6 @@ export function startPlugins(
               staged.route = route;
             },
           },
-          auth: {
-            offer: (login) => {
-              staged.logins.push(login);
-            },
-            handlePublic: (route) => {
-              staged.publicRoute = route;
-            },
-            userOf: deps.auth.userOf,
-            users: deps.auth.users,
-            createUser: deps.auth.createUser,
-            setAdmin: deps.auth.setAdmin,
-            invited: deps.auth.invited,
-            acceptInvite: deps.auth.acceptInvite,
-            passwordLogin: deps.auth.passwordLogin,
-            startSession: deps.auth.startSession,
-          },
           models: {
             offer: (offer) => {
               staged.offers.push(offer);
@@ -816,14 +784,6 @@ export function startPlugins(
     if (staged.route !== undefined) {
       routes.set(plugin.name, staged.route);
     }
-
-    if (staged.publicRoute !== undefined) {
-      publicRoutes.set(plugin.name, staged.publicRoute);
-    }
-
-    logins.push(
-      ...staged.logins.map((offered) => ({ plugin: plugin.name, offered })),
-    );
 
     offers.push(...staged.offers);
     starters.push(...staged.starters);
@@ -901,6 +861,7 @@ export function startPlugins(
       routeToolProfiles: [] as string[],
       offers: [] as ModelOffer[],
       gitCredentials: [] as GitLoginsOf[],
+      signIn: undefined as SignInProvider | undefined,
     };
 
     try {
@@ -1004,6 +965,17 @@ export function startPlugins(
             gitCredentials: (of) => {
               staged.gitCredentials.push(of);
             },
+            signIn: (provider) => {
+              const taker = signIn?.plugin ?? (staged.signIn && id);
+
+              if (taker !== undefined) {
+                throw new Error(`${taker} already signs people in`);
+              }
+
+              staged.signIn = provider;
+
+              return signInApi;
+            },
             profile: (key, { name: _name, ...content }, o) => {
               const profileId = `${id}.${key}`;
 
@@ -1106,6 +1078,10 @@ export function startPlugins(
     offers.push(...staged.offers);
 
     gitLogins.push(...staged.gitCredentials.map((of) => ({ plugin: id, of })));
+
+    if (staged.signIn !== undefined) {
+      signIn = { plugin: id, provider: staged.signIn };
+    }
 
     scheduled.commit();
     schedules.wake();
@@ -1710,15 +1686,18 @@ export function startPlugins(
         .flatMap(({ of }) => of(owner, session)),
     route: async (request, name, path, caller) =>
       routes.get(name)?.(request, path, caller),
-    publicRoute: async (request, name, path) =>
-      publicRoutes.get(name)?.(request, path),
-    logins: () =>
-      logins.flatMap(({ plugin, offered }) =>
-        offered().map((login) => ({
-          ...login,
-          path: `/api/ext/${plugin}/${login.path}`,
-        })),
-      ),
+    logins: () => {
+      if (signIn === undefined) {
+        return [];
+      }
+
+      const { plugin, provider } = signIn;
+
+      return provider.logins().map(({ label, path }) => ({
+        label,
+        path: `/api/ext/${plugin}/${path}`,
+      }));
+    },
   };
 }
 
@@ -1861,10 +1840,6 @@ function recorded<C extends object>(
 ): C {
   return new Proxy(context, {
     get: (target, key, receiver) => {
-      if (installed && key === "auth") {
-        throw new Error(`${plugin} uses auth, which only built-in plugins get`);
-      }
-
       const capability = capabilities.find((each) => each === key);
 
       if (capability !== undefined) {

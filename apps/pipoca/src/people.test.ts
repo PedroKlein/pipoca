@@ -641,3 +641,75 @@ test("signing out everywhere ends every browser session and access token of that
 
   expect(after).toEqual([401, 401, 401, 200]);
 });
+
+test("only admins change plugins or restart the server", async () => {
+  const cookie = await ana();
+
+  const statuses = [
+    (
+      await server.as(cookie)("/api/plugins", {
+        body: { url: "file:///nowhere" },
+      })
+    ).status,
+    (
+      await server.as(cookie)("/api/plugins/oidc", {
+        method: "PATCH",
+        body: { settings: {} },
+      })
+    ).status,
+    (await server.as(cookie)("/api/plugins/oidc", { method: "DELETE" })).status,
+    (await server.as(cookie)("/api/server/restart", { body: {} })).status,
+  ];
+
+  expect(statuses).toEqual([403, 403, 403, 403]);
+});
+
+test("only admins change a template's Kubernetes settings", async () => {
+  const cookie = await ana();
+
+  const template = (await (
+    await server.api("/api/environment-templates", { body: { name: "pods" } })
+  ).json()) as { id: string };
+
+  const path = `/api/ext/kubernetes/templates/${template.id}`;
+  const patch = { spec: { volumes: [{ name: "key", secret: {} }] } };
+
+  const statuses = [
+    (await server.as(cookie)(path)).status,
+    (await server.as(cookie)(path, { body: { settings: { podPatch: patch } } }))
+      .status,
+    (await server.as(cookie)(path, { body: { settings: null } })).status,
+    (await server.api(path, { body: { settings: { podPatch: patch } } }))
+      .status,
+  ];
+
+  expect(statuses).toEqual([200, 403, 403, 200]);
+});
+
+test("only admins change model aliases, and anyone changes a Project's goal", async () => {
+  const cookie = await ana();
+
+  const laptop = (await (
+    await server.as(cookie)("/api/environments", { body: { name: "laptop" } })
+  ).json()) as { id: string };
+
+  const project = (await (
+    await server.as(cookie)("/api/ext/projects/projects", {
+      body: {
+        name: "Release",
+        repositories: ["https://example.com/app.git"],
+      },
+    })
+  ).json()) as { id: string };
+
+  const aliases = `/api/ext/models/environments/${laptop.id}`;
+  const settings = `/api/ext/projects/projects/${project.id}/settings`;
+
+  const statuses = [
+    (await server.as(cookie)(aliases, { body: { aliases: null } })).status,
+    (await server.api(aliases, { body: { aliases: null } })).status,
+    (await server.as(cookie)(settings, { body: { goal: "Ship it" } })).status,
+  ];
+
+  expect(statuses).toEqual([403, 200, 200]);
+});

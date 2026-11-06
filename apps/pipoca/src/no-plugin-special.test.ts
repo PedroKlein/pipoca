@@ -34,7 +34,7 @@ const meansOther: Readonly<Record<string, readonly string[]>> = {
 
 // v1 plugins the kernel still knows by name, until each one's port.
 const notPortedYet: Readonly<Record<string, readonly string[]>> = {
-  "apps/pipoca/src/serve.ts": ["kubernetes", "local", "oidc"],
+  "apps/pipoca/src/serve.ts": ["kubernetes", "local"],
   "apps/web/src/settings/environments/editor.tsx": ["kubernetes"],
   "apps/web/src/settings/environments/values.ts": ["kubernetes"],
   "apps/web/src/setup/where-step.tsx": ["kubernetes"],
