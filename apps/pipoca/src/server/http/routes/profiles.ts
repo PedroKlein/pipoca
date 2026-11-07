@@ -12,6 +12,10 @@ const rejections = {
   in_use: [409, "Sessions still use this Profile."],
   admin_only: [403, "Only admins change shared Profiles."],
   team: [400, "Only team work runs on a team Profile."],
+  used_by_others: [
+    409,
+    "Other people build on this Profile or use it as their default.",
+  ],
   synced: [
     409,
     "This Profile follows its repository. Make a copy to change it.",

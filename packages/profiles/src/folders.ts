@@ -24,8 +24,9 @@ import {
   contentFiles,
   folderEntries,
   folderFiles,
-  layered,
+  type Layer,
   maxProfileBytes,
+  stacked,
   tooBig,
 } from "./files";
 import { InvalidProfile } from "./invalid";
@@ -53,6 +54,8 @@ interface Meta {
   // The repository folder the Profile follows (ADR 0063).
   readonly source?: RepositorySource;
   readonly createdAt: string;
+  // What the Profile turned off of the layers below it (ADR 0074).
+  readonly off?: readonly string[];
 }
 
 // The Profiles in the server's config folder, one Pi agent folder each
@@ -117,6 +120,7 @@ export class ProfileFolders {
             appendSystemMd: "",
             mcpServers: {},
             settings: {},
+            off: [],
           }
         : undefined;
     }
@@ -144,6 +148,7 @@ export class ProfileFolders {
       appendSystemMd: text(join(dir, "APPEND_SYSTEM.md")),
       mcpServers: isRecord(mcpServers) ? mcpServers : {},
       settings,
+      off: offOf(meta["off"]),
     };
   }
 
@@ -151,24 +156,38 @@ export class ProfileFolders {
   // defaults, the Profiles this one builds on and its own files, the nearer
   // layer winning. Throws ProfileTooBig for a folder runners shouldn't get.
   files(id: string, ownerId?: string): ProfileFiles | undefined {
-    const own = this.ownFiles(id);
+    const own = this.#ownLayer(id);
     if (!own) {
       return undefined;
     }
 
     const below = this.buildsOn(id).flatMap(
-      (under) => this.ownFiles(under) ?? [],
+      (under) => this.#ownLayer(under) ?? [],
     );
 
-    return stacked([this.layers(ownerId), ...below.reverse(), own]);
+    return stacked([...this.#layers(ownerId), ...below.reverse(), own]);
   }
 
   // The base and the owner's My defaults, which sit under every Profile.
   layers(ownerId?: string): ProfileFiles | undefined {
-    return stacked([
-      this.#base?.files(),
-      ownerId === undefined ? undefined : this.defaults(ownerId)?.files(),
-    ]);
+    const layers = this.#layers(ownerId);
+
+    return layers.length === 0 ? undefined : stacked(layers);
+  }
+
+  #layers(ownerId?: string): readonly Layer[] {
+    const defaults = ownerId === undefined ? undefined : this.defaults(ownerId);
+
+    return [
+      this.#base?.layer(baseLayer),
+      defaults?.layer(defaultsLayer),
+    ].flatMap((layer) => layer ?? []);
+  }
+
+  #ownLayer(id: string): Layer | undefined {
+    const files = this.ownFiles(id);
+
+    return files && { id, files, off: this.read(id)?.off ?? [] };
   }
 
   // The Profiles under this one, nearest first. A missing Profile, a loop or
@@ -341,6 +360,8 @@ export class ProfileFolders {
     const dir = join(this.#root, id);
     mkdirSync(dir, { recursive: true });
 
+    const off = offOf(this.#json(join(dir, metaFile))["off"]);
+
     replace(
       join(dir, metaFile),
       json({
@@ -349,6 +370,7 @@ export class ProfileFolders {
         ...(typeof meta.buildsOn === "string" && { buildsOn: meta.buildsOn }),
         ...(meta.source && { source: meta.source }),
         createdAt: meta.createdAt,
+        ...(off.length > 0 && { off }),
       } satisfies Meta),
     );
 
@@ -396,6 +418,20 @@ export class ProfileFolders {
         Object.keys(content.mcpServers).length === 0
           ? ""
           : json({ mcpServers: content.mcpServers }),
+      );
+    }
+
+    if (content.off !== undefined) {
+      const { off: _, ...meta } = this.#json(join(dir, metaFile));
+
+      const next = {
+        ...meta,
+        ...(content.off.length > 0 && { off: content.off }),
+      };
+
+      replace(
+        join(dir, metaFile),
+        Object.keys(next).length === 0 ? "" : json(next),
       );
     }
   }
@@ -449,6 +485,7 @@ export class ProfileLayer {
       appendSystemMd,
       mcpServers,
       settings,
+      off,
     } = this.#folder.read(this.#id) ?? emptyProfile;
 
     return {
@@ -458,7 +495,14 @@ export class ProfileLayer {
       appendSystemMd,
       mcpServers,
       settings,
+      off,
     };
+  }
+
+  layer(id: string): Layer | undefined {
+    const files = this.files();
+
+    return files && { id, files, off: this.read().off };
   }
 
   write(content: Partial<ProfileContent>): void {
@@ -488,16 +532,19 @@ export class ProfileLayer {
   }
 }
 
-// Layers from the bottom up, or undefined when there are none.
-function stacked(
-  layers: readonly (ProfileFiles | undefined)[],
-): ProfileFiles | undefined {
-  return layers
-    .filter((layer) => layer !== undefined)
-    .reduce<ProfileFiles | undefined>(
-      (under, over) => (under ? layered(under, over) : over),
-      undefined,
-    );
+// How a Profile names the layers under every Profile when it turns off one's
+// AGENTS.md or APPEND_SYSTEM.md. No Profile id starts with a colon.
+export const baseLayer = ":base";
+export const defaultsLayer = ":defaults";
+
+const maxOff = 500;
+
+function offOf(value: unknown): readonly string[] {
+  return Array.isArray(value)
+    ? value
+        .filter((entry): entry is string => typeof entry === "string")
+        .slice(0, maxOff)
+    : [];
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

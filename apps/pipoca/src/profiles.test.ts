@@ -121,6 +121,7 @@ test("starts with one empty default Profile, shared by everyone", async () => {
       appendSystemMd: "",
       mcpServers: {},
       settings: {},
+      off: [],
     },
   ]);
 });
@@ -1309,4 +1310,273 @@ test("offers sign-in to the MCP servers of the base Profile and the user's Profi
   );
 
   expect(account.servers.map(({ name }) => name)).toEqual(["linear", "notion"]);
+});
+
+async function putLayerFile(
+  layer: string,
+  path: string,
+  text: string,
+): Promise<void> {
+  const response = await fetch(new URL(`${layer}/files/${path}`, server.url), {
+    method: "PUT",
+    headers: { cookie: await server.signedIn() },
+    body: text,
+  });
+
+  expect(response.status).toBe(204);
+}
+
+test("adds up APPEND_SYSTEM.md and Pi's resource lists across layers", async () => {
+  const environment = await vmEnvironment();
+
+  await putLayerFile(
+    "/api/settings/base-profile",
+    "APPEND_SYSTEM.md",
+    "Use the team's style.",
+  );
+
+  await putLayerFile(
+    "/api/settings/base-profile",
+    "settings.json",
+    JSON.stringify({ skills: ["-skills/old"], defaultThinkingLevel: "low" }),
+  );
+
+  const work = await json<Profile>(
+    server.api("/api/profiles", {
+      body: {
+        name: "Work",
+        appendSystemMd: "Answer in English.",
+        settings: { skills: ["-skills/noisy", "-skills/old"] },
+      },
+    }),
+  );
+
+  const { files } = await runnerFilesOf(environment, work.id);
+
+  expect(files["APPEND_SYSTEM.md"]).toBe(
+    "Use the team's style.\n\nAnswer in English.",
+  );
+
+  expect(JSON.parse(files["settings.json"] ?? "{}")).toEqual({
+    skills: ["-skills/old", "-skills/noisy"],
+    defaultThinkingLevel: "low",
+  });
+});
+
+test("turns off what a Profile inherits, one item at a time", async () => {
+  const environment = await vmEnvironment();
+  const base = "/api/settings/base-profile";
+
+  await putLayerFile(base, "AGENTS.md", "Team.");
+  await putLayerFile(base, "APPEND_SYSTEM.md", "Team prompt.");
+  await putLayerFile(base, "skills%2Fkyma%2FSKILL.md", "# Kyma");
+  await putLayerFile(base, "skills%2Fkyma%2Fnotes.md", "Notes");
+  await putLayerFile(base, "skills%2Frelease%2FSKILL.md", "# Release");
+  await putLayerFile(base, "prompts%2Fstandup.md", "Standup");
+
+  await putLayerFile(
+    base,
+    "settings.json",
+    JSON.stringify({ packages: ["npm:ai-provider", "npm:heavy"] }),
+  );
+
+  await putLayerFile(
+    base,
+    "mcp.json",
+    JSON.stringify({
+      mcpServers: {
+        jira: { url: "https://jira.example.com/mcp" },
+        docs: { url: "https://docs.example.com/mcp" },
+      },
+    }),
+  );
+
+  await putLayerFile("/api/me/profile-defaults", "AGENTS.md", "Mine.");
+
+  const work = await json<Profile>(
+    server.api("/api/profiles", {
+      body: {
+        name: "Work",
+        agentsMd: "Work.",
+        off: [
+          "skills/kyma",
+          "prompts/standup.md",
+          "package:npm:heavy",
+          "mcp:jira",
+          "AGENTS.md::base",
+          "APPEND_SYSTEM.md::base",
+        ],
+      },
+    }),
+  );
+
+  expect(work.off).toHaveLength(6);
+
+  const { files } = await runnerFilesOf(environment, work.id);
+
+  expect(Object.keys(files)).toEqual([
+    "AGENTS.md",
+    "mcp.json",
+    "settings.json",
+    "skills/release/SKILL.md",
+  ]);
+
+  expect(files["AGENTS.md"]).toBe("Mine.\n\nWork.");
+
+  expect(JSON.parse(files["settings.json"] ?? "{}")).toEqual({
+    packages: ["npm:ai-provider"],
+  });
+
+  expect(JSON.parse(files["mcp.json"] ?? "{}")).toEqual({
+    mcpServers: { docs: { url: "https://docs.example.com/mcp" } },
+  });
+
+  const edited = await json<Profile>(
+    server.api(`/api/profiles/${work.id}`, {
+      method: "PATCH",
+      body: { off: [] },
+    }),
+  );
+
+  expect(edited.off).toEqual([]);
+
+  expect(
+    Object.keys((await runnerFilesOf(environment, work.id)).files),
+  ).toContain("skills/kyma/notes.md");
+
+  expect(
+    (
+      await server.api(`/api/profiles/${work.id}`, {
+        method: "PATCH",
+        body: { off: "skills/kyma" },
+      })
+    ).status,
+  ).toBe(400);
+});
+
+test("My defaults turns off base items under every Profile of its owner", async () => {
+  const environment = await vmEnvironment();
+
+  await putLayerFile(
+    "/api/settings/base-profile",
+    "skills%2Fkyma%2FSKILL.md",
+    "# Kyma",
+  );
+
+  const defaults = await server.api("/api/me/profile-defaults", {
+    method: "PUT",
+    body: { off: ["skills/kyma"] },
+  });
+
+  expect(defaults.status).toBe(200);
+
+  expect(await json<unknown>(server.api("/api/me/profile-defaults"))).toEqual({
+    ...emptyProfile,
+    off: ["skills/kyma"],
+  });
+
+  expect((await runnerFilesOf(environment, "default")).files).toEqual({});
+
+  const work = await json<Profile>(
+    server.api("/api/profiles", {
+      body: { name: "Work", agentsMd: "Work." },
+    }),
+  );
+
+  await putLayerFile(
+    "/api/settings/base-profile",
+    "skills%2Frelease%2FSKILL.md",
+    "# Release",
+  );
+
+  expect(
+    Object.keys((await runnerFilesOf(environment, work.id)).files),
+  ).toEqual(["AGENTS.md", "skills/release/SKILL.md"]);
+});
+
+test("an admin shares a Profile and makes it theirs again while nobody else uses it", async () => {
+  const mine = await json<Profile>(
+    server.api("/api/profiles", { body: { name: "Kit" } }),
+  );
+
+  const share = async (shared: boolean, cookie?: string) =>
+    server.api(`/api/profiles/${mine.id}`, {
+      method: "PATCH",
+      body: { shared },
+      ...(cookie !== undefined && { headers: { cookie } }),
+    });
+
+  const shared = await json<Profile>(share(true));
+
+  expect(shared.ownerId).toBeNull();
+
+  const ana = await secondUser();
+
+  const anas = await json<Profile>(
+    server.api("/api/profiles", {
+      body: { name: "Ana's", buildsOn: mine.id },
+      headers: { cookie: ana },
+    }),
+  );
+
+  expect(anas.buildsOn).toBe(mine.id);
+  expect((await share(false)).status).toBe(409);
+
+  await server.api(`/api/profiles/${anas.id}`, {
+    method: "PATCH",
+    body: { buildsOn: null },
+    headers: { cookie: ana },
+  });
+
+  await server.api(`/api/profiles/${mine.id}`, {
+    method: "PATCH",
+    body: { isDefault: true },
+    headers: { cookie: ana },
+  });
+
+  expect((await share(false)).status).toBe(409);
+
+  await server.api("/api/profiles/default", {
+    method: "PATCH",
+    body: { isDefault: true },
+    headers: { cookie: ana },
+  });
+
+  const unshared = await json<Profile>(share(false));
+
+  expect(unshared.ownerId).not.toBeNull();
+
+  const anasOwn = await json<Profile>(
+    server.api("/api/profiles", {
+      body: { name: "Ana's kit" },
+      headers: { cookie: ana },
+    }),
+  );
+
+  const asAna = await server.api(`/api/profiles/${anasOwn.id}`, {
+    method: "PATCH",
+    body: { shared: true },
+    headers: { cookie: ana },
+  });
+
+  expect(asAna.status).toBe(403);
+  expect((await share(true)).status).toBe(200);
+  expect((await share(true)).status).toBe(200);
+});
+
+test("a shared Profile can't build on someone's own", async () => {
+  const under = await json<Profile>(
+    server.api("/api/profiles", { body: { name: "Under" } }),
+  );
+
+  const over = await json<Profile>(
+    server.api("/api/profiles", { body: { name: "Over", buildsOn: under.id } }),
+  );
+
+  const response = await server.api(`/api/profiles/${over.id}`, {
+    method: "PATCH",
+    body: { shared: true },
+  });
+
+  expect(response.status).toBe(400);
 });

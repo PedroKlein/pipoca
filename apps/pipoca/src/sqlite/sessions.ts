@@ -430,6 +430,10 @@ export function profileStore(db: DatabaseSync): ProfileStore {
     "update users set default_profile_id = ? where id = ?",
   );
 
+  const selectDefaultFor = db.prepare(
+    "select id from users where default_profile_id = ?",
+  );
+
   const selectProfileUse = db.prepare(
     "select 1 from sessions where profile_id = ? and archived_at is null limit 1",
   );
@@ -446,6 +450,8 @@ export function profileStore(db: DatabaseSync): ProfileStore {
       updateDefault.run(id, ownerId);
     },
     profileInUse: (id) => selectProfileUse.get(id) !== undefined,
+    defaultFor: (id) =>
+      (selectDefaultFor.all(id) as { id: string }[]).map((row) => row.id),
   };
 }
 
