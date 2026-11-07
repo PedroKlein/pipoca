@@ -16,11 +16,11 @@ import type { Account } from "../src/model";
 import { ConnectForm, ConnectionCard } from "./connect";
 import { layerName } from "./layers";
 import { ProfileLogins } from "./profile";
-import { modelStep } from "./setup";
+import { modelStep, sharedKeysStep } from "./setup";
 import { TeamCredentials } from "./team";
 
 export const web = defineWeb(logins, {
-  setup: [modelStep],
+  setup: [sharedKeysStep, modelStep],
   pages: [
     {
       path: "credentials",
