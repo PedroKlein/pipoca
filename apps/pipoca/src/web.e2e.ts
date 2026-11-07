@@ -2753,20 +2753,26 @@ test("builds a Profile on another, over My defaults", async () => {
   const profiles = page.getByRole("navigation", { name: "Profiles" });
   await profiles.getByRole("link", { name: "My defaults" }).click();
 
-  const editor = page.locator("#profiles-page form").first();
-  const add = editor.getByLabel("Add to Pi packages");
+  const profilesPage = page.locator("#profiles-page");
+  const packages = page.getByRole("list", { name: "Packages", exact: true });
 
-  await add.fill("npm:my-provider");
-  await add.press("Enter");
-  await editor.getByRole("button", { name: "Save" }).click();
-  await editor.getByText("Saved").waitFor();
+  await profilesPage.getByRole("button", { name: "Add package" }).click();
+  await profilesPage.getByLabel("Package source").fill("npm:my-provider");
+  await profilesPage.getByRole("button", { name: "Add", exact: true }).click();
+  await packages.getByRole("switch", { name: "npm:my-provider" }).waitFor();
   await page.reload();
-  await editor.getByText("npm:my-provider").waitFor();
+  await packages.getByText("npm:my-provider").first().waitFor();
 
   // A package nobody can install would stop every later Session.
-  await editor.getByRole("button", { name: "Remove npm:my-provider" }).click();
-  await editor.getByRole("button", { name: "Save" }).click();
-  await editor.getByText("Saved").waitFor();
+  await packages
+    .getByRole("button", { name: "Remove npm:my-provider" })
+    .click();
+
+  await packages
+    .getByRole("switch", { name: "npm:my-provider" })
+    .waitFor({ state: "detached" });
+
+  const editor = page.locator("#profiles-page form").first();
 
   await page.getByRole("link", { name: "New Profile" }).click();
   await editor.getByLabel("Name").fill("Deep");
@@ -2786,6 +2792,81 @@ test("builds a Profile on another, over My defaults", async () => {
   await profiles
     .getByRole("link", { name: "Deep" })
     .waitFor({ state: "detached" });
+});
+
+test("shows what a Profile inherits and turns a Server base skill off in it", async () => {
+  const base = join(root, "config", "base");
+
+  await mkdir(join(base, "skills", "cluster"), { recursive: true });
+
+  await writeFile(
+    join(base, "skills", "cluster", "SKILL.md"),
+    "---\nname: cluster\ndescription: Debug our cluster\n---\n",
+  );
+
+  await writeFile(join(base, "AGENTS.md"), "# Working at ACME\nNever push.");
+
+  await page.goto(server.url.href);
+  await openSettings("Profiles");
+
+  const profiles = page.getByRole("navigation", { name: "Profiles" });
+  await profiles.getByRole("link", { name: /^Default/ }).click();
+
+  const skills = page.getByRole("list", { name: "Skills" });
+  const cluster = skills.getByRole("switch", { name: "cluster in Default" });
+
+  await cluster.waitFor();
+  await skills.getByText("Server base").first().waitFor();
+
+  await page
+    .getByRole("list", { name: "Instructions" })
+    .getByText("Working at ACME")
+    .waitFor();
+
+  await cluster.click();
+
+  await skills
+    .getByRole("switch", { name: "cluster in Default", checked: false })
+    .waitFor();
+
+  const meta = JSON.parse(
+    await readFile(
+      join(root, "config", "profiles", "default", "profile.json"),
+      "utf8",
+    ),
+  ) as { off?: unknown };
+
+  expect(meta.off).toEqual(["skills/cluster"]);
+
+  await page.getByRole("button", { name: "Preview what Pi gets" }).click();
+
+  const preview = page.getByRole("dialog", {
+    name: "What Pi gets with Default",
+  });
+
+  const files = preview.getByRole("list", { name: "Files" });
+
+  await files.getByRole("button", { name: /AGENTS\.md/ }).click();
+  await preview.getByText("Never push.").waitFor();
+  expect(await files.getByText("skills/cluster/SKILL.md").count()).toBe(0);
+  await page.keyboard.press("Escape");
+
+  await skills
+    .getByRole("switch", { name: "cluster in Default", checked: false })
+    .click();
+
+  await skills
+    .getByRole("switch", { name: "cluster in Default", checked: true })
+    .waitFor();
+
+  await profiles.getByRole("link", { name: "Server base" }).first().click();
+  await skills.getByRole("switch", { name: "cluster", exact: true }).waitFor();
+
+  await page
+    .getByText("Every Session on this server, personal and team")
+    .waitFor();
+
+  await rm(base, { recursive: true, force: true });
 });
 
 test("imports a Profile from a picked folder with its files", async () => {

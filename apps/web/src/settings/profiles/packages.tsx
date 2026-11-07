@@ -9,16 +9,19 @@ import {
   Switch,
   TextInput,
 } from "@pipoca/ui";
-import { type ReactElement, useEffect, useState } from "react";
+import { type ReactElement, type ReactNode, useEffect, useState } from "react";
 
 export function Packages({
   packages,
   editable,
   onSave,
+  children,
 }: {
   readonly packages: readonly PiPackage[];
   readonly editable: boolean;
   readonly onSave: (packages: readonly PiPackage[]) => void;
+  // Rows for the packages the layers below add.
+  readonly children?: readonly ReactNode[];
 }): ReactElement {
   const [adding, setAdding] = useState(false);
   const latest = useLatest(packages);
@@ -68,8 +71,9 @@ export function Packages({
           <Button type="submit">Add</Button>
         </form>
       )}
-      {packages.length > 0 && (
+      {packages.length + (children?.length ?? 0) > 0 && (
         <Rows label="Packages">
+          {children}
           {packages.map((pkg, index) => {
             const source = typeof pkg === "string" ? pkg : pkg.source;
             const pinned = pinnedOf(source);
