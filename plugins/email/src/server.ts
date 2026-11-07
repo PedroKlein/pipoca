@@ -247,7 +247,7 @@ export const server = defineServer(
 
     routes.post(
       "mailboxes",
-      { auth: "admin", body: newMailbox, status: 201 },
+      { auth: "admin", body: newMailbox, status: 201, changes: ["mailboxes"] },
       async ({ body, caller }) => {
         if (mailboxes.get(body.name) !== undefined) {
           throw new BadRequest(`there is a mailbox ${body.name} already`);
@@ -273,17 +273,21 @@ export const server = defineServer(
       },
     );
 
-    routes.delete("mailboxes/:name", { auth: "admin" }, ({ params }) => {
-      const { name } = params;
+    routes.delete(
+      "mailboxes/:name",
+      { auth: "admin", changes: ["mailboxes"] },
+      ({ params }) => {
+        const { name } = params;
 
-      if (!mailboxes.remove(name)) {
-        throw new NotFound(`no mailbox ${name}`);
-      }
+        if (!mailboxes.remove(name)) {
+          throw new NotFound(`no mailbox ${name}`);
+        }
 
-      store.run("delete from email_state where mailbox = ?", name);
-      log("mailbox removed", { name });
+        store.run("delete from email_state where mailbox = ?", name);
+        log("mailbox removed", { name });
 
-      return { removed: name };
-    });
+        return { removed: name };
+      },
+    );
   },
 );

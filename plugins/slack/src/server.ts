@@ -263,7 +263,7 @@ export const server = defineServer(
 
     routes.post(
       "bots",
-      { auth: "admin", body: newBot, status: 201 },
+      { auth: "admin", body: newBot, status: 201, changes: ["bots"] },
       async ({ body, caller }) => {
         if (bots.get(body.name) !== undefined) {
           throw new BadRequest(`there is a bot ${body.name} already`);
@@ -293,17 +293,21 @@ export const server = defineServer(
       },
     );
 
-    routes.delete("bots/:name", { auth: "admin" }, ({ params }) => {
-      const { name } = params;
+    routes.delete(
+      "bots/:name",
+      { auth: "admin", changes: ["bots"] },
+      ({ params }) => {
+        const { name } = params;
 
-      if (!bots.remove(name)) {
-        throw new NotFound(`no bot ${name}`);
-      }
+        if (!bots.remove(name)) {
+          throw new NotFound(`no bot ${name}`);
+        }
 
-      log("slack bot removed", { name });
+        log("slack bot removed", { name });
 
-      return { removed: name };
-    });
+        return { removed: name };
+      },
+    );
   },
 );
 

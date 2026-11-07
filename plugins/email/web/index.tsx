@@ -2,11 +2,13 @@ import {
   ConfigForm,
   defineWeb,
   type NoticeProps,
+  type SetupStep,
   useApi,
   useLoaded,
   useViewer,
 } from "@pipoca/plugins/web";
 import {
+  Badge,
   Button,
   cardClass,
   Checkbox,
@@ -20,9 +22,28 @@ import { type ReactElement, type SubmitEvent, useState } from "react";
 import { email } from "../plugin";
 import type { MailboxView } from "../src/model";
 
+// The team's mailboxes, in its server's setup (ADR 0072). Email links no
+// one's own account, so there is no personal step.
+const mailboxStep: SetupStep = {
+  audience: "server",
+  after: "where",
+  teamOnly: true,
+  title: "Email",
+  summary: "A mailbox for routines and Sessions",
+  heading: "Add a mailbox",
+  description:
+    "So your team can start routines from email and Sessions can send and answer mail. You can add one later in Settings, Integrations.",
+  optional: true,
+  done: async (api) =>
+    (await api.get<readonly MailboxView[]>("mailboxes")).length > 0,
+  changes: ["mailboxes"],
+  Step: Mailboxes,
+};
+
 export const web = defineWeb(email, {
   settings: { group: "integrations", Section },
   slots: { "notice:email_reply": EmailReply },
+  setup: [mailboxStep],
 });
 
 function Section(): ReactElement | null {
@@ -45,7 +66,16 @@ function Mailboxes(): ReactElement {
   const { value, reload } = useLoaded(
     async () => api.get<readonly MailboxView[]>("mailboxes"),
     "mailboxes",
+    { changes: ["mailboxes"] },
   );
+
+  // The deploy file, such as one Helm mounts, may set the mailboxes.
+  const locked = useLoaded(
+    async () =>
+      api.get<{ readonly lockedIn?: string }>("/api/plugins/email/config"),
+    "config",
+    { topics: ["plugins"] },
+  ).value?.lockedIn;
 
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string>();
@@ -129,20 +159,24 @@ function Mailboxes(): ReactElement {
                 {mailbox.name}
                 <span className="text-fg-dim"> · {mailbox.address}</span>
               </span>
-              <Button
-                aria-label={`Remove ${mailbox.name}`}
-                onClick={() => {
-                  remove(mailbox);
-                }}
-              >
-                Remove
-              </Button>
+              {locked === undefined ? (
+                <Button
+                  aria-label={`Remove ${mailbox.name}`}
+                  onClick={() => {
+                    remove(mailbox);
+                  }}
+                >
+                  Remove
+                </Button>
+              ) : (
+                <Badge>Set in deploy file</Badge>
+              )}
             </div>
             <ErrorText size="caption">{mailbox.error}</ErrorText>
           </li>
         ))}
       </ul>
-      {adding ? (
+      {adding && (
         <form
           onSubmit={add}
           aria-label="New mailbox"
@@ -211,7 +245,8 @@ function Mailboxes(): ReactElement {
             <ErrorText size="caption">{error}</ErrorText>
           </div>
         </form>
-      ) : (
+      )}
+      {!adding && locked === undefined && (
         <div>
           <Button
             onClick={() => {
@@ -221,6 +256,12 @@ function Mailboxes(): ReactElement {
             Add a mailbox
           </Button>
         </div>
+      )}
+      {locked !== undefined && (
+        <p role="note" className="text-fg-dim">
+          <code className="font-mono">{locked}</code> sets the mailboxes, so
+          they are read-only here.
+        </p>
       )}
     </div>
   );

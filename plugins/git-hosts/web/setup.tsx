@@ -47,9 +47,10 @@ import { ConnectSetup, HostForm, kindOf } from "./hosts";
 
 // The admin's step in server setup: the hosts, how people sign in to each
 // for their own work, and the App that does team work there (ADR 0072).
+// It follows sign-in, which decides who the people with code are.
 export const codeHostsStep: SetupStep = {
   audience: "server",
-  after: "plugins",
+  after: { plugin: "oidc", or: "plugins" },
   title: "Code hosts",
   summary: "Where the team's code lives",
   heading: "Where does the team's code live?",

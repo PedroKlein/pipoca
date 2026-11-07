@@ -163,12 +163,13 @@ const runner = Type.Object({
 
 export type Runner = Wire<typeof runner>;
 
-// The plugin that starts an Environment's runners on demand, and what the
-// Environments page calls them.
+// The plugin that starts an Environment's runners on demand, what the
+// Environments page calls them, and how server setup offers its template.
 const runnersFrom = Type.Object({
   plugin: Type.String(),
   label: Type.String(),
   icon: Type.String(),
+  choice: Type.Optional(Type.String()),
 });
 
 export type RunnersFrom = Wire<typeof runnersFrom>;

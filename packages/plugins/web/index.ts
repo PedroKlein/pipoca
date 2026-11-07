@@ -72,6 +72,11 @@ export type ServerSetupStepId =
 
 export type PersonSetupStepId = "welcome" | "where" | "profile";
 
+// A kernel step, or another plugin's step with the kernel step to follow
+// when that plugin's step isn't shown.
+export type SetupStepAnchor<K extends string> =
+  K | { readonly plugin: string; readonly or: K };
+
 export interface SetupStepProps {
   // The server is just for the person setting it up. A plugin with a step
   // in both setups then shows only its personal one, which sets up both.
@@ -80,13 +85,24 @@ export interface SetupStepProps {
 
 // A step a plugin adds to setup (ADR 0063, ADR 0072): to the server's,
 // which an admin does once for what the server shares, or to each person's.
-// It goes after a kernel step, by default after Plugins or Welcome. done
+// It goes after a kernel step, by default after Plugins or Welcome, or
+// right after another plugin's step. Steps on the same anchor go in the
+// order the plugins load. done
 // says whether it was already done, and reloads when one of its topics
 // changes. A personal step that isn't done stays on home as a reminder.
+// A server step only for teams, such as sign-in, is left out on a server
+// just for its person.
 export type SetupStep = SetupStepAbout &
   (
-    | { readonly audience: "server"; readonly after?: ServerSetupStepId }
-    | { readonly audience: "person"; readonly after?: PersonSetupStepId }
+    | {
+        readonly audience: "server";
+        readonly after?: SetupStepAnchor<ServerSetupStepId>;
+        readonly teamOnly?: boolean;
+      }
+    | {
+        readonly audience: "person";
+        readonly after?: SetupStepAnchor<PersonSetupStepId>;
+      }
   );
 
 interface SetupStepAbout {

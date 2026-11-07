@@ -238,6 +238,9 @@ export const web = defineWeb(vault, {
   await page.getByLabel("Username").fill("pedro");
   await page.getByLabel("Password").fill("correct horse");
 
+  // Setup reads the templates once, as it opens.
+  await page.route("**/api/environment-templates", podTemplate);
+
   await page
     .getByRole("button", { name: "Create account and continue" })
     .click();
@@ -251,6 +254,29 @@ export const web = defineWeb(vault, {
 const continueButton = (): Locator =>
   page.getByRole("button", { name: "Continue" });
 
+// A template whose runners a plugin starts, such as in a cluster.
+async function podTemplate(route: Route): Promise<void> {
+  await route.fulfill({
+    json: [
+      {
+        id: "pods",
+        name: "Cloud pod",
+        isolation: "process",
+        image: "runner:1",
+        setupScript: "",
+        variables: {},
+        source: null,
+        runnersFrom: {
+          plugin: "kubernetes",
+          label: "Kubernetes",
+          icon: "cloud",
+          choice: "A pod for each person",
+        },
+      },
+    ],
+  });
+}
+
 // The first admin goes through the server's setup, then their own, with
 // Back from their own into the server's (ADR 0072).
 async function setUpServerAndPerson(): Promise<void> {
@@ -261,22 +287,43 @@ async function setUpServerAndPerson(): Promise<void> {
     .waitFor();
 
   await setup.getByText("Server setup").waitFor();
-  expect(await setup.getByText("Step 1 of 7").count()).toBe(1);
+  expect(await setup.getByText("Step 1 of 10").count()).toBe(1);
 
   expect(
     await page.getByRole("radio", { name: /^A team/, checked: true }).count(),
   ).toBe(1);
 
-  await continueButton().click();
+  const plugins = page.getByRole("heading", {
+    name: "What should this server do?",
+  });
 
-  await page
-    .getByRole("heading", { name: "What should this server do?" })
-    .waitFor();
+  // A server just for its person has no one to sign in or bots to share,
+  // so the plugins' steps for teams leave its setup.
+  await page.getByRole("radio", { name: /^Just me/ }).check();
+  await continueButton().click();
+  await plugins.waitFor();
+  await setup.getByText("Step 2 of 3").waitFor();
+  await page.getByRole("button", { name: "Back" }).click();
+  await page.getByRole("radio", { name: /^A team/ }).check();
+  await continueButton().click();
+  await plugins.waitFor();
+  await setup.getByText("Step 2 of 10").waitFor();
 
   await page.getByRole("list", { name: "Adds a setup step" }).waitFor();
   await continueButton().click();
 
-  // No host is added for you, and going on with none is an answer.
+  // Sign-in names no provider until the admin adds one.
+  await page.getByRole("heading", { name: "How people sign in" }).waitFor();
+
+  await page
+    .getByRole("list", { name: "Add a provider" })
+    .getByRole("button", { name: /Any OpenID provider/ })
+    .waitFor();
+
+  await page.getByRole("button", { name: "Skip for now" }).click();
+
+  // Code hosts come after sign-in. No host is added for you, and going on
+  // with none is an answer.
   await page
     .getByRole("heading", { name: "Where does the team's code live?" })
     .waitFor();
@@ -314,8 +361,34 @@ async function setUpServerAndPerson(): Promise<void> {
 
   await continueButton().click();
 
+  // A template whose runners a plugin starts is offered as the plugin
+  // words it, with the template's own name and image.
   await page.getByRole("heading", { name: "Where do Sessions run?" }).waitFor();
+
+  const pod = page
+    .getByRole("list", { name: "Where Sessions run" })
+    .getByRole("listitem")
+    .filter({ hasText: "A pod for each person" });
+
+  await pod.getByText("From plugin: Kubernetes").waitFor();
+
+  const choice = pod.getByRole("checkbox", { name: /^A pod for each person/ });
+  await choice.click();
+
+  expect(await pod.getByLabel("Name people see").inputValue()).toBe(
+    "Cloud pod",
+  );
+
+  expect(await pod.getByLabel("Image").inputValue()).toBe("runner:1");
+  await choice.click();
+  await pod.getByLabel("Image").waitFor({ state: "detached" });
+  await page.unroute("**/api/environment-templates", podTemplate);
   await continueButton().click();
+
+  for (const heading of ["Add a mailbox", "Add a Slack bot"]) {
+    await page.getByRole("heading", { name: heading }).waitFor();
+    await page.getByRole("button", { name: "Skip for now" }).click();
+  }
 
   const finish = page.getByRole("button", {
     name: "Finish and set up my account",
@@ -1977,6 +2050,68 @@ test("adds company sign-in from a preset, tests it, and removes it", async () =>
   await page.getByRole("button", { name: "Remove Okta" }).click();
   await confirmIn("Remove");
   await providers.waitFor({ state: "detached" });
+});
+
+test("shows the Slack bots and mailboxes the deploy file sets read-only", async () => {
+  const locked = async (route: Route): Promise<void> => {
+    await route.fulfill({
+      json: { value: {}, lockedIn: "/etc/pipoca/pipoca.json" },
+    });
+  };
+
+  const bots = async (route: Route): Promise<void> => {
+    await route.fulfill({
+      json: [
+        {
+          name: "team-bot",
+          team: "Acme",
+          botUser: "U1",
+          connected: true,
+          error: null,
+        },
+      ],
+    });
+  };
+
+  const mailboxes = async (route: Route): Promise<void> => {
+    await route.fulfill({
+      json: [{ name: "support", address: "support@example.com", error: null }],
+    });
+  };
+
+  await page.route("**/api/plugins/{slack,email}/config", locked);
+  await page.route("**/api/ext/slack/bots", bots);
+  await page.route("**/api/ext/email/mailboxes", mailboxes);
+  await page.goto(server.url.href);
+  await openSettings("Integrations");
+
+  for (const [section, list, item] of [
+    ["Slack", "Slack bots", "team-bot"],
+    ["Email", "Mailboxes", "support"],
+  ] as const) {
+    await page
+      .getByRole("navigation", { name: "Integrations" })
+      .getByRole("link", { name: section })
+      .click();
+
+    const listed = page.getByRole("list", { name: list });
+    await listed.getByText("Set in deploy file").waitFor();
+
+    expect(
+      await listed.getByRole("button", { name: `Remove ${item}` }).count(),
+    ).toBe(0);
+
+    await page
+      .getByRole("note")
+      .filter({ hasText: "/etc/pipoca/pipoca.json" })
+      .waitFor();
+
+    expect(await page.getByRole("button", { name: /^Add a/ }).count()).toBe(0);
+  }
+
+  await page.unroute("**/api/plugins/{slack,email}/config", locked);
+  await page.unroute("**/api/ext/slack/bots", bots);
+  await page.unroute("**/api/ext/email/mailboxes", mailboxes);
 });
 
 test("guides an admin from a token-only host to a Connect button", async () => {

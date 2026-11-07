@@ -2,6 +2,7 @@ import type {
   PersonSetupStepId,
   ServerSetupStepId,
   SetupStep,
+  WebPart,
 } from "@pipoca/plugins/web";
 import { request } from "../data/client";
 import { enabledPlugins } from "../plugins";
@@ -140,49 +141,85 @@ interface Added extends WizardStep {
 }
 
 // Each plugin adds at most one step to each setup. One without an
-// audience is a personal one, as every step was before ADR 0072.
-function added(phase: Phase, solo: boolean): readonly Added[] {
+// audience is a personal one, as every step was before ADR 0072. A step
+// goes after another plugin's only when that one is shown and itself goes
+// after a kernel step, and otherwise after the kernel step it names.
+function added(
+  phase: Phase,
+  solo: boolean,
+  parts: readonly WebPart[],
+): readonly Added[] {
   const order: readonly string[] =
     phase === "server" ? serverOrder : personOrder;
 
-  return enabledPlugins().flatMap(({ plugin, setup = [] }) => {
+  const kernelAnchor = (id: string | undefined): string =>
+    (id !== undefined && order.includes(id)
+      ? id
+      : order[phase === "server" ? 1 : 0]) ?? "";
+
+  const shown = parts.flatMap(({ plugin, setup = [] }) => {
     const ofPhase = (step: SetupStep): boolean =>
       (step.audience === "server") === (phase === "server");
 
     const step = setup.find(ofPhase);
 
     // On a server just for its person, a plugin's personal step sets up
-    // what its server step would have.
+    // what its server step would have, and a step only for teams has nothing
+    // to set up.
     if (
       step === undefined ||
-      (phase === "server" && solo && setup.some((each) => !ofPhase(each)))
+      (step.audience === "server" &&
+        solo &&
+        (step.teamOnly === true || setup.some((each) => !ofPhase(each))))
     ) {
       return [];
     }
 
-    const after =
-      step.after !== undefined && order.includes(step.after)
-        ? step.after
-        : order[phase === "server" ? 1 : 0];
-
-    return [{ id: plugin.id, phase, step, after: after ?? "" }];
+    return [{ id: plugin.id, phase, step }];
   });
+
+  const followed = new Set(
+    shown.flatMap(({ id, step }) =>
+      typeof step.after === "object" ? [] : [id],
+    ),
+  );
+
+  const anchorOf = ({ after }: SetupStep): string => {
+    if (typeof after !== "object") {
+      return kernelAnchor(after);
+    }
+
+    return followed.has(after.plugin)
+      ? pluginAnchor(after.plugin)
+      : kernelAnchor(after.or);
+  };
+
+  return shown.map((each) => ({ ...each, after: anchorOf(each.step) }));
 }
+
+// Kept apart from kernel step ids, so a plugin named like one can't loop.
+const pluginAnchor = (id: string): string => `plugin:${id}`;
 
 function ordered(
   phase: Phase,
   order: readonly string[],
   kernel: ReadonlyMap<string, StepAbout>,
   solo: boolean,
+  parts: readonly WebPart[],
 ): readonly WizardStep[] {
-  const plugins = added(phase, solo);
+  const plugins = added(phase, solo, parts);
+
+  const following = (anchor: string): readonly WizardStep[] =>
+    plugins
+      .filter(({ after }) => after === anchor)
+      .flatMap((each) => [each, ...following(pluginAnchor(each.id))]);
 
   return order.flatMap((anchor) => {
     const own = kernel.get(anchor);
 
     return [
       ...(own === undefined ? [] : [{ id: anchor, phase, step: own }]),
-      ...plugins.filter(({ after }) => after === anchor),
+      ...following(anchor),
     ];
   });
 }
@@ -193,9 +230,11 @@ function ordered(
 export function serverSteps({
   solo,
   install,
+  parts = enabledPlugins(),
 }: {
   readonly solo: boolean;
   readonly install: boolean;
+  readonly parts?: readonly WebPart[];
 }): readonly WizardStep[] {
   const shown = serverOrder.filter(
     (id) =>
@@ -208,16 +247,21 @@ export function serverSteps({
     serverOrder,
     new Map(shown.map((id) => [id, serverKernel[id]])),
     solo,
+    parts,
   );
 }
 
 // The steps each person does, admins too, between Welcome and Ready.
-export function personSteps(solo = false): readonly WizardStep[] {
+export function personSteps(
+  solo = false,
+  parts = enabledPlugins(),
+): readonly WizardStep[] {
   return ordered(
     "person",
     personOrder,
     new Map(Object.entries(personKernel)),
     solo,
+    parts,
   );
 }
 
