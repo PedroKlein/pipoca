@@ -4709,6 +4709,63 @@ test("offers push notifications in Settings and shows a pushed notification from
   await context.close();
 }, 30_000);
 
+test("turns on push notifications before this browser has a service worker", async () => {
+  const origin = new URL(server.url).origin;
+
+  const context = await browser.newContext();
+  await context.addCookies(await page.context().cookies());
+
+  // Headless Chromium has no push service and denies notifications, so the
+  // browser's side is faked. Like a real browser, subscribing fails until
+  // the service worker is active.
+  await context.addInitScript(`
+    const owners = new WeakMap();
+    const pushManager = Object.getOwnPropertyDescriptor(ServiceWorkerRegistration.prototype, "pushManager");
+    Object.defineProperty(ServiceWorkerRegistration.prototype, "pushManager", {
+      get() {
+        const manager = pushManager.get.call(this);
+        owners.set(manager, this);
+        return manager;
+      },
+    });
+    let subscription = null;
+    PushManager.prototype.getSubscription = async () => subscription;
+    PushManager.prototype.subscribe = async function () {
+      if (owners.get(this)?.active == null) {
+        throw new DOMException("Subscription failed - no active Service Worker", "AbortError");
+      }
+      const endpoint = "https://fcm.googleapis.com/fcm/send/e2e-device";
+      subscription = {
+        endpoint,
+        toJSON: () => ({ endpoint, keys: { p256dh: "key", auth: "auth" } }),
+        unsubscribe: async () => { subscription = null; return true; },
+      };
+      return subscription;
+    };
+    Object.defineProperty(Notification, "permission", { get: () => "granted" });
+    Notification.requestPermission = async () => "granted";
+  `);
+
+  const tab = await context.newPage();
+  tab.setDefaultTimeout(10_000);
+  await tab.goto(origin);
+  await tab.getByRole("button", { name: "Account" }).click();
+  await tab.getByRole("menuitem", { name: "Settings" }).click();
+
+  await tab
+    .getByRole("navigation", { name: "Settings" })
+    .getByRole("link", { name: "Notifications", exact: true })
+    .click();
+
+  await tab.getByRole("button", { name: "Turn on for this device" }).click();
+  await tab.getByRole("button", { name: "Turn off on this device" }).waitFor();
+
+  await tab.getByRole("button", { name: "Turn off on this device" }).click();
+  await tab.getByRole("button", { name: "Turn on for this device" }).waitFor();
+
+  await context.close();
+}, 30_000);
+
 test("signs in in the browser for the desktop app and hands it a link only it can use", async () => {
   const verifier = randomBytes(32).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
