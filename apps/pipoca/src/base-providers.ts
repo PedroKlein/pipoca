@@ -3,9 +3,11 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { Value } from "typebox/value";
+import { gitCredentials } from "@pipoca/workspaces";
 import {
   listedProviders,
   type Log,
+  type GitLogin,
   type ProfileFiles,
   type RegisteredProvider,
   type Timer,
@@ -69,6 +71,9 @@ export function baseProviders(options: {
   readonly command: readonly string[];
   readonly dir: string;
   readonly timer: Timer;
+  // The git logins a package's repository installs with: those of the
+  // admin who last changed the base, else the team's.
+  readonly gitLogins: (repository: string) => readonly GitLogin[];
   readonly changed: () => void;
   readonly log: Log;
   readonly timeoutMs?: number;
@@ -106,20 +111,24 @@ export function baseProviders(options: {
 
     tried = base.hash;
 
-    const packages = packagesOf(base);
+    const sources = sourcesOf(base);
 
     const extensions = Object.keys(base.files).filter((path) =>
       path.startsWith("extensions/"),
     );
 
-    if (packages === 0 && extensions.length === 0) {
+    if (sources.length === 0 && extensions.length === 0) {
       save({ hash: base.hash, complete: true, providers: [] });
 
       return;
     }
 
     const started = Date.now();
-    log("listing base providers", { packages, extensions: extensions.length });
+
+    log("listing base providers", {
+      packages: sources.length,
+      extensions: extensions.length,
+    });
 
     const dir = await mkdtemp(join(options.dir, "pipoca-providers-"));
 
@@ -128,6 +137,7 @@ export function baseProviders(options: {
 
       const exit = await run(
         [...options.command, "list-providers", dir],
+        gitCredentials(loginsFor(sources), {}),
         options.timeoutMs ?? listingMs,
       );
 
@@ -167,15 +177,31 @@ export function baseProviders(options: {
     }
   };
 
+  // One login per host, for the hosts of the base's git packages.
+  const loginsFor = (sources: readonly string[]): readonly GitLogin[] => [
+    ...new Map(
+      sources
+        .flatMap((source) => {
+          const repository = repositoryOf(source);
+
+          return repository === undefined ? [] : options.gitLogins(repository);
+        })
+        .reverse()
+        .map((login) => [login.host, login]),
+    ).values(),
+  ];
+
   // The listing logs as the server does, so its lines join the server's.
+  // The child keeps the git logins for its installs only.
   const run = async (
     command: readonly string[],
+    credentials: Readonly<Record<string, string>>,
     timeoutMs: number,
   ): Promise<"done" | "timed out" | "failed" | "stopped"> => {
     const [program = "", ...args] = command;
 
     const child = spawn(program, args, {
-      env: listingEnv(),
+      env: { ...listingEnv(), ...credentials, GIT_TERMINAL_PROMPT: "0" },
       stdio: ["ignore", "ignore", "pipe"],
       detached: true,
     });
@@ -268,10 +294,10 @@ export function baseProviders(options: {
   };
 }
 
-function packagesOf(base: ProfileFiles): number {
+function sourcesOf(base: ProfileFiles): readonly string[] {
   const settings = base.files["settings.json"];
   if (settings === undefined) {
-    return 0;
+    return [];
   }
 
   try {
@@ -279,15 +305,38 @@ function packagesOf(base: ProfileFiles): number {
       Buffer.from(settings, "base64").toString("utf8"),
     );
 
-    return typeof parsed === "object" &&
+    const packages: unknown[] =
+      typeof parsed === "object" &&
       parsed !== null &&
       "packages" in parsed &&
       Array.isArray(parsed.packages)
-      ? parsed.packages.length
-      : 0;
+        ? parsed.packages
+        : [];
+
+    return packages.flatMap((pkg) => {
+      const source =
+        typeof pkg === "object" && pkg !== null && "source" in pkg
+          ? pkg.source
+          : pkg;
+
+      return typeof source === "string" ? [source] : [];
+    });
   } catch {
-    return 0;
+    return [];
   }
+}
+
+// Pi reads a git package as git:host/path, an https or ssh URL, or
+// git@host:path, with an optional @ref.
+function repositoryOf(source: string): string | undefined {
+  const found =
+    /^(?:git:(?:git@)?|(?:https?|ssh):\/\/(?:[^@/]+@)?|git@)([^/:]+)[/:]([^@]+)/.exec(
+      source,
+    );
+
+  return found === null
+    ? undefined
+    : `https://${found[1] ?? ""}/${found[2] ?? ""}`;
 }
 
 function relay(line: string, log: Log): void {

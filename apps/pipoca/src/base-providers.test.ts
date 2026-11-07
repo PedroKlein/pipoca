@@ -1,10 +1,23 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type ProfileFiles, systemTimer } from "@pipoca/protocol";
+import {
+  type GitLogin,
+  type ProfileFiles,
+  systemTimer,
+} from "@pipoca/protocol";
 import { until } from "@pipoca/testing/until";
+import { definePlugin, defineServer } from "@pipoca/plugins";
 import { pipoca } from "./binary";
+import { testServer } from "./testdata/harness";
 import {
   type BaseListing,
   type BaseListingStore,
@@ -77,7 +90,11 @@ function memoryStore(): BaseListingStore & { saved: () => number } {
 
 function lister(
   base: () => ProfileFiles | undefined,
-  o: { readonly store?: BaseListingStore; readonly timeoutMs?: number } = {},
+  o: {
+    readonly store?: BaseListingStore;
+    readonly timeoutMs?: number;
+    readonly gitLogins?: (repository: string) => readonly GitLogin[];
+  } = {},
 ) {
   const logs: string[] = [];
   let changes = 0;
@@ -88,6 +105,7 @@ function lister(
     command: pipoca,
     dir: scratch,
     timer: systemTimer,
+    gitLogins: o.gitLogins ?? (() => []),
     changed: () => {
       changes += 1;
     },
@@ -228,4 +246,146 @@ test("lists again only when the base changes, and keeps the last listing", async
 
   expect(again.changes()).toBe(1);
   await again.providers.stop();
+}, 60_000);
+
+// A git on PATH that writes what each call got and fails, as a private host
+// the test can't reach would.
+async function recordingGit(seen: string): Promise<string> {
+  const bin = join(root, "bin");
+  await mkdir(bin);
+
+  await writeFile(
+    join(bin, "git"),
+    `#!/bin/sh\necho "$* $(env | grep '^PIPOCA_GIT_TOKEN' | sort | tr '\\n' ' ') $(env | grep '^GIT_CONFIG_KEY' | sort | tr '\\n' ' ')" >> ${seen}\nexit 1\n`,
+    { mode: 0o755 },
+  );
+
+  return bin;
+}
+
+async function listedWith(
+  packages: readonly string[],
+  gitLogins: (repository: string) => readonly GitLogin[],
+): Promise<readonly string[]> {
+  const { providers, logs } = lister(() => baseWith(packages), { gitLogins });
+  providers.check();
+
+  await until(
+    () => logs,
+    (lines) => lines.some((line) => line.startsWith("base providers listed")),
+    30_000,
+  );
+
+  await providers.stop();
+
+  return logs;
+}
+
+test("a git package installs with the logins for its host, which the packages' code never sees", async () => {
+  const seen = join(root, "seen");
+  const bin = await recordingGit(seen);
+  const read = join(root, "read");
+
+  const spy = await providerPackage(
+    "spy",
+    `await (await import("node:fs/promises")).writeFile(${JSON.stringify(read)}, String(process.env["PIPOCA_GIT_TOKEN_0"] ?? "none"));`,
+  );
+
+  const asked: string[] = [];
+
+  const corp = (repository: string): readonly GitLogin[] => {
+    asked.push(repository);
+
+    return repository.startsWith("https://git.corp.example/")
+      ? [{ host: "git.corp.example", token: "corp-secret" }]
+      : [];
+  };
+
+  const path = process.env["PATH"];
+  process.env["PATH"] = `${bin}:${path ?? ""}`;
+
+  try {
+    const logs = await listedWith(
+      ["git:git.corp.example/team/vault@v1", spy],
+      corp,
+    );
+
+    const [clone] = (await readFile(seen, "utf8")).split("\n");
+
+    expect(asked).toEqual(["https://git.corp.example/team/vault"]);
+    expect(clone).toContain("clone https://git.corp.example/team/vault");
+    expect(clone).toContain("PIPOCA_GIT_TOKEN_0=corp-secret");
+    expect(clone).toContain("credential.https://git.corp.example.helper");
+    expect(await readFile(read, "utf8")).toBe("none");
+    expect(logs.join("\n")).toContain("git.corp.example/team/vault");
+    expect(logs.join("\n")).not.toContain("corp-secret");
+
+    await rm(seen);
+    await listedWith(["git:other.example/team/kit"], corp);
+    const [other] = (await readFile(seen, "utf8")).split("\n");
+
+    expect(other).toContain("clone https://other.example/team/kit");
+    expect(other).not.toContain("corp-secret");
+    expect(other).not.toContain("credential.");
+  } finally {
+    process.env["PATH"] = path;
+  }
+}, 60_000);
+
+// The admin has a login on the corporate host, and the team's bots one on
+// each host.
+const hostLogins = defineServer(
+  definePlugin({ id: "host-logins", title: "Host logins", description: "" }),
+  ({ provide }) => {
+    provide.gitCredentials((owner) =>
+      owner === "team"
+        ? [
+            { host: "git.corp.example", token: "team-corp" },
+            { host: "other.example", token: "team-other" },
+          ]
+        : [{ host: "git.corp.example", token: "admin-corp" }],
+    );
+  },
+);
+
+test("the server installs the base's git packages with the logins of the admin who changed it, else the team's", async () => {
+  const seen = join(root, "seen");
+  const bin = await recordingGit(seen);
+  const path = process.env["PATH"];
+  process.env["PATH"] = `${bin}:${path ?? ""}`;
+
+  const server = testServer({
+    database: join(root, "server.db"),
+    configDir: join(root, "config"),
+    servers: [hostLogins],
+  });
+
+  try {
+    const updated = await server.api("/api/settings/base-profile", {
+      method: "PUT",
+      body: {
+        packages: ["git:git.corp.example/team/vault", "git:other.example/kit"],
+      },
+    });
+
+    expect(updated.status).toBe(200);
+
+    await until(
+      () => server.logs,
+      (lines) => lines.some((line) => line.startsWith("base providers listed")),
+      30_000,
+    );
+
+    const clones = (await readFile(seen, "utf8")).split("\n");
+    const corp = clones.find((line) => line.includes("git.corp.example/"));
+    const other = clones.find((line) => line.includes("other.example/kit"));
+
+    expect(corp).toContain("=admin-corp");
+    expect(corp).not.toContain("team-corp");
+    expect(other).toContain("=team-other");
+    expect(server.logs.join("\n")).not.toMatch(/admin-corp|team-/);
+  } finally {
+    process.env["PATH"] = path;
+    await server.close();
+  }
 }, 60_000);

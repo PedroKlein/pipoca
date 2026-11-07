@@ -86,7 +86,7 @@ export function openStore(
   return {
     sessions: sessionStore(db, clock, profiles),
     environments: environmentStore(db, clock, box),
-    profiles: profileStore(db),
+    profiles: profileStore(db, clock),
     people: peopleStore(db, clock),
     credentials: credentialStore(db, clock),
     plugin: (name) => {

@@ -268,6 +268,27 @@ export function serve(options: ServeOptions): {
     command: pipoca,
     dir: tmpdir(),
     timer: options.timer ?? systemTimer,
+    // As a runner installs a Profile's package with its Session owner's.
+    gitLogins: (repository) => {
+      const session = {
+        actsAs: null,
+        workspace: { kind: "clone", repository, branch: "" },
+      } as const;
+
+      const editor = store.profiles.baseEditor();
+
+      const own =
+        editor === undefined
+          ? []
+          : pluginHost.gitLogins(`person:${editor}`, session);
+
+      return [
+        ...own,
+        ...pluginHost
+          .gitLogins("team", session)
+          .filter(({ host }) => !own.some((login) => login.host === host)),
+      ];
+    },
     changed: () => {
       feed.publish("environments");
     },

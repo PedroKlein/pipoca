@@ -25,6 +25,10 @@ import type { ProfileFiles } from "@pipoca/protocol";
 const dataRoot = dataFolder();
 
 // Pi resolves these sources itself and reads any other one as a local path.
+// What gitCredentials sets for git to sign in to each host.
+const gitLoginVariable =
+  /^(?:PIPOCA_GIT_TOKEN_\d+|GH_TOKEN|GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+))$/;
+
 const extensionSourcePrefixes = [
   "npm:",
   "git:",
@@ -475,7 +479,35 @@ switch (command) {
       await readFile(join(dir, "profile.json"), "utf8"),
     ) as ProfileFiles;
 
-    await listProviders(dir, profile, stderrLog("providers")).then(
+    // The git logins the server passed are set only while git installs, so
+    // the packages' own code never reads them.
+    const logins = Object.entries(process.env).filter(([name]) =>
+      gitLoginVariable.test(name),
+    );
+
+    const setLogins = (on: boolean): void => {
+      for (const [name, value] of logins) {
+        if (on) {
+          process.env[name] = value;
+        } else {
+          Reflect.deleteProperty(process.env, name);
+        }
+      }
+    };
+
+    setLogins(false);
+
+    const install = async (into: string, source: string): Promise<void> => {
+      setLogins(true);
+
+      try {
+        await installPackage(into, source);
+      } finally {
+        setLogins(false);
+      }
+    };
+
+    await listProviders(dir, profile, stderrLog("providers"), install).then(
       async (listed) => {
         await writeFile(join(dir, "providers.json"), JSON.stringify(listed));
 
