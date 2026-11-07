@@ -15,6 +15,7 @@ import { acting } from "./acting";
 import { commitAsBody, commitAsStore } from "./commit-as";
 import {
   authorizationUrl,
+  emailsOf,
   HostRefused,
   installationRepositoriesOf,
   loginOf,
@@ -28,7 +29,13 @@ import {
   newHost,
   viewOf,
 } from "./hosts";
-import type { Account, Connection, HostView } from "./model";
+import type {
+  Account,
+  CommitIdentities,
+  Connection,
+  HostEmails,
+  HostView,
+} from "./model";
 import { page, redirect } from "./pages";
 import { pullRequests } from "./pull-requests";
 import { technicalUserRoutes } from "./technical-user-routes";
@@ -261,31 +268,64 @@ export const server = defineServer(gitHosts, (context) => {
     },
   );
 
-  routes.get("commit-as", { auth: "person" }, ({ caller }) =>
-    commitAs.of(caller.person.id),
+  routes.get("commit-as", { auth: "person" }, ({ caller }): CommitIdentities =>
+    commitAs.all(caller.person.id),
   );
 
   routes.post(
     "commit-as",
     { auth: "person", body: commitAsBody, changes: ["commit-as"] },
-    ({ caller, body }) => {
-      commitAs.choose(caller.person.id, body);
+    ({ caller, body }): CommitIdentities => {
+      const { host, ...identity } = body;
+      commitAs.choose(caller.person.id, host, identity);
 
-      return commitAs.of(caller.person.id);
+      return commitAs.all(caller.person.id);
+    },
+  );
+
+  // What the person can commit as on a host they connected.
+  routes.get(
+    "emails/:host",
+    { auth: "person" },
+    async ({ caller, params }): Promise<HostEmails> => {
+      const host = hosts.get(params.host);
+
+      const signedIn = connections
+        .accounts(caller.person.id)
+        .find((each) => each.host === params.host);
+
+      if (host === undefined || signedIn === undefined) {
+        throw new NotFound(`connect ${params.host} first`);
+      }
+
+      return emailsOf(host, signedIn.token).catch((failure: unknown) => {
+        throw failure instanceof HostRefused
+          ? new BadRequest(failure.message)
+          : failure;
+      });
     },
   );
 
   // Who a Session commits as: the technical user it acts as (ADR 0060), or
-  // the name and email its person chose.
-  routes.get("identity", { auth: "session" }, async ({ caller }) => {
-    const { actsAs, startedBy } = caller.session;
+  // the name and email its person chose for the repository's host.
+  routes.get(
+    "identity",
+    {
+      auth: "session",
+      query: Type.Object({ host: Type.Optional(Type.String()) }),
+    },
+    async ({ caller, query }) => {
+      const { actsAs, startedBy } = caller.session;
 
-    if (actsAs !== null) {
-      return (await actingAs.identity(actsAs.name)) ?? null;
-    }
+      if (actsAs !== null) {
+        return (await actingAs.identity(actsAs.name)) ?? null;
+      }
 
-    return startedBy === null ? null : commitAs.of(startedBy);
-  });
+      return startedBy === null
+        ? null
+        : commitAs.of(startedBy, query.host?.toLowerCase());
+    },
+  );
 
   // Admins add, change and remove hosts.
   const view = (host: HostConfig): HostView =>

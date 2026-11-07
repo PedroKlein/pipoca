@@ -31,6 +31,25 @@ export interface Account {
   readonly connections: readonly Connection[];
 }
 
+export interface Identity {
+  readonly name: string;
+  readonly email: string;
+}
+
+// The name and email a person commits as on each host, and by default on
+// the others (ADR 0072).
+export interface CommitIdentities {
+  readonly default: Identity | null;
+  readonly hosts: readonly (Identity & { readonly host: string })[];
+}
+
+// What a person can commit as on a host they connected: their name there and
+// the emails the host verified, the primary first.
+export interface HostEmails {
+  readonly name: string | null;
+  readonly emails: readonly string[];
+}
+
 // A watched pull request as its row on the Changes card shows it (ADR 0051).
 export interface PullWatch {
   readonly id: string;
