@@ -13,7 +13,7 @@ The base and My defaults are full Pi agent folders, but Settings treats them as 
 - A Profile's page shows the skills it inherits, but not the instructions, packages, MCP servers or settings. Nobody can tell what Pi will get without reading every layer.
 - A Profile can't turn off anything it inherits.
 
-The merge also differs from ADR 0044 in three places. A Profile's `APPEND_SYSTEM.md` replaces the base's instead of adding to it. A Profile's `models.json` replaces the whole file below it. Arrays in `settings.json`, such as the `skills` list Pi reads, replace the one below instead of adding to it.
+The merge also differs from ADR 0044 in two places. A Profile's `APPEND_SYSTEM.md` replaces the base's instead of adding to it. Arrays in `settings.json`, such as the `skills` list Pi reads, replace the one below instead of adding to it.
 
 ## Decision
 
@@ -30,23 +30,23 @@ Items from every layer add up, and the nearer layer wins when two have the same 
 | --------------------------- | ------------------------------------------------------------ | ---------------------------------------------- |
 | Skills, prompts, extensions | All load                                                     | The nearer one replaces it                     |
 | Packages                    | All install                                                  | The nearer entry replaces it, filters included |
-| MCP servers                 | All connect                                                  | The nearer entry replaces it                   |
+| MCP servers                 | All connect                                                  | The nearer entry's fields win, as in Pi        |
 | `AGENTS.md`                 | Joined, the base first                                       | —                                              |
 | `APPEND_SYSTEM.md`          | Joined, the base first                                       | —                                              |
 | `SYSTEM.md`                 | Only the nearest one                                         | The nearer one wins                            |
 | Other `settings.json` keys  | Merged key by key                                            | The nearer value wins                          |
-| `models.json`               | Merged by provider                                           | The nearer provider replaces it                |
 | Logins                      | Inherited ([ADR 0063](0063-settings-and-first-run-setup.md)) | An own login replaces it                       |
 | Other files, such as themes | All copied                                                   | The nearer file wins                           |
 
-This changes `APPEND_SYSTEM.md` and `models.json`. Pi's resource lists in `settings.json` (`skills`, `extensions`, `prompts`, `themes`) add up across layers, as Pi adds up its global and project lists.
+This changes `APPEND_SYSTEM.md`. Pi's resource lists in `settings.json` (`skills`, `extensions`, `prompts`, `themes`) add up across layers, as Pi adds up its global and project lists.
 
 ### Turning off what a Profile inherits
 
-- A Profile, or My defaults, can turn off any item it inherits for itself only: a skill, prompt, extension, package, MCP server or custom model provider, or one layer's `AGENTS.md` or `APPEND_SYSTEM.md` text (decided 2026-11-07).
+- A Profile, or My defaults, can turn off any item it inherits for itself only: a skill, prompt, extension, package or MCP server, or one layer's `AGENTS.md` or `APPEND_SYSTEM.md` text (decided 2026-11-07).
 - The layer keeps the items it turned off in an `off` list in its `profile.json`. The server leaves them out when it layers the files for a runner, so a package that is off isn't installed. The layer's hash covers the list.
 - To change an inherited item, a person copies it into the Profile, and the copy replaces it by the rules above. A copy doesn't follow later changes to the original. The Profile's page says when the original changed after the copy was made.
 - Settings such as the default model have no off switch. A Profile sets its own value, and removing it goes back to the inherited one.
+- An item is named in the list by its path for a file or folder, such as `skills/review`, as `package:<source>`, as `mcp:<name>`, or as `AGENTS.md:<layer>` and `APPEND_SYSTEM.md:<layer>` for one layer's text, where the layer is `:base`, `:defaults` or a Profile's id.
 - Admins can't lock an item on the base (decided 2026-11-07). Team Sessions already run only on team Profiles that admins manage, so a lock would only bind people's own personal Sessions.
 
 ### A Profile's page shows what Pi gets
@@ -68,4 +68,5 @@ This changes `APPEND_SYSTEM.md` and `models.json`. Pi's resource lists in `setti
 - People see why Pi has a skill and can turn it off without asking an admin.
 - The server already builds the layered folder for runners. The preview reuses that, and the page needs each item's source next to it.
 - A Profile that turns off a base item can drift from what the admin intended for personal Sessions. That is accepted; team work stays on admin-managed Profiles.
-- Changing how `APPEND_SYSTEM.md`, `models.json` and the resource lists merge can change what an existing Profile gets. Existing Profiles that relied on replacing these files need their own entries turned off instead.
+- Changing how `APPEND_SYSTEM.md` and the resource lists merge can change what an existing Profile gets. Existing Profiles that relied on replacing these files need their own entries turned off instead.
+- A Profile's `models.json` doesn't reach runners: runners keep their own, and the Profile page's Models tab can't save one. That is left for its own change.
