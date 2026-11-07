@@ -34,6 +34,8 @@ export {
   type RepositoryChoice,
   type RepositorySource,
   type RunnersFrom,
+  type ServerSetup,
+  type ServerUse,
   type SetupState,
   type SignInStatus,
   type Teammate,

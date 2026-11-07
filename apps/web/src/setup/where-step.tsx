@@ -10,12 +10,19 @@ import {
 import { type ReactElement, useState } from "react";
 import { request } from "../data/client";
 import { useAction, useQuery } from "../data/hooks";
+import { useNewcomers } from "../settings/people/newcomers";
+import { StepFooter } from "./footer";
 import { connected } from "./step";
 
+// Each person's own places for Pi to work. The template the team picked
+// for new people comes preselected, and Continue makes its Environment
+// (ADR 0072).
 export function WhereStep(): ReactElement {
   const environments = useQuery("environments.list").data ?? [];
   const ready = environments.filter(connected);
   const [machine, setMachine] = useState(ready.length === 0);
+  const [keep, setKeep] = useState(true);
+  const picked = useNewcomers().template;
 
   // A template's id is a slug, which fits an Environment's name; its name
   // may have spaces.
@@ -25,75 +32,107 @@ export function WhereStep(): ReactElement {
 
   const templates = useQuery("environmentTemplates.list").data ?? [];
 
+  const unused = templates.filter(
+    (template) =>
+      !environments.some(({ templateId }) => templateId === template.id),
+  );
+
+  const offered = unused.find(({ id }) => id === picked);
+
   // Templates a plugin starts runners for, which the person has no
   // Environment from yet.
-  const started = templates.flatMap((template) =>
-    template.runnersFrom === null ||
-    environments.some(({ templateId }) => templateId === template.id)
+  const started = unused.flatMap((template) =>
+    template.runnersFrom === null || template === offered
       ? []
       : [{ ...template, runnersFrom: template.runnersFrom }],
   );
 
   return (
-    <ul className="flex flex-col gap-2.5">
-      {ready.map((environment) => (
+    <>
+      <ul className="flex flex-col gap-2.5">
+        {offered !== undefined && (
+          <ChoiceCard
+            type="checkbox"
+            as="li"
+            title={offered.runnersFrom?.label ?? offered.name}
+            badge={<Badge>Picked by your team</Badge>}
+            description="Your own Environment from the team's template, made when you continue."
+            checked={keep}
+            onChange={setKeep}
+          />
+        )}
+        {ready.map((environment) => (
+          <ChoiceCard
+            type="checkbox"
+            as="li"
+            key={environment.id}
+            title={environment.name}
+            badge={<Badge state="done">Ready</Badge>}
+            description={
+              environment.onDemand
+                ? "Runners start when a Session needs one."
+                : "Sessions work in folders on this machine, with its own tools and git setup."
+            }
+            checked
+          >
+            {environment.folders.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <span className="text-label font-medium text-fg">
+                  Pi may work in any folder inside
+                </span>
+                <span className="flex flex-wrap gap-1.5">
+                  {environment.folders.map((folder) => (
+                    <Chip key={folder} mono>
+                      {folder}
+                    </Chip>
+                  ))}
+                </span>
+              </div>
+            )}
+          </ChoiceCard>
+        ))}
+        {started.map((template) => (
+          <ChoiceCard
+            type="checkbox"
+            as="li"
+            key={template.id}
+            title={template.runnersFrom.label}
+            badge={<Badge state="offline">{template.name}</Badge>}
+            description="Runners start when a Session needs one."
+            checked={false}
+            onChange={() => {
+              void add.run(template.id);
+            }}
+          />
+        ))}
+        <ErrorText size="caption">
+          {add.error === undefined
+            ? undefined
+            : `Couldn't add it. ${add.error}`}
+        </ErrorText>
         <ChoiceCard
           type="checkbox"
           as="li"
-          key={environment.id}
-          title={environment.name}
-          badge={<Badge state="done">Ready</Badge>}
-          description={
-            environment.onDemand
-              ? "Runners start when a Session needs one."
-              : "Sessions work in folders on this machine, with its own tools and git setup."
-          }
-          checked
+          title="Another machine"
+          description="A Linux VM, a workstation or a second laptop. Run one command on it."
+          checked={machine}
+          onChange={setMachine}
         >
-          {environment.folders.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <span className="text-label font-medium text-fg">
-                Pi may work in any folder inside
-              </span>
-              <span className="flex flex-wrap gap-1.5">
-                {environment.folders.map((folder) => (
-                  <Chip key={folder} mono>
-                    {folder}
-                  </Chip>
-                ))}
-              </span>
-            </div>
-          )}
+          <ConnectMachine />
         </ChoiceCard>
-      ))}
-      {started.map((template) => (
-        <ChoiceCard
-          type="checkbox"
-          as="li"
-          key={template.id}
-          title={template.runnersFrom.label}
-          badge={<Badge state="offline">{template.name}</Badge>}
-          description="Runners start when a Session needs one."
-          checked={false}
-          onChange={() => {
-            void add.run(template.id);
-          }}
-        />
-      ))}
-      <ErrorText size="caption">
-        {add.error === undefined ? undefined : `Couldn't add it. ${add.error}`}
-      </ErrorText>
-      <ChoiceCard
-        type="checkbox"
-        as="li"
-        title="Another machine"
-        description="A Linux VM, a workstation or a second laptop. Run one command on it."
-        checked={machine}
-        onChange={setMachine}
-      >
-        <ConnectMachine />
-      </ChoiceCard>
-    </ul>
+      </ul>
+      <StepFooter
+        answer={
+          offered !== undefined && keep
+            ? async () => {
+                await request("environments.create", {
+                  body: { name: offered.id, template: offered.id },
+                });
+              }
+            : undefined
+        }
+      />
+    </>
   );
 }
 

@@ -519,6 +519,39 @@ test("makes a new database at the latest version, and upgrades an older one keep
   expect(version()).toBe((kernelSchema.migrations?.length ?? 0) + 2);
 });
 
+test("upgrades a database from before the server's setup, which then has it ahead", () => {
+  const path = join(root, "server.db");
+
+  openDatabase(
+    path,
+    { ...kernelSchema, migrations: [] },
+    [],
+    Date.now,
+  ).db.close();
+
+  const upgraded = openStore(path);
+
+  upgraded.people.insertUser({
+    id: "ana",
+    name: "ana",
+    admin: true,
+    passwordHash: "",
+    createdAt: new Date().toISOString(),
+  });
+
+  expect(upgraded.people.serverSetupFinished()).toBe(false);
+
+  upgraded.people.finishServerSetup("ana");
+  upgraded.people.finishServerSetup("ana");
+  upgraded.close();
+
+  const reopened = openStore(path);
+
+  expect(reopened.people.serverSetupFinished()).toBe(true);
+
+  reopened.close();
+});
+
 test("runs every migration on a new database, and takes a comment added to its baseline", () => {
   const path = join(root, "server.db");
 

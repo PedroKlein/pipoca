@@ -4,9 +4,20 @@ import type { Environment, Profile } from "@pipoca/protocol";
 import { useState } from "react";
 import { useLoad } from "../data/hooks";
 
+// The server's setup, which an admin does once, or each person's own
+// (ADR 0072).
+export type Phase = "server" | "person";
+
+export type StepAbout = Omit<SetupStep, "audience" | "after"> & {
+  // A kernel step draws its own footer, to say what Continue saves.
+  readonly ownFooter?: boolean;
+};
+
 export interface WizardStep {
+  // The kernel step's id, or the plugin's that adds it.
   readonly id: string;
-  readonly step: SetupStep;
+  readonly phase: Phase;
+  readonly step: StepAbout;
 }
 
 export const connected = ({ online, onDemand }: Environment): boolean =>
@@ -22,11 +33,11 @@ export function hasContent(profile: Profile): boolean {
 
 // Runners come online and report models without a topic, so a step that
 // isn't done yet looks again every few seconds.
-export function useDone({ id, step }: WizardStep): boolean | undefined {
+export function useDone({ id, phase, step }: WizardStep): boolean | undefined {
   const [waiting, setWaiting] = useState(true);
 
   const { data } = useLoad(
-    `setup ${id}`,
+    `setup ${phase} ${id}`,
     async () => step.done(pluginClient({ id })),
     {
       topics: [

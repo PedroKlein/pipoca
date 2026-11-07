@@ -1,45 +1,89 @@
-import {
-  Button,
-  cn,
-  Hero,
-  SetupShell,
-  Step,
-  Stepper,
-  type StepState,
-} from "@pipoca/ui";
-import { type ReactElement, useEffect, useRef, useState } from "react";
+import { Badge, cn, Hero, SetupShell, Spinner } from "@pipoca/ui";
+import { type ReactElement, useState } from "react";
 import { request } from "../data/client";
 import { seed, useMe, useQuery } from "../data/hooks";
 import { href, navigate } from "../router";
 import { useNewcomers } from "../settings/people/newcomers";
 import { PluginBoundary } from "../plugin-boundary";
-import { type WizardStep, useDone } from "./step";
-import { setupSteps } from "./steps";
 import { DoneStep } from "./done-step";
+import { FooterContext, type Footing, StepFooter } from "./footer";
+import { type Phase, type WizardStep, useDone } from "./step";
+import { personSteps, serverSteps } from "./steps";
+import { WelcomeStep } from "./welcome-step";
 
-// A full-screen setup, after the account step on the sign-in page, that
-// ends on what Pi will use (ADR 0063).
+type Screen =
+  | { readonly kind: "step"; readonly step: WizardStep }
+  | { readonly kind: "welcome" }
+  | { readonly kind: "ready" };
+
+const keyOf = (screen: Screen): string =>
+  screen.kind === "step"
+    ? `${screen.step.phase}:${screen.step.id}`
+    : screen.kind;
+
+const phaseOf = (screen: Screen | undefined): Phase =>
+  screen?.kind === "step" ? screen.step.phase : "person";
+
+const asScreen = (step: WizardStep): Screen => ({ kind: "step", step });
+
+// A full-screen setup after the account step on the sign-in page (ADR 0063).
+// An admin goes through the server's setup first, then their own like
+// everyone else (ADR 0072). Every step shows, with Back, and what the team
+// already answered comes preselected.
 export function SetupWizard({
   start,
+  onLeave,
 }: {
-  // The step a reminder on home opened.
+  // The personal step a reminder on home opened.
   readonly start: string | undefined;
+  readonly onLeave: () => void;
 }): ReactElement {
-  const steps = setupSteps();
-  const { user, admin } = useMe();
+  const { admin, solo: install, team: shared } = useMe();
   const setup = useQuery("me.setup").data;
+
+  const server = useQuery("settings.serverSetup", undefined, {
+    enabled: admin,
+  }).data;
+
   const newcomers = useNewcomers();
+  const [at, setAt] = useState<string>();
 
-  useNewcomerEnvironment(newcomers.template);
+  // Unanswered, a server is for a team, as its first step preselects.
+  const solo = admin && server?.usedBy === "me";
+  const team = admin ? !solo : shared;
+  const people = personSteps(solo);
 
-  const first = Math.max(
-    0,
-    steps.findIndex(({ id }) => id === start),
+  const screens: readonly Screen[] = [
+    ...(admin ? serverSteps({ solo, install }).map(asScreen) : []),
+    ...(team ? [{ kind: "welcome" } as const] : []),
+    ...people.map(asScreen),
+    { kind: "ready" },
+  ];
+
+  const opened = screens.find(
+    (screen) =>
+      screen.kind === "step" &&
+      screen.step.phase === "person" &&
+      screen.step.id === start,
   );
 
-  const [at, setAt] = useState(first);
-  const step = steps[at];
-  const total = steps.length + 2;
+  const first =
+    opened ??
+    (setup?.serverPending === true
+      ? screens[0]
+      : screens.find((screen) => phaseOf(screen) === "person"));
+
+  const current = at ?? (first === undefined ? undefined : keyOf(first));
+
+  const index = Math.max(
+    0,
+    screens.findIndex((each) => keyOf(each) === current),
+  );
+
+  const screen = screens[index] ?? { kind: "ready" };
+  const following = screens[index + 1];
+  const phase = phaseOf(screen);
+  const finishing = phase === "server" && phaseOf(following) === "person";
 
   // Finished even when the server can't save it, so no one is stuck here.
   const finish = (): void => {
@@ -51,6 +95,7 @@ export function SetupWizard({
         seed("me.setup", {
           dismissed: setup?.dismissed ?? [],
           finished: true,
+          serverPending: false,
         });
       },
     );
@@ -59,192 +104,139 @@ export function SetupWizard({
   const leave = (): void => {
     navigate(href("home"));
     finish();
+    onLeave();
+  };
+
+  const back =
+    index === 0
+      ? undefined
+      : () => {
+          setAt(keyOf(screens[index - 1] ?? screen));
+        };
+
+  const next = async (): Promise<void> => {
+    // Server setup counts as finished once the admin moves on to their own.
+    if (finishing && server?.finished === false) {
+      seed(
+        "settings.serverSetup",
+        await request("settings.serverSetup.update", {
+          body: { finished: true },
+        }),
+      );
+    }
+
+    if (following !== undefined) {
+      setAt(keyOf(following));
+    }
+  };
+
+  // Each setup counts its own steps; Welcome and Ready stand outside them.
+  const counted = screens.filter(
+    (each) => each.kind === "step" && each.step.phase === phase,
+  );
+
+  const position = counted.indexOf(screen);
+
+  if (admin && server === undefined) {
+    return (
+      <SetupShell>
+        <main className="mx-auto pt-16">
+          <Spinner label="Loading…" />
+        </main>
+      </SetupShell>
+    );
+  }
+
+  const footing: Omit<Footing, "done" | "skippable"> = {
+    back,
+    next,
+    label: labelOf(screen, finishing),
   };
 
   return (
     <SetupShell
-      steps={{ total, at: at + 1 }}
-      aside={
-        step === undefined ? (
-          <Button variant="ghost" size="sm" onClick={leave}>
-            Done
-          </Button>
-        ) : (
-          `Step ${String(at + 2)} of ${String(total)}`
-        )
+      label={
+        <Badge>{phase === "server" ? "Server setup" : "Your setup"}</Badge>
       }
+      {...(position !== -1 && {
+        steps: { total: counted.length, at: position },
+        aside: `Step ${String(position + 1)} of ${String(counted.length)}`,
+      })}
     >
-      <div
+      <main
         className={cn(
-          !admin &&
-            "mx-auto flex w-full max-w-268 flex-col gap-6 px-4 md:flex-row md:gap-14",
+          "mx-auto flex w-full animate-rise-in flex-col gap-8 px-4 pt-8 pb-16 md:pt-11",
+          screen.kind === "step" && screen.step.step.wide === true
+            ? "max-w-198"
+            : "max-w-158",
         )}
       >
-        {!admin && <JoinSteps user={user.name} steps={steps} at={at} />}
-        <main
-          className={cn(
-            "mx-auto flex w-full animate-rise-in flex-col gap-8 px-4 pt-8 pb-16 md:pt-11",
-            step === undefined || step.step.wide === true
-              ? "max-w-198"
-              : "max-w-158",
-          )}
-        >
-          {step === undefined ? (
-            <DoneStep steps={steps} onStarted={finish} onLeave={finish} />
-          ) : (
-            <CurrentStep
-              key={step.id}
-              step={step}
-              required={newcomers.required.includes(step.id)}
-              onBack={
-                at === 0
-                  ? undefined
-                  : () => {
-                      setAt(at - 1);
-                    }
-              }
-              onNext={() => {
-                setAt(at + 1);
-              }}
-            />
-          )}
-        </main>
-      </div>
+        {screen.kind === "step" && (
+          <CurrentStep
+            key={keyOf(screen)}
+            step={screen.step}
+            solo={solo}
+            footing={{
+              ...footing,
+              skippable:
+                screen.step.step.optional === true &&
+                !(
+                  screen.step.phase === "person" &&
+                  newcomers.required.includes(screen.step.id)
+                ),
+            }}
+          />
+        )}
+        {screen.kind === "welcome" && (
+          <FooterContext value={{ ...footing, done: true, skippable: false }}>
+            <WelcomeStep steps={people} />
+          </FooterContext>
+        )}
+        {screen.kind === "ready" && (
+          <DoneStep
+            steps={people}
+            onBack={back}
+            onStarted={() => {
+              finish();
+              onLeave();
+            }}
+            onLeave={leave}
+          />
+        )}
+      </main>
     </SetupShell>
   );
 }
 
-// Someone joining a team sees their steps beside the page, and that what
-// the team shares is already set up for them (ADR 0063).
-function JoinSteps({
-  user,
-  steps,
-  at,
-}: {
-  readonly user: string;
-  readonly steps: readonly WizardStep[];
-  readonly at: number;
-}): ReactElement {
-  const rows = [
-    { id: "signed-in", title: "Signed in", summary: user },
-    ...steps.map(({ id, step }) => ({
-      id,
-      title: step.title,
-      summary: step.optional === true ? "Optional" : step.summary,
-    })),
-  ];
-
-  return (
-    <aside className="flex shrink-0 flex-col gap-5 pt-8 md:w-55 md:pt-11">
-      <Stepper label="Your setup">
-        {rows.map((row, index) => (
-          <Step
-            key={row.id}
-            number={index + 1}
-            state={stepState(index, at + 1)}
-            title={row.title}
-            description={row.summary}
-          />
-        ))}
-      </Stepper>
-      <p className="border-t border-line pt-4 text-caption text-fg-dim">
-        What your team shares, such as machines, models and sign-in, is set up
-        already. You can see it in Settings.
-      </p>
-    </aside>
-  );
-}
-
-// Someone who joins gets an Environment from the template an admin picked
-// for new people, once, so Where is ready for them.
-function useNewcomerEnvironment(template: string | null): void {
-  const environments = useQuery("environments.list").data;
-  const asked = useRef(false);
-
-  useEffect(() => {
-    if (
-      asked.current ||
-      template === null ||
-      environments === undefined ||
-      environments.some(({ templateId }) => templateId === template)
-    ) {
-      return;
-    }
-
-    asked.current = true;
-
-    request("environments.create", {
-      body: { name: template, template },
-    }).catch(() => undefined);
-  }, [template, environments]);
-}
-
-function stepState(index: number, current: number): StepState {
-  if (index < current) {
-    return "done";
+function labelOf(screen: Screen, finishing: boolean): string {
+  if (finishing) {
+    return "Finish and set up my account";
   }
 
-  return index === current ? "current" : "next";
-}
-
-export function Heading({
-  title,
-  description,
-  centered = false,
-}: {
-  readonly title: string;
-  readonly description: string;
-  readonly centered?: boolean;
-}): ReactElement {
-  return (
-    <Hero title={title} centered={centered}>
-      {description}
-    </Hero>
-  );
+  return screen.kind === "welcome" ? "Start" : "Continue";
 }
 
 function CurrentStep({
   step,
-  required,
-  onBack,
-  onNext,
+  solo,
+  footing,
 }: {
   readonly step: WizardStep;
-  readonly required: boolean;
-  readonly onBack: (() => void) | undefined;
-  readonly onNext: () => void;
+  readonly solo: boolean;
+  readonly footing: Omit<Footing, "done">;
 }): ReactElement {
   const done = useDone(step);
   const { id, step: about } = step;
 
   return (
     <>
-      <Heading title={about.heading} description={about.description} />
-      <PluginBoundary name={id}>
-        <about.Step />
-      </PluginBoundary>
-      <div className="flex items-center gap-3">
-        {onBack && (
-          <Button variant="ghost" onClick={onBack}>
-            Back
-          </Button>
-        )}
-        <span className="flex-1" />
-        {about.optional === true && !required && done !== true && (
-          <Button variant="ghost" onClick={onNext}>
-            Skip for now
-          </Button>
-        )}
-        <Button
-          variant="primary"
-          disabled={done !== true}
-          title={done === true ? undefined : "Finish this step first"}
-          onClick={onNext}
-          className="h-11 px-5 text-prose"
-        >
-          Continue
-        </Button>
-      </div>
+      <Hero title={about.heading}>{about.description}</Hero>
+      <FooterContext value={{ ...footing, done }}>
+        <PluginBoundary name={id}>
+          <about.Step solo={solo} />
+        </PluginBoundary>
+        {about.ownFooter !== true && <StepFooter />}
+      </FooterContext>
     </>
   );
 }

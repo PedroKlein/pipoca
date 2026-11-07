@@ -42,6 +42,7 @@ if (status === undefined) {
   const setup = await request("me.setup").catch((): SetupState => ({
     finished: true,
     dismissed: [],
+    serverPending: false,
   }));
 
   seed("auth.status", status);

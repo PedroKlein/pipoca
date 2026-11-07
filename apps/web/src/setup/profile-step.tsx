@@ -9,19 +9,24 @@ import {
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { request } from "../data/client";
-import { useAction } from "../data/hooks";
+import { seed, useAction } from "../data/hooks";
+import { StepFooter } from "./footer";
 import { groups, type Picked, pickedOf, filesToImport } from "./profile-import";
 
-type Choice = "folder" | "git" | "clean";
+type Choice = "team" | "folder" | "git" | "clean";
 
-// Brings an existing Pi setup into the person's default Profile, item by
-// item, or starts one from a repository (ADR 0063).
+// Starts the person's default Profile from a team Profile, an existing Pi
+// setup item by item, or a repository (ADR 0063). Pi's defaults is an
+// answer too, so the step always has one and no Skip (ADR 0072).
 export function ProfileStep({
   profiles,
+  team,
 }: {
   readonly profiles: readonly Profile[];
+  // The team Profiles on offer, drawn as chips to pick.
+  readonly team?: ReactElement | undefined;
 }): ReactElement {
-  const [choice, setChoice] = useState<Choice>("folder");
+  const [choice, setChoice] = useState<Choice>("clean");
   const [picked, setPicked] = useState<Picked>();
   const [left, setLeft] = useState<ReadonlySet<string>>(new Set());
   const [url, setUrl] = useState("");
@@ -71,8 +76,19 @@ export function ProfileStep({
   );
 
   return (
-    <div className="flex flex-col gap-4">
-      <ul className="flex flex-col gap-2.5">
+    <div className="flex flex-col gap-7">
+      <ul
+        role="radiogroup"
+        aria-label="Starting Profile"
+        className="flex flex-col gap-2.5"
+      >
+        {team !== undefined &&
+          option(
+            "team",
+            "Copy a team Profile",
+            "Start from one your team offers. Yours is yours to change; the team Profile stays as it is for team Sessions.",
+            team,
+          )}
         {option(
           "folder",
           "Bring my Pi setup",
@@ -190,7 +206,7 @@ export function ProfileStep({
               aria-label="Repository address"
               required
               value={url}
-              placeholder="https://github.com/you/dotfiles.git"
+              placeholder="https://git.example.com/you/dotfiles.git"
               onChange={(event) => {
                 setUrl(event.target.value);
               }}
@@ -203,8 +219,8 @@ export function ProfileStep({
         )}
         {option(
           "clean",
-          "Start clean",
-          "Pi's defaults. Add skills and tools later in Settings, Profiles.",
+          "Pi's defaults",
+          "Nothing to bring. Add skills and tools later in Settings, Profiles.",
         )}
       </ul>
       {done !== undefined && (
@@ -213,6 +229,25 @@ export function ProfileStep({
         </p>
       )}
       <ErrorText>{action.error}</ErrorText>
+      <StepFooter
+        answer={
+          choice === "clean"
+            ? async () => {
+                seed(
+                  "me.setup",
+                  await request("me.setup.update", {
+                    body: { dismiss: "profile" },
+                  }),
+                );
+              }
+            : undefined
+        }
+      />
+      <p className="-mt-4 text-caption text-fg-dim">
+        This is only your default. Make more Profiles any time in Settings,
+        Profiles: from scratch, a copy of a team Profile, a folder or a
+        repository.
+      </p>
     </div>
   );
 }

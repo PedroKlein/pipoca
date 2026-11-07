@@ -228,6 +228,16 @@ export function enabledPlugins(): readonly WebPart[] {
   return enabled;
 }
 
+// Only a web part says whether its plugin adds a setup step, so this knows
+// for a built-in plugin that is off, and not for an installed one.
+export function addsSetupStep(id: string): boolean {
+  const part =
+    enabled.find(({ plugin }) => plugin.id === id) ??
+    builtIn.find((each) => each.id === id)?.web;
+
+  return (part?.setup ?? []).length > 0;
+}
+
 // The plugins whose parts draw in a Session: in team work, only the ones
 // that load there (ADR 0067).
 export function useSessionPlugins(team: boolean): readonly WebPart[] {

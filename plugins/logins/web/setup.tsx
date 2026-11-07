@@ -33,6 +33,8 @@ const featured = [
 // Connecting a model in the setup runs the same sign-in as Accounts, with no
 // Session needed (ADR 0063).
 export const modelStep: SetupStep = {
+  audience: "person",
+  after: "welcome",
   title: "A model",
   summary: "Sign in with a subscription or add a key",
   heading: "Connect a model",

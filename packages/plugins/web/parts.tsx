@@ -74,6 +74,7 @@ export interface WebPart<P extends PluginDefinition = PluginDefinition> {
     readonly form?: "auto";
     readonly Section?: ComponentType;
   };
+  // At most one step for the server's setup and one for each person's.
   readonly setup?: readonly SetupStep[];
   // Panels an admin lays out on the team hub's pages, by key (ADR 0067).
   readonly panels?: Readonly<

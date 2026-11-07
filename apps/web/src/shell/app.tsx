@@ -45,11 +45,20 @@ function Screens(): ReactElement {
   const { admin, team } = useMe();
   const setup = useQuery("me.setup").data;
 
-  if (setup?.finished === false || route.name === "getStarted") {
+  // The wizard stays until it is left, while finishing the server's setup
+  // and then the person's changes what the server says is left to do.
+  const [settingUp, setSettingUp] = useState(
+    setup !== undefined && (!setup.finished || setup.serverPending),
+  );
+
+  if (settingUp || route.name === "getStarted") {
     return (
       <SetupWizard
         key={route.name === "getStarted" ? route.params.step : ""}
         start={route.name === "getStarted" ? route.params.step : undefined}
+        onLeave={() => {
+          setSettingUp(false);
+        }}
       />
     );
   }

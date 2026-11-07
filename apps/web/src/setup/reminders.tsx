@@ -4,7 +4,7 @@ import { request } from "../data/client";
 import { seed, useQuery } from "../data/hooks";
 import { href } from "../router";
 import { type WizardStep, useDone } from "./step";
-import { setupSteps } from "./steps";
+import { personSteps } from "./steps";
 
 // The steps someone skipped, or never did before the setup existed, stay on
 // home until they're done or dismissed (ADR 0063).
@@ -18,7 +18,7 @@ export function SetupReminders(): ReactElement {
     >
       <h2 className="text-label font-medium text-fg-dim">Finish setting up</h2>
       <Rows>
-        {setupSteps()
+        {personSteps()
           .filter(({ id }) => !dismissed.includes(id))
           .map((step) => (
             <Reminder

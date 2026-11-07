@@ -37,6 +37,7 @@ const topicsOf: Readonly<Partial<Record<QueryKey, readonly string[]>>> = {
   "settings.team": ["team"],
   "settings.hub": ["hub"],
   "settings.newcomers": ["newcomers"],
+  "settings.serverSetup": ["server-setup"],
   "settings.config": ["config"],
   "settings.config.file": ["config"],
   "settings.baseProfile": ["profiles"],

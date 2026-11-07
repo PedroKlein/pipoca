@@ -533,9 +533,32 @@ export const appSignIn = Type.Object({
 export const setupState = Type.Object({
   finished: Type.Boolean(),
   dismissed: strings,
+  // An admin goes through the server's setup first, until an admin
+  // finishes it (ADR 0072).
+  serverPending: Type.Boolean(),
 });
 
 export type SetupState = Wire<typeof setupState>;
+
+// Who a server is for: just the person who runs it, or a team (ADR 0072).
+const serverUse = Type.Enum(["me", "team"]);
+
+export type ServerUse = Wire<typeof serverUse>;
+
+// The server's setup, which an admin does once. Who it is for lives in
+// pipoca.json, and a solo install is always just for its person.
+export const serverSetup = Type.Object({
+  usedBy: nullable(serverUse),
+  solo: Type.Boolean(),
+  finished: Type.Boolean(),
+});
+
+export type ServerSetup = Wire<typeof serverSetup>;
+
+export const serverSetupChange = Type.Object({
+  usedBy: Type.Optional(serverUse),
+  finished: Type.Optional(Type.Literal(true)),
+});
 
 export const setupChange = Type.Union([
   Type.Object({ finished: Type.Literal(true) }),

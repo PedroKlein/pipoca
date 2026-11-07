@@ -65,11 +65,31 @@ export interface HomeProps {
   readonly onNewSession: () => void;
 }
 
-// A step of the first-run setup that a plugin owns, such as connecting a
-// model (ADR 0063). done says whether the person already did it, and reloads
-// when one of its topics changes. A step that isn't done stays on home as a
-// reminder.
-export interface SetupStep {
+// The kernel's own steps of the server's setup and of each person's, which
+// a plugin's step goes after (ADR 0072).
+export type ServerSetupStepId =
+  "who" | "plugins" | "default-profile" | "where" | "newcomers";
+
+export type PersonSetupStepId = "welcome" | "where" | "profile";
+
+export interface SetupStepProps {
+  // The server is just for the person setting it up. A plugin with a step
+  // in both setups then shows only its personal one, which sets up both.
+  readonly solo: boolean;
+}
+
+// A step a plugin adds to setup (ADR 0063, ADR 0072): to the server's,
+// which an admin does once for what the server shares, or to each person's.
+// It goes after a kernel step, by default after Plugins or Welcome. done
+// says whether it was already done, and reloads when one of its topics
+// changes. A personal step that isn't done stays on home as a reminder.
+export type SetupStep = SetupStepAbout &
+  (
+    | { readonly audience: "server"; readonly after?: ServerSetupStepId }
+    | { readonly audience: "person"; readonly after?: PersonSetupStepId }
+  );
+
+interface SetupStepAbout {
   // A few words in the list of steps, such as "A model".
   readonly title: string;
   readonly summary: string;
@@ -85,7 +105,7 @@ export interface SetupStep {
   // The kernel's topics, and the plugin's own changes as its routes name them.
   readonly topics?: readonly string[];
   readonly changes?: readonly string[];
-  readonly Step: ComponentType;
+  readonly Step: ComponentType<SetupStepProps>;
 }
 
 export interface NavItemsProps {

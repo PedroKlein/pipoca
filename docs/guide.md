@@ -32,7 +32,7 @@ The rest of this section sets up a server that more people sign in to:
 apps/pipoca/dist/pipoca server
 ```
 
-The first time it starts, the server logs a setup link (`open the setup link to create the first user`). Open it to create your user; the link works once. After that, the page asks for that name and password, and a browser stays signed in for 30 days. Ten wrong passwords for a name from one address lock that name there for 15 minutes, and 50 wrong passwords from one address, for any names, lock that address. A person signing in from somewhere else isn't locked out.
+The first time it starts, the server logs a setup link (`open the setup link to create the first user`). Open it to create your user; the link works once. Setup then asks who the server is for, just you or a team, and goes through what the server shares: its plugins, the server default Profile, where Sessions run and what new people get. Then comes your own setup, which everyone does ([ADR 0072](adr/0072-server-setup-and-personal-setup.md)). Who the server is for is kept as `usedBy` under `server` in `pipoca.json`. After that, the page asks for that name and password, and a browser stays signed in for 30 days. Ten wrong passwords for a name from one address lock that name there for 15 minutes, and 50 wrong passwords from one address, for any names, lock that address. A person signing in from somewhere else isn't locked out.
 
 In Settings > Environments, make an Environment named `laptop`. The page shows its key once, in the command that starts an agent:
 

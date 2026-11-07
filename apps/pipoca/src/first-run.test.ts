@@ -24,6 +24,7 @@ test("a new person has the setup ahead of them until they finish it", async () =
   expect(await (await setup()).json()).toEqual({
     finished: false,
     dismissed: [],
+    serverPending: true,
   });
 
   expect((await setup({ finished: true })).status).toBe(200);
@@ -31,6 +32,7 @@ test("a new person has the setup ahead of them until they finish it", async () =
   expect(await (await setup()).json()).toEqual({
     finished: true,
     dismissed: [],
+    serverPending: true,
   });
 });
 
@@ -42,6 +44,7 @@ test("keeps the reminders a person dismissed, once each", async () => {
   expect(await (await setup()).json()).toEqual({
     finished: false,
     dismissed: ["profile", "git-hosts"],
+    serverPending: true,
   });
 });
 
