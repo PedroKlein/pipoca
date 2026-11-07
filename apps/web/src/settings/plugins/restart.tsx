@@ -7,9 +7,7 @@ import { useAction } from "../../data/hooks";
 // A failed plugin shows its error instead.
 export function switchesAtRestart(plugin: PluginInfo): boolean {
   return (
-    plugin.source === "installed" &&
-    plugin.state !== "failed" &&
-    plugin.turnedOn !== (plugin.state === "on")
+    plugin.state !== "failed" && plugin.turnedOn !== (plugin.state === "on")
   );
 }
 
