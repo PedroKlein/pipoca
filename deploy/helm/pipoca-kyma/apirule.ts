@@ -28,10 +28,7 @@ export function withApiPaths(template: string): string {
 }
 
 if (import.meta.main) {
-  const file = join(
-    import.meta.dir,
-    "../../../deploy/helm/pipoca/templates/apirule.yaml",
-  );
+  const file = join(import.meta.dir, "templates/apirule.yaml");
 
   writeFileSync(file, withApiPaths(readFileSync(file, "utf8")));
 }

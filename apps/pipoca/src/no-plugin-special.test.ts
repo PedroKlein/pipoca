@@ -15,7 +15,6 @@ const ids = (await readdir(join(root, "plugins"))).sort();
 // Literals that are a plugin's id by chance: a field, a file or an event of
 // the kernel's own.
 const meansOther: Readonly<Record<string, readonly string[]>> = {
-  "apps/pipoca/src/apirule.ts": ["changes"],
   "apps/pipoca/src/server/http/routes/server.ts": ["changes"],
   "apps/pipoca/src/faux.ts": ["models"],
   "apps/pipoca/src/web-app.ts": ["push"],

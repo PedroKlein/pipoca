@@ -1,4 +1,3 @@
-{{- if .Values.apiRule.enabled }}
 {{- $methods := list "GET" "POST" "PUT" "PATCH" "DELETE" }}
 apiVersion: gateway.kyma-project.io/v2
 kind: APIRule
@@ -8,11 +7,11 @@ metadata:
     {{- include "pipoca.labels" . | nindent 4 }}
 spec:
   hosts:
-    - {{ .Values.apiRule.host }}
+    - {{ include "pipoca-kyma.host" . }}
   gateway: {{ .Values.apiRule.gateway }}
   service:
     name: {{ .Release.Name }}
-    port: {{ .Values.service.port }}
+    port: {{ .Values.pipoca.service.port }}
   # The server signs people and runners in itself, so the gateway only keeps
   # out the paths a browser never needs. A path no rule matches is refused,
   # so the setup link only works through a port-forward. Kyma ends a request
@@ -55,7 +54,7 @@ spec:
       noAuth: true
       timeout: 3900
     # The route table's other paths and plugins' under ext, which
-    # `bun run apirule` in apps/pipoca writes. Team Sessions' model calls
+    # `bun run apirule` in this chart's folder writes. Team Sessions' model calls
     # stream through the logins proxy under ext.
     {{- range list "environment-templates" "environments" "ext" "invites" "join-keys" "me" "people" "plugins" "profiles" "repositories" "server" "settings" }}
     - path: /api/{{ . }}
@@ -78,8 +77,6 @@ spec:
       noAuth: true
       timeout: 3900
     {{- end }}
-{{- end }}
-{{- if .Values.apiRule.enabled }}
 ---
 # The APIRule's policies let in only the gateway, which would also shut out
 # the runner pods that reach the server through its Service. Team Sessions
@@ -103,4 +100,3 @@ spec:
       to:
         - operation:
             paths: ["/runner/*", "/api/ext/logins/proxy/*"]
-{{- end }}

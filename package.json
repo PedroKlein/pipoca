@@ -6,7 +6,8 @@
     "apps/*",
     "packages/*",
     "plugins/*",
-    "examples"
+    "examples",
+    "deploy/helm/pipoca-kyma"
   ],
   "scripts": {
     "build": "bun run --cwd apps/pipoca build",

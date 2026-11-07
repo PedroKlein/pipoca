@@ -1,0 +1,4 @@
+# The script and tests that keep the APIRule's paths in line with the routes.
+*.ts
+package.json
+node_modules/

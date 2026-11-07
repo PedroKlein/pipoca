@@ -1956,6 +1956,8 @@ test("shows why an Environment's last runner pod failed", async () => {
           idleSeconds: 300,
           claimSize: "10Gi",
           storageClass: null,
+          labels: {},
+          annotations: {},
           podPatch: {},
         },
         startsPods: true,

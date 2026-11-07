@@ -47,6 +47,8 @@ const podSettings = Type.Object({
   storageClass: Type.Union([Type.String(), Type.Null()], {
     default: defaultSettings.storageClass,
   }),
+  labels: Type.Record(Type.String(), Type.String(), { default: {} }),
+  annotations: Type.Record(Type.String(), Type.String(), { default: {} }),
   podPatch: Type.Record(Type.String(), Type.Unknown(), { default: {} }),
 });
 
@@ -70,7 +72,6 @@ interface Pods {
   readonly cluster: Cluster;
   readonly image: string;
   readonly imagePullPolicy: string | undefined;
-  readonly mesh: boolean;
   readonly server: string;
   readonly variables: Readonly<Record<string, string>>;
   readonly imageId: () => Promise<string | undefined>;
@@ -92,7 +93,6 @@ export const server = defineServer(kubernetes, (context) => {
   const image = env("PIPOCA_IMAGE");
   const imagePullPolicy = env("PIPOCA_IMAGE_PULL_POLICY");
   const runnerUrl = env("PIPOCA_RUNNER_URL");
-  const mesh = env("PIPOCA_RUNNER_MESH") === "true";
   const pod = env("POD_NAME") ?? env("HOSTNAME");
   const faux = env("PIPOCA_FAUX_REPLY");
   const failures = new PodFailures(retryAfterMs);
@@ -205,7 +205,6 @@ export const server = defineServer(kubernetes, (context) => {
     cluster,
     image,
     imagePullPolicy,
-    mesh,
     server: runnerUrl,
     // Tests run the binary on Pi's faux model, in pods too.
     variables: faux === undefined ? {} : { PIPOCA_FAUX_REPLY: faux },
@@ -561,7 +560,6 @@ async function startPod(
     cluster,
     image,
     imagePullPolicy,
-    mesh,
     server: serverUrl,
     variables,
   }: Pods,
@@ -585,7 +583,6 @@ async function startPod(
         image: environment.image ?? image,
         binaryImage: image,
         binaryPullPolicy: imagePullPolicy,
-        mesh,
         server: serverUrl,
         variables,
         settings,

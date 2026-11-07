@@ -2,7 +2,8 @@
 // Session gets a pod of its own that mounts a claim of claimSize, so its
 // workspace outlives the pod; capacity doesn't apply. The patch is a JSON
 // merge patch on the pod, so a list in it, such as containers, replaces the
-// whole list.
+// whole list. Labels and annotations go on each runner pod, such as a
+// service mesh's inject label.
 export const workspaces = ["pod", "claim"] as const;
 
 export interface KubernetesSettings {
@@ -12,6 +13,8 @@ export interface KubernetesSettings {
   readonly idleSeconds: number;
   readonly claimSize: string;
   readonly storageClass: string | null;
+  readonly labels: Readonly<Record<string, string>>;
+  readonly annotations: Readonly<Record<string, string>>;
   readonly podPatch: Readonly<Record<string, unknown>>;
 }
 
@@ -42,5 +45,7 @@ export const defaultSettings: KubernetesSettings = {
   idleSeconds: 300,
   claimSize: "10Gi",
   storageClass: null,
+  labels: {},
+  annotations: {},
   podPatch: {},
 };
