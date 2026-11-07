@@ -11,7 +11,15 @@ import type { gitHosts, TechnicalUserItem } from "../plugin";
 import { HostRefused, loginOf } from "./github";
 import type { Hosts } from "./hosts";
 import type { TechnicalUserView } from "./model";
-import { escaped, html, page, redirect } from "./pages";
+import {
+  backTo,
+  escaped,
+  html,
+  page,
+  redirect,
+  then,
+  type Then,
+} from "./pages";
 import {
   appManifest,
   botLogin,
@@ -30,6 +38,7 @@ interface Pending {
   readonly hook: string;
   readonly browser: string;
   readonly expires: number;
+  readonly then: Then;
 }
 
 const namePattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
@@ -44,6 +53,7 @@ const newApp = Type.Object({
   host: Type.String(),
   name: Type.String(),
   organization: Type.Optional(Type.String()),
+  then,
 });
 
 const teamChoice = Type.Object({ team: Type.Boolean() });
@@ -174,6 +184,7 @@ export function technicalUserRoutes(
         hook,
         browser: urls.browser.mark(response, attemptMs),
         expires: now + attemptMs,
+        then: query.then,
       });
 
       return response;
@@ -213,7 +224,20 @@ export function technicalUserRoutes(
         add({
           name: app.slug,
           host: host.host,
-          users: [owners.of(attempt.userId)],
+          users: [
+            owners.of(attempt.userId),
+            // Made in server setup for team work, unless the host has a
+            // team bot already.
+            ...(attempt.then === "server-setup" &&
+            !users
+              .list()
+              .some(
+                (each) =>
+                  each.host === host.host && each.users.includes("team"),
+              )
+              ? (["team"] as const)
+              : []),
+          ],
           app: {
             id: app.id,
             slug: app.slug,
@@ -248,7 +272,7 @@ export function technicalUserRoutes(
         return page(failure.message, 502);
       }
 
-      return redirect("/#settings/git-hosts");
+      return redirect(backTo(attempt.then, "/#settings/git-hosts"));
     },
   );
 

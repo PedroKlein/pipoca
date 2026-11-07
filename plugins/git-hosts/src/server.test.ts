@@ -1561,3 +1561,127 @@ test("a merge pressed during a poll tells the Session it merged once", async () 
     notices(session).filter((text) => text.includes("It merged.")),
   ).toHaveLength(1);
 });
+
+test("the server's code hosts step is done once a host is listed, or the admin goes on with none", async () => {
+  await using run = await start(null);
+  const { t } = run;
+
+  expect(await t.as("pedro").get("setup")).toMatchObject({
+    lockedIn: null,
+    noHosts: false,
+    server: false,
+  });
+
+  expect(
+    await t.as("pedro").put("setup/server", { noHosts: true }),
+  ).toMatchObject({ noHosts: true, server: true });
+
+  const refused = await t.as("ana").raw("setup/server", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ noHosts: true }),
+  });
+
+  expect(refused.status).toBe(403);
+
+  await t.as("pedro").put("setup/server", { noHosts: false });
+  expect(await t.as("pedro").get("setup")).toMatchObject({ server: false });
+
+  await t.as("pedro").post("hosts", { host });
+  expect(await t.as("pedro").get("setup")).toMatchObject({ server: true });
+});
+
+test("a person's code step isn't done on a server with no host until they go on without one", async () => {
+  await using run = await start(null);
+  const { t } = run;
+
+  expect(await t.as("ana").get("setup")).toMatchObject({
+    withoutHosts: false,
+    person: false,
+  });
+
+  expect(
+    await t.as("ana").put("setup/person", { withoutHosts: true }),
+  ).toMatchObject({ withoutHosts: true, person: true });
+
+  // Each person answers for themselves.
+  expect(await t.as("pedro").get("setup")).toMatchObject({ person: false });
+
+  // A host added after they answered brings the step back.
+  await t.as("pedro").post("hosts", { host, label: "Example Git" });
+
+  expect(await t.as("ana").get("setup")).toMatchObject({
+    withoutHosts: false,
+    person: false,
+  });
+});
+
+test("a person's code step is done once they sign in to a listed host", async () => {
+  await using run = await start();
+  const { t } = run;
+
+  expect(await t.as("pedro").get("setup")).toMatchObject({ person: false });
+
+  await connected(t);
+  expect(await t.as("pedro").get("setup")).toMatchObject({ person: true });
+
+  await t.as("pedro").delete(`connections/${host}`);
+  expect(await t.as("pedro").get("setup")).toMatchObject({ person: false });
+});
+
+test("sends a sign-in started in setup back to the setup step", async () => {
+  await using run = await start(null);
+  const { t } = run;
+
+  await t
+    .as("pedro")
+    .post("hosts", { host, clientId: "Iv1.abc", clientSecret: "shh" });
+
+  const sent = await t
+    .as("pedro")
+    .raw(`sign-in/${host}?then=setup`, { method: "GET" });
+
+  const state =
+    new URL(sent.headers.get("location") ?? "").searchParams.get("state") ?? "";
+
+  const cookie = (sent.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+
+  const back = await t.public().raw(`callback?state=${state}&code=c0de`, {
+    method: "GET",
+    headers: { cookie },
+  });
+
+  expect(await back.text()).toContain("/#get-started/git-hosts");
+});
+
+test("makes a GitHub App created in server setup the host's team bot, and comes back to the step", async () => {
+  await using run = await start();
+  const { t } = run;
+
+  const started = await t
+    .as("pedro")
+    .raw(
+      `technical-users/new-app?host=${host}&name=Pipoca%20bot&then=server-setup`,
+      { method: "GET" },
+    );
+
+  const action = /action="([^"]+)"/.exec(await started.text())?.[1] ?? "";
+
+  const state =
+    new URL(action.replaceAll("&#38;", "&")).searchParams.get("state") ?? "";
+
+  const cookie = (started.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+
+  const created = await t
+    .public()
+    .raw(`app-created?code=m4nifest&state=${state}`, {
+      method: "GET",
+      headers: { cookie },
+    });
+
+  expect(await created.text()).toContain("/#get-started/server:git-hosts");
+
+  expect(await t.as("pedro").get("technical-users")).toMatchObject([
+    { name: "pipoca-bot", kind: "app", team: true },
+  ]);
+});
