@@ -30,6 +30,7 @@ interface FakePod {
   readonly metadata: {
     readonly name: string;
     readonly labels: Record<string, string>;
+    readonly annotations?: Record<string, string>;
     creationTimestamp?: string;
   };
   readonly spec: {
@@ -523,6 +524,8 @@ test("reads a template's pod settings from its entry in pipoca.json, and saves t
     idleSeconds: 300,
     claimSize: "10Gi",
     storageClass: null,
+    labels: {},
+    annotations: {},
     podPatch: {},
   });
 
@@ -568,6 +571,7 @@ test("refuses Kubernetes settings it can't use, and changes from anyone but admi
   const responses = await Promise.all([
     postSettings(template.id, { settings: { capacity: 0 } }),
     postSettings(template.id, { settings: { podPatch: [] } }),
+    postSettings(template.id, { settings: { labels: { mesh: true } } }),
     postSettings(template.id, { settings: { workspace: "disk" } }),
     postSettings(template.id, { settings: { claimSize: "lots" } }),
     postSettings(template.id, { capacity: 1 }),
@@ -587,7 +591,7 @@ test("refuses Kubernetes settings it can't use, and changes from anyone but admi
   const inContainers = await postSettings(template.id, { settings: {} });
 
   expect(responses.map(({ status }) => status)).toEqual([
-    422, 422, 422, 422, 422, 404, 403,
+    422, 422, 422, 422, 422, 422, 404, 403,
   ]);
 
   expect(unsaved).toEqual({
@@ -657,7 +661,7 @@ test("copies the binary from the Pipoca image pulled as the server's own", async
   ]);
 });
 
-test("gives runner pods a home their user can write and leaves the mesh sidecar to the namespace", async () => {
+test("gives runner pods a home their user can write and no labels the template doesn't name", async () => {
   const environment = await kubernetesEnvironment({ workspace: "claim" });
   await startSession(environment);
   await pass();
@@ -665,7 +669,12 @@ test("gives runner pods a home their user can write and leaves the mesh sidecar 
   const [pod] = api.pods.values();
 
   expect(pod?.spec["securityContext"]).toMatchObject({ fsGroup: 1000 });
-  expect(pod?.metadata.labels).not.toHaveProperty("sidecar.istio.io/inject");
+
+  expect(Object.keys(pod?.metadata.labels ?? {}).sort()).toEqual([
+    "app.kubernetes.io/managed-by",
+    "pipoca.dev/environment",
+    "pipoca.dev/session",
+  ]);
 });
 
 // The Environment's image may need root for its setup script, but the
@@ -693,20 +702,30 @@ test("copies the binary without privileges and runs runner pods under the runtim
   ]);
 });
 
-// The chart's Istio policy lets runner pods reach /runner only as mesh
-// peers, so on a server in the mesh they join it too, whatever the
-// namespace says. A template's patch can still leave them out.
-test("puts runner pods in the mesh when the server is in it", async () => {
-  await t.close();
-  await start({ env: { ...env, PIPOCA_RUNNER_MESH: "true" } });
+// A cluster's service mesh, for one, picks the pods it joins by a label or
+// an annotation, which the chart of that cluster seeds into the template.
+// The plugin's own labels stay, since it finds its pods by them.
+test("gives runner pods the labels and annotations their template names", async () => {
+  const environment = await kubernetesEnvironment({
+    labels: {
+      "sidecar.istio.io/inject": "true",
+      "app.kubernetes.io/managed-by": "someone",
+    },
+    annotations: { "example.com/team": "agents" },
+  });
 
-  const environment = await kubernetesEnvironment({});
   await startSession(environment);
   await pass();
 
   const [pod] = api.pods.values();
 
-  expect(pod?.metadata.labels["sidecar.istio.io/inject"]).toBe("true");
+  expect(pod?.metadata.labels).toMatchObject({
+    "sidecar.istio.io/inject": "true",
+    "app.kubernetes.io/managed-by": "pipoca",
+    "pipoca.dev/environment": environment.id,
+  });
+
+  expect(pod?.metadata.annotations).toEqual({ "example.com/team": "agents" });
 });
 
 test("removes a runner pod that never starts, and starts another", async () => {

@@ -16,10 +16,13 @@ spec:
     metadata:
       labels:
         {{- include "pipoca.labels" . | nindent 8 }}
-        {{- if .Values.apiRule.enabled }}
-        # APIRules reach only workloads in the Istio mesh.
-        sidecar.istio.io/inject: "true"
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
       {{- if .Values.runnerPods.enabled }}
       serviceAccountName: {{ .Release.Name }}
@@ -55,11 +58,11 @@ spec:
           args:
             - --port
             - "7420"
-            {{- with include "pipoca.url" . }}
+            {{- with .Values.url }}
             - --url
             - {{ . | quote }}
             {{- end }}
-            {{- if or .Values.trustProxy .Values.apiRule.enabled }}
+            {{- if .Values.trustProxy }}
             - --trust-proxy
             {{- end }}
             {{- if (.Values.oidc | default dict).ssoOnly }}
@@ -86,11 +89,6 @@ spec:
               value: {{ .Values.image.pullPolicy | quote }}
             - name: PIPOCA_RUNNER_URL
               value: "http://{{ .Release.Name }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}"
-            {{- if .Values.apiRule.enabled }}
-            # The runners' Istio policy lets in only pods in the mesh.
-            - name: PIPOCA_RUNNER_MESH
-              value: "true"
-            {{- end }}
             # Its image ID tells runner pods with an old binary apart.
             - name: POD_NAME
               valueFrom:

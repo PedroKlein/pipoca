@@ -10,7 +10,6 @@
     "./plugin-test": "./src/testdata/plugin-test.ts"
   },
   "scripts": {
-    "apirule": "bun src/apirule.ts",
     "build": "bun src/build.ts",
     "dev": "bun src/dev.ts",
     "smoke": "bun src/smoke.ts"

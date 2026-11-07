@@ -4,3 +4,5 @@ target/
 apps/desktop/src-tauri/gen/
 apps/desktop/src-tauri/binaries/
 *.tsbuildinfo
+deploy/helm/*/charts/
+deploy/helm/*/Chart.lock

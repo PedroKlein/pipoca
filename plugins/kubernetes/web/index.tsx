@@ -348,6 +348,8 @@ function settingsOf(
     claimSize: text("claimSize") ?? shown.claimSize,
     storageClass:
       storageClass === undefined ? shown.storageClass : storageClass || null,
+    labels: shown.labels,
+    annotations: shown.annotations,
     podPatch: patch,
   };
 }

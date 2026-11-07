@@ -5,6 +5,7 @@
     "apps/desktop/*.ts",
     "packages/*/src",
     "plugins/*/src",
+    "deploy/helm/*/*.ts",
     "**/*.test.ts",
     "test-setup.ts",
     "test-watchdog.ts"

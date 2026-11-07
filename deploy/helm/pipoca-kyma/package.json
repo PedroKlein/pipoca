@@ -1,0 +1,11 @@
+{
+  "name": "@pipoca/pipoca-kyma",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "apirule": "bun apirule.ts"
+  },
+  "dependencies": {
+    "@pipoca/protocol": "workspace:*"
+  }
+}

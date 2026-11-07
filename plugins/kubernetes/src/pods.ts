@@ -9,9 +9,6 @@ interface PodOptions {
   // The Pipoca image, which the binary is copied from.
   readonly binaryImage: string;
   readonly binaryPullPolicy: string | undefined;
-  // The server is in the Istio mesh, whose policy lets runners in only as
-  // mesh peers.
-  readonly mesh: boolean;
   // The server's in-cluster address.
   readonly server: string;
   // Added to the agent's own environment.
@@ -27,10 +24,8 @@ const home = "/home/pi";
 
 // A runner pod: an init container copies the pipoca binary in, and the
 // agent joins with its token from the pod's Secret of the same name. Sessions
-// in it use process isolation (ADR 0032). The pod joins the namespace's
-// Istio mesh, if any, and the mesh the server is in: a mesh with strict mTLS
-// or a peer policy turns away a pod without the sidecar, and Istio's native
-// sidecar stops with the agent.
+// in it use process isolation (ADR 0032). The template's labels can't take
+// the place of the ones the plugin finds its pods by.
 export function runnerPod(options: PodOptions): object {
   const { name, settings } = options;
 
@@ -40,13 +35,14 @@ export function runnerPod(options: PodOptions): object {
     metadata: {
       name,
       labels: {
+        ...settings.labels,
         "app.kubernetes.io/managed-by": "pipoca",
         [environmentLabel]: options.environmentId,
         ...(options.sessionId !== undefined && {
           [sessionLabel]: options.sessionId,
         }),
-        ...(options.mesh && { "sidecar.istio.io/inject": "true" }),
       },
+      annotations: settings.annotations,
     },
     spec: {
       restartPolicy: "Never",

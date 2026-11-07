@@ -1,5 +1,5 @@
-{{- if and .Values.apiRule.enabled .Values.apiRule.previews }}
-{{- $host := printf "*.%s" .Values.apiRule.host }}
+{{- if .Values.apiRule.previews }}
+{{- $host := printf "*.%s" (include "pipoca-kyma.host" .) }}
 {{- $secret := printf "%s-%s-previews" .Release.Namespace .Release.Name }}
 # Previews live at <port>--<session>.<host> (ADR 0037), a level below the
 # cluster domain that Kyma's own certificate and gateway cover, so they get a
@@ -50,7 +50,7 @@ spec:
   gateway: {{ .Release.Namespace }}/{{ .Release.Name }}-previews
   service:
     name: {{ .Release.Name }}
-    port: {{ .Values.service.port }}
+    port: {{ .Values.pipoca.service.port }}
   rules:
     - path: /{**}
       methods: [GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS]
