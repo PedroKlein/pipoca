@@ -25,3 +25,13 @@ test("shows the wordmark, the steps so far and the current step", () => {
 
   expect(page.querySelector("h1")?.textContent).toBe("Where should Pi work?");
 });
+
+test("says which setup it is beside the wordmark", () => {
+  const page = render(
+    <SetupShell label={<span>Server setup</span>}>
+      <Hero title="Who is this Pipoca for?" />
+    </SetupShell>,
+  );
+
+  expect(page.querySelector("header")?.textContent).toBe("pipocaServer setup");
+});

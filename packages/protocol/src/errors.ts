@@ -55,6 +55,7 @@ export const errorCodes = [
   "in_use",
   "team",
   "synced",
+  "solo_install",
 ] as const;
 
 export type ErrorCode = (typeof errorCodes)[number];

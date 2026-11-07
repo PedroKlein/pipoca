@@ -35,7 +35,7 @@ import { configFiles, configFolder } from "./config";
 import { sessionDocs } from "./docs";
 import { hubSettings } from "./hub";
 import { newcomerSetup } from "./newcomers";
-import { serverConfig } from "./server-config";
+import { serverConfig, useServerFor } from "./server-config";
 import { teamSettings } from "./team";
 import {
   buildPlugin,
@@ -500,6 +500,13 @@ export function serve(options: ServeOptions): {
     hub: hubSettings(config("hub"), options.log),
     newcomers: newcomerSetup(config("newcomers"), options.log),
     team,
+    serverFor: {
+      usedBy: () => ownConfig().usedBy,
+      use: (usedBy) => {
+        useServerFor(config("server"), usedBy);
+      },
+      solo: options.solo !== undefined,
+    },
   });
 
   const terminals = terminalBroker(sessions, auth, options.log);

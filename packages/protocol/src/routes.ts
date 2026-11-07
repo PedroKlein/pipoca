@@ -40,6 +40,8 @@ import {
   repositoryManifest,
   restartRequest,
   sessionChange,
+  serverSetup,
+  serverSetupChange,
   setupChange,
   setupState,
   signInStatus,
@@ -362,6 +364,21 @@ export const routes = {
     body: newcomersChange,
     response: newcomers,
     changes: ["newcomers"],
+  },
+  // Admins go through it once, before their own setup (ADR 0072).
+  "settings.serverSetup": {
+    method: "GET",
+    path: "/api/settings/server-setup",
+    auth: "admin",
+    response: serverSetup,
+  },
+  "settings.serverSetup.update": {
+    method: "PATCH",
+    path: "/api/settings/server-setup",
+    auth: "admin",
+    body: serverSetupChange,
+    response: serverSetup,
+    changes: ["server-setup", "setup"],
   },
   "settings.config": {
     method: "GET",

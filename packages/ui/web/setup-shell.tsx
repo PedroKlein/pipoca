@@ -43,13 +43,17 @@ export function Wordmark({
   );
 }
 
-// The frame of first-run setup, sign-in and joining: the wordmark, the
-// step bars when there are steps, and what goes on the right.
+// The frame of first-run setup, sign-in and joining: the wordmark, which
+// setup this is, the step bars when there are steps, and what goes on the
+// right.
 export function SetupShell({
+  label,
   steps,
   aside,
   children,
 }: {
+  // Such as a Badge saying "Server setup".
+  readonly label?: ReactNode;
   readonly steps?: { readonly total: number; readonly at: number };
   readonly aside?: ReactNode;
   readonly children: ReactNode;
@@ -57,7 +61,10 @@ export function SetupShell({
   return (
     <div className="flex min-h-dvh flex-col bg-bg font-sans text-ui text-fg">
       <header className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 py-5 sm:px-7">
-        <Wordmark />
+        <span className="flex items-center gap-3">
+          <Wordmark />
+          {label}
+        </span>
         {steps === undefined ? (
           <span />
         ) : (

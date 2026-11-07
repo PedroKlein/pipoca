@@ -161,6 +161,12 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
     "update users set setup_finished_at = case when ?1 then coalesce(setup_finished_at, ?2) end where id = ?3",
   );
 
+  const selectServerSetup = db.prepare("select 1 from server_setup");
+
+  const insertServerSetup = db.prepare(
+    "insert or ignore into server_setup (id, finished_at, finished_by) values (1, ?, ?)",
+  );
+
   const deleteDismissed = db.prepare(
     "delete from user_dismissed_steps where user_id = ?",
   );
@@ -363,6 +369,10 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
           ({ step }) => step,
         ),
       };
+    },
+    serverSetupFinished: () => selectServerSetup.get() !== undefined,
+    finishServerSetup: (userId) => {
+      insertServerSetup.run(clock.now(), userId);
     },
     setSetup: (userId, state) => {
       transaction(db, () => {

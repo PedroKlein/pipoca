@@ -216,7 +216,7 @@ function useLatest(
   return latest;
 }
 
-function nameOf(source: string): string {
+export function nameOf(source: string): string {
   const name = source
     .replace(/^(npm|git):/, "")
     .replace(/#.*$/, "")

@@ -1,5 +1,9 @@
 import { HttpError, NotFound } from "@pipoca/plugins";
-import { teamMessagesRead, type TeamView } from "@pipoca/protocol";
+import {
+  type ServerSetup,
+  teamMessagesRead,
+  type TeamView,
+} from "@pipoca/protocol";
 import { laidOut } from "../../../hub";
 import { newcomersOf } from "../../../newcomers";
 import { teamOf } from "../../../team";
@@ -11,11 +15,46 @@ export function settingsRoutes({
   hub,
   team,
   newcomers,
+  people,
+  serverFor,
   log,
 }: ApiDeps): Handlers<
   Exclude<Group<"settings">, Group<"settings.baseProfile">>
 > {
+  const solo = serverFor?.solo === true;
+
+  const serverSetup = (): ServerSetup => ({
+    usedBy: solo ? "me" : (serverFor?.usedBy() ?? null),
+    solo,
+    finished: people.serverSetupFinished,
+  });
+
   return {
+    "settings.serverSetup": serverSetup,
+    "settings.serverSetup.update": ({ body: { usedBy, finished }, caller }) => {
+      if (solo && usedBy === "team") {
+        throw new HttpError(
+          409,
+          "A solo install is just for you. Run Pipoca as a server to share it.",
+          "solo_install",
+        );
+      }
+
+      if (usedBy !== undefined && !solo) {
+        serverFor?.use(usedBy);
+      }
+
+      if (finished === true) {
+        people.finishServerSetup(caller.id);
+      }
+
+      log("server setup changed", {
+        ...(usedBy !== undefined && { usedBy }),
+        ...(finished === true && { finished }),
+      });
+
+      return serverSetup();
+    },
     "settings.config": () => {
       if (config === undefined) {
         throw new NotFound("Not found.");

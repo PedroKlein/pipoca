@@ -242,26 +242,94 @@ export const web = defineWeb(vault, {
     .getByRole("button", { name: "Create account and continue" })
     .click();
 
-  // The e2e runner is online with its own model, so those steps are done;
-  // GitHub is listed but not connected, so code is skipped (ADR 0063).
-  for (const heading of ["Where should Pi work?", "Connect a model"]) {
-    await page.getByRole("heading", { name: heading }).waitFor();
-    await page.getByRole("button", { name: "Continue" }).click();
-  }
-
-  for (const heading of ["Connect your code", "Make Pi yours"]) {
-    await page.getByRole("heading", { name: heading }).waitFor();
-    await page.getByRole("button", { name: "Skip for now" }).click();
-  }
-
-  await page.getByRole("heading", { name: "You're set, pedro" }).waitFor();
-  await page.getByPlaceholder("What do you want to build first?").waitFor();
-  await page.getByRole("button", { name: "Done" }).click();
-  await page.getByRole("button", { name: "New session" }).waitFor();
+  await setUpServerAndPerson();
 
   const [session] = await page.context().cookies();
   cookie = `${session?.name ?? ""}=${session?.value ?? ""}`;
 }, 30_000);
+
+const continueButton = (): Locator =>
+  page.getByRole("button", { name: "Continue" });
+
+// The first admin goes through the server's setup, then their own, with
+// Back from their own into the server's (ADR 0072).
+async function setUpServerAndPerson(): Promise<void> {
+  const setup = page.getByRole("banner");
+
+  await page
+    .getByRole("heading", { name: "Who is this Pipoca for?" })
+    .waitFor();
+
+  await setup.getByText("Server setup").waitFor();
+  expect(await setup.getByText("Step 1 of 5").count()).toBe(1);
+
+  expect(
+    await page.getByRole("radio", { name: /^A team/, checked: true }).count(),
+  ).toBe(1);
+
+  await continueButton().click();
+
+  await page
+    .getByRole("heading", { name: "What should this server do?" })
+    .waitFor();
+
+  await page.getByRole("list", { name: "Adds a setup step" }).waitFor();
+  await continueButton().click();
+
+  await page.getByRole("heading", { name: "Server default Profile" }).waitFor();
+  expect(await continueButton().isDisabled()).toBe(true);
+  await page.getByRole("button", { name: "Skip for now" }).click();
+
+  await page.getByRole("heading", { name: "Where do Sessions run?" }).waitFor();
+  await continueButton().click();
+
+  const finish = page.getByRole("button", {
+    name: "Finish and set up my account",
+  });
+
+  await page.getByRole("heading", { name: "What new people get" }).waitFor();
+  await finish.click();
+
+  const welcome = page.getByRole("heading", {
+    name: "Welcome to your team's Pipoca",
+  });
+
+  await welcome.waitFor();
+  await setup.getByText("Your setup").waitFor();
+  await page.getByRole("button", { name: "Back" }).click();
+  await page.getByRole("heading", { name: "What new people get" }).waitFor();
+  await finish.click();
+  await welcome.waitFor();
+  await page.getByRole("button", { name: "Start" }).click();
+
+  // The host is listed but not connected, so code is skipped; the e2e
+  // runner is online with its own model, so the model step is done.
+  await page.getByRole("heading", { name: "Connect your code" }).waitFor();
+  await page.getByRole("button", { name: "Skip for now" }).click();
+
+  for (const heading of ["Connect a model", "Where should Pi work?"]) {
+    await page.getByRole("heading", { name: heading }).waitFor();
+    await continueButton().click();
+  }
+
+  // Pi's defaults is an answer, so the step finishes with no Skip.
+  await page.getByRole("heading", { name: "Make Pi yours" }).waitFor();
+
+  await page
+    .getByRole("radio", { name: /^Pi's defaults/, checked: true })
+    .waitFor();
+
+  expect(await page.getByRole("button", { name: "Skip for now" }).count()).toBe(
+    0,
+  );
+
+  await continueButton().click();
+
+  await page.getByRole("heading", { name: "You're set" }).waitFor();
+  await page.getByPlaceholder("What should Pi do first?").waitFor();
+  await page.getByRole("button", { name: "Go to home" }).click();
+  await page.getByRole("button", { name: "New session" }).waitFor();
+}
 
 // Picks the e2e Environment and the folder in the New session composer.
 // A folder is shared unless share is false, which makes a worktree of it.
@@ -773,7 +841,13 @@ test("keeps a setup step on home until it's done, and opens it from there", asyn
   const reminders = page.getByRole("region", { name: "Finish setting up" });
 
   await reminders.getByText("Where should Pi work?").waitFor();
-  await reminders.getByRole("link", { name: "Set up" }).first().click();
+
+  await reminders
+    .getByRole("listitem")
+    .filter({ hasText: "Where should Pi work?" })
+    .getByRole("link", { name: "Set up" })
+    .click();
+
   await page.getByRole("heading", { name: "Where should Pi work?" }).waitFor();
   await page.getByRole("button", { name: "Show the command" }).click();
 
@@ -792,13 +866,15 @@ test("keeps a setup step on home until it's done, and opens it from there", asyn
 
   await page.unroute("**/api/environments");
   await page.reload();
-  await reminders.getByText("Make Pi yours").waitFor();
+  await reminders.getByText("Connect your code").waitFor();
 
+  // Pi's defaults, picked in setup, finished the Profile step.
   expect(await reminders.getByText("Connect a model").count()).toBe(0);
+  expect(await reminders.getByText("Make Pi yours").count()).toBe(0);
 
-  for (const heading of ["Connect your code", "Make Pi yours"]) {
-    await reminders.getByRole("button", { name: `Dismiss ${heading}` }).click();
-  }
+  await reminders
+    .getByRole("button", { name: "Dismiss Connect your code" })
+    .click();
 
   await reminders.waitFor({ state: "hidden" });
   await page.reload();
@@ -1132,7 +1208,7 @@ test("signs a person out in every browser from General", async () => {
     await account.getByLabel("Username").fill("dora");
     await account.getByLabel("Password").fill("correct horse");
     await account.getByRole("button", { name: "Join" }).click();
-    await tab.getByRole("list", { name: "Your setup" }).waitFor();
+    await tab.getByRole("list", { name: "Your steps" }).waitFor();
 
     await first.request.patch(new URL("/api/me/setup", server.url).href, {
       data: { finished: true },
@@ -1838,7 +1914,7 @@ test("invites someone by email, who joins with their link and a password", async
 
     await form.getByLabel("Password").fill("correct horse");
     await form.getByRole("button", { name: "Join" }).click();
-    await tab.getByText("Step 1 of").or(tab.getByText("Step 2 of")).waitFor();
+    await tab.getByText("Your setup", { exact: true }).waitFor();
   } finally {
     await context.close();
   }
@@ -1868,7 +1944,7 @@ test("chooses what new people get, and someone who joins picks an offered Profil
 
   const form = card.getByRole("form", { name: "Choose what new people get" });
   await form.getByLabel("Backend kit").check();
-  await form.getByLabel("Your Profile").check();
+  await form.getByLabel("Your default Profile").check();
   await form.getByRole("button", { name: "Save" }).click();
 
   await card
@@ -1876,7 +1952,7 @@ test("chooses what new people get, and someone who joins picks an offered Profil
     .getByText("Base Profile + Backend kit")
     .waitFor();
 
-  await card.getByText("Must do: Your Profile").waitFor();
+  await card.getByText("Must do: Your default Profile").waitFor();
 
   await page.getByRole("button", { name: "Invite people" }).click();
 
@@ -1912,15 +1988,26 @@ test("chooses what new people get, and someone who joins picks an offered Profil
     await account.getByLabel("Username").fill("cleo");
     await account.getByLabel("Password").fill("correct horse");
     await account.getByRole("button", { name: "Join" }).click();
-    await tab.getByRole("list", { name: "Your setup" }).waitFor();
+
+    await tab
+      .getByRole("heading", { name: "Welcome to your team's Pipoca" })
+      .waitFor();
+
+    await tab
+      .getByRole("list", { name: "Your steps" })
+      .getByRole("listitem")
+      .filter({ hasText: "Your default Profile" })
+      .getByText("Required")
+      .waitFor();
 
     await tab.goto(`${server.url.href}#get-started/profile`);
+    await tab.getByRole("radio", { name: /^Copy a team Profile/ }).check();
 
     const offered = tab.getByRole("list", { name: "Profiles on offer" });
-    await offered.getByLabel("Backend kit").click();
+    await offered.getByRole("button", { name: "Backend kit" }).click();
 
     await offered
-      .getByRole("checkbox", { name: "Backend kit", checked: true })
+      .getByRole("button", { name: "Backend kit", pressed: true })
       .waitFor();
 
     expect(
@@ -1928,7 +2015,7 @@ test("chooses what new people get, and someone who joins picks an offered Profil
     ).toBe(0);
 
     await tab.getByRole("button", { name: "Continue" }).click();
-    await tab.getByRole("heading", { name: "You're set, cleo" }).waitFor();
+    await tab.getByRole("heading", { name: "You're set" }).waitFor();
   } finally {
     await context.close();
   }
@@ -1943,6 +2030,82 @@ test("chooses what new people get, and someone who joins picks an offered Profil
     method: "DELETE",
     headers: { cookie },
   });
+}, 30_000);
+
+test("someone who joins finds the team's template picked in Where, and Continue makes it their Environment", async () => {
+  const admin = async (path: string, method: string, body?: unknown) =>
+    fetch(new URL(path, server.url), {
+      method,
+      headers: { "content-type": "application/json", cookie },
+      ...(body !== undefined && { body: JSON.stringify(body) }),
+    });
+
+  const template = (await (
+    await admin("/api/environment-templates", "POST", { name: "Team kit" })
+  ).json()) as { readonly id: string };
+
+  await admin("/api/settings/newcomers", "PUT", {
+    template: template.id,
+    profiles: [],
+    required: [],
+  });
+
+  const [invite] = (await (await admin("/api/invites", "POST", {})).json()) as {
+    readonly token: string;
+  }[];
+
+  const context = await browser.newContext();
+
+  try {
+    const tab = await context.newPage();
+    await tab.goto(new URL(`/#join/${invite?.token ?? ""}`, server.url).href);
+
+    const account = tab.getByRole("form", { name: "Make your account" });
+    await account.getByLabel("Username").fill("enzo");
+    await account.getByLabel("Password").fill("correct horse");
+    await account.getByRole("button", { name: "Join" }).click();
+
+    await tab
+      .getByRole("list", { name: "Your steps" })
+      .getByRole("listitem")
+      .filter({ hasText: "Where Pi works" })
+      .getByText("Picked")
+      .waitFor();
+
+    await tab.goto(`${server.url.href}#get-started/where`);
+
+    await tab
+      .getByRole("checkbox", { name: /^Team kit/, checked: true })
+      .waitFor();
+
+    await tab.getByRole("button", { name: "Continue" }).click();
+    await tab.getByRole("heading", { name: "Make Pi yours" }).waitFor();
+
+    const environments = (await tab.evaluate(async () =>
+      (await fetch("/api/environments")).json(),
+    )) as Environment[];
+
+    expect(environments.map(({ templateId }) => templateId)).toEqual([
+      template.id,
+    ]);
+
+    await tab.getByRole("button", { name: "Back" }).click();
+    await tab.getByRole("heading", { name: "Where should Pi work?" }).waitFor();
+
+    expect(await tab.getByRole("checkbox", { name: /^Team kit/ }).count()).toBe(
+      0,
+    );
+  } finally {
+    await context.close();
+  }
+
+  await admin("/api/settings/newcomers", "PUT", {
+    template: null,
+    profiles: [],
+    required: [],
+  });
+
+  await admin(`/api/environment-templates/${template.id}`, "DELETE");
 }, 30_000);
 
 test("shows why an Environment's last runner pod failed", async () => {

@@ -1,5 +1,5 @@
 import type { Profile } from "@pipoca/protocol";
-import { ChoiceCard, ErrorText } from "@pipoca/ui";
+import { ErrorText, Icon } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { request } from "../data/client";
 import { useAction, useQuery } from "../data/hooks";
@@ -14,16 +14,18 @@ export function ProfileStepPage(): ReactElement {
   );
 
   return (
-    <>
-      {offered.length > 0 && (
-        <OfferedProfiles offered={offered} profiles={profiles} />
-      )}
-      <ProfileStep profiles={profiles} />
-    </>
+    <ProfileStep
+      profiles={profiles}
+      team={
+        offered.length > 0 ? (
+          <OfferedProfiles offered={offered} profiles={profiles} />
+        ) : undefined
+      }
+    />
   );
 }
 
-// The shared Profiles an admin offers new people. Each one picked becomes a
+// The team Profiles an admin offers new people. Each one picked becomes a
 // Profile of theirs that builds on it (ADR 0063).
 function OfferedProfiles({
   offered,
@@ -41,12 +43,8 @@ function OfferedProfiles({
   });
 
   return (
-    <div className="flex flex-col gap-2.5">
-      <p className="text-label text-fg-dim">
-        Pick any. Each one becomes a Profile of yours, and you can switch per
-        Session.
-      </p>
-      <ul aria-label="Profiles on offer" className="flex flex-col gap-2.5">
+    <div className="flex flex-col gap-2">
+      <ul aria-label="Profiles on offer" className="flex flex-wrap gap-1.5">
         {offered.map((shared) => {
           const mine = profiles.find(
             ({ ownerId, buildsOn }) =>
@@ -54,22 +52,26 @@ function OfferedProfiles({
           );
 
           return (
-            <ChoiceCard
-              type="checkbox"
-              as="li"
-              key={shared.id}
-              title={shared.name}
-              description={offeredDescription(shared)}
-              checked={mine !== undefined}
-              onChange={(checked) => {
-                void pick.run(shared, checked ? undefined : mine);
-              }}
-            />
+            <li key={shared.id}>
+              <button
+                type="button"
+                aria-pressed={mine !== undefined}
+                title={offeredDescription(shared)}
+                onClick={() => {
+                  void pick.run(shared, mine);
+                }}
+                className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full border border-line bg-elevated px-2.5 text-label text-fg-dim hover:bg-hover aria-pressed:text-fg"
+              >
+                {mine !== undefined && (
+                  <Icon name="check" className="size-3.5" />
+                )}
+                {shared.name}
+              </button>
+            </li>
           );
         })}
       </ul>
       <ErrorText size="caption">{pick.error}</ErrorText>
-      <p className="pt-2 text-label font-medium text-fg">Or bring your own</p>
     </div>
   );
 }

@@ -247,4 +247,13 @@ create table plugin_schedules (
 create index plugin_schedules_due on plugin_schedules (due_at);
 `;
 
-export const kernelSchema: Schema = { owner: "kernel", sql, migrations: [] };
+const migrations = [
+  // When an admin finished the server's setup (ADR 0072). One row at most.
+  `create table server_setup (
+  id integer primary key check (id = 1),
+  finished_at integer not null,
+  finished_by text references users (id) on delete set null
+) strict;`,
+];
+
+export const kernelSchema: Schema = { owner: "kernel", sql, migrations };

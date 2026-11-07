@@ -4,6 +4,7 @@ import {
   Button,
   cardClass,
   cn,
+  type ConfirmOptions,
   ErrorText,
   Switch,
   useConfirm,
@@ -35,27 +36,10 @@ export function PluginCard({
   };
 
   const turn = (): void => {
-    const trusted = plugin.turnedOn
-      ? Promise.resolve(true)
-      : ask({
-          title: `Turn on ${plugin.title}?`,
-          description: trustQuestion(plugin),
-          confirm: "Turn on",
-        });
+    run(async () => {
+      await turnPlugin(plugin, ask);
 
-    void trusted.then((yes) => {
-      if (!yes) {
-        return;
-      }
-
-      run(async () => {
-        await request("plugins.update", {
-          params: { plugin: plugin.id },
-          body: { enabled: !plugin.turnedOn, digest: plugin.digest },
-        });
-
-        return undefined;
-      });
+      return undefined;
     });
   };
 
@@ -230,6 +214,28 @@ function shortPin(pinned: string): string {
   return pinned.startsWith("sha256:")
     ? pinned.slice(0, "sha256:".length + 12)
     : pinned.slice(0, 12);
+}
+
+// Asks before turning a plugin on, since its code runs unsandboxed.
+export async function turnPlugin(
+  plugin: PluginInfo,
+  ask: (options: ConfirmOptions) => Promise<boolean>,
+): Promise<void> {
+  if (
+    !plugin.turnedOn &&
+    !(await ask({
+      title: `Turn on ${plugin.title}?`,
+      description: trustQuestion(plugin),
+      confirm: "Turn on",
+    }))
+  ) {
+    return;
+  }
+
+  await request("plugins.update", {
+    params: { plugin: plugin.id },
+    body: { enabled: !plugin.turnedOn, digest: plugin.digest },
+  });
 }
 
 // What turning a plugin on lets it do, since its code runs unsandboxed.

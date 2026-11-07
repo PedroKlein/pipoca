@@ -58,6 +58,8 @@ export const web = defineWeb(gitHosts, {
   settings: { group: "server", Section: SettingsSection },
   setup: [
     {
+      audience: "person",
+      after: "welcome",
       title: "Your code",
       summary: "GitHub or another git host",
       heading: "Connect your code",

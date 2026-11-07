@@ -84,9 +84,13 @@ export interface PeopleStore {
     userId: string,
     pages: readonly string[] | null,
   ) => void;
-  readonly setup: (userId: string) => SetupState;
-  readonly setSetup: (userId: string, state: SetupState) => void;
+  readonly setup: (userId: string) => PersonalSetup;
+  readonly setSetup: (userId: string, state: PersonalSetup) => void;
+  readonly serverSetupFinished: () => boolean;
+  readonly finishServerSetup: (userId: string) => void;
 }
+
+type PersonalSetup = Omit<SetupState, "serverPending">;
 
 export class InvalidCredentials extends Error {}
 
@@ -323,16 +327,34 @@ export class People {
     this.#store.setPinnedPages(userId, pages);
   }
 
+  // An admin's setup starts with the server's until an admin finishes it
+  // (ADR 0072).
   setup(userId: string): SetupState {
-    return this.#store.setup(userId);
+    return {
+      ...this.#store.setup(userId),
+      serverPending:
+        this.#store.userById(userId)?.admin === true &&
+        !this.#store.serverSetupFinished(),
+    };
+  }
+
+  get serverSetupFinished(): boolean {
+    return this.#store.serverSetupFinished();
+  }
+
+  finishServerSetup(userId: string): void {
+    this.#store.finishServerSetup(userId);
   }
 
   finishSetup(userId: string): void {
-    this.#store.setSetup(userId, { ...this.setup(userId), finished: true });
+    this.#store.setSetup(userId, {
+      ...this.#store.setup(userId),
+      finished: true,
+    });
   }
 
   dismissSetupStep(userId: string, step: string): void {
-    const state = this.setup(userId);
+    const state = this.#store.setup(userId);
 
     if (!state.dismissed.includes(step)) {
       this.#store.setSetup(userId, {

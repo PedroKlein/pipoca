@@ -7,7 +7,8 @@ export function memoryStore(): PeopleStore {
   const invites = new Map<string, Invite & { tokenHash: string }>();
   const tokens = new Map<string, AccessToken>();
   const pinned = new Map<string, readonly string[] | null>();
-  const setups = new Map<string, SetupState>();
+  const setups = new Map<string, Omit<SetupState, "serverPending">>();
+  let serverSetupBy: string | undefined;
   const defaults = new Map<string, string | null>();
 
   const named = new Map<string, string | null>();
@@ -139,6 +140,10 @@ export function memoryStore(): PeopleStore {
     setup: (userId) => setups.get(userId) ?? { finished: false, dismissed: [] },
     setSetup: (userId, state) => {
       setups.set(userId, state);
+    },
+    serverSetupFinished: () => serverSetupBy !== undefined,
+    finishServerSetup: (userId) => {
+      serverSetupBy ??= userId;
     },
   };
 }

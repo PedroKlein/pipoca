@@ -1,5 +1,5 @@
 import type { PluginHost } from "@pipoca/pluginhost";
-import type { Log, RouteKey } from "@pipoca/protocol";
+import type { Log, RouteKey, ServerUse } from "@pipoca/protocol";
 import type { Profiles } from "@pipoca/profiles";
 import type { Sessions } from "@pipoca/sessions";
 import type { People, SignIn } from "@pipoca/people";
@@ -19,6 +19,14 @@ interface ServerRestart {
   // Sessions on the server's own runner that are mid-turn.
   readonly busy: () => number;
   readonly now: () => void;
+}
+
+// Who the server is for, under "server" in pipoca.json (ADR 0072).
+interface ServerFor {
+  readonly usedBy: () => ServerUse | undefined;
+  readonly use: (usedBy: ServerUse) => void;
+  // A solo install is just for its own person.
+  readonly solo: boolean;
 }
 
 // Who calls the server: people signed in, and runners with their tokens.
@@ -49,6 +57,7 @@ export interface ApiDeps {
   readonly hub?: Hub | undefined;
   readonly newcomers?: NewcomerSetup | undefined;
   readonly team?: Team | undefined;
+  readonly serverFor?: ServerFor | undefined;
 }
 
 // The routes whose names start with a group, such as "sessions".
