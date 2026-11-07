@@ -2797,11 +2797,11 @@ test("builds a Profile on another, over My defaults", async () => {
 test("shows what a Profile inherits and turns a Server base skill off in it", async () => {
   const base = join(root, "config", "base");
 
-  await mkdir(join(base, "skills", "kyma"), { recursive: true });
+  await mkdir(join(base, "skills", "cluster"), { recursive: true });
 
   await writeFile(
-    join(base, "skills", "kyma", "SKILL.md"),
-    "---\nname: kyma\ndescription: Debug our cluster\n---\n",
+    join(base, "skills", "cluster", "SKILL.md"),
+    "---\nname: cluster\ndescription: Debug our cluster\n---\n",
   );
 
   await writeFile(join(base, "AGENTS.md"), "# Working at ACME\nNever push.");
@@ -2813,9 +2813,9 @@ test("shows what a Profile inherits and turns a Server base skill off in it", as
   await profiles.getByRole("link", { name: /^Default/ }).click();
 
   const skills = page.getByRole("list", { name: "Skills" });
-  const kyma = skills.getByRole("switch", { name: "kyma in Default" });
+  const cluster = skills.getByRole("switch", { name: "cluster in Default" });
 
-  await kyma.waitFor();
+  await cluster.waitFor();
   await skills.getByText("Server base").first().waitFor();
 
   await page
@@ -2823,10 +2823,10 @@ test("shows what a Profile inherits and turns a Server base skill off in it", as
     .getByText("Working at ACME")
     .waitFor();
 
-  await kyma.click();
+  await cluster.click();
 
   await skills
-    .getByRole("switch", { name: "kyma in Default", checked: false })
+    .getByRole("switch", { name: "cluster in Default", checked: false })
     .waitFor();
 
   const meta = JSON.parse(
@@ -2836,7 +2836,7 @@ test("shows what a Profile inherits and turns a Server base skill off in it", as
     ),
   ) as { off?: unknown };
 
-  expect(meta.off).toEqual(["skills/kyma"]);
+  expect(meta.off).toEqual(["skills/cluster"]);
 
   await page.getByRole("button", { name: "Preview what Pi gets" }).click();
 
@@ -2848,19 +2848,19 @@ test("shows what a Profile inherits and turns a Server base skill off in it", as
 
   await files.getByRole("button", { name: /AGENTS\.md/ }).click();
   await preview.getByText("Never push.").waitFor();
-  expect(await files.getByText("skills/kyma/SKILL.md").count()).toBe(0);
+  expect(await files.getByText("skills/cluster/SKILL.md").count()).toBe(0);
   await page.keyboard.press("Escape");
 
   await skills
-    .getByRole("switch", { name: "kyma in Default", checked: false })
+    .getByRole("switch", { name: "cluster in Default", checked: false })
     .click();
 
   await skills
-    .getByRole("switch", { name: "kyma in Default", checked: true })
+    .getByRole("switch", { name: "cluster in Default", checked: true })
     .waitFor();
 
   await profiles.getByRole("link", { name: "Server base" }).first().click();
-  await skills.getByRole("switch", { name: "kyma", exact: true }).waitFor();
+  await skills.getByRole("switch", { name: "cluster", exact: true }).waitFor();
 
   await page
     .getByText("Every Session on this server, personal and team")
