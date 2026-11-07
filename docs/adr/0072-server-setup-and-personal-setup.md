@@ -31,13 +31,13 @@ The setup wizard from [ADR 0063](0063-settings-and-first-run-setup.md) mixes wha
 
 Today's plugins add:
 
-| Plugin | Server step | Personal step |
-| --- | --- | --- |
-| oidc | Sign-in: identity providers, passwords on or off, who may join | none |
-| git-hosts | Code hosts | Connect your code |
-| logins | Shared model keys | Your models |
-| kubernetes | The pod option in Where Sessions run | none |
-| slack, email | Their bot or mailbox, when on | Link your account, when they have one |
+| Plugin       | Server step                                                    | Personal step                         |
+| ------------ | -------------------------------------------------------------- | ------------------------------------- |
+| oidc         | Sign-in: identity providers, passwords on or off, who may join | none                                  |
+| git-hosts    | Code hosts                                                     | Connect your code                     |
+| logins       | Shared model keys                                              | Your models                           |
+| kubernetes   | The pod option in Where Sessions run                           | none                                  |
+| slack, email | Their bot or mailbox, when on                                  | Link your account, when they have one |
 
 ### Code hosts
 
