@@ -66,7 +66,9 @@ export function tooBig(name: string): ProfileTooBig {
 }
 
 // The files a Profile given as content stands for, such as a plugin's.
-export function contentFiles(content: ProfileContent): ProfileFiles {
+export function contentFiles(
+  content: Omit<ProfileContent, "off">,
+): ProfileFiles {
   const settings = {
     ...content.settings,
     ...(content.packages.length > 0 && { packages: content.packages }),
@@ -108,7 +110,13 @@ export function overBaseExtensions(
     [...decoded(base)].filter(([path]) => path.startsWith("extensions/")),
   );
 
-  const packages = jsonOf(base, "settings.json")?.["packages"];
+  const settings = base.files["settings.json"];
+
+  const packages =
+    settings === undefined
+      ? undefined
+      : objectIn(Buffer.from(settings, "base64"))?.["packages"];
+
   if (Array.isArray(packages) && packages.length > 0) {
     kept.set("settings.json", Buffer.from(JSON.stringify({ packages })));
   }
@@ -119,39 +127,159 @@ export function overBaseExtensions(
 // A Profile's files over the admin's base Profile, layered as Pi layers its
 // global and project config (ADR 0044).
 export function layered(base: ProfileFiles, own: ProfileFiles): ProfileFiles {
-  const files = new Map([...decoded(base), ...decoded(own)]);
+  return stacked([
+    { id: ":base", files: base, off: [] },
+    { id: ":own", files: own, off: [] },
+  ]);
+}
 
-  const json = (
-    path: string,
-    merge: (a: Settings, b: Settings) => Settings,
-  ) => {
-    const under = jsonOf(base, path);
-    const over = jsonOf(own, path);
-    if (under !== undefined && over !== undefined) {
-      files.set(path, Buffer.from(JSON.stringify(merge(under, over))));
+// One layer of a Session's Pi agent folder: the base, My defaults or a
+// Profile, and what it turned off below it (ADR 0074).
+export interface Layer {
+  readonly id: string;
+  readonly files: ProfileFiles;
+  readonly off: readonly string[];
+}
+
+// Text files every layer adds to, the lowest first.
+const joined = ["AGENTS.md", "APPEND_SYSTEM.md"] as const;
+
+// Pi's resource lists, which add up across layers as Pi adds up its global
+// and project ones.
+const resources = ["extensions", "skills", "prompts", "themes"] as const;
+
+// Layers from the bottom up, each over the ones below it with what it turned
+// off left out (ADR 0074).
+export function stacked(layers: readonly Layer[]): ProfileFiles {
+  const files = new Map<string, Buffer>();
+
+  const parts = new Map<string, { layer: string; text: string }[]>(
+    joined.map((path) => [path, []]),
+  );
+
+  for (const layer of layers) {
+    for (const entry of layer.off) {
+      turnOff(files, parts, entry);
     }
-  };
 
-  json("settings.json", (under, over) => {
-    const packages = packagesOver(under["packages"], over["packages"]);
-    const { packages: _, ...merged } = deepMerge(under, over);
+    for (const [path, content] of decoded(layer.files)) {
+      const texts = parts.get(path);
+      if (texts) {
+        texts.push({ layer: layer.id, text: content.toString() });
+        continue;
+      }
 
-    return { ...merged, ...(packages.length > 0 && { packages }) };
-  });
+      const below = files.get(path);
+      const merge = merges[path];
 
-  json("mcp.json", deepMerge);
+      files.set(
+        path,
+        below && merge ? mergedJson(below, content, merge) : content,
+      );
+    }
+  }
 
-  const agents = [base, own].flatMap((layer) => {
-    const text = layer.files["AGENTS.md"];
-
-    return text === undefined ? [] : [Buffer.from(text, "base64").toString()];
-  });
-
-  if (agents.length > 0) {
-    files.set("AGENTS.md", Buffer.from(agents.join("\n\n")));
+  for (const [path, texts] of parts) {
+    if (texts.length > 0) {
+      files.set(path, Buffer.from(texts.map(({ text }) => text).join("\n\n")));
+    }
   }
 
   return encoded(files);
+}
+
+const merges: Readonly<
+  Record<string, (under: Settings, over: Settings) => Settings>
+> = {
+  "settings.json": (under, over) => {
+    const packages = packagesOver(under["packages"], over["packages"]);
+    const { packages: _, ...merged } = deepMerge(under, over);
+
+    for (const key of resources) {
+      const below = under[key];
+      const above = over[key];
+
+      if (Array.isArray(below) && Array.isArray(above)) {
+        merged[key] = [
+          ...new Set([...(below as unknown[]), ...(above as unknown[])]),
+        ];
+      }
+    }
+
+    return { ...merged, ...(packages.length > 0 && { packages }) };
+  },
+  "mcp.json": deepMerge,
+};
+
+// Pi reports a file it can't read when the Session starts, so when either
+// isn't a JSON object the nearer one is taken as it is.
+function mergedJson(
+  under: Buffer,
+  over: Buffer,
+  merge: (under: Settings, over: Settings) => Settings,
+): Buffer {
+  const a = objectIn(under);
+  const b = objectIn(over);
+
+  return a && b ? Buffer.from(JSON.stringify(merge(a, b))) : over;
+}
+
+// What a layer turns off below it: a package by its source, an MCP server by
+// its name, one layer's AGENTS.md or APPEND_SYSTEM.md text, or a file or
+// folder by its path, such as skills/review.
+function turnOff(
+  files: Map<string, Buffer>,
+  parts: ReadonlyMap<string, { layer: string; text: string }[]>,
+  entry: string,
+): void {
+  const [kind = "", ...rest] = entry.split(":");
+  const name = rest.join(":");
+
+  const texts = parts.get(kind);
+  if (texts && name !== "") {
+    texts.splice(
+      0,
+      texts.length,
+      ...texts.filter(({ layer }) => layer !== name),
+    );
+
+    return;
+  }
+
+  if (kind === "package" || kind === "mcp") {
+    const path = kind === "package" ? "settings.json" : "mcp.json";
+    const json = files.get(path);
+    const value = json && objectIn(json);
+    if (value) {
+      files.set(path, Buffer.from(JSON.stringify(without(value, kind, name))));
+    }
+
+    return;
+  }
+
+  for (const path of [...files.keys()]) {
+    if (path === entry || path.startsWith(`${entry}/`)) {
+      files.delete(path);
+    }
+  }
+}
+
+function without(value: Settings, kind: string, name: string): Settings {
+  if (kind === "mcp") {
+    const { [name]: _, ...servers } = isObject(value["mcpServers"])
+      ? value["mcpServers"]
+      : {};
+
+    return { ...value, mcpServers: servers };
+  }
+
+  const packages = Array.isArray(value["packages"])
+    ? (value["packages"] as unknown[]).filter((pkg) => sourceOf(pkg) !== name)
+    : [];
+
+  const { packages: _, ...rest } = value;
+
+  return { ...rest, ...(packages.length > 0 && { packages }) };
 }
 
 type Settings = Record<string, unknown>;
@@ -165,18 +293,9 @@ function decoded(files: ProfileFiles): Map<string, Buffer> {
   );
 }
 
-// Pi reports a file it can't read when the Session starts, so one that isn't
-// a JSON object is taken as it is.
-function jsonOf(files: ProfileFiles, path: string): Settings | undefined {
-  const content = files.files[path];
-  if (content === undefined) {
-    return undefined;
-  }
-
+function objectIn(content: Buffer): Settings | undefined {
   try {
-    const value: unknown = JSON.parse(
-      Buffer.from(content, "base64").toString(),
-    );
+    const value: unknown = JSON.parse(content.toString());
 
     return isObject(value) ? value : undefined;
   } catch {
@@ -204,15 +323,16 @@ function packagesOver(under: unknown, over: unknown): unknown[] {
   const listed = (value: unknown): unknown[] =>
     Array.isArray(value) ? (value as unknown[]) : [];
 
-  const sourceOf = (pkg: unknown): unknown =>
-    isObject(pkg) ? pkg["source"] : pkg;
-
   const own = new Set(listed(over).map(sourceOf));
 
   return [
     ...listed(under).filter((pkg) => !own.has(sourceOf(pkg))),
     ...listed(over),
   ];
+}
+
+function sourceOf(pkg: unknown): unknown {
+  return isObject(pkg) ? pkg["source"] : pkg;
 }
 
 function isObject(value: unknown): value is Settings {

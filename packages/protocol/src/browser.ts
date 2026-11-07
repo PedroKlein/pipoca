@@ -326,6 +326,13 @@ export const profileContent = Type.Object({
   settings: Type.Record(Type.String(), Type.Unknown(), {
     description: "Pi settings",
   }),
+  // What the layer leaves out of the layers below it (ADR 0074): a path
+  // such as skills/review, package:<source>, mcp:<name>, or AGENTS.md:<layer>
+  // and APPEND_SYSTEM.md:<layer> for one layer's text, the layer being
+  // :base, :defaults or a Profile id.
+  off: Type.Array(Type.String(), {
+    description: "Inherited items turned off",
+  }),
 });
 
 export type ProfileContent = Wire<typeof profileContent>;
@@ -337,6 +344,7 @@ export const emptyProfile: ProfileContent = {
   appendSystemMd: "",
   mcpServers: {},
   settings: {},
+  off: [],
 };
 
 // A Pi agent folder in the server's config folder, named by its id

@@ -48,7 +48,7 @@ export interface ProfileMcpServer {
 
 // A read-only Profile a plugin ships for the Sessions it owns, such as the
 // meta Profile (ADR 0035). Users don't list or edit it.
-export interface PluginProfile extends ProfileContent {
+export interface PluginProfile extends Omit<ProfileContent, "off"> {
   readonly name: string;
 }
 
