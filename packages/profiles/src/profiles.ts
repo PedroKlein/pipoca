@@ -295,6 +295,29 @@ export class Profiles {
     return new Bun.Archive(decoded, { compress: "gzip" }).bytes();
   }
 
+  // What a runner gets for the person's Session on the Profile: a team
+  // Profile without anyone's My defaults (ADR 0064).
+  stacked(userId: string, id: string): Record<string, string> | undefined {
+    const profile = this.#visible(userId, id);
+
+    const files =
+      profile &&
+      this.#folders.files(
+        id,
+        profile.ownerId === teamOwner ? undefined : userId,
+      );
+
+    return (
+      files &&
+      Object.fromEntries(
+        Object.entries(files.files).map(([path, content]) => [
+          path,
+          Buffer.from(content, "base64").toString(),
+        ]),
+      )
+    );
+  }
+
   files(userId: string, id: string): readonly ProfileEntry[] | undefined {
     return this.#visible(userId, id) && this.#folders.entries(id);
   }

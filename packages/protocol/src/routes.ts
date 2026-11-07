@@ -92,7 +92,7 @@ import {
   workPoll,
 } from "./runner";
 import { forkedSession, session, type Session } from "./session";
-import { strings } from "./wire";
+import { strings, textMap } from "./wire";
 
 const any = Type.Unknown();
 const generation = Type.Object({ generation: Type.Integer() });
@@ -846,6 +846,14 @@ export const routes = {
     path: "/api/profiles/:id/archive",
     auth: "person",
     response: "bytes",
+  },
+  // The folder a runner gets for a Session of the caller's on this Profile,
+  // with every layer under it, as text by path (ADR 0074).
+  "profiles.stacked": {
+    method: "GET",
+    path: "/api/profiles/:id/stacked",
+    auth: "person",
+    response: textMap,
   },
   "profiles.files": {
     method: "GET",

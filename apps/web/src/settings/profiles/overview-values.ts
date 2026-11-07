@@ -2,20 +2,17 @@ import type { Profile } from "@pipoca/protocol";
 import type { Folder } from "./folder";
 import type { Skill } from "./overview-parts";
 
-export async function skillsIn(
-  folder: Folder,
-  from?: string,
-): Promise<readonly Skill[]> {
+export async function skillsIn(folder: Folder): Promise<readonly Skill[]> {
   const entries = await folder.list().catch(() => []);
 
   return Promise.all(
     entries
       .filter(({ path }) => /^skills\/(.+\/)?[^/]+\/SKILL\.md$/.test(path))
-      .map(async ({ path }) => skillOf(path, await folder.read(path), from)),
+      .map(async ({ path }) => skillOf(path, await folder.read(path))),
   );
 }
 
-function skillOf(path: string, text: string, from: string | undefined): Skill {
+function skillOf(path: string, text: string): Skill {
   const field = (key: string): string | undefined =>
     new RegExp(`^${key}:\\s*(.+)$`, "m").exec(
       /^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? "",
@@ -27,7 +24,6 @@ function skillOf(path: string, text: string, from: string | undefined): Skill {
     folder,
     name: field("name") ?? folder.split("/").at(-1) ?? path,
     description: field("description") ?? "",
-    ...(from !== undefined && { from }),
   };
 }
 

@@ -193,6 +193,8 @@ export function profileRoutes({
         },
       });
     },
+    "profiles.stacked": ({ params: { id }, caller }) =>
+      found(profiles.stacked(caller.id, reached(id, caller))),
     // A Profile's folder, file by file (ADR 0041).
     "profiles.files": ({ params: { id }, caller }) =>
       found(profiles.files(caller.id, reached(id, caller))),

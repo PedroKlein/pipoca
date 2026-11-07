@@ -1,24 +1,25 @@
-import type { Profile } from "@pipoca/protocol";
+import type { ProfileContent } from "@pipoca/protocol";
 import {
   Button,
   Card,
   cardClass,
   cn,
   Icon,
+  Menu,
   plural,
   Section,
   Segmented,
   Switch,
   TextArea,
 } from "@pipoca/ui";
-import { type ReactElement, useState } from "react";
+import { type ReactElement, type ReactNode, useState } from "react";
+import { SourceTag } from "./inherited";
+import type { Inherited, StackLayer } from "./stack";
 
 export interface Skill {
   readonly folder: string;
   readonly name: string;
   readonly description: string;
-  // The layer below this Profile that it comes from, if not its own.
-  readonly from?: string;
 }
 
 type SystemPrompt = "own" | "add" | "replace";
@@ -88,13 +89,16 @@ export function Instructions({
 }
 
 export function SystemPromptCard({
-  profile,
+  content: profile,
   editable,
   onSave,
+  children,
 }: {
-  readonly profile: Profile;
+  readonly content: ProfileContent;
   readonly editable: boolean;
-  readonly onSave: (body: Partial<Profile>) => void;
+  readonly onSave: (body: Partial<ProfileContent>) => void;
+  // What the layers below add to Pi's prompt.
+  readonly children?: ReactNode;
 }): ReactElement {
   const initial = systemPromptOf(profile);
 
@@ -143,6 +147,7 @@ export function SystemPromptCard({
           className="min-h-20 resize-y"
         />
       )}
+      {children}
       <p className="text-caption text-fg-dim">{systemPromptNotes[mode]}</p>
       {editable && changed && (
         <span>
@@ -166,33 +171,43 @@ export function SystemPromptCard({
 export function Skills({
   skills,
   off,
+  inherited,
+  owner,
   editable,
   add,
   onToggle,
+  onToggleInherited,
+  onCopy,
 }: {
+  // The open layer's own, still reading while undefined.
   readonly skills: readonly Skill[] | undefined;
   readonly off: ReadonlySet<string>;
+  readonly inherited: readonly Inherited<Skill>[];
+  readonly owner: string;
   readonly editable: boolean;
   readonly add: string;
   readonly onToggle: (folder: string, on: boolean) => void;
+  readonly onToggleInherited: (folder: string, on: boolean) => void;
+  readonly onCopy: (from: StackLayer, folder: string) => void;
 }): ReactElement {
-  const inherited = (skills ?? []).filter(({ from }) => from !== undefined);
-  const layers = [...new Set(inherited.map(({ from }) => from))];
-
-  const on = (skills ?? []).filter(
-    ({ folder, from }) => from === undefined && !off.has(folder),
-  ).length;
+  const own = skills ?? [];
+  const replaced = new Set(own.map(({ folder }) => folder));
+  const below = inherited.filter(({ key }) => !replaced.has(key));
+  const on = own.filter(({ folder }) => !off.has(folder)).length;
 
   const description =
     skills === undefined
       ? "Reading the folder"
       : [
-          `${String(on)} on`,
-          ...(inherited.length === 0
+          `${String(on)} own`,
+          ...(below.length === 0
             ? []
             : [
-                `${String(inherited.length)} from ${layers.length === 1 ? (layers[0] ?? "") : "below"}`,
+                `${String(below.filter((entry) => !entry.off).length)} inherited`,
               ]),
+          ...(below.some((entry) => entry.off)
+            ? [`${String(below.filter((entry) => entry.off).length)} off`]
+            : []),
         ].join(", ");
 
   return (
@@ -201,29 +216,30 @@ export function Skills({
       description={description}
       actions={editable && <AddLink href={add} label="Add skill" />}
     >
-      {skills && skills.length > 0 && (
+      {own.length + below.length > 0 && (
         <ul
           aria-label="Skills"
           className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3"
         >
-          {skills.map(({ folder, name, description: about, from }) => (
-            <li
-              key={folder}
-              className={cn(
-                cardClass,
-                "flex min-w-0 items-center gap-3 px-4 py-3",
-                from !== undefined && "bg-panel",
-              )}
-            >
-              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className="truncate text-ui font-medium text-fg-strong">
-                  {name}
+          {own.map(({ folder, name, description: about }) => {
+            const replaces = inherited.find(({ key }) => key === folder);
+
+            return (
+              <li
+                key={folder}
+                className={cn(
+                  cardClass,
+                  "flex min-w-0 items-center gap-3 px-4 py-3",
+                )}
+              >
+                <span className="flex min-w-0 flex-1 flex-col gap-1">
+                  <span className="truncate text-ui font-medium text-fg-strong">
+                    {name}
+                  </span>
+                  <span className="truncate text-label text-fg-dim">
+                    {replaces ? `Replaces ${replaces.from.name}'s` : about}
+                  </span>
                 </span>
-                <span className="truncate text-label text-fg-dim">
-                  {from === undefined ? about : `From ${from}`}
-                </span>
-              </span>
-              {from === undefined ? (
                 <Switch
                   label={name}
                   labelHidden
@@ -233,9 +249,49 @@ export function Skills({
                     onToggle(folder, checked);
                   }}
                 />
-              ) : (
-                <Icon name="lock" className="size-4 shrink-0 text-fg-dim" />
+              </li>
+            );
+          })}
+          {below.map((entry) => (
+            <li
+              key={entry.key}
+              className={cn(
+                cardClass,
+                "flex min-w-0 items-center gap-3 bg-panel px-4 py-3",
+                entry.off && "opacity-60",
               )}
+            >
+              <span className="flex min-w-0 flex-1 flex-col items-start gap-1">
+                <span className="max-w-full truncate text-ui font-medium text-fg-strong">
+                  {entry.item.name}
+                </span>
+                <span className="max-w-full truncate text-label text-fg-dim">
+                  {entry.off ? `Off in ${owner}` : entry.item.description}
+                </span>
+                <SourceTag name={entry.from.name} kind={entry.from.kind} />
+              </span>
+              {editable && (
+                <Menu
+                  label={`More for ${entry.item.name}`}
+                  items={[
+                    {
+                      label: `Copy into ${owner} to change it`,
+                      run: () => {
+                        onCopy(entry.from, entry.key);
+                      },
+                    },
+                  ]}
+                />
+              )}
+              <Switch
+                label={`${entry.item.name} in ${owner}`}
+                labelHidden
+                checked={!entry.off}
+                disabled={!editable}
+                onChange={(checked) => {
+                  onToggleInherited(entry.key, checked);
+                }}
+              />
             </li>
           ))}
         </ul>
@@ -262,7 +318,7 @@ export function AddLink({
   );
 }
 
-function systemPromptOf(profile: Profile): SystemPrompt {
+function systemPromptOf(profile: ProfileContent): SystemPrompt {
   if (profile.systemMd.trim() !== "") {
     return "replace";
   }

@@ -1580,3 +1580,36 @@ test("a shared Profile can't build on someone's own", async () => {
 
   expect(response.status).toBe(400);
 });
+
+test("shows the folder a runner would get for a Profile, layers and all", async () => {
+  await putLayerFile("/api/settings/base-profile", "AGENTS.md", "Team.");
+  await putLayerFile("/api/me/profile-defaults", "AGENTS.md", "Mine.");
+
+  const work = await json<Profile>(
+    server.api("/api/profiles", {
+      body: { name: "Work", agentsMd: "Work.", off: ["AGENTS.md::base"] },
+    }),
+  );
+
+  expect(
+    await json<unknown>(server.api(`/api/profiles/${work.id}/stacked`)),
+  ).toEqual({ "AGENTS.md": "Mine.\n\nWork." });
+
+  const team = await json<Profile>(
+    server.api("/api/profiles", {
+      body: { name: "Team work", team: true, agentsMd: "Team work." },
+    }),
+  );
+
+  expect(
+    await json<unknown>(server.api(`/api/profiles/${team.id}/stacked`)),
+  ).toEqual({ "AGENTS.md": "Team.\n\nTeam work." });
+
+  const ana = await secondUser();
+
+  const hidden = await server.api(`/api/profiles/${work.id}/stacked`, {
+    headers: { cookie: ana },
+  });
+
+  expect(hidden.status).toBe(404);
+});
