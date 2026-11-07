@@ -261,7 +261,7 @@ async function setUpServerAndPerson(): Promise<void> {
     .waitFor();
 
   await setup.getByText("Server setup").waitFor();
-  expect(await setup.getByText("Step 1 of 6").count()).toBe(1);
+  expect(await setup.getByText("Step 1 of 7").count()).toBe(1);
 
   expect(
     await page.getByRole("radio", { name: /^A team/, checked: true }).count(),
@@ -288,6 +288,31 @@ async function setUpServerAndPerson(): Promise<void> {
   await page.getByRole("heading", { name: "Server default Profile" }).waitFor();
   expect(await continueButton().isDisabled()).toBe(true);
   await page.getByRole("button", { name: "Skip for now" }).click();
+
+  // No provider is required, and the list has every provider Pi knows plus
+  // the ones packages add on the runners, such as the e2e runner's.
+  await page.getByRole("heading", { name: "Shared model keys" }).waitFor();
+  const shared = page.getByRole("list", { name: "Shared model keys" });
+  await shared.getByText("No shared key yet").waitFor();
+  expect(await continueButton().isDisabled()).toBe(false);
+
+  await page.getByRole("button", { name: "Add a shared key" }).click();
+  await page.getByRole("combobox", { name: "Add a shared key" }).fill("faux");
+
+  await page.getByRole("option", { name: /^faux.*Added by a package/ }).click();
+
+  const key = page.getByRole("form", { name: "Key for faux" });
+  await key.getByLabel("faux key").fill("sk-faux-team");
+  await key.getByRole("button", { name: "Save key" }).click();
+  await key.waitFor({ state: "detached" });
+
+  await shared
+    .getByRole("listitem")
+    .filter({ hasText: "faux" })
+    .getByText("goes to team runners", { exact: false })
+    .waitFor();
+
+  await continueButton().click();
 
   await page.getByRole("heading", { name: "Where do Sessions run?" }).waitFor();
   await continueButton().click();
@@ -319,11 +344,20 @@ async function setUpServerAndPerson(): Promise<void> {
   await page.getByLabel("Go on without a code host").check();
   await continueButton().click();
 
-  // The e2e runner is online with its own model, so those steps are done.
-  for (const heading of ["Connect a model", "Where should Pi work?"]) {
-    await page.getByRole("heading", { name: heading }).waitFor();
-    await continueButton().click();
-  }
+  // The key shared in server setup gives a model, so that step is done.
+  await page.getByRole("heading", { name: "Your models" }).waitFor();
+
+  await page
+    .getByRole("list", { name: "Shared by the server" })
+    .getByRole("listitem")
+    .filter({ hasText: "faux" })
+    .getByText("Ready")
+    .waitFor();
+
+  await continueButton().click();
+
+  await page.getByRole("heading", { name: "Where should Pi work?" }).waitFor();
+  await continueButton().click();
 
   // Pi's defaults is an answer, so the step finishes with no Skip.
   await page.getByRole("heading", { name: "Make Pi yours" }).waitFor();
@@ -342,6 +376,12 @@ async function setUpServerAndPerson(): Promise<void> {
   await page.getByPlaceholder("What should Pi do first?").waitFor();
   await page.getByRole("button", { name: "Go to home" }).click();
   await page.getByRole("button", { name: "New session" }).waitFor();
+
+  // Later tests start with no shared key.
+  await page.request.delete(
+    new URL("/api/ext/logins/credentials/faux?layer=base", server.url).href,
+    { headers: { [versionHeader]: String(protocolVersion) } },
+  );
 }
 
 // Picks the e2e Environment and the folder in the New session composer.
@@ -873,7 +913,7 @@ test("keeps a setup step on home until it's done, and opens it from there", asyn
 
   phase = "no models";
   await page.goto(server.url.href);
-  await reminders.getByText("Connect a model").waitFor();
+  await reminders.getByText("Your models").waitFor();
 
   expect(await reminders.getByText("Where should Pi work?").count()).toBe(0);
 
@@ -892,7 +932,7 @@ test("keeps a setup step on home until it's done, and opens it from there", asyn
   await reminders.getByText("Connect your code").waitFor();
 
   // Pi's defaults, picked in setup, finished the Profile step.
-  expect(await reminders.getByText("Connect a model").count()).toBe(0);
+  expect(await reminders.getByText("Your models").count()).toBe(0);
   expect(await reminders.getByText("Make Pi yours").count()).toBe(0);
 
   await reminders
@@ -910,6 +950,82 @@ test("keeps a setup step on home until it's done, and opens it from there", asyn
     headers: { cookie },
   });
 }, 20_000);
+
+test("a person with no model pastes a key of their own in Your models, and adds a provider's package to their default Profile", async () => {
+  // The runners report no model logged in, so only a login counts.
+  await page.route("**/api/environments", async (route) => {
+    const real = (await (await route.fetch()).json()) as Environment[];
+
+    await route.fulfill({
+      json: real.map((each) => ({ ...each, models: [] })),
+    });
+  });
+
+  const api = (path: string): string => new URL(path, server.url).href;
+  const headers = { [versionHeader]: String(protocolVersion) };
+
+  const defaults = async (): Promise<Profile> =>
+    (await (
+      await page.request.get(api("/api/me/profile-defaults"), { headers })
+    ).json()) as Profile;
+
+  const before = (await defaults()).packages;
+
+  await page.goto(server.url.href);
+
+  await page
+    .getByRole("region", { name: "Finish setting up" })
+    .getByRole("listitem")
+    .filter({ hasText: "Your models" })
+    .getByRole("link", { name: "Set up" })
+    .click();
+
+  await page.getByRole("heading", { name: "Your models" }).waitFor();
+  expect(await continueButton().isDisabled()).toBe(true);
+
+  const providers = page.getByRole("list", { name: "Model providers" });
+  await page.getByLabel("Search providers").fill("faux");
+
+  const row = providers.getByRole("listitem").filter({ hasText: "faux" });
+  await row.getByText("Added by a package").waitFor();
+  await row.getByRole("button", { name: "Add a key for faux" }).click();
+
+  const key = page.getByRole("form", { name: "Key for faux" });
+  await key.getByLabel("faux key").fill("sk-faux-mine");
+  await key.getByRole("button", { name: "Save key" }).click();
+
+  await row.getByText("Key saved").waitFor();
+  await until(async () => !(await continueButton().isDisabled()));
+
+  await page.getByRole("button", { name: "Add package" }).click();
+  const added = page.getByRole("form", { name: "Add a provider's package" });
+  await added.getByLabel("Package").fill("npm:pi-provider-example");
+  await added.getByRole("button", { name: "Add" }).click();
+
+  await page
+    .getByRole("status")
+    .getByText("Added npm:pi-provider-example to your default Profile", {
+      exact: false,
+    })
+    .waitFor();
+
+  expect((await defaults()).packages).toEqual([
+    ...before,
+    "npm:pi-provider-example",
+  ]);
+
+  await page.request.put(api("/api/me/profile-defaults"), {
+    headers,
+    data: { packages: before },
+  });
+
+  await page.request.delete(
+    api("/api/ext/logins/credentials/faux?layer=defaults"),
+    { headers },
+  );
+
+  await page.unroute("**/api/environments");
+});
 
 test("makes an Environment and shows its key once", async () => {
   await page.goto(server.url.href);
