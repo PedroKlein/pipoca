@@ -261,7 +261,7 @@ async function setUpServerAndPerson(): Promise<void> {
     .waitFor();
 
   await setup.getByText("Server setup").waitFor();
-  expect(await setup.getByText("Step 1 of 5").count()).toBe(1);
+  expect(await setup.getByText("Step 1 of 6").count()).toBe(1);
 
   expect(
     await page.getByRole("radio", { name: /^A team/, checked: true }).count(),
@@ -274,6 +274,15 @@ async function setUpServerAndPerson(): Promise<void> {
     .waitFor();
 
   await page.getByRole("list", { name: "Adds a setup step" }).waitFor();
+  await continueButton().click();
+
+  // No host is added for you, and going on with none is an answer.
+  await page
+    .getByRole("heading", { name: "Where does the team's code live?" })
+    .waitFor();
+
+  expect(await continueButton().isDisabled()).toBe(true);
+  await page.getByLabel("Go on with no code host for now").check();
   await continueButton().click();
 
   await page.getByRole("heading", { name: "Server default Profile" }).waitFor();
@@ -302,13 +311,16 @@ async function setUpServerAndPerson(): Promise<void> {
   await welcome.waitFor();
   await page.getByRole("button", { name: "Start" }).click();
 
-  // No git host is listed yet, so there is no code to connect, and the e2e
-  // runner is online with its own model, so those steps are done.
-  for (const heading of [
-    "Connect your code",
-    "Connect a model",
-    "Where should Pi work?",
-  ]) {
+  // No git host is listed yet, which isn't done until the person goes on
+  // without one.
+  await page.getByRole("heading", { name: "Connect your code" }).waitFor();
+  await page.getByText("No code host is set up on this server yet").waitFor();
+  expect(await continueButton().isDisabled()).toBe(true);
+  await page.getByLabel("Go on without a code host").check();
+  await continueButton().click();
+
+  // The e2e runner is online with its own model, so those steps are done.
+  for (const heading of ["Connect a model", "Where should Pi work?"]) {
     await page.getByRole("heading", { name: heading }).waitFor();
     await continueButton().click();
   }
@@ -865,18 +877,14 @@ test("keeps a setup step on home until it's done, and opens it from there", asyn
 
   expect(await reminders.getByText("Where should Pi work?").count()).toBe(0);
 
-  // A host is listed that this person hasn't connected, so their code is
-  // left to do.
-  await page.route("**/api/ext/git-hosts/account", async (route) => {
-    const real = (await (await route.fetch()).json()) as object;
+  // A host added after the person went on without one brings their code
+  // step back.
+  const hosts = new URL("/api/ext/git-hosts/hosts", server.url);
 
-    await route.fulfill({
-      json: {
-        ...real,
-        hosts: [{ host: "git.example.com", label: "Forge", oauth: false }],
-        connections: [],
-      },
-    });
+  await fetch(hosts, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ host: "git.example.com", label: "Forge" }),
   });
 
   await page.unroute("**/api/environments");
@@ -896,7 +904,11 @@ test("keeps a setup step on home until it's done, and opens it from there", asyn
   await page.getByRole("button", { name: "New session" }).waitFor();
 
   expect(await reminders.isVisible()).toBe(false);
-  await page.unroute("**/api/ext/git-hosts/account");
+
+  await fetch(`${hosts.href}/git.example.com`, {
+    method: "DELETE",
+    headers: { cookie },
+  });
 }, 20_000);
 
 test("makes an Environment and shows its key once", async () => {
@@ -1891,6 +1903,66 @@ test("guides an admin from a token-only host to a Connect button", async () => {
   await page.getByRole("button", { name: "Remove git.example.com" }).click();
   await confirmIn("Remove");
   await hosts.getByText("git.example.com").waitFor({ state: "detached" });
+});
+
+test("an admin adds a host with its sign-in in server setup, and people find it in their own", async () => {
+  await page.goto(new URL("/#get-started/server:git-hosts", server.url).href);
+
+  await page
+    .getByRole("heading", { name: "Where does the team's code live?" })
+    .waitFor();
+
+  const adds = page.getByRole("group", { name: "Add a host" });
+  await adds.getByRole("button", { name: "GitHub Enterprise" }).click();
+
+  const form = page.getByRole("form", { name: "New host" });
+  expect(await form.getByLabel("Label").inputValue()).toBe("GitHub Enterprise");
+  await form.getByLabel("Host").fill("git.corp.example");
+  await form.getByLabel("Label").fill("Corp Git");
+  await form.getByRole("button", { name: "Add host" }).click();
+
+  const card = page.getByRole("list", { name: "Corp Git" });
+  await card.getByText("No sign-in yet").waitFor();
+
+  // A host listed is the step's answer.
+  expect(await page.getByText("Go on with no code host").count()).toBe(0);
+  expect(await continueButton().isDisabled()).toBe(false);
+
+  await card
+    .getByRole("button", { name: "Set up sign-in for git.corp.example" })
+    .click();
+
+  const setup = page.getByRole("region", {
+    name: "Set up Connect for git.corp.example",
+  });
+
+  await setup.getByLabel("Client ID").fill("Iv1.corp");
+  await setup.getByLabel("Client secret").fill("shh");
+  await setup.getByRole("button", { name: "Save" }).click();
+  await card.getByText("Ready").waitFor();
+
+  await card.getByRole("button", { name: "Create GitHub App" }).click();
+
+  await page
+    .getByRole("form", { name: "A GitHub App for Corp Git" })
+    .getByRole("button", { name: "Create on git.corp.example" })
+    .waitFor();
+
+  await page.goto(new URL("/#get-started/git-hosts", server.url).href);
+  await page.getByRole("heading", { name: "Connect your code" }).waitFor();
+
+  const mine = page.getByRole("list", { name: "Corp Git" });
+  await mine.getByRole("button", { name: "Sign in with Corp Git" }).waitFor();
+  await mine.getByRole("button", { name: "use a token" }).click();
+  await mine.getByLabel("Personal access token").waitFor();
+
+  await fetch(
+    new URL("/api/ext/git-hosts/hosts/git.corp.example", server.url),
+    {
+      method: "DELETE",
+      headers: { cookie },
+    },
+  );
 });
 
 test("invites someone by email, who joins with their link and a password", async () => {
