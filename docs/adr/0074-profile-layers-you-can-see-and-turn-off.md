@@ -26,18 +26,18 @@ The merge also differs from ADR 0044 in three places. A Profile's `APPEND_SYSTEM
 
 Items from every layer add up, and the nearer layer wins when two have the same name:
 
-| Item | From every layer | Same name in two layers |
-|---|---|---|
-| Skills, prompts, extensions | All load | The nearer one replaces it |
-| Packages | All install | The nearer entry replaces it, filters included |
-| MCP servers | All connect | The nearer entry replaces it |
-| `AGENTS.md` | Joined, the base first | — |
-| `APPEND_SYSTEM.md` | Joined, the base first | — |
-| `SYSTEM.md` | Only the nearest one | The nearer one wins |
-| Other `settings.json` keys | Merged key by key | The nearer value wins |
-| `models.json` | Merged by provider | The nearer provider replaces it |
-| Logins | Inherited ([ADR 0063](0063-settings-and-first-run-setup.md)) | An own login replaces it |
-| Other files, such as themes | All copied | The nearer file wins |
+| Item                        | From every layer                                             | Same name in two layers                        |
+| --------------------------- | ------------------------------------------------------------ | ---------------------------------------------- |
+| Skills, prompts, extensions | All load                                                     | The nearer one replaces it                     |
+| Packages                    | All install                                                  | The nearer entry replaces it, filters included |
+| MCP servers                 | All connect                                                  | The nearer entry replaces it                   |
+| `AGENTS.md`                 | Joined, the base first                                       | —                                              |
+| `APPEND_SYSTEM.md`          | Joined, the base first                                       | —                                              |
+| `SYSTEM.md`                 | Only the nearest one                                         | The nearer one wins                            |
+| Other `settings.json` keys  | Merged key by key                                            | The nearer value wins                          |
+| `models.json`               | Merged by provider                                           | The nearer provider replaces it                |
+| Logins                      | Inherited ([ADR 0063](0063-settings-and-first-run-setup.md)) | An own login replaces it                       |
+| Other files, such as themes | All copied                                                   | The nearer file wins                           |
 
 This changes `APPEND_SYSTEM.md` and `models.json`. Pi's resource lists in `settings.json` (`skills`, `extensions`, `prompts`, `themes`) add up across layers, as Pi adds up its global and project lists.
 
