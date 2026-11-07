@@ -198,14 +198,21 @@ export const server = defineServer(logins, (ctx) => {
   const returns = callbacks(urls);
   const tokens = proxyTokens(store, clock);
 
-  // Providers an extension adds on the runners. The server can't run their
-  // sign-in, so an admin pastes their key.
-  const extensionProviders = (): readonly Connectable[] => {
+  // Providers a package adds on the runners of the Environments a person
+  // sees, such as one in the server default Profile. The server can't run
+  // their sign-in, so their key is pasted.
+  const extensionProviders = ({
+    person,
+  }: PersonCaller): readonly Connectable[] => {
     const known = new Set(connectable.map(({ id }) => id));
 
     const added = new Set(
       environments
         .list()
+        .filter(
+          ({ ownerId }) =>
+            person.admin || ownerId === person.id || ownerId === "team",
+        )
         .flatMap(({ models: offered }) =>
           offered.map(({ provider }) => provider),
         )
@@ -392,11 +399,10 @@ export const server = defineServer(logins, (ctx) => {
     },
   );
 
-  routes.get("providers", { auth: "person" }, ({ caller }) =>
-    caller.person.admin
-      ? [...connectable, ...extensionProviders()]
-      : connectable,
-  );
+  routes.get("providers", { auth: "person" }, ({ caller }) => [
+    ...connectable,
+    ...extensionProviders(caller),
+  ]);
 
   routes.post(
     "connect",

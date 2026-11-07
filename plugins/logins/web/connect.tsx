@@ -13,7 +13,88 @@ import {
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type { Connectable, Connection, ConnectionPrompt } from "../src/model";
 
-type Send = (call: Promise<unknown>) => void;
+export type Send = (call: Promise<unknown>) => void;
+
+// Sends a call and reloads after it, keeping why it failed.
+export function useSend(reload: () => void): {
+  readonly send: Send;
+  readonly error: string | undefined;
+} {
+  const [error, setError] = useState<string>();
+
+  const send = (call: Promise<unknown>): void => {
+    call.then(
+      () => {
+        setError(undefined);
+        reload();
+      },
+      (reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : String(reason));
+        reload();
+      },
+    );
+  };
+
+  return { send, error };
+}
+
+// The key of a provider whose sign-in the server can't run, such as one a
+// package adds, kept on a layer as it is pasted.
+export function PasteKey({
+  provider,
+  layer,
+  send,
+  onClose,
+}: {
+  readonly provider: Connectable;
+  readonly layer: string;
+  readonly send: Send;
+  readonly onClose: () => void;
+}): ReactElement {
+  const api = useApi(logins);
+
+  const submit = (event: SubmitEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+
+    send(
+      api
+        .post("save", {
+          provider: provider.id,
+          credential: {
+            type: "api_key",
+            key: new FormData(event.currentTarget).get("key"),
+          },
+          layer,
+        })
+        .then(onClose),
+    );
+  };
+
+  return (
+    <form
+      aria-label={`Key for ${provider.name}`}
+      onSubmit={submit}
+      className={cn(cardClass, "flex flex-col gap-3 p-4")}
+    >
+      <Field label={`${provider.name} key`}>
+        <TextArea
+          name="key"
+          required
+          rows={3}
+          autoComplete="off"
+          spellCheck={false}
+          className="font-mono"
+        />
+      </Field>
+      <div className="flex gap-2">
+        <Button variant="primary" type="submit">
+          Save key
+        </Button>
+        <Button onClick={onClose}>Cancel</Button>
+      </div>
+    </form>
+  );
+}
 
 // Picks a provider and a way in, and asks the server to sign the person in.
 // With a provider it signs in to that one, and with a layer it keeps the

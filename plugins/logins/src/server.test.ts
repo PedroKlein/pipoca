@@ -7,7 +7,12 @@ import {
   testPlugin,
   until,
 } from "@pipoca/testing";
-import type { Environment, Profile } from "@pipoca/protocol";
+import {
+  type Environment,
+  type Profile,
+  protocolVersion,
+  versionHeader,
+} from "@pipoca/protocol";
 import type { Account, Connectable } from "./model";
 import { server } from "./server";
 
@@ -429,6 +434,78 @@ test("a sign-in a provider doesn't take is refused", async () => {
   });
 
   expect(refused.status).toBe(400);
+});
+
+// An Environment of the person's, or the team's, whose runner reports a
+// model of a provider a package adds.
+async function runnerWith(
+  t: PluginTest,
+  id: string,
+  provider: string,
+  team = false,
+): Promise<void> {
+  const environment = (await (
+    await t.as(id).raw("/api/environments", {
+      method: "POST",
+      body: JSON.stringify({ name: provider, team }),
+    })
+  ).json()) as { readonly key: string };
+
+  const runner = (token: string, body: unknown): RequestInit => ({
+    method: "POST",
+    headers: {
+      [versionHeader]: String(protocolVersion),
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const joined = (await (
+    await t.as(id).raw("/runner/join", runner(environment.key, { name: "r" }))
+  ).json()) as { readonly token: string };
+
+  await t.as(id).raw(
+    "/runner/work",
+    runner(joined.token, {
+      running: [],
+      folders: [],
+      models: [{ provider, id: `${provider}-1` }],
+    }),
+  );
+}
+
+test("a person can paste a key for providers that packages add on their own and the team's runners, not on others'", async () => {
+  await using t = await started();
+  await connectable(t);
+
+  await runnerWith(t, "ana", "ana-extension");
+  await runnerWith(t, "bo", "bo-extension");
+  await runnerWith(t, "admin", "team-extension", true);
+
+  const pasted = (providers: readonly Connectable[]): readonly string[] =>
+    providers.filter(({ paste }) => paste === true).map(({ id }) => id);
+
+  const ana = await until(
+    async () => t.as("ana").get<readonly Connectable[]>("providers"),
+    (providers) => pasted(providers).length === 2,
+  );
+
+  expect(pasted(ana)).toEqual(["ana-extension", "team-extension"]);
+
+  expect(ana.find(({ id }) => id === "ana-extension")?.methods).toEqual([
+    { type: "api_key", label: "Paste a key" },
+  ]);
+
+  expect(
+    pasted(await t.as("admin").get<readonly Connectable[]>("providers")),
+  ).toEqual(["ana-extension", "bo-extension", "team-extension"]);
+
+  expect((await save(t, "ana", "ana-extension", "sk-ana")).status).toBe(200);
+
+  expect((await account(t, "ana")).logins).toMatchObject([
+    { provider: "ana-extension", type: "api_key", layer: "defaults" },
+  ]);
 });
 
 // An MCP server with its own authorization server, which registers any
