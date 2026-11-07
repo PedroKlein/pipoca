@@ -1,0 +1,10 @@
+apiVersion: v2
+name: pipoca-kyma
+description: Pipoca on SAP BTP's Kyma, behind its gateway and in its Istio mesh
+type: application
+version: 0.2.0
+appVersion: "0.1.0"
+dependencies:
+  - name: pipoca
+    version: 0.2.0
+    repository: file://../pipoca

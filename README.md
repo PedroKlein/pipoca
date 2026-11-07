@@ -143,7 +143,7 @@ helm install pipoca deploy/helm/pipoca --set url=https://pipoca.example.com
 kubectl logs deploy/pipoca | grep setup
 ```
 
-Put HTTPS in front with your gateway. The chart also supports SAP BTP's Kyma gateway, runner pods, and OpenID Connect sign-in through providers such as SAP IAS, Okta or Google.
+Put HTTPS in front with your gateway, or turn on the chart's Ingress. The chart also supports runner pods and OpenID Connect sign-in through providers such as SAP IAS, Okta or Google. On SAP BTP's Kyma, use `deploy/helm/pipoca-kyma`, which adds Kyma's gateway and Istio on top.
 
 The [guide](docs/guide.md) covers every option: server and agent flags, workspaces, plugins, Environments, secrets, containers, runner pools, single sign-on and runner pods. A server that ran code from before the rebuild starts with a fresh database: see [Upgrading from before the rebuild](docs/guide.md#upgrading-from-before-the-rebuild).
 
@@ -174,7 +174,7 @@ apps/web         the web UI
 packages/        protocol, people, environments, sessions, profiles, repositories, workspaces, runner,
                  UI kit, plugin SDK, testing, the session host and the plugin host
 plugins/         built-in plugins: projects, changes, usage, kubernetes, oidc and more
-deploy/helm      the Helm chart
+deploy/helm      the Helm charts: pipoca for any cluster, pipoca-kyma on top for Kyma
 docs/            guide, vision, architecture, design system and decision records
 ```
 

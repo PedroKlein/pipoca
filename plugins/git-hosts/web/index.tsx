@@ -34,7 +34,10 @@ import { type ReactElement, type SubmitEvent, useState } from "react";
 import { gitHosts } from "../plugin";
 import type {
   Account,
+  CommitIdentities,
+  HostEmails,
   HostInput,
+  Identity,
   HostView,
   Preferences,
   PullWatch,
@@ -99,8 +102,6 @@ function SettingsSection(): ReactElement | null {
     { changes: ["account", "hosts"] },
   );
 
-  const [adding, setAdding] = useState(false);
-
   if (value?.admin !== true) {
     return null;
   }
@@ -109,20 +110,8 @@ function SettingsSection(): ReactElement | null {
     <Page
       title="Git hosts"
       description="Only admins see this page. It lists the hosts people can connect and the bots routines act as. Everyone else connects their own account in Accounts."
-      actions={
-        !adding && (
-          <Button
-            onClick={() => {
-              setAdding(true);
-            }}
-          >
-            <Icon name="plus" />
-            Add a host
-          </Button>
-        )
-      }
     >
-      <Hosts adding={adding} onAdding={setAdding} onChange={reload} />
+      <HostsEditor onChange={reload} />
       <Bots hosts={value.hosts.map(({ host }) => host)} />
     </Page>
   );
@@ -142,26 +131,33 @@ function Accounts(): ReactElement | null {
   }
 
   return (
-    <Section title="Code">
-      <Rows label="Your git hosts">
-        {value.hosts.length === 0 && (
-          <Row
-            title="No hosts yet"
-            description="An admin adds the hosts people can connect."
-          />
+    <>
+      <Section title="Code">
+        <Rows label="Your git hosts">
+          {value.hosts.length === 0 && (
+            <Row
+              title="No hosts yet"
+              description="An admin adds the hosts people can connect."
+            />
+          )}
+          {value.hosts.map((host) => (
+            <HostRow
+              key={host.host}
+              host={host}
+              login={
+                value.connections.find((each) => each.host === host.host)?.login
+              }
+              onChange={reload}
+            />
+          ))}
+        </Rows>
+      </Section>
+      <CommitAs
+        connected={value.hosts.filter(({ host }) =>
+          value.connections.some((each) => each.host === host),
         )}
-        {value.hosts.map((host) => (
-          <HostRow
-            key={host.host}
-            host={host}
-            login={
-              value.connections.find((each) => each.host === host.host)?.login
-            }
-            onChange={reload}
-          />
-        ))}
-      </Rows>
-    </Section>
+      />
+    </>
   );
 }
 
@@ -175,49 +171,147 @@ function CodeStep(): ReactElement {
 }
 
 function CodeChoices(): ReactElement {
-  return (
-    <>
-      <CommitAs />
-      <PullRequestChoices />
-    </>
-  );
+  return <PullRequestChoices />;
 }
 
-interface Identity {
-  readonly name: string;
-  readonly email: string;
-}
+type HostChoice = Account["hosts"][number];
 
-// The name and email the person's Sessions commit as, on every runner.
-function CommitAs(): ReactElement | null {
+// The name and email the person's Sessions commit as on every runner: on
+// each host they connected, and by default on the others (ADR 0072).
+function CommitAs({
+  connected,
+}: {
+  readonly connected: readonly HostChoice[];
+}): ReactElement | null {
   const api = useApi(gitHosts);
 
   const { value, reload } = useLoaded(
-    async () => api.get<Identity | null>("commit-as"),
+    async () => api.get<CommitIdentities>("commit-as"),
     "commit-as",
+    { changes: ["commit-as"] },
   );
-
-  const [error, setError] = useState<string>();
-  const [saved, setSaved] = useState(false);
 
   if (value === undefined) {
     return null;
   }
 
+  return (
+    <Section title="Commit as">
+      <p className="text-caption text-fg-dim">
+        Sessions on every machine commit with these, picked by the
+        repository&apos;s host. Leave one empty to use the default, and the
+        default empty to use each machine&apos;s own git config.
+      </p>
+      {connected.map((host) => (
+        <HostIdentity
+          key={host.host}
+          host={host}
+          identity={value.hosts.find((each) => each.host === host.host)}
+          onSaved={reload}
+        />
+      ))}
+      <IdentityForm
+        label={connected.length === 0 ? "Commit as" : "Default"}
+        description={
+          connected.length === 0 ? undefined : "For repositories on other hosts"
+        }
+        identity={value.default ?? undefined}
+        emails={undefined}
+        onSaved={reload}
+      />
+    </Section>
+  );
+}
+
+// The emails come from the host. When it can't list them, any email does.
+function HostIdentity({
+  host,
+  identity,
+  onSaved,
+}: {
+  readonly host: HostChoice;
+  readonly identity: Identity | undefined;
+  readonly onSaved: () => void;
+}): ReactElement | null {
+  const api = useApi(gitHosts);
+
+  const { value } = useLoaded(
+    async () =>
+      api
+        .get<HostEmails>(`emails/${encodeURIComponent(host.host)}`)
+        .catch(() => null),
+    `emails/${host.host}`,
+    { changes: ["account"] },
+  );
+
+  if (value === undefined) {
+    return null;
+  }
+
+  return (
+    <IdentityForm
+      label={host.label}
+      host={host.host}
+      identity={identity}
+      suggestedName={value?.name ?? undefined}
+      emails={
+        value === null || value.emails.length === 0 ? undefined : value.emails
+      }
+      onSaved={onSaved}
+    />
+  );
+}
+
+function IdentityForm({
+  label,
+  description,
+  host,
+  identity,
+  suggestedName,
+  emails,
+  onSaved,
+}: {
+  readonly label: string;
+  readonly description?: string | undefined;
+  // Missing for the default.
+  readonly host?: string;
+  readonly identity: Identity | undefined;
+  readonly suggestedName?: string | undefined;
+  // The emails to pick from, or undefined to type one.
+  readonly emails: readonly string[] | undefined;
+  readonly onSaved: () => void;
+}): ReactElement {
+  const api = useApi(gitHosts);
+  const [error, setError] = useState<string>();
+  const [saved, setSaved] = useState(false);
+
+  const choices =
+    emails === undefined
+      ? undefined
+      : [
+          ...emails,
+          ...(identity !== undefined && !emails.includes(identity.email)
+            ? [identity.email]
+            : []),
+        ];
+
   const submit = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const email = form.get("email");
 
     api
       .post("commit-as", {
-        name: form.get("name"),
-        email: form.get("email"),
+        ...(host !== undefined && { host }),
+        // Picking "Use the default" clears the host's own.
+        name: choices !== undefined && email === "" ? "" : form.get("name"),
+        email,
       })
       .then(
         () => {
           setError(undefined);
           setSaved(true);
-          reload();
+          onSaved();
         },
         (failure: unknown) => {
           setSaved(false);
@@ -230,40 +324,50 @@ function CommitAs(): ReactElement | null {
   };
 
   return (
-    <Section title="Commit as">
-      <form
-        aria-label="Commit as"
-        onSubmit={submit}
-        onChange={() => {
-          setSaved(false);
-        }}
-        className="flex flex-col gap-2"
-      >
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Name">
-            <TextInput
-              name="name"
-              defaultValue={value?.name ?? ""}
-              autoComplete="name"
-            />
-          </Field>
-          <Field label="Email">
+    <form
+      aria-label={`Commit as on ${label}`}
+      onSubmit={submit}
+      onChange={() => {
+        setSaved(false);
+      }}
+      className={cn(cardClass, "flex flex-col gap-3 p-4")}
+    >
+      <div className="flex flex-wrap items-baseline gap-x-2.5">
+        <h3 className="text-ui font-medium text-fg-strong">{label}</h3>
+        {description !== undefined && (
+          <span className="text-label text-fg-dim">{description}</span>
+        )}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Name">
+          <TextInput
+            name="name"
+            defaultValue={identity?.name ?? suggestedName ?? ""}
+            autoComplete="name"
+          />
+        </Field>
+        <Field label="Email">
+          {choices === undefined ? (
             <TextInput
               name="email"
               type="email"
-              defaultValue={value?.email ?? ""}
+              defaultValue={identity?.email ?? ""}
               autoComplete="email"
             />
-          </Field>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <p className="flex-1 text-caption text-fg-dim">
-            Sessions on every machine commit with these. Leave both empty to use
-            each machine&apos;s own git config.
-          </p>
-          <Button type="submit">Save</Button>
-        </div>
-        <p role="status" className="text-caption">
+          ) : (
+            <Select name="email" defaultValue={identity?.email ?? ""}>
+              <option value="">Use the default</option>
+              {choices.map((email) => (
+                <option key={email} value={email}>
+                  {email}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <p role="status" className="flex-1 text-caption">
           {error !== undefined ? (
             <ErrorText inline size="inherit">
               {error}
@@ -272,8 +376,9 @@ function CommitAs(): ReactElement | null {
             saved && <span className="text-fg-dim">Saved</span>
           )}
         </p>
-      </form>
-    </Section>
+        <Button type="submit">Save</Button>
+      </div>
+    </form>
   );
 }
 
@@ -633,14 +738,12 @@ function HostRow({
   );
 }
 
-function Hosts({
-  adding,
-  onAdding,
+// The hosts people can connect, each with its OAuth app, which admins add,
+// change and remove. Settings shows it, and so can a setup step.
+export function HostsEditor({
   onChange,
 }: {
-  readonly adding: boolean;
-  readonly onAdding: (adding: boolean) => void;
-  readonly onChange: () => void;
+  readonly onChange?: () => void;
 }): ReactElement {
   const api = useApi(gitHosts);
   const [ask, asking] = useConfirm();
@@ -648,23 +751,38 @@ function Hosts({
   const { value, reload } = useLoaded(
     async () => api.get<readonly HostView[]>("hosts"),
     "hosts",
+    { changes: ["hosts"] },
   );
 
+  const [adding, onAdding] = useState(false);
   const [editing, setEditing] = useState<HostView>();
   const [settingUp, setSettingUp] = useState<string>();
+  const [error, setError] = useState<string>();
 
   const changed = (): void => {
     setEditing(undefined);
     onAdding(false);
     reload();
-    onChange();
+    onChange?.();
   };
 
   const save = async (path: string, input: object): Promise<void> => {
     await api.post(path, input);
 
     reload();
-    onChange();
+    onChange?.();
+  };
+
+  const addGitHub = (): void => {
+    save("hosts", { host: "github.com", label: "GitHub" }).then(
+      () => {
+        setError(undefined);
+        setSettingUp("github.com");
+      },
+      (failure: unknown) => {
+        setError(failure instanceof Error ? failure.message : String(failure));
+      },
+    );
   };
 
   const remove = (host: HostView): void => {
@@ -688,7 +806,22 @@ function Hosts({
   const setUp = value?.find(({ host }) => host === settingUp);
 
   return (
-    <Section title="Hosts">
+    <Section
+      title="Hosts"
+      actions={
+        !adding && (
+          <Button
+            onClick={() => {
+              setEditing(undefined);
+              onAdding(true);
+            }}
+          >
+            <Icon name="plus" />
+            Add a host
+          </Button>
+        )
+      }
+    >
       {asking}
       {form !== undefined && (
         <HostForm
@@ -722,7 +855,11 @@ function Hosts({
           <Row
             title="No hosts yet"
             description="Add GitHub, GitHub Enterprise or another host."
-          />
+          >
+            <Button variant="primary" onClick={addGitHub}>
+              Add GitHub
+            </Button>
+          </Row>
         )}
         {value?.map((host) => (
           <Row
@@ -764,6 +901,7 @@ function Hosts({
           </Row>
         ))}
       </Rows>
+      <ErrorText size="caption">{error}</ErrorText>
       {setUp !== undefined && (
         <ConnectSetup
           host={setUp}

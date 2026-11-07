@@ -89,13 +89,12 @@ export const gitHosts = definePlugin({
       min: 1,
       max: 3600,
     }),
-    // With no list in the file, github.com is the one host (ADR 0043).
+    // No host is listed until an admin adds one (ADR 0072).
     hosts: Config.collection({
       key: "host",
       item: host,
       admin: true,
       title: "Hosts",
-      default: [{ host: "github.com", label: "GitHub" }],
     }),
     technicalUsers: Config.collection({
       key: "name",
@@ -146,6 +145,25 @@ create table git_hosts_preferences (
   reply integer not null check (reply in (0, 1))
 ) strict, without rowid;
 `,
+  // 1: the name and email to commit as are per host, and what each person
+  // had becomes their default, for repositories on hosts without their own
+  // (ADR 0072). The default's host is empty.
+  migrations: [
+    `
+create table git_hosts_commit_identities (
+  user_id text not null references users (id) on delete cascade,
+  host text not null,
+  name text not null,
+  email text not null,
+  primary key (user_id, host)
+) strict, without rowid;
+
+insert into git_hosts_commit_identities (user_id, host, name, email)
+  select user_id, '', name, email from git_hosts_commit_as;
+
+drop table git_hosts_commit_as;
+`,
+  ],
   events: {
     issue: event({
       title: "Issue",

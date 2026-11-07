@@ -8,28 +8,29 @@ image:
   pullPolicy: Always
 
 # Where people open the server, such as https://pi.example.com. The setup link
-# in the log points here. Defaults to https://<apiRule.host> on Kyma.
+# in the log points here.
 url: ""
 
-# Kyma's gateway, which ends HTTPS in front of the server (ADR 0034).
-apiRule:
+# A standard Ingress in front of the Service, for clusters with an ingress
+# controller. Put HTTPS in front some other way, or give it tls.
+ingress:
   enabled: false
+  className: ""
+  # Defaults to the host of url.
   host: ""
-  gateway: kyma-system/kyma-gateway
-  # MCP clients, such as Claude Code or Pi, outside the cluster.
-  exposeMcp: false
-  # Runners outside the cluster, such as a laptop. Runner pods reach the
-  # server through its Service.
-  exposeAgents: false
-  # Previews of what Sessions serve, at *.<host>, with their own certificate
-  # from Gardener's certificate service and their own gateway.
-  previews: false
+  annotations: {}
+  # Such as [{ secretName: pipoca-tls, hosts: [pi.example.com] }].
+  tls: []
 
 # Counts failed sign-ins by the client address that a proxy in front, such as
 # an ingress controller, adds to X-Forwarded-For. Set it only when every
-# request comes through that proxy; on Kyma, apiRule.enabled sets it. Without
-# it everyone shares the proxy's address.
+# request comes through that proxy. Without it everyone shares the proxy's
+# address.
 trustProxy: false
+
+# More labels and annotations for the server's pod.
+podLabels: {}
+podAnnotations: {}
 
 # Runs a runner inside the server too, in the Environment of this name. Only
 # with runnerPods.enabled false: a server that starts runner pods leaves it off,
@@ -62,8 +63,12 @@ runnerPods:
   enabled: true
   # A NetworkPolicy that refuses every incoming connection to runner pods, so
   # people's pods can't reach each other (ADR 0053). It needs a network
-  # plugin that enforces NetworkPolicy, as Kyma's does.
+  # plugin that enforces NetworkPolicy.
   refuseIncoming: true
+  # Labels and annotations the seeded "Kubernetes pods" template gives each
+  # runner pod.
+  labels: {}
+  annotations: {}
 
 # More environment for the server, such as PIPOCA_FAUX_REPLY in tests, or
 # a secret a plugin's config names, taken from a Secret with valueFrom.

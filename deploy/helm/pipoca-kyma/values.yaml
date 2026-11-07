@@ -1,0 +1,30 @@
+# The plain chart's values (deploy/helm/pipoca/values.yaml) go under its key.
+pipoca:
+  # Where people open the server, such as https://pipoca.<cluster domain>.
+  # The APIRule serves its host.
+  url: ""
+  # Every request comes through Kyma's gateway, so failed sign-ins count by
+  # the client address it forwards.
+  trustProxy: true
+  # APIRules reach only workloads in the Istio mesh.
+  podLabels:
+    sidecar.istio.io/inject: "true"
+  runnerPods:
+    # The runners' Istio policy lets pods in only as mesh peers, so the seeded
+    # pod template puts runner pods in the mesh too, in any namespace.
+    labels:
+      sidecar.istio.io/inject: "true"
+
+# Kyma's gateway, which ends HTTPS in front of the server (ADR 0034).
+apiRule:
+  # Defaults to the host of pipoca.url.
+  host: ""
+  gateway: kyma-system/kyma-gateway
+  # MCP clients, such as Pi, outside the cluster.
+  exposeMcp: false
+  # Runners outside the cluster, such as a laptop. Runner pods reach the
+  # server through its Service.
+  exposeAgents: false
+  # Previews of what Sessions serve, at *.<host>, with their own certificate
+  # from Gardener's certificate service and their own gateway.
+  previews: false

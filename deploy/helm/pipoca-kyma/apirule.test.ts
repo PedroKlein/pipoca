@@ -5,7 +5,7 @@ import { type RouteKey, routes, type RouteSpec } from "@pipoca/protocol";
 import { withApiPaths } from "./apirule";
 
 const apiRule = readFileSync(
-  join(import.meta.dir, "../../../deploy/helm/pipoca/templates/apirule.yaml"),
+  join(import.meta.dir, "templates/apirule.yaml"),
   "utf8",
 );
 

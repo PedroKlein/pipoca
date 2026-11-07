@@ -302,12 +302,13 @@ async function setUpServerAndPerson(): Promise<void> {
   await welcome.waitFor();
   await page.getByRole("button", { name: "Start" }).click();
 
-  // The host is listed but not connected, so code is skipped; the e2e
-  // runner is online with its own model, so the model step is done.
-  await page.getByRole("heading", { name: "Connect your code" }).waitFor();
-  await page.getByRole("button", { name: "Skip for now" }).click();
-
-  for (const heading of ["Connect a model", "Where should Pi work?"]) {
+  // No git host is listed yet, so there is no code to connect, and the e2e
+  // runner is online with its own model, so those steps are done.
+  for (const heading of [
+    "Connect your code",
+    "Connect a model",
+    "Where should Pi work?",
+  ]) {
     await page.getByRole("heading", { name: heading }).waitFor();
     await continueButton().click();
   }
@@ -864,6 +865,20 @@ test("keeps a setup step on home until it's done, and opens it from there", asyn
 
   expect(await reminders.getByText("Where should Pi work?").count()).toBe(0);
 
+  // A host is listed that this person hasn't connected, so their code is
+  // left to do.
+  await page.route("**/api/ext/git-hosts/account", async (route) => {
+    const real = (await (await route.fetch()).json()) as object;
+
+    await route.fulfill({
+      json: {
+        ...real,
+        hosts: [{ host: "git.example.com", label: "Forge", oauth: false }],
+        connections: [],
+      },
+    });
+  });
+
   await page.unroute("**/api/environments");
   await page.reload();
   await reminders.getByText("Connect your code").waitFor();
@@ -881,6 +896,7 @@ test("keeps a setup step on home until it's done, and opens it from there", asyn
   await page.getByRole("button", { name: "New session" }).waitFor();
 
   expect(await reminders.isVisible()).toBe(false);
+  await page.unroute("**/api/ext/git-hosts/account");
 }, 20_000);
 
 test("makes an Environment and shows its key once", async () => {
@@ -1839,15 +1855,15 @@ test("guides an admin from a token-only host to a Connect button", async () => {
   await page.goto(server.url.href);
   await openSettings("Git hosts");
 
+  // No host is listed until an admin adds one.
+  const hosts = page.getByRole("list", { name: "Hosts" });
+  await hosts.getByRole("button", { name: "Add GitHub" }).waitFor();
+
   await page.getByRole("button", { name: "Add a host" }).click();
 
   const form = page.getByRole("form", { name: "New host" });
   await form.getByLabel("Host").fill("git.example.com");
   await form.getByRole("button", { name: "Add host" }).click();
-
-  // GitHub is listed by default and also has tokens only, so look at
-  // the new host's own row.
-  const hosts = page.getByRole("list", { name: "Hosts" });
 
   const added = hosts
     .getByRole("listitem")
@@ -2119,6 +2135,8 @@ test("shows why an Environment's last runner pod failed", async () => {
           idleSeconds: 300,
           claimSize: "10Gi",
           storageClass: null,
+          labels: {},
+          annotations: {},
           podPatch: {},
         },
         startsPods: true,

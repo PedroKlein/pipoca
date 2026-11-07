@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const chart = join(import.meta.dir, "../../../deploy/helm/pipoca");
@@ -55,24 +55,57 @@ test("the chart trusts the proxy in front only when there is one", () => {
   expect(values).toMatch(/^trustProxy: false$/m);
 
   expect(deployment).toContain(
-    "{{- if or .Values.trustProxy .Values.apiRule.enabled }}\n            - --trust-proxy\n            {{- end }}",
+    "{{- if .Values.trustProxy }}\n            - --trust-proxy\n            {{- end }}",
   );
 
   expect(main).toContain('trustProxy: values["trust-proxy"]');
 });
 
-// The APIRule's policy for runners matches only mesh peers, so runner pods
-// join the mesh whenever the server is in it, in any namespace.
-test("the chart puts runner pods in the mesh along with the server", () => {
-  expect(deployment).toContain(
-    '{{- if .Values.apiRule.enabled }}\n        # APIRules reach only workloads in the Istio mesh.\n        sidecar.istio.io/inject: "true"',
+// A cluster's gateway or mesh belongs in a chart of its own on top of this
+// one, such as deploy/helm/pipoca-kyma (ADR 0073).
+test("the chart, the server and the kubernetes plugin name no vendor's gateway or mesh", () => {
+  const root = join(import.meta.dir, "../../..");
+
+  const files = (folder: string): readonly string[] =>
+    readdirSync(join(root, folder), { recursive: true, encoding: "utf8" })
+      .filter(
+        (path) =>
+          /\.(ts|tsx|yaml|tpl)$/.test(path) && !path.endsWith(".test.ts"),
+      )
+      .map((path) => join(folder, path));
+
+  const named = [
+    ...files("deploy/helm/pipoca"),
+    ...files("apps/pipoca/src"),
+    ...files("plugins/kubernetes/src"),
+    ...files("plugins/kubernetes/web"),
+    "plugins/kubernetes/plugin.ts",
+  ].filter((path) =>
+    /kyma|istio|apirule|PIPOCA_RUNNER_MESH/i.test(
+      readFileSync(join(root, path), "utf8"),
+    ),
   );
 
-  expect(deployment).toMatch(
-    /\{\{- if \.Values\.apiRule\.enabled \}\}\n(?: +#.*\n)? +- name: PIPOCA_RUNNER_MESH\n +value: "true"/,
+  expect(named).toEqual([]);
+});
+
+// The pod template the chart seeds can carry labels and annotations for
+// runner pods, which a chart on top uses to put them in its mesh.
+test("the chart's seeded pod template gives runner pods the labels and annotations of runnerPods", () => {
+  const helpers = readFileSync(join(chart, "templates/_helpers.tpl"), "utf8");
+
+  expect(values).toMatch(/^runnerPods:\n(?: {2}.*\n)*? {2}labels: \{\}$/m);
+  expect(values).toMatch(/^runnerPods:\n(?: {2}.*\n)*? {2}annotations: \{\}$/m);
+
+  expect(helpers).toContain(
+    '{{- with .Values.runnerPods.labels }}{{ $_ := set $pods "labels" . }}{{ end }}',
   );
 
-  expect(plugin).toContain('env("PIPOCA_RUNNER_MESH") === "true"');
+  expect(helpers).toContain(
+    '{{- with .Values.runnerPods.annotations }}{{ $_ := set $pods "annotations" . }}{{ end }}',
+  );
+
+  expect(helpers).toContain('"kubernetes" $pods');
 });
 
 // The kubelet counts every exit as a crash and backs off for up to five

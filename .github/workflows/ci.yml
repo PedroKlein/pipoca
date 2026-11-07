@@ -47,13 +47,26 @@ jobs:
           out=$(helm template pipoca deploy/helm/pipoca --set-json 'lockedConfig={"oidc":{"providers":[]}}')
           grep -q -- "--locked-config" <<<"$out"
           grep -q "pipoca-locked-config" <<<"$out"
-      - name: The APIRule keeps runners and MCP out unless asked
+      - name: The plain chart has no Istio or Kyma resources, and an Ingress only when asked
         run: |
-          rule() { helm template pipoca deploy/helm/pipoca --set apiRule.enabled=true --set apiRule.host=pi.example.com "$@" --show-only templates/apirule.yaml; }
+          ! helm template pipoca deploy/helm/pipoca | grep -iE 'istio|kyma|APIRule'
+          ! helm template pipoca deploy/helm/pipoca | grep -F 'kind: Ingress'
+          helm template pipoca deploy/helm/pipoca --set ingress.enabled=true --set url=https://pi.example.com --show-only templates/ingress.yaml | grep -F 'host: "pi.example.com"'
+      - run: helm dependency build deploy/helm/pipoca-kyma
+      - name: The Kyma chart's APIRule keeps runners and MCP out unless asked
+        run: |
+          rule() { helm template pipoca deploy/helm/pipoca-kyma --set pipoca.url=https://pi.example.com "$@" --show-only templates/apirule.yaml; }
+          rule | grep -E '^    - pi.example.com$'
           ! rule | grep -E 'path: /(runner|api/mcp$|api/auth/setup)'
           rule --set apiRule.exposeAgents=true --set apiRule.exposeMcp=true | grep -E 'path: /runner/'
           rule --set apiRule.exposeMcp=true | grep -E 'path: /api/mcp$'
           rule | grep -A20 'kind: AuthorizationPolicy' | grep -F '"/runner/*"'
+      - name: The Kyma chart puts the server and runner pods in the mesh
+        run: |
+          kyma() { helm template pipoca deploy/helm/pipoca-kyma --set pipoca.url=https://pi.example.com "$@"; }
+          kyma --show-only charts/pipoca/templates/deployment.yaml | grep -F 'sidecar.istio.io/inject: "true"'
+          kyma --show-only charts/pipoca/templates/deployment.yaml | grep -F -- '- --trust-proxy'
+          kyma --show-only charts/pipoca/templates/configmap.yaml | grep -F '"sidecar.istio.io/inject": "true"'
       - name: A server that starts runner pods offers a pod template unless the config names templates
         run: |
           config() { helm template pipoca deploy/helm/pipoca "$@" --show-only templates/configmap.yaml; }
@@ -62,7 +75,7 @@ jobs:
           ! helm template pipoca deploy/helm/pipoca --set runnerPods.enabled=false | grep -F 'kubernetes-pods'
       - name: Previews get their own host only when asked
         run: |
-          previews() { helm template pipoca deploy/helm/pipoca --set apiRule.enabled=true --set apiRule.host=pi.example.com "$@"; }
+          previews() { helm template pipoca deploy/helm/pipoca-kyma --set pipoca.url=https://pi.example.com "$@"; }
           ! previews | grep -F 'pipoca-previews'
           previews --set apiRule.previews=true --show-only templates/previews.yaml | grep -cF '"*.pi.example.com"' | grep -x 3
       - run: docker build -t pipoca:ci .
