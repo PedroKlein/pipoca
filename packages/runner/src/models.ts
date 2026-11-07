@@ -47,7 +47,7 @@ export function machineModels(options: {
         (await lister)().catch((error: unknown): ListedModels => {
           log("models not listed", { error: String(error) });
 
-          return { available: [], registered: [] };
+          return { available: [], registered: [], providers: [] };
         }),
       ),
     );
@@ -86,7 +86,7 @@ export function machineModels(options: {
           log("models not listed", { agentDir, error: String(error) });
 
           return async (): Promise<ListedModels> =>
-            Promise.resolve({ available: [], registered: [] });
+            Promise.resolve({ available: [], registered: [], providers: [] });
         }),
       );
 

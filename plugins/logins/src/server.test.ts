@@ -1,5 +1,8 @@
 import { expect, mock, test } from "bun:test";
 import * as dns from "node:dns/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   type PluginTest,
   person,
@@ -507,6 +510,52 @@ test("a person can paste a key for providers that packages add on their own and 
     { provider: "ana-extension", type: "api_key", layer: "defaults" },
   ]);
 });
+
+test("everyone can paste a key for a provider the server default Profile's package adds, before any runner runs", async () => {
+  await using t = await started();
+  await connectable(t);
+  const root = await mkdtemp(join(tmpdir(), "logins-base-"));
+  const extension = join(root, "vault", "extensions");
+  await mkdir(extension, { recursive: true });
+
+  await writeFile(
+    join(root, "vault", "package.json"),
+    JSON.stringify({ name: "vault", pi: { extensions: ["./extensions"] } }),
+  );
+
+  await writeFile(
+    join(extension, "vault.ts"),
+    `export default (pi) => pi.registerProvider("vault", {
+      name: "Vault AI",
+      baseUrl: "http://127.0.0.1:9/v1",
+      api: "openai-completions",
+      models: [],
+    });`,
+  );
+
+  const updated = await t.as("admin").raw("/api/settings/base-profile", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ packages: [join(root, "vault")] }),
+  });
+
+  expect(updated.status).toBe(200);
+
+  // The server lists them once edits to the base settle.
+  await t.clock.advance("5s");
+  const ana = await t.as("ana").get<readonly Connectable[]>("providers");
+
+  expect(ana.find(({ id }) => id === "vault")).toEqual({
+    id: "vault",
+    name: "Vault AI",
+    methods: [{ type: "api_key", label: "Paste a key" }],
+    paste: true,
+  });
+
+  expect((await save(t, "ana", "vault", "sk-ana")).status).toBe(200);
+
+  await rm(root, { recursive: true, force: true });
+}, 60_000);
 
 // An MCP server with its own authorization server, which registers any
 // client and swaps the code "granted" for tokens.

@@ -8,6 +8,8 @@ import type { ScheduleStore } from "@pipoca/pluginhost";
 import type { PluginDb } from "@pipoca/pluginhost";
 import type { ProfileFolders, ProfileStore } from "@pipoca/profiles";
 import type { SessionStore } from "@pipoca/sessions";
+import type { BaseListingStore } from "../base-providers";
+import { baseListingStore } from "./base-providers";
 import { credentialStore, environmentStore } from "./environments";
 import { openDatabase, resetPlugin, type Schema } from "./database";
 import { peopleStore } from "./people";
@@ -25,6 +27,7 @@ export interface Store {
   readonly credentials: CredentialStore;
   readonly plugin: (name: string) => PluginDb;
   readonly schedules: ScheduleStore;
+  readonly baseProviders: BaseListingStore;
   // Why a plugin's tables can't be used, if they can't.
   readonly pluginFailure: (name: string) => string | undefined;
   // Drops a plugin's tables and makes them again, or says why it couldn't.
@@ -99,6 +102,7 @@ export function openStore(
       return found;
     },
     schedules: scheduleStore(db),
+    baseProviders: baseListingStore(db, clock),
     pluginFailure: (name) => failures.get(name),
     resetPlugin: (name) => {
       const [declared] = plugins

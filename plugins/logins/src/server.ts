@@ -122,8 +122,8 @@ export const server = defineServer(logins, (ctx) => {
 
   // Pi's own providers and models, for the models a person's logins reach
   // and the providers Settings can sign them in to. Providers that
-  // extensions add are already in the runners' lists, and take /login in a
-  // Session.
+  // packages add come from the server's listing of its base Profile and
+  // the runners' lists, and take /login in a Session.
   let catalog: readonly ModelRef[] = [];
   let connectable: readonly Connectable[] = [];
   let proxied: ReadonlyMap<string, Upstream> = new Map();
@@ -198,30 +198,35 @@ export const server = defineServer(logins, (ctx) => {
   const returns = callbacks(urls);
   const tokens = proxyTokens(store, clock);
 
-  // Providers a package adds on the runners of the Environments a person
-  // sees, such as one in the server default Profile. The server can't run
-  // their sign-in, so their key is pasted.
+  // Providers a package adds: the server default Profile's, which the server
+  // lists itself, and those on the runners of the Environments a person
+  // sees. The server can't run their sign-in, so their key is pasted.
   const extensionProviders = ({
     person,
   }: PersonCaller): readonly Connectable[] => {
     const known = new Set(connectable.map(({ id }) => id));
 
+    const names = new Map(
+      profiles.baseProviders().map(({ id, name }) => [id, name]),
+    );
+
+    const reported = environments
+      .list()
+      .filter(
+        ({ ownerId }) =>
+          person.admin || ownerId === person.id || ownerId === "team",
+      )
+      .flatMap(({ models: offered }) =>
+        offered.map(({ provider }) => provider),
+      );
+
     const added = new Set(
-      environments
-        .list()
-        .filter(
-          ({ ownerId }) =>
-            person.admin || ownerId === person.id || ownerId === "team",
-        )
-        .flatMap(({ models: offered }) =>
-          offered.map(({ provider }) => provider),
-        )
-        .filter((provider) => !known.has(provider)),
+      [...names.keys(), ...reported].filter((provider) => !known.has(provider)),
     );
 
     return [...added].sort().map((id) => ({
       id,
-      name: id,
+      name: names.get(id) ?? id,
       methods: [{ type: "api_key", label: "Paste a key" }],
       paste: true,
     }));

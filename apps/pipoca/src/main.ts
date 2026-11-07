@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
-import { stat } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { homedir, hostname, userInfo } from "node:os";
 import { parseArgs } from "node:util";
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { main as piMain } from "@earendil-works/pi-coding-agent";
-import { installPackage } from "@pipoca/sessionhost";
+import { installPackage, listProviders } from "@pipoca/sessionhost";
 import { JoinRefused, runAgent, runSessionProcess } from "@pipoca/runner";
 import { binary, pipoca } from "./binary";
 import { connectFolder, dataFolder, runnerFolder } from "./data-folder";
@@ -20,6 +20,7 @@ import { openInBrowser } from "./browser";
 import { connect } from "./connect";
 import { serve } from "./serve";
 import { installService, uninstallService } from "./service";
+import type { ProfileFiles } from "@pipoca/protocol";
 
 const dataRoot = dataFolder();
 
@@ -457,6 +458,31 @@ switch (command) {
       process.stderr.write(`${String(error)}\n`);
       process.exit(1);
     });
+
+    break;
+  }
+
+  // The server runs this to learn the providers its base Profile's packages
+  // register, apart from itself so a package can't hang or crash it.
+  case "list-providers": {
+    const [dir] = rest;
+    if (dir === undefined) {
+      process.stderr.write("usage: pipoca list-providers <dir>\n");
+      process.exit(2);
+    }
+
+    const profile = JSON.parse(
+      await readFile(join(dir, "profile.json"), "utf8"),
+    ) as ProfileFiles;
+
+    await listProviders(dir, profile, stderrLog("providers")).then(
+      async (listed) => {
+        await writeFile(join(dir, "providers.json"), JSON.stringify(listed));
+
+        // Extensions may have left work running, such as a timer.
+        process.exit(0);
+      },
+    );
 
     break;
   }

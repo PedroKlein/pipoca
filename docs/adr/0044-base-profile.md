@@ -1,6 +1,6 @@
 # 0044: Base Profile
 
-- Status: accepted, amended 2026-10-29 (per-person model and MCP logins on the server, [ADR 0045](0045-server-kept-logins.md)), and by [ADR 0063](0063-settings-and-first-run-setup.md) (My defaults per person between the base and each Profile; Profiles can build on Profiles)
+- Status: accepted, amended 2026-11-07 (the server lists the base's providers itself), amended 2026-10-29 (per-person model and MCP logins on the server, [ADR 0045](0045-server-kept-logins.md)), and by [ADR 0063](0063-settings-and-first-run-setup.md) (My defaults per person between the base and each Profile; Profiles can build on Profiles)
 - Date: 2026-10-28
 
 ## Context
@@ -47,6 +47,7 @@ The base is to the Profile what Pi's `~/.pi/agent` is to a repository's `.pi/` (
 - A runner reports every model its providers register, from the base and from each Profile it holds, next to the ones logged in on that machine (decided 2026-10-28). Pi's own providers register over a thousand models, which people reach through `/login`, so only the providers that extensions and `models.json` add are reported this way.
 - The server keeps the last list each runner reported, so it outlives runners that exit and server restarts. A runner's newer report replaces what it reported before, and a runner gone for a month is forgotten.
 - The Models page and the model pickers list every model in that list beside the ones logged in on online runners (amended 2026-10-29: a Kubernetes Environment usually has no runner online, so pickers listing only logged-in models showed none of an extension's). A Session on a model whose provider isn't logged in fails with Pi's own error, as an alias's missing model does.
+- The server lists the base's providers itself (amended 2026-11-07: on a fresh server no runner has run, so Settings offered no key for a provider the admin had just added). When the base changes, and at start unless it already listed the same files in full, the pipoca binary installs the base's packages in a temporary folder of its own and loads them with no logins and none of the server's credentials, under a timeout. It reports each provider, whether it takes an API key or a sign-in, and its models, and the server keeps the last list in SQLite. A package that fails to install or load is logged by name and left out, and the others still list. Settings offers these providers beside the ones runners report.
 
 ### Credentials
 

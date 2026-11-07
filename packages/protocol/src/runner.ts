@@ -44,6 +44,30 @@ export const profileFiles = Type.Object({
 
 export type ProfileFiles = Wire<typeof profileFiles>;
 
+// A model provider that a Profile's packages and extensions register, and
+// how it takes a login. The server lists its base Profile's with no logins,
+// so its models are the ones the provider knows without one (ADR 0044).
+const registeredProvider = Type.Object({
+  id: Type.String({ minLength: 1 }),
+  name: Type.String(),
+  apiKey: Type.Boolean(),
+  oauth: Type.Boolean(),
+  models: strings,
+});
+
+export type RegisteredProvider = Wire<typeof registeredProvider>;
+
+// What listing a Profile's providers found, and the packages it left out
+// because they didn't install or load.
+export const listedProviders = Type.Object({
+  providers: Type.Array(registeredProvider),
+  failed: Type.Array(
+    Type.Object({ source: Type.String(), error: Type.String() }),
+  ),
+});
+
+export type ListedProviders = Wire<typeof listedProviders>;
+
 const gitLogin = Type.Object({ host: Type.String(), token: Type.String() });
 
 export type GitLogin = Wire<typeof gitLogin>;

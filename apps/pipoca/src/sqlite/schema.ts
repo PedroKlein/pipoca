@@ -254,6 +254,15 @@ const migrations = [
   finished_at integer not null,
   finished_by text references users (id) on delete set null
 ) strict;`,
+  // The providers the base Profile's packages register, as the server last
+  // listed them (ADR 0044). One row at most.
+  `create table base_providers (
+  id integer primary key check (id = 1),
+  hash text not null,
+  complete integer not null check (complete in (0, 1)),
+  providers text not null check (json_valid(providers)),
+  listed_at integer not null
+) strict;`,
 ];
 
 export const kernelSchema: Schema = { owner: "kernel", sql, migrations };
