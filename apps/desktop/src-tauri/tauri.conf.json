@@ -37,7 +37,7 @@
       }
     },
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEMwQTYxRDZCOUJGMEU3M0YKUldRLzUvQ2JheDJtd0h4MlN1WVV3c0RwcmgxSGhveVBEWW0zeDJ3eS9sK3lYZGRSMGhRcW43emgK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ2M0RGQjNCRkI2MDkzNUMKUldSY2syRDdPL3M5MWdSUWpoR1Z5cUtmRE1LOUN2ckliamkzU3FuaHR6ZldRLzFZN3U0YTUzckQK",
       "endpoints": [
         "https://github.com/PedroKlein/pipoca/releases/latest/download/latest.json"
       ]
