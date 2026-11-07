@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { renderPart } from "@pipoca/plugins/web/testing";
+import type { TypedClient } from "@pipoca/plugins";
 import { until } from "@pipoca/testing/until";
 import { act } from "react";
 import type { Account } from "../src/model";
@@ -75,4 +76,33 @@ test("lists the person's sign-ins on Accounts, and unlinks one", async () => {
   expect(asked).toContain(
     `DELETE /api/ext/oidc/identities/${encodeURIComponent("https://ias.example.com")}`,
   );
+});
+
+test("adds a sign-in step to a team server's setup, done once a provider is added", async () => {
+  const [step, ...others] = web.setup ?? [];
+  const refuse = async (): Promise<never> => Promise.reject(new Error("no"));
+
+  const done = async (providers: readonly unknown[]): Promise<boolean> =>
+    (await step?.done({
+      get: (async (path: string) =>
+        path === "providers" ? providers : refuse()) as TypedClient["get"],
+      post: refuse,
+      put: refuse,
+      patch: refuse,
+      delete: refuse,
+      raw: refuse,
+    })) === true;
+
+  expect(others).toEqual([]);
+
+  expect(step).toMatchObject({
+    audience: "server",
+    after: "plugins",
+    teamOnly: true,
+    title: "Sign-in",
+    optional: true,
+  });
+
+  expect(await done([])).toBe(false);
+  expect(await done([{ id: "company", label: "Company SSO" }])).toBe(true);
 });

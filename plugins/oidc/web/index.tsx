@@ -1,4 +1,11 @@
-import { defineWeb, useApi, useConfig, useLoaded } from "@pipoca/plugins/web";
+import {
+  defineWeb,
+  type SetupStep,
+  useApi,
+  useConfig,
+  useLoaded,
+  useViewer,
+} from "@pipoca/plugins/web";
 import {
   Badge,
   Button,
@@ -30,12 +37,46 @@ import type {
   ProviderView,
 } from "../src/model";
 
+// How people get into a team's server, in its setup (ADR 0072). A server
+// just for its person has no one else to let in.
+const signInStep: SetupStep = {
+  audience: "server",
+  after: "plugins",
+  teamOnly: true,
+  title: "Sign-in",
+  summary: "Identity providers and who may join",
+  heading: "How people sign in",
+  description:
+    "Add the identity provider your team already uses, and choose who may join.",
+  optional: true,
+  done: async (api) =>
+    (await api.get<readonly ProviderView[]>("providers")).length > 0,
+  changes: ["providers"],
+  Step: SignInStep,
+};
+
 export const web = defineWeb(oidc, {
   settings: { group: "server", Section: SettingsSection },
   slots: { "settings.accounts": Accounts },
+  setup: [signInStep],
 });
 
 function SettingsSection(): ReactElement | null {
+  if (!useViewer().person.admin) {
+    return null;
+  }
+
+  return (
+    <Page
+      title="Sign-in"
+      description="How people get into this server, and who may join."
+    >
+      <SignIn />
+    </Page>
+  );
+}
+
+function SignIn(): ReactElement | null {
   const api = useApi(oidc);
 
   const { value } = useLoaded(
@@ -55,10 +96,7 @@ function SettingsSection(): ReactElement | null {
   }
 
   return (
-    <Page
-      title="Sign-in"
-      description="How people get into this server, and who may join."
-    >
+    <>
       {value.lockedIn !== null && <LockedNotice file={value.lockedIn} />}
       <Providers providers={providers.value} locked={value.lockedIn !== null} />
       <Rules
@@ -66,7 +104,15 @@ function SettingsSection(): ReactElement | null {
         providers={providers.value}
         locked={value.lockedIn !== null}
       />
-    </Page>
+    </>
+  );
+}
+
+function SignInStep(): ReactElement {
+  return (
+    <div className="flex flex-col *:first:mt-0">
+      <SignIn />
+    </div>
   );
 }
 
@@ -199,7 +245,7 @@ const presets: readonly Preset[] = [
     hint: "Issuer URL and client",
     label: "",
     issuer: "",
-    issuerHint: "https://tenant.accounts.ondemand.com",
+    issuerHint: "https://login.example.com",
     groupsClaim: "groups",
   },
 ];
@@ -346,7 +392,7 @@ function ProviderRow({
         <>
           {provider.label}
           {badge()}
-          {locked && <Badge>Config file</Badge>}
+          {locked && <Badge>Set in deploy file</Badge>}
         </>
       }
       description={
@@ -626,11 +672,11 @@ function ProviderForm({
       }
       className={cn(cardClass, "grid gap-4 p-5 md:grid-cols-2")}
     >
-      {textField("label", "Button label", "Sign in with SAP IAS")}
+      {textField("label", "Button label", "Sign in with Company SSO")}
       {textField(
         "issuer",
         "Issuer",
-        preset?.issuerHint ?? "https://tenant.accounts.ondemand.com",
+        preset?.issuerHint ?? "https://login.example.com",
       )}
       {textField("clientId", "Client ID")}
       <Field label={secretLabel(provider, secret)}>

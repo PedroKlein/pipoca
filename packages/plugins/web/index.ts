@@ -83,9 +83,15 @@ export interface SetupStepProps {
 // It goes after a kernel step, by default after Plugins or Welcome. done
 // says whether it was already done, and reloads when one of its topics
 // changes. A personal step that isn't done stays on home as a reminder.
+// A server step only for teams, such as sign-in, is left out on a server
+// just for its person.
 export type SetupStep = SetupStepAbout &
   (
-    | { readonly audience: "server"; readonly after?: ServerSetupStepId }
+    | {
+        readonly audience: "server";
+        readonly after?: ServerSetupStepId;
+        readonly teamOnly?: boolean;
+      }
     | { readonly audience: "person"; readonly after?: PersonSetupStepId }
   );
 

@@ -322,6 +322,7 @@ const fromKubernetes = {
   plugin: "kubernetes",
   label: "Kubernetes",
   icon: "cloud",
+  choice: "A pod for each person",
 };
 
 test("reads an Environment that starts runner pods as on demand, from Kubernetes", async () => {
@@ -350,7 +351,7 @@ test("reads an Environment that starts runner pods as on demand, from Kubernetes
   );
 });
 
-test("says which templates have runner pods started for them", async () => {
+test("says which templates have runner pods started for them, offered in setup as a pod for each person", async () => {
   const plain = await kernel<EnvironmentTemplate>(
     "/api/environment-templates",
     { name: "plain" },

@@ -181,7 +181,11 @@ export const server = defineServer(kubernetes, (context) => {
   });
 
   const runners = provide.runners({
-    kind: { label: "Kubernetes", icon: "cloud" },
+    kind: {
+      label: "Kubernetes",
+      icon: "cloud",
+      choice: "A pod for each person",
+    },
     starts: (environment) =>
       startsPods && settingsOf(environment) !== undefined,
     replacesServerRunner: startsPods,

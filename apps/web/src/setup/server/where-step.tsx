@@ -36,7 +36,11 @@ export function ServerWhereStep(): ReactElement {
             key={template.id}
             type="checkbox"
             as="li"
-            title={template.runnersFrom?.label ?? template.name}
+            title={
+              template.runnersFrom?.choice ??
+              template.runnersFrom?.label ??
+              template.name
+            }
             badge={
               template.runnersFrom !== null && (
                 <Badge state="working">

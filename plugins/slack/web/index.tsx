@@ -1,11 +1,13 @@
 import {
   defineWeb,
   type NoticeProps,
+  type SetupStep,
   useApi,
   useLoaded,
   useViewer,
 } from "@pipoca/plugins/web";
 import {
+  Badge,
   Button,
   cardClass,
   cn,
@@ -49,9 +51,27 @@ const manifest = {
   },
 };
 
+// The team's bots, in its server's setup (ADR 0072). Slack links no one's
+// own account, so there is no personal step.
+const botStep: SetupStep = {
+  audience: "server",
+  after: "where",
+  teamOnly: true,
+  title: "Slack",
+  summary: "A bot for routines and Sessions",
+  heading: "Add a Slack bot",
+  description:
+    "So your team can start routines from Slack and Sessions can answer there. You can add one later in Settings, Integrations.",
+  optional: true,
+  done: async (api) => (await api.get<readonly BotView[]>("bots")).length > 0,
+  changes: ["bots"],
+  Step: Bots,
+};
+
 export const web = defineWeb(slack, {
   settings: { group: "integrations", Section },
   slots: { "notice:slack_reply": SlackReply },
+  setup: [botStep],
 });
 
 function Section(): ReactElement | null {
@@ -65,7 +85,16 @@ function Bots(): ReactElement {
   const { value, reload } = useLoaded(
     async () => api.get<readonly BotView[]>("bots"),
     "bots",
+    { changes: ["bots"] },
   );
+
+  // The deploy file, such as one Helm mounts, may set the bots.
+  const locked = useLoaded(
+    async () =>
+      api.get<{ readonly lockedIn?: string }>("/api/plugins/slack/config"),
+    "config",
+    { topics: ["plugins"] },
+  ).value?.lockedIn;
 
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string>();
@@ -148,20 +177,24 @@ function Bots(): ReactElement {
                   · {bot.team} · {bot.connected ? "connected" : "not connected"}
                 </span>
               </span>
-              <Button
-                aria-label={`Remove ${bot.name}`}
-                onClick={() => {
-                  remove(bot);
-                }}
-              >
-                Remove
-              </Button>
+              {locked === undefined ? (
+                <Button
+                  aria-label={`Remove ${bot.name}`}
+                  onClick={() => {
+                    remove(bot);
+                  }}
+                >
+                  Remove
+                </Button>
+              ) : (
+                <Badge>Set in deploy file</Badge>
+              )}
             </div>
             <ErrorText size="caption">{bot.error}</ErrorText>
           </li>
         ))}
       </ul>
-      {adding ? (
+      {adding && (
         <form
           onSubmit={add}
           aria-label="New Slack bot"
@@ -201,7 +234,8 @@ function Bots(): ReactElement {
             <ErrorText size="caption">{error}</ErrorText>
           </div>
         </form>
-      ) : (
+      )}
+      {!adding && locked === undefined && (
         <div>
           <Button
             onClick={() => {
@@ -211,6 +245,12 @@ function Bots(): ReactElement {
             Add a Slack bot
           </Button>
         </div>
+      )}
+      {locked !== undefined && (
+        <p role="note" className="text-fg-dim">
+          <code className="font-mono">{locked}</code> sets the bots, so they are
+          read-only here.
+        </p>
       )}
     </div>
   );

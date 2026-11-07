@@ -473,7 +473,13 @@ export interface Runners {
 // one, such as pods in a cluster.
 export interface RunnerProvider {
   // What the Environments page calls its runners, and an icon of @pipoca/ui.
-  readonly kind: { readonly label: string; readonly icon: string };
+  // choice is how server setup offers a template whose runners it starts,
+  // such as "A pod for each person".
+  readonly kind: {
+    readonly label: string;
+    readonly icon: string;
+    readonly choice?: string;
+  };
   readonly starts: (environment: RunnerSource) => boolean;
   // The server then runs no runner of its own, such as in a cluster where
   // its Sessions would share the server's files.

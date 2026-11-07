@@ -152,10 +152,13 @@ function added(phase: Phase, solo: boolean): readonly Added[] {
     const step = setup.find(ofPhase);
 
     // On a server just for its person, a plugin's personal step sets up
-    // what its server step would have.
+    // what its server step would have, and a step only for teams has nothing
+    // to set up.
     if (
       step === undefined ||
-      (phase === "server" && solo && setup.some((each) => !ofPhase(each)))
+      (step.audience === "server" &&
+        solo &&
+        (step.teamOnly === true || setup.some((each) => !ofPhase(each))))
     ) {
       return [];
     }
