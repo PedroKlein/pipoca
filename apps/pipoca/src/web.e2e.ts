@@ -287,7 +287,7 @@ async function setUpServerAndPerson(): Promise<void> {
     .waitFor();
 
   await setup.getByText("Server setup").waitFor();
-  expect(await setup.getByText("Step 1 of 8").count()).toBe(1);
+  expect(await setup.getByText("Step 1 of 10").count()).toBe(1);
 
   expect(
     await page.getByRole("radio", { name: /^A team/, checked: true }).count(),
@@ -307,7 +307,7 @@ async function setUpServerAndPerson(): Promise<void> {
   await page.getByRole("radio", { name: /^A team/ }).check();
   await continueButton().click();
   await plugins.waitFor();
-  await setup.getByText("Step 2 of 8").waitFor();
+  await setup.getByText("Step 2 of 10").waitFor();
 
   await page.getByRole("list", { name: "Adds a setup step" }).waitFor();
   await continueButton().click();
@@ -322,9 +322,44 @@ async function setUpServerAndPerson(): Promise<void> {
 
   await page.getByRole("button", { name: "Skip for now" }).click();
 
+  // Code hosts come after sign-in. No host is added for you, and going on
+  // with none is an answer.
+  await page
+    .getByRole("heading", { name: "Where does the team's code live?" })
+    .waitFor();
+
+  expect(await continueButton().isDisabled()).toBe(true);
+  await page.getByLabel("Go on with no code host for now").check();
+  await continueButton().click();
+
   await page.getByRole("heading", { name: "Server default Profile" }).waitFor();
   expect(await continueButton().isDisabled()).toBe(true);
   await page.getByRole("button", { name: "Skip for now" }).click();
+
+  // No provider is required, and the list has every provider Pi knows plus
+  // the ones packages add on the runners, such as the e2e runner's.
+  await page.getByRole("heading", { name: "Shared model keys" }).waitFor();
+  const shared = page.getByRole("list", { name: "Shared model keys" });
+  await shared.getByText("No shared key yet").waitFor();
+  expect(await continueButton().isDisabled()).toBe(false);
+
+  await page.getByRole("button", { name: "Add a shared key" }).click();
+  await page.getByRole("combobox", { name: "Add a shared key" }).fill("faux");
+
+  await page.getByRole("option", { name: /^faux.*Added by a package/ }).click();
+
+  const key = page.getByRole("form", { name: "Key for faux" });
+  await key.getByLabel("faux key").fill("sk-faux-team");
+  await key.getByRole("button", { name: "Save key" }).click();
+  await key.waitFor({ state: "detached" });
+
+  await shared
+    .getByRole("listitem")
+    .filter({ hasText: "faux" })
+    .getByText("goes to team runners", { exact: false })
+    .waitFor();
+
+  await continueButton().click();
 
   // A template whose runners a plugin starts is offered as the plugin
   // words it, with the template's own name and image.
@@ -374,16 +409,28 @@ async function setUpServerAndPerson(): Promise<void> {
   await welcome.waitFor();
   await page.getByRole("button", { name: "Start" }).click();
 
-  // No git host is listed yet, so there is no code to connect, and the e2e
-  // runner is online with its own model, so those steps are done.
-  for (const heading of [
-    "Connect your code",
-    "Connect a model",
-    "Where should Pi work?",
-  ]) {
-    await page.getByRole("heading", { name: heading }).waitFor();
-    await continueButton().click();
-  }
+  // No git host is listed yet, which isn't done until the person goes on
+  // without one.
+  await page.getByRole("heading", { name: "Connect your code" }).waitFor();
+  await page.getByText("No code host is set up on this server yet").waitFor();
+  expect(await continueButton().isDisabled()).toBe(true);
+  await page.getByLabel("Go on without a code host").check();
+  await continueButton().click();
+
+  // The key shared in server setup gives a model, so that step is done.
+  await page.getByRole("heading", { name: "Your models" }).waitFor();
+
+  await page
+    .getByRole("list", { name: "Shared by the server" })
+    .getByRole("listitem")
+    .filter({ hasText: "faux" })
+    .getByText("Ready")
+    .waitFor();
+
+  await continueButton().click();
+
+  await page.getByRole("heading", { name: "Where should Pi work?" }).waitFor();
+  await continueButton().click();
 
   // Pi's defaults is an answer, so the step finishes with no Skip.
   await page.getByRole("heading", { name: "Make Pi yours" }).waitFor();
@@ -402,6 +449,12 @@ async function setUpServerAndPerson(): Promise<void> {
   await page.getByPlaceholder("What should Pi do first?").waitFor();
   await page.getByRole("button", { name: "Go to home" }).click();
   await page.getByRole("button", { name: "New session" }).waitFor();
+
+  // Later tests start with no shared key.
+  await page.request.delete(
+    new URL("/api/ext/logins/credentials/faux?layer=base", server.url).href,
+    { headers: { [versionHeader]: String(protocolVersion) } },
+  );
 }
 
 // Picks the e2e Environment and the folder in the New session composer.
@@ -933,22 +986,18 @@ test("keeps a setup step on home until it's done, and opens it from there", asyn
 
   phase = "no models";
   await page.goto(server.url.href);
-  await reminders.getByText("Connect a model").waitFor();
+  await reminders.getByText("Your models").waitFor();
 
   expect(await reminders.getByText("Where should Pi work?").count()).toBe(0);
 
-  // A host is listed that this person hasn't connected, so their code is
-  // left to do.
-  await page.route("**/api/ext/git-hosts/account", async (route) => {
-    const real = (await (await route.fetch()).json()) as object;
+  // A host added after the person went on without one brings their code
+  // step back.
+  const hosts = new URL("/api/ext/git-hosts/hosts", server.url);
 
-    await route.fulfill({
-      json: {
-        ...real,
-        hosts: [{ host: "git.example.com", label: "Forge", oauth: false }],
-        connections: [],
-      },
-    });
+  await fetch(hosts, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ host: "git.example.com", label: "Forge" }),
   });
 
   await page.unroute("**/api/environments");
@@ -956,7 +1005,7 @@ test("keeps a setup step on home until it's done, and opens it from there", asyn
   await reminders.getByText("Connect your code").waitFor();
 
   // Pi's defaults, picked in setup, finished the Profile step.
-  expect(await reminders.getByText("Connect a model").count()).toBe(0);
+  expect(await reminders.getByText("Your models").count()).toBe(0);
   expect(await reminders.getByText("Make Pi yours").count()).toBe(0);
 
   await reminders
@@ -968,8 +1017,88 @@ test("keeps a setup step on home until it's done, and opens it from there", asyn
   await page.getByRole("button", { name: "New session" }).waitFor();
 
   expect(await reminders.isVisible()).toBe(false);
-  await page.unroute("**/api/ext/git-hosts/account");
+
+  await fetch(`${hosts.href}/git.example.com`, {
+    method: "DELETE",
+    headers: { cookie },
+  });
 }, 20_000);
+
+test("a person with no model pastes a key of their own in Your models, and adds a provider's package to their default Profile", async () => {
+  // The runners report no model logged in, so only a login counts.
+  await page.route("**/api/environments", async (route) => {
+    const real = (await (await route.fetch()).json()) as Environment[];
+
+    await route.fulfill({
+      json: real.map((each) => ({ ...each, models: [] })),
+    });
+  });
+
+  const api = (path: string): string => new URL(path, server.url).href;
+  const headers = { [versionHeader]: String(protocolVersion) };
+
+  const defaults = async (): Promise<Profile> =>
+    (await (
+      await page.request.get(api("/api/me/profile-defaults"), { headers })
+    ).json()) as Profile;
+
+  const before = (await defaults()).packages;
+
+  await page.goto(server.url.href);
+
+  await page
+    .getByRole("region", { name: "Finish setting up" })
+    .getByRole("listitem")
+    .filter({ hasText: "Your models" })
+    .getByRole("link", { name: "Set up" })
+    .click();
+
+  await page.getByRole("heading", { name: "Your models" }).waitFor();
+  expect(await continueButton().isDisabled()).toBe(true);
+
+  const providers = page.getByRole("list", { name: "Model providers" });
+  await page.getByLabel("Search providers").fill("faux");
+
+  const row = providers.getByRole("listitem").filter({ hasText: "faux" });
+  await row.getByText("Added by a package").waitFor();
+  await row.getByRole("button", { name: "Add a key for faux" }).click();
+
+  const key = page.getByRole("form", { name: "Key for faux" });
+  await key.getByLabel("faux key").fill("sk-faux-mine");
+  await key.getByRole("button", { name: "Save key" }).click();
+
+  await row.getByText("Key saved").waitFor();
+  await until(async () => !(await continueButton().isDisabled()));
+
+  await page.getByRole("button", { name: "Add package" }).click();
+  const added = page.getByRole("form", { name: "Add a provider's package" });
+  await added.getByLabel("Package").fill("npm:pi-provider-example");
+  await added.getByRole("button", { name: "Add" }).click();
+
+  await page
+    .getByRole("status")
+    .getByText("Added npm:pi-provider-example to your default Profile", {
+      exact: false,
+    })
+    .waitFor();
+
+  expect((await defaults()).packages).toEqual([
+    ...before,
+    "npm:pi-provider-example",
+  ]);
+
+  await page.request.put(api("/api/me/profile-defaults"), {
+    headers,
+    data: { packages: before },
+  });
+
+  await page.request.delete(
+    api("/api/ext/logins/credentials/faux?layer=defaults"),
+    { headers },
+  );
+
+  await page.unroute("**/api/environments");
+});
 
 test("makes an Environment and shows its key once", async () => {
   await page.goto(server.url.href);
@@ -2025,6 +2154,66 @@ test("guides an admin from a token-only host to a Connect button", async () => {
   await page.getByRole("button", { name: "Remove git.example.com" }).click();
   await confirmIn("Remove");
   await hosts.getByText("git.example.com").waitFor({ state: "detached" });
+});
+
+test("an admin adds a host with its sign-in in server setup, and people find it in their own", async () => {
+  await page.goto(new URL("/#get-started/server:git-hosts", server.url).href);
+
+  await page
+    .getByRole("heading", { name: "Where does the team's code live?" })
+    .waitFor();
+
+  const adds = page.getByRole("group", { name: "Add a host" });
+  await adds.getByRole("button", { name: "GitHub Enterprise" }).click();
+
+  const form = page.getByRole("form", { name: "New host" });
+  expect(await form.getByLabel("Label").inputValue()).toBe("GitHub Enterprise");
+  await form.getByLabel("Host").fill("git.corp.example");
+  await form.getByLabel("Label").fill("Corp Git");
+  await form.getByRole("button", { name: "Add host" }).click();
+
+  const card = page.getByRole("list", { name: "Corp Git" });
+  await card.getByText("No sign-in yet").waitFor();
+
+  // A host listed is the step's answer.
+  expect(await page.getByText("Go on with no code host").count()).toBe(0);
+  expect(await continueButton().isDisabled()).toBe(false);
+
+  await card
+    .getByRole("button", { name: "Set up sign-in for git.corp.example" })
+    .click();
+
+  const setup = page.getByRole("region", {
+    name: "Set up Connect for git.corp.example",
+  });
+
+  await setup.getByLabel("Client ID").fill("Iv1.corp");
+  await setup.getByLabel("Client secret").fill("shh");
+  await setup.getByRole("button", { name: "Save" }).click();
+  await card.getByText("Ready").waitFor();
+
+  await card.getByRole("button", { name: "Create GitHub App" }).click();
+
+  await page
+    .getByRole("form", { name: "A GitHub App for Corp Git" })
+    .getByRole("button", { name: "Create on git.corp.example" })
+    .waitFor();
+
+  await page.goto(new URL("/#get-started/git-hosts", server.url).href);
+  await page.getByRole("heading", { name: "Connect your code" }).waitFor();
+
+  const mine = page.getByRole("list", { name: "Corp Git" });
+  await mine.getByRole("button", { name: "Sign in with Corp Git" }).waitFor();
+  await mine.getByRole("button", { name: "use a token" }).click();
+  await mine.getByLabel("Personal access token").waitFor();
+
+  await fetch(
+    new URL("/api/ext/git-hosts/hosts/git.corp.example", server.url),
+    {
+      method: "DELETE",
+      headers: { cookie },
+    },
+  );
 });
 
 test("invites someone by email, who joins with their link and a password", async () => {

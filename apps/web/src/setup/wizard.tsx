@@ -60,11 +60,13 @@ export function SetupWizard({
     { kind: "ready" },
   ];
 
+  // A personal step by its id, or any step by its key, such as
+  // server:git-hosts when a plugin's flow comes back to its server step.
   const opened = screens.find(
     (screen) =>
       screen.kind === "step" &&
-      screen.step.phase === "person" &&
-      screen.step.id === start,
+      ((screen.step.phase === "person" && screen.step.id === start) ||
+        keyOf(screen) === start),
   );
 
   const first =

@@ -43,6 +43,18 @@ export interface CommitIdentities {
   readonly hosts: readonly (Identity & { readonly host: string })[];
 }
 
+// Where the server and the person are in the plugin's setup steps
+// (ADR 0072). Going on without a host is an answer: the admin's for the
+// server, and the person's for the hosts listed when they gave it.
+export interface SetupState {
+  // The deploy's file that sets the hosts, which then only show.
+  readonly lockedIn: string | null;
+  readonly noHosts: boolean;
+  readonly withoutHosts: boolean;
+  readonly server: boolean;
+  readonly person: boolean;
+}
+
 // What a person can commit as on a host they connected: their name there and
 // the emails the host verified, the primary first.
 export interface HostEmails {

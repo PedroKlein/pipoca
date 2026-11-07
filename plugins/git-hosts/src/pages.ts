@@ -1,3 +1,5 @@
+import { type Static, Type } from "@pipoca/plugins";
+
 // A page that moves on by itself instead of a 302: the browser came here from
 // the host's site, and would leave the Strict session cookie off a redirect
 // it follows straight away.
@@ -23,6 +25,24 @@ export function html(body: string, status: number): Response {
       "cache-control": "no-store",
     },
   });
+}
+
+// A flow started from a setup step goes back to that step (ADR 0072).
+export const then = Type.Optional(
+  Type.Union([Type.Literal("setup"), Type.Literal("server-setup")]),
+);
+
+export type Then = Static<typeof then> | undefined;
+
+export function backTo(step: Then, otherwise: string): string {
+  switch (step) {
+    case "setup":
+      return "/#get-started/git-hosts";
+    case "server-setup":
+      return "/#get-started/server:git-hosts";
+    case undefined:
+      return otherwise;
+  }
 }
 
 export function escaped(text: string): string {

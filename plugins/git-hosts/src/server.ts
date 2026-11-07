@@ -36,8 +36,9 @@ import type {
   HostEmails,
   HostView,
 } from "./model";
-import { page, redirect } from "./pages";
+import { backTo, page, redirect, then } from "./pages";
 import { pullRequests } from "./pull-requests";
+import { setupRoutes } from "./setup";
 import { technicalUserRoutes } from "./technical-user-routes";
 import { type HostSearch, repositoriesTool } from "./tool";
 import { eventOf } from "./webhooks";
@@ -53,6 +54,7 @@ interface Pending {
   readonly userId: string;
   readonly browser: string;
   readonly expires: number;
+  readonly back: string;
 }
 
 const connection = Type.Object({ host: Type.String(), token: Type.String() });
@@ -368,40 +370,45 @@ export const server = defineServer(gitHosts, (context) => {
 
   // The person's browser goes to the host's sign-in, and comes back to the
   // callback with a code.
-  routes.get("sign-in/:host", { auth: "person" }, ({ caller, params }) => {
-    const host = hosts.get(params.host);
-    const oauth = host?.oauth;
+  routes.get(
+    "sign-in/:host",
+    { auth: "person", query: Type.Object({ then }) },
+    ({ caller, params, query }) => {
+      const host = hosts.get(params.host);
+      const oauth = host?.oauth;
 
-    if (host === undefined || oauth?.clientSecret === undefined) {
-      return page(`${params.host} has no sign-in set up.`, 404);
-    }
-
-    const now = clock.now();
-
-    for (const [state, each] of pending) {
-      if (each.expires < now) {
-        pending.delete(state);
+      if (host === undefined || oauth?.clientSecret === undefined) {
+        return page(`${params.host} has no sign-in set up.`, 404);
       }
-    }
 
-    const state = randomBytes(32).toString("base64url");
+      const now = clock.now();
 
-    const response = new Response(null, {
-      status: 302,
-      headers: {
-        location: authorizationUrl(host, oauth, callback(), state),
-      },
-    });
+      for (const [state, each] of pending) {
+        if (each.expires < now) {
+          pending.delete(state);
+        }
+      }
 
-    pending.set(state, {
-      host: host.host,
-      userId: caller.person.id,
-      browser: urls.browser.mark(response, attemptMs),
-      expires: now + attemptMs,
-    });
+      const state = randomBytes(32).toString("base64url");
 
-    return response;
-  });
+      const response = new Response(null, {
+        status: 302,
+        headers: {
+          location: authorizationUrl(host, oauth, callback(), state),
+        },
+      });
+
+      pending.set(state, {
+        host: host.host,
+        userId: caller.person.id,
+        browser: urls.browser.mark(response, attemptMs),
+        expires: now + attemptMs,
+        back: backTo(query.then, "/#settings/accounts"),
+      });
+
+      return response;
+    },
+  );
 
   routes.get(
     "callback",
@@ -455,7 +462,7 @@ export const server = defineServer(gitHosts, (context) => {
 
       routes.topic("account");
 
-      return redirect("/#settings/accounts");
+      return redirect(attempt.back);
     },
   );
 
@@ -506,6 +513,10 @@ export const server = defineServer(gitHosts, (context) => {
   );
 
   technicalUserRoutes(context, hosts, bots, actingAs.refresh);
+
+  setupRoutes(context, hosts, (userId) =>
+    connections.of(userId).map(({ host }) => host),
+  );
 
   pullRequests(context, hosts, signed, actingAs.teamBots);
 });

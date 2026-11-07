@@ -163,6 +163,16 @@ insert into git_hosts_commit_identities (user_id, host, name, email)
 
 drop table git_hosts_commit_as;
 `,
+    // 2: going on without a code host is an answer in setup (ADR 0072): the
+    // server's, with no user, or a person's, with the hosts listed then.
+    `
+create table git_hosts_setup_answers (
+  user_id text references users (id) on delete cascade,
+  hosts text not null check (json_valid(hosts)),
+  answered_at integer not null
+) strict;
+create unique index git_hosts_setup_answers_user on git_hosts_setup_answers (coalesce(user_id, ''));
+`,
   ],
   events: {
     issue: event({
