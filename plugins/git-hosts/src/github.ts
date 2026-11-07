@@ -1,4 +1,5 @@
 import type { HostConfig, OAuthApp } from "./hosts";
+import type { HostEmails } from "./model";
 
 // What a host answered, in words for the person connecting.
 export class HostRefused extends Error {}
@@ -36,8 +37,65 @@ export async function loginOf(
   return login;
 }
 
+// The account's verified emails, the primary first, to commit as. A token
+// without the user:email scope can't list them, and then the account's
+// public email is all there is.
+export async function emailsOf(
+  host: HostConfig,
+  token: string,
+): Promise<HostEmails> {
+  const headers = {
+    accept: "application/vnd.github+json",
+    authorization: `Bearer ${token}`,
+  };
+
+  const [user, listed] = await Promise.all([
+    reach(host, `${host.api}/user`, { headers }),
+    reach(host, `${host.api}/user/emails?per_page=100`, { headers }),
+  ]);
+
+  if (!user.ok) {
+    throw new HostRefused(
+      `${host.host} answered ${String(user.status)} when asked who the token belongs to`,
+    );
+  }
+
+  const { name, email } = (await user.json().catch(() => ({}))) as {
+    name?: unknown;
+    email?: unknown;
+  };
+
+  const list: unknown = listed.ok ? await listed.json().catch(() => []) : [];
+
+  const found = (Array.isArray(list) ? list : []).flatMap((item: unknown) => {
+    const each = (item ?? {}) as {
+      email?: unknown;
+      verified?: unknown;
+      primary?: unknown;
+    };
+
+    return typeof each.email === "string" && each.verified === true
+      ? [{ email: each.email, primary: each.primary === true }]
+      : [];
+  });
+
+  const emails = [
+    ...found.filter(({ primary }) => primary),
+    ...found.filter(({ primary }) => !primary),
+  ].map(({ email: each }) => each);
+
+  return {
+    name: typeof name === "string" && name.trim() !== "" ? name.trim() : null,
+    emails:
+      emails.length === 0 && typeof email === "string" && email !== ""
+        ? [email]
+        : emails,
+  };
+}
+
 // GitHub's web flow for OAuth apps. repo covers private repositories and
-// pushes, read:org the organizations' repositories.
+// pushes, read:org the organizations' repositories, and user:email the
+// emails to commit as.
 export function authorizationUrl(
   host: HostConfig,
   oauth: OAuthApp,
@@ -47,7 +105,7 @@ export function authorizationUrl(
   const params = new URLSearchParams({
     client_id: oauth.clientId,
     redirect_uri: redirectUri,
-    scope: "repo read:org",
+    scope: "repo read:org user:email",
     state,
   });
 

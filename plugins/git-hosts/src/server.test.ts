@@ -8,7 +8,7 @@ import {
   testPlugin,
   until,
 } from "@pipoca/testing";
-import type { gitHosts } from "../plugin";
+import { gitHosts } from "../plugin";
 import { server } from "./server";
 
 const host = "git.example.com";
@@ -210,10 +210,20 @@ function fakeHost(now: () => number) {
 
         return Response.json({ merged: true });
       case "/api/v3/user":
-        return Response.json({
-          login:
-            authorization === `Bearer ${botToken}` ? "team-bot" : "pedro-gh",
-        });
+        return Response.json(
+          authorization === `Bearer ${botToken}`
+            ? { login: "team-bot", name: null, email: "bot@example.com" }
+            : { login: "pedro-gh", name: "Pedro Klein", email: null },
+        );
+      // The bot's token has no user:email scope.
+      case "/api/v3/user/emails":
+        return authorization === `Bearer ${botToken}`
+          ? Response.json({ message: "Not Found" }, { status: 404 })
+          : Response.json([
+              { email: "old@example.com", verified: false, primary: false },
+              { email: "pedro@work.example", verified: true, primary: false },
+              { email: "pedro@example.com", verified: true, primary: true },
+            ]);
       case "/api/v3/user/repos":
         return Response.json([
           repository("acme/aicore-provider"),
@@ -339,15 +349,51 @@ async function createApp(t: PluginTest): Promise<void> {
   await t.clock.advance(0);
 }
 
-test("lists only github.com when the config file names no hosts", async () => {
+test("lists no host when the config file names none", async () => {
   await using run = await start(null);
   const { t } = run;
 
   expect(await t.as("ana").get("account")).toEqual({
     admin: false,
-    hosts: [{ host: "github.com", label: "GitHub", oauth: false }],
+    hosts: [],
     connections: [],
   });
+
+  expect(await t.as("pedro").get("hosts")).toEqual([]);
+
+  const refused = await t.as("ana").raw("connect", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ host: "github.com", token: goodToken }),
+  });
+
+  expect(refused.status).toBe(400);
+  expect((await t.session({ owner: person("ana") })).gitLogins()).toEqual([]);
+});
+
+test("lets an admin add a host with its OAuth app from Settings, whose sign-in asks for the person's emails", async () => {
+  await using run = await start(null);
+  const { t } = run;
+
+  await t.as("pedro").post("hosts", {
+    host: "GitHub.com",
+    label: "GitHub",
+    clientId: "Iv1.abc",
+    clientSecret: "shh",
+  });
+
+  expect(await t.as("ana").get("account")).toMatchObject({
+    hosts: [{ host: "github.com", label: "GitHub", oauth: true }],
+  });
+
+  const sent = await t.as("ana").raw("sign-in/github.com", { method: "GET" });
+  const location = new URL(sent.headers.get("location") ?? "");
+
+  expect(location.origin + location.pathname).toBe(
+    "https://github.com/login/oauth/authorize",
+  );
+
+  expect(location.searchParams.get("scope")).toBe("repo read:org user:email");
 });
 
 test("connects a host with a token and signs the person's Sessions in with it", async () => {
@@ -419,12 +465,11 @@ test("refuses a token the host doesn't accept, saying so", async () => {
   });
 });
 
-// The Settings list shows GitHub, the default, beside the host an admin
-// adds, each once, though both have tokens only.
-test("lists a host an admin adds once, beside the default github.com", async () => {
+test("lists each host an admin adds once", async () => {
   await using run = await start(null);
   const { t } = run;
 
+  await t.as("pedro").post("hosts", { host: "github.com" });
   await t.as("pedro").post("hosts", { host: "git.example.com" });
 
   const again = await t.as("pedro").raw("hosts", {
@@ -1202,8 +1247,105 @@ test("has a person's Sessions commit as the name and email they chose", async ()
   const chosen = { name: "Pedro Klein", email: "pedro@example.com" };
   await t.as("pedro").post("commit-as", chosen);
 
-  expect(await t.as("pedro").get("commit-as")).toEqual(chosen);
+  expect(await t.as("pedro").get("commit-as")).toEqual({
+    default: chosen,
+    hosts: [],
+  });
+
   expect(await session.api.get("identity")).toEqual(chosen);
+});
+
+test("commits with the name and email chosen for the repository's host, and the default elsewhere", async () => {
+  await using run = await start();
+  const { t } = run;
+
+  const fallback = { name: "Pedro", email: "pedro@example.com" };
+  const work = { name: "Pedro Klein", email: "pedro@work.example" };
+
+  await t.as("pedro").post("commit-as", fallback);
+  await t.as("pedro").post("commit-as", { host: "Git.Example.com", ...work });
+
+  expect(await t.as("pedro").get("commit-as")).toEqual({
+    default: fallback,
+    hosts: [{ host, ...work }],
+  });
+
+  const session = await t.session({ owner: person("pedro") });
+
+  expect(await session.api.get("identity", { host })).toEqual(work);
+
+  expect(await session.api.get("identity", { host: "github.com" })).toEqual(
+    fallback,
+  );
+
+  expect(await session.api.get("identity")).toEqual(fallback);
+
+  await t.as("pedro").post("commit-as", { name: "", email: "" });
+
+  expect(await session.api.get("identity", { host })).toEqual(work);
+  expect(await session.api.get("identity", { host: "github.com" })).toBeNull();
+
+  const ana = await t.session({ owner: person("ana") });
+
+  expect(await ana.api.get("identity", { host })).toBeNull();
+});
+
+test("lists the verified emails of the person's account on a host, the primary first", async () => {
+  await using run = await start();
+  const { t } = run;
+
+  expect((await t.as("pedro").raw(`emails/${host}`)).status).toBe(404);
+
+  await connected(t);
+
+  expect(await t.as("pedro").get(`emails/${host}`)).toEqual({
+    name: "Pedro Klein",
+    emails: ["pedro@example.com", "pedro@work.example"],
+  });
+
+  await t.as("ana").post("connect", { host, token: botToken });
+
+  expect(await t.as("ana").get(`emails/${host}`)).toEqual({
+    name: null,
+    emails: ["bot@example.com"],
+  });
+});
+
+test("keeps the name and email a person chose before hosts had their own as their default", async () => {
+  // The plugin as it was before its first migration, then as it is now.
+  const before = { ...gitHosts, migrations: [] as readonly string[] };
+  const fake = fakeHost(() => 0);
+
+  await using t = await testPlugin(
+    {
+      plugin: before,
+      register: (context) => {
+        server.register(context);
+      },
+    },
+    { people, config: listed, fetch: fake.answer },
+  );
+
+  t.store.run(
+    "insert into git_hosts_commit_as (user_id, name, email) values (?, ?, ?)",
+    "pedro",
+    "Pedro Klein",
+    "pedro@example.com",
+  );
+
+  before.migrations = gitHosts.migrations;
+  await t.restart();
+
+  const chosen = { name: "Pedro Klein", email: "pedro@example.com" };
+
+  expect(await t.as("pedro").get("commit-as")).toEqual({
+    default: chosen,
+    hosts: [],
+  });
+
+  const session = await t.session({ owner: person("pedro") });
+
+  expect(await session.api.get("identity", { host })).toEqual(chosen);
 });
 
 test("turns a GitHub App's signed webhooks into events for the people who may use it", async () => {

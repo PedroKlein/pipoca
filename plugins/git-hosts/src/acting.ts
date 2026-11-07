@@ -1,7 +1,7 @@
 import type { Collection, ServerContext } from "@pipoca/plugins";
 import type { GitLogin, Owner, Session } from "@pipoca/protocol";
 import type { gitHosts, TechnicalUserItem } from "../plugin";
-import type { Identity } from "./commit-as";
+import type { Identity } from "./model";
 import { HostRefused, reach } from "./github";
 import type { HostConfig, Hosts } from "./hosts";
 import {

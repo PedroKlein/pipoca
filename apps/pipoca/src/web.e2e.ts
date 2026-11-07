@@ -242,17 +242,20 @@ export const web = defineWeb(vault, {
     .getByRole("button", { name: "Create account and continue" })
     .click();
 
-  // The e2e runner is online with its own model, so those steps are done;
-  // GitHub is listed but not connected, so code is skipped (ADR 0063).
-  for (const heading of ["Where should Pi work?", "Connect a model"]) {
+  // The e2e runner is online with its own model, so those steps are done,
+  // and no git host is listed yet, so there is no code to connect
+  // (ADR 0063).
+  for (const heading of [
+    "Where should Pi work?",
+    "Connect a model",
+    "Connect your code",
+  ]) {
     await page.getByRole("heading", { name: heading }).waitFor();
     await page.getByRole("button", { name: "Continue" }).click();
   }
 
-  for (const heading of ["Connect your code", "Make Pi yours"]) {
-    await page.getByRole("heading", { name: heading }).waitFor();
-    await page.getByRole("button", { name: "Skip for now" }).click();
-  }
+  await page.getByRole("heading", { name: "Make Pi yours" }).waitFor();
+  await page.getByRole("button", { name: "Skip for now" }).click();
 
   await page.getByRole("heading", { name: "You're set, pedro" }).waitFor();
   await page.getByPlaceholder("What do you want to build first?").waitFor();
@@ -796,9 +799,12 @@ test("keeps a setup step on home until it's done, and opens it from there", asyn
 
   expect(await reminders.getByText("Connect a model").count()).toBe(0);
 
-  for (const heading of ["Connect your code", "Make Pi yours"]) {
-    await reminders.getByRole("button", { name: `Dismiss ${heading}` }).click();
-  }
+  // No git host is listed, so there is no code to connect.
+  expect(await reminders.getByText("Connect your code").count()).toBe(0);
+
+  await reminders
+    .getByRole("button", { name: "Dismiss Make Pi yours" })
+    .click();
 
   await reminders.waitFor({ state: "hidden" });
   await page.reload();
@@ -1763,15 +1769,15 @@ test("guides an admin from a token-only host to a Connect button", async () => {
   await page.goto(server.url.href);
   await openSettings("Git hosts");
 
+  // No host is listed until an admin adds one.
+  const hosts = page.getByRole("list", { name: "Hosts" });
+  await hosts.getByRole("button", { name: "Add GitHub" }).waitFor();
+
   await page.getByRole("button", { name: "Add a host" }).click();
 
   const form = page.getByRole("form", { name: "New host" });
   await form.getByLabel("Host").fill("git.example.com");
   await form.getByRole("button", { name: "Add host" }).click();
-
-  // GitHub is listed by default and also has tokens only, so look at
-  // the new host's own row.
-  const hosts = page.getByRole("list", { name: "Hosts" });
 
   const added = hosts
     .getByRole("listitem")

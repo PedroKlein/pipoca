@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { defineSession, type SessionContext } from "@pipoca/plugins";
 import { gitHosts } from "../plugin";
-import type { Identity } from "./commit-as";
+import type { Identity } from "./model";
 
 const run = promisify(execFile);
 
@@ -80,18 +80,59 @@ async function recordedPullRequests({
 }
 
 // A Session commits as the technical user it acts as (ADR 0060), or as the
-// name and email its person chose.
+// name and email its person chose for each checkout's host (ADR 0072).
 async function signCommits({ api, checkouts }: Context): Promise<void> {
-  const identity = await api.get<Identity | null>("identity");
+  const asked = new Map<string, Promise<Identity | null>>();
 
-  if (identity === null) {
-    return;
-  }
+  const identityOn = async (host: string): Promise<Identity | null> => {
+    const known = asked.get(host);
+
+    if (known !== undefined) {
+      return known;
+    }
+
+    const identity = api.get<Identity | null>(
+      "identity",
+      host === "" ? {} : { host },
+    );
+
+    asked.set(host, identity);
+
+    return identity;
+  };
 
   await Promise.all(
     checkouts.map(async ({ path }) => {
+      const identity = await identityOn(await hostOf(path));
+
+      if (identity === null) {
+        return;
+      }
+
       await run("git", ["-C", path, "config", "user.name", identity.name]);
       await run("git", ["-C", path, "config", "user.email", identity.email]);
     }),
   );
+}
+
+// The host of the checkout's origin, as https, ssh and scp-like URLs name
+// it, or empty without one. An https port is part of the host, as the
+// config lists it, but an ssh port isn't.
+async function hostOf(path: string): Promise<string> {
+  const { stdout } = await run("git", [
+    "-C",
+    path,
+    "config",
+    "--get",
+    "remote.origin.url",
+  ]).catch(() => ({ stdout: "" }));
+
+  const url = stdout.trim();
+
+  const match =
+    /^https?:\/\/(?:[^@/]*@)?([^/]+)/i.exec(url) ??
+    /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]*@)?([^/:]+)/i.exec(url) ??
+    /^(?:[^@/]*@)?([^/:]+):/.exec(url);
+
+  return match?.[1]?.toLowerCase() ?? "";
 }
