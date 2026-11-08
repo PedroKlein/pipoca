@@ -119,6 +119,9 @@ test("a routine's page says why it paused itself, when it resumes and what it sp
     },
     runs: [],
     spentToday: 20,
+    createdBy: null,
+    changedBy: null,
+    history: [],
   };
 
   const page = renderPart(
@@ -200,6 +203,9 @@ test("a run's row shows what it proposed and where each stands, and a waiting on
       },
     ],
     spentToday: 0,
+    createdBy: null,
+    changedBy: null,
+    history: [],
   };
 
   const page = renderPart(
@@ -243,4 +249,71 @@ test("a run's row shows what it proposed and where each stands, and a waiting on
   expect(asked[1]).toBe(
     "POST /api/ext/routines/routines/triage/proposals/p1/approve",
   );
+});
+
+test("a waiting run shows its question and who it is for, and the page who made and changed the routine", async () => {
+  const asked: string[] = [];
+  const slots = { page: web.pages?.[0]?.Page };
+
+  const detail = {
+    name: "triage",
+    title: "Triage",
+    paused: null,
+    pausedUntil: null,
+    nextAt: null,
+    lastRun: null,
+    file: "{}",
+    runs: [
+      {
+        id: "r1",
+        firedAt: "2026-11-08T10:00:00.000Z",
+        cause: "event",
+        sessionId: "s2",
+        outcome: "waiting",
+        reason: null,
+        endedAt: null,
+        questions: [
+          {
+            id: "q1",
+            prompts: ["Which label fits?"],
+            closesAt: "2026-11-09T10:00:00.000Z",
+          },
+        ],
+        askedFor: ["Bo"],
+      },
+    ],
+    spentToday: 0,
+    createdBy: "Ana",
+    changedBy: "Bo",
+    history: [
+      { by: "Bo", change: "changed", at: "2026-11-08T09:00:00.000Z" },
+      { by: "Ana", change: "created", at: "2026-11-07T09:00:00.000Z" },
+    ],
+  };
+
+  const page = renderPart(
+    { ...web, slots },
+    "page",
+    { path: "triage" },
+    {
+      fetch: async (url) => {
+        asked.push(url);
+
+        return Promise.resolve(Response.json(detail));
+      },
+    },
+  );
+
+  await act(async () => until(() => asked.length > 0));
+
+  expect(page.textContent).toContain("Waiting for a person");
+
+  expect(
+    page.querySelector("ul[aria-label='Questions']")?.textContent,
+  ).toContain(
+    `Which label fits?For Bo. Waits until ${new Date("2026-11-09T10:00:00.000Z").toLocaleString()}.`,
+  );
+
+  expect(page.textContent).toContain("Made by Ana. Changed last by Bo.");
+  expect(page.textContent).toContain("Made by Ana");
 });

@@ -298,6 +298,13 @@ function RoutinePage({
               {routine.routine.limits.dailySpend}
             </p>
           )}
+          {(routine.createdBy !== null || routine.changedBy !== null) && (
+            <p className="text-ui text-fg-dim">
+              {routine.createdBy !== null && `Made by ${routine.createdBy}. `}
+              {routine.changedBy !== null &&
+                `Changed last by ${routine.changedBy}.`}
+            </p>
+          )}
           <ErrorText size="inherit" className="text-ui">
             {routine.error}
           </ErrorText>
@@ -407,6 +414,23 @@ function RoutinePage({
                 run={run}
                 act={act}
               />
+            ))}
+          </ul>
+        </Section>
+      )}
+      {routine !== undefined && routine.history.length > 0 && (
+        <Section title="History">
+          <ul className="flex flex-col gap-1 text-label">
+            {routine.history.map((change) => (
+              <li key={`${change.at}-${change.change}`} className="flex gap-2">
+                <time dateTime={change.at} className="text-fg-dim">
+                  {new Date(change.at).toLocaleString()}
+                </time>
+                <span className="text-fg">
+                  {change.change === "created" ? "Made" : "Changed"}
+                  {change.by === null ? "" : ` by ${change.by}`}
+                </span>
+              </li>
             ))}
           </ul>
         </Section>
@@ -791,6 +815,21 @@ function RunRow({
           Replay
         </Button>
       </div>
+      {run.questions !== undefined && run.questions.length > 0 && (
+        <ul aria-label="Questions" className="ml-6 flex flex-col gap-1 py-1">
+          {run.questions.map((question) => (
+            <li key={question.id} className="flex flex-col">
+              <span className="text-fg">{question.prompts.join(" ")}</span>
+              <span className="text-fg-dim">
+                {run.askedFor !== undefined && run.askedFor.length > 0
+                  ? `For ${run.askedFor.join(", ")}. `
+                  : ""}
+                Waits until {new Date(question.closesAt).toLocaleString()}.
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
       {run.proposals !== undefined && run.proposals.length > 0 && (
         <ul aria-label="Proposals" className="ml-6 flex flex-col gap-1 py-1">
           {run.proposals.map((proposal) => (
@@ -906,6 +945,7 @@ const outcomes: Readonly<
   Record<RunOutcome, { readonly state: BadgeState; readonly label: string }>
 > = {
   running: { state: "working", label: "Running" },
+  waiting: { state: "waiting", label: "Waiting for a person" },
   queued: { state: "waiting", label: "Queued" },
   ok: { state: "done", label: "Done" },
   nothing: { state: "offline", label: "Nothing to do" },

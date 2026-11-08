@@ -5,7 +5,7 @@ import {
   type PostedQuestion,
   type Questions,
 } from "@pipoca/plugins";
-import type { Session } from "@pipoca/protocol";
+import type { Question, Session } from "@pipoca/protocol";
 import {
   type PluginTest,
   person,
@@ -295,4 +295,72 @@ test("without a plugin that keeps questions, nothing waits past the turn", async
   expect(kept().wait(session.id, { owner: "ana" })).toBe(false);
   expect(kept().open(session.id)).toEqual([]);
   expect(kept().answer("nope", { text: "yes", by: "Ana" })).toBe(false);
+});
+
+// The approval in full, as a plugin asks it from the server.
+const shipIt: Question = {
+  id: "ship",
+  label: "Ship",
+  prompt: "Ship it?",
+  context: null,
+  type: "single",
+  options: [
+    {
+      value: "approve",
+      label: "Approve",
+      description: null,
+      recommended: false,
+    },
+    { value: "reject", label: "Reject", description: null, recommended: false },
+  ],
+};
+
+test("a plugin asks from the server in work it started, and each answer or timeout is published", async () => {
+  await using t = await started();
+  const session = await waitingWork(t);
+
+  const first = kept().ask(session.id, {
+    questions: [shipIt],
+    defaults: { ship: "reject" },
+  });
+
+  expect(first?.closesAt).toBe(
+    new Date(t.clock.now() + 3_600_000).toISOString(),
+  );
+
+  expect(await waiting(t, session)).toBe(true);
+  await t.clock.advance(0);
+
+  expect(posted).toMatchObject([
+    { id: first?.id, answerers: [{ id: "ana" }, { id: "bo" }] },
+  ]);
+
+  kept().answer(first?.id ?? "", { text: "approve", by: "Bo" });
+
+  const later = kept().ask(session.id, { questions: [shipIt] });
+  await t.clock.advance("1h");
+
+  expect(t.emitted("ask.answered")).toEqual([
+    {
+      fields: {
+        question: first?.id,
+        session: session.id,
+        answer: "approve",
+        by: "Bo",
+      },
+      to: [person("ana")],
+    },
+    {
+      fields: {
+        question: later?.id,
+        session: session.id,
+        answer: null,
+        by: null,
+      },
+      to: [person("ana")],
+    },
+  ]);
+
+  const unwaited = await t.session({ owner: person("ana") });
+  expect(kept().ask(unwaited.id, { questions: [shipIt] })).toBeUndefined();
 });

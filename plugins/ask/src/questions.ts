@@ -4,6 +4,7 @@ import {
   type OpenQuestion,
   type Origin,
   type Person,
+  type QuestionKeeper,
   type Reply,
   type ServerContext,
   type Session,
@@ -133,6 +134,22 @@ export function waitingQuestions(context: ServerContext<typeof ask>): void {
     return closed;
   };
 
+  const published = (
+    row: QuestionRow,
+    answer: string | null,
+    by: string | null,
+  ): void => {
+    const owner = sessions.get(row.session_id)?.ownedBy;
+
+    if (owner !== undefined) {
+      context.events.emit(
+        "answered",
+        { question: row.id, session: row.session_id, answer, by },
+        { to: [owner] },
+      );
+    }
+  };
+
   const tell = (row: QuestionRow, text: string): void => {
     const told = sessions.send(row.session_id, {
       text,
@@ -155,6 +172,8 @@ export function waitingQuestions(context: ServerContext<typeof ask>): void {
     if (row === undefined || !close(row, reply.by)) {
       return false;
     }
+
+    published(row, reply.text.trim(), reply.by);
 
     tell(
       row,
@@ -184,6 +203,7 @@ export function waitingQuestions(context: ServerContext<typeof ask>): void {
         questions: questionsOf(row),
         closesAt: new Date(row.closes_at).toISOString(),
       })),
+    ask: (sessionId, asked) => askOf(sessionId, asked),
   });
 
   const post = (row: QuestionRow, session: Session, origin: Origin): void => {
@@ -213,6 +233,75 @@ export function waitingQuestions(context: ServerContext<typeof ask>): void {
       );
   };
 
+  // Keeps the questions, for an answer that comes as a message.
+  const keep = (
+    session: Session,
+    waiting: WaitRow,
+    kept: {
+      readonly questions: readonly Question[];
+      readonly defaults: Defaults;
+      readonly for: readonly string[];
+      readonly timeoutMs?: number;
+    },
+  ): OpenQuestion => {
+    const now = clock.now();
+    const id = Bun.randomUUIDv7();
+    const forIds = [...new Set([...idsOf(waiting.people), ...kept.for])];
+
+    const closesAt =
+      now + (kept.timeoutMs ?? waiting.timeout_ms ?? defaultTimeoutMs);
+
+    store.run(
+      "insert into ask_questions (id, session_id, questions, defaults, people, asked_at, closes_at) values (?, ?, ?, ?, ?, ?, ?)",
+      id,
+      session.id,
+      JSON.stringify(kept.questions),
+      JSON.stringify(kept.defaults),
+      JSON.stringify(forIds),
+      now,
+      closesAt,
+    );
+
+    schedule.at(`${expire}${id}`, closesAt, id);
+
+    const row = openRow(id);
+
+    if (row !== undefined) {
+      need(row);
+
+      if (waiting.origin !== null) {
+        post(row, session, JSON.parse(waiting.origin) as Origin);
+      }
+    }
+
+    log("question waits", { id, session: session.id });
+
+    return {
+      id,
+      questions: kept.questions,
+      closesAt: new Date(closesAt).toISOString(),
+    };
+  };
+
+  const askOf: QuestionKeeper["ask"] = (sessionId, wanted) => {
+    const session = sessions.get(sessionId);
+    const waiting = waitOf(sessionId);
+
+    if (session === undefined || waiting === undefined) {
+      return undefined;
+    }
+
+    const asked = keep(session, waiting, {
+      questions: wanted.questions,
+      defaults: wanted.defaults ?? {},
+      for: wanted.for ?? [],
+    });
+
+    routes.topic("questions");
+
+    return asked;
+  };
+
   // The Session asks: past its turn when another plugin said so, or else in
   // the Session as always.
   routes.post(
@@ -225,52 +314,17 @@ export function waitingQuestions(context: ServerContext<typeof ask>): void {
         return { wait: "here" };
       }
 
-      const now = clock.now();
-      const id = Bun.randomUUIDv7();
-
       const named =
         body.for === undefined ? undefined : people.byName(body.for)?.id;
 
-      const forIds = [
-        ...new Set([
-          ...idsOf(waiting.people),
-          ...(named === undefined ? [] : [named]),
-        ]),
-      ];
+      const { id, closesAt } = keep(session, waiting, {
+        questions: body.questions,
+        defaults: body.defaults,
+        for: named === undefined ? [] : [named],
+        ...(body.timeoutMs !== undefined && { timeoutMs: body.timeoutMs }),
+      });
 
-      const closesAt =
-        now + (body.timeoutMs ?? waiting.timeout_ms ?? defaultTimeoutMs);
-
-      store.run(
-        "insert into ask_questions (id, session_id, questions, defaults, people, asked_at, closes_at) values (?, ?, ?, ?, ?, ?, ?)",
-        id,
-        session.id,
-        JSON.stringify(body.questions),
-        JSON.stringify(body.defaults),
-        JSON.stringify(forIds),
-        now,
-        closesAt,
-      );
-
-      schedule.at(`${expire}${id}`, closesAt, id);
-
-      const row = openRow(id);
-
-      if (row !== undefined) {
-        need(row);
-
-        if (waiting.origin !== null) {
-          post(row, session, JSON.parse(waiting.origin) as Origin);
-        }
-      }
-
-      log("question waits", { id, session: session.id });
-
-      return {
-        wait: "message",
-        id,
-        closesAt: new Date(closesAt).toISOString(),
-      };
+      return { wait: "message", id, closesAt };
     },
   );
 
@@ -282,6 +336,8 @@ export function waitingQuestions(context: ServerContext<typeof ask>): void {
     }
 
     const questions = questionsOf(row);
+
+    published(row, null, null);
 
     tell(
       row,
