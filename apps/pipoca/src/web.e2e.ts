@@ -1310,9 +1310,11 @@ test("turns off a plugin with the ones that need it after asking, and back on wi
   await anchor.getByRole("switch", { name: "On", checked: true }).click();
 
   const dialog = page.getByRole("dialog");
+
   await dialog
     .getByText("Leaning needs Anchor, so it turns off too. Its data stays.")
     .waitFor();
+
   await dialog.getByRole("button", { name: "Turn off" }).click();
 
   await leaning.getByRole("switch", { name: "On", checked: false }).waitFor();
