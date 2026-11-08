@@ -1,6 +1,7 @@
 export { StringEnum } from "@earendil-works/pi-ai";
 export type { Actor, Owner, Session } from "@pipoca/protocol";
 export { type Retry, retryAfter } from "./retry";
+export type { SessionBlobs } from "./blobs";
 export type { TypedClient } from "./client";
 export {
   Config,
@@ -24,6 +25,7 @@ export { type Static, Type } from "typebox";
 export { owners } from "./owners";
 export {
   type Auth,
+  type Blobs,
   type Caller,
   type CallerOf,
   type Collection,
@@ -51,6 +53,7 @@ export {
   type Sessions,
   type SqlValue,
   type Store,
+  type StoredBlob,
   type ToolCall,
   type ToolDef,
   type ToolOutput,

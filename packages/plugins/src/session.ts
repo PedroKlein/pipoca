@@ -14,6 +14,7 @@ import type {
   Timer,
 } from "@pipoca/protocol";
 import type { Static, TSchema } from "typebox";
+import type { SessionBlobs } from "./blobs";
 import type { TypedClient } from "./client";
 import type { PluginDefinition } from "./definition";
 import type { ToolDef } from "./server";
@@ -124,6 +125,8 @@ export interface SessionContext<P extends PluginDefinition = PluginDefinition> {
   // The plugin's config when the Session started, without its secrets.
   readonly config: ConfigValue<P>;
   readonly api: TypedClient;
+  // Uploads to the plugin's blob store, once its server part accepts them.
+  readonly blobs: SessionBlobs;
   readonly publish: (
     key: string,
     data: unknown,

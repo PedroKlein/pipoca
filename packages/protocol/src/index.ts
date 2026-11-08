@@ -93,10 +93,13 @@ export {
 } from "./log";
 export { readSse, readSseEvents, sseResponse } from "./sse";
 export {
+  blobHash,
+  blobRoutes,
   type DeclaredEvent,
   type PluginInfo,
   type PluginManifest,
   type ToolSpec,
+  uploadId,
 } from "./plugins";
 export {
   askedHeader,
