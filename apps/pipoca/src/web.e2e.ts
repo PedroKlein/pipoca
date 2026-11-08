@@ -3621,7 +3621,7 @@ test("folds a working turn to one line, and opens every step when the chat is se
     .click();
 }, 30_000);
 
-test("creates a Project and shares a file through its library", async () => {
+test("creates a Project and shares a file through its folder", async () => {
   const repository = join(root, "site");
   execFileSync("git", ["init", "--quiet", "--initial-branch=main", repository]);
   await writeFile(join(repository, "README.md"), "site\n");
@@ -3802,7 +3802,7 @@ test("creates a Project and shares a file through its library", async () => {
   await side.waitFor();
   await side.getByRole("button", { name: "Back to threads" }).click();
 
-  await page.getByRole("button", { name: "Project library" }).click();
+  await page.getByRole("button", { name: "Project folder" }).click();
 
   await page.getByText("No files yet.").waitFor();
 
@@ -3812,8 +3812,8 @@ test("creates a Project and shares a file through its library", async () => {
     buffer: Buffer.from("the brief\n"),
   });
 
-  await page.getByRole("link", { name: "brief.txt" }).waitFor();
-  await page.getByText(/user:\S+ wrote brief\.txt \(10 bytes\)$/).waitFor();
+  await page.getByRole("link", { name: "brief.txt" }).first().waitFor();
+  await page.getByText(/user:\S+ wrote brief\.txt \(10 B\)$/).waitFor();
 
   const nav = page.locator("#project-nav").getByRole("link", { name: /^Site/ });
   await nav.click();

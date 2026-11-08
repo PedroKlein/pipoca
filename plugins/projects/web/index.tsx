@@ -63,7 +63,7 @@ import {
   projectList,
   TeamAssistant,
 } from "./assistant";
-import { Library } from "./library";
+import { Folder } from "./folder";
 import {
   type ProjectNotices,
   type ProjectSummary,
@@ -780,7 +780,7 @@ function CreateForm({
 type Panel =
   | { readonly kind: "none" }
   | { readonly kind: "settings" }
-  | { readonly kind: "library" }
+  | { readonly kind: "folder" }
   | { readonly kind: "thread"; readonly id: string; readonly full: boolean };
 
 // "" is the coordinator alone, "settings" its settings beside it, and a
@@ -788,7 +788,7 @@ type Panel =
 function panelOf(rest: string, project: ProjectView): Panel {
   const [first = "", second] = rest.split("/");
 
-  if (first === "settings" || first === "library") {
+  if (first === "settings" || first === "folder") {
     return { kind: first };
   }
 
@@ -899,7 +899,7 @@ function ProjectPage({
 
         if (
           beside === "settings" ||
-          beside === "library" ||
+          beside === "folder" ||
           beside === "thread"
         ) {
           go("");
@@ -966,10 +966,10 @@ function ProjectPage({
                 <Button
                   variant="ghost"
                   iconOnly
-                  aria-label="Project library"
-                  aria-pressed={panel.kind === "library"}
+                  aria-label="Project folder"
+                  aria-pressed={panel.kind === "folder"}
                   onClick={() => {
-                    go(panel.kind === "library" ? "" : "library");
+                    go(panel.kind === "folder" ? "" : "folder");
                   }}
                 >
                   <Icon name="paperclip" />
@@ -1089,19 +1089,19 @@ function ProjectPage({
         </aside>
       )}
 
-      {beside === "library" && (
+      {beside === "folder" && (
         <aside
-          aria-label="Project library"
+          aria-label="Project folder"
           className={cn(column, "w-[min(30rem,45%)] bg-bg")}
         >
           <header className="flex min-h-14 items-center gap-2 border-b border-line px-4">
             <h2 className="flex-1 text-title font-semibold text-fg-strong">
-              Library
+              Folder
             </h2>
             <Button
               variant="ghost"
               iconOnly
-              aria-label="Close library"
+              aria-label="Close folder"
               onClick={() => {
                 go("");
               }}
@@ -1110,7 +1110,7 @@ function ProjectPage({
             </Button>
           </header>
           <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-4">
-            <Library path={path} />
+            <Folder path={path} />
           </div>
         </aside>
       )}
@@ -1136,10 +1136,10 @@ function ProjectPage({
 function besideOf(
   panel: Panel,
   railOpen: boolean,
-): "thread" | "settings" | "library" | "list" | undefined {
+): "thread" | "settings" | "folder" | "list" | undefined {
   if (
     panel.kind === "settings" ||
-    panel.kind === "library" ||
+    panel.kind === "folder" ||
     (panel.kind === "thread" && !panel.full)
   ) {
     return panel.kind;

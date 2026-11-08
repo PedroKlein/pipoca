@@ -55,7 +55,7 @@ The Pi tab runs Pi's terminal UI for the same session, so extensions that only w
   <img src="docs/images/project-light.png" alt="A Project coordinator that started two threads, with the threads listed on the right">
 </picture>
 
-A Project groups work toward one goal across one or more repositories. You talk to its coordinator, which starts a thread session for each piece of work, hears back after every thread turn, and shares Project memory and a file library with the threads. The rail lists the threads and puts the ones that need you first.
+A Project groups work toward one goal across one or more repositories. You talk to its coordinator, which starts a thread session for each piece of work, hears back after every thread turn, and shares Project memory and a folder of files with the threads. The rail lists the threads and puts the ones that need you first.
 
 ### Bring your Pi setup with you
 
