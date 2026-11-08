@@ -145,6 +145,10 @@ export interface LinkProps {
   readonly label: string;
 }
 
+export interface CodeBlockProps {
+  readonly code: string;
+}
+
 export interface SessionPartProps {
   readonly session: MountedSession;
 }
