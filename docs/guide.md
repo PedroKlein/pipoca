@@ -86,6 +86,8 @@ What a Session keeps lives on the server, wherever the Session runs ([ADR 0078](
 
 Pi publishes a page, a Markdown document, a picture, a PDF or a CSV table with `publish_artifact`, and a change as a new version at the same link. The chat shows a card that opens it on the Artifacts page, with every version, a restore button, a link to copy and a download. An artifact runs in a sandbox on an opaque origin, so it can't reach Pipoca or your sign-in, and it loads scripts and styles only from `artifacts.scriptHosts` (cdnjs, jsDelivr and unpkg by default). Whoever sees its Session opens it, and whoever steers the Session can share it with named people; Pi can't. Pi finds artifacts with `list_artifacts` and reads one back with `read_artifact`.
 
+On an artifact's page you can leave comments, on a passage you select or on the whole thing, and reply to them or resolve them. A comment with Send to Pi checked reaches the Session as your message. Compare shows two versions as a line diff, or side by side for pictures and PDFs. Whoever steers the Session can edit a Markdown artifact's source and save it as a new version, and Pi is told to read it before changing it again. The pin button keeps an artifact in the sidebar under Artifacts. A page can ask for a message with `parent.postMessage({ pipoca: "draft", text }, "*")`: it lands in the Session's composer, and you decide whether to send it.
+
 ### Server and agent options
 
 Options:

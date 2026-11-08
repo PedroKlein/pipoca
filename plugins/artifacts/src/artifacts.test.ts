@@ -8,7 +8,9 @@ import {
   testPlugin,
   testSession,
 } from "@pipoca/testing";
-import type { ArtifactSummary, ArtifactView } from "./artifacts";
+import { until } from "@pipoca/testing/until";
+import type { ArtifactSummary, ArtifactView, Comment } from "./artifacts";
+import { lineDiff } from "./diff";
 import { parseCsv } from "./render";
 import { server } from "./server";
 import { session } from "./session";
@@ -80,7 +82,7 @@ test("Pi publishes a file as an artifact and adds versions at the same link", as
     title: "Sales report",
     kind: "markdown",
     versions: 2,
-    steers: true,
+    access: "steer",
   });
 
   const latest = await t.as("ana").raw(`artifacts/${id}/view`, {
@@ -152,7 +154,7 @@ test("people who don't see the Session open an artifact only once it's shared wi
   });
 
   expect(await t.as("bo").get<ArtifactView>(`artifacts/${id}`)).toMatchObject({
-    steers: false,
+    access: "view",
     shares: [{ userId: "bo", name: "Bo", role: "view" }],
   });
 
@@ -208,5 +210,156 @@ test("reads CSV fields with quotes, commas and newlines", () => {
     ["a", "b"],
     ["x, y", 'say "hi"\nthere'],
     ["1", "2"],
+  ]);
+});
+
+test("a comment sent to Pi reaches the Session as the person's message, and viewers only read comments", async () => {
+  const { t, host, cwd, part } = await setUp();
+
+  await writeFile(join(cwd, "plan.md"), "# Plan\n\nShip Friday.\n");
+
+  const { details } = await part.tool("publish_artifact", { path: "plan.md" });
+  const { id } = details as { id: string };
+
+  await t.as("ana").put(`artifacts/${id}/shares`, {
+    shares: [
+      { name: "Bo", role: "comment" },
+      { name: "Cy", role: "view" },
+    ],
+  });
+
+  const first = await t
+    .as("bo")
+    .post<{ id: string; sentToPi: boolean }>(`artifacts/${id}/comments`, {
+      version: 1,
+      body: "Friday is too soon",
+      quote: "Ship Friday.",
+      toPi: true,
+    });
+
+  expect(first.sentToPi).toBe(true);
+
+  await t.as("ana").post(`artifacts/${id}/comments`, {
+    version: 1,
+    body: "Agreed",
+    parent: first.id,
+    toPi: false,
+  });
+
+  await until(() => host.delivered().length === 1);
+
+  expect(host.delivered()).toEqual([
+    {
+      text: `Bo commented on version 1 of the artifact “plan.md” (${id}) on “Ship Friday.”: Friday is too soon`,
+      turn: true,
+    },
+  ]);
+
+  expect(
+    await t.as("cy").get<{ comments: Comment[] }>(`artifacts/${id}/comments`),
+  ).toMatchObject({
+    comments: [
+      { author: "Bo", quote: "Ship Friday.", sentToPi: true, parent: null },
+      { author: "Ana", body: "Agreed", sentToPi: false, parent: first.id },
+    ],
+  });
+
+  expect(
+    (
+      await t.as("cy").raw(`artifacts/${id}/comments`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ version: 1, body: "x", toPi: true }),
+      })
+    ).status,
+  ).toBe(403);
+
+  await t
+    .as("bo")
+    .post(`artifacts/${id}/comments/${first.id}/resolve`, { resolved: true });
+
+  expect(
+    (await t.as("ana").get<{ comments: Comment[] }>(`artifacts/${id}/comments`))
+      .comments[0]?.resolved,
+  ).toBe(true);
+});
+
+test("a person's edit of a Markdown artifact is a new version Pi hears about", async () => {
+  const { t, host, cwd, part } = await setUp();
+
+  await writeFile(join(cwd, "notes.md"), "draft\n");
+
+  const { details } = await part.tool("publish_artifact", { path: "notes.md" });
+  const { id } = details as { id: string };
+
+  expect(
+    await t.as("ana").post(`artifacts/${id}/versions`, { text: "edited\n" }),
+  ).toEqual({ version: 2 });
+
+  expect(
+    await (
+      await t.as("ana").raw(`artifacts/${id}/download`, { method: "GET" })
+    ).text(),
+  ).toBe("edited\n");
+
+  await until(() => host.delivered().length === 1);
+
+  expect(host.delivered()[0]).toMatchObject({
+    text: `Ana edited the artifact “notes.md” (${id}): it's now version 2. Read it with read_artifact before you change it.`,
+    turn: false,
+  });
+
+  await writeFile(join(cwd, "page.html"), "<p>hi</p>");
+
+  const page = await part.tool("publish_artifact", { path: "page.html" });
+
+  expect(
+    (
+      await t
+        .as("ana")
+        .raw(`artifacts/${(page.details as { id: string }).id}/versions`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text: "x" }),
+        })
+    ).status,
+  ).toBe(400);
+});
+
+test("each person pins artifacts to their own sidebar", async () => {
+  const { t, cwd, part } = await setUp();
+
+  await writeFile(join(cwd, "a.md"), "a");
+
+  const { details } = await part.tool("publish_artifact", {
+    path: "a.md",
+    title: "Roadmap",
+  });
+
+  const { id } = details as { id: string };
+
+  await t.as("ana").put(`artifacts/${id}/pin`, { pinned: true });
+
+  expect(await t.as("ana").get("pins")).toMatchObject({
+    artifacts: [{ id, title: "Roadmap" }],
+  });
+
+  expect(await t.as("ana").get<ArtifactView>(`artifacts/${id}`)).toMatchObject({
+    pinned: true,
+  });
+
+  expect(await t.as("bo").get("pins")).toEqual({ artifacts: [] });
+
+  await t.as("ana").put(`artifacts/${id}/pin`, { pinned: false });
+
+  expect(await t.as("ana").get("pins")).toEqual({ artifacts: [] });
+});
+
+test("a line diff keeps what both versions share and marks the rest", () => {
+  expect(lineDiff("a\nb\nc", "a\nc\nd")).toEqual([
+    { kind: "same", text: "a" },
+    { kind: "removed", text: "b" },
+    { kind: "same", text: "c" },
+    { kind: "added", text: "d" },
   ]);
 });
