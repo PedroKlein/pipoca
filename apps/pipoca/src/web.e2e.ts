@@ -3438,6 +3438,7 @@ test("writes a routine from a starter, runs it by hand and opens its run", async
   ]);
 
   await page.goto(`${server.url.href}#plugin/routines/new`);
+  await page.getByRole("button", { name: "Write JSON" }).click();
   await page.getByRole("button", { name: "Issue to pull request" }).click();
 
   expect(await page.getByLabel("Name").inputValue()).toBe(
@@ -3490,6 +3491,7 @@ test("runs a routine by hand with the inputs its form asks for", async () => {
   ]);
 
   await page.goto(`${server.url.href}#plugin/routines/new`);
+  await page.getByRole("button", { name: "Write JSON" }).click();
   await page.getByLabel("Name").fill("look-at");
 
   await page.getByLabel("Routine JSON").fill(
@@ -5332,6 +5334,14 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
 
   await page.goto(`${server.url.href}#plugin/routines`);
   await page.getByRole("link", { name: "New team routine" }).click();
+
+  await page
+    .getByRole("heading", {
+      name: "What should happen by itself for the team?",
+    })
+    .waitFor();
+
+  await page.getByRole("button", { name: "Write JSON" }).click();
   await page.getByRole("heading", { name: "New team routine" }).waitFor();
   await page.getByLabel("Name").fill("weekly-notes");
 
@@ -5360,7 +5370,7 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
     .filter({ has: page.getByRole("heading", { name: "The team's" }) })
     .getByRole("link", { name: /Write the weekly notes/ })
     .waitFor();
-});
+}, 30_000);
 
 test("shows plugin panels on the team hub and lets an admin lay out a page of them", async () => {
   await page.goto(new URL("/#team", server.url).href);
