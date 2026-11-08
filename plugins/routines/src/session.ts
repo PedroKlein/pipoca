@@ -12,6 +12,7 @@ import {
   Type,
 } from "@pipoca/plugins";
 import { routines } from "../plugin";
+import { routineCommand } from "./command";
 import type { Proposal } from "./model";
 import type { Allowed } from "./routine";
 
@@ -24,8 +25,10 @@ interface Proposing {
 
 // A routine's run that can't push or post proposes what to write instead,
 // which Pipoca applies after its turn (ADR 0076). Other Sessions get no
-// tool.
+// tool. Every Session gets /routine.
 export const session = defineSession(routines, async (s) => {
+  routineCommand(s);
+
   const proposing = await s.api
     .get<Proposing>("run")
     .catch((error: unknown) => {

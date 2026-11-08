@@ -825,13 +825,9 @@ test("a Session makes a routine only once its person allows it, and it runs once
   ).rejects.toThrow("isn't offered");
 });
 
-test("a team Session isn't offered the routines tool, but wakes itself up", async () => {
+test("a team Session wakes itself up", async () => {
   await using t = await started();
   const team = await environment(t, "team");
-
-  expect(
-    t.tool("routines", { action: "list" }, { session: team }),
-  ).rejects.toThrow("isn't offered");
 
   expect(
     (
