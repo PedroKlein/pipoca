@@ -35,12 +35,14 @@ export function PluginsStep(): ReactElement {
       {plugins.some(waitsForRestart) && <Restart />}
       <Group label="Adds a setup step">
         {withStep.map((plugin) => (
-          <PluginRow key={plugin.id} plugin={plugin} />
+          <PluginRow key={plugin.id} plugin={plugin} plugins={plugins} />
         ))}
       </Group>
       <Group label="Works with no setup">
         {choosing ? (
-          others.map((plugin) => <PluginRow key={plugin.id} plugin={plugin} />)
+          others.map((plugin) => (
+            <PluginRow key={plugin.id} plugin={plugin} plugins={plugins} />
+          ))
         ) : (
           <Row
             title={others.map(({ title }) => title).join(" · ")}
@@ -81,11 +83,17 @@ function Group({
   );
 }
 
-function PluginRow({ plugin }: { readonly plugin: PluginInfo }): ReactElement {
+function PluginRow({
+  plugin,
+  plugins,
+}: {
+  readonly plugin: PluginInfo;
+  readonly plugins: readonly PluginInfo[];
+}): ReactElement {
   const [ask, asking] = useConfirm();
 
   const turn = useAction(async () => {
-    await turnPlugin(plugin, ask);
+    await turnPlugin(plugin, plugins, ask);
   });
 
   return (

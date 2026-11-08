@@ -1,4 +1,4 @@
-import type { PluginInfo } from "@pipoca/protocol";
+import { type PluginInfo, switchingWith } from "@pipoca/protocol";
 import {
   Badge,
   Button,
@@ -17,8 +17,10 @@ import { switchesAtRestart } from "./restart";
 
 export function PluginCard({
   plugin,
+  plugins,
 }: {
   readonly plugin: PluginInfo;
+  readonly plugins: readonly PluginInfo[];
 }): ReactElement {
   const failure = webPartError(plugin.id);
   const [note, setNote] = useState<string>();
@@ -37,7 +39,7 @@ export function PluginCard({
 
   const turn = (): void => {
     run(async () => {
-      await turnPlugin(plugin, ask);
+      await turnPlugin(plugin, plugins, ask);
 
       return undefined;
     });
@@ -137,6 +139,7 @@ export function PluginCard({
         </span>
       </div>
       <p className="text-label text-fg-dim">{plugin.description}</p>
+      <Links plugin={plugin} plugins={plugins} />
       {(plugin.provides ?? []).length > 0 && (
         <p className="text-label text-fg-dim">
           Provides {(plugin.provides ?? []).join(", ")}
@@ -210,19 +213,91 @@ function shortPin(pinned: string): string {
     : pinned.slice(0, 12);
 }
 
-// Asks before turning an installed plugin on, since its code runs
-// unsandboxed. A built-in one comes with the server.
+// The plugins it needs, those that need it, and those it works with
+// (ADR 0077).
+function Links({
+  plugin,
+  plugins,
+}: {
+  readonly plugin: PluginInfo;
+  readonly plugins: readonly PluginInfo[];
+}): ReactElement {
+  const title = titleIn(plugins);
+
+  const neededBy = plugins.filter(
+    ({ turnedOn, requires = [] }) => turnedOn && requires.includes(plugin.id),
+  );
+
+  const lines = [
+    ...((plugin.requires ?? []).length > 0
+      ? [`Needs ${(plugin.requires ?? []).map(title).join(", ")}`]
+      : []),
+    ...(neededBy.length > 0
+      ? [`Needed by ${neededBy.map(({ id }) => title(id)).join(", ")}`]
+      : []),
+    ...(plugin.worksWith ?? []).map(
+      ({ plugin: other, through }) =>
+        `Works with ${title(other)}: ${through
+          .map((each) =>
+            each === "events"
+              ? "listens to its events"
+              : "runs as its technical users",
+          )
+          .join(" and ")}`,
+    ),
+  ];
+
+  return (
+    <>
+      {lines.map((line) => (
+        <p key={line} className="text-label text-fg-dim">
+          {line}
+        </p>
+      ))}
+    </>
+  );
+}
+
+function titleIn(plugins: readonly PluginInfo[]): (id: string) => string {
+  return (id) => plugins.find((each) => each.id === id)?.title ?? id;
+}
+
+// Asks before turning a plugin on or off when others switch with it, and
+// before turning an installed one on, since its code runs unsandboxed. A
+// built-in one comes with the server.
 export async function turnPlugin(
   plugin: PluginInfo,
+  plugins: readonly PluginInfo[],
   ask: (options: ConfirmOptions) => Promise<boolean>,
 ): Promise<void> {
+  const on = !plugin.turnedOn;
+  const title = titleIn(plugins);
+
+  const also = switchingWith(
+    plugins,
+    plugin.id,
+    on,
+    (id) => plugins.find((each) => each.id === id)?.turnedOn === true,
+  );
+
+  const installed = [plugin.id, ...also].flatMap((id) => {
+    const found = plugins.find((each) => each.id === id);
+
+    return on && found?.source === "installed" ? [found] : [];
+  });
+
   if (
-    !plugin.turnedOn &&
-    plugin.source === "installed" &&
+    (also.length > 0 || installed.length > 0) &&
     !(await ask({
-      title: `Turn on ${plugin.title}?`,
-      description: trustQuestion(plugin),
-      confirm: "Turn on",
+      title: `Turn ${on ? "on" : "off"} ${plugin.title}?`,
+      description: [
+        ...(also.length > 0
+          ? [alsoSwitched(plugin.title, also.map(title), on)]
+          : []),
+        ...(installed.length > 0 ? [trustQuestion(plugin, installed)] : []),
+      ].join(" "),
+      confirm: on ? "Turn on" : "Turn off",
+      danger: !on,
     }))
   ) {
     return;
@@ -234,18 +309,42 @@ export async function turnPlugin(
   });
 }
 
-// What turning a plugin on lets it do, since its code runs unsandboxed.
-function trustQuestion(plugin: PluginInfo): string {
-  const parts = plugin.parts ?? [];
+export function alsoSwitched(
+  title: string,
+  others: readonly string[],
+  on: boolean,
+): string {
+  const named = others.join(", ");
+  const one = others.length === 1;
+
+  return on
+    ? `It needs ${named}, so ${one ? "it turns" : "they turn"} on too.`
+    : `${named} ${one ? "needs" : "need"} ${title}, so ${one ? "it turns" : "they turn"} off too. ${one ? "Its" : "Their"} data stays.`;
+}
+
+// What turning installed plugins on lets them do, since their code runs
+// unsandboxed.
+function trustQuestion(
+  plugin: PluginInfo,
+  installed: readonly PluginInfo[],
+): string {
+  const parts = installed.flatMap((each) => each.parts ?? []);
+  const one = installed.length === 1;
+  const its = one ? "Its" : "Their";
 
   return [
-    "Its code runs inside the Pipoca server, with the server's access.",
+    ...(one && installed[0]?.id === plugin.id
+      ? []
+      : [
+          `${installed.map(({ title }) => title).join(", ")} ${one ? "is" : "are"} installed.`,
+        ]),
+    `${its} code runs inside the Pipoca server, with the server's access.`,
     ...(parts.includes("web")
-      ? ["Its web part runs in the page of everyone who opens Pipoca."]
+      ? [`${its} web part runs in the page of everyone who opens Pipoca.`]
       : []),
     ...(parts.includes("session")
       ? [
-          "Its Session part runs in every Session, on every machine that runs one, laptops included.",
+          `${its} Session part runs in every Session, on every machine that runs one, laptops included.`,
         ]
       : []),
     "Turn on only plugins you trust.",

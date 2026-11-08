@@ -7,10 +7,13 @@ import {
   Rows,
   Switch,
   TextInput,
+  useConfirm,
 } from "@pipoca/ui";
+import { switchingWith } from "@pipoca/protocol";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import { request } from "../data/client";
 import { useAction, useQuery } from "../data/hooks";
+import { alsoSwitched } from "../settings/plugins/plugin-card";
 
 export function TeamNaming(): ReactElement {
   const name = useQuery("settings.team").data?.name;
@@ -67,12 +70,35 @@ export function TeamNaming(): ReactElement {
 export function TeamPlugins(): ReactElement {
   const plugins = useQuery("plugins.list").data ?? [];
 
-  const turn = useAction(async (id: string, on: boolean) =>
-    request("plugins.update", {
+  const [ask, asking] = useConfirm();
+
+  const turn = useAction(async (id: string, on: boolean) => {
+    const title = (other: string): string =>
+      plugins.find((each) => each.id === other)?.title ?? other;
+
+    const also = switchingWith(
+      plugins,
+      id,
+      on,
+      (other) => plugins.find((each) => each.id === other)?.teamWork === true,
+    );
+
+    if (
+      also.length > 0 &&
+      !(await ask({
+        title: `Turn ${on ? "on" : "off"} ${title(id)} in team work?`,
+        description: alsoSwitched(title(id), also.map(title), on),
+        confirm: on ? "Turn on" : "Turn off",
+      }))
+    ) {
+      return;
+    }
+
+    await request("plugins.update", {
       params: { plugin: id },
       body: { teamWork: on },
-    }),
-  );
+    });
+  });
 
   return (
     <Page
@@ -96,6 +122,7 @@ export function TeamPlugins(): ReactElement {
             </Row>
           ))}
       </Rows>
+      {asking}
     </Page>
   );
 }

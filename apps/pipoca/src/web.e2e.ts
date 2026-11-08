@@ -26,6 +26,7 @@ import {
   type Page,
   type Route,
 } from "playwright-core";
+import { definePlugin } from "@pipoca/plugins";
 import type { Environment, Profile, Session } from "@pipoca/protocol";
 import { until } from "@pipoca/testing/until";
 import { protocolVersion, versionHeader } from "@pipoca/protocol";
@@ -215,6 +216,15 @@ export const web = defineWeb(vault, {
       folders: [root],
       models: { runtime, model: faux.getModel() },
     },
+    definitions: [
+      definePlugin({ id: "anchor", title: "Anchor", description: "" }),
+      definePlugin({
+        id: "leaning",
+        title: "Leaning",
+        description: "",
+        requires: ["anchor"],
+      }),
+    ],
     installed: {
       root: plugins,
       plugins: await installedPlugins(
@@ -1286,6 +1296,36 @@ test("turns a built-in plugin off for the next start and back on", async () => {
   await checklist.getByRole("switch", { name: "On", checked: true }).waitFor();
 
   expect(await checklist.getByText(/when the server restarts/).count()).toBe(0);
+});
+
+test("turns off a plugin with the ones that need it after asking, and back on with them", async () => {
+  await page.goto(server.url.href);
+  await openSettings("Plugins");
+
+  const anchor = page.getByRole("listitem", { name: "Anchor" });
+  const leaning = page.getByRole("listitem", { name: "Leaning" });
+  await anchor.getByText("Needed by Leaning").waitFor();
+  await leaning.getByText("Needs Anchor").waitFor();
+
+  await anchor.getByRole("switch", { name: "On", checked: true }).click();
+
+  const dialog = page.getByRole("dialog");
+
+  await dialog
+    .getByText("Leaning needs Anchor, so it turns off too. Its data stays.")
+    .waitFor();
+
+  await dialog.getByRole("button", { name: "Turn off" }).click();
+
+  await leaning.getByRole("switch", { name: "On", checked: false }).waitFor();
+  await anchor.getByRole("switch", { name: "On", checked: false }).waitFor();
+
+  await leaning.getByRole("switch", { name: "On", checked: false }).click();
+  await dialog.getByText("It needs Anchor, so it turns on too.").waitFor();
+  await dialog.getByRole("button", { name: "Turn on" }).click();
+
+  await anchor.getByRole("switch", { name: "On", checked: true }).waitFor();
+  await leaning.getByRole("switch", { name: "On", checked: true }).waitFor();
 });
 
 test("installs a plugin from a git repository, asks before turning it on, and removes it", async () => {

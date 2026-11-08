@@ -96,6 +96,7 @@ export {
   type DeclaredEvent,
   type PluginInfo,
   type PluginManifest,
+  switchingWith,
   type ToolSpec,
 } from "./plugins";
 export {

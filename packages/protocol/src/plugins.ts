@@ -42,8 +42,19 @@ export const pluginInfo = Type.Object({
   state: Type.Enum(["on", "off", "failed"]),
   turnedOn: Type.Boolean(),
   // Why it can't be turned on or off here: a deploy file sets the switches,
-  // or another plugin needs it.
+  // or a plugin it requires isn't installed.
   switchLocked: Type.Optional(Type.String()),
+  // The plugins it can't run without, and the ones it uses when they are on,
+  // as seen while it runs (ADR 0077).
+  requires: Type.Optional(strings),
+  worksWith: Type.Optional(
+    Type.Array(
+      Type.Object({
+        plugin: Type.String(),
+        through: Type.Array(Type.Enum(["events", "technical users"])),
+      }),
+    ),
+  ),
   error: Type.Optional(Type.String()),
   // It failed because its tables can't be used, which resetting its data
   // fixes (ADR 0068).
@@ -72,6 +83,44 @@ export const pluginInfo = Type.Object({
 });
 
 export type PluginInfo = Wire<typeof pluginInfo>;
+
+// The plugins that switch with one (ADR 0077): turning it off turns off
+// those that require it, and turning it on turns on those it requires.
+export function switchingWith(
+  plugins: readonly {
+    readonly id: string;
+    readonly requires?: readonly string[];
+  }[],
+  id: string,
+  on: boolean,
+  isOn: (id: string) => boolean,
+): string[] {
+  const found: string[] = [];
+
+  const next = (from: string): readonly string[] =>
+    on
+      ? (plugins.find((each) => each.id === from)?.requires ?? []).filter(
+          (each) => !isOn(each),
+        )
+      : plugins
+          .filter(
+            (each) => isOn(each.id) && (each.requires ?? []).includes(from),
+          )
+          .map((each) => each.id);
+
+  const visit = (from: string): void => {
+    for (const each of next(from)) {
+      if (each !== id && !found.includes(each)) {
+        found.push(each);
+        visit(each);
+      }
+    }
+  };
+
+  visit(id);
+
+  return found;
+}
 
 export const pluginInstall = Type.Object({ url: Type.String() });
 
