@@ -37,6 +37,10 @@ interface FakePod {
     readonly containers: readonly {
       readonly image: string;
       readonly command: readonly string[];
+      readonly env?: readonly {
+        readonly name: string;
+        readonly value?: string;
+      }[];
     }[];
     readonly [field: string]: unknown;
   };
@@ -450,6 +454,11 @@ test("starts one runner pod per Session no runner can take, up to the most allow
       "--exit-when-idle",
       "300",
     ],
+  });
+
+  expect(pod?.spec.containers[0]?.env).toContainEqual({
+    name: "PIPOCA_WORKSPACE",
+    value: "pod",
   });
 });
 
@@ -1024,6 +1033,12 @@ test("gives each Session a pod of its own that mounts its claim, and brings it b
     "--session",
     second.id,
   ]);
+
+  expect(
+    pod?.spec.containers[0]?.env?.some(
+      ({ name: variable }) => variable === "PIPOCA_WORKSPACE",
+    ),
+  ).toBe(false);
 
   expect(heldFirst).toMatchObject({ runner: null, status: "queued" });
   expect(heldSecond).toMatchObject({ runner: name });
