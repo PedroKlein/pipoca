@@ -1,4 +1,4 @@
-import type { ProfileContent } from "@pipoca/protocol";
+import { packageIdentity, type ProfileContent } from "@pipoca/protocol";
 import {
   Chip,
   ErrorText,
@@ -132,13 +132,27 @@ export function ProfileOverview({
   const agents = shown(inherited(stack, own, itemsOf.agents));
   const append = shown(inherited(stack, own, itemsOf.append));
 
-  const ownPackages = new Set(content.packages.map(sourceOf));
-
-  const packages = shown(
-    inherited(stack, own, itemsOf.packages).filter(
-      ({ item }) => !ownPackages.has(sourceOf(item)),
+  const inheritedPackages = new Map(
+    inherited(stack, own, itemsOf.packages).map(
+      (entry) => [packageIdentity(sourceOf(entry.item)), entry] as const,
     ),
   );
+
+  const ownPackages = new Set(
+    content.packages.map((pkg) => packageIdentity(sourceOf(pkg))),
+  );
+
+  const packages = shown(
+    [...inheritedPackages].flatMap(([identity, entry]) =>
+      ownPackages.has(identity) ? [] : [entry],
+    ),
+  );
+
+  const replacedBy = (source: string): string | undefined => {
+    const entry = inheritedPackages.get(packageIdentity(source));
+
+    return entry && `${sourceOf(entry.item)} from ${entry.from.name}`;
+  };
 
   const mcp = shown(
     inherited(stack, own, itemsOf.mcp).filter(
@@ -337,6 +351,10 @@ export function ProfileOverview({
       <Packages
         packages={content.packages}
         editable={editable}
+        {...(stack.length > 0 && {
+          ownTag: <SourceTag name={name} kind="own" />,
+          replaces: replacedBy,
+        })}
         onSave={(next) => {
           save({ packages: next });
         }}

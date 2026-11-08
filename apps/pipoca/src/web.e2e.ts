@@ -2926,6 +2926,57 @@ test("shows what a Profile inherits and turns a Server base skill off in it", as
   await rm(base, { recursive: true, force: true });
 });
 
+test("shows a Profile's own version of a package in place of the inherited one", async () => {
+  const base = join(root, "config", "base");
+
+  await mkdir(base, { recursive: true });
+
+  await writeFile(
+    join(base, "settings.json"),
+    JSON.stringify({ packages: ["npm:pi-subagents@1.4.2"] }),
+  );
+
+  await page.goto(server.url.href);
+  await openSettings("Profiles");
+
+  await page
+    .getByRole("navigation", { name: "Profiles" })
+    .getByRole("link", { name: /^Default/ })
+    .click();
+
+  const packages = page.getByRole("list", { name: "Packages" });
+
+  await packages
+    .getByRole("switch", { name: "package:npm:pi-subagents in Default" })
+    .waitFor();
+
+  await page.getByRole("button", { name: "Add package" }).click();
+  await page.getByLabel("Package source").fill("npm:pi-subagents@1.5.0");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+
+  await packages
+    .getByText(
+      "npm:pi-subagents@1.5.0 · replaces npm:pi-subagents@1.4.2 from Server base",
+    )
+    .waitFor();
+
+  expect(
+    await packages
+      .getByRole("switch", { name: "package:npm:pi-subagents in Default" })
+      .count(),
+  ).toBe(0);
+
+  await packages
+    .getByRole("button", { name: "Remove npm:pi-subagents@1.5.0" })
+    .click();
+
+  await packages
+    .getByRole("switch", { name: "package:npm:pi-subagents in Default" })
+    .waitFor();
+
+  await rm(join(base, "settings.json"), { force: true });
+});
+
 test("lists a Profile's agents and workflows with inherited ones and edits them", async () => {
   const base = join(root, "config", "base");
   const own = join(root, "config", "profiles", "default");
