@@ -14,14 +14,14 @@
   <a href="https://github.com/PedroKlein/pipoca/actions/workflows/ci.yml"><img src="https://github.com/PedroKlein/pipoca/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/PedroKlein/pipoca/releases/latest"><img src="https://img.shields.io/github/v/release/PedroKlein/pipoca" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
-  <a href="https://pedroklein.github.io/pipoca/docs/"><img src="https://img.shields.io/badge/docs-pedroklein.github.io%2Fpipoca-blue" alt="Docs"></a>
+  <a href="https://pipoca.dev/docs/"><img src="https://img.shields.io/badge/docs-pipoca.dev-blue" alt="Docs"></a>
 </p>
 
 <p align="center">
-  <a href="https://pedroklein.github.io/pipoca/">Website</a> ·
-  <a href="https://pedroklein.github.io/pipoca/docs/get-started/quick-start/">Quick start</a> ·
-  <a href="https://pedroklein.github.io/pipoca/docs/">Docs</a> ·
-  <a href="https://pedroklein.github.io/pipoca/docs/build-plugins/overview/">Build a plugin</a>
+  <a href="https://pipoca.dev/">Website</a> ·
+  <a href="https://pipoca.dev/docs/get-started/quick-start/">Quick start</a> ·
+  <a href="https://pipoca.dev/docs/">Docs</a> ·
+  <a href="https://pipoca.dev/docs/build-plugins/overview/">Build a plugin</a>
 </p>
 
 <picture>
@@ -87,19 +87,19 @@ brew install pedroklein/pipoca/pipoca
 cd ~/code && pipoca up
 ```
 
-Your browser opens signed in. Start a Session, pick a folder, say what Pi should do, and log in to a model provider once with `/login`. The [Quick start](https://pedroklein.github.io/pipoca/docs/get-started/quick-start/) walks through it, including the Mac app and the release binaries.
+Your browser opens signed in. Start a Session, pick a folder, say what Pi should do, and log in to a model provider once with `/login`. The [Quick start](https://pipoca.dev/docs/get-started/quick-start/) walks through it, including the Mac app and the release binaries.
 
 ## Ways to run it
 
-| Setup                                                                                | For                 | Start with                                  |
-| ------------------------------------------------------------------------------------ | ------------------- | ------------------------------------------- |
-| [On your laptop](https://pedroklein.github.io/pipoca/docs/run/solo/)                 | You                 | `pipoca up`                                 |
-| [On a VM](https://pedroklein.github.io/pipoca/docs/run/vm/)                          | You                 | `pipoca connect me@my-vm`                   |
-| [For a team](https://pedroklein.github.io/pipoca/docs/run/team/)                     | A team              | `pipoca server --url https://…`             |
-| [In Kubernetes](https://pedroklein.github.io/pipoca/docs/run/kubernetes/)            | A team, or just you | `helm install pipoca deploy/helm/pipoca`    |
-| [Desktop and phone](https://pedroklein.github.io/pipoca/docs/run/desktop-and-phone/) | You                 | The Mac app, or install it from the browser |
+| Setup                                                               | For                 | Start with                                  |
+| ------------------------------------------------------------------- | ------------------- | ------------------------------------------- |
+| [On your laptop](https://pipoca.dev/docs/run/solo/)                 | You                 | `pipoca up`                                 |
+| [On a VM](https://pipoca.dev/docs/run/vm/)                          | You                 | `pipoca connect me@my-vm`                   |
+| [For a team](https://pipoca.dev/docs/run/team/)                     | A team              | `pipoca server --url https://…`             |
+| [In Kubernetes](https://pipoca.dev/docs/run/kubernetes/)            | A team, or just you | `helm install pipoca deploy/helm/pipoca`    |
+| [Desktop and phone](https://pipoca.dev/docs/run/desktop-and-phone/) | You                 | The Mac app, or install it from the browser |
 
-[Choosing a setup](https://pedroklein.github.io/pipoca/docs/run/choosing-a-setup/) helps you pick.
+[Choosing a setup](https://pipoca.dev/docs/run/choosing-a-setup/) helps you pick.
 
 ## Write a plugin
 
@@ -118,7 +118,7 @@ export const greeter = definePlugin({
 });
 ```
 
-The [tutorial](https://pedroklein.github.io/pipoca/docs/build-plugins/tutorial/) builds this one into a route, a page and a `/greet` command, and installs it from git.
+The [tutorial](https://pipoca.dev/docs/build-plugins/tutorial/) builds this one into a route, a page and a `/greet` command, and installs it from git.
 
 ## How it works
 
@@ -131,7 +131,7 @@ One `pipoca` binary, built with Bun, is both. The server serves the web app, kee
 
 ## Status
 
-Pipoca is young and built by one person, for daily use first. Personal Sessions, Projects, Profiles, the team hub, routines and Kubernetes runner pods all work and are used every day. Expect breaking changes between versions: [Upgrading](https://pedroklein.github.io/pipoca/docs/admin/upgrading/) says what to do. [docs/vision.md](docs/vision.md) has the roadmap and non-goals.
+Pipoca is young and built by one person, for daily use first. Personal Sessions, Projects, Profiles, the team hub, routines and Kubernetes runner pods all work and are used every day. Expect breaking changes between versions: [Upgrading](https://pipoca.dev/docs/admin/upgrading/) says what to do. [docs/vision.md](docs/vision.md) has the roadmap and non-goals.
 
 ## Contributing
 

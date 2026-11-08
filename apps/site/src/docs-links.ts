@@ -19,8 +19,6 @@ const repositoryRoot = resolve(
 );
 
 const docsRoot = resolve(repositoryRoot, "docs");
-const base = "/pipoca";
-
 interface Node {
   readonly type: string;
   url?: string;
@@ -56,7 +54,7 @@ function siteUrl(url: string, from: string, repository: string): string {
   if (isPage(inDocs)) {
     const id = inDocs.replace(/(^|\/)README\.md$/, "").replace(/\.md$/, "");
 
-    return `${base}/docs/${id === "" ? "" : `${id}/`}${hash}`;
+    return `/docs/${id === "" ? "" : `${id}/`}${hash}`;
   }
 
   return `${repository}/blob/main/${relative(repositoryRoot, target)}${hash}`;
