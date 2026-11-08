@@ -3,12 +3,13 @@ import { PluginBoundary } from "../plugin-boundary";
 import { fillsOf } from "../plugins";
 
 type Slot =
-  | { readonly slot: "General" | "Accounts" }
+  | { readonly slot: "General" | "Accounts" | "Server base" }
   | { readonly slot: "Profile"; readonly profileId: string };
 
 const slotNames = {
   General: "settings.general",
   Accounts: "settings.accounts",
+  "Server base": "settings.base-profile",
 } as const;
 
 // What plugins add to a Settings page, each inside its own boundary
@@ -36,6 +37,8 @@ export function SettingsSlot(props: Slot): ReactElement {
   );
 }
 
-export function hasSettingsParts(slot: "General" | "Accounts"): boolean {
+export function hasSettingsParts(
+  slot: "General" | "Accounts" | "Server base",
+): boolean {
   return fillsOf(slotNames[slot]).length > 0;
 }

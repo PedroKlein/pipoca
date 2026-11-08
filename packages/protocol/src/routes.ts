@@ -848,10 +848,12 @@ export const routes = {
     changes: ["profiles"],
     long: true,
   },
+  // Its own files, or with stacked=true the folder a runner gets.
   "profiles.archive": {
     method: "GET",
     path: "/api/profiles/:id/archive",
     auth: "person",
+    query: Type.Object({ stacked: Type.Optional(Type.Boolean()) }),
     response: "bytes",
   },
   // The folder a runner gets for a Session of the caller's on this Profile,

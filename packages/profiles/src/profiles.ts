@@ -5,6 +5,7 @@ import {
   type PiPackage,
   type Profile,
   type ProfileContent,
+  type ProfileFiles,
   type RepositorySource,
   emptyProfile,
   profilePath,
@@ -287,41 +288,47 @@ export class Profiles {
 
   // A Profile's own files, without the admin's base Profile, as a .tar.gz
   // runners would unpack to the same folder (ADR 0041).
-  async archive(userId: string, id: string): Promise<Uint8Array | undefined> {
-    const files = this.#visible(userId, id) && this.#folders.ownFiles(id);
+  // Its own files, or with every layer under it as a runner gets them.
+  async archive(
+    userId: string,
+    id: string,
+    stacked = false,
+  ): Promise<Uint8Array | undefined> {
+    const files = stacked
+      ? this.#stackedFiles(userId, id)
+      : this.#visible(userId, id) && this.#folders.ownFiles(id);
+
     if (!files) {
       return undefined;
     }
 
-    const decoded = Object.fromEntries(
-      Object.entries(files.files).map(([path, content]) => [
-        path,
-        Buffer.from(content, "base64"),
-      ]),
-    );
-
-    return new Bun.Archive(decoded, { compress: "gzip" }).bytes();
+    return new Bun.Archive(decodedFiles(files), { compress: "gzip" }).bytes();
   }
 
   // What a runner gets for the person's Session on the Profile: a team
   // Profile without anyone's My defaults (ADR 0064).
   stacked(userId: string, id: string): Record<string, string> | undefined {
-    const profile = this.#visible(userId, id);
-
-    const files =
-      profile &&
-      this.#folders.files(
-        id,
-        profile.ownerId === teamOwner ? undefined : userId,
-      );
+    const files = this.#stackedFiles(userId, id);
 
     return (
       files &&
       Object.fromEntries(
-        Object.entries(files.files).map(([path, content]) => [
+        Object.entries(decodedFiles(files)).map(([path, content]) => [
           path,
-          Buffer.from(content, "base64").toString(),
+          content.toString(),
         ]),
+      )
+    );
+  }
+
+  #stackedFiles(userId: string, id: string): ProfileFiles | undefined {
+    const profile = this.#visible(userId, id);
+
+    return (
+      profile &&
+      this.#folders.files(
+        id,
+        profile.ownerId === teamOwner ? undefined : userId,
       )
     );
   }
@@ -770,6 +777,15 @@ function fieldsOf(value: unknown): Record<string, unknown> {
   }
 
   return value;
+}
+
+function decodedFiles(files: ProfileFiles): Record<string, Buffer> {
+  return Object.fromEntries(
+    Object.entries(files.files).map(([path, content]) => [
+      path,
+      Buffer.from(content, "base64"),
+    ]),
+  );
 }
 
 function nameOf(value: unknown): string {

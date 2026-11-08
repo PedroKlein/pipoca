@@ -13,6 +13,8 @@ export interface StackLayer {
   readonly name: string;
   readonly kind: "base" | "defaults" | "profile";
   readonly folder: Folder;
+  // Its page.
+  readonly href: string;
   readonly content: ProfileContent;
   readonly paths: readonly string[];
 }
@@ -125,5 +127,17 @@ export async function copyInto(
 
   for (const path of paths) {
     await to.write(path, await from.read(path));
+  }
+}
+
+// Deletes the open layer's copy of a file or folder, so the one below counts
+// again.
+export async function removeFrom(folder: Folder, key: string): Promise<void> {
+  const paths = (await folder.list())
+    .map(({ path }) => path)
+    .filter((path) => path === key || path.startsWith(`${key}/`));
+
+  for (const path of paths) {
+    await folder.remove(path);
   }
 }

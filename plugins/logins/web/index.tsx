@@ -17,6 +17,7 @@ import { ConnectForm, ConnectionCard } from "./connect";
 import { layerName } from "./layers";
 import { ProfileLogins } from "./profile";
 import { modelStep, sharedKeysStep } from "./setup";
+import { SharedKeysStep } from "./shared-keys";
 import { TeamCredentials } from "./team";
 
 export const web = defineWeb(logins, {
@@ -33,8 +34,33 @@ export const web = defineWeb(logins, {
   slots: {
     "settings.accounts": Accounts,
     "settings.profile": ProfileLogins,
+    "settings.base-profile": SharedKeys,
   },
 });
+
+// The keys everyone inherits, on the Server base's page, for admins.
+function SharedKeys(): ReactElement | null {
+  const api = useApi(logins);
+
+  const { value } = useLoaded(
+    async () => api.get<Account>("account"),
+    "account",
+    { changes: ["logins"] },
+  );
+
+  if (value?.admin !== true) {
+    return null;
+  }
+
+  return (
+    <Section
+      title="Shared keys"
+      description="API keys everyone inherits until they sign in themselves"
+    >
+      <SharedKeysStep />
+    </Section>
+  );
+}
 
 function layerPlace(
   layer: Account["logins"][number]["layer"],

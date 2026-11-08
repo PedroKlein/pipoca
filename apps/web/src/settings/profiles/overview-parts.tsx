@@ -13,7 +13,7 @@ import {
   TextArea,
 } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useState } from "react";
-import { SourceTag } from "./inherited";
+import { inheritedMenu, SourceTag } from "./inherited";
 import type { Inherited, StackLayer } from "./stack";
 
 export interface Skill {
@@ -178,6 +178,7 @@ export function Skills({
   onToggle,
   onToggleInherited,
   onCopy,
+  onRestore,
 }: {
   // The open layer's own, still reading while undefined.
   readonly skills: readonly Skill[] | undefined;
@@ -189,11 +190,14 @@ export function Skills({
   readonly onToggle: (folder: string, on: boolean) => void;
   readonly onToggleInherited: (folder: string, on: boolean) => void;
   readonly onCopy: (from: StackLayer, folder: string) => void;
+  // Drops the open layer's copy, so the one below counts again.
+  readonly onRestore: (folder: string) => void;
 }): ReactElement {
   const own = skills ?? [];
   const replaced = new Set(own.map(({ folder }) => folder));
   const below = inherited.filter(({ key }) => !replaced.has(key));
   const on = own.filter(({ folder }) => !off.has(folder)).length;
+  const layered = inherited.length > 0;
 
   const description =
     skills === undefined
@@ -232,14 +236,38 @@ export function Skills({
                   "flex min-w-0 items-center gap-3 px-4 py-3",
                 )}
               >
-                <span className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="truncate text-ui font-medium text-fg-strong">
+                <span className="flex min-w-0 flex-1 flex-col items-start gap-1">
+                  <span className="max-w-full truncate text-ui font-medium text-fg-strong">
                     {name}
                   </span>
-                  <span className="truncate text-label text-fg-dim">
-                    {replaces ? `Replaces ${replaces.from.name}'s` : about}
+                  <span className="line-clamp-2 text-label text-fg-dim">
+                    {replaces ? `${owner}'s copy` : about}
                   </span>
+                  {layered && (
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <SourceTag name={owner} kind="own" />
+                      {replaces && (
+                        <span className="text-caption text-fg-dim">
+                          replaces <s>{replaces.from.name}</s>
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </span>
+                {replaces && editable && (
+                  <Menu
+                    label={`More for ${name}`}
+                    items={[
+                      {
+                        label: `Use ${replaces.from.name}'s again`,
+                        description: `Deletes ${owner}'s copy`,
+                        run: () => {
+                          onRestore(folder);
+                        },
+                      },
+                    ]}
+                  />
+                )}
                 <Switch
                   label={name}
                   labelHidden
@@ -265,24 +293,23 @@ export function Skills({
                 <span className="max-w-full truncate text-ui font-medium text-fg-strong">
                   {entry.item.name}
                 </span>
-                <span className="max-w-full truncate text-label text-fg-dim">
+                <span className="line-clamp-2 text-label text-fg-dim">
                   {entry.off ? `Off in ${owner}` : entry.item.description}
                 </span>
                 <SourceTag name={entry.from.name} kind={entry.from.kind} />
               </span>
-              {editable && (
-                <Menu
-                  label={`More for ${entry.item.name}`}
-                  items={[
-                    {
-                      label: `Copy into ${owner} to change it`,
-                      run: () => {
-                        onCopy(entry.from, entry.key);
-                      },
-                    },
-                  ]}
-                />
-              )}
+              <Menu
+                label={`More for ${entry.item.name}`}
+                items={inheritedMenu({
+                  entry,
+                  owner,
+                  editable,
+                  onToggle: onToggleInherited,
+                  onCopy: () => {
+                    onCopy(entry.from, entry.key);
+                  },
+                })}
+              />
               <Switch
                 label={`${entry.item.name} in ${owner}`}
                 labelHidden

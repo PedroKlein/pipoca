@@ -143,14 +143,7 @@ export function ProfileTabs({
 
   return (
     <>
-      {overviewShown ? (
-        <a
-          href={`${base}/files`}
-          className="mt-3 self-start rounded-md px-2 py-1 text-label text-fg-dim hover:bg-hover hover:text-fg"
-        >
-          Open as files
-        </a>
-      ) : (
+      {!overviewShown && (
         <Tabs
           label="Profile"
           className="mt-6"

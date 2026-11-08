@@ -47,6 +47,7 @@ export interface Slots {
   "template.section": TemplateSectionProps;
   "settings.general": Nothing;
   "settings.accounts": Nothing;
+  "settings.base-profile": Nothing;
   "settings.profile": { readonly profileId: string };
 }
 
