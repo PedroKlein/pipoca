@@ -4885,6 +4885,11 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
 
   faux.setResponses([fauxAssistantMessage([fauxText("Noted the comment")])]);
 
+  await page
+    .getByRole("group", { name: "Beside the artifact" })
+    .getByRole("button", { name: "Comments 0" })
+    .click();
+
   const comment = page.getByRole("form", { name: "Comment" });
 
   await comment.getByRole("textbox", { name: "Comment" }).fill("Add Q4");

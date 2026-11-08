@@ -15,6 +15,7 @@ import { artifacts } from "../plugin";
 import {
   type Access,
   type ArtifactSummary,
+  type Audience,
   type ArtifactView,
   type Comment,
   bytes,
@@ -42,6 +43,7 @@ interface VersionRow {
   readonly hash: string;
   readonly size: number;
   readonly author: string;
+  readonly note: string;
   readonly created_at: number;
 }
 
@@ -65,7 +67,7 @@ export const server = defineServer(
 
     const versions = (id: string): readonly VersionRow[] =>
       store.all<VersionRow>(
-        "select number, name, hash, size, author, created_at from artifacts_versions where artifact_id = ? order by number",
+        "select number, name, hash, size, author, note, created_at from artifacts_versions where artifact_id = ? order by number",
         id,
       );
 
@@ -126,15 +128,41 @@ export const server = defineServer(
       return found;
     };
 
-    const summary = (artifact: Row): ArtifactSummary => {
+    const nameOf = (person: string | null): string =>
+      person === null ? "Team" : (people.get(person)?.name ?? person);
+
+    const audienceOf = (artifact: Row, named: number): Audience => {
+      if (artifact.owner_user_id === null) {
+        return "team";
+      }
+
+      return named > 0 ? "named" : "you";
+    };
+
+    // viewer is the person looking, or null for Pi.
+    const summary = (artifact: Row, viewer: string | null): ArtifactSummary => {
       const all = versions(artifact.id);
       const last = all.at(-1);
+      const named = shares(artifact.id);
 
       return {
         id: artifact.id,
         title: artifact.title,
         kind: kindOf(last?.name ?? "") ?? "html",
         sessionId: artifact.session_id,
+        sessionTitle:
+          artifact.session_id === null
+            ? null
+            : (sessions.get(artifact.session_id)?.title ?? null),
+        owner: nameOf(artifact.owner_user_id),
+        yours: viewer !== null && steers(artifact, viewer),
+        audience: audienceOf(artifact, named.length),
+        sharedWith: named.map(({ name }) => name),
+        openComments:
+          store.get<{ count: number }>(
+            "select count(*) as count from artifacts_comments where artifact_id = ? and parent_id is null and resolved_at is null",
+            artifact.id,
+          )?.count ?? 0,
         versions: all.length,
         updatedAt: artifact.updated_at,
       };
@@ -167,19 +195,21 @@ export const server = defineServer(
       hash: string,
       size: number,
       author: Actor,
+      note = "",
     ): number => {
       const now = clock.now();
       const number = versions(id).length + 1;
 
       store.transaction(() => {
         store.run(
-          "insert into artifacts_versions (artifact_id, number, name, hash, size, author, created_at) values (?, ?, ?, ?, ?, ?, ?)",
+          "insert into artifacts_versions (artifact_id, number, name, hash, size, author, note, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
           id,
           number,
           name,
           hash,
           size,
           author,
+          note,
           now,
         );
 
@@ -193,13 +223,18 @@ export const server = defineServer(
       return number;
     };
 
+    const byOf = (author: string): string =>
+      author.startsWith("user:") ? nameOf(author.slice("user:".length)) : "Pi";
+
     const view = (artifact: Row, person: string): ArtifactView => ({
-      ...summary(artifact),
+      ...summary(artifact, person),
       history: versions(artifact.id).map((each): Version => ({
         number: each.number,
         name: each.name,
         size: each.size,
         author: each.author,
+        by: byOf(each.author),
+        note: each.note,
         createdAt: each.created_at,
       })),
       access: access(artifact, person),
@@ -221,7 +256,7 @@ export const server = defineServer(
     routes.get("artifacts", { auth: "person" }, ({ caller }) => ({
       artifacts: recent()
         .filter((each) => sees(each, caller.person.id))
-        .map(summary),
+        .map((each) => summary(each, caller.person.id)),
     }));
 
     // What a Session published, for its panel.
@@ -237,7 +272,7 @@ export const server = defineServer(
             listed,
           )
           .filter((each) => sees(each, caller.person.id))
-          .map(summary),
+          .map((each) => summary(each, caller.person.id)),
       }),
     );
 
@@ -299,6 +334,7 @@ export const server = defineServer(
             found.hash,
             found.size,
             `user:${caller.person.id}`,
+            `restored version ${String(found.number)}`,
           ),
         };
       },
@@ -547,6 +583,7 @@ export const server = defineServer(
           stored.hash,
           stored.size,
           `user:${caller.person.id}`,
+          "edited",
         );
 
         if (artifact.session_id !== null) {
@@ -599,7 +636,7 @@ export const server = defineServer(
           caller.person.id,
         )
         .filter((each) => sees(each, caller.person.id))
-        .map(summary),
+        .map((each) => summary(each, caller.person.id)),
     }));
 
     // What a Session reaches: its own artifacts, and the ones the person
@@ -628,6 +665,7 @@ export const server = defineServer(
           hash: Type.String({ pattern: blobHash.source }),
           title: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
           id: Type.Optional(Type.String({ minLength: 1 })),
+          note: Type.Optional(Type.String({ maxLength: 200 })),
         }),
         changes: ["artifacts"],
       },
@@ -681,12 +719,14 @@ export const server = defineServer(
             body.hash,
             size,
             author,
+            body.note,
           );
 
           return {
             id: artifact.id,
             title: body.title ?? artifact.title,
             version: number,
+            kind: kindOf(body.name) ?? "html",
           };
         }
 
@@ -704,10 +744,10 @@ export const server = defineServer(
           clock.now(),
         );
 
-        addVersion(id, body.name, body.hash, size, author);
+        addVersion(id, body.name, body.hash, size, author, body.note);
         log("artifact published", { id, session: caller.session.id });
 
-        return { id, title, version: 1 };
+        return { id, title, version: 1, kind: kindOf(body.name) ?? "html" };
       },
     );
 
@@ -725,7 +765,7 @@ export const server = defineServer(
           .filter((each) =>
             words.every((word) => each.title.toLowerCase().includes(word)),
           )
-          .map(summary);
+          .map((each) => summary(each, null));
 
         return {
           artifacts: matches.slice(0, shownMatches),

@@ -27,7 +27,8 @@ interface Panel {
 const PanelContext = createContext<Panel | undefined>(undefined);
 
 // One panel beside a Session whose tabs plugins fill, such as Artifacts,
-// Files and Changes (ADR 0078). The app draws it around a Session's view.
+// Files and Changes (ADR 0078). The app draws it around a Session's view,
+// in a flex row, which the panel docks into on a wide screen.
 export function SessionPanel({
   children,
 }: {
@@ -58,6 +59,7 @@ export function SessionPanel({
       {shown !== undefined && (
         <SidePanel
           open
+          docked
           title={shown.label}
           closeLabel="Close panel"
           size="lg"
@@ -67,14 +69,16 @@ export function SessionPanel({
           }}
         >
           {tabs.length > 1 && (
-            <Segmented
-              label="Panel"
-              value={shown.name}
-              options={[...tabs]
-                .sort((a, b) => a.order - b.order)
-                .map(({ name, label }) => ({ value: name, label }))}
-              onChange={setActive}
-            />
+            <div className="lg:hidden">
+              <Segmented
+                label="Panel"
+                value={shown.name}
+                options={[...tabs]
+                  .sort((a, b) => a.order - b.order)
+                  .map(({ name, label }) => ({ value: name, label }))}
+                onChange={setActive}
+              />
+            </div>
           )}
           <div ref={setBody} className="flex flex-col gap-6" />
         </SidePanel>
@@ -112,6 +116,7 @@ export function SessionTab({
     <>
       <Button
         variant="ghost"
+        className="aria-expanded:bg-hover aria-expanded:text-fg-strong"
         aria-expanded={open}
         aria-label={button}
         onClick={() => {
