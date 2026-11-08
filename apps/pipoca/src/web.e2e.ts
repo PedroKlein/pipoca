@@ -3498,7 +3498,12 @@ test("answers the agent's questions in the prompt card", async () => {
               prompt: "Which size?",
               type: "single",
               options: [
-                { value: "s", label: "Small", description: "Cheap" },
+                {
+                  value: "s",
+                  label: "Small",
+                  description:
+                    "Cheap. Fits a side project that runs a few jobs a day, can wait for a slow build now and then, and should cost as little as it can.",
+                },
                 { value: "l", label: "Large", description: "Fast" },
               ],
             },
@@ -3525,11 +3530,23 @@ test("answers the agent's questions in the prompt card", async () => {
   const card = page.locator('[data-role="prompt"]');
   await card.getByRole("heading", { level: 2, name: "Which size?" }).waitFor();
   await page.locator("#sessions").getByText("Needs you").waitFor();
-  await card.getByLabel("Large").check();
+  await page
+    .locator('#chat li[data-role="assistant"]', {
+      hasText: "Two quick questions.",
+    })
+    .waitFor();
 
-  expect(
-    await page.locator("#chat").getByText("Two quick questions.").count(),
-  ).toBe(1);
+  await card.getByRole("button", { name: "Explain this question" }).waitFor();
+
+  const wide = page.viewportSize();
+  await page.setViewportSize({ width: 700, height: 900 });
+  await card.locator("li", { hasText: "Small" }).hover();
+  const small = await card.boundingBox();
+  await card.locator("li", { hasText: "Large" }).hover();
+  expect(await card.boundingBox()).toEqual(small);
+  await page.setViewportSize(wide ?? { width: 1280, height: 720 });
+
+  await card.getByLabel("Large").check();
 
   await card.getByText("Fast").waitFor();
   await card.getByRole("button", { name: "Review answers" }).click();
@@ -3547,20 +3564,15 @@ test("answers the agent's questions in the prompt card", async () => {
     .getByText("Needs you")
     .waitFor({ state: "detached" });
 
-  const work = page.locator('#chat li[data-role="work"]');
-
-  await work
-    .locator("summary", { hasText: /Worked for \d+s\s*· 1 other step/ })
+  await page
+    .locator('#chat li[data-role="card"]', { hasText: "Which size?" })
+    .getByText("Size: Large")
     .waitFor();
 
   await page
     .locator('#chat [data-role="answer-meta"]', { hasText: "faux-1" })
     .getByText("just now")
     .waitFor();
-
-  await work.locator("summary").first().click();
-  await work.getByText("Asked").click();
-  await work.locator("pre", { hasText: "Large" }).waitFor();
 }, 30_000);
 
 test("shows the session's changes and usage from their plugins", async () => {
