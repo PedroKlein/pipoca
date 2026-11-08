@@ -182,6 +182,16 @@ Read 2026-11-08 (product docs).
 - **[n8n human in the loop](https://growwstacks.com/blog/human-in-the-loop-n8n-guide).** Send and wait asks for approval or an answer over Slack, mail and other channels, with a timeout that takes a default path.
 - **[Claude Code routines, Codex scheduled tasks](https://aicatchup.com/comparisons/claude-code-routines-vs-cursor-automations).** A prompt, repositories and connectors on a schedule, an API call or GitHub events. Codex shows runs in an inbox, and a task inside a chat keeps that chat's context.
 
+### Artifacts and files
+
+Read 2026-11-08 (product docs and help pages).
+
+- **[Claude Code artifacts](https://support.claude.com/en/articles/9547008-publish-and-share-artifacts).** A session publishes one HTML or Markdown page to a private link; each publish is a new version at the same link and any version can be restored. Pages are shared inside the organization, served from their own domain with a strict CSP that loads scripts only from a few CDNs, and capped at 16 MB. Comments on a page can be sent back to Claude, and pages can opt into stored data and asking Claude. Claude Code cloud projects keep a throwaway container per thread plus a shared project folder that outlives the threads, where uploads land and outputs are attached.
+- **[ChatGPT canvas](https://help.openai.com/en/articles/9930697-what-is-the-canvas-feature-in-chatgpt-and-how-do-i-use-it) and [Library](https://www.gentic.news/article/chatgpt-launches-library-feature-persistent-document-storage-across-conversation).** A document or code file beside the chat with version history, "show changes", select-to-edit and suggested edits as comments; React and HTML preview. Uploads are kept in an account-wide library, up to 512 MB a file, and picked again in any chat.
+- **[Lovable](https://docs.lovable.dev/features/preview-toolbar).** The preview has select, edit text, draw and comment modes; comments pin to an element and take replies.
+- **[Replit](https://docs.replit.com/features/version-control/checkpoints-and-rollbacks).** Checkpoints capture files, the development database and the chat, with rollback and roll forward; files an app makes go to object storage.
+- **v0.** Each generation is a version that can be forked; chats are private, team or public, and a project's code syncs to git.
+
 ### Bot identities on GitHub
 
 - A GitHub App can be created from a [manifest](https://docs.github.com/en/developers/apps/creating-a-github-app-from-a-manifest/): the server posts a form to GitHub, GitHub redirects back with a code, and the code is exchanged for the App's id, private key and webhook secret. [RunsOn](https://runs-on.com/blog/self-serve-github-app-registration-with-manifests/) uses this so each customer has a private App of their own in two clicks.

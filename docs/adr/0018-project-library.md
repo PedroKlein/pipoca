@@ -1,6 +1,6 @@
 # 0018: Project file library
 
-- Status: accepted; the separate `library` plugin superseded by [ADR 0068](0068-clean-rebuild.md#what-goes), where the library is part of the Projects plugin
+- Status: accepted; the separate `library` plugin superseded by [ADR 0068](0068-clean-rebuild.md#what-goes), where the library is part of the Projects plugin, then replaced by the Project folder of [ADR 0078](0078-artifacts-and-session-files.md)
 - Date: 2026-10-21
 
 ## Context
