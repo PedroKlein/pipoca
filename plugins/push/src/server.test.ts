@@ -554,7 +554,7 @@ const pausing = defineServer(routines, (context) => {
   routining = context;
 });
 
-test("tells a routine's person when it paused itself, and every admin for the team's", async () => {
+test("tells a routine's person when it paused itself or its chain stopped, and every admin for the team's", async () => {
   const { sent, fetch } = services();
 
   await using t = await testPlugin(server, {
@@ -597,6 +597,21 @@ test("tells a routine's person when it paused itself, and every admin for the te
     title: "Routine paused: Fix issues",
     body: "Paused until tomorrow.",
     tag: "routines.paused.fix",
+    url: "/",
+  });
+
+  routining?.events.emit(
+    "chain_stopped",
+    { name: "fix", title: "Fix issues", reason: "It went too deep." },
+    { to: [person("ana")] },
+  );
+
+  await delivered(sent, 3);
+
+  expect(await anas?.read(sent[2]?.body)).toEqual({
+    title: "Routine chain stopped: Fix issues",
+    body: "It went too deep.",
+    tag: "routines.chain_stopped.fix",
     url: "/",
   });
 });

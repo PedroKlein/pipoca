@@ -136,7 +136,7 @@ const input = Type.Union([
 
 const startPoint = Type.Optional(Type.String());
 
-const workspace = Type.Union([
+export const workspaceSchema = Type.Union([
   Type.Object({ kind: Type.Literal("folder"), path: Type.String() }),
   Type.Object({
     kind: Type.Literal("worktree"),
@@ -171,7 +171,7 @@ const work = Type.Union([
       workflow: named,
       // A workflow's run needs none: its inputs are the workflow's args.
       prompt: Type.Optional(prompt),
-      workspace,
+      workspace: workspaceSchema,
       environment: Type.Optional(Type.String()),
       profile: Type.Optional(Type.String()),
       model: Type.Optional(Type.String()),
@@ -206,6 +206,12 @@ export const limitsSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const outputType = Type.Union([
+  Type.Literal("string"),
+  Type.Literal("number"),
+  Type.Literal("boolean"),
+]);
+
 // A routine as its JSON file holds it (ADR 0075). Its name is the file's.
 export const routineSchema = Type.Object(
   {
@@ -230,6 +236,18 @@ export const routineSchema = Type.Object(
       ),
     ),
     do: work,
+    // The group's coordinator (ADR 0075): one lasting run that hears every
+    // event its triggers catch and starts the group's runs.
+    coordinator: Type.Optional(Type.Boolean()),
+    // The fields of the output its runs end with, such as { "area":
+    // "string" }, and ["string"] for a list.
+    output: Type.Optional(
+      Type.Record(
+        Type.String(),
+        Type.Union([outputType, Type.Tuple([outputType])]),
+        { maxProperties: 20 },
+      ),
+    ),
     // Whose runs propose what they write outside instead of writing it:
     // runs fired by outside input, which is the default, every run, or none
     // (ADR 0076).
@@ -300,6 +318,17 @@ export type Condition = NonNullable<
 >[number];
 export type Inputs = Readonly<Record<string, string | number | boolean>>;
 export type WhileRunning = "tell" | "skip" | "queue";
+export type Output = Readonly<Record<string, unknown>>;
+
+// The event a run that ends publishes, which other routines follow
+// (ADR 0075).
+export const runEnded = "routines.run_ended";
+
+// A run that follows another is one deeper. Deeper than this, it is
+// skipped.
+export const maxDepth = 5;
+
+const maxOutputChars = 4000;
 
 export const namePattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
@@ -360,6 +389,18 @@ export function routineOf(value: unknown): Routine {
   }
 
   checkStarts(routine);
+
+  if (routine.coordinator === true && routine.do.kind === "message") {
+    throw new Error("a coordinator starts a Session of its own");
+  }
+
+  for (const name of Object.keys(routine.output ?? {})) {
+    if (!inputName.test(name)) {
+      throw new Error(
+        `output.${name}: a name is letters, digits and _, starting with a letter`,
+      );
+    }
+  }
 
   const declared = new Set(Object.keys(routine.inputs ?? {}));
 
@@ -461,9 +502,12 @@ function checked(value: unknown): Routine {
 
 // Each event trigger names an event an enabled plugin declares, and its
 // conditions name that event's fields with values that fit them.
+// A trigger on runEnded that names the routine it follows checks output
+// fields against what that routine declares.
 export function checkEvents(
   routine: Routine,
   declared: readonly DeclaredEvent[],
+  declaredOutput: (name: string) => Routine["output"] = () => undefined,
 ): void {
   for (const [index, each] of routine.when.entries()) {
     if (each.kind !== "event") {
@@ -476,14 +520,94 @@ export function checkEvents(
       throw new Error(`when.${String(index)}: no event ${each.event}`);
     }
 
+    const followed = each.where?.find(
+      (where) => where.field === "routine" && "is" in where,
+    );
+
+    const output =
+      each.event === runEnded && followed !== undefined && "is" in followed
+        ? declaredOutput(String(followed.is))
+        : undefined;
+
+    const fields =
+      output === undefined
+        ? known.fields
+        : {
+            ...known.fields,
+            properties: {
+              ...(propertyOf(known.fields, "properties") as object),
+              output: outputSchemaOf(output),
+            },
+          };
+
     for (const [at, where] of (each.where ?? []).entries()) {
-      const misfit = misfitOf(where, known.fields);
+      const misfit = misfitOf(where, fields);
 
       if (misfit !== undefined) {
         throw new Error(`when.${String(index)}.where.${String(at)}: ${misfit}`);
       }
     }
   }
+}
+
+function outputSchemaOf(output: NonNullable<Routine["output"]>): object {
+  return {
+    type: "object",
+    properties: Object.fromEntries(
+      Object.entries(output).map(([name, type]) => [
+        name,
+        typeof type === "string"
+          ? { type }
+          : { type: "array", items: { type: type[0] } },
+      ]),
+    ),
+  };
+}
+
+// The output a run ends with, checked against the fields its routine
+// declares: each of them, of its type, and nothing else. Without fields it
+// goes on unchecked. An Error says what doesn't fit.
+export function outputOf(
+  routine: Routine,
+  value: Output | undefined,
+): Output | undefined {
+  if (value !== undefined && JSON.stringify(value).length > maxOutputChars) {
+    throw new Error(
+      `the output is over ${String(maxOutputChars)} characters as JSON`,
+    );
+  }
+
+  const declared = routine.output;
+
+  if (declared === undefined) {
+    return value;
+  }
+
+  const given = value ?? {};
+  const extra = Object.keys(given).find((name) => !(name in declared));
+
+  if (extra !== undefined) {
+    throw new Error(`the routine's output has no field ${extra}`);
+  }
+
+  for (const [name, type] of Object.entries(declared)) {
+    const each = given[name];
+    const kind = typeof type === "string" ? type : type[0];
+
+    const fits =
+      typeof type === "string"
+        ? typeof each === kind
+        : Array.isArray(each) &&
+          each.every((item: unknown) => typeof item === kind);
+
+    if (!fits) {
+      throw new Error(
+        `output.${name} must be ${typeof type === "string" ? `a ${kind}` : `a list of ${kind}s`}`,
+      );
+    }
+  }
+
+  return given;
 }
 
 export interface Allowed {
@@ -711,12 +835,12 @@ const defaultTimeLimit = "2h";
 
 const unitMs = { m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
 
-// How long a run of the routine may be running. A coordinator (ADR 0075)
-// will have no limit, once a routine can be one.
+// How long a run of the routine may be running. A coordinator lives for
+// weeks and has no limit (ADR 0075).
 export function timeLimitOf(
   routine: Routine,
 ): { readonly text: string; readonly ms: number } | undefined {
-  if (routine.do.kind === "message") {
+  if (routine.do.kind === "message" || routine.coordinator === true) {
     return undefined;
   }
 
@@ -877,7 +1001,12 @@ export function keyOf(event: Heard, paths: readonly string[] = []): string {
     .join("/");
 }
 
+// A coordinator's one run hears every firing.
 export function whileRunningOf(routine: Routine): WhileRunning {
+  if (routine.coordinator === true) {
+    return "tell";
+  }
+
   return (
     routine.sameWork?.whileRunning ??
     (routine.sameWork?.key === undefined ? "skip" : "tell")

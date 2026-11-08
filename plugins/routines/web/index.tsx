@@ -318,6 +318,18 @@ function RoutinePage({
               </a>
             </p>
           )}
+          {routine.fedBy.length > 0 && (
+            <p className="text-ui text-fg-dim">
+              Follows{" "}
+              <RoutineLinks names={routine.fedBy} prefix={scope.prefix} />
+            </p>
+          )}
+          {routine.feeds.length > 0 && (
+            <p className="text-ui text-fg-dim">
+              Followed by{" "}
+              <RoutineLinks names={routine.feeds} prefix={scope.prefix} />
+            </p>
+          )}
           {routine.routine?.limits?.dailySpend !== undefined && (
             <p className="text-ui text-fg-dim">
               Spent today: {routine.spentToday.toFixed(2)} of its daily cap of{" "}
@@ -600,7 +612,7 @@ function Editor({
       <ErrorText size="inherit" className="text-ui">
         {failure}
       </ErrorText>
-      <DeclaredEvents api={api} />
+      <DeclaredEvents api={api} prefix={scope.prefix} />
       <DeclaredActions api={api} />
       <div>
         <Button type="submit" variant="primary">
@@ -611,16 +623,48 @@ function Editor({
   );
 }
 
+// The routines one follows or that follow it (ADR 0075), each a link.
+function RoutineLinks({
+  names,
+  prefix,
+}: {
+  readonly names: readonly string[];
+  readonly prefix: string;
+}): ReactElement {
+  return (
+    <>
+      {names.map((name, index) => (
+        <span key={name}>
+          {index > 0 && ", "}
+          <a href={pageAt(`${prefix}${name}`)} className="text-fg underline">
+            {name}
+          </a>
+        </span>
+      ))}
+    </>
+  );
+}
+
 // What an event trigger can name, with the fields its filter and key read.
 function DeclaredEvents({
   api,
+  prefix,
 }: {
   readonly api: TypedClient;
+  readonly prefix: string;
 }): ReactElement | null {
   const events = useLoaded(
     async () => api.get<DeclaredEvent[]>("events"),
     "events",
   ).value;
+
+  // A routine that follows another can name the output fields it declares.
+  const outputs = (
+    useLoaded(
+      async () => api.get<RoutineView[]>(`${prefix}routines`),
+      "routines",
+    ).value ?? []
+  ).filter(({ output }) => output !== undefined && output.length > 0);
 
   if (events === undefined || events.length === 0) {
     return null;
@@ -642,6 +686,15 @@ function DeclaredEvents({
             <span className="block">
               Fields: {fieldNames(event.fields).join(", ")}
             </span>
+            {event.type === "routines.run_ended" &&
+              outputs.map((routine) => (
+                <span key={routine.name} className="block">
+                  When routine is {routine.name}:{" "}
+                  {(routine.output ?? [])
+                    .map((field) => `output.${field}`)
+                    .join(", ")}
+                </span>
+              ))}
           </li>
         ))}
       </ul>

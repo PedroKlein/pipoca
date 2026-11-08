@@ -6,12 +6,13 @@ import {
   StringEnum,
   ToolError,
   Type,
+  type When,
 } from "@pipoca/plugins";
 import { routines } from "../plugin";
 import { routinesEngine } from "./engine";
 import { groupSchema } from "./group";
 import { defaultMemoryFile } from "./memory";
-import { routineSchema } from "./routine";
+import { routineSchema, workspaceSchema } from "./routine";
 import { wakeUps } from "./wakeups";
 
 const wakeUpsQuery = Type.Object({ session: Type.String() });
@@ -81,7 +82,74 @@ const endRun = Type.Object(
       description:
         "One line: what you did, or why there was nothing to do, or what you need from the person.",
     }),
+    output: Type.Optional(
+      Type.Record(Type.String(), Type.Unknown(), {
+        description:
+          "A small JSON object for the routines that follow this one, with the fields the routine declares when it does.",
+      }),
+    ),
   },
+  { additionalProperties: false },
+);
+
+const agentName = Type.String({
+  pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+});
+
+// What a group's coordinator starts (ADR 0075).
+const startRun = Type.Object(
+  {
+    agent: Type.Optional(
+      Type.String({
+        ...agentName,
+        description: "The agent file the run starts as, such as implementer",
+      }),
+    ),
+    workflow: Type.Optional(
+      Type.String({
+        ...agentName,
+        description: "A saved workflow the run starts, with inputs as its args",
+      }),
+    ),
+    prompt: Type.Optional(
+      Type.String({
+        minLength: 1,
+        description: "The task. Required unless it starts a workflow.",
+      }),
+    ),
+    workspace: Type.Optional(
+      Type.Union(
+        workspaceSchema.anyOf.filter(
+          (each) => each.properties.kind.const !== "event-repository",
+        ),
+        {
+          description:
+            'Where it works: { "kind": "group" } for the group\'s repositories, the default, or { "kind": "clone", "repository": url }.',
+        },
+      ),
+    ),
+    key: Type.String({
+      minLength: 1,
+      maxLength: 200,
+      description: "The piece of work, such as acme/shop#12",
+    }),
+    inputs: Type.Optional(
+      Type.Record(
+        Type.String(),
+        Type.Union([Type.String(), Type.Number(), Type.Boolean()]),
+      ),
+    ),
+  },
+  { additionalProperties: false },
+);
+
+const runId = Type.Object(
+  { id: Type.String({ minLength: 1 }) },
+  { additionalProperties: false },
+);
+
+const messageRun = Type.Object(
+  { id: Type.String({ minLength: 1 }), text: Type.String({ minLength: 1 }) },
   { additionalProperties: false },
 );
 
@@ -108,7 +176,7 @@ const routinesTool = Type.Object(
     routine: Type.Optional(
       Type.Unknown({
         description:
-          'For create and update, the whole routine: { "title", "when": [{ "kind": "schedule", "cron": "0 8 * * 1-5", "timeZone": "Europe/Berlin" } | { "kind": "once", "at": ISO time with zone } | { "kind": "event", "event": "<plugin>.<name>", "where"?: [{ "field", "is" | "isNot" | "contains" | "startsWith" | "matches" (a path glob such as docs/**): value } | { "field", "oneOf": [values] }] } | { "kind": "webhook" }, each with an optional "inputs": { name: text with {{event.<field>}} } and an optional "agent" or "workflow" that its runs start in place of the one in do], "inputs"?: { name: { "type": "string" | "number" | "boolean", "default"?, "required"? } | { "type": "oneOf", "values": [strings], "default"? } }, "sameWork"?: { "key"?: [event fields that make one piece of work], "whileRunning"?: "tell" | "skip" | "queue" }, "do": { "kind": "session", "agent"?: the name of an agent file, such as worker, "workflow"?: the name of a saved workflow, started with the inputs as its args, "prompt" (optional for a workflow), "workspace": { "kind": "clone", "repository": url } | { "kind": "folder", "path" } | { "kind": "event-repository" }, "environment"?, "profile"?, "model"?: "provider/id", "as"?: technical user name to act as on git instead of the user } or { "kind": "message", "prompt", "session": id }, "limits"?: { "maxRunning"?: number, "dailySpend"?: a cap in the currency of the server price table that pauses the routine until the next day, "timeLimit"?: running time such as "2h" (the default), "retries"?: how often a failed run starts again, "stopAfter"?: "YYYY-MM-DD" after which it pauses itself }, "questions"?: { "timeout"?: how long a question a run asks with ask_user waits for an answer, such as "24h" (the default) }, "actions"?: { action: max per run, or { "max", "approve": true } for a person to approve each first }, naming the actions its runs may propose, such as { "pullRequest": 1, "comment": 3 }, "proposes"?: "outside-input" (the default: runs fired by events and webhooks can\'t push or post and propose what to write instead) | "always" | "never" (runs write themselves, so text strangers write can make them write) }. Any trigger may have "windows": [{ "days": "mon-fri", "from": "09:00", "to": "18:00", "outside": "wait" | "skip", "timeZone"? }]. An event from a git host fires only for repository members unless a where condition names member or sender. The prompt and workspace may use {{event.<field>}} and {{inputs.<name>}}.',
+          'For create and update, the whole routine: { "title", "when": [{ "kind": "schedule", "cron": "0 8 * * 1-5", "timeZone": "Europe/Berlin" } | { "kind": "once", "at": ISO time with zone } | { "kind": "event", "event": "<plugin>.<name>", "where"?: [{ "field", "is" | "isNot" | "contains" | "startsWith" | "matches" (a path glob such as docs/**): value } | { "field", "oneOf": [values] }] } | { "kind": "webhook" }, each with an optional "inputs": { name: text with {{event.<field>}} } and an optional "agent" or "workflow" that its runs start in place of the one in do], "inputs"?: { name: { "type": "string" | "number" | "boolean", "default"?, "required"? } | { "type": "oneOf", "values": [strings], "default"? } }, "sameWork"?: { "key"?: [event fields that make one piece of work], "whileRunning"?: "tell" | "skip" | "queue" }, "do": { "kind": "session", "agent"?: the name of an agent file, such as worker, "workflow"?: the name of a saved workflow, started with the inputs as its args, "prompt" (optional for a workflow), "workspace": { "kind": "clone", "repository": url } | { "kind": "folder", "path" } | { "kind": "event-repository" }, "environment"?, "profile"?, "model"?: "provider/id", "as"?: technical user name to act as on git instead of the user } or { "kind": "message", "prompt", "session": id }, "limits"?: { "maxRunning"?: number, "dailySpend"?: a cap in the currency of the server price table that pauses the routine until the next day, "timeLimit"?: running time such as "2h" (the default), "retries"?: how often a failed run starts again, "stopAfter"?: "YYYY-MM-DD" after which it pauses itself }, "questions"?: { "timeout"?: how long a question a run asks with ask_user waits for an answer, such as "24h" (the default) }, "actions"?: { action: max per run, or { "max", "approve": true } for a person to approve each first }, naming the actions its runs may propose, such as { "pullRequest": 1, "comment": 3 }, "proposes"?: "outside-input" (the default: runs fired by events and webhooks can\'t push or post and propose what to write instead) | "always" | "never" (runs write themselves, so text strangers write can make them write) }. Any trigger may have "windows": [{ "days": "mon-fri", "from": "09:00", "to": "18:00", "outside": "wait" | "skip", "timeZone"? }]. An event from a git host fires only for repository members unless a where condition names member or sender. A routine may follow another with the event routines.run_ended and a where condition { "field": "routine", "is": name }, and may declare "output": { field: "string" | "number" | "boolean" | ["string"] } that its runs pass to end_run. In a group, "coordinator": true makes it the group\'s one coordinator. The prompt and workspace may use {{event.<field>}} and {{inputs.<name>}}.',
       }),
     ),
     inputs: Type.Optional(
@@ -155,8 +223,61 @@ export const server = defineServer(routines, (context) => {
     when: { ownSessions: true },
     exposure: "direct",
     annotations: { readOnly: false, destructive: false },
-    run: ({ result, summary }, { session }) =>
-      engine.endRun(session, result, summary.trim()),
+    run: ({ result, summary, output }, { session }) =>
+      engine.endRun(session, result, summary.trim(), output),
+  });
+
+  // A group coordinator's runs start and steer the group's runs (ADR 0075).
+  // The runs it starts don't get these, so they can't start runs.
+  const coordinating = {
+    ownSessions: true,
+    available: (session) => engine.coordinates(session),
+  } satisfies When;
+
+  tools.define({
+    name: "start_run",
+    label: "Start run",
+    description:
+      "Starts a run for one piece of the group's work, as an agent or a workflow, with the group's defaults. You get a message when it ends or waits on a person.",
+    params: startRun,
+    when: coordinating,
+    exposure: "direct",
+    annotations: { readOnly: false, destructive: false },
+    run: (request, { session }) => engine.startRun(session, request),
+  });
+
+  tools.define({
+    name: "message_run",
+    label: "Message run",
+    description: "Sends one of the group's going runs a message.",
+    params: messageRun,
+    when: coordinating,
+    exposure: "direct",
+    annotations: { readOnly: false, destructive: false },
+    run: ({ id, text }, { session }) => engine.messageRun(session, id, text),
+  });
+
+  tools.define({
+    name: "list_runs",
+    label: "List runs",
+    description:
+      "Lists the group's runs: the ones going or waiting to start, then the newest that ended, with their summaries and output.",
+    params: Type.Object({}, { additionalProperties: false }),
+    when: coordinating,
+    exposure: "direct",
+    annotations: { readOnly: true },
+    run: (_, { session }) => JSON.stringify(engine.listRuns(session)),
+  });
+
+  tools.define({
+    name: "stop_run",
+    label: "Stop run",
+    description: "Stops one of the group's runs and archives its Session.",
+    params: runId,
+    when: coordinating,
+    exposure: "direct",
+    annotations: { readOnly: false, destructive: true },
+    run: ({ id }, { session }) => engine.stopRun(session, id),
   });
 
   // The agent's way to make and change its person's routines. A routine's
