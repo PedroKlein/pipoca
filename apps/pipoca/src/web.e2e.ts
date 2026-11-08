@@ -3938,6 +3938,7 @@ test("creates a Project and shares a file through its folder", async () => {
   });
 
   await page.getByRole("link", { name: "brief.txt" }).first().waitFor();
+
   await page
     .getByRole("list", { name: "Recent writes" })
     .getByText(/^wrote brief\.txt \(10 B\)$/)
