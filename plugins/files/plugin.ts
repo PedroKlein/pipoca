@@ -6,15 +6,15 @@ export const files = definePlugin({
   description:
     "Keeps what Pi makes in outputs/ and the files people give a Session, on the server, wherever the Session runs.",
   config: Config.object({
-    maxFileBytes: Config.number({
-      title: "Largest file, in bytes",
+    maxFileBytes: Config.bytes({
+      title: "Largest file",
       description:
         "Uploads and outputs larger than this are refused with a message that names the limit.",
       default: 209_715_200,
       min: 1,
     }),
-    perPersonBytes: Config.number({
-      title: "Session files per person, in bytes",
+    perPersonBytes: Config.bytes({
+      title: "Session files per person",
       description:
         "Past this, the person and admins are warned. Nothing is deleted or refused.",
       default: 10_737_418_240,
@@ -22,19 +22,22 @@ export const files = definePlugin({
     }),
     // Kubernetes pods without a disk of their own lose a checkout's work
     // when they exit, so they keep it on the server.
-    snapshots: Config.object({
-      enabled: Config.boolean({
-        title: "Keep unfinished repository work when a pod exits",
-        default: true,
-      }),
-      maxBytes: Config.number({
-        title: "Largest snapshot, in bytes",
-        description:
-          "A checkout's unfinished work over this isn't kept, and the Session says so.",
-        default: 524_288_000,
-        min: 1,
-      }),
-    }),
+    snapshots: Config.object(
+      {
+        enabled: Config.boolean({
+          title: "Save unfinished work in repositories when a pod stops",
+          default: true,
+        }),
+        maxBytes: Config.bytes({
+          title: "Largest snapshot",
+          description:
+            "A checkout's unfinished work over this isn't kept, and the Session says so.",
+          default: 524_288_000,
+          min: 1,
+        }),
+      },
+      { title: "Workspaces on Kubernetes" },
+    ),
   }),
   schema: `
 create table files_session_files (

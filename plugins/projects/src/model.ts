@@ -160,7 +160,11 @@ export function bytes(size: number): string {
     return `${String(Math.round(size / 1024))} KB`;
   }
 
-  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  if (size < 1024 ** 3) {
+    return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  }
+
+  return `${(size / 1024 ** 3).toFixed(1)} GB`;
 }
 
 // What a Session part learns of the Session it runs in.

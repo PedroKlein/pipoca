@@ -199,3 +199,78 @@ test("Settings shows what Session files take, and who keeps more than the per-pe
 
   expect(page.textContent).toContain("Ana2 KB kept");
 });
+
+test("Settings shows sizes in MB or GB and saves them in bytes, with the snapshot settings as a group", async () => {
+  const saved: unknown[] = [];
+  let asked = 0;
+
+  const page = renderPart(
+    web,
+    "settings",
+    {},
+    {
+      fetch: async (url, init) => {
+        await Promise.resolve();
+
+        asked += 1;
+
+        if (init?.method === "PUT" && typeof init.body === "string") {
+          saved.push(JSON.parse(init.body));
+
+          return json({});
+        }
+
+        return url.endsWith("/config")
+          ? json({
+              value: {
+                maxFileBytes: 209_715_200,
+                perPersonBytes: 10_737_418_240,
+                snapshots: { enabled: true, maxBytes: 524_288_000 },
+              },
+            })
+          : json({ used: 0, free: 0, over: [] });
+      },
+    },
+  );
+
+  await act(async () => until(() => asked > 1));
+
+  const field = (label: string): HTMLInputElement | null =>
+    [...page.querySelectorAll("label")]
+      .find((each) => each.textContent.startsWith(label))
+      ?.querySelector("input") ?? null;
+
+  expect(field("Largest file")?.value).toBe("200");
+  expect(field("Session files per person")?.value).toBe("10");
+
+  expect(page.querySelector("fieldset legend")?.textContent).toBe(
+    "Workspaces on Kubernetes",
+  );
+
+  expect(field("Largest snapshot")?.value).toBe("500");
+
+  const input = field("Largest file");
+
+  act(() => {
+    if (input !== null) {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(input, "50");
+
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  });
+
+  await act(async () => {
+    page.querySelector<HTMLButtonElement>("button[type=submit]")?.click();
+    await until(() => saved.length === 1);
+  });
+
+  expect(saved[0]).toMatchObject({
+    value: {
+      maxFileBytes: 52_428_800,
+      snapshots: { enabled: true, maxBytes: 524_288_000 },
+    },
+  });
+});
