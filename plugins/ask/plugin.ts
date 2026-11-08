@@ -1,4 +1,4 @@
-import { Config, definePlugin } from "@pipoca/plugins";
+import { Config, definePlugin, event, Type } from "@pipoca/plugins";
 
 export const ask = definePlugin({
   id: "ask",
@@ -15,6 +15,21 @@ export const ask = definePlugin({
       max: 10_080,
     }),
   }),
+  events: {
+    answered: event({
+      title: "Question answered",
+      description:
+        "A question that waited past its turn was answered, or timed out with no answer.",
+      fields: Type.Object({
+        question: Type.String(),
+        session: Type.String(),
+        answer: Type.Union([Type.String(), Type.Null()], {
+          description: "The answer, or null when it timed out",
+        }),
+        by: Type.Union([Type.String(), Type.Null()]),
+      }),
+    }),
+  },
   schema: `
 create table ask_votes (
   id text primary key,

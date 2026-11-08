@@ -88,6 +88,10 @@ export function questionBroker(log: Log): {
         withKeeper("questions", false, (keeper) => keeper.answer(id, reply)),
       open: (sessionId) =>
         withKeeper("questions", [], (keeper) => keeper.open(sessionId)),
+      ask: (sessionId, asking) =>
+        withKeeper("questions", undefined, (keeper) =>
+          keeper.ask(sessionId, asking),
+        ),
     },
   };
 }

@@ -1,15 +1,14 @@
-import type { TypedClient } from "@pipoca/plugins";
+import type { TypedClient } from "../src/client";
 import { blobRoutes } from "@pipoca/protocol";
 
 const chunkBytes = 8 * 1024 * 1024;
 const attempts = 5;
 
-// Sends a file from the browser in chunks the server hashes, carrying on
-// from what it has after a dropped connection, then adds it to the
-// Session's uploads. Resolves to its name under uploads/.
-export async function uploadFile(
+// Sends a file from the browser to the plugin's blob store in chunks the
+// server hashes, carrying on from what it has after a dropped connection.
+// Resolves to its hash, which the plugin's own route then names.
+export async function uploadBlob(
   api: TypedClient,
-  sessionId: string,
   file: File,
   onProgress: (sent: number) => void,
 ): Promise<string> {
@@ -49,12 +48,7 @@ export async function uploadFile(
 
   const { hash } = await api.post<{ hash: string }>(`${route}/finish`, {});
 
-  const { path } = await api.post<{ path: string }>(
-    `sessions/${sessionId}/uploads`,
-    { name: file.name, hash },
-  );
-
-  return path;
+  return hash;
 }
 
 class Refused extends Error {

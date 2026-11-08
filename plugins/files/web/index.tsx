@@ -2,6 +2,7 @@ import {
   defineWeb,
   type MountedSession,
   type SessionFilesProps,
+  uploadBlob,
   useApi,
   useLoaded,
   useSessionState,
@@ -25,7 +26,6 @@ import {
   type Place,
   type SessionFile,
 } from "../src/files";
-import { uploadFile } from "./upload";
 
 export const web = defineWeb(plugin, {
   slots: {
@@ -216,9 +216,14 @@ function Attached({
         );
       }
 
-      const path = await uploadFile(api, session.id, file, (sent) => {
+      const hash = await uploadBlob(api, file, (sent) => {
         change(file, { sent });
       });
+
+      const { path } = await api.post<{ path: string }>(
+        `sessions/${session.id}/uploads`,
+        { name: file.name, hash },
+      );
 
       change(file, { sent: file.size, path });
     };

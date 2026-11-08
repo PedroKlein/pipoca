@@ -1,6 +1,7 @@
 import {
   defineServer,
   NotFound,
+  owners,
   StringEnum,
   ToolError,
   Type,
@@ -81,7 +82,7 @@ const routinesTool = Type.Object(
     routine: Type.Optional(
       Type.Unknown({
         description:
-          'For create and update, the whole routine: { "title", "when": [{ "kind": "schedule", "cron": "0 8 * * 1-5", "timeZone": "Europe/Berlin" } | { "kind": "once", "at": ISO time with zone } | { "kind": "event", "event": "<plugin>.<name>", "where"?: [{ "field", "is" | "isNot" | "contains" | "startsWith" | "matches" (a path glob such as docs/**): value } | { "field", "oneOf": [values] }] } | { "kind": "webhook" }, each with an optional "inputs": { name: text with {{event.<field>}} } and an optional "agent" or "workflow" that its runs start in place of the one in do], "inputs"?: { name: { "type": "string" | "number" | "boolean", "default"?, "required"? } | { "type": "oneOf", "values": [strings], "default"? } }, "sameWork"?: { "key"?: [event fields that make one piece of work], "whileRunning"?: "tell" | "skip" | "queue" }, "do": { "kind": "session", "agent"?: the name of an agent file, such as worker, "workflow"?: the name of a saved workflow, started with the inputs as its args, "prompt" (optional for a workflow), "workspace": { "kind": "clone", "repository": url } | { "kind": "folder", "path" } | { "kind": "event-repository" }, "environment"?, "profile"?, "model"?: "provider/id", "as"?: technical user name to act as on git instead of the user } or { "kind": "message", "prompt", "session": id }, "limits"?: { "maxRunning"?: number, "dailySpend"?: a cap in the currency of the server price table that pauses the routine until the next day, "timeLimit"?: running time such as "2h" (the default), "retries"?: how often a failed run starts again, "stopAfter"?: "YYYY-MM-DD" after which it pauses itself }, "actions"?: { action: max per run, or { "max", "approve": true } for a person to approve each first }, naming the actions its runs may propose, such as { "pullRequest": 1, "comment": 3 }, "proposes"?: "outside-input" (the default: runs fired by events and webhooks can\'t push or post and propose what to write instead) | "always" | "never" (runs write themselves, so text strangers write can make them write) }. Any trigger may have "windows": [{ "days": "mon-fri", "from": "09:00", "to": "18:00", "outside": "wait" | "skip", "timeZone"? }]. An event from a git host fires only for repository members unless a where condition names member or sender. The prompt and workspace may use {{event.<field>}} and {{inputs.<name>}}.',
+          'For create and update, the whole routine: { "title", "when": [{ "kind": "schedule", "cron": "0 8 * * 1-5", "timeZone": "Europe/Berlin" } | { "kind": "once", "at": ISO time with zone } | { "kind": "event", "event": "<plugin>.<name>", "where"?: [{ "field", "is" | "isNot" | "contains" | "startsWith" | "matches" (a path glob such as docs/**): value } | { "field", "oneOf": [values] }] } | { "kind": "webhook" }, each with an optional "inputs": { name: text with {{event.<field>}} } and an optional "agent" or "workflow" that its runs start in place of the one in do], "inputs"?: { name: { "type": "string" | "number" | "boolean", "default"?, "required"? } | { "type": "oneOf", "values": [strings], "default"? } }, "sameWork"?: { "key"?: [event fields that make one piece of work], "whileRunning"?: "tell" | "skip" | "queue" }, "do": { "kind": "session", "agent"?: the name of an agent file, such as worker, "workflow"?: the name of a saved workflow, started with the inputs as its args, "prompt" (optional for a workflow), "workspace": { "kind": "clone", "repository": url } | { "kind": "folder", "path" } | { "kind": "event-repository" }, "environment"?, "profile"?, "model"?: "provider/id", "as"?: technical user name to act as on git instead of the user } or { "kind": "message", "prompt", "session": id }, "limits"?: { "maxRunning"?: number, "dailySpend"?: a cap in the currency of the server price table that pauses the routine until the next day, "timeLimit"?: running time such as "2h" (the default), "retries"?: how often a failed run starts again, "stopAfter"?: "YYYY-MM-DD" after which it pauses itself }, "questions"?: { "timeout"?: how long a question a run asks with ask_user waits for an answer, such as "24h" (the default) }, "actions"?: { action: max per run, or { "max", "approve": true } for a person to approve each first }, naming the actions its runs may propose, such as { "pullRequest": 1, "comment": 3 }, "proposes"?: "outside-input" (the default: runs fired by events and webhooks can\'t push or post and propose what to write instead) | "always" | "never" (runs write themselves, so text strangers write can make them write) }. Any trigger may have "windows": [{ "days": "mon-fri", "from": "09:00", "to": "18:00", "outside": "wait" | "skip", "timeZone"? }]. An event from a git host fires only for repository members unless a where condition names member or sender. The prompt and workspace may use {{event.<field>}} and {{inputs.<name>}}.',
       }),
     ),
     inputs: Type.Optional(
@@ -198,7 +199,13 @@ export const server = defineServer(routines, (context) => {
             );
           }
 
-          const tested = engine.save(owner, name, routine);
+          const tested = engine.save(
+            owner,
+            name,
+            routine,
+            owners.personId(owner),
+          );
+
           routes.topic("routines");
 
           if (action === "update") {
@@ -236,7 +243,7 @@ export const server = defineServer(routines, (context) => {
             engine.runNow(owner, name, inputs, { dryRun: dryRun === true }),
           );
         case "remove":
-          engine.remove(owner, name);
+          engine.remove(owner, name, owners.personId(owner));
 
           return `Deleted the routine ${name}.`;
       }
@@ -310,7 +317,7 @@ export const server = defineServer(routines, (context) => {
     "routines/:name",
     { auth: "person", team: true, body: routineSchema, changes: ["routines"] },
     ({ caller, params, body }) => {
-      engine.save(caller.owner, params.name, body);
+      engine.save(caller.owner, params.name, body, caller.person.id);
 
       return engine.get(caller.owner, params.name);
     },
@@ -320,7 +327,7 @@ export const server = defineServer(routines, (context) => {
     "routines/:name",
     { auth: "person", team: true, changes: ["routines"] },
     ({ caller, params }) => {
-      engine.remove(caller.owner, params.name);
+      engine.remove(caller.owner, params.name, caller.person.id);
 
       return { ok: true };
     },

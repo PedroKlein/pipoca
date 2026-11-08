@@ -1,5 +1,5 @@
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { readdir, readFile } from "node:fs/promises";
+import { basename, join, relative, resolve } from "node:path";
 import {
   defineSession,
   HttpError,
@@ -9,20 +9,15 @@ import {
 } from "@pipoca/plugins";
 import { profilePath } from "@pipoca/protocol";
 import { projects } from "../plugin";
-import {
-  type LibraryFile,
-  type Membership,
-  nameRule,
-  sizeRule,
-  validName,
-} from "./model";
+import { folderSync } from "./folder-sync";
+import { bytes, type FolderFile, type Membership } from "./model";
 
 type Context = SessionContext<typeof projects>;
 
 const skipped = new Set([".git", "node_modules", ".build"]);
 
-// Only Sessions in a Project get the library's tools, and only the
-// assistant's Sessions install what its threads built (ADR 0018, ADR 0052).
+// Only Sessions in a Project get the Project folder, and only the
+// assistant's Sessions install what its threads built (ADR 0078, ADR 0052).
 export const session = defineSession(projects, async (s) => {
   const member = await s.api
     .get<Membership>("member")
@@ -38,7 +33,7 @@ export const session = defineSession(projects, async (s) => {
     return;
   }
 
-  libraryTools(s);
+  folderTools(s);
 
   if (member.assistant) {
     installTools(s);
@@ -97,117 +92,70 @@ function asksUnhinted({ extension, askPermission }: Context): void {
   });
 }
 
-function libraryPath(name: string): string {
-  const composed = name.normalize("NFC");
+// Every Session in a Project sees the Project's folder in project/, pulled
+// in the background as a turn starts and pushed after it ends (ADR 0078).
+// Nothing waits on the network before a turn: Pi starts a second run if a
+// prompt arrives meanwhile.
+function folderTools(s: Context): void {
+  const sync = folderSync(s);
 
-  if (!validName(composed)) {
-    throw new ToolError(nameRule);
-  }
-
-  return `library/${encodeURIComponent(composed)}`;
-}
-
-function libraryTools({ api, config, tools }: Context): void {
-  const limit = config.fileLimitMb * 1024 * 1024;
-
-  tools.define({
-    name: "list_library",
-    label: "List library",
+  s.tools.define({
+    name: "list_project_files",
+    label: "List Project files",
     description:
-      "List the files in the Project's shared library, with size, last writer and time.",
-    params: Type.Object({}),
-    annotations: { readOnly: true },
-    run: async () => {
-      const files = await api.get<LibraryFile[]>("library");
-
-      return files.length === 0
-        ? "The library is empty."
-        : files
-            .map(
-              (file) =>
-                `${file.name} · ${String(file.size)} bytes · ${file.actor} · ${file.updatedAt}`,
-            )
-            .join("\n");
-    },
-  });
-
-  tools.define({
-    name: "publish_file",
-    label: "Publish file",
-    description:
-      "Copy a file from your working directory into the Project's shared library, where the user and every Project session can get it. It replaces a library file of the same name.",
+      "Finds files in the Project's shared folder by words in their paths. Returns at most 20 matches with their full paths.",
     params: Type.Object({
-      path: Type.String({
-        description: "The file's path, relative to your working directory",
+      query: Type.String({
+        description:
+          "Words in the file's path, such as 'brief'; empty lists them all",
       }),
-      name: Type.Optional(
-        Type.String({
-          description: "Its name in the library. Default: the file's name",
-        }),
-      ),
     }),
-    annotations: { destructive: true },
-    // Only replacing a file someone else may rely on asks (ADR 0050).
-    asks: async (input, { cwd }) => {
-      const name = (input.name ?? basename(resolve(cwd, input.path))).normalize(
-        "NFC",
+    annotations: { readOnly: true },
+    // Its guidelines tell Pi where the folder is, so they stay in the prompt.
+    exposure: "direct",
+    prompt: {
+      snippet: "List the files in the Project's shared folder",
+      guidelines: [
+        `The Project's shared folder is ${sync.dir}. Every Session in the Project and its people see it. What you change there is sent after your turn, and others' changes arrive as your turns start.`,
+        'When another Session changed a file first, your version is kept beside it as "name (from <thread>).ext".',
+      ],
+    },
+    run: async ({ query }) => {
+      const answer = await s.api.get<{ files: FolderFile[]; more: number }>(
+        `folder/find?query=${encodeURIComponent(query)}`,
       );
 
-      const files = await api.get<LibraryFile[]>("library");
-
-      return files.some((file) => file.name === name)
-        ? `Replace the library file “${name}”?`
-        : undefined;
-    },
-    run: async (input, { cwd, signal }) => {
-      const path = resolve(cwd, input.path);
-      const name = input.name ?? basename(path);
-
-      if ((await stat(path)).size > limit) {
-        throw new ToolError(sizeRule(limit));
+      if (answer.files.length === 0) {
+        return "No files match.";
       }
 
-      const content = await readFile(path);
-
-      await api.put(
-        libraryPath(name),
-        { content: content.toString("base64") },
-        signal === undefined ? {} : { signal },
+      const lines = answer.files.map(
+        ({ path, size }) =>
+          `${join(sync.dir, ...path.split("/"))} (${bytes(size)})`,
       );
 
-      return `Published ${input.path} as ${name} (${String(content.length)} bytes).`;
+      return answer.more > 0
+        ? [...lines, `and ${String(answer.more)} more`].join("\n")
+        : lines.join("\n");
     },
   });
 
-  tools.define({
-    name: "fetch_file",
-    label: "Fetch file",
-    description:
-      "Copy a file from the Project's shared library into your working directory.",
-    params: Type.Object({
-      name: Type.String({ description: "The library file's name" }),
-      path: Type.Optional(
-        Type.String({
-          description:
-            "Where to write it, relative to your working directory. Default: its name",
-        }),
-      ),
-    }),
-    annotations: { destructive: false },
-    run: async (input, { cwd, signal }) => {
-      const { content } = await api.get<{ content: string }>(
-        libraryPath(input.name),
-        undefined,
-        signal === undefined ? {} : { signal },
-      );
+  s.extension((pi) => {
+    pi.on("session_start", () => {
+      sync.run();
+    });
 
-      const path = resolve(cwd, input.path ?? input.name);
-      const bytes = Buffer.from(content, "base64");
-      await mkdir(dirname(path), { recursive: true });
-      await writeFile(path, bytes);
+    pi.on("before_agent_start", () => {
+      sync.run();
+    });
 
-      return `Wrote ${input.name} to ${path} (${String(bytes.length)} bytes).`;
-    },
+    pi.on("agent_settled", () => {
+      sync.run();
+    });
+
+    pi.on("session_shutdown", async () => {
+      await sync.flush();
+    });
   });
 }
 

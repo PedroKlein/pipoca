@@ -16,6 +16,7 @@ import { responseOrder } from "./responses";
 import { topicOf, useScope } from "./shell";
 
 export { ConfigForm } from "./config-form";
+export { uploadBlob } from "./upload";
 export {
   defineWeb,
   Hidden,

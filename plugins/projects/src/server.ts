@@ -2,7 +2,6 @@ import {
   BadRequest,
   defineServer,
   Forbidden,
-  HttpError,
   NotFound,
   type PersonCaller,
   type ServerContext,
@@ -12,20 +11,17 @@ import {
   Type,
 } from "@pipoca/plugins";
 import {
-  type Actor,
   checkoutName,
   type Session,
   type SessionAccess,
 } from "@pipoca/protocol";
 import { projects } from "../plugin";
 import { assistantProfiles } from "./assistant";
+import { folderRoutes } from "./folder";
 import {
   type Membership,
-  nameRule,
   type ProjectSummary,
   type ProjectView,
-  sizeRule,
-  validName,
   workStates,
 } from "./model";
 import {
@@ -89,8 +85,6 @@ const assistantAsk = Type.Object({
 
 const stateChange = Type.Object({ state: StringEnum(workStates) });
 
-const fileContent = Type.Object({ content: Type.String() });
-
 const installation = Type.Union([
   Type.Object({
     kind: Type.Literal("profile"),
@@ -113,7 +107,7 @@ const transcriptWaitMs = 1000;
 const transcriptWaitLimitMs = 60_000;
 
 // Projects, their coordinators and threads (ADR 0016, ADR 0028), each
-// Project's library (ADR 0018), and each person's assistant, a Project of
+// Project's folder (ADR 0078), and each person's assistant, a Project of
 // their own (ADR 0052).
 export const server = defineServer(projects, (context) => {
   const { routes, sessions, events, schedule, transcript, log } = context;
@@ -808,8 +802,6 @@ export const server = defineServer(projects, (context) => {
     ({ caller, body }) => view(ask(body, caller)),
   );
 
-  libraryRoutes(context, store);
-
   // What a Session part learns of the Session it runs in.
   routes.get("member", { auth: "session" }, ({ caller }): Membership => {
     const { member, project } = memberOf(caller);
@@ -862,106 +854,7 @@ export const server = defineServer(projects, (context) => {
     },
   );
 
-  routes.get("library/:name", { auth: "session" }, ({ caller, params }) => {
-    const { project } = memberOf(caller);
-    const content = store.readFile(project.id, decoded(params.name));
-
-    if (content === undefined) {
-      throw new NotFound(`no library file ${params.name}`);
-    }
-
-    return { content: Buffer.from(content).toString("base64") };
-  });
-
-  routes.get("library", { auth: "session" }, ({ caller }) =>
-    store.files(memberOf(caller).project.id),
-  );
-
-  routes.put(
-    "library/:name",
-    { auth: "session", body: fileContent, changes: ["projects"] },
-    ({ caller, params, body }) => {
-      const { project } = memberOf(caller);
-      const content = Buffer.from(body.content, "base64");
-
-      return writeFile(
-        project.id,
-        params.name,
-        new Uint8Array(content),
-        `session:${caller.session.id}`,
-      );
-    },
-  );
-
-  const writeFile = (
-    projectId: string,
-    rawName: string,
-    content: Uint8Array,
-    actor: Actor,
-  ): { name: string; size: number } => {
-    const name = decoded(rawName);
-    const limit = context.config.get().fileLimitMb * 1024 * 1024;
-
-    if (!validName(name)) {
-      throw new BadRequest(nameRule);
-    }
-
-    if (content.length > limit) {
-      throw new HttpError(413, sizeRule(limit));
-    }
-
-    store.writeFile(projectId, name, content, actor);
-    log("library file written", { project: projectId, name, actor });
-
-    return { name, size: content.length };
-  };
-
-  // The web app's half of the library, which uploads raw bytes.
-  function libraryRoutes({ routes: own }: Context, files: typeof store): void {
-    own.get("projects/:id/files", { auth: "person" }, ({ caller, params }) =>
-      files.files(theirs(params.id, caller).id),
-    );
-
-    own.get("projects/:id/log", { auth: "person" }, ({ caller, params }) =>
-      files.writes(theirs(params.id, caller).id),
-    );
-
-    own.get(
-      "projects/:id/files/:name",
-      { auth: "person" },
-      ({ caller, params }) => {
-        const project = theirs(params.id, caller);
-        const name = decoded(params.name);
-        const content = files.readFile(project.id, name);
-
-        if (content === undefined) {
-          throw new NotFound(`no library file ${name}`);
-        }
-
-        return new Response(content, {
-          headers: {
-            "content-type": "application/octet-stream",
-            "content-disposition": attachment(name),
-          },
-        });
-      },
-    );
-
-    own.put(
-      "projects/:id/files/:name",
-      { auth: "person", changes: ["projects"] },
-      async ({ caller, params, raw }) => {
-        const project = theirs(params.id, caller, "steers");
-
-        return writeFile(
-          project.id,
-          params.name,
-          new Uint8Array(await raw.arrayBuffer()),
-          `user:${caller.person.id}`,
-        );
-      },
-    );
-  }
+  folderRoutes(context, store, { theirs, memberOf });
 });
 
 // A starter always steers what they limited, so a new one names the old.
@@ -1034,23 +927,6 @@ function settingsOf(
     threadModel: model,
     profileId: profileId === undefined ? project.profileId : profileId,
   };
-}
-
-// macOS and zip archives often spell "é" as "e" plus a combining accent; NFC
-// makes both spellings one file.
-function decoded(name: string): string {
-  return name.normalize("NFC");
-}
-
-// RFC 8187 leaves ' ( ) and * out of filename*, but encodeURIComponent keeps
-// them.
-function attachment(name: string): string {
-  const encoded = encodeURIComponent(name).replace(
-    /['()*]/g,
-    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
-  );
-
-  return `attachment; filename*=UTF-8''${encoded}`;
 }
 
 async function installProfile(

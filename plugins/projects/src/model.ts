@@ -92,29 +92,56 @@ export type ProjectNotice = {
   };
 }[keyof ProjectNotices];
 
-export interface LibraryFile {
-  readonly name: string;
+// A file in a Project's folder, which every Session in the Project sees as
+// project/ (ADR 0078). path uses forward slashes.
+export interface FolderFile {
+  readonly path: string;
+  readonly hash: string;
   readonly size: number;
   readonly actor: string;
-  readonly updatedAt: string;
+  readonly updatedAt: number;
 }
 
-export interface LibraryWrite {
-  readonly name: string;
+// One write to the folder; hash is null when the file was removed. A
+// conflict is a copy kept because another Session changed the file first.
+export interface FolderWrite {
+  readonly id: string;
+  readonly path: string;
+  readonly hash: string | null;
   readonly size: number;
   readonly actor: string;
-  readonly at: string;
+  readonly conflict: boolean;
+  readonly at: number;
 }
 
-export const nameRule =
-  "file names can't be empty, longer than 200 characters or only dots, can't start or end with whitespace, and can't contain /, \\, control characters or text direction controls";
+// What a Session changed since it last synced: base is the hash it started
+// from, and hash is null when it removed the file.
+export interface FolderChange {
+  readonly path: string;
+  readonly hash: string | null;
+  readonly base: string | null;
+}
 
-export function sizeRule(limit: number): string {
-  return `library files are limited to ${String(limit / 1024 / 1024)} MB`;
+export interface FolderSync {
+  readonly files: readonly FolderFile[];
+  // Changes kept under another name, since another Session got there first.
+  readonly conflicts: readonly {
+    readonly path: string;
+    readonly copy: string;
+  }[];
+}
+
+export const pathRule =
+  "folder paths are names joined by /, each up to 200 characters, not only dots, not starting or ending with whitespace, and without \\, control characters or text direction controls";
+
+const maxPath = 1024;
+
+export function validPath(path: string): boolean {
+  return path.length <= maxPath && path.split("/").every(validName);
 }
 
 // Direction controls can make "photo\u202Egnp.exe" display as "photoexe.png".
-export function validName(name: string): boolean {
+function validName(name: string): boolean {
   return (
     name !== "" &&
     name.length <= 200 &&
@@ -122,6 +149,18 @@ export function validName(name: string): boolean {
     !/^\s|\s$/u.test(name) &&
     !/[/\\\p{Cc}\p{Bidi_Control}]/u.test(name)
   );
+}
+
+export function bytes(size: number): string {
+  if (size < 1024) {
+    return `${String(size)} B`;
+  }
+
+  if (size < 1024 * 1024) {
+    return `${String(Math.round(size / 1024))} KB`;
+  }
+
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
 // What a Session part learns of the Session it runs in.

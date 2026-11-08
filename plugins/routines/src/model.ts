@@ -10,6 +10,9 @@ export interface WakeUp {
 
 export type RunOutcome =
   | "running"
+  // Its turn ended with a question open, and it waits for the answer
+  // (ADR 0076).
+  | "waiting"
   | "queued"
   | "ok"
   | "nothing"
@@ -48,6 +51,20 @@ export interface Proposal {
   readonly proposedAt: string;
 }
 
+// A question a waiting run asked.
+export interface RunQuestion {
+  readonly id: string;
+  readonly prompts: readonly string[];
+  readonly closesAt: string;
+}
+
+// A change to a routine, by the name of who saved it.
+export interface Change {
+  readonly by: string | null;
+  readonly change: "created" | "changed";
+  readonly at: string;
+}
+
 export interface Run {
   readonly id: string;
   // Which retry of a failed run it is, from 1.
@@ -64,6 +81,9 @@ export interface Run {
   // Its proposals were shown, never applied.
   readonly dryRun?: true;
   readonly proposals?: readonly Proposal[];
+  // While it waits: its open questions, and who they are for, by name.
+  readonly questions?: readonly RunQuestion[];
+  readonly askedFor?: readonly string[];
 }
 
 export interface RoutineView {
@@ -84,6 +104,11 @@ export interface RoutineDetail extends RoutineView {
   // The routine the file holds, in the shape saving writes.
   readonly routine?: Routine;
   readonly runs: readonly Run[];
+  // Who made it and changed it last, by name, when Pipoca saw them save it,
+  // and every change, newest first.
+  readonly createdBy: string | null;
+  readonly changedBy: string | null;
+  readonly history: readonly Change[];
   // What its runs spent today, in the currency of the server's prices.
   readonly spentToday: number;
   // Where a webhook trigger takes deliveries, signed with the secret as

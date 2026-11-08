@@ -88,6 +88,10 @@ create index routines_wakeups_session on routines_wakeups (session_id, delivered
   // requests runs opened.
   // 4: allowed actions (ADR 0076): runs that propose, dry runs, what they
   // proposed, and recent events that fired nothing, for test on save.
+  // 5: runs that wait for a person (ADR 0076): since when, how long they
+  // ran before, who their questions are for, the question an approval
+  // waits on, how a run that waits asked to end, and who changed each
+  // routine.
   migrations: [
     "alter table routines_runs add column inputs text check (inputs is null or json_valid(inputs));",
     "alter table routines_runs add column agent text; alter table routines_runs add column workflow text;",
@@ -142,6 +146,23 @@ create table routines_heard (
   heard_at integer not null
 ) strict;
 create index routines_heard_type on routines_heard (type, heard_at);
+`,
+    `
+alter table routines_runs add column waiting_since integer;
+alter table routines_runs add column ran_ms integer not null default 0;
+alter table routines_runs add column asked_for text check (asked_for is null or json_valid(asked_for));
+alter table routines_runs add column ending text check (ending is null or json_valid(ending));
+alter table routines_proposals add column question_id text;
+create index routines_proposals_question on routines_proposals (question_id) where question_id is not null;
+
+create table routines_changes (
+  owner_user_id text references users (id) on delete cascade,
+  name text not null,
+  by_user_id text references users (id) on delete set null,
+  change text not null check (change in ('created', 'changed')),
+  changed_at integer not null
+) strict;
+create index routines_changes_routine on routines_changes (coalesce(owner_user_id, ''), name, changed_at);
 `,
   ],
 });

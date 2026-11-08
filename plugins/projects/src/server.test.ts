@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { definePlugin, defineServer } from "@pipoca/plugins";
+import { blobRoutes } from "@pipoca/protocol";
 import {
   type PluginTest,
   person,
@@ -7,7 +8,7 @@ import {
   testPlugin,
   until,
 } from "@pipoca/testing";
-import type { ProjectView } from "./model";
+import type { FolderWrite, ProjectView } from "./model";
 import { server } from "./server";
 
 const people = [
@@ -434,37 +435,73 @@ test("archiving the coordinator archives the Project's threads", async () => {
   expect(thread.id).not.toBe("");
 });
 
-test("the library takes files from people, within the size limit", async () => {
+test("people add files to the Project's folder, and earlier versions stay downloadable", async () => {
   const s = await started();
   await using _ = s.t;
-  const path = `projects/${s.project.id}/files/brief.txt`;
+  const ana = s.t.as("ana");
+  const base = `projects/${s.project.id}`;
 
-  const put = await s.t
-    .as("ana")
-    .raw(path, { method: "PUT", body: "the brief\n" });
+  const upload = async (id: string, text: string): Promise<string> => {
+    await ana.raw(`${blobRoutes.browserUpload.replace(":id", id)}?offset=0`, {
+      method: "PUT",
+      body: text,
+    });
 
-  expect(put.status).toBe(200);
+    return (
+      await ana.post<{ hash: string }>(
+        blobRoutes.browserFinish.replace(":id", id),
+        {},
+      )
+    ).hash;
+  };
 
-  expect(await (await s.t.as("ana").raw(path, { method: "GET" })).text()).toBe(
-    "the brief\n",
+  await ana.post(`${base}/files`, {
+    path: "docs/brief.txt",
+    hash: await upload("u1", "the brief\n"),
+  });
+
+  await ana.post(`${base}/files`, {
+    path: "docs/brief.txt",
+    hash: await upload("u2", "the new brief\n"),
+  });
+
+  const file = `${base}/file?path=${encodeURIComponent("docs/brief.txt")}`;
+
+  expect(await (await ana.raw(file, { method: "GET" })).text()).toBe(
+    "the new brief\n",
   );
 
-  expect(await s.t.as("ana").get(`projects/${s.project.id}/log`)).toMatchObject(
-    [{ name: "brief.txt", size: 10, actor: "user:ana" }],
-  );
+  const { writes } = await ana.get<{ writes: FolderWrite[] }>(`${base}/log`);
 
-  expect((await s.t.as("bo").raw(path, { method: "GET" })).status).toBe(404);
+  expect(writes).toMatchObject([
+    { path: "docs/brief.txt", size: 14, actor: "user:ana" },
+    { path: "docs/brief.txt", size: 10, actor: "user:ana" },
+  ]);
+
+  expect(
+    await (
+      await ana.raw(`${base}/log/${writes[1]?.id ?? ""}`, { method: "GET" })
+    ).text(),
+  ).toBe("the brief\n");
+
+  expect((await s.t.as("bo").raw(file, { method: "GET" })).status).toBe(404);
 
   expect(
     (
-      await s.t
-        .as("ana")
-        .raw(`projects/${s.project.id}/files/${encodeURIComponent("a/b")}`, {
-          method: "PUT",
-          body: "x",
-        })
+      await ana.raw(`${base}/files`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          path: "../escape",
+          hash: await upload("u3", "x"),
+        }),
+      })
     ).status,
   ).toBe(400);
+
+  await ana.delete(file);
+
+  expect(await ana.get(`${base}/files`)).toEqual({ files: [] });
 });
 
 // A route that says whether its caller acts as an admin, as a route tool.
