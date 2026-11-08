@@ -52,7 +52,7 @@ export const greeter = definePlugin({
 - `schema` is SQL for the plugin's tables. Name them `<id>_<table>`, with a hyphen in the id written as an underscore, make them `STRICT`, keep times as integer milliseconds and ids as UUIDv7 (`Bun.randomUUIDv7()`). A table may reference the plugin's own tables and `users`, `sessions` and `environments`. Once a version with it is out, never edit `schema`: add to `migrations` instead.
 - `migrations` is a list of SQL run in order after `schema`, each one version more. The server runs the ones a database hasn't at start, inside its transaction, so a table rebuild uses `pragma defer_foreign_keys = on`. If one fails, or the database is at a newer version, the plugin fails with its data kept until an admin resets it on the Plugins page ([ADR 0070](adr/0070-schema-migrations.md)).
 - `events` declares what the plugin emits, each with a `title` and TypeBox `fields`, so routines can offer it as a trigger.
-- `requires` lists the plugins it can't run without. They start first, and it fails while one is off.
+- `requires` lists the plugins it can't run without. They start first, and it fails while one is off. Turning one of them off turns this plugin off too, after a confirm. List only plugins most of it breaks without: one it merely listens to or acts through shows as "works with" by itself ([ADR 0077](adr/0077-plugin-dependencies.md)).
 - `modelCredentials: true` says its Session part keeps the Session's model and MCP logins with `provide.modelCredentials`. Only one plugin on a server may say so: another that does fails at start, and a Session part that keeps them without it fails.
 - `defaultOn` says whether a built-in plugin starts on: `always`, `solo`, `team` or `never`.
 
