@@ -141,6 +141,9 @@ export interface SessionContext<P extends PluginDefinition = PluginDefinition> {
   readonly askQuestions: AskQuestions;
   readonly askPermission: AskPermission;
   readonly checkouts: readonly Checkout[];
+  // A folder of the plugin's own for this Session on its runner, outside
+  // the workspace, which Pi's tools reach too. A new runner starts it empty.
+  readonly folder: string;
   readonly startChild: (o: ChildOptions) => Promise<AgentSession>;
   readonly provide: {
     // Where the Session keeps its model and MCP logins in place of the

@@ -20,12 +20,17 @@ const maxOutputs = 10_000;
 
 // Saves outputs/ on the server after every turn and brings the files people
 // gave the Session into uploads/, on whichever runner it is on (ADR 0078).
+// Both live in the plugin's folder for the Session, outside the workspace,
+// so they never show in a repository's changes.
 export const session = defineSession(files, (s) => {
+  const outputsDir = join(s.folder, "outputs");
+  const uploadsDir = join(s.folder, "uploads");
+
   s.tools.define({
     name: "list_files",
     label: "List files",
     description:
-      "Finds files kept for this Session: what you saved in outputs/ and what people uploaded to uploads/. Returns at most 20 matches with their paths in the workspace.",
+      "Finds files kept for this Session: what you saved for the person and what people uploaded. Returns at most 20 matches with their full paths.",
     params: Type.Object({
       query: Type.String({
         description:
@@ -33,11 +38,13 @@ export const session = defineSession(files, (s) => {
       }),
     }),
     annotations: { readOnly: true },
+    // Its guidelines tell Pi where to save, so they stay in the prompt.
+    exposure: "direct",
     prompt: {
       snippet: "List the files saved for this Session",
       guidelines: [
-        "Write files the person should keep, such as a report or an export, in outputs/ in the workspace. They're saved on the server after each turn, with downloads beside the Session.",
-        "Files people give you arrive in uploads/.",
+        `Write files the person should keep, such as a report or an export, in ${outputsDir}. They're saved on the server after each turn, with downloads beside the Session.`,
+        `Files people give you arrive in ${uploadsDir}.`,
       ],
     },
     run: async ({ query }) => {
@@ -51,7 +58,8 @@ export const session = defineSession(files, (s) => {
       }
 
       const lines = answer.files.map(
-        ({ place, path, size }) => `${place}/${path} (${bytes(size)})`,
+        ({ place, path, size }) =>
+          `${join(s.folder, place, ...path.split("/"))} (${bytes(size)})`,
       );
 
       return answer.more > 0
@@ -65,22 +73,22 @@ export const session = defineSession(files, (s) => {
     const uploads = uploadInbox(s);
 
     pi.on("session_start", (_event, ctx) => {
-      outputs.run(ctx.cwd);
+      outputs.run(s.folder);
       uploads.noticed(ctx.sessionManager.getBranch());
-      uploads.copy(ctx.cwd);
+      uploads.copy(s.folder);
     });
 
     // Pi reads an upload only once it's in the workspace.
     pi.on("before_agent_start", async (_event, ctx) => {
       if (uploads.noticed(ctx.sessionManager.getBranch())) {
-        uploads.copy(ctx.cwd);
+        uploads.copy(s.folder);
       }
 
       await uploads.copied();
     });
 
-    pi.on("agent_settled", (_event, ctx) => {
-      outputs.run(ctx.cwd);
+    pi.on("agent_settled", () => {
+      outputs.run(s.folder);
     });
 
     pi.on("session_shutdown", async () => {

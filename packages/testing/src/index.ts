@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { validateToolArguments } from "@earendil-works/pi-ai";
 import type {
   ExtensionAPI,
@@ -243,6 +246,7 @@ export async function testSession(
     askQuestions: notFaked("askQuestions"),
     askPermission: notFaked("askPermission"),
     checkouts: [],
+    folder: join(tmpdir(), `pipoca-part-${randomUUID()}`),
     request: notFaked("request"),
     log: () => undefined,
     startChild: notFaked("startChild"),

@@ -189,7 +189,7 @@ export const server = defineServer(
         const data: UploadNoticeData = { path, size };
 
         sessions.send(params.id, {
-          text: `${caller.person.name} added uploads/${path} (${bytes(size)}) to the workspace.`,
+          text: `${caller.person.name} uploaded ${path} (${bytes(size)}) to this Session.`,
           turn: false,
           as: `user:${caller.person.id}`,
           notice: { kind: uploadNotice, data },

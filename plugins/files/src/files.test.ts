@@ -34,10 +34,11 @@ async function setUp(o: { readonly maxFileBytes?: number } = {}) {
   let offline = false;
 
   const runner = async () => {
+    // The plugin's folder for the Session, which tests write in as Pi does.
     const cwd = await mkdtemp(join(tmpdir(), "files-"));
 
     const part = await testSession(session, {
-      cwd,
+      folder: cwd,
       ...(o.maxFileBytes !== undefined && {
         config: { maxFileBytes: o.maxFileBytes },
       }),
@@ -199,8 +200,8 @@ test("Pi hears of an upload as the person's notice, and finds it in uploads/ bef
   expect(await upload("statement.pdf", "%PDF-2")).toBe("statement (2).pdf");
 
   expect(host.delivered().map(({ text, turn }) => [text, turn])).toEqual([
-    ["Ana added uploads/statement.pdf (4 B) to the workspace.", false],
-    ["Ana added uploads/statement (2).pdf (6 B) to the workspace.", false],
+    ["Ana uploaded statement.pdf (4 B) to this Session.", false],
+    ["Ana uploaded statement (2).pdf (6 B) to this Session.", false],
   ]);
 
   await part.event("before_agent_start", {}, noticesOf(host));
@@ -256,7 +257,7 @@ test("list_files finds outputs and uploads by words in their paths", async () =>
   await part.event("session_shutdown");
 
   expect((await part.tool("list_files", { query: "csv" })).text).toBe(
-    "outputs/mismatches.csv (1 B)\nuploads/ledger-export.csv (1 B)",
+    `${join(cwd, "outputs/mismatches.csv")} (1 B)\n${join(cwd, "uploads/ledger-export.csv")} (1 B)`,
   );
 
   expect((await part.tool("list_files", { query: "pdf" })).text).toBe(
