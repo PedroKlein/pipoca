@@ -121,12 +121,12 @@ The [tutorial](https://pedroklein.github.io/pipoca/docs/build-plugins/tutorial/)
 
 ## How it works
 
-```text
-browser ──HTTP/SSE──▶ pipoca server ◀──long-poll + HTTPS/SSE── pipoca agent ──▶ Pi sessions
-                      (web UI, SQLite)                          (laptop, VM or pod)
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/how-it-works-dark.png">
+  <img src="docs/images/how-it-works-light.png" alt="People and tools reach the pipoca server over HTTPS. The server is a small kernel with plugins, SQLite, pipoca.json and sealed logins. Runners on a laptop, a VM or Kubernetes pods connect out to it and run each Session as its own Pi process.">
+</picture>
 
-One `pipoca` binary, built with Bun, is both. The server serves the web app, keeps Sessions and transcripts in SQLite and settings in a plain `pipoca.json`. Runners connect out to it, so a laptop needs no open port, and run each Session in its own Pi process. Model logins stay on the server, sealed, and reach a runner only for the Sessions that use them. [Architecture](docs/architecture.md) has the details, and [docs/adr/](docs/adr/) the reasons behind each decision.
+One `pipoca` binary, built with Bun, is both the server and the runner. Runners connect out to the server, so a laptop needs no open port, and the server hands each one only the logins its Sessions use. [Architecture](docs/architecture.md) has the details, and [docs/adr/](docs/adr/) the reasons behind each decision.
 
 ## Status
 
