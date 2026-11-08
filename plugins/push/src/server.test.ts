@@ -2,6 +2,12 @@ import { expect, test } from "bun:test";
 import { createPublicKey, verify } from "node:crypto";
 import { server as logins } from "@pipoca/logins/server";
 import {
+  definePlugin,
+  defineServer,
+  type ServerContext,
+} from "@pipoca/plugins";
+import { routines } from "@pipoca/routines/plugin";
+import {
   type PluginTest,
   person,
   type TestSession,
@@ -537,5 +543,58 @@ test("tells the person Pi asks in team work, and the starter once nobody answers
   expect(await owns?.read(sent[2]?.body)).toMatchObject({
     title: "Nobody answered Pi's question for Ana",
     session: waiting.id,
+  });
+});
+
+let routining: ServerContext<typeof routines> | undefined;
+
+const pausing = defineServer(routines, (context) => {
+  routining = context;
+});
+
+test("tells a routine's person when it paused itself, and every admin for the team's", async () => {
+  const { sent, fetch } = services();
+
+  await using t = await testPlugin(server, {
+    people,
+    fetch,
+    plugins: [
+      pausing,
+      definePlugin({ id: "subagents", title: "Subagents", description: "-" }),
+    ],
+  });
+
+  const [owns, anas, boss] = await Promise.all(
+    ["device-1", "device-2", "device-3"].map(async (name) =>
+      browser(device(name)),
+    ),
+  );
+
+  await subscribe(t, "owner", owns?.subscription ?? {});
+  await subscribe(t, "ana", anas?.subscription ?? {});
+  await subscribe(t, "boss", boss?.subscription ?? {});
+
+  const paused = {
+    name: "fix",
+    title: "Fix issues",
+    reason: "Paused until tomorrow.",
+    until: null,
+  };
+
+  routining?.events.emit("paused", paused, { to: [person("ana")] });
+  await delivered(sent, 1);
+  routining?.events.emit("paused", paused, { to: ["team"] });
+  await delivered(sent, 2);
+
+  expect(sent.map(({ url }) => url.split("/").at(-1))).toEqual([
+    "device-2",
+    "device-3",
+  ]);
+
+  expect(await anas?.read(sent[0]?.body)).toEqual({
+    title: "Routine paused: Fix issues",
+    body: "Paused until tomorrow.",
+    tag: "routines.paused.fix",
+    url: "/",
   });
 });

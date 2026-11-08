@@ -146,6 +146,10 @@ test("prices each team model call from the admins' table, and leaves an unpriced
       cost: 4.5,
     },
   ]);
+
+  expect(t.emitted("usage.spent")).toEqual([
+    { fields: { sessionId: work.session.id, cost: 4.5 }, to: ["team"] },
+  ]);
 });
 
 test("a person sees their own calls and the team's totals; an admin sees every call", async () => {
