@@ -15,11 +15,17 @@ export function Packages({
   packages,
   editable,
   onSave,
+  ownTag,
+  replaces,
   children,
 }: {
   readonly packages: readonly PiPackage[];
   readonly editable: boolean;
   readonly onSave: (packages: readonly PiPackage[]) => void;
+  // Where the open layer's own rows come from, next to the inherited ones.
+  readonly ownTag?: ReactNode;
+  // The inherited package one of its own takes the place of.
+  readonly replaces?: (source: string) => string | undefined;
   // Rows for the packages the layers below add.
   readonly children?: readonly ReactNode[];
 }): ReactElement {
@@ -94,8 +100,14 @@ export function Packages({
                     {update && <Badge state="working">{newer} available</Badge>}
                   </>
                 }
-                description={<span className="font-mono">{source}</span>}
+                description={
+                  <ReplacedSource
+                    source={source}
+                    replaced={replaces?.(source)}
+                  />
+                }
               >
+                {ownTag}
                 {editable && update && (
                   <Button
                     variant="ghost"
@@ -135,6 +147,26 @@ export function Packages({
         </Rows>
       )}
     </Section>
+  );
+}
+
+function ReplacedSource({
+  source,
+  replaced,
+}: {
+  readonly source: string;
+  readonly replaced: string | undefined;
+}): ReactElement {
+  return (
+    <span className="font-mono">
+      {source}
+      {replaced !== undefined && (
+        <>
+          {" · replaces "}
+          <s>{replaced}</s>
+        </>
+      )}
+    </span>
   );
 }
 

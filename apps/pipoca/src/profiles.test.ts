@@ -1646,3 +1646,44 @@ test("shows the folder a runner would get for a Profile, layers and all", async 
 
   expect(hidden.status).toBe(404);
 });
+
+test("a Profile's version of an inherited package replaces it, as Pi tells packages apart", async () => {
+  await putLayerFile(
+    "/api/settings/base-profile",
+    "settings.json",
+    JSON.stringify({
+      packages: [
+        "npm:pi-subagents@1.4.2",
+        "npm:@acme/pi-tools@2.0.0",
+        "git:github.com/acme/kit#v1",
+        "npm:pi-goal",
+      ],
+    }),
+  );
+
+  const work = await json<Profile>(
+    server.api("/api/profiles", {
+      body: {
+        name: "Work",
+        packages: [
+          "npm:pi-subagents@1.5.0",
+          "npm:@acme/pi-tools",
+          "git:https://github.com/acme/kit@v2",
+        ],
+        off: ["package:npm:pi-goal@9.9.9"],
+      },
+    }),
+  );
+
+  const stacked = await json<Record<string, string>>(
+    server.api(`/api/profiles/${work.id}/stacked`),
+  );
+
+  expect(JSON.parse(stacked["settings.json"] ?? "{}")).toEqual({
+    packages: [
+      "npm:pi-subagents@1.5.0",
+      "npm:@acme/pi-tools",
+      "git:https://github.com/acme/kit@v2",
+    ],
+  });
+});

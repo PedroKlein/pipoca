@@ -1,4 +1,8 @@
-import type { PiPackage, ProfileContent } from "@pipoca/protocol";
+import {
+  packageIdentity,
+  type PiPackage,
+  type ProfileContent,
+} from "@pipoca/protocol";
 import type { Folder } from "./folder";
 
 // One layer a Profile's page shows, from the Server base up to the one open
@@ -64,7 +68,7 @@ export function sourceOf(pkg: PiPackage): string {
 export const offKeys = {
   agents: (layer: StackLayer) => `AGENTS.md:${layer.id}`,
   append: (layer: StackLayer) => `APPEND_SYSTEM.md:${layer.id}`,
-  package: (source: string) => `package:${source}`,
+  package: (source: string) => `package:${packageIdentity(source)}`,
   mcp: (name: string) => `mcp:${name}`,
 } as const;
 

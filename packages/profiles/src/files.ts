@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  packageIdentity,
   type ProfileContent,
   type ProfileFiles,
   profilePath,
@@ -274,7 +275,9 @@ function without(value: Settings, kind: string, name: string): Settings {
   }
 
   const packages = Array.isArray(value["packages"])
-    ? (value["packages"] as unknown[]).filter((pkg) => sourceOf(pkg) !== name)
+    ? (value["packages"] as unknown[]).filter(
+        (pkg) => identityOf(pkg) !== packageIdentity(name),
+      )
     : [];
 
   const { packages: _, ...rest } = value;
@@ -323,16 +326,18 @@ function packagesOver(under: unknown, over: unknown): unknown[] {
   const listed = (value: unknown): unknown[] =>
     Array.isArray(value) ? (value as unknown[]) : [];
 
-  const own = new Set(listed(over).map(sourceOf));
+  const own = new Set(listed(over).map(identityOf));
 
   return [
-    ...listed(under).filter((pkg) => !own.has(sourceOf(pkg))),
+    ...listed(under).filter((pkg) => !own.has(identityOf(pkg))),
     ...listed(over),
   ];
 }
 
-function sourceOf(pkg: unknown): unknown {
-  return isObject(pkg) ? pkg["source"] : pkg;
+function identityOf(pkg: unknown): unknown {
+  const source = isObject(pkg) ? pkg["source"] : pkg;
+
+  return typeof source === "string" ? packageIdentity(source) : source;
 }
 
 function isObject(value: unknown): value is Settings {

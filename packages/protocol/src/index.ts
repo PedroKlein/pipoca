@@ -46,6 +46,7 @@ export {
   templateEntry,
   type User,
 } from "./browser";
+export { packageIdentity } from "./packages";
 export { type ErrorCode } from "./errors";
 export {
   type Answer,
