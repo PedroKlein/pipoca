@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { renderPart, sessionWith } from "@pipoca/plugins/web/testing";
 import type { ComponentType } from "react";
-import { createElement } from "react";
+import { act, createElement } from "react";
 import { web } from "./index";
 
 const patch = `diff --git a/notes.txt b/notes.txt
@@ -28,17 +28,24 @@ const opened = {
   url: "https://github.com/acme/widgets/pull/7",
 };
 
-// A Session whose part published each key's data, as its stream replays it.
+// A Session whose part published each key's data, as its stream replays it,
+// with its panel open on the changes.
 function rendered(
   published: readonly { plugin: string; key: string; data: unknown }[],
   fills?: Readonly<Record<string, ComponentType<never>>>,
 ): HTMLElement {
-  return renderPart(
+  const page = renderPart(
     web,
     "session.header",
     { session: sessionWith({ published }) },
     { ...(fills && { fills }) },
   );
+
+  act(() => {
+    page.querySelector<HTMLButtonElement>("button[aria-label^=Diff]")?.click();
+  });
+
+  return page;
 }
 
 test("the header shows what the Session part last published under changes", () => {

@@ -1,6 +1,7 @@
 import {
   defineWeb,
   type MountedSession,
+  SessionTab,
   Slot,
   useSessionState,
 } from "@pipoca/plugins/web";
@@ -12,7 +13,6 @@ import {
   Icon,
   isComposing,
   popClass,
-  SidePanel,
 } from "@pipoca/ui";
 import { Fragment, type ReactElement, useMemo, useState } from "react";
 import { changes } from "../plugin";
@@ -44,8 +44,6 @@ function SessionHeader({
 }: {
   readonly session: MountedSession;
 }): ReactElement | null {
-  const [open, setOpen] = useState(false);
-
   const found =
     useSessionState<readonly CheckoutChanges[]>(session, "changes") ?? none;
 
@@ -60,40 +58,22 @@ function SessionHeader({
   const count = changed.reduce((sum, { fileCount }) => sum + fileCount, 0);
 
   return (
-    <>
-      <Button
-        variant="ghost"
-        aria-expanded={open}
-        aria-label={`Diff, ${String(count)} ${count === 1 ? "file" : "files"} changed`}
-        onClick={() => {
-          setOpen(!open);
-        }}
-      >
-        <Icon name="git-pull-request" className="size-3.5" />
-        Diff
-      </Button>
-      <SidePanel
-        open={open}
-        title="Changes"
-        closeLabel="Close changes"
-        size="lg"
-        className="gap-6"
-        onClose={() => {
-          setOpen(false);
-        }}
-      >
-        {changed.map((checkout) => (
-          <Checkout
-            key={checkout.name}
-            checkout={checkout}
-            session={session}
-            pullRequest={pullRequests.find(
-              ({ name }) => name === checkout.name,
-            )}
-          />
-        ))}
-      </SidePanel>
-    </>
+    <SessionTab
+      name="changes"
+      order={30}
+      label={`Changes ${String(count)}`}
+      button={`Diff, ${String(count)} ${count === 1 ? "file" : "files"} changed`}
+      icon="git-pull-request"
+    >
+      {changed.map((checkout) => (
+        <Checkout
+          key={checkout.name}
+          checkout={checkout}
+          session={session}
+          pullRequest={pullRequests.find(({ name }) => name === checkout.name)}
+        />
+      ))}
+    </SessionTab>
   );
 }
 
