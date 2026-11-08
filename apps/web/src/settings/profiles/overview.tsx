@@ -2,6 +2,7 @@ import { packageIdentity, type ProfileContent } from "@pipoca/protocol";
 import {
   Chip,
   ErrorText,
+  Icon,
   initialsOf,
   Row,
   Rows,
@@ -11,7 +12,8 @@ import {
 import { type ReactElement, type ReactNode, useState } from "react";
 import { useAction, useLoad } from "../../data/hooks";
 import type { Folder } from "./folder";
-import { firstLine, InheritedRow, SourceTag } from "./inherited";
+import { Defaults } from "./defaults";
+import { firstLine, InheritedRow, SourceTag, summaryOf } from "./inherited";
 import {
   type Skill,
   Instructions,
@@ -27,6 +29,7 @@ import { skillsIn, offSkills, withSkill, serverOf } from "./overview-values";
 import {
   copyInto,
   inherited,
+  removeFrom,
   itemsOf,
   sourceOf,
   type StackLayer,
@@ -54,11 +57,17 @@ export type BelowLayer = Omit<StackLayer, "paths">;
 export function ProfileOverview({
   target,
   below,
+  buildsOn,
+  header,
   children,
 }: {
   readonly target: OverviewTarget;
   // The layers under it, the Server base first.
   readonly below: readonly BelowLayer[];
+  // What it builds on, for a Profile that may pick another.
+  readonly buildsOn?: ReactNode;
+  // A card on the layer itself, such as who the Server base reaches.
+  readonly header?: ReactNode;
   readonly children?: ReactNode;
 }): ReactElement {
   const { content, editable, name } = target;
@@ -101,6 +110,10 @@ export function ProfileOverview({
     copyInto(from.folder, target.folder, key),
   );
 
+  const restoring = useAction(async (key: string) =>
+    removeFrom(target.folder, key),
+  );
+
   const toggle = (key: string, on: boolean): void => {
     save({ off: withOff(content.off, key, on) });
   };
@@ -115,6 +128,7 @@ export function ProfileOverview({
     name,
     kind: "profile",
     folder: target.folder,
+    href: target.tab("overview"),
     content,
     paths: loaded?.at(-1)?.paths ?? [],
   };
@@ -231,32 +245,40 @@ export function ProfileOverview({
 
   return (
     <>
+      <div className="mt-3 flex flex-wrap items-center justify-end gap-1">
+        {target.preview === true && (
+          <PreviewButton
+            profileId={target.id}
+            name={name}
+            layers={[...stack, own]}
+          />
+        )}
+        <a
+          href={target.tab("files")}
+          className="rounded-md px-2 py-1 text-label text-fg-dim hover:bg-hover hover:text-fg"
+        >
+          Open as files
+        </a>
+      </div>
+      {header}
       {below.length > 0 && (
-        <div className="mt-4 flex flex-wrap items-center gap-2 text-label">
-          <span className="ml-auto flex flex-wrap items-center gap-2">
-            {target.preview === true && (
-              <PreviewButton
-                profileId={target.id}
-                name={name}
-                layers={[...stack, own]}
-              />
-            )}
-            <Segmented
-              label="Show"
-              options={[
-                { value: "all", label: "Everything Pi gets" },
-                { value: "own", label: `Only ${name}'s own` },
-              ]}
-              value={onlyOwn ? "own" : "all"}
-              onChange={(value) => {
-                setOnlyOwn(value === "own");
-              }}
-            />
-          </span>
+        <div className="mt-3 flex flex-col items-start gap-3 rounded-xl border border-line bg-elevated p-4">
+          {buildsOn ?? <BuildsOnChain below={below} name={name} />}
+          <Segmented
+            label="Show"
+            options={[
+              { value: "all", label: "Everything Pi gets" },
+              { value: "own", label: `Only ${name}'s own` },
+            ]}
+            value={onlyOwn ? "own" : "all"}
+            onChange={(value) => {
+              setOnlyOwn(value === "own");
+            }}
+          />
         </div>
       )}
       <ErrorText size="caption" className="mt-4">
-        {update.error ?? copying.error}
+        {update.error ?? copying.error ?? restoring.error}
       </ErrorText>
       {agents.length === 0 ? (
         <Instructions
@@ -283,7 +305,7 @@ export function ProfileOverview({
                 key={entry.key}
                 entry={entry}
                 title={firstLine(entry.item)}
-                description={`${String(entry.item.trim().split("\n").length)} lines`}
+                description={summaryOf(entry.item)}
                 owner={name}
                 editable={editable}
                 onToggle={toggle}
@@ -292,7 +314,7 @@ export function ProfileOverview({
             {content.agentsMd.trim() !== "" && (
               <Row
                 title={firstLine(content.agentsMd)}
-                description={`${String(content.agentsMd.trim().split("\n").length)} lines`}
+                description={summaryOf(content.agentsMd)}
               >
                 <SourceTag name={name} kind="own" />
               </Row>
@@ -334,6 +356,9 @@ export function ProfileOverview({
         }}
         onToggleInherited={toggle}
         onCopy={copy}
+        onRestore={(folder) => {
+          void restoring.run(folder);
+        }}
       />
       <Agents
         layer={itemsLayer}
@@ -415,6 +440,14 @@ export function ProfileOverview({
           </Rows>
         )}
       </Section>
+      <Defaults
+        below={stack}
+        own={own}
+        editable={editable}
+        onSave={(settings) => {
+          save({ settings });
+        }}
+      />
       {children}
       <Section title="Prompts" description="Slash commands in the composer">
         <ul aria-label="Prompts" className="flex flex-wrap gap-1.5">
@@ -432,16 +465,21 @@ export function ProfileOverview({
                     : `Turn off /${entry.item} in ${name}`,
                 })}
               >
-                /{entry.item}
-                <span className="ml-1.5 font-sans text-caption text-fg-dim">
-                  {entry.from.name}
+                <span className="inline-flex items-center gap-1.5">
+                  /{entry.item}
+                  <SourceTag name={entry.from.name} kind={entry.from.kind} />
                 </span>
               </Chip>
             </li>
           ))}
           {ownPrompts.map((prompt) => (
             <li key={prompt}>
-              <Chip mono>/{prompt}</Chip>
+              <Chip mono>
+                <span className="inline-flex items-center gap-1.5">
+                  /{prompt}
+                  {stack.length > 0 && <SourceTag name={name} kind="own" />}
+                </span>
+              </Chip>
             </li>
           ))}
           {editable && (
@@ -457,5 +495,33 @@ export function ProfileOverview({
         </ul>
       </Section>
     </>
+  );
+}
+
+// What a Profile builds on, bottom up, ending with itself.
+function BuildsOnChain({
+  below,
+  name,
+}: {
+  readonly below: readonly BelowLayer[];
+  readonly name: string;
+}): ReactElement {
+  return (
+    <ol
+      aria-label="Layers"
+      className="flex flex-wrap items-center gap-1.5 text-label text-fg-dim"
+    >
+      {below.map((layer) => (
+        <li key={layer.id} className="flex items-center gap-1.5">
+          <a href={layer.href} className="rounded-md hover:opacity-80">
+            <SourceTag name={layer.name} kind={layer.kind} />
+          </a>
+          <Icon name="chevron-right" className="size-3.5" />
+        </li>
+      ))}
+      <li>
+        <SourceTag name={name} kind="own" />
+      </li>
+    </ol>
   );
 }

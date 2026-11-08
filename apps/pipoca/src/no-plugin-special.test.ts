@@ -21,6 +21,7 @@ const meansOther: Readonly<Record<string, readonly string[]>> = {
   "apps/pipoca/src/dev.ts": ["local"],
   "apps/web/src/session/feed.ts": ["files"],
   "apps/web/src/settings/configuration/tree.ts": ["files"],
+  "apps/web/src/settings/profiles/overview.tsx": ["files"],
   "apps/web/src/settings/profiles/tabs.tsx": ["models", "files"],
   "packages/environments/src/environments.ts": ["models"],
   "packages/environments/src/runner-polls.ts": ["models"],

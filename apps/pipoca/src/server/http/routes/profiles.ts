@@ -181,9 +181,13 @@ export function profileRoutes({
     },
     "profiles.syncs.create": async ({ params: { id }, caller }) =>
       ok(await profiles.syncOne(log, caller.id, reached(id, caller))),
-    "profiles.archive": async ({ params: { id }, caller }) => {
+    "profiles.archive": async ({ params: { id }, query, caller }) => {
       const archive = found(
-        await profiles.archive(caller.id, reached(id, caller)),
+        await profiles.archive(
+          caller.id,
+          reached(id, caller),
+          query.stacked === true,
+        ),
       );
 
       return new Response(archive, {

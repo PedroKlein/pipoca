@@ -2972,22 +2972,70 @@ test("shows what a Profile inherits and turns a Server base skill off in it", as
 
   await files.getByRole("button", { name: /AGENTS\.md/ }).click();
   await preview.getByText("Never push.").waitFor();
-  expect(await files.getByText("skills/cluster/SKILL.md").count()).toBe(0);
-  await page.keyboard.press("Escape");
+  await files.getByText("Off in Default").waitFor();
+  expect(await files.getByRole("button", { name: /cluster/ }).count()).toBe(0);
 
-  await skills
-    .getByRole("switch", { name: "cluster in Default", checked: false })
-    .click();
+  expect(
+    await preview
+      .getByRole("link", { name: "Download .tar.gz" })
+      .getAttribute("href"),
+  ).toBe("/api/profiles/default/archive?stacked=true");
+
+  await preview.getByRole("button", { name: "Done" }).click();
+  await preview.waitFor({ state: "detached" });
+
+  await skills.getByRole("button", { name: "More for cluster" }).click();
+
+  await page.getByRole("menuitem", { name: /Turn back on in Default/ }).click();
 
   await skills
     .getByRole("switch", { name: "cluster in Default", checked: true })
     .waitFor();
+
+  await skills.getByRole("button", { name: "More for cluster" }).click();
+
+  await page
+    .getByRole("menuitem", { name: /Copy into Default to change it/ })
+    .click();
+
+  await skills.getByText("Default's copy").waitFor();
+  await skills.getByRole("button", { name: "More for cluster" }).click();
+
+  await page.getByRole("menuitem", { name: /Use Server base's again/ }).click();
+
+  await skills
+    .getByRole("switch", { name: "cluster in Default", checked: true })
+    .waitFor();
+
+  const defaults = page.getByRole("list", { name: "Defaults" });
+
+  await defaults.getByRole("button", { name: "Thinking for Default" }).click();
+
+  await page.getByRole("option", { name: "high", exact: true }).click();
+  await defaults.getByText("high", { exact: true }).waitFor();
+
+  const settings = JSON.parse(
+    await readFile(
+      join(root, "config", "profiles", "default", "settings.json"),
+      "utf8",
+    ),
+  ) as Record<string, unknown>;
+
+  expect(settings["defaultThinkingLevel"]).toBe("high");
+  await defaults.getByRole("button", { name: "Reset" }).click();
+  await defaults.getByText("Pi's own default").first().waitFor();
 
   await profiles.getByRole("link", { name: "Server base" }).first().click();
   await skills.getByRole("switch", { name: "cluster", exact: true }).waitFor();
 
   await page
     .getByText("Every Session on this server, personal and team")
+    .waitFor();
+
+  await page
+    .getByRole("heading", { name: "Shared keys" })
+    .or(page.getByText("Shared keys", { exact: true }))
+    .first()
     .waitFor();
 
   await rm(base, { recursive: true, force: true });

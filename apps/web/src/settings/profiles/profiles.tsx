@@ -110,20 +110,6 @@ export function ProfilesPage({
                 {layerNames[each]}
               </a>
             ))}
-          {profile && (
-            <span className="ml-auto">
-              <BuildsOn
-                profile={profile}
-                profiles={profiles}
-                value={profile.buildsOn}
-                team={team}
-                disabled={profile.source !== null}
-                onChange={(buildsOn) => {
-                  void buildOn.run(profile.id, buildsOn);
-                }}
-              />
-            </span>
-          )}
         </nav>
       )}
       <ErrorText size="caption">{buildOn.error}</ErrorText>
@@ -141,6 +127,18 @@ export function ProfilesPage({
                 profile={profile}
                 profiles={profiles}
                 editable={profile.source === null}
+                buildsOn={
+                  <BuildsOn
+                    profile={profile}
+                    profiles={profiles}
+                    value={profile.buildsOn}
+                    team={team}
+                    disabled={profile.source !== null}
+                    onChange={(buildsOn) => {
+                      void buildOn.run(profile.id, buildsOn);
+                    }}
+                  />
+                }
               >
                 {!team && (
                   <SettingsSlot slot="Profile" profileId={profile.id} />

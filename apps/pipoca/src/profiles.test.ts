@@ -1628,6 +1628,14 @@ test("shows the folder a runner would get for a Profile, layers and all", async 
     await json<unknown>(server.api(`/api/profiles/${work.id}/stacked`)),
   ).toEqual({ "AGENTS.md": "Mine.\n\nWork." });
 
+  const archive = await server.api(
+    `/api/profiles/${work.id}/archive?stacked=true`,
+  );
+
+  const archived = await new Bun.Archive(await archive.arrayBuffer()).files();
+
+  expect(await archived.get("AGENTS.md")?.text()).toBe("Mine.\n\nWork.");
+
   const team = await json<Profile>(
     server.api("/api/profiles", {
       body: { name: "Team work", team: true, agentsMd: "Team work." },

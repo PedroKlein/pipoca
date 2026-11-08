@@ -29,8 +29,14 @@ export const layerNames: Readonly<Record<Layer, string>> = {
 export const chipClass =
   "flex h-7 items-center gap-1.5 rounded-full border border-line bg-elevated px-3 text-label text-fg hover:bg-hover aria-[current=page]:border-fg-strong aria-[current=page]:bg-fg-strong aria-[current=page]:text-bg";
 
+// The colours of a layer's source tag.
+export const layerMarks: Readonly<Record<Layer, string>> = {
+  base: "bg-butter text-fg-strong",
+  defaults: "bg-working text-bg",
+};
+
 export const layerAbout: Readonly<Record<Layer, string>> = {
-  base: "Every Session on this server, personal and team, loads this under its own Profile. Give everyone skills, instructions, packages, MCP servers and prompts here, and provider extensions so every Session can use their models. People can turn items off in their own Profiles. Only admins change it.",
+  base: "Every Session on this server, personal and team, loads this under its own Profile. Give everyone skills, instructions, packages, MCP servers and prompts here, and provider extensions so every Session can use their models. People see it on their Profiles and can turn items off there.",
   defaults:
     "Yours, under every Profile of yours and over the Server base. Put what you want in every Session here, such as your instructions and the providers you use, and turn off what you don't want from the Server base.",
 };

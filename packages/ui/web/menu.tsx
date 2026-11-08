@@ -12,6 +12,8 @@ import { Icon, type IconName } from "./icon";
 
 export interface MenuItem {
   readonly label: string;
+  // A line under the label on what the item does.
+  readonly description?: string;
   readonly icon?: IconName;
   readonly danger?: boolean;
   // Makes the item one of a set, checked or not.
@@ -97,7 +99,10 @@ export function Menu({
           role="menu"
           aria-label={label}
           className={cn(
-            "absolute z-30 flex min-w-48 flex-col",
+            "absolute z-30 flex flex-col",
+            items.some(({ description }) => description !== undefined)
+              ? "min-w-64"
+              : "min-w-48",
             side === "below" ? "top-full mt-1" : "bottom-full mb-1",
             { start: "left-0", end: "right-0", stretch: "inset-x-0" }[align],
             popClass,
@@ -126,7 +131,16 @@ export function Menu({
                   />
                 )}
                 {item.icon !== undefined && <Icon name={item.icon} />}
-                {item.label}
+                {item.description === undefined ? (
+                  item.label
+                ) : (
+                  <span className="flex flex-col py-0.5">
+                    {item.label}
+                    <span className="text-caption text-fg-dim">
+                      {item.description}
+                    </span>
+                  </span>
+                )}
               </button>
             </Fragment>
           ))}

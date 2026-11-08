@@ -2,6 +2,7 @@ import type { Profile } from "@pipoca/protocol";
 import { Icon, Picker } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { href } from "../../router";
+import { SourceTag } from "./inherited";
 import { layerHashes, layerNames, chipClass } from "./layers";
 
 // What a Profile builds on, from the bottom: the base, the person's My
@@ -34,9 +35,9 @@ export function BuildsOn({
       <span className="mr-1 text-fg-dim">Builds on</span>
       <a
         href={href("settings", { page: "profiles", rest: layerHashes.base })}
-        className={chipClass}
+        className="rounded-md hover:opacity-80"
       >
-        {layerNames.base}
+        <SourceTag name={layerNames.base} kind="base" />
       </a>
       {step}
       {!team && (
@@ -46,9 +47,9 @@ export function BuildsOn({
               page: "profiles",
               rest: layerHashes.defaults,
             })}
-            className={chipClass}
+            className="rounded-md hover:opacity-80"
           >
-            {layerNames.defaults}
+            <SourceTag name={layerNames.defaults} kind="defaults" />
           </a>
           {step}
         </>
@@ -71,6 +72,12 @@ export function BuildsOn({
         >
           {profiles.find(({ id }) => id === value)?.name ?? "Nothing else"}
         </Picker>
+      )}
+      {profile && (
+        <>
+          {step}
+          <SourceTag name={profile.name} kind="own" />
+        </>
       )}
     </div>
   );
