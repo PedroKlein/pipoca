@@ -25,6 +25,9 @@ export interface PluginSwitches {
   readonly get: (id: string) => PluginSwitch;
   // Merges the change into the plugin's switch; undefined removes it.
   readonly set: (id: string, change: PluginSwitch | undefined) => void;
+  // The file that sets every switch, such as one Helm mounts, while set
+  // throws (ADR 0063).
+  readonly lockedIn: () => string | undefined;
 }
 
 const switches = Type.Record(Type.String(), pluginSwitch, { default: {} });
@@ -53,5 +56,6 @@ export function pluginSwitches(config: ConfigKey, log: Log): PluginSwitches {
 
       config.set(Object.keys(next).length === 0 ? undefined : next);
     },
+    lockedIn: config.lockedIn,
   };
 }

@@ -43,16 +43,23 @@ function Section(): ReactElement | null {
     return null;
   }
 
-  // Safari asks for permission only from a click, so subscribing starts
-  // with nothing awaited before it but the service worker.
+  // Safari asks for permission only from a click, so the permission is asked
+  // for before anything is awaited. A push subscription needs an active
+  // service worker, and register resolves while the worker still installs.
   const turnOn = async (): Promise<void> => {
     if (key === undefined) {
       return;
     }
 
-    const registration = await navigator.serviceWorker.register("/sw.js", {
-      scope: "/",
-    });
+    const permission = Notification.requestPermission();
+
+    await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+
+    if ((await permission) !== "granted") {
+      throw new Error("Notifications are not allowed in this browser.");
+    }
+
+    const registration = await navigator.serviceWorker.ready;
 
     const subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,

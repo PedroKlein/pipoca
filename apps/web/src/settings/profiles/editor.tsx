@@ -12,6 +12,7 @@ import {
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import { request } from "../../data/client";
+import { useMe } from "../../data/hooks";
 import { navigate, scopedHref } from "../../router";
 import { useRun } from "./files";
 import { packageText, packageOf } from "./layers";
@@ -31,6 +32,7 @@ export function Editor({
   readonly onSaved?: () => void;
 }): ReactElement {
   const [ask, asking] = useConfirm();
+  const { admin } = useMe();
 
   const [packages, setPackages] = useState<readonly string[]>(() =>
     (profile?.packages ?? []).map(packageText),
@@ -142,6 +144,26 @@ export function Editor({
               Make default
             </Button>
           )}
+          {profile &&
+            admin &&
+            profile.id !== "default" &&
+            profile.ownerId !== "team" &&
+            !profile.source && (
+              <Button
+                onClick={() => {
+                  run(async () => {
+                    await request("profiles.update", {
+                      params: { id: profile.id },
+                      body: { shared: profile.ownerId !== null },
+                    });
+                  });
+                }}
+              >
+                {profile.ownerId === null
+                  ? "Make it mine only"
+                  : "Share with everyone"}
+              </Button>
+            )}
           {profile && (
             <a
               href={apiPath("profiles.archive", {

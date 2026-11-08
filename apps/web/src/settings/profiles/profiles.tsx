@@ -14,12 +14,12 @@ import { request } from "../../data/client";
 import { useAction, useMe, useQuery } from "../../data/hooks";
 import { href, scopedHref } from "../../router";
 import { layerFolder, profileFolder } from "./folder";
-import { ProfileOverview } from "./overview";
+import { LayerOverview, ProfileOverviewOf } from "./targets";
 import { SettingsSlot } from "../settings-slot";
 import { layerHashes, type Layer, layerNames, chipClass } from "./layers";
 import { Editor } from "./editor";
 import { ProfileTabs } from "./tabs";
-import { BuildsOn, LayerEditor } from "./builds-on";
+import { BuildsOn } from "./builds-on";
 import { Synced } from "./synced";
 import { Import } from "./import";
 
@@ -137,7 +137,7 @@ export function ProfilesPage({
               {profile.source && (
                 <Synced profile={profile} source={profile.source} />
               )}
-              <ProfileOverview
+              <ProfileOverviewOf
                 profile={profile}
                 profiles={profiles}
                 editable={profile.source === null}
@@ -145,7 +145,7 @@ export function ProfilesPage({
                 {!team && (
                   <SettingsSlot slot="Profile" profileId={profile.id} />
                 )}
-              </ProfileOverview>
+              </ProfileOverviewOf>
               <Editor
                 key={`${profile.id}:${JSON.stringify(profile.packages)}:${profile.buildsOn ?? ""}`}
                 profile={profile}
@@ -168,7 +168,7 @@ export function ProfilesPage({
             rest: layerHashes[layer],
           })}
           tab={tab}
-          overview={<LayerEditor layer={layer} />}
+          overview={<LayerOverview layer={layer} />}
         />
       )}
       {selected === "new" && (

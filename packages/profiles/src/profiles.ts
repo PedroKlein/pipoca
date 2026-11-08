@@ -39,12 +39,20 @@ export interface ProfileStore {
   // packages on the server (ADR 0044).
   readonly baseEdited: (userId: string) => void;
   readonly baseEditor: () => string | undefined;
+  // The people whose default the Profile is.
+  readonly defaultFor: (id: string) => readonly string[];
 }
 
 export type Layer = "base" | "defaults";
 
 type Rejection =
-  "not_found" | "default" | "in_use" | "admin_only" | "synced" | "team";
+  | "not_found"
+  | "default"
+  | "in_use"
+  | "admin_only"
+  | "synced"
+  | "team"
+  | "used_by_others";
 
 interface ProfileEntry {
   readonly path: string;
@@ -153,12 +161,25 @@ export class Profiles {
     const fields = fieldsOf(body);
     const content = contentOf({ ...profile, ...fields });
 
+    const owner = this.#sharing(userId, profile, fields["shared"], admin);
+    if (!owner.ok) {
+      return owner;
+    }
+
+    const ownerId = owner.value;
+
     const updated: StoredProfile = {
       ...profile,
+      ownerId,
       ...(fields["name"] !== undefined && { name: nameOf(fields["name"]) }),
-      ...("buildsOn" in fields && {
-        buildsOn: this.#buildsOn(id, profile.ownerId, fields["buildsOn"]),
-      }),
+      buildsOn:
+        "buildsOn" in fields || ownerId !== profile.ownerId
+          ? this.#buildsOn(
+              id,
+              ownerId,
+              "buildsOn" in fields ? fields["buildsOn"] : profile.buildsOn,
+            )
+          : profile.buildsOn,
       ...content,
     };
 
@@ -169,6 +190,54 @@ export class Profiles {
     this.#folders.write(id, updated, given);
 
     return { ok: true, value: this.#view(userId, updated) };
+  }
+
+  // An admin shares a Profile of their own, or makes a shared one theirs
+  // again while nobody else builds on it or has it as their default
+  // (ADR 0074).
+  #sharing(
+    userId: string,
+    profile: StoredProfile,
+    shared: unknown,
+    admin: boolean,
+  ): Result<string | null> {
+    if (shared === undefined || shared === (profile.ownerId === null)) {
+      return { ok: true, value: profile.ownerId };
+    }
+
+    if (typeof shared !== "boolean") {
+      throw new InvalidProfile("shared must be true or false");
+    }
+
+    if (!admin) {
+      return { ok: false, reason: "admin_only" };
+    }
+
+    if (profile.ownerId === teamOwner) {
+      return { ok: false, reason: "team" };
+    }
+
+    if (shared) {
+      return { ok: true, value: null };
+    }
+
+    if (profile.id === defaultProfileId) {
+      return { ok: false, reason: "default" };
+    }
+
+    const others =
+      this.#folders
+        .ids()
+        .some(
+          (other) =>
+            this.#folders.read(other)?.buildsOn === profile.id &&
+            this.#folders.read(other)?.ownerId !== userId,
+        ) ||
+      this.#store.defaultFor(profile.id).some((person) => person !== userId);
+
+    return others
+      ? { ok: false, reason: "used_by_others" }
+      : { ok: true, value: userId };
   }
 
   remove(userId: string, id: string, admin: boolean): Result<undefined> {
@@ -228,6 +297,29 @@ export class Profiles {
     );
 
     return new Bun.Archive(decoded, { compress: "gzip" }).bytes();
+  }
+
+  // What a runner gets for the person's Session on the Profile: a team
+  // Profile without anyone's My defaults (ADR 0064).
+  stacked(userId: string, id: string): Record<string, string> | undefined {
+    const profile = this.#visible(userId, id);
+
+    const files =
+      profile &&
+      this.#folders.files(
+        id,
+        profile.ownerId === teamOwner ? undefined : userId,
+      );
+
+    return (
+      files &&
+      Object.fromEntries(
+        Object.entries(files.files).map(([path, content]) => [
+          path,
+          Buffer.from(content, "base64").toString(),
+        ]),
+      )
+    );
   }
 
   files(userId: string, id: string): readonly ProfileEntry[] | undefined {
@@ -697,7 +789,31 @@ function contentOf(fields: Record<string, unknown>): ProfileContent {
     appendSystemMd: textOf("appendSystemMd", fields["appendSystemMd"]),
     mcpServers: objectOf("mcpServers", fields["mcpServers"]),
     settings,
+    off: offOf(fields["off"]),
   };
+}
+
+const maxOff = 500;
+
+function offOf(value: unknown): readonly string[] {
+  if (value === undefined || value === null) {
+    return [];
+  }
+
+  if (
+    !Array.isArray(value) ||
+    value.length > maxOff ||
+    !value.every(
+      (entry) =>
+        typeof entry === "string" && entry !== "" && entry.length <= 512,
+    )
+  ) {
+    throw new InvalidProfile(
+      `off must be a list of at most ${String(maxOff)} item names`,
+    );
+  }
+
+  return [...new Set(value as string[])];
 }
 
 function textOf(key: string, value: unknown): string {

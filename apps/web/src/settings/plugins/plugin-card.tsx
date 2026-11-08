@@ -126,18 +126,12 @@ export function PluginCard({
             <Badge>Update</Badge>
           )}
         </span>
-        <span
-          title={
-            installed
-              ? undefined
-              : "The server's config file turns built-in plugins on and off"
-          }
-        >
+        <span title={plugin.switchLocked}>
           <Switch
             label="On"
             labelHidden
-            checked={installed ? plugin.turnedOn : plugin.state === "on"}
-            disabled={!installed}
+            checked={plugin.turnedOn}
+            disabled={plugin.switchLocked !== undefined}
             onChange={turn}
           />
         </span>
@@ -216,13 +210,15 @@ function shortPin(pinned: string): string {
     : pinned.slice(0, 12);
 }
 
-// Asks before turning a plugin on, since its code runs unsandboxed.
+// Asks before turning an installed plugin on, since its code runs
+// unsandboxed. A built-in one comes with the server.
 export async function turnPlugin(
   plugin: PluginInfo,
   ask: (options: ConfirmOptions) => Promise<boolean>,
 ): Promise<void> {
   if (
     !plugin.turnedOn &&
+    plugin.source === "installed" &&
     !(await ask({
       title: `Turn on ${plugin.title}?`,
       description: trustQuestion(plugin),

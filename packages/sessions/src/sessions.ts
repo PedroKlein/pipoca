@@ -239,7 +239,7 @@ interface SessionsOptions {
 
 export interface PluginProfile {
   readonly plugin: string;
-  readonly profile: ProfileContent & { readonly id: string };
+  readonly profile: Omit<ProfileContent, "off"> & { readonly id: string };
   // Team work may run on it too, such as each person's Team assistant
   // (ADR 0067).
   readonly team?: boolean;
@@ -1738,7 +1738,9 @@ export class Sessions {
     return base ? overBaseExtensions(base, own) : own;
   }
 
-  #profile(id: string): (ProfileContent & { readonly id: string }) | undefined {
+  #profile(
+    id: string,
+  ): (Omit<ProfileContent, "off"> & { readonly id: string }) | undefined {
     return this.#pluginProfile(id)?.profile ?? this.#store.profile(id);
   }
 

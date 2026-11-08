@@ -1271,6 +1271,23 @@ test("turns an installed plugin on for the next start", async () => {
   expect(await hello.getByText(/when the server restarts/).count()).toBe(0);
 });
 
+test("turns a built-in plugin off for the next start and back on", async () => {
+  await page.goto(server.url.href);
+  await openSettings("Plugins");
+
+  const checklist = page.getByRole("listitem", { name: "Checklist" });
+  await checklist.getByText(/^Built in/).waitFor();
+
+  await checklist.getByRole("switch", { name: "On", checked: true }).click();
+  await checklist.getByText("It turns off when the server restarts.").waitFor();
+  await checklist.getByText("On until restart").waitFor();
+
+  await checklist.getByRole("switch", { name: "On", checked: false }).click();
+  await checklist.getByRole("switch", { name: "On", checked: true }).waitFor();
+
+  expect(await checklist.getByText(/when the server restarts/).count()).toBe(0);
+});
+
 test("installs a plugin from a git repository, asks before turning it on, and removes it", async () => {
   const source = join(root, "sources", "weather");
   await mkdir(source, { recursive: true });
@@ -2753,20 +2770,26 @@ test("builds a Profile on another, over My defaults", async () => {
   const profiles = page.getByRole("navigation", { name: "Profiles" });
   await profiles.getByRole("link", { name: "My defaults" }).click();
 
-  const editor = page.locator("#profiles-page form").first();
-  const add = editor.getByLabel("Add to Pi packages");
+  const profilesPage = page.locator("#profiles-page");
+  const packages = page.getByRole("list", { name: "Packages", exact: true });
 
-  await add.fill("npm:my-provider");
-  await add.press("Enter");
-  await editor.getByRole("button", { name: "Save" }).click();
-  await editor.getByText("Saved").waitFor();
+  await profilesPage.getByRole("button", { name: "Add package" }).click();
+  await profilesPage.getByLabel("Package source").fill("npm:my-provider");
+  await profilesPage.getByRole("button", { name: "Add", exact: true }).click();
+  await packages.getByRole("switch", { name: "npm:my-provider" }).waitFor();
   await page.reload();
-  await editor.getByText("npm:my-provider").waitFor();
+  await packages.getByText("npm:my-provider").first().waitFor();
 
   // A package nobody can install would stop every later Session.
-  await editor.getByRole("button", { name: "Remove npm:my-provider" }).click();
-  await editor.getByRole("button", { name: "Save" }).click();
-  await editor.getByText("Saved").waitFor();
+  await packages
+    .getByRole("button", { name: "Remove npm:my-provider" })
+    .click();
+
+  await packages
+    .getByRole("switch", { name: "npm:my-provider" })
+    .waitFor({ state: "detached" });
+
+  const editor = page.locator("#profiles-page form").first();
 
   await page.getByRole("link", { name: "New Profile" }).click();
   await editor.getByLabel("Name").fill("Deep");
@@ -2786,6 +2809,81 @@ test("builds a Profile on another, over My defaults", async () => {
   await profiles
     .getByRole("link", { name: "Deep" })
     .waitFor({ state: "detached" });
+});
+
+test("shows what a Profile inherits and turns a Server base skill off in it", async () => {
+  const base = join(root, "config", "base");
+
+  await mkdir(join(base, "skills", "cluster"), { recursive: true });
+
+  await writeFile(
+    join(base, "skills", "cluster", "SKILL.md"),
+    "---\nname: cluster\ndescription: Debug our cluster\n---\n",
+  );
+
+  await writeFile(join(base, "AGENTS.md"), "# Working at ACME\nNever push.");
+
+  await page.goto(server.url.href);
+  await openSettings("Profiles");
+
+  const profiles = page.getByRole("navigation", { name: "Profiles" });
+  await profiles.getByRole("link", { name: /^Default/ }).click();
+
+  const skills = page.getByRole("list", { name: "Skills" });
+  const cluster = skills.getByRole("switch", { name: "cluster in Default" });
+
+  await cluster.waitFor();
+  await skills.getByText("Server base").first().waitFor();
+
+  await page
+    .getByRole("list", { name: "Instructions" })
+    .getByText("Working at ACME")
+    .waitFor();
+
+  await cluster.click();
+
+  await skills
+    .getByRole("switch", { name: "cluster in Default", checked: false })
+    .waitFor();
+
+  const meta = JSON.parse(
+    await readFile(
+      join(root, "config", "profiles", "default", "profile.json"),
+      "utf8",
+    ),
+  ) as { off?: unknown };
+
+  expect(meta.off).toEqual(["skills/cluster"]);
+
+  await page.getByRole("button", { name: "Preview what Pi gets" }).click();
+
+  const preview = page.getByRole("dialog", {
+    name: "What Pi gets with Default",
+  });
+
+  const files = preview.getByRole("list", { name: "Files" });
+
+  await files.getByRole("button", { name: /AGENTS\.md/ }).click();
+  await preview.getByText("Never push.").waitFor();
+  expect(await files.getByText("skills/cluster/SKILL.md").count()).toBe(0);
+  await page.keyboard.press("Escape");
+
+  await skills
+    .getByRole("switch", { name: "cluster in Default", checked: false })
+    .click();
+
+  await skills
+    .getByRole("switch", { name: "cluster in Default", checked: true })
+    .waitFor();
+
+  await profiles.getByRole("link", { name: "Server base" }).first().click();
+  await skills.getByRole("switch", { name: "cluster", exact: true }).waitFor();
+
+  await page
+    .getByText("Every Session on this server, personal and team")
+    .waitFor();
+
+  await rm(base, { recursive: true, force: true });
 });
 
 test("imports a Profile from a picked folder with its files", async () => {
@@ -4705,6 +4803,63 @@ test("offers push notifications in Settings and shows a pushed notification from
   }
 
   expect(await shown()).toEqual(["Pi needs you: Fix the login page"]);
+
+  await context.close();
+}, 30_000);
+
+test("turns on push notifications before this browser has a service worker", async () => {
+  const origin = new URL(server.url).origin;
+
+  const context = await browser.newContext();
+  await context.addCookies(await page.context().cookies());
+
+  // Headless Chromium has no push service and denies notifications, so the
+  // browser's side is faked. Like a real browser, subscribing fails until
+  // the service worker is active.
+  await context.addInitScript(`
+    const owners = new WeakMap();
+    const pushManager = Object.getOwnPropertyDescriptor(ServiceWorkerRegistration.prototype, "pushManager");
+    Object.defineProperty(ServiceWorkerRegistration.prototype, "pushManager", {
+      get() {
+        const manager = pushManager.get.call(this);
+        owners.set(manager, this);
+        return manager;
+      },
+    });
+    let subscription = null;
+    PushManager.prototype.getSubscription = async () => subscription;
+    PushManager.prototype.subscribe = async function () {
+      if (owners.get(this)?.active == null) {
+        throw new DOMException("Subscription failed - no active Service Worker", "AbortError");
+      }
+      const endpoint = "https://fcm.googleapis.com/fcm/send/e2e-device";
+      subscription = {
+        endpoint,
+        toJSON: () => ({ endpoint, keys: { p256dh: "key", auth: "auth" } }),
+        unsubscribe: async () => { subscription = null; return true; },
+      };
+      return subscription;
+    };
+    Object.defineProperty(Notification, "permission", { get: () => "granted" });
+    Notification.requestPermission = async () => "granted";
+  `);
+
+  const tab = await context.newPage();
+  tab.setDefaultTimeout(10_000);
+  await tab.goto(origin);
+  await tab.getByRole("button", { name: "Account" }).click();
+  await tab.getByRole("menuitem", { name: "Settings" }).click();
+
+  await tab
+    .getByRole("navigation", { name: "Settings" })
+    .getByRole("link", { name: "Notifications", exact: true })
+    .click();
+
+  await tab.getByRole("button", { name: "Turn on for this device" }).click();
+  await tab.getByRole("button", { name: "Turn off on this device" }).waitFor();
+
+  await tab.getByRole("button", { name: "Turn off on this device" }).click();
+  await tab.getByRole("button", { name: "Turn on for this device" }).waitFor();
 
   await context.close();
 }, 30_000);
