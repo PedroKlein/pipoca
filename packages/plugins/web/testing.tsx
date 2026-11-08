@@ -61,8 +61,8 @@ function TestShell({
 // What parts put in a Session's composer, newest last.
 export const drafts: { sessionId: string; text: string }[] = [];
 
-// Draws what a part fills a slot with, inside the test shell, on a page that
-// is taken down after the test.
+// Draws what a part fills a slot with, or its "settings" section, inside the
+// test shell, on a page that is taken down after the test.
 export function renderPart(
   part: WebPart,
   slot: string,
@@ -73,9 +73,11 @@ export function renderPart(
     readonly fetch?: (url: string, init?: RequestInit) => Promise<Response>;
   } = {},
 ): HTMLElement {
-  const Part = (part.slots as Readonly<Record<string, unknown>> | undefined)?.[
-    slot
-  ] as ComponentType<object> | undefined;
+  const Part = (
+    slot === "settings"
+      ? part.settings?.Section
+      : (part.slots as Readonly<Record<string, unknown>> | undefined)?.[slot]
+  ) as ComponentType<object> | undefined;
 
   if (Part === undefined) {
     throw new Error(`${part.plugin.id} fills no ${slot}`);

@@ -145,6 +145,7 @@ export function folderRoutes(
     { auth: "person" },
     ({ caller, params }) => ({
       files: store.folder(theirs(params.id, caller).id),
+      perProjectBytes: config.get().perProjectBytes,
     }),
   );
 

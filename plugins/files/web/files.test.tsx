@@ -135,3 +135,67 @@ test("the header's Files panel lists outputs with downloads", async () => {
     "/api/ext/files/sessions/session-1/files/outputs?path=mismatches.csv",
   );
 });
+
+test("the Files panel warns a person whose Sessions keep more than the per-person number", async () => {
+  let asked = 0;
+
+  const page = renderPart(
+    web,
+    "session.header",
+    { session: sessionWith({}) },
+    {
+      fetch: async (url) => {
+        await Promise.resolve();
+
+        asked += 1;
+
+        return url.endsWith("/limits")
+          ? json({ maxFileBytes: 100, perPersonBytes: 1024, kept: 2048 })
+          : json({ files: kept });
+      },
+    },
+  );
+
+  await act(async () => until(() => asked > 1));
+
+  act(() => {
+    page.querySelector<HTMLButtonElement>("button[aria-label^=Files]")?.click();
+  });
+
+  expect(document.body.textContent).toContain(
+    "Your Sessions keep 2 KB of files, more than the 1 KB this server suggests for each person.",
+  );
+});
+
+test("Settings shows what Session files take, and who keeps more than the per-person number", async () => {
+  let asked = 0;
+
+  const page = renderPart(
+    web,
+    "settings",
+    {},
+    {
+      fetch: async (url) => {
+        await Promise.resolve();
+
+        asked += 1;
+
+        return url.endsWith("/usage")
+          ? json({
+              used: 2048,
+              free: 1024 * 1024 * 3,
+              over: [{ name: "Ana", kept: 2048 }],
+            })
+          : json({});
+      },
+    },
+  );
+
+  await act(async () => until(() => asked > 1));
+
+  expect(page.textContent).toContain(
+    "Session files take 2 KB, with 3.0 MB free on the data volume.",
+  );
+
+  expect(page.textContent).toContain("Ana2 KB kept");
+});

@@ -292,3 +292,45 @@ test("list_files finds outputs and uploads by words in their paths", async () =>
     "No files match.",
   );
 });
+
+test("a person learns how much their Sessions keep, and admins see who keeps more than the per-person number", async () => {
+  const t = await testPlugin(server, {
+    people: [
+      { id: "ana", name: "Ana" },
+      { id: "root", name: "Root", admin: true },
+    ],
+    config: { perPersonBytes: 3 },
+  });
+
+  tests.push(t);
+  const host = await t.session({ owner: person("ana") });
+  const cwd = await mkdtemp(join(tmpdir(), "files-"));
+
+  const kept = await testSession(session, {
+    folder: cwd,
+    request: async (path, init) => host.api.raw(path, init),
+  });
+
+  await write(cwd, "outputs/report.md", "# Q3");
+  await kept.event("agent_settled");
+  await kept.event("session_shutdown");
+
+  expect(await t.as("ana").get("limits")).toMatchObject({
+    perPersonBytes: 3,
+    kept: 4,
+  });
+
+  const usage = await t.as("root").get<{
+    used: number;
+    free: number;
+    over: unknown[];
+  }>("usage");
+
+  expect(usage.used).toBeGreaterThanOrEqual(4);
+  expect(usage.free).toBeGreaterThan(0);
+  expect(usage.over).toEqual([{ name: "Ana", kept: 4 }]);
+
+  const refused = await t.as("ana").raw("usage");
+
+  expect(refused.status).toBe(403);
+});

@@ -42,6 +42,7 @@ export const web = defineWeb(plugin, {
       nav: { fills: (path) => path !== "", Items: Pinned },
     },
   ],
+  settings: { group: "server", form: "auto" },
   slots: {
     "session.toolCall:publish_artifact": PublishedCard,
   },

@@ -80,7 +80,7 @@ const shownMatches = 20;
 // their names here (ADR 0078).
 export const server = defineServer(
   files,
-  ({ blobs, clock, config, routes, sessions, store }) => {
+  ({ blobs, clock, config, people, routes, sessions, store }) => {
     const maxFileBytes = (): number => config.get().maxFileBytes;
 
     // Snapshots may be larger than any one file, so each route that takes an
@@ -154,9 +154,48 @@ export const server = defineServer(
       });
     };
 
-    routes.get("limits", { auth: "person" }, () => ({
+    // What each person's own Sessions keep; team work counts for no one.
+    const keptByPerson = (): ReadonlyMap<string, number> => {
+      const kept = new Map<string, number>();
+
+      const rows = store.all<{ session_id: string; bytes: number }>(
+        `select session_id, sum(size) as bytes from (
+           select session_id, size from files_session_files
+           union all select session_id, size from files_snapshots
+         ) group by session_id`,
+      );
+
+      for (const row of rows) {
+        const owner = sessions.get(row.session_id)?.ownedBy ?? "team";
+
+        if (owner.startsWith("person:")) {
+          const person = owner.slice("person:".length);
+
+          kept.set(person, (kept.get(person) ?? 0) + row.bytes);
+        }
+      }
+
+      return kept;
+    };
+
+    routes.get("limits", { auth: "person" }, ({ caller }) => ({
       maxFileBytes: maxFileBytes(),
+      perPersonBytes: config.get().perPersonBytes,
+      kept: keptByPerson().get(caller.person.id) ?? 0,
     }));
+
+    // For Settings: the store's size, the volume's room, and who keeps more
+    // than the per-person number.
+    routes.get("usage", { auth: "admin" }, async () => {
+      const limit = config.get().perPersonBytes;
+
+      const over = [...keptByPerson()]
+        .filter(([, kept]) => kept > limit)
+        .map(([id, kept]) => ({ name: people.get(id)?.name ?? id, kept }))
+        .sort((a, b) => b.kept - a.kept);
+
+      return { ...(await blobs.space()), over };
+    });
 
     routes.get(
       "sessions/:id/files",

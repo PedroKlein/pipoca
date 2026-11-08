@@ -501,7 +501,10 @@ test("people add files to the Project's folder, and earlier versions stay downlo
 
   await ana.delete(file);
 
-  expect(await ana.get(`${base}/files`)).toEqual({ files: [] });
+  expect(await ana.get(`${base}/files`)).toEqual({
+    files: [],
+    perProjectBytes: 5_368_709_120,
+  });
 });
 
 // A route that says whether its caller acts as an admin, as a route tool.

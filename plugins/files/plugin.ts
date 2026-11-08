@@ -13,6 +13,13 @@ export const files = definePlugin({
       default: 209_715_200,
       min: 1,
     }),
+    perPersonBytes: Config.number({
+      title: "Session files per person, in bytes",
+      description:
+        "Past this, the person and admins are warned. Nothing is deleted or refused.",
+      default: 10_737_418_240,
+      min: 1,
+    }),
     // Kubernetes pods without a disk of their own lose a checkout's work
     // when they exit, so they keep it on the server.
     snapshots: Config.object({

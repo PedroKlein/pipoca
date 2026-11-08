@@ -20,7 +20,9 @@ export function Folder({ path }: { readonly path: string }): ReactElement {
   const { value, reload } = useLoaded(
     async () =>
       Promise.all([
-        api.get<{ files: FolderFile[] }>(`${path}/files`),
+        api.get<{ files: FolderFile[]; perProjectBytes: number }>(
+          `${path}/files`,
+        ),
         api.get<{ writes: FolderWrite[] }>(`${path}/log`),
       ]),
     path,
@@ -28,6 +30,8 @@ export function Folder({ path }: { readonly path: string }): ReactElement {
   );
 
   const files = value?.[0].files ?? [];
+  const limit = value?.[0].perProjectBytes ?? Infinity;
+  const total = files.reduce((sum, file) => sum + file.size, 0);
   const writes = value?.[1].writes ?? [];
 
   const [sending, setSending] = useState<ReadonlyMap<string, number>>(
@@ -90,6 +94,11 @@ export function Folder({ path }: { readonly path: string }): ReactElement {
         title="Folder"
         description="Every Session in the Project sees these files in project/."
       >
+        {total > limit && (
+          <p className="text-label text-waiting">
+            {`The folder holds ${bytes(total)}, more than the ${bytes(limit)} this server suggests for a Project. Nothing is deleted or refused.`}
+          </p>
+        )}
         {files.length === 0 ? (
           <p className="text-fg-dim">No files yet.</p>
         ) : (

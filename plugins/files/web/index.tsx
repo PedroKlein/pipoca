@@ -1,4 +1,5 @@
 import {
+  ConfigForm,
   defineWeb,
   type MountedSession,
   type SessionFilesProps,
@@ -28,6 +29,7 @@ import {
 } from "../src/files";
 
 export const web = defineWeb(plugin, {
+  settings: { group: "server", Section: FilesSettings },
   slots: {
     "session.header": FilesButton,
     "session.files": Attached,
@@ -36,6 +38,54 @@ export const web = defineWeb(plugin, {
 });
 
 const none: readonly SessionFile[] = [];
+
+interface Limits {
+  readonly maxFileBytes: number;
+  readonly perPersonBytes: number;
+  readonly kept: number;
+}
+
+interface Usage {
+  readonly used: number;
+  readonly free: number;
+  readonly over: readonly { readonly name: string; readonly kept: number }[];
+}
+
+// Settings > Files: what the store takes, who keeps more than the
+// per-person number, and the limits.
+function FilesSettings(): ReactElement {
+  const api = useApi(plugin);
+
+  const { value: usage } = useLoaded(
+    async () => api.get<Usage>("usage"),
+    "usage",
+    { changes: ["files"] },
+  );
+
+  return (
+    <div className="flex flex-col gap-4">
+      {usage !== undefined && (
+        <Section title="Storage">
+          <p>
+            {`Session files take ${size(usage.used)}, with ${size(usage.free)} free on the data volume.`}
+          </p>
+          {usage.over.length > 0 && (
+            <Rows label="Over the per-person number">
+              {usage.over.map((each) => (
+                <Row
+                  key={each.name}
+                  title={each.name}
+                  description={`${size(each.kept)} kept`}
+                />
+              ))}
+            </Rows>
+          )}
+        </Section>
+      )}
+      <ConfigForm plugin={plugin} />
+    </div>
+  );
+}
 
 function useSessionFiles(sessionId: string): readonly SessionFile[] {
   const api = useApi(plugin);
@@ -62,6 +112,13 @@ function FilesButton({
   const kept = useSessionFiles(session.id);
   const state = useSessionState<FilesState>(session, "files");
   const unsaved = state?.unsaved ?? [];
+  const api = useApi(plugin);
+
+  const { value: limits } = useLoaded(
+    async () => api.get<Limits>("limits"),
+    "limits",
+    { changes: ["files"] },
+  );
 
   if (kept.length === 0 && unsaved.length === 0) {
     return null;
@@ -97,6 +154,11 @@ function FilesButton({
         )}
         {state?.problem !== undefined && unsaved.length === 0 && (
           <ErrorText size="caption">{state.problem}</ErrorText>
+        )}
+        {limits !== undefined && limits.kept > limits.perPersonBytes && (
+          <p className="text-label text-waiting">
+            {`Your Sessions keep ${size(limits.kept)} of files, more than the ${size(limits.perPersonBytes)} this server suggests for each person. Nothing is deleted or refused.`}
+          </p>
         )}
         <FileList
           sessionId={session.id}
@@ -206,9 +268,7 @@ function Attached({
     };
 
     const send = async (file: File): Promise<void> => {
-      const { maxFileBytes } = await api.get<{ maxFileBytes: number }>(
-        "limits",
-      );
+      const { maxFileBytes } = await api.get<Limits>("limits");
 
       if (file.size > maxFileBytes) {
         throw new Error(

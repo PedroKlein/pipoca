@@ -682,6 +682,11 @@ export interface Blobs {
   ) => Promise<ReadableStream<Uint8Array> | undefined>;
   readonly bytes: (hash: string) => Promise<Uint8Array | undefined>;
   readonly remove: (hash: string) => Promise<void>;
+  // What the plugin's blobs take and what's free on their volume, in bytes.
+  readonly space: () => Promise<{
+    readonly used: number;
+    readonly free: number;
+  }>;
   // Lets the plugin's Session part upload with s.blobs, and people's
   // browsers through the routes in blobRoutes, in chunks that
   // resume, up to maxBytes a file.

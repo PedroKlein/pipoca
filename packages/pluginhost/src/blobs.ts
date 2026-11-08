@@ -3,10 +3,12 @@ import { createReadStream } from "node:fs";
 import {
   appendFile,
   mkdir,
+  readdir,
   readFile,
   rename,
   rm,
   stat,
+  statfs,
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
@@ -159,6 +161,24 @@ export function pluginBlobs(dir: string, routes: Routes): Blobs {
       ),
     remove: async (hash) => {
       await rm(path(hash), { force: true });
+    },
+    space: async () => {
+      await mkdir(dir, { recursive: true });
+
+      const entries = await readdir(dir, {
+        recursive: true,
+        withFileTypes: true,
+      });
+
+      let used = 0;
+
+      for (const entry of entries.filter((each) => each.isFile())) {
+        used += await received(join(entry.parentPath, entry.name));
+      }
+
+      const volume = await statfs(dir);
+
+      return { used, free: volume.bavail * volume.bsize };
     },
     acceptUploads: ({ maxBytes }) => {
       routes.post(

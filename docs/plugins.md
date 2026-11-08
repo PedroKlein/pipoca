@@ -78,7 +78,7 @@ The function runs once, synchronously, when the plugin starts. What it gets:
 - `tools.define({ name, description, params, run })` adds a tool to Sessions, with `when` to pick which.
 - `store` is the plugin's tables: `all`, `get`, `run` and `transaction`. `secrets` seals what it keeps in them.
 - `dataDir` is a folder of the plugin's own on the server's data volume for files it writes as it works, such as a routine group's memory. It may not exist yet.
-- `blobs` keeps bytes in a folder of the plugin's own on the server's data volume, each file named by its SHA-256: `put`, `size`, `read` (a stream), `bytes` and `remove`. The plugin's rows hold the hashes they use, and it removes a hash once none does. `acceptUploads({ maxBytes })` lets its Session part send files with `s.blobs.upload(path)`, and people's browsers through `blobRoutes.browserUpload`, in 8 MB chunks that carry on after a dropped connection ([ADR 0078](adr/0078-artifacts-and-session-files.md)). In a web part, `uploadBlob(api, file, onProgress)` from `@pipoca/plugins/web` sends a file that way and resolves to its hash for the plugin's own route to name.
+- `blobs` keeps bytes in a folder of the plugin's own on the server's data volume, each file named by its SHA-256: `put`, `size`, `read` (a stream), `bytes` and `remove`, and `space()` says what the folder takes and what's free on its volume. The plugin's rows hold the hashes they use, and it removes a hash once none does. `acceptUploads({ maxBytes })` lets its Session part send files with `s.blobs.upload(path)`, and people's browsers through `blobRoutes.browserUpload`, in 8 MB chunks that carry on after a dropped connection ([ADR 0078](adr/0078-artifacts-and-session-files.md)). In a web part, `uploadBlob(api, file, onProgress)` from `@pipoca/plugins/web` sends a file that way and resolves to its hash for the plugin's own route to name.
 - `config.get()`, `config.set(change)` and `config.watch(fn)` read and change its key in `pipoca.json`. `config.collection(name)` edits a collection in it by key.
 - `schedule.at(key, time, data)` and `schedule.every(key, ms, run)` run work later, and survive a restart. `timer` waits in memory, for a long poll.
 - `sessions` starts, lists, messages and archives Sessions. The ones it starts with a `key` are its own, and show inside its page rather than in the Session list. `sessions.need(id, key, { for })` makes a Session wait for a person, in Needs you and with a notification, for something the plugin keeps itself, until `sessions.need(id, key, null)` clears it.
@@ -187,7 +187,7 @@ const t = await testPlugin(server, { people: [{ id: "ana" }] });
 expect(await t.as("ana").get("greeting")).toEqual({ greeting: "Hello" });
 ```
 
-`testSession(session)` runs a Session part against a stand-in Pi, and `until(check)` waits for something; a web test imports it from `@pipoca/testing/until`. Web parts render with `renderPart` from `@pipoca/plugins/web/testing`. Run tests with `bun test` from the repository's root, whose setup gives `testPlugin` the server.
+`testSession(session)` runs a Session part against a stand-in Pi, and `until(check)` waits for something; a web test imports it from `@pipoca/testing/until`. Web parts render with `renderPart` from `@pipoca/plugins/web/testing`, by slot name, or `"settings"` for the part's Settings section. Run tests with `bun test` from the repository's root, whose setup gives `testPlugin` the server.
 
 ## Know the limits
 
