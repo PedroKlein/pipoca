@@ -17,6 +17,8 @@ import projectLight from "../../../../docs/images/project-light.png";
 import projectDark from "../../../../docs/images/project-dark.png";
 import profilesLight from "../../../../docs/images/profiles-light.png";
 import profilesDark from "../../../../docs/images/profiles-dark.png";
+import howLight from "../../../../docs/images/how-it-works-light.png";
+import howDark from "../../../../docs/images/how-it-works-dark.png";
 
 const base = import.meta.env.BASE_URL;
 const docs = (path: string) => `${base}docs/${path}`;
@@ -193,15 +195,39 @@ const sessionCode = `<span class="k">export const</span> session = <span class="
   });
 });`;
 
-const diffCode = `<span class="dim">src/checkout/coupon.ts</span>
-<span class="add">+ export function applyCoupon(</span>
-<span class="add">+   cart: Cart, code: string,</span>
-<span class="add">+ ): Result&lt;Cart&gt; {</span>
-<span class="del">-   return cart.total;</span>
-<span class="add">+   const c = coupons.find(code);</span>
-<span class="add">+   if (!c) return err("unknown");</span>`;
+const diffCode = `<span class="dim">src/cart.ts</span>
+<span>  export function total(</span>
+<span class="add">+   lines: readonly Line[],</span>
+<span class="add">+   discount?: Discount,</span>
+<span>  ): number {</span>
+<span class="del">-   let sum = 0;</span>
+<span class="add">+   const sum = lines.reduce(add, 0);</span>
+<span class="add">+   if (discount === undefined) {</span>
+<span class="add">+     return sum;</span>
+<span class="add">+   }</span>
+<span class="dim">src/cart.test.ts</span>
+<span class="add">+ test("takes a discount off", () =&gt; {</span>
+<span class="add">+   expect(total(lines, spring)).toBe(30);</span>
+<span class="add">+ });</span>`;
 
-const steps = ["Hand off", "Pi works", "Review", "Ship"];
+const steps = ["Hand off", "Pi works", "Review", "Team", "Projects", "Routines"];
+
+const icon = (path: string) =>
+  `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+const icons = {
+  search: icon('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>'),
+  plus: icon('<path d="M12 5v14M5 12h14"/>'),
+  people: icon('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M21.5 20a6.5 6.5 0 0 0-4-6"/>'),
+  clock: icon('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
+  more: icon('<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>'),
+  home: icon('<path d="M4 11 12 4l8 7v9H4z"/><path d="M10 20v-6h4v6"/>'),
+  list: icon('<path d="M4 6h16M4 12h16M4 18h16"/>'),
+  panel: icon('<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M10 4v16"/>'),
+  gear: icon('<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>'),
+  branch: icon('<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M18 10.5c0 4-6 3-11 5.5"/>'),
+  chat: icon('<path d="M4 5h16v11H9l-5 4z"/>'),
+  up: icon('<path d="M12 19V5M6 11l6-6 6 6"/>'),
+};
 ---
 
 <!doctype html>
@@ -278,60 +304,160 @@ const steps = ["Hand off", "Pi works", "Review", "Ship"];
           <div class="wrap">
             <div class="replay" data-step="0">
               <div class="glow" aria-hidden="true"></div>
-              <figure class="card window" aria-label="A Pipoca Session taking a task from request to pull request">
+              <figure class="card window" aria-label="Pipoca's interface: a Session from request to review, team work, a Project and routines">
                 <div class="chrome">
                   <span></span><span></span><span></span>
                   <code class="dim">pipoca.example.com</code>
                 </div>
-                <div class="app">
-                  <div class="sidebar">
-                    <span class="strong">New session</span>
-                    <span class="group">Today</span>
-                    <span class="item current"><span class="state"></span>Coupon field at checkout</span>
-                    <span class="item"><span class="dot waiting-dot"></span>Flaky login test</span>
-                    <span class="item dim"><span class="dot none"></span>Bump Bun to 1.4</span>
-                    <span class="group">Projects</span>
-                    <span class="item dim">Billing v2</span>
-                  </div>
-                  <div class="session">
-                    <div class="session-head">
-                      <span class="strong title">Coupon field at checkout</span>
-                      <code class="dim crumb">laptop · acme-shop · pipoca/3f9c2a1d</code>
+                <div class="r-app">
+                  <aside class="r-side" data-when="0 1 2 4 5">
+                    <div class="r-brand"><Mark size={22} /><span class="serif r-word">pipoca</span><span class="spacer"></span><span class="r-icon" set:html={icons.search}></span><span class="r-plus" set:html={icons.plus}></span></div>
+                    <span class="r-nav"><span class="r-icon" set:html={icons.people}></span>Team</span>
+                    <span class="r-nav"><span class="r-letter">A</span>Assistant</span>
+                    <span class="r-nav sub dim">Projects</span>
+                    <span class="r-nav sub r-two" data-current-when="4"><span class="strong">Discount codes</span><span class="dim">1 repository · coordinator idle</span></span>
+                    <span class="r-nav" data-current-when="5"><span class="r-icon" set:html={icons.clock}></span>Routines</span>
+                    <span class="r-nav dim"><span class="r-icon" set:html={icons.more}></span>More</span>
+                    <div class="r-rule"></div>
+                    <div class="r-label"><span>Sessions</span><span class="spacer"></span><span class="r-box"></span><span>Show archived</span></div>
+                    <span class="r-row" data-current-when="0 1 2"><span class="strong"><span class="r-state"></span>Let the cart take a discount code</span><span class="dim">acme-shop · laptop · coder-large</span></span>
+                    <span class="r-row"><span class="strong"><span class="dot waiting-dot"></span>Fix the flaky login test</span><span class="dim">acme-api · vm · coder-large</span></span>
+                    <span class="r-row"><span class="strong">Bump Bun to 1.4</span><span class="dim">acme-shop · pod · coder-mini</span></span>
+                    <span class="spacer"></span>
+                    <span class="r-foot"><span class="dot done-dot"></span>laptop online</span>
+                    <span class="r-foot"><span class="r-letter">P</span>pedro</span>
+                  </aside>
+                  <aside class="r-side" data-when="3">
+                    <span class="r-nav dim">‹ My work</span>
+                    <span class="r-team"><span class="r-tile">T</span><span class="r-two"><span class="strong">Team</span><span class="dim">4 people</span></span></span>
+                    <span class="r-nav"><span class="r-icon" set:html={icons.home}></span>Home</span>
+                    <span class="r-nav current"><span class="r-icon" set:html={icons.list}></span>Sessions<span class="spacer"></span><span class="dim">3</span></span>
+                    <span class="r-nav"><span class="r-icon" set:html={icons.panel}></span>Team assistant</span>
+                    <span class="r-nav"><span class="r-icon" set:html={icons.panel}></span>Team routines</span>
+                    <span class="r-nav"><span class="r-icon" set:html={icons.gear}></span>Team setup</span>
+                  </aside>
+
+                  <div class="r-main" data-when="0 1 2">
+                    <div class="r-head">
+                      <div class="r-titles"><span class="strong">Let the cart take a discount code</span><code class="dim">laptop · ~/code/acme-shop (pipoca/9ba8a6f4) · <span data-when="0 1">working</span><span data-when="2">idle</span></code></div>
                       <span class="spacer"></span>
-                      <span class="badge working" data-when="0 1 2"><span class="dot breathe"></span>Working</span>
-                      <span class="badge done" data-when="3">Done</span>
+                      <span class="r-pill" data-when="1 2"><span class="r-icon" set:html={icons.branch}></span>Changes 2</span>
+                      <span class="r-usage dim"><span class="r-ring"></span>3%  $0.04</span>
+                      <span class="r-tabs"><span class="on"><span class="r-icon" set:html={icons.chat}></span>Chat</span><span>Pi</span><span>Terminal</span></span>
                     </div>
-                    <div class="session-body">
-                      <div class="chat">
-                        <div class="bubble">Add a coupon field to checkout, cover it with tests and open a pull request.</div>
-                        <div class="work" data-when="1">
-                          <span class="dim">Working…</span>
-                          <code>Read src/checkout/cart.ts</code>
-                          <code>Edited src/checkout/coupon.ts <span class="plus">+38</span> <span class="minus">−4</span></code>
-                          <code>Ran bun test <span class="dim">42 passed</span></code>
+                    <div class="r-body">
+                      <div class="r-chat">
+                        <div class="r-bubble" data-when="1 2">Let the cart take a discount code, and cover it with a test.</div>
+                        <div class="r-steps" data-when="1 2">
+                          <span class="strong small">⌄ Worked for <span data-when="1">38s</span><span data-when="2">1m 12s</span> <span class="dim">· read 1 file · edited 2 files · ran 2 commands</span></span>
+                          <span><span class="r-check">✓</span><b>Read</b> <code>src/cart.ts</code></span>
+                          <span><span class="r-check">✓</span><b>Wrote</b> <code>src/cart.ts</code></span>
+                          <span><span class="r-check">✓</span><b>Wrote</b> <code>src/cart.test.ts</code></span>
+                          <span><span class="r-check" data-when="2">✓</span><span class="r-spin" data-when="1"></span><b>Ran</b> <code>bun test</code></span>
                         </div>
-                        <div class="answer" data-when="2 3">
-                          <span class="dim folded">› Worked for 2m 14s · 9 steps</span>
-                          <p>Checkout now takes a coupon code. Unknown and expired codes show an inline error, and the total updates as you type. I added 6 tests, and all 42 pass.</p>
+                        <div class="r-answer" data-when="2">
+                          <p>Discount codes now come off the cart total.</p>
+                          <p><code class="ic">total(lines, discount?)</code> takes an optional <b>Discount</b>, and a new test covers a 25% code. Both tests pass. Want me to open a pull request?</p>
                         </div>
-                        <span class="chip" data-when="3">Opened pull request #128</span>
                         <span class="spacer"></span>
-                        <div class="composer"><span>Reply, or ask for changes…</span><code>coder-large</code></div>
+                        <div class="r-composer">
+                          <span class="r-typed" data-when="0">Let the cart take a discount code, and cover it with a test.<span class="r-caret"></span></span>
+                          <span class="dim" data-when="1 2">Message Pi</span>
+                          <div class="r-composer-foot dim"><span>coder-large · medium ⌄</span><span>Enter sends · / commands · @ files</span><span class="spacer"></span><span class="r-send" set:html={icons.up}></span></div>
+                        </div>
                       </div>
-                      <div class="diff" data-when="2 3">
-                        <span class="strong small">Changes <span class="dim">2 files</span></span>
+                      <div class="r-changes" data-when="2">
+                        <div class="row"><span class="strong small">Changes</span><span class="dim small">2 files</span><span class="plus small">+19</span><span class="minus small">−5</span><span class="spacer"></span><span class="btn sm primary">Create PR</span></div>
                         <pre class="code" set:html={diffCode}></pre>
-                        <span class="btn sm">Create PR</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="r-main" data-when="3">
+                    <div class="r-head">
+                      <div class="r-titles"><span class="strong">Fix the flaky checkout test</span><code class="dim">team-pods · ~/code/acme-shop · idle</code></div>
+                      <span class="spacer"></span>
+                      <span class="r-faces"><span class="r-letter a1">M</span><span class="r-letter a2">L</span><span class="r-letter">P</span></span>
+                      <span class="r-pill"><span class="r-icon" set:html={icons.people}></span>Vote</span>
+                      <span class="r-tabs"><span class="on">Chat</span><span>Pi</span><span>Terminal</span></span>
+                    </div>
+                    <div class="r-chat">
+                      <div class="r-bubble">Fix the flaky checkout test that fails on Mondays</div>
+                      <div class="r-answer"><p>The test builds its date from the server clock, so the weekly sale banner shows up on Mondays. I pinned the clock in the test and pushed the fix.</p></div>
+                      <div class="r-said"><span class="dim small">maya · to the team</span><div class="r-bubble left">It only fails when the sale banner is on. Can someone check the discount rounding before we merge?</div></div>
+                      <div class="r-said"><span class="dim small">pedro · off the record</span><div class="r-bubble left dashed">Note to self: ask Lin about the Monday cron.</div><span class="dim small">Hidden from Pi, visible to the team</span></div>
+                      <span class="spacer"></span>
+                      <div class="r-composer">
+                        <span class="dim">Write to the team</span>
+                        <div class="r-composer-foot dim"><span class="r-seg"><span>To Pi</span><span class="on">To the team</span><span>Off the record</span></span><span class="spacer"></span><span class="r-send" set:html={icons.up}></span></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="r-main" data-when="4">
+                    <div class="r-head">
+                      <div class="r-titles"><span class="strong">Discount codes</span><code class="dim">laptop · ~/code/acme-shop · coordinator</code></div>
+                      <span class="spacer"></span>
+                      <span class="r-tabs"><span class="on">Chat</span><span>Pi</span><span>Terminal</span></span>
+                    </div>
+                    <div class="r-body">
+                      <div class="r-chat">
+                        <div class="r-bubble">Ship discount codes to the store, with release notes.</div>
+                        <div class="r-thread"><span class="r-ring done"></span><span class="r-two"><span class="strong">Apply codes at checkout</span><span class="dim">Ready for review · pipoca/2a6b34fb</span></span></div>
+                        <div class="r-thread"><span class="r-ring working"></span><span class="r-two"><span class="strong">Write the release notes</span><span class="dim">In progress · pipoca/52872ae9</span></span></div>
+                        <div class="r-answer"><p>I split this in two: one thread wires the codes into checkout, the other writes the release notes. Checkout is ready for review. I'll check back when the notes are done.</p></div>
+                        <span class="spacer"></span>
+                        <div class="r-composer"><span class="dim">Message the coordinator</span></div>
+                      </div>
+                      <div class="r-rail">
+                        <span class="strong small">Threads</span>
+                        <span class="dim small">Needs you · 1</span>
+                        <span class="r-two"><span class="strong small"><span class="dot done-dot"></span>Apply codes at checkout</span><span class="dim small">Review the pull request</span></span>
+                        <span class="dim small">Working · 1</span>
+                        <span class="r-two"><span class="strong small"><span class="dot working-dot breathe"></span>Write the release notes</span><span class="dim small">laptop · just now</span></span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="r-main" data-when="5">
+                    <div class="r-page">
+                      <div class="row"><div class="r-two"><span class="r-h1">Routines</span><span class="dim">Work that starts on a schedule or when something happens.</span></div><span class="spacer"></span><span class="btn sm primary">New routine</span></div>
+                      <div class="r-routine">
+                        <span class="r-two"><span class="strong">Fix red CI on main</span><span class="dim small">When a check fails on main · acts as acme-bot</span></span>
+                        <span class="spacer"></span>
+                        <span class="badge working"><span class="dot breathe"></span>Running</span>
+                      </div>
+                      <div class="r-routine">
+                        <span class="r-two"><span class="strong">Morning triage</span><span class="dim small">Weekdays at 9:00 · labels new issues</span></span>
+                        <span class="spacer"></span>
+                        <span class="dim small">Next run tomorrow</span>
+                      </div>
+                      <div class="r-routine">
+                        <span class="r-two"><span class="strong">Answer support mail</span><span class="dim small">When mail arrives at support@acme.dev</span></span>
+                        <span class="spacer"></span>
+                        <span class="dim small">3 runs today</span>
+                      </div>
+                      <div class="r-routine">
+                        <span class="r-two"><span class="strong">Weekly dependency bumps</span><span class="dim small">Mondays at 7:00 · opens one pull request</span></span>
+                        <span class="spacer"></span>
+                        <span class="badge done">Done</span>
                       </div>
                     </div>
                   </div>
                 </div>
               </figure>
-              <div class="card notification" data-when="3">
+              <div class="card notification" data-when="2">
                 <Mark size={28} />
                 <div>
-                  <span class="strong">Coupon field at checkout is done</span>
-                  <span class="dim">Opened pull request #128.</span>
+                  <span class="strong">Let the cart take a discount code</span>
+                  <span class="dim">Pi finished and is waiting for you.</span>
+                </div>
+              </div>
+              <div class="card notification" data-when="5">
+                <Mark size={28} />
+                <div>
+                  <span class="strong">Fix red CI on main started</span>
+                  <span class="dim">A check failed on main, so the routine opened a Session.</span>
                 </div>
               </div>
             </div>
@@ -564,7 +690,22 @@ const steps = ["Hand off", "Pi works", "Review", "Ship"];
           </div>
         </section>
 
-        <section class="plain">
+        <section id="how" class="plain">
+          <div class="wrap stack center">
+            <div class="stack-sm center">
+              <span class="eyebrow">How it works</span>
+              <h2 class="serif big">One server, runners wherever you like</h2>
+              <p class="dim lede-sm">People and tools reach the server. Runners connect out to it, so a laptop needs no open port, and run each Session as its own Pi process.</p>
+            </div>
+            <div class="diagram">
+              <Image class="light-only" src={howLight} alt="People and tools reach the pipoca server over HTTPS. The server is a small kernel with plugins, SQLite, pipoca.json and sealed logins. Runners on a laptop, a VM or Kubernetes pods connect out to it and run each Session as its own Pi process." widths={[960, 1920]} sizes="(min-width: 1240px) 1160px, 100vw" />
+              <Image class="dark-only" src={howDark} alt="" widths={[960, 1920]} sizes="(min-width: 1240px) 1160px, 100vw" />
+            </div>
+            <a class="link" href={docs("architecture/")}>Read the architecture</a>
+          </div>
+        </section>
+
+        <section class="band">
           <div class="wrap stack">
             <h2 class="serif big center">Start in a minute</h2>
             <div class="grid-3">
@@ -614,6 +755,9 @@ const steps = ["Hand off", "Pi works", "Review", "Ship"];
         for (const element of document.querySelectorAll<HTMLElement>("[data-when]")) {
           element.hidden = !(element.dataset.when ?? "").split(" ").includes(String(next));
         }
+        for (const element of document.querySelectorAll<HTMLElement>("[data-current-when]")) {
+          element.classList.toggle("current", (element.dataset.currentWhen ?? "").split(" ").includes(String(next)));
+        }
       };
 
       for (const button of stepButtons) {
@@ -626,9 +770,9 @@ const steps = ["Hand off", "Pi works", "Review", "Ship"];
       show(still ? 2 : 0);
       setInterval(() => {
         if (!held && document.visibilityState === "visible") {
-          show((step + 1) % 4);
+          show((step + 1) % stepButtons.length);
         }
-      }, 2600);
+      }, 3400);
 
       const modeButtons = [...document.querySelectorAll<HTMLButtonElement>("[data-mode]")];
       for (const button of modeButtons) {
