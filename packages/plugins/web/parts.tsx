@@ -20,6 +20,7 @@ import type {
   NavItemsProps,
   NoticeProps,
   PageProps,
+  SessionFilesProps,
   SessionPartProps,
   SettingsGroup,
   SetupStep,
@@ -37,6 +38,7 @@ type Nothing = Readonly<Record<string, never>>;
 export interface Slots {
   "session.composer": SessionPartProps;
   "session.header": SessionPartProps;
+  "session.files": SessionFilesProps;
   [call: `session.toolCall:${string}`]: ToolCallProps;
   [notice: `notice:${string}`]: NoticeProps;
   [link: `link:${string}`]: LinkProps;

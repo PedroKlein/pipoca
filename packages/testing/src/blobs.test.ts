@@ -166,6 +166,14 @@ test("a file the server already has isn't sent again", async () => {
   expect(puts(sent)).toHaveLength(1);
 });
 
+test("an empty file is kept too", async () => {
+  const { keep, kept } = await setUp();
+  const empty = new Uint8Array();
+
+  expect(await keep(empty)).toBe(`${sha256(empty)} 0`);
+  expect(await kept(sha256(empty))).toEqual(empty);
+});
+
 test("a file over the plugin's limit is refused without retries", async () => {
   const { keep, sent } = await setUp({ maxMb: 1 });
 

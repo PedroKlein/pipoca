@@ -5,6 +5,8 @@ import { changes } from "../../../plugins/changes/plugin";
 import { checklist } from "../../../plugins/checklist/plugin";
 import { email } from "../../../plugins/email/plugin";
 import { server as emailServer } from "../../../plugins/email/src/server";
+import { files } from "../../../plugins/files/plugin";
+import { server as filesServer } from "../../../plugins/files/src/server";
 import { gitHosts } from "../../../plugins/git-hosts/plugin";
 import { server as gitHostsServer } from "../../../plugins/git-hosts/src/server";
 import { kubernetes } from "../../../plugins/kubernetes/plugin";
@@ -34,6 +36,7 @@ export const serverRegistry = [
   { id: "changes", definition: changes },
   { id: "checklist", definition: checklist },
   { id: "email", definition: email, server: emailServer },
+  { id: "files", definition: files, server: filesServer },
   { id: "git-hosts", definition: gitHosts, server: gitHostsServer },
   { id: "kubernetes", definition: kubernetes, server: kubernetesServer },
   { id: "local", definition: local, server: localServer },

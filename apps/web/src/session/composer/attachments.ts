@@ -10,6 +10,10 @@ interface Candidate {
   readonly size: number;
 }
 
+export function isImage(file: Pick<Candidate, "type">): boolean {
+  return imageTypes.some((type) => type === file.type);
+}
+
 // Picks the files a message can carry, given how many it already has, and
 // says why the others were left out.
 export function admit<T extends Candidate>(
@@ -20,7 +24,7 @@ export function admit<T extends Candidate>(
   const problems: string[] = [];
 
   for (const file of files) {
-    if (!imageTypes.some((type) => type === file.type)) {
+    if (!isImage(file)) {
       problems.push(`${file.name} isn't a PNG, JPEG, GIF or WebP image.`);
     } else if (file.size > imageLimits.bytes) {
       problems.push(

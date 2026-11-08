@@ -19,7 +19,9 @@ const meansOther: Readonly<Record<string, readonly string[]>> = {
   "apps/pipoca/src/faux.ts": ["models"],
   "apps/pipoca/src/web-app.ts": ["push"],
   "apps/pipoca/src/dev.ts": ["local"],
-  "apps/web/src/settings/profiles/tabs.tsx": ["models"],
+  "apps/web/src/session/feed.ts": ["files"],
+  "apps/web/src/settings/configuration/tree.ts": ["files"],
+  "apps/web/src/settings/profiles/tabs.tsx": ["models", "files"],
   "packages/environments/src/environments.ts": ["models"],
   "packages/environments/src/runner-polls.ts": ["models"],
   "packages/pluginhost/src/host.ts": ["models"],
@@ -27,7 +29,10 @@ const meansOther: Readonly<Record<string, readonly string[]>> = {
   "packages/runner/src/container.ts": ["models"],
   "packages/runner/src/host.ts": ["models"],
   "packages/runner/src/models.ts": ["models"],
+  "packages/protocol/src/events.ts": ["files"],
   "packages/runner/src/session-process.ts": ["models"],
+  "packages/sessionhost/src/host.ts": ["files"],
+  "packages/sessionhost/src/profile.ts": ["files"],
   "packages/sessions/src/sessions.ts": ["models"],
 };
 

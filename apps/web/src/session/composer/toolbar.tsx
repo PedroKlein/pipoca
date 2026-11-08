@@ -22,6 +22,7 @@ export function Toolbar({
   target,
   onTarget,
   running,
+  anyFile,
   attach,
   report,
 }: {
@@ -34,6 +35,8 @@ export function Toolbar({
   readonly target: Target;
   readonly onTarget: (target: Target) => void;
   readonly running: boolean;
+  // A plugin keeps files that aren't images, so the button takes any.
+  readonly anyFile: boolean;
   readonly attach: (files: readonly File[]) => void;
   readonly report: (error: unknown) => void;
 }): ReactElement {
@@ -43,10 +46,10 @@ export function Toolbar({
         variant="ghost"
         iconOnly
         icon="paperclip"
-        title="Attach images"
-        aria-label="Attach images"
+        title={anyFile ? "Attach files" : "Attach images"}
+        aria-label={anyFile ? "Attach files" : "Attach images"}
         multiple
-        accept={imageTypes.join(",")}
+        {...(!anyFile && { accept: imageTypes.join(",") })}
         onFiles={attach}
         className="-ml-2"
       />
