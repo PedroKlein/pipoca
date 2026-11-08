@@ -363,3 +363,22 @@ test("a line diff keeps what both versions share and marks the rest", () => {
     { kind: "added", text: "d" },
   ]);
 });
+
+test("a Session's panel lists what it published, to those who see the Session", async () => {
+  const { t, host, cwd, part } = await setUp();
+
+  await writeFile(join(cwd, "page.html"), "<h1>Hi</h1>");
+  await part.tool("publish_artifact", { path: "page.html", title: "Hi" });
+
+  expect(
+    (
+      await t
+        .as("ana")
+        .get<{ artifacts: ArtifactSummary[] }>(`sessions/${host.id}/artifacts`)
+    ).artifacts.map(({ title }) => title),
+  ).toEqual(["Hi"]);
+
+  expect(await t.as("bo").get(`sessions/${host.id}/artifacts`)).toEqual({
+    artifacts: [],
+  });
+});

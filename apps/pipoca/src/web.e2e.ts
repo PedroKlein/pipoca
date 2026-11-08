@@ -2895,6 +2895,7 @@ test("builds a Profile on another, over My defaults", async () => {
 
   await page.getByRole("link", { name: "New Profile" }).click();
   await editor.getByLabel("Name").fill("Deep");
+  await editor.getByLabel("What it's for").fill("Long research tasks");
   await editor.getByRole("button", { name: "Builds on" }).click();
   await page.getByRole("option", { name: "Default" }).click();
   await editor.getByRole("button", { name: "Create Profile" }).click();
@@ -2904,6 +2905,10 @@ test("builds a Profile on another, over My defaults", async () => {
   expect(
     await page.getByRole("button", { name: "Builds on" }).textContent(),
   ).toContain("Default");
+
+  expect(await editor.getByLabel("What it's for").inputValue()).toBe(
+    "Long research tasks",
+  );
 
   await editor.getByRole("button", { name: "Delete" }).click();
   await confirmIn("Delete");
@@ -3499,9 +3504,8 @@ test("writes a routine from a starter, runs it by hand and opens its run", async
     fauxAssistantMessage([fauxText("three new issues")]),
   ]);
 
-  await page.goto(`${server.url.href}#plugin/routines/new`);
-  await page.getByRole("button", { name: "Write JSON" }).click();
-  await page.getByRole("button", { name: "Issue to pull request" }).click();
+  await page.goto(`${server.url.href}#plugin/routines`);
+  await page.getByRole("link", { name: /^Issue to pull request/ }).click();
 
   expect(await page.getByLabel("Name").inputValue()).toBe(
     "issue-to-pull-request",
@@ -3533,10 +3537,13 @@ test("writes a routine from a starter, runs it by hand and opens its run", async
 
   await page.getByRole("button", { name: "Run now" }).click();
 
-  const run = page.getByRole("link", { name: /by hand/ });
+  const run = page
+    .getByRole("table", { name: "Runs" })
+    .getByRole("row")
+    .filter({ hasText: "three new issues" });
+
   await run.getByText("Done").waitFor();
-  await run.getByText("three new issues").waitFor();
-  await run.click();
+  await run.getByRole("link", { name: /Run now/ }).click();
 
   await page
     .locator('#chat li[data-role="assistant"]', { hasText: "three new issues" })
@@ -3581,7 +3588,10 @@ test("runs a routine by hand with the inputs its form asks for", async () => {
   await form.getByLabel("mode").selectOption("slow");
   await form.getByRole("button", { name: "Run" }).click();
 
-  await page.getByRole("link", { name: /by hand/ }).click();
+  await page
+    .getByRole("table", { name: "Runs" })
+    .getByRole("link", { name: /Run now/ })
+    .click();
 
   await page
     .locator('#chat li[data-role="user"]', {
@@ -5466,7 +5476,8 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
   });
 
   await page.goto(`${server.url.href}#plugin/routines`);
-  await page.getByRole("link", { name: "New team routine" }).click();
+  await page.getByRole("button", { name: "More ways to add" }).click();
+  await page.getByRole("menuitem", { name: "New team routine" }).click();
 
   await page
     .getByRole("heading", {
@@ -5502,6 +5513,18 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
     .locator("section")
     .filter({ has: page.getByRole("heading", { name: "The team's" }) })
     .getByRole("link", { name: /Write the weekly notes/ })
+    .waitFor();
+
+  await page.goto(new URL("/#team", server.url).href);
+
+  await page
+    .getByRole("navigation", { name: "Team" })
+    .getByRole("link", { name: "Team routines" })
+    .click();
+
+  await page
+    .getByRole("table", { name: "Routines" })
+    .getByRole("link", { name: "Write the weekly notes" })
     .waitFor();
 }, 30_000);
 

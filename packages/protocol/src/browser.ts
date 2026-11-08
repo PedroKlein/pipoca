@@ -25,7 +25,11 @@ export const createSession = Type.Object({
     Type.String({ minLength: 1, description: "Environment id" }),
   ),
   profile: Type.Optional(
-    Type.String({ minLength: 1, description: "Profile id" }),
+    Type.String({
+      minLength: 1,
+      description:
+        "Profile id. Leave it out for the default, unless the user named one or a Profile's description fits the work better",
+    }),
   ),
   workspace: workspaceRequest,
   model: Type.Optional(modelRef),
@@ -353,6 +357,8 @@ export const profile = Type.Object({
   ...profileContent.properties,
   id: Type.String(),
   name: Type.String(),
+  // What the Profile is for, which assistants read to pick one for new work.
+  description: Type.String(),
   // Null for a Profile shared with every user, which only admins change.
   ownerId: nullable(Type.String()),
   // The Profile this one builds on, which it gets everything from (ADR 0063).

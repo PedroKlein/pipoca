@@ -47,6 +47,7 @@ export const maxBuildsOn = 4;
 
 interface Meta {
   readonly name: string;
+  readonly description?: string;
   // No owner means the Profile is shared with every user.
   readonly owner?: string;
   // The Profile this one builds on (ADR 0063).
@@ -110,6 +111,7 @@ export class ProfileFolders {
         ? {
             id,
             name: nameOf(id),
+            description: "",
             ownerId: null,
             buildsOn: null,
             source: null,
@@ -135,6 +137,8 @@ export class ProfileFolders {
         typeof meta["name"] === "string" && meta["name"] !== ""
           ? meta["name"]
           : nameOf(id),
+      description:
+        typeof meta["description"] === "string" ? meta["description"] : "",
       ownerId: typeof meta["owner"] === "string" ? meta["owner"] : null,
       buildsOn: typeof meta["buildsOn"] === "string" ? meta["buildsOn"] : null,
       source: sourceOf(meta["source"]),
@@ -366,6 +370,7 @@ export class ProfileFolders {
       join(dir, metaFile),
       json({
         name: meta.name,
+        ...(meta.description !== "" && { description: meta.description }),
         ...(meta.ownerId !== null && { owner: meta.ownerId }),
         ...(typeof meta.buildsOn === "string" && { buildsOn: meta.buildsOn }),
         ...(meta.source && { source: meta.source }),

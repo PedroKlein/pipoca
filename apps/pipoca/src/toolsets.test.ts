@@ -463,12 +463,12 @@ test("shows a Profile's MCP servers by name only", async () => {
   });
 
   faux.setResponses([
-    call("tool_search", { query: "list Profiles" }),
-    call("profiles_list", {}),
+    call("tool_search", { query: "get a Profile" }),
+    call("profiles_get", { id: "with-mcp" }),
     fauxAssistantMessage([fauxText("listed them")]),
   ]);
 
-  const metaSession = await startMeta("Which Profiles do I have?");
+  const metaSession = await startMeta("What's in With MCP?");
   const events = await follow(metaSession.id, entriesInclude("listed them"));
 
   expect(transcriptOf(events)).toContain('\\"mcpServers\\":[\\"github\\"]');

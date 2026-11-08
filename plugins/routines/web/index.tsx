@@ -6,17 +6,12 @@ import {
   useLoaded,
 } from "@pipoca/plugins/web";
 import {
-  Badge,
-  type BadgeState,
   Button,
-  buttonClass,
   Checkbox,
-  cn,
-  Code,
   ErrorText,
   Field,
   Icon,
-  linkCardClass,
+  Menu,
   Page,
   plural,
   Section,
@@ -29,31 +24,26 @@ import type { TypedClient } from "@pipoca/plugins";
 import type { DeclaredAction, DeclaredEvent } from "@pipoca/protocol";
 import { type ReactElement, useState } from "react";
 import { routines } from "../plugin";
-import { DeclaredExtras, RunResults, TriggerLines } from "./extras";
-import type {
-  Proposal,
-  ProposalState,
-  RoutineDetail,
-  RoutineView,
-  Run,
-  WakeUp,
-} from "../src/model";
+import { DeclaredExtras, TriggerLines } from "./extras";
+import type { RoutineDetail, RoutineView, WakeUp } from "../src/model";
 import type { Routine } from "../src/routine";
 import { RoutineApproval } from "./approval";
+import { ChainStrip, OutputSection, RunsTable, useChain } from "./chain";
 import { NewRoutine } from "./create";
 import {
   changes,
   failureOf,
   groupPage,
-  OutcomeBadge,
   pageAt,
   type Scope,
   summaryOf,
   teams,
   yours,
 } from "./common";
-import { GroupPage, GroupPicker, Groups, ImportGroup } from "./groups";
+import { GroupPage, GroupPicker } from "./groups";
+import { RoutineList, TeamRoutinesScreen } from "./list";
 import { starters } from "./starters";
+import { placeWords, shortTime, whenWords } from "./words";
 
 // Routines, a Session's pending wake-ups above its composer, and the notice
 // each wake-up sends when it comes (ADR 0059).
@@ -69,6 +59,12 @@ export const web = defineWeb(routines, {
             .slice(path.startsWith(teams.prefix) ? teams.prefix.length : 0)
             .split("/").length > 1,
       },
+    },
+    {
+      path: "team-routines",
+      label: "Team routines",
+      Page: TeamRoutinesScreen,
+      area: "hub",
     },
   ],
   // A run's Session is owned by "<owner>/<routine>".
@@ -104,110 +100,23 @@ function RoutinesPage({ path }: { readonly path: string }): ReactElement {
     );
   }
 
+  if (name === "new" && sessionId !== undefined) {
+    return (
+      <RoutinePage
+        key={`${scope.prefix}new/${sessionId}`}
+        scope={scope}
+        name={name}
+        start={sessionId}
+      />
+    );
+  }
+
   if (sessionId !== undefined) {
     return <RunSession scope={scope} name={name} sessionId={sessionId} />;
   }
 
   return (
     <RoutinePage key={`${scope.prefix}${name}`} scope={scope} name={name} />
-  );
-}
-
-function RoutineList(): ReactElement {
-  const api = useApi(routines);
-
-  const team =
-    useLoaded(
-      async () => api.get<unknown[]>("/api/environments?scope=team"),
-      "team-environments",
-      { topics: ["environments"] },
-    ).value ?? [];
-
-  return (
-    <Page
-      title="Routines"
-      description="A routine runs a prompt on a schedule or when something happens, each time in a new Session of its own, or as a message to one of your Sessions. Describe one in a sentence, ask the assistant, or write its JSON."
-      actions={
-        <>
-          <a href={pageAt(`${groupPage}new`)} className={buttonClass()}>
-            New group
-          </a>
-          {team.length > 0 && (
-            <a
-              href={pageAt(`${teams.prefix}${groupPage}new`)}
-              className={buttonClass()}
-            >
-              New team group
-            </a>
-          )}
-          {team.length > 0 && (
-            <a href={pageAt(`${teams.prefix}new`)} className={buttonClass()}>
-              New team routine
-            </a>
-          )}
-          <a
-            href={pageAt("new")}
-            className={buttonClass({ variant: "primary" })}
-          >
-            New routine
-          </a>
-        </>
-      }
-    >
-      <Groups scope={yours} title="Your groups" />
-      <Routines scope={yours} title="Yours" />
-      {team.length > 0 && <Groups scope={teams} title="The team's groups" />}
-      {team.length > 0 && <Routines scope={teams} title="The team's" />}
-      <ImportGroup scope={yours} />
-      {team.length > 0 && <ImportGroup scope={teams} />}
-    </Page>
-  );
-}
-
-function Routines({
-  scope,
-  title,
-}: {
-  readonly scope: Scope;
-  readonly title: string;
-}): ReactElement {
-  const api = useApi(routines);
-
-  const list = useLoaded(
-    async () => api.get<RoutineView[]>(`${scope.prefix}routines`),
-    scope.prefix,
-    { changes },
-  ).value;
-
-  return (
-    <Section title={title}>
-      {list?.length === 0 && <p className="text-fg-dim">No routines yet.</p>}
-      <ul className="flex flex-col gap-2">
-        {list?.map((routine) => (
-          <li key={routine.name}>
-            <a
-              href={pageAt(`${scope.prefix}${routine.name}`)}
-              className={cn(
-                linkCardClass,
-                "flex min-w-0 items-center gap-3 px-3 py-2",
-              )}
-            >
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-ui font-medium text-fg">
-                  {routine.title}
-                </span>
-                <span className="block truncate text-label text-fg-dim">
-                  {summaryOf(routine)}
-                </span>
-              </span>
-              {routine.lastRun !== null && (
-                <OutcomeBadge outcome={routine.lastRun.outcome} />
-              )}
-            </a>
-          </li>
-        ))}
-      </ul>
-    </Section>
   );
 }
 
@@ -260,15 +169,19 @@ function startText(index: number): string {
 function RoutinePage({
   scope,
   name,
+  start,
 }: {
   readonly scope: Scope;
   readonly name: string;
+  // The starter the form opens filled in with.
+  readonly start?: string;
 }): ReactElement {
   const api = useApi(routines);
   const [ask, asking] = useConfirm();
   const creating = name === "new";
   const [editing, setEditing] = useState(creating);
-  const [asJson, setAsJson] = useState(false);
+  const starter = starters.findIndex((each) => each.name === start);
+  const [asJson, setAsJson] = useState(starter >= 0);
   const [failure, setFailure] = useState<string>();
   const path = `${scope.prefix}routines/${encodeURIComponent(name)}`;
 
@@ -278,6 +191,7 @@ function RoutinePage({
     { changes },
   );
 
+  const chain = useChain(scope, routine);
   const [runForm, setRunForm] = useState<"run" | "dry" | undefined>();
   const inputs = Object.entries(routine?.routine?.inputs ?? {});
 
@@ -306,6 +220,27 @@ function RoutinePage({
     );
   }
 
+  const lede =
+    routine?.routine === undefined
+      ? undefined
+      : [
+          whenWords(routine.routine, chain.titleOf, chain.events),
+          placeWords(routine.routine),
+          routine.paused === null && routine.nextAt !== null
+            ? `next ${shortTime(routine.nextAt)}`
+            : undefined,
+        ]
+          .filter((part) => part !== undefined)
+          .join(" · ");
+
+  const run = (kind: "run" | "dry"): void => {
+    if (inputs.length === 0) {
+      act("run", { dryRun: kind === "dry" });
+    } else {
+      setRunForm(runForm === kind ? undefined : kind);
+    }
+  };
+
   return (
     <Page
       title={
@@ -314,14 +249,80 @@ function RoutinePage({
           : (routine?.title ?? name)
       }
       description={
-        <a href={pageAt("")} className="hover:underline">
-          All routines
-        </a>
+        <>
+          {lede !== undefined && <span className="block">{lede}</span>}
+          <a href={pageAt("")} className="hover:underline">
+            All routines
+          </a>
+        </>
+      }
+      actions={
+        routine !== undefined && (
+          <>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                act(routine.paused === null ? "pause" : "resume");
+              }}
+            >
+              {routine.paused === null ? "Pause" : "Resume"}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setEditing(!editing);
+              }}
+            >
+              Edit
+            </Button>
+            <Button
+              disabled={routine.error !== undefined}
+              onClick={() => {
+                run("dry");
+              }}
+            >
+              Dry run
+            </Button>
+            <Button
+              variant="primary"
+              disabled={routine.error !== undefined}
+              onClick={() => {
+                run("run");
+              }}
+            >
+              Run now
+            </Button>
+            <Menu
+              label="More for this routine"
+              items={[
+                {
+                  label: "Delete",
+                  icon: "trash",
+                  danger: true,
+                  run: () => {
+                    void ask({
+                      title: `Delete the routine “${routine.title}”?`,
+                      confirm: "Delete",
+                      danger: true,
+                    }).then(async (yes) => {
+                      if (!yes) {
+                        return;
+                      }
+
+                      await api.delete(path);
+                      location.hash = pageAt("");
+                    });
+                  },
+                },
+              ]}
+            />
+          </>
+        )
       }
     >
       {asking}
       {routine !== undefined && (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1.5">
           <p className="text-ui text-fg-dim">{summaryOf(routine)}</p>
           <TriggerLines routine={routine} />
           {routine.group !== undefined && (
@@ -333,18 +334,6 @@ function RoutinePage({
               >
                 {routine.group}
               </a>
-            </p>
-          )}
-          {routine.fedBy.length > 0 && (
-            <p className="text-ui text-fg-dim">
-              Follows{" "}
-              <RoutineLinks names={routine.fedBy} prefix={scope.prefix} />
-            </p>
-          )}
-          {routine.feeds.length > 0 && (
-            <p className="text-ui text-fg-dim">
-              Followed by{" "}
-              <RoutineLinks names={routine.feeds} prefix={scope.prefix} />
             </p>
           )}
           {routine.routine?.limits?.dailySpend !== undefined && (
@@ -369,57 +358,6 @@ function RoutinePage({
               message or webhook can make it push or post.
             </p>
           )}
-          <div className="flex flex-wrap gap-2">
-            {(["run", "dry"] as const).map((kind) => (
-              <Button
-                key={kind}
-                variant={kind === "run" ? "primary" : "default"}
-                disabled={routine.error !== undefined}
-                onClick={() => {
-                  if (inputs.length === 0) {
-                    act("run", { dryRun: kind === "dry" });
-                  } else {
-                    setRunForm(runForm === kind ? undefined : kind);
-                  }
-                }}
-              >
-                {kind === "run" ? "Run now" : "Dry run"}
-              </Button>
-            ))}
-            <Button
-              onClick={() => {
-                act(routine.paused === null ? "pause" : "resume");
-              }}
-            >
-              {routine.paused === null ? "Pause" : "Resume"}
-            </Button>
-            <Button
-              onClick={() => {
-                setEditing(!editing);
-              }}
-            >
-              Edit
-            </Button>
-            <Button
-              variant="danger"
-              onClick={() => {
-                void ask({
-                  title: `Delete the routine “${routine.title}”?`,
-                  confirm: "Delete",
-                  danger: true,
-                }).then(async (yes) => {
-                  if (!yes) {
-                    return;
-                  }
-
-                  await api.delete(path);
-                  location.hash = pageAt("");
-                });
-              }}
-            >
-              Delete
-            </Button>
-          </div>
         </div>
       )}
       {runForm !== undefined && (
@@ -434,16 +372,16 @@ function RoutinePage({
       <ErrorText size="inherit" className="mt-3 text-ui">
         {failure}
       </ErrorText>
-      {routine?.webhook !== undefined && <Webhook {...routine.webhook} />}
       {editing && (creating || routine !== undefined) && (
         <Editor
           api={api}
           scope={scope}
           name={creating ? undefined : name}
+          initialName={starters[starter]?.name ?? ""}
           group={routine?.group ?? ""}
           text={
             routine?.routine === undefined
-              ? (routine?.file ?? startText(0))
+              ? (routine?.file ?? startText(Math.max(starter, 0)))
               : `${JSON.stringify(routine.routine, null, 2)}\n`
           }
           onSaved={(saved) => {
@@ -458,22 +396,20 @@ function RoutinePage({
         />
       )}
       {routine !== undefined && (
-        <Section title="Runs">
-          {routine.runs.length === 0 && (
-            <p className="text-fg-dim">No runs yet.</p>
-          )}
-          <ul className="flex flex-col gap-1">
-            {routine.runs.map((run) => (
-              <RunRow
-                key={run.id}
-                href={pageAt(`${scope.prefix}${name}/${run.sessionId ?? ""}`)}
-                run={run}
-                act={act}
-              />
-            ))}
-          </ul>
-        </Section>
+        <ChainStrip scope={scope} routine={routine} chain={chain} />
       )}
+      {routine?.routine !== undefined && (
+        <OutputSection
+          routine={routine}
+          onEdit={() => {
+            setEditing(true);
+          }}
+        />
+      )}
+      {routine !== undefined && (
+        <RunsTable scope={scope} routine={routine} chain={chain} act={act} />
+      )}
+      {routine?.webhook !== undefined && <Webhook {...routine.webhook} />}
       {routine !== undefined && routine.history.length > 0 && (
         <Section title="History">
           <ul className="flex flex-col gap-1 text-label">
@@ -537,6 +473,7 @@ function Editor({
   api,
   scope,
   name,
+  initialName = "",
   group: initialGroup,
   text: initial,
   onSaved,
@@ -544,13 +481,14 @@ function Editor({
   readonly api: TypedClient;
   readonly scope: Scope;
   readonly name: string | undefined;
+  readonly initialName?: string;
   readonly group: string;
   readonly text: string;
   readonly onSaved: (name: string) => void;
 }): ReactElement {
   const [text, setText] = useState(initial);
   const [group, setGroup] = useState(initialGroup);
-  const [newName, setNewName] = useState("");
+  const [newName, setNewName] = useState(initialName);
   const [failure, setFailure] = useState<string>();
 
   const save = (): void => {
@@ -638,28 +576,6 @@ function Editor({
         </Button>
       </div>
     </form>
-  );
-}
-
-// The routines one follows or that follow it (ADR 0075), each a link.
-function RoutineLinks({
-  names,
-  prefix,
-}: {
-  readonly names: readonly string[];
-  readonly prefix: string;
-}): ReactElement {
-  return (
-    <>
-      {names.map((name, index) => (
-        <span key={name}>
-          {index > 0 && ", "}
-          <a href={pageAt(`${prefix}${name}`)} className="text-fg underline">
-            {name}
-          </a>
-        </span>
-      ))}
-    </>
   );
 }
 
@@ -870,150 +786,6 @@ function fieldNames(schema: Readonly<Record<string, unknown>>): string[] {
   return typeof properties === "object" && properties !== null
     ? Object.keys(properties)
     : [];
-}
-
-function RunRow({
-  href,
-  run,
-  act,
-}: {
-  readonly href: string;
-  readonly run: Run;
-  readonly act: (action: string, body?: object) => void;
-}): ReactElement {
-  const label = (
-    <>
-      <OutcomeBadge outcome={run.outcome} />
-      {run.dryRun === true && <Badge state="offline">Dry run</Badge>}
-      <time dateTime={run.firedAt} className="shrink-0 text-fg-dim">
-        {new Date(run.firedAt).toLocaleString()}
-      </time>
-      <span className="text-fg-dim">{run.cause}</span>
-      {run.reason !== null && (
-        <span className="min-w-0 truncate text-fg">{run.reason}</span>
-      )}
-    </>
-  );
-
-  return (
-    <li className="text-label">
-      <div className="flex min-w-0 items-center gap-1">
-        {run.sessionId === null ? (
-          <span className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1">
-            {label}
-          </span>
-        ) : (
-          <a
-            href={href}
-            className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 hover:bg-hover"
-          >
-            {label}
-          </a>
-        )}
-        <Button
-          variant="ghost"
-          aria-label={`Replay the run of ${new Date(run.firedAt).toLocaleString()}`}
-          onClick={() => {
-            act(`runs/${run.id}/replay`, {});
-          }}
-        >
-          Replay
-        </Button>
-      </div>
-      {run.questions !== undefined && run.questions.length > 0 && (
-        <ul aria-label="Questions" className="ml-6 flex flex-col gap-1 py-1">
-          {run.questions.map((question) => (
-            <li key={question.id} className="flex flex-col">
-              <span className="text-fg">{question.prompts.join(" ")}</span>
-              <span className="text-fg-dim">
-                {run.askedFor !== undefined && run.askedFor.length > 0
-                  ? `For ${run.askedFor.join(", ")}. `
-                  : ""}
-                Waits until {new Date(question.closesAt).toLocaleString()}.
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-      {run.proposals !== undefined && run.proposals.length > 0 && (
-        <ul aria-label="Proposals" className="ml-6 flex flex-col gap-1 py-1">
-          {run.proposals.map((proposal) => (
-            <ProposalRow key={proposal.id} proposal={proposal} act={act} />
-          ))}
-        </ul>
-      )}
-      <RunResults run={run} />
-    </li>
-  );
-}
-
-const proposalStates: Readonly<
-  Record<ProposalState, { readonly state: BadgeState; readonly label: string }>
-> = {
-  proposed: { state: "waiting", label: "Proposed" },
-  waiting: { state: "waiting", label: "Waiting for approval" },
-  applied: { state: "done", label: "Applied" },
-  failed: { state: "failed", label: "Failed" },
-  rejected: { state: "offline", label: "Rejected" },
-  refused: { state: "failed", label: "Refused" },
-  shown: { state: "offline", label: "Not applied: dry run" },
-};
-
-// What a run proposed, exactly as it would be written, and where it stands.
-function ProposalRow({
-  proposal,
-  act,
-}: {
-  readonly proposal: Proposal;
-  readonly act: (action: string, body?: object) => void;
-}): ReactElement {
-  const { state, label } = proposalStates[proposal.state];
-
-  return (
-    <li className="flex flex-col gap-1">
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <Badge state={state}>{label}</Badge>
-        <span className="text-fg">{proposal.title}</span>
-        {proposal.url !== null && (
-          <a
-            href={proposal.url}
-            target="_blank"
-            rel="noreferrer"
-            className="min-w-0 truncate text-fg-dim hover:underline"
-          >
-            {proposal.url}
-          </a>
-        )}
-        {proposal.result !== null && proposal.url === null && (
-          <span className="min-w-0 truncate text-fg-dim">
-            {proposal.result}
-          </span>
-        )}
-      </div>
-      <Code label={`What ${proposal.title} writes`} wrap>
-        {JSON.stringify(proposal.input, null, 2)}
-      </Code>
-      {proposal.state === "waiting" && (
-        <div className="flex gap-2">
-          <Button
-            variant="primary"
-            onClick={() => {
-              act(`proposals/${proposal.id}/approve`);
-            }}
-          >
-            Approve
-          </Button>
-          <Button
-            onClick={() => {
-              act(`proposals/${proposal.id}/reject`);
-            }}
-          >
-            Reject
-          </Button>
-        </div>
-      )}
-    </li>
-  );
 }
 
 function RunSession({

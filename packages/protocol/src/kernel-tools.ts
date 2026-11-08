@@ -32,6 +32,8 @@ export const profileTools: ToolNamespace = {
   name: "profiles",
   description:
     "List, create and change Profiles: the Pi packages, instructions and settings a Session starts with (ADR 0031).",
+  instructions:
+    "Each Profile's description says what work it is for. When you start work and the user didn't name a Profile, use the default one unless a description clearly fits the work better, and say which Profile you picked and why.",
 };
 
 export const pluginTools: ToolNamespace = {
@@ -78,6 +80,18 @@ export function withoutKey(body: unknown): unknown {
 
 // MCP server entries usually hold tokens in their env and headers, so the
 // model sees only their names.
+// Enough to pick a Profile; profiles_get reads one in full.
+export function profileSummary(profile: Profile): Record<string, unknown> {
+  return {
+    id: profile.id,
+    name: profile.name,
+    description: profile.description,
+    isDefault: profile.isDefault,
+    shared: profile.ownerId === null,
+    buildsOn: profile.buildsOn,
+  };
+}
+
 export function profileView(profile: Profile): Record<string, unknown> {
   const { mcpServers, ...rest } = profile;
 

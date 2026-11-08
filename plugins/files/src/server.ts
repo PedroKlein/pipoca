@@ -389,6 +389,26 @@ export const server = defineServer(
         sessionId,
       );
 
+    routes.get(
+      "sessions/:id/snapshots",
+      { auth: "person" },
+      ({ caller, params }) => {
+        seen(params.id, caller.person.id);
+
+        return {
+          snapshots: store.all<{
+            checkout: string;
+            size: number;
+            savedAt: number;
+          }>(
+            `select checkout, size, saved_at as savedAt from files_snapshots
+             where session_id = ? order by checkout`,
+            params.id,
+          ),
+        };
+      },
+    );
+
     // The latest unfinished work of each of a pod's checkouts (ADR 0078).
     routes.get("session/snapshot", { auth: "session" }, ({ caller }) => ({
       checkouts: snapshotsOf(caller.session.id),
