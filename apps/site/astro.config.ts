@@ -1,7 +1,7 @@
 import { unified } from "@astrojs/markdown-remark";
 import starlight from "@astrojs/starlight";
 import { defineConfig } from "astro/config";
-import { docsLinks } from "./src/docs-links";
+import { docsLinks, docsSidebar } from "./src/docs-links";
 
 const repository = "https://github.com/PedroKlein/pipoca";
 
@@ -32,35 +32,7 @@ export default defineConfig({
         "@fontsource/newsreader/300.css",
         "./src/styles/theme.css",
       ],
-      sidebar: [
-        {
-          label: "Get started",
-          items: [{ autogenerate: { directory: "docs/get-started" } }],
-        },
-        {
-          label: "Ways to run",
-          items: [{ autogenerate: { directory: "docs/run" } }],
-        },
-        {
-          label: "Use Pipoca",
-          items: [{ autogenerate: { directory: "docs/use" } }],
-        },
-        {
-          label: "Administer",
-          items: [{ autogenerate: { directory: "docs/admin" } }],
-        },
-        {
-          label: "Build plugins",
-          items: [{ autogenerate: { directory: "docs/build-plugins" } }],
-        },
-        {
-          label: "Reference",
-          items: [
-            { autogenerate: { directory: "docs/reference" } },
-            { label: "Architecture", slug: "docs/architecture" },
-          ],
-        },
-      ],
+      sidebar: docsSidebar,
     }),
   ],
 });
