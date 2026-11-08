@@ -996,7 +996,7 @@ function ProjectPage({
       {beside === "thread" && panel.kind === "thread" && (
         <aside
           aria-label={thread?.title ?? "Thread"}
-          className={cn(column, "w-[min(36rem,50%)] bg-bg")}
+          className={cn(column, "w-[min(52rem,58%)] bg-bg")}
         >
           <SessionView
             sessionId={panel.id}
