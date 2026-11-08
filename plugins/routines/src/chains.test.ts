@@ -378,3 +378,36 @@ test("a personal routine follows only its owner's routines, and a team routine o
   expect((await runs(t, "ours", "team/")).length).toBe(1);
   expect((await runs(t, "mine")).length).toBe(1);
 });
+
+test("a routine that follows another on a boolean in its output runs once the quiet window after that run ends", async () => {
+  await using t = await started();
+
+  await t.as("ana").put("routines/triage", {
+    title: "Triage",
+    when: [
+      { kind: "schedule", cron: "0 8 * * 1-5", timeZone: "Europe/Berlin" },
+    ],
+    output: { labelled: "number", bug: "boolean", issues: ["string"] },
+    do: work,
+  });
+
+  await t.as("ana").put("routines/fix", {
+    title: "Fix",
+    when: [following("triage", [{ field: "output.bug", is: true }])],
+    do: work,
+  });
+
+  const run = await t.as("ana").post<Run>("routines/triage/run", {});
+
+  await ends(t, run, {
+    result: "done",
+    summary: "Labelled 9 issues, 2 are bugs",
+    output: { labelled: 9, bug: true, issues: ["412", "409"] },
+  });
+
+  await t.clock.advance("29s");
+  expect(await runs(t, "fix")).toEqual([]);
+
+  await t.clock.advance("1s");
+  expect(await runs(t, "fix")).toMatchObject([{ cause: "event", depth: 1 }]);
+});

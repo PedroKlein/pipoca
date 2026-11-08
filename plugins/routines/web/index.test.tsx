@@ -97,10 +97,19 @@ test("draws a routine's message to a Session with the routine's title", () => {
   );
 });
 
-test("a routine's page says why it paused itself, when it resumes, what it spent today and which routines it follows and feeds", async () => {
-  const asked: string[] = [];
-  // The routines page, as the slot the test renders.
+test("a routine's page says why it paused itself, when it resumes, what it spent today, its chain, its output and what each run fed", async () => {
   const slots = { page: web.pages?.[0]?.Page };
+
+  const run = (id: string, outcome: string, output: object) => ({
+    id,
+    firedAt: "2026-11-08T08:00:00.000Z",
+    cause: "schedule",
+    sessionId: null,
+    outcome,
+    reason: `Run ${id}`,
+    endedAt: "2026-11-08T08:05:00.000Z",
+    output,
+  });
 
   const detail = {
     name: "fix",
@@ -113,18 +122,66 @@ test("a routine's page says why it paused itself, when it resumes, what it spent
     file: "{}",
     routine: {
       title: "Fix issues",
-      when: [{ kind: "webhook" }],
+      when: [
+        { kind: "schedule", cron: "0 8 * * 1-5", timeZone: "Europe/Berlin" },
+        {
+          kind: "event",
+          event: "routines.run_ended",
+          where: [{ field: "routine", is: "triage" }],
+        },
+      ],
+      output: { bug: "boolean", issues: ["number"] },
       do: { kind: "message", prompt: "Fix it.", session: "s1" },
       limits: { dailySpend: 20 },
     },
-    runs: [],
+    runs: [
+      run("r1", "ok", { bug: true, issues: [1] }),
+      run("r2", "ok", { bug: false, issues: [] }),
+      run("r3", "failed", { bug: true, issues: [] }),
+    ],
     spentToday: 20,
     createdBy: null,
     changedBy: null,
     history: [],
     fedBy: ["triage"],
-    feeds: ["docs", "release"],
+    feeds: ["docs"],
   };
+
+  const docs = {
+    ...detail,
+    name: "docs",
+    title: "Write docs",
+    routine: {
+      ...detail.routine,
+      title: "Write docs",
+      when: [
+        {
+          kind: "event",
+          event: "routines.run_ended",
+          where: [
+            { field: "routine", is: "fix" },
+            { field: "outcome", is: "ok" },
+            { field: "output.bug", is: true },
+          ],
+        },
+      ],
+    },
+    fedBy: ["fix"],
+    feeds: [],
+  };
+
+  const answers: Readonly<Record<string, unknown>> = {
+    "/api/ext/routines/routines": [
+      { name: "triage", title: "Triage new issues" },
+      { name: "fix", title: "Fix issues" },
+      { name: "docs", title: "Write docs" },
+    ],
+    "/api/ext/routines/routines/docs": docs,
+    "/api/ext/routines/routines/fix": detail,
+    "/api/ext/routines/events": [],
+  };
+
+  const asked: string[] = [];
 
   const page = renderPart(
     { ...web, slots },
@@ -134,12 +191,15 @@ test("a routine's page says why it paused itself, when it resumes, what it spent
       fetch: async (url) => {
         asked.push(url);
 
-        return Promise.resolve(Response.json(detail));
+        return Promise.resolve(Response.json(answers[url] ?? []));
       },
     },
   );
 
-  await act(async () => until(() => asked.length > 0));
+  // Each answer draws before the page asks for the next.
+  while (page.querySelector("[aria-label='Feeds'] a") === null) {
+    await act(async () => new Promise((done) => setTimeout(done, 10)));
+  }
 
   expect(page.textContent).toContain(
     `Paused until tomorrow: it spent 20.00 today, and its daily cap is 20. Resumes ${new Date(detail.pausedUntil).toLocaleString()}.`,
@@ -149,8 +209,188 @@ test("a routine's page says why it paused itself, when it resumes, what it spent
     "Spent today: 20.00 of its daily cap of 20",
   );
 
-  expect(page.textContent).toContain("Follows triage");
-  expect(page.textContent).toContain("Followed by docs, release");
+  expect(page.querySelector("[aria-label='Fed by']")?.textContent).toBe(
+    "Fed byScheduleEvery weekday at 08:00 BerlinTriage new issuesWhen it ends",
+  );
+
+  expect(page.querySelector("[aria-label='This routine']")?.textContent).toBe(
+    "This routineFix issuesOutput: bug, issues",
+  );
+
+  expect(page.querySelector("[aria-label='Feeds']")?.textContent).toBe(
+    "FeedsWrite docsWhen it ends done and output.bug is true",
+  );
+
+  expect(page.querySelector("dl")?.textContent).toBe(
+    "bugyes or noissueslist of numbers",
+  );
+
+  const then = [...page.querySelectorAll("table[aria-label='Runs'] tr")]
+    .slice(1)
+    .map((row) => row.querySelectorAll("td")[3]?.textContent);
+
+  expect(then).toEqual([
+    "Fed Write docs",
+    "bug is no, Write docs not fed",
+    "outcome is failed, Write docs not fed",
+  ]);
+
+  await act(async () => {
+    [...page.querySelectorAll("button")]
+      .find((button) => button.textContent === "Failed")
+      ?.click();
+
+    await Promise.resolve();
+  });
+
+  expect(
+    page.querySelectorAll("table[aria-label='Runs'] tbody tr").length,
+  ).toBe(1);
+});
+
+test("the list shows each routine's place, chain, schedule, last run and action, and starters that open the form filled in", async () => {
+  const slots = { page: web.pages?.[0]?.Page };
+
+  const view = {
+    name: "triage",
+    title: "Triage new issues",
+    paused: null,
+    pausedUntil: null,
+    nextAt: "2026-11-09T07:00:00.000Z",
+    lastRun: {
+      id: "r1",
+      firedAt: "2026-11-08T07:00:00.000Z",
+      cause: "schedule",
+      sessionId: null,
+      outcome: "ok",
+      reason: "Labelled 9",
+      endedAt: "2026-11-08T07:05:00.000Z",
+    },
+  };
+
+  const answers: Readonly<Record<string, unknown>> = {
+    "/api/ext/routines/routines": [
+      view,
+      {
+        ...view,
+        name: "smoke",
+        title: "Deploy smoke test",
+        paused: "Paused by you",
+        nextAt: null,
+      },
+    ],
+    "/api/ext/routines/routines/triage": {
+      ...view,
+      file: "{}",
+      routine: {
+        title: "Triage new issues",
+        when: [
+          { kind: "schedule", cron: "0 8 * * 1-5", timeZone: "Europe/Berlin" },
+        ],
+        do: {
+          kind: "session",
+          prompt: "Triage.",
+          workspace: {
+            kind: "clone",
+            repository: "https://github.com/acme/shop",
+          },
+          as: "pipoca-bot",
+        },
+      },
+      runs: [],
+      fedBy: [],
+      feeds: ["fix"],
+      history: [],
+    },
+    "/api/ext/routines/routines/smoke": {
+      ...view,
+      name: "smoke",
+      title: "Deploy smoke test",
+      paused: "Paused by you",
+      file: "{}",
+      routine: {
+        title: "Deploy smoke test",
+        when: [{ kind: "webhook" }],
+        do: { kind: "message", prompt: "Smoke.", session: "s1" },
+      },
+      runs: [],
+      fedBy: [],
+      feeds: [],
+      history: [],
+    },
+  };
+
+  const asked: string[] = [];
+
+  const page = renderPart(
+    { ...web, slots },
+    "page",
+    { path: "" },
+    {
+      fetch: async (url, init) => {
+        asked.push(`${init?.method ?? "GET"} ${url}`);
+
+        return Promise.resolve(Response.json(answers[url] ?? []));
+      },
+    },
+  );
+
+  const rows = () => [
+    ...page.querySelectorAll("table[aria-label='Yours'] tbody tr"),
+  ];
+
+  while (!(rows()[0]?.textContent ?? "").includes("acme/shop")) {
+    await act(async () => new Promise((done) => setTimeout(done, 10)));
+  }
+
+  expect(
+    [...(rows()[0]?.querySelectorAll("td") ?? [])].map(
+      (cell) => cell.textContent,
+    ),
+  ).toEqual([
+    "Triage new issuesacme/shop · feeds 1 routine · acts as pipoca-bot",
+    "Every weekday at 08:00 Berlin",
+    new Date(view.nextAt).toLocaleString(undefined, {
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+    "DoneLabelled 9",
+    "Run now",
+  ]);
+
+  expect(rows()[1]?.textContent).toBe(
+    "Deploy smoke testa SessionA signed POST to its webhookon webhookPausedPaused by youResume",
+  );
+
+  await act(async () => {
+    page
+      .querySelector<HTMLButtonElement>(
+        "button[aria-label='Resume Deploy smoke test']",
+      )
+      ?.click();
+
+    await until(() => asked.some((each) => each.startsWith("POST")));
+  });
+
+  expect(asked.filter((each) => each.startsWith("POST"))).toEqual([
+    "POST /api/ext/routines/routines/smoke/resume",
+  ]);
+
+  expect(
+    [...page.querySelectorAll("a")]
+      .filter(({ href }) => href.includes("/new"))
+      .map((link) => [link.firstChild?.textContent, link.getAttribute("href")]),
+  ).toEqual([
+    ["", "#plugin/routines/new"],
+    ["Daily summary", "#plugin/routines/new/daily-issues"],
+    ["Issue to pull request", "#plugin/routines/new/issue-to-pull-request"],
+    ["CI doctor", "#plugin/routines/new/ci-doctor"],
+    ["Code health", "#plugin/routines/new/code-health"],
+    ["Triage", "#plugin/routines/new/triage"],
+    ["After another routine", "#plugin/routines/new/after-another"],
+    ["Blank", "#plugin/routines/new"],
+  ]);
 });
 
 test("a run's row shows what it proposed and where each stands, and a waiting one is approved there", async () => {
@@ -250,12 +490,12 @@ test("a run's row shows what it proposed and where each stands, and a waiting on
       .find((button) => button.textContent === "Approve")
       ?.click();
 
-    await until(() => asked.length > 1);
+    await until(() => asked.some((each) => each.startsWith("POST")));
   });
 
-  expect(asked[1]).toBe(
+  expect(asked.filter((each) => each.startsWith("POST"))).toEqual([
     "POST /api/ext/routines/routines/triage/proposals/p1/approve",
-  );
+  ]);
 });
 
 test("a waiting run shows its question and who it is for, and the page who made and changed the routine", async () => {

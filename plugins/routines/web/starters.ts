@@ -10,6 +10,7 @@ const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 export interface Starter {
   readonly name: string;
   readonly label: string;
+  readonly description: string;
   readonly routine: Readonly<Record<string, unknown>>;
 }
 
@@ -17,6 +18,7 @@ export const starters: readonly Starter[] = [
   {
     name: "daily-issues",
     label: "Daily summary",
+    description: "A schedule and a prompt, nothing else.",
     routine: {
       title: "Summarise new issues",
       when: [{ kind: "schedule", cron: "0 8 * * 1-5", timeZone }],
@@ -30,6 +32,7 @@ export const starters: readonly Starter[] = [
   {
     name: "issue-to-pull-request",
     label: "Issue to pull request",
+    description: "Issues with a label get a Session that opens a PR.",
     routine: {
       title: "Turn labelled issues into pull requests",
       when: [
@@ -57,6 +60,7 @@ export const starters: readonly Starter[] = [
   {
     name: "ci-doctor",
     label: "CI doctor",
+    description: "A red main gets a fix or an issue.",
     routine: {
       title: "Fix main when its checks fail",
       when: [
@@ -83,6 +87,7 @@ export const starters: readonly Starter[] = [
   {
     name: "code-health",
     label: "Code health",
+    description: "One small cleanup a week, as one pull request.",
     routine: {
       title: "One small cleanup a week",
       when: [{ kind: "schedule", cron: "0 9 * * 1", timeZone }],
@@ -98,6 +103,7 @@ export const starters: readonly Starter[] = [
   {
     name: "triage",
     label: "Triage",
+    description: "New issues get labels and a duplicate check.",
     routine: {
       title: "Label new issues",
       when: [
@@ -120,6 +126,30 @@ export const starters: readonly Starter[] = [
         as: "your-github-app",
       },
       sameWork: { key: ["repository", "number"] },
+    },
+  },
+  {
+    name: "after-another",
+    label: "After another routine",
+    description: "Runs when one of your routines ends, with its output.",
+    routine: {
+      title: "Follow up on another routine",
+      when: [
+        {
+          kind: "event",
+          event: "routines.run_ended",
+          where: [
+            { field: "routine", is: "the-routine-it-follows" },
+            { field: "outcome", is: "ok" },
+          ],
+        },
+      ],
+      do: {
+        kind: "session",
+        prompt:
+          "The run of the routine this one follows ended with the summary and output in the event below. Act on them, then call end_run.",
+        workspace,
+      },
     },
   },
 ];
