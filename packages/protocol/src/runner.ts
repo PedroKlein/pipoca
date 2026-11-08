@@ -1,6 +1,12 @@
 import { Type } from "typebox";
 import { postedEvent } from "./events";
-import { isolation, modelRef, thinkingLevel, workspace } from "./session";
+import {
+  isolation,
+  modelRef,
+  startAgent,
+  thinkingLevel,
+  workspace,
+} from "./session";
 import type { Workspace } from "./session";
 import { integer, nullable, strings, textMap, type Wire } from "./wire";
 
@@ -98,6 +104,8 @@ const assignment = Type.Object({
   thinking: nullable(thinkingLevel),
   systemPrompt: nullable(Type.String()),
   firstMessage: nullable(Type.String()),
+  // Older servers leave it out.
+  agent: Type.Optional(nullable(startAgent)),
   plugins: strings,
   // Each defined plugin's config when the Session started, without its
   // secrets.

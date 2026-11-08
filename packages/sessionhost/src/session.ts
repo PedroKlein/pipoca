@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, sep } from "node:path";
+import { dirname, isAbsolute, join, matchesGlob, sep } from "node:path";
 import type { Api, CredentialStore, Model } from "@earendil-works/pi-ai";
 import {
   type AgentSession,
@@ -29,11 +29,12 @@ import {
   SettingsManager,
   type ToolExposure,
 } from "@earendil-works/pi-coding-agent";
-import type { Checkout, SessionLogins } from "@pipoca/plugins";
+import type { AgentOptions, Checkout, SessionLogins } from "@pipoca/plugins";
 import type { ChildOptions } from "@pipoca/plugins/host";
 import type {
   ModelRef,
   RegisteredProvider,
+  StartAgent,
   ThinkingLevel,
 } from "@pipoca/protocol";
 import chalk from "chalk";
@@ -62,6 +63,7 @@ export interface SessionOptions extends ModelOptions {
   readonly model?: ModelRef;
   readonly thinking?: ThinkingLevel;
   readonly systemPrompt?: string | null;
+  readonly agent?: StartAgent;
   // Where the server's docs are (ADR 0052).
   readonly docsDir?: string;
   // The user's answer for the repository's own .pi, or null before anyone
@@ -78,6 +80,8 @@ export interface SessionHost {
   readonly logins?: SessionLogins;
   // Opens a page, such as an MCP sign-in, where the person is.
   readonly openUrl?: (url: string) => void;
+  // Finds the agent the Session starts as (ADR 0075).
+  readonly agent?: (name: string) => Promise<AgentOptions>;
 }
 
 // As long as Pi's TUI gives a model list to load.
@@ -158,10 +162,14 @@ export async function startSession(
   // a terminal. What extensions draw goes to the web and the Pi view.
   chalk.level = 3;
 
+  const agent = await agentOf(options, host);
+
   // Added to what the Profile's APPEND_SYSTEM.md says, which Pi's
   // appendSystemPrompt would replace.
   const appended = [
-    ...[options.systemPrompt ?? ""].filter((prompt) => prompt !== ""),
+    ...[options.systemPrompt ?? "", agent?.systemPrompt ?? ""].filter(
+      (prompt) => prompt !== "",
+    ),
     ...(options.docsDir === undefined ? [] : [docsNote(options.docsDir)]),
   ];
 
@@ -170,6 +178,7 @@ export async function startSession(
     appendSystemPromptOverride: (base: string[]) => [...base, ...appended],
     extensionFactories: [
       ...builtInExtensions(host),
+      ...(agent && options.agent ? [agentTools(agent, options.agent)] : []),
       ...(host ? [toolFinders(host.tools)] : []),
       ...(host?.extensions ?? []),
     ],
@@ -177,7 +186,7 @@ export async function startSession(
   });
 
   try {
-    const session = await sessionFrom(services, cwd, options, host);
+    const session = await sessionFrom(services, cwd, options, host, agent);
 
     childMcp.set(session, mcpOptions(host));
 
@@ -194,6 +203,7 @@ async function sessionFrom(
   cwd: string,
   options: SessionOptions,
   host: SessionHost | undefined,
+  agent: AgentOptions | undefined,
 ): Promise<AgentSession> {
   const sessionManager = SessionManager.continueRecent(cwd, options.sessionDir);
   recordInterruptedToolCalls(sessionManager);
@@ -202,16 +212,18 @@ async function sessionFrom(
   // the chosen ones only set the first.
   const fresh = sessionManager.buildSessionContext().messages.length === 0;
 
-  const model = fresh
-    ? await firstModel(services.modelRuntime, options)
+  const chosen = fresh
+    ? await firstModel(services.modelRuntime, options, agent)
     : undefined;
+
+  const thinking = agent?.thinking ?? chosen?.thinking ?? options.thinking;
 
   const { session } = await createAgentSessionFromServices({
     services,
     sessionManager,
     ...(host && { customTools: [...host.tools] }),
-    ...(model && { model }),
-    ...(fresh && options.thinking && { thinkingLevel: options.thinking }),
+    ...(chosen?.model && { model: chosen.model }),
+    ...(fresh && thinking && { thinkingLevel: thinking }),
   });
 
   await session.bindExtensions(
@@ -503,15 +515,82 @@ function withoutHomeContext(base: {
   };
 }
 
+// The agent's model comes first, then the Session's, then the Profile's
+// default (ADR 0075).
 async function firstModel(
   runtime: ModelRuntime,
   options: SessionOptions,
-): Promise<Model<Api> | undefined> {
-  if (options.model === undefined) {
-    return options.models?.model;
+  agent: AgentOptions | undefined,
+): Promise<
+  { readonly model?: Model<Api>; readonly thinking?: ThinkingLevel } | undefined
+> {
+  if (agent?.model !== undefined) {
+    const chosen = resolveCliModel({
+      cliModel: agent.model,
+      modelRuntime: runtime,
+    });
+
+    if (chosen.error !== undefined) {
+      throw new Error(chosen.error);
+    }
+
+    return {
+      ...(chosen.model && { model: chosen.model }),
+      ...(chosen.thinkingLevel && { thinking: chosen.thinkingLevel }),
+    };
   }
 
-  return availableModel(runtime, options.model);
+  const model =
+    options.model === undefined
+      ? options.models?.model
+      : await availableModel(runtime, options.model);
+
+  return model && { model };
+}
+
+async function agentOf(
+  options: SessionOptions,
+  host: SessionHost | undefined,
+): Promise<AgentOptions | undefined> {
+  if (options.agent === undefined) {
+    return undefined;
+  }
+
+  if (host?.agent === undefined) {
+    throw new Error(
+      `the Session starts as the agent ${options.agent.name}, but no plugin of it finds agents`,
+    );
+  }
+
+  return host.agent(options.agent.name);
+}
+
+// The agent's tools limit Pi's, and the ones the Session's plugin keeps stay.
+// A resumed transcript or /tree restores the tools active back then.
+function agentTools(
+  agent: AgentOptions,
+  { keep }: StartAgent,
+): InlineExtension {
+  const wanted = (name: string): boolean =>
+    keep.includes(name) ||
+    agent.tools.some((tool) => tool === name || matchesGlob(name, tool));
+
+  return {
+    name: "agent-tools",
+    factory: (pi) => {
+      const limit = (): void => {
+        pi.setActiveTools(
+          pi
+            .getAllTools()
+            .map(({ name }) => name)
+            .filter(wanted),
+        );
+      };
+
+      pi.on("session_start", limit);
+      pi.on("session_tree", limit);
+    },
+  };
 }
 
 export async function availableModel(

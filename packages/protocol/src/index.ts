@@ -148,6 +148,7 @@ export {
   type SessionAccess,
   type SessionPlugin,
   type SessionStatus,
+  type StartAgent,
   type ThinkingLevel,
   thinkingLevels,
   trustedRepository,

@@ -8,6 +8,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type {
+  AgentOptions,
   SessionContext,
   SessionLogins,
   SessionTool,
@@ -44,11 +45,13 @@ export async function setUpPart(
   readonly tools: readonly ToolDefinition[];
   readonly extensions: readonly InlineExtension[];
   readonly modelCredentials?: () => Promise<SessionLogins>;
+  readonly agent?: (name: string) => Promise<AgentOptions>;
 }> {
   const { id } = part.plugin;
   const tools: SessionTool[] = [];
   const factories: ExtensionFactory[] = [];
   let modelCredentials: (() => Promise<SessionLogins>) | undefined;
+  let agent: ((name: string) => Promise<AgentOptions>) | undefined;
   const marker = `/ext/${id}/`;
 
   const api = pluginClient(part.plugin, {
@@ -102,6 +105,9 @@ export async function setUpPart(
 
         modelCredentials = logins;
       },
+      agent: (find) => {
+        agent = find;
+      },
     },
     config: host.config as SessionContext["config"],
     api,
@@ -117,6 +123,7 @@ export async function setUpPart(
 
   return {
     ...(modelCredentials && { modelCredentials }),
+    ...(agent && { agent }),
     tools: piTools(false),
     extensions: [
       ...(factories.length === 0

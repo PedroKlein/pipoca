@@ -50,6 +50,13 @@ const tracker = definePlugin({
   },
 });
 
+// Routines need subagents on, which find the agents runs start as.
+const subagents = definePlugin({
+  id: "subagents",
+  title: "Subagents",
+  description: "Finds agents.",
+});
+
 let tracking: ServerContext<typeof tracker> | undefined;
 
 const trackerServer = defineServer(tracker, (context) => {
@@ -81,7 +88,11 @@ function issue(
 async function started(
   o: TestPluginOptions<typeof routines> = {},
 ): Promise<PluginTest> {
-  return testPlugin(server, { people, plugins: [trackerServer], ...o });
+  return testPlugin(server, {
+    people,
+    plugins: [trackerServer, subagents],
+    ...o,
+  });
 }
 
 const inAnHour = (t: PluginTest): string =>
@@ -1315,4 +1326,115 @@ test("a scheduled trigger fills the inputs it names", async () => {
   const [run] = await runs(t, "nightly");
 
   expect(sessionOf(run).firstMessage).toBe("Check the build.");
+});
+
+test("a run starts as the agent its routine names, keeping the tools a run needs", async () => {
+  await using t = await started();
+  await environment(t);
+
+  await save(t, "fix", {
+    title: "Fix",
+    when: [{ kind: "webhook" }],
+    do: {
+      kind: "session",
+      agent: "implementer",
+      prompt: "Fix it.",
+      workspace: folder(),
+    },
+  });
+
+  const run = await t.as("ana").post<Run>("routines/fix/run", {});
+
+  expect(tracking?.sessions.get(run.sessionId ?? "")).toMatchObject({
+    agent: { name: "implementer", keep: ["end_run", "ask_user"] },
+    firstMessage: "Fix it.",
+  });
+});
+
+test("a trigger's agent or workflow takes the place of the routine's, and a workflow starts at once with the inputs as its args", async () => {
+  await using t = await started();
+  await environment(t);
+
+  const labelled = (label: string, start: object) => ({
+    kind: "event",
+    event: "tracker.issue",
+    where: [{ field: "label", is: label }],
+    inputs: { focus: "{{event.title}}" },
+    ...start,
+  });
+
+  await save(t, "triage", {
+    title: "Triage",
+    when: [
+      labelled("docs", { agent: "write-docs" }),
+      labelled("bug", { workflow: "fix-bug" }),
+      labelled("other", {}),
+    ],
+    inputs: { focus: { type: "string", default: "" } },
+    sameWork: { key: ["number"] },
+    do: {
+      kind: "session",
+      agent: "triager",
+      prompt: "Look at it.",
+      workspace: folder(),
+    },
+  });
+
+  issue(1, [person("ana")], "docs");
+  issue(2, [person("ana")], "bug", { title: "Crash  on save" });
+  issue(3, [person("ana")], "other");
+  await t.clock.advance("30s");
+
+  const begun = (await runs(t, "triage")).map(({ sessionId }) =>
+    tracking?.sessions.get(sessionId ?? ""),
+  );
+
+  const startedFor = (number: number) =>
+    begun.find((session) =>
+      (session?.firstMessage ?? "").includes(`"number": ${String(number)}`),
+    );
+
+  expect(startedFor(1)?.agent?.name).toBe("write-docs");
+  expect(startedFor(3)?.agent?.name).toBe("triager");
+
+  const workflow = begun.find((session) => session?.agent === null);
+
+  expect(workflow?.firstMessage).toBe(
+    '/workflow fix-bug {"focus":"Crash  on save"}',
+  );
+
+  expect(workflow?.systemPrompt).toContain("started the workflow fix-bug");
+});
+
+test("a run starts an agent or a workflow, and only a workflow's needs no prompt", async () => {
+  await using t = await started();
+
+  const put = async (routine: object) =>
+    (
+      await t.as("ana").raw("routines/x", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(routine),
+      })
+    ).status;
+
+  const routine = (work: object, trigger: object = {}) => ({
+    title: "X",
+    when: [{ kind: "webhook", ...trigger }],
+    do: { kind: "session", workspace: folder(), ...work },
+  });
+
+  expect(await put(routine({ workflow: "release" }))).toBe(200);
+
+  expect(await put(routine({ agent: "a", workflow: "b", prompt: "Go." }))).toBe(
+    400,
+  );
+
+  expect(
+    await put(routine({ prompt: "Go." }, { agent: "a", workflow: "b" })),
+  ).toBe(400);
+
+  expect(await put(routine({ workflow: "release" }, { agent: "a" }))).toBe(400);
+  expect(await put(routine({ agent: "a" }))).toBe(400);
+  expect(await put(routine({ agent: "has space", prompt: "Go." }))).toBe(422);
 });

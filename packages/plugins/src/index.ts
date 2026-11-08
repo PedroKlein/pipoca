@@ -65,6 +65,7 @@ export {
 } from "./server";
 export type { Schedule, Scheduled } from "./schedule";
 export {
+  type AgentOptions,
   type AskQuestions,
   type Checkout,
   type ConfigValue,
