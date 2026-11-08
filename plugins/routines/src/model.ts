@@ -1,3 +1,5 @@
+import type { Routine } from "./routine";
+
 export interface WakeUp {
   readonly id: string;
   readonly sessionId: string;
@@ -44,6 +46,8 @@ export interface RoutineView {
 export interface RoutineDetail extends RoutineView {
   // The routine's JSON file as it is on disk.
   readonly file: string;
+  // The routine the file holds, in the shape saving writes.
+  readonly routine?: Routine;
   readonly runs: readonly Run[];
   // Where a webhook trigger takes deliveries, signed with the secret as
   // sha256=<HMAC-SHA256 of the body in hex>.

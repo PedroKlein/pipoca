@@ -3293,8 +3293,11 @@ test("writes a routine from a starter, runs it by hand and opens its run", async
   await page.getByLabel("Routine JSON").fill(
     JSON.stringify({
       title: "Summarise new issues",
-      triggers: [{ cron: "0 8 * * 1-5", timeZone: "Europe/Berlin" }],
-      run: {
+      when: [
+        { kind: "schedule", cron: "0 8 * * 1-5", timeZone: "Europe/Berlin" },
+      ],
+      do: {
+        kind: "session",
         prompt: "Summarise the new issues.",
         workspace: { kind: "folder", path: root },
       },
@@ -3314,6 +3317,52 @@ test("writes a routine from a starter, runs it by hand and opens its run", async
 
   await page
     .locator('#chat li[data-role="assistant"]', { hasText: "three new issues" })
+    .waitFor();
+}, 30_000);
+
+test("runs a routine by hand with the inputs its form asks for", async () => {
+  faux.setResponses([
+    fauxAssistantMessage(
+      [fauxToolCall("end_run", { result: "done", summary: "looked" })],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("looked")]),
+  ]);
+
+  await page.goto(`${server.url.href}#plugin/routines/new`);
+  await page.getByLabel("Name").fill("look-at");
+
+  await page.getByLabel("Routine JSON").fill(
+    JSON.stringify({
+      title: "Look at something",
+      when: [{ kind: "webhook" }],
+      inputs: {
+        focus: { type: "string", required: true },
+        mode: { type: "oneOf", values: ["fast", "slow"], default: "fast" },
+      },
+      do: {
+        kind: "session",
+        prompt: "Look at {{inputs.focus}}, {{inputs.mode}}.",
+        workspace: { kind: "folder", path: root },
+      },
+    }),
+  );
+
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByRole("heading", { name: "Look at something" }).waitFor();
+  await page.getByRole("button", { name: "Run now" }).click();
+
+  const form = page.getByRole("form", { name: "Run with inputs" });
+  await form.getByLabel("focus").fill("the docs");
+  await form.getByLabel("mode").selectOption("slow");
+  await form.getByRole("button", { name: "Run" }).click();
+
+  await page.getByRole("link", { name: /by hand/ }).click();
+
+  await page
+    .locator('#chat li[data-role="user"]', {
+      hasText: "Look at the docs, slow.",
+    })
     .waitFor();
 }, 30_000);
 
@@ -5129,8 +5178,11 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
   await page.getByLabel("Routine JSON").fill(
     JSON.stringify({
       title: "Write the weekly notes",
-      triggers: [{ cron: "0 16 * * 5", timeZone: "Europe/Berlin" }],
-      run: {
+      when: [
+        { kind: "schedule", cron: "0 16 * * 5", timeZone: "Europe/Berlin" },
+      ],
+      do: {
+        kind: "session",
         prompt: "Write the weekly notes.",
         workspace: { kind: "folder", path: folder },
         environment: environment.id,

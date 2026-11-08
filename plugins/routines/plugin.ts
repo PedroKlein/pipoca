@@ -64,4 +64,8 @@ create table routines_wakeups (
 ) strict;
 create index routines_wakeups_session on routines_wakeups (session_id, delivered_at);
 `,
+  // 1: a run keeps the inputs it was given (ADR 0075).
+  migrations: [
+    "alter table routines_runs add column inputs text check (inputs is null or json_valid(inputs));",
+  ],
 });

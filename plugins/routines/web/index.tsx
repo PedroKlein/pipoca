@@ -11,13 +11,16 @@ import {
   type BadgeState,
   Button,
   buttonClass,
+  Checkbox,
   cn,
   ErrorText,
+  Field,
   Icon,
   linkCardClass,
   Page,
   plural,
   Section,
+  Select,
   TextArea,
   TextInput,
   useConfirm,
@@ -33,6 +36,7 @@ import type {
   RunOutcome,
   WakeUp,
 } from "../src/model";
+import type { Routine } from "../src/routine";
 import { starters } from "./starters";
 
 const changes = ["routines"];
@@ -251,12 +255,21 @@ function RoutinePage({
     { changes },
   );
 
-  const act = (action: string): void => {
+  const [runForm, setRunForm] = useState(false);
+  const inputs = Object.entries(routine?.routine?.inputs ?? {});
+
+  const act = (action: string, body?: object): void => {
     setFailure(undefined);
 
-    api.post(`${path}/${action}`).then(reload, (error: unknown) => {
-      setFailure(failureOf(error));
-    });
+    api.post(`${path}/${action}`, body).then(
+      () => {
+        setRunForm(false);
+        reload();
+      },
+      (error: unknown) => {
+        setFailure(failureOf(error));
+      },
+    );
   };
 
   return (
@@ -284,7 +297,11 @@ function RoutinePage({
               variant="primary"
               disabled={routine.error !== undefined}
               onClick={() => {
-                act("run");
+                if (inputs.length === 0) {
+                  act("run", {});
+                } else {
+                  setRunForm(!runForm);
+                }
               }}
             >
               Run now
@@ -325,6 +342,14 @@ function RoutinePage({
           </div>
         </div>
       )}
+      {runForm && (
+        <RunForm
+          inputs={inputs}
+          onRun={(given) => {
+            act("run", { inputs: given });
+          }}
+        />
+      )}
       <ErrorText size="inherit" className="mt-3 text-ui">
         {failure}
       </ErrorText>
@@ -334,7 +359,11 @@ function RoutinePage({
           api={api}
           scope={scope}
           name={creating ? undefined : name}
-          text={routine?.file ?? startText(0)}
+          text={
+            routine?.routine === undefined
+              ? (routine?.file ?? startText(0))
+              : `${JSON.stringify(routine.routine, null, 2)}\n`
+          }
           onSaved={(saved) => {
             setEditing(false);
 
@@ -522,7 +551,9 @@ function DeclaredEvents({
     <details className="text-label text-fg-dim">
       <summary className="cursor-pointer">
         Events a trigger can name, as{" "}
-        {'{ "event": type, "filter": { field: value } }'}
+        {
+          '{ "kind": "event", "event": type, "where": [{ "field": name, "is": value }] }'
+        }
       </summary>
       <ul className="mt-2 flex flex-col gap-2">
         {events.map((event) => (
@@ -536,6 +567,102 @@ function DeclaredEvents({
         ))}
       </ul>
     </details>
+  );
+}
+
+type Input = NonNullable<Routine["inputs"]>[string];
+
+// The routine's inputs as a form, each starting at its default, for one run.
+function RunForm({
+  inputs,
+  onRun,
+}: {
+  readonly inputs: readonly (readonly [string, Input])[];
+  readonly onRun: (inputs: Readonly<Record<string, unknown>>) => void;
+}): ReactElement {
+  const [values, setValues] = useState<Record<string, string | boolean>>(() =>
+    Object.fromEntries(
+      inputs.map(([name, input]) => [
+        name,
+        input.type === "boolean"
+          ? (input.default ?? false)
+          : String(input.default ?? ""),
+      ]),
+    ),
+  );
+
+  const set = (name: string, value: string | boolean): void => {
+    setValues({ ...values, [name]: value });
+  };
+
+  return (
+    <form
+      aria-label="Run with inputs"
+      onSubmit={(event) => {
+        event.preventDefault();
+
+        onRun(
+          Object.fromEntries(
+            Object.entries(values).filter(([, value]) => value !== ""),
+          ),
+        );
+      }}
+      className="mt-4 flex max-w-md flex-col gap-3"
+    >
+      {inputs.map(([name, input]) => {
+        const value = values[name];
+        const label = `${name}${input.required === true ? " (required)" : ""}`;
+
+        if (input.type === "boolean") {
+          return (
+            <Checkbox
+              key={name}
+              label={label}
+              description={input.description}
+              checked={value === true}
+              onChange={(event) => {
+                set(name, event.target.checked);
+              }}
+            />
+          );
+        }
+
+        return (
+          <Field key={name} label={label} hint={input.description}>
+            {input.type === "oneOf" ? (
+              <Select
+                aria-label={name}
+                value={String(value ?? "")}
+                onChange={(event) => {
+                  set(name, event.target.value);
+                }}
+              >
+                {input.required !== true && <option value="" />}
+                {input.values.map((each) => (
+                  <option key={each} value={each}>
+                    {each}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <TextInput
+                aria-label={name}
+                inputMode={input.type === "number" ? "decimal" : undefined}
+                value={String(value ?? "")}
+                onChange={(event) => {
+                  set(name, event.target.value);
+                }}
+              />
+            )}
+          </Field>
+        );
+      })}
+      <div>
+        <Button type="submit" variant="primary">
+          Run
+        </Button>
+      </div>
+    </form>
   );
 }
 
