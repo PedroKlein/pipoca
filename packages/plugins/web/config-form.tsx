@@ -347,6 +347,42 @@ function FieldInput({
     );
   }
 
+  if (Type.IsObject(schema)) {
+    const saved = isRecord(stored) ? stored : {};
+    const typed = isRecord(value) ? value : {};
+
+    return (
+      <fieldset className="flex flex-col gap-4">
+        <legend className="mb-3 text-label font-semibold text-fg-strong">
+          {label}
+        </legend>
+        {Object.entries(schema.properties)
+          .filter(([, part]) => marks(part)["hidden"] !== true)
+          .map(([name, part]) => (
+            <FieldInput
+              key={name}
+              schema={part}
+              label={titleOf(part, name)}
+              stored={saved[name]}
+              value={typed[name]}
+              onChange={(next) => {
+                onChange({ ...saved, ...typed, [name]: next });
+              }}
+            />
+          ))}
+      </fieldset>
+    );
+  }
+
+  if (marks(schema)["bytes"] === true) {
+    return field(
+      <SizeInput
+        value={typeof shown === "number" ? shown : undefined}
+        onChange={onChange}
+      />,
+    );
+  }
+
   if (Type.IsNumber(schema) || Type.IsInteger(schema)) {
     return field(
       <TextInput
@@ -407,6 +443,59 @@ function FieldInput({
   }
 
   return null;
+}
+
+const units = [
+  ["MB", 1024 ** 2],
+  ["GB", 1024 ** 3],
+] as const;
+
+// A size in MB or GB, kept in bytes.
+function SizeInput({
+  value,
+  onChange,
+}: {
+  readonly value: number | undefined;
+  readonly onChange: (bytes: number) => void;
+}): ReactElement {
+  const [unit, setUnit] = useState<number>(
+    value !== undefined && value >= 1024 ** 3 && value % 1024 ** 3 === 0
+      ? 1024 ** 3
+      : 1024 ** 2,
+  );
+
+  return (
+    <div className="flex gap-2">
+      <TextInput
+        type="number"
+        inputMode="decimal"
+        min={0}
+        step="any"
+        className="min-w-0 flex-1"
+        value={
+          value === undefined
+            ? ""
+            : String(Math.round((value / unit) * 100) / 100)
+        }
+        onChange={(event) => {
+          onChange(Math.round(event.target.valueAsNumber * unit));
+        }}
+      />
+      <Select
+        aria-label="Unit"
+        value={String(unit)}
+        onChange={(event) => {
+          setUnit(Number(event.target.value));
+        }}
+      >
+        {units.map(([name, size]) => (
+          <option key={name} value={size}>
+            {name}
+          </option>
+        ))}
+      </Select>
+    </div>
+  );
 }
 
 function secretPlaceholder(stored: unknown): string {

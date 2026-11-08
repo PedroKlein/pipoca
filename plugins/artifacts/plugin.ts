@@ -9,8 +9,8 @@ export const artifacts = definePlugin({
   description:
     "Pages, documents and pictures Pi publishes from a Session, with every version kept at one link, shown in a sandbox.",
   config: Config.object({
-    maxFileBytes: Config.number({
-      title: "Largest artifact, in bytes",
+    maxFileBytes: Config.bytes({
+      title: "Largest artifact",
       description:
         "A larger file is refused with a message that names the limit.",
       default: 52_428_800,

@@ -9,15 +9,14 @@ export const projects = definePlugin({
   description:
     "Groups Sessions around a coordinator that works across repositories, with shared memory and files, and runs the Pipoca assistant.",
   config: Config.object({
-    maxFileBytes: Config.number({
+    maxFileBytes: Config.bytes({
       title: "Largest Project folder file",
       description:
-        "The largest file, in bytes, a person or a Session can add to a Project's folder.",
+        "The largest file a person or a Session can add to a Project's folder.",
       default: 209_715_200,
-      min: 1,
     }),
-    perProjectBytes: Config.number({
-      title: "Project folder size, in bytes",
+    perProjectBytes: Config.bytes({
+      title: "Per Project folder",
       description:
         "Past this, the Project's people are warned. Nothing is deleted or refused.",
       default: 5_368_709_120,

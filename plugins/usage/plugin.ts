@@ -25,10 +25,13 @@ export const usage = definePlugin({
       { title: "Model prices", default: {} },
     ),
     // Budgets only warn (ADR 0066).
-    budgets: Config.object({
-      team: dollars("The team's monthly budget"),
-      person: dollars("Each person's monthly cap of team work"),
-    }),
+    budgets: Config.object(
+      {
+        team: dollars("The team's monthly budget"),
+        person: dollars("Each person's monthly cap of team work"),
+      },
+      { title: "Budgets" },
+    ),
   }),
   events: {
     spent: event({

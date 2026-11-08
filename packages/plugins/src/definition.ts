@@ -3,6 +3,7 @@ import {
   type Static,
   type TArray,
   type TBoolean,
+  type TInteger,
   type TLiteral,
   type TNumber,
   type TObject,
@@ -106,8 +107,15 @@ export function definePlugin<const P extends PluginDefinition>(plugin: P): P {
 export const annotation = "x-pipoca";
 
 export const Config = {
-  object: <P extends TProperties>(properties: P): TObject<P> =>
-    Type.Object(properties, { default: {} }),
+  // A group of settings, which forms show under its title.
+  object: <P extends TProperties>(
+    properties: P,
+    o: { readonly title?: string } = {},
+  ): TObject<P> =>
+    Type.Object(properties, {
+      default: {},
+      ...(o.title !== undefined && { title: o.title }),
+    }),
 
   string: (o: {
     readonly title: string;
@@ -135,6 +143,21 @@ export const Config = {
       ...(o.description !== undefined && { description: o.description }),
       ...(o.min !== undefined && { minimum: o.min }),
       ...(o.max !== undefined && { maximum: o.max }),
+    }),
+
+  // A size, which forms show in MB or GB.
+  bytes: (o: {
+    readonly title: string;
+    readonly description?: string;
+    readonly default: number;
+    readonly min?: number;
+  }): TInteger =>
+    Type.Integer({
+      title: o.title,
+      default: o.default,
+      minimum: o.min ?? 1,
+      ...(o.description !== undefined && { description: o.description }),
+      [annotation]: { bytes: true },
     }),
 
   boolean: (o: {
