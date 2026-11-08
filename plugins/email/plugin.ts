@@ -44,6 +44,21 @@ create table email_state (
   last_uid integer not null
 ) strict;
 `,
+  // 1: questions sent as a reply to the mail their work came from
+  // (ADR 0076), by the Message-ID they went out with, and the addresses
+  // that may answer them.
+  migrations: [
+    `
+create table email_questions (
+  question_id text primary key,
+  mailbox text not null,
+  message_id text not null,
+  addresses text not null check (json_valid(addresses)),
+  posted_at integer not null
+) strict;
+create index email_questions_message on email_questions (mailbox, message_id);
+`,
+  ],
   events: {
     received: event({
       title: "Email received",

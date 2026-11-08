@@ -9,6 +9,7 @@
     "react": "19.3.1"
   },
   "devDependencies": {
+    "@pipoca/ask": "workspace:*",
     "@pipoca/testing": "workspace:*",
     "@types/react": "19.3.0"
   },

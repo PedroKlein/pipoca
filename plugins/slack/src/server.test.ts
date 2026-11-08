@@ -1,8 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
+import { server as askServer } from "@pipoca/ask/server";
+import { definePlugin, defineServer, type Questions } from "@pipoca/plugins";
 import {
   type PluginTest,
   person,
   type TestPluginOptions,
+  type TestSession,
   testPlugin,
   until,
 } from "@pipoca/testing";
@@ -88,6 +91,10 @@ function fakeSlack() {
       return Response.json({ ok: true, channel: "C1", ts: "1700.0001" });
     }
 
+    if (method === "conversations.members") {
+      return Response.json({ ok: true, members: ["UBOT", "U1"] });
+    }
+
     return Response.json({ ok: false, error: "unknown_method" });
   };
 
@@ -117,11 +124,13 @@ function fakeSlack() {
 async function started(
   fake: ReturnType<typeof fakeSlack>,
   config?: TestPluginOptions<typeof slack>["config"],
+  plugins: TestPluginOptions["plugins"] = [],
 ): Promise<PluginTest> {
   return testPlugin(server, {
     people,
     fetch: fake.fetch,
     ...(config !== undefined && { config }),
+    plugins,
   });
 }
 
@@ -423,3 +432,101 @@ test("slack_post posts in team work only as bots the team uses, never a person's
 
   expect(fake.posted).toEqual([{ channel: "C1", text: "Hi" }]);
 });
+
+// A plugin that starts work from Slack's events, as routines do, so its
+// Sessions' questions wait past the turn.
+let waits: Questions | undefined;
+
+const starter = defineServer(
+  definePlugin({
+    id: "starter",
+    title: "Starter",
+    description: "Starts work whose questions wait.",
+  }),
+  ({ questions }) => {
+    waits = questions;
+  },
+);
+
+test("a run's question goes back to the Slack thread its work came from, and a channel member's reply answers it", async () => {
+  const fake = fakeSlack();
+  await using t = await started(fake, undefined, [askServer, starter]);
+
+  await addBot(t, "team-bot");
+  await until(() => fake.sockets.length === 1);
+
+  const session = await t.session({ owner: person("ana") });
+
+  waits?.wait(session.id, {
+    origin: {
+      event: "slack.mention",
+      fields: { bot: "team-bot", channel: "C1", ts: "2.0", threadTs: "" },
+    },
+    owner: "ana",
+  });
+
+  expect(
+    await asks(session, {
+      id: "why",
+      prompt: "Which region?",
+      type: "text",
+      placeholder: null,
+    }),
+  ).toMatchObject({
+    wait: "message",
+  });
+
+  await until(() => fake.posted.length === 1);
+
+  expect(fake.posted).toEqual([
+    {
+      channel: "C1",
+      thread_ts: "2.0",
+      text: expect.stringMatching(
+        /^Pi is waiting for an answer\.\n\n\*Which region\?\*\n\nIt waits until .+\n\nReply in this thread to answer\.$/,
+      ) as unknown as string,
+    },
+  ]);
+
+  const reply = (user: string, said: string) => ({
+    type: "message",
+    user,
+    channel: "C1",
+    ts: `3.${user}`,
+    thread_ts: "2.0",
+    channel_type: "channel",
+    text: said,
+  });
+
+  await fake.sends(reply("U9", "us-east"));
+  await until(() => t.emitted("slack.message").length === 1);
+
+  await fake.sends(reply("U1", "eu-west"));
+
+  const told = await until(
+    () => session.delivered(),
+    (delivered) => delivered.length === 1,
+  );
+
+  expect(told[0]?.text).toEndWith("from <@U1>:\n\neu-west");
+  expect(t.emitted("slack.message")).toHaveLength(1);
+});
+
+// The Session asks, as the Ask plugin's Session part does for ask_user.
+async function asks(
+  session: TestSession,
+  question: Readonly<Record<string, unknown>>,
+): Promise<unknown> {
+  const asked = await session.api.raw(
+    `/runner/sessions/${session.id}/ext/ask/questions`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        questions: [{ label: "Q1", context: null, ...question }],
+        defaults: {},
+      }),
+    },
+  );
+
+  return asked.json();
+}

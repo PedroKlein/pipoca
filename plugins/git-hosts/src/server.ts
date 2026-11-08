@@ -39,6 +39,7 @@ import type {
 } from "./model";
 import { backTo, page, redirect, then } from "./pages";
 import { pullRequests } from "./pull-requests";
+import { questionReplies } from "./questions";
 import { setupRoutes } from "./setup";
 import { technicalUserRoutes } from "./technical-user-routes";
 import { isApp } from "./technical-users";
@@ -75,7 +76,6 @@ export const server = defineServer(gitHosts, (context) => {
   const commitAs = commitAsStore(context.store);
   const pending = new Map<string, Pending>();
   const actingAs = acting(context, hosts, bots);
-  const heard = appEvents(context, hosts, bots, actingAs.installations);
   const callback = (): string => urls.public("callback");
 
   // The person's connections on the hosts still listed.
@@ -83,6 +83,14 @@ export const server = defineServer(gitHosts, (context) => {
     connections
       .accounts(userId)
       .filter(({ host }) => hosts.get(host) !== undefined);
+
+  const heard = appEvents(
+    context,
+    hosts,
+    bots,
+    actingAs.installations,
+    questionReplies(context, hosts, actingAs, signed),
+  );
 
   context.provide.gitCredentials((owner, session) => {
     const person = owners.personId(owner);

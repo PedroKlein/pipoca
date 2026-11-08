@@ -67,6 +67,7 @@ export {
   type PreviewRequest,
   type PreviewResponse,
   type Prompt,
+  question,
   type Question,
   type QuestionAnswer,
   type QuestionOption,

@@ -4,7 +4,8 @@
   "type": "module",
   "exports": {
     "./plugin": "./plugin.ts",
-    "./session": "./src/session.ts"
+    "./session": "./src/session.ts",
+    "./server": "./src/server.ts"
   },
   "dependencies": {
     "@pipoca/plugins": "workspace:*",

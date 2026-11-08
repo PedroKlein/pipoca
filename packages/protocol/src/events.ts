@@ -385,6 +385,8 @@ export const toolResult = Type.Object({
   // for it after a reload (ADR 0052).
   opened: Type.Optional(uiAction),
   details: Type.Optional(Type.Unknown()),
+  // Pi stops after the call's batch instead of going on.
+  endsTurn: Type.Optional(Type.Boolean()),
 });
 
 export type ToolResult = Wire<typeof toolResult>;

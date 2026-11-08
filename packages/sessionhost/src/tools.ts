@@ -110,6 +110,7 @@ export function serverTools(
             details: result.opened
               ? { opened: result.opened }
               : (result.details ?? {}),
+            ...(result.endsTurn === true && { terminate: true }),
           };
         } finally {
           clearTimeout(timer);

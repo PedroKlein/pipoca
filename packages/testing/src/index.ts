@@ -73,6 +73,8 @@ export interface ToolAnswer {
   readonly text: string;
   readonly isError: boolean;
   readonly details?: unknown;
+  // Pi would stop after the call instead of going on.
+  readonly endsTurn?: boolean;
 }
 
 export type Duration = number | `${number}${"s" | "m" | "h" | "d"}`;
@@ -200,9 +202,7 @@ export interface SessionTest {
   ) => Promise<string | undefined>;
 }
 
-export type SessionFakes = Partial<
-  Omit<PartHost, "config" | "clock" | "timer">
-> & {
+export type SessionFakes = Partial<Omit<PartHost, "config" | "clock">> & {
   // The plugin's key in pipoca.json, for a part defineSession made.
   readonly config?: Readonly<Record<string, unknown>>;
   // Pi's working directory for the part's tools.
@@ -240,7 +240,7 @@ export async function testSession(
         ? {}
         : sessionConfig(schema, config ?? {}, faked.log ?? (() => undefined)),
     clock: systemClock,
-    timer: systemTimer,
+    timer: faked.timer ?? systemTimer,
   });
 
   const pi = {
@@ -283,7 +283,7 @@ export async function testSession(
           arguments: (tool.prepareArguments?.(input) ?? input) as never,
         });
 
-        const { content, details } = await tool.execute(
+        const { content, details, terminate } = await tool.execute(
           "call-1",
           args,
           undefined,
@@ -297,6 +297,7 @@ export async function testSession(
             .join("\n"),
           isError: false,
           ...(details !== undefined && { details }),
+          ...(terminate === true && { endsTurn: true }),
         };
       } catch (error) {
         return {

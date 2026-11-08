@@ -4,8 +4,8 @@ import type {
   QuestionsAnswer,
 } from "@pipoca/protocol";
 import {
-  type AskQuestions,
   type Explain,
+  type SessionContext,
   type SessionTool,
   type SessionToolCall,
   type Static,
@@ -13,6 +13,13 @@ import {
   ToolError,
   Type,
 } from "@pipoca/plugins";
+import {
+  type Asked,
+  type Defaults,
+  durationMs,
+  durationPattern,
+  timedOut,
+} from "./waiting";
 
 const OptionSchema = Type.Object({
   value: Type.String({ description: "Value identifier for this option" }),
@@ -66,6 +73,12 @@ const QuestionSchema = Type.Object({
   recommendedValue: Type.Optional(
     Type.Number({ description: "Recommended number (number)" }),
   ),
+  default: Type.Optional(
+    Type.String({
+      description:
+        "The answer taken when nobody answers before the timeout: an option's value (values split by commas for multi and rank), a number, or text. Without one, a timeout leaves the question unanswered.",
+    }),
+  ),
 });
 
 const AskUserParams = Type.Object({
@@ -78,11 +91,20 @@ const AskUserParams = Type.Object({
         "In team work, the name of the person to ask, such as whoever started the work or asked for this part of it. Anyone on the team may answer for them.",
     }),
   ),
+  timeout: Type.Optional(
+    Type.String({
+      pattern: durationPattern,
+      description:
+        "How long to wait for an answer, such as 30m, 24h or 2d. Once it passes, the questions take their defaults.",
+    }),
+  ),
 });
 
 type RawQuestion = Static<typeof QuestionSchema>;
 
-export function askUser(ask: AskQuestions): SessionTool<typeof AskUserParams> {
+export function askUser(
+  s: Pick<SessionContext, "askQuestions" | "api" | "timer">,
+): SessionTool<typeof AskUserParams> {
   return {
     name: "ask_user",
     label: "Ask User",
@@ -103,6 +125,8 @@ export function askUser(ask: AskQuestions): SessionTool<typeof AskUserParams> {
         "Use 'recommended: true' on options you think are best, or 'recommendedValue' for numbers, with reasoning in the description or context.",
         "Use 'multi' when several options could apply, 'single' when exactly one must be chosen, 'scale' for a point on an ordered range, 'rank' to order options, 'number' for a quantity, and 'text' for open-ended questions.",
         "For questions that need context or explanation, present the context in your chat message before calling ask_user. Keep the 'prompt' field short (one line).",
+        "To ask for approval, ask a 'single' question with the options approve and reject.",
+        "When ask_user says the question waits for an answer as a message, end your turn. The answer comes later as a message that names the question's id.",
       ],
     },
     params: AskUserParams,
@@ -113,12 +137,54 @@ export function askUser(ask: AskQuestions): SessionTool<typeof AskUserParams> {
         throw new ToolError("No questions provided.");
       }
 
-      const answer = await ask(
+      const defaults = defaultsOf(params.questions, questions);
+
+      const timeoutMs =
+        params.timeout === undefined ? undefined : durationMs(params.timeout);
+
+      const asked = await s.api.post<Asked>("questions", {
+        questions,
+        defaults,
+        ...(params.for !== undefined && { for: params.for }),
+        ...(timeoutMs !== undefined && { timeoutMs }),
+      });
+
+      if (asked.wait === "message") {
+        return {
+          text: `Question ${asked.id} waits for an answer until ${asked.closesAt}. End your turn now. The answer comes as a message that names question ${asked.id}.`,
+          details: { questions, question: asked.id, closesAt: asked.closesAt },
+          endsTurn: true,
+        };
+      }
+
+      const late = new AbortController();
+
+      const stop =
+        timeoutMs === undefined
+          ? undefined
+          : s.timer.after(timeoutMs, async () => {
+              late.abort();
+
+              return Promise.resolve();
+            });
+
+      const answer = await s.askQuestions(
         questions,
         explainer(call, questions),
-        call.signal,
+        call.signal === undefined
+          ? late.signal
+          : AbortSignal.any([call.signal, late.signal]),
         params.for,
       );
+
+      stop?.();
+
+      if (late.signal.aborted) {
+        return {
+          text: timedOut(questions, defaults),
+          details: { questions, answer: null, defaults },
+        };
+      }
 
       return {
         text: describe(questions, answer, params.for),
@@ -126,6 +192,47 @@ export function askUser(ask: AskQuestions): SessionTool<typeof AskUserParams> {
       };
     },
   };
+}
+
+function defaultsOf(
+  raw: readonly RawQuestion[],
+  questions: readonly Question[],
+): Defaults {
+  return Object.fromEntries(
+    questions.flatMap((question, index) => {
+      const value = raw[index]?.default;
+
+      if (value === undefined) {
+        return [];
+      }
+
+      if ("options" in question) {
+        const values = question.options.map((option) => option.value);
+
+        const picked =
+          question.type === "multi" || question.type === "rank"
+            ? value.split(",").map((each) => each.trim())
+            : [value];
+
+        if (picked.some((each) => !values.includes(each))) {
+          throw new ToolError(
+            `Question "${question.id}" has default "${value}", which is not one of its options' values.`,
+          );
+        }
+      }
+
+      if (
+        question.type === "number" &&
+        !(Number(value) >= question.min && Number(value) <= question.max)
+      ) {
+        throw new ToolError(
+          `Question "${question.id}" has default ${value}, outside ${String(question.min)} to ${String(question.max)}.`,
+        );
+      }
+
+      return [[question.id, value]];
+    }),
+  );
 }
 
 function normalize(raw: RawQuestion, index: number): Question {

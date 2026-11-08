@@ -18,6 +18,7 @@ const pinned: Readonly<Record<string, string>> = {
   projects: "b4eae8e7e4c7ec79f8dfbe6deabd1b1173a2ad7a90e6b8bd469cb89d09ea2055",
   push: "800c29c50f31166e217dafc6aea42edb40c800cca105f6fc7e936aa7c33767ef",
   routines: "0bc416422cb270ebe9ebb49484b327f5d24ce10678916460a2e39cf90892270f",
+  slack: "171efeb621f48fe93781b63e5ed22aa59ab888bbe4f30739363223bba41beca9",
   usage: "3e3a23f6e3a97f9160f934206874a8a5e34d503c6971d10c1f9d7c1b00ccf8ef",
 };
 

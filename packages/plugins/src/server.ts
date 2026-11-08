@@ -22,6 +22,12 @@ import type {
 import type { Static, TObject, TSchema } from "typebox";
 import type { EventDef, Events, PluginDefinition } from "./definition";
 import type { KernelEvent, KernelEventOf } from "./events";
+import type {
+  QuestionDesk,
+  QuestionKeeper,
+  Questions,
+  ReplyPlace,
+} from "./questions";
 import type { Schedule } from "./schedule";
 import type { Transcript } from "./transcript";
 
@@ -277,7 +283,14 @@ export interface ToolCall {
 }
 
 export type ToolOutput =
-  string | { readonly text: string; readonly details?: unknown };
+  | string
+  | {
+      readonly text: string;
+      readonly details?: unknown;
+      // Pi stops after the tool's batch, such as once a question waits
+      // for its answer as a message.
+      readonly endsTurn?: boolean;
+    };
 
 export interface When {
   readonly owner?: "person" | "team" | "any";
@@ -374,6 +387,14 @@ export interface Sessions {
   // A key of the plugin's own, such as a mail thread, names one Session.
   readonly bind: (key: string, sessionId: string) => void;
   readonly boundTo: (key: string) => string | undefined;
+  // Makes the Session wait for a person, as a prompt does, for something
+  // the plugin keeps itself by key, until null clears it. for names the
+  // person, in team work.
+  readonly need: (
+    id: string,
+    key: string,
+    need: { readonly for?: string } | null,
+  ) => void;
 }
 
 export interface Store {
@@ -561,6 +582,12 @@ export interface Providers {
       session: Pick<Session, "actsAs" | "workspace">,
     ) => readonly GitLogin[],
   ) => void;
+  // One plugin per server keeps the questions that wait for an answer as
+  // a message (ADR 0076).
+  readonly questions: (keeper: QuestionKeeper) => QuestionDesk;
+  // How a plugin that publishes events posts a question back where one of
+  // them came from, and so hears its answer there.
+  readonly replies: (place: ReplyPlace) => void;
   // Sessions on the Profile load every route tool when routeTools is true.
   readonly profile: (
     key: string,
@@ -577,6 +604,7 @@ export interface ServerContext<P extends PluginDefinition = PluginDefinition> {
   readonly tools: ServerTools;
   readonly schedule: Schedule;
   readonly events: PluginEvents<P>;
+  readonly questions: Questions;
   readonly config: PluginConfig<P>;
   readonly store: Store;
   readonly transcript: Transcript;

@@ -1,8 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
+import { server as askServer } from "@pipoca/ask/server";
+import { definePlugin, defineServer, type Questions } from "@pipoca/plugins";
 import {
   type PluginTest,
   person,
   type TestPluginOptions,
+  type TestSession,
   testPlugin,
   until,
 } from "@pipoca/testing";
@@ -180,10 +183,12 @@ async function fakeMail() {
 
 async function started(
   config?: TestPluginOptions<typeof email>["config"],
+  o: Pick<TestPluginOptions, "people" | "plugins"> = {},
 ): Promise<PluginTest> {
   return testPlugin(server, {
     people,
     ...(config !== undefined && { config }),
+    ...o,
   });
 }
 
@@ -411,3 +416,137 @@ test("an invite goes out by mail from a mailbox the inviting admin sends from", 
   expect(mail.sent[0]).toContain("Subject: Ana invited you to Pipoca");
   expect(mail.sent[0]?.replace(/=\r\n/g, "")).toContain("/#join/abc");
 });
+
+// A plugin that starts work from mail, as routines do, so its Sessions'
+// questions wait past the turn.
+let waits: Questions | undefined;
+
+const starter = defineServer(
+  definePlugin({
+    id: "starter",
+    title: "Starter",
+    description: "Starts work whose questions wait.",
+  }),
+  ({ questions }) => {
+    waits = questions;
+  },
+);
+
+test("a run's question is a reply to the mail its work came from, and only the owner's or an assignee's reply answers it", async () => {
+  const mail = await fakeMail();
+
+  // People who sign in by email, as through OIDC, are named by it.
+  await using t = await started(undefined, {
+    people: [
+      { id: "ana", name: "ana@example.com", admin: true },
+      { id: "bo", name: "bo@example.com" },
+    ],
+    plugins: [askServer, starter],
+  });
+
+  await addMailbox(t, mail);
+
+  const session = await t.session({ owner: person("ana") });
+
+  waits?.wait(session.id, {
+    origin: {
+      event: "email.received",
+      fields: {
+        mailbox: "support",
+        from: "alice@example.com",
+        subject: "Refund",
+        messageId: "<refund@example.com>",
+      },
+    },
+    owner: "ana",
+    for: ["bo"],
+  });
+
+  expect(
+    await asks(session, {
+      id: "refund",
+      prompt: "Refund the order?",
+      type: "single",
+      options: [
+        {
+          value: "approve",
+          label: "Approve",
+          description: null,
+          recommended: false,
+        },
+        {
+          value: "reject",
+          label: "Reject",
+          description: null,
+          recommended: false,
+        },
+      ],
+    }),
+  ).toMatchObject({
+    wait: "message",
+  });
+
+  await until(() => mail.sent.length === 1);
+
+  const [question = ""] = mail.sent;
+
+  expect(question).toContain(
+    "To: alice@example.com, ana@example.com, bo@example.com",
+  );
+
+  expect(question).toContain("Subject: Re: Refund");
+  expect(question).toContain("In-Reply-To: <refund@example.com>");
+  expect(question).toContain("Refund the order?");
+
+  const sentId = /Message-ID: (<[^>]+>)/.exec(question)?.[1] ?? "";
+
+  mail.inbox.push({
+    uid: 2,
+    from: "alice@example.com",
+    subject: "Re: Refund",
+    messageId: "<alice@example.com>",
+    inReplyTo: sentId,
+    body: "Approve, please!",
+  });
+
+  await t.clock.advance("60s");
+  await until(() => t.emitted("email.received").length === 1);
+
+  mail.inbox.push({
+    uid: 3,
+    from: "bo@example.com",
+    subject: "Re: Refund",
+    messageId: "<bo@example.com>",
+    inReplyTo: sentId,
+    body: "Reject.",
+  });
+
+  await t.clock.advance("60s");
+
+  const told = await until(
+    () => session.delivered(),
+    (delivered) => delivered.length === 1,
+  );
+
+  expect(told[0]?.text).toEndWith("from bo@example.com:\n\nReject.");
+  expect(t.emitted("email.received")).toHaveLength(1);
+});
+
+// The Session asks, as the Ask plugin's Session part does for ask_user.
+async function asks(
+  session: TestSession,
+  question: Readonly<Record<string, unknown>>,
+): Promise<unknown> {
+  const asked = await session.api.raw(
+    `/runner/sessions/${session.id}/ext/ask/questions`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        questions: [{ label: "Q1", context: null, ...question }],
+        defaults: {},
+      }),
+    },
+  );
+
+  return asked.json();
+}

@@ -85,6 +85,9 @@ export function sessionsFor(
       settle(sessions.bind(plugin, key, sessionId), "bound");
     },
     boundTo: (key) => sessions.boundTo(plugin, key),
+    need: (id, key, need) => {
+      settle(sessions.need(plugin, id, key, need), "marked");
+    },
   };
 }
 

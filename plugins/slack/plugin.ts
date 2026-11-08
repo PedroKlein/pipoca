@@ -36,6 +36,17 @@ export const slack = definePlugin({
       item: bot,
     }),
   }),
+  // Questions posted in the thread their work came from (ADR 0076).
+  schema: `
+create table slack_questions (
+  question_id text primary key,
+  bot text not null,
+  channel text not null,
+  thread_ts text not null,
+  posted_at integer not null
+) strict;
+create index slack_questions_thread on slack_questions (bot, channel, thread_ts);
+`,
   events: {
     mention: event({
       title: "Slack mention",
