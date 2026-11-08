@@ -569,6 +569,27 @@ export interface Providers {
   ) => string;
 }
 
+export interface StoredBlob {
+  readonly hash: string;
+  readonly size: number;
+}
+
+// The plugin's bytes on the server's data volume, each named by its SHA-256
+// (ADR 0078). The plugin keeps which hashes its rows use and removes a hash
+// once none does.
+export interface Blobs {
+  readonly put: (bytes: Uint8Array) => Promise<StoredBlob>;
+  readonly size: (hash: string) => Promise<number | undefined>;
+  readonly read: (
+    hash: string,
+  ) => Promise<ReadableStream<Uint8Array> | undefined>;
+  readonly bytes: (hash: string) => Promise<Uint8Array | undefined>;
+  readonly remove: (hash: string) => Promise<void>;
+  // Lets the plugin's Session part upload with s.blobs, in chunks that
+  // resume, up to maxBytes a file.
+  readonly acceptUploads: (o: { readonly maxBytes: () => number }) => void;
+}
+
 export interface ServerContext<P extends PluginDefinition = PluginDefinition> {
   readonly id: P["id"];
   readonly people: People;
@@ -579,6 +600,7 @@ export interface ServerContext<P extends PluginDefinition = PluginDefinition> {
   readonly events: PluginEvents<P>;
   readonly config: PluginConfig<P>;
   readonly store: Store;
+  readonly blobs: Blobs;
   readonly transcript: Transcript;
   readonly urls: Urls;
   readonly provide: Providers;

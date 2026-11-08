@@ -1,3 +1,4 @@
+export { sessionBlobs } from "./blobs";
 export { checkBody, checked } from "./body";
 export { pluginClient } from "./client";
 export {

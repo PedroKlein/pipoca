@@ -194,3 +194,15 @@ export const toolSpec = Type.Object({
 });
 
 export type ToolSpec = Wire<typeof toolSpec>;
+
+// A plugin's stored bytes, named by their SHA-256 (ADR 0078), and the routes
+// its Session part uploads them through when the plugin accepts uploads.
+export const blobHash = /^[0-9a-f]{64}$/;
+
+export const uploadId = /^[A-Za-z0-9_-]{1,64}$/;
+
+export const blobRoutes = {
+  missing: "_blobs/missing",
+  upload: "_blobs/uploads/:id",
+  finish: "_blobs/uploads/:id/finish",
+} as const;

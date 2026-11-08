@@ -15,6 +15,7 @@ import type {
 } from "@pipoca/plugins";
 import {
   pluginClient,
+  sessionBlobs,
   type SessionPart,
   toolAnswer,
   toolSpecOf,
@@ -27,7 +28,7 @@ const allowed = new AsyncLocalStorage<true>();
 
 export type PartHost = Omit<
   SessionContext,
-  "tools" | "extension" | "config" | "api" | "provide"
+  "tools" | "extension" | "config" | "api" | "provide" | "blobs"
 > & {
   readonly config: unknown;
   readonly request: (path: string, init?: RequestInit) => Promise<Response>;
@@ -49,6 +50,31 @@ export async function setUpPart(
   const factories: ExtensionFactory[] = [];
   let modelCredentials: (() => Promise<SessionLogins>) | undefined;
   const marker = `/ext/${id}/`;
+
+  const api = pluginClient(part.plugin, {
+    session: "this",
+    fetch: async (url, init) => {
+      const at = url.indexOf(marker);
+
+      if (at === -1) {
+        throw new Error("a Session part reaches only its plugin's routes");
+      }
+
+      const path = url.slice(at + marker.length);
+
+      if (allowed.getStore() === undefined) {
+        return host.request(path, init);
+      }
+
+      return host.request(path, {
+        ...init,
+        headers: {
+          ...Object.fromEntries(new Headers(init.headers)),
+          [askedHeader]: "1",
+        },
+      });
+    },
+  });
 
   await part.setup({
     ...host,
@@ -78,30 +104,8 @@ export async function setUpPart(
       },
     },
     config: host.config as SessionContext["config"],
-    api: pluginClient(part.plugin, {
-      session: "this",
-      fetch: async (url, init) => {
-        const at = url.indexOf(marker);
-
-        if (at === -1) {
-          throw new Error("a Session part reaches only its plugin's routes");
-        }
-
-        const path = url.slice(at + marker.length);
-
-        if (allowed.getStore() === undefined) {
-          return host.request(path, init);
-        }
-
-        return host.request(path, {
-          ...init,
-          headers: {
-            ...Object.fromEntries(new Headers(init.headers)),
-            [askedHeader]: "1",
-          },
-        });
-      },
-    }),
+    api,
+    blobs: sessionBlobs(api, host.timer),
   });
 
   const piTools = (replaceable: boolean): ToolDefinition[] =>
