@@ -126,6 +126,7 @@ export class Profiles {
     const profile: StoredProfile = {
       id,
       name,
+      description: descriptionOf(fields["description"]),
       ownerId,
       buildsOn: this.#buildsOn(id, ownerId, fields["buildsOn"]),
       source: null,
@@ -172,6 +173,9 @@ export class Profiles {
       ...profile,
       ownerId,
       ...(fields["name"] !== undefined && { name: nameOf(fields["name"]) }),
+      ...(fields["description"] !== undefined && {
+        description: descriptionOf(fields["description"]),
+      }),
       buildsOn:
         "buildsOn" in fields || ownerId !== profile.ownerId
           ? this.#buildsOn(
@@ -771,6 +775,22 @@ function fieldsOf(value: unknown): Record<string, unknown> {
 function nameOf(value: unknown): string {
   if (typeof value !== "string" || value.trim() === "") {
     throw new InvalidProfile("name must be a non-empty string");
+  }
+
+  return value.trim();
+}
+
+const maxDescription = 300;
+
+function descriptionOf(value: unknown): string {
+  if (value === undefined || value === null) {
+    return "";
+  }
+
+  if (typeof value !== "string" || value.trim().length > maxDescription) {
+    throw new InvalidProfile(
+      `description must be text of at most ${String(maxDescription)} characters`,
+    );
   }
 
   return value.trim();

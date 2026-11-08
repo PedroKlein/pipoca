@@ -182,7 +182,10 @@ export function ProfilesPage({
               key={each.id}
               title={each.name}
               initials={initialsOf(each.name)}
-              description={`Builds on ${profiles.find(({ id: under }) => under === each.buildsOn)?.name ?? "the Server base"}`}
+              description={
+                each.description ||
+                `Builds on ${profiles.find(({ id: under }) => under === each.buildsOn)?.name ?? "the Server base"}`
+              }
             >
               <a
                 href={`${root}/${each.id}`}
