@@ -142,6 +142,31 @@ test("an output Pi deletes goes from the server after its next turn", async () =
   expect((await listed()).map(({ path }) => path)).toEqual(["final.md"]);
 });
 
+test("outputs Pi deletes while they're being saved don't stop later saves", async () => {
+  const { runner, listed } = await setUp();
+
+  for (let round = 0; round < 20; round++) {
+    const { cwd, part } = await runner();
+
+    const names = Array.from(
+      { length: 20 },
+      (_, i) => `outputs/${String(i)}.md`,
+    );
+
+    await Promise.all(
+      names.map(async (name) => write(cwd, name, "x".repeat(100_000))),
+    );
+
+    await part.event("agent_settled");
+    await Promise.all(names.map(async (name) => rm(join(cwd, name))));
+    await write(cwd, "outputs/kept.md", "kept");
+    await part.event("agent_settled");
+    await part.event("session_shutdown");
+  }
+
+  expect((await listed()).map(({ path }) => path)).toEqual(["kept.md"]);
+});
+
 test("outputs written while the server is unreachable are saved once it's back", async () => {
   const { runner, listed, published, offline } = await setUp();
   const { cwd, part } = await runner();

@@ -29,6 +29,7 @@ import * as reactDom from "react-dom";
 import * as reactDomClient from "react-dom/client";
 import * as jsxRuntime from "react/jsx-runtime";
 import { request } from "./data/client";
+import { prefillComposer } from "./session/composer/prefill";
 import { EmbeddedSession } from "./session/embedded-session";
 import { PluginBoundary } from "./plugin-boundary";
 import { webRegistry } from "./registry";
@@ -171,6 +172,10 @@ const shell: Omit<Shell, "viewer"> = {
   part: (plugin, children) =>
     createElement(PluginBoundary, { name: plugin, children }),
   SessionView: EmbeddedSession,
+  draft: (sessionId, text) => {
+    prefillComposer(sessionId, text);
+    location.hash = href("session", { id: sessionId });
+  },
 };
 
 // What the plugins' parts draw inside: who looks, and every enabled

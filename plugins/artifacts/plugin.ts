@@ -54,4 +54,27 @@ create table artifacts_shares (
   primary key (artifact_id, user_id)
 ) strict, without rowid;
 `,
+  // 1: comments, which can go to Pi, and each person's pins (ADR 0078).
+  migrations: [
+    `create table artifacts_comments (
+  id text primary key,
+  artifact_id text not null references artifacts_artifacts (id) on delete cascade,
+  version integer not null check (version >= 1),
+  parent_id text references artifacts_comments (id) on delete cascade,
+  author_user_id text references users (id) on delete set null,
+  quote text not null default '',
+  body text not null,
+  sent_to_pi integer not null default 0 check (sent_to_pi in (0, 1)),
+  resolved_at integer,
+  created_at integer not null
+) strict;
+create index artifacts_comments_artifact on artifacts_comments (artifact_id, created_at);
+
+create table artifacts_pins (
+  user_id text not null references users (id) on delete cascade,
+  artifact_id text not null references artifacts_artifacts (id) on delete cascade,
+  pinned_at integer not null,
+  primary key (user_id, artifact_id)
+) strict, without rowid;`,
+  ],
 });
