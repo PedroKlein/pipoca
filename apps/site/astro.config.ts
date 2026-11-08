@@ -4,9 +4,11 @@ import { defineConfig } from "astro/config";
 import { docsLinks, docsSidebar } from "./src/docs-links";
 
 const repository = "https://github.com/PedroKlein/pipoca";
+const site = "https://pipoca.dev";
+const socialImage = `${site}/og.png`;
 
 export default defineConfig({
-  site: "https://pipoca.dev",
+  site,
   base: "/",
   trailingSlash: "always",
   markdown: { processor: unified({ remarkPlugins: [docsLinks(repository)] }) },
@@ -22,6 +24,16 @@ export default defineConfig({
         alt: "",
       },
       favicon: "/favicon.svg",
+      head: [
+        {
+          tag: "meta",
+          attrs: { property: "og:image", content: socialImage },
+        },
+        {
+          tag: "meta",
+          attrs: { name: "twitter:image", content: socialImage },
+        },
+      ],
       social: [{ icon: "github", label: "GitHub", href: repository }],
       editLink: { baseUrl: `${repository}/edit/main/apps/site/` },
       customCss: [

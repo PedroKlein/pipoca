@@ -240,6 +240,21 @@ const icons = {
       name="description"
       content="Pipoca is a self-hosted home for Pi coding agents, for you and your team. Sessions run on your laptop, a VM or Kubernetes, and every feature is a plugin."
     />
+    <link rel="canonical" href={Astro.site} />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Pipoca" />
+    <meta property="og:url" content={Astro.site} />
+    <meta property="og:title" content="Pipoca: Pi coding agents on your own machines" />
+    <meta
+      property="og:description"
+      content="A self-hosted home for Pi coding agents, for you and your team. Sessions run on your laptop, a VM or Kubernetes, and every feature is a plugin."
+    />
+    <meta property="og:image" content={new URL("og.png", Astro.site)} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Pipoca: your Pi agents, on your machines, open from anywhere, beside a Pipoca Session" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content={new URL("og.png", Astro.site)} />
     <link rel="icon" href={`${base}favicon.svg`} type="image/svg+xml" />
     <script is:inline>
       (() => {
