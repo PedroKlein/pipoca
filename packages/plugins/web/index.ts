@@ -145,6 +145,13 @@ export interface SessionPartProps {
   readonly session: MountedSession;
 }
 
+// Files dropped, pasted or picked in a Session's composer that aren't images
+// for the model (ADR 0078), until the message is sent or one is removed.
+export interface SessionFilesProps extends SessionPartProps {
+  readonly files: readonly File[];
+  readonly onRemove: (file: File) => void;
+}
+
 export interface EnvironmentSectionProps {
   readonly environment: Environment;
 }

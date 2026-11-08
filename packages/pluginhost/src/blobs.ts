@@ -16,6 +16,7 @@ import {
   BadRequest,
   type Blobs,
   HttpError,
+  type PersonCaller,
   type Routes,
   type SessionCaller,
   type StoredBlob,
@@ -48,12 +49,12 @@ export function pluginBlobs(dir: string, routes: Routes): Blobs {
     await rename(from, to);
   };
 
-  const partial = (caller: SessionCaller, id: string): string => {
+  const partial = (owner: string, id: string): string => {
     if (!uploadId.test(id)) {
       throw new BadRequest(`${id} isn't an upload id`);
     }
 
-    return join(uploads, `${caller.session.id}.${id}`);
+    return join(uploads, `${owner}.${id}`);
   };
 
   const received = async (file: string): Promise<number> =>
@@ -61,6 +62,74 @@ export function pluginBlobs(dir: string, routes: Routes): Blobs {
       (found) => found.size,
       () => 0,
     );
+
+  const append = async (
+    file: string,
+    offset: number,
+    raw: Request,
+    limit: number,
+  ): Promise<{ received: number }> => {
+    const have = await received(file);
+
+    if (offset !== have) {
+      throw new HttpError(
+        409,
+        `the upload has ${String(have)} bytes, not ${String(offset)}`,
+        "offset",
+      );
+    }
+
+    const chunk = new Uint8Array(await raw.arrayBuffer());
+
+    if (have + chunk.length > limit) {
+      await rm(file, { force: true });
+
+      throw new HttpError(
+        413,
+        `files can be up to ${megabytes(limit)} on this server`,
+        "too_large",
+      );
+    }
+
+    await mkdir(uploads, { recursive: true });
+    await appendFile(file, chunk);
+
+    return { received: have + chunk.length };
+  };
+
+  const finish = async (
+    file: string,
+    id: string,
+    expected: string | undefined,
+  ): Promise<StoredBlob> => {
+    const content = await readFile(file).catch(() => undefined);
+
+    if (content === undefined) {
+      throw new BadRequest(`no upload ${id}`);
+    }
+
+    const hash = createHash("sha256").update(content).digest("hex");
+
+    if (expected !== undefined && hash !== expected) {
+      await rm(file, { force: true });
+
+      throw new HttpError(
+        422,
+        `the upload's SHA-256 is ${hash}, not ${expected}`,
+        "hash",
+      );
+    }
+
+    await place(file, hash);
+
+    return { hash, size: content.length };
+  };
+
+  const ofSession = (caller: SessionCaller, id: string): string =>
+    partial(`s-${caller.session.id}`, id);
+
+  const ofPerson = (caller: PersonCaller, id: string): string =>
+    partial(`p-${caller.person.id}`, id);
 
   return {
     put: async (bytes) => {
@@ -111,79 +180,50 @@ export function pluginBlobs(dir: string, routes: Routes): Blobs {
         }),
       );
 
+      const offset = Type.Object({ offset: Type.Integer({ minimum: 0 }) });
+
       routes.get(
         blobRoutes.upload,
         { auth: "session" },
         async ({ caller, params }) => ({
-          received: await received(partial(caller, params.id)),
+          received: await received(ofSession(caller, params.id)),
         }),
       );
 
       routes.put(
         blobRoutes.upload,
-        {
-          auth: "session",
-          query: Type.Object({ offset: Type.Integer({ minimum: 0 }) }),
-        },
-        async ({ caller, params, query, raw }) => {
-          const file = partial(caller, params.id);
-          const have = await received(file);
-
-          if (query.offset !== have) {
-            throw new HttpError(
-              409,
-              `the upload has ${String(have)} bytes, not ${String(query.offset)}`,
-              "offset",
-            );
-          }
-
-          const chunk = new Uint8Array(await raw.arrayBuffer());
-          const limit = maxBytes();
-
-          if (have + chunk.length > limit) {
-            await rm(file, { force: true });
-
-            throw new HttpError(
-              413,
-              `files can be up to ${megabytes(limit)} on this server`,
-              "too_large",
-            );
-          }
-
-          await mkdir(uploads, { recursive: true });
-          await appendFile(file, chunk);
-
-          return { received: have + chunk.length };
-        },
+        { auth: "session", query: offset },
+        async ({ caller, params, query, raw }) =>
+          append(ofSession(caller, params.id), query.offset, raw, maxBytes()),
       );
 
       routes.post(
         blobRoutes.finish,
         { auth: "session", body: Type.Object({ hash: Type.String() }) },
-        async ({ caller, params, body }): Promise<StoredBlob> => {
-          const file = partial(caller, params.id);
-          const content = await readFile(file).catch(() => undefined);
+        async ({ caller, params, body }) =>
+          finish(ofSession(caller, params.id), params.id, body.hash),
+      );
 
-          if (content === undefined) {
-            throw new BadRequest(`no upload ${params.id}`);
-          }
+      routes.get(
+        blobRoutes.browserUpload,
+        { auth: "person" },
+        async ({ caller, params }) => ({
+          received: await received(ofPerson(caller, params.id)),
+        }),
+      );
 
-          const hash = createHash("sha256").update(content).digest("hex");
+      routes.put(
+        blobRoutes.browserUpload,
+        { auth: "person", query: offset },
+        async ({ caller, params, query, raw }) =>
+          append(ofPerson(caller, params.id), query.offset, raw, maxBytes()),
+      );
 
-          if (hash !== body.hash) {
-            await rm(file, { force: true });
-
-            throw new HttpError(
-              422,
-              `the upload's SHA-256 is ${hash}, not ${body.hash}`,
-              "hash",
-            );
-          }
-
-          await place(file, hash);
-
-          return { hash, size: content.length };
-        },
+      routes.post(
+        blobRoutes.browserFinish,
+        { auth: "person" },
+        async ({ caller, params }) =>
+          finish(ofPerson(caller, params.id), params.id, undefined),
       );
     },
   };

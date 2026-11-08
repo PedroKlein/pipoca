@@ -8,6 +8,7 @@ import { kernelSchema } from "./sqlite/schema";
 const pinned: Readonly<Record<string, string>> = {
   kernel: "beb1f337f8a249af360c5da84ef7c4b9547417923924ce6fc04286ec8b0b0e76",
   ask: "1571ca4a1d8fb4c417db6c5b32f62e977e8a19e9bdd1c1f7ffed5ae172a28ce4",
+  files: "359d9940c0fee3b2d4bdbb18017da55e11939c8474c7e7ca3d4ff1faf94de9dc",
   email: "6cb2e37bcaab2b6df2fc0fd279e5ef2ad1d2cdbd14ea39e2e602486630ec10a9",
   "git-hosts":
     "9a879e77d985a760b187201ebe81baad332aefa119398178d6d53f54401146a1",

@@ -615,7 +615,8 @@ export interface Blobs {
   ) => Promise<ReadableStream<Uint8Array> | undefined>;
   readonly bytes: (hash: string) => Promise<Uint8Array | undefined>;
   readonly remove: (hash: string) => Promise<void>;
-  // Lets the plugin's Session part upload with s.blobs, in chunks that
+  // Lets the plugin's Session part upload with s.blobs, and people's
+  // browsers through the routes in blobRoutes, in chunks that
   // resume, up to maxBytes a file.
   readonly acceptUploads: (o: { readonly maxBytes: () => number }) => void;
 }

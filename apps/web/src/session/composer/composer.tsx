@@ -3,6 +3,8 @@ import type { MountedSession } from "@pipoca/plugins/web";
 import { Button, Icon, isComposing } from "@pipoca/ui";
 import { type ReactElement, useEffect, useId, useRef, useState } from "react";
 import { command } from "../../data/client";
+import { PluginBoundary } from "../../plugin-boundary";
+import { fillsOf, useSessionPlugins } from "../../plugins";
 import { usePrimaryId } from "../../primary";
 import type { Feed } from "../feed";
 import { PromptCard, type PromptHandlers } from "../questions/prompt-card";
@@ -86,8 +88,11 @@ export function Composer({
 
   usePrefill(sessionId, text, feed.editorText);
 
-  const { images, setImages, attach, send } = useSend({
+  const fileParts = fillsOf("session.files", useSessionPlugins(team));
+
+  const { images, setImages, files, setFiles, attach, send } = useSend({
     sessionId,
+    keepsFiles: fileParts.length > 0,
     feed,
     team,
     target,
@@ -196,6 +201,19 @@ export function Composer({
               setImages((current) => current.filter((each) => each.id !== id));
             }}
           />
+          {fileParts.map(({ plugin, Component }) => (
+            <PluginBoundary key={plugin} name={plugin}>
+              <Component
+                session={session}
+                files={files}
+                onRemove={(file) => {
+                  setFiles((current) =>
+                    current.filter((each) => each !== file),
+                  );
+                }}
+              />
+            </PluginBoundary>
+          ))}
           <textarea
             ref={text}
             id={textId}
@@ -256,6 +274,7 @@ export function Composer({
             target={target}
             onTarget={setTarget}
             running={running}
+            anyFile={fileParts.length > 0}
             attach={attach}
             report={report}
           />

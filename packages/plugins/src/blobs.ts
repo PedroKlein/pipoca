@@ -55,7 +55,8 @@ export function sessionBlobs(api: TypedClient, timer: Timer): SessionBlobs {
     try {
       let offset = received;
 
-      while (offset < size) {
+      // An empty file still sends one chunk, which starts the upload.
+      do {
         const chunk = new Uint8Array(Math.min(chunkBytes, size - offset));
 
         await handle.read(chunk, 0, chunk.length, offset);
@@ -74,7 +75,7 @@ export function sessionBlobs(api: TypedClient, timer: Timer): SessionBlobs {
         }
 
         offset = ((await response.json()) as { received: number }).received;
-      }
+      } while (offset < size);
     } finally {
       await handle.close();
     }

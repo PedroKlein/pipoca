@@ -2316,10 +2316,12 @@ test("forks from a user message into a session that remembers only what came bef
   expect(response.status).toBe(201);
   expect(fork.editorText).toBe("two");
 
+  // The fork's prompt names its own Session folder, so Pi notes the change.
   expect(roles(replay)).toEqual([
     "system",
     "user",
     "assistant",
+    "system",
     "user",
     "assistant",
   ]);

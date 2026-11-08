@@ -1,6 +1,7 @@
 import type { Log } from "@pipoca/protocol";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
   contentText,
@@ -390,6 +391,7 @@ export async function hostSession(
         askQuestions: prompts.questions,
         askPermission: prompts.permission,
         checkouts: options.checkouts ?? [],
+        folder: join(options.sessionDir, "plugins", name),
         log: (message, fields) => {
           log(message, { plugin: name, ...fields });
         },

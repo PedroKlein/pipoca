@@ -3,7 +3,7 @@ import { type RefObject, useState } from "react";
 import { command, request } from "../../data/client";
 import type { Feed } from "../feed";
 import { type Attached, attached } from "./attached-images";
-import { admit } from "./attachments";
+import { admit, isImage } from "./attachments";
 import type { Replying } from "./composer";
 import { browserCommand } from "./suggest";
 import type { Target } from "./target";
@@ -19,6 +19,7 @@ export function useSend({
   report,
   textRef,
   modelMenuRef,
+  keepsFiles,
 }: {
   readonly sessionId: string;
   readonly feed: Feed;
@@ -29,18 +30,34 @@ export function useSend({
   readonly report: (error: unknown) => void;
   readonly textRef: RefObject<HTMLTextAreaElement | null>;
   readonly modelMenuRef: RefObject<HTMLButtonElement | null>;
+  // A plugin keeps files that aren't images, until the message is sent.
+  readonly keepsFiles: boolean;
 }): {
   readonly images: readonly Attached[];
   readonly setImages: (
     change: (current: readonly Attached[]) => readonly Attached[],
   ) => void;
+  readonly files: readonly File[];
+  readonly setFiles: (
+    change: (current: readonly File[]) => readonly File[],
+  ) => void;
   readonly attach: (files: readonly File[]) => void;
   readonly send: (delivery: "steer" | "followUp") => void;
 } {
   const [images, setImages] = useState<readonly Attached[]>([]);
+  const [files, setFiles] = useState<readonly File[]>([]);
 
-  const attach = (files: readonly File[]): void => {
-    const { admitted, problems } = admit(images.length, files);
+  const attach = (picked: readonly File[]): void => {
+    const others = picked.filter((file) => !isImage(file));
+
+    if (keepsFiles && others.length > 0) {
+      setFiles((current) => [...current, ...others]);
+    }
+
+    const { admitted, problems } = admit(
+      images.length,
+      keepsFiles ? picked.filter(isImage) : picked,
+    );
 
     if (problems.length > 0) {
       report(problems.join(" "));
@@ -113,6 +130,8 @@ export function useSend({
       return;
     }
 
+    setFiles([]);
+
     command(sessionId, {
       ...(quote && { quote }),
       type: "message",
@@ -133,5 +152,5 @@ export function useSend({
     });
   };
 
-  return { images, setImages, attach, send };
+  return { images, setImages, files, setFiles, attach, send };
 }

@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { validateToolArguments } from "@earendil-works/pi-ai";
 import type {
   ExtensionAPI,
@@ -189,6 +192,14 @@ export function person(id: string): Owner {
 
 export interface SessionTest {
   readonly tool: (name: string, input: unknown) => Promise<ToolAnswer>;
+  // Pi's event of this type, such as "agent_settled", through the part's
+  // handlers, in Pi's working directory and the rest of the context given:
+  // what each handler returned.
+  readonly event: (
+    type: string,
+    fields?: Readonly<Record<string, unknown>>,
+    context?: Readonly<Record<string, unknown>>,
+  ) => Promise<readonly unknown[]>;
   // What the part pointed a model provider at, by its name.
   readonly provider: (name: string) => unknown;
   // The logins the part keeps for Pi, if it provides them.
@@ -226,10 +237,16 @@ export async function testSession(
   const others: Pick<ToolInfo, "name" | "annotations">[] = [];
   const hooks: ((event: unknown, ctx: unknown) => unknown)[] = [];
 
+  const handlers: {
+    readonly event: string;
+    readonly run: (event: unknown, ctx: unknown) => unknown;
+  }[] = [];
+
   const set = await setUpPart(part, {
     askQuestions: notFaked("askQuestions"),
     askPermission: notFaked("askPermission"),
     checkouts: [],
+    folder: join(tmpdir(), `pipoca-part-${randomUUID()}`),
     request: notFaked("request"),
     log: () => undefined,
     startChild: notFaked("startChild"),
@@ -255,6 +272,8 @@ export async function testSession(
       if (event === "tool_call") {
         hooks.push(hook);
       }
+
+      handlers.push({ event, run: hook });
     },
     getAllTools: () => [...tools, ...others],
   };
@@ -305,6 +324,20 @@ export async function testSession(
           isError: true,
         };
       }
+    },
+    event: async (type, fields = {}, context = {}) => {
+      const results: unknown[] = [];
+
+      for (const handler of handlers.filter(({ event }) => event === type)) {
+        results.push(
+          await handler.run(
+            { type, ...fields },
+            { cwd: cwd ?? process.cwd(), ...context },
+          ),
+        );
+      }
+
+      return results;
     },
     provider: (named) => providers.get(named),
     modelCredentials: async () => set.modelCredentials?.(),

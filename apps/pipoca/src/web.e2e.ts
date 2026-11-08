@@ -3997,7 +3997,7 @@ test("attaches an image to a message and shows it in the chat", async () => {
   await form.getByRole("button", { name: "Start session" }).click();
   await page.locator("#status", { hasText: "idle" }).waitFor();
 
-  await page.getByLabel("Attach images").setInputFiles({
+  await page.getByLabel("Attach files").setInputFiles({
     name: "pixel.png",
     mimeType: "image/png",
     buffer: Buffer.from(
