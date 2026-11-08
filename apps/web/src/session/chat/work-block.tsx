@@ -3,6 +3,7 @@ import type { ReactElement, ReactNode } from "react";
 import { PluginBoundary } from "../../plugin-boundary";
 import { fillsOf } from "../../plugins";
 import { describeTool, duration, linkParts, tally, type Turn } from "./chat";
+import { Answer } from "./markdown";
 import { StepRow } from "./step-row";
 import { useVerbosity } from "./verbosity";
 
@@ -88,6 +89,10 @@ export function WorkBlock({
                 running={runningIds.has(item.step.id)}
                 open={verbosity === "verbose"}
               />
+            ) : item.kind === "narration" ? (
+              <div className="px-2 py-1 [&_.prose]:text-label [&_.prose]:text-fg-dim">
+                <Answer text={item.text} />
+              </div>
             ) : (
               <WorkNote kind={item.kind} text={item.text} />
             )}

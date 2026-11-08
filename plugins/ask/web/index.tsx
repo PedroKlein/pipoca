@@ -1,11 +1,13 @@
 import {
   defineWeb,
   type MountedSession,
+  type ToolCall,
   useApi,
   useLoaded,
 } from "@pipoca/plugins/web";
 import {
   Button,
+  Card,
   cn,
   Dialog,
   DialogBody,
@@ -30,8 +32,52 @@ interface Props {
 // (ADR 0065, ADR 0076).
 export const web = defineWeb(ask, {
   settings: { group: "server", form: "auto" },
-  slots: { "session.composer": AboveComposer, "session.header": VoteButton },
+  slots: {
+    "session.composer": AboveComposer,
+    "session.header": VoteButton,
+    "session.toolCall:ask_user": AskedCard,
+  },
 });
+
+// A question Pi asked stays in the chat with how it was answered, and the
+// text Pi wrote before it shows above it instead of inside the work.
+function AskedCard({ call }: { readonly call: ToolCall }): ReactElement {
+  const { questions } = call.args as {
+    readonly questions?: readonly { readonly prompt?: unknown }[];
+  };
+
+  const prompts = (questions ?? []).flatMap(({ prompt }) =>
+    typeof prompt === "string" ? [prompt] : [],
+  );
+
+  return (
+    <Card padding="none" className="flex flex-col gap-1 px-3 py-2 text-label">
+      <span className="flex items-center gap-2 font-medium text-fg">
+        <Icon name="chat" className="size-4 shrink-0 text-fg-dim" />
+        {prompts.length === 1
+          ? prompts[0]
+          : `Asked ${String(prompts.length)} questions`}
+      </span>
+      {prompts.length > 1 && (
+        <ul className="pl-6 text-fg-dim">
+          {prompts.map((prompt) => (
+            <li key={prompt}>{prompt}</li>
+          ))}
+        </ul>
+      )}
+      <p
+        className={cn(
+          "pl-6 whitespace-pre-wrap",
+          call.status === "failed" ? "text-failed" : "text-fg-dim",
+        )}
+      >
+        {call.status === "running"
+          ? "Waiting for an answer"
+          : (call.result?.text ?? "")}
+      </p>
+    </Card>
+  );
+}
 
 function AboveComposer(props: Props): ReactElement {
   return (

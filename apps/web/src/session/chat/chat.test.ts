@@ -261,6 +261,27 @@ test("groups a turn into its work and its answer", () => {
   ]);
 });
 
+test("keeps the text that leads into a card out of the work, above the card", () => {
+  const keyed = [
+    { role: "user", text: "set it up" },
+    { role: "assistant", text: "Looking." },
+    { role: "tool", id: "a", name: "read", args: { path: "x.ts" } },
+    { role: "result", id: "a", name: "read", text: "code", failed: false },
+    { role: "assistant", text: "| Plan | Steps |" },
+    { role: "tool", id: "b", name: "ask_user", args: {} },
+    { role: "result", id: "b", name: "ask_user", text: "A", failed: false },
+    { role: "assistant", text: "Done." },
+  ].map(
+    (item, key) => ({ ...item, key }) as Parameters<typeof turns>[0][number],
+  );
+
+  const [turn] = turns(keyed, (tool) => tool === "ask_user");
+
+  expect(turn?.work.map((item) => item.kind)).toEqual(["narration", "step"]);
+  expect(turn?.cards.map(({ lead }) => lead)).toEqual(["| Plan | Steps |"]);
+  expect(turn?.answer).toEqual(["Done."]);
+});
+
 test("finds the URLs in a note, without the punctuation after them", () => {
   expect(
     linkParts("Enter the code AB-12 at https://github.com/login/device."),

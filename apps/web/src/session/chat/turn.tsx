@@ -108,11 +108,20 @@ export function turnItems({
         ),
       )
     ),
-    ...turn.cards.map((step) => (
+    ...turn.cards.flatMap((step) => [
+      step.lead !== undefined && (
+        <li
+          key={`${String(turn.key)}-lead-${step.id}`}
+          data-role="assistant"
+          className="[content-visibility:auto]"
+        >
+          <Answer text={step.lead} />
+        </li>
+      ),
       <li key={`${String(turn.key)}-card-${step.id}`} data-role="card">
         <ToolCard step={step} session={session} />
-      </li>
-    )),
+      </li>,
+    ]),
     ...turn.answer.map((text, at) => (
       <li
         key={`${String(turn.key)}-answer-${String(at)}`}
