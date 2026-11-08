@@ -6,103 +6,76 @@
 </p>
 
 <p align="center">
-  Run <a href="https://github.com/earendil-works/pi">Pi</a> coding-agent sessions on your own machines, and pick them up from any browser.
+  A self-hosted home for <a href="https://github.com/earendil-works/pi">Pi</a> coding agents, for you or your whole team.<br>
+  Sessions run on your laptop, a VM or Kubernetes pods, and you pick them up from any browser.
 </p>
 
 <p align="center">
   <a href="https://github.com/PedroKlein/pipoca/actions/workflows/ci.yml"><img src="https://github.com/PedroKlein/pipoca/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/PedroKlein/pipoca/releases/latest"><img src="https://img.shields.io/github/v/release/PedroKlein/pipoca" alt="Latest release"></a>
+  <a href="https://pedroklein.github.io/pipoca/docs/"><img src="https://img.shields.io/badge/docs-pedroklein.github.io%2Fpipoca-blue" alt="Docs"></a>
+</p>
+
+<p align="center">
+  <a href="https://pedroklein.github.io/pipoca/">Website</a> ·
+  <a href="https://pedroklein.github.io/pipoca/docs/get-started/quick-start/">Quick start</a> ·
+  <a href="https://pedroklein.github.io/pipoca/docs/">Docs</a> ·
+  <a href="https://pedroklein.github.io/pipoca/docs/build-plugins/overview/">Build a plugin</a>
 </p>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/session-dark.png">
-  <img src="docs/images/session-light.png" alt="A Pipoca session: the task, Pi's steps folded into one line, and its answer">
+  <img src="docs/images/session-light.png" alt="A Pipoca Session: the task, Pi's steps folded into one line, and its answer">
 </picture>
 
-Pipoca is a self-hosted server for Pi. You start a session from the web, it runs on your laptop, a VM or a Kubernetes pod, and it keeps going when you close the tab. Open it later from another computer or your phone and the whole transcript, the diff and a live terminal are still there.
+## What is Pipoca?
 
-Pipoca keeps Pi as Pi. Sessions load real Pi packages, skills and extensions, and you can always drop into Pi's own terminal UI. Everything past the small core is a plugin, including Projects, the diff view and single sign-on, so you can turn features off or write your own.
+You tell Pi what to do from the web. The Session runs on a machine you own, in its own branch, and keeps going when you close the tab. Come back later from another computer or your phone and the transcript, the diff and a live terminal are all still there.
 
-## What you can do with it
+Pipoca keeps Pi as Pi. Sessions load real Pi packages, skills and extensions, and you can always open Pi's own terminal UI. Past a small core, every feature is a plugin you can turn off, replace or write yourself.
 
-### Hand off a task and come back to it
+## Highlights
 
-Type what Pi should do, pick a folder or paste a repository URL, and press Enter. Each session gets its own Git worktree or clone on its own branch, so several can work in one repository without stepping on each other. Pi's steps fold into a single "Worked for" line that you can open, and the header shows context use and cost.
+- **Built from plugins, like Pi.** Projects, the diff view, routines, Slack, single sign-on and the rest are 19 built-in plugins on the same SDK yours would use. A plugin can add server routes, pages, settings, setup steps and Pi tools.
+- **A hub for the team.** One server is one team. Team work is open to everyone on it: anyone can pick up a Session, talk to Pi, talk to each other beside it, or vote.
+- **Profiles you can see through.** A Profile is a Pi agent folder, like your `~/.pi/agent`. It sits on the admin's Server base and your own My defaults, and the editor shows everything Pi gets and where it came from.
+- **Runs where your code is.** On your laptop with one command, on a VM through SSH, or in Kubernetes with runner pods started on demand.
+- **Work that runs on its own.** Routines start Sessions on a schedule or on events from GitHub, Slack or email, and Projects split bigger work across threads with a coordinator.
 
-Enter queues a message for when Pi finishes its turn, and Ctrl+Enter sends it now. Pi can ask you questions in a form, and a browser notification tells you when a session finishes.
-
-### Review the diff and open a pull request
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/changes-dark.png">
-  <img src="docs/images/changes-light.png" alt="The Changes panel with the session's diff and a Create PR button">
-</picture>
-
-The Changes panel shows what the session changed. Comment on any line and send all the comments back to Pi as one message, or open a pull request from the same panel.
-
-### Drop into Pi's own TUI or a shell
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/pi-dark.png">
-  <img src="docs/images/pi-light.png" alt="Pi's terminal UI running in the browser for the same session">
-</picture>
-
-The Pi tab runs Pi's terminal UI for the same session, so extensions that only work in a terminal still work. Terminal opens shells in the session's directory, and they survive reloads. Widgets and status lines from Pi extensions also render in the web chat.
-
-### Split bigger work across a Project
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/project-dark.png">
-  <img src="docs/images/project-light.png" alt="A Project coordinator that started two threads, with the threads listed on the right">
-</picture>
-
-A Project groups work toward one goal across one or more repositories. You talk to its coordinator, which starts a thread session for each piece of work, hears back after every thread turn, and shares Project memory and a folder of files with the threads. The rail lists the threads and puts the ones that need you first.
-
-### Bring your Pi setup with you
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/profiles-dark.png">
-  <img src="docs/images/profiles-light.png" alt="A Profile with Pi packages, an AGENTS.md and a file tree">
-</picture>
-
-A Profile is a Pi agent folder, like your `~/.pi/agent`: packages, instructions, skills, prompts, MCP servers and settings. Import yours from a folder, a tarball or a git repository, and every session runs with it on any machine. Model logins are kept on the server, so any runner can use them.
-
-### Ask the assistant
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/home-dark.png">
-  <img src="docs/images/home-light.png" alt="The home screen asking what you want to build today">
-</picture>
-
-The home screen talks to the Pipoca assistant. It can start sessions, set up Projects, Environments and Profiles, and even write a plugin for you, and it asks before any tool that changes something. The same tools are served over MCP at `/api/mcp`, so Pi or another MCP client on your laptop can drive Pipoca too.
-
-### Extend it with plugins
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/plugins-dark.png">
-  <img src="docs/images/plugins-light.png" alt="The Plugins page listing built-in plugins and an install box">
-</picture>
-
-Built-in features are plugins you can switch off. Install more from a git repository or a `.tgz` URL. A new plugin installs turned off, and turning it on lists the capabilities it asks for first. A plugin can add server routes, web pages and settings, and Pi extensions or tools to every session. See [Build plugins](docs/build-plugins/overview.md).
-
-### Check in from your phone
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/phone-dark.png">
-    <img src="docs/images/phone-light.png" alt="A session on a phone" width="300">
-  </picture>
-</p>
-
-The whole UI works on a phone, terminal included, with a key bar for the keys a phone keyboard lacks, such as Ctrl and Alt.
-
-### Run sessions wherever the work needs
-
-- **Your laptop.** An agent connects out to the server, so the laptop needs no open port. If it sleeps, its sessions catch up when it reconnects.
-- **A VM.** The server can run sessions itself, each in a fresh clone on its own branch. See [On a VM](docs/run/vm.md).
-- **Kubernetes.** A Helm chart installs the server, and the kubernetes plugin starts runner pods on demand and deletes them when they go idle.
-- **Containers.** An Environment can run each session in a container from an image you pick, with a setup script, variables and encrypted secrets.
-
-Several machines can join one Environment as a pool. A session working in a clone moves to another machine if its own goes away, and picks up from its transcript.
+<table>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/changes-dark.png">
+        <img src="docs/images/changes-light.png" alt="The Changes panel with the Session's diff and a Create PR button">
+      </picture>
+      <p><b>Review the diff and open a pull request.</b> Comment on lines and send them back to Pi as one message.</p>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/team-dark.png">
+        <img src="docs/images/team-light.png" alt="A team Session with a message to the team and an off-the-record note">
+      </picture>
+      <p><b>Work on it together.</b> Write to Pi, to the team, or off the record.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/project-dark.png">
+        <img src="docs/images/project-light.png" alt="A Project coordinator that started two threads">
+      </picture>
+      <p><b>Split bigger work across a Project.</b> A coordinator starts a thread for each piece and checks back.</p>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/profiles-dark.png">
+        <img src="docs/images/profiles-light.png" alt="A Profile that builds on the Server base and My defaults">
+      </picture>
+      <p><b>Bring your Pi setup.</b> Packages, instructions, skills and agents, on every machine.</p>
+    </td>
+  </tr>
+</table>
 
 ## Quick start
 
@@ -113,39 +86,38 @@ brew install pedroklein/pipoca/pipoca
 cd ~/code && pipoca up
 ```
 
-`pipoca --help` lists the commands, and `pipoca <command> --help` explains one. The Mac app is `brew install --cask pedroklein/pipoca/pipoca-app`. It isn't signed by Apple yet, so run `xattr -dr com.apple.quarantine /Applications/Pipoca.app` once before opening it. Each [release](https://github.com/PedroKlein/pipoca/releases) also has the binaries, the disk image and Linux packages.
+Your browser opens signed in. Start a Session, pick a folder, say what Pi should do, and log in to a model provider once with `/login`. The [Quick start](https://pedroklein.github.io/pipoca/docs/get-started/quick-start/) walks through it, including the Mac app and the release binaries.
 
-To build from source, you need [Bun](https://bun.sh) and at least one model you can log in to from Pi.
+## Ways to run it
 
-```sh
-git clone https://github.com/PedroKlein/pipoca && cd pipoca
-bun install
-bun run build
-apps/pipoca/dist/pipoca server
+| Setup                                                                                | For                 | Start with                                  |
+| ------------------------------------------------------------------------------------ | ------------------- | ------------------------------------------- |
+| [On your laptop](https://pedroklein.github.io/pipoca/docs/run/solo/)                 | You                 | `pipoca up`                                 |
+| [On a VM](https://pedroklein.github.io/pipoca/docs/run/vm/)                          | You                 | `pipoca connect me@my-vm`                   |
+| [For a team](https://pedroklein.github.io/pipoca/docs/run/team/)                     | A team              | `pipoca server --url https://…`             |
+| [In Kubernetes](https://pedroklein.github.io/pipoca/docs/run/kubernetes/)            | A team, or just you | `helm install pipoca deploy/helm/pipoca`    |
+| [Desktop and phone](https://pedroklein.github.io/pipoca/docs/run/desktop-and-phone/) | You                 | The Mac app, or install it from the browser |
+
+[Choosing a setup](https://pedroklein.github.io/pipoca/docs/run/choosing-a-setup/) helps you pick.
+
+## Write a plugin
+
+A plugin is a folder with a `package.json` and a definition. It can have a server part, a web part and a Session part:
+
+```ts
+import { Config, definePlugin } from "@pipoca/plugins";
+
+export const greeter = definePlugin({
+  id: "greeter",
+  title: "Greeter",
+  description: "Greets you on its own page and with /greet in a Session.",
+  config: Config.object({
+    greeting: Config.string({ title: "Greeting", default: "Hello" }),
+  }),
+});
 ```
 
-The server logs a one-time setup link. Open it to create your user. Then, in Settings > Environments, make an Environment named `laptop` and copy the command it shows, which starts an agent with the Environment's key:
-
-```sh
-PIPOCA_KEY=pck_… apps/pipoca/dist/pipoca agent --name laptop --folder ~/code
-```
-
-Open New session, pick a checkout under `~/code`, describe the task and press Enter. Log in to a model provider once with `/login` from any session.
-
-## Deploy
-
-**On a VM**, run the compiled binary under systemd and reach it through an SSH tunnel or a reverse proxy. [On a VM](docs/run/vm.md) walks through it.
-
-**On Kubernetes**, use the chart in `deploy/helm/pipoca`. Every push to main publishes `ghcr.io/pedroklein/pipoca:main`.
-
-```sh
-helm install pipoca deploy/helm/pipoca --set url=https://pipoca.example.com
-kubectl logs deploy/pipoca | grep setup
-```
-
-Put HTTPS in front with your gateway, or turn on the chart's Ingress. The chart also supports runner pods and OpenID Connect sign-in through providers such as SAP IAS, Okta or Google. On SAP BTP's Kyma, use `deploy/helm/pipoca-kyma`, which adds Kyma's gateway and Istio on top.
-
-The [docs](docs/README.md) cover every option: server and agent flags, workspaces, plugins, Environments, secrets, containers, runner pools, single sign-on and runner pods. A server that ran code from before the rebuild starts with a fresh database: see [Upgrading from before the rebuild](docs/admin/upgrading.md#upgrading-from-before-the-rebuild).
+The [tutorial](https://pedroklein.github.io/pipoca/docs/build-plugins/tutorial/) builds this one into a route, a page and a `/greet` command, and installs it from git.
 
 ## How it works
 
@@ -154,40 +126,12 @@ browser ──HTTP/SSE──▶ pipoca server ◀──long-poll + HTTPS/SSE─�
                       (web UI, SQLite)                          (laptop, VM or pod)
 ```
 
-- `pipoca server` serves the web UI, stores sessions and a copy of each transcript in SQLite, and relays commands. Server settings live in a plain `pipoca.json` in the `config` folder next to the database, so they are easy to set from Helm or by hand.
-- `pipoca agent` runs each Pi session in its own process, with the session's Profile. A session that crashes reloads from its transcript without touching the others.
-- One binary does both, built with Bun. Model logins are kept on the server, sealed, and reach a runner only for the sessions that use them.
-
-The words are defined in [Concepts](docs/get-started/concepts.md) and the design in [docs/architecture.md](docs/architecture.md), with the reasoning behind each decision in [docs/adr/](docs/adr/).
+One `pipoca` binary, built with Bun, is both. The server serves the web app, keeps Sessions and transcripts in SQLite and settings in a plain `pipoca.json`. Runners connect out to it, so a laptop needs no open port, and run each Session in its own Pi process. Model logins stay on the server, sealed, and reach a runner only for the Sessions that use them. [Architecture](docs/architecture.md) has the details, and [docs/adr/](docs/adr/) the reasons behind each decision.
 
 ## Status
 
-Pipoca is young and built by one person, for their own daily use first. Personal sessions and Projects on a laptop and a VM are done and tested with real models. Kubernetes, authentication, Profiles, the assistant, third-party plugins and team work (invites, team Environments, Profiles and Projects, and the team hub) are working. The code was rebuilt with a fresh database, plugin SDK and HTTP API ([ADR 0068](docs/adr/0068-clean-rebuild.md)). Expect breaking changes between versions.
+Pipoca is young and built by one person, for daily use first. Personal Sessions, Projects, Profiles, the team hub, routines and Kubernetes runner pods all work and are used every day. Expect breaking changes between versions: [Upgrading](https://pedroklein.github.io/pipoca/docs/admin/upgrading/) says what to do. [docs/vision.md](docs/vision.md) has the roadmap and non-goals.
 
-[docs/vision.md](docs/vision.md) has the roadmap and non-goals, and [docs/open-questions.md](docs/open-questions.md) lists what isn't decided yet.
+## Contributing
 
-## Repository layout
-
-```text
-apps/pipoca      the pipoca binary: server and agent
-apps/web         the web UI
-packages/        protocol, people, environments, sessions, profiles, repositories, workspaces, runner,
-                 UI kit, plugin SDK, testing, the session host and the plugin host
-plugins/         built-in plugins: projects, changes, usage, kubernetes, oidc and more
-deploy/helm      the Helm charts: pipoca for any cluster, pipoca-kyma on top for Kyma
-docs/            guide, vision, architecture, design system and decision records
-```
-
-## Development
-
-`bun run dev` runs the server with a built-in provider named `cloud`, and restarts it when a file under `apps/` or `packages/` changes. Its data lives in `~/.pipoca/dev`. With `PIPOCA_KEY` set to an Environment's key from Settings > Environments, it also runs an agent named `local` that may use this repository's folder.
-
-```sh
-bun run dev
-bun run format
-bun run lint
-bun run typecheck
-bun test
-```
-
-Tests use Pi's faux model provider, so they need no API key. `bun run test:e2e` drives the web UI in headless Chromium; it needs Playwright's browser once (`bun x playwright-core install chromium`). `bun run smoke` checks Pipoca against your own Pi setup with one short prompt; pass `--model provider/id` to pick a cheap model. [AGENTS.md](AGENTS.md) has the coding conventions and [docs/design-system.md](docs/design-system.md) the UI rules.
+Bug reports and ideas are welcome as [issues](https://github.com/PedroKlein/pipoca/issues). [CONTRIBUTING.md](CONTRIBUTING.md) explains how to build from source, run the checks and open a pull request, and [SECURITY.md](SECURITY.md) how to report a vulnerability privately.
