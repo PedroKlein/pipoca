@@ -4,6 +4,8 @@ import type {
   Clock,
   CreateSession,
   DeclaredAction,
+  DeclaredCheck,
+  DeclaredDestination,
   DeclaredEvent,
   EnvironmentTemplate,
   Environment,
@@ -634,6 +636,61 @@ export interface PluginActions {
   ) => Promise<Applied>;
 }
 
+// A routine's run that ended, whose result a destination writes as the
+// run's Session would (ADR 0075).
+export interface Delivery {
+  readonly session: Session;
+  // The routine's title.
+  readonly routine: string;
+  readonly outcome: "done" | "nothing" | "blocked" | "failed" | "stopped";
+  readonly summary: string;
+  readonly output?: Readonly<Record<string, unknown>>;
+  // The events the run was started with, oldest first.
+  readonly events: readonly {
+    readonly type: string;
+    readonly fields: Readonly<Record<string, unknown>>;
+  }[];
+  // The result as plain text, ready to post.
+  readonly text: string;
+}
+
+type DestinationsOf<P extends PluginDefinition> = Exclude<
+  P["destinations"],
+  undefined
+>;
+
+export type DestinationHandlers<P extends PluginDefinition> =
+  string extends keyof DestinationsOf<P>
+    ? Readonly<
+        Record<
+          string,
+          (settings: never, delivery: Delivery) => Promise<Applied>
+        >
+      >
+    : {
+        readonly [N in keyof DestinationsOf<P>]: (
+          settings: Static<DestinationsOf<P>[N]["settings"]>,
+          delivery: Delivery,
+        ) => Promise<Applied>;
+      };
+
+// Every enabled plugin's result destinations, as the plugin that delivers
+// runs' results reads them (ADR 0075).
+export interface PluginDestinations {
+  readonly declared: () => readonly DeclaredDestination[];
+  // Checks the settings against the destination's schema, then delivers.
+  readonly deliver: (
+    type: string,
+    settings: unknown,
+    delivery: Delivery,
+  ) => Promise<Applied>;
+}
+
+// Every enabled plugin's named checks (ADR 0075).
+export interface PluginChecks {
+  readonly declared: () => readonly DeclaredCheck[];
+}
+
 export interface Providers<P extends PluginDefinition = PluginDefinition> {
   readonly runners: (provider: RunnerProvider) => Runners;
   readonly runtime: () => Runtime;
@@ -658,6 +715,8 @@ export interface Providers<P extends PluginDefinition = PluginDefinition> {
   // How the plugin applies each action its definition declares.
   // A method, so a plugin's own handlers fit where any plugin's are taken.
   actions(handlers: ActionHandlers<P>): void;
+  // How the plugin delivers to each destination its definition declares.
+  destinations(handlers: DestinationHandlers<P>): void;
   // Sessions on the Profile load every route tool when routeTools is true.
   readonly profile: (
     key: string,
@@ -704,6 +763,8 @@ export interface ServerContext<P extends PluginDefinition = PluginDefinition> {
   readonly urls: Urls;
   readonly provide: Providers<P>;
   readonly actions: PluginActions;
+  readonly destinations: PluginDestinations;
+  readonly checks: PluginChecks;
   readonly secrets: Secrets;
   readonly environments: PluginEnvironments;
   readonly profiles: PluginProfiles;

@@ -29,6 +29,7 @@ import type { TypedClient } from "@pipoca/plugins";
 import type { DeclaredAction, DeclaredEvent } from "@pipoca/protocol";
 import { type ReactElement, useState } from "react";
 import { routines } from "../plugin";
+import { DeclaredExtras, RunResults, TriggerLines } from "./extras";
 import type {
   Proposal,
   ProposalState,
@@ -320,6 +321,7 @@ function RoutinePage({
       {routine !== undefined && (
         <div className="flex flex-col gap-3">
           <p className="text-ui text-fg-dim">{summaryOf(routine)}</p>
+          <TriggerLines routine={routine} />
           {routine.group !== undefined && (
             <p className="text-ui text-fg-dim">
               In the group{" "}
@@ -627,6 +629,7 @@ function Editor({
       </ErrorText>
       <DeclaredEvents api={api} prefix={scope.prefix} />
       <DeclaredActions api={api} />
+      <DeclaredExtras api={api} />
       <div>
         <Button type="submit" variant="primary">
           Save
@@ -937,6 +940,7 @@ function RunRow({
           ))}
         </ul>
       )}
+      <RunResults run={run} />
     </li>
   );
 }

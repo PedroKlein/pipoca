@@ -3,6 +3,7 @@ import {
   Config,
   event,
   definePlugin,
+  destination,
   Secret,
   Type,
 } from "@pipoca/plugins";
@@ -117,6 +118,21 @@ create index slack_questions_thread on slack_questions (bot, channel, thread_ts)
       description:
         "Posts in a channel or a thread as one of the routine owner's bots.",
       input: post,
+    }),
+  },
+  // Where a routine's run's result can go (ADR 0075).
+  destinations: {
+    channel: destination({
+      title: "A Slack channel",
+      description:
+        "Posts the result in a channel as one of the routine owner's bots.",
+      settings: Type.Object(
+        {
+          channel: post.properties.channel,
+          bot: post.properties.bot,
+        },
+        { additionalProperties: false },
+      ),
     }),
   },
 });

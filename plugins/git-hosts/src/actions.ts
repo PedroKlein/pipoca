@@ -227,6 +227,97 @@ export function hostActions(
       };
     },
   });
+
+  // Where a routine's run's result can go (ADR 0075), written as the run's
+  // identity too.
+  context.provide.destinations({
+    comment: async (settings, { session, events, text }) => {
+      const fields = events.at(-1)?.fields ?? {};
+      const repository = settings.repository ?? eventRepository(fields);
+      const number = settings.number ?? eventNumber(fields);
+
+      if (repository === undefined || number === undefined) {
+        throw new Error(
+          "the run's event names no issue or pull request to comment on",
+        );
+      }
+
+      const url = urlOf(
+        await call(
+          targetOf(session, repository),
+          "POST",
+          `/issues/${String(number)}/comments`,
+          { body: text },
+        ),
+      );
+
+      return { text: `Commented on #${String(number)}`, url };
+    },
+    file: async ({ repository, path, branch }, { session, routine, text }) => {
+      const target = targetOf(session, repository);
+      const at = path.split("/").map(encodeURIComponent).join("/");
+
+      const ref =
+        branch === undefined ? "" : `?ref=${encodeURIComponent(branch)}`;
+
+      const existing = await call(target, "GET", `/contents/${at}${ref}`).catch(
+        (error: unknown) => {
+          if (
+            error instanceof Error &&
+            error.message.includes(" answered 404")
+          ) {
+            return undefined;
+          }
+
+          throw error;
+        },
+      );
+
+      const answer = await call(target, "PUT", `/contents/${at}`, {
+        message: `${routine}: update ${path}`,
+        content: Buffer.from(`${text}\n`).toString("base64"),
+        ...(branch !== undefined && { branch }),
+        ...(typeof existing?.["sha"] === "string" && { sha: existing["sha"] }),
+      });
+
+      const { content } = answer as { content?: Record<string, unknown> };
+
+      return {
+        text: `Wrote ${path} in ${target.repository}`,
+        ...(content !== undefined && { url: urlOf(content) }),
+      };
+    },
+  });
+}
+
+// The repository an event names, on its host when it says.
+function eventRepository(
+  fields: Readonly<Record<string, unknown>>,
+): string | undefined {
+  const { repository, host } = fields;
+
+  if (typeof repository !== "string" || repository === "") {
+    return undefined;
+  }
+
+  return typeof host === "string" && host !== "" && !repository.includes("://")
+    ? `https://${host}/${repository}`
+    : repository;
+}
+
+// The issue or pull request an event is about, or a check run's first.
+function eventNumber(
+  fields: Readonly<Record<string, unknown>>,
+): number | undefined {
+  const { number, numbers } = fields;
+
+  if (typeof number === "number") {
+    return number;
+  }
+
+  const [first] = Array.isArray(numbers) ? (numbers as unknown[]) : [];
+
+  return typeof first === "number" ? first : undefined;
 }
 
 function repositoryOf(workspace: Session["workspace"]): string | undefined {

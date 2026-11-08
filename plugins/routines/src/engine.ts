@@ -22,6 +22,7 @@ import {
 import type { Question } from "@pipoca/protocol";
 import { usage } from "@pipoca/usage/plugin";
 import type { routines } from "../plugin";
+import { checkChecks } from "./checks";
 import { dayAfter, dayOf } from "./cron";
 import {
   coordinatorLimitsOf,
@@ -47,6 +48,7 @@ import type {
   WorkItem,
 } from "./model";
 import { type Proposed, proposals, type ProposingRun } from "./proposals";
+import { destinationsOf, results } from "./results";
 import {
   admits,
   type Allowed,
@@ -80,6 +82,7 @@ import {
   whileRunningOf,
   zoneOf,
 } from "./routine";
+import { triggerExtras } from "./triggers";
 
 const failuresToPause = 3;
 const microsPerUnit = 1_000_000;
@@ -94,6 +97,7 @@ const keptRuns = 200;
 const quietMs = 30_000;
 const longestQuietMs = 5 * 60_000;
 const maxBatch = 20;
+
 // Runs that go at once, unless the routine's limits say otherwise.
 const defaultMaxRunning = 3;
 // A failed run starts again after these waits, the last for every later
@@ -163,6 +167,8 @@ type Context = Pick<
   | "log"
   | "transcript"
   | "actions"
+  | "destinations"
+  | "checks"
   | "blobs"
   | "people"
   | "questions"
@@ -909,7 +915,7 @@ export function routinesEngine(context: Context): Routines {
       if (trigger !== undefined && event.to.includes(each.owner)) {
         fired = true;
 
-        wait(
+        extras.arrive(
           each,
           {
             type: event.type,
@@ -1043,6 +1049,7 @@ export function routinesEngine(context: Context): Routines {
     }
 
     keepHooks();
+    extras.keepWatches();
     changed();
   };
 
@@ -1401,6 +1408,13 @@ export function routinesEngine(context: Context): Routines {
 
     if (ended !== undefined && !retrying) {
       published(ended, outcome);
+
+      delivering.ended(
+        ended,
+        loaded.get(idOf(owner, run.name))?.routine,
+        outcome,
+        reason,
+      );
     }
 
     if (
@@ -1417,6 +1431,8 @@ export function routinesEngine(context: Context): Routines {
     changed();
     startQueued(owner, run.name);
   };
+
+  const delivering = results({ ...context, changed });
 
   // Every run that ends tells its owner's routines, which may follow it
   // (ADR 0075). A dry run's results are only shown.
@@ -2630,7 +2646,14 @@ export function routinesEngine(context: Context): Routines {
         })),
         askedFor: (JSON.parse(row.asked_for ?? "[]") as string[]).map(nameOf),
       }),
+    ...resultsView(row.id),
   });
+
+  const resultsView = (runId: string) => {
+    const delivered = delivering.of(runId);
+
+    return delivered.length === 0 ? {} : { results: delivered };
+  };
 
   const changesOf = (owner: Owner, name: string): readonly Change[] =>
     store
@@ -3058,6 +3081,8 @@ export function routinesEngine(context: Context): Routines {
               };
 
         checkEvents(routine, context.events.declared());
+        destinationsOf(routine, context.destinations.declared());
+        checkChecks(routine, context.checks.declared());
         withGroup(routine, group);
         routinesIn.set(routineAt, routine);
       }
@@ -3260,6 +3285,17 @@ export function routinesEngine(context: Context): Routines {
       : `Run ${row.id} didn't start: ${now?.reason ?? "it was blocked"}`;
   };
 
+  const extras = triggerExtras(context, {
+    loadedOf: (owner, name) => loaded.get(idOf(owner, name)),
+    all: () => loaded.values(),
+    paused: (each) => pausedOf(each.owner, each.name) !== null,
+    guard,
+    wait,
+    flush,
+    repositoriesOf: (each) => groupRepositories(groupOfRoutine(each)?.group),
+    changed,
+  });
+
   mkdirSync(config.dir, { recursive: true });
   reload();
 
@@ -3319,6 +3355,7 @@ export function routinesEngine(context: Context): Routines {
         }),
         runs: runsOfRoutine(owner, name).map(runViewOf),
         spentToday: spentToday(owner, name),
+        ...extras.notesOf(each),
       };
     },
     exists: (owner, name) => loaded.has(idOf(owner, name)),
@@ -3467,6 +3504,8 @@ export function routinesEngine(context: Context): Routines {
         );
 
         allowedOf(routine);
+        destinationsOf(routine, context.destinations.declared());
+        checkChecks(routine, context.checks.declared());
 
         withGroup(
           routine,

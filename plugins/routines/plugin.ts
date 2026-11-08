@@ -135,6 +135,8 @@ create index routines_wakeups_session on routines_wakeups (session_id, delivered
   // 7: chains and coordinators (ADR 0075): how deep in a chain a run is,
   // the output it ended with, the coordinator's run that started it with
   // what it asked for, and the question a start waits on.
+  // 8: where runs' results went, and the firings a trigger's check sees
+  // (ADR 0075).
   migrations: [
     "alter table routines_runs add column inputs text check (inputs is null or json_valid(inputs));",
     "alter table routines_runs add column agent text; alter table routines_runs add column workflow text;",
@@ -224,6 +226,27 @@ alter table routines_runs add column parent_id text;
 alter table routines_runs add column started text check (started is null or json_valid(started));
 alter table routines_runs add column start_question text;
 create index routines_runs_parent on routines_runs (parent_id) where parent_id is not null;
+`,
+    `
+create table routines_results (
+  run_id text not null references routines_runs (id) on delete cascade,
+  destination text not null,
+  state text not null check (state in ('sent', 'failed')),
+  text text not null,
+  url text,
+  delivered_at integer not null
+) strict;
+create index routines_results_run on routines_results (run_id);
+
+create table routines_firings (
+  owner_user_id text references users (id) on delete cascade,
+  name text not null,
+  trigger integer not null,
+  key text not null,
+  fields text not null check (json_valid(fields)),
+  heard_at integer not null
+) strict;
+create index routines_firings_key on routines_firings (coalesce(owner_user_id, ''), name, trigger, key, heard_at);
 `,
   ],
 });

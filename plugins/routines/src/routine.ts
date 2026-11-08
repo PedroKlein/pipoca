@@ -64,6 +64,38 @@ const condition = Type.Union([
   ),
 ]);
 
+// A script that returns true or false before a firing spends tokens, or a
+// check a plugin declares, by its type or name, with its settings
+// (ADR 0075).
+const check = Type.Optional(
+  Type.Union([
+    Type.String({ minLength: 1, maxLength: 4000 }),
+    Type.Object(
+      {
+        use: Type.String({ minLength: 1 }),
+        with: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+      },
+      { additionalProperties: false },
+    ),
+  ]),
+);
+
+const conditions = Type.Optional(Type.Array(condition, { maxItems: 20 }));
+
+const duration = "^[1-9]\\d{0,3}[mhd]$";
+
+// What a watch trigger's firing holds (ADR 0075).
+export const watchFields = Type.Object({
+  url: Type.String(),
+  status: Type.Number(),
+  // The value at the trigger's path, or the response's text, and what it
+  // was before.
+  value: Type.Unknown(),
+  previous: Type.Unknown(),
+});
+
+export const watchEvent = "routines.watch";
+
 const trigger = Type.Union([
   Type.Object(
     {
@@ -82,7 +114,32 @@ const trigger = Type.Union([
     {
       kind: Type.Literal("event"),
       event: Type.String({ pattern: "^[a-z0-9-]+\\.[a-z0-9_]+$" }),
-      where: Type.Optional(Type.Array(condition, { maxItems: 20 })),
+      where: conditions,
+      check,
+      // Matching events gather, and the routine runs once per schedule with
+      // all of them.
+      collect: Type.Optional(
+        Type.Object(
+          { cron: Type.String(), timeZone: Type.Optional(Type.String()) },
+          { additionalProperties: false },
+        ),
+      ),
+      ...firing,
+    },
+    { additionalProperties: false },
+  ),
+  // An https address fetched on a schedule, which fires when the response,
+  // or the value at path in its JSON, changes.
+  Type.Object(
+    {
+      kind: Type.Literal("watch"),
+      url: Type.String({ pattern: "^https://" }),
+      every: Type.String({ pattern: duration, description: "Such as 15m" }),
+      path: Type.Optional(
+        Type.String({ minLength: 1, description: "Such as items.0.version" }),
+      ),
+      where: conditions,
+      check,
       ...firing,
     },
     { additionalProperties: false },
@@ -307,6 +364,33 @@ export const routineSchema = Type.Object(
       Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 50 }),
     ),
     limits: Type.Optional(limitsSchema),
+    // Where each run's result goes when it ends, by a plugin's destination
+    // type or its name alone, with its settings and the outcomes it takes,
+    // done unless it says (ADR 0075).
+    results: Type.Optional(
+      Type.Array(
+        Type.Object(
+          {
+            to: Type.String({ minLength: 1 }),
+            with: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+            on: Type.Optional(
+              Type.Array(
+                Type.Union([
+                  Type.Literal("done"),
+                  Type.Literal("nothing"),
+                  Type.Literal("blocked"),
+                  Type.Literal("failed"),
+                  Type.Literal("stopped"),
+                ]),
+                { minItems: 1 },
+              ),
+            ),
+          },
+          { additionalProperties: false },
+        ),
+        { minItems: 1, maxItems: 5 },
+      ),
+    ),
   },
   { additionalProperties: false },
 );
@@ -316,6 +400,7 @@ export type Trigger = Routine["when"][number];
 export type Condition = NonNullable<
   Extract<Trigger, { kind: "event" }>["where"]
 >[number];
+export type Watch = Extract<Trigger, { kind: "watch" }>;
 export type Inputs = Readonly<Record<string, string | number | boolean>>;
 export type WhileRunning = "tell" | "skip" | "queue";
 export type Output = Readonly<Record<string, unknown>>;
@@ -342,6 +427,15 @@ export function routineOf(value: unknown): Routine {
   for (const [index, each] of routine.when.entries()) {
     if (each.kind === "schedule") {
       cronSchedule(each.cron, each.timeZone);
+    } else if (each.kind === "event" && each.collect !== undefined) {
+      cronSchedule(each.collect.cron, each.collect.timeZone ?? serverZone);
+    } else if (
+      each.kind === "watch" &&
+      durationOf(each.every) < shortestWatchMs
+    ) {
+      throw new Error(
+        `when.${String(index)}.every: a watch waits at least 5m between fetches`,
+      );
     } else if (each.kind === "once" && !isZonedTime(each.at)) {
       throw new Error(`${each.at} must be an ISO 8601 time with a time zone`);
     }
@@ -510,14 +604,19 @@ export function checkEvents(
   declaredOutput: (name: string) => Routine["output"] = () => undefined,
 ): void {
   for (const [index, each] of routine.when.entries()) {
-    if (each.kind !== "event") {
+    if (each.kind !== "event" && each.kind !== "watch") {
       continue;
     }
 
-    const known = declared.find(({ type }) => type === each.event);
+    const known =
+      each.kind === "watch"
+        ? { fields: { ...watchFields } }
+        : declared.find(({ type }) => type === each.event);
 
     if (known === undefined) {
-      throw new Error(`when.${String(index)}: no event ${each.event}`);
+      throw new Error(
+        `when.${String(index)}: no event ${each.kind === "event" ? each.event : ""}`,
+      );
     }
 
     const followed = each.where?.find(
@@ -525,7 +624,10 @@ export function checkEvents(
     );
 
     const output =
-      each.event === runEnded && followed !== undefined && "is" in followed
+      each.kind === "event" &&
+      each.event === runEnded &&
+      followed !== undefined &&
+      "is" in followed
         ? declaredOutput(String(followed.is))
         : undefined;
 
@@ -762,7 +864,7 @@ export function nextFiring(each: Trigger, after: number): number | undefined {
 }
 
 // The server's own time zone, for what a routine names no zone for.
-const serverZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+export const serverZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 // The zone a routine's days are counted in: its first schedule's.
 export function zoneOf(routine: Routine | undefined): string {
@@ -835,6 +937,8 @@ const defaultTimeLimit = "2h";
 
 const unitMs = { m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
 
+const shortestWatchMs = 5 * 60_000;
+
 // How long a run of the routine may be running. A coordinator lives for
 // weeks and has no limit (ADR 0075).
 export function timeLimitOf(
@@ -856,7 +960,7 @@ export function questionTimeoutOf(routine: Routine): number | undefined {
   return text === undefined ? undefined : durationOf(text);
 }
 
-function durationOf(text: string): number {
+export function durationOf(text: string): number {
   const unit = text.at(-1) as keyof typeof unitMs;
 
   return Number(text.slice(0, -1)) * unitMs[unit];

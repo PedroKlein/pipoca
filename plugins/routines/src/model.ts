@@ -66,6 +66,23 @@ export interface Change {
   readonly at: string;
 }
 
+// Where a run's result went (ADR 0075): what the destination wrote, or why
+// it failed.
+export interface Delivered {
+  readonly destination: string;
+  readonly state: "sent" | "failed";
+  readonly text: string;
+  readonly url?: string;
+}
+
+// How a trigger's check went when it last ran, or a watch's fetch.
+export interface TriggerNote {
+  readonly trigger: number;
+  readonly at: string;
+  readonly passed?: boolean;
+  readonly error?: string;
+}
+
 export interface Run {
   readonly id: string;
   // Which retry of a failed run it is, from 1.
@@ -89,6 +106,7 @@ export interface Run {
   // chain of runs it is when it follows another (ADR 0075).
   readonly output?: Readonly<Record<string, unknown>>;
   readonly depth?: number;
+  readonly results?: readonly Delivered[];
 }
 
 export interface RoutineView {
@@ -127,6 +145,9 @@ export interface RoutineDetail extends RoutineView {
   // Where a webhook trigger takes deliveries, signed with the secret as
   // sha256=<HMAC-SHA256 of the body in hex>.
   readonly webhook?: { readonly path: string; readonly secret: string };
+  // How its triggers' checks went last, and its watches' last fetches.
+  readonly checks?: readonly TriggerNote[];
+  readonly watches?: readonly TriggerNote[];
 }
 
 export interface GroupView {
@@ -186,4 +207,17 @@ export interface Imported {
   readonly routines: readonly string[];
   readonly added: readonly string[];
   readonly kept: readonly string[];
+}
+
+// A routine Pipoca drafted from one sentence, for the person to change and
+// save (ADR 0075). A drafted routine that doesn't fit says why in error.
+export interface RoutineDraft {
+  readonly id: string;
+  readonly sentence: string;
+  readonly state: "drafting" | "ready" | "failed";
+  readonly sessionId: string | null;
+  readonly name?: string | undefined;
+  readonly routine?: unknown;
+  readonly summary?: string | undefined;
+  readonly error?: string | undefined;
 }

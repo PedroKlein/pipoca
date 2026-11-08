@@ -9,6 +9,7 @@ import {
   definePlugin,
   defineServer,
   type PluginActions,
+  type PluginDestinations,
   type Questions,
   type Session,
   type Sessions,
@@ -301,7 +302,11 @@ function fakeHost(now: () => number) {
 
     const repo = "/api/v3/repos/acme/dotfiles";
 
-    if (request.method === "POST" || request.method === "PATCH") {
+    if (
+      request.method === "POST" ||
+      request.method === "PATCH" ||
+      (request.method === "PUT" && url.pathname.startsWith(`${repo}/contents/`))
+    ) {
       written.push({
         path: `${request.method} ${url.pathname}`,
         token: authorization.replace("Bearer ", ""),
@@ -310,6 +315,15 @@ function fakeHost(now: () => number) {
 
       if (url.pathname === `${repo}/pulls`) {
         return Response.json({ html_url: pullUrl }, { status: 201 });
+      }
+
+      if (url.pathname.startsWith(`${repo}/contents/`)) {
+        return Response.json(
+          {
+            content: { html_url: `https://${host}/acme/dotfiles/blob/main/x` },
+          },
+          { status: 201 },
+        );
       }
     }
 
@@ -2478,12 +2492,14 @@ test("a Session that proposes reads with the App's read-only token, and gets oth
 
 // Applies other plugins' actions, as the routines plugin does.
 let applying: PluginActions | undefined;
+let delivering: PluginDestinations | undefined;
 let sessionsSeen: Sessions | undefined;
 
 const applier = defineServer(
   definePlugin({ id: "applier", title: "Applier", description: "Applies." }),
   (context) => {
     applying = context.actions;
+    delivering = context.destinations;
     sessionsSeen = context.sessions;
   },
 );
@@ -2660,5 +2676,76 @@ test("applies a run's comment with the token of the person it acts for, and refu
     "git-hosts.labels",
     "git-hosts.closeIssue",
     "git-hosts.requestReview",
+  ]);
+});
+
+test("comments a routine run's result on the issue its event is about, and writes it to a file", async () => {
+  await using run = await start(listed, [applier]);
+  const { t, fake } = run;
+
+  const session = sessionNamed(
+    (await t.session({ owner: person("pedro"), proposes: true })).id,
+  );
+
+  await connected(t);
+
+  const delivery = {
+    session,
+    routine: "Triage",
+    outcome: "done",
+    summary: "Labelled it.",
+    events: [
+      {
+        type: "git-hosts.issue",
+        fields: { host, repository: "acme/dotfiles", number: 3 },
+      },
+    ],
+    text: "Triage: Done. Labelled it.",
+  } as const;
+
+  expect(await delivering?.deliver("git-hosts.comment", {}, delivery)).toEqual({
+    text: "Commented on #3",
+    url: `https://${host}/acme/dotfiles/issues/7#issuecomment-1`,
+  });
+
+  expect(fake.commented).toEqual([
+    {
+      path: "/api/v3/repos/acme/dotfiles/issues/3/comments",
+      token: goodToken,
+      body: "Triage: Done. Labelled it.",
+    },
+  ]);
+
+  expect(
+    await delivering?.deliver(
+      "git-hosts.file",
+      { repository: `https://${host}/acme/dotfiles`, path: "notes/triage.md" },
+      delivery,
+    ),
+  ).toEqual({
+    text: "Wrote notes/triage.md in acme/dotfiles",
+    url: `https://${host}/acme/dotfiles/blob/main/x`,
+  });
+
+  expect(fake.written).toEqual([
+    {
+      path: "PUT /api/v3/repos/acme/dotfiles/contents/notes/triage.md",
+      token: goodToken,
+      body: {
+        message: "Triage: update notes/triage.md",
+        content: Buffer.from("Triage: Done. Labelled it.\n").toString("base64"),
+      },
+    },
+  ]);
+
+  expect(
+    await delivering
+      ?.deliver("git-hosts.comment", {}, { ...delivery, events: [] })
+      .catch((error: unknown) => String(error)),
+  ).toBe("Error: the run's event names no issue or pull request to comment on");
+
+  expect(delivering?.declared().map(({ type }) => type)).toEqual([
+    "git-hosts.comment",
+    "git-hosts.file",
   ]);
 });

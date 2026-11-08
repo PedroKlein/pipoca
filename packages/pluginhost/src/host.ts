@@ -5,9 +5,12 @@ import type { Environments } from "@pipoca/environments";
 import type {
   ActionCall,
   Applied,
+  Delivery,
   Person,
   PluginActions,
+  PluginChecks,
   PluginDefinition,
+  PluginDestinations,
   RouteToolSpec,
   ProfileMcpServer,
   QuestionKeeper,
@@ -41,6 +44,8 @@ import type {
   Actor,
   Clock,
   DeclaredAction,
+  DeclaredCheck,
+  DeclaredDestination,
   DeclaredEvent,
   GitLogin,
   Log,
@@ -81,6 +86,11 @@ import {
 export type UserActor = `user:${string}`;
 
 type ActionHandler = (input: unknown, call: ActionCall) => Promise<Applied>;
+
+type DestinationHandler = (
+  settings: unknown,
+  delivery: Delivery,
+) => Promise<Applied>;
 
 type GitLoginsOf = (
   owner: Owner,
@@ -294,6 +304,7 @@ export function startPlugins(
   const gitLogins: { plugin: string; of: GitLoginsOf }[] = [];
   const asked = questionBroker(deps.log);
   const actionHandlers = new Map<string, ActionHandler>();
+  const destinationHandlers = new Map<string, DestinationHandler>();
   const fromEnv = envSecrets(process.env);
   const settled = new Set<string>();
 
@@ -668,17 +679,68 @@ export function startPlugins(
         throw new Error(`no action ${type}`);
       }
 
-      if (!Value.Check(declared.input, input)) {
-        const [error] = Value.Errors(declared.input, input);
-        const at = error?.instancePath.slice(1).replaceAll("/", ".") ?? "";
-
-        throw new Error(
-          `${at === "" ? "the input" : at} ${error?.message ?? "doesn't fit"}`,
-        );
-      }
+      fits(declared.input, input, "the input");
 
       return apply(input, call);
     },
+  };
+
+  const runningPlugins = () =>
+    deps.definitions.filter(
+      ({ id }) => enabled.includes(id) && !failures.has(id),
+    );
+
+  // The result destinations running plugins declare and deliver to, and
+  // the checks they name (ADR 0075).
+  const declaredDestinations = (): DeclaredDestination[] =>
+    runningPlugins().flatMap(({ id, destinations = {} }) =>
+      Object.entries(destinations).flatMap(
+        ([name, { title, description, settings }]) =>
+          destinationHandlers.has(`${id}.${name}`)
+            ? [
+                {
+                  title,
+                  ...(description !== undefined && { description }),
+                  settings: { ...settings },
+                  type: `${id}.${name}` as const,
+                },
+              ]
+            : [],
+      ),
+    );
+
+  const pluginDestinations: PluginDestinations = {
+    declared: declaredDestinations,
+    deliver: async (type, settings, delivery) => {
+      const declared = declaredDestinations().find(
+        (each) => each.type === type,
+      );
+
+      const deliver = destinationHandlers.get(type);
+
+      if (declared === undefined || deliver === undefined) {
+        throw new Error(`no destination ${type}`);
+      }
+
+      fits(declared.settings, settings, "the settings");
+
+      return deliver(settings, delivery);
+    },
+  };
+
+  const pluginChecks: PluginChecks = {
+    declared: (): DeclaredCheck[] =>
+      runningPlugins().flatMap(({ id, checks = {} }) =>
+        Object.entries(checks).map(
+          ([name, { title, description, script, settings }]) => ({
+            title,
+            ...(description !== undefined && { description }),
+            script,
+            ...(settings !== undefined && { settings: { ...settings } }),
+            type: `${id}.${name}` as const,
+          }),
+        ),
+      ),
   };
 
   running.push(...enabled.filter((name) => !failures.has(name)));
@@ -746,6 +808,7 @@ export function startPlugins(
       offers: [] as ModelOffer[],
       gitCredentials: [] as GitLoginsOf[],
       actions: new Map<string, ActionHandler>(),
+      destinations: new Map<string, DestinationHandler>(),
       runners: [] as RunnerProvider[],
       signIn: undefined as SignInProvider | undefined,
       keeper: undefined as QuestionKeeper | undefined,
@@ -877,6 +940,8 @@ export function startPlugins(
           transcript,
           urls: pluginUrls(id, deps.url),
           actions: pluginActions,
+          destinations: pluginDestinations,
+          checks: pluginChecks,
           provide: {
             runners: (provider) => {
               provided.add("runners");
@@ -910,6 +975,20 @@ export function startPlugins(
                 }
 
                 staged.actions.set(`${id}.${name}`, apply as ActionHandler);
+              }
+            },
+            destinations: (handlers) => {
+              provided.add("destinations");
+
+              for (const [name, deliver] of Object.entries(handlers)) {
+                if (definition.destinations?.[name] === undefined) {
+                  throw new Error(`${id} declares no destination ${name}`);
+                }
+
+                staged.destinations.set(
+                  `${id}.${name}`,
+                  deliver as DestinationHandler,
+                );
               }
             },
             signIn: (provider) => {
@@ -1068,6 +1147,10 @@ export function startPlugins(
 
     for (const [type, apply] of staged.actions) {
       actionHandlers.set(type, apply);
+    }
+
+    for (const [type, deliver] of staged.destinations) {
+      destinationHandlers.set(type, deliver);
     }
 
     if (staged.signIn !== undefined) {
@@ -1837,3 +1920,17 @@ const nobodyToActAs: ToolResult = {
   text: "nobody started this Session, so it can't act as a person",
   isError: true,
 };
+
+// The value fits the schema, or an Error names where it doesn't.
+function fits(schema: object, value: unknown, what: string): void {
+  if (Value.Check(schema, value)) {
+    return;
+  }
+
+  const [error] = Value.Errors(schema, value);
+  const at = error?.instancePath.slice(1).replaceAll("/", ".") ?? "";
+
+  throw new Error(
+    `${at === "" ? what : at} ${error?.message ?? "doesn't fit"}`,
+  );
+}
