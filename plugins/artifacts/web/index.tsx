@@ -1,6 +1,8 @@
 import {
   defineWeb,
   href,
+  type MountedSession,
+  SessionTab,
   type NavItemsProps,
   type PageProps,
   type ToolCallProps,
@@ -44,6 +46,7 @@ export const web = defineWeb(plugin, {
   ],
   settings: { group: "server", form: "auto" },
   slots: {
+    "session.header": SessionArtifacts,
     "session.toolCall:publish_artifact": PublishedCard,
   },
 });
@@ -378,6 +381,89 @@ function PublishedCard({ call }: ToolCallProps): ReactElement {
         </a>
       )}
     </Card>
+  );
+}
+
+// The Session panel's Artifacts tab: what the Session published, the newest
+// open beside the chat.
+function SessionArtifacts({
+  session,
+}: {
+  readonly session: MountedSession;
+}): ReactElement | null {
+  const api = useApi(plugin);
+  const [picked, setPicked] = useState<string>();
+
+  const { value } = useLoaded(
+    async () =>
+      (
+        await api.get<{ artifacts: ArtifactSummary[] }>(
+          `sessions/${session.id}/artifacts`,
+        )
+      ).artifacts,
+    session.id,
+    { changes: ["artifacts"] },
+  );
+
+  const shownId = picked ?? value?.[0]?.id;
+
+  const { value: shown } = useLoaded(
+    async () =>
+      shownId === undefined
+        ? undefined
+        : api.get<ArtifactView>(`artifacts/${shownId}`),
+    shownId ?? "",
+    { changes: ["artifacts"] },
+  );
+
+  if (value === undefined || value.length === 0) {
+    return null;
+  }
+
+  return (
+    <SessionTab
+      name="artifacts"
+      order={10}
+      label={`Artifacts ${String(value.length)}`}
+      button={`Artifacts, ${String(value.length)} published`}
+      icon="paperclip"
+    >
+      {value.length > 1 && (
+        <Select
+          aria-label="Artifact"
+          value={shownId}
+          onChange={(event) => {
+            setPicked(event.target.value);
+          }}
+        >
+          {value.map((each) => (
+            <option key={each.id} value={each.id}>
+              {each.title}
+            </option>
+          ))}
+        </Select>
+      )}
+      {shown !== undefined && (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-label text-fg-dim">
+              {`${shown.title} · ${versionsLabel(shown.versions)}`}
+            </span>
+            <a
+              href={href(plugin, shown.id)}
+              className="text-label text-accent hover:underline"
+            >
+              Open
+            </a>
+          </div>
+          <Frame
+            artifact={shown}
+            version={shown.versions}
+            className="h-[70vh]"
+          />
+        </div>
+      )}
+    </SessionTab>
   );
 }
 

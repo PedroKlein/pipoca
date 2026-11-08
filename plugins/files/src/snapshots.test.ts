@@ -82,7 +82,7 @@ async function setUp(config: Readonly<Record<string, unknown>> = {}) {
     return { cwd, part, start };
   };
 
-  return { host, pod };
+  return { t, host, pod };
 }
 
 test("a new pod gets back the unfinished work the last one had", async () => {
@@ -124,14 +124,28 @@ test("a new pod gets back the unfinished work the last one had", async () => {
 });
 
 test("a checkout with nothing unfinished leaves no snapshot", async () => {
-  const { pod } = await setUp();
+  const { t, host, pod } = await setUp();
   const first = await pod();
 
   await first.start();
   await writeFile(join(first.cwd, "new.txt"), "new\n");
   await first.part.event("agent_settled");
+
+  await until(
+    async () =>
+      (
+        await t
+          .as("ana")
+          .get<{ snapshots: unknown[] }>(`sessions/${host.id}/snapshots`)
+      ).snapshots.length === 1,
+  );
+
   await rm(join(first.cwd, "new.txt"));
   await first.part.event("session_shutdown");
+
+  expect(await t.as("ana").get(`sessions/${host.id}/snapshots`)).toEqual({
+    snapshots: [],
+  });
 
   const second = await pod();
 

@@ -224,6 +224,23 @@ export const server = defineServer(
         .map(summary),
     }));
 
+    // What a Session published, for its panel.
+    routes.get(
+      "sessions/:id/artifacts",
+      { auth: "person" },
+      ({ caller, params }) => ({
+        artifacts: store
+          .all<Row>(
+            `select * from artifacts_artifacts where session_id = ?
+             order by updated_at desc limit ?`,
+            params.id,
+            listed,
+          )
+          .filter((each) => sees(each, caller.person.id))
+          .map(summary),
+      }),
+    );
+
     routes.get("artifacts/:id", { auth: "person" }, ({ caller, params }) =>
       view(theirs(params.id, caller), caller.person.id),
     );

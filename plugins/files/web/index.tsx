@@ -2,23 +2,14 @@ import {
   ConfigForm,
   defineWeb,
   type MountedSession,
+  SessionTab,
   type SessionFilesProps,
   uploadBlob,
   useApi,
   useLoaded,
   useSessionState,
 } from "@pipoca/plugins/web";
-import {
-  Badge,
-  Button,
-  Chip,
-  ErrorText,
-  Icon,
-  Row,
-  Rows,
-  Section,
-  SidePanel,
-} from "@pipoca/ui";
+import { Badge, Chip, ErrorText, Icon, Row, Rows, Section } from "@pipoca/ui";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { files as plugin } from "../plugin";
 import {
@@ -43,6 +34,12 @@ interface Limits {
   readonly maxFileBytes: number;
   readonly perPersonBytes: number;
   readonly kept: number;
+}
+
+interface Snapshot {
+  readonly checkout: string;
+  readonly size: number;
+  readonly savedAt: number;
 }
 
 interface Usage {
@@ -108,7 +105,6 @@ function FilesButton({
 }: {
   readonly session: MountedSession;
 }): ReactElement | null {
-  const [open, setOpen] = useState(false);
   const kept = useSessionFiles(session.id);
   const state = useSessionState<FilesState>(session, "files");
   const unsaved = state?.unsaved ?? [];
@@ -120,64 +116,80 @@ function FilesButton({
     { changes: ["files"] },
   );
 
-  if (kept.length === 0 && unsaved.length === 0) {
+  const { value: snapshots } = useLoaded(
+    async () =>
+      (
+        await api.get<{ snapshots: Snapshot[] }>(
+          `sessions/${session.id}/snapshots`,
+        )
+      ).snapshots,
+    `snapshots:${session.id}`,
+    { changes: ["files"] },
+  );
+
+  if (
+    kept.length === 0 &&
+    unsaved.length === 0 &&
+    (snapshots ?? []).length === 0
+  ) {
     return null;
   }
 
   return (
-    <>
-      <Button
-        variant="ghost"
-        aria-expanded={open}
-        aria-label={`Files, ${String(kept.length)} kept`}
-        onClick={() => {
-          setOpen(!open);
-        }}
-      >
-        <Icon name="paperclip" className="size-3.5" />
-        Files
-      </Button>
-      <SidePanel
-        open={open}
-        title="Files"
-        closeLabel="Close files"
-        className="gap-6"
-        onClose={() => {
-          setOpen(false);
-        }}
-      >
-        {unsaved.length > 0 && (
-          <p className="text-label text-waiting">
-            {`${String(unsaved.length)} ${unsaved.length === 1 ? "file isn't" : "files aren't"} saved yet. `}
-            {state?.problem}
-          </p>
-        )}
-        {state?.problem !== undefined && unsaved.length === 0 && (
-          <ErrorText size="caption">{state.problem}</ErrorText>
-        )}
-        {limits !== undefined && limits.kept > limits.perPersonBytes && (
-          <p className="text-label text-waiting">
-            {`Your Sessions keep ${size(limits.kept)} of files, more than the ${size(limits.perPersonBytes)} this server suggests for each person. Nothing is deleted or refused.`}
-          </p>
-        )}
-        <FileList
-          sessionId={session.id}
-          place="outputs"
-          title="Outputs"
-          description="What Pi made for you"
-          files={kept}
-          unsaved={unsaved}
-        />
-        <FileList
-          sessionId={session.id}
-          place="uploads"
-          title="Uploads"
-          description="What you gave this Session"
-          files={kept}
-          unsaved={[]}
-        />
-      </SidePanel>
-    </>
+    <SessionTab
+      name="files"
+      order={20}
+      label={`Files ${String(kept.length)}`}
+      button={`Files, ${String(kept.length)} kept`}
+      icon="paperclip"
+    >
+      {unsaved.length > 0 && (
+        <p className="text-label text-waiting">
+          {`${String(unsaved.length)} ${unsaved.length === 1 ? "file isn't" : "files aren't"} saved yet. `}
+          {state?.problem}
+        </p>
+      )}
+      {state?.problem !== undefined && unsaved.length === 0 && (
+        <ErrorText size="caption">{state.problem}</ErrorText>
+      )}
+      {limits !== undefined && limits.kept > limits.perPersonBytes && (
+        <p className="text-label text-waiting">
+          {`Your Sessions keep ${size(limits.kept)} of files, more than the ${size(limits.perPersonBytes)} this server suggests for each person. Nothing is deleted or refused.`}
+        </p>
+      )}
+      <FileList
+        sessionId={session.id}
+        place="outputs"
+        title="Outputs"
+        description="What Pi made for you"
+        files={kept}
+        unsaved={unsaved}
+      />
+      <FileList
+        sessionId={session.id}
+        place="uploads"
+        title="Uploads"
+        description="What you gave this Session"
+        files={kept}
+        unsaved={[]}
+      />
+      {snapshots !== undefined && snapshots.length > 0 && (
+        <Section
+          title="Unfinished work"
+          description="What Pi changed in a repository but didn't push. The next pod clones the branch and puts it back; ignored folders like node_modules are rebuilt."
+        >
+          <Rows label="Unfinished work">
+            {snapshots.map((each) => (
+              <Row
+                key={each.checkout}
+                title={each.checkout === "." ? "The repository" : each.checkout}
+                description={`${size(each.size)} · saved ${new Date(each.savedAt).toLocaleString()}`}
+              />
+            ))}
+          </Rows>
+        </Section>
+      )}
+    </SessionTab>
   );
 }
 

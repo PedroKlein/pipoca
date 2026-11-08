@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { PluginDefinition } from "../src/definition";
 import type { MountedSession, WebPart } from "./index";
+import { SessionPanel } from "./session-panel";
 import { PluginScope, type Shell, ShellProvider } from "./shell";
 
 // React reads the page when it loads, so a part's test imports this module
@@ -53,7 +54,9 @@ function TestShell({
 
   return (
     <ShellProvider shell={shell}>
-      <PluginScope plugin={plugin.id}>{children}</PluginScope>
+      <PluginScope plugin={plugin.id}>
+        <SessionPanel>{children}</SessionPanel>
+      </PluginScope>
     </ShellProvider>
   );
 }
