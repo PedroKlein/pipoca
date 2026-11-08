@@ -2926,6 +2926,126 @@ test("shows what a Profile inherits and turns a Server base skill off in it", as
   await rm(base, { recursive: true, force: true });
 });
 
+test("lists a Profile's agents and workflows with inherited ones and edits them", async () => {
+  const base = join(root, "config", "base");
+  const own = join(root, "config", "profiles", "default");
+
+  await mkdir(join(base, "agents"), { recursive: true });
+  await mkdir(join(base, "workflows"), { recursive: true });
+  await mkdir(join(base, "skills", "review"), { recursive: true });
+
+  await writeFile(
+    join(base, "agents", "triager.md"),
+    "---\ndescription: Labels new issues\n---\n\nLabel it.\n",
+  );
+
+  await writeFile(
+    join(base, "workflows", "triage.js"),
+    '// Triages, then fixes.\nawait runs.run({ agent: "triager", task: args.task });\n',
+  );
+
+  await writeFile(
+    join(base, "skills", "review", "SKILL.md"),
+    "---\nname: review\ndescription: Reviews code\n---\n",
+  );
+
+  await page.goto(server.url.href);
+  await openSettings("Profiles");
+
+  await page
+    .getByRole("navigation", { name: "Profiles" })
+    .getByRole("link", { name: /^Default/ })
+    .click();
+
+  const agents = page.getByRole("list", { name: "Agents", exact: true });
+  const workflows = page.getByRole("list", { name: "Workflows" });
+
+  await agents.getByText("Labels new issues").waitFor();
+  await agents.getByText("Server base").waitFor();
+  await workflows.getByText("Triages, then fixes.").waitFor();
+
+  await agents.getByRole("switch", { name: "triager in Default" }).click();
+
+  await agents
+    .getByRole("switch", { name: "triager in Default", checked: false })
+    .waitFor();
+
+  await workflows.getByRole("switch", { name: "triage in Default" }).click();
+
+  await workflows
+    .getByRole("switch", { name: "triage in Default", checked: false })
+    .waitFor();
+
+  const meta = JSON.parse(
+    await readFile(join(own, "profile.json"), "utf8"),
+  ) as { off?: unknown };
+
+  expect(meta.off).toEqual(["agents/triager.md", "workflows/triage.js"]);
+
+  await page.getByRole("button", { name: "Add agent" }).click();
+  await page.getByLabel("New agent's name").fill("fixer");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+
+  const agent = page.getByRole("group", { name: "Agent fixer" });
+
+  await agent.getByLabel("Description").fill("Fixes bugs: small ones");
+  await agent.getByRole("textbox", { name: /^Model/ }).fill("faux/faux-1");
+  await agent.getByLabel("Thinking level").selectOption("high");
+  await agent.getByLabel("Add to Tools").fill("mcp__jira__search");
+  await agent.getByLabel("Add to Tools").press("Enter");
+  await agent.getByRole("checkbox", { name: "review" }).check();
+  await agent.getByLabel("Prompt").fill("Fix the bug.");
+  await page.getByRole("button", { name: "Save agent" }).click();
+  await agents.getByRole("button", { name: /^fixer/ }).waitFor();
+
+  expect(await readFile(join(own, "agents", "fixer.md"), "utf8")).toBe(
+    '---\nname: fixer\ndescription: "Fixes bugs: small ones"\nmodel: faux/faux-1\nthinking: high\ntools: mcp__jira__search\nskills: review\n---\n\nFix the bug.\n',
+  );
+
+  await page.getByRole("button", { name: "Add workflow" }).click();
+  await page.getByLabel("New workflow's name").fill("fix-loop");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+
+  const workflow = page.getByRole("group", { name: "Workflow fix-loop" });
+
+  await workflow
+    .getByLabel("Script")
+    .fill(
+      '// Fixes until reviewed.\nawait runs.run({ agent: "fixer", task: args.task });\nawait runs.run({ agent: "ghost", task: "?" });\n',
+    );
+
+  const started = page.getByRole("list", { name: "Agents it starts" });
+
+  await started.getByText("fixer").waitFor();
+  await started.getByText("not in this Profile").waitFor();
+  expect(await started.getByRole("listitem").count()).toBe(2);
+
+  await page.getByRole("button", { name: "Save workflow" }).click();
+  await workflows.getByText("Fixes until reviewed.").waitFor();
+
+  expect(
+    await readFile(join(own, "workflows", "fix-loop.js"), "utf8"),
+  ).toContain('agent: "ghost"');
+
+  await agents.getByRole("button", { name: /^fixer/ }).click();
+  await page.getByRole("button", { name: "Delete agent" }).click();
+  await confirmIn("Delete agent");
+
+  await agents
+    .getByRole("button", { name: /^fixer/ })
+    .waitFor({ state: "detached" });
+
+  await agents.getByRole("switch", { name: "triager in Default" }).click();
+  await workflows.getByRole("switch", { name: "triage in Default" }).click();
+
+  await workflows
+    .getByRole("switch", { name: "triage in Default", checked: true })
+    .waitFor();
+
+  await rm(base, { recursive: true, force: true });
+  await rm(join(own, "workflows"), { recursive: true, force: true });
+});
+
 test("imports a Profile from a picked folder with its files", async () => {
   const folder = join(root, "agent-folder");
 
