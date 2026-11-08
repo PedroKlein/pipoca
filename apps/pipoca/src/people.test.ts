@@ -808,9 +808,8 @@ test("a team Project follows who sees and steers its coordinator, and a fresh on
       [
         server.as(anas)(at),
         server.as(anas)(`${at}/settings`, { body: { goal: "Leak" } }),
-        server.as(anas)(`${at}/files/notes.md`, {
-          method: "PUT",
-          body: "planted",
+        server.as(anas)(`${at}/files`, {
+          body: { path: "notes.md", hash: "0".repeat(64) },
         }),
         server.as(anas)(`${at}/fresh`, { method: "POST" }),
       ].map(async (response) => (await response).status),

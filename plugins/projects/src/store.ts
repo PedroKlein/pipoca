@@ -1,8 +1,8 @@
 import { owners, type Store } from "@pipoca/plugins";
 import type { Actor, Clock, Owner } from "@pipoca/protocol";
 import type {
-  LibraryFile,
-  LibraryWrite,
+  FolderFile,
+  FolderWrite,
   MemoryFileView,
   Role,
   WorkState,
@@ -332,70 +332,178 @@ export function projectStore(store: Store, clock: Clock) {
         );
       });
     },
-    files: (projectId: string): readonly LibraryFile[] =>
+    folder: (projectId: string): readonly FolderFile[] =>
       store
-        .all<{ name: string; size: number; actor: string; updated_at: number }>(
-          "select name, size, actor, updated_at from projects_files where project_id = ? order by name",
+        .all<FolderRow>(
+          `select ${folderColumns} from projects_folder where project_id = ? order by path`,
           projectId,
         )
-        .map((row) => ({
-          name: row.name,
-          size: row.size,
-          actor: row.actor,
-          updatedAt: new Date(row.updated_at).toISOString(),
-        })),
-    readFile: (projectId: string, name: string): Uint8Array | undefined =>
-      store.get<{ content: Uint8Array }>(
-        "select content from projects_file_contents where project_id = ? and name = ?",
+        .map(folderFile),
+    folderFile: (projectId: string, path: string): FolderFile | undefined => {
+      const row = store.get<FolderRow>(
+        `select ${folderColumns} from projects_folder where project_id = ? and path = ?`,
         projectId,
-        name,
-      )?.content,
-    // A write replaces the file, and every write is logged (ADR 0018).
-    writeFile: (
+        path,
+      );
+
+      return row && folderFile(row);
+    },
+    // A write replaces or removes the file, and every write is logged with
+    // its hash, which keeps the earlier version until the log forgets it.
+    writeFolder: (
       projectId: string,
-      name: string,
-      content: Uint8Array,
-      actor: Actor,
+      write: Omit<FolderWrite, "id" | "at">,
     ): void => {
       const at = clock.now();
 
       store.transaction(() => {
-        store.run(
-          `insert into projects_files (project_id, name, size, actor, updated_at)
-            values (?, ?, ?, ?, ?)
-            on conflict (project_id, name) do update set size = excluded.size, actor = excluded.actor, updated_at = excluded.updated_at`,
-          projectId,
-          name,
-          content.length,
-          actor,
-          at,
-        );
+        if (write.hash === null) {
+          store.run(
+            "delete from projects_folder where project_id = ? and path = ?",
+            projectId,
+            write.path,
+          );
+        } else {
+          store.run(
+            `insert into projects_folder (project_id, path, hash, size, actor, updated_at)
+              values (?, ?, ?, ?, ?, ?)
+              on conflict (project_id, path) do update set hash = excluded.hash, size = excluded.size, actor = excluded.actor, updated_at = excluded.updated_at`,
+            projectId,
+            write.path,
+            write.hash,
+            write.size,
+            write.actor,
+            at,
+          );
+        }
 
         store.run(
-          `insert into projects_file_contents (project_id, name, content) values (?, ?, ?)
-            on conflict (project_id, name) do update set content = excluded.content`,
-          projectId,
-          name,
-          content,
-        );
-
-        store.run(
-          "insert into projects_file_log (id, project_id, name, size, actor, at) values (?, ?, ?, ?, ?, ?)",
+          "insert into projects_folder_log (id, project_id, path, hash, size, actor, conflict, at) values (?, ?, ?, ?, ?, ?, ?, ?)",
           Bun.randomUUIDv7(),
           projectId,
-          name,
-          content.length,
-          actor,
+          write.path,
+          write.hash,
+          write.size,
+          write.actor,
+          write.conflict ? 1 : 0,
           at,
         );
       });
     },
-    writes: (projectId: string): readonly LibraryWrite[] =>
+    folderWrites: (projectId: string): readonly FolderWrite[] =>
       store
-        .all<{ name: string; size: number; actor: string; at: number }>(
-          "select name, size, actor, at from projects_file_log where project_id = ? order by id desc limit 50",
+        .all<LogRow>(
+          `select ${logColumns} from projects_folder_log where project_id = ? order by id desc limit 50`,
           projectId,
         )
-        .map((row) => ({ ...row, at: new Date(row.at).toISOString() })),
+        .map(folderWrite),
+    folderWrite: (projectId: string, id: string): FolderWrite | undefined => {
+      const row = store.get<LogRow>(
+        `select ${logColumns} from projects_folder_log where project_id = ? and id = ?`,
+        projectId,
+        id,
+      );
+
+      return row && folderWrite(row);
+    },
+    // Forgets writes made before the time and returns the hashes they named.
+    forgetWrites: (before: number): readonly string[] => {
+      const hashes = store
+        .all<{ hash: string }>(
+          "select distinct hash from projects_folder_log where at < ? and hash is not null",
+          before,
+        )
+        .map(({ hash }) => hash);
+
+      store.run("delete from projects_folder_log where at < ?", before);
+
+      return hashes;
+    },
+    hashUsed: (hash: string): boolean =>
+      store.get<{ one: number }>(
+        `select 1 as one from projects_folder where hash = ?1
+         union all select 1 from projects_folder_log where hash = ?1 limit 1`,
+        hash,
+      ) !== undefined,
+    // The library's files from before the folder (ADR 0018), one at a time.
+    nextLibraryFile: ():
+      | {
+          readonly projectId: string;
+          readonly name: string;
+          readonly actor: string;
+          readonly content: Uint8Array;
+        }
+      | undefined => {
+      const row = store.get<{
+        project_id: string;
+        name: string;
+        actor: string;
+        content: Uint8Array;
+      }>(
+        `select f.project_id, f.name, f.actor, c.content
+         from projects_files f join projects_file_contents c using (project_id, name)
+         limit 1`,
+      );
+
+      return (
+        row && {
+          projectId: row.project_id,
+          name: row.name,
+          actor: row.actor,
+          content: row.content,
+        }
+      );
+    },
+    dropLibraryFile: (projectId: string, name: string): void => {
+      store.transaction(() => {
+        store.run(
+          "delete from projects_file_log where project_id = ? and name = ?",
+          projectId,
+          name,
+        );
+
+        store.run(
+          "delete from projects_files where project_id = ? and name = ?",
+          projectId,
+          name,
+        );
+      });
+    },
   };
+}
+
+interface FolderRow {
+  readonly path: string;
+  readonly hash: string;
+  readonly size: number;
+  readonly actor: string;
+  readonly updated_at: number;
+}
+
+const folderColumns = "path, hash, size, actor, updated_at";
+
+function folderFile(row: FolderRow): FolderFile {
+  return {
+    path: row.path,
+    hash: row.hash,
+    size: row.size,
+    actor: row.actor,
+    updatedAt: row.updated_at,
+  };
+}
+
+interface LogRow {
+  readonly id: string;
+  readonly path: string;
+  readonly hash: string | null;
+  readonly size: number;
+  readonly actor: string;
+  readonly conflict: number;
+  readonly at: number;
+}
+
+const logColumns = "id, path, hash, size, actor, conflict, at";
+
+function folderWrite(row: LogRow): FolderWrite {
+  return { ...row, conflict: row.conflict === 1 };
 }

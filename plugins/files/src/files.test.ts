@@ -199,6 +199,9 @@ test("Pi hears of an upload as the person's notice, and finds it in uploads/ bef
   expect(await upload("statement.pdf", "%PDF")).toBe("statement.pdf");
   expect(await upload("statement.pdf", "%PDF-2")).toBe("statement (2).pdf");
 
+  // The server hands a Session its notices in the background.
+  await until(() => host.delivered().length === 2);
+
   expect(host.delivered().map(({ text, turn }) => [text, turn])).toEqual([
     ["Ana uploaded statement.pdf (4 B) to this Session.", false],
     ["Ana uploaded statement (2).pdf (6 B) to this Session.", false],

@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { afterEach, expect, test } from "bun:test";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,7 +9,8 @@ import {
   testPlugin,
   testSession,
 } from "@pipoca/testing";
-import type { ProjectView } from "./model";
+import { until } from "@pipoca/testing/until";
+import type { FolderFile, FolderWrite, ProjectView } from "./model";
 import { server } from "./server";
 import { session } from "./session";
 
@@ -18,6 +19,7 @@ const people = [
   { id: "bo", name: "bo" },
 ];
 
+// cwd is the workspace, and the plugin's folder for the Session too.
 async function part(
   host: TestSession,
   cwd: string,
@@ -27,7 +29,8 @@ async function part(
   return testSession(session, {
     request: host.api.raw,
     cwd,
-    config: { fileLimitMb: 1 },
+    folder: cwd,
+    config: { maxFileBytes: 1024 },
     askPermission: async (question) => {
       asked.push(question);
 
@@ -36,7 +39,9 @@ async function part(
   });
 }
 
-async function project(t: PluginTest): Promise<TestSession> {
+async function shop(
+  t: PluginTest,
+): Promise<{ coordinator: TestSession; projectId: string }> {
   const environment = await t.environment({ owner: person("ana") });
 
   const made = await t.as("ana").post<ProjectView>("projects", {
@@ -45,97 +50,154 @@ async function project(t: PluginTest): Promise<TestSession> {
     environment: environment.id,
   });
 
-  return t.attach(made.coordinatorId);
+  return {
+    coordinator: await t.attach(made.coordinatorId),
+    projectId: made.id,
+  };
 }
 
-test("Sessions in a Project share files through its library, and others get no file tools", async () => {
-  await using t = await testPlugin(server, { people });
-  const folder = await mkdtemp(join(tmpdir(), "projects-library-"));
+async function threadOf(
+  t: PluginTest,
+  coordinator: TestSession,
+  title: string,
+): Promise<TestSession> {
+  const answer = await t.tool(
+    "start_thread",
+    { title, message: `Do ${title}` },
+    { session: coordinator },
+  );
 
-  try {
-    const coordinator = await project(t);
-    const inProject = await part(coordinator, folder);
+  return t.attach(/as (\S+)\.$/.exec(answer.text)?.[1] ?? "");
+}
 
-    await writeFile(join(folder, "notes.md"), "# Notes\n");
+const folders: string[] = [];
 
-    expect(
-      await inProject.tool("publish_file", { path: "notes.md" }),
-    ).toMatchObject({
-      text: "Published notes.md as notes.md (8 bytes).",
-      isError: false,
-    });
-
-    expect(await inProject.tool("list_library", {})).toMatchObject({
-      text: expect.stringContaining(
-        `notes.md · 8 bytes · session:${coordinator.id}`,
-      ) as unknown,
-    });
-
-    expect(
-      await inProject.tool("fetch_file", {
-        name: "notes.md",
-        path: "copy/n.md",
-      }),
-    ).toMatchObject({ isError: false });
-
-    expect(await readFile(join(folder, "copy/n.md"), "utf8")).toBe("# Notes\n");
-
-    expect(
-      await inProject.tool("publish_file", { path: "notes.md", name: "a/b" }),
-    ).toMatchObject({
-      isError: true,
-      text: expect.stringContaining("file names") as unknown,
-    });
-
-    const elsewhere = await t.session({ owner: person("ana") });
-    const outside = await part(elsewhere, folder);
-
-    expect(outside.tool("list_library", {})).rejects.toThrow(
-      "projects has no tool list_library",
-    );
-  } finally {
-    await rm(folder, { recursive: true, force: true });
-  }
+afterEach(async () => {
+  await Promise.all(
+    folders
+      .splice(0)
+      .map(async (each) => rm(each, { recursive: true, force: true })),
+  );
 });
 
-test("replacing a library file asks first, and reading or adding one doesn't", async () => {
+async function runnerFolder(): Promise<string> {
+  const made = await mkdtemp(join(tmpdir(), "projects-folder-"));
+
+  folders.push(made);
+
+  return made;
+}
+
+async function contentOf(path: string): Promise<string | undefined> {
+  return readFile(path, "utf8").catch(() => undefined);
+}
+
+test("Sessions in a Project share its folder, and a change one makes reaches the others before their turn", async () => {
   await using t = await testPlugin(server, { people });
-  const folder = await mkdtemp(join(tmpdir(), "projects-asks-"));
+  const { coordinator, projectId } = await shop(t);
+  const thread = await threadOf(t, coordinator, "Docs");
+  const here = await runnerFolder();
+  const there = await runnerFolder();
+  const a = await part(coordinator, here);
+  const b = await part(thread, there);
 
-  try {
-    const coordinator = await project(t);
-    const asked: string[] = [];
-    const tools = await part(coordinator, folder, asked);
+  const filesOf = async (): Promise<readonly FolderFile[]> =>
+    (
+      await t
+        .as("ana")
+        .get<{ files: FolderFile[] }>(`projects/${projectId}/files`)
+    ).files;
 
-    await writeFile(join(folder, "notes.md"), "one\n");
-    await tools.tool("publish_file", { path: "notes.md" });
-    await tools.tool("list_library", {});
-    await tools.tool("fetch_file", { name: "notes.md", path: "n.md" });
+  await a.event("session_start");
+  await b.event("session_start");
+  await mkdir(join(here, "project", "notes"), { recursive: true });
+  await writeFile(join(here, "project", "notes", "plan.md"), "one\n");
+  await a.event("agent_settled");
 
-    expect(asked).toEqual([]);
+  await until(async () => (await filesOf()).length === 1);
 
-    await writeFile(join(folder, "notes.md"), "two\n");
-    await tools.tool("publish_file", { path: "notes.md" });
+  await b.event("before_agent_start");
 
-    expect(asked).toEqual(["Replace the library file “notes.md”?"]);
+  expect(
+    await until(async () =>
+      contentOf(join(there, "project", "notes", "plan.md")),
+    ),
+  ).toBe("one\n");
 
-    const refused = await part(coordinator, folder, [], "deny");
+  await rm(join(there, "project", "notes", "plan.md"));
+  await b.event("agent_settled");
+  await until(async () => (await filesOf()).length === 0);
+  await a.event("before_agent_start");
 
-    await writeFile(join(folder, "notes.md"), "three\n");
+  await until(
+    async () =>
+      (await contentOf(join(here, "project", "notes", "plan.md"))) ===
+      undefined,
+  );
 
-    expect(await refused.tool("publish_file", { path: "notes.md" })).toEqual({
-      text: "The person said no.",
-      isError: true,
-    });
+  expect(await a.tool("list_project_files", { query: "" })).toMatchObject({
+    text: "No files match.",
+  });
 
-    expect(
-      await tools.tool("fetch_file", { name: "notes.md", path: "n.md" }),
-    ).toMatchObject({ isError: false });
+  await a.event("session_shutdown");
+  await b.event("session_shutdown");
+});
 
-    expect(await readFile(join(folder, "n.md"), "utf8")).toBe("two\n");
-  } finally {
-    await rm(folder, { recursive: true, force: true });
-  }
+test("when two Sessions change one file, the later one is kept as a copy named after its thread", async () => {
+  await using t = await testPlugin(server, { people });
+  const { coordinator, projectId } = await shop(t);
+  const thread = await threadOf(t, coordinator, "Docs");
+  const here = await runnerFolder();
+  const there = await runnerFolder();
+  const a = await part(coordinator, here);
+  const b = await part(thread, there);
+
+  await mkdir(join(here, "project"), { recursive: true });
+  await writeFile(join(here, "project", "notes.md"), "one\n");
+  await a.event("session_shutdown");
+
+  await b.event("session_start");
+  await until(async () => contentOf(join(there, "project", "notes.md")));
+
+  const again = await part(coordinator, here);
+
+  await writeFile(join(here, "project", "notes.md"), "two\n");
+  await again.event("session_shutdown");
+
+  await writeFile(join(there, "project", "notes.md"), "three\n");
+  await b.event("session_shutdown");
+
+  expect(await contentOf(join(there, "project", "notes.md"))).toBe("two\n");
+
+  expect(await contentOf(join(there, "project", "notes (from Docs).md"))).toBe(
+    "three\n",
+  );
+
+  const { writes } = await t
+    .as("ana")
+    .get<{ writes: FolderWrite[] }>(`projects/${projectId}/log`);
+
+  expect(writes[0]).toMatchObject({
+    path: "notes (from Docs).md",
+    conflict: true,
+    actor: `session:${thread.id}`,
+  });
+
+  expect(
+    await again.tool("list_project_files", { query: "docs" }),
+  ).toMatchObject({
+    text: `${join(here, "project", "notes (from Docs).md")} (6 B)`,
+  });
+});
+
+test("only Sessions in a Project get its folder", async () => {
+  await using t = await testPlugin(server, { people });
+  const elsewhere = await t.session({ owner: person("ana") });
+  const outside = await part(elsewhere, await runnerFolder());
+
+  expect(outside.tool("list_project_files", { query: "" })).rejects.toThrow(
+    "projects has no tool list_project_files",
+  );
 });
 
 test("the person's assistant is a Project of their own, outside the Project list", async () => {
@@ -351,7 +413,7 @@ test("in the assistant a tool without hints asks first, and Pi's own and hinted 
       await refused.toolCall({ name: "linear_create_issue" }, { title: "x" }),
     ).toBe("The person didn't allow linear_create_issue.");
 
-    const ordinary = await project(t);
+    const { coordinator: ordinary } = await shop(t);
     const outside: string[] = [];
 
     await (

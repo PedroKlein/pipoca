@@ -9,13 +9,20 @@ export const projects = definePlugin({
   description:
     "Groups Sessions around a coordinator that works across repositories, with shared memory and files, and runs the Pipoca assistant.",
   config: Config.object({
-    fileLimitMb: Config.number({
-      title: "Library file size limit in MB",
+    maxFileBytes: Config.number({
+      title: "Largest Project folder file",
       description:
-        "The largest file a person or a Session can add to a Project's library.",
-      default: 10,
+        "The largest file, in bytes, a person or a Session can add to a Project's folder.",
+      default: 209_715_200,
       min: 1,
-      max: 100,
+    }),
+    folderHistoryDays: Config.number({
+      title: "Days earlier versions are kept",
+      description:
+        "How long a Project folder keeps a file's earlier versions and its write log.",
+      default: 30,
+      min: 1,
+      max: 3650,
     }),
   }),
   schema: `
@@ -99,4 +106,31 @@ create table projects_file_log (
 ) strict;
 create index projects_file_log_project on projects_file_log (project_id, id);
 `,
+  // 1: the Project folder, its bytes in the blob store, replaces the
+  // library's tables, whose rows the server moves over (ADR 0078).
+  migrations: [
+    `create table projects_folder (
+  project_id text not null references projects_projects (id) on delete cascade,
+  path text not null,
+  hash text not null check (length(hash) = 64),
+  size integer not null,
+  actor text not null,
+  updated_at integer not null,
+  primary key (project_id, path)
+) strict, without rowid;
+create index projects_folder_hash on projects_folder (hash);
+
+create table projects_folder_log (
+  id text primary key,
+  project_id text not null references projects_projects (id) on delete cascade,
+  path text not null,
+  hash text check (hash is null or length(hash) = 64),
+  size integer not null,
+  actor text not null,
+  conflict integer not null default 0 check (conflict in (0, 1)),
+  at integer not null
+) strict;
+create index projects_folder_log_project on projects_folder_log (project_id, at);
+create index projects_folder_log_hash on projects_folder_log (hash);`,
+  ],
 });
