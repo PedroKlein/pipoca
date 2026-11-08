@@ -86,3 +86,36 @@ export function ghConfig(
 function tokenVariable(index: number): string {
   return `PIPOCA_GIT_TOKEN_${String(index)}`;
 }
+
+// Tokens git hosts take, which an Environment may hold as secrets.
+const writeTokens = [
+  "GH_TOKEN",
+  "GITHUB_TOKEN",
+  "GH_ENTERPRISE_TOKEN",
+  "GITHUB_ENTERPRISE_TOKEN",
+  "GITLAB_TOKEN",
+];
+
+// An Environment's variables for a Session that proposes: without the git
+// hosts' tokens, and with the machine's own credential helpers off, so its
+// git can't sign in as anyone who could push (ADR 0076).
+export function withoutGitTokens(
+  variables: Readonly<Record<string, string>>,
+): Readonly<Record<string, string>> {
+  const kept = Object.fromEntries(
+    Object.entries(variables).filter(([name]) => !writeTokens.includes(name)),
+  );
+
+  const count = Number(
+    kept["GIT_CONFIG_COUNT"] ?? process.env["GIT_CONFIG_COUNT"] ?? 0,
+  );
+
+  const first = Number.isSafeInteger(count) && count > 0 ? count : 0;
+
+  return {
+    ...kept,
+    GIT_CONFIG_COUNT: String(first + 1),
+    [`GIT_CONFIG_KEY_${String(first)}`]: "credential.helper",
+    [`GIT_CONFIG_VALUE_${String(first)}`]: "",
+  };
+}

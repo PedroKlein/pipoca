@@ -96,6 +96,7 @@ export { readSse, readSseEvents, sseResponse } from "./sse";
 export {
   blobHash,
   blobRoutes,
+  type DeclaredAction,
   type DeclaredEvent,
   type PluginInfo,
   type PluginManifest,

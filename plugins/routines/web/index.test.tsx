@@ -144,3 +144,103 @@ test("a routine's page says why it paused itself, when it resumes and what it sp
     "Spent today: 20.00 of its daily cap of 20",
   );
 });
+
+test("a run's row shows what it proposed and where each stands, and a waiting one is approved there", async () => {
+  const asked: string[] = [];
+  const slots = { page: web.pages?.[0]?.Page };
+
+  const proposal = {
+    action: "git-hosts.comment",
+    title: "Comment",
+    url: null,
+    proposedAt: "2026-11-08T10:00:00.000Z",
+  };
+
+  const detail = {
+    name: "triage",
+    title: "Triage",
+    paused: null,
+    pausedUntil: null,
+    nextAt: null,
+    lastRun: null,
+    file: "{}",
+    routine: {
+      title: "Triage",
+      when: [{ kind: "webhook" }],
+      do: { kind: "message", prompt: "Triage.", session: "s1" },
+      proposes: "never",
+    },
+    runs: [
+      {
+        id: "r1",
+        firedAt: "2026-11-08T10:00:00.000Z",
+        cause: "event",
+        sessionId: "s2",
+        outcome: "ok",
+        reason: null,
+        endedAt: null,
+        proposes: true,
+        dryRun: true,
+        proposals: [
+          {
+            ...proposal,
+            id: "p1",
+            input: { number: 3, body: "Looks like a duplicate of #2." },
+            state: "waiting",
+            result: null,
+          },
+          {
+            ...proposal,
+            id: "p2",
+            input: { number: 3, body: "Spam" },
+            state: "refused",
+            result: "the routine allows comment at most 1 time a run",
+          },
+        ],
+      },
+    ],
+    spentToday: 0,
+  };
+
+  const page = renderPart(
+    { ...web, slots },
+    "page",
+    { path: "triage" },
+    {
+      fetch: async (url, init) => {
+        asked.push(`${init?.method ?? "GET"} ${url}`);
+
+        return Promise.resolve(Response.json(detail));
+      },
+    },
+  );
+
+  await act(async () => until(() => asked.length > 0));
+
+  const proposals = page.querySelector("ul[aria-label='Proposals']");
+
+  expect(proposals?.textContent).toContain("Waiting for approval");
+  expect(proposals?.textContent).toContain("Looks like a duplicate of #2.");
+
+  expect(proposals?.textContent).toContain(
+    "RefusedCommentthe routine allows comment at most 1 time a run",
+  );
+
+  expect(page.textContent).toContain("Dry run");
+
+  expect(page.textContent).toContain(
+    "Its runs write directly, so text strangers write",
+  );
+
+  await act(async () => {
+    [...page.querySelectorAll("button")]
+      .find((button) => button.textContent === "Approve")
+      ?.click();
+
+    await until(() => asked.length > 1);
+  });
+
+  expect(asked[1]).toBe(
+    "POST /api/ext/routines/routines/triage/proposals/p1/approve",
+  );
+});

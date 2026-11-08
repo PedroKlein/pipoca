@@ -41,7 +41,7 @@ export interface Acting {
   // host, and the person's own on the others.
   readonly logins: (
     owner: Owner,
-    session: Pick<Session, "actsAs" | "workspace">,
+    session: Pick<Session, "actsAs" | "proposes" | "workspace">,
     own: readonly GitLogin[],
   ) => readonly GitLogin[];
   // The logins of team work that acts as no one in particular: on each host,
@@ -50,7 +50,7 @@ export interface Acting {
   // The bots team work signs in as, the same ones git gets: the technical
   // user it acts as, or on each host the one admins chose for the team.
   readonly teamBots: (
-    session: Pick<Session, "actsAs" | "workspace">,
+    session: Pick<Session, "actsAs" | "proposes" | "workspace">,
   ) => readonly TeamBot[];
   // What team work can reach on each host: a machine user's token, or a
   // token for each of the App's installations.
@@ -69,6 +69,10 @@ export interface Acting {
   readonly installations: (name: string) => readonly string[];
   // Fetches the installation tokens that are missing or about to expire.
   readonly refresh: () => void;
+  // The logins of a Session that proposes (ADR 0076): an App's read-only
+  // token in place of its own, and any other token only to make the
+  // workspace with, since it could push.
+  readonly readOnly: (logins: readonly GitLogin[]) => readonly GitLogin[];
 }
 
 // Sessions that act as a technical user sign git in as it (ADR 0060). The
@@ -85,6 +89,8 @@ export function acting(
   users: Collection<TechnicalUserItem>,
 ): Acting {
   const tokens = new Map<string, Cached>();
+  // Each installation token's read-only twin.
+  const reading = new Map<string, Cached>();
   const ids = new Map<string, number>();
 
   const keyOf = (name: string, account: string): string =>
@@ -111,7 +117,20 @@ export function acting(
         continue;
       }
 
-      tokens.set(key, await installationToken(host, user.app, id, clock.now()));
+      const token = await installationToken(host, user.app, id, clock.now());
+
+      tokens.set(key, token);
+
+      reading.set(
+        token.token,
+        await installationToken(host, user.app, id, clock.now(), true),
+      );
+    }
+
+    for (const [token, cached] of reading) {
+      if (!live(cached)) {
+        reading.delete(token);
+      }
     }
   };
 
@@ -181,6 +200,14 @@ export function acting(
 
   return {
     refresh,
+    readOnly: (logins) =>
+      logins.map(({ host, token }) => {
+        const twin = reading.get(token);
+
+        return live(twin)
+          ? { host, token: twin.token }
+          : { host, token, cloneOnly: true };
+      }),
     installations: (name) => installed(name).map(({ token }) => token),
     postsAs: ({ actsAs, ownedBy }, host, account) => {
       const named = actsAs === null ? undefined : users.get(actsAs.name);

@@ -277,6 +277,7 @@ export function serve(options: ServeOptions): {
     gitLogins: (repository) => {
       const session = {
         actsAs: null,
+        proposes: false,
         workspace: { kind: "clone", repository, branch: "" },
       } as const;
 

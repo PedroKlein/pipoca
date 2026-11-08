@@ -3,6 +3,7 @@ import type {
   Actor,
   Clock,
   CreateSession,
+  DeclaredAction,
   DeclaredEvent,
   EnvironmentTemplate,
   Environment,
@@ -39,6 +40,9 @@ export type StartRequest = CreateSession & {
   // The identity a plugin's gitCredentials resolve for its git, such as a
   // technical user (ADR 0060). Only plugins start Sessions acting as one.
   readonly actsAs?: ActsAs;
+  // Only plugins start a Session that proposes what it writes outside
+  // instead of writing it (ADR 0076).
+  readonly proposes?: boolean;
   // Who steers team work from the start, such as only the person whose
   // Team assistant it is (ADR 0067).
   readonly access?: SessionAccess;
@@ -323,6 +327,9 @@ export interface ToolDef<Pm extends TSchema = TSchema, Call = ToolCall> {
   readonly annotations?: {
     readonly readOnly?: boolean;
     readonly destructive?: boolean;
+    // It writes outside Pipoca, such as a Slack post. A Session that
+    // proposes doesn't get it unless it is read only (ADR 0076).
+    readonly openWorld?: boolean;
   };
   readonly exposure?: "direct" | "deferred";
   // What the system prompt says about the tool, as Pi's own tools do.
@@ -570,7 +577,50 @@ interface PluginProfiles {
   readonly baseProviders: () => readonly RegisteredProvider[];
 }
 
-export interface Providers {
+// A run that applies a proposal: its Session, whose identity the action
+// writes as (ADR 0060), and for a pull request, a git bundle of the commits
+// on its workspace branch.
+export interface ActionCall {
+  readonly session: Session;
+  readonly commits?: Uint8Array;
+}
+
+// What the action wrote, in a line, and where it is, such as a pull
+// request's address.
+export interface Applied {
+  readonly text: string;
+  readonly url?: string;
+}
+
+type ActionsOf<P extends PluginDefinition> = Exclude<P["actions"], undefined>;
+
+// A plugin's handlers by its actions' names, each given its own input. A
+// plugin known only as PluginDefinition takes any.
+export type ActionHandlers<P extends PluginDefinition> =
+  string extends keyof ActionsOf<P>
+    ? Readonly<
+        Record<string, (input: never, call: ActionCall) => Promise<Applied>>
+      >
+    : {
+        readonly [N in keyof ActionsOf<P>]: (
+          input: Static<ActionsOf<P>[N]["input"]>,
+          call: ActionCall,
+        ) => Promise<Applied>;
+      };
+
+// Every enabled plugin's actions, as a plugin that applies proposals reads
+// them (ADR 0076).
+export interface PluginActions {
+  readonly declared: () => readonly DeclaredAction[];
+  // Checks the input against the action's schema, then applies it.
+  readonly apply: (
+    type: string,
+    input: unknown,
+    call: ActionCall,
+  ) => Promise<Applied>;
+}
+
+export interface Providers<P extends PluginDefinition = PluginDefinition> {
   readonly runners: (provider: RunnerProvider) => Runners;
   readonly runtime: () => Runtime;
   readonly models: (offer: ModelOffer) => void;
@@ -582,7 +632,7 @@ export interface Providers {
   readonly gitCredentials: (
     of: (
       owner: Owner,
-      session: Pick<Session, "actsAs" | "workspace">,
+      session: Pick<Session, "actsAs" | "proposes" | "workspace">,
     ) => readonly GitLogin[],
   ) => void;
   // One plugin per server keeps the questions that wait for an answer as
@@ -591,6 +641,9 @@ export interface Providers {
   // How a plugin that publishes events posts a question back where one of
   // them came from, and so hears its answer there.
   readonly replies: (place: ReplyPlace) => void;
+  // How the plugin applies each action its definition declares.
+  // A method, so a plugin's own handlers fit where any plugin's are taken.
+  actions(handlers: ActionHandlers<P>): void;
   // Sessions on the Profile load every route tool when routeTools is true.
   readonly profile: (
     key: string,
@@ -634,7 +687,8 @@ export interface ServerContext<P extends PluginDefinition = PluginDefinition> {
   readonly blobs: Blobs;
   readonly transcript: Transcript;
   readonly urls: Urls;
-  readonly provide: Providers;
+  readonly provide: Providers<P>;
+  readonly actions: PluginActions;
   readonly secrets: Secrets;
   readonly environments: PluginEnvironments;
   readonly profiles: PluginProfiles;

@@ -61,6 +61,7 @@ export async function checkFetchable(
 
   const logins = plugins.gitLogins(`person:${person}`, {
     actsAs: null,
+    proposes: false,
     workspace: { kind: "clone", repository: url, branch: "" },
   });
 

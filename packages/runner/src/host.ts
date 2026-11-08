@@ -12,6 +12,7 @@ import {
   gitCredentials,
   hostLogins,
   prepareWorkspace,
+  withoutGitTokens,
 } from "@pipoca/workspaces";
 import {
   type Agent,
@@ -180,12 +181,22 @@ async function prepare(
     log("transcript restored from the server", { lines: restored });
   }
 
+  const proposes = assignment.proposes === true;
+
+  // A Session that proposes keeps only the logins that just read, so not
+  // the Environment's GH_TOKEN, which made its workspace.
+  const ownLogins = (
+    proposes ? (assignment.gitLogins ?? []) : gitLogins
+  ).filter(({ cloneOnly }) => cloneOnly !== true);
+
+  const own = proposes ? withoutGitTokens(environment) : environment;
+
   // Written after the restore, which may drop the Session's folder.
   const variables = {
-    ...environment,
+    ...own,
     ...(docs !== undefined && { PIPOCA_DOCS: docs }),
-    ...gitCredentials(gitLogins, { ...process.env, ...environment }),
-    ...(await writeGhConfig(join(sessionDir, "gh"), gitLogins)),
+    ...gitCredentials(ownLogins, { ...process.env, ...own }),
+    ...(await writeGhConfig(join(sessionDir, "gh"), ownLogins)),
   };
 
   return {

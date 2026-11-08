@@ -29,6 +29,20 @@ export interface EventDef<F extends TObject = TObject> {
 
 export type Events = Readonly<Record<string, EventDef>>;
 
+// What a routine's run may propose for the plugin to write outside, such as
+// a comment, which the plugin applies as the identity the run acts as
+// (ADR 0076).
+export interface ActionDef<I extends TObject = TObject> {
+  readonly title: string;
+  readonly description?: string;
+  readonly input: I;
+  // It takes the commits on the run's workspace branch, such as a pull
+  // request does.
+  readonly commits?: boolean;
+}
+
+export type Actions = Readonly<Record<string, ActionDef>>;
+
 export interface PluginDefinition<
   C extends TConfig = TConfig,
   E extends Events = Events,
@@ -50,6 +64,7 @@ export interface PluginDefinition<
   // SQL run in order after schema; never edit schema once released.
   readonly migrations?: readonly string[];
   readonly events?: E;
+  readonly actions?: Actions;
 }
 
 const idPattern = /^[a-z][a-z0-9-]*$/;
@@ -149,6 +164,10 @@ export function Secret(
     ...(o.title !== undefined && { title: o.title }),
     [annotation]: { secret: { env: o.env === true } },
   });
+}
+
+export function action<I extends TObject>(o: ActionDef<I>): ActionDef<I> {
+  return o;
 }
 
 export function event<F extends TObject>(o: {

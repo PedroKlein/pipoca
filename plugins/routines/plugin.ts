@@ -86,6 +86,8 @@ create index routines_wakeups_session on routines_wakeups (session_id, delivered
   // 3: guards (ADR 0076): a pause that ends by itself, retries, a run's
   // running time and branch, what each routine spent today, and the pull
   // requests runs opened.
+  // 4: allowed actions (ADR 0076): runs that propose, dry runs, what they
+  // proposed, and recent events that fired nothing, for test on save.
   migrations: [
     "alter table routines_runs add column inputs text check (inputs is null or json_valid(inputs));",
     "alter table routines_runs add column agent text; alter table routines_runs add column workflow text;",
@@ -110,6 +112,36 @@ create table routines_pulls (
   open integer not null check (open in (0, 1)),
   primary key (run_id, url)
 ) strict, without rowid;
+`,
+    `
+alter table routines_runs add column proposes integer not null default 0 check (proposes in (0, 1));
+alter table routines_runs add column dry integer not null default 0 check (dry in (0, 1));
+
+create table routines_proposals (
+  id text primary key,
+  run_id text not null references routines_runs (id) on delete cascade,
+  action text not null,
+  title text not null,
+  input text not null check (json_valid(input)),
+  commits text,
+  state text not null check (state in ('proposed', 'waiting', 'applied', 'failed', 'rejected', 'refused', 'shown')),
+  result text,
+  url text,
+  decided_by text references users (id) on delete set null,
+  proposed_at integer not null,
+  ended_at integer
+) strict;
+create index routines_proposals_run on routines_proposals (run_id, proposed_at);
+create index routines_proposals_commits on routines_proposals (commits) where commits is not null;
+
+create table routines_heard (
+  id text primary key,
+  type text not null,
+  fields text not null check (json_valid(fields)),
+  audience text not null check (json_valid(audience)),
+  heard_at integer not null
+) strict;
+create index routines_heard_type on routines_heard (type, heard_at);
 `,
   ],
 });

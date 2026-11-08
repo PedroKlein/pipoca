@@ -55,7 +55,8 @@ export function startPoller(
       return;
     }
 
-    const brief = watch.briefed ? "" : `\n\n${rules(reply)}`;
+    const proposes = sessions.get(watch.sessionId)?.proposes === true;
+    const brief = watch.briefed ? "" : `\n\n${rules(reply, proposes)}`;
 
     // A pull request that ended needs no fix, so its news waits for the
     // Session's next turn.

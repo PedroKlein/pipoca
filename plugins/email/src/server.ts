@@ -2,11 +2,12 @@ import {
   BadRequest,
   defineServer,
   NotFound,
+  type Static,
   ToolError,
   Type,
 } from "@pipoca/plugins";
-import type { Owner } from "@pipoca/protocol";
-import { email } from "../plugin";
+import type { Owner, Session } from "@pipoca/protocol";
+import { email, sendMail } from "../plugin";
 import {
   check,
   type Mail,
@@ -33,25 +34,6 @@ const newMailbox = Type.Object({
   smtp: mailServer,
 });
 
-const sendMail = Type.Object(
-  {
-    to: Type.String({ description: "One address, or several split by commas" }),
-    subject: Type.String(),
-    text: Type.String({ description: "Plain text" }),
-    in_reply_to: Type.Optional(
-      Type.String({
-        description: "The Message-ID of the mail this replies to",
-      }),
-    ),
-    mailbox: Type.Optional(
-      Type.String({
-        description: "Which mailbox, when the user has more than one",
-      }),
-    ),
-  },
-  { additionalProperties: false },
-);
-
 interface State {
   readonly uid_validity: string;
   readonly last_uid: number;
@@ -69,6 +51,7 @@ export const server = defineServer(email, (context) => {
     sessions,
     store,
     tools,
+    provide,
     clock,
   } = context;
 
@@ -197,45 +180,62 @@ export const server = defineServer(email, (context) => {
     );
   });
 
+  const sent = async (
+    input: Static<typeof sendMail>,
+    session: Session,
+  ): Promise<{ readonly from: string; readonly messageId: string }> => {
+    const mine = usable([session.ownedBy]);
+
+    const only = mine.length === 1 ? mine[0]?.name : undefined;
+
+    const mailbox = mine.find(({ name }) => name === (input.mailbox ?? only));
+
+    if (mailbox === undefined) {
+      throw new ToolError(
+        `name one of these mailboxes: ${mine.map(({ name }) => name).join(", ")}`,
+      );
+    }
+
+    const messageId = await send(mailbox, {
+      to: input.to,
+      subject: input.subject,
+      text: input.text,
+      ...(input.in_reply_to !== undefined && {
+        inReplyTo: input.in_reply_to,
+      }),
+    }).catch((failure: unknown) => {
+      throw failure instanceof MailRefused
+        ? new ToolError(failure.message)
+        : failure;
+    });
+
+    sessions.bind(threadOf(mailbox.name, messageId), session.id);
+
+    return { from: mailbox.address, messageId };
+  };
+
   tools.define({
     name: "email_send",
     description:
       "Sends an email from one of the user's mailboxes, or replies to one by its Message-ID. Replies to what you send come back to this Session as messages.",
     params: sendMail,
     exposure: "direct",
-    annotations: { readOnly: false, destructive: false },
+    annotations: { readOnly: false, destructive: false, openWorld: true },
     when: {
       available: (session) => usable([session.ownedBy]).length > 0,
     },
-    run: async (input, { session, owner }) => {
-      const mine = usable([owner]);
+    run: async (input, { session }) => {
+      const { from, messageId } = await sent(input, session);
 
-      const only = mine.length === 1 ? mine[0]?.name : undefined;
+      return `Sent from ${from} to ${input.to} (Message-ID ${messageId}). Replies come back here.`;
+    },
+  });
 
-      const mailbox = mine.find(({ name }) => name === (input.mailbox ?? only));
+  provide.actions({
+    send: async (input, { session }) => {
+      const { from, messageId } = await sent(input, session);
 
-      if (mailbox === undefined) {
-        throw new ToolError(
-          `name one of these mailboxes: ${mine.map(({ name }) => name).join(", ")}`,
-        );
-      }
-
-      const messageId = await send(mailbox, {
-        to: input.to,
-        subject: input.subject,
-        text: input.text,
-        ...(input.in_reply_to !== undefined && {
-          inReplyTo: input.in_reply_to,
-        }),
-      }).catch((failure: unknown) => {
-        throw failure instanceof MailRefused
-          ? new ToolError(failure.message)
-          : failure;
-      });
-
-      sessions.bind(threadOf(mailbox.name, messageId), session.id);
-
-      return `Sent from ${mailbox.address} to ${input.to} (Message-ID ${messageId}). Replies come back here.`;
+      return { text: `Sent from ${from} to ${input.to} (${messageId})` };
     },
   });
 

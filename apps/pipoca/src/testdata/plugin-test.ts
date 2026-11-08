@@ -740,6 +740,7 @@ export async function pluginTest(
       plugin: by = plugin.id,
       profile,
       actsAs,
+      proposes,
       access,
       workspace = { kind: "folder", path: root },
     }) => {
@@ -763,6 +764,7 @@ export async function pluginTest(
         ...(key !== undefined && { key }),
         ...(profile !== undefined && { profile }),
         ...(actsAs !== undefined && { actsAs }),
+        ...(proposes === true && { proposes }),
         ...(access !== undefined && { access }),
         ...(personal === undefined && {
           team: true,

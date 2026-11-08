@@ -4,6 +4,9 @@ export { type Retry, retryAfter } from "./retry";
 export type { SessionBlobs } from "./blobs";
 export type { TypedClient } from "./client";
 export {
+  action,
+  type ActionDef,
+  type Actions,
   Config,
   definePlugin,
   event,
@@ -24,6 +27,8 @@ export {
 export { type Static, Type } from "typebox";
 export { owners } from "./owners";
 export {
+  type ActionCall,
+  type Applied,
   type Auth,
   type Blobs,
   type Caller,
@@ -37,6 +42,7 @@ export {
   type PersonCaller,
   type PublicCaller,
   type People,
+  type PluginActions,
   type PluginConfig,
   type Person,
   type PluginEvents,

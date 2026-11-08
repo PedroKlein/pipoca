@@ -74,7 +74,13 @@ export const listedProviders = Type.Object({
 
 export type ListedProviders = Wire<typeof listedProviders>;
 
-const gitLogin = Type.Object({ host: Type.String(), token: Type.String() });
+const gitLogin = Type.Object({
+  host: Type.String(),
+  token: Type.String(),
+  // Only for making the workspace: the Session's own git and gh never get
+  // it, such as a token that could push for a Session that proposes.
+  cloneOnly: Type.Optional(Type.Boolean()),
+});
 
 export type GitLogin = Wire<typeof gitLogin>;
 
@@ -121,6 +127,9 @@ const assignment = Type.Object({
   // The git hosts the Session's owner connected (ADR 0043). Older servers
   // leave it out.
   gitLogins: Type.Optional(Type.Array(gitLogin)),
+  // The Session proposes what it writes outside (ADR 0076), so its git and
+  // gh get no token that could push, not even the Environment's own.
+  proposes: Type.Optional(Type.Boolean()),
   // The Session last ran on another runner, so this one drops what it kept
   // of it and starts as a runner that never ran it (ADR 0032). Older servers
   // leave it out.

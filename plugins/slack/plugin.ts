@@ -1,4 +1,11 @@
-import { Config, event, definePlugin, Secret, Type } from "@pipoca/plugins";
+import {
+  action,
+  Config,
+  event,
+  definePlugin,
+  Secret,
+  Type,
+} from "@pipoca/plugins";
 
 const bot = Type.Object({
   name: Type.String({ title: "Name" }),
@@ -17,6 +24,27 @@ const heard = {
     description: "The message's timestamp, its id in the channel",
   }),
 };
+
+// A post to a channel or a thread, as a bot of the Session's owner.
+export const post = Type.Object(
+  {
+    channel: Type.String({
+      description: "The channel's id, such as C0123456, or its name",
+    }),
+    text: Type.String({ description: "Slack mrkdwn" }),
+    thread_ts: Type.Optional(
+      Type.String({
+        description: "The thread to reply in, by its first message's ts",
+      }),
+    ),
+    bot: Type.Optional(
+      Type.String({
+        description: "Which bot, when the user has more than one",
+      }),
+    ),
+  },
+  { additionalProperties: false },
+);
 
 export const slack = definePlugin({
   id: "slack",
@@ -80,6 +108,15 @@ create index slack_questions_thread on slack_questions (bot, channel, thread_ts)
           description: "The emoji's name, such as eyes",
         }),
       }),
+    }),
+  },
+  // What a routine's runs may propose (ADR 0076).
+  actions: {
+    post: action({
+      title: "Post to Slack",
+      description:
+        "Posts in a channel or a thread as one of the routine owner's bots.",
+      input: post,
     }),
   },
 });

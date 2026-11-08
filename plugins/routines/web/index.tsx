@@ -13,6 +13,7 @@ import {
   buttonClass,
   Checkbox,
   cn,
+  Code,
   ErrorText,
   Field,
   Icon,
@@ -26,10 +27,12 @@ import {
   useConfirm,
 } from "@pipoca/ui";
 import type { TypedClient } from "@pipoca/plugins";
-import type { DeclaredEvent } from "@pipoca/protocol";
+import type { DeclaredAction, DeclaredEvent } from "@pipoca/protocol";
 import { type ReactElement, useState } from "react";
 import { routines } from "../plugin";
 import type {
+  Proposal,
+  ProposalState,
   RoutineDetail,
   RoutineView,
   Run,
@@ -255,7 +258,7 @@ function RoutinePage({
     { changes },
   );
 
-  const [runForm, setRunForm] = useState(false);
+  const [runForm, setRunForm] = useState<"run" | "dry" | undefined>();
   const inputs = Object.entries(routine?.routine?.inputs ?? {});
 
   const act = (action: string, body?: object): void => {
@@ -263,7 +266,7 @@ function RoutinePage({
 
     api.post(`${path}/${action}`, body).then(
       () => {
-        setRunForm(false);
+        setRunForm(undefined);
         reload();
       },
       (error: unknown) => {
@@ -298,20 +301,29 @@ function RoutinePage({
           <ErrorText size="inherit" className="text-ui">
             {routine.error}
           </ErrorText>
+          {writesOnOutsideInput(routine) && (
+            <p className="text-ui text-waiting">
+              Its runs write directly, so text strangers write in an issue,
+              message or webhook can make it push or post.
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
-            <Button
-              variant="primary"
-              disabled={routine.error !== undefined}
-              onClick={() => {
-                if (inputs.length === 0) {
-                  act("run", {});
-                } else {
-                  setRunForm(!runForm);
-                }
-              }}
-            >
-              Run now
-            </Button>
+            {(["run", "dry"] as const).map((kind) => (
+              <Button
+                key={kind}
+                variant={kind === "run" ? "primary" : "default"}
+                disabled={routine.error !== undefined}
+                onClick={() => {
+                  if (inputs.length === 0) {
+                    act("run", { dryRun: kind === "dry" });
+                  } else {
+                    setRunForm(runForm === kind ? undefined : kind);
+                  }
+                }}
+              >
+                {kind === "run" ? "Run now" : "Dry run"}
+              </Button>
+            ))}
             <Button
               onClick={() => {
                 act(routine.paused === null ? "pause" : "resume");
@@ -348,11 +360,12 @@ function RoutinePage({
           </div>
         </div>
       )}
-      {runForm && (
+      {runForm !== undefined && (
         <RunForm
           inputs={inputs}
+          dryRun={runForm === "dry"}
           onRun={(given) => {
-            act("run", { inputs: given });
+            act("run", { inputs: given, dryRun: runForm === "dry" });
           }}
         />
       )}
@@ -392,6 +405,7 @@ function RoutinePage({
                 key={run.id}
                 href={pageAt(`${scope.prefix}${name}/${run.sessionId ?? ""}`)}
                 run={run}
+                act={act}
               />
             ))}
           </ul>
@@ -529,6 +543,7 @@ function Editor({
         {failure}
       </ErrorText>
       <DeclaredEvents api={api} />
+      <DeclaredActions api={api} />
       <div>
         <Button type="submit" variant="primary">
           Save
@@ -576,14 +591,62 @@ function DeclaredEvents({
   );
 }
 
+// What a routine's actions can name, with the input each takes.
+function DeclaredActions({
+  api,
+}: {
+  readonly api: TypedClient;
+}): ReactElement | null {
+  const actions = useLoaded(
+    async () => api.get<DeclaredAction[]>("actions"),
+    "actions",
+  ).value;
+
+  if (actions === undefined || actions.length === 0) {
+    return null;
+  }
+
+  return (
+    <details className="text-label text-fg-dim">
+      <summary className="cursor-pointer">
+        Actions runs may propose, as{" "}
+        {'"actions": { type: max } or { type: { "max": 3, "approve": true } }'}
+      </summary>
+      <ul className="mt-2 flex flex-col gap-2">
+        {actions.map((action) => (
+          <li key={action.type}>
+            <code className="text-fg">{action.type}</code>: {action.title}
+            {action.description !== undefined && ` ${action.description}`}
+            <span className="block">
+              Input: {fieldNames(action.input).join(", ")}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+// Whether runs that outside input fires write directly (ADR 0076).
+function writesOnOutsideInput(routine: RoutineDetail): boolean {
+  return (
+    routine.routine?.proposes === "never" &&
+    routine.routine.when.some(
+      ({ kind }) => kind === "event" || kind === "webhook",
+    )
+  );
+}
+
 type Input = NonNullable<Routine["inputs"]>[string];
 
 // The routine's inputs as a form, each starting at its default, for one run.
 function RunForm({
   inputs,
+  dryRun,
   onRun,
 }: {
   readonly inputs: readonly (readonly [string, Input])[];
+  readonly dryRun: boolean;
   readonly onRun: (inputs: Readonly<Record<string, unknown>>) => void;
 }): ReactElement {
   const [values, setValues] = useState<Record<string, string | boolean>>(() =>
@@ -665,7 +728,7 @@ function RunForm({
       })}
       <div>
         <Button type="submit" variant="primary">
-          Run
+          {dryRun ? "Dry run" : "Run"}
         </Button>
       </div>
     </form>
@@ -683,13 +746,16 @@ function fieldNames(schema: Readonly<Record<string, unknown>>): string[] {
 function RunRow({
   href,
   run,
+  act,
 }: {
   readonly href: string;
   readonly run: Run;
+  readonly act: (action: string, body?: object) => void;
 }): ReactElement {
   const label = (
     <>
       <OutcomeBadge outcome={run.outcome} />
+      {run.dryRun === true && <Badge state="offline">Dry run</Badge>}
       <time dateTime={run.firedAt} className="shrink-0 text-fg-dim">
         {new Date(run.firedAt).toLocaleString()}
       </time>
@@ -702,17 +768,104 @@ function RunRow({
 
   return (
     <li className="text-label">
-      {run.sessionId === null ? (
-        <span className="flex min-w-0 items-center gap-2 px-2 py-1">
-          {label}
-        </span>
-      ) : (
-        <a
-          href={href}
-          className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1 hover:bg-hover"
+      <div className="flex min-w-0 items-center gap-1">
+        {run.sessionId === null ? (
+          <span className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1">
+            {label}
+          </span>
+        ) : (
+          <a
+            href={href}
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 hover:bg-hover"
+          >
+            {label}
+          </a>
+        )}
+        <Button
+          variant="ghost"
+          aria-label={`Replay the run of ${new Date(run.firedAt).toLocaleString()}`}
+          onClick={() => {
+            act(`runs/${run.id}/replay`, {});
+          }}
         >
-          {label}
-        </a>
+          Replay
+        </Button>
+      </div>
+      {run.proposals !== undefined && run.proposals.length > 0 && (
+        <ul aria-label="Proposals" className="ml-6 flex flex-col gap-1 py-1">
+          {run.proposals.map((proposal) => (
+            <ProposalRow key={proposal.id} proposal={proposal} act={act} />
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+const proposalStates: Readonly<
+  Record<ProposalState, { readonly state: BadgeState; readonly label: string }>
+> = {
+  proposed: { state: "waiting", label: "Proposed" },
+  waiting: { state: "waiting", label: "Waiting for approval" },
+  applied: { state: "done", label: "Applied" },
+  failed: { state: "failed", label: "Failed" },
+  rejected: { state: "offline", label: "Rejected" },
+  refused: { state: "failed", label: "Refused" },
+  shown: { state: "offline", label: "Not applied: dry run" },
+};
+
+// What a run proposed, exactly as it would be written, and where it stands.
+function ProposalRow({
+  proposal,
+  act,
+}: {
+  readonly proposal: Proposal;
+  readonly act: (action: string, body?: object) => void;
+}): ReactElement {
+  const { state, label } = proposalStates[proposal.state];
+
+  return (
+    <li className="flex flex-col gap-1">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <Badge state={state}>{label}</Badge>
+        <span className="text-fg">{proposal.title}</span>
+        {proposal.url !== null && (
+          <a
+            href={proposal.url}
+            target="_blank"
+            rel="noreferrer"
+            className="min-w-0 truncate text-fg-dim hover:underline"
+          >
+            {proposal.url}
+          </a>
+        )}
+        {proposal.result !== null && proposal.url === null && (
+          <span className="min-w-0 truncate text-fg-dim">
+            {proposal.result}
+          </span>
+        )}
+      </div>
+      <Code label={`What ${proposal.title} writes`} wrap>
+        {JSON.stringify(proposal.input, null, 2)}
+      </Code>
+      {proposal.state === "waiting" && (
+        <div className="flex gap-2">
+          <Button
+            variant="primary"
+            onClick={() => {
+              act(`proposals/${proposal.id}/approve`);
+            }}
+          >
+            Approve
+          </Button>
+          <Button
+            onClick={() => {
+              act(`proposals/${proposal.id}/reject`);
+            }}
+          >
+            Reject
+          </Button>
+        </div>
       )}
     </li>
   );

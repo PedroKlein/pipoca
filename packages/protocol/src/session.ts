@@ -288,6 +288,9 @@ export const session = Type.Object({
   // The identity its git acts as instead of startedBy, such as a GitHub App
   // a plugin's work runs as (ADR 0060). The plugin it names resolves it.
   actsAs: nullable(actsAs),
+  // Its git reads but can't push, and it gets no tools that post outside,
+  // such as a routine run fired by outside input (ADR 0076).
+  proposes: Type.Boolean(),
   ownedBy: owner,
   // A personal Session's is always team, since only its person reaches it.
   access: sessionAccess,

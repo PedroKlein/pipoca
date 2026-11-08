@@ -171,12 +171,26 @@ function appJwt(id: number, privateKey: string, at: number): string {
   return `${unsigned}.${signature.toString("base64url")}`;
 }
 
-// A token for one installation of the App, which GitHub lets live an hour.
+// What a Session that proposes reads with: the manifest's permissions, each
+// only to read (ADR 0076).
+const readOnly = {
+  contents: "read",
+  pull_requests: "read",
+  issues: "read",
+  checks: "read",
+  statuses: "read",
+  actions: "read",
+  metadata: "read",
+} as const;
+
+// A token for one installation of the App, which GitHub lets live an hour,
+// with every permission the App has, or only to read.
 export async function installationToken(
   host: HostConfig,
   app: AppUser["app"],
   installation: number,
   now: number,
+  reads = false,
 ): Promise<{ readonly token: string; readonly expiresAt: number }> {
   const response = await reach(
     host,
@@ -186,7 +200,9 @@ export async function installationToken(
       headers: {
         accept: "application/vnd.github+json",
         authorization: `Bearer ${appJwt(app.id, app.privateKey, now)}`,
+        ...(reads && { "content-type": "application/json" }),
       },
+      ...(reads && { body: JSON.stringify({ permissions: readOnly }) }),
     },
   );
 
