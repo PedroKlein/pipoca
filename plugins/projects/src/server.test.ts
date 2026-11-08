@@ -134,7 +134,7 @@ test("thread reports reach an offline coordinator in order once it is back", asy
   ).toEqual([
     [
       `[Project notice] Thread "Docs" (${thread.id}) finished a turn. Run state: idle. Work state: in_progress.`,
-      true,
+      false,
     ],
     [
       `[Project notice] Thread "Docs" (${thread.id}) set its work state to review_ready: Ready. Run state: idle. Work state: review_ready.`,
@@ -196,6 +196,21 @@ test("a thread's later message never overtakes its waiting turn report", async (
   await s.t.clock.advance("2s");
 
   expect(s.coordinator.delivered()).toHaveLength(2);
+});
+
+test("a thread's finished turn reaches the coordinator as context, without a turn", async () => {
+  const s = await started();
+  await using _ = s.t;
+  const thread = await threadOf(s, "Docs");
+
+  await thread.turn([asked("Do Docs"), reply("Drafting continues.")]);
+
+  await until(() => s.coordinator.delivered().length === 1);
+
+  expect(s.coordinator.delivered()[0]).toMatchObject({
+    text: expect.stringContaining("Drafting continues.") as unknown,
+    turn: false,
+  });
 });
 
 test("a thread that messaged the coordinator reports its turn as context", async () => {

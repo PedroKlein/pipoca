@@ -204,16 +204,13 @@ export const server = defineServer(projects, (context) => {
       log("thread turn failed", { sessionId: threadId, error: turn.error });
     }
 
-    // A thread that messaged the coordinator this turn already started a
-    // coordinator turn, so its notice is only context. So is a failed turn:
-    // a coordinator woken by it tends to retry the thread on the same model,
-    // which fails the same way.
+    // A finished turn is only context, as in Claude Code: the person talks
+    // to the thread directly, so a coordinator woken by each turn only
+    // repeats it. A thread that needs the coordinator messages it.
     report(project, {
       text,
       notice,
-      turn:
-        turn.error === undefined &&
-        !turn.called.includes("message_coordinator"),
+      turn: false,
       dedupe: `turn:${threadId}:${String(end ?? transcript.length(threadId))}`,
     });
   };
