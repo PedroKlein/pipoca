@@ -38,6 +38,7 @@ import type {
   WakeUp,
 } from "../src/model";
 import type { Routine } from "../src/routine";
+import { NewRoutine } from "./create";
 import {
   changes,
   failureOf,
@@ -122,7 +123,7 @@ function RoutineList(): ReactElement {
   return (
     <Page
       title="Routines"
-      description="A routine runs a prompt on a schedule, each time in a new Session of its own, or as a message to one of your Sessions. Ask the assistant to make one, or write its JSON here."
+      description="A routine runs a prompt on a schedule or when something happens, each time in a new Session of its own, or as a message to one of your Sessions. Describe one in a sentence, ask the assistant, or write its JSON."
       actions={
         <>
           <a href={pageAt(`${groupPage}new`)} className={buttonClass()}>
@@ -264,6 +265,7 @@ function RoutinePage({
   const [ask, asking] = useConfirm();
   const creating = name === "new";
   const [editing, setEditing] = useState(creating);
+  const [asJson, setAsJson] = useState(false);
   const [failure, setFailure] = useState<string>();
   const path = `${scope.prefix}routines/${encodeURIComponent(name)}`;
 
@@ -289,6 +291,17 @@ function RoutinePage({
       },
     );
   };
+
+  if (creating && !asJson) {
+    return (
+      <NewRoutine
+        prefix={scope.prefix}
+        onJson={() => {
+          setAsJson(true);
+        }}
+      />
+    );
+  }
 
   return (
     <Page

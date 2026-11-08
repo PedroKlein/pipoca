@@ -194,6 +194,8 @@ export function person(id: string): Owner {
 
 export interface SessionTest {
   readonly tool: (name: string, input: unknown) => Promise<ToolAnswer>;
+  // A person typing /<name> <args>: the messages the part's command sent.
+  readonly command: (name: string, args: string) => Promise<readonly unknown[]>;
   // Pi's event of this type, such as "agent_settled", through the part's
   // handlers, in Pi's working directory and the rest of the context given:
   // what each handler returned.
@@ -237,6 +239,8 @@ export async function testSession(
   const { config, cwd, ...faked } = fakes;
   const { id, config: schema } = part.plugin;
   const others: Pick<ToolInfo, "name" | "annotations">[] = [];
+  const commands = new Map<string, (args: string) => Promise<void>>();
+  const sent: unknown[] = [];
   const hooks: ((event: unknown, ctx: unknown) => unknown)[] = [];
 
   const handlers: {
@@ -266,7 +270,15 @@ export async function testSession(
     registerTool: (tool: ToolDefinition) => {
       tools.push(tool);
     },
-    registerCommand: () => undefined,
+    registerCommand: (
+      name: string,
+      command: { readonly handler: (args: string) => Promise<void> },
+    ) => {
+      commands.set(name, command.handler);
+    },
+    sendMessage: (message: unknown) => {
+      sent.push(message);
+    },
     registerProvider: (name: string, provider: unknown) => {
       providers.set(name, provider);
     },
@@ -326,6 +338,18 @@ export async function testSession(
           isError: true,
         };
       }
+    },
+    command: async (name, args) => {
+      const handler = commands.get(name);
+
+      if (handler === undefined) {
+        throw new Error(`${id} has no command ${name}`);
+      }
+
+      const before = sent.length;
+      await handler(args);
+
+      return sent.slice(before);
     },
     event: async (type, fields = {}, context = {}) => {
       const results: unknown[] = [];

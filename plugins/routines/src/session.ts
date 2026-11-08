@@ -12,6 +12,7 @@ import {
   Type,
 } from "@pipoca/plugins";
 import { routines } from "../plugin";
+import { routineCommand } from "./command";
 import { defaultMemoryFile } from "./memory";
 import type { Proposal } from "./model";
 import type { Allowed } from "./routine";
@@ -31,8 +32,10 @@ interface Memory {
 // A routine's run that can't push or post proposes what to write instead,
 // which Pipoca applies after its turn (ADR 0076). A run of a routine in a
 // group reads the group's memory as files and adds to it (ADR 0075). Other
-// Sessions get no tool.
+// Sessions get no tool. Every Session gets /routine.
 export const session = defineSession(routines, async (s) => {
+  routineCommand(s);
+
   const [proposing, memory] = await Promise.all([
     unlessMissing(s.api.get<Proposing>("run")),
     unlessMissing(s.api.get<Memory>("memory")),
