@@ -1,10 +1,11 @@
 # AGENTS.md
 
-Pipoca is a self-hosted server for durable Pi sessions and Projects on your own machines. Start with [README.md](README.md), [docs/concepts.md](docs/concepts.md) and [docs/guide.md](docs/guide.md), then [docs/vision.md](docs/vision.md) for scope and [docs/adr/](docs/adr/) for decisions.
+Pipoca is a self-hosted server for durable Pi sessions and Projects on your own machines. Start with [README.md](README.md), [docs/get-started/concepts.md](docs/get-started/concepts.md) and the docs in [docs/](docs/README.md), then [docs/vision.md](docs/vision.md) for scope and [docs/adr/](docs/adr/) for decisions.
 
 ## Where things stand
 
 - The code is being rebuilt in slices on the `rebuild` branch ([ADR 0068](docs/adr/0068-clean-rebuild.md)). The rebuild adds no features: [docs/acceptance/rebuild.md](docs/acceptance/rebuild.md) lists what must keep working.
+- User docs live in `docs/` by section (`get-started`, `run`, `use`, `admin`, `build-plugins`, `reference`). GitHub, every Session's Pi and the site in `apps/site` read the same files, so each page needs `title` frontmatter and links to other pages by relative `.md` paths. A change to what Pipoca does updates its page.
 - Accepted decisions live in `docs/adr/NNNN-title.md`. Open ones live in [docs/open-questions.md](docs/open-questions.md). Don't treat a working assumption in another doc as decided.
 - Claude Code (cloud sessions, self-hosted runners, Remote Control, Projects) is the main reference design. When you make a design choice, compare it with how Claude Code does the same thing and cite the docs.
 

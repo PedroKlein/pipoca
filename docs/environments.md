@@ -1,6 +1,6 @@
 # Pipoca Environments
 
-> Status: early design notes, kept for their reasoning. What is built is in [concepts.md](concepts.md), the [guide](guide.md) and [ADR 0032](adr/0032-environments-and-runners.md) and [ADR 0049](adr/0049-personal-environments-and-templates.md): an Environment is one person's or the team's settings plus a pool of runners, with no revisions.
+> Status: early design notes, kept for their reasoning. What is built is in [Concepts](get-started/concepts.md), [Environments and runners](admin/environments.md) and [ADR 0032](adr/0032-environments-and-runners.md) and [ADR 0049](adr/0049-personal-environments-and-templates.md): an Environment is one person's or the team's settings plus a pool of runners, with no revisions.
 
 ## Purpose
 

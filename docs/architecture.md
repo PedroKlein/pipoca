@@ -1,6 +1,9 @@
-# Pipoca architecture
+---
+title: Architecture
+description: How the parts of Pipoca fit together today.
+---
 
-How the parts of Pipoca fit together today. The words are defined in [concepts.md](concepts.md), and each decision has its reasons in [adr/](adr/).
+How the parts of Pipoca fit together today. The words are defined in [Concepts](get-started/concepts.md), and each decision has its reasons in [adr/](adr/).
 
 ## Processes
 

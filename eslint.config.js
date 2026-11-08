@@ -5,7 +5,12 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["**/dist/", "**/node_modules/", "apps/desktop/src-tauri/target/"],
+    ignores: [
+      "**/dist/",
+      "**/node_modules/",
+      "**/.astro/",
+      "apps/desktop/src-tauri/target/",
+    ],
   },
   js.configs.recommended,
   tseslint.configs.strictTypeChecked,
@@ -94,6 +99,11 @@ export default tseslint.config(
         },
       ],
     },
+  },
+  {
+    // Astro reads its config from the file's default export.
+    files: ["apps/site/astro.config.ts"],
+    rules: { "no-restricted-exports": "off" },
   },
   {
     // Built-in plugins use only what a third-party plugin gets (ADR 0038).

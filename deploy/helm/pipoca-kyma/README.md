@@ -6,7 +6,7 @@ Pipoca on SAP BTP's Kyma ([ADR 0073](../../../docs/adr/0073-kyma-chart-on-the-pl
 - previews at `*.<host>`, with their own certificate, gateway and APIRule, when `apiRule.previews` is on
 - Istio's sidecar for the server pod, `trustProxy`, and the inject label on the seeded pod template, so runner pods join the mesh
 
-The plain chart's values go under `pipoca:`. The guide's [On Kyma](../../../docs/guide.md#on-kyma) section has the rest.
+The plain chart's values go under `pipoca:`. The docs' [On Kyma](../../../docs/run/kubernetes.md#on-kyma) section has the rest.
 
 ```sh
 helm dependency build deploy/helm/pipoca-kyma

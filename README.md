@@ -82,7 +82,7 @@ The home screen talks to the Pipoca assistant. It can start sessions, set up Pro
   <img src="docs/images/plugins-light.png" alt="The Plugins page listing built-in plugins and an install box">
 </picture>
 
-Built-in features are plugins you can switch off. Install more from a git repository or a `.tgz` URL. A new plugin installs turned off, and turning it on lists the capabilities it asks for first. A plugin can add server routes, web pages and settings, and Pi extensions or tools to every session. See [docs/plugins.md](docs/plugins.md).
+Built-in features are plugins you can switch off. Install more from a git repository or a `.tgz` URL. A new plugin installs turned off, and turning it on lists the capabilities it asks for first. A plugin can add server routes, web pages and settings, and Pi extensions or tools to every session. See [Build plugins](docs/build-plugins/overview.md).
 
 ### Check in from your phone
 
@@ -98,7 +98,7 @@ The whole UI works on a phone, terminal included, with a key bar for the keys a 
 ### Run sessions wherever the work needs
 
 - **Your laptop.** An agent connects out to the server, so the laptop needs no open port. If it sleeps, its sessions catch up when it reconnects.
-- **A VM.** The server can run sessions itself, each in a fresh clone on its own branch. See [docs/vm.md](docs/vm.md).
+- **A VM.** The server can run sessions itself, each in a fresh clone on its own branch. See [On a VM](docs/run/vm.md).
 - **Kubernetes.** A Helm chart installs the server, and the kubernetes plugin starts runner pods on demand and deletes them when they go idle.
 - **Containers.** An Environment can run each session in a container from an image you pick, with a setup script, variables and encrypted secrets.
 
@@ -134,7 +134,7 @@ Open New session, pick a checkout under `~/code`, describe the task and press En
 
 ## Deploy
 
-**On a VM**, run the compiled binary under systemd and reach it through an SSH tunnel or a reverse proxy. [docs/vm.md](docs/vm.md) walks through it.
+**On a VM**, run the compiled binary under systemd and reach it through an SSH tunnel or a reverse proxy. [On a VM](docs/run/vm.md) walks through it.
 
 **On Kubernetes**, use the chart in `deploy/helm/pipoca`. Every push to main publishes `ghcr.io/pedroklein/pipoca:main`.
 
@@ -145,7 +145,7 @@ kubectl logs deploy/pipoca | grep setup
 
 Put HTTPS in front with your gateway, or turn on the chart's Ingress. The chart also supports runner pods and OpenID Connect sign-in through providers such as SAP IAS, Okta or Google. On SAP BTP's Kyma, use `deploy/helm/pipoca-kyma`, which adds Kyma's gateway and Istio on top.
 
-The [guide](docs/guide.md) covers every option: server and agent flags, workspaces, plugins, Environments, secrets, containers, runner pools, single sign-on and runner pods. A server that ran code from before the rebuild starts with a fresh database: see [Upgrading from before the rebuild](docs/guide.md#upgrading-from-before-the-rebuild).
+The [docs](docs/README.md) cover every option: server and agent flags, workspaces, plugins, Environments, secrets, containers, runner pools, single sign-on and runner pods. A server that ran code from before the rebuild starts with a fresh database: see [Upgrading from before the rebuild](docs/admin/upgrading.md#upgrading-from-before-the-rebuild).
 
 ## How it works
 
@@ -158,7 +158,7 @@ browser ──HTTP/SSE──▶ pipoca server ◀──long-poll + HTTPS/SSE─�
 - `pipoca agent` runs each Pi session in its own process, with the session's Profile. A session that crashes reloads from its transcript without touching the others.
 - One binary does both, built with Bun. Model logins are kept on the server, sealed, and reach a runner only for the sessions that use them.
 
-The words are defined in [docs/concepts.md](docs/concepts.md) and the design in [docs/architecture.md](docs/architecture.md), with the reasoning behind each decision in [docs/adr/](docs/adr/).
+The words are defined in [Concepts](docs/get-started/concepts.md) and the design in [docs/architecture.md](docs/architecture.md), with the reasoning behind each decision in [docs/adr/](docs/adr/).
 
 ## Status
 

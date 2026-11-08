@@ -1,0 +1,49 @@
+:root {
+  --sl-font: "Hanken Grotesk", system-ui, sans-serif;
+  --sl-font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --sl-color-accent-low: #2a2721;
+  --sl-color-accent: #e8dcc0;
+  --sl-color-accent-high: #fff8e7;
+  --sl-color-white: #fff8e7;
+  --sl-color-gray-1: #ebe5d9;
+  --sl-color-gray-2: #d6cfc1;
+  --sl-color-gray-3: #a29a8c;
+  --sl-color-gray-4: #6f685b;
+  --sl-color-gray-5: #322e27;
+  --sl-color-gray-6: #1a1814;
+  --sl-color-black: #14120e;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #ebe6da;
+  --sl-color-accent: #1a1712;
+  --sl-color-accent-high: #0f0d0a;
+  --sl-color-white: #0f0d0a;
+  --sl-color-gray-1: #1a1712;
+  --sl-color-gray-2: #3a342b;
+  --sl-color-gray-3: #5f594d;
+  --sl-color-gray-4: #8a8274;
+  --sl-color-gray-5: #e3ddd0;
+  --sl-color-gray-6: #f3efe5;
+  --sl-color-gray-7: #f7f3ea;
+  --sl-color-black: #faf7f0;
+}
+
+.site-title {
+  font-family: "Newsreader", Georgia, serif;
+  font-weight: 300;
+  font-size: 1.6rem;
+  letter-spacing: -0.01em;
+  text-transform: lowercase;
+}
+
+.sl-markdown-content h1,
+h1#_top {
+  font-family: "Newsreader", Georgia, serif;
+  font-weight: 300;
+  letter-spacing: -0.015em;
+}
+
+.sl-markdown-content a {
+  text-underline-offset: 3px;
+}

@@ -1,6 +1,6 @@
 # Pipoca extensibility
 
-> Status: early design notes, kept for their reasoning. Pi personalization and platform extensibility are foundational requirements. The plugin SDK as built is in [ADR 0069](adr/0069-plugin-sdk-v2.md) and [plugins.md](plugins.md), and Profiles in [concepts.md](concepts.md#profile).
+> Status: early design notes, kept for their reasoning. Pi personalization and platform extensibility are foundational requirements. The plugin SDK as built is in [ADR 0069](adr/0069-plugin-sdk-v2.md) and [Build plugins](build-plugins/overview.md), and Profiles in [Profiles](use/profiles.md).
 
 ## Two extension systems
 

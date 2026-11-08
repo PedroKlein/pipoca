@@ -24,6 +24,7 @@ jobs:
       - run: bun test
         timeout-minutes: 15
       - run: bun run build
+      - run: bun run --cwd apps/site build
       - run: bun x playwright-core install --with-deps chromium
         working-directory: apps/pipoca
       - run: bun run test:e2e
