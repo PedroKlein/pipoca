@@ -86,7 +86,7 @@ async function setUp(config: Readonly<Record<string, unknown>> = {}) {
 }
 
 test("a new pod gets back the unfinished work the last one had", async () => {
-  const { pod } = await setUp();
+  const { t, host, pod } = await setUp();
   const first = await pod();
 
   await first.start();
@@ -99,6 +99,30 @@ test("a new pod gets back the unfinished work the last one had", async () => {
   await writeFile(join(first.cwd, "node_modules", "dep.js"), "ignored\n");
   await first.part.event("agent_settled");
   await first.part.event("session_shutdown");
+
+  // People see which files the snapshot keeps.
+  await until(
+    async () =>
+      (
+        await t
+          .as("ana")
+          .get<{ snapshots: unknown[] }>(`sessions/${host.id}/snapshots`)
+      ).snapshots.length === 1,
+  );
+
+  expect(await t.as("ana").get(`sessions/${host.id}/snapshots`)).toMatchObject({
+    snapshots: [
+      {
+        checkout: ".",
+        changed: 3,
+        changes: [
+          { path: "README.md", change: "changed" },
+          { path: "new.txt", change: "new" },
+          { path: "old.txt", change: "deleted" },
+        ],
+      },
+    ],
+  });
 
   const second = await pod();
 

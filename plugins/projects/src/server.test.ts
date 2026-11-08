@@ -474,8 +474,8 @@ test("people add files to the Project's folder, and earlier versions stay downlo
   const { writes } = await ana.get<{ writes: FolderWrite[] }>(`${base}/log`);
 
   expect(writes).toMatchObject([
-    { path: "docs/brief.txt", size: 14, actor: "user:ana" },
-    { path: "docs/brief.txt", size: 10, actor: "user:ana" },
+    { path: "docs/brief.txt", size: 14, actor: "user:ana", by: "ana" },
+    { path: "docs/brief.txt", size: 10, actor: "user:ana", by: "ana" },
   ]);
 
   expect(

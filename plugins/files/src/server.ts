@@ -4,6 +4,7 @@ import {
   defineServer,
   HttpError,
   NotFound,
+  StringEnum,
   Type,
 } from "@pipoca/plugins";
 import { blobHash } from "@pipoca/protocol";
@@ -13,6 +14,7 @@ import {
   cleanPath,
   type Place,
   type SessionFile,
+  shownChanges,
   uploadNotice,
   type UploadNoticeData,
 } from "./files";
@@ -62,6 +64,15 @@ const snapshot = Type.Object({
       checkout: Type.String({ minLength: 1, maxLength: 1024 }),
       hash: Type.String({ pattern: blobHash.source }),
       size: Type.Integer({ minimum: 0 }),
+      // The first files it changed, and how many in all.
+      changes: Type.Array(
+        Type.Object({
+          path: Type.String({ minLength: 1, maxLength: 4096 }),
+          change: StringEnum(["new", "changed", "deleted"]),
+        }),
+        { maxItems: shownChanges },
+      ),
+      changed: Type.Integer({ minimum: 0 }),
     }),
     { maxItems: 100 },
   ),
@@ -396,15 +407,22 @@ export const server = defineServer(
         seen(params.id, caller.person.id);
 
         return {
-          snapshots: store.all<{
-            checkout: string;
-            size: number;
-            savedAt: number;
-          }>(
-            `select checkout, size, saved_at as savedAt from files_snapshots
-             where session_id = ? order by checkout`,
-            params.id,
-          ),
+          snapshots: store
+            .all<{
+              checkout: string;
+              size: number;
+              savedAt: number;
+              changes: string;
+              changed: number;
+            }>(
+              `select checkout, size, saved_at as savedAt, changes, changed
+               from files_snapshots where session_id = ? order by checkout`,
+              params.id,
+            )
+            .map((each) => ({
+              ...each,
+              changes: JSON.parse(each.changes) as unknown,
+            })),
         };
       },
     );
@@ -476,16 +494,24 @@ export const server = defineServer(
             sessionId,
           );
 
-          for (const { checkout, hash, size } of body.checkouts) {
+          for (const {
+            checkout,
+            hash,
+            size,
+            changes,
+            changed,
+          } of body.checkouts) {
             store.run(
               `insert into files_snapshots
-                 (session_id, checkout, hash, size, saved_at)
-               values (?, ?, ?, ?, ?)`,
+                 (session_id, checkout, hash, size, saved_at, changes, changed)
+               values (?, ?, ?, ?, ?, ?, ?)`,
               sessionId,
               checkout,
               hash,
               size,
               now,
+              JSON.stringify(changes),
+              changed,
             );
           }
         });

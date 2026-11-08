@@ -41,7 +41,7 @@ const changes = Type.Object({
 // A Project's folder, which every Session in the Project sees as project/:
 // names and the write log here, bytes in the plugin's blob store (ADR 0078).
 export function folderRoutes(
-  { blobs, clock, config, log, routes }: Context,
+  { blobs, clock, config, log, people, routes, sessions }: Context,
   store: ReturnType<typeof projectStore>,
   {
     theirs,
@@ -140,17 +140,32 @@ export function folderRoutes(
     log("folder file written", { project: project.id, path, actor });
   };
 
+  // Who wrote a file, for people: a person's name or the thread's title.
+  const named = <T extends { readonly actor: string }>(
+    each: T,
+  ): T & { readonly by: string } => {
+    const [kind, id = ""] = each.actor.split(/:(.*)/s);
+
+    return {
+      ...each,
+      by:
+        kind === "user"
+          ? (people.get(id)?.name ?? id)
+          : (store.member(id)?.title ?? sessions.get(id)?.title ?? "A Session"),
+    };
+  };
+
   routes.get(
     "projects/:id/files",
     { auth: "person" },
     ({ caller, params }) => ({
-      files: store.folder(theirs(params.id, caller).id),
+      files: store.folder(theirs(params.id, caller).id).map(named),
       perProjectBytes: config.get().perProjectBytes,
     }),
   );
 
   routes.get("projects/:id/log", { auth: "person" }, ({ caller, params }) => ({
-    writes: store.folderWrites(theirs(params.id, caller).id),
+    writes: store.folderWrites(theirs(params.id, caller).id).map(named),
   }));
 
   routes.get(

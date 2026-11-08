@@ -89,10 +89,12 @@ export function Composer({
   usePrefill(sessionId, text, feed.editorText);
 
   const fileParts = fillsOf("session.files", useSessionPlugins(team));
+  const [uploading, setUploading] = useState(false);
 
   const { images, setImages, files, setFiles, attach, send } = useSend({
     sessionId,
     keepsFiles: fileParts.length > 0,
+    uploading,
     feed,
     team,
     target,
@@ -216,6 +218,7 @@ export function Composer({
                     current.filter((each) => each !== file),
                   );
                 }}
+                onUploading={setUploading}
               />
             </PluginBoundary>
           ))}
@@ -280,6 +283,7 @@ export function Composer({
             onTarget={setTarget}
             running={running}
             anyFile={fileParts.length > 0}
+            uploading={uploading}
             attach={attach}
             report={report}
           />

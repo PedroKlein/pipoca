@@ -62,5 +62,8 @@ create index files_session_files_hash on files_session_files (hash);
   primary key (session_id, checkout)
 ) strict, without rowid;
 create index files_snapshots_hash on files_snapshots (hash);`,
+    // 2: the files a snapshot changed, for people to see.
+    `alter table files_snapshots add column changes text not null default '[]';
+alter table files_snapshots add column changed integer not null default 0;`,
   ],
 });

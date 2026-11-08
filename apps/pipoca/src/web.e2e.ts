@@ -3977,7 +3977,7 @@ test("creates a Project and shares a file through its folder", async () => {
 
   await page.getByRole("button", { name: "Project folder" }).click();
 
-  await page.getByText("No files yet.").waitFor();
+  await page.getByText("No files here yet.").waitFor();
 
   await page.getByLabel("Upload files").setInputFiles({
     name: "brief.txt",
@@ -3986,7 +3986,11 @@ test("creates a Project and shares a file through its folder", async () => {
   });
 
   await page.getByRole("link", { name: "brief.txt" }).first().waitFor();
-  await page.getByText(/user:\S+ wrote brief\.txt \(10 B\)$/).waitFor();
+
+  await page
+    .getByRole("list", { name: "Recent writes" })
+    .getByText(/^wrote brief\.txt \(10 B\)$/)
+    .waitFor();
 
   const nav = page.locator("#project-nav").getByRole("link", { name: /^Site/ });
   await nav.click();

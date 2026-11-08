@@ -23,6 +23,7 @@ export function Toolbar({
   onTarget,
   running,
   anyFile,
+  uploading,
   attach,
   report,
 }: {
@@ -37,6 +38,7 @@ export function Toolbar({
   readonly running: boolean;
   // A plugin keeps files that aren't images, so the button takes any.
   readonly anyFile: boolean;
+  readonly uploading: boolean;
   readonly attach: (files: readonly File[]) => void;
   readonly report: (error: unknown) => void;
 }): ReactElement {
@@ -83,10 +85,16 @@ export function Toolbar({
           onChange={onTarget}
         />
       )}
-      <span className="flex-1 truncate text-caption text-fg-dim max-md:hidden">
-        {running ? `Enter queues · ${sendNowKeys} sends now` : "Enter sends"} ·
-        / commands · @ files
-      </span>
+      {uploading ? (
+        <span className="flex-1 truncate text-caption text-fg-dim">
+          Send waits for uploads
+        </span>
+      ) : (
+        <span className="flex-1 truncate text-caption text-fg-dim max-md:hidden">
+          {running ? `Enter queues · ${sendNowKeys} sends now` : "Enter sends"}{" "}
+          · / commands · @ files
+        </span>
+      )}
       {running && (
         <Button
           variant="default"
@@ -105,6 +113,7 @@ export function Toolbar({
         iconOnly
         type="submit"
         aria-label="Send"
+        disabled={uploading}
         className="ml-auto rounded-full"
       >
         <Icon name="arrow-up" />
