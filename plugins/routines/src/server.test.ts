@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import {
   definePlugin,
   defineServer,
@@ -16,6 +18,7 @@ import {
 } from "@pipoca/testing";
 import type { routines } from "../plugin";
 import type { RoutineDetail, RoutineView, Run } from "./model";
+import type { Routine } from "./routine";
 import { server } from "./server";
 
 const people = [
@@ -35,9 +38,13 @@ const tracker = definePlugin({
     issue: event({
       title: "An issue",
       fields: Type.Object({
+        host: Type.String(),
         repository: Type.String(),
         number: Type.Number(),
         label: Type.String(),
+        labels: Type.Array(Type.String()),
+        paths: Type.Array(Type.String()),
+        title: Type.String(),
       }),
     }),
   },
@@ -49,8 +56,26 @@ const trackerServer = defineServer(tracker, (context) => {
   tracking = context;
 });
 
-function issue(number: number, to: readonly Owner[], label = "pipoca"): void {
-  tracking?.events.emit("issue", { repository: "o/r", number, label }, { to });
+function issue(
+  number: number,
+  to: readonly Owner[],
+  label = "pipoca",
+  more: Partial<{ labels: string[]; paths: string[]; title: string }> = {},
+): void {
+  tracking?.events.emit(
+    "issue",
+    {
+      host: "example.com",
+      repository: "o/r",
+      number,
+      label,
+      labels: [label],
+      paths: [],
+      title: "An issue",
+      ...more,
+    },
+    { to },
+  );
 }
 
 async function started(
@@ -103,8 +128,8 @@ test("a scheduled routine fires at its time, also when the server restarted befo
 
   await save(t, "nightly", {
     title: "Nightly",
-    triggers: [{ at: inAnHour(t) }],
-    run: { prompt: "Check the build.", workspace: folder() },
+    when: [{ kind: "once", at: inAnHour(t) }],
+    do: { kind: "session", prompt: "Check the build.", workspace: folder() },
   });
 
   const [listed] = await t.as("ana").get<RoutineView[]>("routines");
@@ -128,11 +153,11 @@ test("a run by hand starts a Session that ends with end_run, which no other Sess
 
   await save(t, "tidy", {
     title: "Tidy",
-    triggers: [{ webhook: true }],
-    run: { prompt: "Tidy up.", workspace: folder() },
+    when: [{ kind: "webhook" }],
+    do: { kind: "session", prompt: "Tidy up.", workspace: folder() },
   });
 
-  const run = await t.as("ana").post<Run>("routines/tidy/run");
+  const run = await t.as("ana").post<Run>("routines/tidy/run", {});
   expect(run).toMatchObject({ cause: "by hand", outcome: "running" });
 
   const session = await t.attach(run.sessionId ?? "");
@@ -167,11 +192,11 @@ test("a run whose turn ends without end_run is stopped, and three that can't sta
 
   await save(t, "tidy", {
     title: "Tidy",
-    triggers: [{ webhook: true }],
-    run: { prompt: "Tidy up.", workspace: folder() },
+    when: [{ kind: "webhook" }],
+    do: { kind: "session", prompt: "Tidy up.", workspace: folder() },
   });
 
-  const run = await t.as("ana").post<Run>("routines/tidy/run");
+  const run = await t.as("ana").post<Run>("routines/tidy/run", {});
   const session = tracking?.sessions.get(run.sessionId ?? "");
 
   if (session === undefined) {
@@ -186,12 +211,17 @@ test("a run whose turn ends without end_run is stopped, and three that can't sta
 
   await save(t, "tidy", {
     title: "Tidy",
-    triggers: [{ webhook: true }],
-    run: { prompt: "Tidy up.", workspace: folder(), environment: "gone" },
+    when: [{ kind: "webhook" }],
+    do: {
+      kind: "session",
+      prompt: "Tidy up.",
+      workspace: folder(),
+      environment: "gone",
+    },
   });
 
   for (let each = 0; each < 3; each++) {
-    expect(await t.as("ana").post<Run>("routines/tidy/run")).toMatchObject({
+    expect(await t.as("ana").post<Run>("routines/tidy/run", {})).toMatchObject({
       outcome: "blocked",
     });
   }
@@ -207,12 +237,12 @@ test("a run the agent ends as blocked doesn't count towards pausing the routine"
 
   await save(t, "tidy", {
     title: "Tidy",
-    triggers: [{ webhook: true }],
-    run: { prompt: "Tidy up.", workspace: folder() },
+    when: [{ kind: "webhook" }],
+    do: { kind: "session", prompt: "Tidy up.", workspace: folder() },
   });
 
   for (let each = 0; each < 3; each++) {
-    const run = await t.as("ana").post<Run>("routines/tidy/run");
+    const run = await t.as("ana").post<Run>("routines/tidy/run", {});
     const session = await t.attach(run.sessionId ?? "");
 
     await t.tool(
@@ -237,11 +267,11 @@ test("a run whose Session dies five times without progress parks the routine", a
 
   await save(t, "nightly", {
     title: "Nightly",
-    triggers: [{ webhook: true }],
-    run: { prompt: "Check the build.", workspace: folder() },
+    when: [{ kind: "webhook" }],
+    do: { kind: "session", prompt: "Check the build.", workspace: folder() },
   });
 
-  const run = await t.as("ana").post<Run>("routines/nightly/run");
+  const run = await t.as("ana").post<Run>("routines/nightly/run", {});
 
   // Its host takes the Session in a new attempt, which ends the first, so
   // it has died before Pi does anything.
@@ -307,11 +337,11 @@ test("a run keeps the progress of its earlier turns when a new turn starts", asy
 
   await save(t, "nightly", {
     title: "Nightly",
-    triggers: [{ webhook: true }],
-    run: { prompt: "Check the build.", workspace: folder() },
+    when: [{ kind: "webhook" }],
+    do: { kind: "session", prompt: "Check the build.", workspace: folder() },
   });
 
-  const run = await t.as("ana").post<Run>("routines/nightly/run");
+  const run = await t.as("ana").post<Run>("routines/nightly/run", {});
   const session = await t.attach(run.sessionId ?? "");
 
   const dies = (times: number): void => {
@@ -377,28 +407,28 @@ test("a firing while the last run goes is skipped, or queued once when the routi
   ] as const) {
     await save(t, name, {
       title: name,
-      triggers: [{ webhook: true }],
-      run: { prompt: "Tidy up.", workspace: folder() },
-      overlap,
+      when: [{ kind: "webhook" }],
+      do: { kind: "session", prompt: "Tidy up.", workspace: folder() },
+      sameWork: { whileRunning: overlap },
     });
   }
 
-  expect(await t.as("ana").post<Run>("routines/skips/run")).toMatchObject({
+  expect(await t.as("ana").post<Run>("routines/skips/run", {})).toMatchObject({
     outcome: "running",
   });
 
-  expect(await t.as("ana").post<Run>("routines/skips/run")).toMatchObject({
+  expect(await t.as("ana").post<Run>("routines/skips/run", {})).toMatchObject({
     outcome: "skipped",
-    reason: "the last run was still going",
+    reason: "the same work has a run going",
   });
 
-  await t.as("ana").post("routines/queues/run");
+  await t.as("ana").post("routines/queues/run", {});
 
-  expect(await t.as("ana").post<Run>("routines/queues/run")).toMatchObject({
+  expect(await t.as("ana").post<Run>("routines/queues/run", {})).toMatchObject({
     outcome: "queued",
   });
 
-  expect(await t.as("ana").post<Run>("routines/queues/run")).toMatchObject({
+  expect(await t.as("ana").post<Run>("routines/queues/run", {})).toMatchObject({
     outcome: "skipped",
   });
 
@@ -419,14 +449,14 @@ test("a run ends when its Session is archived or stopped, so the next firing run
 
   await save(t, "nightly", {
     title: "Nightly",
-    triggers: [{ webhook: true }],
-    run: { prompt: "Check the build.", workspace: folder() },
+    when: [{ kind: "webhook" }],
+    do: { kind: "session", prompt: "Check the build.", workspace: folder() },
   });
 
-  const first = await t.as("ana").post<Run>("routines/nightly/run");
+  const first = await t.as("ana").post<Run>("routines/nightly/run", {});
   await (await t.attach(first.sessionId ?? "")).archive();
 
-  const second = await t.as("ana").post<Run>("routines/nightly/run");
+  const second = await t.as("ana").post<Run>("routines/nightly/run", {});
   expect(second).toMatchObject({ outcome: "running" });
 
   const session = tracking?.sessions.get(second.sessionId ?? "");
@@ -441,9 +471,11 @@ test("a run ends when its Session is archived or stopped, so the next firing run
     previous: session.status,
   });
 
-  expect(await t.as("ana").post<Run>("routines/nightly/run")).toMatchObject({
-    outcome: "running",
-  });
+  expect(await t.as("ana").post<Run>("routines/nightly/run", {})).toMatchObject(
+    {
+      outcome: "running",
+    },
+  );
 
   expect((await runs(t, "nightly")).map(({ outcome }) => outcome)).toEqual([
     "running",
@@ -458,8 +490,8 @@ test("firings missed while time jumped ahead become one catch-up run", async () 
 
   await save(t, "hourly", {
     title: "Hourly",
-    triggers: [{ cron: "0 * * * *", timeZone: "UTC" }],
-    run: { prompt: "Look.", workspace: folder() },
+    when: [{ kind: "schedule", cron: "0 * * * *", timeZone: "UTC" }],
+    do: { kind: "session", prompt: "Look.", workspace: folder() },
   });
 
   await t.clock.advance("5h");
@@ -477,11 +509,16 @@ test("a run acts as the technical user its routine names", async () => {
 
   await save(t, "tidy", {
     title: "Tidy",
-    triggers: [{ webhook: true }],
-    run: { prompt: "Tidy up.", workspace: folder(), as: "pipoca-bot" },
+    when: [{ kind: "webhook" }],
+    do: {
+      kind: "session",
+      prompt: "Tidy up.",
+      workspace: folder(),
+      as: "pipoca-bot",
+    },
   });
 
-  const run = await t.as("ana").post<Run>("routines/tidy/run");
+  const run = await t.as("ana").post<Run>("routines/tidy/run", {});
 
   expect(tracking?.sessions.get(run.sessionId ?? "")?.actsAs).toEqual({
     plugin: "git-hosts",
@@ -494,8 +531,8 @@ test("keeps the team's routines apart from a person's, stored as owned by no one
 
   const routine = {
     title: "Nightly",
-    triggers: [{ cron: "0 3 * * *", timeZone: "UTC" }],
-    run: { prompt: "Check the build.", workspace: folder() },
+    when: [{ kind: "schedule", cron: "0 3 * * *", timeZone: "UTC" }],
+    do: { kind: "session", prompt: "Check the build.", workspace: folder() },
   };
 
   await save(t, "nightly", routine);
@@ -527,8 +564,8 @@ test("keeps the team's routines apart from a person's, stored as owned by no one
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       title: "Ping",
-      triggers: [{ webhook: true }],
-      run: { prompt: "Ping.", session: "s1" },
+      when: [{ kind: "webhook" }],
+      do: { kind: "message", prompt: "Ping.", session: "s1" },
     }),
   });
 
@@ -541,7 +578,7 @@ test("a routine's file that doesn't fit names the field", async () => {
   const bad = await t.as("ana").raw("routines/nightly", {
     method: "PUT",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ title: "", triggers: [], run: {} }),
+    body: JSON.stringify({ title: "", when: [], do: {} }),
   });
 
   expect(bad.status).toBe(422);
@@ -555,9 +592,15 @@ test("an event reaches the routines of the owners it names, batched by key", asy
 
   const routine = {
     title: "Fix issues",
-    triggers: [{ event: "tracker.issue", filter: { label: "pipoca" } }],
-    run: { prompt: "Fix the issue.", workspace: folder() },
-    key: ["repository", "number"],
+    when: [
+      {
+        kind: "event",
+        event: "tracker.issue",
+        where: [{ field: "label", is: "pipoca" }],
+      },
+    ],
+    do: { kind: "session", prompt: "Fix the issue.", workspace: folder() },
+    sameWork: { key: ["repository", "number"] },
   };
 
   await save(t, "fix", routine);
@@ -566,7 +609,7 @@ test("an event reaches the routines of the owners it names, batched by key", asy
   await save(
     t,
     "fix",
-    { ...routine, run: { ...routine.run, profile: profileId } },
+    { ...routine, do: { ...routine.do, profile: profileId } },
     "ana",
     "team/",
   );
@@ -599,7 +642,7 @@ test("an event reaches the routines of the owners it names, batched by key", asy
 
   expect((await runs(t, "fix"))[0]).toMatchObject({
     outcome: "ok",
-    reason: "sent to the key's Session",
+    reason: "sent to the run's Session",
     sessionId: run?.sessionId,
   });
 });
@@ -610,10 +653,10 @@ test("keyed runs past maxRunning wait their turn", async () => {
 
   await save(t, "fix", {
     title: "Fix issues",
-    triggers: [{ event: "tracker.issue" }],
-    run: { prompt: "Fix the issue.", workspace: folder() },
-    key: ["number"],
-    maxRunning: 1,
+    when: [{ kind: "event", event: "tracker.issue" }],
+    do: { kind: "session", prompt: "Fix the issue.", workspace: folder() },
+    sameWork: { key: ["number"] },
+    limits: { maxRunning: 1 },
   });
 
   issue(1, [person("ana")]);
@@ -638,9 +681,9 @@ test("a key that keeps getting events still gets through after five minutes", as
 
   await save(t, "fix", {
     title: "Fix issues",
-    triggers: [{ event: "tracker.issue" }],
-    run: { prompt: "Fix the issue.", workspace: folder() },
-    key: ["number"],
+    when: [{ kind: "event", event: "tracker.issue" }],
+    do: { kind: "session", prompt: "Fix the issue.", workspace: folder() },
+    sameWork: { key: ["number"] },
   });
 
   for (let each = 0; each < 14; each++) {
@@ -660,8 +703,8 @@ test("a webhook's signed delivery starts a run", async () => {
 
   const { webhook } = await save(t, "hook", {
     title: "On a hook",
-    triggers: [{ webhook: true }],
-    run: { prompt: "Look at it.", workspace: folder() },
+    when: [{ kind: "webhook" }],
+    do: { kind: "session", prompt: "Look at it.", workspace: folder() },
   });
 
   const path = (webhook?.path ?? "").replace("/api/ext/routines/", "");
@@ -689,12 +732,12 @@ test("a routine that messages a Session reaches only its owner's", async () => {
   ] as const) {
     await save(t, name, {
       title: name,
-      triggers: [{ webhook: true }],
-      run: { prompt: "Look again.", session: target },
+      when: [{ kind: "webhook" }],
+      do: { kind: "message", prompt: "Look again.", session: target },
     });
   }
 
-  expect(await t.as("ana").post<Run>("routines/mine/run")).toMatchObject({
+  expect(await t.as("ana").post<Run>("routines/mine/run", {})).toMatchObject({
     outcome: "ok",
   });
 
@@ -705,7 +748,7 @@ test("a routine that messages a Session reaches only its owner's", async () => {
   ]);
 
   expect(await runs(t, "mine")).toMatchObject([{ outcome: "ok" }]);
-  await t.as("ana").post("routines/theirs/run");
+  await t.as("ana").post("routines/theirs/run", {});
   expect(await runs(t, "theirs")).toMatchObject([{ outcome: "blocked" }]);
 });
 
@@ -720,11 +763,11 @@ test("a routine messages team work only its owner steers", async () => {
 
   await save(t, "nudge", {
     title: "Nudge",
-    triggers: [{ webhook: true }],
-    run: { prompt: "Do as Ana says.", session: watched.id },
+    when: [{ kind: "webhook" }],
+    do: { kind: "message", prompt: "Do as Ana says.", session: watched.id },
   });
 
-  await t.as("ana").post("routines/nudge/run");
+  await t.as("ana").post("routines/nudge/run", {});
 
   expect(await runs(t, "nudge")).toMatchObject([{ outcome: "blocked" }]);
   expect(watched.delivered()).toEqual([]);
@@ -736,8 +779,10 @@ test("a Session makes a routine only once its person allows it, and it runs once
 
   const routine = {
     title: "Summarise new issues",
-    triggers: [{ cron: "0 8 * * 1-5", timeZone: "Europe/Berlin" }],
-    run: { prompt: "Summarise them.", workspace: folder() },
+    when: [
+      { kind: "schedule", cron: "0 8 * * 1-5", timeZone: "Europe/Berlin" },
+    ],
+    do: { kind: "session", prompt: "Summarise them.", workspace: folder() },
   };
 
   const create = {
@@ -911,4 +956,363 @@ test("a Session wakes up at most 48 times a day", async () => {
       )
     ).text,
   ).toBe("this Session woke up 48 times in the last day, the most it may");
+});
+
+function sessionOf(run: Run | undefined) {
+  const session = tracking?.sessions.get(run?.sessionId ?? "");
+
+  if (session === undefined) {
+    throw new Error("no run Session");
+  }
+
+  return session;
+}
+
+async function finish(t: PluginTest, run: Run | undefined): Promise<void> {
+  const session = await t.attach(run?.sessionId ?? "");
+  await t.tool("end_run", { result: "done", summary: "Done." }, { session });
+}
+
+test("reads a routine file in the first shape as the new one, and saving writes the new shape", async () => {
+  await using t = await started();
+  await environment(t);
+
+  const dir = join(dirname(tracking?.config.dir ?? ""), "routines", "ana");
+  mkdirSync(dir, { recursive: true });
+
+  writeFileSync(
+    join(dir, "fix.json"),
+    JSON.stringify({
+      title: "Fix issues",
+      triggers: [
+        { event: "tracker.issue", filter: { label: "pipoca", number: [7, 8] } },
+        { webhook: true },
+      ],
+      run: { prompt: "Fix it.", workspace: folder() },
+      key: ["number"],
+      maxRunning: 2,
+    }),
+  );
+
+  await t.restart();
+
+  const routine: Routine = {
+    title: "Fix issues",
+    when: [
+      {
+        kind: "event",
+        event: "tracker.issue",
+        where: [
+          { field: "label", is: "pipoca" },
+          { field: "number", oneOf: [7, 8] },
+        ],
+      },
+      { kind: "webhook" },
+    ],
+    sameWork: { key: ["number"] },
+    do: { kind: "session", prompt: "Fix it.", workspace: folder() },
+    limits: { maxRunning: 2 },
+  };
+
+  expect((await detail(t, "fix")).routine).toEqual(routine);
+
+  issue(9, [person("ana")]);
+  issue(7, [person("ana")]);
+  await t.clock.advance("30s");
+  expect(await runs(t, "fix")).toMatchObject([{ outcome: "running" }]);
+
+  await save(t, "fix", routine);
+
+  expect(JSON.parse(readFileSync(join(dir, "fix.json"), "utf8"))).toEqual(
+    routine,
+  );
+});
+
+test("refuses a routine whose event, fields or inputs don't exist", async () => {
+  await using t = await started();
+
+  const on = (where: object[], prompt = "Fix it.") => ({
+    title: "Fix issues",
+    when: [{ kind: "event", event: "tracker.issue", where }],
+    do: { kind: "session", prompt, workspace: folder() },
+  });
+
+  expect(
+    save(t, "fix", {
+      ...on([]),
+      when: [{ kind: "event", event: "tracker.nope" }],
+    }),
+  ).rejects.toThrow("when.0: no event tracker.nope");
+
+  expect(save(t, "fix", on([{ field: "lable", is: "x" }]))).rejects.toThrow(
+    "when.0.where.0: the event has no field lable",
+  );
+
+  expect(
+    save(t, "fix", on([{ field: "number", is: "seven" }])),
+  ).rejects.toThrow('number holds a number, not "seven"');
+
+  expect(
+    save(t, "fix", on([{ field: "number", startsWith: "1" }])),
+  ).rejects.toThrow("number isn't text");
+
+  expect(save(t, "fix", on([], "Fix {{inputs.focus}}."))).rejects.toThrow(
+    "{{inputs.focus}}: no input focus",
+  );
+
+  expect(await t.as("ana").get("routines")).toEqual([]);
+
+  await save(t, "fix", on([{ field: "labels", contains: "bug" }]));
+  expect(await t.as("ana").get("routines")).toMatchObject([{ name: "fix" }]);
+});
+
+test("conditions hold on an event's fields, a list's when one of its items does", async () => {
+  await using t = await started();
+  await environment(t);
+
+  const conditions = {
+    "is-not": { field: "label", isNot: "wontfix" },
+    "one-of": { field: "number", oneOf: [1, 2] },
+    contains: { field: "labels", contains: "bug" },
+    "starts-with": { field: "title", startsWith: "[docs]" },
+    matches: { field: "paths", matches: "docs/**" },
+  };
+
+  for (const [name, where] of Object.entries(conditions)) {
+    await save(t, name, {
+      title: name,
+      when: [{ kind: "event", event: "tracker.issue", where: [where] }],
+      do: { kind: "session", prompt: "Look.", workspace: folder() },
+    });
+  }
+
+  const ran = async () =>
+    Object.fromEntries(
+      await Promise.all(
+        Object.keys(conditions).map(async (name) => [
+          name,
+          (await runs(t, name)).length,
+        ]),
+      ),
+    ) as Record<string, number>;
+
+  issue(1, [person("ana")], "wontfix", { paths: ["src/a.ts"] });
+  await t.clock.advance("30s");
+
+  expect(await ran()).toEqual({
+    "is-not": 0,
+    "one-of": 1,
+    contains: 0,
+    "starts-with": 0,
+    matches: 0,
+  });
+
+  issue(5, [person("ana")], "bug", {
+    labels: ["p1", "bug"],
+    paths: ["src/a.ts", "docs/guide/a.md"],
+    title: "[docs] A typo",
+  });
+
+  await t.clock.advance("30s");
+
+  expect(await ran()).toEqual({
+    "is-not": 1,
+    "one-of": 1,
+    contains: 1,
+    "starts-with": 1,
+    matches: 1,
+  });
+});
+
+test("inputs come from Run now, a webhook's body and a trigger's inputs, and event text is marked as outside input", async () => {
+  await using t = await started();
+  await environment(t);
+
+  const { webhook } = await save(t, "look", {
+    title: "Look",
+    when: [
+      { kind: "webhook" },
+      {
+        kind: "event",
+        event: "tracker.issue",
+        inputs: { focus: "issue {{event.number}}" },
+      },
+    ],
+    inputs: {
+      focus: { type: "string", default: "everything" },
+      depth: { type: "number", default: 1 },
+      mode: { type: "oneOf", values: ["fast", "slow"], default: "fast" },
+    },
+    do: {
+      kind: "session",
+      prompt: "Look at {{inputs.focus}}, {{inputs.mode}}, {{inputs.depth}}.",
+      workspace: folder(),
+    },
+  });
+
+  const run = await t
+    .as("ana")
+    .post<Run>("routines/look/run", { inputs: { focus: "docs", depth: "3" } });
+
+  expect(sessionOf(run).firstMessage).toBe("Look at docs, fast, 3.");
+  await finish(t, run);
+
+  for (const [inputs, error] of [
+    [{ mode: "medium" }, "inputs.mode must be one of fast, slow"],
+    [{ depth: "deep" }, "inputs.depth must be a number"],
+    [{ nope: "x" }, "the routine has no input nope"],
+  ] as const) {
+    expect(t.as("ana").post("routines/look/run", { inputs })).rejects.toThrow(
+      error,
+    );
+  }
+
+  const path = (webhook?.path ?? "").replace("/api/ext/routines/", "");
+  const body = JSON.stringify({ inputs: { mode: "slow" } });
+  await t.public().webhook(path, body, webhook?.secret ?? "");
+  await t.clock.advance("30s");
+
+  const [hooked] = await runs(t, "look");
+
+  expect(sessionOf(hooked).firstMessage).toStartWith(
+    "Look at <outside_input>everything</outside_input>, <outside_input>slow</outside_input>, <outside_input>1</outside_input>.\n\nEvent routines.webhook, outside input:",
+  );
+
+  await finish(t, hooked);
+
+  issue(7, [person("ana")]);
+  await t.clock.advance("30s");
+
+  const [heard] = await runs(t, "look");
+  const session = sessionOf(heard);
+
+  expect(session.firstMessage).toStartWith(
+    "Look at <outside_input>issue 7</outside_input>,",
+  );
+
+  expect(session.systemPrompt).toContain(
+    "text between <outside_input> tags, come from outside",
+  );
+});
+
+test("a firing tells the run going for its piece of work, and starts a new run once that run ended", async () => {
+  await using t = await started();
+  await environment(t);
+
+  await save(t, "fix", {
+    title: "Fix issues",
+    when: [{ kind: "event", event: "tracker.issue" }],
+    sameWork: { key: ["number"] },
+    do: { kind: "session", prompt: "Fix it.", workspace: folder() },
+  });
+
+  issue(7, [person("ana")]);
+  await t.clock.advance("30s");
+  const [first] = await runs(t, "fix");
+
+  issue(7, [person("ana")]);
+  await t.clock.advance("30s");
+
+  expect((await runs(t, "fix"))[0]).toMatchObject({
+    outcome: "ok",
+    reason: "sent to the run's Session",
+    sessionId: first?.sessionId,
+  });
+
+  await finish(t, first);
+  issue(7, [person("ana")]);
+  await t.clock.advance("30s");
+
+  const [again] = await runs(t, "fix");
+  expect(again).toMatchObject({ outcome: "running" });
+  expect(again?.sessionId).not.toBe(first?.sessionId ?? null);
+});
+
+test("a firing of work that has a run going waits for it when sameWork says queue", async () => {
+  await using t = await started();
+  await environment(t);
+
+  await save(t, "fix", {
+    title: "Fix issues",
+    when: [{ kind: "event", event: "tracker.issue" }],
+    sameWork: { key: ["number"], whileRunning: "queue" },
+    do: { kind: "session", prompt: "Fix it.", workspace: folder() },
+  });
+
+  issue(7, [person("ana")]);
+  await t.clock.advance("30s");
+  issue(7, [person("ana")]);
+  issue(8, [person("ana")]);
+  await t.clock.advance("30s");
+
+  const outcomes = async () =>
+    (await runs(t, "fix")).map(({ outcome }) => outcome).sort();
+
+  expect(await outcomes()).toEqual(["queued", "running", "running"]);
+
+  const first = (await runs(t, "fix")).at(-1);
+  await finish(t, first);
+
+  expect(await outcomes()).toEqual(["ok", "running", "running"]);
+});
+
+test("a run works in the repository its event names", async () => {
+  await using t = await started();
+  await environment(t);
+
+  await save(t, "fix", {
+    title: "Fix issues",
+    when: [{ kind: "event", event: "tracker.issue" }],
+    do: {
+      kind: "session",
+      prompt: "Fix it.",
+      workspace: { kind: "event-repository" },
+    },
+  });
+
+  issue(7, [person("ana")]);
+  await t.clock.advance("30s");
+
+  const [run] = await runs(t, "fix");
+
+  expect(sessionOf(run).workspace).toMatchObject({
+    kind: "clone",
+    repository: "https://example.com/o/r",
+  });
+
+  await finish(t, run);
+  await t.as("ana").post("routines/fix/run", {});
+
+  expect((await runs(t, "fix"))[0]).toMatchObject({
+    outcome: "blocked",
+    reason: "the event names no repository",
+  });
+});
+
+test("a scheduled trigger fills the inputs it names", async () => {
+  await using t = await started();
+  await environment(t);
+
+  await save(t, "nightly", {
+    title: "Nightly",
+    when: [
+      { kind: "once", at: inAnHour(t), inputs: { focus: "the build" } },
+      { kind: "webhook" },
+    ],
+    inputs: { focus: { type: "string", required: true } },
+    do: {
+      kind: "session",
+      prompt: "Check {{inputs.focus}}.",
+      workspace: folder(),
+    },
+  });
+
+  expect(t.as("ana").post("routines/nightly/run", {})).rejects.toThrow(
+    "inputs.focus is required",
+  );
+
+  await t.clock.advance("1h");
+  const [run] = await runs(t, "nightly");
+
+  expect(sessionOf(run).firstMessage).toBe("Check the build.");
 });

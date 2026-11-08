@@ -6,6 +6,18 @@ import { wakeUps } from "./wakeups";
 
 const wakeUpsQuery = Type.Object({ session: Type.String() });
 
+const runNow = Type.Object(
+  {
+    inputs: Type.Optional(
+      Type.Record(
+        Type.String(),
+        Type.Union([Type.String(), Type.Number(), Type.Boolean()]),
+      ),
+    ),
+  },
+  { additionalProperties: false },
+);
+
 const endRun = Type.Object(
   {
     result: StringEnum(["done", "nothing", "blocked"] as const),
@@ -41,8 +53,15 @@ const routinesTool = Type.Object(
     routine: Type.Optional(
       Type.Unknown({
         description:
-          'For create and update, the whole routine: { "title", "triggers": [{ "cron": "0 8 * * 1-5", "timeZone": "Europe/Berlin" } | { "at": ISO time with zone } | { "event": "<plugin>.<name>", "filter": { field: value } } | { "webhook": true }], "run": { "prompt", "workspace": { "kind": "clone", "repository": url } | { "kind": "folder", "path" }, "environment"?, "profile"?, "model"?: "provider/id", "as"?: technical user name to act as on git instead of the user } or { "prompt", "session": id }, "overlap"?: "skip" | "queue", "key"?: [event fields], "maxRunning"?: number }',
+          'For create and update, the whole routine: { "title", "when": [{ "kind": "schedule", "cron": "0 8 * * 1-5", "timeZone": "Europe/Berlin" } | { "kind": "once", "at": ISO time with zone } | { "kind": "event", "event": "<plugin>.<name>", "where"?: [{ "field", "is" | "isNot" | "contains" | "startsWith" | "matches" (a path glob such as docs/**): value } | { "field", "oneOf": [values] }] } | { "kind": "webhook" }, each with an optional "inputs": { name: text with {{event.<field>}} }], "inputs"?: { name: { "type": "string" | "number" | "boolean", "default"?, "required"? } | { "type": "oneOf", "values": [strings], "default"? } }, "sameWork"?: { "key"?: [event fields that make one piece of work], "whileRunning"?: "tell" | "skip" | "queue" }, "do": { "kind": "session", "prompt", "workspace": { "kind": "clone", "repository": url } | { "kind": "folder", "path" } | { "kind": "event-repository" }, "environment"?, "profile"?, "model"?: "provider/id", "as"?: technical user name to act as on git instead of the user } or { "kind": "message", "prompt", "session": id }, "limits"?: { "maxRunning"?: number } }. The prompt and workspace may use {{event.<field>}} and {{inputs.<name>}}.',
       }),
+    ),
+    inputs: Type.Optional(
+      Type.Record(
+        Type.String(),
+        Type.Union([Type.String(), Type.Number(), Type.Boolean()]),
+        { description: "For run, the routine's inputs by name." },
+      ),
     ),
     summary: Type.Optional(
       Type.String({
@@ -104,7 +123,7 @@ export const server = defineServer(routines, (context) => {
           return undefined;
       }
     },
-    run: ({ action, name = "", routine, summary }, { owner }) => {
+    run: ({ action, name = "", routine, summary, inputs }, { owner }) => {
       if (action === "list") {
         return JSON.stringify(engine.list(owner));
       }
@@ -158,7 +177,7 @@ export const server = defineServer(routines, (context) => {
 
           return JSON.stringify(engine.get(owner, name).paused);
         case "run":
-          return JSON.stringify(engine.runNow(owner, name));
+          return JSON.stringify(engine.runNow(owner, name, inputs));
         case "remove":
           engine.remove(owner, name);
 
@@ -224,8 +243,15 @@ export const server = defineServer(routines, (context) => {
 
   routes.post(
     "routines/:name/run",
-    { auth: "person", team: true, status: 201, changes: ["routines"] },
-    ({ caller, params }) => engine.runNow(caller.owner, params.name),
+    {
+      auth: "person",
+      team: true,
+      status: 201,
+      body: runNow,
+      changes: ["routines"],
+    },
+    ({ caller, params, body }) =>
+      engine.runNow(caller.owner, params.name, body.inputs),
   );
 
   for (const action of ["pause", "resume"] as const) {
