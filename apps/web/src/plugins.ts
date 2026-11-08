@@ -3,6 +3,7 @@ import {
   type NavItemsProps,
   type Slots,
   type ToolCallProps,
+  type ToolPermissionProps,
   type WebPage,
   type WebPart,
 } from "@pipoca/plugins/web";
@@ -258,6 +259,13 @@ export function useSessionPlugins(team: boolean): readonly WebPart[] {
 // The enabled plugin that draws calls of a tool, if any (ADR 0030).
 export function toolRenderer(name: string): Claimed<ToolCallProps> | undefined {
   return fillsOf(`session.toolCall:${name}`)[0];
+}
+
+// The enabled plugin that draws the permission prompt for a tool's calls.
+export function permissionRenderer(
+  name: string,
+): Claimed<ToolPermissionProps> | undefined {
+  return fillsOf(`session.permission:${name}`)[0];
 }
 
 export interface NavEntry {

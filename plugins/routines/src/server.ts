@@ -13,7 +13,7 @@ import { routinesEngine } from "./engine";
 import { makingRoutines } from "./making";
 import { groupSchema } from "./group";
 import { defaultMemoryFile } from "./memory";
-import { routineSchema, workspaceSchema } from "./routine";
+import { routineSchema, triggerSchema, workspaceSchema } from "./routine";
 import { wakeUps } from "./wakeups";
 
 const wakeUpsQuery = Type.Object({ session: Type.String() });
@@ -50,7 +50,20 @@ const proposal = Type.Object(
 
 // Where a saved routine goes: into a group, or into none with "".
 const into = Type.Object(
-  { group: Type.Optional(Type.String()) },
+  {
+    group: Type.Optional(Type.String()),
+    // A recent event to test a new routine on (ADR 0076).
+    test: Type.Optional(Type.String({ minLength: 1 })),
+  },
+  { additionalProperties: false },
+);
+
+// A trigger being made, to see which recent events it would have fired on.
+const heardFor = Type.Object(
+  {
+    trigger: triggerSchema,
+    group: Type.Optional(Type.String({ minLength: 1 })),
+  },
   { additionalProperties: false },
 );
 
@@ -490,10 +503,18 @@ export const server = defineServer(routines, (context) => {
         body,
         caller.person.id,
         query.group,
+        query.test,
       );
 
       return engine.get(caller.owner, params.name);
     },
+  );
+
+  routes.post(
+    "heard",
+    { auth: "person", team: true, body: heardFor },
+    ({ caller, body }) =>
+      engine.wouldFire(caller.owner, body.trigger, body.group),
   );
 
   // Routine groups (ADR 0075), each with its board.

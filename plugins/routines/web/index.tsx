@@ -27,6 +27,7 @@ import { routines } from "../plugin";
 import { DeclaredExtras, TriggerLines } from "./extras";
 import type { RoutineDetail, RoutineView, WakeUp } from "../src/model";
 import type { Routine } from "../src/routine";
+import { RoutineApproval } from "./approval";
 import { ChainStrip, OutputSection, RunsTable, useChain } from "./chain";
 import { NewRoutine } from "./create";
 import {
@@ -79,6 +80,7 @@ export const web = defineWeb(routines, {
     "session.composer": PendingWakeUps,
     "notice:wakeup": WakeUpNotice,
     "notice:routine": RoutineNotice,
+    "session.permission:routines": RoutineApproval,
   },
 });
 

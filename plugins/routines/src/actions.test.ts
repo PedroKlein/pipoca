@@ -20,7 +20,7 @@ import {
   testSession,
   until,
 } from "@pipoca/testing";
-import type { Proposal, RoutineDetail, Run } from "./model";
+import type { Proposal, RoutineDetail, Run, WouldFire } from "./model";
 import { server } from "./server";
 import { session as sessionPart } from "./session";
 
@@ -538,6 +538,48 @@ test("saving a new event routine runs it once on the newest event that matches, 
   expect(
     (await save(t, "late", { title: "Late", when: onIssues, do: work })).runs,
   ).toEqual([]);
+});
+
+test("a trigger being made lists the recent events it would have fired on, and saving tests it on the one picked", async () => {
+  await using t = await started();
+
+  issue(3);
+  issue(4);
+  issue(5);
+  await t.clock.advance("1h");
+
+  const heard = await t.as("ana").post<WouldFire>("heard", {
+    trigger: {
+      kind: "event",
+      event: "tracker.issue",
+      where: [{ field: "number", oneOf: [3, 4] }],
+    },
+  });
+
+  expect(heard).toMatchObject({
+    count: 2,
+    others: 1,
+    events: [
+      { type: "tracker.issue", fields: { number: 4 } },
+      { type: "tracker.issue", fields: { number: 3 } },
+    ],
+  });
+
+  expect(
+    await t.as("bo").post<WouldFire>("heard", { trigger: onIssues[0] }),
+  ).toEqual({ count: 0, others: 0, events: [] });
+
+  const picked = heard.events[1]?.id ?? "";
+
+  const saved = await t
+    .as("ana")
+    .put<RoutineDetail>(`routines/triage?test=${picked}`, {
+      title: "Triage",
+      when: onIssues,
+      do: work,
+    });
+
+  expect(sessionOf(saved.runs[0]).firstMessage).toContain('"number": 3');
 });
 
 test("the propose tool sends a pull request with the commits on the workspace branch since it started", async () => {

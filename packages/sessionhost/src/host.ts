@@ -363,6 +363,7 @@ export async function hostSession(
           specs.find((spec) => spec.name === name)?.parameters,
         ),
         signal,
+        { name, input },
       );
 
       if (answer === "session") {

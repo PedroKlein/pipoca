@@ -121,7 +121,12 @@ export function Composer({
   return (
     <div className="mx-auto flex w-full max-w-chat flex-col gap-2 px-4 pb-4">
       {feed.prompts.map((open) => (
-        <PromptCard key={open.prompt.id} open={open} handlers={handlers} />
+        <PromptCard
+          key={open.prompt.id}
+          open={open}
+          handlers={handlers}
+          session={session}
+        />
       ))}
 
       <Queued

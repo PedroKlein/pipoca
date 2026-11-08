@@ -26,6 +26,7 @@ import type {
   SetupStep,
   TemplateSectionProps,
   ToolCallProps,
+  ToolPermissionProps,
 } from "./index";
 import { storedConfig } from "./config-form";
 import { useLoaded } from "./index";
@@ -40,6 +41,7 @@ export interface Slots {
   "session.header": SessionPartProps;
   "session.files": SessionFilesProps;
   [call: `session.toolCall:${string}`]: ToolCallProps;
+  [ask: `session.permission:${string}`]: ToolPermissionProps;
   [notice: `notice:${string}`]: NoticeProps;
   [link: `link:${string}`]: LinkProps;
   home: HomeProps;
