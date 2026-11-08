@@ -21,10 +21,7 @@ Pipoca is a self-hosted server for the [Pi](https://github.com/earendil-works/pi
 
 ## How it fits together
 
-```text
-browser ──HTTP/SSE──▶ pipoca server ◀──long-poll + HTTPS/SSE── pipoca agent ──▶ Pi Sessions
-                      (web UI, SQLite)                          (laptop, VM or pod)
-```
+![People and tools reach the pipoca server over HTTPS. The server is a small kernel with plugins, SQLite, pipoca.json and sealed logins. Runners on a laptop, a VM or Kubernetes pods connect out to it and run each Session as its own Pi process.](../images/how-it-works-light.png)
 
 One `pipoca` binary is both the server and the runner. The server serves the web UI and the API, keeps people, Sessions and a copy of each transcript in SQLite, and keeps settings in a plain `pipoca.json`. A runner, `pipoca agent`, connects out to the server, so the machine it runs on needs no open port, and runs each Session in its own process. On your own laptop, `pipoca up` does both in one command. [Architecture](../architecture.md) has the details.
 

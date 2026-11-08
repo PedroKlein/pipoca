@@ -7,11 +7,7 @@ How the parts of Pipoca fit together today. The words are defined in [Concepts](
 
 ## Processes
 
-```text
-browser ──HTTP/SSE──▶ pipoca server ◀──long poll + HTTPS/SSE── pipoca agent ──▶ one process per Session
-                      (web app, API,                            (a runner on a laptop,
-                       SQLite, pipoca.json)                      VM, container host or pod)
-```
+![People and tools reach the pipoca server over HTTPS. The server is a small kernel with plugins, SQLite, pipoca.json and sealed logins. Runners on a laptop, a VM or Kubernetes pods connect out to it and run each Session as its own Pi process.](images/how-it-works-light.png)
 
 | Process             | What it does                                                                                |
 | ------------------- | ------------------------------------------------------------------------------------------- |

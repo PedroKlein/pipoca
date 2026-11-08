@@ -296,7 +296,7 @@ const icons = {
               </span>
               <a class="btn lg primary" href={docs("")}>Read the docs</a>
             </div>
-            <p class="dim small">Then run <code class="ic">pipoca up</code> in the folder with your code. macOS and Linux, plus a desktop app.</p>
+            <p class="dim small">Then run <code class="ic">pipoca up</code> in the folder with your code. macOS and Linux, or get the <a class="link" href={docs("run/desktop-and-phone/")}>desktop app</a>.</p>
           </div>
         </section>
 
@@ -708,7 +708,8 @@ const icons = {
         <section class="band">
           <div class="wrap stack">
             <h2 class="serif big center">Start in a minute</h2>
-            <div class="grid-3">
+            <div class="grid-2">
+              <div class="card start"><span class="strong">The desktop app</span><span class="dim">No terminal. Runs Pipoca on this Mac or Linux box, or opens a VM or team server.</span><pre class="code">brew install --cask pedroklein/pipoca/pipoca-app</pre><a class="link" href={docs("run/desktop-and-phone/")}>Desktop app</a></div>
               <div class="card start"><span class="strong">On your laptop</span><span class="dim">Just you. The browser opens signed in.</span><pre class="code">pipoca up</pre><a class="link" href={docs("run/solo/")}>Solo setup</a></div>
               <div class="card start"><span class="strong">On a VM</span><span class="dim">Always on. Your laptop joins as a runner over SSH.</span><pre class="code">pipoca connect me@my-vm</pre><a class="link" href={docs("run/vm/")}>VM setup</a></div>
               <div class="card start"><span class="strong">In Kubernetes</span><span class="dim">For a team. Runner pods start on demand.</span><pre class="code">helm install pipoca deploy/helm/pipoca</pre><a class="link" href={docs("run/kubernetes/")}>Kubernetes setup</a></div>

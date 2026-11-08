@@ -15,7 +15,23 @@ With [Homebrew](https://brew.sh) on macOS or Linux:
 brew install pedroklein/pipoca/pipoca
 ```
 
-Or take the binary for your system from a [release](https://github.com/PedroKlein/pipoca/releases). Each release also has the [desktop app](../run/desktop-and-phone.md), which does what this page does without a terminal. To build from source instead, see [Contributing](https://github.com/PedroKlein/pipoca/blob/main/CONTRIBUTING.md).
+Or take the binary for your system from a [release](https://github.com/PedroKlein/pipoca/releases). To build from source instead, see [Contributing](https://github.com/PedroKlein/pipoca/blob/main/CONTRIBUTING.md).
+
+### Or use the desktop app
+
+The desktop app for macOS and Linux does steps 1 and 2 without a terminal. Install it with Homebrew on a Mac, or take the disk image, `.deb` or AppImage from a [release](https://github.com/PedroKlein/pipoca/releases):
+
+```sh
+brew install --cask pedroklein/pipoca/pipoca-app
+```
+
+Builds aren't signed with an Apple Developer ID yet, so on a Mac clear the quarantine flag once before the first open:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Pipoca.app
+```
+
+Open it, choose **This Mac** (This computer on Linux), and the window opens signed in. Go on with step 3. [The desktop app](../run/desktop-and-phone.md) also covers SSH machines, team servers and updates.
 
 `pipoca --help` lists the commands, and `pipoca <command> --help` explains one.
 
