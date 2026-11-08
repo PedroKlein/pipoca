@@ -46,6 +46,7 @@ import type {
   RunOutcome,
   RunResult,
   WorkItem,
+  WouldFire,
 } from "./model";
 import { type Proposed, proposals, type ProposingRun } from "./proposals";
 import { destinationsOf, results } from "./results";
@@ -354,6 +355,17 @@ const resumeKey = ({ owner, name }: Firing): string =>
 const groupResumeKey = ({ owner, name }: Firing): string =>
   `group-resume:${owner}:${name}`;
 
+// An event the owner heard lately, by the id it is picked with.
+interface Recent {
+  readonly id: string;
+  readonly at: number;
+  readonly type: string;
+  readonly fields: Heard["fields"];
+}
+
+// How many of the events that would have fired a trigger are listed.
+const wouldFireListed = 20;
+
 export interface Routines {
   readonly list: (owner: Owner) => readonly RoutineView[];
   readonly get: (owner: Owner, name: string) => RoutineDetail;
@@ -368,7 +380,16 @@ export interface Routines {
     value: unknown,
     by?: string,
     into?: string,
+    // The recent event to test it on, in place of the newest it matches.
+    testOn?: string,
   ) => Run | undefined;
+  // The recent events of the last days that the trigger would have fired
+  // on, newest first, in the group when one is named.
+  readonly wouldFire: (
+    owner: Owner,
+    trigger: Trigger,
+    group?: string,
+  ) => WouldFire;
   readonly groups: (owner: Owner) => readonly GroupView[];
   readonly group: (owner: Owner, name: string) => GroupDetail;
   readonly saveGroup: (
@@ -2703,32 +2724,31 @@ export function routinesEngine(context: Context): Routines {
     );
   };
 
-  // The newest event, kept or in a run of the owner's, that one of the
-  // routine's event triggers fires on.
-  const newestMatch = (
-    each: Loaded,
-    routine: Routine,
-  ): { readonly event: Heard; readonly trigger: number } | undefined => {
-    const { owner } = each;
+  // The events of the last days the owner heard, kept or in a run of the
+  // owner's, newest first.
+  const recentEvents = (owner: Owner): readonly Recent[] => {
     const since = clock.now() - heardKeptMs;
 
     const kept = store
       .all<{
+        id: string;
         type: string;
         fields: string;
         audience: string;
         heard_at: number;
       }>(
-        "select type, fields, audience, heard_at from routines_heard where heard_at >= ? order by heard_at desc, id desc limit ?",
+        "select id, type, fields, audience, heard_at from routines_heard where heard_at >= ? order by heard_at desc, id desc limit ?",
         since,
         heardScanned,
       )
       .filter(({ audience }) =>
         (JSON.parse(audience) as Owner[]).includes(owner),
       )
-      .map(({ type, fields, heard_at }) => ({
+      .map(({ id, type, fields, heard_at }) => ({
+        id,
         at: heard_at,
-        event: { type, fields: JSON.parse(fields) as Heard["fields"] },
+        type,
+        fields: JSON.parse(fields) as Heard["fields"],
       }));
 
     const fired = runsOf(
@@ -2736,13 +2756,31 @@ export function routinesEngine(context: Context): Routines {
       sql(owner),
       since,
     ).flatMap((run) =>
-      (JSON.parse(run.events ?? "[]") as Heard[]).map((event) => ({
+      (JSON.parse(run.events ?? "[]") as Heard[]).map((event, index) => ({
+        id: `${run.id}.${String(index)}`,
         at: run.fired_at,
-        event: { type: event.type, fields: event.fields },
+        type: event.type,
+        fields: event.fields,
       })),
     );
 
-    for (const { event } of [...kept, ...fired].sort((a, b) => b.at - a.at)) {
+    return [...kept, ...fired].sort((a, b) => b.at - a.at);
+  };
+
+  // The newest recent event, or the one picked, that one of the routine's
+  // event triggers fires on.
+  const newestMatch = (
+    each: Loaded,
+    routine: Routine,
+    picked?: string,
+  ): { readonly event: Heard; readonly trigger: number } | undefined => {
+    for (const { id, type, fields } of recentEvents(each.owner)) {
+      if (picked !== undefined && id !== picked) {
+        continue;
+      }
+
+      const event = { type, fields };
+
       const index = routine.when.findIndex((one) =>
         firesOn(one, event, groupOfRoutine(each)),
       );
@@ -2757,10 +2795,14 @@ export function routinesEngine(context: Context): Routines {
 
   // A new event routine runs once on the newest event it would have fired
   // on, as a dry run when it proposes actions (ADR 0076).
-  const testOnSave = (owner: Owner, name: string): Run | undefined => {
+  const testOnSave = (
+    owner: Owner,
+    name: string,
+    picked?: string,
+  ): Run | undefined => {
     const each = loaded.get(idOf(owner, name));
     const routine = each?.routine;
-    const found = each && routine && newestMatch(each, routine);
+    const found = each && routine && newestMatch(each, routine, picked);
     const due = found && routine.when[found.trigger];
 
     if (routine === undefined || found === undefined || due === undefined) {
@@ -3478,7 +3520,28 @@ export function routinesEngine(context: Context): Routines {
 
       return memory.files();
     },
-    save: (owner, name, value, by, into) => {
+    wouldFire: (owner, made, group) => {
+      const inGroup =
+        group === undefined ? undefined : groups.get(idOf(owner, group));
+
+      const same = recentEvents(owner).filter(
+        ({ type }) => made.kind === "event" && type === made.event,
+      );
+
+      const matched = same.filter((event) => firesOn(made, event, inGroup));
+
+      return {
+        count: matched.length,
+        others: same.length - matched.length,
+        events: matched.slice(0, wouldFireListed).map((event) => ({
+          id: event.id,
+          at: new Date(event.at).toISOString(),
+          type: event.type,
+          fields: event.fields,
+        })),
+      };
+    },
+    save: (owner, name, value, by, into, testOn) => {
       if (!namePattern.test(name)) {
         throw new BadRequest(
           "a routine's name is lower-case letters, digits and dashes",
@@ -3561,7 +3624,7 @@ export function routinesEngine(context: Context): Routines {
 
       // A coordinator's run lasts, so it doesn't start as a test.
       return isNew && routine.coordinator !== true
-        ? testOnSave(owner, name)
+        ? testOnSave(owner, name, testOn)
         : undefined;
     },
     remove: (owner, name, by) => {

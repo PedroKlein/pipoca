@@ -1,6 +1,9 @@
+import type { MountedSession } from "@pipoca/plugins/web";
 import type { Answer, Prompt } from "@pipoca/protocol";
 import { Button, TextArea, TextInput } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
+import { PluginBoundary } from "../../plugin-boundary";
+import { permissionRenderer } from "../../plugins";
 import type { OpenPrompt } from "../feed";
 import { QuestionsForm } from "./questions-form";
 
@@ -17,15 +20,37 @@ export interface PromptHandlers {
 export function PromptCard({
   open,
   handlers,
+  session,
 }: {
   readonly open: OpenPrompt;
   readonly handlers: PromptHandlers;
+  readonly session: MountedSession;
 }): ReactElement {
   const { prompt } = open;
 
   const answer = (value: Answer): void => {
     handlers.answer(prompt.id, value);
   };
+
+  const tool = prompt.kind === "permission" ? prompt.tool : undefined;
+  const drawn = tool && permissionRenderer(tool.name);
+
+  if (tool && drawn) {
+    const { plugin, Component } = drawn;
+
+    return (
+      <section data-role="prompt" aria-label={prompt.title}>
+        <PluginBoundary name={plugin}>
+          <Component
+            session={session}
+            title={prompt.title}
+            input={tool.input}
+            onAnswer={answer}
+          />
+        </PluginBoundary>
+      </section>
+    );
+  }
 
   const body = (): ReactElement => {
     switch (prompt.kind) {

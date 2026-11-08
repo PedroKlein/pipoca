@@ -865,6 +865,68 @@ test("asks in words before the assistant changes an Environment, and can allow i
   expect(await card.count()).toBe(0);
 }, 30_000);
 
+test("shows a routine the assistant wants to create as a card, which Create allows", async () => {
+  faux.setResponses([
+    fauxAssistantMessage(
+      [fauxToolCall("tool_search", { query: "make a routine" })],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage(
+      [
+        fauxToolCall("routines", {
+          action: "create",
+          name: "morning-notes",
+          summary: "Writes notes after triage.",
+          routine: {
+            title: "Morning notes",
+            when: [
+              {
+                kind: "event",
+                event: "routines.run_ended",
+                where: [{ field: "routine", is: "triage" }],
+              },
+            ],
+            do: {
+              kind: "session",
+              prompt: "Write the notes.",
+              workspace: { kind: "folder", path: root },
+            },
+            limits: { dailySpend: 5 },
+          },
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("made the routine")]),
+  ]);
+
+  await page.goto(server.url.href);
+  const composer = page.getByLabel("Ask the Pipoca assistant");
+  await composer.fill("Write notes after triage");
+  await composer.press("Enter");
+
+  const card = page.getByRole("region", { name: "Routine" });
+
+  await card.getByText("Morning notes").waitFor();
+
+  expect(await card.locator("p").textContent()).toBe(
+    `After triage ends, follow the instructions in ${root}.`,
+  );
+
+  await card.getByText("Acts as you · default Profile").waitFor();
+
+  await page
+    .locator('[data-role="prompt"]')
+    .getByRole("button", { name: "Create" })
+    .click();
+
+  await page
+    .locator('#chat li[data-role="assistant"]', { hasText: "made the routine" })
+    .waitFor();
+
+  expect(await card.count()).toBe(0);
+}, 30_000);
+
 test("infers the workspace from what the New session composer picks and remembers it", async () => {
   const asked: unknown[] = [];
 

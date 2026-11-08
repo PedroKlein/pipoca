@@ -134,6 +134,11 @@ const prompt = Type.Union([
     kind: Type.Literal("permission"),
     title: Type.String(),
     details: Type.Array(permissionDetail),
+    // The server tool call it asks about, which the plugin that draws that
+    // tool's calls may draw the prompt for.
+    tool: Type.Optional(
+      Type.Object({ name: Type.String(), input: Type.Unknown() }),
+    ),
   }),
   Type.Object({
     id: Type.String(),

@@ -96,7 +96,7 @@ export const watchFields = Type.Object({
 
 export const watchEvent = "routines.watch";
 
-const trigger = Type.Union([
+export const triggerSchema = Type.Union([
   Type.Object(
     {
       kind: Type.Literal("schedule"),
@@ -273,7 +273,7 @@ const outputType = Type.Union([
 export const routineSchema = Type.Object(
   {
     title: Type.String({ minLength: 1, maxLength: 120 }),
-    when: Type.Array(trigger, { minItems: 1, maxItems: 10 }),
+    when: Type.Array(triggerSchema, { minItems: 1, maxItems: 10 }),
     inputs: Type.Optional(Type.Record(Type.String(), input)),
     sameWork: Type.Optional(
       Type.Object(

@@ -39,6 +39,8 @@ export type AskPermission = (
   title: string,
   details: readonly PermissionDetail[],
   signal: AbortSignal | undefined,
+  // The server tool call it asks about.
+  tool?: { readonly name: string; readonly input: unknown },
 ) => Promise<Permission>;
 
 // A git checkout in the Session's workspace, and the commit its session

@@ -1,6 +1,7 @@
 import type {
   Environment,
   EnvironmentTemplate,
+  Permission,
   SessionEvent,
 } from "@pipoca/protocol";
 import {
@@ -177,6 +178,14 @@ export interface ToolCall {
 
 export interface ToolCallProps extends SessionPartProps {
   readonly call: ToolCall;
+}
+
+// A permission prompt for a call of a plugin's tool, which the plugin draws
+// in place of the kernel's (ADR 0050). It answers with onAnswer.
+export interface ToolPermissionProps extends SessionPartProps {
+  readonly title: string;
+  readonly input: unknown;
+  readonly onAnswer: (answer: Permission) => void;
 }
 
 // Loads data for a component, again when key changes, on reload(), when one

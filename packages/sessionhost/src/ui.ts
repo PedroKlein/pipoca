@@ -140,9 +140,9 @@ export function remoteUI(publish: (event: LiveEvent) => void): {
 
       return typeof value === "object" ? value : null;
     },
-    permission: async (title, details, signal) => {
+    permission: async (title, details, signal, tool) => {
       const value = await ask(
-        { kind: "permission", title, details },
+        { kind: "permission", title, details, ...(tool && { tool }) },
         signal ? { signal } : undefined,
       );
 

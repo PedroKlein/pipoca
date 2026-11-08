@@ -39,6 +39,7 @@ import type {
   WakeUp,
 } from "../src/model";
 import type { Routine } from "../src/routine";
+import { RoutineApproval } from "./approval";
 import { NewRoutine } from "./create";
 import {
   changes,
@@ -83,6 +84,7 @@ export const web = defineWeb(routines, {
     "session.composer": PendingWakeUps,
     "notice:wakeup": WakeUpNotice,
     "notice:routine": RoutineNotice,
+    "session.permission:routines": RoutineApproval,
   },
 });
 

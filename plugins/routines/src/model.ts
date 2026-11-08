@@ -221,3 +221,19 @@ export interface RoutineDraft {
   readonly summary?: string | undefined;
   readonly error?: string | undefined;
 }
+
+// An event heard lately, which a new routine can be tested on (ADR 0076).
+export interface HeardEvent {
+  readonly id: string;
+  readonly at: string;
+  readonly type: string;
+  readonly fields: Readonly<Record<string, unknown>>;
+}
+
+// The events of the last days a trigger would have fired on, the newest of
+// them, and how many others of its event didn't match.
+export interface WouldFire {
+  readonly count: number;
+  readonly others: number;
+  readonly events: readonly HeardEvent[];
+}
