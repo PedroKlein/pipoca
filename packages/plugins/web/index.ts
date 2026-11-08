@@ -154,6 +154,8 @@ export interface SessionPartProps {
 export interface SessionFilesProps extends SessionPartProps {
   readonly files: readonly File[];
   readonly onRemove: (file: File) => void;
+  // Whether some are still on their way, which holds the composer's Send.
+  readonly onUploading: (uploading: boolean) => void;
 }
 
 export interface EnvironmentSectionProps {

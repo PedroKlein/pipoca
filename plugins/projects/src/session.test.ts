@@ -181,6 +181,7 @@ test("when two Sessions change one file, the later one is kept as a copy named a
     path: "notes (from Docs).md",
     conflict: true,
     actor: `session:${thread.id}`,
+    by: "Docs",
   });
 
   expect(

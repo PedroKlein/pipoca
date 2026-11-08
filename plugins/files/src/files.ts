@@ -60,3 +60,12 @@ export function bytes(size: number): string {
 
   return `${(size / 1024 ** 3).toFixed(1)} GB`;
 }
+
+// A file a snapshot changed against its checkout's HEAD.
+export interface SnapshotChange {
+  readonly path: string;
+  readonly change: "new" | "changed" | "deleted";
+}
+
+// How many of a snapshot's changed files people see by name.
+export const shownChanges = 50;

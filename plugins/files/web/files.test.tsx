@@ -31,8 +31,9 @@ const kept: readonly SessionFile[] = [
   },
 ];
 
-test("a file added in the composer uploads at once and says Pi gets it next", async () => {
+test("a file added in the composer uploads at once, holds Send until it's saved, and says Pi gets it next", async () => {
   const sent: string[] = [];
+  const uploading: boolean[] = [];
 
   const page = renderPart(
     web,
@@ -41,6 +42,9 @@ test("a file added in the composer uploads at once and says Pi gets it next", as
       session: sessionWith({}),
       files: [new File(["a,b"], "ledger.csv")],
       onRemove: () => undefined,
+      onUploading: (now: boolean) => {
+        uploading.push(now);
+      },
     },
     {
       fetch: async (url, init) => {
@@ -72,6 +76,7 @@ test("a file added in the composer uploads at once and says Pi gets it next", as
   );
 
   expect(sent.at(-1)).toBe("POST /api/ext/files/sessions/session-1/uploads");
+  expect(uploading).toEqual([true, false]);
 });
 
 test("a file over the server's limit isn't sent, and says the limit", async () => {
@@ -84,6 +89,7 @@ test("a file over the server's limit isn't sent, and says the limit", async () =
       session: sessionWith({}),
       files: [new File(["x".repeat(2048)], "dump.sql")],
       onRemove: () => undefined,
+      onUploading: () => undefined,
     },
     {
       fetch: async (url, init) => {

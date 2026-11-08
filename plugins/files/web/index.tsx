@@ -9,7 +9,16 @@ import {
   useLoaded,
   useSessionState,
 } from "@pipoca/plugins/web";
-import { Badge, Chip, ErrorText, Icon, Row, Rows, Section } from "@pipoca/ui";
+import {
+  Badge,
+  Chip,
+  ErrorText,
+  Icon,
+  plural,
+  Row,
+  Rows,
+  Section,
+} from "@pipoca/ui";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { files as plugin } from "../plugin";
 import {
@@ -17,6 +26,7 @@ import {
   type FilesState,
   type Place,
   type SessionFile,
+  type SnapshotChange,
 } from "../src/files";
 
 export const web = defineWeb(plugin, {
@@ -40,6 +50,8 @@ interface Snapshot {
   readonly checkout: string;
   readonly size: number;
   readonly savedAt: number;
+  readonly changes: readonly SnapshotChange[];
+  readonly changed: number;
 }
 
 interface Usage {
@@ -183,8 +195,24 @@ function FilesButton({
               <Row
                 key={each.checkout}
                 title={each.checkout === "." ? "The repository" : each.checkout}
-                description={`${size(each.size)} · saved ${new Date(each.savedAt).toLocaleString()}`}
-              />
+                description={`${plural(each.changed, "file")} Pi changed but didn't commit · ${size(each.size)} · saved ${new Date(each.savedAt).toLocaleString()}`}
+              >
+                {each.changes.length > 0 && (
+                  <ul
+                    aria-label={`Changed in ${each.checkout}`}
+                    className="flex w-full flex-col gap-0.5 font-mono text-mono text-fg-dim"
+                  >
+                    {each.changes.map((change) => (
+                      <li key={change.path}>
+                        {`${change.path} · ${change.change}`}
+                      </li>
+                    ))}
+                    {each.changed > each.changes.length && (
+                      <li>{`and ${String(each.changed - each.changes.length)} more`}</li>
+                    )}
+                  </ul>
+                )}
+              </Row>
             ))}
           </Rows>
         </Section>
@@ -266,6 +294,7 @@ function Attached({
   session,
   files,
   onRemove,
+  onUploading,
 }: SessionFilesProps): ReactElement | null {
   const api = useApi(plugin);
   const started = useRef(new WeakSet<File>());
@@ -313,6 +342,16 @@ function Attached({
       }
     }
   }, [api, files, session.id]);
+
+  const uploading = files.some((file) => {
+    const each = progress.get(file);
+
+    return each?.path === undefined && each?.problem === undefined;
+  });
+
+  useEffect(() => {
+    onUploading(uploading);
+  }, [onUploading, uploading]);
 
   if (files.length === 0) {
     return null;

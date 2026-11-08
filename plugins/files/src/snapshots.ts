@@ -4,6 +4,7 @@ import { join, relative } from "node:path";
 import { promisify } from "node:util";
 import type { Checkout, SessionContext } from "@pipoca/plugins";
 import type { files } from "../plugin";
+import { type SnapshotChange, shownChanges } from "./files";
 
 const exec = promisify(execFile);
 
@@ -19,7 +20,14 @@ interface Saved {
   readonly checkout: string;
   readonly hash: string;
   readonly size: number;
+  readonly changes: readonly SnapshotChange[];
+  readonly changed: number;
 }
+
+const changeOf: Readonly<Record<string, SnapshotChange["change"]>> = {
+  A: "new",
+  D: "deleted",
+};
 
 // On a pod that loses its disk when it exits, each checkout's unfinished
 // work, its commits no remote has and its changed and new files that
@@ -51,9 +59,14 @@ export function snapshots(s: Context): {
   const keyOf = (cwd: string, checkout: Checkout): string =>
     relative(cwd, checkout.path) || ".";
 
-  // A commit of the working tree on top of HEAD, or undefined when there's
-  // nothing a remote doesn't have.
-  const snapshotCommit = async (path: string): Promise<string | undefined> => {
+  // A commit of the working tree on top of HEAD, with the files it changes,
+  // or undefined when there's nothing a remote doesn't have.
+  const snapshotCommit = async (
+    path: string,
+  ): Promise<
+    | { readonly commit: string; readonly changes: readonly SnapshotChange[] }
+    | undefined
+  > => {
     const index = join(s.folder, "snapshot.index");
     const env = { GIT_INDEX_FILE: index };
 
@@ -74,12 +87,40 @@ export function snapshots(s: Context): {
       return undefined;
     }
 
-    return git(path, ["commit-tree", tree, "-p", "HEAD", "-m", "snapshot"], {
-      GIT_AUTHOR_NAME: "Pipoca",
-      GIT_AUTHOR_EMAIL: "pipoca@localhost",
-      GIT_COMMITTER_NAME: "Pipoca",
-      GIT_COMMITTER_EMAIL: "pipoca@localhost",
-    });
+    const changes = (
+      await git(path, [
+        "-c",
+        "core.quotePath=false",
+        "diff-tree",
+        "-r",
+        "--name-status",
+        "HEAD",
+        tree,
+      ])
+    )
+      .split("\n")
+      .filter(Boolean)
+      .map((line): SnapshotChange => {
+        const [status = "", ...name] = line.split("\t");
+
+        return {
+          path: name.join("\t"),
+          change: changeOf[status.charAt(0)] ?? "changed",
+        };
+      });
+
+    const commit = await git(
+      path,
+      ["commit-tree", tree, "-p", "HEAD", "-m", "snapshot"],
+      {
+        GIT_AUTHOR_NAME: "Pipoca",
+        GIT_AUTHOR_EMAIL: "pipoca@localhost",
+        GIT_COMMITTER_NAME: "Pipoca",
+        GIT_COMMITTER_EMAIL: "pipoca@localhost",
+      },
+    );
+
+    return { commit, changes };
   };
 
   const saveAll = async (
@@ -93,11 +134,13 @@ export function snapshots(s: Context): {
 
     for (const each of checkouts) {
       const checkout = keyOf(cwd, each);
-      const commit = await snapshotCommit(each.path);
+      const made = await snapshotCommit(each.path);
 
-      if (commit === undefined) {
+      if (made === undefined) {
         continue;
       }
+
+      const { commit, changes } = made;
 
       const bundle = join(s.folder, "snapshot.bundle");
 
@@ -122,7 +165,13 @@ export function snapshots(s: Context): {
 
       const { hash } = await s.blobs.upload(bundle);
 
-      saved.push({ checkout, hash, size });
+      saved.push({
+        checkout,
+        hash,
+        size,
+        changes: changes.slice(0, shownChanges),
+        changed: changes.length,
+      });
     }
 
     await s.api.put("session/snapshot", { checkouts: saved, skipped });
