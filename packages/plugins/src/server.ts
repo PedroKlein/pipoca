@@ -16,6 +16,7 @@ import type {
   RouteToolSpec,
   Session,
   SessionAccess,
+  StartAgent,
   Timer,
   ToolResult,
 } from "@pipoca/protocol";
@@ -41,6 +42,8 @@ export type StartRequest = CreateSession & {
   // Who steers team work from the start, such as only the person whose
   // Team assistant it is (ADR 0067).
   readonly access?: SessionAccess;
+  // Only plugins start a Session as a named agent, such as a routine's.
+  readonly agent?: StartAgent;
 };
 
 // What decides where an Environment's runners come from (ADR 0049).
@@ -596,6 +599,27 @@ export interface Providers {
   ) => string;
 }
 
+export interface StoredBlob {
+  readonly hash: string;
+  readonly size: number;
+}
+
+// The plugin's bytes on the server's data volume, each named by its SHA-256
+// (ADR 0078). The plugin keeps which hashes its rows use and removes a hash
+// once none does.
+export interface Blobs {
+  readonly put: (bytes: Uint8Array) => Promise<StoredBlob>;
+  readonly size: (hash: string) => Promise<number | undefined>;
+  readonly read: (
+    hash: string,
+  ) => Promise<ReadableStream<Uint8Array> | undefined>;
+  readonly bytes: (hash: string) => Promise<Uint8Array | undefined>;
+  readonly remove: (hash: string) => Promise<void>;
+  // Lets the plugin's Session part upload with s.blobs, in chunks that
+  // resume, up to maxBytes a file.
+  readonly acceptUploads: (o: { readonly maxBytes: () => number }) => void;
+}
+
 export interface ServerContext<P extends PluginDefinition = PluginDefinition> {
   readonly id: P["id"];
   readonly people: People;
@@ -607,6 +631,7 @@ export interface ServerContext<P extends PluginDefinition = PluginDefinition> {
   readonly questions: Questions;
   readonly config: PluginConfig<P>;
   readonly store: Store;
+  readonly blobs: Blobs;
   readonly transcript: Transcript;
   readonly urls: Urls;
   readonly provide: Providers;

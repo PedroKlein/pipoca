@@ -173,6 +173,11 @@ export function serve(options: ServeOptions): {
       ? mkdtempSync(join(tmpdir(), "pipoca-runners-"))
       : join(dirname(options.database), "runners");
 
+  const blobsDir =
+    options.database === ":memory:"
+      ? mkdtempSync(join(tmpdir(), "pipoca-blobs-"))
+      : join(dirname(options.database), "blobs");
+
   // The server listens only after its plugins register.
   const runtime = (): Runtime => ({
     command: options.command ?? pipoca,
@@ -447,6 +452,7 @@ export function serve(options: ServeOptions): {
     events,
     changes: changes.publish,
     store: store.plugin,
+    blobsDir,
     dataFailure: store.pluginFailure,
     resetData: store.resetPlugin,
     config,

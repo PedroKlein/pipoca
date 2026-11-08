@@ -1,4 +1,4 @@
-import { Config, definePlugin } from "@pipoca/plugins";
+import { Config, definePlugin, event, Type } from "@pipoca/plugins";
 
 // A routine's owner is a person or the team, kept as owner_user_id with NULL
 // for the team (ADR 0067). Times are milliseconds.
@@ -7,6 +7,8 @@ export const routines = definePlugin({
   title: "Routines",
   description:
     "Runs your routines on a schedule, and lets a Session schedule a wake-up to come back to something later.",
+  // A run starts as an agent or a workflow, which subagents finds (ADR 0075).
+  requires: ["subagents"],
   config: Config.object({
     wakeUpDays: Config.number({
       title: "Days ahead a wake-up may be",
@@ -17,6 +19,21 @@ export const routines = definePlugin({
       max: 365,
     }),
   }),
+  events: {
+    paused: event({
+      title: "Routine paused itself",
+      description:
+        "A routine paused on its own: after failed runs, past its end date or at its daily spend cap.",
+      fields: Type.Object({
+        name: Type.String(),
+        title: Type.String(),
+        reason: Type.String(),
+        until: Type.Union([Type.String(), Type.Null()], {
+          description: "When the pause ends by itself, or null",
+        }),
+      }),
+    }),
+  },
   schema: `
 create table routines_state (
   owner_user_id text references users (id) on delete cascade,
@@ -65,7 +82,34 @@ create table routines_wakeups (
 create index routines_wakeups_session on routines_wakeups (session_id, delivered_at);
 `,
   // 1: a run keeps the inputs it was given (ADR 0075).
+  // 2: the agent or workflow a run's trigger starts (ADR 0075).
+  // 3: guards (ADR 0076): a pause that ends by itself, retries, a run's
+  // running time and branch, what each routine spent today, and the pull
+  // requests runs opened.
   migrations: [
     "alter table routines_runs add column inputs text check (inputs is null or json_valid(inputs));",
+    "alter table routines_runs add column agent text; alter table routines_runs add column workflow text;",
+    `
+alter table routines_state add column paused_until integer;
+alter table routines_runs add column attempt integer not null default 0;
+alter table routines_runs add column running_since integer;
+alter table routines_runs add column branch text;
+create index routines_runs_branch on routines_runs (branch) where branch is not null;
+
+create table routines_spend (
+  owner_user_id text references users (id) on delete cascade,
+  name text not null,
+  day text not null,
+  micros integer not null
+) strict;
+create unique index routines_spend_key on routines_spend (coalesce(owner_user_id, ''), name, day);
+
+create table routines_pulls (
+  run_id text not null references routines_runs (id) on delete cascade,
+  url text not null,
+  open integer not null check (open in (0, 1)),
+  primary key (run_id, url)
+) strict, without rowid;
+`,
   ],
 });

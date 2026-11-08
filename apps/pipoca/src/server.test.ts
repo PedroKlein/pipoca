@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
   definePlugin,
@@ -60,6 +63,10 @@ function domainsOf(
   return { sessions, environments };
 }
 
+function blobsDir(): string {
+  return mkdtempSync(join(tmpdir(), "pipoca-blobs-"));
+}
+
 function authOf(store: Store): Auth {
   const people = new People(store.people);
 
@@ -116,6 +123,7 @@ test("reports unhealthy when the database can't be read, keeping why in the log"
       changes: () => undefined,
       manifests: [],
       store: store.plugin,
+      blobsDir: blobsDir(),
       dataFailure: store.pluginFailure,
       resetData: store.resetPlugin,
       switches: {
@@ -223,6 +231,7 @@ function startServer(
       changes: () => undefined,
       manifests: [{ id: "echo", title: "Echo", description: "" }],
       store: store.plugin,
+      blobsDir: blobsDir(),
       dataFailure: store.pluginFailure,
       resetData: store.resetPlugin,
       switches: {
@@ -621,6 +630,7 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
         changes: () => undefined,
         manifests: [{ id: "keeper", title: "Keeper", description: "" }],
         store: store.plugin,
+        blobsDir: blobsDir(),
         dataFailure: store.pluginFailure,
         resetData: store.resetPlugin,
         switches: {

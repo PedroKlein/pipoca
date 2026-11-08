@@ -269,6 +269,8 @@ create table base_profile_edits (
   edited_by text references users (id) on delete set null,
   edited_at integer not null
 ) strict;`,
+  // The agent a plugin started the Session as (ADR 0075), as JSON.
+  "alter table sessions add column agent text check (agent is null or json_valid(agent));",
 ];
 
 export const kernelSchema: Schema = { owner: "kernel", sql, migrations };

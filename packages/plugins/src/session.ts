@@ -14,6 +14,7 @@ import type {
   Timer,
 } from "@pipoca/protocol";
 import type { Static, TSchema } from "typebox";
+import type { SessionBlobs } from "./blobs";
 import type { TypedClient } from "./client";
 import type { PluginDefinition } from "./definition";
 import type { ToolDef } from "./server";
@@ -64,6 +65,12 @@ export interface ChildOptions {
   // A child's session file to carry on from, when it is still there.
   readonly continueFrom?: string;
 }
+
+// What a Session started as a named agent takes from it (ADR 0075).
+export type AgentOptions = Pick<
+  ChildOptions,
+  "tools" | "model" | "thinking" | "systemPrompt"
+>;
 
 export interface SessionLogins {
   readonly models: CredentialStore;
@@ -124,6 +131,8 @@ export interface SessionContext<P extends PluginDefinition = PluginDefinition> {
   // The plugin's config when the Session started, without its secrets.
   readonly config: ConfigValue<P>;
   readonly api: TypedClient;
+  // Uploads to the plugin's blob store, once its server part accepts them.
+  readonly blobs: SessionBlobs;
   readonly publish: (
     key: string,
     data: unknown,
@@ -138,6 +147,9 @@ export interface SessionContext<P extends PluginDefinition = PluginDefinition> {
     // runner's files, such as on the server (ADR 0045). One plugin per
     // server gives them; without one, Pi uses the runner's own.
     readonly modelCredentials: (logins: () => Promise<SessionLogins>) => void;
+    // Finds the agent a Session starts as by its name, or throws saying why
+    // there is none. One plugin per Session does.
+    readonly agent: (find: (name: string) => Promise<AgentOptions>) => void;
   };
   readonly clock: Clock;
   // Waits that end with the Session, such as a retry, since a Session part

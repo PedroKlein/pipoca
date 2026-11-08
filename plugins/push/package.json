@@ -5,6 +5,7 @@
   "dependencies": {
     "@pipoca/plugins": "workspace:*",
     "@pipoca/protocol": "workspace:*",
+    "@pipoca/routines": "workspace:*",
     "@pipoca/ui": "workspace:*",
     "@pipoca/usage": "workspace:*",
     "react": "19.3.1"

@@ -8,6 +8,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type {
+  AgentOptions,
   SessionContext,
   SessionLogins,
   SessionTool,
@@ -15,6 +16,7 @@ import type {
 } from "@pipoca/plugins";
 import {
   pluginClient,
+  sessionBlobs,
   type SessionPart,
   toolAnswer,
   toolSpecOf,
@@ -27,7 +29,7 @@ const allowed = new AsyncLocalStorage<true>();
 
 export type PartHost = Omit<
   SessionContext,
-  "tools" | "extension" | "config" | "api" | "provide"
+  "tools" | "extension" | "config" | "api" | "provide" | "blobs"
 > & {
   readonly config: unknown;
   readonly request: (path: string, init?: RequestInit) => Promise<Response>;
@@ -43,12 +45,39 @@ export async function setUpPart(
   readonly tools: readonly ToolDefinition[];
   readonly extensions: readonly InlineExtension[];
   readonly modelCredentials?: () => Promise<SessionLogins>;
+  readonly agent?: (name: string) => Promise<AgentOptions>;
 }> {
   const { id } = part.plugin;
   const tools: SessionTool[] = [];
   const factories: ExtensionFactory[] = [];
   let modelCredentials: (() => Promise<SessionLogins>) | undefined;
+  let agent: ((name: string) => Promise<AgentOptions>) | undefined;
   const marker = `/ext/${id}/`;
+
+  const api = pluginClient(part.plugin, {
+    session: "this",
+    fetch: async (url, init) => {
+      const at = url.indexOf(marker);
+
+      if (at === -1) {
+        throw new Error("a Session part reaches only its plugin's routes");
+      }
+
+      const path = url.slice(at + marker.length);
+
+      if (allowed.getStore() === undefined) {
+        return host.request(path, init);
+      }
+
+      return host.request(path, {
+        ...init,
+        headers: {
+          ...Object.fromEntries(new Headers(init.headers)),
+          [askedHeader]: "1",
+        },
+      });
+    },
+  });
 
   await part.setup({
     ...host,
@@ -76,32 +105,13 @@ export async function setUpPart(
 
         modelCredentials = logins;
       },
+      agent: (find) => {
+        agent = find;
+      },
     },
     config: host.config as SessionContext["config"],
-    api: pluginClient(part.plugin, {
-      session: "this",
-      fetch: async (url, init) => {
-        const at = url.indexOf(marker);
-
-        if (at === -1) {
-          throw new Error("a Session part reaches only its plugin's routes");
-        }
-
-        const path = url.slice(at + marker.length);
-
-        if (allowed.getStore() === undefined) {
-          return host.request(path, init);
-        }
-
-        return host.request(path, {
-          ...init,
-          headers: {
-            ...Object.fromEntries(new Headers(init.headers)),
-            [askedHeader]: "1",
-          },
-        });
-      },
-    }),
+    api,
+    blobs: sessionBlobs(api, host.timer),
   });
 
   const piTools = (replaceable: boolean): ToolDefinition[] =>
@@ -113,6 +123,7 @@ export async function setUpPart(
 
   return {
     ...(modelCredentials && { modelCredentials }),
+    ...(agent && { agent }),
     tools: piTools(false),
     extensions: [
       ...(factories.length === 0

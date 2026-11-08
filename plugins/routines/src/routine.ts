@@ -2,12 +2,42 @@ import { matchesGlob } from "node:path";
 import { type Static, Type } from "@pipoca/plugins";
 import type { DeclaredEvent } from "@pipoca/protocol";
 import { Value } from "typebox/value";
-import { cronSchedule } from "./cron";
+import { cronSchedule, dayAfter, timeWindow } from "./cron";
 
 const scalar = Type.Union([Type.String(), Type.Number(), Type.Boolean()]);
 
 // Inputs a trigger fills, as plain text with {{event.<field>}} in it.
 const triggerInputs = Type.Optional(Type.Record(Type.String(), scalar));
+
+// An agent file or a saved workflow of the run's Profile, by name (ADR 0075).
+const named = Type.Optional(
+  Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" }),
+);
+
+// When a trigger may fire, in its time zone: a schedule's own, or else the
+// window's or the server's. Outside every window a firing waits for the
+// next one or is dropped (ADR 0076).
+const window = Type.Object(
+  {
+    days: Type.String({ minLength: 1, description: "Such as mon-fri or *" }),
+    from: Type.String({ pattern: "^\\d\\d:\\d\\d$" }),
+    to: Type.String({ pattern: "^\\d\\d:\\d\\d$" }),
+    outside: Type.Optional(
+      Type.Union([Type.Literal("wait"), Type.Literal("skip")]),
+    ),
+    timeZone: Type.Optional(Type.String()),
+  },
+  { additionalProperties: false },
+);
+
+// What a trigger fills, the agent or workflow its runs start in place of
+// do's, and when it may fire.
+const firing = {
+  inputs: triggerInputs,
+  agent: named,
+  workflow: named,
+  windows: Type.Optional(Type.Array(window, { minItems: 1, maxItems: 7 })),
+};
 
 const field = Type.String({ minLength: 1 });
 
@@ -35,12 +65,12 @@ const trigger = Type.Union([
       kind: Type.Literal("schedule"),
       cron: Type.String(),
       timeZone: Type.String(),
-      inputs: triggerInputs,
+      ...firing,
     },
     { additionalProperties: false },
   ),
   Type.Object(
-    { kind: Type.Literal("once"), at: Type.String(), inputs: triggerInputs },
+    { kind: Type.Literal("once"), at: Type.String(), ...firing },
     { additionalProperties: false },
   ),
   Type.Object(
@@ -48,12 +78,12 @@ const trigger = Type.Union([
       kind: Type.Literal("event"),
       event: Type.String({ pattern: "^[a-z0-9-]+\\.[a-z0-9_]+$" }),
       where: Type.Optional(Type.Array(condition, { maxItems: 20 })),
-      inputs: triggerInputs,
+      ...firing,
     },
     { additionalProperties: false },
   ),
   Type.Object(
-    { kind: Type.Literal("webhook"), inputs: triggerInputs },
+    { kind: Type.Literal("webhook"), ...firing },
     { additionalProperties: false },
   ),
 ]);
@@ -130,7 +160,10 @@ const work = Type.Union([
   Type.Object(
     {
       kind: Type.Literal("session"),
-      prompt,
+      agent: named,
+      workflow: named,
+      // A workflow's run needs none: its inputs are the workflow's args.
+      prompt: Type.Optional(prompt),
       workspace,
       environment: Type.Optional(Type.String()),
       profile: Type.Optional(Type.String()),
@@ -176,6 +209,18 @@ export const routineSchema = Type.Object(
         {
           // Runs that go at once, across all pieces of work.
           maxRunning: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
+          // A cap in the currency of the server's price table, counted from
+          // the usage of the routine's runs each day.
+          dailySpend: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
+          // How long a run may be running, such as 2h.
+          timeLimit: Type.Optional(
+            Type.String({ pattern: "^[1-9]\\d{0,3}[mhd]$" }),
+          ),
+          // How often a failed run starts again.
+          retries: Type.Optional(Type.Integer({ minimum: 0, maximum: 5 })),
+          // A date, YYYY-MM-DD, or a time with a zone, after which the
+          // routine pauses itself.
+          stopAfter: Type.Optional(Type.String({ minLength: 1 })),
         },
         { additionalProperties: false },
       ),
@@ -201,12 +246,29 @@ const inputName = /^[a-zA-Z][a-zA-Z0-9_]{0,40}$/;
 export function routineOf(value: unknown): Routine {
   const routine = checked(isFirstShape(value) ? fromFirstShape(value) : value);
 
-  for (const each of routine.when) {
+  for (const [index, each] of routine.when.entries()) {
     if (each.kind === "schedule") {
       cronSchedule(each.cron, each.timeZone);
     } else if (each.kind === "once" && !isZonedTime(each.at)) {
       throw new Error(`${each.at} must be an ISO 8601 time with a time zone`);
     }
+
+    try {
+      windowsOf(each);
+    } catch (error) {
+      throw new Error(
+        `when.${String(index)}.windows: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  const { stopAfter } = routine.limits ?? {};
+
+  if (stopAfter !== undefined && Number.isNaN(stopAtOf(routine) ?? 0)) {
+    throw new Error(
+      "limits.stopAfter must be a date, YYYY-MM-DD, or a time with a time zone",
+    );
   }
 
   for (const [name, each] of Object.entries(routine.inputs ?? {})) {
@@ -233,6 +295,8 @@ export function routineOf(value: unknown): Routine {
     throw new Error("do.model must be provider/id, such as openai/gpt-5");
   }
 
+  checkStarts(routine);
+
   const declared = new Set(Object.keys(routine.inputs ?? {}));
 
   for (const [index, each] of routine.when.entries()) {
@@ -244,7 +308,7 @@ export function routineOf(value: unknown): Routine {
   }
 
   for (const text of [
-    routine.do.prompt,
+    routine.do.prompt ?? "",
     JSON.stringify("workspace" in routine.do ? routine.do.workspace : ""),
   ]) {
     for (const [, root = "", name = ""] of text.matchAll(placeholder)) {
@@ -259,6 +323,63 @@ export function routineOf(value: unknown): Routine {
   }
 
   return routine;
+}
+
+// A run starts an agent or a workflow, not both, and one that isn't a
+// workflow's needs a prompt.
+function checkStarts(routine: Routine): void {
+  const { do: started } = routine;
+
+  for (const [index, each] of routine.when.entries()) {
+    if (each.agent !== undefined && each.workflow !== undefined) {
+      throw new Error(`when.${String(index)} names an agent and a workflow`);
+    }
+
+    if (
+      started.kind === "message" &&
+      (each.agent !== undefined || each.workflow !== undefined)
+    ) {
+      throw new Error(
+        `when.${String(index)}: a routine that messages a Session starts no agent or workflow`,
+      );
+    }
+  }
+
+  if (started.kind === "message") {
+    return;
+  }
+
+  if (started.agent !== undefined && started.workflow !== undefined) {
+    throw new Error("do names an agent and a workflow");
+  }
+
+  const prompted =
+    started.workflow === undefined ||
+    routine.when.some((each) => each.agent !== undefined);
+
+  if (prompted && started.prompt === undefined) {
+    throw new Error("do.prompt is required unless every run starts a workflow");
+  }
+}
+
+// What a run starts: the trigger's agent or workflow, or else do's.
+export function startOf(
+  session: Extract<Routine["do"], { kind: "session" }>,
+  override: Started,
+): Started {
+  if (override.agent !== undefined || override.workflow !== undefined) {
+    return override;
+  }
+
+  return {
+    ...(session.agent !== undefined && { agent: session.agent }),
+    ...(session.workflow !== undefined && { workflow: session.workflow }),
+  };
+}
+
+export interface Started {
+  readonly agent?: string | undefined;
+  readonly workflow?: string | undefined;
 }
 
 function checked(value: unknown): Routine {
@@ -397,13 +518,102 @@ export function nextFiring(each: Trigger, after: number): number | undefined {
   return at > after ? at : undefined;
 }
 
+// The server's own time zone, for what a routine names no zone for.
+const serverZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+// The zone a routine's days are counted in: its first schedule's.
+export function zoneOf(routine: Routine | undefined): string {
+  const scheduled = routine?.when.find((each) => each.kind === "schedule");
+
+  return scheduled?.kind === "schedule" ? scheduled.timeZone : serverZone;
+}
+
+function windowsOf(each: Trigger) {
+  return (each.windows ?? []).map((one) => ({
+    outside: one.outside ?? "wait",
+    ...timeWindow(
+      one.days,
+      one.from,
+      one.to,
+      one.timeZone ?? (each.kind === "schedule" ? each.timeZone : serverZone),
+    ),
+  }));
+}
+
+// Whether a firing of the trigger at the time goes now, waits until a later
+// time, or is dropped.
+export function admits(each: Trigger, at: number): "now" | "skip" | number {
+  const windows = windowsOf(each);
+
+  if (windows.length === 0 || windows.some(({ contains }) => contains(at))) {
+    return "now";
+  }
+
+  const opens = windows
+    .filter(({ outside }) => outside === "wait")
+    .map(({ next }) => next(at))
+    .filter((next) => next !== undefined);
+
+  return opens.length === 0 ? "skip" : Math.min(...opens);
+}
+
+// ADR 0061: an event from a git host fires only for members of the
+// repository, unless a condition says who may fire it.
+export function admitsSender(each: Trigger, event: Heard): boolean {
+  return (
+    each.kind !== "event" ||
+    !each.event.startsWith("git-hosts.") ||
+    (each.where ?? []).some(
+      (where) => where.field === "member" || where.field === "sender",
+    ) ||
+    !("member" in event.fields) ||
+    event.fields["member"] === true
+  );
+}
+
+// When the routine pauses itself, or NaN when its stopAfter isn't a date.
+export function stopAtOf(routine: Routine): number | undefined {
+  const { stopAfter } = routine.limits ?? {};
+
+  if (stopAfter === undefined) {
+    return undefined;
+  }
+
+  if (/^\d{4}-\d\d-\d\d$/.test(stopAfter)) {
+    return Number.isNaN(Date.parse(stopAfter))
+      ? Number.NaN
+      : dayAfter(stopAfter, zoneOf(routine));
+  }
+
+  return isZonedTime(stopAfter) ? Date.parse(stopAfter) : Number.NaN;
+}
+
+const defaultTimeLimit = "2h";
+
+const unitMs = { m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
+
+// How long a run of the routine may be running. A coordinator (ADR 0075)
+// will have no limit, once a routine can be one.
+export function timeLimitOf(
+  routine: Routine,
+): { readonly text: string; readonly ms: number } | undefined {
+  if (routine.do.kind === "message") {
+    return undefined;
+  }
+
+  const text = routine.limits?.timeLimit ?? defaultTimeLimit;
+  const unit = text.at(-1) as keyof typeof unitMs;
+
+  return { text, ms: Number(text.slice(0, -1)) * unitMs[unit] };
+}
+
 export function isZonedTime(text: string): boolean {
   return !Number.isNaN(Date.parse(text)) && /(Z|[+-]\d\d:?\d\d)$/i.test(text);
 }
 
 // What a routine hears: another plugin's event, or a webhook's delivery,
 // with the inputs its trigger filled.
-export interface Heard {
+export interface Heard extends Started {
   readonly type: string;
   readonly fields: Readonly<Record<string, unknown>>;
   readonly inputs?: Readonly<Record<string, unknown>>;

@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import type { Environments } from "@pipoca/environments";
@@ -52,6 +52,7 @@ import type {
 } from "@pipoca/protocol";
 import { switchingWith } from "@pipoca/protocol";
 import type { PluginProfile, SessionPlugins, Sessions } from "@pipoca/sessions";
+import { pluginBlobs } from "./blobs";
 import { type PluginDb, secretsOf, sessionsFor, storeOf } from "./context";
 import { questionBroker } from "./questions";
 import {
@@ -237,6 +238,8 @@ export function startPlugins(
     readonly events: EventBus;
     readonly changes: (topic: string) => void;
     readonly store: (name: string) => PluginDb;
+    // Each plugin's bytes go in a folder of its own under it.
+    readonly blobsDir: string;
     // Why a plugin's tables can't be used, if they can't.
     readonly dataFailure: (name: string) => string | undefined;
     // Drops a plugin's tables and makes them again, or says why it couldn't.
@@ -811,6 +814,7 @@ export function startPlugins(
             { timer, signal, log },
           ),
           store: storeOf(store),
+          blobs: pluginBlobs(join(deps.blobsDir, id), declared.routes),
           transcript,
           urls: pluginUrls(id, deps.url),
           provide: {

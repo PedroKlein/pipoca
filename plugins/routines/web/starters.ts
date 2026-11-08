@@ -107,6 +107,8 @@ export const starters: readonly Starter[] = [
           where: [
             { field: "repository", is: "owner/name" },
             { field: "action", is: "opened" },
+            // Anyone's new issue, not only a member's.
+            { field: "member", oneOf: [true, false] },
           ],
         },
       ],

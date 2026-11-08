@@ -31,6 +31,15 @@ export const usage = definePlugin({
     }),
   }),
   events: {
+    spent: event({
+      title: "Spent on a model call",
+      description:
+        "Team work spent money on a model call through the server's proxy, priced from the price table.",
+      fields: Type.Object({
+        sessionId: Type.String(),
+        cost: Type.Number({ description: "Dollars" }),
+      }),
+    }),
     budget_warned: event({
       title: "Budget warning",
       description:

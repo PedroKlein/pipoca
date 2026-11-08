@@ -52,6 +52,7 @@ test("opens its own database again", () => {
     workspaceKeptReason: null,
     startedBy: null,
     actsAs: null,
+    agent: { name: "implementer", keep: ["end_run"] },
   });
 
   expect(store.environments.environments()).toHaveLength(1);
@@ -61,6 +62,7 @@ test("opens its own database again", () => {
     thinking: "high",
     workspace: { kind: "clone", repository: "r", branch: "b" },
     model: { provider: "openai", id: "gpt-5-mini" },
+    agent: { name: "implementer", keep: ["end_run"] },
   });
 
   store.close();
@@ -197,6 +199,7 @@ function sessionIn(
     workspaceKeptReason: null,
     startedBy: null,
     actsAs: null,
+    agent: null,
     ...fields,
   };
 }

@@ -404,6 +404,7 @@ export class Sessions {
       thinking: request.thinking ?? null,
       systemPrompt: request.systemPrompt ?? null,
       firstMessage: request.firstMessage ?? null,
+      agent: request.agent ?? null,
       title: null,
       status: "queued",
       generation: 0,
@@ -1690,6 +1691,7 @@ export class Sessions {
           thinking: session.thinking,
           systemPrompt: session.systemPrompt,
           firstMessage: session.firstMessage,
+          agent: session.agent,
           ...this.#pluginsOf(session),
           environment: this.#environments.sessionEnvironment(
             session.environmentId,

@@ -2,6 +2,7 @@ import { createPrivateKey, generateKeyPairSync, sign } from "node:crypto";
 import {
   BadRequest,
   defineServer,
+  owners,
   type Person,
   type Secrets,
   type ServerContext,
@@ -9,6 +10,7 @@ import {
   Type,
 } from "@pipoca/plugins";
 import type { Session, SessionStatus } from "@pipoca/protocol";
+import { routines } from "@pipoca/routines/plugin";
 import { usage } from "@pipoca/usage/plugin";
 import { push } from "../plugin";
 import { encrypt, newSender } from "./encrypt";
@@ -154,6 +156,33 @@ export const server = defineServer(
             false,
           );
         }
+      }
+    });
+
+    // A routine that paused itself, such as at its daily spend cap, tells
+    // its person, or every admin for the team's (ADR 0076).
+    events.on(routines.events.paused, ({ fields, to }) => {
+      const told = new Set(
+        to.flatMap((owner) => {
+          const id = owners.personId(owner);
+
+          return id === undefined
+            ? people.list().flatMap((user) => (user.admin ? [user.id] : []))
+            : [id];
+        }),
+      );
+
+      for (const id of told) {
+        tell(
+          id,
+          {
+            title: `Routine paused: ${fields.title}`,
+            body: fields.reason,
+            tag: `routines.paused.${fields.name}`,
+            url: "/",
+          },
+          false,
+        );
       }
     });
 
