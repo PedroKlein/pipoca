@@ -87,7 +87,13 @@ brew install pedroklein/pipoca/pipoca
 cd ~/code && pipoca up
 ```
 
-Your browser opens signed in. Start a Session, pick a folder, say what Pi should do, and log in to a model provider once with `/login`. The [Quick start](https://pipoca.dev/docs/get-started/quick-start/) walks through it, including the Mac app and the release binaries.
+Your browser opens signed in. Start a Session, pick a folder, say what Pi should do, and log in to a model provider once with `/login`. The [Quick start](https://pipoca.dev/docs/get-started/quick-start/) walks through it, including the release binaries.
+
+Prefer no terminal? The [desktop app](https://pipoca.dev/docs/run/desktop-and-phone/) for macOS and Linux does the same from a window:
+
+```sh
+brew install --cask pedroklein/pipoca/pipoca-app
+```
 
 ## Ways to run it
 
