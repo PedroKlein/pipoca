@@ -146,3 +146,27 @@ test("the header counts the runs the Session part last published", () => {
 test("a Session without runs draws nothing in the header", () => {
   expect(rendered("session.header", sessionWith([])).innerHTML).toBe("");
 });
+
+test("a steer call, whose result carries no details, doesn't break the header", () => {
+  const steered: SessionEvent = {
+    type: "entry",
+    line: 2,
+    entry: JSON.stringify({
+      type: "message",
+      message: {
+        role: "toolResult",
+        toolCallId: "call-2",
+        toolName: "subagent",
+        content: [{ type: "text", text: "Sent to the run's running agents." }],
+        isError: false,
+      },
+    }),
+  };
+
+  const page = rendered(
+    "session.header",
+    sessionWith([...called(running), steered]),
+  );
+
+  expect(page.querySelector("button")?.textContent).toBe("1 running");
+});
