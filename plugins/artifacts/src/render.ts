@@ -11,9 +11,31 @@ const mimes: Readonly<Record<string, string>> = {
   pdf: "application/pdf",
 };
 
-// Pages Pipoca draws tell the artifact page what the person selected, to
-// quote it in a comment.
-const selection = `<script>document.addEventListener("mouseup", () => { const text = String(getSelection()).trim(); if (text !== "") parent.postMessage({ pipoca: "selection", text: text.slice(0, 2000) }, "*"); });</script>`;
+// Every page but a picture or PDF tells the artifact page what the person
+// selected, to quote it in a comment, and marks the text comments quote.
+const selection = `<script>(() => {
+document.addEventListener("mouseup", () => { const text = String(getSelection()).trim(); if (text !== "") parent.postMessage({ pipoca: "selection", text: text.slice(0, 2000) }, "*"); });
+addEventListener("message", (event) => {
+  if (event.source !== parent || event.data?.pipoca !== "highlight") return;
+  for (const mark of document.querySelectorAll("mark[data-pipoca]")) mark.replaceWith(...mark.childNodes);
+  document.body.normalize();
+  event.data.quotes.forEach((quote, at) => {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      const start = node.data.indexOf(quote);
+      if (start < 0 || node.parentElement?.closest("script, style") != null) continue;
+      const range = document.createRange();
+      range.setStart(node, start);
+      range.setEnd(node, start + quote.length);
+      const mark = document.createElement("mark");
+      mark.dataset.pipoca = String(at + 1);
+      mark.title = "Comment " + String(at + 1);
+      range.surroundContents(mark);
+      break;
+    }
+  });
+});
+})();</script>`;
 
 const mermaid = "cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js";
 
@@ -51,7 +73,7 @@ export function rendered(
   const text = new TextDecoder().decode(content);
 
   if (kind === "html") {
-    return new Response(text, { headers });
+    return new Response(withSelection(text), { headers });
   }
 
   const body =
@@ -158,6 +180,14 @@ code { padding: 0.15em 0.35em; } pre { padding: 1rem; overflow-x: auto; } pre co
 blockquote { margin: 0; padding-left: 1rem; color: var(--dim); border-left: 3px solid var(--line); }
 table { border-collapse: collapse; display: block; overflow-x: auto; } th, td { padding: 0.35rem 0.75rem; border: 1px solid var(--line); text-align: left; } th { background: var(--code); }
 </style></head><body>${body}${selection}</body></html>`;
+}
+
+function withSelection(html: string): string {
+  const end = html.lastIndexOf("</body>");
+
+  return end < 0
+    ? `${html}${selection}`
+    : `${html.slice(0, end)}${selection}${html.slice(end)}`;
 }
 
 function escaped(text: string): string {

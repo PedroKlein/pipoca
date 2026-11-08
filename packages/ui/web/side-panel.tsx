@@ -16,6 +16,7 @@ export function SidePanel({
   title,
   closeLabel = "Close",
   size = "md",
+  docked = false,
   className,
   children,
 }: {
@@ -24,6 +25,9 @@ export function SidePanel({
   readonly title: string;
   readonly closeLabel?: string;
   readonly size?: keyof typeof sizes;
+  // On a wide screen, beside what comes before it in a flex row instead of
+  // over it, so both stay in view.
+  readonly docked?: boolean;
   // For the scrolling body, such as the gap between its items.
   readonly className?: string;
   readonly children: ReactNode;
@@ -54,6 +58,8 @@ export function SidePanel({
       className={cn(
         "fixed inset-y-0 right-0 z-40 flex flex-col border-l border-line bg-panel text-ui text-fg shadow-pop",
         sizes[size],
+        docked &&
+          "lg:relative lg:inset-auto lg:z-auto lg:w-[min(720px,50%)] lg:shrink-0 lg:shadow-none",
       )}
     >
       <header className="flex min-h-14 items-center gap-2 border-b border-line px-4">

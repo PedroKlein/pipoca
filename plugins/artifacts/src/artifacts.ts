@@ -31,14 +31,30 @@ export interface Version {
   readonly size: number;
   // An actor: user:<id> or session:<id>.
   readonly author: string;
+  // Who made it, for people: Pi or the person's name.
+  readonly by: string;
+  // What changed, in Pi's or the person's words.
+  readonly note: string;
   readonly createdAt: number;
 }
+
+// Who opens it besides the people who see its Session: only them, people
+// named on it too, or the whole team.
+export type Audience = "you" | "named" | "team";
 
 export interface ArtifactSummary {
   readonly id: string;
   readonly title: string;
   readonly kind: Kind;
   readonly sessionId: string | null;
+  readonly sessionTitle: string | null;
+  // The person whose work it is, or Team.
+  readonly owner: string;
+  // Whether the viewer steers it, so it's theirs.
+  readonly yours: boolean;
+  readonly audience: Audience;
+  readonly sharedWith: readonly string[];
+  readonly openComments: number;
   readonly versions: number;
   readonly updatedAt: number;
 }
@@ -86,6 +102,20 @@ export interface Published {
   readonly id: string;
   readonly title: string;
   readonly version: number;
+  readonly kind: Kind;
+}
+
+const kindLabels: Readonly<Record<Kind, string>> = {
+  html: "Page",
+  markdown: "Markdown",
+  svg: "SVG",
+  image: "Image",
+  pdf: "PDF",
+  csv: "Table",
+};
+
+export function kindLabel(kind: Kind): string {
+  return kindLabels[kind];
 }
 
 export function bytes(size: number): string {

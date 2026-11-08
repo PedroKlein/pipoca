@@ -157,160 +157,162 @@ export function SessionView({
 
   return (
     <PrimaryView value={primary}>
-      <SessionPanel>
-        <section
-          id={primary ? "session" : undefined}
-          aria-label={title}
-          className="flex min-h-0 min-w-0 flex-1 flex-col"
-        >
-          <Header
-            primary={primary}
-            shown={shown}
-            feed={feed}
-            title={title}
-            crumb={crumb}
-            environments={environments}
-            pluginHeaders={pluginHeaders}
-            archived={archived}
-            view={view}
-            onView={setView}
-            onMenu={onMenu}
-            actions={actions}
-            menu={
-              session && (
-                <SessionActions
-                  session={session}
-                  feed={feed}
-                  team={team}
-                  hasTeam={me.team}
-                  limits={limits}
-                  archived={archived}
-                  report={reportError}
-                  onFork={(entry, personal) => {
-                    void forkSession(entry, personal);
-                  }}
-                  onLimit={() => {
-                    setLimiting(true);
-                  }}
-                  onMove={() => {
-                    setMoving(true);
-                  }}
-                />
-              )
-            }
-          />
-
-          {shown === "terminal" && (
-            <TerminalView sessionId={sessionId} terminals={feed.terminals} />
-          )}
-          {shown === "pi" && (
-            <TerminalScreen
-              sessionId={sessionId}
-              terminalId={piTerminal}
-              onClosed={() => {
-                setView("chat");
-              }}
-            />
-          )}
-          <div
-            hidden={shown !== "chat"}
+      <div className="flex min-h-0 min-w-0 flex-1">
+        <SessionPanel>
+          <section
+            id={primary ? "session" : undefined}
+            aria-label={title}
             className="flex min-h-0 min-w-0 flex-1 flex-col"
           >
-            <ChatView
+            <Header
+              primary={primary}
+              shown={shown}
               feed={feed}
-              place={place}
-              hidden={shown !== "chat"}
-              session={channel.session}
-              {...(team &&
-                !watching &&
-                !archived && {
-                  onReply: (quote) => {
-                    setReplying({
-                      quote,
-                      by:
-                        quote.from === "pi"
-                          ? "Pi"
-                          : (teammates.find(({ id }) => id === quote.from)
-                              ?.name ?? "Someone"),
-                    });
-                  },
-                })}
-            />
-            {!archived && (
-              <PagesNotice
-                sessionId={sessionId}
-                pages={feed.pages}
-                report={reportError}
-              />
-            )}
-            <UiActionNotice
-              uiAction={archived ? undefined : feed.uiAction}
-              goes={primary && shown === "chat"}
-            />
-            {!archived && (
-              <PiViewNotice
-                piView={feed.piView}
-                onOpen={() => {
-                  setView("pi");
-                }}
-              />
-            )}
-            {!archived && <PresenceLine people={present} me={me.id} />}
-            <div onInput={typed} className="contents">
-              <Composer
-                sessionId={sessionId}
-                session={channel.session}
-                feed={feed}
-                models={environment?.models ?? []}
-                hiddenModels={environment?.hiddenModels ?? []}
-                hidden={archived || watching}
-                report={reportError}
-                team={team}
-                replying={replying}
-                onReplied={() => {
-                  setReplying(undefined);
-                }}
-                onFork={(draft) => {
-                  void forkSession(undefined, false, draft);
-                }}
-              />
-            </div>
-            {watching && !archived && (
-              <p
-                role="status"
-                className="mx-auto w-full max-w-chat px-4 pb-4 text-label text-fg-dim"
-              >
-                This team work is view-only. You can follow along while whoever
-                started it steers.
-              </p>
-            )}
-          </div>
-          {session && limits && (
-            <AccessDialog
-              session={session}
-              open={limiting}
-              onClose={() => {
-                setLimiting(false);
-              }}
-            />
-          )}
-          {session && !team && (
-            <MoveDialog
-              session={session}
-              items={feed.items}
-              busy={
-                session.status === "running" ||
-                session.status === "starting" ||
-                session.status === "queued"
+              title={title}
+              crumb={crumb}
+              environments={environments}
+              pluginHeaders={pluginHeaders}
+              archived={archived}
+              view={view}
+              onView={setView}
+              onMenu={onMenu}
+              actions={actions}
+              menu={
+                session && (
+                  <SessionActions
+                    session={session}
+                    feed={feed}
+                    team={team}
+                    hasTeam={me.team}
+                    limits={limits}
+                    archived={archived}
+                    report={reportError}
+                    onFork={(entry, personal) => {
+                      void forkSession(entry, personal);
+                    }}
+                    onLimit={() => {
+                      setLimiting(true);
+                    }}
+                    onMove={() => {
+                      setMoving(true);
+                    }}
+                  />
+                )
               }
-              open={moving}
-              onClose={() => {
-                setMoving(false);
-              }}
             />
-          )}
-        </section>
-      </SessionPanel>
+
+            {shown === "terminal" && (
+              <TerminalView sessionId={sessionId} terminals={feed.terminals} />
+            )}
+            {shown === "pi" && (
+              <TerminalScreen
+                sessionId={sessionId}
+                terminalId={piTerminal}
+                onClosed={() => {
+                  setView("chat");
+                }}
+              />
+            )}
+            <div
+              hidden={shown !== "chat"}
+              className="flex min-h-0 min-w-0 flex-1 flex-col"
+            >
+              <ChatView
+                feed={feed}
+                place={place}
+                hidden={shown !== "chat"}
+                session={channel.session}
+                {...(team &&
+                  !watching &&
+                  !archived && {
+                    onReply: (quote) => {
+                      setReplying({
+                        quote,
+                        by:
+                          quote.from === "pi"
+                            ? "Pi"
+                            : (teammates.find(({ id }) => id === quote.from)
+                                ?.name ?? "Someone"),
+                      });
+                    },
+                  })}
+              />
+              {!archived && (
+                <PagesNotice
+                  sessionId={sessionId}
+                  pages={feed.pages}
+                  report={reportError}
+                />
+              )}
+              <UiActionNotice
+                uiAction={archived ? undefined : feed.uiAction}
+                goes={primary && shown === "chat"}
+              />
+              {!archived && (
+                <PiViewNotice
+                  piView={feed.piView}
+                  onOpen={() => {
+                    setView("pi");
+                  }}
+                />
+              )}
+              {!archived && <PresenceLine people={present} me={me.id} />}
+              <div onInput={typed} className="contents">
+                <Composer
+                  sessionId={sessionId}
+                  session={channel.session}
+                  feed={feed}
+                  models={environment?.models ?? []}
+                  hiddenModels={environment?.hiddenModels ?? []}
+                  hidden={archived || watching}
+                  report={reportError}
+                  team={team}
+                  replying={replying}
+                  onReplied={() => {
+                    setReplying(undefined);
+                  }}
+                  onFork={(draft) => {
+                    void forkSession(undefined, false, draft);
+                  }}
+                />
+              </div>
+              {watching && !archived && (
+                <p
+                  role="status"
+                  className="mx-auto w-full max-w-chat px-4 pb-4 text-label text-fg-dim"
+                >
+                  This team work is view-only. You can follow along while
+                  whoever started it steers.
+                </p>
+              )}
+            </div>
+            {session && limits && (
+              <AccessDialog
+                session={session}
+                open={limiting}
+                onClose={() => {
+                  setLimiting(false);
+                }}
+              />
+            )}
+            {session && !team && (
+              <MoveDialog
+                session={session}
+                items={feed.items}
+                busy={
+                  session.status === "running" ||
+                  session.status === "starting" ||
+                  session.status === "queued"
+                }
+                open={moving}
+                onClose={() => {
+                  setMoving(false);
+                }}
+              />
+            )}
+          </section>
+        </SessionPanel>
+      </div>
     </PrimaryView>
   );
 }

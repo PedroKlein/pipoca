@@ -76,5 +76,7 @@ create table artifacts_pins (
   pinned_at integer not null,
   primary key (user_id, artifact_id)
 ) strict, without rowid;`,
+    // 2: what changed in each version.
+    `alter table artifacts_versions add column note text not null default '';`,
   ],
 });

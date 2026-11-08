@@ -73,8 +73,12 @@ test("Pi publishes a file as an artifact and adds versions at the same link", as
   await writeFile(join(cwd, "report.md"), "# Sales\n\nUp 5%.\n");
 
   expect(
-    await part.tool("publish_artifact", { path: "report.md", id }),
-  ).toMatchObject({ details: { id, version: 2 } });
+    await part.tool("publish_artifact", {
+      path: "report.md",
+      id,
+      note: "raised the number",
+    }),
+  ).toMatchObject({ details: { id, version: 2, kind: "markdown" } });
 
   const artifact = await t.as("ana").get<ArtifactView>(`artifacts/${id}`);
 
@@ -111,6 +115,17 @@ test("Pi publishes a file as an artifact and adds versions at the same link", as
   expect(
     await t.as("ana").post(`artifacts/${id}/restore`, { version: 1 }),
   ).toEqual({ version: 3 });
+
+  // Each version says who made it and what changed.
+  expect(
+    (await t.as("ana").get<ArtifactView>(`artifacts/${id}`)).history.map(
+      ({ by, note }) => ({ by, note }),
+    ),
+  ).toEqual([
+    { by: "Pi", note: "" },
+    { by: "Pi", note: "raised the number" },
+    { by: "Ana", note: "restored version 1" },
+  ]);
 
   expect(
     await (
@@ -157,6 +172,27 @@ test("people who don't see the Session open an artifact only once it's shared wi
     access: "view",
     shares: [{ userId: "bo", name: "Bo", role: "view" }],
   });
+
+  // A page tells the artifact page what the person selects, to comment.
+  const page = await (
+    await t.as("bo").raw(`artifacts/${id}/view`, { method: "GET" })
+  ).text();
+
+  expect(page).toStartWith("<h1>Hi</h1><script>");
+  expect(page).toContain('pipoca: "selection"');
+
+  // The list says whose it is and who else opens it, for each viewer.
+  expect(
+    (await t.as("ana").get<{ artifacts: ArtifactSummary[] }>("artifacts"))
+      .artifacts,
+  ).toMatchObject([
+    { owner: "Ana", yours: true, audience: "named", sharedWith: ["Bo"] },
+  ]);
+
+  expect(
+    (await t.as("bo").get<{ artifacts: ArtifactSummary[] }>("artifacts"))
+      .artifacts,
+  ).toMatchObject([{ owner: "Ana", yours: false, audience: "named" }]);
 
   expect(
     (
@@ -239,6 +275,10 @@ test("a comment sent to Pi reaches the Session as the person's message, and view
 
   expect(first.sentToPi).toBe(true);
 
+  expect(await t.as("ana").get<ArtifactView>(`artifacts/${id}`)).toMatchObject({
+    openComments: 1,
+  });
+
   await t.as("ana").post(`artifacts/${id}/comments`, {
     version: 1,
     body: "Agreed",
@@ -282,6 +322,10 @@ test("a comment sent to Pi reaches the Session as the person's message, and view
     (await t.as("ana").get<{ comments: Comment[] }>(`artifacts/${id}/comments`))
       .comments[0]?.resolved,
   ).toBe(true);
+
+  expect(await t.as("ana").get<ArtifactView>(`artifacts/${id}`)).toMatchObject({
+    openComments: 0,
+  });
 });
 
 test("a person's edit of a Markdown artifact is a new version Pi hears about", async () => {

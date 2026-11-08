@@ -8,32 +8,38 @@ import {
   type ToolCallProps,
   useApi,
   useLoaded,
+  useNow,
 } from "@pipoca/plugins/web";
 import {
+  Badge,
   Button,
   Card,
-  CopyButton,
   EmptyState,
-  ErrorText,
   Icon,
   Page,
+  plural,
   Row,
   Rows,
-  Section,
   Segmented,
   Select,
   TextInput,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { artifacts as plugin } from "../plugin";
-import { base, Comments, Compare, Editor, Frame } from "./collaborate";
-import type {
-  ArtifactSummary,
-  ArtifactView,
-  Published,
-  Role,
-  Share,
+import {
+  type ArtifactSummary,
+  type ArtifactView,
+  kindLabel,
+  type Published,
 } from "../src/artifacts";
+import { Frame } from "./collaborate";
+import {
+  ArtifactPage,
+  audienceLabel,
+  galleryLine,
+  ShareDialog,
+  versionHref,
+} from "./page";
 
 export const web = defineWeb(plugin, {
   pages: [
@@ -52,20 +58,45 @@ export const web = defineWeb(plugin, {
 });
 
 function ArtifactsPage({ path }: PageProps): ReactElement {
-  const [id, version] = path.split("/v/");
+  const [id = "", ...rest] = path.split("/");
 
-  return id === undefined || id === "" ? (
-    <ArtifactList />
+  if (id === "") {
+    return <ArtifactList />;
+  }
+
+  return rest[0] === "v" ? (
+    <ArtifactPage key={id} id={id} version={Number(rest[1])} />
   ) : (
     <ArtifactPage
+      key={id}
       id={id}
-      version={version === undefined ? undefined : Number(version)}
+      version={undefined}
+      {...(rest[0] === "comments" && { rail: "comments" as const })}
     />
   );
 }
 
+type Shelf = "yours" | "shared" | "team";
+
+const shelves: Readonly<Record<Shelf, (artifact: ArtifactSummary) => boolean>> =
+  {
+    yours: (artifact) => artifact.audience !== "team" && artifact.yours,
+    shared: (artifact) => artifact.audience !== "team" && !artifact.yours,
+    team: (artifact) => artifact.audience === "team",
+  };
+
+const emptyShelves: Readonly<Record<Shelf, string>> = {
+  yours:
+    "Nothing yet. When Pi publishes something from your Sessions, it shows here.",
+  shared: "No one has shared an artifact with you yet.",
+  team: "No team work has published anything yet.",
+};
+
 function ArtifactList(): ReactElement {
   const api = useApi(plugin);
+  const now = useNow();
+  const [shelf, setShelf] = useState<Shelf>("yours");
+  const [search, setSearch] = useState("");
 
   const { value } = useLoaded(
     async () =>
@@ -74,266 +105,81 @@ function ArtifactList(): ReactElement {
     { changes: ["artifacts"] },
   );
 
+  const words = search.toLowerCase().split(/\s+/).filter(Boolean);
+
+  const shown = (value ?? [])
+    .filter(shelves[shelf])
+    .filter((each) =>
+      words.every((word) =>
+        `${each.title} ${each.sessionTitle ?? ""}`.toLowerCase().includes(word),
+      ),
+    );
+
   return (
     <Page
       title="Artifacts"
-      description="Pages, documents and pictures Pi published, yours and the ones shared with you."
+      description="Pages, documents and pictures Pi published. Each keeps one link and every version."
     >
-      {value?.length === 0 ? (
-        <EmptyState>
-          Nothing yet. When Pi publishes something from a Session, it shows
-          here.
-        </EmptyState>
-      ) : (
-        <Rows label="Artifacts">
-          {(value ?? []).map((each) => (
-            <Row
-              key={each.id}
-              title={
-                <a
-                  href={href(plugin, each.id)}
-                  className="text-accent hover:underline"
-                >
-                  {each.title}
-                </a>
-              }
-              description={`${each.kind} · ${versionsLabel(each.versions)} · ${new Date(each.updatedAt).toLocaleString()}`}
-            />
-          ))}
-        </Rows>
-      )}
-    </Page>
-  );
-}
-
-// One artifact in its sandboxed frame, with its versions and who opens it.
-function ArtifactPage({
-  id,
-  version,
-}: {
-  readonly id: string;
-  readonly version: number | undefined;
-}): ReactElement {
-  const api = useApi(plugin);
-
-  const { value: artifact } = useLoaded(
-    async () => api.get<ArtifactView>(`artifacts/${id}`),
-    id,
-    { changes: ["artifacts"] },
-  );
-
-  const [problem, setProblem] = useState<string>();
-  const [mode, setMode] = useState<"read" | "compare" | "edit">("read");
-  const [quote, setQuote] = useState("");
-
-  if (artifact === undefined) {
-    return <Page title="Artifact">{null}</Page>;
-  }
-
-  const shown = version ?? artifact.versions;
-  const latest = shown === artifact.versions;
-  const query = `?v=${String(shown)}`;
-
-  const restore = async (): Promise<void> => {
-    setProblem(undefined);
-
-    try {
-      await api.post(`artifacts/${id}/restore`, { version: shown });
-      location.hash = href(plugin, id);
-    } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error));
-    }
-  };
-
-  return (
-    <Page
-      wide
-      title={artifact.title}
-      description={`${artifact.kind} · ${versionsLabel(artifact.versions)}`}
-      actions={
-        <div className="flex flex-wrap items-center gap-2">
-          <Select
-            aria-label="Version"
-            value={String(shown)}
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <TextInput
+            type="search"
+            aria-label="Search"
+            placeholder="Search titles and Sessions"
+            className="min-w-0 flex-1"
+            value={search}
             onChange={(event) => {
-              const picked = Number(event.target.value);
-
-              location.hash =
-                picked === artifact.versions
-                  ? href(plugin, id)
-                  : href(plugin, `${id}/v/${String(picked)}`);
+              setSearch(event.target.value);
             }}
-          >
-            {[...artifact.history].reverse().map((each) => (
-              <option key={each.number} value={each.number}>
-                {`Version ${String(each.number)}${each.number === artifact.versions ? " (latest)" : ""}`}
-              </option>
-            ))}
-          </Select>
-          {!latest && artifact.access === "steer" && (
-            <Button variant="default" onClick={() => void restore()}>
-              Restore
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            aria-pressed={artifact.pinned}
-            aria-label={
-              artifact.pinned ? "Unpin from the sidebar" : "Pin to the sidebar"
-            }
-            onClick={() =>
-              void api.put(`artifacts/${id}/pin`, { pinned: !artifact.pinned })
-            }
-          >
-            <Icon name="pin" className="size-4" />
-          </Button>
-          <CopyButton
-            label="Copy link"
-            text={`${location.origin}${location.pathname}${latest ? href(plugin, id) : href(plugin, `${id}/v/${String(shown)}`)}`}
           />
-          <a
-            href={`${base}/artifacts/${id}/download${query}`}
-            className="text-label text-accent hover:underline"
-          >
-            Download
-          </a>
-          <a
-            href={`${base}/artifacts/${id}/view${query}`}
-            target="_blank"
-            rel="noreferrer"
-            aria-label="Open in a new tab"
-            className="text-fg-dim hover:text-fg"
-          >
-            <Icon name="external-link" className="size-4" />
-          </a>
+          <Segmented
+            label="Show"
+            value={shelf}
+            options={[
+              { value: "yours", label: "Yours" },
+              { value: "shared", label: "Shared with you" },
+              { value: "team", label: "Team" },
+            ]}
+            onChange={setShelf}
+          />
         </div>
-      }
-    >
-      <ErrorText size="caption">{problem}</ErrorText>
-      <Segmented
-        label="Mode"
-        value={mode}
-        options={[
-          { value: "read", label: "Read" },
-          ...(artifact.versions > 1
-            ? [{ value: "compare" as const, label: "Compare" }]
-            : []),
-          ...(artifact.kind === "markdown" && artifact.access === "steer"
-            ? [{ value: "edit" as const, label: "Edit" }]
-            : []),
-        ]}
-        onChange={setMode}
-      />
-      {mode === "read" && (
-        <Frame artifact={artifact} version={shown} onSelect={setQuote} />
-      )}
-      {mode === "compare" && <Compare artifact={artifact} version={shown} />}
-      {mode === "edit" && (
-        <Editor
-          artifact={artifact}
-          onDone={() => {
-            setMode("read");
-            location.hash = href(plugin, id);
-          }}
-        />
-      )}
-      <Comments
-        artifact={artifact}
-        version={shown}
-        quote={quote}
-        onQuoted={() => {
-          setQuote("");
-        }}
-      />
-      {artifact.access === "steer" && (
-        <Sharing id={id} shares={artifact.shares} />
-      )}
-    </Page>
-  );
-}
-
-function Sharing({
-  id,
-  shares,
-}: {
-  readonly id: string;
-  readonly shares: readonly Share[];
-}): ReactElement {
-  const api = useApi(plugin);
-  const [name, setName] = useState("");
-  const [role, setRole] = useState<Role>("view");
-  const [problem, setProblem] = useState<string>();
-
-  const save = async (next: readonly { name: string; role: Role }[]) => {
-    setProblem(undefined);
-
-    try {
-      await api.put(`artifacts/${id}/shares`, { shares: next });
-      setName("");
-    } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error));
-    }
-  };
-
-  const current = shares.map((each) => ({ name: each.name, role: each.role }));
-
-  return (
-    <Section
-      title="Shared with"
-      description="Whoever sees the Session opens this artifact. Add people by name to let them open it too. Pi can't change this."
-    >
-      {shares.length > 0 && (
-        <Rows label="Shared with">
-          {shares.map((each) => (
-            <Row
-              key={each.userId}
-              title={each.name}
-              description={each.role === "view" ? "Can view" : "Can comment"}
-            >
-              <Button
-                variant="ghost"
-                aria-label={`Stop sharing with ${each.name}`}
-                onClick={() =>
-                  void save(current.filter((one) => one.name !== each.name))
+        {value !== undefined && shown.length === 0 ? (
+          <EmptyState>
+            {words.length > 0 ? "Nothing matches." : emptyShelves[shelf]}
+          </EmptyState>
+        ) : (
+          <Rows label="Artifacts">
+            {shown.map((each) => (
+              <Row
+                key={each.id}
+                title={
+                  <span className="flex items-center gap-2">
+                    <a
+                      href={href(plugin, each.id)}
+                      className="text-fg-strong hover:underline"
+                    >
+                      {each.title}
+                    </a>
+                    {each.openComments > 0 && (
+                      <Badge>{plural(each.openComments, "comment")}</Badge>
+                    )}
+                  </span>
                 }
+                description={galleryLine(each, now)}
               >
-                Remove
-              </Button>
-            </Row>
-          ))}
-        </Rows>
-      )}
-      <form
-        className="flex flex-wrap items-center gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void save([...current, { name: name.trim(), role }]);
-        }}
-      >
-        <TextInput
-          aria-label="Name"
-          placeholder="Name"
-          value={name}
-          onChange={(event) => {
-            setName(event.target.value);
-          }}
-        />
-        <Select
-          aria-label="Access"
-          value={role}
-          onChange={(event) => {
-            setRole(event.target.value as Role);
-          }}
-        >
-          <option value="view">Can view</option>
-          <option value="comment">Can comment</option>
-        </Select>
-        <Button type="submit" disabled={name.trim() === ""}>
-          Share
-        </Button>
-      </form>
-      <ErrorText size="caption">{problem}</ErrorText>
-    </Section>
+                <span className="ml-auto text-caption text-fg-dim">
+                  {audienceLabel(each)}
+                </span>
+              </Row>
+            ))}
+          </Rows>
+        )}
+        <p className="text-caption text-fg-dim">
+          Pi finds these with list_artifacts and a search. It never gets the
+          whole list.
+        </p>
+      </div>
+    </Page>
   );
 }
 
@@ -393,6 +239,8 @@ function SessionArtifacts({
 }): ReactElement | null {
   const api = useApi(plugin);
   const [picked, setPicked] = useState<string>();
+  const [version, setVersion] = useState<number>();
+  const [sharing, setSharing] = useState(false);
 
   const { value } = useLoaded(
     async () =>
@@ -420,6 +268,8 @@ function SessionArtifacts({
     return null;
   }
 
+  const number = Math.min(version ?? Infinity, shown?.versions ?? 1);
+
   return (
     <SessionTab
       name="artifacts"
@@ -428,38 +278,79 @@ function SessionArtifacts({
       button={`Artifacts, ${String(value.length)} published`}
       icon="paperclip"
     >
-      {value.length > 1 && (
-        <Select
-          aria-label="Artifact"
-          value={shownId}
-          onChange={(event) => {
-            setPicked(event.target.value);
-          }}
-        >
-          {value.map((each) => (
-            <option key={each.id} value={each.id}>
-              {each.title}
-            </option>
-          ))}
-        </Select>
-      )}
       {shown !== undefined && (
         <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-label text-fg-dim">
-              {`${shown.title} · ${versionsLabel(shown.versions)}`}
-            </span>
+          <div className="flex flex-wrap items-center gap-2">
+            {value.length > 1 ? (
+              <Select
+                aria-label="Artifact"
+                className="min-w-0 flex-1"
+                value={shownId}
+                onChange={(event) => {
+                  setPicked(event.target.value);
+                  setVersion(undefined);
+                }}
+              >
+                {value.map((each) => (
+                  <option key={each.id} value={each.id}>
+                    {each.title}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <span className="min-w-0 flex-1 truncate text-label font-medium text-fg-strong">
+                {shown.title}
+              </span>
+            )}
+            <Select
+              aria-label="Version"
+              value={String(number)}
+              onChange={(event) => {
+                setVersion(Number(event.target.value));
+              }}
+            >
+              {[...shown.history].reverse().map((each) => (
+                <option key={each.number} value={each.number}>
+                  {`Version ${String(each.number)} of ${String(shown.versions)}`}
+                </option>
+              ))}
+            </Select>
             <a
-              href={href(plugin, shown.id)}
+              href={href(plugin, `${shown.id}/comments`)}
               className="text-label text-accent hover:underline"
             >
-              Open
+              {`Comments ${String(shown.openComments)}`}
+            </a>
+            {shown.access === "steer" && (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setSharing(true);
+                }}
+              >
+                Share
+              </Button>
+            )}
+            <a
+              href={versionHref(shown.id, number, shown.versions)}
+              aria-label="Open on its own page"
+              className="text-fg-dim hover:text-fg"
+            >
+              <Icon name="external-link" className="size-4" />
             </a>
           </div>
-          <Frame
+          <Frame artifact={shown} version={number} className="h-[70vh]" />
+          <p className="text-caption text-fg-dim">
+            Shown in a sandbox: scripts run, but the page can&apos;t reach
+            Pipoca or your sign-in.
+          </p>
+          <ShareDialog
             artifact={shown}
-            version={shown.versions}
-            className="h-[70vh]"
+            version={number}
+            open={sharing}
+            onClose={() => {
+              setSharing(false);
+            }}
           />
         </div>
       )}
@@ -501,10 +392,6 @@ function Pinned({ path }: NavItemsProps): ReactElement | null {
   );
 }
 
-function versionsLabel(count: number): string {
-  return `${String(count)} ${count === 1 ? "version" : "versions"}`;
-}
-
 function cardStatus(
   call: ToolCallProps["call"],
   published: Published | undefined,
@@ -513,7 +400,11 @@ function cardStatus(
     return "Publishing";
   }
 
-  return call.status === "failed"
-    ? (call.result?.text ?? "Not published")
-    : `Version ${String(published?.version ?? 1)}`;
+  if (call.status === "failed") {
+    return call.result?.text ?? "Not published";
+  }
+
+  return published?.kind === undefined
+    ? `Version ${String(published?.version ?? 1)}`
+    : `${kindLabel(published.kind)} · version ${String(published.version)}`;
 }

@@ -29,6 +29,12 @@ export const session = defineSession(artifacts, (s) => {
       id: Type.Optional(
         Type.String({ description: "The artifact to add a version to" }),
       ),
+      note: Type.Optional(
+        Type.String({
+          description:
+            "What this version changed, in a few words, such as added the commit list",
+        }),
+      ),
     }),
     annotations: { destructive: false },
     // People are told about artifacts in the chat, so the guideline stays.
@@ -69,6 +75,7 @@ export const session = defineSession(artifacts, (s) => {
           hash,
           ...(input.title !== undefined && { title: input.title }),
           ...(input.id !== undefined && { id: input.id }),
+          ...(input.note !== undefined && { note: input.note.slice(0, 200) }),
         },
         signal === undefined ? {} : { signal },
       );
