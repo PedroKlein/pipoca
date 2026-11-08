@@ -19,6 +19,8 @@ import {
   Skills,
   AddLink,
 } from "./overview-parts";
+import { agentsIn, builtinAgents, workflowsIn } from "./agent-files";
+import { Agents, type ItemsLayer, Workflows } from "./agents";
 import { Packages, nameOf } from "./packages";
 import { PreviewButton } from "./preview";
 import { skillsIn, offSkills, withSkill, serverOf } from "./overview-values";
@@ -72,7 +74,12 @@ export function ProfileOverview({
               ({ path }) => path,
             );
 
-            return { paths, skills: await skillsIn(folder) };
+            return {
+              paths,
+              skills: await skillsIn(folder),
+              agents: await agentsIn(folder, paths),
+              workflows: await workflowsIn(folder, paths),
+            };
           },
         ),
       );
@@ -117,6 +124,8 @@ export function ProfileOverview({
       (skill) => [skill.folder, skill] as const,
     );
 
+  const layerOf = (layer: StackLayer) => loaded?.[stack.indexOf(layer)];
+
   const shown = <T,>(entries: readonly T[]): readonly T[] =>
     onlyOwn ? [] : entries;
 
@@ -141,6 +150,53 @@ export function ProfileOverview({
   const skills = shown(inherited(stack, own, skillsOf));
   const ownSkills = loaded?.at(-1)?.skills;
 
+  const subagents = shown(
+    inherited(stack, own, (layer) =>
+      (layerOf(layer)?.agents ?? []).map(
+        (agent) => [agent.path, agent] as const,
+      ),
+    ),
+  );
+
+  const workflows = shown(
+    inherited(stack, own, (layer) =>
+      (layerOf(layer)?.workflows ?? []).map(
+        (workflow) => [workflow.path, workflow] as const,
+      ),
+    ),
+  );
+
+  const ownAgents = loaded?.at(-1)?.agents;
+  const ownSkillsOff = offSkills(content.settings);
+
+  const offered = {
+    mcp: [
+      ...inherited(stack, own, itemsOf.mcp)
+        .filter(({ off }) => !off)
+        .map(({ item }) => item.name),
+      ...Object.keys(content.mcpServers),
+    ],
+    skills: [
+      ...inherited(stack, own, skillsOf)
+        .filter(({ off }) => !off)
+        .map(({ item }) => item.name),
+      ...(ownSkills ?? [])
+        .filter(({ folder }) => !ownSkillsOff.has(folder))
+        .map((each) => each.name),
+    ],
+    agents: [
+      ...builtinAgents,
+      ...inherited(stack, own, (layer) =>
+        (layerOf(layer)?.agents ?? []).map(
+          (agent) => [agent.path, agent.name] as const,
+        ),
+      )
+        .filter(({ off }) => !off)
+        .map(({ item }) => item),
+      ...(ownAgents ?? []).map((each) => each.name),
+    ],
+  };
+
   const ownPrompts = own.paths.flatMap((path) => {
     const prompt = /^prompts\/([^/]+)\.md$/.exec(path)?.[1];
 
@@ -149,6 +205,14 @@ export function ProfileOverview({
 
   const copy = (from: StackLayer, key: string): void => {
     void copying.run(from, key);
+  };
+
+  const itemsLayer: ItemsLayer = {
+    folder: target.folder,
+    owner: name,
+    editable,
+    onToggleInherited: toggle,
+    onCopy: copy,
   };
 
   return (
@@ -256,6 +320,19 @@ export function ProfileOverview({
         }}
         onToggleInherited={toggle}
         onCopy={copy}
+      />
+      <Agents
+        layer={itemsLayer}
+        agents={ownAgents}
+        inherited={subagents}
+        mcpServers={[...new Set(offered.mcp)]}
+        skills={[...new Set(offered.skills)]}
+      />
+      <Workflows
+        layer={itemsLayer}
+        workflows={loaded?.at(-1)?.workflows}
+        inherited={workflows}
+        agents={offered.agents}
       />
       <Packages
         packages={content.packages}
