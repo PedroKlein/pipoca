@@ -31,7 +31,11 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { Checkout, SessionLogins } from "@pipoca/plugins";
 import type { ChildOptions } from "@pipoca/plugins/host";
-import type { ModelRef, ThinkingLevel } from "@pipoca/protocol";
+import type {
+  ModelRef,
+  RegisteredProvider,
+  ThinkingLevel,
+} from "@pipoca/protocol";
 import chalk from "chalk";
 import type { Surfaces } from "./surfaces";
 import type { RemoteUI } from "./ui";
@@ -312,6 +316,11 @@ export interface ListedModels {
   // or not. Pi's own providers, over a thousand models, are left to /login
   // (ADR 0044).
   readonly registered: readonly ModelRef[];
+  // Those providers, with or without models.
+  readonly providers: readonly Pick<
+    RegisteredProvider,
+    "id" | "name" | "apiKey" | "oauth"
+  >[];
 }
 
 // Pi rereads its auth file, so each call sees logins made since.
@@ -343,6 +352,15 @@ export async function modelLister(
       registered: refs(
         modelRuntime.getModels().filter(({ provider }) => !piOwn.has(provider)),
       ),
+      providers: modelRuntime
+        .getProviders()
+        .filter(({ id }) => !piOwn.has(id))
+        .map(({ id, name, auth }) => ({
+          id,
+          name,
+          apiKey: auth.apiKey !== undefined,
+          oauth: auth.oauth !== undefined,
+        })),
     };
   };
 }

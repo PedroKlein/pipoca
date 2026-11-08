@@ -171,8 +171,9 @@ export function SharedKeysStep(): ReactElement | null {
         )}
         <p className="text-caption text-fg-dim">
           Every provider Pi knows, plus any the server default Profile&apos;s
-          packages add once a runner has installed them. Missing one? Add its
-          package to the server default Profile, the step before this one.
+          packages add. The server lists those itself, a moment after you add a
+          package. Missing one? Add its package to the server default Profile,
+          the step before this one.
         </p>
       </div>
     </div>

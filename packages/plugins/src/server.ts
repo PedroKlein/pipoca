@@ -12,6 +12,7 @@ import type {
   ModelRef,
   Owner,
   ProfileContent,
+  RegisteredProvider,
   RouteToolSpec,
   Session,
   SessionAccess,
@@ -540,6 +541,9 @@ interface PluginProfiles {
   readonly mcpServers: (personId: string) => readonly ProfileMcpServer[];
   // The Profiles one builds on, nearest first.
   readonly buildsOn: (profileId: string) => readonly string[];
+  // The model providers the base Profile's packages register, as the
+  // server last listed them with no logins (ADR 0044).
+  readonly baseProviders: () => readonly RegisteredProvider[];
 }
 
 export interface Providers {

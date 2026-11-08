@@ -80,7 +80,7 @@ The function runs once, synchronously, when the plugin starts. What it gets:
 - `schedule.at(key, time, data)` and `schedule.every(key, ms, run)` run work later, and survive a restart. `timer` waits in memory, for a long poll.
 - `sessions` starts, lists, messages and archives Sessions. The ones it starts with a `key` are its own, and show inside its page rather than in the Session list.
 - `events.on(def, handler)` hears another plugin's or the kernel's events, and `events.emit(name, fields, { to })` sends its own to the owners in `to`.
-- `people`, `transcript`, `environments` and `profiles` read what the kernel keeps. `environments.templateConfig(schema)` reads and writes the plugin's key in a template's entry, with the schema's defaults filled.
+- `people`, `transcript`, `environments` and `profiles` read what the kernel keeps. `profiles.baseProviders()` lists the model providers the base Profile's packages register, as the server last listed them. `environments.templateConfig(schema)` reads and writes the plugin's key in a template's entry, with the schema's defaults filled.
 - `provide.models`, `provide.runners`, `provide.runtime`, `provide.gitCredentials` and `provide.profile` give the kernel models, runners and logins. `provide.runners` returns what a runner provider needs: `unplaced`, `token` and `revoke`. Its `kind.choice`, such as "A pod for each person", is how Where Sessions run in server setup offers a template whose runners it starts.
 - `urls.public(path)` is a route's address from outside, and `urls.browser` ties an OAuth state to the browser that started it.
 - `clock`, `env`, `log` and `signal`, which aborts when the server stops.

@@ -55,6 +55,7 @@ import { builtInDefinitions, builtInParts, definedManifest } from "./built-in";
 import { errorReply } from "./server/http/replies";
 import { previewBroker } from "./previews";
 import { webAppFile } from "./web-app";
+import { baseProviders } from "./base-providers";
 import { changeFeed, type Changes } from "./changes";
 import { createApi } from "./server/http/api";
 import { fromAddress, onBehalfOf } from "./server/http/router";
@@ -259,7 +260,52 @@ export function serve(options: ServeOptions): {
       options.log("event listener failed", { type, error: String(error) });
     });
 
-  const changes = options.changes ?? changeFeed();
+  const feed = options.changes ?? changeFeed();
+
+  const providers = baseProviders({
+    base: () => profiles.base?.files(),
+    store: store.baseProviders,
+    command: pipoca,
+    dir: tmpdir(),
+    timer: options.timer ?? systemTimer,
+    // As a runner installs a Profile's package with its Session owner's.
+    gitLogins: (repository) => {
+      const session = {
+        actsAs: null,
+        workspace: { kind: "clone", repository, branch: "" },
+      } as const;
+
+      const editor = store.profiles.baseEditor();
+
+      const own =
+        editor === undefined
+          ? []
+          : pluginHost.gitLogins(`person:${editor}`, session);
+
+      return [
+        ...own,
+        ...pluginHost
+          .gitLogins("team", session)
+          .filter(({ host }) => !own.some((login) => login.host === host)),
+      ];
+    },
+    changed: () => {
+      feed.publish("environments");
+    },
+    log: options.log,
+  });
+
+  // An edit to the base Profile can change the providers it adds.
+  const changes: Changes = {
+    ...feed,
+    publish: (topic) => {
+      feed.publish(topic);
+
+      if (topic === "profiles") {
+        providers.check();
+      }
+    },
+  };
 
   const templates = environmentTemplates(
     config("templates"),
@@ -441,6 +487,7 @@ export function serve(options: ServeOptions): {
     switches,
     templates,
     buildsOn: (id) => profiles.buildsOn(id),
+    baseProviders: () => providers.list(),
     runtime,
     schedules: store.schedules,
     clock,
@@ -462,6 +509,9 @@ export function serve(options: ServeOptions): {
   // Asked at start and a few times a day, since each check reaches every
   // installed plugin's repository.
   void pluginHost.checkUpdates();
+
+  // The base may have changed while the server was down.
+  providers.check();
 
   const checkingUpdates = setInterval(() => {
     void pluginHost.checkUpdates();
@@ -685,6 +735,7 @@ export function serve(options: ServeOptions): {
       clearInterval(flushingOutbox);
       agentStop.abort();
       pluginsStop.abort();
+      await providers.stop();
       await agent;
       await links?.stop(true);
       await server.stop(true);

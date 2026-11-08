@@ -35,6 +35,10 @@ export interface ProfileStore {
   readonly setDefaultProfile: (ownerId: string, id: string) => void;
   // Unarchived Sessions that run with the Profile.
   readonly profileInUse: (id: string) => boolean;
+  // Who last changed the base Profile, whose git logins install its
+  // packages on the server (ADR 0044).
+  readonly baseEdited: (userId: string) => void;
+  readonly baseEditor: () => string | undefined;
   // The people whose default the Profile is.
   readonly defaultFor: (id: string) => readonly string[];
 }
@@ -700,9 +704,15 @@ export class Profiles {
       return { ok: false, reason: "not_found" };
     }
 
-    return which === "base" && !admin
-      ? { ok: false, reason: "admin_only" }
-      : { ok: true, value: layer };
+    if (which === "base") {
+      if (!admin) {
+        return { ok: false, reason: "admin_only" };
+      }
+
+      this.#store.baseEdited(userId);
+    }
+
+    return { ok: true, value: layer };
   }
 
   #visible(userId: string, id: string): StoredProfile | undefined {

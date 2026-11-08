@@ -421,7 +421,15 @@ export function sessionStore(
   };
 }
 
-export function profileStore(db: DatabaseSync): ProfileStore {
+export function profileStore(db: DatabaseSync, clock: Clock): ProfileStore {
+  const selectBaseEditor = db.prepare(
+    "select edited_by from base_profile_edits",
+  );
+
+  const upsertBaseEditor = db.prepare(
+    "insert into base_profile_edits (id, edited_by, edited_at) values (1, ?, ?) on conflict (id) do update set edited_by = excluded.edited_by, edited_at = excluded.edited_at",
+  );
+
   const selectDefault = db.prepare(
     "select default_profile_id from users where id = ?",
   );
@@ -450,6 +458,12 @@ export function profileStore(db: DatabaseSync): ProfileStore {
       updateDefault.run(id, ownerId);
     },
     profileInUse: (id) => selectProfileUse.get(id) !== undefined,
+    baseEdited: (userId) => {
+      upsertBaseEditor.run(userId, clock.now());
+    },
+    baseEditor: () =>
+      (selectBaseEditor.get() as { edited_by: string | null } | undefined)
+        ?.edited_by ?? undefined,
     defaultFor: (id) =>
       (selectDefaultFor.all(id) as { id: string }[]).map((row) => row.id),
   };

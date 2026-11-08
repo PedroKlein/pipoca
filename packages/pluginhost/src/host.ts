@@ -40,6 +40,7 @@ import type {
   Owner,
   PluginInfo,
   PluginManifest,
+  RegisteredProvider,
   RunnersFrom,
   Session,
   Timer,
@@ -253,6 +254,7 @@ export function startPlugins(
       ) => void;
     };
     readonly buildsOn?: (profileId: string) => readonly string[];
+    readonly baseProviders?: () => readonly RegisteredProvider[];
     // What runner providers start runners on this machine with.
     readonly runtime?: () => Runtime;
     readonly env?: Readonly<Record<string, string | undefined>>;
@@ -859,6 +861,7 @@ export function startPlugins(
           profiles: {
             mcpServers: deps.mcpServers ?? (() => []),
             buildsOn: deps.buildsOn ?? (() => []),
+            baseProviders: deps.baseProviders ?? (() => []),
           },
           clock: deps.clock,
           env: (name) => (deps.env ?? process.env)[name],

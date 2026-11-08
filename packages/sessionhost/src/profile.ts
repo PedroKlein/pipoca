@@ -5,7 +5,12 @@ import {
   DefaultPackageManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import type { PiPackage, ProfileFiles } from "@pipoca/protocol";
+import type {
+  ListedProviders,
+  PiPackage,
+  ProfileFiles,
+} from "@pipoca/protocol";
+import { type ListedModels, modelLister } from "./session";
 
 // The package sources installed so far, so a start installs only new ones.
 const installedFile = ".pipoca-packages.json";
@@ -109,6 +114,100 @@ export async function installPackage(
   await packageManager.install(source);
 }
 
+// The model providers a Profile's packages and extensions register, listed
+// with no logins in a folder of its own (ADR 0044). A package that doesn't
+// install or load is left out, so the others still list.
+export async function listProviders(
+  dir: string,
+  profile: ProfileFiles,
+  log: Log,
+  install: InstallPackage = installPackage,
+): Promise<ListedProviders> {
+  const agentDir = join(dir, "agent");
+  const failed: { source: string; error: string }[] = [];
+  const installed: PiPackage[] = [];
+
+  await mkdir(agentDir, { recursive: true });
+
+  for (const pkg of packagesOf(profile)) {
+    const source = sourceOf(pkg);
+    log("installing profile package", { source });
+
+    try {
+      await install(agentDir, source);
+      installed.push(pkg);
+    } catch (error) {
+      log("profile package not installed", { source, error: String(error) });
+      failed.push({ source, error: String(error) });
+    }
+  }
+
+  await syncFolder(
+    agentDir,
+    profile.hash,
+    async () => Promise.resolve(profile),
+    log,
+  );
+
+  const listed = async (
+    packages: readonly PiPackage[],
+  ): Promise<ListedModels> => {
+    await replace(
+      join(agentDir, "settings.json"),
+      JSON.stringify({ ...settingsOf(profile), packages }),
+    );
+
+    const list = await modelLister({
+      agentDir,
+      authPath: join(dir, "auth.json"),
+      modelsPath: join(dir, "models.json"),
+      extensionPaths: [],
+    });
+
+    return list();
+  };
+
+  const lists: ListedModels[] = [];
+
+  try {
+    lists.push(await listed(installed));
+  } catch (error) {
+    // One package that fails to load stops them all, so each is listed on
+    // its own.
+    log("profile packages not loaded together", { error: String(error) });
+
+    for (const pkg of installed) {
+      try {
+        lists.push(await listed([pkg]));
+      } catch (alone) {
+        const source = sourceOf(pkg);
+        log("profile package not loaded", { source, error: String(alone) });
+        failed.push({ source, error: String(alone) });
+      }
+    }
+  }
+
+  const providers = new Map(
+    lists.flatMap((list) => list.providers).map((each) => [each.id, each]),
+  );
+
+  const models = lists.flatMap(({ registered }) => registered);
+
+  return {
+    providers: [...providers.values()].map((provider) => ({
+      ...provider,
+      models: [
+        ...new Set(
+          models
+            .filter((model) => model.provider === provider.id)
+            .map(({ id }) => id),
+        ),
+      ],
+    })),
+    failed,
+  };
+}
+
 async function installPackages(
   dir: string,
   packages: readonly PiPackage[],
@@ -142,20 +241,28 @@ async function installPackages(
 }
 
 function packagesOf(profile: ProfileFiles): readonly PiPackage[] {
+  const { packages } = settingsOf(profile);
+
+  return Array.isArray(packages) ? (packages as PiPackage[]) : [];
+}
+
+function settingsOf(profile: ProfileFiles): Readonly<Record<string, unknown>> {
   const settings = profile.files["settings.json"];
   if (settings === undefined) {
-    return [];
+    return {};
   }
 
   try {
-    const { packages } = JSON.parse(
+    const parsed: unknown = JSON.parse(
       Buffer.from(settings, "base64").toString("utf8"),
-    ) as { packages?: unknown };
+    );
 
-    return Array.isArray(packages) ? (packages as PiPackage[]) : [];
+    return typeof parsed === "object" && parsed !== null
+      ? (parsed as Record<string, unknown>)
+      : {};
   } catch {
     // Pi reports a settings.json it can't read when the Session starts.
-    return [];
+    return {};
   }
 }
 
