@@ -12,6 +12,7 @@ import { pluginClient, type TypedClient } from "../src/client";
 import type { PluginDefinition } from "../src/definition";
 import { transcriptReader } from "../src/transcript";
 import type {
+  CodeBlockProps,
   EmbeddedSessionProps,
   EnvironmentSectionProps,
   HomeProps,
@@ -44,6 +45,7 @@ export interface Slots {
   [ask: `session.permission:${string}`]: ToolPermissionProps;
   [notice: `notice:${string}`]: NoticeProps;
   [link: `link:${string}`]: LinkProps;
+  [block: `codeBlock:${string}`]: CodeBlockProps;
   home: HomeProps;
   "environment.section": EnvironmentSectionProps;
   "template.section": TemplateSectionProps;

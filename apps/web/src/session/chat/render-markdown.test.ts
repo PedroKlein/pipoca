@@ -28,3 +28,21 @@ test("marks links of other schemes for the plugin that draws them", () => {
     '<p>see <span data-link="thread" data-target="t-1">Docs</span></p>\n',
   );
 });
+
+test("marks closed fenced blocks for the plugin that draws their language", () => {
+  expect(renderMarkdown("```mermaid\ngraph TD\n  a --> b\n```")).toBe(
+    '<div data-code-block="mermaid"><pre><code class="language-mermaid">graph TD\n  a --&gt; b\n</code></pre></div>',
+  );
+});
+
+test("leaves a fence the agent is still writing as code", () => {
+  expect(renderMarkdown("```mermaid\ngraph TD\n  a --> b")).not.toContain(
+    "data-code-block",
+  );
+});
+
+test("leaves fences without a language as code", () => {
+  expect(renderMarkdown("```\nplain\n```")).toBe(
+    "<pre><code>plain\n</code></pre>\n",
+  );
+});

@@ -624,6 +624,52 @@ test("chats with a session, replays it after a reload and opens its terminal", a
   await rows.filter({ hasText: "survived=yes" }).waitFor();
 }, 30_000);
 
+test("draws the agent's Mermaid diagrams in chat and shows broken ones as code", async () => {
+  let told = false;
+
+  faux.setResponses([
+    (context) => {
+      told = JSON.stringify(context).includes("```mermaid");
+
+      return fauxAssistantMessage([
+        fauxText(
+          [
+            "How it flows:",
+            "```mermaid",
+            "graph LR",
+            "  browser[Browser] --> server[Server]",
+            "```",
+            "And one that's wrong:",
+            "```mermaid",
+            "graph LR",
+            "  a -->",
+            "```",
+          ].join("\n"),
+        ),
+      ]);
+    },
+  ]);
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, root);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+  await page.locator("#prompt-text").fill("draw it");
+  await page.locator("#prompt-text").press("Enter");
+
+  const reply = page.locator('#chat li[data-role="assistant"]');
+  await reply.locator("svg", { hasText: "Browser" }).waitFor();
+  await reply.getByText("This diagram didn't draw").waitFor();
+
+  expect(told).toBe(true);
+  expect(await reply.locator("svg").count()).toBe(1);
+  expect(await reply.locator("pre", { hasText: "a -->" }).count()).toBe(1);
+  expect(await reply.locator("pre", { hasText: "Browser" }).count()).toBe(0);
+}, 30_000);
+
 test("chats from Pi's own TUI and goes back to the chat when Pi quits", async () => {
   faux.setResponses([fauxAssistantMessage([fauxText("hello from the tui")])]);
   await page.goto(server.url.href);
