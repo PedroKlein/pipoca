@@ -54,6 +54,7 @@ export function Editor({
     run(async () => {
       const body = {
         name: text("name"),
+        description: text("description"),
         packages: packages.map(packageOf),
         buildsOn,
       };
@@ -100,6 +101,17 @@ export function Editor({
       >
         <Field label="Name">
           <TextInput name="name" required defaultValue={profile?.name ?? ""} />
+        </Field>
+        <Field
+          label="What it's for"
+          hint="Your assistant reads this to pick a Profile for new work."
+        >
+          <TextInput
+            name="description"
+            maxLength={300}
+            placeholder="Our services, with kubectl and the cluster skills"
+            defaultValue={profile?.description ?? ""}
+          />
         </Field>
         {!profile && !team && (
           <Checkbox

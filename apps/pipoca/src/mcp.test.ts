@@ -274,3 +274,45 @@ test("answers bad requests with JSON-RPC errors and unknown tools as failed call
   expect(unnamed.error?.code).toBe(-32602);
   expect(unknown.isError).toBe(true);
 });
+
+test("lists Profiles with what each is for, without their content", async () => {
+  const { secret } = await newToken();
+
+  const created = await result<CallResult>(
+    rpc(secret, "tools/call", {
+      name: "profiles_create",
+      arguments: {
+        name: "Cluster ops",
+        description: "kubectl, helm and the cluster skills",
+        agentsMd: "Never delete a namespace.",
+      },
+    }),
+  );
+
+  const listed = await result<CallResult>(
+    rpc(secret, "tools/call", { name: "profiles_list", arguments: {} }),
+  );
+
+  const profiles = JSON.parse(listed.content[0]?.text ?? "[]") as unknown;
+
+  expect(created.isError).toBe(false);
+
+  expect(profiles).toEqual([
+    {
+      id: "default",
+      name: "Default",
+      description: "",
+      isDefault: true,
+      shared: true,
+      buildsOn: null,
+    },
+    {
+      id: "cluster-ops",
+      name: "Cluster ops",
+      description: "kubectl, helm and the cluster skills",
+      isDefault: false,
+      shared: false,
+      buildsOn: null,
+    },
+  ]);
+});

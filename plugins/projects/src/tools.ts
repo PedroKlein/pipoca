@@ -107,7 +107,7 @@ export function projectTools(
       profile: Type.Optional(
         Type.String({
           description:
-            "Profile id to run with. Default: the Project's, else the user's default",
+            "Profile id to run with. Default: the Project's, else the user's default. Name another only when the user did, or when a Profile's description in profiles_list clearly fits the work better; then say in the first message which Profile and why.",
         }),
       ),
       model: Type.Optional(

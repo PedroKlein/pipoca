@@ -2833,6 +2833,7 @@ test("builds a Profile on another, over My defaults", async () => {
 
   await page.getByRole("link", { name: "New Profile" }).click();
   await editor.getByLabel("Name").fill("Deep");
+  await editor.getByLabel("What it's for").fill("Long research tasks");
   await editor.getByRole("button", { name: "Builds on" }).click();
   await page.getByRole("option", { name: "Default" }).click();
   await editor.getByRole("button", { name: "Create Profile" }).click();
@@ -2842,6 +2843,10 @@ test("builds a Profile on another, over My defaults", async () => {
   expect(
     await page.getByRole("button", { name: "Builds on" }).textContent(),
   ).toContain("Default");
+
+  expect(await editor.getByLabel("What it's for").inputValue()).toBe(
+    "Long research tasks",
+  );
 
   await editor.getByRole("button", { name: "Delete" }).click();
   await confirmIn("Delete");

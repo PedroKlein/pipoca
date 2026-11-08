@@ -110,6 +110,7 @@ test("starts with one empty default Profile, shared by everyone", async () => {
     {
       id: "default",
       name: "Default",
+      description: "",
       ownerId: null,
       buildsOn: null,
       source: null,
@@ -163,6 +164,38 @@ test("creates, edits and makes a Profile the default", async () => {
     { name: "Default", isDefault: false },
     { name: "Work", isDefault: true },
   ]);
+});
+
+test("keeps a one-line description of what a Profile is for", async () => {
+  const created = await json<Profile>(
+    server.api("/api/profiles", {
+      body: { name: "Work", description: " Our services and their repos " },
+    }),
+  );
+
+  const edited = await json<Profile>(
+    server.api(`/api/profiles/${created.id}`, {
+      method: "PATCH",
+      body: { description: "Pipoca's own repos" },
+    }),
+  );
+
+  const renamed = await json<Profile>(
+    server.api(`/api/profiles/${created.id}`, {
+      method: "PATCH",
+      body: { name: "Pipoca" },
+    }),
+  );
+
+  const tooLong = await server.api(`/api/profiles/${created.id}`, {
+    method: "PATCH",
+    body: { description: "x".repeat(301) },
+  });
+
+  expect(created.description).toBe("Our services and their repos");
+  expect(edited.description).toBe("Pipoca's own repos");
+  expect(renamed.description).toBe("Pipoca's own repos");
+  expect(tooLong.status).toBe(400);
 });
 
 test("each user picks their own default and keeps their Profiles to themselves", async () => {

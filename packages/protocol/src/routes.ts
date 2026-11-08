@@ -60,6 +60,7 @@ import {
   pluginSummary,
   pluginTools,
   profileTools,
+  profileSummary,
   profileView,
   sessionSummary,
   sessionTools,
@@ -102,15 +103,20 @@ const id = { id: Type.String() };
 const toolParams = (properties: TProperties): TObject =>
   Type.Object(properties, { additionalProperties: false });
 
-const profileFields = Type.Partial(
-  Type.Pick(profileContent, [
-    "packages",
-    "agentsMd",
-    "systemMd",
-    "appendSystemMd",
-    "settings",
-  ]),
-).properties;
+const profileFields = {
+  description: Type.Optional(
+    Type.String({ description: "What work the Profile is for, in a line" }),
+  ),
+  ...Type.Partial(
+    Type.Pick(profileContent, [
+      "packages",
+      "agentsMd",
+      "systemMd",
+      "appendSystemMd",
+      "settings",
+    ]),
+  ).properties,
+};
 
 // Mine are a person's own, the team's are everyone's, and all is everyone's
 // own as well, for admins.
@@ -732,10 +738,11 @@ export const routes = {
     tool: {
       name: "profiles_list",
       namespace: profileTools,
-      description: "List the user's Profiles.",
+      description:
+        "List the user's Profiles with what each is for. Read one in full with profiles_get.",
       params: toolParams({}),
       annotations: { readOnlyHint: true },
-      result: (body) => (body as readonly Profile[]).map(profileView),
+      result: (body) => (body as readonly Profile[]).map(profileSummary),
     },
   },
   // A Profile's content, an exported Profile file, { from } to copy a
