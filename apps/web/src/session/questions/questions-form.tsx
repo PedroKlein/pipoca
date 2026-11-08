@@ -10,7 +10,7 @@ import {
   type QuestionState,
   summary,
 } from "./questions";
-import { type Asking, explanationKey } from "./question-parts";
+import { type Asking, explanationKey, Explanations } from "./question-parts";
 import { Choices } from "./choices";
 import { Scale } from "./scale";
 import { Rank } from "./rank";
@@ -164,6 +164,12 @@ function QuestionBody({
   readonly onChange: (state: QuestionState) => void;
   readonly asking: Asking;
 }): ReactElement {
+  const [explaining, setExplaining] = useState(false);
+
+  const explained = asking.explanations.some(
+    (e) => e.questionId === question.id && e.value === "",
+  );
+
   const input = (): ReactElement => {
     switch (question.type) {
       case "single":
@@ -215,13 +221,42 @@ function QuestionBody({
 
   return (
     <div className="flex flex-col gap-3">
-      <h2 className="text-title font-semibold text-fg-strong">
-        {question.prompt}
-      </h2>
+      <div className="flex items-start justify-between gap-3">
+        <h2 className="text-title font-semibold text-fg-strong">
+          {question.prompt}
+        </h2>
+        {asking.enabled && (
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-expanded={explaining}
+            onClick={() => {
+              if (!explaining && !explained) {
+                asking.ask(question.id, "", "");
+              }
+
+              setExplaining(!explaining);
+            }}
+            className="shrink-0"
+          >
+            {explaining ? "Hide explanation" : "Explain this question"}
+          </Button>
+        )}
+      </div>
       {question.context !== null && (
         <p className="text-ui whitespace-pre-wrap text-fg-dim">
           {question.context}
         </p>
+      )}
+      {explaining && (
+        <div className="flex flex-col gap-2 rounded-md border border-line p-3 text-ui">
+          <Explanations
+            questionId={question.id}
+            value=""
+            asking={asking}
+            placeholder="Ask about this question"
+          />
+        </div>
       )}
       {input()}
     </div>

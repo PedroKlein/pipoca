@@ -1463,6 +1463,78 @@ test("explains an option with the session's model while the form is open", async
   expect(fake.lines.join()).toContain("User cancelled the questionnaire");
 });
 
+test("explains the whole question with the conversation as background", async () => {
+  const { faux, models } = await fauxModels(root);
+  let explainerSaw = "";
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxText("Your app writes a lot, so the database matters."),
+        fauxToolCall("ask_user", {
+          questions: [
+            {
+              id: "db",
+              prompt: "Which database?",
+              type: "single",
+              options: [
+                { value: "sqlite", label: "SQLite" },
+                { value: "pg", label: "Postgres" },
+              ],
+            },
+          ],
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    (context) => {
+      explainerSaw = JSON.stringify(context.messages);
+
+      return fauxAssistantMessage([fauxText("You pick where data lives.")]);
+    },
+    fauxAssistantMessage([fauxText("noted")]),
+  ]);
+
+  const fake = fakeStream();
+
+  const hosted = await hostSession(
+    sessionOptions(root, { models, parts: [askPart] }),
+    fake.stream,
+    () => undefined,
+    noTerminal,
+  );
+
+  fake.send({ actor: "user:local", type: "message", text: "set it up" });
+  await fake.waitFor(() => fake.events.some((e) => e.type === "prompt"));
+  const prompt = fake.events.find((e) => e.type === "prompt");
+  const id = prompt?.type === "prompt" ? prompt.prompt.id : "";
+
+  fake.send({
+    actor: "user:local",
+    type: "explain",
+    id,
+    questionId: "db",
+    value: "",
+    question: null,
+  });
+
+  await fake.waitFor(() => fake.events.some((e) => e.type === "explanation"));
+  fake.send({ actor: "user:local", type: "answer", id, value: null });
+  await fake.waitFor(() => fake.lines.join().includes("noted"));
+  await hosted.stop();
+
+  expect(fake.events.find((e) => e.type === "explanation")).toMatchObject({
+    value: "",
+    text: "You pick where data lives.",
+    error: null,
+  });
+
+  expect(explainerSaw).toContain("Which database?");
+  expect(explainerSaw).toContain("SQLite");
+  expect(explainerSaw).toContain("set it up");
+  expect(explainerSaw).toContain("the database matters");
+});
+
 test.each([
   ["steer", ["user", "assistant", "toolResult", "user", "assistant"]],
   [

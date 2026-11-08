@@ -25,9 +25,11 @@ export function Split({
   readonly detail: ReactElement;
 }): ReactElement {
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-      {children}
-      {detail}
+    <div className="@container">
+      <div className="grid gap-4 @xl:grid-cols-2">
+        {children}
+        {detail}
+      </div>
     </div>
   );
 }
@@ -75,6 +77,9 @@ export function OptionLabel({
   );
 }
 
+// Every option's detail sits in the same cell, and only the one shown is
+// visible, so the panel keeps its height as the pointer moves between
+// options and never shifts them out from under it.
 export function Detail({
   question,
   option,
@@ -84,17 +89,75 @@ export function Detail({
   readonly option: QuestionOption | undefined;
   readonly asking: Asking;
 }): ReactElement {
+  return (
+    <div className="grid border-l-3 border-line pl-3">
+      {[undefined, ...question.options].map((each) => (
+        <div
+          key={each?.value ?? ""}
+          aria-hidden={each !== option}
+          className={cn(
+            "col-start-1 row-start-1 min-w-0",
+            each !== option && "invisible",
+          )}
+        >
+          {each === undefined ? (
+            <p className="text-label text-fg-dim">
+              Pick or hover an option to see its details.
+            </p>
+          ) : (
+            <OptionDetail question={question} option={each} asking={asking} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function OptionDetail({
+  question,
+  option,
+  asking,
+}: {
+  readonly question: ChoiceQuestion;
+  readonly option: QuestionOption;
+  readonly asking: Asking;
+}): ReactElement {
+  return (
+    <div className="flex flex-col gap-2 text-ui">
+      <h3 className="font-semibold text-fg-strong">{option.label}</h3>
+      {option.recommended && (
+        <p className="text-label font-semibold text-waiting">★ Recommended</p>
+      )}
+      {option.description !== null && (
+        <p className="whitespace-pre-wrap">{option.description}</p>
+      )}
+      {asking.enabled && (
+        <Explanations
+          questionId={question.id}
+          value={option.value}
+          asking={asking}
+          placeholder="Ask about this option (empty explains it)"
+        />
+      )}
+    </div>
+  );
+}
+
+// What Pi explained about an option, or the question itself when value is
+// empty, and a box to ask it more.
+export function Explanations({
+  questionId,
+  value,
+  asking,
+  placeholder,
+}: {
+  readonly questionId: string;
+  readonly value: string;
+  readonly asking: Asking;
+  readonly placeholder: string;
+}): ReactElement {
   const [text, setText] = useState("");
-
-  if (!option) {
-    return (
-      <div className="border-l-3 border-line pl-3 text-label text-fg-dim">
-        Pick or hover an option to see its details.
-      </div>
-    );
-  }
-
-  const key = explanationKey(question.id, option.value);
+  const key = explanationKey(questionId, value);
 
   const found = asking.explanations.filter(
     (e) => explanationKey(e.questionId, e.value) === key,
@@ -104,56 +167,45 @@ export function Detail({
     key in asking.waiting && found.length <= (asking.waiting[key] ?? 0);
 
   return (
-    <div className="flex flex-col gap-2 border-l-3 border-line pl-3 text-ui">
-      <h3 className="font-semibold text-fg-strong">{option.label}</h3>
-      {option.recommended && (
-        <p className="text-label font-semibold text-waiting">★ Recommended</p>
-      )}
-      {option.description !== null && (
-        <p className="whitespace-pre-wrap">{option.description}</p>
-      )}
-      {asking.enabled && (
-        <>
-          {found.map((entry, at) => (
-            <div
-              key={`${String(at)}-${entry.question ?? ""}`}
-              className="flex flex-col gap-1 rounded-md bg-code p-2"
-            >
-              <small className="text-caption text-fg-dim">
-                {entry.question ?? "Explanation"}
-              </small>
-              <p
-                className={cn(
-                  "whitespace-pre-wrap",
-                  entry.error !== null && "text-failed",
-                )}
-              >
-                {entry.text ?? entry.error ?? ""}
-              </p>
-            </div>
-          ))}
-          {waiting && <p className="text-label text-fg-dim">Thinking…</p>}
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              asking.ask(question.id, option.value, text.trim());
-              setText("");
-            }}
-            className="flex gap-2"
+    <>
+      {found.map((entry, at) => (
+        <div
+          key={`${String(at)}-${entry.question ?? ""}`}
+          className="flex flex-col gap-1 rounded-md bg-code p-2"
+        >
+          <small className="text-caption text-fg-dim">
+            {entry.question ?? "Explanation"}
+          </small>
+          <p
+            className={cn(
+              "whitespace-pre-wrap",
+              entry.error !== null && "text-failed",
+            )}
           >
-            <TextInput
-              aria-label="Ask about this option"
-              placeholder="Ask about this option (empty explains it)"
-              value={text}
-              onChange={(event) => {
-                setText(event.target.value);
-              }}
-              className="min-w-0 flex-1"
-            />
-            <Button type="submit">Ask</Button>
-          </form>
-        </>
-      )}
-    </div>
+            {entry.text ?? entry.error ?? ""}
+          </p>
+        </div>
+      ))}
+      {waiting && <p className="text-label text-fg-dim">Thinking…</p>}
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          asking.ask(questionId, value, text.trim());
+          setText("");
+        }}
+        className="flex gap-2"
+      >
+        <TextInput
+          aria-label={placeholder}
+          placeholder={placeholder}
+          value={text}
+          onChange={(event) => {
+            setText(event.target.value);
+          }}
+          className="min-w-0 flex-1"
+        />
+        <Button type="submit">Ask</Button>
+      </form>
+    </>
   );
 }

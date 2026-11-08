@@ -20,6 +20,7 @@ import {
   type SessionPart,
   toolAnswer,
   toolSpecOf,
+  transcriptReader,
 } from "@pipoca/plugins/host";
 import { askedHeader } from "@pipoca/protocol";
 import { piToolOf } from "./tools";
@@ -168,7 +169,11 @@ function piTool(
         id,
         signal,
         cwd: ctx.cwd,
-        ...(model && { complete: completion(ctx.modelRegistry, model, host) }),
+        ...(model && {
+          complete: completion(ctx.modelRegistry, model, host, () =>
+            conversationOf(ctx.sessionManager.getBranch()),
+          ),
+        }),
       };
 
       const question = await tool.asks?.(input, call);
@@ -203,15 +208,20 @@ function completion(
   models: ExtensionToolContext["modelRegistry"],
   model: Model<Api>,
   host: Pick<PartHost, "clock">,
+  conversation: () => string,
 ): NonNullable<SessionToolCall["complete"]> {
-  return async ({ system, prompt }) => {
+  return async ({ system, prompt, withConversation = false }) => {
+    const text = withConversation
+      ? `The conversation so far, for background:\n\n${conversation()}\n\n---\n\n${prompt}`
+      : prompt;
+
     const response = await models
       .streamSimple(model, {
         systemPrompt: system,
         messages: [
           {
             role: "user",
-            content: [{ type: "text", text: prompt }],
+            content: [{ type: "text", text }],
             timestamp: host.clock.now(),
           },
         ],
@@ -227,4 +237,24 @@ function completion(
       .join("\n")
       .trim();
   };
+}
+
+const conversationLimit = 24_000;
+
+// The conversation's messages as text, newest last, cut from the start when
+// long: what the person read before the call.
+function conversationOf(branch: readonly unknown[]): string {
+  const lines = branch.map((entry) => JSON.stringify(entry));
+
+  const text = transcriptReader(() => lines)
+    .messages("")
+    .map(
+      ({ role, text: said }) =>
+        `${role === "user" ? "User" : "Assistant"}: ${said}`,
+    )
+    .join("\n\n");
+
+  return text.length <= conversationLimit
+    ? text
+    : `…${text.slice(-conversationLimit)}`;
 }
