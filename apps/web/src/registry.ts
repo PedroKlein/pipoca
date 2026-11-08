@@ -3,6 +3,7 @@ import { web as artifactsWeb } from "../../../plugins/artifacts/web/index";
 import { web as askWeb } from "../../../plugins/ask/web/index";
 import { web as changesWeb } from "../../../plugins/changes/web/index";
 import { web as checklistWeb } from "../../../plugins/checklist/web/index";
+import { web as diagramsWeb } from "../../../plugins/diagrams/web/index";
 import { web as emailWeb } from "../../../plugins/email/web/index";
 import { web as filesWeb } from "../../../plugins/files/web/index";
 import { web as gitHostsWeb } from "../../../plugins/git-hosts/web/index";
@@ -23,6 +24,7 @@ export const webRegistry = [
   { id: "ask", web: askWeb },
   { id: "changes", web: changesWeb },
   { id: "checklist", web: checklistWeb },
+  { id: "diagrams", web: diagramsWeb },
   { id: "email", web: emailWeb },
   { id: "files", web: filesWeb },
   { id: "git-hosts", web: gitHostsWeb },

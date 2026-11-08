@@ -5,6 +5,7 @@ import { ask } from "../../../plugins/ask/plugin";
 import { server as askServer } from "../../../plugins/ask/src/server";
 import { changes } from "../../../plugins/changes/plugin";
 import { checklist } from "../../../plugins/checklist/plugin";
+import { diagrams } from "../../../plugins/diagrams/plugin";
 import { email } from "../../../plugins/email/plugin";
 import { server as emailServer } from "../../../plugins/email/src/server";
 import { files } from "../../../plugins/files/plugin";
@@ -38,6 +39,7 @@ export const serverRegistry = [
   { id: "ask", definition: ask, server: askServer },
   { id: "changes", definition: changes },
   { id: "checklist", definition: checklist },
+  { id: "diagrams", definition: diagrams },
   { id: "email", definition: email, server: emailServer },
   { id: "files", definition: files, server: filesServer },
   { id: "git-hosts", definition: gitHosts, server: gitHostsServer },

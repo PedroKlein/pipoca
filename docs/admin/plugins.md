@@ -15,6 +15,7 @@ Everything past Pipoca's small kernel is a plugin, the built-in ones included ([
 | `changes`    | A Session's changes as a diff, with line comments, and pull requests.                       | Yes                    |
 | `subagents`  | Subagents a Session starts, workflows and missions.                                         | Yes                    |
 | `checklist`  | The agent's checklist of its steps, above the composer.                                     | Yes                    |
+| `diagrams`   | Mermaid diagrams drawn in chat, and guidance for the agent on when to use one.              | Yes                    |
 | `ask`        | Questions to you in a form, and votes in team work.                                         | Yes                    |
 | `routines`   | Routines on a schedule, an event or a webhook, and wake-ups. Requires `subagents`.          | Yes                    |
 | `artifacts`  | Pages, documents and pictures Pi publishes, with versions and comments, shown in a sandbox. | Yes                    |

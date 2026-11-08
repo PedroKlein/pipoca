@@ -1,4 +1,4 @@
-import { Marked, type Tokens } from "marked";
+import { Marked, Renderer, type Tokens } from "marked";
 
 const escapes: Readonly<Record<string, string>> = {
   "&": "&amp;",
@@ -24,6 +24,10 @@ function safeHref(href: string): string | undefined {
   }
 }
 
+const plain = new Renderer();
+
+const closingFence = /\n {0,3}(?:`{3,}|~{3,})[ \t]*\n*$/;
+
 // Answers quote tool output and repository files, so raw HTML in them is
 // shown as text and only web links become links.
 const marked = new Marked({
@@ -47,6 +51,15 @@ const marked = new Marked({
         : label;
     },
     image: ({ text }) => escape(text),
+    // A plugin draws a closed fence of its language (ADR 0079).
+    code(token: Tokens.Code) {
+      const html = plain.code(token);
+      const language = token.lang?.split(/\s/)[0] ?? "";
+
+      return /^[\w-]+$/.test(language) && closingFence.test(token.raw)
+        ? `<div data-code-block="${language}">${html.trimEnd()}</div>`
+        : html;
+    },
   },
 });
 

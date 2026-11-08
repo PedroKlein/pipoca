@@ -1,6 +1,4 @@
-import type { LinkProps } from "@pipoca/plugins/web";
 import {
-  type ComponentType,
   type ReactElement,
   memo,
   useLayoutEffect,
@@ -14,10 +12,10 @@ import { renderMarkdown } from "./render-markdown";
 
 function Markdown({ text }: { readonly text: string }): ReactElement {
   const prose = useRef<HTMLDivElement>(null);
-  const [links, setLinks] = useState<readonly PluginLink[]>([]);
+  const [drawn, setDrawn] = useState<readonly Drawn[]>([]);
 
   useLayoutEffect(() => {
-    setLinks(pluginLinks(prose.current));
+    setDrawn([...pluginLinks(prose.current), ...pluginBlocks(prose.current)]);
   }, [text]);
 
   return (
@@ -28,11 +26,9 @@ function Markdown({ text }: { readonly text: string }): ReactElement {
         // Markdown output escapes raw HTML and unsafe links (markdown.ts).
         dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }}
       />
-      {links.map(({ node, plugin, Drawn, target, label }, at) =>
+      {drawn.map(({ node, plugin, element }, at) =>
         createPortal(
-          <PluginBoundary name={plugin}>
-            <Drawn target={target} label={label} />
-          </PluginBoundary>,
+          <PluginBoundary name={plugin}>{element}</PluginBoundary>,
           node,
           at,
         ),
@@ -41,16 +37,14 @@ function Markdown({ text }: { readonly text: string }): ReactElement {
   );
 }
 
-interface PluginLink {
+interface Drawn {
   readonly node: Element;
   readonly plugin: string;
-  readonly Drawn: ComponentType<LinkProps>;
-  readonly target: string;
-  readonly label: string;
+  readonly element: ReactElement;
 }
 
 // Links of a scheme no plugin draws keep their label as plain text.
-function pluginLinks(prose: HTMLElement | null): PluginLink[] {
+function pluginLinks(prose: HTMLElement | null): Drawn[] {
   return [...(prose?.querySelectorAll("[data-link]") ?? [])].flatMap((node) => {
     const scheme = node.getAttribute("data-link") ?? "";
     const fill = fillsOf(`link:${scheme}`)[0];
@@ -66,12 +60,40 @@ function pluginLinks(prose: HTMLElement | null): PluginLink[] {
       {
         node,
         plugin: fill.plugin,
-        Drawn: fill.Component,
-        target: node.getAttribute("data-target") ?? "",
-        label,
+        element: (
+          <fill.Component
+            target={node.getAttribute("data-target") ?? ""}
+            label={label}
+          />
+        ),
       },
     ];
   });
+}
+
+// Blocks of a language no plugin draws stay code.
+function pluginBlocks(prose: HTMLElement | null): Drawn[] {
+  return [...(prose?.querySelectorAll("[data-code-block]") ?? [])].flatMap(
+    (node) => {
+      const language = node.getAttribute("data-code-block") ?? "";
+      const fill = fillsOf(`codeBlock:${language}`)[0];
+
+      if (fill === undefined) {
+        return [];
+      }
+
+      const code = node.textContent;
+      node.textContent = "";
+
+      return [
+        {
+          node,
+          plugin: fill.plugin,
+          element: <fill.Component code={code} />,
+        },
+      ];
+    },
+  );
 }
 
 export const Answer = memo(Markdown);

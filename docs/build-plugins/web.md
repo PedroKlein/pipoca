@@ -56,18 +56,19 @@ export const web = defineWeb(greeter, {
 
 `slots` fills places the app draws in:
 
-| Slot                                                                                 | Where                                                                          |
-| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
-| `session.composer`                                                                   | Above a Session's composer, as the checklist is.                               |
-| `session.header`                                                                     | A Session's header. It can draw a `SessionTab` (below).                        |
-| `session.files`                                                                      | Files added in the composer that aren't images, until the message is sent.     |
-| `session.toolCall:<tool>`                                                            | How a call of that tool shows in the chat.                                     |
-| `session.permission:<tool>`                                                          | How a request to run that tool asks for permission.                            |
-| `notice:<kind>`                                                                      | How a notice of that kind shows in the chat.                                   |
-| `link:<scheme>`                                                                      | How a link with that scheme in the chat's Markdown shows.                      |
-| `home`                                                                               | The home screen, drawn by the first plugin that fills it, as the assistant is. |
-| `environment.section`, `template.section`                                            | A section on an Environment's or a template's page.                            |
-| `settings.general`, `settings.accounts`, `settings.profile`, `settings.base-profile` | A section on those Settings pages, or on the Server base.                      |
+| Slot                                                                                 | Where                                                                                  |
+| ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| `session.composer`                                                                   | Above a Session's composer, as the checklist is.                                       |
+| `session.header`                                                                     | A Session's header. It can draw a `SessionTab` (below).                                |
+| `session.files`                                                                      | Files added in the composer that aren't images, until the message is sent.             |
+| `session.toolCall:<tool>`                                                            | How a call of that tool shows in the chat.                                             |
+| `session.permission:<tool>`                                                          | How a request to run that tool asks for permission.                                    |
+| `notice:<kind>`                                                                      | How a notice of that kind shows in the chat.                                           |
+| `codeBlock:<language>`                                                               | How a closed fenced block of that language shows in the chat, with its text as `code`. |
+| `link:<scheme>`                                                                      | How a link with that scheme in the chat's Markdown shows.                              |
+| `home`                                                                               | The home screen, drawn by the first plugin that fills it, as the assistant is.         |
+| `environment.section`, `template.section`                                            | A section on an Environment's or a template's page.                                    |
+| `settings.general`, `settings.accounts`, `settings.profile`, `settings.base-profile` | A section on those Settings pages, or on the Server base.                              |
 
 A `session.header` part can draw a `SessionTab` (`name`, `order`, `label`, `button`, `icon`, its contents as children): a button in the header that opens its contents as a tab of the one panel beside the Session, next to other plugins' tabs.
 

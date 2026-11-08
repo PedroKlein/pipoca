@@ -1,0 +1,21 @@
+{
+  "name": "@pipoca/diagrams",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./plugin": "./plugin.ts"
+  },
+  "dependencies": {
+    "@pipoca/plugins": "workspace:*",
+    "@pipoca/ui": "workspace:*",
+    "mermaid": "12.2.0",
+    "react": "19.3.1"
+  },
+  "devDependencies": {
+    "@pipoca/testing": "workspace:*",
+    "@types/react": "19.3.0"
+  },
+  "pipoca": {
+    "entry": "plugin.ts"
+  }
+}
