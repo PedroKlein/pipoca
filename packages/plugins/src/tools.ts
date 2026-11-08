@@ -32,6 +32,9 @@ export function toolSpecOf(
         ...(annotations.destructive !== undefined && {
           destructiveHint: annotations.destructive,
         }),
+        ...(annotations.openWorld !== undefined && {
+          openWorldHint: annotations.openWorld,
+        }),
       },
     }),
     ...(prompt && {

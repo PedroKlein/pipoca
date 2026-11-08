@@ -1,4 +1,10 @@
-import { defineServer, StringEnum, ToolError, Type } from "@pipoca/plugins";
+import {
+  defineServer,
+  NotFound,
+  StringEnum,
+  ToolError,
+  Type,
+} from "@pipoca/plugins";
 import { routines } from "../plugin";
 import { routinesEngine } from "./engine";
 import { routineSchema } from "./routine";
@@ -14,9 +20,30 @@ const runNow = Type.Object(
         Type.Union([Type.String(), Type.Number(), Type.Boolean()]),
       ),
     ),
+    // Its proposals are shown, never applied, and nothing is pushed.
+    dryRun: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false },
 );
+
+const replay = Type.Object(
+  { dryRun: Type.Optional(Type.Boolean()) },
+  { additionalProperties: false },
+);
+
+// What a run's Session part proposes (ADR 0076).
+const proposal = Type.Object(
+  {
+    action: Type.String({ minLength: 1 }),
+    input: Type.Unknown(),
+    // The blob of a git bundle of the workspace branch, for a pull request.
+    commits: Type.Optional(Type.String({ pattern: "^[0-9a-f]{64}$" })),
+  },
+  { additionalProperties: false },
+);
+
+// A git bundle of a run's workspace branch is at most this big.
+const maxCommitsBytes = 200 * 1024 * 1024;
 
 const endRun = Type.Object(
   {
@@ -53,7 +80,7 @@ const routinesTool = Type.Object(
     routine: Type.Optional(
       Type.Unknown({
         description:
-          'For create and update, the whole routine: { "title", "when": [{ "kind": "schedule", "cron": "0 8 * * 1-5", "timeZone": "Europe/Berlin" } | { "kind": "once", "at": ISO time with zone } | { "kind": "event", "event": "<plugin>.<name>", "where"?: [{ "field", "is" | "isNot" | "contains" | "startsWith" | "matches" (a path glob such as docs/**): value } | { "field", "oneOf": [values] }] } | { "kind": "webhook" }, each with an optional "inputs": { name: text with {{event.<field>}} } and an optional "agent" or "workflow" that its runs start in place of the one in do], "inputs"?: { name: { "type": "string" | "number" | "boolean", "default"?, "required"? } | { "type": "oneOf", "values": [strings], "default"? } }, "sameWork"?: { "key"?: [event fields that make one piece of work], "whileRunning"?: "tell" | "skip" | "queue" }, "do": { "kind": "session", "agent"?: the name of an agent file, such as worker, "workflow"?: the name of a saved workflow, started with the inputs as its args, "prompt" (optional for a workflow), "workspace": { "kind": "clone", "repository": url } | { "kind": "folder", "path" } | { "kind": "event-repository" }, "environment"?, "profile"?, "model"?: "provider/id", "as"?: technical user name to act as on git instead of the user } or { "kind": "message", "prompt", "session": id }, "limits"?: { "maxRunning"?: number, "dailySpend"?: a cap in the currency of the server price table that pauses the routine until the next day, "timeLimit"?: running time such as "2h" (the default), "retries"?: how often a failed run starts again, "stopAfter"?: "YYYY-MM-DD" after which it pauses itself } }. Any trigger may have "windows": [{ "days": "mon-fri", "from": "09:00", "to": "18:00", "outside": "wait" | "skip", "timeZone"? }]. An event from a git host fires only for repository members unless a where condition names member or sender. The prompt and workspace may use {{event.<field>}} and {{inputs.<name>}}.',
+          'For create and update, the whole routine: { "title", "when": [{ "kind": "schedule", "cron": "0 8 * * 1-5", "timeZone": "Europe/Berlin" } | { "kind": "once", "at": ISO time with zone } | { "kind": "event", "event": "<plugin>.<name>", "where"?: [{ "field", "is" | "isNot" | "contains" | "startsWith" | "matches" (a path glob such as docs/**): value } | { "field", "oneOf": [values] }] } | { "kind": "webhook" }, each with an optional "inputs": { name: text with {{event.<field>}} } and an optional "agent" or "workflow" that its runs start in place of the one in do], "inputs"?: { name: { "type": "string" | "number" | "boolean", "default"?, "required"? } | { "type": "oneOf", "values": [strings], "default"? } }, "sameWork"?: { "key"?: [event fields that make one piece of work], "whileRunning"?: "tell" | "skip" | "queue" }, "do": { "kind": "session", "agent"?: the name of an agent file, such as worker, "workflow"?: the name of a saved workflow, started with the inputs as its args, "prompt" (optional for a workflow), "workspace": { "kind": "clone", "repository": url } | { "kind": "folder", "path" } | { "kind": "event-repository" }, "environment"?, "profile"?, "model"?: "provider/id", "as"?: technical user name to act as on git instead of the user } or { "kind": "message", "prompt", "session": id }, "limits"?: { "maxRunning"?: number, "dailySpend"?: a cap in the currency of the server price table that pauses the routine until the next day, "timeLimit"?: running time such as "2h" (the default), "retries"?: how often a failed run starts again, "stopAfter"?: "YYYY-MM-DD" after which it pauses itself }, "actions"?: { action: max per run, or { "max", "approve": true } for a person to approve each first }, naming the actions its runs may propose, such as { "pullRequest": 1, "comment": 3 }, "proposes"?: "outside-input" (the default: runs fired by events and webhooks can\'t push or post and propose what to write instead) | "always" | "never" (runs write themselves, so text strangers write can make them write) }. Any trigger may have "windows": [{ "days": "mon-fri", "from": "09:00", "to": "18:00", "outside": "wait" | "skip", "timeZone"? }]. An event from a git host fires only for repository members unless a where condition names member or sender. The prompt and workspace may use {{event.<field>}} and {{inputs.<name>}}.',
       }),
     ),
     inputs: Type.Optional(
@@ -62,6 +89,12 @@ const routinesTool = Type.Object(
         Type.Union([Type.String(), Type.Number(), Type.Boolean()]),
         { description: "For run, the routine's inputs by name." },
       ),
+    ),
+    dryRun: Type.Optional(
+      Type.Boolean({
+        description:
+          "For run, a dry run: its proposals are shown on the Routines page and never applied.",
+      }),
     ),
     summary: Type.Optional(
       Type.String({
@@ -123,7 +156,10 @@ export const server = defineServer(routines, (context) => {
           return undefined;
       }
     },
-    run: ({ action, name = "", routine, summary, inputs }, { owner }) => {
+    run: (
+      { action, name = "", routine, summary, inputs, dryRun },
+      { owner },
+    ) => {
       if (action === "list") {
         return JSON.stringify(engine.list(owner));
       }
@@ -159,16 +195,32 @@ export const server = defineServer(routines, (context) => {
             );
           }
 
-          engine.save(owner, name, routine);
+          const tested = engine.save(owner, name, routine);
           routes.topic("routines");
 
           if (action === "update") {
             return `Changed the routine ${name}.`;
           }
 
-          const run = engine.runNow(owner, name);
+          const saved = engine.get(owner, name).routine;
+          const onEvents = saved?.when.some(({ kind }) => kind === "event");
 
-          return `Created the routine ${name} and ran it once as a test: ${JSON.stringify(run)}\nTell the user what it does and when, and that it is on the Routines page.`;
+          if (tested === undefined && onEvents === true) {
+            return `Created the routine ${name}. No recent event matches it, so it runs first on the next one.\nTell the user what it does and when, and that it is on the Routines page.`;
+          }
+
+          const run =
+            tested ??
+            engine.runNow(
+              owner,
+              name,
+              {},
+              {
+                dryRun: Object.keys(saved?.actions ?? {}).length > 0,
+              },
+            );
+
+          return `Created the routine ${name} and ran it once as a test${tested === undefined ? "" : " on the newest event it matches"}: ${JSON.stringify(run)}\nTell the user what it does and when, and that it is on the Routines page.`;
         }
 
         case "pause":
@@ -177,7 +229,9 @@ export const server = defineServer(routines, (context) => {
 
           return JSON.stringify(engine.get(owner, name).paused);
         case "run":
-          return JSON.stringify(engine.runNow(owner, name, inputs));
+          return JSON.stringify(
+            engine.runNow(owner, name, inputs, { dryRun: dryRun === true }),
+          );
         case "remove":
           engine.remove(owner, name);
 
@@ -187,6 +241,32 @@ export const server = defineServer(routines, (context) => {
   });
 
   routes.get("events", { auth: "person" }, () => context.events.declared());
+
+  routes.get("actions", { auth: "person" }, () => context.actions.declared());
+
+  context.blobs.acceptUploads({ maxBytes: () => maxCommitsBytes });
+
+  // A run's Session part asks whether it proposes, and what it may.
+  routes.get("run", { auth: "session" }, ({ caller }) => {
+    const proposing = engine.proposing(caller.session);
+
+    if (proposing === undefined) {
+      throw new NotFound("this Session isn't a routine run that proposes");
+    }
+
+    return proposing;
+  });
+
+  routes.post(
+    "proposals",
+    { auth: "session", body: proposal, status: 201, changes: ["routines"] },
+    ({ caller, body }) =>
+      engine.propose(caller.session, {
+        action: body.action,
+        input: body.input,
+        ...(body.commits !== undefined && { commits: body.commits }),
+      }),
+  );
 
   routes.get(
     "wakeups",
@@ -251,8 +331,43 @@ export const server = defineServer(routines, (context) => {
       changes: ["routines"],
     },
     ({ caller, params, body }) =>
-      engine.runNow(caller.owner, params.name, body.inputs),
+      engine.runNow(caller.owner, params.name, body.inputs, {
+        dryRun: body.dryRun === true,
+      }),
   );
+
+  routes.post(
+    "routines/:name/runs/:id/replay",
+    {
+      auth: "person",
+      team: true,
+      status: 201,
+      body: replay,
+      changes: ["routines"],
+    },
+    ({ caller, params, body }) =>
+      engine.replay(caller.owner, params.name, params.id, {
+        dryRun: body.dryRun === true,
+      }),
+  );
+
+  for (const decision of ["approve", "reject"] as const) {
+    routes.post(
+      `routines/:name/proposals/:id/${decision}`,
+      { auth: "person", team: true, changes: ["routines"] },
+      async ({ caller, params }) => {
+        await engine.decide(
+          caller.owner,
+          params.name,
+          params.id,
+          decision === "approve",
+          caller.person.id,
+        );
+
+        return engine.get(caller.owner, params.name);
+      },
+    );
+  }
 
   for (const action of ["pause", "resume"] as const) {
     routes.post(

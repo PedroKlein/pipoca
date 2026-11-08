@@ -9,9 +9,15 @@ import {
   type Store,
   Type,
 } from "@pipoca/plugins";
-import type { GitLogin, RepositoryChoice } from "@pipoca/protocol";
+import type {
+  GitLogin,
+  Owner,
+  RepositoryChoice,
+  Session,
+} from "@pipoca/protocol";
 import { gitHosts } from "../plugin";
 import { acting } from "./acting";
+import { hostActions } from "./actions";
 import { appEvents } from "./app-events";
 import { commitAsBody, commitAsStore } from "./commit-as";
 import {
@@ -92,7 +98,12 @@ export const server = defineServer(gitHosts, (context) => {
     questionReplies(context, hosts, actingAs, signed),
   );
 
-  context.provide.gitCredentials((owner, session) => {
+  // Who the Session's git signs in as on each host, which is also who the
+  // actions it proposes write as.
+  const loginsOf = (
+    owner: Owner,
+    session: Pick<Session, "actsAs" | "proposes" | "workspace">,
+  ): readonly GitLogin[] => {
     const person = owners.personId(owner);
 
     const own: readonly GitLogin[] =
@@ -105,6 +116,12 @@ export const server = defineServer(gitHosts, (context) => {
     }
 
     return owner === "team" ? actingAs.team(session) : own;
+  };
+
+  context.provide.gitCredentials((owner, session) => {
+    const logins = loginsOf(owner, session);
+
+    return session.proposes ? actingAs.readOnly(logins) : logins;
   });
 
   const connect = async (
@@ -519,7 +536,9 @@ export const server = defineServer(gitHosts, (context) => {
     connections.of(userId).map(({ host }) => host),
   );
 
-  pullRequests(context, hosts, signed, actingAs.teamBots);
+  const watching = pullRequests(context, hosts, signed, actingAs.teamBots);
+
+  hostActions(context, hosts, loginsOf, watching.watch);
 });
 
 interface Signed {

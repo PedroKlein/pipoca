@@ -52,6 +52,7 @@ test("opens its own database again", () => {
     workspaceKeptReason: null,
     startedBy: null,
     actsAs: null,
+    proposes: false,
     agent: { name: "implementer", keep: ["end_run"] },
   });
 
@@ -199,6 +200,7 @@ function sessionIn(
     workspaceKeptReason: null,
     startedBy: null,
     actsAs: null,
+    proposes: false,
     agent: null,
     ...fields,
   };

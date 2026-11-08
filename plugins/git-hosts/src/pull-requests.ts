@@ -41,7 +41,7 @@ export function pullRequests(
   hosts: Hosts,
   accounts: (userId: string) => readonly Account[],
   teamBots: (session: Session) => readonly TeamBot[],
-): void {
+): { readonly watch: (session: Session, url: string) => void } {
   const { routes, tools, sessions, log } = context;
   const watches = watchStore(context.store);
 
@@ -252,4 +252,10 @@ export function pullRequests(
       return { merged: found.url };
     },
   );
+
+  return {
+    watch: (session, url) => {
+      watch(session, url);
+    },
+  };
 }

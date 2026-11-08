@@ -223,9 +223,15 @@ export function definedTool(
         }
       };
 
+      // A Session that proposes gets no tool that writes outside (ADR 0076).
+      const posts =
+        tool.annotations?.openWorld === true &&
+        tool.annotations.readOnly !== true;
+
       return (
         (owner === "any" || (owner === "team") === (call.owner === "team")) &&
         (when?.ownSessions !== true || session.plugin?.id === plugin) &&
+        !(posts && session.proposes) &&
         available()
       );
     },

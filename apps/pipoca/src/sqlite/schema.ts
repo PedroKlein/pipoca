@@ -271,6 +271,8 @@ create table base_profile_edits (
 ) strict;`,
   // The agent a plugin started the Session as (ADR 0075), as JSON.
   "alter table sessions add column agent text check (agent is null or json_valid(agent));",
+  // A Session that proposes what it writes outside (ADR 0076).
+  "alter table sessions add column proposes integer not null default 0 check (proposes in (0, 1));",
 ];
 
 export const kernelSchema: Schema = { owner: "kernel", sql, migrations };

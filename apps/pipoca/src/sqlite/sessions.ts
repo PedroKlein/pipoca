@@ -52,6 +52,7 @@ interface SessionRow {
   acts_as_plugin: string | null;
   acts_as: string | null;
   agent: string | null;
+  proposes: number;
 }
 
 interface VoiceRow {
@@ -103,13 +104,14 @@ export function sessionStore(
         ? null
         : { plugin: row.acts_as_plugin, name: row.acts_as },
     agent: row.agent === null ? null : (JSON.parse(row.agent) as StartAgent),
+    proposes: row.proposes === 1,
   });
 
   const sessionRows = (statement: StatementSync, ...params: SQLInputValue[]) =>
     (statement.all(...params) as unknown as SessionRow[]).map(toSession);
 
   const insertSession = db.prepare(
-    "insert into sessions (id, environment_id, plugin, plugin_key, runner, profile_id, workspace, model_provider, model_id, system_prompt, first_message, thinking, title, status, generation, created_at, interrupted_at, error, archived_at, workspace_removal, workspace_kept_reason, started_by, acts_as_plugin, acts_as, agent) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "insert into sessions (id, environment_id, plugin, plugin_key, runner, profile_id, workspace, model_provider, model_id, system_prompt, first_message, thinking, title, status, generation, created_at, interrupted_at, error, archived_at, workspace_removal, workspace_kept_reason, started_by, acts_as_plugin, acts_as, agent, proposes) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   );
 
   const updateSession = db.prepare(
@@ -248,6 +250,7 @@ export function sessionStore(
         s.actsAs?.plugin ?? null,
         s.actsAs?.name ?? null,
         s.agent === null ? null : JSON.stringify(s.agent),
+        s.proposes ? 1 : 0,
       );
     },
     update: (s) => {

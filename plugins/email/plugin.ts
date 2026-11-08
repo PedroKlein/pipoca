@@ -1,4 +1,11 @@
-import { Config, event, definePlugin, Secret, Type } from "@pipoca/plugins";
+import {
+  action,
+  Config,
+  event,
+  definePlugin,
+  Secret,
+  Type,
+} from "@pipoca/plugins";
 
 const server = Type.Object({
   host: Type.String({ title: "Host", minLength: 1 }),
@@ -17,6 +24,26 @@ const mailbox = Type.Object({
   smtp: server,
   users: Config.audience(),
 });
+
+// A mail from one of the Session owner's mailboxes, or a reply to one.
+export const sendMail = Type.Object(
+  {
+    to: Type.String({ description: "One address, or several split by commas" }),
+    subject: Type.String(),
+    text: Type.String({ description: "Plain text" }),
+    in_reply_to: Type.Optional(
+      Type.String({
+        description: "The Message-ID of the mail this replies to",
+      }),
+    ),
+    mailbox: Type.Optional(
+      Type.String({
+        description: "Which mailbox, when the user has more than one",
+      }),
+    ),
+  },
+  { additionalProperties: false },
+);
 
 export const email = definePlugin({
   id: "email",
@@ -77,6 +104,15 @@ create index email_questions_message on email_questions (mailbox, message_id);
           description: "The plain-text body, cut at 8000 characters",
         }),
       }),
+    }),
+  },
+  // What a routine's runs may propose (ADR 0076).
+  actions: {
+    send: action({
+      title: "Send mail",
+      description:
+        "Sends a mail, or a reply, from one of the routine owner's mailboxes.",
+      input: sendMail,
     }),
   },
 });

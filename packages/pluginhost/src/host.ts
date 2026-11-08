@@ -3,7 +3,10 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 import type { Environments } from "@pipoca/environments";
 import type {
+  ActionCall,
+  Applied,
   Person,
+  PluginActions,
   PluginDefinition,
   RouteToolSpec,
   ProfileMcpServer,
@@ -36,6 +39,7 @@ import {
 import type {
   Actor,
   Clock,
+  DeclaredAction,
   DeclaredEvent,
   GitLogin,
   Log,
@@ -75,9 +79,11 @@ import {
 
 export type UserActor = `user:${string}`;
 
+type ActionHandler = (input: unknown, call: ActionCall) => Promise<Applied>;
+
 type GitLoginsOf = (
   owner: Owner,
-  session: Pick<Session, "actsAs" | "workspace">,
+  session: Pick<Session, "actsAs" | "proposes" | "workspace">,
 ) => readonly GitLogin[];
 
 interface PluginConfigView {
@@ -280,6 +286,7 @@ export function startPlugins(
   const offers: { plugin: string; offer: ModelOffer }[] = [];
   const gitLogins: { plugin: string; of: GitLoginsOf }[] = [];
   const asked = questionBroker(deps.log);
+  const actionHandlers = new Map<string, ActionHandler>();
   const fromEnv = envSecrets(process.env);
   const settled = new Set<string>();
 
@@ -623,6 +630,50 @@ export function startPlugins(
         ),
       );
 
+  // The actions running plugins declare and apply (ADR 0076).
+  const declaredActions = (): DeclaredAction[] =>
+    deps.definitions
+      .filter(({ id }) => enabled.includes(id) && !failures.has(id))
+      .flatMap(({ id, actions = {} }) =>
+        Object.entries(actions).flatMap(
+          ([name, { title, description, input, commits }]) =>
+            actionHandlers.has(`${id}.${name}`)
+              ? [
+                  {
+                    title,
+                    ...(description !== undefined && { description }),
+                    input: { ...input },
+                    ...(commits === true && { commits }),
+                    type: `${id}.${name}` as const,
+                  },
+                ]
+              : [],
+        ),
+      );
+
+  const pluginActions: PluginActions = {
+    declared: declaredActions,
+    apply: async (type, input, call) => {
+      const declared = declaredActions().find((each) => each.type === type);
+      const apply = actionHandlers.get(type);
+
+      if (declared === undefined || apply === undefined) {
+        throw new Error(`no action ${type}`);
+      }
+
+      if (!Value.Check(declared.input, input)) {
+        const [error] = Value.Errors(declared.input, input);
+        const at = error?.instancePath.slice(1).replaceAll("/", ".") ?? "";
+
+        throw new Error(
+          `${at === "" ? "the input" : at} ${error?.message ?? "doesn't fit"}`,
+        );
+      }
+
+      return apply(input, call);
+    },
+  };
+
   running.push(...enabled.filter((name) => !failures.has(name)));
 
   const extRoutes: ExtRoute[] = [];
@@ -687,6 +738,7 @@ export function startPlugins(
       routeToolProfiles: [] as string[],
       offers: [] as ModelOffer[],
       gitCredentials: [] as GitLoginsOf[],
+      actions: new Map<string, ActionHandler>(),
       runners: [] as RunnerProvider[],
       signIn: undefined as SignInProvider | undefined,
       keeper: undefined as QuestionKeeper | undefined,
@@ -817,6 +869,7 @@ export function startPlugins(
           blobs: pluginBlobs(join(deps.blobsDir, id), declared.routes),
           transcript,
           urls: pluginUrls(id, deps.url),
+          actions: pluginActions,
           provide: {
             runners: (provider) => {
               provided.add("runners");
@@ -840,6 +893,17 @@ export function startPlugins(
             gitCredentials: (of) => {
               provided.add("gitCredentials");
               staged.gitCredentials.push(of);
+            },
+            actions: (handlers) => {
+              provided.add("actions");
+
+              for (const [name, apply] of Object.entries(handlers)) {
+                if (definition.actions?.[name] === undefined) {
+                  throw new Error(`${id} declares no action ${name}`);
+                }
+
+                staged.actions.set(`${id}.${name}`, apply as ActionHandler);
+              }
             },
             signIn: (provider) => {
               if (installedIds.has(id)) {
@@ -987,6 +1051,10 @@ export function startPlugins(
     starters.push(...staged.runners.map((each) => ({ ...each, plugin: id })));
 
     gitLogins.push(...staged.gitCredentials.map((of) => ({ plugin: id, of })));
+
+    for (const [type, apply] of staged.actions) {
+      actionHandlers.set(type, apply);
+    }
 
     if (staged.signIn !== undefined) {
       signIn = { plugin: id, provider: staged.signIn };

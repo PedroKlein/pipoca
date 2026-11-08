@@ -22,6 +22,32 @@ export type RunOutcome =
 // How a run's agent ends it.
 export type RunResult = "done" | "nothing" | "blocked";
 
+// Where a proposal stands (ADR 0076): proposed until the run's turn ends,
+// then applied, failed, or waiting for a person who approves or rejects it.
+// A dry run's are shown and never applied, and refused ones break the
+// routine's rules.
+export type ProposalState =
+  | "proposed"
+  | "waiting"
+  | "applied"
+  | "failed"
+  | "rejected"
+  | "refused"
+  | "shown";
+
+export interface Proposal {
+  readonly id: string;
+  // The plugin's action, such as git-hosts.comment, and its title.
+  readonly action: string;
+  readonly title: string;
+  readonly input: unknown;
+  readonly state: ProposalState;
+  // What applying it wrote, or why it failed or was refused.
+  readonly result: string | null;
+  readonly url: string | null;
+  readonly proposedAt: string;
+}
+
 export interface Run {
   readonly id: string;
   // Which retry of a failed run it is, from 1.
@@ -33,6 +59,11 @@ export interface Run {
   readonly outcome: RunOutcome;
   readonly reason: string | null;
   readonly endedAt: string | null;
+  // Its git couldn't push and it proposed what to write outside.
+  readonly proposes?: true;
+  // Its proposals were shown, never applied.
+  readonly dryRun?: true;
+  readonly proposals?: readonly Proposal[];
 }
 
 export interface RoutineView {

@@ -20,6 +20,19 @@ export const declaredEvent = Type.Object({
 
 export type DeclaredEvent = Wire<typeof declaredEvent>;
 
+// An action a routine's run may propose, which an enabled plugin declares
+// and applies (ADR 0076), by its full type.
+export const declaredAction = Type.Object({
+  ...described,
+  // A JSON Schema of what a proposal gives it.
+  input: anyMap,
+  // It takes the commits on the run's workspace branch.
+  commits: Type.Optional(Type.Boolean()),
+  type: Type.TemplateLiteral("${string}.${string}"),
+});
+
+export type DeclaredAction = Wire<typeof declaredAction>;
+
 const pluginPart = Type.Enum(["server", "session", "web"]);
 
 // A plugin as its definition, or before an installed one runs, its folder

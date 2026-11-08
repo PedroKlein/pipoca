@@ -226,7 +226,7 @@ interface SessionsOptions {
   // The git hosts a user connected (ADR 0043).
   readonly gitLogins?: (
     owner: Owner,
-    session: Pick<Session, "actsAs" | "workspace">,
+    session: Pick<Session, "actsAs" | "proposes" | "workspace">,
   ) => readonly GitLogin[];
   // How many of the team's messages since its last turn Pi reads.
   readonly teamMessagesRead?: () => number;
@@ -416,6 +416,7 @@ export class Sessions {
       workspaceKeptReason: null,
       startedBy,
       actsAs: request.actsAs ?? null,
+      proposes: request.proposes === true,
     };
 
     this.#store.insert(session);
@@ -1692,6 +1693,7 @@ export class Sessions {
           systemPrompt: session.systemPrompt,
           firstMessage: session.firstMessage,
           agent: session.agent,
+          ...(session.proposes && { proposes: true }),
           ...this.#pluginsOf(session),
           environment: this.#environments.sessionEnvironment(
             session.environmentId,

@@ -3,11 +3,12 @@ import {
   defineServer,
   NotFound,
   type Owner,
+  type Session,
   type Static,
   ToolError,
   Type,
 } from "@pipoca/plugins";
-import { slack } from "../plugin";
+import { post, slack } from "../plugin";
 import type { BotView } from "./model";
 import { questionReplies } from "./questions";
 import { botOf, call, SlackRefused } from "./slack";
@@ -23,26 +24,6 @@ const newBot = Type.Object({
   botToken: Type.String({ minLength: 1 }),
 });
 
-const post = Type.Object(
-  {
-    channel: Type.String({
-      description: "The channel's id, such as C0123456, or its name",
-    }),
-    text: Type.String({ description: "Slack mrkdwn" }),
-    thread_ts: Type.Optional(
-      Type.String({
-        description: "The thread to reply in, by its first message's ts",
-      }),
-    ),
-    bot: Type.Optional(
-      Type.String({
-        description: "Which bot, when the user has more than one",
-      }),
-    ),
-  },
-  { additionalProperties: false },
-);
-
 const retryPrefix = "connect:";
 
 // Slack messages as routine triggers, and Sessions that post as a bot, with
@@ -57,6 +38,7 @@ export const server = defineServer(slack, (context) => {
     sessions,
     signal,
     tools,
+    provide,
     clock,
   } = context;
 
@@ -249,50 +231,70 @@ export const server = defineServer(slack, (context) => {
   const usable = (owner: Owner): readonly Bot[] =>
     bots.list().filter((bot) => bot.users.includes(owner));
 
+  const posted = async (
+    input: Static<typeof post>,
+    session: Session,
+  ): Promise<{
+    readonly bot: string;
+    readonly where: string;
+    readonly ts: string;
+  }> => {
+    const mine = usable(session.ownedBy);
+
+    const only = mine.length === 1 ? mine[0]?.name : undefined;
+    const bot = mine.find(({ name }) => name === (input.bot ?? only));
+
+    if (bot === undefined) {
+      throw new ToolError(
+        `name one of these bots: ${mine.map(({ name }) => name).join(", ")}`,
+      );
+    }
+
+    const answer = await call(
+      config.get().api,
+      bot.botToken,
+      "chat.postMessage",
+      {
+        channel: input.channel,
+        text: input.text,
+        ...(input.thread_ts !== undefined && {
+          thread_ts: input.thread_ts,
+        }),
+      },
+    ).catch((failure: unknown) => {
+      throw failure instanceof SlackRefused
+        ? new ToolError(failure.message)
+        : failure;
+    });
+
+    const where = text(answer["channel"]) || input.channel;
+    const ts = text(answer["ts"]);
+
+    sessions.bind(threadOf(bot.name, where, input.thread_ts ?? ts), session.id);
+
+    return { bot: bot.name, where, ts };
+  };
+
   tools.define({
     name: "slack_post",
     description:
       "Posts a message to Slack as one of the user's Slack bots, in a channel or as a reply in a thread. Replies people write in that thread come back to this Session as messages.",
     params: post,
     exposure: "direct",
-    annotations: { readOnly: false, destructive: false },
+    annotations: { readOnly: false, destructive: false, openWorld: true },
     when: { available: (session) => usable(session.ownedBy).length > 0 },
-    run: async (input, { session, owner }) => {
-      const mine = usable(owner);
+    run: async (input, { session }) => {
+      const { bot, where, ts } = await posted(input, session);
 
-      const only = mine.length === 1 ? mine[0]?.name : undefined;
-      const bot = mine.find(({ name }) => name === (input.bot ?? only));
+      return `Posted to ${where} as ${bot} (ts ${ts}). Replies in thread ${input.thread_ts ?? ts} come back here.`;
+    },
+  });
 
-      if (bot === undefined) {
-        throw new ToolError(
-          `name one of these bots: ${mine.map(({ name }) => name).join(", ")}`,
-        );
-      }
+  provide.actions({
+    post: async (input, { session }) => {
+      const { bot, where, ts } = await posted(input, session);
 
-      const posted = await call(
-        config.get().api,
-        bot.botToken,
-        "chat.postMessage",
-        {
-          channel: input.channel,
-          text: input.text,
-          ...(input.thread_ts !== undefined && {
-            thread_ts: input.thread_ts,
-          }),
-        },
-      ).catch((failure: unknown) => {
-        throw failure instanceof SlackRefused
-          ? new ToolError(failure.message)
-          : failure;
-      });
-
-      const where = text(posted["channel"]) || input.channel;
-      const ts = text(posted["ts"]);
-      const threadTs = input.thread_ts ?? ts;
-
-      sessions.bind(threadOf(bot.name, where, threadTs), session.id);
-
-      return `Posted to ${where} as ${bot.name} (ts ${ts}). Replies in thread ${threadTs} come back here.`;
+      return { text: `Posted to ${where} as ${bot} (ts ${ts})` };
     },
   });
 

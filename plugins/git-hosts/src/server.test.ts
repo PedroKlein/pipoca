@@ -1,7 +1,18 @@
 import { expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { createHmac, createVerify, generateKeyPairSync } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { server as askServer } from "@pipoca/ask/server";
-import { definePlugin, defineServer, type Questions } from "@pipoca/plugins";
+import {
+  definePlugin,
+  defineServer,
+  type PluginActions,
+  type Questions,
+  type Session,
+  type Sessions,
+} from "@pipoca/plugins";
 import {
   person,
   type PluginTest,
@@ -178,6 +189,8 @@ function fakeHost(now: () => number) {
   // Comments posted on issues and pull requests, with the token each came
   // with.
   const commented: { path: string; token: string; body: string }[] = [];
+  // Pull requests opened, with the token each came with.
+  const written: { path: string; token: string; body: unknown }[] = [];
   // The token each read of the pull request came with.
   const readWith: string[] = [];
 
@@ -222,7 +235,9 @@ function fakeHost(now: () => number) {
         return signedByApp(authorization)
           ? Response.json(
               {
-                token: "ghs_installation",
+                token: (await request.text()).includes('"permissions"')
+                  ? "ghs_reading"
+                  : "ghs_installation",
                 expires_at: new Date(now() + 3_600_000).toISOString(),
               },
               { status: 201 },
@@ -286,7 +301,21 @@ function fakeHost(now: () => number) {
 
     const repo = "/api/v3/repos/acme/dotfiles";
 
+    if (request.method === "POST" || request.method === "PATCH") {
+      written.push({
+        path: `${request.method} ${url.pathname}`,
+        token: authorization.replace("Bearer ", ""),
+        body: await request.json(),
+      });
+
+      if (url.pathname === `${repo}/pulls`) {
+        return Response.json({ html_url: pullUrl }, { status: 201 });
+      }
+    }
+
     switch (url.pathname) {
+      case `${repo}/pulls`:
+        return Response.json([]);
       case `${repo}/pulls/7`:
         readWith.push(authorization.replace("Bearer ", ""));
 
@@ -378,7 +407,15 @@ function fakeHost(now: () => number) {
     }
   };
 
-  return { pull, asked, readWith, commented, answer, repo: polled.repo };
+  return {
+    pull,
+    asked,
+    readWith,
+    commented,
+    written,
+    answer,
+    repo: polled.repo,
+  };
 }
 
 type Config = NonNullable<TestPluginOptions<typeof gitHosts>["config"]>;
@@ -2411,4 +2448,217 @@ test("posts the question of a run acting as its person only once they chose to r
 
   expect(told.at(-1)?.text).toEndWith("from pedro-gh:\n\napprove");
   expect(authors(t)).toEqual([]);
+});
+
+test("a Session that proposes reads with the App's read-only token, and gets other tokens only to make its workspace", async () => {
+  await using run = await start();
+  const { t } = run;
+
+  await connected(t);
+  await createApp(t);
+
+  const acting = await t.session({
+    owner: person("pedro"),
+    actsAs: { plugin: "git-hosts", name: "pipoca-bot" },
+    proposes: true,
+    workspace: {
+      kind: "clone",
+      repository: `https://${host}/acme/dotfiles.git`,
+    },
+  });
+
+  expect(acting.gitLogins()).toEqual([{ host, token: "ghs_reading" }]);
+
+  const own = await t.session({ owner: person("pedro"), proposes: true });
+
+  expect(own.gitLogins()).toEqual([
+    { host, token: goodToken, cloneOnly: true },
+  ]);
+});
+
+// Applies other plugins' actions, as the routines plugin does.
+let applying: PluginActions | undefined;
+let sessionsSeen: Sessions | undefined;
+
+const applier = defineServer(
+  definePlugin({ id: "applier", title: "Applier", description: "Applies." }),
+  (context) => {
+    applying = context.actions;
+    sessionsSeen = context.sessions;
+  },
+);
+
+function sessionNamed(id: string): Session {
+  const found = sessionsSeen?.get(id);
+
+  if (found === undefined) {
+    throw new Error(`no Session ${id}`);
+  }
+
+  return found;
+}
+
+function git(dir: string, ...args: string[]): string {
+  return execFileSync("git", ["-C", dir, ...args], {
+    encoding: "utf8",
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" },
+  }).trim();
+}
+
+test("applies a run's pull request: pushes its branch's commits as the run's identity, opens the pull request and watches it", async () => {
+  await using run = await start(listed, [applier]);
+  const { t, fake } = run;
+
+  await connected(t);
+
+  // The host's repository, which the server's git reaches in place of the
+  // host's address.
+  const root = mkdtempSync(join(tmpdir(), "git-hosts-push-"));
+  const remote = join(root, "acme", "dotfiles.git");
+
+  mkdirSync(remote, { recursive: true });
+  git(remote, "init", "--quiet", "--bare", "--initial-branch=main");
+
+  const work = join(root, "work");
+
+  execFileSync("git", ["clone", "--quiet", remote, work]);
+
+  const commit = (message: string): void => {
+    git(
+      work,
+      "-c",
+      "user.name=A",
+      "-c",
+      "user.email=a@b",
+      "commit",
+      "--quiet",
+      "--allow-empty",
+      "-m",
+      message,
+    );
+  };
+
+  commit("start");
+  git(work, "push", "--quiet", "origin", "HEAD:main");
+
+  const base = git(work, "rev-parse", "HEAD");
+
+  const session = await t.session({
+    owner: person("pedro"),
+    proposes: true,
+    workspace: {
+      kind: "clone",
+      repository: `https://${host}/acme/dotfiles.git`,
+    },
+  });
+
+  const { workspace } = sessionNamed(session.id);
+  const branch = "branch" in workspace ? workspace.branch : "";
+
+  git(work, "checkout", "--quiet", "-b", branch);
+  commit("Fix the dotfiles");
+
+  git(
+    work,
+    "bundle",
+    "create",
+    "--quiet",
+    join(root, "b"),
+    `refs/heads/${branch}`,
+    `^${base}`,
+  );
+
+  const saved = {
+    count: process.env["GIT_CONFIG_COUNT"],
+    key: process.env["GIT_CONFIG_KEY_0"],
+    value: process.env["GIT_CONFIG_VALUE_0"],
+  };
+
+  Object.assign(process.env, {
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: `url.file://${root}/.insteadOf`,
+    GIT_CONFIG_VALUE_0: `https://${host}/`,
+  });
+
+  try {
+    const applied = await applying?.apply(
+      "git-hosts.pullRequest",
+      { title: "Fix the dotfiles", body: "Fixes #3." },
+      {
+        session: sessionNamed(session.id),
+        commits: readFileSync(join(root, "b")),
+      },
+    );
+
+    expect(applied).toEqual({ text: `Opened ${pullUrl}`, url: pullUrl });
+  } finally {
+    Object.assign(process.env, {
+      GIT_CONFIG_COUNT: saved.count ?? "",
+      GIT_CONFIG_KEY_0: saved.key ?? "",
+      GIT_CONFIG_VALUE_0: saved.value ?? "",
+    });
+  }
+
+  expect(git(remote, "log", "--format=%s", branch)).toBe(
+    "Fix the dotfiles\nstart",
+  );
+
+  expect(fake.written).toEqual([
+    {
+      path: "POST /api/v3/repos/acme/dotfiles/pulls",
+      token: goodToken,
+      body: {
+        title: "Fix the dotfiles",
+        body: "Fixes #3.",
+        head: branch,
+        base: "main",
+        draft: false,
+      },
+    },
+  ]);
+
+  expect(await watched(t, session)).toMatchObject([{ url: pullUrl }]);
+});
+
+test("applies a run's comment with the token of the person it acts for, and refuses an action without a login", async () => {
+  await using run = await start(listed, [applier]);
+  const { t, fake } = run;
+
+  const session = sessionNamed(
+    (await t.session({ owner: person("pedro"), proposes: true })).id,
+  );
+
+  const comment = async () =>
+    applying?.apply(
+      "git-hosts.comment",
+      { repository: "acme/dotfiles", number: 3, body: "Looking into it." },
+      { session },
+    );
+
+  expect(await comment().catch((error: unknown) => String(error))).toBe(
+    `Error: the run has no login on ${host} to write with`,
+  );
+
+  await connected(t);
+
+  expect(await comment()).toEqual({
+    text: "Commented on #3",
+    url: `https://${host}/acme/dotfiles/issues/7#issuecomment-1`,
+  });
+
+  expect(fake.commented).toEqual([
+    {
+      path: "/api/v3/repos/acme/dotfiles/issues/3/comments",
+      token: goodToken,
+      body: "Looking into it.",
+    },
+  ]);
+
+  expect(applying?.declared().map(({ type }) => type)).toEqual([
+    "git-hosts.pullRequest",
+    "git-hosts.comment",
+    "git-hosts.labels",
+    "git-hosts.closeIssue",
+    "git-hosts.requestReview",
+  ]);
 });

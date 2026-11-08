@@ -15,6 +15,8 @@ import { models } from "../../../plugins/models/plugin";
 import { session as modelsSession } from "../../../plugins/models/src/session";
 import { projects } from "../../../plugins/projects/plugin";
 import { session as projectsSession } from "../../../plugins/projects/src/session";
+import { routines } from "../../../plugins/routines/plugin";
+import { session as routinesSession } from "../../../plugins/routines/src/session";
 import { subagents } from "../../../plugins/subagents/plugin";
 import { session as subagentsSession } from "../../../plugins/subagents/src/session";
 
@@ -27,5 +29,6 @@ export const sessionRegistry = [
   { id: "logins", definition: logins, session: loginsSession },
   { id: "models", definition: models, session: modelsSession },
   { id: "projects", definition: projects, session: projectsSession },
+  { id: "routines", definition: routines, session: routinesSession },
   { id: "subagents", definition: subagents, session: subagentsSession },
 ] as const;

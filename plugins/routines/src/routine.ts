@@ -1,6 +1,6 @@
 import { matchesGlob } from "node:path";
 import { type Static, Type } from "@pipoca/plugins";
-import type { DeclaredEvent } from "@pipoca/protocol";
+import type { DeclaredAction, DeclaredEvent } from "@pipoca/protocol";
 import { Value } from "typebox/value";
 import { cronSchedule, dayAfter, timeWindow } from "./cron";
 
@@ -204,6 +204,34 @@ export const routineSchema = Type.Object(
       ),
     ),
     do: work,
+    // Whose runs propose what they write outside instead of writing it:
+    // runs fired by outside input, which is the default, every run, or none
+    // (ADR 0076).
+    proposes: Type.Optional(
+      Type.Union([
+        Type.Literal("outside-input"),
+        Type.Literal("always"),
+        Type.Literal("never"),
+      ]),
+    ),
+    // The actions its runs may propose, by a plugin's type such as
+    // git-hosts.comment or by its name alone, each with a maximum per run,
+    // and whether a person approves each first.
+    actions: Type.Optional(
+      Type.Record(
+        Type.String(),
+        Type.Union([
+          Type.Integer({ minimum: 1, maximum: 50 }),
+          Type.Object(
+            {
+              max: Type.Integer({ minimum: 1, maximum: 50 }),
+              approve: Type.Optional(Type.Boolean()),
+            },
+            { additionalProperties: false },
+          ),
+        ]),
+      ),
+    ),
     limits: Type.Optional(
       Type.Object(
         {
@@ -420,6 +448,58 @@ export function checkEvents(
       }
     }
   }
+}
+
+export interface Allowed {
+  // The name the routine gives it, which a run proposes it by.
+  readonly name: string;
+  readonly action: DeclaredAction;
+  readonly max: number;
+  readonly approve: boolean;
+}
+
+// The actions the routine lets its runs propose, each found among the ones
+// enabled plugins declare by its type or by its name alone. An Error names
+// one it can't find.
+export function allowedActions(
+  routine: Routine,
+  declared: readonly DeclaredAction[],
+): readonly Allowed[] {
+  return Object.entries(routine.actions ?? {}).map(([name, limit]) => {
+    const exact = declared.find(({ type }) => type === name);
+
+    const byName = declared.filter(
+      ({ type }) => type.slice(type.indexOf(".") + 1) === name,
+    );
+
+    const action = exact ?? (byName.length === 1 ? byName[0] : undefined);
+
+    if (action === undefined) {
+      throw new Error(
+        byName.length > 1
+          ? `actions.${name}: name one of ${byName.map(({ type }) => type).join(", ")}`
+          : `actions.${name}: no plugin that is on offers this action`,
+      );
+    }
+
+    return typeof limit === "number"
+      ? { name, action, max: limit, approve: false }
+      : { name, action, max: limit.max, approve: limit.approve === true };
+  });
+}
+
+// Whether a run of the routine proposes: a dry run does, and otherwise as
+// the routine says, by whether outside input fired it.
+export function proposesOf(
+  routine: Routine,
+  outsideInput: boolean,
+  dryRun: boolean,
+): boolean {
+  const mode = routine.proposes ?? "outside-input";
+
+  return (
+    dryRun || mode === "always" || (mode === "outside-input" && outsideInput)
+  );
 }
 
 type FieldKind = "string" | "number" | "boolean" | "unknown";

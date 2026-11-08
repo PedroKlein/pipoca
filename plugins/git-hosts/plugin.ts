@@ -1,4 +1,5 @@
 import {
+  action,
   Config,
   definePlugin,
   event,
@@ -53,6 +54,15 @@ const technicalUser = Type.Object({
 });
 
 export type TechnicalUserItem = Static<typeof technicalUser>;
+
+// An issue or pull request a routine's run proposes to write on.
+const target = {
+  repository: Type.String({
+    minLength: 1,
+    description: "owner/name, or the repository's address",
+  }),
+  number: Type.Integer({ minimum: 1 }),
+};
 
 const from = {
   host: Type.String({ description: "The git host, such as github.com" }),
@@ -332,6 +342,79 @@ create index git_hosts_questions_thread on git_hosts_questions (host, repository
         sha: Type.String(),
         description: Type.String(),
       }),
+    }),
+  },
+  // What a routine's runs may propose, applied as the identity the run
+  // acts as (ADR 0076).
+  actions: {
+    pullRequest: action({
+      title: "Open or update a pull request",
+      description:
+        "Pushes the commits on the run's workspace branch and opens a pull request from it, or updates the one it opened.",
+      commits: true,
+      input: Type.Object(
+        {
+          title: Type.String({ minLength: 1, maxLength: 256 }),
+          body: Type.Optional(Type.String({ maxLength: 60_000 })),
+          base: Type.Optional(
+            Type.String({
+              minLength: 1,
+              description:
+                "The branch to merge into, the default one if left out",
+            }),
+          ),
+          draft: Type.Optional(Type.Boolean()),
+        },
+        { additionalProperties: false },
+      ),
+    }),
+    comment: action({
+      title: "Comment",
+      description: "Comments on an issue or pull request.",
+      input: Type.Object(
+        { ...target, body: Type.String({ minLength: 1, maxLength: 60_000 }) },
+        { additionalProperties: false },
+      ),
+    }),
+    labels: action({
+      title: "Add or remove labels",
+      description: "Adds and removes labels on an issue or pull request.",
+      input: Type.Object(
+        {
+          ...target,
+          add: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+          remove: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+        },
+        { additionalProperties: false },
+      ),
+    }),
+    closeIssue: action({
+      title: "Close an issue",
+      input: Type.Object(
+        {
+          ...target,
+          reason: Type.Optional(
+            Type.Union([
+              Type.Literal("completed"),
+              Type.Literal("not_planned"),
+            ]),
+          ),
+        },
+        { additionalProperties: false },
+      ),
+    }),
+    requestReview: action({
+      title: "Request a review",
+      description: "Asks people to review a pull request.",
+      input: Type.Object(
+        {
+          ...target,
+          reviewers: Type.Array(Type.String({ minLength: 1 }), {
+            minItems: 1,
+          }),
+        },
+        { additionalProperties: false },
+      ),
     }),
   },
 });

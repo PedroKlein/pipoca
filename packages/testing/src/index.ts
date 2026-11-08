@@ -133,6 +133,8 @@ export interface PluginTest {
     // A Profile of the starter's, by id, in place of their default.
     readonly profile?: string;
     readonly actsAs?: ActsAs;
+    // It proposes what it writes outside (ADR 0076).
+    readonly proposes?: boolean;
     // Who steers team work, everyone in the team unless it says.
     readonly access?: SessionAccess;
     // A folder of the test's own unless it says.

@@ -246,18 +246,30 @@ function remarkLine({ author, kind, body, url, path }: Remark): string {
 
 // What the Session reads first, as Claude Code's first event carries its
 // rules (ADR 0051).
-export function rules(reply: boolean): string {
+// A Session that proposes (ADR 0076) can't push or post, so it proposes its
+// fixes and replies, which Pipoca applies after its turn.
+export function rules(reply: boolean, proposes = false): string {
   return [
     "You are watching this pull request. Pipoca sends you its news: failed checks, reviews, merge conflicts, and when it merges or closes.",
     "For each piece of news, look at the pull request as it is now, then:",
-    "- When a fix is clear and doesn't go against what the user asked earlier, make it, run the checks you can, push to the pull request's branch, and say in a sentence what you changed.",
+    proposes
+      ? "- When a fix is clear and doesn't go against what the user asked earlier, make it, run the checks you can, commit it, and propose the pull request again with the propose tool, which pushes your commits. Say in a sentence what you changed."
+      : "- When a fix is clear and doesn't go against what the user asked earlier, make it, run the checks you can, push to the pull request's branch, and say in a sentence what you changed.",
     "- When a request is ambiguous or changes the design, ask the user before acting.",
     "- When news is a duplicate or needs no change, say so in a line and move on.",
     "- Never skip, disable or loosen a test to get checks green. Never rewrite the branch's history.",
-    reply
-      ? "- You may answer the review threads you handled with gh, as the user. End each reply with a line that reads: via Pipoca"
-      : "- Never comment, review or reply on GitHub as the user. Report in this chat instead.",
+    replyRule(reply, proposes),
   ].join("\n");
+}
+
+function replyRule(reply: boolean, proposes: boolean): string {
+  if (proposes) {
+    return "- To answer a review thread, propose a comment with the propose tool when the routine allows one.";
+  }
+
+  return reply
+    ? "- You may answer the review threads you handled with gh, as the user. End each reply with a line that reads: via Pipoca"
+    : "- Never comment, review or reply on GitHub as the user. Report in this chat instead.";
 }
 
 export function viewOf(
