@@ -98,8 +98,10 @@ function groupSummary(group: GroupView): string {
 // going into the Profile picked here.
 export function ImportGroup({
   scope,
+  title = "Import a group",
 }: {
   readonly scope: Scope;
+  readonly title?: string;
 }): ReactElement {
   const api = useApi(routines);
   const [profile, setProfile] = useState("");
@@ -130,7 +132,7 @@ export function ImportGroup({
   };
 
   return (
-    <Section title="Import a group">
+    <Section title={title}>
       <div className="flex flex-wrap items-center gap-2">
         <Select
           aria-label="Profile for its agents"
