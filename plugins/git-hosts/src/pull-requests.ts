@@ -118,6 +118,7 @@ export function pullRequests(
     name: "git_hosts_watch",
     description:
       "Watch a pull request: Pipoca tells this Session when its checks fail, someone reviews it, it conflicts, or it merges. Pull requests opened with /pr are watched already.",
+    annotations: { destructive: false },
     params: urlParams,
     when: { owner: "any" },
     exposure: "direct",
@@ -133,6 +134,7 @@ export function pullRequests(
   tools.define({
     name: "git_hosts_unwatch",
     description: "Stop watching a pull request in this Session.",
+    annotations: { destructive: false },
     params: urlParams,
     when: { owner: "any" },
     exposure: "direct",

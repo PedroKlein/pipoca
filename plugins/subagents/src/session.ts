@@ -425,6 +425,7 @@ function extension(s: SessionContext, pi: ExtensionAPI): void {
     description,
     parameters,
     prepareArguments: withoutEmptyFields,
+    annotations: { destructiveHint: false },
     execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
       if (readOnly()) {
         throw new Error(

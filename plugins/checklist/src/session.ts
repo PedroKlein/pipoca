@@ -22,6 +22,7 @@ export const session = defineSession(checklist, (s) => {
     description:
       "Keep a checklist of your steps, which the user sees above the composer. Use it for work with three or more steps, not for a quick ask. Send the whole list each time. Mark one item in_progress before you start it, and completed as soon as it is done, never before.",
     params,
+    annotations: { readOnly: true },
     replaceable: true,
     run: ({ items }) => {
       const done = items.filter(({ status }) => status === "completed").length;
