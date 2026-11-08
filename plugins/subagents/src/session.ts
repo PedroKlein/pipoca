@@ -194,6 +194,8 @@ function extension(s: SessionContext, pi: ExtensionAPI): void {
     startChild: async (agent, continueFrom) =>
       s.startChild({
         tools: agent.tools,
+        ...(agent.mcp !== undefined && { mcp: agent.mcp }),
+        ...(agent.skills !== undefined && { skills: agent.skills }),
         ...(agent.model !== undefined && { model: agent.model }),
         ...(agent.thinking !== undefined && { thinking: agent.thinking }),
         ...(agent.prompt !== "" && { systemPrompt: agent.prompt }),
@@ -482,8 +484,8 @@ function extension(s: SessionContext, pi: ExtensionAPI): void {
 
       return [
         ...(await agents()).map(
-          ({ name, description: about, tools }) =>
-            `- ${name}: ${about} (tools: ${tools.join(", ")})`,
+          ({ name, description: about, tools, mcp = [], skills = [] }) =>
+            `- ${name}: ${about} (tools: ${[...tools, ...mcp.map((server) => `mcp ${server}`), ...skills.map((skill) => `skill ${skill}`)].join(", ")})`,
         ),
         ...(saved.length === 0 ? [] : [`Saved workflows: ${saved.join(", ")}`]),
       ].join("\n");

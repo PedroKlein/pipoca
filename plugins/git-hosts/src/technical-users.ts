@@ -15,6 +15,12 @@ export function isApp(user: TechnicalUser): user is AppUser {
   return user.app !== undefined;
 }
 
+// The host sends an App's events only to an address it can reach, which a
+// server on a laptop's http doesn't have.
+export function hearsWebhooks(urls: Urls): boolean {
+  return new URL(urls.public("")).protocol === "https:";
+}
+
 // Who its commits and comments show as.
 export function botLogin(user: TechnicalUser): string {
   return user.app === undefined ? (user.login ?? "") : `${user.app.slug}[bot]`;
@@ -48,12 +54,16 @@ export function appManifest(
       },
       default_events: [
         "check_run",
+        "create",
+        "delete",
+        "deployment",
         "issue_comment",
         "issues",
         "pull_request",
         "pull_request_review",
         "pull_request_review_comment",
         "push",
+        "release",
       ],
     }),
   };

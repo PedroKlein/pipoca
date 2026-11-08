@@ -12,6 +12,7 @@ import {
 import type { GitLogin, RepositoryChoice } from "@pipoca/protocol";
 import { gitHosts } from "../plugin";
 import { acting } from "./acting";
+import { appEvents } from "./app-events";
 import { commitAsBody, commitAsStore } from "./commit-as";
 import {
   authorizationUrl,
@@ -40,8 +41,8 @@ import { backTo, page, redirect, then } from "./pages";
 import { pullRequests } from "./pull-requests";
 import { setupRoutes } from "./setup";
 import { technicalUserRoutes } from "./technical-user-routes";
+import { isApp } from "./technical-users";
 import { type HostSearch, repositoriesTool } from "./tool";
-import { eventOf } from "./webhooks";
 
 // GitHub sends at most 25 MB, but the events taken from a webhook are small.
 const maxHookBytes = 5 * 1024 * 1024;
@@ -67,13 +68,14 @@ const callbackQuery = Type.Object({
 });
 
 export const server = defineServer(gitHosts, (context) => {
-  const { routes, config, events, urls, clock, log } = context;
+  const { routes, config, urls, clock, log } = context;
   const hosts = hostList(config.collection("hosts"));
   const bots = config.collection("technicalUsers");
   const connections = connectionStore(context.store, context.secrets, clock);
   const commitAs = commitAsStore(context.store);
   const pending = new Map<string, Pending>();
   const actingAs = acting(context, hosts, bots);
+  const heard = appEvents(context, hosts, bots, actingAs.installations);
   const callback = (): string => urls.public("callback");
 
   // The person's connections on the hosts still listed.
@@ -485,7 +487,7 @@ export const server = defineServer(gitHosts, (context) => {
     async ({ params, raw }) => {
       const app = appOf(params.hook);
 
-      if (app === undefined) {
+      if (app === undefined || !isApp(app)) {
         throw new NotFound(`no App sends ${params.hook}`);
       }
 
@@ -497,16 +499,7 @@ export const server = defineServer(gitHosts, (context) => {
         throw new BadRequest("the body isn't JSON");
       }
 
-      const event = eventOf(
-        app.host,
-        app.name,
-        raw.headers.get("x-github-event") ?? "",
-        payload,
-      );
-
-      if (event !== undefined) {
-        events.emit(event.name, event.fields, { to: app.users });
-      }
+      heard(app, raw.headers.get("x-github-event") ?? "", payload);
 
       return { ok: true };
     },

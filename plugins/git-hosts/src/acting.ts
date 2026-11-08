@@ -57,6 +57,8 @@ export interface Acting {
   readonly teamReach: () => readonly TeamReach[];
   // Who the Session's commits are by.
   readonly identity: (name: string) => Promise<Identity | undefined>;
+  // A live token for each of the App's installations.
+  readonly installations: (name: string) => readonly string[];
   // Fetches the installation tokens that are missing or about to expire.
   readonly refresh: () => void;
 }
@@ -156,9 +158,9 @@ export function acting(
   const teamUsers = (): readonly TechnicalUser[] =>
     users.list().filter((user) => user.users.includes("team"));
 
-  const installed = (user: TechnicalUser): readonly Cached[] =>
+  const installed = (name: string): readonly Cached[] =>
     [...tokens].flatMap(([key, cached]) =>
-      key.startsWith(`${user.name} `) && live(cached) ? [cached] : [],
+      key.startsWith(`${name} `) && live(cached) ? [cached] : [],
     );
 
   // A package can live outside the workspace's accounts, so an App falls
@@ -167,10 +169,11 @@ export function acting(
     user: TechnicalUser,
     workspace: Session["workspace"],
   ): string | undefined =>
-    tokenOf(user, workspace) ?? installed(user).at(0)?.token;
+    tokenOf(user, workspace) ?? installed(user.name).at(0)?.token;
 
   return {
     refresh,
+    installations: (name) => installed(name).map(({ token }) => token),
     logins: (owner, { actsAs, workspace }, own) => {
       const user = actsAs === null ? undefined : users.get(actsAs.name);
 
@@ -228,7 +231,7 @@ export function acting(
     teamReach: () =>
       teamUsers().flatMap((user): readonly TeamReach[] => {
         if (isApp(user)) {
-          return installed(user).map(({ token }) => ({
+          return installed(user.name).map(({ token }) => ({
             host: user.host,
             kind: "app",
             token,
