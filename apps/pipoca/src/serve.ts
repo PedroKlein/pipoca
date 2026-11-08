@@ -651,8 +651,9 @@ export function serve(options: ServeOptions): {
 
       const reply = await own(request, bunServer);
 
-      reply?.headers.set("content-security-policy", "frame-ancestors 'none'");
-      reply?.headers.set("x-frame-options", "DENY");
+      if (reply !== undefined) {
+        framedOnlyHere(reply.headers);
+      }
 
       return reply;
     },
@@ -885,4 +886,21 @@ function thisMachineEnvironment(
   store.environments.updateEnvironment({ ...created, name: "This machine" });
 
   return { environmentId: created.id, folders };
+}
+
+// Other sites never frame Pipoca. A document that runs in a sandbox, on an
+// opaque origin, may be framed by Pipoca's own pages, such as an artifact
+// (ADR 0078).
+function framedOnlyHere(headers: Headers): void {
+  const policy = headers.get("content-security-policy");
+
+  if (policy !== null && /(^|;)\s*sandbox\b/.test(policy)) {
+    headers.set("content-security-policy", `${policy}; frame-ancestors 'self'`);
+    headers.set("x-frame-options", "SAMEORIGIN");
+
+    return;
+  }
+
+  headers.set("content-security-policy", "frame-ancestors 'none'");
+  headers.set("x-frame-options", "DENY");
 }
