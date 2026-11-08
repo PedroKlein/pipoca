@@ -17,6 +17,8 @@ import projectLight from "../../../../docs/images/project-light.png";
 import projectDark from "../../../../docs/images/project-dark.png";
 import profilesLight from "../../../../docs/images/profiles-light.png";
 import profilesDark from "../../../../docs/images/profiles-dark.png";
+import howLight from "../../../../docs/images/how-it-works-light.png";
+import howDark from "../../../../docs/images/how-it-works-dark.png";
 
 const base = import.meta.env.BASE_URL;
 const docs = (path: string) => `${base}docs/${path}`;
@@ -564,7 +566,22 @@ const steps = ["Hand off", "Pi works", "Review", "Ship"];
           </div>
         </section>
 
-        <section class="plain">
+        <section id="how" class="plain">
+          <div class="wrap stack center">
+            <div class="stack-sm center">
+              <span class="eyebrow">How it works</span>
+              <h2 class="serif big">One server, runners wherever you like</h2>
+              <p class="dim lede-sm">People and tools reach the server. Runners connect out to it, so a laptop needs no open port, and run each Session as its own Pi process.</p>
+            </div>
+            <div class="diagram">
+              <Image class="light-only" src={howLight} alt="People and tools reach the pipoca server over HTTPS. The server is a small kernel with plugins, SQLite, pipoca.json and sealed logins. Runners on a laptop, a VM or Kubernetes pods connect out to it and run each Session as its own Pi process." widths={[960, 1920]} sizes="(min-width: 1240px) 1160px, 100vw" />
+              <Image class="dark-only" src={howDark} alt="" widths={[960, 1920]} sizes="(min-width: 1240px) 1160px, 100vw" />
+            </div>
+            <a class="link" href={docs("architecture/")}>Read the architecture</a>
+          </div>
+        </section>
+
+        <section class="band">
           <div class="wrap stack">
             <h2 class="serif big center">Start in a minute</h2>
             <div class="grid-3">

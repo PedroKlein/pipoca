@@ -1320,3 +1320,17 @@ html[data-theme="dark"] .dark-only {
     padding: 72px 0;
   }
 }
+
+.diagram {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+}
+
+.diagram img {
+  display: block;
+  width: 100%;
+  min-width: 720px;
+  height: auto;
+}
