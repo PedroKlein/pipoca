@@ -16,6 +16,13 @@ export const projects = definePlugin({
       default: 209_715_200,
       min: 1,
     }),
+    perProjectBytes: Config.number({
+      title: "Project folder size, in bytes",
+      description:
+        "Past this, the Project's people are warned. Nothing is deleted or refused.",
+      default: 5_368_709_120,
+      min: 1,
+    }),
     folderHistoryDays: Config.number({
       title: "Days earlier versions are kept",
       description:

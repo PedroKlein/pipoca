@@ -79,6 +79,7 @@ import {
 const watched = { topics: ["sessions"], changes: ["projects"] };
 
 export const web = defineWeb(projects, {
+  settings: { group: "server", form: "auto" },
   pages: [
     // A plugin has one sidebar entry, so the Assistant is it and the
     // Project list sits under it (ADR 0052).
