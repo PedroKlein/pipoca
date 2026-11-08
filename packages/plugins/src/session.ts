@@ -48,7 +48,13 @@ export interface Checkout {
 }
 
 export interface ChildOptions {
+  // Names or patterns of tools the Session's Profile gives: Pi's own, an
+  // extension's, or an MCP server's, such as "mcp__jira__*".
   readonly tools: readonly string[];
+  // The Profile's MCP servers whose tools the child gets, by name.
+  readonly mcp?: readonly string[];
+  // The Profile's skills the child sees, by name. None when left out.
+  readonly skills?: readonly string[];
   // As Pi's --model takes it, such as "anthropic/claude-sonnet-4-5". The
   // Session's current model when left out.
   readonly model?: string;

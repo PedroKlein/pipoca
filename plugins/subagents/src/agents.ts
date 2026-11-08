@@ -6,13 +6,16 @@ import type { ThinkingLevel } from "@pipoca/protocol";
 export interface Agent {
   readonly name: string;
   readonly description: string;
+  // Any tool the Profile gives, by name or pattern (ADR 0075).
   readonly tools: readonly string[];
+  readonly mcp?: readonly string[];
+  readonly skills?: readonly string[];
   readonly model?: string;
   readonly thinking?: ThinkingLevel;
   readonly prompt: string;
 }
 
-// Pi's own tools. A child gets no others: no extensions, and no `subagent`.
+// Pi's own tools, which an agent gets when it names none.
 const piTools = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 const readOnly = ["read", "grep", "find", "ls", "bash"];
 
@@ -89,11 +92,15 @@ function parseAgent(text: string, fallbackName: string): Agent {
       : undefined;
   };
 
-  const tools = string("tools")
-    ?.split(",")
-    .map((tool) => tool.trim())
-    .filter((tool) => piTools.includes(tool));
+  const list = (key: string): string[] | undefined =>
+    string(key)
+      ?.split(",")
+      .map((item) => item.trim())
+      .filter((item) => item !== "");
 
+  const tools = list("tools");
+  const mcp = list("mcp");
+  const skills = list("skills");
   const thinking = thinkingLevel(string("thinking"));
   const model = string("model");
 
@@ -101,6 +108,8 @@ function parseAgent(text: string, fallbackName: string): Agent {
     name: string("name") ?? fallbackName,
     description: string("description") ?? "",
     tools: tools ?? piTools,
+    ...(mcp !== undefined && { mcp }),
+    ...(skills !== undefined && { skills }),
     ...(model !== undefined && { model }),
     ...(thinking !== undefined && { thinking }),
     prompt: body.trim(),

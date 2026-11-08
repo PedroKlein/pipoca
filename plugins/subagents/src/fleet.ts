@@ -187,6 +187,13 @@ export function fleet({
         }
       } finally {
         unsubscribe();
+
+        // Extensions a child loaded close what they opened, such as an MCP
+        // server's process.
+        await session.extensionRunner
+          .emit({ type: "session_shutdown", reason: "quit" })
+          .catch(() => undefined);
+
         session.dispose();
       }
 
