@@ -198,6 +198,21 @@ create table git_hosts_polled (
   primary key (technical_user, repository)
 ) strict, without rowid;
 `,
+    // 4: questions posted as comments on the issue or pull request their
+    // work came from (ADR 0076), with the comment and the people they are
+    // for, by id.
+    `
+create table git_hosts_questions (
+  question_id text primary key,
+  host text not null,
+  repository text not null,
+  number integer not null,
+  comment_url text not null,
+  people text not null check (json_valid(people)),
+  posted_at integer not null
+) strict;
+create index git_hosts_questions_thread on git_hosts_questions (host, repository, number);
+`,
   ],
   events: {
     issue: event({

@@ -63,6 +63,17 @@ export {
   type Urls,
   type When,
 } from "./server";
+export type {
+  OpenQuestion,
+  Origin,
+  PostedQuestion,
+  QuestionDesk,
+  QuestionKeeper,
+  Questions,
+  Reply,
+  ReplyPlace,
+  Waiting,
+} from "./questions";
 export type { Schedule, Scheduled } from "./schedule";
 export {
   type AgentOptions,

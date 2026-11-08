@@ -7,6 +7,8 @@ import type {
   PluginDefinition,
   RouteToolSpec,
   ProfileMcpServer,
+  QuestionKeeper,
+  ReplyPlace,
   RunnerSource,
   SignInApi,
   SignInProvider,
@@ -52,6 +54,7 @@ import { switchingWith } from "@pipoca/protocol";
 import type { PluginProfile, SessionPlugins, Sessions } from "@pipoca/sessions";
 import { pluginBlobs } from "./blobs";
 import { type PluginDb, secretsOf, sessionsFor, storeOf } from "./context";
+import { questionBroker } from "./questions";
 import {
   definedTool,
   kernelRouteTools,
@@ -276,6 +279,7 @@ export function startPlugins(
   const { users: _users, ...signInApi } = deps.auth;
   const offers: { plugin: string; offer: ModelOffer }[] = [];
   const gitLogins: { plugin: string; of: GitLoginsOf }[] = [];
+  const asked = questionBroker(deps.log);
   const fromEnv = envSecrets(process.env);
   const settled = new Set<string>();
 
@@ -685,6 +689,8 @@ export function startPlugins(
       gitCredentials: [] as GitLoginsOf[],
       runners: [] as RunnerProvider[],
       signIn: undefined as SignInProvider | undefined,
+      keeper: undefined as QuestionKeeper | undefined,
+      replies: undefined as ReplyPlace | undefined,
     };
 
     try {
@@ -800,6 +806,7 @@ export function startPlugins(
             ),
             declared: declaredEvents,
           },
+          questions: asked.questions,
           config: pluginConfig(
             definition.config ?? Type.Object({}),
             deps.config(id),
@@ -849,6 +856,22 @@ export function startPlugins(
               staged.signIn = provider;
 
               return signInApi;
+            },
+            questions: (keeper) => {
+              const taker = asked.keeper() ?? (staged.keeper && id);
+
+              if (taker !== undefined) {
+                throw new Error(`${taker} already keeps questions`);
+              }
+
+              provided.add("questions");
+              staged.keeper = keeper;
+
+              return asked.desk;
+            },
+            replies: (place) => {
+              provided.add("replies");
+              staged.replies = place;
             },
             profile: (key, { name: _name, ...content }, o) => {
               provided.add("profiles");
@@ -967,6 +990,14 @@ export function startPlugins(
 
     if (staged.signIn !== undefined) {
       signIn = { plugin: id, provider: staged.signIn };
+    }
+
+    if (staged.keeper !== undefined) {
+      asked.keep(id, staged.keeper);
+    }
+
+    if (staged.replies !== undefined) {
+      asked.place(id, staged.replies);
     }
 
     scheduled.commit();

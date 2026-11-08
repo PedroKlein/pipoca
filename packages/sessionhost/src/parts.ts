@@ -193,6 +193,7 @@ function piTool(
       return {
         content: [{ type: "text", text: result.text }],
         details: result.details ?? {},
+        ...(result.endsTurn === true && { terminate: true }),
       };
     },
   });

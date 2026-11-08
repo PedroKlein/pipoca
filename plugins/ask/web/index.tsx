@@ -19,17 +19,153 @@ import {
 import { type ReactElement, useState } from "react";
 import { ask } from "../plugin";
 import type { Vote, Votes } from "../src/votes";
+import type { WaitingQuestion, WaitingQuestions } from "../src/waiting";
 
 interface Props {
   readonly session: MountedSession;
 }
 
-// Open votes sit above the composer of team work, and anyone following it
-// opens one from the header (ADR 0065).
+// Questions that wait past their turn and open votes sit above the
+// composer, and anyone following team work opens a vote from the header
+// (ADR 0065, ADR 0076).
 export const web = defineWeb(ask, {
   settings: { group: "server", form: "auto" },
-  slots: { "session.composer": OpenVotes, "session.header": VoteButton },
+  slots: { "session.composer": AboveComposer, "session.header": VoteButton },
 });
+
+function AboveComposer(props: Props): ReactElement {
+  return (
+    <>
+      <OpenQuestions {...props} />
+      <OpenVotes {...props} />
+    </>
+  );
+}
+
+function OpenQuestions({ session }: Props): ReactElement | null {
+  const api = useApi(ask);
+
+  const waiting = useLoaded(
+    async () =>
+      api.get<WaitingQuestions>(
+        `sessions/${encodeURIComponent(session.id)}/questions`,
+      ),
+    session.id,
+    { changes: ["questions"] },
+  ).value;
+
+  if (waiting === undefined || waiting.questions.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {waiting.questions.map((each) => (
+        <QuestionCard key={each.id} asked={each} />
+      ))}
+    </div>
+  );
+}
+
+function QuestionCard({
+  asked,
+}: {
+  readonly asked: WaitingQuestion;
+}): ReactElement {
+  const api = useApi(ask);
+  const [text, setText] = useState("");
+  const [error, setError] = useState<string>();
+
+  const send = (answer: string): void => {
+    setError(undefined);
+
+    api
+      .post(`questions/${asked.id}/answer`, { text: answer })
+      .catch((failure: unknown) => {
+        setError(failure instanceof Error ? failure.message : String(failure));
+      });
+  };
+
+  const [only] = asked.questions;
+
+  const choices =
+    asked.questions.length === 1 && only?.type === "single" ? only.options : [];
+
+  const closes = new Date(asked.closesAt).toLocaleString([], {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+
+  return (
+    <section
+      aria-label="Pi is waiting for an answer"
+      className="flex flex-col gap-2 rounded-lg border border-line border-t-3 border-t-waiting bg-panel px-3 py-2"
+    >
+      <header className="flex min-w-0 items-center gap-2 text-label">
+        <span className="min-w-0 flex-1 font-medium text-waiting">
+          Pi is waiting for an answer
+        </span>
+        <span className="shrink-0 text-fg-dim">until {closes}</span>
+      </header>
+      {asked.questions.map((question) => (
+        <div key={question.id} className="flex flex-col gap-0.5 text-label">
+          <span className="break-words text-fg">{question.prompt}</span>
+          {question.context !== null && (
+            <span className="break-words text-fg-dim">{question.context}</span>
+          )}
+          {"options" in question && question.type !== "single" && (
+            <span className="break-words text-fg-dim">
+              {question.options.map(({ label }) => label).join(", ")}
+            </span>
+          )}
+        </div>
+      ))}
+      {asked.mayAnswer && (
+        <>
+          {choices.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {choices.map((option) => (
+                <Button
+                  key={option.value}
+                  onClick={() => {
+                    send(option.label);
+                  }}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+          )}
+          <form
+            className="flex min-w-0 gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              send(text);
+            }}
+          >
+            <TextInput
+              className="min-w-0 flex-1"
+              aria-label="Your answer"
+              placeholder="Answer in your own words"
+              value={text}
+              onChange={(event) => {
+                setText(event.target.value);
+              }}
+            />
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={text.trim() === ""}
+            >
+              Answer
+            </Button>
+          </form>
+        </>
+      )}
+      <ErrorText>{error}</ErrorText>
+    </section>
+  );
+}
 
 function useVotes({ session }: Props): Votes | undefined {
   const api = useApi(ask);

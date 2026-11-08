@@ -63,6 +63,11 @@ export function appEvents(
   hosts: Hosts,
   users: Collection<TechnicalUserItem>,
   installations: (name: string) => readonly string[],
+  // Whether the event answered a question, and so isn't one.
+  answered: (event: {
+    readonly name: string;
+    readonly fields: Fields;
+  }) => boolean,
 ): Heard {
   const heard: Heard = (app, kind, payload) => {
     const event = eventOf(app.host, app.name, kind, payload);
@@ -78,7 +83,7 @@ export function appEvents(
         clock.now(),
       ).changes === 1;
 
-    if (fresh) {
+    if (fresh && !answered(event)) {
       events.emit(event.name, event.fields, { to: app.users });
     }
 

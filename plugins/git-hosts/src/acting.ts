@@ -55,6 +55,14 @@ export interface Acting {
   // What team work can reach on each host: a machine user's token, or a
   // token for each of the App's installations.
   readonly teamReach: () => readonly TeamReach[];
+  // The technical user a Session's work posts to the host as, such as a
+  // question on an issue in the account's repository: the one it acts as,
+  // or for team work the team's.
+  readonly postsAs: (
+    session: Pick<Session, "actsAs" | "ownedBy">,
+    host: string,
+    account: string,
+  ) => { readonly login: string; readonly token: string } | undefined;
   // Who the Session's commits are by.
   readonly identity: (name: string) => Promise<Identity | undefined>;
   // A live token for each of the App's installations.
@@ -174,6 +182,33 @@ export function acting(
   return {
     refresh,
     installations: (name) => installed(name).map(({ token }) => token),
+    postsAs: ({ actsAs, ownedBy }, host, account) => {
+      const named = actsAs === null ? undefined : users.get(actsAs.name);
+
+      const candidates =
+        actsAs === null && ownedBy === "team" ? teamUsers() : [];
+
+      const user = [
+        ...candidates,
+        ...(named === undefined ? [] : [named]),
+      ].find((each) => each.host === host && each.users.includes(ownedBy));
+
+      if (user === undefined) {
+        return undefined;
+      }
+
+      if (!isApp(user)) {
+        return user.token === undefined
+          ? undefined
+          : { login: botLogin(user), token: user.token };
+      }
+
+      const cached = tokens.get(keyOf(user.name, account));
+
+      return live(cached)
+        ? { login: botLogin(user), token: cached.token }
+        : undefined;
+    },
     logins: (owner, { actsAs, workspace }, own) => {
       const user = actsAs === null ? undefined : users.get(actsAs.name);
 

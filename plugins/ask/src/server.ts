@@ -9,6 +9,7 @@ import {
   Type,
 } from "@pipoca/plugins";
 import { ask } from "../plugin";
+import { waitingQuestions } from "./questions";
 import type { Votes } from "./votes";
 
 const opening = Type.Object({
@@ -49,6 +50,7 @@ interface StoredVote {
 export const server = defineServer(ask, (context) => {
   const { routes, schedule, tools } = context;
   const votes = ballots(context);
+  waitingQuestions(context);
 
   schedule.on("close:", (id) => {
     votes.closeOnTime(String(id));

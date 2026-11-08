@@ -293,6 +293,9 @@ export class Sessions {
     { readonly generation: number; readonly events: Map<string, LiveEvent> }
   >();
 
+  // What plugins hold open for a person on the server, by Session and key.
+  readonly #needs = new Map<string, Map<string, { readonly for?: string }>>();
+
   constructor(
     store: SessionStore,
     environments: SessionEnvironments,
@@ -1438,6 +1441,51 @@ export class Sessions {
     return this.#store.bindings.boundTo(plugin, key);
   }
 
+  // Something a plugin keeps on the server that a person must answer, such
+  // as a question that waits past its turn (ADR 0076), makes the Session
+  // wait as a prompt does, whatever its runner does. null clears it.
+  need(
+    plugin: string,
+    id: string,
+    key: string,
+    need: { readonly for?: string } | null,
+  ): Result<undefined> {
+    const session = this.#store.get(id);
+    if (!session) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    const waiting = this.#waiting(session);
+    const needs = this.#needs.get(id) ?? new Map<string, { for?: string }>();
+
+    if (need === null) {
+      needs.delete(`${plugin}:${key}`);
+    } else {
+      needs.set(`${plugin}:${key}`, need);
+    }
+
+    if (needs.size === 0) {
+      this.#needs.delete(id);
+    } else {
+      this.#needs.set(id, needs);
+    }
+
+    if (this.#waiting(session) !== waiting) {
+      const view = this.#view(session);
+      this.#emit(id, { type: "session", session: view });
+
+      if (view.waiting) {
+        this.#events({
+          type: "SessionWaiting",
+          session: view,
+          ...(need?.for !== undefined && { for: need.for }),
+        });
+      }
+    }
+
+    return { ok: true, value: undefined };
+  }
+
   #rememberRequest(id: string, requestId: string): boolean {
     const seen = this.#requestIds.get(id) ?? new Set<string>();
     this.#requestIds.set(id, seen);
@@ -1881,11 +1929,14 @@ export class Sessions {
   }
 
   #waiting(session: StoredSession): boolean {
-    return this.#openSurfaces(session).some(
-      (event) =>
-        event.type === "prompt" ||
-        (event.type === "plugin" && event.waiting === true) ||
-        (event.type === "pi_view" && event.dialog !== null),
+    return (
+      this.#needs.has(session.id) ||
+      this.#openSurfaces(session).some(
+        (event) =>
+          event.type === "prompt" ||
+          (event.type === "plugin" && event.waiting === true) ||
+          (event.type === "pi_view" && event.dialog !== null),
+      )
     );
   }
 

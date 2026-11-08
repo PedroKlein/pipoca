@@ -60,6 +60,7 @@ export async function toolAnswer(
           text: output.text,
           isError: false,
           ...(output.details !== undefined && { details: output.details }),
+          ...(output.endsTurn === true && { endsTurn: true }),
         };
   } catch (error) {
     if (isToolError(error) || isHttpError(error)) {

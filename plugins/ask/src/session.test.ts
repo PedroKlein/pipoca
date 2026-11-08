@@ -3,12 +3,17 @@ import type { AskQuestions } from "@pipoca/plugins";
 import { testSession } from "@pipoca/testing";
 import { session as part } from "./session";
 
+// The server's answer in a Session no other plugin said waits.
+const asksHere = async (): Promise<Response> =>
+  Promise.resolve(Response.json({ wait: "here" }));
+
 async function askedDisk(
   number: Record<string, number>,
 ): Promise<{ asked: boolean; text: string; isError: boolean }> {
   let asked = false;
 
   const session = await testSession(part, {
+    request: asksHere,
     askQuestions: async () => {
       asked = true;
 
@@ -68,7 +73,10 @@ test("asks the named person in team work and tells Pi who answered for them", as
     });
   };
 
-  const session = await testSession(part, { askQuestions });
+  const session = await testSession(part, {
+    request: asksHere,
+    askQuestions,
+  });
 
   const answer = await session.tool("ask_user", {
     for: "Ana",

@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import { createHmac, createVerify, generateKeyPairSync } from "node:crypto";
+import { server as askServer } from "@pipoca/ask/server";
+import { definePlugin, defineServer, type Questions } from "@pipoca/plugins";
 import {
   person,
   type PluginTest,
@@ -173,6 +175,9 @@ function fakeHost(now: () => number) {
 
   const polled = polledRepository();
   const asked: string[] = [];
+  // Comments posted on issues and pull requests, with the token each came
+  // with.
+  const commented: { path: string; token: string; body: string }[] = [];
   // The token each read of the pull request came with.
   const readWith: string[] = [];
 
@@ -240,6 +245,29 @@ function fakeHost(now: () => number) {
               ],
             })
           : Response.json({ message: "Bad credentials" }, { status: 401 });
+    }
+
+    if (
+      request.method === "POST" &&
+      /^\/api\/v3\/repos\/[^/]+\/[^/]+\/issues\/\d+\/comments$/.test(
+        url.pathname,
+      )
+    ) {
+      const { body } = (await request.json()) as { body: string };
+
+      commented.push({
+        path: url.pathname,
+        token: (authorization ?? "").replace("Bearer ", ""),
+        body,
+      });
+
+      return Response.json(
+        {
+          id: commented.length,
+          html_url: `https://${host}/acme/dotfiles/issues/7#issuecomment-${String(commented.length)}`,
+        },
+        { status: 201 },
+      );
     }
 
     if (
@@ -350,7 +378,7 @@ function fakeHost(now: () => number) {
     }
   };
 
-  return { pull, asked, readWith, answer, repo: polled.repo };
+  return { pull, asked, readWith, commented, answer, repo: polled.repo };
 }
 
 type Config = NonNullable<TestPluginOptions<typeof gitHosts>["config"]>;
@@ -359,7 +387,10 @@ const listed: Config = {
   hosts: [{ host, label: "Example Git", api }],
 };
 
-async function start(config: Config | null = listed) {
+async function start(
+  config: Config | null = listed,
+  plugins: TestPluginOptions["plugins"] = [],
+) {
   let clock = (): number => 0;
   const fake = fakeHost(() => clock());
 
@@ -367,6 +398,7 @@ async function start(config: Config | null = listed) {
     people,
     ...(config !== null && { config }),
     fetch: fake.answer,
+    plugins,
   });
 
   clock = t.clock.now;
@@ -2178,4 +2210,205 @@ test("publishes an event an App's webhook and its poll both tell only once", asy
 
   expect(fieldsOf(t, "issue")).toMatchObject([{ action: "opened", number: 3 }]);
   expect(fieldsOf(t, "push")).toMatchObject([{ branch: "main", sha: "bbb" }]);
+});
+
+// A plugin that starts work from git-hosts' events, as routines do, so its
+// Sessions' questions wait past the turn.
+const starter = definePlugin({
+  id: "starter",
+  title: "Starter",
+  description: "Starts work whose questions wait.",
+});
+
+let waits: Questions | undefined;
+
+const starterServer = defineServer(starter, ({ questions }) => {
+  waits = questions;
+});
+
+// The Session asks, as the Ask plugin's Session part does for ask_user.
+async function asks(
+  session: TestSession,
+  question: Readonly<Record<string, unknown>>,
+): Promise<unknown> {
+  const asked = await session.api.raw(
+    `/runner/sessions/${session.id}/ext/ask/questions`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        questions: [{ label: "Q1", context: null, ...question }],
+        defaults: {},
+      }),
+    },
+  );
+
+  return asked.json();
+}
+
+// The Session asks Pedro's question about issue 7 of acme/dotfiles.
+async function askOnIssue(session: TestSession): Promise<void> {
+  waits?.wait(session.id, {
+    origin: {
+      event: "git-hosts.issue",
+      fields: { host, repository: "acme/dotfiles", number: 7 },
+    },
+    owner: "pedro",
+  });
+
+  expect(
+    await asks(session, {
+      id: "ship",
+      prompt: "Ship it?",
+      type: "single",
+      options: [
+        {
+          value: "approve",
+          label: "Approve",
+          description: null,
+          recommended: false,
+        },
+        {
+          value: "reject",
+          label: "Reject",
+          description: null,
+          recommended: false,
+        },
+      ],
+    }),
+  ).toMatchObject({ wait: "message" });
+}
+
+// A comment on issue 7 of acme/dotfiles, as the App's webhook tells it.
+async function commentOnIssue(
+  t: PluginTest,
+  login: string,
+  association: string,
+  body: string,
+  url = `https://${host}/acme/dotfiles/issues/7#issuecomment-${String(Math.random())}`,
+): Promise<void> {
+  const { technicalUsers } = (await t.config()) as {
+    technicalUsers: { app: { hook: string } }[];
+  };
+
+  const payload = JSON.stringify({
+    action: "created",
+    repository: { full_name: "acme/dotfiles" },
+    sender: { login },
+    issue: { number: 7 },
+    comment: {
+      id: Math.floor(Math.random() * 1e9),
+      body,
+      user: { login },
+      author_association: association,
+      html_url: url,
+    },
+  });
+
+  const answered = await t
+    .public()
+    .raw(`hooks/${technicalUsers[0]?.app.hook ?? ""}`, {
+      method: "POST",
+      headers: {
+        "x-github-event": "issue_comment",
+        "x-github-delivery": crypto.randomUUID(),
+        "x-hub-signature-256": `sha256=${createHmac("sha256", "hook-secret").update(payload).digest("hex")}`,
+      },
+      body: payload,
+    });
+
+  expect(answered.status).toBe(202);
+}
+
+const authors = (t: PluginTest): readonly unknown[] =>
+  t
+    .emitted("git-hosts.comment")
+    .map(({ fields }) => (fields as { author: string }).author);
+
+test("posts a run's question on the issue its work came from as the App it acts as, and a member's comment there answers it", async () => {
+  await using run = await start(listed, [askServer, starterServer]);
+  const { t, fake } = run;
+
+  await createApp(t);
+
+  const session = await t.session({
+    owner: person("pedro"),
+    actsAs: { plugin: "git-hosts", name: "pipoca-bot" },
+  });
+
+  await askOnIssue(session);
+  await until(() => fake.commented.length);
+
+  expect(fake.commented).toMatchObject([
+    {
+      path: "/api/v3/repos/acme/dotfiles/issues/7/comments",
+      token: "ghs_installation",
+      body: expect.stringMatching(
+        /^Pi is waiting for an answer\.\n\n\*\*Ship it\?\*\*\n- Approve\n- Reject\n\nIt waits until .+\n\nReply with a comment here to answer\.$/,
+      ) as unknown,
+    },
+  ]);
+
+  await commentOnIssue(
+    t,
+    "pipoca-bot[bot]",
+    "NONE",
+    fake.commented[0]?.body ?? "",
+    `https://${host}/acme/dotfiles/issues/7#issuecomment-1`,
+  );
+
+  await commentOnIssue(t, "stranger", "NONE", "approve");
+
+  expect(authors(t)).toEqual(["pipoca-bot[bot]", "stranger"]);
+
+  await commentOnIssue(t, "ana-gh", "MEMBER", "reject, not yet");
+
+  expect(authors(t)).toEqual(["pipoca-bot[bot]", "stranger"]);
+
+  const told = await until(
+    () => session.delivered(),
+    (all) => all.length > 0,
+  );
+
+  expect(told.at(-1)?.text).toEndWith("from ana-gh:\n\nreject, not yet");
+});
+
+test("posts the question of a run acting as its person only once they chose to reply as themselves, and they answer it anywhere", async () => {
+  await using run = await start(listed, [askServer, starterServer]);
+  const { t, fake } = run;
+
+  await createApp(t);
+  await connected(t);
+
+  const first = await t.session({ owner: person("pedro") });
+  await askOnIssue(first);
+
+  await until(
+    () => t.log,
+    (log) => log.some(({ message }) => message === "question stays in Pipoca"),
+  );
+
+  expect(fake.commented).toEqual([]);
+
+  await t.as("pedro").post("preferences", { autoFix: true, reply: true });
+
+  const second = await t.session({ owner: person("pedro") });
+  await askOnIssue(second);
+  await until(() => fake.commented.length);
+
+  expect(fake.commented).toMatchObject([
+    {
+      token: goodToken,
+      body: expect.stringMatching(/\n\nvia Pipoca$/) as unknown,
+    },
+  ]);
+
+  await commentOnIssue(t, "pedro-gh", "NONE", "approve");
+
+  const told = await until(
+    () => second.delivered(),
+    (all) => all.length > 0,
+  );
+
+  expect(told.at(-1)?.text).toEndWith("from pedro-gh:\n\napprove");
+  expect(authors(t)).toEqual([]);
 });

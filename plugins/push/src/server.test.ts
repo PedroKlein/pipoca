@@ -1,9 +1,11 @@
 import { expect, test } from "bun:test";
 import { createPublicKey, verify } from "node:crypto";
+import { server as askServer } from "@pipoca/ask/server";
 import { server as logins } from "@pipoca/logins/server";
 import {
   definePlugin,
   defineServer,
+  type Questions,
   type ServerContext,
 } from "@pipoca/plugins";
 import { routines } from "@pipoca/routines/plugin";
@@ -598,3 +600,73 @@ test("tells a routine's person when it paused itself, and every admin for the te
     url: "/",
   });
 });
+
+// A plugin that starts work whose questions wait past the turn, as routines
+// do.
+let waits: Questions | undefined;
+
+const starter = defineServer(
+  definePlugin({
+    id: "starter",
+    title: "Starter",
+    description: "Starts work whose questions wait.",
+  }),
+  ({ questions }) => {
+    waits = questions;
+  },
+);
+
+test("tells the person a question that waits past its turn is for, though the Session's runner is gone", async () => {
+  const { sent, fetch } = services();
+
+  await using t = await testPlugin(server, {
+    people,
+    fetch,
+    plugins: [askServer, starter],
+  });
+
+  const anas = await browser();
+  await subscribe(t, "ana", anas.subscription);
+
+  const session = await t.session({ owner: "team", startedBy: "owner" });
+
+  waits?.wait(session.id, { for: ["ana"] });
+  await session.online(false);
+
+  expect(
+    await asks(session, {
+      id: "why",
+      prompt: "Which region?",
+      type: "text",
+      placeholder: null,
+    }),
+  ).toMatchObject({
+    wait: "message",
+  });
+
+  await delivered(sent, 1);
+
+  expect(await anas.read(sent[0]?.body)).toMatchObject({
+    title: "Pi has a question for you",
+    session: session.id,
+  });
+});
+
+// The Session asks, as the Ask plugin's Session part does for ask_user.
+async function asks(
+  session: TestSession,
+  question: Readonly<Record<string, unknown>>,
+): Promise<unknown> {
+  const asked = await session.api.raw(
+    `/runner/sessions/${session.id}/ext/ask/questions`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        questions: [{ label: "Q1", context: null, ...question }],
+        defaults: {},
+      }),
+    },
+  );
+
+  return asked.json();
+}
