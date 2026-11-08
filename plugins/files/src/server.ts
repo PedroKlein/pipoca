@@ -28,6 +28,12 @@ interface Row {
 
 const columns = "place, path, hash, size, saved_at, added_by";
 
+interface SnapshotRow {
+  readonly checkout: string;
+  readonly hash: string;
+  readonly size: number;
+}
+
 const listed = (row: Row): SessionFile => ({
   place: row.place,
   path: row.path,
@@ -50,6 +56,24 @@ const outputs = Type.Object({
   ),
 });
 
+const snapshot = Type.Object({
+  checkouts: Type.Array(
+    Type.Object({
+      checkout: Type.String({ minLength: 1, maxLength: 1024 }),
+      hash: Type.String({ pattern: blobHash.source }),
+      size: Type.Integer({ minimum: 0 }),
+    }),
+    { maxItems: 100 },
+  ),
+  skipped: Type.Array(
+    Type.Object({
+      checkout: Type.String({ minLength: 1, maxLength: 1024 }),
+      size: Type.Integer({ minimum: 0 }),
+    }),
+    { maxItems: 100 },
+  ),
+});
+
 const shownMatches = 20;
 
 // Session outputs and uploads, their bytes in the plugin's blob store and
@@ -59,7 +83,12 @@ export const server = defineServer(
   ({ blobs, clock, config, routes, sessions, store }) => {
     const maxFileBytes = (): number => config.get().maxFileBytes;
 
-    blobs.acceptUploads({ maxBytes: maxFileBytes });
+    // Snapshots may be larger than any one file, so each route that takes an
+    // upload checks its own limit.
+    blobs.acceptUploads({
+      maxBytes: () =>
+        Math.max(config.get().maxFileBytes, config.get().snapshots.maxBytes),
+    });
 
     const of = (sessionId: string, place?: Place): readonly SessionFile[] =>
       store
@@ -86,7 +115,8 @@ export const server = defineServer(
     const dropUnused = async (hashes: readonly string[]): Promise<void> => {
       for (const hash of new Set(hashes)) {
         const used = store.get<{ one: number }>(
-          "select 1 as one from files_session_files where hash = ? limit 1",
+          `select 1 as one from files_session_files where hash = ?1
+           union all select 1 from files_snapshots where hash = ?1 limit 1`,
           hash,
         );
 
@@ -167,6 +197,14 @@ export const server = defineServer(
 
         if (size === undefined) {
           throw new BadRequest(`no uploaded file ${body.hash}`);
+        }
+
+        if (size > maxFileBytes()) {
+          throw new HttpError(
+            413,
+            `${body.name} is larger than ${bytes(maxFileBytes())}, the largest file this server keeps`,
+            "too_large",
+          );
         }
 
         const path = freeName(
@@ -302,6 +340,108 @@ export const server = defineServer(
         await dropUnused(before.map(({ hash }) => hash));
 
         return { saved: body.files.length };
+      },
+    );
+
+    const snapshotsOf = (sessionId: string): readonly SnapshotRow[] =>
+      store.all<SnapshotRow>(
+        `select checkout, hash, size from files_snapshots
+         where session_id = ? order by checkout`,
+        sessionId,
+      );
+
+    // The latest unfinished work of each of a pod's checkouts (ADR 0078).
+    routes.get("session/snapshot", { auth: "session" }, ({ caller }) => ({
+      checkouts: snapshotsOf(caller.session.id),
+    }));
+
+    routes.get(
+      "session/snapshot/file",
+      {
+        auth: "session",
+        query: Type.Object({ checkout: Type.String({ minLength: 1 }) }),
+      },
+      async ({ caller, query }) => {
+        const row = snapshotsOf(caller.session.id).find(
+          ({ checkout }) => checkout === query.checkout,
+        );
+
+        const stream = row && (await blobs.read(row.hash));
+
+        if (row === undefined || stream === undefined) {
+          throw new NotFound(`no snapshot of ${query.checkout}`);
+        }
+
+        return new Response(stream, {
+          headers: {
+            "content-type": "application/octet-stream",
+            "content-length": String(row.size),
+          },
+        });
+      },
+    );
+
+    // Replaces the Session's snapshots; a checkout with nothing unfinished
+    // has none.
+    routes.put(
+      "session/snapshot",
+      { auth: "session", body: snapshot },
+      async ({ caller, body }) => {
+        const sessionId = caller.session.id;
+        const limit = config.get().snapshots.maxBytes;
+
+        for (const { checkout, hash, size } of body.checkouts) {
+          if (size > limit) {
+            throw new HttpError(
+              413,
+              `the snapshot of ${checkout} is larger than ${bytes(limit)}`,
+              "too_large",
+            );
+          }
+
+          if ((await blobs.size(hash)) === undefined) {
+            throw new HttpError(
+              409,
+              `the snapshot of ${checkout} isn't uploaded yet`,
+              "missing",
+            );
+          }
+        }
+
+        const before = snapshotsOf(sessionId);
+        const now = clock.now();
+
+        store.transaction(() => {
+          store.run(
+            "delete from files_snapshots where session_id = ?",
+            sessionId,
+          );
+
+          for (const { checkout, hash, size } of body.checkouts) {
+            store.run(
+              `insert into files_snapshots
+                 (session_id, checkout, hash, size, saved_at)
+               values (?, ?, ?, ?, ?)`,
+              sessionId,
+              checkout,
+              hash,
+              size,
+              now,
+            );
+          }
+        });
+
+        await dropUnused(before.map(({ hash }) => hash));
+
+        for (const { checkout, size } of body.skipped) {
+          sessions.send(sessionId, {
+            text: `The unfinished work in ${checkout === "." ? "the repository" : checkout} is ${bytes(size)}, more than the ${bytes(limit)} kept when a pod exits. Commit and push it so the next pod has it.`,
+            turn: false,
+            dedupe: `snapshot:${checkout}`,
+          });
+        }
+
+        return { saved: body.checkouts.length };
       },
     );
   },

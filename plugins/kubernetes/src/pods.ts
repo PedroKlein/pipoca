@@ -111,6 +111,11 @@ export function runnerPod(options: PodOptions): object {
               name: "PIPOCA_TOKEN",
               valueFrom: { secretKeyRef: { name, key: "token" } },
             },
+            // Its checkouts go with it, so the Files plugin keeps their
+            // unfinished work on the server (ADR 0078).
+            ...(options.sessionId === undefined
+              ? [{ name: "PIPOCA_WORKSPACE", value: "pod" }]
+              : []),
           ],
           volumeMounts: [
             { name: "pipoca", mountPath: binaryDir },

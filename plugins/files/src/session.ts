@@ -13,6 +13,7 @@ import {
   type SessionFile,
   uploadNotice,
 } from "./files";
+import { snapshots } from "./snapshots";
 
 const firstRetryMs = 30_000;
 const lastRetryMs = 5 * 60_000;
@@ -72,10 +73,17 @@ export const session = defineSession(files, (s) => {
     const outputs = outputSync(s);
     const uploads = uploadInbox(s);
 
+    // The Kubernetes plugin's pods without a disk of their own say so.
+    const work =
+      process.env["PIPOCA_WORKSPACE"] === "pod" && s.config.snapshots.enabled
+        ? snapshots(s)
+        : undefined;
+
     pi.on("session_start", (_event, ctx) => {
       outputs.run(s.folder);
       uploads.noticed(ctx.sessionManager.getBranch());
       uploads.copy(s.folder);
+      work?.restore(ctx.cwd, s.checkouts);
     });
 
     // Pi reads an upload only once it's in the workspace.
@@ -85,14 +93,17 @@ export const session = defineSession(files, (s) => {
       }
 
       await uploads.copied();
+      await work?.restored();
     });
 
-    pi.on("agent_settled", () => {
+    pi.on("agent_settled", (_event, ctx) => {
       outputs.run(s.folder);
+      work?.save(ctx.cwd, s.checkouts);
     });
 
-    pi.on("session_shutdown", async () => {
-      await outputs.flush();
+    pi.on("session_shutdown", async (_event, ctx) => {
+      work?.save(ctx.cwd, s.checkouts);
+      await Promise.all([outputs.flush(), work?.flush()]);
     });
   });
 });
