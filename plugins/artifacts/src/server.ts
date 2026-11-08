@@ -1,6 +1,7 @@
 import {
   BadRequest,
   defineServer,
+  Forbidden,
   HttpError,
   NotFound,
   owners,
@@ -12,8 +13,10 @@ import {
 import { type Actor, blobHash, type Owner } from "@pipoca/protocol";
 import { artifacts } from "../plugin";
 import {
+  type Access,
   type ArtifactSummary,
   type ArtifactView,
+  type Comment,
   bytes,
   kindOf,
   type Published,
@@ -96,6 +99,22 @@ export const server = defineServer(
       artifact.session_id === null
         ? artifact.owner_user_id === null || artifact.owner_user_id === person
         : sessions.steers(artifact.session_id, person);
+
+    // Comment access lets a person steer the Session through Pi, which the
+    // share dialog says.
+    const access = (artifact: Row, person: string): Access => {
+      if (steers(artifact, person)) {
+        return "steer";
+      }
+
+      return store.get(
+        "select 1 from artifacts_shares where artifact_id = ? and user_id = ? and role = 'comment'",
+        artifact.id,
+        person,
+      ) === undefined
+        ? "view"
+        : "comment";
+    };
 
     const theirs = (id: string, caller: PersonCaller): Row => {
       const found = row(id);
@@ -183,8 +202,14 @@ export const server = defineServer(
         author: each.author,
         createdAt: each.created_at,
       })),
-      steers: steers(artifact, person),
+      access: access(artifact, person),
       shares: shares(artifact.id),
+      pinned:
+        store.get(
+          "select 1 from artifacts_pins where user_id = ? and artifact_id = ?",
+          person,
+          artifact.id,
+        ) !== undefined,
     });
 
     const recent = (): readonly Row[] =>
@@ -343,6 +368,222 @@ export const server = defineServer(
         return { deleted: artifact.id };
       },
     );
+
+    const comments = (id: string): readonly Comment[] =>
+      store
+        .all<{
+          id: string;
+          version: number;
+          parent_id: string | null;
+          author_user_id: string | null;
+          quote: string;
+          body: string;
+          sent_to_pi: number;
+          resolved_at: number | null;
+          created_at: number;
+        }>(
+          "select * from artifacts_comments where artifact_id = ? order by created_at, id",
+          id,
+        )
+        .map((each) => ({
+          id: each.id,
+          version: each.version,
+          parent: each.parent_id,
+          author:
+            each.author_user_id === null
+              ? "Someone"
+              : (people.get(each.author_user_id)?.name ?? each.author_user_id),
+          quote: each.quote,
+          body: each.body,
+          sentToPi: each.sent_to_pi === 1,
+          resolved: each.resolved_at !== null,
+          createdAt: each.created_at,
+        }));
+
+    const commenter = (id: string, caller: PersonCaller): Row => {
+      const artifact = theirs(id, caller);
+
+      if (access(artifact, caller.person.id) === "view") {
+        throw new Forbidden(
+          "You can view this artifact but not comment on it.",
+        );
+      }
+
+      return artifact;
+    };
+
+    routes.get(
+      "artifacts/:id/comments",
+      { auth: "person" },
+      ({ caller, params }) => ({
+        comments: comments(theirs(params.id, caller).id),
+      }),
+    );
+
+    // A comment sent to Pi reaches the Session as the person's message and
+    // wakes it.
+    routes.post(
+      "artifacts/:id/comments",
+      {
+        auth: "person",
+        body: Type.Object({
+          version: Type.Integer({ minimum: 1 }),
+          body: Type.String({ minLength: 1, maxLength: 10_000 }),
+          quote: Type.Optional(Type.String({ maxLength: 2000 })),
+          parent: Type.Optional(Type.String({ minLength: 1 })),
+          toPi: Type.Boolean(),
+        }),
+        changes: ["artifacts"],
+      },
+      ({ caller, params, body }) => {
+        const artifact = commenter(params.id, caller);
+        const found = versionOf(artifact, body.version);
+        const id = Bun.randomUUIDv7();
+        const toSession = body.toPi ? artifact.session_id : null;
+
+        if (
+          body.parent !== undefined &&
+          !comments(artifact.id).some((each) => each.id === body.parent)
+        ) {
+          throw new NotFound(`no comment ${body.parent}`);
+        }
+
+        store.run(
+          "insert into artifacts_comments (id, artifact_id, version, parent_id, author_user_id, quote, body, sent_to_pi, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          id,
+          artifact.id,
+          found.number,
+          body.parent ?? null,
+          caller.person.id,
+          body.quote ?? "",
+          body.body,
+          toSession === null ? 0 : 1,
+          clock.now(),
+        );
+
+        if (toSession !== null) {
+          const about =
+            body.quote === undefined || body.quote.trim() === ""
+              ? ""
+              : ` on “${body.quote.trim()}”`;
+
+          sessions.send(toSession, {
+            text: `${caller.person.name} commented on version ${String(found.number)} of the artifact “${artifact.title}” (${artifact.id})${about}: ${body.body}`,
+            turn: true,
+            as: `user:${caller.person.id}`,
+          });
+        }
+
+        return { id, sentToPi: toSession !== null };
+      },
+    );
+
+    routes.post(
+      "artifacts/:id/comments/:comment/resolve",
+      {
+        auth: "person",
+        body: Type.Object({ resolved: Type.Boolean() }),
+        changes: ["artifacts"],
+      },
+      ({ caller, params, body }) => {
+        const artifact = commenter(params.id, caller);
+
+        store.run(
+          "update artifacts_comments set resolved_at = ? where id = ? and artifact_id = ?",
+          body.resolved ? clock.now() : null,
+          params.comment,
+          artifact.id,
+        );
+
+        return { resolved: body.resolved };
+      },
+    );
+
+    // A person's edit of a Markdown artifact is a version of its own, which
+    // Pi hears about with its author.
+    routes.post(
+      "artifacts/:id/versions",
+      {
+        auth: "person",
+        body: Type.Object({ text: Type.String({ maxLength: 5_000_000 }) }),
+        changes: ["artifacts"],
+      },
+      async ({ caller, params, body }) => {
+        const artifact = theirs(params.id, caller);
+        const last = versionOf(artifact);
+
+        if (!steers(artifact, caller.person.id)) {
+          throw new Forbidden(
+            "Only people who steer its Session edit an artifact.",
+          );
+        }
+
+        if (kindOf(last.name) !== "markdown") {
+          throw new BadRequest("Only Markdown artifacts are edited here.");
+        }
+
+        const stored = await blobs.put(new TextEncoder().encode(body.text));
+
+        const number = addVersion(
+          artifact.id,
+          last.name,
+          stored.hash,
+          stored.size,
+          `user:${caller.person.id}`,
+        );
+
+        if (artifact.session_id !== null) {
+          sessions.send(artifact.session_id, {
+            text: `${caller.person.name} edited the artifact “${artifact.title}” (${artifact.id}): it's now version ${String(number)}. Read it with read_artifact before you change it.`,
+            turn: false,
+            as: `user:${caller.person.id}`,
+          });
+        }
+
+        return { version: number };
+      },
+    );
+
+    routes.put(
+      "artifacts/:id/pin",
+      {
+        auth: "person",
+        body: Type.Object({ pinned: Type.Boolean() }),
+        changes: ["artifacts"],
+      },
+      ({ caller, params, body }) => {
+        const artifact = theirs(params.id, caller);
+
+        if (body.pinned) {
+          store.run(
+            "insert or ignore into artifacts_pins (user_id, artifact_id, pinned_at) values (?, ?, ?)",
+            caller.person.id,
+            artifact.id,
+            clock.now(),
+          );
+        } else {
+          store.run(
+            "delete from artifacts_pins where user_id = ? and artifact_id = ?",
+            caller.person.id,
+            artifact.id,
+          );
+        }
+
+        return { pinned: body.pinned };
+      },
+    );
+
+    routes.get("pins", { auth: "person" }, ({ caller }) => ({
+      artifacts: store
+        .all<Row>(
+          `select a.* from artifacts_artifacts a
+           join artifacts_pins p on p.artifact_id = a.id
+           where p.user_id = ? order by p.pinned_at`,
+          caller.person.id,
+        )
+        .filter((each) => sees(each, caller.person.id))
+        .map(summary),
+    }));
 
     // What a Session reaches: its own artifacts, and the ones the person
     // who started it opens.

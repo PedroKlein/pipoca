@@ -51,11 +51,34 @@ export interface Share {
   readonly role: Role;
 }
 
+// What the viewer may do: steer (share, restore, edit), comment, or view.
+export type Access = "steer" | "comment" | "view";
+
 export interface ArtifactView extends ArtifactSummary {
   readonly history: readonly Version[];
-  // Whoever steers the Session shares the artifact and restores versions.
-  readonly steers: boolean;
+  readonly access: Access;
   readonly shares: readonly Share[];
+  readonly pinned: boolean;
+}
+
+export interface Comment {
+  readonly id: string;
+  readonly version: number;
+  // The comment it replies to.
+  readonly parent: string | null;
+  readonly author: string;
+  // The text it's about, as the person selected it.
+  readonly quote: string;
+  readonly body: string;
+  readonly sentToPi: boolean;
+  readonly resolved: boolean;
+  readonly createdAt: number;
+}
+
+export function isText(kind: Kind): boolean {
+  return (
+    kind === "html" || kind === "markdown" || kind === "svg" || kind === "csv"
+  );
 }
 
 // What publish_artifact returns, for the card drawn in the chat.

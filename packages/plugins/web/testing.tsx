@@ -46,6 +46,9 @@ function TestShell({
     SessionView: ({ sessionId, title }) => (
       <section aria-label={title ?? sessionId} data-session={sessionId} />
     ),
+    draft: (sessionId, text) => {
+      drafts.push({ sessionId, text });
+    },
   };
 
   return (
@@ -54,6 +57,9 @@ function TestShell({
     </ShellProvider>
   );
 }
+
+// What parts put in a Session's composer, newest last.
+export const drafts: { sessionId: string; text: string }[] = [];
 
 // Draws what a part fills a slot with, inside the test shell, on a page that
 // is taken down after the test.

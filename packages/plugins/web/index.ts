@@ -26,6 +26,7 @@ export {
   type Slots,
   useApi,
   useConfig,
+  useDraft,
   useSessionState,
   useToolResults,
   useViewer,

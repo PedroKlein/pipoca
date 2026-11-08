@@ -4841,7 +4841,7 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
 
   await writeFile(
     join(folder, "report.html"),
-    "<h1>Quarterly report</h1><script>document.body.append(String(window.origin))</script>",
+    "<h1>Quarterly report</h1><script>document.body.append(String(window.origin))</script><button onclick=\"parent.postMessage({ pipoca: 'draft', text: 'Make the chart blue' }, '*')\">Ask Pi</button>",
   );
 
   faux.setResponses([
@@ -4874,10 +4874,36 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   await card.getByText("Version 1").waitFor();
   await card.getByRole("link", { name: "Open" }).click();
 
-  const frame = page.frameLocator('iframe[title="Quarterly report"]');
+  const frame = page.frameLocator(
+    'iframe[title="Quarterly report, version 1"]',
+  );
 
   await frame.getByRole("heading", { name: "Quarterly report" }).waitFor();
   await frame.getByText("null").waitFor();
+
+  faux.setResponses([fauxAssistantMessage([fauxText("Noted the comment")])]);
+
+  const comment = page.getByRole("form", { name: "Comment" });
+
+  await comment.getByRole("textbox", { name: "Comment" }).fill("Add Q4");
+  await comment.getByRole("button", { name: "Comment" }).click();
+
+  await page
+    .getByRole("list", { name: "Comments" })
+    .getByText("Add Q4")
+    .waitFor();
+
+  await frame.getByRole("button", { name: "Ask Pi" }).click();
+
+  await page
+    .getByText(/commented on version 1 of the artifact “Quarterly report”/)
+    .waitFor();
+
+  await page.getByText("Noted the comment").waitFor();
+
+  expect(await page.locator("#prompt-text").inputValue()).toBe(
+    "Make the chart blue",
+  );
 }, 30_000);
 
 test("signs out and back in with the password", async () => {

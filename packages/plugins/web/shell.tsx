@@ -26,6 +26,8 @@ export interface Shell {
   readonly part: (plugin: string, children: ReactNode) => ReactNode;
   // The app's own Session view, which a page embeds (ADR 0028).
   readonly SessionView: ComponentType<EmbeddedSessionProps>;
+  // Opens the Session with text in its composer for the person to send.
+  readonly draft: (sessionId: string, text: string) => void;
 }
 
 const ShellContext = createContext<Shell | undefined>(undefined);

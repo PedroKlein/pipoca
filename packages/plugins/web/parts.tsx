@@ -29,7 +29,7 @@ import type {
 } from "./index";
 import { storedConfig } from "./config-form";
 import { useLoaded } from "./index";
-import { useShell, usePlugin, type Viewer } from "./shell";
+import { type Shell, useShell, usePlugin, type Viewer } from "./shell";
 
 type Nothing = Readonly<Record<string, never>>;
 
@@ -145,6 +145,11 @@ export function Hidden(): null {
 
 export function useViewer(): Viewer {
   return useShell().viewer;
+}
+
+// Opens a Session with text waiting in its composer; it never sends.
+export function useDraft(): Shell["draft"] {
+  return useShell().draft;
 }
 
 export function useApi(plugin: Pick<PluginDefinition, "id">): TypedClient {

@@ -11,6 +11,10 @@ const mimes: Readonly<Record<string, string>> = {
   pdf: "application/pdf",
 };
 
+// Pages Pipoca draws tell the artifact page what the person selected, to
+// quote it in a comment.
+const selection = `<script>document.addEventListener("mouseup", () => { const text = String(getSelection()).trim(); if (text !== "") parent.postMessage({ pipoca: "selection", text: text.slice(0, 2000) }, "*"); });</script>`;
+
 const mermaid = "cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js";
 
 // The document an artifact's frame shows. Every one but a PDF runs on an
@@ -153,7 +157,7 @@ pre, code { font-family: ui-monospace, monospace; font-size: 0.875em; background
 code { padding: 0.15em 0.35em; } pre { padding: 1rem; overflow-x: auto; } pre code { padding: 0; background: none; }
 blockquote { margin: 0; padding-left: 1rem; color: var(--dim); border-left: 3px solid var(--line); }
 table { border-collapse: collapse; display: block; overflow-x: auto; } th, td { padding: 0.35rem 0.75rem; border: 1px solid var(--line); text-align: left; } th { background: var(--code); }
-</style></head><body>${body}</body></html>`;
+</style></head><body>${body}${selection}</body></html>`;
 }
 
 function escaped(text: string): string {
