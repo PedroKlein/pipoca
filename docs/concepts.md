@@ -49,7 +49,11 @@ A `pipoca agent` process in an Environment's pool. It polls the server, runs eac
 
 ### Workspace
 
-The files a Session owns on its runner: a worktree of a folder, the folder itself when shared, a fresh clone, or several repositories side by side ([ADR 0007](adr/0007-session-workspaces.md)).
+The files a Session owns on its runner: a worktree of a folder, the folder itself when shared, a fresh clone, or several repositories side by side ([ADR 0007](adr/0007-session-workspaces.md)). It stays on the runner; what people keep goes to the server: outputs, uploads and the Project folder ([ADR 0078](adr/0078-artifacts-and-session-files.md)).
+
+### Artifact
+
+A page, document, image or table Pi publishes from its workspace. Every publish is a new version at one link, rendered in a sandbox, opened by whoever the Session's work is for, and commented on by people who can send comments to Pi ([ADR 0078](adr/0078-artifacts-and-session-files.md)).
 
 ### Repository
 
@@ -73,7 +77,7 @@ A model provider or MCP sign-in, kept sealed on the server on a Profile layer ([
 
 ### Project
 
-A Project is one goal: a coordinator Session, thread Sessions for each piece of work, instructions, memory, a file library and repositories ([ADR 0016](adr/0016-projects.md), [ADR 0028](adr/0028-projects-around-the-coordinator.md)). Threads and the coordinator show only inside their Project.
+A Project is one goal: a coordinator Session, thread Sessions for each piece of work, instructions, memory, a shared folder and repositories ([ADR 0016](adr/0016-projects.md), [ADR 0028](adr/0028-projects-around-the-coordinator.md)). Threads and the coordinator show only inside their Project.
 
 ### Assistant
 
