@@ -41,6 +41,9 @@ export const pluginInfo = Type.Object({
   source: Type.Enum(["built-in", "installed"]),
   state: Type.Enum(["on", "off", "failed"]),
   turnedOn: Type.Boolean(),
+  // Why it can't be turned on or off here: a deploy file sets the switches,
+  // or another plugin needs it.
+  switchLocked: Type.Optional(Type.String()),
   error: Type.Optional(Type.String()),
   // It failed because its tables can't be used, which resetting its data
   // fixes (ADR 0068).
@@ -80,7 +83,7 @@ export const pluginConfig = Type.Object({
 });
 
 export const pluginUpdate = Type.Object({
-  // Only an installed plugin can be turned on or off, or updated, here.
+  // Only an installed plugin can be updated here.
   enabled: Type.Optional(Type.Boolean()),
   digest: Type.Optional(Type.String()),
   update: Type.Optional(Type.Boolean()),

@@ -1271,6 +1271,23 @@ test("turns an installed plugin on for the next start", async () => {
   expect(await hello.getByText(/when the server restarts/).count()).toBe(0);
 });
 
+test("turns a built-in plugin off for the next start and back on", async () => {
+  await page.goto(server.url.href);
+  await openSettings("Plugins");
+
+  const checklist = page.getByRole("listitem", { name: "Checklist" });
+  await checklist.getByText(/^Built in/).waitFor();
+
+  await checklist.getByRole("switch", { name: "On", checked: true }).click();
+  await checklist.getByText("It turns off when the server restarts.").waitFor();
+  await checklist.getByText("On until restart").waitFor();
+
+  await checklist.getByRole("switch", { name: "On", checked: false }).click();
+  await checklist.getByRole("switch", { name: "On", checked: true }).waitFor();
+
+  expect(await checklist.getByText(/when the server restarts/).count()).toBe(0);
+});
+
 test("installs a plugin from a git repository, asks before turning it on, and removes it", async () => {
   const source = join(root, "sources", "weather");
   await mkdir(source, { recursive: true });

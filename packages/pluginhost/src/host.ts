@@ -115,7 +115,7 @@ export interface PluginHost {
     name: string,
     value: unknown,
   ) => PluginConfigView | string | undefined;
-  // Turns an installed plugin on or off for the next start.
+  // Turns a plugin on or off for the next start.
   // Turning one on with the digest of the manifest and files the user saw
   // refuses it when its folder changed since.
   readonly turnOn: (
@@ -441,16 +441,51 @@ export function startPlugins(
     ),
   );
 
-  const switchedOn = new Set(
-    deps.installed?.plugins.flatMap(({ manifest: { id }, on }) =>
+  // The plugins that are on after the next start.
+  const switchedOn = new Set([
+    ...enabled.filter((id) => !installedIds.has(id)),
+    ...(deps.installed?.plugins.flatMap(({ manifest: { id }, on }) =>
       on ? [id] : [],
-    ),
-  );
+    ) ?? []),
+  ]);
 
   const profiles = new Map<string, PluginProfile>();
 
   const listed = (name: string): PluginManifest | undefined =>
     manifests.find(({ id }) => id === name);
+
+  const titles = (ids: readonly string[]): string =>
+    ids.map((id) => listed(id)?.title ?? id).join(", ");
+
+  // Why a plugin can't be turned on or off here, if it can't.
+  const switchLocked = (name: string): string | undefined => {
+    const locked = deps.switches.lockedIn();
+
+    if (locked !== undefined) {
+      return `${locked} sets which plugins are on, so they can't change here`;
+    }
+
+    if (switchedOn.has(name)) {
+      const needing = deps.definitions
+        .filter(
+          ({ id, requires = [] }) =>
+            switchedOn.has(id) && requires.includes(name),
+        )
+        .map(({ id }) => id);
+
+      return needing.length === 0
+        ? undefined
+        : `${titles(needing)} ${needing.length === 1 ? "needs" : "need"} it, so it stays on`;
+    }
+
+    const missing = (
+      deps.definitions.find(({ id }) => id === name)?.requires ?? []
+    ).filter((id) => !switchedOn.has(id));
+
+    return missing.length === 0
+      ? undefined
+      : `it needs ${titles(missing)}, which ${missing.length === 1 ? "is" : "are"} off`;
+  };
 
   // The version running, whose settings and parts an update changes only
   // when the server restarts.
@@ -937,15 +972,14 @@ export function startPlugins(
     const installed = installedIds.has(found.id);
     const source = sources.get(found.id);
     const reached = used.get(found.id);
+    const locked = switchLocked(found.id);
 
     // What is in its folder now, which may wait for a restart to run.
     const base = {
       ...(listed(found.id) ?? found),
       ...reached,
       source: installed ? "installed" : "built-in",
-      turnedOn: installed
-        ? switchedOn.has(found.id)
-        : enabled.includes(found.id),
+      turnedOn: switchedOn.has(found.id),
       digest: new Bun.CryptoHasher("sha256")
         .update(JSON.stringify(listed(found.id) ?? found))
         .update(fileDigests.get(found.id) ?? "")
@@ -953,6 +987,7 @@ export function startPlugins(
       ...(source !== undefined && { installedFrom: source }),
       ...(updated.has(found.id) && { updated: true }),
       ...(newer.has(found.id) && { updateAvailable: true }),
+      ...(locked !== undefined && { switchLocked: locked }),
       teamWork: inTeamWork(found.id),
     } as const;
 
@@ -1044,8 +1079,9 @@ export function startPlugins(
           return undefined;
         }
 
-        if (deps.installed === undefined || !installedIds.has(name)) {
-          return "only an installed plugin can be turned on or off here";
+        const locked = switchLocked(name);
+        if (locked !== undefined) {
+          return locked;
         }
 
         const error = failures.get(name);

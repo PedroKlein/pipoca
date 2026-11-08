@@ -814,6 +814,133 @@ test("turns plugins on and off, and in team work, under plugins in pipoca.json",
   ]);
 });
 
+test("an admin turns a built-in plugin off and on, which pipoca.json keeps for the next start", async () => {
+  const configDir = join(root, "config");
+  const file = join(configDir, "pipoca.json");
+  const registered: string[] = [];
+
+  const options = {
+    configDir,
+    builtIns: false,
+    servers: [
+      plugin("chatty", () => {
+        registered.push("chatty");
+      }),
+    ],
+  };
+
+  const turn = async (enabled: boolean): Promise<unknown> =>
+    (
+      await server.api("/api/plugins/chatty", {
+        method: "PATCH",
+        body: { enabled },
+      })
+    ).json();
+
+  server = testServer(options);
+
+  expect(await turn(false)).toMatchObject({
+    source: "built-in",
+    state: "on",
+    turnedOn: false,
+  });
+
+  expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
+    plugins: { chatty: { personal: false } },
+  });
+
+  await server.close();
+  server = testServer(options);
+
+  expect(await (await server.api("/api/plugins")).json()).toMatchObject([
+    { id: "chatty", state: "off", turnedOn: false },
+  ]);
+
+  expect(await turn(true)).toMatchObject({ state: "off", turnedOn: true });
+
+  await server.close();
+  server = testServer(options);
+
+  expect(await (await server.api("/api/plugins")).json()).toMatchObject([
+    { id: "chatty", state: "on", turnedOn: true },
+  ]);
+
+  expect(registered).toEqual(["chatty", "chatty"]);
+});
+
+test("keeps a plugin another one needs on, and says why", async () => {
+  server = testServer({
+    configDir: join(root, "config"),
+    builtIns: false,
+    servers: [
+      plugin("base"),
+      plugin("needing", () => undefined, {
+        title: "Needing",
+        requires: ["base"],
+      }),
+    ],
+  });
+
+  const listed = (await (
+    await server.api("/api/plugins")
+  ).json()) as PluginInfo[];
+
+  expect(listed.find(({ id }) => id === "base")?.switchLocked).toBe(
+    "Needing needs it, so it stays on",
+  );
+
+  const refused = await server.api("/api/plugins/base", {
+    method: "PATCH",
+    body: { enabled: false },
+  });
+
+  expect(refused.status).toBe(400);
+  expect(await refused.text()).toContain("Needing needs it");
+
+  await server.api("/api/plugins/needing", {
+    method: "PATCH",
+    body: { enabled: false },
+  });
+
+  const turned = await server.api("/api/plugins/base", {
+    method: "PATCH",
+    body: { enabled: false },
+  });
+
+  expect(await turned.json()).toMatchObject({ turnedOn: false });
+});
+
+test("leaves every plugin's switch to a locked file that sets them", async () => {
+  const locked = join(root, "locked.json");
+
+  await writeFile(
+    locked,
+    JSON.stringify({ plugins: { quiet: { personal: false } } }),
+  );
+
+  server = testServer({
+    configDir: join(root, "config"),
+    lockedConfig: locked,
+    builtIns: false,
+    servers: [plugin("quiet"), plugin("chatty")],
+  });
+
+  const reason = `${locked} sets which plugins are on, so they can't change here`;
+
+  expect(await (await server.api("/api/plugins")).json()).toMatchObject([
+    { id: "quiet", state: "off", switchLocked: reason },
+    { id: "chatty", state: "on", switchLocked: reason },
+  ]);
+
+  const refused = await server.api("/api/plugins/chatty", {
+    method: "PATCH",
+    body: { enabled: false },
+  });
+
+  expect(refused.status).toBe(400);
+  expect(await refused.text()).toContain(reason);
+});
+
 test("a switch in pipoca.json that doesn't fit is logged and leaves the others alone", async () => {
   const configDir = join(root, "config");
 

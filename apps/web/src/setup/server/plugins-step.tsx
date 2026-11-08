@@ -83,7 +83,6 @@ function Group({
 
 function PluginRow({ plugin }: { readonly plugin: PluginInfo }): ReactElement {
   const [ask, asking] = useConfirm();
-  const installed = plugin.source === "installed";
 
   const turn = useAction(async () => {
     await turnPlugin(plugin, ask);
@@ -106,18 +105,12 @@ function PluginRow({ plugin }: { readonly plugin: PluginInfo }): ReactElement {
           {plugin.state === "on" ? "On" : "Off"} until restart
         </Badge>
       )}
-      <span
-        title={
-          installed
-            ? undefined
-            : "The server's config file turns built-in plugins on and off"
-        }
-      >
+      <span title={plugin.switchLocked}>
         <Switch
           label={plugin.title}
           labelHidden
-          checked={installed ? plugin.turnedOn : plugin.state === "on"}
-          disabled={!installed}
+          checked={plugin.turnedOn}
+          disabled={plugin.switchLocked !== undefined}
           onChange={() => {
             void turn.run();
           }}

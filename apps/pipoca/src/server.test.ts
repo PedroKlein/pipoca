@@ -118,7 +118,11 @@ test("reports unhealthy when the database can't be read, keeping why in the log"
       store: store.plugin,
       dataFailure: store.pluginFailure,
       resetData: store.resetPlugin,
-      switches: { get: () => ({}), set: () => undefined },
+      switches: {
+        get: () => ({}),
+        set: () => undefined,
+        lockedIn: () => undefined,
+      },
       config: (name) => ({
         get: () => undefined,
         set: () => undefined,
@@ -221,7 +225,11 @@ function startServer(
       store: store.plugin,
       dataFailure: store.pluginFailure,
       resetData: store.resetPlugin,
-      switches: { get: () => ({}), set: () => undefined },
+      switches: {
+        get: () => ({}),
+        set: () => undefined,
+        lockedIn: () => undefined,
+      },
       config: (name) => ({
         get: () => undefined,
         set: () => undefined,
@@ -615,7 +623,11 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
         store: store.plugin,
         dataFailure: store.pluginFailure,
         resetData: store.resetPlugin,
-        switches: { get: () => ({}), set: () => undefined },
+        switches: {
+          get: () => ({}),
+          set: () => undefined,
+          lockedIn: () => undefined,
+        },
         config: (name) => ({
           get: () => undefined,
           set: () => undefined,

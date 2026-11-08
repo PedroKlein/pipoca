@@ -262,20 +262,6 @@ test("names the manifest field that doesn't fit, failing only that plugin", asyn
   expect(await listed("hello")).toMatchObject({ state: "off" });
 });
 
-test("turns built-in plugins on or off only through the server's options", async () => {
-  await start();
-
-  const refused = await server.api("/api/plugins/projects", {
-    method: "PATCH",
-    body: {
-      enabled: false,
-    },
-  });
-
-  expect(refused.status).toBe(400);
-  expect((await listed("projects"))?.turnedOn).toBe(true);
-});
-
 test("keeps a built-in plugin when a folder takes its id", async () => {
   await writePlugin("projects");
   await turnOnInConfig("projects");
