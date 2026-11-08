@@ -9,7 +9,7 @@ import { testServer, type TestServer } from "./testdata/harness";
 let root: string;
 let server: TestServer;
 
-// The plugin docs/plugins.md walks through, so the guide's code stays true.
+// The plugin the docs' tutorial walks through, so its code stays true.
 const example = join(import.meta.dir, "../../../examples/plugins/greeter");
 
 beforeEach(async () => {

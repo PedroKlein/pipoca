@@ -109,7 +109,7 @@ Every new input follows these patterns, and older screens move over as they're t
 - Labels name the thing ("Folder or repository"), and buttons say what happens ("Start session").
 - Each description is one sentence about what something is for. It doesn't explain how the code works.
 - Empty states say what goes there and how to add the first one.
-- Use "Session", "Project", "Environment" and "Profile" as names, capitalised, as in [concepts](concepts.md).
+- Use "Session", "Project", "Environment" and "Profile" as names, capitalised, as in [Concepts](get-started/concepts.md).
 
 ## Plugins
 

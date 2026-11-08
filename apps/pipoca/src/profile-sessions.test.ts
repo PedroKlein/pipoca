@@ -174,9 +174,9 @@ test("a Session gets Pipoca's and Pi's docs as files, and its Pi knows where", a
 
   expect(request).toContain(`Its docs are in ${docs}`);
 
-  expect(await Bun.file(join(docs, "pipoca", "plugins.md")).text()).toContain(
-    "# Writing a plugin",
-  );
+  expect(
+    await Bun.file(join(docs, "pipoca", "build-plugins", "overview.md")).text(),
+  ).toContain("definePlugin");
 
   expect(await Bun.file(join(docs, "pi", "extensions.md")).exists()).toBe(true);
 });

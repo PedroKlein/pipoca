@@ -30,9 +30,14 @@ test("holds Pipoca's and Pi's docs, and each plugin's own docs by its id", async
     { id: "bare", folder: join(root, "bare") },
   ]);
 
-  expect(text(files["pipoca/guide.md"])).toContain("Pipoca");
+  expect(text(files["pipoca/get-started/quick-start.md"])).toContain("Pipoca");
   expect(files["pi/README.md"]).toBeDefined();
   expect(files["pipoca/open-questions.md"]).toBeUndefined();
+
+  expect(
+    Object.keys(files).some((path) => path.startsWith("pipoca/adr/")),
+  ).toBe(false);
+
   expect(text(files["plugins/deploys/howto/deploy.md"])).toBe("# Deploying");
 
   expect(

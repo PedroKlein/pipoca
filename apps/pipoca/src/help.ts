@@ -190,7 +190,7 @@ ${commands
 Run pipoca <command> --help to see a command's options.
 Start with pipoca up in the folder with your code.
 
-Guide: https://github.com/PedroKlein/pipoca/blob/main/docs/guide.md`;
+Docs: https://pedroklein.github.io/pipoca/docs/`;
 }
 
 // A name that isn't a command gets nothing, so the caller can say so.

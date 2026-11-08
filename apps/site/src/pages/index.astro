@@ -1,0 +1,654 @@
+---
+import { Image } from "astro:assets";
+import "@fontsource/hanken-grotesk/400.css";
+import "@fontsource/hanken-grotesk/500.css";
+import "@fontsource/hanken-grotesk/600.css";
+import "@fontsource/jetbrains-mono/400.css";
+import "@fontsource/newsreader/300.css";
+import "../styles/landing.css";
+import Mark from "../components/Mark.astro";
+import sessionLight from "../../../../docs/images/session-light.png";
+import sessionDark from "../../../../docs/images/session-dark.png";
+import changesLight from "../../../../docs/images/changes-light.png";
+import changesDark from "../../../../docs/images/changes-dark.png";
+import piLight from "../../../../docs/images/pi-light.png";
+import piDark from "../../../../docs/images/pi-dark.png";
+import projectLight from "../../../../docs/images/project-light.png";
+import projectDark from "../../../../docs/images/project-dark.png";
+import profilesLight from "../../../../docs/images/profiles-light.png";
+import profilesDark from "../../../../docs/images/profiles-dark.png";
+
+const base = import.meta.env.BASE_URL;
+const docs = (path: string) => `${base}docs/${path}`;
+const repository = "https://github.com/PedroKlein/pipoca";
+
+const tour = [
+  {
+    eyebrow: "Sessions",
+    title: "Sessions that keep going when you close the tab",
+    body: "Each Session gets its own worktree or clone on its own branch, so several can work in one repository at once. Pi's steps fold into one line, and the header shows context use and cost.",
+    light: sessionLight,
+    dark: sessionDark,
+    alt: "A Pipoca Session with the task, Pi's steps folded into one line, and its answer",
+    href: docs("use/sessions/"),
+  },
+  {
+    eyebrow: "Changes",
+    title: "Review the diff, comment on lines, open the pull request",
+    body: "Comment on any line and send every comment back to Pi as one message. Pipoca watches the pull requests your Sessions open and can fix failing checks.",
+    light: changesLight,
+    dark: changesDark,
+    alt: "The Changes panel with a Session's diff and a Create PR button",
+    href: docs("use/changes/"),
+  },
+  {
+    eyebrow: "Pi stays Pi",
+    title: "Pi's own terminal UI, one click away",
+    body: "The Pi tab runs Pi's terminal UI for the same Session, so extensions that only work in a terminal still work. Terminals open shells in the Session's folder and survive reloads.",
+    light: piLight,
+    dark: piDark,
+    alt: "Pi's terminal UI running in the browser",
+    href: docs("use/sessions/"),
+  },
+  {
+    eyebrow: "Projects",
+    title: "Split bigger work across threads",
+    body: "Talk to a Project's coordinator. It starts a thread for each piece of work, shares memory and a folder of files with them, and puts the ones that need you first.",
+    light: projectLight,
+    dark: projectDark,
+    alt: "A Project coordinator that started two threads",
+    href: docs("use/projects/"),
+  },
+];
+
+const more = [
+  ["The assistant", "Starts Sessions and sets things up from the home screen. Its tools are also served over MCP."],
+  ["Routines and wake-ups", "Run work on a schedule, on events such as a new pull request, or from a webhook."],
+  ["Subagents", "Pi splits a task across helpers that report back, with a live checklist."],
+  ["Artifacts and files", "Pages Pi publishes get their own link, versions and comments."],
+  ["Slack and email", "Routines start from messages and mail, and Sessions answer there."],
+  ["On your phone", "The whole UI, terminal included, with push notifications when Pi needs you."],
+];
+
+const pluginGroups = [
+  {
+    title: "Work with Pi",
+    items: [
+      ["projects", "Projects with a coordinator and threads, and the assistant."],
+      ["changes", "The diff, line comments and pull requests."],
+      ["subagents", "Helpers Pi starts, workflows and missions."],
+      ["checklist", "A live task list in every Session."],
+      ["ask", "Pi's questions to you, and votes in team work."],
+    ],
+  },
+  {
+    title: "Automate and share",
+    items: [
+      ["routines", "Schedules, events, webhooks and wake-ups."],
+      ["artifacts", "Pages Pi publishes, with versions and comments."],
+      ["files", "Session outputs and uploads, kept on the server."],
+      ["slack", "Slack messages as triggers, and posts from Sessions."],
+      ["email", "Mail as triggers, and mail from Sessions."],
+    ],
+  },
+  {
+    title: "Models and people",
+    items: [
+      ["models", "Model aliases per Environment, with fallbacks when a model fails."],
+      ["logins", "Model and MCP logins kept on the server, and the team's key proxy."],
+      ["usage", "Tokens and cost, team budgets and the audit log."],
+      ["oidc", "Single sign-on with OpenID Connect providers."],
+    ],
+  },
+  {
+    title: "Where it runs",
+    items: [
+      ["local", "Runners on the server's own machine."],
+      ["kubernetes", "Runner pods on demand, deleted when idle."],
+      ["git-hosts", "Git host accounts, technical users and GitHub Apps."],
+      ["push", "Notifications on phones and desktops."],
+    ],
+  },
+];
+
+const teamPoints = [
+  ["Open by default", "Anyone on the team can start team work and step in. Whoever started it can make it view-only or limit it to named people."],
+  ["Pi joins the conversation", "Write to Pi, to the team, or off the record. Pi addresses questions to named people, and anyone can open a vote."],
+  ["Shared, not borrowed", "Team Profiles, Environments and API keys, run by admins. Keys stay on the server behind a proxy."],
+  ["Usage in money", "Spend per person and for the team, with budgets that warn at 80% and 100%."],
+];
+
+const layers = [
+  { who: "Admins", title: "Server base", items: ["company skills", "an MCP server", "AGENTS.md"] },
+  { who: "You", title: "My defaults", items: ["your packages", "your logins"] },
+  { who: "This Profile", title: "Reviewer", items: ["a review skill", "its own prompt"] },
+  { who: "Every Session", title: "What Pi gets", items: ["all of it, with sources", "minus what you turned off"] },
+];
+
+const modes = [
+  {
+    id: "solo",
+    label: "Solo",
+    title: "One person, one machine",
+    body: "pipoca up starts a server just for you and opens the browser signed in. A runner starts when a Session needs one and stops after five idle minutes.",
+    cmd: "brew install pedroklein/pipoca/pipoca\ncd ~/code && pipoca up",
+    href: docs("run/solo/"),
+    nodes: [
+      { where: "Your laptop", title: "Browser", sub: "Or the Mac app, or your phone over your own private network" },
+      { arrow: "localhost", where: "Your laptop", title: "Pipoca server", sub: "Web UI, Sessions, Profiles, logins" },
+      { arrow: "starts", where: "Your laptop", title: "Runner", sub: "Pi Sessions in your folders" },
+    ],
+  },
+  {
+    id: "vm",
+    label: "VM",
+    title: "An always-on server, your laptop as a runner",
+    body: "pipoca connect holds an SSH tunnel to the VM, installs Pipoca there if it's missing, signs you in and shares your folder as a runner.",
+    cmd: "cd ~/code && pipoca connect me@my-vm",
+    href: docs("run/vm/"),
+    nodes: [
+      { where: "Your laptop", title: "Browser and runner", sub: "Shares the folder you ran connect in" },
+      { arrow: "ssh tunnel", where: "Your VM", title: "Pipoca server", sub: "Keeps going when the laptop sleeps" },
+      { arrow: "starts", where: "Your VM", title: "Runner", sub: "Sessions on the VM itself" },
+    ],
+  },
+  {
+    id: "team",
+    label: "Team",
+    title: "One server for a small team",
+    body: "Add people with passwords or sign them in with OpenID Connect. Admins run the team's Profiles, Environments and model keys, with usage and budgets.",
+    cmd: "pipoca server --url https://pipoca.example.com",
+    href: docs("run/team/"),
+    nodes: [
+      { where: "Everyone", title: "Browsers", sub: "Personal work and the team hub" },
+      { arrow: "HTTPS", where: "A shared machine", title: "Pipoca server", sub: "People, team Profiles, key proxy" },
+      { arrow: "per person", where: "Anywhere", title: "Runners", sub: "Laptops, VMs or containers" },
+    ],
+  },
+  {
+    id: "k8s",
+    label: "Kubernetes",
+    title: "Runner pods on demand",
+    body: "The Helm chart installs the server. The kubernetes plugin starts runner pods for each person's Environment when Sessions need them and deletes them when idle.",
+    cmd: "helm install pipoca deploy/helm/pipoca \\\n  --set url=https://pipoca.example.com",
+    href: docs("run/kubernetes/"),
+    nodes: [
+      { where: "Everyone", title: "Browsers", sub: "Through your gateway or an Ingress" },
+      { arrow: "HTTPS", where: "Cluster", title: "Pipoca pod", sub: "SQLite on a volume, config from the chart" },
+      { arrow: "creates", where: "Cluster", title: "Runner pods", sub: "Each person's own, never shared" },
+    ],
+  },
+];
+
+const sessionCode = `<span class="k">export const</span> session = <span class="f">defineSession</span>(greeter, (s) =&gt; {
+  s.<span class="f">extension</span>((pi) =&gt; {
+    pi.<span class="f">registerCommand</span>(<span class="s">"greet"</span>, {
+      description: <span class="s">"Say the greeting from config"</span>,
+      handler: <span class="k">async</span> (_args, ctx) =&gt; {
+        <span class="k">const</span> { greeting } = <span class="k">await</span> s.api.<span class="f">get</span>(<span class="s">"greeting"</span>);
+        ctx.ui.<span class="f">notify</span>(greeting, <span class="s">"info"</span>);
+      },
+    });
+  });
+});`;
+
+const diffCode = `<span class="dim">src/checkout/coupon.ts</span>
+<span class="add">+ export function applyCoupon(</span>
+<span class="add">+   cart: Cart, code: string,</span>
+<span class="add">+ ): Result&lt;Cart&gt; {</span>
+<span class="del">-   return cart.total;</span>
+<span class="add">+   const c = coupons.find(code);</span>
+<span class="add">+   if (!c) return err("unknown");</span>`;
+
+const steps = ["Hand off", "Pi works", "Review", "Ship"];
+---
+
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pipoca: Pi coding agents on your own machines</title>
+    <meta
+      name="description"
+      content="Pipoca is a self-hosted home for Pi coding agents, for you and your team. Sessions run on your laptop, a VM or Kubernetes, and every feature is a plugin."
+    />
+    <link rel="icon" href={`${base}favicon.svg`} type="image/svg+xml" />
+    <script is:inline>
+      (() => {
+        let stored = "";
+        try {
+          stored = localStorage.getItem("starlight-theme") ?? "";
+        } catch {}
+        const dark = matchMedia("(prefers-color-scheme: dark)");
+        const apply = () => {
+          document.documentElement.dataset.theme =
+            stored === "light" || stored === "dark" ? stored : dark.matches ? "dark" : "light";
+        };
+        apply();
+        dark.addEventListener("change", apply);
+      })();
+    </script>
+  </head>
+  <body>
+    <div class="page">
+      <header class="topbar">
+        <div class="wrap">
+          <a href={base} class="brand" aria-label="Pipoca home">
+            <Mark size={30} class="popmark" />
+            <span class="word">pipoca</span>
+          </a>
+          <nav class="toplinks" aria-label="Site">
+            <a href="#plugins">Plugins</a>
+            <a href="#team">Teams</a>
+            <a href="#profiles">Profiles</a>
+            <a href="#run">Ways to run</a>
+            <a href={docs("")}>Docs</a>
+          </nav>
+          <span class="spacer"></span>
+          <a class="btn ghost hide-narrow" href={repository}>GitHub</a>
+          <a class="btn primary" href={docs("get-started/quick-start/")}>Get started</a>
+        </div>
+      </header>
+
+      <main>
+        <section class="hero">
+          <div class="wrap hero-text">
+            <span class="pill"><span class="butter-dot"></span>Open source, self-hosted, extensible like Pi</span>
+            <h1 class="serif">Your Pi agents, on your machines, open from anywhere.</h1>
+            <p class="lede">
+              Pipoca is a self-hosted home for <a href="https://github.com/earendil-works/pi">Pi</a> coding agents, for you and your team. Sessions run on
+              your laptop, a VM or Kubernetes with your own Pi setup, and every feature is a plugin you can turn off, swap or write.
+            </p>
+            <div class="row-center">
+              <span class="copybox">
+                <span class="prompt">$</span><code id="install">brew install pedroklein/pipoca/pipoca</code>
+                <button type="button" aria-label="Copy the install command" data-copy="install">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h10"></path></svg>
+                </button>
+              </span>
+              <a class="btn lg primary" href={docs("")}>Read the docs</a>
+            </div>
+            <p class="dim small">Then run <code class="ic">pipoca up</code> in the folder with your code. macOS and Linux, plus a desktop app.</p>
+          </div>
+        </section>
+
+        <section class="replay-section">
+          <div class="wrap">
+            <div class="replay" data-step="0">
+              <div class="glow" aria-hidden="true"></div>
+              <figure class="card window" aria-label="A Pipoca Session taking a task from request to pull request">
+                <div class="chrome">
+                  <span></span><span></span><span></span>
+                  <code class="dim">pipoca.example.com</code>
+                </div>
+                <div class="app">
+                  <div class="sidebar">
+                    <span class="strong">New session</span>
+                    <span class="group">Today</span>
+                    <span class="item current"><span class="state"></span>Coupon field at checkout</span>
+                    <span class="item"><span class="dot waiting-dot"></span>Flaky login test</span>
+                    <span class="item dim"><span class="dot none"></span>Bump Bun to 1.4</span>
+                    <span class="group">Projects</span>
+                    <span class="item dim">Billing v2</span>
+                  </div>
+                  <div class="session">
+                    <div class="session-head">
+                      <span class="strong title">Coupon field at checkout</span>
+                      <code class="dim crumb">laptop · acme-shop · pipoca/3f9c2a1d</code>
+                      <span class="spacer"></span>
+                      <span class="badge working" data-when="0 1 2"><span class="dot breathe"></span>Working</span>
+                      <span class="badge done" data-when="3">Done</span>
+                    </div>
+                    <div class="session-body">
+                      <div class="chat">
+                        <div class="bubble">Add a coupon field to checkout, cover it with tests and open a pull request.</div>
+                        <div class="work" data-when="1">
+                          <span class="dim">Working…</span>
+                          <code>Read src/checkout/cart.ts</code>
+                          <code>Edited src/checkout/coupon.ts <span class="plus">+38</span> <span class="minus">−4</span></code>
+                          <code>Ran bun test <span class="dim">42 passed</span></code>
+                        </div>
+                        <div class="answer" data-when="2 3">
+                          <span class="dim folded">› Worked for 2m 14s · 9 steps</span>
+                          <p>Checkout now takes a coupon code. Unknown and expired codes show an inline error, and the total updates as you type. I added 6 tests, and all 42 pass.</p>
+                        </div>
+                        <span class="chip" data-when="3">Opened pull request #128</span>
+                        <span class="spacer"></span>
+                        <div class="composer"><span>Reply, or ask for changes…</span><code>coder-large</code></div>
+                      </div>
+                      <div class="diff" data-when="2 3">
+                        <span class="strong small">Changes <span class="dim">2 files</span></span>
+                        <pre class="code" set:html={diffCode}></pre>
+                        <span class="btn sm">Create PR</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </figure>
+              <div class="card notification" data-when="3">
+                <Mark size={28} />
+                <div>
+                  <span class="strong">Coupon field at checkout is done</span>
+                  <span class="dim">Opened pull request #128.</span>
+                </div>
+              </div>
+            </div>
+            <div class="steps" role="group" aria-label="Replay steps">
+              {steps.map((label, i) => <button type="button" data-goto={i} aria-pressed={i === 0 ? "true" : "false"}>{i + 1}  {label}</button>)}
+            </div>
+          </div>
+        </section>
+
+        <section class="pillars wrap">
+          <a href="#plugins" class="card pillar">
+            <span class="eyebrow">Extensible like Pi</span>
+            <span class="pillar-title">A small core. Everything else is a plugin.</span>
+            <span class="dim">18 built-in plugins on the same SDK yours would use.</span>
+          </a>
+          <a href="#team" class="card pillar">
+            <span class="eyebrow">Built for teams</span>
+            <span class="pillar-title">One hub where your team and Pi work together.</span>
+            <span class="dim">Shared Sessions, Profiles, model keys and budgets.</span>
+          </a>
+          <a href="#profiles" class="card pillar">
+            <span class="eyebrow">Profiles</span>
+            <span class="pillar-title">Your Pi setup, on every machine.</span>
+            <span class="dim">Packages, skills and MCP servers, layered and visible.</span>
+          </a>
+        </section>
+
+        <section id="plugins" class="band">
+          <div class="wrap stack">
+            <div class="split-head">
+              <div>
+                <span class="eyebrow">Extensible like Pi</span>
+                <h2 class="serif big">A small core.<br />Everything else is a plugin.</h2>
+              </div>
+              <p class="dim lede-sm">
+                Pi keeps its core small and lets extensions do the rest. Pipoca does the same for the server and the web app: Projects, the diff view, routines,
+                team usage and single sign-on are all plugins. Turn off what you don't need, install more from a git repository, or ask the assistant to write one.
+              </p>
+            </div>
+            <div class="grid-4">
+              {
+                pluginGroups.map((group) => (
+                  <div class="card group-card">
+                    <span class="group-title">{group.title}</span>
+                    {group.items.map(([id, description]) => (
+                      <div class="plugin">
+                        <code class="strong">{id}</code>
+                        <span class="dim">{description}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))
+              }
+            </div>
+            <div class="split">
+              <div class="stack-sm">
+                <h3>Write your own in one folder</h3>
+                <ol class="numbered">
+                  <li><span><strong>Server part.</strong> <span class="dim">Routes, tools, schedules, events and its own tables.</span></span></li>
+                  <li><span><strong>Web part.</strong> <span class="dim">Pages, panels for the team hub, setup steps and settings, built from Pipoca's own components.</span></span></li>
+                  <li><span><strong>Session part.</strong> <span class="dim">Pi extensions, commands and tools in every Session.</span></span></li>
+                </ol>
+                <a class="link" href={docs("build-plugins/tutorial/")}>Write your first plugin</a>
+              </div>
+              <div class="code-tabs">
+                <div class="tabs"><span class="tab current">src/session.ts</span><span class="tab">src/server.ts</span><span class="tab">web/index.tsx</span></div>
+                <pre class="code" set:html={sessionCode}></pre>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="team" class="plain">
+          <div class="wrap stack">
+            <div class="split-head">
+              <div>
+                <span class="eyebrow">Built for teams</span>
+                <h2 class="serif big">One hub where your team and Pi work together</h2>
+              </div>
+              <p class="dim lede-sm">
+                Team work is open to everyone on the server by default. Anyone can start it, follow it or step in, and Pi reads the team's conversation, not just
+                the last message. It runs on the team's Profiles, Environments and keys, so nobody lends their own.
+              </p>
+            </div>
+            <div class="card hub">
+              <div class="hub-side">
+                <div class="row"><span class="serif hub-title">Team</span><span class="spacer"></span><span class="btn sm">Start team work</span></div>
+                <span class="label waiting-text">Needs someone</span>
+                <div class="card hub-row"><span class="strong">Migrate billing webhooks to v2</span><span class="dim">Pi asks Ana which retry policy to keep</span></div>
+                <div class="card hub-row"><span class="strong">Fix flaky checkout test</span><span class="dim">A pull request waits for a reviewer</span></div>
+                <span class="label dim">Running</span>
+                <span class="hub-line"><span class="dot working-dot breathe"></span><span class="strong">Release notes for 3.2</span><span class="dim">Carla steering</span></span>
+                <span class="hub-line"><span class="dot working-dot breathe"></span><span class="strong">Nightly dependency bumps</span><span class="dim">Routine</span></span>
+                <span class="hub-line"><span class="dot done-dot"></span><span class="strong">Triage new issues</span><span class="dim">Routine</span></span>
+                <span class="spacer"></span>
+                <div class="row usage"><span class="dim">Team usage this month</span><span class="spacer"></span><code class="strong">$412 of $600</code></div>
+                <div class="meter"><div></div></div>
+              </div>
+              <div class="hub-main">
+                <div class="row"><span class="strong">Migrate billing webhooks to v2</span><span class="badge waiting"><span class="dot"></span>Needs Ana</span></div>
+                <div class="msg"><span class="avatar a1">B</span><div><span class="strong">Bruno</span> <span class="dim small">to Pi</span><p>Move the Stripe webhooks to the v2 events and keep the old ones until Friday.</p></div></div>
+                <div class="msg"><span class="avatar a2">D</span><div><span class="strong">Diego</span> <span class="dim small">to the team</span><p>Careful, the refund handler retries on its own.</p></div></div>
+                <div class="msg"><Mark size={28} /><div class="grow"><span class="strong">Pi</span><p>Diego is right: refunds retry three times with backoff, and Stripe's v2 events retry too.</p>
+                  <div class="card question"><span class="waiting-text small strong">Question for Ana</span><span class="strong">Which retry policy should we keep?</span><div class="row wrap-row"><span class="btn sm">Stripe's retries only</span><span class="btn sm">Ours, with Stripe's off</span><span class="btn sm ghost">Answer for Ana</span></div></div>
+                </div></div>
+                <span class="spacer"></span>
+                <div class="composer team-composer"><span>Write to the team, or @pipoca…</span><span class="seg small-seg"><button type="button">To Pi</button><button type="button" aria-pressed="true">To the team</button><button type="button">Off the record</button></span></div>
+              </div>
+            </div>
+            <div class="grid-4">
+              {teamPoints.map(([title, body]) => <div class="point"><span class="strong">{title}</span><span class="dim">{body}</span></div>)}
+            </div>
+            <a class="link" href={docs("use/team/")}>How team work works</a>
+          </div>
+        </section>
+
+        <section id="profiles" class="band">
+          <div class="wrap stack">
+            <div class="split-head">
+              <div>
+                <span class="eyebrow">Profiles</span>
+                <h2 class="serif big">Your Pi setup, on every machine</h2>
+              </div>
+              <p class="dim lede-sm">
+                A Profile is a Pi agent folder, like your <code class="ic">~/.pi/agent</code>: packages, skills, prompts, instructions, MCP servers and settings.
+                Import yours from a folder, a tarball or a git repository, and every Session runs with it, wherever it runs. Keep one for reviews, one for docs, one
+                for the team.
+              </p>
+            </div>
+            <div class="layers">
+              {
+                layers.map((layer, i) => (
+                  <div class="layer-wrap">
+                    {i > 0 && (
+                      <svg class="arrow" width="48" height="12" viewBox="0 0 48 12" aria-hidden="true"><path d="M2 6h40M36 1l6 5-6 5" fill="none" stroke="currentColor" stroke-width="1.5"></path></svg>
+                    )}
+                    <div class="card layer">
+                      <span class="dim small">{layer.who}</span>
+                      <span class="strong layer-title">{layer.title}</span>
+                      <div class="chips">{layer.items.map((item) => <code class="chip-sm">{item}</code>)}</div>
+                    </div>
+                  </div>
+                ))
+              }
+            </div>
+            <div class="split reverse">
+              <div class="shot-wrap">
+                <Image class="shot light-only" src={profilesLight} alt="A Profile with packages, instructions and a file tree" widths={[800, 1440]} sizes="(min-width: 1100px) 700px, 100vw" />
+                <Image class="shot dark-only" src={profilesDark} alt="A Profile with packages, instructions and a file tree" widths={[800, 1440]} sizes="(min-width: 1100px) 700px, 100vw" />
+              </div>
+              <div class="stack-sm">
+                <div class="point"><span class="strong">Layers add up</span><span class="dim">Admins set a Server base for everyone, you keep your own defaults, and each Profile adds what it needs.</span></div>
+                <div class="point"><span class="strong">See exactly what Pi gets</span><span class="dim">Every inherited item shows where it came from, with a switch to turn it off for this Profile.</span></div>
+                <div class="point"><span class="strong">Logins stay on the server</span><span class="dim">Model and MCP logins are sealed on the server and reach a runner only for the Sessions that use them.</span></div>
+                <a class="link" href={docs("use/profiles/")}>More about Profiles</a>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="features" class="plain">
+          <div class="wrap stack-lg">
+            <div>
+              <span class="eyebrow">Day to day</span>
+              <h2 class="serif big">Hand off the work. Come back to it from anywhere.</h2>
+            </div>
+            {
+              tour.map((item, i) => (
+                <div class:list={["split", { reverse: i % 2 === 1 }]}>
+                  <div class="stack-sm">
+                    <span class="eyebrow">{item.eyebrow}</span>
+                    <h3>{item.title}</h3>
+                    <p class="dim">{item.body}</p>
+                    <a class="link" href={item.href}>Read more</a>
+                  </div>
+                  <div class="shot-wrap">
+                    <Image class="shot light-only" src={item.light} alt={item.alt} widths={[800, 1440]} sizes="(min-width: 1100px) 700px, 100vw" />
+                    <Image class="shot dark-only" src={item.dark} alt={item.alt} widths={[800, 1440]} sizes="(min-width: 1100px) 700px, 100vw" />
+                  </div>
+                </div>
+              ))
+            }
+            <div class="grid-3">
+              {more.map(([title, body]) => <div class="card small-card"><span class="strong">{title}</span><span class="dim">{body}</span></div>)}
+            </div>
+          </div>
+        </section>
+
+        <section id="run" class="band">
+          <div class="wrap stack center">
+            <div class="stack-sm center">
+              <span class="eyebrow">Ways to run</span>
+              <h2 class="serif big">Runs where your work is</h2>
+              <p class="dim lede-sm">Start on your laptop. Move the server to a VM when you want it always on. Bring your team, or run it in Kubernetes.</p>
+            </div>
+            <div class="seg" role="group" aria-label="Choose a setup">
+              {modes.map((mode, i) => <button type="button" data-mode={mode.id} aria-pressed={i === 0 ? "true" : "false"}>{mode.label}</button>)}
+            </div>
+            {
+              modes.map((mode, i) => (
+                <div class="card mode" data-panel={mode.id} hidden={i !== 0}>
+                  <div class="nodes">
+                    {mode.nodes.map((node) => (
+                      <div class="node-wrap">
+                        {node.arrow !== undefined && (
+                          <div class="link-arrow">
+                            <code class="dim">{node.arrow}</code>
+                            <svg width="96" height="12" viewBox="0 0 96 12" aria-hidden="true"><path d="M2 6h88M84 1l6 5-6 5" fill="none" stroke="currentColor" stroke-width="1.5"></path></svg>
+                          </div>
+                        )}
+                        <div class="node">
+                          <span class="dim small">{node.where}</span>
+                          <span class="strong">{node.title}</span>
+                          <span class="dim small">{node.sub}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div class="mode-foot">
+                    <div class="stack-xs">
+                      <span class="strong">{mode.title}</span>
+                      <span class="dim">{mode.body}</span>
+                      <a class="link" href={mode.href}>Set it up</a>
+                    </div>
+                    <pre class="code">{mode.cmd}</pre>
+                  </div>
+                </div>
+              ))
+            }
+          </div>
+        </section>
+
+        <section class="plain">
+          <div class="wrap stack">
+            <h2 class="serif big center">Start in a minute</h2>
+            <div class="grid-3">
+              <div class="card start"><span class="strong">On your laptop</span><span class="dim">Just you. The browser opens signed in.</span><pre class="code">pipoca up</pre><a class="link" href={docs("run/solo/")}>Solo setup</a></div>
+              <div class="card start"><span class="strong">On a VM</span><span class="dim">Always on. Your laptop joins as a runner over SSH.</span><pre class="code">pipoca connect me@my-vm</pre><a class="link" href={docs("run/vm/")}>VM setup</a></div>
+              <div class="card start"><span class="strong">In Kubernetes</span><span class="dim">For a team. Runner pods start on demand.</span><pre class="code">helm install pipoca deploy/helm/pipoca</pre><a class="link" href={docs("run/kubernetes/")}>Kubernetes setup</a></div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div class="wrap foot">
+          <div class="stack-xs grow">
+            <span class="brand"><Mark size={24} /><span class="word small-word">pipoca</span></span>
+            <span class="dim small">Built on <a class="link" href="https://github.com/earendil-works/pi">Pi</a>.</span>
+          </div>
+          <div class="stack-xs">
+            <span class="strong">Docs</span>
+            <a class="dim" href={docs("get-started/quick-start/")}>Quick start</a>
+            <a class="dim" href={docs("run/choosing-a-setup/")}>Ways to run</a>
+            <a class="dim" href={docs("build-plugins/tutorial/")}>Build plugins</a>
+          </div>
+          <div class="stack-xs">
+            <span class="strong">Project</span>
+            <a class="dim" href={repository}>GitHub</a>
+            <a class="dim" href={`${repository}/releases`}>Releases</a>
+            <a class="dim" href={`${repository}/tree/main/docs/adr`}>Decision records</a>
+          </div>
+        </div>
+      </footer>
+    </div>
+
+    <script>
+      const replay = document.querySelector<HTMLElement>(".replay");
+      const stepButtons = [...document.querySelectorAll<HTMLButtonElement>("[data-goto]")];
+      const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      let step = 0;
+      let held = still;
+
+      const show = (next: number) => {
+        step = next;
+        replay?.setAttribute("data-step", String(next));
+        for (const button of stepButtons) {
+          button.setAttribute("aria-pressed", String(button.dataset.goto === String(next)));
+        }
+        for (const element of document.querySelectorAll<HTMLElement>("[data-when]")) {
+          element.hidden = !(element.dataset.when ?? "").split(" ").includes(String(next));
+        }
+      };
+
+      for (const button of stepButtons) {
+        button.addEventListener("click", () => {
+          held = true;
+          show(Number(button.dataset.goto));
+        });
+      }
+
+      show(still ? 2 : 0);
+      setInterval(() => {
+        if (!held && document.visibilityState === "visible") {
+          show((step + 1) % 4);
+        }
+      }, 2600);
+
+      const modeButtons = [...document.querySelectorAll<HTMLButtonElement>("[data-mode]")];
+      for (const button of modeButtons) {
+        button.addEventListener("click", () => {
+          for (const other of modeButtons) {
+            other.setAttribute("aria-pressed", String(other === button));
+          }
+          for (const panel of document.querySelectorAll<HTMLElement>("[data-panel]")) {
+            panel.hidden = panel.dataset.panel !== button.dataset.mode;
+          }
+        });
+      }
+
+      for (const button of document.querySelectorAll<HTMLButtonElement>("[data-copy]")) {
+        button.addEventListener("click", () => {
+          const text = document.getElementById(button.dataset.copy ?? "")?.textContent ?? "";
+          void navigator.clipboard.writeText(text).then(() => {
+            button.setAttribute("aria-label", "Copied");
+          });
+        });
+      }
+    </script>
+  </body>
+</html>
