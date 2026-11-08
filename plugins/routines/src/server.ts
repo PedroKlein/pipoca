@@ -9,6 +9,7 @@ import {
 } from "@pipoca/plugins";
 import { routines } from "../plugin";
 import { routinesEngine } from "./engine";
+import { makingRoutines } from "./making";
 import { groupSchema } from "./group";
 import { defaultMemoryFile } from "./memory";
 import { routineSchema } from "./routine";
@@ -159,29 +160,31 @@ export const server = defineServer(routines, (context) => {
       engine.endRun(session, result, summary.trim()),
   });
 
-  // The agent's way to make and change its person's routines. A routine's
-  // own runs don't get it, so routines can't make routines, and a team
-  // Session doesn't, since the team's are made on the Routines page.
+  // The agent's way to make and change its person's routines, or in team
+  // work such as the Team assistant the team's (ADR 0075). A routine's own
+  // runs don't get it, so routines can't make routines.
   tools.define({
     name: "routines",
     label: "Routines",
     description:
-      "Make and change the user's routines: prompts that run on a schedule, on an event or on a webhook, each time in a new Session of their own or as a message to one Session. Use it when the user asks for something to happen regularly or when something happens. On create, the routine runs once at once as a test. Look at the result with get. For one later check of your own, use schedule_wakeup instead.",
+      "Make and change the user's routines, or the team's in team work: prompts that run on a schedule, on an event or on a webhook, each time in a new Session of their own or as a message to one Session. Use it when the user asks for something to happen regularly or when something happens. On create, the routine runs once at once as a test. Look at the result with get. For one later check of your own, use schedule_wakeup instead.",
     params: routinesTool,
     when: {
-      owner: "person",
+      owner: "any",
       available: (session) => session.plugin?.id !== "routines",
     },
     exposure: "deferred",
     annotations: { readOnly: false, destructive: true },
-    asks: ({ action, name = "", summary = "" }) => {
+    asks: ({ action, name = "", summary = "" }, { owner }) => {
+      const routine = owner === "team" ? "team routine" : "routine";
+
       switch (action) {
         case "create":
-          return `Create the routine “${name}”? ${summary}`.trim();
+          return `Create the ${routine} “${name}”? ${summary}`.trim();
         case "update":
-          return `Change the routine “${name}”? ${summary}`.trim();
+          return `Change the ${routine} “${name}”? ${summary}`.trim();
         case "remove":
-          return `Delete the routine “${name}”?`;
+          return `Delete the ${routine} “${name}”?`;
         case "list":
         case "get":
         case "pause":
@@ -280,6 +283,8 @@ export const server = defineServer(routines, (context) => {
       }
     },
   });
+
+  makingRoutines(context, engine);
 
   routes.get("events", { auth: "person" }, () => context.events.declared());
 
