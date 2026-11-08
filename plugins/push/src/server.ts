@@ -2,6 +2,7 @@ import { createPrivateKey, generateKeyPairSync, sign } from "node:crypto";
 import {
   BadRequest,
   defineServer,
+  type Owner,
   owners,
   type Person,
   type Secrets,
@@ -159,9 +160,17 @@ export const server = defineServer(
       }
     });
 
-    // A routine that paused itself, such as at its daily spend cap, tells
-    // its person, or every admin for the team's (ADR 0076).
-    events.on(routines.events.paused, ({ fields, to }) => {
+    // A routine that paused itself, such as at its daily spend cap, or
+    // whose chain went too deep, tells its person, or every admin for the
+    // team's (ADR 0075, ADR 0076).
+    const tellRoutine = (
+      to: readonly Owner[],
+      notice: {
+        readonly title: string;
+        readonly body: string;
+        readonly tag: string;
+      },
+    ): void => {
       const told = new Set(
         to.flatMap((owner) => {
           const id = owners.personId(owner);
@@ -173,17 +182,24 @@ export const server = defineServer(
       );
 
       for (const id of told) {
-        tell(
-          id,
-          {
-            title: `Routine paused: ${fields.title}`,
-            body: fields.reason,
-            tag: `routines.paused.${fields.name}`,
-            url: "/",
-          },
-          false,
-        );
+        tell(id, { ...notice, url: "/" }, false);
       }
+    };
+
+    events.on(routines.events.paused, ({ fields, to }) => {
+      tellRoutine(to, {
+        title: `Routine paused: ${fields.title}`,
+        body: fields.reason,
+        tag: `routines.paused.${fields.name}`,
+      });
+    });
+
+    events.on(routines.events.chain_stopped, ({ fields, to }) => {
+      tellRoutine(to, {
+        title: `Routine chain stopped: ${fields.title}`,
+        body: fields.reason,
+        tag: `routines.chain_stopped.${fields.name}`,
+      });
     });
 
     // In team work Pi asks a named person, and whoever started the work hears

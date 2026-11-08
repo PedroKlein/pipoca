@@ -85,6 +85,10 @@ export interface Run {
   // While it waits: its open questions, and who they are for, by name.
   readonly questions?: readonly RunQuestion[];
   readonly askedFor?: readonly string[];
+  // What it ended with for the routines that follow it, and how deep in a
+  // chain of runs it is when it follows another (ADR 0075).
+  readonly output?: Readonly<Record<string, unknown>>;
+  readonly depth?: number;
 }
 
 export interface RoutineView {
@@ -99,6 +103,8 @@ export interface RoutineView {
   readonly pausedUntil: string | null;
   readonly nextAt: string | null;
   readonly lastRun: Run | null;
+  // The fields its runs' output has, when it declares them.
+  readonly output?: readonly string[];
 }
 
 export interface RoutineDetail extends RoutineView {
@@ -114,6 +120,10 @@ export interface RoutineDetail extends RoutineView {
   readonly history: readonly Change[];
   // What its runs spent today, in the currency of the server's prices.
   readonly spentToday: number;
+  // The owner's routines whose ended runs start it, and the ones its ended
+  // runs start, by name (ADR 0075).
+  readonly fedBy: readonly string[];
+  readonly feeds: readonly string[];
   // Where a webhook trigger takes deliveries, signed with the secret as
   // sha256=<HMAC-SHA256 of the body in hex>.
   readonly webhook?: { readonly path: string; readonly secret: string };

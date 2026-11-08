@@ -97,7 +97,7 @@ test("draws a routine's message to a Session with the routine's title", () => {
   );
 });
 
-test("a routine's page says why it paused itself, when it resumes and what it spent today", async () => {
+test("a routine's page says why it paused itself, when it resumes, what it spent today and which routines it follows and feeds", async () => {
   const asked: string[] = [];
   // The routines page, as the slot the test renders.
   const slots = { page: web.pages?.[0]?.Page };
@@ -122,6 +122,8 @@ test("a routine's page says why it paused itself, when it resumes and what it sp
     createdBy: null,
     changedBy: null,
     history: [],
+    fedBy: ["triage"],
+    feeds: ["docs", "release"],
   };
 
   const page = renderPart(
@@ -146,6 +148,9 @@ test("a routine's page says why it paused itself, when it resumes and what it sp
   expect(page.textContent).toContain(
     "Spent today: 20.00 of its daily cap of 20",
   );
+
+  expect(page.textContent).toContain("Follows triage");
+  expect(page.textContent).toContain("Followed by docs, release");
 });
 
 test("a run's row shows what it proposed and where each stands, and a waiting one is approved there", async () => {
@@ -206,6 +211,8 @@ test("a run's row shows what it proposed and where each stands, and a waiting on
     createdBy: null,
     changedBy: null,
     history: [],
+    fedBy: [],
+    feeds: [],
   };
 
   const page = renderPart(
@@ -289,6 +296,8 @@ test("a waiting run shows its question and who it is for, and the page who made 
       { by: "Bo", change: "changed", at: "2026-11-08T09:00:00.000Z" },
       { by: "Ana", change: "created", at: "2026-11-07T09:00:00.000Z" },
     ],
+    fedBy: [],
+    feeds: [],
   };
 
   const page = renderPart(

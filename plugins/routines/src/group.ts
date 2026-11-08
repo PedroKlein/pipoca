@@ -104,6 +104,10 @@ export function withGroup(routine: Routine, group: Group | undefined): Routine {
     (routine.do.kind === "session" && routine.do.workspace.kind === "group");
 
   if (group === undefined) {
+    if (routine.coordinator === true) {
+      throw new Error("a coordinator is a group's: put it in one");
+    }
+
     if (usesGroup) {
       throw new Error(
         "the routine names its group's repositories, but it is in no group",
@@ -136,6 +140,21 @@ export function withGroup(routine: Routine, group: Group | undefined): Routine {
             ...(as !== undefined && { as }),
             ...routine.do,
           },
+  };
+}
+
+const defaultAtOnce = 5;
+const defaultAskAbove = 3;
+
+// How many runs a group's coordinator may have going, and start in one turn
+// before it asks.
+export function coordinatorLimitsOf(group: Group | undefined): {
+  readonly atOnce: number;
+  readonly askAbove: number;
+} {
+  return {
+    atOnce: group?.coordinator?.atOnce ?? defaultAtOnce,
+    askAbove: group?.coordinator?.askAbove ?? defaultAskAbove,
   };
 }
 

@@ -33,6 +33,45 @@ export const routines = definePlugin({
         }),
       }),
     }),
+    // ADR 0075: one routine can follow another.
+    run_ended: event({
+      title: "Routine run ended",
+      description:
+        "A run of one of the owner's routines ended, with its summary and output. A routine that follows another names it in a routine condition.",
+      fields: Type.Object({
+        routine: Type.String({ description: "The routine's name" }),
+        title: Type.String(),
+        group: Type.Union([Type.String(), Type.Null()]),
+        outcome: Type.Union([
+          Type.Literal("ok"),
+          Type.Literal("nothing"),
+          Type.Literal("failed"),
+          Type.Literal("blocked"),
+          Type.Literal("stopped"),
+        ]),
+        summary: Type.Union([Type.String(), Type.Null()]),
+        output: Type.Union([
+          Type.Record(Type.String(), Type.Unknown()),
+          Type.Null(),
+        ]),
+        key: Type.String(),
+        run: Type.String(),
+        session: Type.Union([Type.String(), Type.Null()]),
+        depth: Type.Integer({
+          description: "How many runs before it started one another",
+        }),
+      }),
+    }),
+    chain_stopped: event({
+      title: "Routine chain stopped",
+      description:
+        "A run that follows another was skipped, since its chain went deeper than routines may.",
+      fields: Type.Object({
+        name: Type.String(),
+        title: Type.String(),
+        reason: Type.String(),
+      }),
+    }),
   },
   schema: `
 create table routines_state (
@@ -93,6 +132,9 @@ create index routines_wakeups_session on routines_wakeups (session_id, delivered
   // waits on, how a run that waits asked to end, and who changed each
   // routine.
   // 6: groups (ADR 0075) that paused themselves at their daily budget.
+  // 7: chains and coordinators (ADR 0075): how deep in a chain a run is,
+  // the output it ended with, the coordinator's run that started it with
+  // what it asked for, and the question a start waits on.
   migrations: [
     "alter table routines_runs add column inputs text check (inputs is null or json_valid(inputs));",
     "alter table routines_runs add column agent text; alter table routines_runs add column workflow text;",
@@ -174,6 +216,14 @@ create table routines_groups (
   paused_until integer not null
 ) strict;
 create unique index routines_groups_key on routines_groups (coalesce(owner_user_id, ''), name);
+`,
+    `
+alter table routines_runs add column depth integer not null default 0;
+alter table routines_runs add column output text check (output is null or json_valid(output));
+alter table routines_runs add column parent_id text;
+alter table routines_runs add column started text check (started is null or json_valid(started));
+alter table routines_runs add column start_question text;
+create index routines_runs_parent on routines_runs (parent_id) where parent_id is not null;
 `,
   ],
 });
