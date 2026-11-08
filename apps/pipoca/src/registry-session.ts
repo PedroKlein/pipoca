@@ -1,4 +1,6 @@
 // Written by `bun run registries` from plugins/*. Don't edit.
+import { artifacts } from "../../../plugins/artifacts/plugin";
+import { session as artifactsSession } from "../../../plugins/artifacts/src/session";
 import { ask } from "../../../plugins/ask/plugin";
 import { session as askSession } from "../../../plugins/ask/src/session";
 import { changes } from "../../../plugins/changes/plugin";
@@ -21,6 +23,7 @@ import { subagents } from "../../../plugins/subagents/plugin";
 import { session as subagentsSession } from "../../../plugins/subagents/src/session";
 
 export const sessionRegistry = [
+  { id: "artifacts", definition: artifacts, session: artifactsSession },
   { id: "ask", definition: ask, session: askSession },
   { id: "changes", definition: changes, session: changesSession },
   { id: "checklist", definition: checklist, session: checklistSession },

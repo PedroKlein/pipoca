@@ -215,6 +215,20 @@
         "@pipoca/protocol": "workspace:*",
       },
     },
+    "plugins/artifacts": {
+      "name": "@pipoca/artifacts",
+      "dependencies": {
+        "@pipoca/plugins": "workspace:*",
+        "@pipoca/protocol": "workspace:*",
+        "@pipoca/ui": "workspace:*",
+        "marked": "18.1.1",
+        "react": "19.3.1",
+      },
+      "devDependencies": {
+        "@pipoca/testing": "workspace:*",
+        "@types/react": "19.3.0",
+      },
+    },
     "plugins/ask": {
       "name": "@pipoca/ask",
       "dependencies": {
@@ -623,6 +637,8 @@
     "@oven/bun-windows-x64": ["@oven/bun-windows-x64@1.4.3", "", { "os": "win32", "cpu": "x64" }, "sha512-9pV16qXHTFvZDH61S8hpdpVBbWmvEqekczLF54zTnQHKP28D6yRCNLrD/7jVbXYR61fQYAx4FSBgzCxGCKb3rQ=="],
 
     "@pinojs/redact": ["@pinojs/redact@0.4.0", "", {}, "sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg=="],
+
+    "@pipoca/artifacts": ["@pipoca/artifacts@workspace:plugins/artifacts"],
 
     "@pipoca/ask": ["@pipoca/ask@workspace:plugins/ask"],
 

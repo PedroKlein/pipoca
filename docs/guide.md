@@ -80,6 +80,12 @@ Fork, in a session's menu, works like Pi's `/fork`. Pick one of your messages, n
 
 Archive hides a session from the list and stops it on its machine; its transcript stays readable under "Show archived", and Unarchive picks it up again. Archiving a worktree or clone session also deletes its workspace if Git says nothing would be lost: no uncommitted or untracked files, and every commit pushed. Otherwise the workspace is kept and the session shows "unpushed work" until you delete it yourself; Delete workspace says why it was kept. A clean workspace comes back from its pushed branch when you unarchive. Files listed in a `.worktreeinclude` at the checkout root, such as `.env`, are copied into new worktrees if Git ignores them.
 
+### Files and artifacts
+
+What a Session keeps lives on the server, wherever the Session runs ([ADR 0078](adr/0078-artifacts-and-session-files.md)). Pi writes files meant for you in its `outputs/` folder, which is saved after every turn, and gets the files you add in the composer in `uploads/`; both sit in the Session's own folder, outside the workspace, and the Files button in the Session's header downloads them. `files.maxFileBytes` sets the largest file (200 MB by default).
+
+Pi publishes a page, a Markdown document, a picture, a PDF or a CSV table with `publish_artifact`, and a change as a new version at the same link. The chat shows a card that opens it on the Artifacts page, with every version, a restore button, a link to copy and a download. An artifact runs in a sandbox on an opaque origin, so it can't reach Pipoca or your sign-in, and it loads scripts and styles only from `artifacts.scriptHosts` (cdnjs, jsDelivr and unpkg by default). Whoever sees its Session opens it, and whoever steers the Session can share it with named people; Pi can't. Pi finds artifacts with `list_artifacts` and reads one back with `read_artifact`.
+
 ### Server and agent options
 
 Options:
