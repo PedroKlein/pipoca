@@ -1,0 +1,22 @@
+{
+  "name": "@pipoca/artifacts",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./plugin": "./plugin.ts"
+  },
+  "dependencies": {
+    "@pipoca/plugins": "workspace:*",
+    "@pipoca/protocol": "workspace:*",
+    "@pipoca/ui": "workspace:*",
+    "marked": "18.1.1",
+    "react": "19.3.1"
+  },
+  "devDependencies": {
+    "@pipoca/testing": "workspace:*",
+    "@types/react": "19.3.0"
+  },
+  "pipoca": {
+    "entry": "plugin.ts"
+  }
+}

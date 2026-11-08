@@ -1,4 +1,5 @@
 // Written by `bun run registries` from plugins/*. Don't edit.
+import { web as artifactsWeb } from "../../../plugins/artifacts/web/index";
 import { web as askWeb } from "../../../plugins/ask/web/index";
 import { web as changesWeb } from "../../../plugins/changes/web/index";
 import { web as checklistWeb } from "../../../plugins/checklist/web/index";
@@ -18,6 +19,7 @@ import { web as subagentsWeb } from "../../../plugins/subagents/web/index";
 import { web as usageWeb } from "../../../plugins/usage/web/index";
 
 export const webRegistry = [
+  { id: "artifacts", web: artifactsWeb },
   { id: "ask", web: askWeb },
   { id: "changes", web: changesWeb },
   { id: "checklist", web: checklistWeb },

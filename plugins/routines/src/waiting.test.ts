@@ -1,6 +1,4 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { server as askServer } from "@pipoca/ask/server";
 import {
   action,
@@ -393,7 +391,7 @@ async function askedFor(t: PluginTest, name: string): Promise<unknown> {
   return waiting?.askedFor;
 }
 
-test("a team routine's questions are for the person or on-call list it names, or else whoever made it", async () => {
+test("a team routine's questions are for the person or on-call list of its group it names, or else its group's first list, or else whoever made it", async () => {
   await using t = await started();
   const team = teamRoutine();
 
@@ -407,15 +405,12 @@ test("a team routine's questions are for the person or on-call list it names, or
   await t.as("bo").put("team/routines/made", team);
   expect(await askedFor(t, "made")).toEqual(["Bo"]);
 
-  const folder = join(dirname(tracking?.config.dir ?? ""), "routines", "team");
-  mkdirSync(folder, { recursive: true });
+  await t.as("ana").put("team/groups/support", {
+    title: "Support",
+    onCall: { nights: ["bo"], triage: ["ana", "bo"] },
+  });
 
-  writeFileSync(
-    join(folder, "onCall.json"),
-    JSON.stringify({ triage: ["ana", "bo"] }),
-  );
-
-  await t.as("ana").put("team/routines/rota", {
+  await t.as("ana").put("team/routines/rota?group=support", {
     ...team,
     questions: { ask: { onCall: "triage" } },
   });
@@ -426,6 +421,9 @@ test("a team routine's questions are for the person or on-call list it names, or
 
   expect([thisWeek, nextWeek]).toContainEqual(["Ana"]);
   expect([thisWeek, nextWeek]).toContainEqual(["Bo"]);
+
+  await t.as("ana").put("team/routines/first?group=support", team);
+  expect(await askedFor(t, "first")).toEqual(["Bo"]);
 });
 
 test("a team routine's editors alone change or remove it, and its page says who made and changed it", async () => {

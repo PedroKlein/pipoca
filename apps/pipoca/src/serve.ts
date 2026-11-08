@@ -178,6 +178,11 @@ export function serve(options: ServeOptions): {
       ? mkdtempSync(join(tmpdir(), "pipoca-blobs-"))
       : join(dirname(options.database), "blobs");
 
+  const pluginsDataDir =
+    options.database === ":memory:"
+      ? mkdtempSync(join(tmpdir(), "pipoca-plugins-"))
+      : join(dirname(options.database), "plugins");
+
   // The server listens only after its plugins register.
   const runtime = (): Runtime => ({
     command: options.command ?? pipoca,
@@ -454,6 +459,7 @@ export function serve(options: ServeOptions): {
     changes: changes.publish,
     store: store.plugin,
     blobsDir,
+    dataDir: pluginsDataDir,
     dataFailure: store.pluginFailure,
     resetData: store.resetPlugin,
     config,
@@ -495,6 +501,35 @@ export function serve(options: ServeOptions): {
     templates,
     buildsOn: (id) => profiles.buildsOn(id),
     baseProviders: () => providers.list(),
+    profileFiles: {
+      stacked: (personId, id, teamWork) =>
+        teamWork && userProfiles.get(personId, id)?.ownerId !== "team"
+          ? undefined
+          : userProfiles.stacked(personId, id),
+      write: (personId, id, teamWork, files) => {
+        if (teamWork && userProfiles.get(personId, id)?.ownerId !== "team") {
+          throw new Error(`no team Profile ${id}`);
+        }
+
+        const written = userProfiles.writeFiles(
+          personId,
+          id,
+          new Map(
+            Object.entries(files).map(([path, text]) => [
+              path,
+              Buffer.from(text),
+            ]),
+          ),
+          people.userById(personId)?.admin === true,
+        );
+
+        if (!written.ok) {
+          throw new Error(
+            `the Profile ${id} can't be changed: ${written.reason}`,
+          );
+        }
+      },
+    },
     runtime,
     schedules: store.schedules,
     clock,
@@ -651,8 +686,9 @@ export function serve(options: ServeOptions): {
 
       const reply = await own(request, bunServer);
 
-      reply?.headers.set("content-security-policy", "frame-ancestors 'none'");
-      reply?.headers.set("x-frame-options", "DENY");
+      if (reply !== undefined) {
+        framedOnlyHere(reply.headers);
+      }
 
       return reply;
     },
@@ -885,4 +921,21 @@ function thisMachineEnvironment(
   store.environments.updateEnvironment({ ...created, name: "This machine" });
 
   return { environmentId: created.id, folders };
+}
+
+// Other sites never frame Pipoca. A document that runs in a sandbox, on an
+// opaque origin, may be framed by Pipoca's own pages, such as an artifact
+// (ADR 0078).
+function framedOnlyHere(headers: Headers): void {
+  const policy = headers.get("content-security-policy");
+
+  if (policy !== null && /(^|;)\s*sandbox\b/.test(policy)) {
+    headers.set("content-security-policy", `${policy}; frame-ancestors 'self'`);
+    headers.set("x-frame-options", "SAMEORIGIN");
+
+    return;
+  }
+
+  headers.set("content-security-policy", "frame-ancestors 'none'");
+  headers.set("x-frame-options", "DENY");
 }

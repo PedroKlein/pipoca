@@ -4837,6 +4837,51 @@ test("pins the agent's checklist above the composer while it has open steps", as
   await list.waitFor({ state: "hidden" });
 }, 30_000);
 
+test("opens an artifact Pi published, in a sandbox, from its card in the chat", async () => {
+  const folder = join(root, "artifact");
+  await mkdir(folder, { recursive: true });
+
+  await writeFile(
+    join(folder, "report.html"),
+    "<h1>Quarterly report</h1><script>document.body.append(String(window.origin))</script>",
+  );
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("publish_artifact", {
+          path: "report.html",
+          title: "Quarterly report",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("Published the report")]),
+  ]);
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const box = page.locator("#prompt-text");
+  await box.fill("write the report");
+  await box.press("Enter");
+  await page.getByText("Published the report").waitFor();
+
+  const card = page.getByLabel("Artifact Quarterly report");
+  await card.getByText("Version 1").waitFor();
+  await card.getByRole("link", { name: "Open" }).click();
+
+  const frame = page.frameLocator('iframe[title="Quarterly report"]');
+
+  await frame.getByRole("heading", { name: "Quarterly report" }).waitFor();
+  await frame.getByText("null").waitFor();
+}, 30_000);
+
 test("signs out and back in with the password", async () => {
   await page.goto(server.url.href);
   await page.getByRole("button", { name: "Account" }).click();

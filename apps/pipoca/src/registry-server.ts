@@ -1,4 +1,6 @@
 // Written by `bun run registries` from plugins/*. Don't edit.
+import { artifacts } from "../../../plugins/artifacts/plugin";
+import { server as artifactsServer } from "../../../plugins/artifacts/src/server";
 import { ask } from "../../../plugins/ask/plugin";
 import { server as askServer } from "../../../plugins/ask/src/server";
 import { changes } from "../../../plugins/changes/plugin";
@@ -32,6 +34,7 @@ import { usage } from "../../../plugins/usage/plugin";
 import { server as usageServer } from "../../../plugins/usage/src/server";
 
 export const serverRegistry = [
+  { id: "artifacts", definition: artifacts, server: artifactsServer },
   { id: "ask", definition: ask, server: askServer },
   { id: "changes", definition: changes },
   { id: "checklist", definition: checklist },
