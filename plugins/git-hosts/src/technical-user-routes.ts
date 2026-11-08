@@ -24,6 +24,7 @@ import {
   appManifest,
   botLogin,
   convertManifest,
+  hearsWebhooks,
   installationsOf,
   isApp,
   type TechnicalUser,
@@ -166,10 +167,11 @@ export function technicalUserRoutes(
       const state = randomBytes(32).toString("base64url");
       const hook = randomBytes(16).toString("hex");
 
-      // The host sends events only to an address it can reach, which a
-      // server on a laptop's http doesn't have.
-      const reachable = new URL(urls.public("")).protocol === "https:";
-      const manifest = appManifest(name, urls, reachable ? hook : undefined);
+      const manifest = appManifest(
+        name,
+        urls,
+        hearsWebhooks(urls) ? hook : undefined,
+      );
 
       const target = `https://${host.host}${organization === "" ? "" : `/organizations/${organization}`}/settings/apps/new?state=${state}`;
 

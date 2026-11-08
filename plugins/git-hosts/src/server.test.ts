@@ -68,6 +68,97 @@ interface Pull {
   held: Promise<void> | undefined;
 }
 
+type Item = Record<string, unknown>;
+
+// acme/aicore-bot, which the App is installed on, as polling reads it. Each
+// list answers 304 to the ETag it last gave.
+function polledRepository() {
+  const repo = {
+    issues: [] as Item[],
+    pulls: new Map<number, Item>(),
+    reviews: new Map<number, Item[]>(),
+    comments: [] as Item[],
+    reviewComments: [] as Item[],
+    branches: { main: "aaa" } as Record<string, string>,
+    compares: new Map<string, Item[]>(),
+    tags: [] as string[],
+    releases: [] as Item[],
+    deployments: [] as Item[],
+    checkRuns: new Map<string, Item[]>(),
+    // Each read, with what it answered.
+    answered: [] as string[],
+  };
+
+  const since = (items: Item[], url: URL): Item[] => {
+    const from = Date.parse(url.searchParams.get("since") ?? "");
+
+    return items.filter(
+      (item) => Date.parse(String(item["updated_at"])) >= from,
+    );
+  };
+
+  const bodyOf = (url: URL): unknown => {
+    const path = url.pathname.slice("/api/v3/repos/acme/aicore-bot".length);
+    const number = Number(/\/(\d+)/.exec(path)?.[1]);
+
+    switch (path) {
+      case "/issues":
+        return since(repo.issues, url);
+      case "/issues/comments":
+        return since(repo.comments, url);
+      case "/pulls/comments":
+        return since(repo.reviewComments, url);
+      case "/branches":
+        return Object.entries(repo.branches).map(([name, sha]) => ({
+          name,
+          commit: { sha },
+        }));
+      case "/tags":
+        return repo.tags.map((name) => ({ name }));
+      case "/releases":
+        return repo.releases;
+      case "/deployments":
+        return repo.deployments;
+      case `/pulls/${String(number)}`:
+        return repo.pulls.get(number);
+      case `/pulls/${String(number)}/reviews`:
+        return repo.reviews.get(number) ?? [];
+    }
+
+    const compared = /^\/compare\/(.+)$/.exec(path)?.[1];
+
+    if (compared !== undefined) {
+      return { files: repo.compares.get(compared) ?? [], commits: [] };
+    }
+
+    const sha = /^\/commits\/(\w+)\/check-runs$/.exec(path)?.[1];
+
+    return sha === undefined
+      ? undefined
+      : { check_runs: repo.checkRuns.get(sha) ?? [] };
+  };
+
+  const answer = (request: Request): Response => {
+    const url = new URL(request.url);
+    const body = bodyOf(url);
+
+    if (body === undefined) {
+      return Response.json({ message: "Not Found" }, { status: 404 });
+    }
+
+    const etag = `"${String(Bun.hash(JSON.stringify(body)))}"`;
+    const same = request.headers.get("if-none-match") === etag;
+
+    repo.answered.push(`${same ? "304" : "200"} ${url.pathname}`);
+
+    return same
+      ? new Response(null, { status: 304 })
+      : Response.json(body, { headers: { etag } });
+  };
+
+  return { repo, answer };
+}
+
 // The host's REST API, which knows one person's token and one App.
 function fakeHost(now: () => number) {
   const pull: Pull = {
@@ -80,6 +171,7 @@ function fakeHost(now: () => number) {
     held: undefined,
   };
 
+  const polled = polledRepository();
   const asked: string[] = [];
   // The token each read of the pull request came with.
   const readWith: string[] = [];
@@ -139,8 +231,22 @@ function fakeHost(now: () => number) {
         return Response.json({ id: 99, login: "pipoca-bot[bot]" });
       case "/api/v3/installation/repositories":
         return authorization === "Bearer ghs_installation"
-          ? Response.json({ repositories: [repository("acme/aicore-bot")] })
+          ? Response.json({
+              repositories: [
+                {
+                  ...(repository("acme/aicore-bot") as Item),
+                  default_branch: "main",
+                },
+              ],
+            })
           : Response.json({ message: "Bad credentials" }, { status: 401 });
+    }
+
+    if (
+      authorization === "Bearer ghs_installation" &&
+      url.pathname.startsWith("/api/v3/repos/acme/aicore-bot/")
+    ) {
+      return polled.answer(request);
     }
 
     if (
@@ -244,7 +350,7 @@ function fakeHost(now: () => number) {
     }
   };
 
-  return { pull, asked, readWith, answer };
+  return { pull, asked, readWith, answer, repo: polled.repo };
 }
 
 type Config = NonNullable<TestPluginOptions<typeof gitHosts>["config"]>;
@@ -1684,4 +1790,392 @@ test("makes a GitHub App created in server setup the host's team bot, and comes 
   expect(await t.as("pedro").get("technical-users")).toMatchObject([
     { name: "pipoca-bot", kind: "app", team: true },
   ]);
+});
+
+const polledNames = [
+  "issue",
+  "comment",
+  "pull_request",
+  "review",
+  "check",
+  "push",
+  "release",
+  "tag",
+  "deployment",
+] as const;
+
+// How many of each event the App published, by name.
+function published(t: PluginTest): Record<string, number> {
+  return Object.fromEntries(
+    polledNames.map((name) => [name, t.emitted(`git-hosts.${name}`).length]),
+  );
+}
+
+function fieldsOf(t: PluginTest, name: string): unknown[] {
+  return t.emitted(`git-hosts.${name}`).map(({ fields }) => fields);
+}
+
+async function hookOf(t: PluginTest): Promise<string> {
+  const { technicalUsers } = (await t.config()) as {
+    technicalUsers: { app: { hook: string } }[];
+  };
+
+  return technicalUsers[0]?.app.hook ?? "";
+}
+
+async function deliverHook(
+  t: PluginTest,
+  kind: string,
+  payload: Record<string, unknown>,
+): Promise<number> {
+  const body = JSON.stringify({
+    repository: { full_name: "acme/aicore-bot" },
+    sender: { login: "pedro-gh" },
+    ...payload,
+  });
+
+  const answered = await t.public().raw(`hooks/${await hookOf(t)}`, {
+    method: "POST",
+    headers: {
+      "x-github-event": kind,
+      "x-github-delivery": crypto.randomUUID(),
+      "x-hub-signature-256": `sha256=${createHmac("sha256", "hook-secret").update(body).digest("hex")}`,
+    },
+    body,
+  });
+
+  return answered.status;
+}
+
+const app = {
+  host,
+  repository: "acme/aicore-bot",
+  technicalUser: "pipoca-bot",
+};
+
+test("adds a push's changed paths, once each, and publishes tags, releases and deployments from an App's webhooks", async () => {
+  await using run = await start();
+  const { t } = run;
+
+  await createApp(t);
+
+  const pushed = await deliverHook(t, "push", {
+    ref: "refs/heads/main",
+    after: "bbb",
+    commits: [
+      { added: ["docs/new.md"], modified: ["src/a.ts"], removed: [] },
+      { added: [], modified: ["src/a.ts", "README.md"], removed: ["old.txt"] },
+    ],
+  });
+
+  expect(pushed).toBe(202);
+
+  await deliverHook(t, "push", { ref: "refs/tags/v1.2.0", after: "bbb" });
+  await deliverHook(t, "create", { ref: "v1.2.0", ref_type: "tag" });
+  await deliverHook(t, "create", { ref: "topic", ref_type: "branch" });
+
+  await deliverHook(t, "release", {
+    action: "published",
+    release: {
+      id: 9,
+      tag_name: "v1.2.0",
+      name: "1.2.0",
+      body: "Faster start.",
+      html_url: `https://${host}/acme/aicore-bot/releases/tag/v1.2.0`,
+      prerelease: false,
+      author: { login: "pedro-gh" },
+    },
+  });
+
+  await deliverHook(t, "deployment", {
+    action: "created",
+    deployment: {
+      id: 21,
+      environment: "production",
+      ref: "main",
+      sha: "bbb",
+      description: "Ship it",
+    },
+  });
+
+  const sent = { ...app, sender: "pedro-gh" };
+
+  expect(fieldsOf(t, "push")).toEqual([
+    {
+      ...sent,
+      action: "",
+      branch: "main",
+      sha: "bbb",
+      paths: ["README.md", "docs/new.md", "old.txt", "src/a.ts"],
+    },
+  ]);
+
+  expect(fieldsOf(t, "tag")).toEqual([
+    { ...sent, action: "created", tag: "v1.2.0" },
+  ]);
+
+  expect(fieldsOf(t, "release")).toEqual([
+    {
+      ...sent,
+      action: "published",
+      tag: "v1.2.0",
+      title: "1.2.0",
+      body: "Faster start.",
+      url: `https://${host}/acme/aicore-bot/releases/tag/v1.2.0`,
+      prerelease: false,
+      author: "pedro-gh",
+    },
+  ]);
+
+  expect(t.emitted("git-hosts.deployment")).toEqual([
+    {
+      fields: {
+        ...sent,
+        action: "created",
+        id: 21,
+        environment: "production",
+        ref: "main",
+        sha: "bbb",
+        description: "Ship it",
+      },
+      to: [person("pedro")],
+    },
+  ]);
+});
+
+test("polls an App the host can't send webhooks to and publishes each event once, asking again with ETags", async () => {
+  await using run = await start();
+  const { t, fake } = run;
+  const { repo } = fake;
+
+  await createApp(t);
+  await t.clock.advance("60s");
+
+  // The first poll only notes where things are.
+  expect(fake.asked).toContain("GET /api/v3/repos/acme/aicore-bot/branches");
+
+  expect(Object.values(published(t))).toEqual(polledNames.map(() => 0));
+
+  const at = new Date(t.clock.now()).toISOString();
+  const issueUrl = `https://${host}/acme/aicore-bot/issues/3`;
+  const member = { user: { login: "ana-gh" }, author_association: "MEMBER" };
+
+  repo.issues.push(
+    {
+      ...member,
+      number: 3,
+      title: "Start is slow",
+      body: "2 s",
+      html_url: issueUrl,
+      labels: [{ name: "pipoca" }],
+      created_at: at,
+      updated_at: at,
+      closed_at: null,
+    },
+    {
+      number: 4,
+      pull_request: {},
+      created_at: "2020-01-01T00:00:00Z",
+      updated_at: at,
+      closed_at: at,
+    },
+  );
+
+  repo.pulls.set(4, {
+    ...member,
+    number: 4,
+    title: "Lazy load",
+    body: "",
+    html_url: `https://${host}/acme/aicore-bot/pull/4`,
+    head: { ref: "lazy" },
+    base: { ref: "main" },
+    merged: true,
+    labels: [],
+    created_at: "2020-01-01T00:00:00Z",
+    updated_at: at,
+    closed_at: at,
+  });
+
+  repo.reviews.set(4, [
+    {
+      ...member,
+      id: 70,
+      state: "APPROVED",
+      body: "",
+      html_url: `https://${host}/acme/aicore-bot/pull/4#review-70`,
+      submitted_at: at,
+    },
+  ]);
+
+  repo.comments.push({
+    ...member,
+    id: 11,
+    body: "/pipoca look at this",
+    html_url: `${issueUrl}#issuecomment-11`,
+    issue_url: `${api}/repos/acme/aicore-bot/issues/3`,
+    created_at: at,
+    updated_at: at,
+  });
+
+  repo.branches["main"] = "bbb";
+
+  repo.compares.set("aaa...bbb", [
+    { filename: "docs/start.md", status: "modified" },
+    {
+      filename: "src/load.ts",
+      status: "renamed",
+      previous_filename: "src/boot.ts",
+    },
+  ]);
+
+  repo.checkRuns.set("bbb", [
+    {
+      id: 5,
+      name: "test",
+      status: "completed",
+      conclusion: "failure",
+      head_sha: "bbb",
+      html_url: "https://ci.example/5",
+      pull_requests: [],
+    },
+  ]);
+
+  repo.tags.push("v1.2.0");
+
+  repo.releases.push({
+    id: 9,
+    tag_name: "v1.2.0",
+    name: "1.2.0",
+    body: "",
+    html_url: `https://${host}/acme/aicore-bot/releases/tag/v1.2.0`,
+    draft: false,
+    prerelease: false,
+    author: { login: "ana-gh" },
+  });
+
+  repo.deployments.push({
+    id: 21,
+    environment: "production",
+    ref: "main",
+    sha: "bbb",
+    description: "",
+    creator: { login: "ana-gh" },
+  });
+
+  await t.clock.advance("60s");
+
+  expect(published(t)).toEqual({
+    issue: 1,
+    comment: 1,
+    pull_request: 1,
+    review: 1,
+    check: 1,
+    push: 1,
+    release: 1,
+    tag: 1,
+    deployment: 1,
+  });
+
+  expect(fieldsOf(t, "issue")).toEqual([
+    {
+      ...app,
+      action: "opened",
+      sender: "ana-gh",
+      author: "ana-gh",
+      member: true,
+      number: 3,
+      title: "Start is slow",
+      body: "2 s",
+      url: issueUrl,
+      labels: ["pipoca"],
+      label: "",
+    },
+  ]);
+
+  expect(fieldsOf(t, "pull_request")).toMatchObject([
+    { action: "closed", number: 4, merged: true, branch: "lazy" },
+  ]);
+
+  expect(fieldsOf(t, "review")).toMatchObject([
+    { action: "submitted", number: 4, state: "approved" },
+  ]);
+
+  expect(fieldsOf(t, "comment")).toMatchObject([
+    { action: "created", number: 3, pullRequest: false, command: "/pipoca" },
+  ]);
+
+  expect(fieldsOf(t, "push")).toMatchObject([
+    {
+      branch: "main",
+      sha: "bbb",
+      paths: ["docs/start.md", "src/boot.ts", "src/load.ts"],
+    },
+  ]);
+
+  expect(fieldsOf(t, "check")).toMatchObject([
+    { action: "completed", conclusion: "failure", branch: "main", sha: "bbb" },
+  ]);
+
+  expect(fieldsOf(t, "tag")).toMatchObject([
+    { action: "created", tag: "v1.2.0" },
+  ]);
+
+  expect(fieldsOf(t, "release")).toMatchObject([{ action: "published" }]);
+
+  expect(fieldsOf(t, "deployment")).toMatchObject([
+    { id: 21, sender: "ana-gh" },
+  ]);
+
+  // Nothing new: every list answers 304, and nothing is published again.
+  repo.answered.length = 0;
+  await t.clock.advance("60s");
+
+  expect(published(t)).toMatchObject({ issue: 1, comment: 1, push: 1 });
+  expect(repo.answered.length).toBeGreaterThanOrEqual(7);
+  expect(repo.answered.filter((each) => !each.startsWith("304"))).toEqual([]);
+});
+
+test("publishes an event an App's webhook and its poll both tell only once", async () => {
+  await using run = await start();
+  const { t, fake } = run;
+
+  await createApp(t);
+  await t.clock.advance("60s");
+
+  const at = new Date(t.clock.now()).toISOString();
+
+  const issue = {
+    number: 3,
+    title: "Start is slow",
+    body: "",
+    html_url: `https://${host}/acme/aicore-bot/issues/3`,
+    user: { login: "ana-gh" },
+    author_association: "MEMBER",
+    labels: [],
+    created_at: at,
+    updated_at: at,
+    closed_at: null,
+  };
+
+  // The host delivers it again, as it does when an answer is slow.
+  for (const _ of [1, 2]) {
+    expect(await deliverHook(t, "issues", { action: "opened", issue })).toBe(
+      202,
+    );
+  }
+
+  expect(
+    await deliverHook(t, "push", {
+      ref: "refs/heads/main",
+      after: "bbb",
+      commits: [],
+    }),
+  ).toBe(202);
+
+  fake.repo.issues.push(issue);
+  fake.repo.branches["main"] = "bbb";
+  await t.clock.advance("60s");
+
+  expect(fieldsOf(t, "issue")).toMatchObject([{ action: "opened", number: 3 }]);
+  expect(fieldsOf(t, "push")).toMatchObject([{ branch: "main", sha: "bbb" }]);
 });
