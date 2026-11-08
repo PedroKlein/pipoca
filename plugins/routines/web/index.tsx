@@ -1,6 +1,5 @@
 import {
   defineWeb,
-  href as pageHref,
   type MountedSession,
   SessionView,
   useApi,
@@ -36,25 +35,22 @@ import type {
   RoutineDetail,
   RoutineView,
   Run,
-  RunOutcome,
   WakeUp,
 } from "../src/model";
 import type { Routine } from "../src/routine";
+import {
+  changes,
+  failureOf,
+  groupPage,
+  OutcomeBadge,
+  pageAt,
+  type Scope,
+  summaryOf,
+  teams,
+  yours,
+} from "./common";
+import { GroupPage, GroupPicker, Groups, ImportGroup } from "./groups";
 import { starters } from "./starters";
-
-const changes = ["routines"];
-
-// The address of a path inside the routines page, "" for the page.
-const pageAt = (path: string): string => pageHref(routines, path);
-
-// A person's own routines, or the team's, which anyone on the team makes
-// and changes (ADR 0067). The team's routes and pages start with team/.
-interface Scope {
-  readonly prefix: "" | "team/";
-}
-
-const yours: Scope = { prefix: "" };
-const teams: Scope = { prefix: "team/" };
 
 // Routines, a Session's pending wake-ups above its composer, and the notice
 // each wake-up sends when it comes (ADR 0059).
@@ -96,6 +92,14 @@ function RoutinesPage({ path }: { readonly path: string }): ReactElement {
     return <RoutineList />;
   }
 
+  if (name.startsWith(groupPage)) {
+    const group = name.slice(groupPage.length);
+
+    return (
+      <GroupPage key={`${scope.prefix}${group}`} scope={scope} name={group} />
+    );
+  }
+
   if (sessionId !== undefined) {
     return <RunSession scope={scope} name={name} sessionId={sessionId} />;
   }
@@ -121,6 +125,17 @@ function RoutineList(): ReactElement {
       description="A routine runs a prompt on a schedule, each time in a new Session of its own, or as a message to one of your Sessions. Ask the assistant to make one, or write its JSON here."
       actions={
         <>
+          <a href={pageAt(`${groupPage}new`)} className={buttonClass()}>
+            New group
+          </a>
+          {team.length > 0 && (
+            <a
+              href={pageAt(`${teams.prefix}${groupPage}new`)}
+              className={buttonClass()}
+            >
+              New team group
+            </a>
+          )}
           {team.length > 0 && (
             <a href={pageAt(`${teams.prefix}new`)} className={buttonClass()}>
               New team routine
@@ -135,8 +150,12 @@ function RoutineList(): ReactElement {
         </>
       }
     >
+      <Groups scope={yours} title="Your groups" />
       <Routines scope={yours} title="Yours" />
+      {team.length > 0 && <Groups scope={teams} title="The team's groups" />}
       {team.length > 0 && <Routines scope={teams} title="The team's" />}
+      <ImportGroup scope={yours} />
+      {team.length > 0 && <ImportGroup scope={teams} />}
     </Page>
   );
 }
@@ -234,10 +253,6 @@ function startText(index: number): string {
   return `${JSON.stringify(starters[index]?.routine ?? {}, null, 2)}\n`;
 }
 
-function failureOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function RoutinePage({
   scope,
   name,
@@ -292,6 +307,17 @@ function RoutinePage({
       {routine !== undefined && (
         <div className="flex flex-col gap-3">
           <p className="text-ui text-fg-dim">{summaryOf(routine)}</p>
+          {routine.group !== undefined && (
+            <p className="text-ui text-fg-dim">
+              In the group{" "}
+              <a
+                href={pageAt(`${scope.prefix}${groupPage}${routine.group}`)}
+                className="text-fg underline"
+              >
+                {routine.group}
+              </a>
+            </p>
+          )}
           {routine.routine?.limits?.dailySpend !== undefined && (
             <p className="text-ui text-fg-dim">
               Spent today: {routine.spentToday.toFixed(2)} of its daily cap of{" "}
@@ -385,6 +411,7 @@ function RoutinePage({
           api={api}
           scope={scope}
           name={creating ? undefined : name}
+          group={routine?.group ?? ""}
           text={
             routine?.routine === undefined
               ? (routine?.file ?? startText(0))
@@ -481,16 +508,19 @@ function Editor({
   api,
   scope,
   name,
+  group: initialGroup,
   text: initial,
   onSaved,
 }: {
   readonly api: TypedClient;
   readonly scope: Scope;
   readonly name: string | undefined;
+  readonly group: string;
   readonly text: string;
   readonly onSaved: (name: string) => void;
 }): ReactElement {
   const [text, setText] = useState(initial);
+  const [group, setGroup] = useState(initialGroup);
   const [newName, setNewName] = useState("");
   const [failure, setFailure] = useState<string>();
 
@@ -507,7 +537,10 @@ function Editor({
     }
 
     api
-      .put(`${scope.prefix}routines/${encodeURIComponent(target)}`, value)
+      .put(
+        `${scope.prefix}routines/${encodeURIComponent(target)}?group=${encodeURIComponent(group)}`,
+        value,
+      )
       .then(
         () => {
           onSaved(target);
@@ -553,6 +586,7 @@ function Editor({
           }}
         />
       )}
+      <GroupPicker api={api} scope={scope} value={group} onChange={setGroup} />
       <TextArea
         aria-label="Routine JSON"
         rows={14}
@@ -939,46 +973,6 @@ function RunSession({
       }
     />
   );
-}
-
-const outcomes: Readonly<
-  Record<RunOutcome, { readonly state: BadgeState; readonly label: string }>
-> = {
-  running: { state: "working", label: "Running" },
-  waiting: { state: "waiting", label: "Waiting for a person" },
-  queued: { state: "waiting", label: "Queued" },
-  ok: { state: "done", label: "Done" },
-  nothing: { state: "offline", label: "Nothing to do" },
-  stopped: { state: "offline", label: "Stopped" },
-  failed: { state: "failed", label: "Failed" },
-  skipped: { state: "offline", label: "Skipped" },
-  blocked: { state: "failed", label: "Blocked" },
-};
-
-function OutcomeBadge({
-  outcome,
-}: {
-  readonly outcome: RunOutcome;
-}): ReactElement {
-  const { state, label } = outcomes[outcome];
-
-  return <Badge state={state}>{label}</Badge>;
-}
-
-function summaryOf(routine: RoutineView): string {
-  if (routine.error !== undefined) {
-    return "Doesn't load";
-  }
-
-  if (routine.paused !== null) {
-    return routine.pausedUntil === null
-      ? routine.paused
-      : `${routine.paused} Resumes ${new Date(routine.pausedUntil).toLocaleString()}.`;
-  }
-
-  return routine.nextAt === null
-    ? "Nothing scheduled"
-    : `Next run ${new Date(routine.nextAt).toLocaleString()}`;
 }
 
 function PendingWakeUps({

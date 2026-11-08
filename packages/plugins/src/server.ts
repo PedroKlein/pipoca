@@ -575,6 +575,20 @@ interface PluginProfiles {
   // The model providers the base Profile's packages register, as the
   // server last listed them with no logins (ADR 0044).
   readonly baseProviders: () => readonly RegisteredProvider[];
+  // A Profile's files with every layer under it, as text by path, when the
+  // person sees it. Team work sees only team Profiles.
+  readonly stacked: (
+    personId: string,
+    profileId: string,
+    team: boolean,
+  ) => Readonly<Record<string, string>> | undefined;
+  // Writes files into a Profile the person may change, or throws why not.
+  readonly write: (
+    personId: string,
+    profileId: string,
+    team: boolean,
+    files: Readonly<Record<string, string>>,
+  ) => void;
 }
 
 // A run that applies a proposal: its Session, whose identity the action
@@ -693,6 +707,9 @@ export interface ServerContext<P extends PluginDefinition = PluginDefinition> {
   readonly secrets: Secrets;
   readonly environments: PluginEnvironments;
   readonly profiles: PluginProfiles;
+  // A folder of the plugin's own with the server's data, for files it
+  // writes as it works. It may not exist yet.
+  readonly dataDir: string;
   readonly clock: Clock;
   // The server's environment variables, such as a chart sets.
   readonly env: (name: string) => string | undefined;

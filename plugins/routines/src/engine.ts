@@ -18,21 +18,32 @@ import {
   owners,
   type ServerContext,
   type Session,
-  Type,
 } from "@pipoca/plugins";
 import type { Question } from "@pipoca/protocol";
 import { usage } from "@pipoca/usage/plugin";
-import { Value } from "typebox/value";
 import type { routines } from "../plugin";
 import { dayAfter, dayOf } from "./cron";
+import {
+  firstOnCall,
+  type Group,
+  groupFile,
+  groupOf,
+  groupRepositories,
+  withGroup,
+} from "./group";
+import { groupMemory } from "./memory";
 import type {
   Change,
+  GroupDetail,
+  GroupView,
+  Imported,
   Proposal,
   RoutineDetail,
   RoutineView,
   Run,
   RunOutcome,
   RunResult,
+  WorkItem,
 } from "./model";
 import { type Proposed, proposals, type ProposingRun } from "./proposals";
 import {
@@ -91,7 +102,17 @@ const technicalUsers = "git-hosts";
 
 // The tools a run started as an agent keeps whatever the agent names
 // (ADR 0075).
-const runTools = ["end_run", "ask_user", "propose"];
+const runTools = ["end_run", "ask_user", "propose", "memory"];
+
+// The agents every run finds without a Profile (ADR 0075).
+const builtInAgents = ["scout", "worker", "reviewer", "delegate"];
+
+// What an exported group's archive says about itself.
+const manifestFile = "pipoca-group.json";
+
+// A group's board shows this many pieces of work, each with its newest runs.
+const workShown = 50;
+const runsPerWork = 5;
 
 // Events that fired nothing are kept this long, for test on save (ADR 0076).
 const heardKeptMs = 7 * 24 * 60 * 60_000;
@@ -116,13 +137,29 @@ type Context = Pick<
   | "blobs"
   | "people"
   | "questions"
+  | "dataDir"
+  | "profiles"
 >;
 
 interface Loaded {
   readonly owner: Owner;
   readonly name: string;
   readonly version: string;
+  readonly file: string;
+  // The group it is in, by its folder's name.
+  readonly group?: string;
+  // As its runs go, with its group's defaults, and as the file holds it.
   readonly routine?: Routine;
+  readonly raw?: Routine;
+  readonly error?: string;
+}
+
+interface LoadedGroup {
+  readonly owner: Owner;
+  readonly name: string;
+  // Its group.json as it is on disk.
+  readonly text: string;
+  readonly group?: Group;
   readonly error?: string;
 }
 
@@ -175,14 +212,10 @@ interface Ending {
   readonly summary: string;
 }
 
-// A team's on-call lists, each a rotation of people by ISO week, in its
-// folder's onCall.json. Groups will hold them (ADR 0076).
-const onCallLists = Type.Record(
-  Type.String(),
-  Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
-);
-
-const onCallFile = "onCall.json";
+interface GroupPause {
+  readonly paused_reason: string | null;
+  readonly paused_until: number | null;
+}
 
 interface HookRow {
   readonly id: string;
@@ -236,18 +269,57 @@ const expireKey = ({ owner, name }: Firing): string =>
 const resumeKey = ({ owner, name }: Firing): string =>
   `resume:${owner}:${name}`;
 
+const groupResumeKey = ({ owner, name }: Firing): string =>
+  `group-resume:${owner}:${name}`;
+
 export interface Routines {
   readonly list: (owner: Owner) => readonly RoutineView[];
   readonly get: (owner: Owner, name: string) => RoutineDetail;
   // Saves the routine. A new event routine then runs once on the newest
   // event it would have fired on, and that run is returned (ADR 0076).
   // by is the person who saves it, when one does.
+  // into puts it in a group, or in none with "", and leaves it where it is
+  // when undefined.
   readonly save: (
     owner: Owner,
     name: string,
     value: unknown,
     by?: string,
+    into?: string,
   ) => Run | undefined;
+  readonly groups: (owner: Owner) => readonly GroupView[];
+  readonly group: (owner: Owner, name: string) => GroupDetail;
+  readonly saveGroup: (
+    owner: Owner,
+    name: string,
+    value: unknown,
+    by?: string,
+  ) => void;
+  readonly removeGroup: (owner: Owner, name: string, by?: string) => void;
+  readonly resumeGroup: (owner: Owner, name: string) => void;
+  readonly exportGroup: (
+    owner: Owner,
+    name: string,
+    personId: string,
+  ) => Promise<Uint8Array>;
+  readonly importGroup: (
+    owner: Owner,
+    bytes: Uint8Array,
+    profile: string,
+    personId: string,
+  ) => Promise<Imported>;
+  // The memory of the group a run's Session is in, and a note added to it.
+  readonly memory: (session: Session) =>
+    | {
+        readonly group: string;
+        readonly files: Readonly<Record<string, string>>;
+      }
+    | undefined;
+  readonly remember: (
+    session: Session,
+    file: string,
+    note: string,
+  ) => Readonly<Record<string, string>>;
   readonly remove: (owner: Owner, name: string, by?: string) => void;
   readonly runNow: (
     owner: Owner,
@@ -316,6 +388,7 @@ export function routinesEngine(context: Context): Routines {
   const startedAt = clock.now();
   const sql = owners.toSql;
   let loaded = new Map<string, Loaded>();
+  let groups = new Map<string, LoadedGroup>();
   const listening = new Set<string>();
   const idOf = sessionKey;
 
@@ -323,8 +396,16 @@ export function routinesEngine(context: Context): Routines {
     routes.topic("routines");
   };
 
-  const fileOf = (owner: Owner, name: string) =>
-    join(config.dir, folderOf(owner), `${name}.json`);
+  const groupDirOf = (owner: Owner, group: string) =>
+    join(config.dir, folderOf(owner), group);
+
+  const groupOfRoutine = (each: Loaded | undefined): LoadedGroup | undefined =>
+    each?.group === undefined
+      ? undefined
+      : groups.get(idOf(each.owner, each.group));
+
+  const memoryOf = (owner: Owner, group: string) =>
+    groupMemory(join(context.dataDir, "groups", folderOf(owner), group));
 
   const stateOf = (owner: Owner, name: string): StateRow | undefined =>
     store.get<StateRow>(
@@ -372,14 +453,40 @@ export function routinesEngine(context: Context): Routines {
     return next;
   };
 
+  const groupPauseOf = (
+    owner: Owner,
+    group: string | undefined,
+  ): GroupPause | undefined =>
+    group === undefined
+      ? undefined
+      : store.get<GroupPause>(
+          "select paused_reason, paused_until from routines_groups where owner_user_id is ? and name = ?",
+          sql(owner),
+          group,
+        );
+
+  // A routine is paused itself, or with its group.
+  const pauseOf = (owner: Owner, name: string): GroupPause | undefined => {
+    const state = stateOf(owner, name);
+
+    return state?.paused_reason === null || state === undefined
+      ? groupPauseOf(owner, loaded.get(idOf(owner, name))?.group)
+      : state;
+  };
+
   const pausedOf = (owner: Owner, name: string): string | null =>
-    stateOf(owner, name)?.paused_reason ?? null;
+    pauseOf(owner, name)?.paused_reason ?? null;
 
   const pausedUntilOf = (owner: Owner, name: string): string | null => {
-    const until = stateOf(owner, name)?.paused_until ?? null;
+    const until = pauseOf(owner, name)?.paused_until ?? null;
 
     return until === null ? null : new Date(until).toISOString();
   };
+
+  const membersOf = (owner: Owner, group: string): Loaded[] =>
+    [...loaded.values()].filter(
+      (each) => each.owner === owner && each.group === group,
+    );
 
   // Pauses the routine on its own, once, and tells its owner. A pause with
   // an end lifts itself then.
@@ -427,6 +534,57 @@ export function routinesEngine(context: Context): Routines {
     changed();
   };
 
+  // Pauses the group, once, and its routines with it, and tells its owner.
+  const pauseGroup = (group: LoadedGroup, reason: string, until: number) => {
+    const { changes } = store.run(
+      "insert into routines_groups (owner_user_id, name, paused_at, paused_reason, paused_until) values (?, ?, ?, ?, ?) on conflict do nothing",
+      sql(group.owner),
+      group.name,
+      clock.now(),
+      reason,
+      until,
+    );
+
+    if (changes === 0) {
+      return;
+    }
+
+    for (const each of membersOf(group.owner, group.name)) {
+      schedule.cancel(firingKey(each));
+      schedule.cancel(expireKey(each));
+    }
+
+    schedule.at(groupResumeKey(group), until, {
+      owner: group.owner,
+      name: group.name,
+    } satisfies Firing);
+
+    log("routine group paused", {
+      owner: group.owner,
+      name: group.name,
+      reason,
+    });
+
+    context.events.emit(
+      "paused",
+      {
+        name: group.name,
+        title: group.group?.title ?? group.name,
+        reason,
+        until: new Date(until).toISOString(),
+      },
+      { to: [group.owner] },
+    );
+
+    changed();
+  };
+
+  const groupSpentToday = (owner: Owner, group: string): number =>
+    membersOf(owner, group).reduce(
+      (sum, each) => sum + spentToday(owner, each.name),
+      0,
+    );
+
   const spentToday = (owner: Owner, name: string): number =>
     (store.get<{ micros: number }>(
       "select micros from routines_spend where owner_user_id is ? and name = ? and day = ?",
@@ -460,6 +618,25 @@ export function routinesEngine(context: Context): Routines {
         each.name,
         `Paused until tomorrow: it spent ${spent.toFixed(2)} today, and its daily cap is ${String(cap)}.`,
         dayAfter(dayOf(now, zoneOf(routine)), zoneOf(routine)),
+      );
+
+      return;
+    }
+
+    const group = groupOfRoutine(each);
+    const budget = group?.group?.budget?.dailySpend;
+
+    if (group === undefined || budget === undefined) {
+      return;
+    }
+
+    const groupSpent = groupSpentToday(each.owner, group.name);
+
+    if (groupSpent >= budget) {
+      pauseGroup(
+        group,
+        `Paused until tomorrow with its group ${group.group?.title ?? group.name}: the group spent ${groupSpent.toFixed(2)} today, and its daily budget is ${String(budget)}.`,
+        dayAfter(dayOf(now, zoneOf(undefined)), zoneOf(undefined)),
       );
     }
   };
@@ -498,12 +675,78 @@ export function routinesEngine(context: Context): Routines {
     return next?.at;
   };
 
+  const loadedFile = (
+    owner: Owner,
+    name: string,
+    file: string,
+    group: LoadedGroup | undefined,
+  ): Loaded => {
+    const text = readFileSync(file, "utf8");
+
+    // A change to its group changes how it runs too.
+    const version = createHash("sha256")
+      .update(text)
+      .update(group?.text ?? "")
+      .digest("hex");
+
+    const found = {
+      owner,
+      name,
+      version,
+      file,
+      ...(group !== undefined && { group: group.name }),
+    };
+
+    try {
+      const raw = routineOf(JSON.parse(text));
+
+      if (group?.error !== undefined) {
+        throw new Error(
+          `its group's ${groupFile} doesn't load: ${group.error}`,
+        );
+      }
+
+      return { ...found, raw, routine: withGroup(raw, group?.group) };
+    } catch (error) {
+      return { ...found, error: messageOf(error) };
+    }
+  };
+
+  const loadedGroup = (owner: Owner, name: string): LoadedGroup => {
+    const text = readFileSync(join(groupDirOf(owner, name), groupFile), "utf8");
+
+    try {
+      return { owner, name, text, group: groupOf(JSON.parse(text)) };
+    } catch (error) {
+      return { owner, name, text, error: messageOf(error) };
+    }
+  };
+
+  // Each owner's folder holds routines and groups, each group a folder
+  // with its group.json and its routines (ADR 0075). A routine's name is
+  // its owner's once, in a group or not.
   const read = (): Map<string, Loaded> => {
     const found = new Map<string, Loaded>();
+
+    groups = new Map();
 
     if (!existsSync(config.dir)) {
       return found;
     }
+
+    const add = (each: Loaded): void => {
+      if (found.has(idOf(each.owner, each.name))) {
+        log("routine skipped", {
+          owner: each.owner,
+          name: each.name,
+          error: "another routine of the owner has the name",
+        });
+
+        return;
+      }
+
+      found.set(idOf(each.owner, each.name), each);
+    };
 
     for (const folder of readdirSync(config.dir, { withFileTypes: true })) {
       if (!folder.isDirectory()) {
@@ -511,31 +754,33 @@ export function routinesEngine(context: Context): Routines {
       }
 
       const owner = ownerOfFolder(folder.name);
+      const dir = join(config.dir, folder.name);
 
-      for (const file of readdirSync(join(config.dir, folder.name))) {
-        const name = file.replace(/\.json$/, "");
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (
+          entry.isDirectory() &&
+          namePattern.test(entry.name) &&
+          existsSync(join(dir, entry.name, groupFile))
+        ) {
+          const group = loadedGroup(owner, entry.name);
 
-        if (!file.endsWith(".json") || !namePattern.test(name)) {
+          groups.set(idOf(owner, entry.name), group);
+
+          for (const file of readdirSync(join(dir, entry.name))) {
+            const name = routineName(file);
+
+            if (name !== undefined && file !== groupFile) {
+              add(loadedFile(owner, name, join(dir, entry.name, file), group));
+            }
+          }
+
           continue;
         }
 
-        const text = readFileSync(join(config.dir, folder.name, file), "utf8");
-        const version = createHash("sha256").update(text).digest("hex");
+        const name = entry.isFile() ? routineName(entry.name) : undefined;
 
-        try {
-          found.set(idOf(owner, name), {
-            owner,
-            name,
-            version,
-            routine: routineOf(JSON.parse(text)),
-          });
-        } catch (error) {
-          found.set(idOf(owner, name), {
-            owner,
-            name,
-            version,
-            error: messageOf(error),
-          });
+        if (name !== undefined) {
+          add(loadedFile(owner, name, join(dir, entry.name), undefined));
         }
       }
     }
@@ -548,12 +793,8 @@ export function routinesEngine(context: Context): Routines {
 
     for (const each of loaded.values()) {
       const index =
-        each.routine?.when.findIndex(
-          (one) =>
-            one.kind === "event" &&
-            one.event === event.type &&
-            matches(event, one.where) &&
-            admitsSender(one, event),
+        each.routine?.when.findIndex((one) =>
+          firesOn(one, event, groupOfRoutine(each)),
         ) ?? -1;
 
       const trigger = each.routine?.when[index];
@@ -678,6 +919,19 @@ export function routinesEngine(context: Context): Routines {
         if (trigger.kind === "event") {
           listen(trigger.event);
         }
+      }
+    }
+
+    for (const row of store.all<{
+      owner_user_id: string | null;
+      name: string;
+    }>("select owner_user_id, name from routines_groups")) {
+      if (!groups.has(idOf(owners.fromSql(row.owner_user_id), row.name))) {
+        store.run(
+          "delete from routines_groups where owner_user_id is ? and name = ?",
+          row.owner_user_id,
+          row.name,
+        );
       }
     }
 
@@ -857,28 +1111,14 @@ export function routinesEngine(context: Context): Routines {
   const personOf = (text: string): string | undefined =>
     context.people.get(text)?.id ?? context.people.byName(text)?.id;
 
-  const onCallFor = (owner: Owner, list: string): string | undefined => {
-    const file = join(config.dir, folderOf(owner), onCallFile);
+  // Who is on call this week for one of the group's lists.
+  const onCallFor = (
+    group: Group | undefined,
+    list: string | undefined,
+  ): string | undefined => {
+    const people = list === undefined ? undefined : group?.onCall?.[list];
 
-    if (!existsSync(file)) {
-      return undefined;
-    }
-
-    try {
-      const lists: unknown = JSON.parse(readFileSync(file, "utf8"));
-
-      if (!Value.Check(onCallLists, lists)) {
-        throw new Error("it isn't { list: [people] }");
-      }
-
-      const people = lists[list];
-
-      return people && onCallOf(people, clock.now());
-    } catch (error) {
-      log("on-call lists don't load", { owner, error: messageOf(error) });
-
-      return undefined;
-    }
+    return people && onCallOf(people, clock.now());
   };
 
   const creatorOf = (owner: Owner, name: string): string | null =>
@@ -888,37 +1128,26 @@ export function routinesEngine(context: Context): Routines {
       name,
     )?.by_user_id ?? null;
 
-  const namedBy = (
-    owner: Owner,
-    asked: NonNullable<Routine["questions"]>["ask"],
-  ): string | undefined => {
-    if (asked === undefined) {
-      return undefined;
-    }
-
-    return "person" in asked
-      ? personOf(asked.person)
-      : onCallFor(owner, asked.onCall);
-  };
-
   // Who a run's questions are for (ADR 0076): a personal routine's owner,
-  // or the person or on-call list a team routine names, or whoever made it.
-  const assigneesOf = (
-    owner: Owner,
-    name: string,
-    routine: Routine,
-  ): readonly string[] => {
+  // or the person or on-call list of its group a team routine names, or
+  // else the group's first on-call list, or else whoever made it.
+  const assigneesOf = (owner: Owner, name: string): readonly string[] => {
     const person = owners.personId(owner);
 
     if (person !== undefined) {
       return [person];
     }
 
-    const found =
-      namedBy(owner, routine.questions?.ask) ??
-      creatorOf(owner, name) ??
-      undefined;
+    const each = loaded.get(idOf(owner, name));
+    const group = groupOfRoutine(each)?.group;
+    const asked = each?.routine?.questions?.ask;
 
+    const named =
+      asked !== undefined && "person" in asked
+        ? asked.person
+        : onCallFor(group, asked?.onCall ?? firstOnCall(group));
+
+    const found = named ?? creatorOf(owner, name) ?? undefined;
     const id = found === undefined ? undefined : personOf(found);
 
     return id === undefined ? [] : [id];
@@ -1108,10 +1337,24 @@ export function routinesEngine(context: Context): Routines {
       return;
     }
 
-    const workspace = workspaceOf(fillAll(work.workspace, values), events);
+    const repositories = groupRepositories(
+      groupOfRoutine(loaded.get(idOf(owner, run.name)))?.group,
+    );
+
+    const workspace = workspaceOf(
+      fillAll(work.workspace, values),
+      events,
+      repositories,
+    );
 
     if (workspace === undefined) {
-      end(run, "blocked", "the event names no repository");
+      end(
+        run,
+        "blocked",
+        work.workspace.kind === "group"
+          ? "the routine's group names no repositories"
+          : "the event names no repository",
+      );
 
       return;
     }
@@ -1160,6 +1403,7 @@ export function routinesEngine(context: Context): Routines {
           routine.title,
           started.workflow,
           proposes ? allowed : undefined,
+          groupOfRoutine(loaded.get(idOf(owner, run.name)))?.group?.title,
         ),
         // Started at once, as /workflow would, with the inputs as its args.
         firstMessage:
@@ -1172,7 +1416,7 @@ export function routinesEngine(context: Context): Routines {
       const branch =
         "branch" in session.workspace ? session.workspace.branch : null;
 
-      const askedFor = assigneesOf(owner, run.name, routine);
+      const askedFor = assigneesOf(owner, run.name);
 
       store.run(
         "update routines_runs set session_id = ?, running_since = ?, branch = ?, proposes = ?, asked_for = ? where id = ?",
@@ -1475,6 +1719,23 @@ export function routinesEngine(context: Context): Routines {
     const each = loaded.get(idOf(owner, name));
 
     if (each !== undefined) {
+      plan(each);
+    }
+
+    changed();
+  });
+
+  schedule.on("group-resume:", (payload) => {
+    const { owner, name } = payload as Firing;
+
+    store.run(
+      "delete from routines_groups where owner_user_id is ? and name = ? and paused_until <= ?",
+      sql(owner),
+      name,
+      clock.now(),
+    );
+
+    for (const each of membersOf(owner, name)) {
       plan(each);
     }
 
@@ -1887,6 +2148,7 @@ export function routinesEngine(context: Context): Routines {
     return {
       name: each.name,
       title: each.routine?.title ?? each.name,
+      ...(each.group !== undefined && { group: each.group }),
       ...(each.error !== undefined && { error: each.error }),
       paused: pausedOf(each.owner, each.name),
       pausedUntil: pausedUntilOf(each.owner, each.name),
@@ -1966,9 +2228,10 @@ export function routinesEngine(context: Context): Routines {
   // The newest event, kept or in a run of the owner's, that one of the
   // routine's event triggers fires on.
   const newestMatch = (
-    owner: Owner,
+    each: Loaded,
     routine: Routine,
   ): { readonly event: Heard; readonly trigger: number } | undefined => {
+    const { owner } = each;
     const since = clock.now() - heardKeptMs;
 
     const kept = store
@@ -2002,12 +2265,8 @@ export function routinesEngine(context: Context): Routines {
     );
 
     for (const { event } of [...kept, ...fired].sort((a, b) => b.at - a.at)) {
-      const index = routine.when.findIndex(
-        (one) =>
-          one.kind === "event" &&
-          one.event === event.type &&
-          matches(event, one.where) &&
-          admitsSender(one, event),
+      const index = routine.when.findIndex((one) =>
+        firesOn(one, event, groupOfRoutine(each)),
       );
 
       if (index !== -1) {
@@ -2021,8 +2280,9 @@ export function routinesEngine(context: Context): Routines {
   // A new event routine runs once on the newest event it would have fired
   // on, as a dry run when it proposes actions (ADR 0076).
   const testOnSave = (owner: Owner, name: string): Run | undefined => {
-    const routine = loaded.get(idOf(owner, name))?.routine;
-    const found = routine && newestMatch(owner, routine);
+    const each = loaded.get(idOf(owner, name));
+    const routine = each?.routine;
+    const found = each && routine && newestMatch(each, routine);
     const due = found && routine.when[found.trigger];
 
     if (routine === undefined || found === undefined || due === undefined) {
@@ -2051,6 +2311,358 @@ export function routinesEngine(context: Context): Routines {
         event.inputs ?? {},
       ),
     );
+  };
+
+  // A team group with editors is changed only by them, and so are the
+  // routines that join or leave it.
+  const mayChangeGroup = (owner: Owner, group: string, by?: string): void => {
+    const editors = groups.get(idOf(owner, group))?.group?.editors;
+
+    if (owner !== "team" || editors === undefined || by === undefined) {
+      return;
+    }
+
+    if (!editors.some((each) => personOf(each) === by)) {
+      throw new Forbidden(
+        `only the group's editors change it or its routines: ${editors.join(", ")}`,
+      );
+    }
+  };
+
+  const ownedGroup = (owner: Owner, name: string): LoadedGroup => {
+    const found = groups.get(idOf(owner, name));
+
+    if (found === undefined) {
+      throw new NotFound(`no group ${name}`);
+    }
+
+    return found;
+  };
+
+  const groupViewOf = (each: LoadedGroup): GroupView => {
+    const pause = groupPauseOf(each.owner, each.name);
+
+    return {
+      name: each.name,
+      title: each.group?.title ?? each.name,
+      ...(each.error !== undefined && { error: each.error }),
+      paused: pause?.paused_reason ?? null,
+      pausedUntil:
+        pause?.paused_until === undefined || pause.paused_until === null
+          ? null
+          : new Date(pause.paused_until).toISOString(),
+      spentToday: groupSpentToday(each.owner, each.name),
+    };
+  };
+
+  // The group's board (ADR 0075, ADR 0076): its routines, their runs by
+  // piece of work, what waits on someone, what each spent today and how
+  // often its runs succeed.
+  const boardOf = (each: LoadedGroup): GroupDetail => {
+    const members = membersOf(each.owner, each.name);
+
+    const rows = members.flatMap((member) =>
+      runsOfRoutine(each.owner, member.name).map((row) => ({
+        routine: member,
+        row,
+      })),
+    );
+
+    const work = new Map<string, WorkItem & { runs: Run[] }>();
+
+    for (const { routine, row } of rows) {
+      const id = `${routine.name}\n${row.key}`;
+      const item = work.get(id);
+
+      if (item === undefined) {
+        work.set(id, {
+          routine: routine.name,
+          title: routine.routine?.title ?? routine.name,
+          key: row.key,
+          runs: [runViewOf(row)],
+        });
+      } else if (item.runs.length < runsPerWork) {
+        item.runs.push(runViewOf(row));
+      }
+    }
+
+    const costs = members.map((member) => ({
+      name: member.name,
+      title: member.routine?.title ?? member.name,
+      spentToday: spentToday(each.owner, member.name),
+      ...tally(runsOfRoutine(each.owner, member.name)),
+    }));
+
+    costs.sort((a, b) => a.title.localeCompare(b.title));
+
+    const totals = tally(rows.map(({ row }) => row));
+
+    return {
+      ...groupViewOf(each),
+      file: each.text,
+      ...(each.group !== undefined && { group: each.group }),
+      routines: members
+        .map(viewOf)
+        .sort((a, b) => a.title.localeCompare(b.title)),
+      work: [...work.values()]
+        .sort((a, b) =>
+          (b.runs[0]?.firedAt ?? "").localeCompare(a.runs[0]?.firedAt ?? ""),
+        )
+        .slice(0, workShown),
+      waiting: rows
+        .filter(
+          ({ row }) => row.outcome === "running" && row.waiting_since !== null,
+        )
+        .map(({ routine, row }) => ({
+          routine: routine.name,
+          run: runViewOf(row),
+        })),
+      costs,
+      succeeded: totals.succeeded,
+      failed: totals.failed,
+      successRate: totals.successRate,
+      memory: memoryOf(each.owner, each.name).files(),
+    };
+  };
+
+  // The routine of the run a Session belongs to, when it is in a group.
+  const grouped = (session: Session): Loaded | undefined => {
+    const [run] = runsOf("session_id = ?", session.id);
+
+    const each =
+      run && loaded.get(idOf(owners.fromSql(run.owner_user_id), run.name));
+
+    return each?.group === undefined ? undefined : each;
+  };
+
+  // The agents and workflows a routine's runs start, by name.
+  const startsOf = (routine: Routine | undefined) => {
+    const all = [
+      ...(routine?.do.kind === "session" ? [routine.do] : []),
+      ...(routine?.when ?? []),
+    ];
+
+    return {
+      agents: all.flatMap(({ agent }) =>
+        agent === undefined || builtInAgents.includes(agent) ? [] : [agent],
+      ),
+      workflows: all.flatMap(({ workflow }) =>
+        workflow === undefined ? [] : [workflow],
+      ),
+    };
+  };
+
+  // A group as one .tar.gz: its folder, and the agent and workflow files
+  // its routines start, from each routine's Profile. It holds no secrets:
+  // webhook secrets and logins stay on the server.
+  const exportGroup = async (
+    owner: Owner,
+    name: string,
+    personId: string,
+  ): Promise<Uint8Array> => {
+    const each = ownedGroup(owner, name);
+
+    const files: Record<string, string> = {
+      [`${name}/${groupFile}`]: each.text,
+    };
+
+    const missing = new Set<string>();
+
+    for (const member of membersOf(owner, name)) {
+      files[`${name}/${member.name}.json`] = readFileSync(member.file, "utf8");
+
+      const { agents, workflows } = startsOf(member.routine);
+
+      const profile =
+        member.routine?.do.kind === "session"
+          ? member.routine.do.profile
+          : undefined;
+
+      const found =
+        profile === undefined
+          ? undefined
+          : context.profiles.stacked(personId, profile, owner === "team");
+
+      for (const path of [
+        ...agents.map((agent) => `agents/${agent}.md`),
+        ...workflows.map((workflow) => `workflows/${workflow}.js`),
+      ]) {
+        const text = found?.[path];
+
+        if (text === undefined) {
+          missing.add(path);
+        } else {
+          files[path] = text;
+        }
+      }
+    }
+
+    files[manifestFile] = `${JSON.stringify(
+      { group: name, missing: [...missing].filter((path) => !(path in files)) },
+      null,
+      2,
+    )}\n`;
+
+    log("routine group exported", {
+      owner,
+      name,
+      files: Object.keys(files).length,
+    });
+
+    return new Bun.Archive(files, { compress: "gzip" }).bytes();
+  };
+
+  // A group from an archive another server exported: its agents and
+  // workflows go into the Profile, which its runs then start with. What the
+  // Profile has already stays as it is.
+  const importGroup = async (
+    owner: Owner,
+    bytes: Uint8Array,
+    profile: string,
+    personId: string,
+  ): Promise<Imported> => {
+    const texts = new Map<string, string>();
+
+    try {
+      for (const [path, file] of await new Bun.Archive(bytes).files()) {
+        texts.set(path.replace(/^\.\//, ""), await file.text());
+      }
+    } catch (error) {
+      throw new BadRequest(`not a group's .tar.gz: ${messageOf(error)}`);
+    }
+
+    const groupPath = [...texts.keys()].find((path) =>
+      new RegExp(`^[a-z0-9][a-z0-9-]{0,62}/${groupFile}$`).test(path),
+    );
+
+    const name = groupPath?.split("/")[0];
+
+    if (groupPath === undefined || name === undefined) {
+      throw new BadRequest(`the archive has no <group>/${groupFile}`);
+    }
+
+    if (groups.has(idOf(owner, name))) {
+      throw new BadRequest(`there is a group ${name} already`);
+    }
+
+    const known = (environment: string | undefined) =>
+      environment !== undefined &&
+      context.environments.get(environment) !== undefined;
+
+    let group: Group;
+    const routinesIn = new Map<string, Routine>();
+
+    try {
+      const given = groupOf(JSON.parse(texts.get(groupPath) ?? ""));
+      const { environment, ...defaults } = given.defaults ?? {};
+
+      group = {
+        ...given,
+        defaults: {
+          ...defaults,
+          ...(known(environment) && { environment }),
+          profile,
+        },
+      };
+
+      for (const [path, text] of texts) {
+        const routineFile = path.slice(name.length + 1);
+        const routineAt = routineName(routineFile);
+
+        if (
+          !path.startsWith(`${name}/`) ||
+          routineFile === groupFile ||
+          routineAt === undefined
+        ) {
+          continue;
+        }
+
+        if (loaded.has(idOf(owner, routineAt))) {
+          throw new Error(`there is a routine ${routineAt} already`);
+        }
+
+        const parsed = routineOf(JSON.parse(text));
+
+        if (owner === "team" && parsed.do.kind === "message") {
+          throw new Error(
+            `${routineAt}: a team routine starts a Session of its own each time`,
+          );
+        }
+
+        const routine: Routine =
+          parsed.do.kind === "message"
+            ? parsed
+            : {
+                ...parsed,
+                do: {
+                  ...omit(parsed.do, "profile", "environment"),
+                  ...(known(parsed.do.environment) && {
+                    environment: parsed.do.environment,
+                  }),
+                },
+              };
+
+        checkEvents(routine, context.events.declared());
+        withGroup(routine, group);
+        routinesIn.set(routineAt, routine);
+      }
+    } catch (error) {
+      throw new BadRequest(messageOf(error));
+    }
+
+    const found = context.profiles.stacked(personId, profile, owner === "team");
+
+    if (found === undefined) {
+      throw new BadRequest(`no Profile ${profile} to put its agents in`);
+    }
+
+    const shared = [...texts.entries()].filter(([path]) =>
+      /^(agents\/[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.md|workflows\/[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.js)$/.test(
+        path,
+      ),
+    );
+
+    const added = Object.fromEntries(
+      shared.filter(([path]) => found[path] === undefined),
+    );
+
+    if (Object.keys(added).length > 0) {
+      try {
+        context.profiles.write(personId, profile, owner === "team", added);
+      } catch (error) {
+        throw new Forbidden(messageOf(error));
+      }
+    }
+
+    const dir = groupDirOf(owner, name);
+
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, groupFile), `${JSON.stringify(group, null, 2)}\n`);
+
+    for (const [routineAt, routine] of routinesIn) {
+      writeFileSync(
+        join(dir, `${routineAt}.json`),
+        `${JSON.stringify(routine, null, 2)}\n`,
+      );
+
+      noteChange(owner, routineAt, "created", personId);
+    }
+
+    log("routine group imported", {
+      owner,
+      name,
+      routines: routinesIn.size,
+      added: Object.keys(added).length,
+    });
+
+    reload();
+
+    return {
+      name,
+      routines: [...routinesIn.keys()].sort(),
+      added: Object.keys(added),
+      kept: shared.flatMap(([path]) => (path in added ? [] : [path])),
+    };
   };
 
   mkdirSync(config.dir, { recursive: true });
@@ -2088,12 +2700,12 @@ export function routinesEngine(context: Context): Routines {
 
       return {
         ...viewOf(each),
-        file: readFileSync(fileOf(owner, name), "utf8"),
+        file: readFileSync(each.file, "utf8"),
         createdBy:
           history.findLast(({ change }) => change === "created")?.by ?? null,
         changedBy: history[0]?.by ?? null,
         history,
-        ...(each.routine !== undefined && { routine: each.routine }),
+        ...(each.raw !== undefined && { routine: each.raw }),
         ...(hook && {
           webhook: {
             path: `/api/ext/routines/hooks/${hook.id}`,
@@ -2105,7 +2717,126 @@ export function routinesEngine(context: Context): Routines {
       };
     },
     exists: (owner, name) => loaded.has(idOf(owner, name)),
-    save: (owner, name, value, by) => {
+    groups: (owner) =>
+      [...groups.values()]
+        .filter((each) => each.owner === owner)
+        .map(groupViewOf)
+        .sort((a, b) => a.title.localeCompare(b.title)),
+    group: (owner, name) => boardOf(ownedGroup(owner, name)),
+    saveGroup: (owner, name, value, by) => {
+      if (!namePattern.test(name)) {
+        throw new BadRequest(
+          "a group's name is lower-case letters, digits and dashes",
+        );
+      }
+
+      let group;
+
+      try {
+        group = groupOf(value);
+      } catch (error) {
+        throw new BadRequest(messageOf(error));
+      }
+
+      mayChangeGroup(owner, name, by);
+
+      for (const member of membersOf(owner, name)) {
+        try {
+          if (member.raw !== undefined) {
+            withGroup(member.raw, group);
+          }
+        } catch (error) {
+          throw new BadRequest(`${member.name}: ${messageOf(error)}`);
+        }
+      }
+
+      const dir = groupDirOf(owner, name);
+
+      mkdirSync(dir, { recursive: true });
+
+      writeFileSync(
+        join(dir, groupFile),
+        `${JSON.stringify(group, null, 2)}\n`,
+      );
+
+      reload();
+    },
+    removeGroup: (owner, name, by) => {
+      ownedGroup(owner, name);
+      mayChangeGroup(owner, name, by);
+
+      if (membersOf(owner, name).length > 0) {
+        throw new BadRequest(
+          "the group still has routines: move or delete them first",
+        );
+      }
+
+      rmSync(groupDirOf(owner, name), { recursive: true, force: true });
+
+      rmSync(join(context.dataDir, "groups", folderOf(owner), name), {
+        recursive: true,
+        force: true,
+      });
+
+      reload();
+    },
+    resumeGroup: (owner, name) => {
+      ownedGroup(owner, name);
+
+      store.run(
+        "delete from routines_groups where owner_user_id is ? and name = ?",
+        sql(owner),
+        name,
+      );
+
+      schedule.cancel(groupResumeKey({ owner, name }));
+
+      for (const each of membersOf(owner, name)) {
+        plan(each);
+      }
+
+      changed();
+    },
+    exportGroup,
+    importGroup,
+    memory: (session) => {
+      const each = grouped(session);
+
+      return each?.group === undefined
+        ? undefined
+        : {
+            group: groupOfRoutine(each)?.group?.title ?? each.group,
+            files: memoryOf(each.owner, each.group).files(),
+          };
+    },
+    remember: (session, file, note) => {
+      const each = grouped(session);
+
+      if (each?.group === undefined) {
+        throw new BadRequest(
+          "this Session isn't a run of a routine in a group",
+        );
+      }
+
+      const memory = memoryOf(each.owner, each.group);
+
+      try {
+        memory.note(file, note, clock.now(), each.name);
+      } catch (error) {
+        throw new BadRequest(messageOf(error));
+      }
+
+      log("routine group memory noted", {
+        owner: each.owner,
+        group: each.group,
+        file,
+      });
+
+      changed();
+
+      return memory.files();
+    },
+    save: (owner, name, value, by, into) => {
       if (!namePattern.test(name)) {
         throw new BadRequest(
           "a routine's name is lower-case letters, digits and dashes",
@@ -2113,12 +2844,25 @@ export function routinesEngine(context: Context): Routines {
       }
 
       let routine;
-      const isNew = !loaded.has(idOf(owner, name));
+      const existing = loaded.get(idOf(owner, name));
+      const isNew = existing === undefined;
+      const group = into === undefined ? existing?.group : into || undefined;
+
+      if (group !== undefined && !groups.has(idOf(owner, group))) {
+        throw new BadRequest(`no group ${group}`);
+      }
 
       try {
         routine = routineOf(value);
         checkEvents(routine, context.events.declared());
         allowedOf(routine);
+
+        withGroup(
+          routine,
+          group === undefined
+            ? undefined
+            : groups.get(idOf(owner, group))?.group,
+        );
       } catch (error) {
         throw new BadRequest(messageOf(error));
       }
@@ -2131,12 +2875,23 @@ export function routinesEngine(context: Context): Routines {
 
       mayChange(owner, name, by);
 
-      mkdirSync(join(config.dir, folderOf(owner)), { recursive: true });
+      if (group !== undefined) {
+        mayChangeGroup(owner, group, by);
+      }
 
-      writeFileSync(
-        fileOf(owner, name),
-        `${JSON.stringify(routine, null, 2)}\n`,
-      );
+      const dir =
+        group === undefined
+          ? join(config.dir, folderOf(owner))
+          : groupDirOf(owner, group);
+
+      const file = join(dir, `${name}.json`);
+
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(file, `${JSON.stringify(routine, null, 2)}\n`);
+
+      if (existing !== undefined && existing.file !== file) {
+        rmSync(existing.file);
+      }
 
       noteChange(owner, name, isNew ? "created" : "changed", by);
       reload();
@@ -2144,9 +2899,10 @@ export function routinesEngine(context: Context): Routines {
       return isNew ? testOnSave(owner, name) : undefined;
     },
     remove: (owner, name, by) => {
-      owned(owner, name);
+      const each = owned(owner, name);
+
       mayChange(owner, name, by);
-      rmSync(fileOf(owner, name));
+      rmSync(each.file);
 
       store.run(
         "delete from routines_changes where owner_user_id is ? and name = ?",
@@ -2387,6 +3143,62 @@ export function routinesEngine(context: Context): Routines {
   };
 }
 
+// How often runs that ended succeeded: ok and nothing count as done, and
+// failed, blocked and stopped as not.
+function tally(rows: readonly RunRow[]): {
+  readonly runs: number;
+  readonly succeeded: number;
+  readonly failed: number;
+  readonly successRate: number | null;
+} {
+  const succeeded = rows.filter(({ outcome }) =>
+    ["ok", "nothing"].includes(outcome),
+  ).length;
+
+  const failed = rows.filter(({ outcome }) =>
+    ["failed", "blocked", "stopped"].includes(outcome),
+  ).length;
+
+  return {
+    runs: rows.length,
+    succeeded,
+    failed,
+    successRate:
+      succeeded + failed === 0 ? null : succeeded / (succeeded + failed),
+  };
+}
+
+function omit<T extends object, K extends keyof T>(
+  value: T,
+  ...keys: readonly K[]
+): Omit<T, K> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([key]) => !keys.includes(key as K)),
+  ) as Omit<T, K>;
+}
+
+// Whether the event fires the trigger: it is the trigger's event, its
+// conditions hold, and it comes from someone who may fire it.
+function firesOn(
+  one: Trigger,
+  event: Heard,
+  group: LoadedGroup | undefined,
+): boolean {
+  return (
+    one.kind === "event" &&
+    one.event === event.type &&
+    matches(event, one.where, groupRepositories(group?.group)) &&
+    admitsSender(one, event)
+  );
+}
+
+// A routine's name from its file's, or undefined for a file that isn't one.
+function routineName(file: string): string | undefined {
+  const name = file.replace(/\.json$/, "");
+
+  return file.endsWith(".json") && namePattern.test(name) ? name : undefined;
+}
+
 function runView(row: RunRow): Run {
   return {
     id: row.id,
@@ -2404,11 +3216,26 @@ function runView(row: RunRow): Run {
 type Workspace = Extract<Routine["do"], { kind: "session" }>["workspace"];
 
 // A clone of the repository the last event names, by its URL or by its
-// owner/name on its host.
+// owner/name on its host, or the group's repositories side by side.
 function workspaceOf(
   workspace: Workspace,
   events: readonly Heard[],
-): Exclude<Workspace, { kind: "event-repository" }> | undefined {
+  group: readonly string[],
+): Exclude<Workspace, { kind: "event-repository" | "group" }> | undefined {
+  if (workspace.kind === "group") {
+    return group.length === 0
+      ? undefined
+      : {
+          kind: "repositories",
+          repositories: group.map((key) => ({
+            repository: `https://${key}`,
+            ...(workspace.startPoint !== undefined && {
+              startPoint: workspace.startPoint,
+            }),
+          })),
+        };
+  }
+
   if (workspace.kind !== "event-repository") {
     return workspace;
   }
@@ -2474,6 +3301,7 @@ function runPrompt(
   title: string,
   workflow: string | undefined,
   allowed: readonly Allowed[] | undefined,
+  group: string | undefined,
 ): string {
   return [
     `You are running the routine "${title}" on its own; nobody is watching this Session as it works.`,
@@ -2484,6 +3312,11 @@ function runPrompt(
     "When you finish, call end_run with done and a one-line summary. When there is nothing to do this time, call it with nothing. Then end your turn.",
     "When you need a person's answer, ask with ask_user and end your turn: the run waits, and the answer comes as a message. Call end_run with blocked, and say why, only when you can't do the task at all.",
     ...(allowed === undefined ? [] : [proposeText(allowed)]),
+    ...(group === undefined
+      ? []
+      : [
+          `The routine is in the group "${group}", whose memory its runs share: the memory tool says where its files are. Read them before you start, and add what later runs should know with the memory tool.`,
+        ]),
   ].join(" ");
 }
 

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -12,6 +12,7 @@ import {
   Type,
 } from "@pipoca/plugins";
 import { routines } from "../plugin";
+import { defaultMemoryFile } from "./memory";
 import type { Proposal } from "./model";
 import type { Allowed } from "./routine";
 
@@ -22,26 +23,100 @@ interface Proposing {
   readonly actions: readonly Allowed[];
 }
 
+interface Memory {
+  readonly group: string;
+  readonly files: Readonly<Record<string, string>>;
+}
+
 // A routine's run that can't push or post proposes what to write instead,
-// which Pipoca applies after its turn (ADR 0076). Other Sessions get no
-// tool.
+// which Pipoca applies after its turn (ADR 0076). A run of a routine in a
+// group reads the group's memory as files and adds to it (ADR 0075). Other
+// Sessions get no tool.
 export const session = defineSession(routines, async (s) => {
-  const proposing = await s.api
-    .get<Proposing>("run")
-    .catch((error: unknown) => {
-      if (error instanceof HttpError && error.status === 404) {
-        return undefined;
-      }
+  const [proposing, memory] = await Promise.all([
+    unlessMissing(s.api.get<Proposing>("run")),
+    unlessMissing(s.api.get<Memory>("memory")),
+  ]);
 
-      throw error;
-    });
-
-  if (proposing === undefined || proposing.actions.length === 0) {
-    return;
+  if (proposing !== undefined && proposing.actions.length > 0) {
+    proposeTool(s, proposing);
   }
 
-  proposeTool(s, proposing);
+  if (memory !== undefined) {
+    await memoryTool(s, memory);
+  }
 });
+
+async function unlessMissing<T>(answer: Promise<T>): Promise<T | undefined> {
+  return answer.catch((error: unknown) => {
+    if (error instanceof HttpError && error.status === 404) {
+      return undefined;
+    }
+
+    throw error;
+  });
+}
+
+// The group's memory is kept on the server. Each turn starts with a fresh
+// copy of its files in the plugin's folder, where Pi's tools read them.
+async function memoryTool(
+  s: SessionContext<typeof routines>,
+  memory: Memory,
+): Promise<void> {
+  const folder = join(s.folder, "memory");
+
+  const copy = async (files: Memory["files"]): Promise<void> => {
+    await rm(folder, { recursive: true, force: true });
+    await mkdir(folder, { recursive: true });
+
+    await Promise.all(
+      Object.entries(files).map(async ([file, text]) =>
+        writeFile(join(folder, file), text),
+      ),
+    );
+  };
+
+  await copy(memory.files);
+
+  s.extension((pi) => {
+    pi.on("before_agent_start", async () => {
+      await copy((await s.api.get<Memory>("memory")).files);
+    });
+  });
+
+  s.tools.define({
+    name: "memory",
+    label: "Memory",
+    description: [
+      `Adds a dated note to the memory of the routine group "${memory.group}", which every run in the group reads.`,
+      `Its files are in ${folder}: read them with your file tools before you start.`,
+      `Notes go to ${defaultMemoryFile} unless you name another file, such as open-questions.md. Write what a later run should know, such as a decision and why.`,
+    ].join(" "),
+    params: Type.Object(
+      {
+        note: Type.String({ minLength: 1, description: "The note, Markdown" }),
+        file: Type.Optional(
+          Type.String({
+            description: `A file name: lower-case letters, digits and dashes, ending in .md. ${defaultMemoryFile} unless given.`,
+          }),
+        ),
+      },
+      { additionalProperties: false },
+    ),
+    exposure: "direct",
+    annotations: { readOnly: false, destructive: false },
+    run: async ({ note, file }) => {
+      const files = await s.api.post<Memory["files"]>("memory", {
+        note,
+        ...(file !== undefined && { file }),
+      });
+
+      await copy(files);
+
+      return `Noted in ${join(folder, file ?? defaultMemoryFile)}.`;
+    },
+  });
+}
 
 function proposeTool(s: SessionContext<typeof routines>, o: Proposing): void {
   const { actions } = o;

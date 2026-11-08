@@ -317,3 +317,187 @@ test("a waiting run shows its question and who it is for, and the page who made 
   expect(page.textContent).toContain("Made by Ana. Changed last by Bo.");
   expect(page.textContent).toContain("Made by Ana");
 });
+
+const typeInto = async (
+  element: HTMLInputElement | HTMLTextAreaElement | null,
+  value: string,
+): Promise<void> => {
+  if (element === null) {
+    throw new Error("no such field");
+  }
+
+  await act(async () => {
+    // Past React's own value property, so it sees the change.
+    Reflect.set(
+      Object.getPrototypeOf(element) as object,
+      "value",
+      value,
+      element,
+    );
+
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+    await Promise.resolve();
+  });
+};
+
+test("a group's board shows its routines, what waits on someone, its work, what each cost and its memory", async () => {
+  const asked: string[] = [];
+  const slots = { page: web.pages?.[0]?.Page };
+
+  const run = (id: string, outcome: string) => ({
+    id,
+    firedAt: "2026-11-08T10:00:00.000Z",
+    cause: "event",
+    sessionId: `s-${id}`,
+    outcome,
+    reason: null,
+    endedAt: null,
+  });
+
+  const board = {
+    name: "shop",
+    title: "Shop",
+    paused: null,
+    pausedUntil: null,
+    spentToday: 7.5,
+    file: "{}",
+    group: { title: "Shop", budget: { dailySpend: 10 } },
+    routines: [
+      {
+        name: "fix",
+        title: "Fix bugs",
+        group: "shop",
+        paused: null,
+        pausedUntil: null,
+        nextAt: null,
+        lastRun: run("r1", "ok"),
+      },
+    ],
+    work: [
+      {
+        routine: "fix",
+        title: "Fix bugs",
+        key: "acme/shop/12",
+        runs: [run("r2", "failed"), run("r1", "ok")],
+      },
+    ],
+    waiting: [
+      {
+        routine: "fix",
+        run: {
+          ...run("r3", "waiting"),
+          questions: [
+            {
+              id: "q",
+              prompts: ["Which branch?"],
+              closesAt: "2026-11-09T10:00:00.000Z",
+            },
+          ],
+          askedFor: ["Ana"],
+        },
+      },
+    ],
+    costs: [
+      {
+        name: "fix",
+        title: "Fix bugs",
+        spentToday: 7.5,
+        runs: 3,
+        succeeded: 1,
+        failed: 1,
+        successRate: 0.5,
+      },
+    ],
+    succeeded: 1,
+    failed: 1,
+    successRate: 0.5,
+    memory: { "decisions.md": "## 2026-11-08 10:00 UTC, fix\n\nUse staging." },
+  };
+
+  const page = renderPart(
+    { ...web, slots },
+    "page",
+    { path: "group:shop" },
+    {
+      fetch: async (url) => {
+        asked.push(url);
+
+        return Promise.resolve(Response.json(board));
+      },
+    },
+  );
+
+  await act(async () => until(() => asked.length > 0));
+
+  expect(asked).toContain("/api/ext/routines/groups/shop");
+
+  const text = page.textContent;
+
+  expect(text).toContain(
+    "Running. Spent today: 7.50 of its daily budget of 10. 50% of 2 ended runs succeeded.",
+  );
+
+  expect(text).toContain("Fix bugs");
+  expect(text).toContain("fix: Which branch?For Ana");
+  expect(text).toContain("Fix bugs: acme/shop/12");
+  expect(text).toContain("Spent today: 7.50. 50% of 2 ended runs succeeded.");
+  expect(text).toContain("Use staging.");
+});
+
+test("a new group's form saves its title, repositories, budget, on-call lists and editors", async () => {
+  const sent: { url: string; method: string; body: unknown }[] = [];
+  const slots = { page: web.pages?.[0]?.Page };
+
+  const page = renderPart(
+    { ...web, slots },
+    "page",
+    { path: "team/group:new" },
+    {
+      fetch: async (url, init) => {
+        const method = init?.method ?? "GET";
+
+        if (method === "PUT") {
+          sent.push({
+            url,
+            method,
+            body: JSON.parse(init?.body as string) as unknown,
+          });
+        }
+
+        return Promise.resolve(Response.json([]));
+      },
+    },
+  );
+
+  const field = (label: string) =>
+    page.querySelector<HTMLInputElement>(`[aria-label='${label}']`);
+
+  await typeInto(field("Name"), "shop");
+  await typeInto(field("Title"), "Shop");
+  await typeInto(field("Repositories"), "acme/shop\ngithub.com/acme/api\n");
+  await typeInto(field("Daily budget"), "25");
+  await typeInto(field("On call"), "triage: Ana, Bo\nnights: Bo");
+  await typeInto(field("Editors"), "Ana, Bo");
+
+  await act(async () => {
+    page
+      .querySelector<HTMLFormElement>("form[aria-label='Group']")
+      ?.requestSubmit();
+
+    await until(() => sent.length > 0);
+  });
+
+  expect(sent).toEqual([
+    {
+      url: "/api/ext/routines/team/groups/shop",
+      method: "PUT",
+      body: {
+        title: "Shop",
+        repositories: ["acme/shop", "github.com/acme/api"],
+        budget: { dailySpend: 25 },
+        onCall: { triage: ["Ana", "Bo"], nights: ["Bo"] },
+        editors: ["Ana", "Bo"],
+      },
+    },
+  ]);
+});
