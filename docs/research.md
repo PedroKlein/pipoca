@@ -169,6 +169,19 @@ Read 2026-10-24 (Hermes Agent at `4dcef215`, OpenClaw at `779fe239`) and 2026-11
 
 None of these puts a planning agent between an event and the run it starts.
 
+### Routines for a software factory
+
+Read 2026-11-08 (product docs).
+
+- **[GitHub Agentic Workflows](https://github.github.com/gh-aw/introduction/how-they-work/).** Frontmatter sets `on` (with slash and label commands, `roles` and `stop-after`), `engine` with `model` and `agent`, `tools` (with `cache-memory` and `repo-memory`), `network`, `imports`, `timeout-minutes` and `concurrency`. Safe outputs such as `create-pull-request`, `add-comment`, `add-labels` and `dispatch-workflow`, each with a `max`, are applied by a separate job.
+- **[Copilot custom agents](https://docs.github.com/en/copilot/concepts/agents/cloud-agent/about-custom-agents).** Markdown files in `.github/agents/` (also per user and per organization) with a description, `tools`, `mcp-servers` and a prompt. Assigning an issue starts the agent.
+- **[Cursor automations](https://cursor.com/changelog/03-05-26).** Runs use the configured models and MCP servers and have a memory tool that carries what they learn between runs.
+- **[Devin](https://docs.devin.ai/work-with-devin/advanced-capabilities.md).** Scheduled sessions, playbooks made from good sessions, and a coordinator session that starts managed child sessions, messages them, and hears when they finish or need input.
+- **[Factory](https://factory.com/news/software-factory).** Missions split long work into parallel tracks, and automations share an objective and memory.
+- **[Linear agent sessions](https://linear.app/developers/agent-interaction.md).** An agent posts typed activities: thought, action, elicitation, response and error. An elicitation moves the session to `awaitingInput`, and the person's reply arrives as a prompt.
+- **[n8n human in the loop](https://growwstacks.com/blog/human-in-the-loop-n8n-guide).** Send and wait asks for approval or an answer over Slack, mail and other channels, with a timeout that takes a default path.
+- **[Claude Code routines, Codex scheduled tasks](https://aicatchup.com/comparisons/claude-code-routines-vs-cursor-automations).** A prompt, repositories and connectors on a schedule, an API call or GitHub events. Codex shows runs in an inbox, and a task inside a chat keeps that chat's context.
+
 ### Bot identities on GitHub
 
 - A GitHub App can be created from a [manifest](https://docs.github.com/en/developers/apps/creating-a-github-app-from-a-manifest/): the server posts a form to GitHub, GitHub redirects back with a code, and the code is exchanged for the App's id, private key and webhook secret. [RunsOn](https://runs-on.com/blog/self-serve-github-app-registration-with-manifests/) uses this so each customer has a private App of their own in two clicks.

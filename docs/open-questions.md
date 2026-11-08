@@ -83,7 +83,7 @@
 ### Future compatibility without premature implementation
 
 - Resolved: every Session, Environment and plugin record has an `ownerId`, and every command records its `actor` (`user:<id>`, `session:<id>` or `plugin:<name>`) ([ADR 0015](adr/0015-plugins.md#actors-and-owners)).
-- Resolved: schedules, events and webhooks start work through a `routines` plugin that uses the same start request as people and Projects, and Sessions can schedule their own wake-ups ([ADR 0059](adr/0059-routines-and-wake-ups.md)). Where should scripts that decide whether to wake the model run, and does a graph editor in the style of n8n grow out of routines?
+- Resolved: schedules, events and webhooks start work through a `routines` plugin that uses the same start request as people and Projects, and Sessions can schedule their own wake-ups ([ADR 0059](adr/0059-routines-and-wake-ups.md)). Resolved: scripts that decide whether to wake the model run in the workflows' QuickJS sandbox on the server, routines gather into groups with an optional coordinator, chain through `routines.run_ended`, and runs can wait for a person and propose writes instead of making them ([ADR 0075](adr/0075-routines-groups-coordinators-and-agents.md), [ADR 0076](adr/0076-routine-runs-questions-actions-and-guards.md)). Does a graph editor in the style of n8n grow out of routine groups?
 - Which domain events should exist from the beginning?
 - How should personal servers later federate into a Team Hub without merging their local trust boundaries?
 
