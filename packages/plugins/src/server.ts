@@ -16,6 +16,7 @@ import type {
   RouteToolSpec,
   Session,
   SessionAccess,
+  StartAgent,
   Timer,
   ToolResult,
 } from "@pipoca/protocol";
@@ -35,6 +36,8 @@ export type StartRequest = CreateSession & {
   // Who steers team work from the start, such as only the person whose
   // Team assistant it is (ADR 0067).
   readonly access?: SessionAccess;
+  // Only plugins start a Session as a named agent, such as a routine's.
+  readonly agent?: StartAgent;
 };
 
 // What decides where an Environment's runners come from (ADR 0049).

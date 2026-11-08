@@ -409,6 +409,7 @@ export async function hostSession(
   );
 
   const logins = await modelCredentialsOf(parts, options.parts ?? [])?.();
+  const agent = parts.find((part) => part.agent !== undefined)?.agent;
 
   const pages = hostPages(
     stream.preview,
@@ -451,6 +452,7 @@ export async function hostSession(
     ],
     onError,
     ...(logins && { logins }),
+    ...(agent && { agent }),
     openUrl: pages.open,
   });
 

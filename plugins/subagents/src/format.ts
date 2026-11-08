@@ -66,6 +66,9 @@ export const runsKey = "runs";
 // The notice kind that brings a finished run's outputs to the parent.
 export const finishedKind = "finished";
 
+// The notice kind that says why /workflow didn't start a workflow.
+export const workflowFailedKind = "workflow_failed";
+
 // The notice kind that tells the parent which runs a restart cut off.
 export const interruptedKind = "interrupted";
 

@@ -202,6 +202,7 @@ export default tseslint.config(
       "apps/pipoca/src/registry-session.ts",
       "apps/web/src/registry.ts",
       // Until these plugins' tests move into the plugins.
+      "packages/sessionhost/src/agent.test.ts",
       "packages/sessionhost/src/host.test.ts",
       "packages/sessionhost/src/subagents.test.ts",
     ],

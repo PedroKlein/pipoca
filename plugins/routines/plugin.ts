@@ -7,6 +7,8 @@ export const routines = definePlugin({
   title: "Routines",
   description:
     "Runs your routines on a schedule, and lets a Session schedule a wake-up to come back to something later.",
+  // A run starts as an agent or a workflow, which subagents finds (ADR 0075).
+  requires: ["subagents"],
   config: Config.object({
     wakeUpDays: Config.number({
       title: "Days ahead a wake-up may be",
@@ -65,7 +67,9 @@ create table routines_wakeups (
 create index routines_wakeups_session on routines_wakeups (session_id, delivered_at);
 `,
   // 1: a run keeps the inputs it was given (ADR 0075).
+  // 2: the agent or workflow a run's trigger starts (ADR 0075).
   migrations: [
     "alter table routines_runs add column inputs text check (inputs is null or json_valid(inputs));",
+    "alter table routines_runs add column agent text; alter table routines_runs add column workflow text;",
   ],
 });

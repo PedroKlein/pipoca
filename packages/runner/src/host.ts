@@ -204,6 +204,7 @@ async function prepare(
       trusted: assignment.trusted ?? null,
       ...(assignment.model && { model: assignment.model }),
       ...(assignment.thinking && { thinking: assignment.thinking }),
+      ...(assignment.agent && { agent: assignment.agent }),
     },
   };
 }

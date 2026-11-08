@@ -1,5 +1,5 @@
 import { Type } from "typebox";
-import { nonEmpty, nullable, type Wire } from "./wire";
+import { nonEmpty, nullable, strings, type Wire } from "./wire";
 
 export const modelRef = Type.Object({
   provider: nonEmpty,
@@ -246,6 +246,15 @@ export const actsAs = Type.Object({
 
 export type ActsAs = Wire<typeof actsAs>;
 
+// The agent a Session starts as (ADR 0075), which a Session part finds by
+// name. Its tools limit Pi's, and the tools in keep stay whatever it names.
+export const startAgent = Type.Object({
+  name: nonEmpty,
+  keep: strings,
+});
+
+export type StartAgent = Wire<typeof startAgent>;
+
 export const session = Type.Object({
   id: Type.String(),
   environmentId: Type.String(),
@@ -261,6 +270,7 @@ export const session = Type.Object({
   thinking: nullable(thinkingLevel),
   systemPrompt: nullable(Type.String()),
   firstMessage: nullable(Type.String()),
+  agent: nullable(startAgent),
   // The name Pi gave the session, or else the first thing the user said.
   title: nullable(Type.String()),
   status: sessionStatus,

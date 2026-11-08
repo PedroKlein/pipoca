@@ -19,6 +19,7 @@ import { fleet, type Run, type Step } from "./fleet";
 import {
   decidedKind,
   finishedKind,
+  workflowFailedKind,
   interrupted,
   interruptedKind,
   manages,
@@ -35,6 +36,7 @@ import {
   type Workflow,
 } from "./format";
 import { type MissionChange, missions } from "./missions";
+import { namedAgent } from "./named";
 import { prompts } from "./prompts";
 import { watchdog } from "./watchdog";
 
@@ -45,6 +47,14 @@ export const session = defineSession(subagents, (s) => {
     extension(s, pi);
     watchdog(s, pi);
   });
+
+  s.provide.agent(async (name) =>
+    namedAgent(
+      name,
+      join(getAgentDir(), "agents"),
+      s.checkouts.map(({ path }) => path),
+    ),
+  );
 });
 
 const publishMs = 250;
@@ -343,16 +353,29 @@ function extension(s: SessionContext, pi: ExtensionAPI): void {
     description:
       "Run a saved subagent workflow: /workflow <name> [args as JSON]",
     handler: async (args) => {
-      const [name = "", ...rest] = args.trim().split(/\s+/);
-      const json = rest.join(" ");
+      const [, name = "", json = ""] =
+        /^(\S*)\s*([\s\S]*)$/.exec(args.trim()) ?? [];
 
-      const workflow = await savedWorkflow(
-        workflowFolders(),
-        name,
-        json === "" ? undefined : (JSON.parse(json) as unknown),
-      );
+      try {
+        const workflow = await savedWorkflow(
+          workflowFolders(),
+          name,
+          json === "" ? undefined : (JSON.parse(json) as unknown),
+        );
 
-      report(await startWorkflow(workflow));
+        report(await startWorkflow(workflow));
+      } catch (error) {
+        // Whoever started it, such as a routine's run, hears why.
+        pi.sendMessage(
+          {
+            customType: noticeType,
+            content: `The workflow ${name} didn't start: ${error instanceof Error ? error.message : String(error)}`,
+            display: true,
+            details: { plugin: "subagents", kind: workflowFailedKind },
+          },
+          { triggerTurn: true, deliverAs: "followUp" },
+        );
+      }
     },
   });
 

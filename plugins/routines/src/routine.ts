@@ -9,6 +9,15 @@ const scalar = Type.Union([Type.String(), Type.Number(), Type.Boolean()]);
 // Inputs a trigger fills, as plain text with {{event.<field>}} in it.
 const triggerInputs = Type.Optional(Type.Record(Type.String(), scalar));
 
+// An agent file or a saved workflow of the run's Profile, by name (ADR 0075).
+const named = Type.Optional(
+  Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" }),
+);
+
+// What a trigger fills, and the agent or workflow its runs start in place
+// of do's.
+const firing = { inputs: triggerInputs, agent: named, workflow: named };
+
 const field = Type.String({ minLength: 1 });
 
 const condition = Type.Union([
@@ -35,12 +44,12 @@ const trigger = Type.Union([
       kind: Type.Literal("schedule"),
       cron: Type.String(),
       timeZone: Type.String(),
-      inputs: triggerInputs,
+      ...firing,
     },
     { additionalProperties: false },
   ),
   Type.Object(
-    { kind: Type.Literal("once"), at: Type.String(), inputs: triggerInputs },
+    { kind: Type.Literal("once"), at: Type.String(), ...firing },
     { additionalProperties: false },
   ),
   Type.Object(
@@ -48,12 +57,12 @@ const trigger = Type.Union([
       kind: Type.Literal("event"),
       event: Type.String({ pattern: "^[a-z0-9-]+\\.[a-z0-9_]+$" }),
       where: Type.Optional(Type.Array(condition, { maxItems: 20 })),
-      inputs: triggerInputs,
+      ...firing,
     },
     { additionalProperties: false },
   ),
   Type.Object(
-    { kind: Type.Literal("webhook"), inputs: triggerInputs },
+    { kind: Type.Literal("webhook"), ...firing },
     { additionalProperties: false },
   ),
 ]);
@@ -130,7 +139,10 @@ const work = Type.Union([
   Type.Object(
     {
       kind: Type.Literal("session"),
-      prompt,
+      agent: named,
+      workflow: named,
+      // A workflow's run needs none: its inputs are the workflow's args.
+      prompt: Type.Optional(prompt),
       workspace,
       environment: Type.Optional(Type.String()),
       profile: Type.Optional(Type.String()),
@@ -233,6 +245,8 @@ export function routineOf(value: unknown): Routine {
     throw new Error("do.model must be provider/id, such as openai/gpt-5");
   }
 
+  checkStarts(routine);
+
   const declared = new Set(Object.keys(routine.inputs ?? {}));
 
   for (const [index, each] of routine.when.entries()) {
@@ -244,7 +258,7 @@ export function routineOf(value: unknown): Routine {
   }
 
   for (const text of [
-    routine.do.prompt,
+    routine.do.prompt ?? "",
     JSON.stringify("workspace" in routine.do ? routine.do.workspace : ""),
   ]) {
     for (const [, root = "", name = ""] of text.matchAll(placeholder)) {
@@ -259,6 +273,63 @@ export function routineOf(value: unknown): Routine {
   }
 
   return routine;
+}
+
+// A run starts an agent or a workflow, not both, and one that isn't a
+// workflow's needs a prompt.
+function checkStarts(routine: Routine): void {
+  const { do: started } = routine;
+
+  for (const [index, each] of routine.when.entries()) {
+    if (each.agent !== undefined && each.workflow !== undefined) {
+      throw new Error(`when.${String(index)} names an agent and a workflow`);
+    }
+
+    if (
+      started.kind === "message" &&
+      (each.agent !== undefined || each.workflow !== undefined)
+    ) {
+      throw new Error(
+        `when.${String(index)}: a routine that messages a Session starts no agent or workflow`,
+      );
+    }
+  }
+
+  if (started.kind === "message") {
+    return;
+  }
+
+  if (started.agent !== undefined && started.workflow !== undefined) {
+    throw new Error("do names an agent and a workflow");
+  }
+
+  const prompted =
+    started.workflow === undefined ||
+    routine.when.some((each) => each.agent !== undefined);
+
+  if (prompted && started.prompt === undefined) {
+    throw new Error("do.prompt is required unless every run starts a workflow");
+  }
+}
+
+// What a run starts: the trigger's agent or workflow, or else do's.
+export function startOf(
+  session: Extract<Routine["do"], { kind: "session" }>,
+  override: Started,
+): Started {
+  if (override.agent !== undefined || override.workflow !== undefined) {
+    return override;
+  }
+
+  return {
+    ...(session.agent !== undefined && { agent: session.agent }),
+    ...(session.workflow !== undefined && { workflow: session.workflow }),
+  };
+}
+
+export interface Started {
+  readonly agent?: string | undefined;
+  readonly workflow?: string | undefined;
 }
 
 function checked(value: unknown): Routine {
@@ -403,7 +474,7 @@ export function isZonedTime(text: string): boolean {
 
 // What a routine hears: another plugin's event, or a webhook's delivery,
 // with the inputs its trigger filled.
-export interface Heard {
+export interface Heard extends Started {
   readonly type: string;
   readonly fields: Readonly<Record<string, unknown>>;
   readonly inputs?: Readonly<Record<string, unknown>>;
