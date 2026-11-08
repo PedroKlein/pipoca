@@ -24,6 +24,8 @@ export type RunResult = "done" | "nothing" | "blocked";
 
 export interface Run {
   readonly id: string;
+  // Which retry of a failed run it is, from 1.
+  readonly attempt?: number;
   readonly firedAt: string;
   // What fired it: schedule or by hand.
   readonly cause: string;
@@ -39,6 +41,8 @@ export interface RoutineView {
   // Why the routine's file doesn't load.
   readonly error?: string;
   readonly paused: string | null;
+  // When the pause ends by itself, such as the day after the spend cap.
+  readonly pausedUntil: string | null;
   readonly nextAt: string | null;
   readonly lastRun: Run | null;
 }
@@ -49,6 +53,8 @@ export interface RoutineDetail extends RoutineView {
   // The routine the file holds, in the shape saving writes.
   readonly routine?: Routine;
   readonly runs: readonly Run[];
+  // What its runs spent today, in the currency of the server's prices.
+  readonly spentToday: number;
   // Where a webhook trigger takes deliveries, signed with the secret as
   // sha256=<HMAC-SHA256 of the body in hex>.
   readonly webhook?: { readonly path: string; readonly secret: string };

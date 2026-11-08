@@ -145,6 +145,12 @@ export const server = defineServer(
         return;
       }
 
+      events.emit(
+        "spent",
+        { sessionId: call.sessionId, cost: call.cost },
+        { to: [call.owner] },
+      );
+
       const since = monthStart(clock.now());
       const { team, person } = budgets();
 

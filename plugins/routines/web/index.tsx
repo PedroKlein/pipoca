@@ -289,6 +289,12 @@ function RoutinePage({
       {routine !== undefined && (
         <div className="flex flex-col gap-3">
           <p className="text-ui text-fg-dim">{summaryOf(routine)}</p>
+          {routine.routine?.limits?.dailySpend !== undefined && (
+            <p className="text-ui text-fg-dim">
+              Spent today: {routine.spentToday.toFixed(2)} of its daily cap of{" "}
+              {routine.routine.limits.dailySpend}
+            </p>
+          )}
           <ErrorText size="inherit" className="text-ui">
             {routine.error}
           </ErrorText>
@@ -772,7 +778,9 @@ function summaryOf(routine: RoutineView): string {
   }
 
   if (routine.paused !== null) {
-    return routine.paused;
+    return routine.pausedUntil === null
+      ? routine.paused
+      : `${routine.paused} Resumes ${new Date(routine.pausedUntil).toLocaleString()}.`;
   }
 
   return routine.nextAt === null

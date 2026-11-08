@@ -96,3 +96,51 @@ test("draws a routine's message to a Session with the routine's title", () => {
     "Routine: Daily issuesSummarise the new issues.",
   );
 });
+
+test("a routine's page says why it paused itself, when it resumes and what it spent today", async () => {
+  const asked: string[] = [];
+  // The routines page, as the slot the test renders.
+  const slots = { page: web.pages?.[0]?.Page };
+
+  const detail = {
+    name: "fix",
+    title: "Fix issues",
+    paused:
+      "Paused until tomorrow: it spent 20.00 today, and its daily cap is 20.",
+    pausedUntil: "2026-11-09T00:00:00.000Z",
+    nextAt: null,
+    lastRun: null,
+    file: "{}",
+    routine: {
+      title: "Fix issues",
+      when: [{ kind: "webhook" }],
+      do: { kind: "message", prompt: "Fix it.", session: "s1" },
+      limits: { dailySpend: 20 },
+    },
+    runs: [],
+    spentToday: 20,
+  };
+
+  const page = renderPart(
+    { ...web, slots },
+    "page",
+    { path: "fix" },
+    {
+      fetch: async (url) => {
+        asked.push(url);
+
+        return Promise.resolve(Response.json(detail));
+      },
+    },
+  );
+
+  await act(async () => until(() => asked.length > 0));
+
+  expect(page.textContent).toContain(
+    `Paused until tomorrow: it spent 20.00 today, and its daily cap is 20. Resumes ${new Date(detail.pausedUntil).toLocaleString()}.`,
+  );
+
+  expect(page.textContent).toContain(
+    "Spent today: 20.00 of its daily cap of 20",
+  );
+});

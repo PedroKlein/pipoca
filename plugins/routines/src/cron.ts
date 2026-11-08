@@ -81,6 +81,90 @@ export function cronSchedule(expression: string, timeZone: string): Schedule {
   };
 }
 
+export interface TimeWindow {
+  readonly contains: (at: number) => boolean;
+  // When the window next opens, strictly after the time.
+  readonly next: (after: number) => number | undefined;
+}
+
+// A window from one wall-clock time to another on the weekdays a cron
+// weekday field names, such as mon-fri. One that ends at or before it
+// starts runs past midnight into the next day.
+export function timeWindow(
+  days: string,
+  from: string,
+  to: string,
+  timeZone: string,
+): TimeWindow {
+  const weekdays = field(days, 4);
+  const start = minuteOfDay(from);
+  const end = minuteOfDay(to);
+  const zoned = wallClock(timeZone);
+
+  if (weekdays.delete(7)) {
+    weekdays.add(0);
+  }
+
+  const opens = cronSchedule(
+    `${String(start % 60)} ${String(Math.floor(start / 60))} * * ${days}`,
+    timeZone,
+  );
+
+  return {
+    contains: (at) => {
+      const wall = zoned(at);
+      const minute = wall.hour * 60 + wall.minute;
+
+      if (start < end) {
+        return weekdays.has(wall.weekday) && minute >= start && minute < end;
+      }
+
+      return (
+        (weekdays.has(wall.weekday) && minute >= start) ||
+        (weekdays.has((wall.weekday + 6) % 7) && minute < end)
+      );
+    },
+    next: opens.next,
+  };
+}
+
+function minuteOfDay(text: string): number {
+  const [, hours = "", minutes = ""] = /^(\d\d):(\d\d)$/.exec(text) ?? [];
+  const minute = Number(hours) * 60 + Number(minutes);
+
+  if (hours === "" || Number(minutes) > 59 || minute > 24 * 60) {
+    throw new Error(`${text} isn't a time of day, such as 09:00`);
+  }
+
+  return minute;
+}
+
+// The day the time falls on in the zone, as YYYY-MM-DD.
+export function dayOf(at: number, timeZone: string): string {
+  const { year, month, day } = wallClock(timeZone)(at);
+
+  return new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10);
+}
+
+// When the day after the given one, YYYY-MM-DD, starts in the zone.
+export function dayAfter(date: string, timeZone: string): number {
+  const [year = 0, month = 1, day = 1] = date.split("-").map(Number);
+  const midnight = Date.UTC(year, month - 1, day + 1);
+  const zoned = wallClock(timeZone);
+  let at = midnight;
+
+  // Twice, since the zone's offset can differ at the first guess.
+  for (let each = 0; each < 2; each++) {
+    const wall = zoned(at);
+
+    at +=
+      midnight -
+      Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute);
+  }
+
+  return at;
+}
+
 function parse(expression: string): Fields {
   const parts = expression.trim().split(/\s+/);
 
@@ -176,6 +260,7 @@ function valueOf(text: string, at: number): number {
 }
 
 interface Wall {
+  readonly year: number;
   readonly month: number;
   readonly day: number;
   readonly weekday: number;
@@ -190,6 +275,7 @@ function wallClock(timeZone: string): (at: number) => Wall {
     format = new Intl.DateTimeFormat("en-US", {
       timeZone,
       hourCycle: "h23",
+      year: "numeric",
       month: "numeric",
       day: "numeric",
       weekday: "short",
@@ -208,6 +294,7 @@ function wallClock(timeZone: string): (at: number) => Wall {
     );
 
     return {
+      year: Number(parts["year"]),
       month: Number(parts["month"]),
       day: Number(parts["day"]),
       weekday: weekdays.indexOf(String(parts["weekday"]).toLowerCase()),
