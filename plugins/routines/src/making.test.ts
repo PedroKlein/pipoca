@@ -13,7 +13,7 @@ import {
   testPlugin,
   testSession,
 } from "@pipoca/testing";
-import type { RoutineDraft } from "./making";
+import type { RoutineDraft } from "./model";
 import type { RoutineDetail, Run } from "./model";
 import { server } from "./server";
 import { session as sessionPart } from "./session";

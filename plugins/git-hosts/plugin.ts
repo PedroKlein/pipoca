@@ -1,7 +1,9 @@
 import {
   action,
+  check,
   Config,
   definePlugin,
+  destination,
   event,
   Secret,
   type Static,
@@ -415,6 +417,50 @@ create index git_hosts_questions_thread on git_hosts_questions (host, repository
         },
         { additionalProperties: false },
       ),
+    }),
+  },
+  // Where a routine's run's result can go (ADR 0075).
+  destinations: {
+    comment: destination({
+      title: "Comment on the issue or pull request",
+      description:
+        "Comments the result on the issue or pull request the run's event is about, or on the one it names.",
+      settings: Type.Object(
+        {
+          repository: Type.Optional(target.repository),
+          number: Type.Optional(target.number),
+        },
+        { additionalProperties: false },
+      ),
+    }),
+    file: destination({
+      title: "A file in a repository",
+      description: "Writes the result to a file, replacing what it held.",
+      settings: Type.Object(
+        {
+          repository: target.repository,
+          path: Type.String({ minLength: 1, pattern: "^[^/].*[^/]$|^[^/]$" }),
+          branch: Type.Optional(
+            Type.String({
+              minLength: 1,
+              description: "The default branch if left out",
+            }),
+          ),
+        },
+        { additionalProperties: false },
+      ),
+    }),
+  },
+  // Checks a routine's trigger can use (ADR 0075).
+  checks: {
+    failedTwice: check({
+      title: "Failed twice in a row",
+      description:
+        "A check run that failed, when the last one that finished before it, of the same piece of work, failed too. Key the routine's work by repository, name and branch.",
+      script: [
+        'const last = earlier.find((each) => each.conclusion !== "");',
+        'return event.conclusion === "failure" && last !== undefined && last.conclusion === "failure";',
+      ].join("\n"),
     }),
   },
 });

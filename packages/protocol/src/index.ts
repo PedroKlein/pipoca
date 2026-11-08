@@ -97,6 +97,8 @@ export {
   blobHash,
   blobRoutes,
   type DeclaredAction,
+  type DeclaredCheck,
+  type DeclaredDestination,
   type DeclaredEvent,
   type PluginInfo,
   type PluginManifest,

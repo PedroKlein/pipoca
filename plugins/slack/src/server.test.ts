@@ -1,6 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
 import { server as askServer } from "@pipoca/ask/server";
-import { definePlugin, defineServer, type Questions } from "@pipoca/plugins";
+import {
+  definePlugin,
+  defineServer,
+  type PluginDestinations,
+  type Questions,
+  type Sessions,
+} from "@pipoca/plugins";
 import {
   type PluginTest,
   person,
@@ -530,3 +536,47 @@ async function asks(
 
   return asked.json();
 }
+
+// Delivers routine runs' results, as the routines plugin does.
+let delivering: PluginDestinations | undefined;
+let seen: Sessions | undefined;
+
+const deliverer = defineServer(
+  definePlugin({ id: "deliverer", title: "Deliverer", description: "-" }),
+  (context) => {
+    delivering = context.destinations;
+    seen = context.sessions;
+  },
+);
+
+test("posts a routine run's result in the channel its routine names", async () => {
+  const fake = fakeSlack();
+  await using t = await started(fake, undefined, [deliverer]);
+
+  await addBot(t, "team-bot");
+
+  const session = seen?.get((await t.session({ owner: person("ana") })).id);
+
+  if (session === undefined) {
+    throw new Error("no Session");
+  }
+
+  expect(
+    await delivering?.deliver(
+      "slack.channel",
+      { channel: "C1" },
+      {
+        session,
+        routine: "Digest",
+        outcome: "done",
+        summary: "3 new issues.",
+        events: [],
+        text: "Digest: Done. 3 new issues.",
+      },
+    ),
+  ).toEqual({ text: "Posted to C1 (ts 1700.0001)" });
+
+  expect(fake.posted).toEqual([
+    { channel: "C1", text: "Digest: Done. 3 new issues." },
+  ]);
+});

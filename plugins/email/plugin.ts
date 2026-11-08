@@ -3,6 +3,7 @@ import {
   Config,
   event,
   definePlugin,
+  destination,
   Secret,
   Type,
 } from "@pipoca/plugins";
@@ -113,6 +114,27 @@ create index email_questions_message on email_questions (mailbox, message_id);
       description:
         "Sends a mail, or a reply, from one of the routine owner's mailboxes.",
       input: sendMail,
+    }),
+  },
+  // Where a routine's run's result can go (ADR 0075).
+  destinations: {
+    mail: destination({
+      title: "Mail",
+      description:
+        "Mails the result from one of the routine owner's mailboxes.",
+      settings: Type.Object(
+        {
+          to: sendMail.properties.to,
+          subject: Type.Optional(
+            Type.String({
+              minLength: 1,
+              description: "The routine's title if left out",
+            }),
+          ),
+          mailbox: sendMail.properties.mailbox,
+        },
+        { additionalProperties: false },
+      ),
     }),
   },
 });

@@ -33,6 +33,29 @@ export const declaredAction = Type.Object({
 
 export type DeclaredAction = Wire<typeof declaredAction>;
 
+// Where a routine's run's result can go, which an enabled plugin declares
+// and delivers to (ADR 0075), by its full type.
+export const declaredDestination = Type.Object({
+  ...described,
+  // A JSON Schema of what a routine sets for it.
+  settings: anyMap,
+  type: Type.TemplateLiteral("${string}.${string}"),
+});
+
+export type DeclaredDestination = Wire<typeof declaredDestination>;
+
+// A check a routine's trigger can name, which an enabled plugin declares
+// (ADR 0075), by its full type.
+export const declaredCheck = Type.Object({
+  ...described,
+  script: Type.String(),
+  // A JSON Schema of what a trigger sets for it, when it takes any.
+  settings: Type.Optional(anyMap),
+  type: Type.TemplateLiteral("${string}.${string}"),
+});
+
+export type DeclaredCheck = Wire<typeof declaredCheck>;
+
 const pluginPart = Type.Enum(["server", "session", "web"]);
 
 // A plugin as its definition, or before an installed one runs, its folder

@@ -239,6 +239,22 @@ export const server = defineServer(email, (context) => {
     },
   });
 
+  provide.destinations({
+    mail: async ({ to, subject, mailbox }, { session, routine, text }) => {
+      const { from } = await sent(
+        {
+          to,
+          subject: subject ?? routine,
+          text,
+          ...(mailbox !== undefined && { mailbox }),
+        },
+        session,
+      );
+
+      return { text: `Mailed from ${from} to ${to}` };
+    },
+  });
+
   const viewOf = (mailbox: Mailbox): MailboxView => ({
     name: mailbox.name,
     address: mailbox.address,

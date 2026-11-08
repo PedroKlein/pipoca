@@ -14,6 +14,7 @@ import {
 } from "@pipoca/protocol";
 import type { routines } from "../plugin";
 import type { Routines } from "./engine";
+import type { RoutineDraft } from "./model";
 import {
   allowedActions,
   checkEvents,
@@ -21,19 +22,6 @@ import {
   routineOf,
   routineSchema,
 } from "./routine";
-
-// A routine Pipoca drafted from one sentence, for the person to change and
-// save (ADR 0075). A drafted routine that doesn't fit says why in error.
-export interface RoutineDraft {
-  readonly id: string;
-  readonly sentence: string;
-  readonly state: "drafting" | "ready" | "failed";
-  readonly sessionId: string | null;
-  readonly name?: string | undefined;
-  readonly routine?: unknown;
-  readonly summary?: string | undefined;
-  readonly error?: string | undefined;
-}
 
 interface Kept extends RoutineDraft {
   readonly owner: Owner;

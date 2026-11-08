@@ -18,7 +18,7 @@ import {
 import type { DeclaredAction, DeclaredEvent } from "@pipoca/protocol";
 import { type ReactElement, useState } from "react";
 import { routines } from "../plugin";
-import type { RoutineDraft } from "../src/making";
+import type { RoutineDraft } from "../src/model";
 
 // A routine as it is being made: what the draft or the person wrote so far,
 // which saving checks.

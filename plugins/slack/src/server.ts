@@ -298,6 +298,17 @@ export const server = defineServer(slack, (context) => {
     },
   });
 
+  provide.destinations({
+    channel: async ({ channel, bot }, { session, text: result }) => {
+      const { where, ts } = await posted(
+        { channel, text: result, ...(bot !== undefined && { bot }) },
+        session,
+      );
+
+      return { text: `Posted to ${where} (ts ${ts})` };
+    },
+  });
+
   const viewOf = (bot: Bot): BotView => ({
     name: bot.name,
     team: bot.team,

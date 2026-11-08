@@ -1,6 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
 import { server as askServer } from "@pipoca/ask/server";
-import { definePlugin, defineServer, type Questions } from "@pipoca/plugins";
+import {
+  definePlugin,
+  defineServer,
+  type PluginDestinations,
+  type Questions,
+  type Sessions,
+} from "@pipoca/plugins";
 import {
   type PluginTest,
   person,
@@ -550,3 +556,46 @@ async function asks(
 
   return asked.json();
 }
+
+// Delivers routine runs' results, as the routines plugin does.
+let delivering: PluginDestinations | undefined;
+let seen: Sessions | undefined;
+
+const deliverer = defineServer(
+  definePlugin({ id: "deliverer", title: "Deliverer", description: "-" }),
+  (context) => {
+    delivering = context.destinations;
+    seen = context.sessions;
+  },
+);
+
+test("mails a routine run's result, with the routine's title as its subject unless it names one", async () => {
+  const mail = await fakeMail();
+  await using t = await started(undefined, { plugins: [deliverer] });
+
+  await addMailbox(t, mail);
+
+  const session = seen?.get((await t.session({ owner: person("ana") })).id);
+
+  if (session === undefined) {
+    throw new Error("no Session");
+  }
+
+  expect(
+    await delivering?.deliver(
+      "email.mail",
+      { to: "alice@example.com" },
+      {
+        session,
+        routine: "Weekly digest",
+        outcome: "done",
+        summary: "3 new issues.",
+        events: [],
+        text: "Weekly digest: Done. 3 new issues.",
+      },
+    ),
+  ).toEqual({ text: "Mailed from support@example.com to alice@example.com" });
+
+  expect(mail.sent[0]).toContain("Subject: Weekly digest");
+  expect(mail.sent[0]).toContain("Weekly digest: Done. 3 new issues.");
+});

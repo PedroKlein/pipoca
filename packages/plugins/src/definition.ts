@@ -43,6 +43,28 @@ export interface ActionDef<I extends TObject = TObject> {
 
 export type Actions = Readonly<Record<string, ActionDef>>;
 
+// Where a routine's run's result can go when the run ends, such as a Slack
+// channel, with what a routine sets for it (ADR 0075).
+export interface DestinationDef<S extends TObject = TObject> {
+  readonly title: string;
+  readonly description?: string;
+  readonly settings: S;
+}
+
+export type Destinations = Readonly<Record<string, DestinationDef>>;
+
+// A check a routine's trigger can name: a script that sees the event, the
+// earlier firings of its piece of work and the trigger's settings, and
+// returns true or false (ADR 0075).
+export interface CheckDef {
+  readonly title: string;
+  readonly description?: string;
+  readonly script: string;
+  readonly settings?: TObject;
+}
+
+export type Checks = Readonly<Record<string, CheckDef>>;
+
 export interface PluginDefinition<
   C extends TConfig = TConfig,
   E extends Events = Events,
@@ -65,6 +87,8 @@ export interface PluginDefinition<
   readonly migrations?: readonly string[];
   readonly events?: E;
   readonly actions?: Actions;
+  readonly destinations?: Destinations;
+  readonly checks?: Checks;
 }
 
 const idPattern = /^[a-z][a-z0-9-]*$/;
@@ -167,6 +191,16 @@ export function Secret(
 }
 
 export function action<I extends TObject>(o: ActionDef<I>): ActionDef<I> {
+  return o;
+}
+
+export function destination<S extends TObject>(
+  o: DestinationDef<S>,
+): DestinationDef<S> {
+  return o;
+}
+
+export function check(o: CheckDef): CheckDef {
   return o;
 }
 
