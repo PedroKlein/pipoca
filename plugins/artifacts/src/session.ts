@@ -27,7 +27,10 @@ export const session = defineSession(artifacts, (s) => {
         }),
       ),
       id: Type.Optional(
-        Type.String({ description: "The artifact to add a version to" }),
+        Type.String({
+          description:
+            "The id an earlier publish_artifact returned, to add a version to it. Leave it out for a new artifact.",
+        }),
       ),
       note: Type.Optional(
         Type.String({

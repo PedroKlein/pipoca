@@ -5,6 +5,8 @@ interface Schema {
   readonly anyOf?: unknown;
   readonly oneOf?: unknown;
   readonly properties?: unknown;
+  readonly required?: unknown;
+  readonly items?: unknown;
 }
 
 // Models sometimes send a value JSON-encoded, such as "\"done\"" for an enum
@@ -15,29 +17,65 @@ export function repairArguments(
   schema: Readonly<Record<string, unknown>>,
 ): unknown {
   const properties = propertiesOf(schema);
-  if (!isRecord(args) || properties === undefined) {
-    return args;
+  const given = withoutEmptyFields(args, schema);
+  if (!isRecord(given) || properties === undefined) {
+    return given;
   }
 
   let repaired: Record<string, unknown> | undefined;
 
   for (const [name, property] of Object.entries(properties)) {
-    const value = args[name];
+    const value = given[name];
     if (typeof value !== "string" || fits(value, property)) {
       continue;
     }
 
     const parsed = parseJson(value);
     if (parsed !== undefined && fits(parsed, property)) {
-      repaired ??= { ...args };
+      repaired ??= { ...given };
       repaired[name] = parsed;
     }
   }
 
-  const result = repaired ?? args;
+  const result = repaired ?? given;
   refuseUnknownChoices(result, properties);
 
   return result;
+}
+
+// Some models fill every optional field, with "" or null when they have no
+// value, and a tool then refuses the empty value or takes it as meant.
+function withoutEmptyFields(value: unknown, schema: Schema): unknown {
+  if (Array.isArray(value) && isRecord(schema.items)) {
+    const items: Schema = schema.items;
+
+    return value.map((item) => withoutEmptyFields(item, items));
+  }
+
+  const properties = isRecord(value) ? propertiesOf(schema) : undefined;
+
+  if (!isRecord(value) || properties === undefined) {
+    return value;
+  }
+
+  const required = Array.isArray(schema.required) ? schema.required : [];
+
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([name, field]) => {
+      if ((field === "" || field === null) && !required.includes(name)) {
+        return [];
+      }
+
+      const property = properties[name];
+
+      return [
+        [
+          name,
+          property === undefined ? field : withoutEmptyFields(field, property),
+        ],
+      ];
+    }),
+  );
 }
 
 // Pi's own message for a wrong enum doesn't say what is allowed, so a model
@@ -97,7 +135,7 @@ function hasType(value: unknown, type: unknown): boolean {
 }
 
 function propertiesOf(
-  schema: Readonly<Record<string, unknown>>,
+  schema: Readonly<Record<string, unknown>> | Schema,
 ): Readonly<Record<string, Schema>> | undefined {
   const { properties } = schema as Schema;
 
