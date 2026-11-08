@@ -140,7 +140,8 @@ export function pluginEvents<P extends PluginDefinition>(
   bus: EventBus,
   plugin: P,
   known: readonly PluginDefinition[],
-  listening: (stop: () => void) => void,
+  // Hears of each listener added, with the type it listens to.
+  listening: (stop: () => void, type: string) => void,
   log: Log,
 ): Pick<PluginEvents<P>, "emit" | "on"> {
   return {
@@ -187,6 +188,7 @@ export function pluginEvents<P extends PluginDefinition>(
             failed(error);
           }
         }),
+        type,
       );
     },
   };

@@ -73,7 +73,7 @@ export function PluginsPage(): ReactElement {
       </div>
       <ul aria-label="Plugins" className="mt-6 grid gap-3 md:grid-cols-2">
         {listed.map((plugin) => (
-          <PluginCard key={plugin.id} plugin={plugin} />
+          <PluginCard key={plugin.id} plugin={plugin} plugins={plugins} />
         ))}
       </ul>
       {listed.length === 0 && (

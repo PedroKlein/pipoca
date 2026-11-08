@@ -868,46 +868,147 @@ test("an admin turns a built-in plugin off and on, which pipoca.json keeps for t
   expect(registered).toEqual(["chatty", "chatty"]);
 });
 
-test("keeps a plugin another one needs on, and says why", async () => {
+test("turning a plugin off turns off the plugins that need it, and on turns on what it needs", async () => {
   server = testServer({
     configDir: join(root, "config"),
     builtIns: false,
     servers: [
       plugin("base"),
+      plugin("middle", () => undefined, { requires: ["base"] }),
+      plugin("top", () => undefined, { requires: ["middle"] }),
+      plugin("aside"),
+    ],
+  });
+
+  const switched = async (): Promise<Record<string, boolean>> =>
+    Object.fromEntries(
+      ((await (await server.api("/api/plugins")).json()) as PluginInfo[]).map(
+        ({ id, turnedOn }) => [id, turnedOn],
+      ),
+    );
+
+  const off = await server.api("/api/plugins/base", {
+    method: "PATCH",
+    body: { enabled: false },
+  });
+
+  expect(await off.json()).toMatchObject({ turnedOn: false });
+
+  expect(await switched()).toEqual({
+    base: false,
+    middle: false,
+    top: false,
+    aside: true,
+  });
+
+  await server.api("/api/plugins/top", {
+    method: "PATCH",
+    body: { enabled: true },
+  });
+
+  expect(await switched()).toEqual({
+    base: true,
+    middle: true,
+    top: true,
+    aside: true,
+  });
+
+  expect(
+    ((await (await server.api("/api/plugins")).json()) as PluginInfo[]).find(
+      ({ id }) => id === "top",
+    ),
+  ).toMatchObject({ requires: ["middle"] });
+});
+
+test("a plugin that needs one that isn't installed can't be turned on, and says why", async () => {
+  server = testServer({
+    configDir: join(root, "config"),
+    builtIns: false,
+    servers: [
       plugin("needing", () => undefined, {
-        title: "Needing",
-        requires: ["base"],
+        defaultOn: "never",
+        requires: ["absent"],
       }),
     ],
   });
+
+  expect(await (await server.api("/api/plugins")).json()).toMatchObject([
+    { id: "needing", switchLocked: "it needs absent, which isn't installed" },
+  ]);
+
+  const refused = await server.api("/api/plugins/needing", {
+    method: "PATCH",
+    body: { enabled: true },
+  });
+
+  expect(refused.status).toBe(400);
+});
+
+test("turning a plugin off in team work turns off there the plugins that need it", async () => {
+  server = testServer({
+    configDir: join(root, "config"),
+    builtIns: false,
+    servers: [
+      plugin("base"),
+      plugin("needing", () => undefined, { requires: ["base"] }),
+    ],
+  });
+
+  const teamWork = async (): Promise<Record<string, boolean>> =>
+    Object.fromEntries(
+      ((await (await server.api("/api/plugins")).json()) as PluginInfo[]).map(
+        ({ id, teamWork: on }) => [id, on],
+      ),
+    );
+
+  await server.api("/api/plugins/base", {
+    method: "PATCH",
+    body: { teamWork: false },
+  });
+
+  expect(await teamWork()).toEqual({ base: false, needing: false });
+
+  await server.api("/api/plugins/needing", {
+    method: "PATCH",
+    body: { teamWork: true },
+  });
+
+  expect(await teamWork()).toEqual({ base: true, needing: true });
+});
+
+test("shows the plugins one works with, from the events it listens to", async () => {
+  const sender = definePlugin({
+    id: "sender",
+    title: "Sender",
+    description: "",
+    events: { sent: { title: "Sent", fields: Type.Object({}) } },
+  });
+
+  server = testServer({
+    configDir: join(root, "config"),
+    builtIns: false,
+    servers: [
+      defineServer(sender, () => undefined),
+      plugin("hearer", (ctx) => {
+        ctx.events.on(sender.events.sent, () => undefined);
+        ctx.events.on("sender.other", () => undefined);
+        ctx.events.on("SessionCreated", () => undefined);
+      }),
+      plugin("quiet"),
+    ],
+  });
+
+  expect(await (await server.api("/api/plugins")).json()).toMatchObject([
+    { id: "sender" },
+    { id: "hearer", worksWith: [{ plugin: "sender", through: ["events"] }] },
+    { id: "quiet" },
+  ]);
 
   const listed = (await (
     await server.api("/api/plugins")
   ).json()) as PluginInfo[];
 
-  expect(listed.find(({ id }) => id === "base")?.switchLocked).toBe(
-    "Needing needs it, so it stays on",
-  );
-
-  const refused = await server.api("/api/plugins/base", {
-    method: "PATCH",
-    body: { enabled: false },
-  });
-
-  expect(refused.status).toBe(400);
-  expect(await refused.text()).toContain("Needing needs it");
-
-  await server.api("/api/plugins/needing", {
-    method: "PATCH",
-    body: { enabled: false },
-  });
-
-  const turned = await server.api("/api/plugins/base", {
-    method: "PATCH",
-    body: { enabled: false },
-  });
-
-  expect(await turned.json()).toMatchObject({ turnedOn: false });
+  expect(listed.find(({ id }) => id === "quiet")?.worksWith).toBeUndefined();
 });
 
 test("leaves every plugin's switch to a locked file that sets them", async () => {

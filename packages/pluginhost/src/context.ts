@@ -20,6 +20,7 @@ export interface PluginDb {
 export function sessionsFor(
   sessions: Sessions,
   plugin: string,
+  actingAs: (plugin: string) => void,
 ): PluginSessions {
   const settle = (
     outcome:
@@ -41,6 +42,10 @@ export function sessionsFor(
 
   return {
     start: ({ key, ...request }) => {
+      if (request.actsAs !== undefined) {
+        actingAs(request.actsAs.plugin);
+      }
+
       const started = sessions.start(
         request,
         key === undefined ? undefined : { id: plugin, key },

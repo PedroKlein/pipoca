@@ -48,6 +48,7 @@ import type {
   ToolResult,
   ToolSpec,
 } from "@pipoca/protocol";
+import { switchingWith } from "@pipoca/protocol";
 import type { PluginProfile, SessionPlugins, Sessions } from "@pipoca/sessions";
 import { type PluginDb, secretsOf, sessionsFor, storeOf } from "./context";
 import {
@@ -280,6 +281,24 @@ export function startPlugins(
     { readonly uses: readonly string[]; readonly provides: readonly string[] }
   >();
 
+  type Through = "events" | "technical users";
+
+  // The plugins each one used while it ran, and how (ADR 0077).
+  const worksWith = new Map<string, Map<string, Set<Through>>>();
+
+  const usedBy = (id: string, other: string, through: Through): void => {
+    if (other === id || !deps.definitions.some((each) => each.id === other)) {
+      return;
+    }
+
+    const others = worksWith.get(id) ?? new Map<string, Set<Through>>();
+
+    worksWith.set(
+      id,
+      others.set(other, (others.get(other) ?? new Set()).add(through)),
+    );
+  };
+
   const transcript = transcriptReader((id) => deps.sessions.transcript(id));
   const running: string[] = [];
 
@@ -456,8 +475,9 @@ export function startPlugins(
   const listed = (name: string): PluginManifest | undefined =>
     manifests.find(({ id }) => id === name);
 
-  const titles = (ids: readonly string[]): string =>
-    ids.map((id) => listed(id)?.title ?? id).join(", ");
+  // What else turning a plugin on or off switches (ADR 0077).
+  const alsoSwitched = (name: string, on: boolean): string[] =>
+    switchingWith(deps.definitions, name, on, (id) => switchedOn.has(id));
 
   // Why a plugin can't be turned on or off here, if it can't.
   const switchLocked = (name: string): string | undefined => {
@@ -468,25 +488,14 @@ export function startPlugins(
     }
 
     if (switchedOn.has(name)) {
-      const needing = deps.definitions
-        .filter(
-          ({ id, requires = [] }) =>
-            switchedOn.has(id) && requires.includes(name),
-        )
-        .map(({ id }) => id);
-
-      return needing.length === 0
-        ? undefined
-        : `${titles(needing)} ${needing.length === 1 ? "needs" : "need"} it, so it stays on`;
+      return undefined;
     }
 
-    const missing = (
-      deps.definitions.find(({ id }) => id === name)?.requires ?? []
-    ).filter((id) => !switchedOn.has(id));
+    const missing = alsoSwitched(name, true).filter((id) => !listed(id));
 
     return missing.length === 0
       ? undefined
-      : `it needs ${titles(missing)}, which ${missing.length === 1 ? "is" : "are"} off`;
+      : `it needs ${missing.join(", ")}, which ${missing.length === 1 ? "isn't" : "aren't"} installed`;
   };
 
   // The version running, whose settings and parts an update changes only
@@ -721,7 +730,9 @@ export function startPlugins(
             byName: (name) =>
               deps.auth.users().find((each) => each.name === name),
           },
-          sessions: sessionsFor(deps.sessions, id),
+          sessions: sessionsFor(deps.sessions, id, (other) => {
+            usedBy(id, other, "technical users");
+          }),
           routes: declared.routes,
           tools: {
             define: (tool) => {
@@ -775,8 +786,12 @@ export function startPlugins(
               deps.events,
               definition,
               deps.definitions,
-              (stop) => {
+              (stop, type) => {
                 unsubscribes.push(stop);
+
+                if (type.includes(".")) {
+                  usedBy(id, type.slice(0, type.indexOf(".")), "events");
+                }
               },
               log,
             ),
@@ -977,6 +992,12 @@ export function startPlugins(
     const reached = used.get(found.id);
     const locked = switchLocked(found.id);
 
+    const requires = deps.definitions.find(
+      ({ id }) => id === found.id,
+    )?.requires;
+
+    const others = [...(worksWith.get(found.id) ?? [])];
+
     // What is in its folder now, which may wait for a restart to run.
     const base = {
       ...(listed(found.id) ?? found),
@@ -991,6 +1012,13 @@ export function startPlugins(
       ...(updated.has(found.id) && { updated: true }),
       ...(newer.has(found.id) && { updateAvailable: true }),
       ...(locked !== undefined && { switchLocked: locked }),
+      ...(requires !== undefined && requires.length > 0 && { requires }),
+      ...(others.length > 0 && {
+        worksWith: others.map(([plugin, through]) => ({
+          plugin,
+          through: [...through],
+        })),
+      }),
       teamWork: inTeamWork(found.id),
     } as const;
 
@@ -1094,6 +1122,19 @@ export function startPlugins(
 
         if (on && digest !== undefined && digest !== info(found).digest) {
           return "it changed since the page showed it; look at it again before turning it on";
+        }
+
+        const also = alsoSwitched(name, on).flatMap((id) => listed(id) ?? []);
+        for (const { id, title } of on ? also : []) {
+          const failed = failures.get(id);
+
+          if (failed !== undefined) {
+            return `it needs ${title}, which failed: ${failed}`;
+          }
+        }
+
+        for (const each of also) {
+          turned(each, on);
         }
 
         return turned(found, on);
@@ -1339,8 +1380,13 @@ export function startPlugins(
         return undefined;
       }
 
-      deps.switches.set(name, { team: on });
-      deps.log("plugin team work set", { plugin: name, on });
+      for (const id of [
+        ...switchingWith(deps.definitions, name, on, inTeamWork),
+        name,
+      ]) {
+        deps.switches.set(id, { team: on });
+        deps.log("plugin team work set", { plugin: id, on });
+      }
 
       return info(listed(name) ?? found);
     },
