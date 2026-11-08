@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -121,6 +122,23 @@ async function hosted(
 
       if (children.at(-1)?.system.includes("You are a watchdog") === true) {
         return fauxAssistantMessage([fauxText(reviews.shift() ?? "[]")]);
+      }
+
+      // Calls the tool its task names, then says what it got.
+      if (task.startsWith("call ")) {
+        const result = context.messages.findLast(
+          (m) => m.role === "toolResult",
+        );
+
+        return result?.role === "toolResult"
+          ? fauxAssistantMessage([
+              fauxText(
+                `got: ${result.content.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("")}`,
+              ),
+            ])
+          : fauxAssistantMessage([fauxToolCall(task.slice(5), {})], {
+              stopReason: "toolUse",
+            });
       }
 
       // Runs until it is stopped, the first time it is told.
@@ -413,6 +431,192 @@ Only report lint problems.
 
   expect(session.children[0]?.tools).toEqual(["read", "grep"]);
   expect(session.children[0]?.system).toContain("Only report lint problems.");
+});
+
+async function agentFile(name: string, frontmatter: string): Promise<void> {
+  await mkdir(join(root, "agent", "agents"), { recursive: true });
+
+  await writeFile(
+    join(root, "agent", "agents", `${name}.md`),
+    `---\nname: ${name}\ndescription: ${name}\n${frontmatter}\n---\n`,
+  );
+}
+
+test("a child that names an extension's tool gets a fresh instance of only that extension", async () => {
+  await mkdir(join(root, "agent", "extensions"), { recursive: true });
+
+  await writeFile(
+    join(root, "agent", "extensions", "tickets.js"),
+    `export default function (pi) {
+  const load = (globalThis.ticketLoads ?? 0) + 1;
+  globalThis.ticketLoads = load;
+  pi.registerTool({
+    name: "ticket",
+    label: "Ticket",
+    description: "Looks up a ticket",
+    parameters: { type: "object", properties: {} },
+    execute: async () => ({ content: [{ type: "text", text: \`load \${load}\` }], details: undefined }),
+  });
+}
+`,
+  );
+
+  await agentFile("ticketer", "tools: read, ticket");
+
+  const loaded = globalThis as { ticketLoads?: number };
+  delete loaded.ticketLoads;
+
+  const session = await hosted([
+    call({
+      tasks: [
+        { agent: "scout", task: "look around" },
+        { agent: "ticketer", task: "call ticket" },
+      ],
+      wait: true,
+    }),
+  ]);
+
+  session.send("go");
+  await session.waitFor(() => toolResults(session.lines).length > 0);
+  await session.stop();
+
+  expect(toolResults(session.lines).join()).toContain("got: load 2");
+  expect((globalThis as { ticketLoads?: number }).ticketLoads).toBe(2);
+
+  const tools = (task: string): readonly string[] | undefined =>
+    session.children.find((child) => child.task === task)?.tools;
+
+  expect(tools("look around")).toEqual(["read", "grep", "find", "ls", "bash"]);
+  expect(tools("call ticket")).toEqual(["read", "ticket"]);
+});
+
+test("a child sees only the skills it names", async () => {
+  const skills = [
+    ["triage", "Sorts incoming issues"],
+    ["deploy", "Ships a release"],
+  ] as const;
+
+  for (const [name, about] of skills) {
+    await mkdir(join(root, "agent", "skills", name), { recursive: true });
+
+    await writeFile(
+      join(root, "agent", "skills", name, "SKILL.md"),
+      `---\nname: ${name}\ndescription: ${about}\n---\nSteps.\n`,
+    );
+  }
+
+  await agentFile("triager", "tools: read\nskills: triage");
+
+  const session = await hosted([
+    call({
+      tasks: [
+        { agent: "triager", task: "sort" },
+        { agent: "scout", task: "look" },
+      ],
+      wait: true,
+    }),
+  ]);
+
+  session.send("go");
+  await session.waitFor(() => toolResults(session.lines).length > 0);
+  await session.stop();
+
+  const system = (task: string): string =>
+    session.children.find((child) => child.task === task)?.system ?? "";
+
+  expect(system("sort")).toContain("Sorts incoming issues");
+  expect(system("sort")).not.toContain("Ships a release");
+  expect(system("look")).not.toContain("Sorts incoming issues");
+});
+
+// A stdio MCP server that notes in a file when it starts and stops.
+async function ticketServer(): Promise<{ readonly log: () => string }> {
+  const log = join(root, "server.log");
+  const script = join(root, "server.mjs");
+
+  await writeFile(log, "");
+
+  await writeFile(
+    script,
+    `import { appendFileSync } from "node:fs";
+import { createInterface } from "node:readline";
+appendFileSync(${JSON.stringify(log)}, "start\\n");
+process.stdin.on("end", () => appendFileSync(${JSON.stringify(log)}, "end\\n"));
+const send = (id, result) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\\n");
+const tool = (name) => ({ name, description: name + " a ticket", inputSchema: { type: "object", properties: {} } });
+createInterface({ input: process.stdin }).on("line", (line) => {
+  const { id, method, params } = JSON.parse(line);
+  if (id === undefined) return;
+  if (method === "initialize") send(id, { protocolVersion: params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "tickets", version: "1" } });
+  else if (method === "tools/list") send(id, { tools: [tool("lookup"), tool("close")] });
+  else if (method === "tools/call") send(id, { content: [{ type: "text", text: "ticket 7 is open" }] });
+  else send(id, {});
+});
+`,
+  );
+
+  await mkdir(join(root, "agent"), { recursive: true });
+
+  await writeFile(
+    join(root, "agent", "mcp.json"),
+    JSON.stringify({
+      mcpServers: {
+        tickets: {
+          command: process.execPath,
+          args: [script],
+          exposure: "direct",
+        },
+      },
+    }),
+  );
+
+  return { log: () => readFileSync(log, "utf8") };
+}
+
+test("a child gets the MCP tools it names directly, and connects their server on its first call", async () => {
+  const server = await ticketServer();
+
+  await agentFile("clerk", "tools: read, mcp__tickets__lookup");
+
+  const session = await hosted([
+    call({ agent: "clerk", task: "think", wait: true }),
+    call({ agent: "clerk", task: "call mcp__tickets__lookup", wait: true }),
+  ]);
+
+  session.send("first");
+  await session.waitFor(() => toolResults(session.lines).length > 0);
+
+  expect(server.log()).toBe("start\n");
+  expect(session.children[0]?.tools).toEqual(["read", "mcp__tickets__lookup"]);
+
+  session.send("second");
+  await session.waitFor(() => toolResults(session.lines).length > 1);
+
+  expect(toolResults(session.lines)[1]).toContain("got: ticket 7 is open");
+  await session.waitFor(() => server.log().includes("end"));
+  expect(server.log()).toBe("start\nstart\nend\n");
+
+  await session.stop();
+});
+
+test("a child that names an MCP server gets all of its tools", async () => {
+  await ticketServer();
+
+  await agentFile("clerk", "tools: read\nmcp: tickets");
+
+  const session = await hosted([
+    call({ agent: "clerk", task: "think", wait: true }),
+  ]);
+
+  session.send("go");
+  await session.waitFor(() => toolResults(session.lines).length > 0);
+  await session.stop();
+
+  expect(session.children[0]?.tools).toEqual([
+    "read",
+    "mcp__tickets__lookup",
+    "mcp__tickets__close",
+  ]);
 });
 
 test("isn't offered in a Session whose Profile can't change files, such as the assistant's coordinator", async () => {

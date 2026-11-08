@@ -37,6 +37,7 @@ import type {
   ThinkingLevel,
 } from "@pipoca/protocol";
 import chalk from "chalk";
+import { childTools } from "./children";
 import type { Surfaces } from "./surfaces";
 import type { RemoteUI } from "./ui";
 import "./codemode";
@@ -118,8 +119,8 @@ function toolFinders(tools: readonly ToolDefinition[]): InlineExtension {
 
 // The extensions Pi's CLI builds in, so hosted sessions get the same tools.
 // Its llama.cpp provider isn't exported, so it's left out.
-function builtInExtensions(host?: SessionHost): InlineExtension[] {
-  const mcp: McpExtensionOptions = {
+function mcpOptions(host?: SessionHost): McpExtensionOptions {
+  return {
     // Pi types the store as its own class, which it doesn't export. Its
     // extension calls only what McpLoginStore has.
     ...(host?.logins && {
@@ -129,11 +130,13 @@ function builtInExtensions(host?: SessionHost): InlineExtension[] {
     }),
     ...(host?.openUrl && { openUrl: host.openUrl }),
   };
+}
 
+function builtInExtensions(host?: SessionHost): InlineExtension[] {
   return [
     { name: "codemode", factory: createCodemodeExtension() },
     { name: "tool-search", factory: createToolSearchExtension() },
-    { name: "mcp", factory: createMcpExtension(mcp) },
+    { name: "mcp", factory: createMcpExtension(mcpOptions(host)) },
   ].map((extension) => ({ ...extension, replaceable: true, builtin: true }));
 }
 
@@ -174,7 +177,11 @@ export async function startSession(
   });
 
   try {
-    return await sessionFrom(services, cwd, options, host);
+    const session = await sessionFrom(services, cwd, options, host);
+
+    childMcp.set(session, mcpOptions(host));
+
+    return session;
   } catch (error) {
     await shutDown(services);
 
@@ -222,6 +229,9 @@ async function sessionFrom(
   return session;
 }
 
+// The MCP logins a Session's children use, the same as its own.
+const childMcp = new WeakMap<AgentSession, McpExtensionOptions>();
+
 // A subagent's session (ADR 0057). It shares the parent's model runtime, so
 // it reaches every model the parent can with the same logins, and keeps its
 // file beside the parent's.
@@ -243,12 +253,33 @@ export async function startChild(
     throw new Error(chosen.error);
   }
 
+  const { tools, extensionPaths, extensionFactories } = await childTools(
+    parent,
+    agentDir,
+    child,
+    childMcp.get(parent) ?? {},
+  );
+
+  const skills = child.skills ?? [];
+
   const resourceLoader = new DefaultResourceLoader({
     cwd,
     agentDir,
     settingsManager,
     noExtensions: true,
-    noSkills: true,
+    additionalExtensionPaths: [...extensionPaths],
+    extensionFactories: [...extensionFactories],
+    noSkills: skills.length === 0,
+    ...(skills.length > 0 && {
+      skillsOverride: (base: Parameters<typeof withoutHomeSkills>[0]) => {
+        const kept = withoutHomeSkills(base);
+
+        return {
+          ...kept,
+          skills: kept.skills.filter(({ name }) => skills.includes(name)),
+        };
+      },
+    }),
     noPromptTemplates: true,
     noThemes: true,
     agentsFilesOverride: withoutHomeContext,
@@ -259,13 +290,20 @@ export async function startChild(
 
   await resourceLoader.reload();
 
+  const { errors } = resourceLoader.getExtensions();
+  if (errors.length > 0) {
+    throw new Error(
+      `extensions failed to load: ${errors.map((e) => `${e.path}: ${e.error}`).join("; ")}`,
+    );
+  }
+
   const { session } = await createAgentSession({
     cwd,
     agentDir,
     modelRuntime,
     settingsManager,
     resourceLoader,
-    tools: [...child.tools],
+    tools: [...tools],
     ...(chosen.model && { model: chosen.model }),
     thinkingLevel:
       child.thinking ??
@@ -280,6 +318,10 @@ export async function startChild(
             }),
           }),
   });
+
+  if (extensionPaths.length > 0 || extensionFactories.length > 0) {
+    await session.bindExtensions({});
+  }
 
   return session;
 }
