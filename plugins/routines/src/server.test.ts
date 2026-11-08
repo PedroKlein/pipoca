@@ -1346,7 +1346,10 @@ test("a run starts as the agent its routine names, keeping the tools a run needs
   const run = await t.as("ana").post<Run>("routines/fix/run", {});
 
   expect(tracking?.sessions.get(run.sessionId ?? "")).toMatchObject({
-    agent: { name: "implementer", keep: ["end_run", "ask_user", "propose"] },
+    agent: {
+      name: "implementer",
+      keep: ["end_run", "ask_user", "propose", "memory"],
+    },
     firstMessage: "Fix it.",
   });
 });

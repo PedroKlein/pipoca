@@ -124,6 +124,7 @@ test("reports unhealthy when the database can't be read, keeping why in the log"
       manifests: [],
       store: store.plugin,
       blobsDir: blobsDir(),
+      dataDir: blobsDir(),
       dataFailure: store.pluginFailure,
       resetData: store.resetPlugin,
       switches: {
@@ -232,6 +233,7 @@ function startServer(
       manifests: [{ id: "echo", title: "Echo", description: "" }],
       store: store.plugin,
       blobsDir: blobsDir(),
+      dataDir: blobsDir(),
       dataFailure: store.pluginFailure,
       resetData: store.resetPlugin,
       switches: {
@@ -631,6 +633,7 @@ test("lists a plugin's own Sessions only while the plugin is on", async () => {
         manifests: [{ id: "keeper", title: "Keeper", description: "" }],
         store: store.plugin,
         blobsDir: blobsDir(),
+        dataDir: blobsDir(),
         dataFailure: store.pluginFailure,
         resetData: store.resetPlugin,
         switches: {

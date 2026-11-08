@@ -1,3 +1,4 @@
+import type { Group } from "./group";
 import type { Routine } from "./routine";
 
 export interface WakeUp {
@@ -89,6 +90,8 @@ export interface Run {
 export interface RoutineView {
   readonly name: string;
   readonly title: string;
+  // The group it is in, by name.
+  readonly group?: string;
   // Why the routine's file doesn't load.
   readonly error?: string;
   readonly paused: string | null;
@@ -114,4 +117,63 @@ export interface RoutineDetail extends RoutineView {
   // Where a webhook trigger takes deliveries, signed with the secret as
   // sha256=<HMAC-SHA256 of the body in hex>.
   readonly webhook?: { readonly path: string; readonly secret: string };
+}
+
+export interface GroupView {
+  readonly name: string;
+  readonly title: string;
+  // Why its group.json doesn't load.
+  readonly error?: string;
+  // Why it is paused, such as at its daily budget, and until when.
+  readonly paused: string | null;
+  readonly pausedUntil: string | null;
+  // What its routines' runs spent today.
+  readonly spentToday: number;
+}
+
+// A piece of work of one of the group's routines, with its newest runs.
+export interface WorkItem {
+  readonly routine: string;
+  readonly title: string;
+  readonly key: string;
+  readonly runs: readonly Run[];
+}
+
+export interface RoutineCost {
+  readonly name: string;
+  readonly title: string;
+  readonly spentToday: number;
+  readonly runs: number;
+  readonly succeeded: number;
+  readonly failed: number;
+  // Of the runs that ended done or not, how many were done, or null.
+  readonly successRate: number | null;
+}
+
+// A group's board (ADR 0075).
+export interface GroupDetail extends GroupView {
+  // Its group.json as it is on disk, and the group it holds.
+  readonly file: string;
+  readonly group?: Group;
+  readonly routines: readonly RoutineView[];
+  readonly work: readonly WorkItem[];
+  readonly waiting: readonly {
+    readonly routine: string;
+    readonly run: Run;
+  }[];
+  readonly costs: readonly RoutineCost[];
+  readonly succeeded: number;
+  readonly failed: number;
+  readonly successRate: number | null;
+  // Its memory's files by name.
+  readonly memory: Readonly<Record<string, string>>;
+}
+
+// What importing a group made: its routines, the agent and workflow files
+// it added to the Profile, and the ones the Profile had already.
+export interface Imported {
+  readonly name: string;
+  readonly routines: readonly string[];
+  readonly added: readonly string[];
+  readonly kept: readonly string[];
 }

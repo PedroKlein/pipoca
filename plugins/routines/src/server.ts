@@ -1,4 +1,5 @@
 import {
+  BadRequest,
   defineServer,
   NotFound,
   owners,
@@ -8,6 +9,8 @@ import {
 } from "@pipoca/plugins";
 import { routines } from "../plugin";
 import { routinesEngine } from "./engine";
+import { groupSchema } from "./group";
+import { defaultMemoryFile } from "./memory";
 import { routineSchema } from "./routine";
 import { wakeUps } from "./wakeups";
 
@@ -42,6 +45,30 @@ const proposal = Type.Object(
   },
   { additionalProperties: false },
 );
+
+// Where a saved routine goes: into a group, or into none with "".
+const into = Type.Object(
+  { group: Type.Optional(Type.String()) },
+  { additionalProperties: false },
+);
+
+// The Profile an imported group's agents and workflows go into.
+const importInto = Type.Object(
+  { profile: Type.String({ minLength: 1 }) },
+  { additionalProperties: false },
+);
+
+// A note a run adds to its group's memory (ADR 0075).
+const note = Type.Object(
+  {
+    note: Type.String({ minLength: 1, maxLength: 8000 }),
+    file: Type.Optional(Type.String()),
+  },
+  { additionalProperties: false },
+);
+
+// A group's archive is at most this big.
+const maxArchiveBytes = 10 * 1024 * 1024;
 
 // A git bundle of a run's workspace branch is at most this big.
 const maxCommitsBytes = 200 * 1024 * 1024;
@@ -103,6 +130,12 @@ const routinesTool = Type.Object(
           "For create and update, what the routine does and when, in plain words the user checks before allowing it, such as: Every weekday at 08:00 Berlin time, summarise new issues in o/r.",
       }),
     ),
+    group: Type.Optional(
+      Type.String({
+        description:
+          'For create and update, the name of one of the user\'s routine groups to put it in, or "" for none. Left out, it stays where it is. In a group, a condition may be { "field": "repository", "inGroup": true } and the workspace { "kind": "group" }.',
+      }),
+    ),
   },
   { additionalProperties: false },
 );
@@ -158,7 +191,7 @@ export const server = defineServer(routines, (context) => {
       }
     },
     run: (
-      { action, name = "", routine, summary, inputs, dryRun },
+      { action, name = "", routine, summary, inputs, dryRun, group },
       { owner },
     ) => {
       if (action === "list") {
@@ -201,6 +234,7 @@ export const server = defineServer(routines, (context) => {
             name,
             routine,
             owners.personId(owner),
+            group,
           );
 
           routes.topic("routines");
@@ -310,12 +344,127 @@ export const server = defineServer(routines, (context) => {
 
   routes.put(
     "routines/:name",
-    { auth: "person", team: true, body: routineSchema, changes: ["routines"] },
-    ({ caller, params, body }) => {
-      engine.save(caller.owner, params.name, body, caller.person.id);
+    {
+      auth: "person",
+      team: true,
+      body: routineSchema,
+      query: into,
+      changes: ["routines"],
+    },
+    ({ caller, params, body, query }) => {
+      engine.save(
+        caller.owner,
+        params.name,
+        body,
+        caller.person.id,
+        query.group,
+      );
 
       return engine.get(caller.owner, params.name);
     },
+  );
+
+  // Routine groups (ADR 0075), each with its board.
+  routes.get("groups", { auth: "person", team: true }, ({ caller }) =>
+    engine.groups(caller.owner),
+  );
+
+  routes.get(
+    "groups/:name",
+    { auth: "person", team: true },
+    ({ caller, params }) => engine.group(caller.owner, params.name),
+  );
+
+  routes.put(
+    "groups/:name",
+    { auth: "person", team: true, body: groupSchema, changes: ["routines"] },
+    ({ caller, params, body }) => {
+      engine.saveGroup(caller.owner, params.name, body, caller.person.id);
+
+      return engine.group(caller.owner, params.name);
+    },
+  );
+
+  routes.delete(
+    "groups/:name",
+    { auth: "person", team: true, changes: ["routines"] },
+    ({ caller, params }) => {
+      engine.removeGroup(caller.owner, params.name, caller.person.id);
+
+      return { ok: true };
+    },
+  );
+
+  routes.post(
+    "groups/:name/resume",
+    { auth: "person", team: true, changes: ["routines"] },
+    ({ caller, params }) => {
+      engine.resumeGroup(caller.owner, params.name);
+
+      return engine.group(caller.owner, params.name);
+    },
+  );
+
+  routes.get(
+    "groups/:name/archive",
+    { auth: "person", team: true },
+    async ({ caller, params }) =>
+      new Response(
+        await engine.exportGroup(caller.owner, params.name, caller.person.id),
+        {
+          headers: {
+            "content-type": "application/gzip",
+            "content-disposition": `attachment; filename="${params.name}.tar.gz"`,
+          },
+        },
+      ),
+  );
+
+  routes.post(
+    "groups/archives",
+    {
+      auth: "person",
+      team: true,
+      query: importInto,
+      status: 201,
+      changes: ["routines"],
+    },
+    async ({ caller, query, raw }) => {
+      const bytes = new Uint8Array(await raw.arrayBuffer());
+
+      if (bytes.length > maxArchiveBytes) {
+        throw new BadRequest("the archive is too big");
+      }
+
+      return engine.importGroup(
+        caller.owner,
+        bytes,
+        query.profile,
+        caller.person.id,
+      );
+    },
+  );
+
+  // A run's Session part reads its group's memory and adds to it.
+  routes.get("memory", { auth: "session" }, ({ caller }) => {
+    const memory = engine.memory(caller.session);
+
+    if (memory === undefined) {
+      throw new NotFound("this Session isn't a run of a routine in a group");
+    }
+
+    return memory;
+  });
+
+  routes.post(
+    "memory",
+    { auth: "session", body: note, status: 201, changes: ["routines"] },
+    ({ caller, body }) =>
+      engine.remember(
+        caller.session,
+        body.file ?? defaultMemoryFile,
+        body.note,
+      ),
   );
 
   routes.delete(

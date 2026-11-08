@@ -23,7 +23,7 @@ export const routines = definePlugin({
     paused: event({
       title: "Routine paused itself",
       description:
-        "A routine paused on its own: after failed runs, past its end date or at its daily spend cap.",
+        "A routine paused on its own: after failed runs, past its end date or at its daily spend cap, or a group of routines at its daily budget.",
       fields: Type.Object({
         name: Type.String(),
         title: Type.String(),
@@ -92,6 +92,7 @@ create index routines_wakeups_session on routines_wakeups (session_id, delivered
   // ran before, who their questions are for, the question an approval
   // waits on, how a run that waits asked to end, and who changed each
   // routine.
+  // 6: groups (ADR 0075) that paused themselves at their daily budget.
   migrations: [
     "alter table routines_runs add column inputs text check (inputs is null or json_valid(inputs));",
     "alter table routines_runs add column agent text; alter table routines_runs add column workflow text;",
@@ -163,6 +164,16 @@ create table routines_changes (
   changed_at integer not null
 ) strict;
 create index routines_changes_routine on routines_changes (coalesce(owner_user_id, ''), name, changed_at);
+`,
+    `
+create table routines_groups (
+  owner_user_id text references users (id) on delete cascade,
+  name text not null,
+  paused_at integer not null,
+  paused_reason text not null,
+  paused_until integer not null
+) strict;
+create unique index routines_groups_key on routines_groups (coalesce(owner_user_id, ''), name);
 `,
   ],
 });

@@ -57,6 +57,11 @@ const condition = Type.Union([
     { field, matches: Type.String({ minLength: 1 }) },
     { additionalProperties: false },
   ),
+  // The field names one of the group's repositories (ADR 0075).
+  Type.Object(
+    { field, inGroup: Type.Literal(true) },
+    { additionalProperties: false },
+  ),
 ]);
 
 const trigger = Type.Union([
@@ -152,6 +157,8 @@ const workspace = Type.Union([
   }),
   // A clone of the repository the event names.
   Type.Object({ kind: Type.Literal("event-repository"), startPoint }),
+  // Every repository of the routine's group, side by side.
+  Type.Object({ kind: Type.Literal("group"), startPoint }),
 ]);
 
 const prompt = Type.String({ minLength: 1 });
@@ -179,6 +186,25 @@ const work = Type.Union([
     { additionalProperties: false },
   ),
 ]);
+
+// A routine's limits, which a group's limits give defaults for (ADR 0076).
+export const limitsSchema = Type.Object(
+  {
+    // Runs that go at once, across all pieces of work.
+    maxRunning: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
+    // A cap in the currency of the server's price table, counted from the
+    // usage of the routine's runs each day.
+    dailySpend: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
+    // How long a run may be running, such as 2h.
+    timeLimit: Type.Optional(Type.String({ pattern: "^[1-9]\\d{0,3}[mhd]$" })),
+    // How often a failed run starts again.
+    retries: Type.Optional(Type.Integer({ minimum: 0, maximum: 5 })),
+    // A date, YYYY-MM-DD, or a time with a zone, after which the routine
+    // pauses itself.
+    stopAfter: Type.Optional(Type.String({ minLength: 1 })),
+  },
+  { additionalProperties: false },
+);
 
 // A routine as its JSON file holds it (ADR 0075). Its name is the file's.
 export const routineSchema = Type.Object(
@@ -262,27 +288,7 @@ export const routineSchema = Type.Object(
     editors: Type.Optional(
       Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 50 }),
     ),
-    limits: Type.Optional(
-      Type.Object(
-        {
-          // Runs that go at once, across all pieces of work.
-          maxRunning: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
-          // A cap in the currency of the server's price table, counted from
-          // the usage of the routine's runs each day.
-          dailySpend: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
-          // How long a run may be running, such as 2h.
-          timeLimit: Type.Optional(
-            Type.String({ pattern: "^[1-9]\\d{0,3}[mhd]$" }),
-          ),
-          // How often a failed run starts again.
-          retries: Type.Optional(Type.Integer({ minimum: 0, maximum: 5 })),
-          // A date, YYYY-MM-DD, or a time with a zone, after which the
-          // routine pauses itself.
-          stopAfter: Type.Optional(Type.String({ minLength: 1 })),
-        },
-        { additionalProperties: false },
-      ),
-    ),
+    limits: Type.Optional(limitsSchema),
   },
   { additionalProperties: false },
 );
@@ -563,7 +569,10 @@ function misfitOf(
     return `${where.field} is neither a list nor text`;
   }
 
-  if (("startsWith" in where || "matches" in where) && kind !== "string") {
+  if (
+    ("startsWith" in where || "matches" in where || "inGroup" in where) &&
+    kind !== "string"
+  ) {
     return `${where.field} isn't text`;
   }
 
@@ -769,11 +778,15 @@ export interface Heard extends Started {
 }
 
 // Every condition holds. A field that is a list holds a condition when one
-// of its items does, and isNot when none is the value.
+// of its items does, and isNot when none is the value. inGroup holds for a
+// repository among the group's, as repositoryKey names them.
 export function matches(
   event: Heard,
   where: readonly Condition[] = [],
+  group: readonly string[] = [],
 ): boolean {
+  const { host } = event.fields;
+
   return where.every((each) => {
     const value = fieldOf(event.fields, each.field);
 
@@ -789,8 +802,47 @@ export function matches(
       return !items.includes(each.isNot);
     }
 
+    if ("inGroup" in each) {
+      return items.some(
+        (item) =>
+          typeof item === "string" &&
+          group.includes(
+            repositoryKey(item, typeof host === "string" ? host : undefined) ??
+              "",
+          ),
+      );
+    }
+
     return items.some((item) => holds(each, item));
   });
+}
+
+const defaultHost = "github.com";
+
+// A repository as host/owner/name in lower case, from owner/name on the
+// host, which is github.com unless one is given, from host/owner/name, or
+// from its https address. undefined for text that names none.
+export function repositoryKey(
+  text: string,
+  host = defaultHost,
+): string | undefined {
+  const bare = text
+    .trim()
+    .replace(/^https:\/\//i, "")
+    .replace(/(\.git)?\/*$/, "")
+    .toLowerCase();
+
+  const parts = bare.split("/");
+
+  if (parts.some((part) => part === "" || /\s/.test(part))) {
+    return undefined;
+  }
+
+  if (parts.length === 2) {
+    return `${host.toLowerCase()}/${bare}`;
+  }
+
+  return parts.length === 3 ? bare : undefined;
 }
 
 function holds(each: Condition, item: unknown): boolean {

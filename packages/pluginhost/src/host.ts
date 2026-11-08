@@ -13,6 +13,7 @@ import type {
   QuestionKeeper,
   ReplyPlace,
   RunnerSource,
+  ServerContext,
   SignInApi,
   SignInProvider,
   ToolDef,
@@ -246,6 +247,8 @@ export function startPlugins(
     readonly store: (name: string) => PluginDb;
     // Each plugin's bytes go in a folder of its own under it.
     readonly blobsDir: string;
+    // Each plugin's own files go in a folder of its own under it.
+    readonly dataDir: string;
     // Why a plugin's tables can't be used, if they can't.
     readonly dataFailure: (name: string) => string | undefined;
     // Drops a plugin's tables and makes them again, or says why it couldn't.
@@ -268,6 +271,10 @@ export function startPlugins(
     };
     readonly buildsOn?: (profileId: string) => readonly string[];
     readonly baseProviders?: () => readonly RegisteredProvider[];
+    readonly profileFiles?: Pick<
+      ServerContext["profiles"],
+      "stacked" | "write"
+    >;
     // What runner providers start runners on this machine with.
     readonly runtime?: () => Runtime;
     readonly env?: Readonly<Record<string, string | undefined>>;
@@ -968,7 +975,14 @@ export function startPlugins(
             mcpServers: deps.mcpServers ?? (() => []),
             buildsOn: deps.buildsOn ?? (() => []),
             baseProviders: deps.baseProviders ?? (() => []),
+            stacked: deps.profileFiles?.stacked ?? (() => undefined),
+            write:
+              deps.profileFiles?.write ??
+              (() => {
+                throw new Error("this server keeps no Profiles");
+              }),
           },
+          dataDir: join(deps.dataDir, id),
           clock: deps.clock,
           env: (name) => (deps.env ?? process.env)[name],
           timer,
