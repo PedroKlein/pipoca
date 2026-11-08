@@ -157,7 +157,12 @@ function outputSync(s: Context): {
       let hash = hashes.get(path)?.key === key ? hashes.get(path)?.hash : "";
 
       if (hash === "" || hash === undefined) {
-        hash = await s.blobs.hash(full);
+        hash = await s.blobs.hash(full).catch(() => undefined);
+
+        if (hash === undefined) {
+          continue;
+        }
+
         hashes.set(path, { key, hash });
       }
 
