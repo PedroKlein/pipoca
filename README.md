@@ -13,6 +13,7 @@
 <p align="center">
   <a href="https://github.com/PedroKlein/pipoca/actions/workflows/ci.yml"><img src="https://github.com/PedroKlein/pipoca/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/PedroKlein/pipoca/releases/latest"><img src="https://img.shields.io/github/v/release/PedroKlein/pipoca" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
   <a href="https://pedroklein.github.io/pipoca/docs/"><img src="https://img.shields.io/badge/docs-pedroklein.github.io%2Fpipoca-blue" alt="Docs"></a>
 </p>
 
@@ -135,3 +136,7 @@ Pipoca is young and built by one person, for daily use first. Personal Sessions,
 ## Contributing
 
 Bug reports and ideas are welcome as [issues](https://github.com/PedroKlein/pipoca/issues). [CONTRIBUTING.md](CONTRIBUTING.md) explains how to build from source, run the checks and open a pull request, and [SECURITY.md](SECURITY.md) how to report a vulnerability privately.
+
+## License
+
+Pipoca is released under the [MIT License](LICENSE).
