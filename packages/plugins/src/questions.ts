@@ -40,6 +40,16 @@ export interface Reply {
   readonly by: string;
 }
 
+// Questions a plugin asks in one of its Sessions from the server, such as an
+// approval, which wait as Pi's do.
+export interface Asking {
+  readonly questions: readonly Question[];
+  // Each question's answer when nobody gives one in time, by question id.
+  readonly defaults?: Readonly<Record<string, string>>;
+  // More people it is for, by id.
+  readonly for?: readonly string[];
+}
+
 export interface OpenQuestion {
   readonly id: string;
   readonly questions: readonly Question[];
@@ -59,6 +69,8 @@ export interface QuestionKeeper {
   // false when the question is closed or there is none of that id.
   readonly answer: (id: string, reply: Reply) => boolean;
   readonly open: (sessionId: string) => readonly OpenQuestion[];
+  // undefined when the Session doesn't wait past its turn.
+  readonly ask: (sessionId: string, asking: Asking) => OpenQuestion | undefined;
 }
 
 // Any plugin's way to the kept questions. Without a keeper, questions hold
@@ -68,6 +80,8 @@ export interface Questions {
   readonly wait: (sessionId: string, waiting: Waiting) => boolean;
   readonly answer: (id: string, reply: Reply) => boolean;
   readonly open: (sessionId: string) => readonly OpenQuestion[];
+  // undefined when no plugin keeps questions or the Session doesn't wait.
+  readonly ask: (sessionId: string, asking: Asking) => OpenQuestion | undefined;
 }
 
 export interface QuestionDesk {

@@ -70,6 +70,7 @@ export {
   type When,
 } from "./server";
 export type {
+  Asking,
   OpenQuestion,
   Origin,
   PostedQuestion,

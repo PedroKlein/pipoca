@@ -232,6 +232,36 @@ export const routineSchema = Type.Object(
         ]),
       ),
     ),
+    // Who a run's questions are for, and how long one waits (ADR 0076). A
+    // personal routine asks its owner. A team routine asks the person or
+    // the on-call list it names, or else whoever made it.
+    questions: Type.Optional(
+      Type.Object(
+        {
+          ask: Type.Optional(
+            Type.Union([
+              Type.Object(
+                { person: Type.String({ minLength: 1 }) },
+                { additionalProperties: false },
+              ),
+              Type.Object(
+                { onCall: Type.String({ minLength: 1 }) },
+                { additionalProperties: false },
+              ),
+            ]),
+          ),
+          timeout: Type.Optional(
+            Type.String({ pattern: "^[1-9]\\d{0,3}[mhd]$" }),
+          ),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    // The people, by id or name, who may change or remove a team routine.
+    // Without it anyone on the team may.
+    editors: Type.Optional(
+      Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 50 }),
+    ),
     limits: Type.Optional(
       Type.Object(
         {
@@ -682,9 +712,48 @@ export function timeLimitOf(
   }
 
   const text = routine.limits?.timeLimit ?? defaultTimeLimit;
+
+  return { text, ms: durationOf(text) };
+}
+
+// How long a run's question waits for its answer, when the routine says.
+export function questionTimeoutOf(routine: Routine): number | undefined {
+  const text = routine.questions?.timeout;
+
+  return text === undefined ? undefined : durationOf(text);
+}
+
+function durationOf(text: string): number {
   const unit = text.at(-1) as keyof typeof unitMs;
 
-  return { text, ms: Number(text.slice(0, -1)) * unitMs[unit] };
+  return Number(text.slice(0, -1)) * unitMs[unit];
+}
+
+// Who is on call for a list that rotates by ISO week: the first person in
+// the list's first week of the year, then each in turn.
+export function onCallOf(
+  people: readonly string[],
+  at: number,
+): string | undefined {
+  return people[(isoWeekOf(at) - 1) % people.length];
+}
+
+function isoWeekOf(at: number): number {
+  const day = new Date(at);
+  day.setUTCHours(0, 0, 0, 0);
+  day.setUTCDate(day.getUTCDate() + 3 - ((day.getUTCDay() + 6) % 7));
+
+  const firstThursday = new Date(Date.UTC(day.getUTCFullYear(), 0, 4));
+
+  return (
+    1 +
+    Math.round(
+      ((day.getTime() - firstThursday.getTime()) / 86_400_000 -
+        3 +
+        ((firstThursday.getUTCDay() + 6) % 7)) /
+        7,
+    )
+  );
 }
 
 export function isZonedTime(text: string): boolean {

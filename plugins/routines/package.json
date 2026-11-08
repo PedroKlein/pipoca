@@ -6,6 +6,7 @@
     "./plugin": "./plugin.ts"
   },
   "dependencies": {
+    "@pipoca/ask": "workspace:*",
     "@pipoca/plugins": "workspace:*",
     "@pipoca/protocol": "workspace:*",
     "@pipoca/ui": "workspace:*",

@@ -37,13 +37,14 @@ export interface Proposals {
     runs: readonly ProposingRun[],
     allowed: readonly Allowed[],
   ) => Promise<void>;
-  // A person approves or rejects a waiting proposal. A question a waiting
-  // run asks can answer through this too, once runs can wait (ADR 0076).
+  // A person approves or rejects a waiting proposal, by id when Pipoca
+  // knows them, and why when it is rejected.
   readonly decide: (
     run: ProposingRun,
     id: string,
     approved: boolean,
-    by: string,
+    by: string | null,
+    why?: string,
   ) => Promise<Proposal>;
 }
 
@@ -62,9 +63,12 @@ interface Row {
 
 // What a run proposes to write outside, kept until its turn ends and then
 // applied through the plugin that offers the action (ADR 0076).
+// A proposal that needs approval asks for it as a question in the run's
+// Session, which ask returns the id of, when it could.
 export function proposals(
   context: Context,
   opened: (runId: string, url: string) => void,
+  ask: (run: ProposingRun, proposal: Proposal) => string | undefined,
 ): Proposals {
   const { store, clock, log } = context;
 
@@ -244,13 +248,19 @@ export function proposals(
             await release(row);
           } else if (approve === true) {
             set(row.id, "waiting");
+
+            store.run(
+              "update routines_proposals set question_id = ? where id = ?",
+              ask(run, view({ ...row, state: "waiting" })) ?? null,
+              row.id,
+            );
           } else {
             await apply(run, row);
           }
         }
       }
     },
-    decide: async (run, id, approved, by) => {
+    decide: async (run, id, approved, by, why = "rejected by a person") => {
       const row = rowOf(id);
 
       if (row?.run_id !== run.id || row.state !== "waiting") {
@@ -268,7 +278,7 @@ export function proposals(
       if (approved) {
         await apply(run, row);
       } else {
-        set(id, "rejected", "rejected by a person");
+        set(id, "rejected", why);
         await release(row);
       }
 
