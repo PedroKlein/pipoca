@@ -6,8 +6,8 @@ import { docsLinks } from "./src/docs-links";
 const repository = "https://github.com/PedroKlein/pipoca";
 
 export default defineConfig({
-  site: "https://pedroklein.github.io",
-  base: "/pipoca",
+  site: "https://pipoca.dev",
+  base: "/",
   trailingSlash: "always",
   markdown: { processor: unified({ remarkPlugins: [docsLinks(repository)] }) },
   vite: { server: { fs: { allow: ["../.."] } } },
