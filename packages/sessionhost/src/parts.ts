@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Api, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import {
   defineTool,
   type ExtensionFactory,
@@ -170,8 +170,12 @@ function piTool(
         signal,
         cwd: ctx.cwd,
         ...(model && {
-          complete: completion(ctx.modelRegistry, model, host, () =>
-            conversationOf(ctx.sessionManager.getBranch()),
+          complete: completion(
+            ctx.modelRegistry,
+            model,
+            host,
+            () => conversationOf(ctx.sessionManager.getBranch()),
+            reasoningOf(model, ctx.sessionManager.getBranch()),
           ),
         }),
       };
@@ -209,6 +213,7 @@ function completion(
   model: Model<Api>,
   host: Pick<PartHost, "clock">,
   conversation: () => string,
+  reasoning: SimpleStreamOptions["reasoning"],
 ): NonNullable<SessionToolCall["complete"]> {
   return async ({ system, prompt, withConversation = false }) => {
     const text = withConversation
@@ -216,16 +221,20 @@ function completion(
       : prompt;
 
     const response = await models
-      .streamSimple(model, {
-        systemPrompt: system,
-        messages: [
-          {
-            role: "user",
-            content: [{ type: "text", text }],
-            timestamp: host.clock.now(),
-          },
-        ],
-      })
+      .streamSimple(
+        model,
+        {
+          systemPrompt: system,
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text }],
+              timestamp: host.clock.now(),
+            },
+          ],
+        },
+        reasoning === undefined ? undefined : { reasoning },
+      )
       .result();
 
     if (response.stopReason === "error" || response.stopReason === "aborted") {
@@ -237,6 +246,25 @@ function completion(
       .join("\n")
       .trim();
   };
+}
+
+// The Session's thinking level, as Pi passes it on each turn: some providers
+// route a reasoning model by it, and reach no endpoint for it without one.
+function reasoningOf(
+  model: Model<Api>,
+  branch: readonly unknown[],
+): SimpleStreamOptions["reasoning"] {
+  if (!model.reasoning) {
+    return undefined;
+  }
+
+  const level = branch
+    .map((entry) => entry as { type?: unknown; thinkingLevel?: unknown })
+    .findLast(({ type }) => type === "thinking_level_change")?.thinkingLevel;
+
+  return level === undefined || level === "off"
+    ? "low"
+    : (level as SimpleStreamOptions["reasoning"]);
 }
 
 const conversationLimit = 24_000;

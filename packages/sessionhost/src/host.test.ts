@@ -1537,6 +1537,66 @@ test("explains the whole question with the conversation as background", async ()
   expect(explainerSaw).toContain("the database matters");
 });
 
+test("explains with the thinking level the Session runs with, which some providers route by", async () => {
+  const { faux, models } = await fauxModels(root, {
+    models: [{ id: "thinker", reasoning: true }],
+  });
+
+  const levels: unknown[] = [];
+
+  faux.setResponses([
+    (_context, options) => {
+      levels.push(options?.reasoning);
+
+      return fauxAssistantMessage(
+        [
+          fauxToolCall("ask_user", {
+            questions: [{ id: "db", prompt: "Which database?", type: "text" }],
+          }),
+        ],
+        { stopReason: "toolUse" },
+      );
+    },
+    (_context, options) => {
+      levels.push(options?.reasoning);
+
+      return fauxAssistantMessage([fauxText("You pick where data lives.")]);
+    },
+    fauxAssistantMessage([fauxText("noted")]),
+  ]);
+
+  const fake = fakeStream();
+
+  const hosted = await hostSession(
+    sessionOptions(root, { models, parts: [askPart] }),
+    fake.stream,
+    () => undefined,
+    noTerminal,
+  );
+
+  fake.send({ actor: "user:local", type: "set_thinking", level: "high" });
+  fake.send({ actor: "user:local", type: "message", text: "set it up" });
+  await fake.waitFor(() => fake.events.some((e) => e.type === "prompt"));
+  const prompt = fake.events.find((e) => e.type === "prompt");
+  const id = prompt?.type === "prompt" ? prompt.prompt.id : "";
+
+  fake.send({
+    actor: "user:local",
+    type: "explain",
+    id,
+    questionId: "db",
+    value: "",
+    question: null,
+  });
+
+  await fake.waitFor(() => fake.events.some((e) => e.type === "explanation"));
+  fake.send({ actor: "user:local", type: "answer", id, value: null });
+  await fake.waitFor(() => fake.lines.join().includes("noted"));
+  await hosted.stop();
+
+  expect(levels).toEqual(["high", "high"]);
+});
+
 test.each([
   ["steer", ["user", "assistant", "toolResult", "user", "assistant"]],
   [
@@ -3193,7 +3253,7 @@ test("runs a defined Session part's tools in Pi, with its config, its api and pu
   });
 });
 
-test("starts with its first message, its system prompt text and plugins' extensions", async () => {
+test("starts with its first message, its system prompt text, how to talk in the chat and plugins' extensions", async () => {
   const { faux, models } = await fauxModels(root);
 
   faux.setResponses([fauxAssistantMessage([fauxText("started")])]);
@@ -3256,6 +3316,7 @@ test("starts with its first message, its system prompt text and plugins' extensi
   expect(roles(fake.lines)).toEqual(["system", "user", "assistant"]);
   expect(fake.lines.join()).toContain("kick off");
   expect(JSON.stringify(system)).toContain("You coordinate project X.");
+  expect(JSON.stringify(system)).toContain("Before your first tool call");
   expect(JSON.stringify(system)).toContain('"name":"plugin_tool"');
   expect(roles(again.lines).filter((role) => role === "user")).toHaveLength(1);
 });

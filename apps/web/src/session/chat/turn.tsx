@@ -5,10 +5,72 @@ import type { ReactElement, ReactNode } from "react";
 import { dataUrl } from "../composer/attachments";
 import type { Feed } from "../feed";
 import { ago } from "../../names";
-import { hasSteps, type Quoted, type Turn } from "./chat";
+import { duration, hasSteps, type Quoted, type Turn } from "./chat";
 import { Answer } from "./markdown";
 import { claimed, ToolCard } from "./tool-card";
 import { Notice, WorkBlock, WorkNote } from "./work-block";
+
+// What Pi said, its cards and its folded tool calls, in the order it made
+// them. Tools still running belong to the turn's last work block.
+function partItems(
+  turn: Turn,
+  running: Feed["tools"],
+  live: boolean,
+  session: MountedSession,
+): ReactNode[] {
+  const parts =
+    running.length > 0 && turn.parts.at(-1)?.kind !== "work"
+      ? [...turn.parts, { kind: "work", work: [] } as const]
+      : turn.parts;
+
+  const lastWork = parts.findLastIndex(({ kind }) => kind === "work");
+
+  return parts.flatMap((part, at) => {
+    const key = `${String(turn.key)}-${part.kind}-${String(at)}`;
+
+    switch (part.kind) {
+      case "said":
+        return [
+          <li
+            key={key}
+            data-role="assistant"
+            className="[content-visibility:auto]"
+          >
+            <Answer text={part.text} />
+          </li>,
+        ];
+      case "card":
+        return [
+          <li key={key} data-role="card">
+            <ToolCard step={part.step} session={session} />
+          </li>,
+        ];
+      case "work": {
+        const here = at === lastWork ? running : [];
+
+        if (!hasSteps(part.work) && here.length === 0) {
+          return part.work.map((item, index) =>
+            item.kind === "step" ? null : (
+              <li key={`${key}-${String(index)}`} data-role={item.kind}>
+                <WorkNote kind={item.kind} text={item.text} />
+              </li>
+            ),
+          );
+        }
+
+        return [
+          <li key={key} data-role="work">
+            <WorkBlock
+              work={part.work}
+              running={here}
+              live={live && at === parts.length - 1}
+            />
+          </li>,
+        ];
+      }
+    }
+  });
+}
 
 // What one turn of the chat shows, as items of its list.
 export function turnItems({
@@ -92,36 +154,7 @@ export function turnItems({
         <Notice notice={turn.notice} />
       </li>
     ),
-    hasSteps(turn.work) || running.length > 0 ? (
-      <li key={`${String(turn.key)}-work`} data-role="work">
-        <WorkBlock turn={turn} running={running} live={last && live} />
-      </li>
-    ) : (
-      turn.work.map((item, at) =>
-        item.kind === "step" ? null : (
-          <li
-            key={`${String(turn.key)}-note-${String(at)}`}
-            data-role={item.kind}
-          >
-            <WorkNote kind={item.kind} text={item.text} />
-          </li>
-        ),
-      )
-    ),
-    ...turn.cards.flatMap((step) => [
-      step.lead !== undefined && (
-        <li
-          key={`${String(turn.key)}-lead-${step.id}`}
-          data-role="assistant"
-          className="[content-visibility:auto]"
-        >
-          <Answer text={step.lead} />
-        </li>
-      ),
-      <li key={`${String(turn.key)}-card-${step.id}`} data-role="card">
-        <ToolCard step={step} session={session} />
-      </li>,
-    ]),
+    ...partItems(turn, running, last && live, session),
     ...turn.answer.map((text, at) => (
       <li
         key={`${String(turn.key)}-answer-${String(at)}`}
@@ -168,6 +201,11 @@ function AnswerMeta({
       data-role="answer-meta"
       className="-mt-2 flex gap-3 text-caption text-fg-dim"
     >
+      {turn.started !== undefined &&
+        turn.ended !== undefined &&
+        hasSteps(
+          turn.parts.flatMap((part) => (part.kind === "work" ? part.work : [])),
+        ) && <span>Worked for {duration(turn.started, turn.ended)}</span>}
       {turn.ended !== undefined && (
         <time
           dateTime={turn.ended}
