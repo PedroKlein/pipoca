@@ -69,6 +69,12 @@ export function Composer({
   const generation = feed.session?.generation;
   const hosted = feed.session?.status === "idle" || running;
 
+  // Until its runner has Pi up there is nothing to take a message for Pi.
+  const starting =
+    (feed.session?.status === "queued" ||
+      feed.session?.status === "starting") &&
+    (!team || target === "pi");
+
   useEffect(() => {
     if (columns === undefined || !hosted) {
       return;
@@ -95,6 +101,7 @@ export function Composer({
     sessionId,
     keepsFiles: fileParts.length > 0,
     uploading,
+    starting,
     feed,
     team,
     target,
@@ -227,7 +234,9 @@ export function Composer({
             id={textId}
             name="text"
             rows={2}
-            placeholder={placeholders[team ? target : "pi"]}
+            placeholder={
+              starting ? "Pi is starting…" : placeholders[team ? target : "pi"]
+            }
 
             {...suggestions.box}
             onInput={(event) => {
@@ -284,6 +293,7 @@ export function Composer({
             running={running}
             anyFile={fileParts.length > 0}
             uploading={uploading}
+            starting={starting}
             attach={attach}
             report={report}
           />

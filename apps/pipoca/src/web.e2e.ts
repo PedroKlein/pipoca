@@ -5935,6 +5935,14 @@ test("offers a fork once the team said more than Pi reads", async () => {
 
   await offer.waitFor();
   await page.locator("#prompt-text").fill("We settled on 5 retries.");
+
+  // No runner serves these pods, so Pi never starts to take the message.
+  await page.getByPlaceholder("Pi is starting…").waitFor();
+
+  expect(await page.getByRole("button", { name: "Send" }).isDisabled()).toBe(
+    true,
+  );
+
   await offer.getByRole("button", { name: "Fork" }).click();
 
   await page.waitForURL(

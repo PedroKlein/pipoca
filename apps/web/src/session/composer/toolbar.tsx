@@ -24,6 +24,7 @@ export function Toolbar({
   running,
   anyFile,
   uploading,
+  starting,
   attach,
   report,
 }: {
@@ -39,6 +40,7 @@ export function Toolbar({
   // A plugin keeps files that aren't images, so the button takes any.
   readonly anyFile: boolean;
   readonly uploading: boolean;
+  readonly starting: boolean;
   readonly attach: (files: readonly File[]) => void;
   readonly report: (error: unknown) => void;
 }): ReactElement {
@@ -113,7 +115,7 @@ export function Toolbar({
         iconOnly
         type="submit"
         aria-label="Send"
-        disabled={uploading}
+        disabled={uploading || starting}
         className="ml-auto rounded-full"
       >
         <Icon name="arrow-up" />
