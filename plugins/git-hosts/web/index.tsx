@@ -8,6 +8,7 @@ import {
 import {
   Badge,
   Button,
+  Checkbox,
   buttonClass,
   cardClass,
   cn,
@@ -362,6 +363,7 @@ function Bots({ hosts }: { readonly hosts: readonly string[] }): ReactElement {
       host: text(form, "host"),
       name: text(form, "name"),
       organization: text(form, "organization"),
+      ...(form.get("public") === "on" && { public: "true" }),
     });
 
     location.assign(
@@ -547,6 +549,12 @@ function Bots({ hosts }: { readonly hosts: readonly string[] }): ReactElement {
           <Field label="Organization that owns it (optional)">
             <TextInput name="organization" />
           </Field>
+          <Checkbox
+            name="public"
+            className="md:col-span-2"
+            label="Let other accounts install it"
+            description="So it can work in more than one organization. On GitHub Enterprise that means accounts on this host only."
+          />
           <p className="text-label text-fg-dim md:col-span-2">
             The host asks you to confirm the App, then sends you back here.
             Install it on the accounts it should work in after that.

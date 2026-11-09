@@ -489,7 +489,10 @@ function notices(session: TestSession): readonly string[] {
 }
 
 // Starts the manifest flow for the Pipoca bot App, as Settings does.
-async function startApp(t: PluginTest): Promise<{
+async function startApp(
+  t: PluginTest,
+  extra = "",
+): Promise<{
   readonly state: string;
   readonly manifest: Record<string, unknown>;
   readonly cookie: string;
@@ -497,7 +500,7 @@ async function startApp(t: PluginTest): Promise<{
   const started = await t
     .as("pedro")
     .raw(
-      `technical-users/new-app?host=${host}&name=Pipoca%20bot&organization=acme`,
+      `technical-users/new-app?host=${host}&name=Pipoca%20bot&organization=acme${extra}`,
       { method: "GET" },
     );
 
@@ -1299,6 +1302,16 @@ test("merges a watched pull request the way its repository allows, and stops wat
     (await t.as("ana").raw(`pull-requests/${id}/merge`, { method: "POST" }))
       .status,
   ).toBe(404);
+});
+
+test("creates a public App when other accounts may install it", async () => {
+  await using run = await start();
+
+  expect((await startApp(run.t, "&public=true")).manifest).toMatchObject({
+    public: true,
+  });
+
+  expect((await startApp(run.t)).manifest).toMatchObject({ public: false });
 });
 
 test("creates a GitHub App from a manifest as a technical user, with its key sealed", async () => {

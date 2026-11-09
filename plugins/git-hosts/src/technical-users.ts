@@ -27,17 +27,19 @@ export function botLogin(user: TechnicalUser): string {
 }
 
 // What a GitHub App manifest asks for: enough to clone, push, open and
-// review pull requests, and to hear about them (ADR 0060).
+// review pull requests, and to hear about them (ADR 0060). Only a public App
+// can be installed on accounts other than its owner.
 export function appManifest(
   name: string,
   urls: Urls,
   hook: string | undefined,
+  isPublic = false,
 ): Readonly<Record<string, unknown>> {
   return {
     name,
     url: new URL(urls.public("")).origin,
     redirect_url: urls.public("app-created"),
-    public: false,
+    public: isPublic,
     default_permissions: {
       contents: "write",
       pull_requests: "write",
