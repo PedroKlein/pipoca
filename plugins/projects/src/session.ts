@@ -120,7 +120,10 @@ function folderTools(s: Context): void {
         'When another Session changed a file first, your version is kept beside it as "name (from <thread>).ext".',
       ],
     },
+    // A file it names is here to read, even one shared since the turn began.
     run: async ({ query }) => {
+      await sync.synced();
+
       const answer = await s.api.get<{ files: FolderFile[]; more: number }>(
         `folder/find?query=${encodeURIComponent(query)}`,
       );

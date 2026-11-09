@@ -143,6 +143,39 @@ test("Sessions in a Project share its folder, and a change one makes reaches the
   await b.event("session_shutdown");
 });
 
+test("a file another Session just shared can be read as soon as list_project_files names it", async () => {
+  await using t = await testPlugin(server, { people });
+  const { coordinator, projectId } = await shop(t);
+  const thread = await threadOf(t, coordinator, "Docs");
+  const here = await runnerFolder();
+  const there = await runnerFolder();
+  const a = await part(coordinator, here);
+  const b = await part(thread, there);
+
+  await a.event("session_start");
+  await b.event("session_start");
+  await mkdir(join(there, "project"), { recursive: true });
+  await writeFile(join(there, "project", "report.md"), "found\n");
+  await b.event("agent_settled");
+
+  await until(
+    async () =>
+      (
+        await t
+          .as("ana")
+          .get<{ files: FolderFile[] }>(`projects/${projectId}/files`)
+      ).files.length === 1,
+  );
+
+  const listed = await a.tool("list_project_files", { query: "report" });
+
+  expect(listed.text).toContain(join(here, "project", "report.md"));
+  expect(await contentOf(join(here, "project", "report.md"))).toBe("found\n");
+
+  await a.event("session_shutdown");
+  await b.event("session_shutdown");
+});
+
 test("when two Sessions change one file, the later one is kept as a copy named after its thread", async () => {
   await using t = await testPlugin(server, { people });
   const { coordinator, projectId } = await shop(t);
