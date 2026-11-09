@@ -139,6 +139,8 @@ test("lists the kernel's route tools by the names the meta toolsets had, and non
     "plugins_files",
     "plugins_list",
     "plugins_read_file",
+    "profile_defaults_files",
+    "profile_defaults_get",
     "profiles_create",
     "profiles_get",
     "profiles_list",
