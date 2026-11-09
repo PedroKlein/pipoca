@@ -6,18 +6,24 @@ import {
   useSyncExternalStore,
 } from "react";
 import { diagrams } from "../plugin";
-import { draw, drawnBefore, type Drawing } from "./draw";
+import { draw, drawnBefore, type Drawing, loadMermaid } from "./draw";
 
 export const web = defineWeb(diagrams, {
   slots: { "codeBlock:mermaid": Diagram },
 });
 
-function Diagram({ code }: CodeBlockProps): ReactElement {
+function Diagram({ code, complete }: CodeBlockProps): ReactElement {
   const theme = useSyncExternalStore(onThemeChange, currentTheme);
   const [latest, setLatest] = useState<Drawing>();
   const drawing = drawnBefore(code, theme) ?? latest;
 
   useEffect(() => {
+    if (!complete) {
+      void loadMermaid();
+
+      return undefined;
+    }
+
     let shown = true;
 
     void draw(code, theme).then((next) => {
@@ -29,7 +35,7 @@ function Diagram({ code }: CodeBlockProps): ReactElement {
     return () => {
       shown = false;
     };
-  }, [code, theme]);
+  }, [code, theme, complete]);
 
   if (drawing?.code === code && "svg" in drawing) {
     return (
@@ -46,6 +52,9 @@ function Diagram({ code }: CodeBlockProps): ReactElement {
       <pre>
         <code>{code}</code>
       </pre>
+      {complete && drawing?.code !== code && (
+        <p className="text-caption text-fg-dim">Drawing the diagram…</p>
+      )}
       {drawing?.code === code && "error" in drawing && (
         <p className="text-caption text-failed">
           {`This diagram didn't draw: ${drawing.error}`}

@@ -51,6 +51,7 @@ const result = await Bun.build({
   plugins: [tailwind, piVersionPlugin],
   // The web app loads big plugin dependencies, such as Mermaid, only when used.
   splitting: true,
+  minify: true,
 });
 
 if (!result.success) {

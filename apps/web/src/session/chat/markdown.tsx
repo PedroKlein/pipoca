@@ -71,7 +71,8 @@ function pluginLinks(prose: HTMLElement | null): Drawn[] {
   });
 }
 
-// Blocks of a language no plugin draws stay code.
+// Blocks of a language no plugin draws stay code. A block still being
+// written comes as incomplete, so its plugin can get ready to draw it.
 function pluginBlocks(prose: HTMLElement | null): Drawn[] {
   return [...(prose?.querySelectorAll("[data-code-block]") ?? [])].flatMap(
     (node) => {
@@ -89,7 +90,12 @@ function pluginBlocks(prose: HTMLElement | null): Drawn[] {
         {
           node,
           plugin: fill.plugin,
-          element: <fill.Component code={code} />,
+          element: (
+            <fill.Component
+              code={code}
+              complete={!node.hasAttribute("data-code-open")}
+            />
+          ),
         },
       ];
     },

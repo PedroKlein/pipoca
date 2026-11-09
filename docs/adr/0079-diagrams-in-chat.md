@@ -17,13 +17,13 @@ ADR 0022 planned a `codeBlocks` slot for this and never built it. Mermaid is ove
 ### The kernel draws fenced blocks through a slot
 
 - A web part fills `codeBlock:<language>` to draw a fenced block in that language, with the block's text as `code`. It follows `link:<scheme>`: the first plugin that fills it draws, inside the plugin's error boundary.
-- Only a closed fence is handed over. While the agent is still writing a block, and when no plugin fills its language, the block shows as code.
+- A fence the agent is still writing comes with `complete` false, so its plugin can get ready, such as by loading a library. A block no plugin fills shows as code.
 - The kernel names no language and loads no renderer.
 
 ### A diagrams plugin draws Mermaid
 
 - `diagrams` is a built-in plugin, on by default, that fills `codeBlock:mermaid`.
-- It loads Mermaid the first time a diagram is drawn, so pages without one never fetch it. The build splits the web bundle so this holds in the compiled binary too.
+- It loads Mermaid the first time a diagram is drawn, so pages without one never fetch it. It starts loading while the agent is still writing the block, and shows that it is drawing once the block is done. The build splits and minifies the web bundle so this holds in the compiled binary too.
 - It runs Mermaid with `securityLevel: "strict"`, which leaves out scripts, click handlers and HTML labels.
 - It colours diagrams from the page's theme tokens and draws them again when the theme changes.
 - A block Mermaid can't read shows as code, with Mermaid's error under it.

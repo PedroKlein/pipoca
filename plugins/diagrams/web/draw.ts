@@ -1,3 +1,5 @@
+import type { Mermaid } from "mermaid";
+
 export type Drawing = { readonly code: string } & (
   { readonly svg: string } | { readonly error: string }
 );
@@ -7,6 +9,14 @@ const drawing = new Map<string, Promise<Drawing>>();
 const drawn = new Map<string, Drawing>();
 let queue: Promise<unknown> = Promise.resolve();
 let count = 0;
+let loading: Promise<Mermaid> | undefined;
+
+// Loads Mermaid once, such as while the agent is still writing a diagram.
+export async function loadMermaid(): Promise<Mermaid> {
+  loading ??= import("mermaid").then(({ default: mermaid }) => mermaid);
+
+  return loading;
+}
 
 const keyOf = (code: string, theme: string): string => `${theme}\n${code}`;
 
@@ -41,7 +51,7 @@ export async function draw(code: string, theme: string): Promise<Drawing> {
 
 async function drawOnce(code: string, theme: string): Promise<Drawing> {
   try {
-    const { default: mermaid } = await import("mermaid");
+    const mermaid = await loadMermaid();
 
     // Strict mode sanitizes labels and leaves out scripts and click handlers.
     mermaid.initialize({
@@ -80,5 +90,7 @@ function colours(theme: string): Readonly<Record<string, unknown>> {
     lineColor: token("--text-dim"),
     textColor: token("--text"),
     fontFamily: token("--font-sans"),
+    dropShadow: "none",
+    useGradient: false,
   };
 }
