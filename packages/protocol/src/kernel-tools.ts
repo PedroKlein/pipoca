@@ -31,9 +31,9 @@ export const environmentTools: ToolNamespace = {
 export const profileTools: ToolNamespace = {
   name: "profiles",
   description:
-    "List, create and change Profiles: the Pi packages, instructions and settings a Session starts with (ADR 0031).",
+    "List, create and change Profiles: the Pi packages, instructions and settings a Session starts with (ADR 0031). Also the user's My defaults, the layer under all their Profiles.",
   instructions:
-    "Each Profile's description says what work it is for. When you start work and the user didn't name a Profile, use the default one unless a description clearly fits the work better, and say which Profile you picked and why.",
+    "Each Profile's description says what work it is for. When you start work and the user didn't name a Profile, use the default one unless a description clearly fits the work better, and say which Profile you picked and why. Sessions get three layers: the admin's server base, the user's own My defaults, then a Profile. My defaults is not a Profile and has no id: read it with profile_defaults_get and profile_defaults_files, and write it with install_profile and myDefaults: true. A Profile named Default is an ordinary Profile, often a shared one only admins change; when the user says their defaults, they most likely mean My defaults.",
 };
 
 export const pluginTools: ToolNamespace = {

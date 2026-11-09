@@ -91,6 +91,7 @@ const installation = Type.Union([
     files: Type.Record(Type.String(), Type.String()),
     name: Type.String({ minLength: 1 }),
     id: Type.Optional(Type.String({ minLength: 1 })),
+    myDefaults: Type.Optional(Type.Boolean()),
   }),
   Type.Object({
     kind: Type.Literal("plugin"),
@@ -929,8 +930,30 @@ function settingsOf(
 async function installProfile(
   { tools }: Context,
   session: string,
-  { files, name, id }: Static<typeof installation> & { kind: "profile" },
+  {
+    files,
+    name,
+    id,
+    myDefaults,
+  }: Static<typeof installation> & {
+    kind: "profile";
+  },
 ): Promise<{ text: string; isError: boolean; opened?: unknown }> {
+  if (myDefaults === true) {
+    const uploaded = await tools.call(
+      "profile_defaults_upload",
+      { files },
+      { session },
+    );
+
+    return uploaded.isError
+      ? uploaded
+      : {
+          text: `Wrote ${String(Object.keys(files).length)} files into your My defaults.`,
+          isError: false,
+        };
+  }
+
   let target = id;
 
   if (target === undefined) {

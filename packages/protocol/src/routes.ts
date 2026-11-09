@@ -321,10 +321,38 @@ export const routes = {
     status: 204,
     changes: ["access-tokens"],
   },
-  "me.profileDefaults": defaults.get,
+  "me.profileDefaults": {
+    ...defaults.get,
+    tool: {
+      name: "profile_defaults_get",
+      namespace: profileTools,
+      description:
+        "Get the user's My defaults: the instructions, settings and packages under every Profile of theirs. It is not a Profile and has no id.",
+      annotations: { readOnlyHint: true },
+    },
+  },
   "me.profileDefaults.update": defaults.update,
-  "me.profileDefaults.files": defaults.files,
-  "me.profileDefaults.files.upload": defaults.upload,
+  "me.profileDefaults.files": {
+    ...defaults.files,
+    tool: {
+      name: "profile_defaults_files",
+      namespace: profileTools,
+      description:
+        "List the files in the user's My defaults folder, such as skills/ and AGENTS.md.",
+      annotations: { readOnlyHint: true },
+    },
+  },
+  "me.profileDefaults.files.upload": {
+    ...defaults.upload,
+    tool: {
+      name: "profile_defaults_upload",
+      namespace: profileTools,
+      description:
+        "Write files into the user's My defaults folder, as { path: base64 content }.",
+      internal: true,
+      annotations: { destructiveHint: true },
+    },
+  },
   "me.profileDefaults.file": defaults.file,
   "me.profileDefaults.file.write": defaults.write,
   "me.profileDefaults.file.remove": defaults.remove,

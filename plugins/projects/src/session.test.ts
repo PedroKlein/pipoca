@@ -300,6 +300,20 @@ test("assistant threads load route tools and install what they built", async () 
       text: "Wrote 1 files into the Profile brief.",
     });
 
+    expect(
+      await tools.tool("install_profile", { path: ".", myDefaults: true }),
+    ).toMatchObject({
+      isError: false,
+      text: "Wrote 1 files into your My defaults.",
+    });
+
+    expect(
+      await t.tool("profile_defaults_files", {}, { session: thread }),
+    ).toMatchObject({
+      isError: false,
+      text: expect.stringContaining("AGENTS.md") as unknown,
+    });
+
     const plugin = await tools.tool("install_plugin", {
       path: ".",
       plugin: "hello",
