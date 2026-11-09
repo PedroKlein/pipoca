@@ -7,14 +7,19 @@ export function memoryEnvironments(): EnvironmentStore {
   const models = new Map<string, readonly ModelRef[]>();
 
   return {
-    ensureEnvironment: (provider, ownerId, templateId = null) => {
+    ensureEnvironment: (
+      provider,
+      ownerId,
+      templateId = null,
+      name = provider,
+    ) => {
       if (environments.some((each) => each.provider === provider)) {
         return;
       }
 
       environments.push({
         id: `env-${String(environments.length + 1)}`,
-        name: provider,
+        name,
         provider,
         ownerId,
         createdAt: new Date(0).toISOString(),

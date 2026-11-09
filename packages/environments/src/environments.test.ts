@@ -161,6 +161,29 @@ test("an Environment from a template runs as the template says", () => {
   ]);
 });
 
+test("people each get their own Environment of the same name from a template", () => {
+  const { environments } = pool();
+  const ana = environments.create("small", "ana", "small");
+  const bob = environments.create("small", "bob", "small");
+
+  expect(ana.ok && bob.ok).toBe(true);
+
+  const owned = environments
+    .list()
+    .filter(({ templateId }) => templateId === "small")
+    .map(({ name, ownerId }) => ({ name, ownerId }));
+
+  expect(owned).toEqual([
+    { name: "small", ownerId: "ana" },
+    { name: "small", ownerId: "bob" },
+  ]);
+
+  expect(environments.create("small", "bob", "small")).toEqual({
+    ok: false,
+    reason: "environment_exists",
+  });
+});
+
 test("an Environment whose Sessions still run can't be deleted", () => {
   const busy = pool({ inUse: true });
   const idle = pool();

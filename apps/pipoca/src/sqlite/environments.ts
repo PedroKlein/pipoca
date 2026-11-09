@@ -85,11 +85,16 @@ export function environmentStore(
   );
 
   return {
-    ensureEnvironment: (provider, ownerId, templateId = null) => {
+    ensureEnvironment: (
+      provider,
+      ownerId,
+      templateId = null,
+      name = provider,
+    ) => {
       insertEnvironment.run(
         Bun.randomUUIDv7(),
         provider,
-        provider,
+        name,
         userOf(ownerId),
         templateId,
         templateId === null ? "process" : null,

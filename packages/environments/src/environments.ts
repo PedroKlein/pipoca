@@ -33,11 +33,13 @@ export type StoredEnvironment = Omit<
 > & { readonly secrets: Readonly<Record<string, string>> };
 
 export interface EnvironmentStore {
-  // Its owner is a person's id or "team".
+  // Its owner is a person's id or "team". Its name is its provider's
+  // unless one is given.
   readonly ensureEnvironment: (
     provider: string,
     ownerId: string,
     templateId?: string | null,
+    name?: string,
   ) => void;
   readonly environments: () => readonly StoredEnvironment[];
   readonly updateEnvironment: (environment: StoredEnvironment) => void;
@@ -141,12 +143,16 @@ export class Environments {
     return this.#templates();
   }
 
+  // Names clash only within an owner's own Environments; another owner's
+  // of the same name gets a numbered provider.
   create(
-    provider: string,
+    name: string,
     ownerId: string,
     templateId?: string,
   ): Result<Environment, "environment_exists" | "unknown_template"> {
-    if (this.all().some((each) => each.provider === provider)) {
+    if (
+      this.all().some((each) => each.ownerId === ownerId && each.name === name)
+    ) {
       return { ok: false, reason: "environment_exists" };
     }
 
@@ -154,7 +160,8 @@ export class Environments {
       return { ok: false, reason: "unknown_template" };
     }
 
-    this.#store.ensureEnvironment(provider, ownerId, templateId);
+    const provider = this.#freeProvider(name);
+    this.#store.ensureEnvironment(provider, ownerId, templateId, name);
 
     const created = this.list().find((each) => each.provider === provider);
 
@@ -168,22 +175,26 @@ export class Environments {
   // A runner that joins with a join key gets an Environment of its own
   // name, numbered when another Environment has it.
   createForRunner(runner: string, ownerId: string): Environment {
-    const taken = new Set(this.all().map(({ provider }) => provider));
-
-    let provider = runner;
-    for (let n = 2; taken.has(provider); n++) {
-      provider = `${runner.slice(0, 60)}-${String(n)}`;
-    }
-
-    const created = this.create(provider, ownerId);
+    const created = this.create(this.#freeProvider(runner), ownerId);
 
     if (!created.ok) {
-      throw new Error(`environment ${provider} was not made`);
+      throw new Error(`environment for ${runner} was not made`);
     }
 
     this.#changed();
 
     return created.value;
+  }
+
+  #freeProvider(name: string): string {
+    const taken = new Set(this.all().map(({ provider }) => provider));
+
+    let provider = name;
+    for (let n = 2; taken.has(provider); n++) {
+      provider = `${name.slice(0, 60)}-${String(n)}`;
+    }
+
+    return provider;
   }
 
   update(
