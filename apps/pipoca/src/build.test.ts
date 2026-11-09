@@ -88,6 +88,32 @@ test("a compiled server reports the version of Pi it bundles", async () => {
   }
 }, 30_000);
 
+// Mermaid alone is megabytes, so a slow link waits minutes on plain scripts.
+test("a compiled server sends the web app's scripts compressed and cached for good", async () => {
+  const { url, server } = await startServer([]);
+
+  try {
+    const page = await (await fetch(new URL("/", url))).text();
+    const script = /<script[^>]* src="([^"]+)"/.exec(page)?.[1] ?? "";
+
+    const zipped = await fetch(new URL(script, url), {
+      headers: { "accept-encoding": "gzip" },
+    });
+
+    const plain = await fetch(new URL(script, url), {
+      headers: { "accept-encoding": "identity" },
+    });
+
+    expect(zipped.headers.get("content-encoding")).toBe("gzip");
+    expect(zipped.headers.get("cache-control")).toContain("immutable");
+    expect(zipped.headers.get("content-type")).toContain("javascript");
+    expect(plain.headers.get("content-encoding")).toBeNull();
+    expect(await zipped.text()).toBe(await plain.text());
+  } finally {
+    server.kill("SIGTERM");
+  }
+}, 30_000);
+
 // Pi loads its OAuth flows through an import a bundler can't follow. Copilot
 // derives its API host from the token, so the request reaching that host shows
 // the flow ran. A proxy records the host and refuses the connection.

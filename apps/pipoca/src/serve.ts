@@ -52,6 +52,7 @@ import {
 } from "./installed";
 import { latestCommit } from "@pipoca/repositories";
 import { builtInDefinitions, builtInParts, definedManifest } from "./built-in";
+import { webRoutes } from "./web-routes";
 import { errorReply } from "./server/http/replies";
 import { previewBroker } from "./previews";
 import { webAppFile } from "./web-app";
@@ -625,7 +626,14 @@ export function serve(options: ServeOptions): {
   ): Promise<Response | undefined> => {
     const { pathname } = new URL(request.url);
     if (pathname === "/") {
-      return fetch(new URL(webPath, bunServer.url));
+      // The page passes through as sent, compressed when the browser accepts it.
+      return fetch(new URL(webPath, bunServer.url), {
+        headers: {
+          "accept-encoding":
+            request.headers.get("accept-encoding") ?? "identity",
+        },
+        decompress: false,
+      });
     }
 
     const appFile = request.method === "GET" ? webAppFile(pathname) : undefined;
@@ -673,7 +681,7 @@ export function serve(options: ServeOptions): {
     port: options.port,
     idleTimeout: options.idleTimeout ?? 30,
     development: false,
-    routes: { [webPath]: web },
+    routes: webRoutes(web, webPath),
     fetch: async (request, bunServer) => {
       const preview = await previews.visit(request, bunServer);
       if (preview === "upgraded") {

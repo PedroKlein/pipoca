@@ -657,14 +657,30 @@ test("draws the agent's Mermaid diagrams in chat and shows broken ones as code",
   await pickWorkspace(form, root);
   await form.getByRole("button", { name: "Start session" }).click();
   await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  // Mermaid loads on the first diagram, which on a slow link takes a while.
+  let release = (): void => undefined;
+
+  const loaded = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  await page.route("**/*.js", async (route) => {
+    await loaded;
+    await route.continue();
+  });
+
   await page.locator("#prompt-text").fill("draw it");
   await page.locator("#prompt-text").press("Enter");
 
   const reply = page.locator('#chat li[data-role="assistant"]');
+  await reply.getByText("Drawing the diagram").first().waitFor();
+  release();
   await reply.locator("svg", { hasText: "Browser" }).waitFor();
   await reply.getByText("This diagram didn't draw").waitFor();
 
   expect(told).toBe(true);
+  expect(await reply.getByText("Drawing the diagram").count()).toBe(0);
   expect(await reply.locator("svg").count()).toBe(1);
   expect(await reply.locator("pre", { hasText: "a -->" }).count()).toBe(1);
   expect(await reply.locator("pre", { hasText: "Browser" }).count()).toBe(0);
