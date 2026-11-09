@@ -3530,6 +3530,7 @@ test("answers the agent's questions in the prompt card", async () => {
   const card = page.locator('[data-role="prompt"]');
   await card.getByRole("heading", { level: 2, name: "Which size?" }).waitFor();
   await page.locator("#sessions").getByText("Needs you").waitFor();
+
   await page
     .locator('#chat li[data-role="assistant"]', {
       hasText: "Two quick questions.",
