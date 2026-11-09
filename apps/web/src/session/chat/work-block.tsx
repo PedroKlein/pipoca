@@ -2,22 +2,20 @@ import { cn, Icon } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
 import { PluginBoundary } from "../../plugin-boundary";
 import { fillsOf } from "../../plugins";
-import { describeTool, duration, linkParts, tally, type Turn } from "./chat";
-import { Answer } from "./markdown";
+import { describeTool, linkParts, tally, type Turn, type Work } from "./chat";
 import { StepRow } from "./step-row";
 import { useVerbosity } from "./verbosity";
 
+// Tool calls Pi made in a row, folded to what they did.
 export function WorkBlock({
-  turn,
+  work,
   running,
   live,
 }: {
-  readonly turn: Turn;
+  readonly work: readonly Work[];
   readonly running: readonly { readonly id: string; readonly name: string }[];
   readonly live: boolean;
 }): ReactElement {
-  const { work, started, ended } = turn;
-
   const steps = work.flatMap((item) =>
     item.kind === "step" ? [item.step] : [],
   );
@@ -63,13 +61,9 @@ export function WorkBlock({
             )}
           </span>
         ) : (
-          <span className="font-medium text-fg">
-            {started !== undefined && ended !== undefined
-              ? `Worked for ${duration(started, ended)}`
-              : "Worked"}
-          </span>
+          <span className="font-medium text-fg">{sentence(did[0] ?? "")}</span>
         )}
-        {did.map((part) => (
+        {(live ? did : did.slice(1)).map((part) => (
           <span key={part}>· {part}</span>
         ))}
         {failed > 0 && <span className="text-failed">· {failed} failed</span>}
@@ -105,7 +99,7 @@ function WorkItem({
   running,
   verbosity,
 }: {
-  readonly item: Turn["work"][number];
+  readonly item: Work;
   readonly running: ReadonlySet<string>;
   readonly verbosity: string;
 }): ReactElement {
@@ -117,12 +111,6 @@ function WorkItem({
           running={running.has(item.step.id)}
           open={verbosity === "verbose"}
         />
-      );
-    case "narration":
-      return (
-        <div className="px-2 py-1 [&_.prose]:text-label [&_.prose]:text-fg-dim">
-          <Answer text={item.text} />
-        </div>
       );
     case "error":
     case "note":
@@ -152,7 +140,7 @@ export function WorkNote({
   kind,
   text,
 }: {
-  readonly kind: "narration" | "error" | "note";
+  readonly kind: "error" | "note";
   readonly text: string;
 }): ReactElement {
   return (
@@ -168,6 +156,10 @@ export function WorkNote({
       <span className="min-w-0 break-words">{linked(text)}</span>
     </p>
   );
+}
+
+function sentence(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function linked(text: string): ReactNode[] {

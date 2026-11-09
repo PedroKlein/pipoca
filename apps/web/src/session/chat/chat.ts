@@ -290,13 +290,19 @@ export interface Step {
     readonly failed: boolean;
     readonly details?: unknown;
   };
-  // A card's: the text Pi wrote just before it.
-  readonly lead?: string;
 }
 
 export type Work =
   | { readonly kind: "step"; readonly step: Step }
-  | { readonly kind: "narration" | "error" | "note"; readonly text: string };
+  | { readonly kind: "error" | "note"; readonly text: string };
+
+// A turn's parts in the order Pi made them: what it said shows in the chat,
+// tool calls a plugin draws show as cards, and the other tool calls in a row
+// fold into one work block, as in Claude Code.
+export type TurnPart =
+  | { readonly kind: "said"; readonly text: string }
+  | { readonly kind: "card"; readonly step: Step }
+  | { readonly kind: "work"; readonly work: readonly Work[] };
 
 // The message a reply answers, with its sender's name.
 export interface Quoted {
@@ -314,9 +320,7 @@ export interface Turn {
   // A plugin's notice that started the turn, in place of a user message.
   readonly notice?: { readonly text: string; readonly tag: NoticeTag };
   readonly images?: readonly ImageAttachment[];
-  readonly work: readonly Work[];
-  // Tool calls a plugin draws, in call order (ADR 0030).
-  readonly cards: readonly Step[];
+  readonly parts: readonly TurnPart[];
   readonly answer: readonly string[];
   readonly started?: string;
   readonly ended?: string;
@@ -338,24 +342,18 @@ export function openedOf(details: unknown): UiAction | undefined {
     : undefined;
 }
 
-// The text Pi wrote just before a card, taken out of the work: it
-// introduces what the card shows, such as the questions it asks.
-function leadOf(work: Work[]): string | undefined {
-  const texts: string[] = [];
+function addWork(parts: TurnPart[], work: Work): void {
+  const last = parts.at(-1);
 
-  while (work.at(-1)?.kind === "narration") {
-    const last = work.pop();
-
-    if (last?.kind === "narration") {
-      texts.unshift(last.text);
-    }
+  if (last?.kind === "work") {
+    parts[parts.length - 1] = { kind: "work", work: [...last.work, work] };
+  } else {
+    parts.push({ kind: "work", work: [work] });
   }
-
-  return texts.length === 0 ? undefined : texts.join("\n\n");
 }
 
 // Groups the items from one user message to the next. Text after the last
-// tool call is the answer; text between tool calls narrates the work.
+// tool call is the answer.
 export function turns(
   items: readonly (ChatItem & { readonly key: number })[],
   claimed: (tool: string) => boolean = () => false,
@@ -436,8 +434,7 @@ export function turns(
         ),
       );
 
-      const cards: Step[] = [];
-      const work: Work[] = [];
+      const parts: TurnPart[] = [];
 
       for (const item of inTurn.slice(0, lastTool + 1)) {
         switch (item.role) {
@@ -452,28 +449,32 @@ export function turns(
             };
 
             if (claimed(item.name) || openedOf(found?.details) !== undefined) {
-              const lead = leadOf(work);
-
-              cards.push({ ...step, ...(lead !== undefined && { lead }) });
+              parts.push({ kind: "card", step });
             } else {
-              work.push({ kind: "step", step });
+              addWork(parts, { kind: "step", step });
             }
 
             break;
           }
 
           case "assistant":
-            work.push({ kind: "narration", text: item.text });
+            parts.push({ kind: "said", text: item.text });
             break;
           case "error":
           case "note":
-            work.push({ kind: item.role, text: item.text });
+            addWork(parts, { kind: item.role, text: item.text });
             break;
           case "result":
           case "user":
           case "notice":
           case "team":
             break;
+        }
+      }
+
+      for (const item of inTurn.slice(lastTool + 1)) {
+        if (item.role === "error" || item.role === "note") {
+          addWork(parts, { kind: item.role, text: item.text });
         }
       }
 
@@ -500,15 +501,7 @@ export function turns(
         ...(ended !== undefined && { ended }),
         ...(model?.role === "assistant" &&
           model.model !== undefined && { model: model.model }),
-        work: [
-          ...work,
-          ...tail.flatMap((item): Work[] =>
-            item.role === "error" || item.role === "note"
-              ? [{ kind: item.role, text: item.text }]
-              : [],
-          ),
-        ],
-        cards,
+        parts,
         answer: tail.flatMap((item) =>
           item.role === "assistant" ? [item.text] : [],
         ),

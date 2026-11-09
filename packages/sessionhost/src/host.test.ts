@@ -3193,7 +3193,7 @@ test("runs a defined Session part's tools in Pi, with its config, its api and pu
   });
 });
 
-test("starts with its first message, its system prompt text and plugins' extensions", async () => {
+test("starts with its first message, its system prompt text, how to talk in the chat and plugins' extensions", async () => {
   const { faux, models } = await fauxModels(root);
 
   faux.setResponses([fauxAssistantMessage([fauxText("started")])]);
@@ -3256,6 +3256,7 @@ test("starts with its first message, its system prompt text and plugins' extensi
   expect(roles(fake.lines)).toEqual(["system", "user", "assistant"]);
   expect(fake.lines.join()).toContain("kick off");
   expect(JSON.stringify(system)).toContain("You coordinate project X.");
+  expect(JSON.stringify(system)).toContain("Before your first tool call");
   expect(JSON.stringify(system)).toContain('"name":"plugin_tool"');
   expect(roles(again.lines).filter((role) => role === "user")).toHaveLength(1);
 });

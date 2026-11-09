@@ -148,6 +148,11 @@ function docsNote(dir: string): string {
   return `Pipoca runs this Session. Its docs are in ${dir}: pipoca/ for Pipoca, pi/ for Pi, and plugins/<id>/ for installed plugins. Read the relevant page there before writing a Pipoca or Pi format, such as a Profile, a plugin, a skill or an extension.`;
 }
 
+// The web chat folds tool calls away, so without this the user sees nothing
+// until the turn's answer.
+const talkNote =
+  "The user follows this Session in a chat that shows your text and folds your tool calls away. Before your first tool call, say in one short sentence what you'll do. While you work, add a short line when you find something that matters or change course, not before every call. End the turn with the result.";
+
 export async function startSession(
   options: SessionOptions,
   host?: SessionHost,
@@ -167,6 +172,7 @@ export async function startSession(
   // Added to what the Profile's APPEND_SYSTEM.md says, which Pi's
   // appendSystemPrompt would replace.
   const appended = [
+    talkNote,
     ...[options.systemPrompt ?? "", agent?.systemPrompt ?? ""].filter(
       (prompt) => prompt !== "",
     ),

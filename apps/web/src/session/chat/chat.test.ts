@@ -55,8 +55,7 @@ test("keeps the images a user sent and drops unknown image types", () => {
       key: 0,
       user: "look",
       images: [{ mimeType: "image/png", data: "AAAA" }],
-      work: [],
-      cards: [],
+      parts: [],
       answer: [],
     },
   ]);
@@ -139,11 +138,19 @@ test("starts a new turn for a command the user ran in Pi, after the last answer"
   ].flatMap(chatItems);
 
   expect(turns(items.map((item, key) => ({ ...item, key })))).toMatchObject([
-    { user: "hi", work: [], answer: ["Hi!"] },
+    { user: "hi", parts: [], answer: ["Hi!"] },
     {
       user: "!echo x",
-      work: [
-        { kind: "step", step: { name: "bash", args: { command: "echo x" } } },
+      parts: [
+        {
+          kind: "work",
+          work: [
+            {
+              kind: "step",
+              step: { name: "bash", args: { command: "echo x" } },
+            },
+          ],
+        },
       ],
       answer: [],
     },
@@ -233,35 +240,39 @@ test("groups a turn into its work and its answer", () => {
     {
       key: 0,
       user: "fix it",
-      work: [
-        { kind: "narration", text: "Looking." },
+      parts: [
+        { kind: "said", text: "Looking." },
         {
-          kind: "step",
-          step: {
-            id: "a",
-            name: "read",
-            args: { path: "x.ts" },
-            result: { text: "code", failed: false },
-          },
-        },
-        {
-          kind: "step",
-          step: {
-            id: "b",
-            name: "bash",
-            args: { command: "bun test" },
-            result: { text: "1 fail", failed: true },
-          },
+          kind: "work",
+          work: [
+            {
+              kind: "step",
+              step: {
+                id: "a",
+                name: "read",
+                args: { path: "x.ts" },
+                result: { text: "code", failed: false },
+              },
+            },
+            {
+              kind: "step",
+              step: {
+                id: "b",
+                name: "bash",
+                args: { command: "bun test" },
+                result: { text: "1 fail", failed: true },
+              },
+            },
+          ],
         },
       ],
-      cards: [],
       answer: ["Fixed."],
     },
-    { key: 7, user: "thanks", work: [], cards: [], answer: [] },
+    { key: 7, user: "thanks", parts: [], answer: [] },
   ]);
 });
 
-test("keeps the text that leads into a card out of the work, above the card", () => {
+test("keeps what Pi said, its cards and its tool calls in the order it made them", () => {
   const keyed = [
     { role: "user", text: "set it up" },
     { role: "assistant", text: "Looking." },
@@ -277,8 +288,13 @@ test("keeps the text that leads into a card out of the work, above the card", ()
 
   const [turn] = turns(keyed, (tool) => tool === "ask_user");
 
-  expect(turn?.work.map((item) => item.kind)).toEqual(["narration", "step"]);
-  expect(turn?.cards.map(({ lead }) => lead)).toEqual(["| Plan | Steps |"]);
+  expect(turn?.parts.map(({ kind }) => kind)).toEqual([
+    "said",
+    "work",
+    "said",
+    "card",
+  ]);
+
   expect(turn?.answer).toEqual(["Done."]);
 });
 
@@ -429,9 +445,11 @@ test("takes the tool calls a plugin draws out of the work, with their result det
 
   const [turn] = turns(keyed, (tool) => tool === "subagent");
 
-  expect(turn?.work.map((item) => item.kind)).toEqual(["step"]);
+  expect(turn?.parts.map(({ kind }) => kind)).toEqual(["work", "card", "card"]);
 
-  expect(turn?.cards).toEqual([
+  expect(
+    turn?.parts.flatMap((part) => (part.kind === "card" ? [part.step] : [])),
+  ).toEqual([
     {
       id: "s",
       name: "subagent",
@@ -475,10 +493,13 @@ test("draws a card for each tool call that opened something, claimed or not", ()
   const [turn] = turns(keyed);
 
   expect(
-    turn?.work.map((item) => item.kind === "step" && item.step.name),
-  ).toEqual(["sessions_list"]);
-
-  expect(turn?.cards.map(({ name }) => name)).toEqual(["sessions_start"]);
+    turn?.parts.map((part) =>
+      part.kind === "card"
+        ? `card ${part.step.name}`
+        : part.kind === "work" &&
+          part.work.map((item) => item.kind === "step" && item.step.name),
+    ),
+  ).toEqual([["sessions_list"], "card sessions_start"]);
 });
 
 test("keeps a tool result's details", () => {
@@ -529,8 +550,7 @@ test("opens a turn with a plugin's notice, and keeps an untagged one a note", ()
       key: 0,
       user: undefined,
       notice: { text: "Docs finished a turn", tag },
-      work: [],
-      cards: [],
+      parts: [],
       answer: ["noted"],
     },
   ]);
