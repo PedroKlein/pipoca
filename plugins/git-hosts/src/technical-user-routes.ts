@@ -54,6 +54,7 @@ const newApp = Type.Object({
   host: Type.String(),
   name: Type.String(),
   organization: Type.Optional(Type.String()),
+  public: Type.Optional(Type.Boolean()),
   then,
 });
 
@@ -171,6 +172,7 @@ export function technicalUserRoutes(
         name,
         urls,
         hearsWebhooks(urls) ? hook : undefined,
+        query.public === true,
       );
 
       const target = `https://${host.host}${organization === "" ? "" : `/organizations/${organization}`}/settings/apps/new?state=${state}`;

@@ -493,6 +493,7 @@ function TeamAppForm({
       host: host.host,
       name: text("name"),
       organization: text("organization"),
+      ...(form.get("public") === "on" && { public: "true" }),
       then: "server-setup",
     });
 
@@ -531,11 +532,16 @@ function TeamAppForm({
           <TextInput name="name" required defaultValue="Pipoca" />
         </Field>
       </div>
+      <Checkbox
+        name="public"
+        label="Let other accounts install it"
+        description="So it can work in more than one organization. On GitHub Enterprise that means accounts on this host only."
+      />
       <p className="text-caption text-fg-dim">
         It asks {host.label} for contents, pull requests and issues, read and
-        write, and checks, statuses, actions and metadata, read. Team work
-        reaches only repositories where the App is installed. People&apos;s own
-        Sessions aren&apos;t limited by it.
+        write, and checks, statuses, actions, deployments and metadata, read.
+        Team work reaches only repositories where the App is installed.
+        People&apos;s own Sessions aren&apos;t limited by it.
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="primary" type="submit">
