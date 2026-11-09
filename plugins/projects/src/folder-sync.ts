@@ -33,6 +33,7 @@ const maxFiles = 10_000;
 export function folderSync(s: Context): {
   readonly dir: string;
   readonly run: () => void;
+  readonly synced: () => Promise<void>;
   readonly flush: () => Promise<void>;
 } {
   const dir = join(s.folder, "project");
@@ -295,6 +296,10 @@ export function folderSync(s: Context): {
   return {
     dir,
     run: schedule,
+    synced: async () => {
+      schedule();
+      await running;
+    },
     // One last try as the Session ends, with no retry after it.
     flush: async () => {
       cancelRetry?.();

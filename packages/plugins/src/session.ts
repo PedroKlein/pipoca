@@ -107,10 +107,12 @@ export interface SessionToolCall {
   // Pi's working directory, where a tool reads and writes the workspace.
   readonly cwd: string;
   // Asks the Session's model one question outside its conversation, such as
-  // to explain an option. Undefined while the Session has no model.
+  // to explain an option, with a text copy of the conversation when asked.
+  // Undefined while the Session has no model.
   readonly complete?: (o: {
     readonly system: string;
     readonly prompt: string;
+    readonly withConversation?: boolean;
   }) => Promise<string>;
 }
 

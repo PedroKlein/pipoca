@@ -141,7 +141,7 @@ const parameters = Type.Object({
   ),
 });
 
-const description = `Starts subagents: Pi sessions with their own context that work on a task and report back.
+const description = `Starts subagents: Pi sessions with their own context that work on a task and report back. Use them for heavy work that splits into independent parts, not for a few reads you can do yourself.
 
 - One run: agent and task. Parallel runs: tasks. A chain: chain, where each step gets the previous step's output.
 - Runs go to the background: the call returns at once, and their output comes back in a later message. Don't poll or wait for it; do other work or end your turn. wait: true blocks until they end instead.
@@ -425,6 +425,7 @@ function extension(s: SessionContext, pi: ExtensionAPI): void {
     description,
     parameters,
     prepareArguments: withoutEmptyFields,
+    annotations: { destructiveHint: false },
     execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
       if (readOnly()) {
         throw new Error(
@@ -610,7 +611,7 @@ async function launch(
 
 function outputs(run: RunView): string {
   return [
-    `Subagent run ${run.id} ended: ${runState(run)}.`,
+    `Subagent run ${run.id} ended: ${runState(run)}. Use its output in your work. Don't report it to the user on its own: tell them only what changes what they need to know or do.`,
     ...(run.workflow === undefined
       ? []
       : [

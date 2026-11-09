@@ -3,6 +3,7 @@ import type { ReactElement, ReactNode } from "react";
 import { PluginBoundary } from "../../plugin-boundary";
 import { fillsOf } from "../../plugins";
 import { describeTool, duration, linkParts, tally, type Turn } from "./chat";
+import { Answer } from "./markdown";
 import { StepRow } from "./step-row";
 import { useVerbosity } from "./verbosity";
 
@@ -82,15 +83,7 @@ export function WorkBlock({
                 : `${item.kind}-${String(index)}`
             }
           >
-            {item.kind === "step" ? (
-              <StepRow
-                step={item.step}
-                running={runningIds.has(item.step.id)}
-                open={verbosity === "verbose"}
-              />
-            ) : (
-              <WorkNote kind={item.kind} text={item.text} />
-            )}
+            <WorkItem item={item} running={runningIds} verbosity={verbosity} />
           </li>
         ))}
         {extra.map(({ id, name }) => (
@@ -105,6 +98,36 @@ export function WorkBlock({
       </ol>
     </details>
   );
+}
+
+function WorkItem({
+  item,
+  running,
+  verbosity,
+}: {
+  readonly item: Turn["work"][number];
+  readonly running: ReadonlySet<string>;
+  readonly verbosity: string;
+}): ReactElement {
+  switch (item.kind) {
+    case "step":
+      return (
+        <StepRow
+          step={item.step}
+          running={running.has(item.step.id)}
+          open={verbosity === "verbose"}
+        />
+      );
+    case "narration":
+      return (
+        <div className="px-2 py-1 [&_.prose]:text-label [&_.prose]:text-fg-dim">
+          <Answer text={item.text} />
+        </div>
+      );
+    case "error":
+    case "note":
+      return <WorkNote kind={item.kind} text={item.text} />;
+  }
 }
 
 export function Notice({

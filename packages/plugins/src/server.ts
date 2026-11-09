@@ -50,6 +50,9 @@ export type StartRequest = CreateSession & {
   readonly access?: SessionAccess;
   // Only plugins start a Session as a named agent, such as a routine's.
   readonly agent?: StartAgent;
+  // Only plugins name a Session as it starts, such as a thread after its
+  // title, so the first message doesn't name it.
+  readonly title?: string;
 };
 
 // What decides where an Environment's runners come from (ADR 0049).

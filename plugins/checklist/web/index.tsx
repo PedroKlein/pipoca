@@ -26,7 +26,7 @@ function PinnedList({
   const items =
     useToolResults<{ readonly items?: readonly Item[] }>(session, toolName)
       .filter(({ isError }) => !isError)
-      .at(-1)?.details.items ?? [];
+      .at(-1)?.details?.items ?? [];
 
   const [open, setOpen] = useState(false);
   const listId = useId();

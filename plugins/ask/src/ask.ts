@@ -121,6 +121,7 @@ export function askUser(
         "Ask the user structured questions in a form (single/multi choice, scale, rank, text, number)",
       guidelines: [
         "ALWAYS use ask_user when you need user input on choices or decisions. Never list options as plain text and ask the user to pick.",
+        "Ask the questions you need now together, in one call, and don't ask again about what the user already decided.",
         "Provide a meaningful 'description' for EVERY option, it is shown in a detail panel and helps the user decide.",
         "Use 'recommended: true' on options you think are best, or 'recommendedValue' for numbers, with reasoning in the description or context.",
         "Use 'multi' when several options could apply, 'single' when exactly one must be chosen, 'scale' for a point on an ordered range, 'rank' to order options, 'number' for a quantity, and 'text' for open-ended questions.",
@@ -303,6 +304,9 @@ function normalize(raw: RawQuestion, index: number): Question {
   }
 }
 
+// An explanation asked with no option is about the question itself.
+const wholeQuestion = "";
+
 function explainer(
   { complete }: SessionToolCall,
   questions: readonly Question[],
@@ -313,10 +317,36 @@ function explainer(
 
   return async (questionId, value, question) => {
     const asked = questions.find((q) => q.id === questionId);
-    const options = asked && "options" in asked ? asked.options : [];
+
+    if (!asked) {
+      throw new Error(`no question ${questionId}`);
+    }
+
+    const options = "options" in asked ? asked.options : [];
+    const context = asked.context === null ? [] : [`Context: ${asked.context}`];
+
+    if (value === wholeQuestion) {
+      return complete({
+        system:
+          "You help a person understand a question they were asked, without answering it for them. Be concise and practical, in plain words. No markdown formatting.",
+        prompt: [
+          `Question: "${asked.prompt}"`,
+          ...context,
+          ...options.map(
+            (o) =>
+              `Option: ${o.label}${o.description === null ? "" : ` (${o.description})`}`,
+          ),
+          "",
+          question === null
+            ? "Explain what this question decides, why it matters, and any terms the person may not know. Don't pick an option. 2-3 short paragraphs at most."
+            : `The person's question about it: ${question}\n\nAnswer concisely in 2-3 short paragraphs, without picking an option for them.`,
+        ].join("\n"),
+        withConversation: true,
+      });
+    }
 
     const option = options.find((o) => o.value === value);
-    if (!asked || !option) {
+    if (!option) {
       throw new Error(`no option ${value} in question ${questionId}`);
     }
 
@@ -332,7 +362,7 @@ function explainer(
         ? ""
         : `Option details: ${option.description}`,
       others === "" ? "" : `Other options: ${others}`,
-      asked.context === null ? "" : `Context: ${asked.context}`,
+      ...context,
       "",
       question === null
         ? "Explain this option concisely: trade-offs, when it's a good or bad fit, and how it compares to the alternatives. 2-3 short paragraphs at most."
@@ -345,6 +375,7 @@ function explainer(
       system:
         "You explain options for decision-making. Be concise and practical. No markdown formatting.",
       prompt,
+      withConversation: true,
     });
   };
 }
@@ -355,7 +386,7 @@ function describe(
   person: string | undefined,
 ): string {
   if (answer === null) {
-    return "User cancelled the questionnaire without answering. Proceed with your best judgment: use recommended options where specified, make reasonable choices elsewhere.";
+    return "User dismissed the questions without answering. Don't act on them or pick their recommended options: the user may want something else. Ask what they want, in words, before going on.";
   }
 
   const lines = answer.answers.flatMap((given) => {

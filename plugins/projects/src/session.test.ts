@@ -143,6 +143,39 @@ test("Sessions in a Project share its folder, and a change one makes reaches the
   await b.event("session_shutdown");
 });
 
+test("a file another Session just shared can be read as soon as list_project_files names it", async () => {
+  await using t = await testPlugin(server, { people });
+  const { coordinator, projectId } = await shop(t);
+  const thread = await threadOf(t, coordinator, "Docs");
+  const here = await runnerFolder();
+  const there = await runnerFolder();
+  const a = await part(coordinator, here);
+  const b = await part(thread, there);
+
+  await a.event("session_start");
+  await b.event("session_start");
+  await mkdir(join(there, "project"), { recursive: true });
+  await writeFile(join(there, "project", "report.md"), "found\n");
+  await b.event("agent_settled");
+
+  await until(
+    async () =>
+      (
+        await t
+          .as("ana")
+          .get<{ files: FolderFile[] }>(`projects/${projectId}/files`)
+      ).files.length === 1,
+  );
+
+  const listed = await a.tool("list_project_files", { query: "report" });
+
+  expect(listed.text).toContain(join(here, "project", "report.md"));
+  expect(await contentOf(join(here, "project", "report.md"))).toBe("found\n");
+
+  await a.event("session_shutdown");
+  await b.event("session_shutdown");
+});
+
 test("when two Sessions change one file, the later one is kept as a copy named after its thread", async () => {
   await using t = await testPlugin(server, { people });
   const { coordinator, projectId } = await shop(t);
@@ -265,6 +298,20 @@ test("assistant threads load route tools and install what they built", async () 
     ).toMatchObject({
       isError: false,
       text: "Wrote 1 files into the Profile brief.",
+    });
+
+    expect(
+      await tools.tool("install_profile", { path: ".", myDefaults: true }),
+    ).toMatchObject({
+      isError: false,
+      text: "Wrote 1 files into your My defaults.",
+    });
+
+    expect(
+      await t.tool("profile_defaults_files", {}, { session: thread }),
+    ).toMatchObject({
+      isError: false,
+      text: expect.stringContaining("AGENTS.md") as unknown,
     });
 
     const plugin = await tools.tool("install_plugin", {

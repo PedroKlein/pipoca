@@ -21,6 +21,7 @@ export function useSend({
   modelMenuRef,
   keepsFiles,
   uploading,
+  starting,
 }: {
   readonly sessionId: string;
   readonly feed: Feed;
@@ -35,6 +36,8 @@ export function useSend({
   readonly keepsFiles: boolean;
   // Files are still uploading, so Pi wouldn't have them yet.
   readonly uploading: boolean;
+  // Pi isn't up yet, so the message waits in the box.
+  readonly starting: boolean;
 }): {
   readonly images: readonly Attached[];
   readonly setImages: (
@@ -88,7 +91,12 @@ export function useSend({
   const send = (delivery: "steer" | "followUp"): void => {
     const box = textRef.current;
     const message = box?.value.trim() ?? "";
-    if (!box || uploading || (message === "" && images.length === 0)) {
+    if (
+      !box ||
+      uploading ||
+      starting ||
+      (message === "" && images.length === 0)
+    ) {
       return;
     }
 

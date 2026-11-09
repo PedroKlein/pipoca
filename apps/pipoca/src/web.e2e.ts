@@ -3498,7 +3498,12 @@ test("answers the agent's questions in the prompt card", async () => {
               prompt: "Which size?",
               type: "single",
               options: [
-                { value: "s", label: "Small", description: "Cheap" },
+                {
+                  value: "s",
+                  label: "Small",
+                  description:
+                    "Cheap. Fits a side project that runs a few jobs a day, can wait for a slow build now and then, and should cost as little as it can.",
+                },
                 { value: "l", label: "Large", description: "Fast" },
               ],
             },
@@ -3525,11 +3530,24 @@ test("answers the agent's questions in the prompt card", async () => {
   const card = page.locator('[data-role="prompt"]');
   await card.getByRole("heading", { level: 2, name: "Which size?" }).waitFor();
   await page.locator("#sessions").getByText("Needs you").waitFor();
-  await card.getByLabel("Large").check();
 
-  expect(
-    await page.locator("#chat").getByText("Two quick questions.").count(),
-  ).toBe(1);
+  await page
+    .locator('#chat li[data-role="assistant"]', {
+      hasText: "Two quick questions.",
+    })
+    .waitFor();
+
+  await card.getByRole("button", { name: "Explain this question" }).waitFor();
+
+  const wide = page.viewportSize();
+  await page.setViewportSize({ width: 700, height: 900 });
+  await card.locator("li", { hasText: "Small" }).hover();
+  const small = await card.boundingBox();
+  await card.locator("li", { hasText: "Large" }).hover();
+  expect(await card.boundingBox()).toEqual(small);
+  await page.setViewportSize(wide ?? { width: 1280, height: 720 });
+
+  await card.getByLabel("Large").check();
 
   await card.getByText("Fast").waitFor();
   await card.getByRole("button", { name: "Review answers" }).click();
@@ -3547,20 +3565,15 @@ test("answers the agent's questions in the prompt card", async () => {
     .getByText("Needs you")
     .waitFor({ state: "detached" });
 
-  const work = page.locator('#chat li[data-role="work"]');
-
-  await work
-    .locator("summary", { hasText: /Worked for \d+s\s*· 1 other step/ })
+  await page
+    .locator('#chat li[data-role="card"]', { hasText: "Which size?" })
+    .getByText("Size: Large")
     .waitFor();
 
   await page
     .locator('#chat [data-role="answer-meta"]', { hasText: "faux-1" })
     .getByText("just now")
     .waitFor();
-
-  await work.locator("summary").first().click();
-  await work.getByText("Asked").click();
-  await work.locator("pre", { hasText: "Large" }).waitFor();
 }, 30_000);
 
 test("shows the session's changes and usage from their plugins", async () => {
@@ -3911,7 +3924,6 @@ test("creates a Project and shares a file through its folder", async () => {
     ),
     fauxAssistantMessage([fauxText("ok")]),
     fauxAssistantMessage([fauxText("ok")]),
-    fauxAssistantMessage([fauxText("noted")]),
   ]);
 
   await page.locator("#prompt-text").fill("start a docs thread");
@@ -3919,7 +3931,7 @@ test("creates a Project and shares a file through its folder", async () => {
 
   await page
     .locator('#chat li[data-role="assistant"]')
-    .getByText(/^(ok|noted)$/)
+    .getByText(/^ok$/)
     .first()
     .waitFor();
 
@@ -3945,8 +3957,8 @@ test("creates a Project and shares a file through its folder", async () => {
   await review.waitFor();
   expect(await rail.getByRole("region", { name: "Needs you" }).count()).toBe(0);
 
-  // The thread's reply wakes the coordinator, and both take scripted replies
-  // that later tests would otherwise lose to them.
+  // The thread takes a scripted reply that later tests would otherwise lose
+  // to it.
   await review.getByRole("link").click();
 
   const side = page.getByRole("complementary", { name: "Docs" });
@@ -3988,22 +4000,9 @@ test("creates a Project and shares a file through its folder", async () => {
   await rail.getByRole("button", { name: "Hide threads" }).click();
   await page.setViewportSize({ width: 1280, height: 720 });
 
-  while (faux.state.callCount < calls + 4) {
+  while (faux.state.callCount < calls + 3) {
     await Bun.sleep(20);
   }
-
-  await page
-    .locator('#chat li[data-role="notice"]')
-    .getByRole("link", { name: "Docs" })
-    .first()
-    .waitFor();
-
-  expect(
-    await page
-      .locator('#chat li[data-role="user"]')
-      .filter({ hasText: "[Project notice]" })
-      .count(),
-  ).toBe(0);
 
   faux.setResponses([
     fauxAssistantMessage([fauxText(`See [Docs](thread:${threadId}).`)]),
@@ -4017,6 +4016,23 @@ test("creates a Project and shares a file through its folder", async () => {
     .getByRole("link", { name: /^Docs/ });
 
   await chip.getByText("Ready for review").waitFor();
+
+  // The thread's finished turn reached the coordinator as context, with no
+  // turn of its own.
+  await page
+    .locator('#chat li[data-role="notice"]')
+    .getByRole("link", { name: "Docs" })
+    .first()
+    .waitFor();
+
+  expect(
+    await page
+      .locator('#chat li[data-role="user"]')
+      .filter({ hasText: "[Project notice]" })
+      .count(),
+  ).toBe(0);
+
+  expect(faux.state.callCount).toBe(calls + 4);
   await chip.click();
   await side.waitFor();
   await side.getByRole("button", { name: "Back to threads" }).click();
@@ -5922,6 +5938,14 @@ test("offers a fork once the team said more than Pi reads", async () => {
 
   await offer.waitFor();
   await page.locator("#prompt-text").fill("We settled on 5 retries.");
+
+  // No runner serves these pods, so Pi never starts to take the message.
+  await page.getByPlaceholder("Pi is starting…").waitFor();
+
+  expect(await page.getByRole("button", { name: "Send" }).isDisabled()).toBe(
+    true,
+  );
+
   await offer.getByRole("button", { name: "Fork" }).click();
 
   await page.waitForURL(

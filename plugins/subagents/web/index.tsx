@@ -74,8 +74,10 @@ function useRuns(session: MountedSession): ReadonlyMap<string, RunView> {
   return useMemo(
     () =>
       new Map([
-        ...called.flatMap(({ details: { run } }) =>
-          run === undefined ? [] : [[run.id, run] as const],
+        ...called.flatMap(({ details }) =>
+          details?.run === undefined
+            ? []
+            : [[details.run.id, details.run] as const],
         ),
         ...kept,
         ...(published ?? []).map((run) => [run.id, run] as const),

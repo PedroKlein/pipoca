@@ -151,6 +151,7 @@ export function projectTools(
       const thread = sessions.start({
         actor,
         key: project.id,
+        title: input.title,
         ...(project.owner === "team" && { team: true }),
         // A Team assistant's threads are its person's alone, as its chat
         // is, until they share one (ADR 0067).

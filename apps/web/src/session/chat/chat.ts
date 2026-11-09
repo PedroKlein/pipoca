@@ -290,6 +290,8 @@ export interface Step {
     readonly failed: boolean;
     readonly details?: unknown;
   };
+  // A card's: the text Pi wrote just before it.
+  readonly lead?: string;
 }
 
 export type Work =
@@ -334,6 +336,22 @@ export function openedOf(details: unknown): UiAction | undefined {
     typeof opened.label === "string"
     ? { kind: "open", route: opened.route, label: opened.label }
     : undefined;
+}
+
+// The text Pi wrote just before a card, taken out of the work: it
+// introduces what the card shows, such as the questions it asks.
+function leadOf(work: Work[]): string | undefined {
+  const texts: string[] = [];
+
+  while (work.at(-1)?.kind === "narration") {
+    const last = work.pop();
+
+    if (last?.kind === "narration") {
+      texts.unshift(last.text);
+    }
+  }
+
+  return texts.length === 0 ? undefined : texts.join("\n\n");
 }
 
 // Groups the items from one user message to the next. Text after the last
@@ -419,8 +437,9 @@ export function turns(
       );
 
       const cards: Step[] = [];
+      const work: Work[] = [];
 
-      const work = inTurn.slice(0, lastTool + 1).flatMap((item): Work[] => {
+      for (const item of inTurn.slice(0, lastTool + 1)) {
         switch (item.role) {
           case "tool": {
             const found = results.get(item.id);
@@ -433,27 +452,30 @@ export function turns(
             };
 
             if (claimed(item.name) || openedOf(found?.details) !== undefined) {
-              cards.push(step);
+              const lead = leadOf(work);
 
-              return [];
+              cards.push({ ...step, ...(lead !== undefined && { lead }) });
+            } else {
+              work.push({ kind: "step", step });
             }
 
-            return [{ kind: "step", step }];
+            break;
           }
 
-          case "result":
-            return [];
           case "assistant":
-            return [{ kind: "narration", text: item.text }];
+            work.push({ kind: "narration", text: item.text });
+            break;
           case "error":
           case "note":
-            return [{ kind: item.role, text: item.text }];
+            work.push({ kind: item.role, text: item.text });
+            break;
+          case "result":
           case "user":
           case "notice":
           case "team":
-            return [];
+            break;
         }
-      });
+      }
 
       const tail = inTurn.slice(lastTool + 1);
 

@@ -2,7 +2,7 @@ export interface ToolResultEntry<D = unknown> {
   readonly callId: string;
   readonly line: number;
   readonly input: unknown;
-  readonly details: D;
+  readonly details: D | undefined;
   readonly isError: boolean;
 }
 

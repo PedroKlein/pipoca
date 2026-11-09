@@ -205,7 +205,7 @@ const none: readonly string[] = [];
 export function useToolResults<D>(
   session: MountedSession,
   tool: string,
-): readonly { readonly details: D; readonly isError: boolean }[] {
+): readonly { readonly details: D | undefined; readonly isError: boolean }[] {
   const [seen, setSeen] = useState<{
     readonly session: MountedSession;
     readonly lines: readonly string[];

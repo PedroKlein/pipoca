@@ -120,7 +120,10 @@ function folderTools(s: Context): void {
         'When another Session changed a file first, your version is kept beside it as "name (from <thread>).ext".',
       ],
     },
+    // A file it names is here to read, even one shared since the turn began.
     run: async ({ query }) => {
+      await sync.synced();
+
       const answer = await s.api.get<{ files: FolderFile[]; more: number }>(
         `folder/find?query=${encodeURIComponent(query)}`,
       );
@@ -186,7 +189,7 @@ function installTools({ api, tools }: Context): void {
     name: "install_profile",
     label: "Install Profile",
     description:
-      "Install a folder from the workspace as a Profile, laid out like ~/.pi/agent: AGENTS.md, settings.json, extensions/, skills/, prompts/ and themes/. Without id it makes a new Profile; with id it writes the folder's files into that Profile.",
+      "Install a folder from the workspace as a Profile, laid out like ~/.pi/agent: AGENTS.md, settings.json, extensions/, skills/, prompts/ and themes/. Without id it makes a new Profile; with id it writes the folder's files into that Profile; with myDefaults it writes them into the user's My defaults, the layer under all their Profiles.",
     params: Type.Object({
       path: Type.String({ description: "The folder, from the workspace" }),
       name: Type.Optional(
@@ -195,12 +198,23 @@ function installTools({ api, tools }: Context): void {
       id: Type.Optional(
         Type.String({ description: "The Profile to write the files into" }),
       ),
+      myDefaults: Type.Optional(
+        Type.Boolean({
+          description:
+            "Write the files into the user's My defaults instead of a Profile",
+        }),
+      ),
     }),
     annotations: { destructive: true },
-    asks: (input) =>
-      input.id === undefined
+    asks: (input) => {
+      if (input.myDefaults === true) {
+        return `Write the files of ${input.path} into your My defaults?`;
+      }
+
+      return input.id === undefined
         ? `Install ${input.path} as a new Profile?`
-        : `Write the files of ${input.path} into the Profile ${input.id}?`,
+        : `Write the files of ${input.path} into the Profile ${input.id}?`;
+    },
     run: async (input, { cwd, signal }) => {
       const folder = resolve(cwd, input.path);
       const paths = (await filesIn(folder)).filter(profilePath);
@@ -211,6 +225,7 @@ function installTools({ api, tools }: Context): void {
           files: await contents(folder, paths, "base64"),
           name: input.name ?? basename(folder),
           ...(input.id !== undefined && { id: input.id }),
+          ...(input.myDefaults === true && { myDefaults: true }),
         },
         signal,
       );
