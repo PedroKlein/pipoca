@@ -3924,7 +3924,6 @@ test("creates a Project and shares a file through its folder", async () => {
     ),
     fauxAssistantMessage([fauxText("ok")]),
     fauxAssistantMessage([fauxText("ok")]),
-    fauxAssistantMessage([fauxText("noted")]),
   ]);
 
   await page.locator("#prompt-text").fill("start a docs thread");
@@ -3932,7 +3931,7 @@ test("creates a Project and shares a file through its folder", async () => {
 
   await page
     .locator('#chat li[data-role="assistant"]')
-    .getByText(/^(ok|noted)$/)
+    .getByText(/^ok$/)
     .first()
     .waitFor();
 
@@ -3958,8 +3957,8 @@ test("creates a Project and shares a file through its folder", async () => {
   await review.waitFor();
   expect(await rail.getByRole("region", { name: "Needs you" }).count()).toBe(0);
 
-  // The thread's reply wakes the coordinator, and both take scripted replies
-  // that later tests would otherwise lose to them.
+  // The thread takes a scripted reply that later tests would otherwise lose
+  // to it.
   await review.getByRole("link").click();
 
   const side = page.getByRole("complementary", { name: "Docs" });
@@ -4001,22 +4000,9 @@ test("creates a Project and shares a file through its folder", async () => {
   await rail.getByRole("button", { name: "Hide threads" }).click();
   await page.setViewportSize({ width: 1280, height: 720 });
 
-  while (faux.state.callCount < calls + 4) {
+  while (faux.state.callCount < calls + 3) {
     await Bun.sleep(20);
   }
-
-  await page
-    .locator('#chat li[data-role="notice"]')
-    .getByRole("link", { name: "Docs" })
-    .first()
-    .waitFor();
-
-  expect(
-    await page
-      .locator('#chat li[data-role="user"]')
-      .filter({ hasText: "[Project notice]" })
-      .count(),
-  ).toBe(0);
 
   faux.setResponses([
     fauxAssistantMessage([fauxText(`See [Docs](thread:${threadId}).`)]),
@@ -4030,6 +4016,23 @@ test("creates a Project and shares a file through its folder", async () => {
     .getByRole("link", { name: /^Docs/ });
 
   await chip.getByText("Ready for review").waitFor();
+
+  // The thread's finished turn reached the coordinator as context, with no
+  // turn of its own.
+  await page
+    .locator('#chat li[data-role="notice"]')
+    .getByRole("link", { name: "Docs" })
+    .first()
+    .waitFor();
+
+  expect(
+    await page
+      .locator('#chat li[data-role="user"]')
+      .filter({ hasText: "[Project notice]" })
+      .count(),
+  ).toBe(0);
+
+  expect(faux.state.callCount).toBe(calls + 4);
   await chip.click();
   await side.waitFor();
   await side.getByRole("button", { name: "Back to threads" }).click();
