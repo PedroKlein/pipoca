@@ -5,10 +5,13 @@ import { artifacts } from "../plugin";
 import {
   type ArtifactSummary,
   bytes,
+  type Comment,
   kindOf,
   type Published,
   supported,
 } from "./artifacts";
+
+const shownThreads = 30;
 
 // Pi publishes a file from its workspace as an artifact, or a new version of
 // one, and reads artifacts back into its own folder (ADR 0078).
@@ -111,9 +114,18 @@ export const session = defineSession(artifacts, (s) => {
         return "No artifacts match.";
       }
 
-      const lines = answer.artifacts.map(
-        (each) =>
-          `${each.id} · ${each.title} · ${each.kind} · ${String(each.versions)} ${each.versions === 1 ? "version" : "versions"}`,
+      const lines = answer.artifacts.map((each) =>
+        [
+          each.id,
+          each.title,
+          each.kind,
+          `${String(each.versions)} ${each.versions === 1 ? "version" : "versions"}`,
+          ...(each.openComments > 0
+            ? [
+                `${String(each.openComments)} open ${each.openComments === 1 ? "comment" : "comments"}`,
+              ]
+            : []),
+        ].join(" · "),
       );
 
       return answer.more > 0
@@ -158,6 +170,58 @@ export const session = defineSession(artifacts, (s) => {
       await writeFile(path, new Uint8Array(await response.arrayBuffer()));
 
       return `Wrote version ${number} of artifact ${id} to ${path}.`;
+    },
+  });
+
+  s.tools.define({
+    name: "read_artifact_comments",
+    label: "Read artifact comments",
+    description: `Reads the comments people left on an artifact, each with the version and the text it's about, and the replies under it. Open comments only, unless resolved is true. Returns at most ${String(shownThreads)}.`,
+    params: Type.Object({
+      id: Type.String({ description: "The artifact's id" }),
+      resolved: Type.Optional(
+        Type.Boolean({ description: "Also show resolved comments" }),
+      ),
+    }),
+    annotations: { readOnly: true },
+    prompt: {
+      snippet: "Read what people commented on an artifact",
+      guidelines: [
+        "When someone asks about feedback or comments on an artifact, read them with read_artifact_comments.",
+      ],
+    },
+    run: async ({ id, resolved = false }) => {
+      const { comments } = await s.api.get<{ comments: Comment[] }>(
+        `session/artifacts/${encodeURIComponent(id)}/comments`,
+      );
+
+      const threads = comments.filter(
+        (each) => each.parent === null && (resolved || !each.resolved),
+      );
+
+      if (threads.length === 0) {
+        return resolved ? "No comments yet." : "No open comments.";
+      }
+
+      const lines = threads
+        .slice(0, shownThreads)
+        .flatMap((thread) => [
+          [
+            `${thread.author} on version ${String(thread.version)}`,
+            thread.quote === "" ? "" : `, about “${thread.quote}”`,
+            thread.resolved ? " (resolved)" : "",
+            `: ${thread.body}`,
+          ].join(""),
+          ...comments
+            .filter((each) => each.parent === thread.id)
+            .map((reply) => `  ${reply.author} replied: ${reply.body}`),
+        ]);
+
+      return threads.length > shownThreads
+        ? [...lines, `and ${String(threads.length - shownThreads)} more`].join(
+            "\n",
+          )
+        : lines.join("\n");
     },
   });
 });

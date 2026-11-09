@@ -32,7 +32,8 @@ An artifact runs in a sandbox on an opaque origin, so it can't reach Pipoca or y
 ### Comments and edits
 
 - Leave comments beside an artifact, on a passage you select or on the whole thing, and reply to them or resolve them. The page marks the passages comments are on.
-- A comment with **Send to Pi** checked reaches the Session as your message.
+- A comment with **Send to Pi** checked reaches the Session as your message. Ask Pi about the rest, and it reads them with `read_artifact_comments`: the open ones with their replies, or the resolved ones too.
+- `list_artifacts` says how many comments are open on each.
 - **Compare** shows two versions as a line diff, or side by side for pictures and PDFs.
 - Whoever steers the Session can edit a Markdown artifact's source and save it as a new version, and Pi is told to read it before changing it again.
 - A page can ask for a message with `parent.postMessage({ pipoca: "draft", text }, "*")`: it lands in the Session's composer, and you decide whether to send it.
