@@ -45,6 +45,7 @@ export function appManifest(
       checks: "read",
       statuses: "read",
       actions: "read",
+      deployments: "read",
       metadata: "read",
     },
     ...(hook !== undefined && {
