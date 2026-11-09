@@ -775,6 +775,14 @@ export const server = defineServer(
     );
 
     routes.get(
+      "session/artifacts/:id/comments",
+      { auth: "session" },
+      ({ caller, params }) => ({
+        comments: comments(sessionArtifact(caller, params.id).id),
+      }),
+    );
+
+    routes.get(
       "session/artifacts/:id/file",
       { auth: "session", query: version },
       async ({ caller, params, query }) => {

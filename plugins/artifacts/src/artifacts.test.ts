@@ -328,6 +328,65 @@ test("a comment sent to Pi reaches the Session as the person's message, and view
   });
 });
 
+test("Pi reads the comments on an artifact, open ones unless it asks for resolved", async () => {
+  const { t, cwd, part } = await setUp();
+
+  await writeFile(join(cwd, "plan.md"), "# Plan\n\nShip Friday.\n");
+
+  const { details } = await part.tool("publish_artifact", { path: "plan.md" });
+  const { id } = details as { id: string };
+
+  await t.as("ana").put(`artifacts/${id}/shares`, {
+    shares: [{ name: "Bo", role: "comment" }],
+  });
+
+  const open = await t
+    .as("bo")
+    .post<{ id: string }>(`artifacts/${id}/comments`, {
+      version: 1,
+      body: "Friday is too soon",
+      quote: "Ship Friday.",
+      toPi: false,
+    });
+
+  await t.as("ana").post(`artifacts/${id}/comments`, {
+    version: 1,
+    body: "Agreed",
+    parent: open.id,
+    toPi: false,
+  });
+
+  const done = await t
+    .as("ana")
+    .post<{ id: string }>(`artifacts/${id}/comments`, {
+      version: 1,
+      body: "Add a title",
+      toPi: false,
+    });
+
+  await t
+    .as("ana")
+    .post(`artifacts/${id}/comments/${done.id}/resolve`, { resolved: true });
+
+  expect(await part.tool("list_artifacts", { query: "" })).toMatchObject({
+    text: `${id} · plan.md · markdown · 1 version · 1 open comment`,
+  });
+
+  expect(await part.tool("read_artifact_comments", { id })).toMatchObject({
+    text: "Bo on version 1, about “Ship Friday.”: Friday is too soon\n  Ana replied: Agreed",
+  });
+
+  expect(
+    await part.tool("read_artifact_comments", { id, resolved: true }),
+  ).toMatchObject({
+    text: "Bo on version 1, about “Ship Friday.”: Friday is too soon\n  Ana replied: Agreed\nAna on version 1 (resolved): Add a title",
+  });
+
+  expect(
+    await part.tool("read_artifact_comments", { id: "nope" }),
+  ).toMatchObject({ isError: true });
+});
+
 test("a person's edit of a Markdown artifact is a new version Pi hears about", async () => {
   const { t, host, cwd, part } = await setUp();
 
