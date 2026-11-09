@@ -147,6 +147,8 @@ export interface LinkProps {
 
 export interface CodeBlockProps {
   readonly code: string;
+  // False while the agent is still writing the block.
+  readonly complete: boolean;
 }
 
 export interface SessionPartProps {

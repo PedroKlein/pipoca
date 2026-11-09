@@ -35,9 +35,9 @@ test("marks closed fenced blocks for the plugin that draws their language", () =
   );
 });
 
-test("leaves a fence the agent is still writing as code", () => {
-  expect(renderMarkdown("```mermaid\ngraph TD\n  a --> b")).not.toContain(
-    "data-code-block",
+test("marks a fence the agent is still writing as open", () => {
+  expect(renderMarkdown("```mermaid\ngraph TD\n  a --> b")).toBe(
+    '<div data-code-block="mermaid" data-code-open=""><pre><code class="language-mermaid">graph TD\n  a --&gt; b\n</code></pre></div>',
   );
 });
 

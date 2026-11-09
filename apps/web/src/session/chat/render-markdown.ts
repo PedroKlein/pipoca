@@ -51,14 +51,18 @@ const marked = new Marked({
         : label;
     },
     image: ({ text }) => escape(text),
-    // A plugin draws a closed fence of its language (ADR 0079).
+    // A plugin draws a fence of its language (ADR 0079).
     code(token: Tokens.Code) {
       const html = plain.code(token);
       const language = token.lang?.split(/\s/)[0] ?? "";
 
-      return /^[\w-]+$/.test(language) && closingFence.test(token.raw)
-        ? `<div data-code-block="${language}">${html.trimEnd()}</div>`
-        : html;
+      if (!/^[\w-]+$/.test(language)) {
+        return html;
+      }
+
+      const open = closingFence.test(token.raw) ? "" : ' data-code-open=""';
+
+      return `<div data-code-block="${language}"${open}>${html.trimEnd()}</div>`;
     },
   },
 });
