@@ -405,7 +405,7 @@ export class Sessions {
       systemPrompt: request.systemPrompt ?? null,
       firstMessage: request.firstMessage ?? null,
       agent: request.agent ?? null,
-      title: null,
+      title: request.title ?? null,
       status: "queued",
       generation: 0,
       createdAt: new Date(this.#clock.now()).toISOString(),

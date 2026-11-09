@@ -534,3 +534,51 @@ test("a team Session's route tools reach the route's team half", async () => {
     text: expect.stringContaining('"owner":"team"') as unknown,
   });
 });
+
+// Starts a Session with a title, and says what the Session is called.
+const titled = defineServer(
+  definePlugin({ id: "titled", title: "Titled", description: "Titles." }),
+  ({ routes, sessions }) => {
+    routes.post(
+      "start",
+      { auth: "person", body: Type.Object({ environment: Type.String() }) },
+      ({ caller, body }) => ({
+        id: sessions.start({
+          key: "titled",
+          title: "Docs",
+          environment: body.environment,
+          actor: `user:${caller.person.id}`,
+          workspace: { kind: "folder", path: "/" },
+        }).id,
+      }),
+    );
+
+    routes.get(
+      "title",
+      { auth: "person", query: Type.Object({ id: Type.String() }) },
+      ({ query }) => ({ title: sessions.get(query.id)?.title ?? null }),
+    );
+  },
+);
+
+test("a Session a plugin starts with a title keeps it after the person's first message", async () => {
+  const t = await started(titled, { people });
+  const environment = await t.environment({ owner: person("ana") });
+
+  const { id } = await t
+    .as("ana")
+    .post<{ id: string }>("start", { environment: environment.id });
+
+  const session = await t.attach(id);
+
+  await session.turn([
+    {
+      type: "message",
+      message: { role: "user", content: "why is this taking so long?" },
+    },
+  ]);
+
+  expect(
+    await t.as("ana").get<{ title: string | null }>(`title?id=${id}`),
+  ).toEqual({ title: "Docs" });
+});
