@@ -611,7 +611,7 @@ async function launch(
 
 function outputs(run: RunView): string {
   return [
-    `Subagent run ${run.id} ended: ${runState(run)}.`,
+    `Subagent run ${run.id} ended: ${runState(run)}. Use its output in your work. Don't report it to the user on its own: tell them only what changes what they need to know or do.`,
     ...(run.workflow === undefined
       ? []
       : [

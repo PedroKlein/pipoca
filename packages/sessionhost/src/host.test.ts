@@ -1460,7 +1460,7 @@ test("explains an option with the session's model while the form is open", async
     error: null,
   });
 
-  expect(fake.lines.join()).toContain("User cancelled the questionnaire");
+  expect(fake.lines.join()).toContain("User dismissed the questions without answering. Don't act on them");
 });
 
 test("explains the whole question with the conversation as background", async () => {

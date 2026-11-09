@@ -121,6 +121,7 @@ export function askUser(
         "Ask the user structured questions in a form (single/multi choice, scale, rank, text, number)",
       guidelines: [
         "ALWAYS use ask_user when you need user input on choices or decisions. Never list options as plain text and ask the user to pick.",
+        "Ask the questions you need now together, in one call, and don't ask again about what the user already decided.",
         "Provide a meaningful 'description' for EVERY option, it is shown in a detail panel and helps the user decide.",
         "Use 'recommended: true' on options you think are best, or 'recommendedValue' for numbers, with reasoning in the description or context.",
         "Use 'multi' when several options could apply, 'single' when exactly one must be chosen, 'scale' for a point on an ordered range, 'rank' to order options, 'number' for a quantity, and 'text' for open-ended questions.",
@@ -385,7 +386,7 @@ function describe(
   person: string | undefined,
 ): string {
   if (answer === null) {
-    return "User cancelled the questionnaire without answering. Proceed with your best judgment: use recommended options where specified, make reasonable choices elsewhere.";
+    return "User dismissed the questions without answering. Don't act on them or pick their recommended options: the user may want something else. Ask what they want, in words, before going on.";
   }
 
   const lines = answer.answers.flatMap((given) => {
