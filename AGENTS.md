@@ -4,8 +4,8 @@ Pipoca is a self-hosted server for durable Pi sessions and Projects on your own 
 
 ## Where things stand
 
-- The code is being rebuilt in slices on the `rebuild` branch ([ADR 0068](docs/adr/0068-clean-rebuild.md)). The rebuild adds no features: [docs/acceptance/rebuild.md](docs/acceptance/rebuild.md) lists what must keep working.
-- User docs live in `docs/` by section (`get-started`, `run`, `use`, `admin`, `build-plugins`, `reference`). GitHub, every Session's Pi and the site in `apps/site` read the same files, so each page needs `title` frontmatter and links to other pages by relative `.md` paths. A change to what Pipoca does updates its page.
+- The clean rebuild ([ADR 0068](docs/adr/0068-clean-rebuild.md)) is merged to `main`, and later features (teams, routines, artifacts and files, Profile layers, diagrams in chat) are built on it. [docs/acceptance/rebuild.md](docs/acceptance/rebuild.md) lists every feature with the ADRs that define it and whether it is built.
+- User docs live in `docs/` by section (`get-started`, `run`, `use`, `admin`, `build-plugins`, `reference`). GitHub, every Session's Pi and the site at [pipoca.dev](https://pipoca.dev) (built from `apps/site`) read the same files, so each page needs `title` frontmatter and links to other pages by relative `.md` paths. A change to what Pipoca does updates its page.
 - Accepted decisions live in `docs/adr/NNNN-title.md`. Open ones live in [docs/open-questions.md](docs/open-questions.md). Don't treat a working assumption in another doc as decided.
 - Claude Code (cloud sessions, self-hosted runners, Remote Control, Projects) is the main reference design. When you make a design choice, compare it with how Claude Code does the same thing and cite the docs.
 
@@ -21,17 +21,19 @@ Pipoca is a self-hosted server for durable Pi sessions and Projects on your own 
 [ADR 0008](docs/adr/0008-monorepo-layout.md):
 
 ```text
-apps/            thin entry points: the pipoca binary (with its adapters), web and desktop
+apps/            thin entry points: the pipoca binary (with its adapters), web, desktop and the docs site
 packages/        domain packages: protocol, people, environments, sessions, profiles, repositories, workspaces, runner,
                  sessionhost, pluginhost, plus the plugin SDK (plugins), testing and ui
-plugins/         features built on the kernel, such as projects (ADR 0015, ADR 0069)
+plugins/         features built on the kernel, such as projects, routines, artifacts, git-hosts and kubernetes
+examples/        an example plugin written the way an outside author would
+deploy/helm/     the plain chart (pipoca) and the Kyma chart built on it (pipoca-kyma, ADR 0073)
 ```
 
 - Name packages for what they provide. No `core`, `common`, `utils` or layer-named packages.
 - Domain packages define the interfaces they need. Apps supply the implementations.
 - Add a package when a domain has code, not before.
 - Keep exported surfaces narrow. Don't export something only so a test can reach it.
-- A plugin is one `definePlugin` in `plugin.ts`, with named `server`, `session` and `web` exports ([ADR 0069](docs/adr/0069-plugin-sdk-v2.md)). It writes against `@pipoca/plugins` and is tested with `@pipoca/testing`. No plugin is special: the kernel names no plugin and imports none outside the generated registries, and the server works with any plugin off.
+- A plugin is one `definePlugin` in `plugin.ts`, with named `server`, `session` and `web` exports ([ADR 0069](docs/adr/0069-plugin-sdk-v2.md)). It writes against `@pipoca/plugins` and is tested with `@pipoca/testing`. A plugin that can't run without another names it in `requires` ([ADR 0077](docs/adr/0077-plugin-dependencies.md)). After adding or removing a plugin folder, run `bun run registries`; a test fails while the generated registries are stale. No plugin is special: the kernel names no plugin and imports none outside the generated registries, and the server works with any plugin off.
 - Every wire shape is a TypeBox schema in `packages/protocol`, and every route is in its route table. The web app calls routes through its typed client and query store, and links pages through its route table.
 
 ## Design
@@ -67,7 +69,7 @@ plugins/         features built on the kernel, such as projects (ADR 0015, ADR 0
 ## Done means evidence
 
 - A claim that something works isn't evidence. Before calling work done, show output a reviewer can check against the current commit: test results with their assertions, a command transcript, or a screenshot of running behavior.
-- Run `bun run format`, build, `bun run lint` (zero warnings), `bun run typecheck` and `bun test` before calling work done, plus `bun run test:e2e` when the web UI changed.
+- Run `bun run format`, build, `bun run lint` (zero warnings), `bun run typecheck` and `bun test` before calling work done, plus `bun run test:e2e` when the web UI changed and `bun run --cwd apps/site build` when docs changed. CI also renders both Helm charts and runs a kind cluster test, so run `helm template` on a chart you changed.
 - When you claim a metric passed, pair it with one that's harder to game. For example, tests pass and no test changed in the same commit as the code it tests.
 
 ## Docs
