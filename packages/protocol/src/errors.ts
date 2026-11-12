@@ -40,6 +40,7 @@ export const errorCodes = [
   "archived",
   "not_kept",
   "unknown_environment",
+  "unreachable_host",
   "environment_exists",
   "unknown_template",
   "from_template",

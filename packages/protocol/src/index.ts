@@ -47,6 +47,16 @@ export {
   type User,
 } from "./browser";
 export { packageIdentity } from "./packages";
+export {
+  type HostPort,
+  hostPortOf,
+  hostPortText,
+  type PrivateHost,
+  type PrivateHosts,
+  privateHosts,
+  type ReachedHost,
+  repositoryHost,
+} from "./reach";
 export { type ErrorCode } from "./errors";
 export {
   type Answer,

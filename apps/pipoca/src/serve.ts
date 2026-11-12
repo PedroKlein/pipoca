@@ -35,6 +35,7 @@ import { configFiles, configFolder } from "./config";
 import { sessionDocs } from "./docs";
 import { hubSettings } from "./hub";
 import { newcomerSetup } from "./newcomers";
+import { privateHostList } from "./private-hosts";
 import { serverConfig, useServerFor } from "./server-config";
 import { teamSettings } from "./team";
 import {
@@ -329,6 +330,7 @@ export function serve(options: ServeOptions): {
 
   const ownConfig = serverConfig(config("server"), options.log);
   const team = teamSettings(config("team"), options.log);
+  const privateHosts = privateHostList(config("privateHosts"), options.log);
 
   const environments: Environments = new Environments(store.environments, {
     ...options.runners,
@@ -337,6 +339,7 @@ export function serve(options: ServeOptions): {
     offeredModels: (environment, userId) =>
       pluginHost.offeredModels(environment, userId),
     startsRunners: (environment) => pluginHost.startsRunners(environment),
+    privateHost: privateHosts.lists,
     sessions: () => ({
       running: (provider, runner) => sessions.running(provider, runner),
       inUse: (id) => sessions.inUse(id),
@@ -592,6 +595,7 @@ export function serve(options: ServeOptions): {
     config: configFiles(configDir, options.lockedConfig),
     hub: hubSettings(config("hub"), options.log),
     newcomers: newcomerSetup(config("newcomers"), options.log),
+    privateHosts,
     team,
     serverFor: {
       usedBy: () => ownConfig().usedBy,

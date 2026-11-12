@@ -69,7 +69,10 @@ interface SessionEnvironments {
     runner: { readonly name: string; readonly environment: string },
     poll: {
       readonly capacity: number | null;
-      readonly inventory: Pick<WorkPoll, "folders" | "models" | "session">;
+      readonly inventory: Pick<
+        WorkPoll,
+        "folders" | "models" | "session" | "reach"
+      >;
       readonly registeredModels?: readonly ModelRef[] | undefined;
     },
   ) => () => void;
@@ -95,6 +98,11 @@ interface SessionEnvironments {
   readonly placesOnNewRunner: (
     provider: string,
     session: StoredSession,
+  ) => boolean;
+  // Whether it reaches the private hosts a Workspace is on (ADR 0080).
+  readonly reaches: (
+    provider: string,
+    workspace: Workspace | WorkspaceRequest,
   ) => boolean;
 }
 
@@ -192,6 +200,7 @@ export type Rejection =
   | "archived"
   | "not_kept"
   | "unknown_environment"
+  | "unreachable_host"
   | "unknown_profile"
   | "not_movable"
   | "unknown_entry"
@@ -360,6 +369,10 @@ export class Sessions {
 
     if (!environment) {
       return { ok: false, reason: "unknown_environment" };
+    }
+
+    if (!this.#environments.reaches(environment.provider, request.workspace)) {
+      return { ok: false, reason: "unreachable_host" };
     }
 
     const ownDefault =
@@ -1043,12 +1056,25 @@ export class Sessions {
   // A runner polls for the Environment whose pool it joins (ADR 0032).
   async claim(
     runner: { readonly name: string; readonly environment: string },
-    { running, folders, models, registeredModels, capacity, session }: WorkPoll,
+    {
+      running,
+      folders,
+      models,
+      registeredModels,
+      capacity,
+      session,
+      reach,
+    }: WorkPoll,
     signal: AbortSignal,
   ): Promise<Claim> {
     const endPoll = this.#environments.beginPoll(runner, {
       capacity: capacity ?? null,
-      inventory: { folders, models, ...(session !== undefined && { session }) },
+      inventory: {
+        folders,
+        models,
+        ...(session !== undefined && { session }),
+        ...(reach !== undefined && { reach }),
+      },
       registeredModels,
     });
 

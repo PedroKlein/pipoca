@@ -12,6 +12,7 @@ import type { Changes } from "../../changes";
 import type { ConfigFiles } from "../../config";
 import type { Hub } from "../../hub";
 import type { NewcomerSetup } from "../../newcomers";
+import type { PrivateHostList } from "../../private-hosts";
 import type { Team } from "../../team";
 import type { Callers } from "./router";
 
@@ -56,6 +57,7 @@ export interface ApiDeps {
   readonly config?: ConfigFiles | undefined;
   readonly hub?: Hub | undefined;
   readonly newcomers?: NewcomerSetup | undefined;
+  readonly privateHosts?: PrivateHostList | undefined;
   readonly team?: Team | undefined;
   readonly serverFor?: ServerFor | undefined;
 }

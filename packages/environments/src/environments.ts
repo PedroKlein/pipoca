@@ -6,10 +6,14 @@ import {
   type EnvironmentUpdate,
   leaseMs,
   type ModelRef,
+  type ReachedHost,
+  repositoryHost,
   type RunnersFrom,
   type SessionEnvironment,
   systemClock,
   type WorkPoll,
+  type Workspace,
+  type WorkspaceRequest,
 } from "@pipoca/protocol";
 import {
   type Placeable,
@@ -26,6 +30,7 @@ export type StoredEnvironment = Omit<
   | "runnersFrom"
   | "runners"
   | "folders"
+  | "reaches"
   | "models"
   | "hiddenModels"
   | "registeredModels"
@@ -84,13 +89,16 @@ export interface EnvironmentsOptions {
     // Its Sessions went with a deleted Environment.
     readonly removed: () => void;
   };
+  // Whether a host is one the server reaches only through Environments
+  // (ADR 0080).
+  readonly privateHost?: (host: string) => boolean;
   // Called whenever a runner comes online or goes offline.
   readonly onlineChanged?: (provider: string, runner: string) => void;
   // Called whenever an Environment or its runners change.
   readonly changed?: () => void;
 }
 
-type Inventory = Pick<WorkPoll, "folders" | "models" | "session">;
+type Inventory = Pick<WorkPoll, "folders" | "models" | "session" | "reach">;
 
 const noSessions = {
   running: () => 0,
@@ -108,6 +116,7 @@ export class Environments {
   readonly #startsRunners: NonNullable<EnvironmentsOptions["startsRunners"]>;
   readonly #sessions: NonNullable<EnvironmentsOptions["sessions"]>;
   readonly #changed: () => void;
+  readonly #privateHost: (host: string) => boolean;
   readonly #reported = new Map<string, string>();
 
   constructor(store: EnvironmentStore, options: EnvironmentsOptions = {}) {
@@ -117,6 +126,7 @@ export class Environments {
     this.#startsRunners = options.startsRunners ?? (() => undefined);
     this.#sessions = options.sessions ?? (() => noSessions);
     this.#changed = options.changed ?? (() => undefined);
+    this.#privateHost = options.privateHost ?? (() => false);
     const onlineChanged = options.onlineChanged ?? (() => undefined);
 
     this.#polls = new RunnerPolls({
@@ -284,6 +294,7 @@ export class Environments {
         folders: [
           ...new Set(runners.flatMap(({ inventory }) => inventory.folders)),
         ],
+        reaches: reachesOf(runners),
         models: uniqueModels([
           ...offer.models,
           ...runners
@@ -399,6 +410,27 @@ export class Environments {
     return this.#polls.leaseLapsed(provider, runner);
   }
 
+  // Whether one of the Environment's runners reached every private host the
+  // Workspace's repositories are on (ADR 0080).
+  reaches(provider: string, workspace: Workspace | WorkspaceRequest): boolean {
+    return this.#reachedBy(this.#polls.runners(provider), workspace);
+  }
+
+  #reachedBy(
+    runners: readonly PolledRunner[],
+    workspace: Workspace | WorkspaceRequest,
+  ): boolean {
+    return repositoryHostsOf(workspace)
+      .filter((host) => this.#privateHost(host))
+      .every((host) =>
+        runners.some(({ inventory }) =>
+          (inventory.reach ?? []).some(
+            (each) => each.reached && each.host === host,
+          ),
+        ),
+      );
+  }
+
   // A runner started for one Session takes only that Session, and that
   // Session goes only to such a runner while one is known.
   mayTake(provider: string, session: Placeable, runner: string): boolean {
@@ -413,6 +445,10 @@ export class Environments {
 
     return (
       !pool.runners.some(({ inventory }) => inventory.session === session.id) &&
+      this.#reachedBy(
+        pool.runners.filter(({ name }) => name === runner),
+        session.workspace,
+      ) &&
       placesOn(session, runner, pool)
     );
   }
@@ -433,4 +469,43 @@ export class Environments {
   close(): void {
     this.#polls.close();
   }
+}
+
+function reachesOf(runners: readonly PolledRunner[]): ReachedHost[] {
+  const found = new Map<string, ReachedHost>();
+
+  for (const each of runners.flatMap(
+    ({ inventory }) => inventory.reach ?? [],
+  )) {
+    const key = `${each.host}:${String(each.port)}`;
+
+    found.set(key, {
+      ...each,
+      reached: each.reached || found.get(key)?.reached === true,
+    });
+  }
+
+  return [...found.values()];
+}
+
+function repositoryHostsOf(
+  workspace: Workspace | WorkspaceRequest,
+): readonly string[] {
+  const repositories = (): readonly string[] => {
+    switch (workspace.kind) {
+      case "clone":
+        return [workspace.repository];
+      case "repositories":
+        return workspace.repositories.map(({ repository }) => repository);
+      case "folder":
+      case "worktree":
+        return [];
+    }
+  };
+
+  return repositories().flatMap((repository) => {
+    const host = repositoryHost(repository);
+
+    return host === undefined ? [] : [host];
+  });
 }

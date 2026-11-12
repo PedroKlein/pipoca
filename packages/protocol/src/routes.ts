@@ -1,4 +1,5 @@
 import { type TObject, type TProperties, Type } from "typebox";
+import { privateHosts } from "./reach";
 import {
   account,
   accountChange,
@@ -384,6 +385,21 @@ export const routes = {
     body: hubLayout,
     response: hubLayout,
     changes: ["hub"],
+  },
+  // The hosts the server reaches only through Environments (ADR 0080).
+  "settings.privateHosts": {
+    method: "GET",
+    path: "/api/settings/private-hosts",
+    auth: "person",
+    response: privateHosts,
+  },
+  "settings.privateHosts.update": {
+    method: "PUT",
+    path: "/api/settings/private-hosts",
+    auth: "admin",
+    body: privateHosts,
+    response: privateHosts,
+    changes: ["private-hosts", "environments"],
   },
   "settings.newcomers": {
     method: "GET",

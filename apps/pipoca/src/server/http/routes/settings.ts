@@ -15,6 +15,7 @@ export function settingsRoutes({
   hub,
   team,
   newcomers,
+  privateHosts,
   people,
   serverFor,
   log,
@@ -122,6 +123,17 @@ export function settingsRoutes({
       log("team named", { name: next.name });
 
       return next;
+    },
+    "settings.privateHosts": () => privateHosts?.get() ?? { hosts: [] },
+    "settings.privateHosts.update": ({ body }) => {
+      if (privateHosts === undefined) {
+        throw new NotFound("Not found.");
+      }
+
+      privateHosts.set(body);
+      log("private hosts changed", { hosts: body.hosts.length });
+
+      return privateHosts.get();
     },
     "settings.newcomers": () =>
       newcomers?.get() ?? { template: null, profiles: [], required: [] },

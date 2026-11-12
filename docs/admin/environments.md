@@ -59,6 +59,15 @@ Several agents can join one Environment's pool with its key.
 - A clone or several-repositories Session moves to another agent in the pool if its agent stops polling for a minute. It starts again from its transcript in a fresh checkout of its branch, so only pushed work comes along.
 - An agent that can't reach the server for 30 seconds stops those Sessions itself, so two agents never run one Session.
 
+## Private hosts
+
+Some hosts only some machines reach, such as a company's GitHub Enterprise inside its network ([ADR 0080](../adr/0080-private-hosts-reached-through-environments.md)).
+
+- Admins list them under `privateHosts.hosts` in `pipoca.json`, each as `{ "host": "github.acme.internal", "ca": null, "teamWatch": false }`. A host is an exact name with an optional `:port`, 443 by default.
+- A machine's owner names the private hosts it reaches with `--reach`, repeated for more: `PIPOCA_KEY=pck_… pipoca agent --reach github.acme.internal`. Names are exact, with no wildcards, IP addresses or `localhost`, and a name that resolves to a loopback or link-local address counts as not reached.
+- The agent checks each one with a TLS connection at start and every 5 minutes, and the Environments page shows what each Environment reaches.
+- A Session whose repository is on a private host starts only in an Environment with a runner that reached it, and only such a runner takes it. Elsewhere it's refused with `unreachable_host`.
+
 ## Templates
 
 Admins can share an Environment's settings as a template ([ADR 0049](../adr/0049-personal-environments-and-templates.md)): a setup script, isolation, image, variables and model aliases, but never secrets or runners. Make one under Templates on the Environments page, or list them under `templates` in `pipoca.json`, for example from the chart's `config` value:
