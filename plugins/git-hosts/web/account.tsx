@@ -23,6 +23,7 @@ import type {
   Identity,
   Preferences,
 } from "../src/model";
+import { PrivateBadge, reachable, reachText } from "./reach";
 
 export type HostChoice = Account["hosts"][number];
 
@@ -318,6 +319,7 @@ export function HostRow({
 }): ReactElement {
   const api = useApi(gitHosts);
   const [pasting, setPasting] = useState(false);
+  const routed = reachable(host.reach);
 
   return (
     <Row
@@ -325,12 +327,21 @@ export function HostRow({
       title={
         <>
           {host.label}
-          {login !== undefined && <Badge state="done">Connected</Badge>}
+          <PrivateBadge reach={host.reach} />
+          {login !== undefined && routed && (
+            <Badge state="done">Connected</Badge>
+          )}
+          {host.reach.private && !routed && (
+            <Badge state="offline">
+              {host.reach.through.length === 0 ? "No route" : "Offline"}
+            </Badge>
+          )}
         </>
       }
       description={[
         ...(login === undefined ? [] : [`@${login}`]),
         ...(host.label === host.host ? [] : [host.host]),
+        ...(host.reach.private ? [reachText(host.host, host.reach)] : []),
       ].join(" · ")}
     >
       {login === undefined ? (
@@ -338,6 +349,7 @@ export function HostRow({
           {!pasting && (
             <Button
               variant="ghost"
+              disabled={!routed}
               onClick={() => {
                 setPasting(true);
               }}
@@ -347,6 +359,7 @@ export function HostRow({
           )}
           {host.oauth && (
             <Button
+              disabled={!routed}
               onClick={() => {
                 signIn(host.host);
               }}

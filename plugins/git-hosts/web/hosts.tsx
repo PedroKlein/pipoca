@@ -22,6 +22,7 @@ import { type ReactElement, type SubmitEvent, useState } from "react";
 import { gitHosts } from "../plugin";
 import type { HostInput, HostView } from "../src/model";
 import { signIn } from "./account";
+import { PrivateBadge, PrivateSwitch, reachText } from "./reach";
 
 // The hosts people can connect, each with its OAuth app, which admins add,
 // change and remove. Settings shows it, and so can a setup step.
@@ -153,6 +154,7 @@ export function HostsEditor({
             title={
               <>
                 {host.label}
+                <PrivateBadge reach={host.reach} />
                 {host.clientId === "" ? (
                   <Badge state="waiting">Tokens only</Badge>
                 ) : (
@@ -160,8 +162,17 @@ export function HostsEditor({
                 )}
               </>
             }
-            description={hostDescription(host)}
+            description={
+              host.reach.private
+                ? `${hostDescription(host)} · ${reachText(host.host, host.reach, true)}`
+                : hostDescription(host)
+            }
           >
+            <PrivateSwitch
+              host={host.host}
+              reach={host.reach}
+              onChange={changed}
+            />
             <Button
               variant="ghost"
               aria-label={`Edit ${host.host}`}
@@ -186,6 +197,13 @@ export function HostsEditor({
           </Row>
         ))}
       </Rows>
+      <p className="mt-2 text-caption text-fg-dim">
+        Private marks a host inside your company network. The server then
+        reaches it through an Environment that can: each person&apos;s own for
+        their calls, and a team Environment for the team&apos;s. The switch
+        writes the server&apos;s one list of private hosts, which other plugins
+        use too; set its CA in Settings, Private hosts.
+      </p>
       <ErrorText size="caption">{error}</ErrorText>
       {setUp !== undefined && (
         <ConnectSetup

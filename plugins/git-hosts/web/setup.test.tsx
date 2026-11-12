@@ -34,6 +34,7 @@ const enterprise = {
   clientId: "Iv1.abc",
   hasClientSecret: true,
   connected: 3,
+  reach: { private: false, through: [] },
 };
 
 // Draws a setup step with the routes' answers, and keeps what it sends.
@@ -97,6 +98,7 @@ test("server setup shows each host with how people sign in and the App for team 
         clientId: "",
         hasClientSecret: false,
         connected: 0,
+        reach: { private: false, through: [] },
       },
     ],
     setup: { ...state, server: true },
@@ -179,8 +181,18 @@ test("your setup signs in to each host, and picks the email to commit as there",
     account: {
       admin: false,
       hosts: [
-        { host: enterprise.host, label: "Corp Git", oauth: true },
-        { host: "git.example.com", label: "Forge", oauth: false },
+        {
+          host: enterprise.host,
+          label: "Corp Git",
+          oauth: true,
+          reach: { private: false, through: [] },
+        },
+        {
+          host: "git.example.com",
+          label: "Forge",
+          oauth: false,
+          reach: { private: false, through: [] },
+        },
       ],
       connections: [{ host: enterprise.host, login: "pedro", connectedAt: "" }],
     },
@@ -276,4 +288,25 @@ test("each step's done comes from the plugin's own answer", async () => {
     ["server", true],
     ["person", false],
   ]);
+});
+
+test("server setup says a private host needs a team Environment for team work", async () => {
+  const { page } = step("server", {
+    hosts: [
+      {
+        ...enterprise,
+        reach: { private: true, through: [] },
+      },
+    ],
+    setup: { ...state, server: true },
+    "technical-users": [],
+  });
+
+  await shows(page, "Team calls");
+
+  const card = page.querySelector("ul[aria-label='Corp Git']")?.textContent;
+
+  expect(card).toContain("Private");
+  expect(card).toContain("Needs a team Environment for team work");
+  expect(card).toContain("Set up a team Environment");
 });

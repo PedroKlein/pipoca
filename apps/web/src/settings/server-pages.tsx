@@ -8,6 +8,7 @@ import { href } from "../router";
 import { ConfigurationPage } from "./configuration/configuration";
 import { PluginsPage } from "./plugins/plugins";
 import { IntegrationsPage } from "./integrations/integrations";
+import { PrivateHostsPage } from "./private-hosts/private-hosts";
 
 // A page of Settings, by its part of the address after settings/.
 export interface Entry {
@@ -26,6 +27,7 @@ export function serverPages(people: boolean): readonly Entry[] {
   return [
     ...(people ? [{ page: "people", label: "People" }] : []),
     ...pluginPages("server"),
+    { page: "private-hosts", label: "Private hosts" },
     ...(pluginPages("integrations").length > 0
       ? [{ page: "integrations", label: "Integrations" }]
       : []),
@@ -78,6 +80,8 @@ export function ServerPageView({
       return <PluginsPage />;
     case "configuration":
       return <ConfigurationPage />;
+    case "private-hosts":
+      return <PrivateHostsPage />;
     case "integrations":
       return (
         <IntegrationsPage

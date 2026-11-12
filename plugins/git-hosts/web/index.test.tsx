@@ -114,8 +114,18 @@ test("lets the person pick the email to commit as on each host they connected, b
     "/api/ext/git-hosts/account": {
       admin: false,
       hosts: [
-        { host: "github.com", label: "GitHub", oauth: true },
-        { host: "git.example.com", label: "Forge", oauth: false },
+        {
+          host: "github.com",
+          label: "GitHub",
+          oauth: true,
+          reach: { private: false, through: [] },
+        },
+        {
+          host: "git.example.com",
+          label: "Forge",
+          oauth: false,
+          reach: { private: false, through: [] },
+        },
       ],
       connections: [{ host: "github.com", login: "pedro-gh", connectedAt: "" }],
     },

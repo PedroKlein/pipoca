@@ -24,6 +24,7 @@ import {
 } from "@pipoca/testing";
 import { gitHosts } from "../plugin";
 import { server } from "./server";
+import type { Account } from "./model";
 
 const host = "git.example.com";
 const api = `https://${host}/api/v3`;
@@ -698,6 +699,7 @@ test("keeps a host's OAuth secret sealed in pipoca.json and out of the page", as
     clientId: "Iv1.abc",
     hasClientSecret: true,
     connected: 0,
+    reach: { private: false, through: [] },
   });
 
   const stored = JSON.stringify(await t.config());
@@ -2761,4 +2763,32 @@ test("comments a routine run's result on the issue its event is about, and write
     "git-hosts.comment",
     "git-hosts.file",
   ]);
+});
+
+test("a private host's token can't be checked until an Environment of the person's reaches it", async () => {
+  await using t = await testPlugin(server, {
+    people,
+    config: listed,
+    kernelConfig: {
+      privateHosts: { hosts: [{ host, ca: null, teamWatch: false }] },
+    },
+  });
+
+  const account = await t.as("pedro").get<Account>("account");
+
+  expect(account.hosts).toEqual([
+    expect.objectContaining({
+      host,
+      reach: { private: true, through: [] },
+    }),
+  ]);
+
+  const refused = await t
+    .as("pedro")
+    .post("connect", { host, token: goodToken })
+    .catch((error: unknown) => error);
+
+  expect(String(refused)).toContain(
+    `${host} is a private host and no Environment of yours reaches it.`,
+  );
 });

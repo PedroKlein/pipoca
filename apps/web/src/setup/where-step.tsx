@@ -10,6 +10,7 @@ import {
 import { type ReactElement, useState } from "react";
 import { request } from "../data/client";
 import { useAction, useQuery } from "../data/hooks";
+import { useReachFlags } from "../settings/environments/reach";
 import { useNewcomers } from "../settings/people/newcomers";
 import { StepFooter } from "./footer";
 import { connected } from "./step";
@@ -137,6 +138,7 @@ export function WhereStep(): ReactElement {
 }
 
 function ConnectMachine(): ReactElement {
+  const [reach, reachPicker] = useReachFlags();
   const [key, setKey] = useState<string>();
 
   const make = useAction(async () => {
@@ -162,13 +164,14 @@ function ConnectMachine(): ReactElement {
     );
   }
 
-  const command = `PIPOCA_KEY=${key} pipoca agent --server ${location.origin}`;
+  const command = `PIPOCA_KEY=${key} pipoca agent --server ${location.origin}${reach}`;
 
   return (
     <div className="flex flex-col gap-2">
       <p className="text-label text-fg-dim">
         Run it in the folder Pi should work in. The key is shown only now.
       </p>
+      {reachPicker}
       <Command label="Join command">{command}</Command>
       <p aria-live="polite">
         <Spinner label="Waiting for the machine to connect…" />

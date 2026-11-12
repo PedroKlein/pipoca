@@ -44,6 +44,7 @@ import type {
   Connection,
   HostEmails,
   HostView,
+  Reach,
 } from "./model";
 import { backTo, page, redirect, then } from "./pages";
 import { pullRequests } from "./pull-requests";
@@ -247,12 +248,27 @@ export const server = defineServer(gitHosts, (context) => {
     }),
   );
 
+  // A person's calls go only through their own Environments, the team's
+  // only through team ones (ADR 0080).
+  const reachOf = (host: string, ownerId: string): Reach => ({
+    private: context.network.privateHost(`https://${host}/`) !== undefined,
+    through: context.environments
+      .list()
+      .filter(
+        ({ ownerId: owner, reaches }) =>
+          owner === ownerId &&
+          reaches.some((each) => each.reached && each.host === host),
+      )
+      .map(({ name, online }) => ({ name, online })),
+  });
+
   const account = (person: Person): Account => ({
     admin: person.admin,
     hosts: hosts.list().map(({ host, label, oauth }) => ({
       host,
       label,
       oauth: oauth?.clientSecret !== undefined,
+      reach: reachOf(host, person.id),
     })),
     connections: connections.of(person.id),
   });
@@ -379,7 +395,11 @@ export const server = defineServer(gitHosts, (context) => {
 
   // Admins add, change and remove hosts.
   const view = (host: HostConfig): HostView =>
-    viewOf(host, connections.counts().get(host.host) ?? 0);
+    viewOf(
+      host,
+      connections.counts().get(host.host) ?? 0,
+      reachOf(host.host, "team"),
+    );
 
   routes.get("hosts", { auth: "admin" }, () => hosts.list().map(view));
 

@@ -2,6 +2,8 @@ import { modelOptions, rememberModel, shownModels } from "../models";
 import {
   availability,
   type ApiInput,
+  type Environment,
+  repositoryHost,
   type RepositoryChoice,
   thinkingLevels,
 } from "@pipoca/protocol";
@@ -173,6 +175,7 @@ export function NewSessionForm({
 }): ReactElement {
   const scope = team ? { query: { scope: "team" } as const } : undefined;
   const environments = useQuery("environments.list", scope).data ?? [];
+  const privateHosts = useQuery("settings.privateHosts").data?.hosts ?? [];
   const profiles = useQuery("profiles.list", scope).data ?? [];
 
   const sessions =
@@ -253,8 +256,26 @@ export function NewSessionForm({
     setChoices((current) => ({ ...current, ...change }));
   };
 
+  // A repository on a private host narrows Environments to those that
+  // reach it (ADR 0080).
+  const privateHost = choices.where
+    .filter(isRepository)
+    .map(repositoryHost)
+    .find(
+      (host) =>
+        host !== undefined &&
+        privateHosts.some((each) => each.host.split(":")[0] === host),
+    );
+
+  const reaches = (environment: Environment): boolean =>
+    privateHost === undefined ||
+    environment.reaches.some(
+      (each) => each.reached && each.host === privateHost,
+    );
+
   const chosen =
     environments.find(({ id }) => id === choices.environment) ??
+    environments.find(reaches) ??
     environments[0];
 
   const profile =
@@ -426,18 +447,33 @@ export function NewSessionForm({
           </Picker>
         )}
 
-        {environments.length > 1 && (
+        {(environments.length > 1 || privateHost !== undefined) && (
           <Picker
             label="Environment"
             options={environments.map((environment) => ({
               value: environment.id,
               label: environment.name,
               detail: availability(environment).toLowerCase(),
+              ...(privateHost !== undefined && {
+                group: reaches(environment)
+                  ? `Reaches ${privateHost}`
+                  : "Can't reach it",
+              }),
             }))}
             selected={chosen ? [chosen.id] : []}
             onChange={([environment]) => {
               choose({ environment: environment ?? "", model: "" });
             }}
+            {...(privateHost !== undefined && {
+              footer: (
+                <a
+                  className="text-label text-fg underline"
+                  href={href("settings", { page: "environments", rest: "" })}
+                >
+                  Connect a machine that reaches {privateHost}
+                </a>
+              ),
+            })}
           >
             <span className="text-fg-dim">on </span>
             {chosen?.name}
@@ -536,6 +572,19 @@ export function NewSessionForm({
         </Button>
       </div>
 
+      {privateHost !== undefined &&
+        chosen !== undefined &&
+        !reaches(chosen) && (
+          <p className="border-t border-line px-5 py-2 text-caption text-fg-dim">
+            {`${chosen.name} can't reach ${privateHost}, which is private. `}
+            <a
+              className="text-accent underline"
+              href={href("settings", { page: "environments", rest: "" })}
+            >
+              Connect a machine that reaches {privateHost}
+            </a>
+          </p>
+        )}
       <ErrorText size="caption" className="border-t border-line px-5 py-2">
         {error}
       </ErrorText>

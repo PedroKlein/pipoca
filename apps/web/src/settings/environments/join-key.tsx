@@ -3,6 +3,7 @@ import { Button, Command, ErrorText, useConfirm } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { request } from "../../data/client";
 import { useAction } from "../../data/hooks";
+import { useReachFlags } from "./reach";
 
 export function JoinKey({
   environment,
@@ -14,6 +15,7 @@ export function JoinKey({
   readonly onKey: (key: string) => void;
 }): ReactElement {
   const [ask, asking] = useConfirm();
+  const [reach, reachPicker] = useReachFlags();
 
   const replace = useAction(async () => {
     if (
@@ -48,8 +50,9 @@ export function JoinKey({
           <p className="text-fg-dim">
             Start an agent with this key. It is shown only now.
           </p>
+          {reachPicker}
           <Command label="Join command">
-            {`PIPOCA_KEY=${madeKey} pipoca agent --server ${location.origin}`}
+            {`PIPOCA_KEY=${madeKey} pipoca agent --server ${location.origin}${reach}`}
           </Command>
         </>
       )}
