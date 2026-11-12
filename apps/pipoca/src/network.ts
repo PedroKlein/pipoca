@@ -301,20 +301,22 @@ export function networkRouter(deps: {
 
         const ca = ticket.ca === null ? undefined : caFolder(ticket.ca);
 
-        // GIT_SSL_CAINFO wins over any config, and the process talks to
-        // this host only.
-        // After any entries the server's own environment has.
+        // After any entries the server's own environment has. Git waits
+        // for a proxy's challenge before sending credentials unless told
+        // they're Basic.
         const count = Number(process.env["GIT_CONFIG_COUNT"] ?? 0);
-
-        const first = String(
-          Number.isSafeInteger(count) && count > 0 ? count : 0,
-        );
+        const first = Number.isSafeInteger(count) && count > 0 ? count : 0;
+        const section = `http.https://${at.host}/`;
 
         return {
           env: {
-            GIT_CONFIG_COUNT: String(Number(first) + 1),
-            [`GIT_CONFIG_KEY_${first}`]: `http.https://${at.host}/.proxy`,
-            [`GIT_CONFIG_VALUE_${first}`]: proxied.href,
+            GIT_CONFIG_COUNT: String(first + 2),
+            [`GIT_CONFIG_KEY_${String(first)}`]: `${section}.proxy`,
+            [`GIT_CONFIG_VALUE_${String(first)}`]: proxied.href,
+            [`GIT_CONFIG_KEY_${String(first + 1)}`]: `${section}.proxyAuthMethod`,
+            [`GIT_CONFIG_VALUE_${String(first + 1)}`]: "basic",
+            // GIT_SSL_CAINFO wins over any config, and the process talks to
+            // this host only.
             ...(ca !== undefined && { GIT_SSL_CAINFO: join(ca, "ca.pem") }),
           },
           done: () => {
