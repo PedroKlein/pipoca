@@ -44,6 +44,13 @@ import {
   TokenForm,
 } from "./account";
 import { ConnectSetup, HostForm, kindOf } from "./hosts";
+import {
+  NetworkRows,
+  NoRoute,
+  PrivateBadge,
+  reachable,
+  reachText,
+} from "./reach";
 
 // The admin's step in server setup: the hosts, how people sign in to each
 // for their own work, and the App that does team work there (ADR 0072).
@@ -55,7 +62,7 @@ export const codeHostsStep: SetupStep = {
   summary: "Where the team's code lives",
   heading: "Where does the team's code live?",
   description:
-    "Add each host, how people sign in to it for their own work, and the App that does team work there. People sign in once per host, and the name and email they commit with come from that host.",
+    "Add each host, how people sign in to it for their own work, and the App that does team work there. If a host sits inside your company network, mark it private: the server then reaches it through an Environment that can.",
   optional: true,
   wide: true,
   done: async (api) => (await api.get<SetupState>("setup")).server,
@@ -147,7 +154,9 @@ function CodeHostsStep(): ReactElement | null {
             Nothing is added for you, and any mix of hosts works, such as only a
             GitHub Enterprise host. Saved to{" "}
             <code className="font-mono text-mono-sm">pipoca.json</code>, under{" "}
-            <code className="font-mono text-mono-sm">{gitHosts.id}</code>.
+            <code className="font-mono text-mono-sm">{gitHosts.id}</code>. The
+            Private switch writes to the server&apos;s one list of private
+            hosts, which other plugins use too, in Settings, Private hosts.
           </>
         ) : (
           <>
@@ -225,9 +234,8 @@ function HostCard({
         title={
           <>
             {host.label}
-            <Badge state={ready ? "done" : "waiting"}>
-              {ready ? "Ready" : "No sign-in yet"}
-            </Badge>
+            <PrivateBadge reach={host.reach} />
+            <CardBadge ready={ready} reach={host.reach} />
           </>
         }
         description={host.label === host.host ? kindOf(host.host) : host.host}
@@ -270,6 +278,13 @@ function HostCard({
         </li>
       )}
       <li className="flex flex-col border-t border-line px-4 pt-1.5 pb-3.5">
+        <Group>Network</Group>
+        <NetworkRows
+          host={host.host}
+          reach={host.reach}
+          locked={locked}
+          onChange={onChange}
+        />
         <Group>How people sign in, for their own work</Group>
         <Way
           on={ready}
@@ -370,6 +385,26 @@ function HostCard({
         <ErrorText size="caption">{error}</ErrorText>
       </li>
     </Rows>
+  );
+}
+
+function CardBadge({
+  ready,
+  reach,
+}: {
+  readonly ready: boolean;
+  readonly reach: HostView["reach"];
+}): ReactElement {
+  if (reach.private && reach.through.length === 0) {
+    return (
+      <Badge state="waiting">Needs a team Environment for team work</Badge>
+    );
+  }
+
+  return (
+    <Badge state={ready ? "done" : "waiting"}>
+      {ready ? "Ready" : "No sign-in yet"}
+    </Badge>
   );
 }
 
@@ -698,6 +733,13 @@ function ConnectCodeStep({ solo }: SetupStepProps): ReactElement | null {
           onChange={changed}
         />
       ))}
+      {hosts.some(({ reach }) => reach.private) && (
+        <Notice icon="lock">
+          Your machine only passes encrypted traffic between Pipoca and a
+          private host. It never gets your token from this, and nobody
+          else&apos;s calls go through it.
+        </Notice>
+      )}
       {hosts.length === 0 && !solo && (
         <Notice>
           No code host is set up on this server yet. An admin adds them, and
@@ -729,6 +771,18 @@ function ConnectCodeStep({ solo }: SetupStepProps): ReactElement | null {
   );
 }
 
+function signedInText(host: HostChoice, login: string | undefined): string {
+  if (login !== undefined) {
+    return host.reach.private
+      ? `Signed in as ${login} · ${reachText(host.host, host.reach)}`
+      : `Signed in as ${login}`;
+  }
+
+  return host.reach.private
+    ? reachText(host.host, host.reach)
+    : `${host.label === host.host ? "" : `${host.host} · `}Not signed in`;
+}
+
 // A host the person signs in to, and once in, who their commits there are
 // from.
 function ConnectHost({
@@ -748,6 +802,7 @@ function ConnectHost({
   const api = useApi(gitHosts);
   const [pasting, setPasting] = useState(false);
   const [settingUp, setSettingUp] = useState(false);
+  const routed = reachable(host.reach);
 
   return (
     <Rows label={host.label}>
@@ -756,14 +811,11 @@ function ConnectHost({
         title={
           <>
             {host.label}
+            <PrivateBadge reach={host.reach} />
             {login !== undefined && <Badge state="done">Connected</Badge>}
           </>
         }
-        description={
-          login === undefined
-            ? `${host.label === host.host ? "" : `${host.host} · `}Not signed in`
-            : `Signed in as ${login}`
-        }
+        description={signedInText(host, login)}
       >
         {login !== undefined && (
           <Button
@@ -781,6 +833,7 @@ function ConnectHost({
         {login === undefined && host.oauth && (
           <Button
             variant="primary"
+            disabled={!routed}
             onClick={() => {
               signIn(host.host, "setup");
             }}
@@ -791,6 +844,7 @@ function ConnectHost({
         {login === undefined && !host.oauth && !pasting && (
           <Button
             variant="primary"
+            disabled={!routed}
             onClick={() => {
               setPasting(true);
             }}
@@ -810,6 +864,9 @@ function ConnectHost({
           </Button>
         )}
       </Row>
+      {login === undefined &&
+        host.reach.private &&
+        host.reach.through.length === 0 && <NoRoute host={host.host} />}
       {settingUp && view !== undefined && (
         <li className="border-t border-line p-4">
           <ConnectSetup
@@ -830,7 +887,7 @@ function ConnectHost({
           />
         </li>
       )}
-      {login === undefined && (pasting || host.oauth) && (
+      {login === undefined && routed && (pasting || host.oauth) && (
         <li className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-3 text-label text-fg-dim">
           {pasting ? (
             <TokenForm

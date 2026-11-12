@@ -33,6 +33,7 @@ import { PluginBoundary } from "../../plugin-boundary";
 import { fillsOf } from "../../plugins";
 import { kindAbout } from "./kinds";
 import { JoinKey } from "./join-key";
+import { ReachSections } from "./reach";
 import { deleteEnvironment, rowsOf, changedValues, fieldsOf } from "./values";
 
 export function Editor({
@@ -145,6 +146,7 @@ export function Editor({
           secrets stay yours.
         </Note>
       )}
+      <ReachSections environment={environment} />
       <Section title={machines}>
         <Rows label={machines}>
           {environment.runners.length === 0 && (

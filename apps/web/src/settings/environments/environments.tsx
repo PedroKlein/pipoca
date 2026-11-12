@@ -2,16 +2,19 @@ import {
   availability,
   type Environment,
   type EnvironmentTemplate,
+  hostPortText,
 } from "@pipoca/protocol";
 import {
   Avatar,
   Badge,
   Button,
+  Chip,
   cn,
   EmptyState,
   ErrorText,
   Icon,
   linkCardClass,
+  Notice,
   Page,
   plural,
   Select,
@@ -130,6 +133,13 @@ export function EnvironmentsPage({
           </li>
         ))}
       </ul>
+      {environments.some(({ reaches }) => reaches.length > 0) && (
+        <Notice className="mt-6">
+          {team
+            ? "The team's calls to a private host go through a team Environment that reaches it. People's own calls never do."
+            : "Calls Pipoca makes for you to a private host go through one of your Environments that reaches it while it's online. Nobody else's calls ever use your Environments."}
+        </Notice>
+      )}
       {!team && <Templates templates={templates} />}
     </Page>
   );
@@ -176,6 +186,21 @@ function EnvironmentCard({
           {template !== undefined && <Badge>From a template</Badge>}
         </span>
         <span className="truncate text-label text-fg-dim">{summary}</span>
+        {environment.reaches.length > 0 && (
+          <span
+            aria-label="Private hosts"
+            className="flex flex-wrap gap-1.5 text-caption"
+          >
+            {environment.reaches.map(({ host, port, reached }) => (
+              <Chip key={`${host}:${String(port)}`}>
+                {reached ? "Reaches" : "Doesn't reach"}{" "}
+                <span className="font-mono">
+                  {hostPortText({ host, port })}
+                </span>
+              </Chip>
+            ))}
+          </span>
+        )}
       </span>
       <Badge state={status === "Offline" ? "offline" : "done"}>
         {status === "Starts runners on demand" ? "Starts on demand" : status}

@@ -6,7 +6,7 @@ import {
   Type,
 } from "@pipoca/plugins";
 import { type HostItem, hostPattern } from "../plugin";
-import type { HostView } from "./model";
+import type { HostView, Reach } from "./model";
 
 // What Settings sends to change a host. An empty or missing client secret
 // keeps the one the host has, and null takes it away.
@@ -121,6 +121,7 @@ export function hosts(items: Collection<HostItem>): Hosts {
 export function viewOf(
   { host, label, oauth }: HostConfig,
   connected: number,
+  reach: Reach,
 ): HostView {
   return {
     host,
@@ -128,6 +129,7 @@ export function viewOf(
     clientId: oauth?.clientId ?? "",
     hasClientSecret: oauth?.clientSecret !== undefined,
     connected,
+    reach,
   };
 }
 

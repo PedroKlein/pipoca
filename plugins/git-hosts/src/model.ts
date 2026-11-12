@@ -13,6 +13,17 @@ export interface HostView extends Omit<HostInput, "clientSecret"> {
   readonly hasClientSecret: boolean;
   // How many people connected their account on it.
   readonly connected: number;
+  readonly reach: Reach;
+}
+
+// Whether the host is private, and the Environments its calls go through
+// for whoever asked: their own, or the team's for admins (ADR 0080).
+export interface Reach {
+  readonly private: boolean;
+  readonly through: readonly {
+    readonly name: string;
+    readonly online: boolean;
+  }[];
 }
 
 export interface Connection {
@@ -27,6 +38,7 @@ export interface Account {
     readonly host: string;
     readonly label: string;
     readonly oauth: boolean;
+    readonly reach: Reach;
   }[];
   readonly connections: readonly Connection[];
 }
