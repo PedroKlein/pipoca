@@ -28,19 +28,21 @@ Reaching a host is a fact about machines. The server is one more machine that ma
 ### Admins list private hosts
 
 - Server setup holds a list of private hosts, as `host` or `host:port` with 443 as the default port (decided 2026-11-12). A private host is one the server doesn't reach directly.
-- The list is the kernel's. A plugin's settings for a host, such as a git host or a Jira site, show a Private switch that edits the same list.
+- The list is the kernel's. A plugin's settings for a host, such as a git host or a Jira site, show admins a Private switch that edits the same list. Plugins can't change the list themselves.
 - Every host not on the list is public. Calls to it go direct, as today.
 
 ### Environments declare what they reach
 
-- A machine's owner names the private hosts it may relay to when the runner joins, such as `pipoca runner --reach github.tools.sap`. A pod template names them for its pods. Naming a host is the owner's consent to relay to it, and it lives on the machine, so the server can't add hosts to it.
+- A machine's owner names the private hosts it may relay to when the runner joins, such as `pipoca runner --reach github.tools.sap`. Naming a host is the owner's consent to relay to it, and it lives on the machine, so the server can't add hosts to it. Names are exact `host` or `host:port`: no wildcards, IP addresses or `localhost`.
+- A pod template names them for its pods. The server writes a pod's spec, so that reach is the admin's grant, not the owner's consent, and the Environment page says so.
 - At start the runner opens a TLS connection to each one and reports which it reached. An Environment reaches a host when one of its runners reported it.
 - The Environment page shows the hosts it reaches and whether each one answered.
 
 ### Calls name who they are for
 
-- Plugins make network calls through the kernel: `network.fetch` for HTTP, and `network.env` for the variables a child process such as git or `gh` needs. Each call names its owner, a person or the team ([ADR 0064](0064-one-team-per-server.md)). The plugin lint refuses the global `fetch`, as it already refuses timers.
-- `network.env` points the process at a proxy the server runs on loopback, with a short-lived ticket that names the owner. The proxy and `network.fetch` share one router.
+- Plugins make network calls through the kernel: `network.fetch` for HTTP, and `network.env` for the variables a child process such as git or `gh` needs. Each call has an owner, a person or the team ([ADR 0064](0064-one-team-per-server.md)). The plugin lint refuses the global `fetch` and raw sockets, as it already refuses timers.
+- The kernel takes the owner from what the plugin is handling: the person behind a request, the Session's starter, or the owner of the schedule, event or routine run. A plugin can't name a person it isn't acting for. Team calls need team work behind them. A technical user's calls are the team's ([ADR 0060](0060-technical-users-and-github-apps.md)).
+- `network.env` points the process at a proxy the server runs on loopback. It takes a ticket that is random, bound to the owner and one `host:port`, and ends when the process exits or after minutes at most. The ticket travels in a header or a file only the process can read, never in a URL, and is masked in errors people see. The proxy refuses anything without a ticket. The proxy and `network.fetch` share one router.
 - For a private host the router picks:
   - a call for a person goes through an online runner of one of **that person's own** Environments that reaches the host;
   - a call for the team goes through an online runner of a **team** Environment that reaches it.
@@ -49,10 +51,16 @@ Reaching a host is a fact about machines. The server is one more machine that ma
 
 ### The relay is a tunnel, not a proxy
 
-- A runner whose Environment reaches a private host keeps a relay socket open to the server, like the sockets previews already use ([ADR 0037](0037-previews-and-opened-pages.md)).
+- A runner whose Environment reaches a private host keeps a relay socket open to the server, like the sockets previews already use ([ADR 0037](0037-previews-and-opened-pages.md)). It signs in with a relay credential of its own, not the runner token Sessions can read ([ADR 0032](0032-environments-and-runners.md)).
 - The router opens a tunnel over it to the host's port, as HTTP `CONNECT` does. TLS runs from the server to the host inside it. The runner forwards bytes: it sees no tokens and no content, and no Session or plugin code runs on its machine for this.
-- The runner refuses a tunnel to any host:port its owner didn't name.
-- A host's own CA certificate, when it has one, is the server's to trust, set with the private host.
+- The runner refuses a tunnel to any host:port its owner didn't name, and to a name that resolves to a loopback or link-local address.
+- Calls to a private host are `https` only, and the certificate is checked for the listed name. A host's own CA certificate, when it has one, is set by an admin with the private host, trusted for that host alone and given to child processes too. Checking is never turned off.
+- Redirects are followed by the router, one hop at a time, each routed and checked again. A hop from a public host to a private one, or to another private host, is refused, and credentials never follow a hop to another host.
+- Connections are never pooled or reused across owners or Environments.
+- The server confirms a reported host with its own TLS handshake through the tunnel before it uses the route.
+- Revoking a runner, deleting an Environment, removing a host from the list or removing a person closes their tunnels at once and fails the calls waiting on them.
+- The server logs every tunnel with its owner, plugin, host, runner, bytes and duration, and the runner logs its own. Both sides cap open tunnels, their rate and how long one may sit idle.
+- ssh to a private host is refused until host keys can be pinned per host.
 
 ### Placement follows reach
 
@@ -64,14 +72,15 @@ Reaching a host is a fact about machines. The server is one more machine that ma
 
 - In `git-hosts`, `reach` becomes `network.fetch`, and the server's pushes use `network.env`, each for the person or technical user it acts for.
 - Fetching Profiles, templates and plugins from git uses `network.env`, for the person who asked or for the team when an admin did.
-- Routine `watch` still refuses private addresses, except a listed private host, which goes through the router for the routine's owner.
+- Routine `watch` still refuses private addresses, except a listed private host, which goes through the router for the routine's owner. Only admins may point a team routine's `watch` at a private host, since every user can start team routines ([ADR 0064](0064-one-team-per-server.md)).
 - MCP sign-in, the key proxy, Slack, email, push and OIDC use `network.fetch` too. They gain nothing until someone lists their host as private.
 
 ## Consequences
 
 - A plugin that talks to a host inside a company network, such as a future Jira plugin, works there by calling `network.fetch` for the right owner. It needs no code of its own for this.
 - Calls to a private host need the relaying machine on. While a VM is off, pull request watching and git event polling for its hosts pause and show why, and connecting an account fails with `Unreachable`.
-- A machine inside a company network opens a tunnel from an outside server to the hosts its owner names. That is no wider than the owner's own laptop on the company VPN, but a company's policy may still forbid it.
+- A machine inside a company network opens a tunnel from an outside server to the hosts its owner names. While it is online, whoever controls the server can reach those hosts with the tokens the server keeps. Today those tokens are useless from outside, so a server compromise reaches further, and a company's policy may forbid this.
+- The relaying machine sees which host each tunnel goes to, when and how much, but not its content.
 - Webhooks from a private host still need the host to reach the server. Where it can't, git events come by polling through the relay.
 - Personal Sessions in a cluster that can't reach a private host still can't work on its repositories. Each person who needs that joins a machine of their own.
 - Running several people's Sessions on one shared machine still needs isolation per person, which this doesn't add.
