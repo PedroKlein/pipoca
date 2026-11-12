@@ -20,7 +20,7 @@ import { openInBrowser } from "./browser";
 import { connect } from "./connect";
 import { serve } from "./serve";
 import { installService, uninstallService } from "./service";
-import type { ProfileFiles } from "@pipoca/protocol";
+import { hostPortOf, type ProfileFiles } from "@pipoca/protocol";
 
 const dataRoot = dataFolder();
 
@@ -238,8 +238,11 @@ switch (command) {
         "data-dir": { type: "string" },
         folder: { type: "string", multiple: true, default: [] },
         extension: { type: "string", multiple: true, default: [] },
+        reach: { type: "string", multiple: true, default: [] },
       },
     });
+
+    const reach = values.reach.map(hostPortOf);
 
     const capacity =
       values.capacity === undefined ? undefined : Number(values.capacity);
@@ -271,6 +274,7 @@ switch (command) {
     if (
       name === undefined ||
       credential === undefined ||
+      reach.includes(undefined) ||
       (capacity !== undefined &&
         !(Number.isSafeInteger(capacity) && capacity > 0)) ||
       (idleSeconds !== undefined &&
@@ -302,6 +306,7 @@ switch (command) {
       dataDir,
       extensionPaths: values.extension.map(extensionSource),
       folders,
+      reach: reach.filter((each) => each !== undefined),
       ...(fauxReply !== undefined && {
         models: await fauxModels(fauxReply, join(dataDir, "faux-auth.json")),
       }),

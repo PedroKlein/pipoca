@@ -160,6 +160,10 @@ the Environments page shows, and runs that Environment's Sessions here.`,
       ],
       ["--name <name>", "this machine's name there (default: its host name)"],
       ["--capacity <n>", "how many Sessions run here at once"],
+      [
+        "--reach <host[:port]>",
+        "a private host the server may reach through this machine; repeat for more",
+      ],
       ["--exit-when-idle <seconds>", "stop after this long with no Session"],
       [
         "--data-dir <path>",

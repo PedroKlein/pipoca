@@ -4639,3 +4639,55 @@ test("carries a preview's WebSocket frames both ways, as dev servers' live reloa
   socket.close();
   await app.stop(true);
 });
+
+test("a Session on a private host starts only in an Environment whose runner reached it", async () => {
+  const saved = await server.api("/api/settings/private-hosts", {
+    method: "PUT",
+    body: {
+      hosts: [{ host: "github.acme.internal", ca: null, teamWatch: false }],
+    },
+  });
+
+  expect(saved.status).toBe(200);
+
+  const environment = await environmentOf("vm");
+
+  const start = async (): Promise<Response> =>
+    server.api("/api/sessions", {
+      body: {
+        environment,
+        workspace: {
+          kind: "clone",
+          repository: "https://github.acme.internal/acme/payments",
+        },
+      },
+    });
+
+  const report = async (reached: boolean): Promise<void> => {
+    await asAgent("vm", "/runner/work", {
+      running: [],
+      folders: [],
+      models: [],
+      reach: [{ host: "github.acme.internal", port: 443, reached }],
+    });
+  };
+
+  await report(false);
+
+  const refused = await start();
+
+  expect(refused.status).toBe(409);
+  expect(await refused.json()).toMatchObject({ error: "unreachable_host" });
+
+  await report(true);
+
+  expect((await start()).status).toBe(201);
+
+  const vm = (
+    (await (await server.api("/api/environments")).json()) as Environment[]
+  ).find(({ id }) => id === environment);
+
+  expect(vm?.reaches).toEqual([
+    { host: "github.acme.internal", port: 443, reached: true },
+  ]);
+});

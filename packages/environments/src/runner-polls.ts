@@ -1,7 +1,7 @@
 import type { WorkPoll } from "@pipoca/protocol";
 import { type Clock, systemClock } from "@pipoca/protocol";
 
-type Inventory = Pick<WorkPoll, "folders" | "models" | "session">;
+type Inventory = Pick<WorkPoll, "folders" | "models" | "session" | "reach">;
 
 export interface PolledRunner {
   readonly name: string;

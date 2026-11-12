@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { Joined, Log } from "@pipoca/protocol";
+import type { HostPort, Joined, Log } from "@pipoca/protocol";
 import type { SessionOptions } from "@pipoca/sessionhost";
 import { findCheckouts } from "@pipoca/workspaces";
 import { httpControlPlane, joinPool, type UnsupportedVersion } from "./client";
@@ -11,6 +11,7 @@ import { docsFolder, profileFolders } from "./folders";
 import { type Logins, machineModels } from "./models";
 import { writeWhole } from "./parts";
 import { pollForWork } from "./poll";
+import { watchReach } from "./reach";
 import type { Binary } from "./session-process";
 import { hostedSessions } from "./sessions";
 import { environmentSetup } from "./setup";
@@ -32,6 +33,8 @@ export interface AgentOptions {
   readonly dataDir: string;
   readonly extensionPaths: readonly string[];
   readonly folders: readonly string[];
+  // The private hosts its owner lets the server reach through it (ADR 0080).
+  readonly reach?: readonly HostPort[];
   readonly binary: Binary;
   // The Linux pipoca binary that container Sessions run. A Linux runner
   // built as a binary uses itself.
@@ -216,6 +219,8 @@ async function runAs(
     letGo.abort();
   });
 
+  const reach = watchReach(options.reach ?? [], log, options.signal);
+
   await pollForWork({
     controlPlane: {
       work: async (poll, signal) => {
@@ -232,6 +237,7 @@ async function runAs(
     ...(options.session !== undefined && { session: options.session }),
     models: models.models,
     registeredModels: models.registered,
+    ...(options.reach !== undefined && options.reach.length > 0 && { reach }),
     running: sessions.running,
     start: sessions.start,
     unload: sessions.unload,

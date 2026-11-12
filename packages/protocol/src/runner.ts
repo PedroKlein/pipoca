@@ -1,5 +1,6 @@
 import { Type } from "typebox";
 import { postedEvent } from "./events";
+import { reachedHost } from "./reach";
 import {
   isolation,
   modelRef,
@@ -171,6 +172,9 @@ export const workPoll = Type.Object({
   // A runner started for one Session, such as a pod on that Session's own
   // volume, takes only that Session, and that Session goes only to it.
   session: Type.Optional(Type.String()),
+  // The private hosts its owner named with --reach, and whether each
+  // answered (ADR 0080). Older runners leave it out.
+  reach: Type.Optional(Type.Array(reachedHost)),
 });
 
 export type WorkPoll = Wire<typeof workPoll>;

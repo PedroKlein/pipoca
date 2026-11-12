@@ -5,6 +5,7 @@ import {
   loggedStart,
   type ModelRef,
   movable,
+  type ReachedHost,
   type Removal,
   type SessionStart,
   type Work,
@@ -30,6 +31,7 @@ interface PollOptions {
   readonly session?: string;
   readonly models: () => readonly ModelRef[];
   readonly registeredModels?: () => readonly ModelRef[];
+  readonly reach?: () => readonly ReachedHost[];
   readonly log: Log;
   readonly signal: AbortSignal;
   readonly retry?: { readonly initialMs: number; readonly maxMs: number };
@@ -91,6 +93,7 @@ export async function pollForWork(options: PollOptions): Promise<void> {
             capacity: options.capacity,
           }),
           ...(options.session !== undefined && { session: options.session }),
+          ...(options.reach && { reach: [...options.reach()] }),
         },
         signal,
       );

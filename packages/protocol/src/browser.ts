@@ -1,5 +1,6 @@
 import { type TRecord, type TRefine, type TSchema, Type } from "typebox";
 import { quote } from "./events";
+import { reachedHost } from "./reach";
 import { runnerName } from "./runner";
 import {
   isolation,
@@ -192,6 +193,8 @@ export const environment = Type.Object({
   runnersFrom: nullable(runnersFrom),
   runners: Type.Array(runner),
   folders: strings,
+  // The private hosts its runners reach, from their last reports (ADR 0080).
+  reaches: Type.Array(reachedHost),
   // The models logged in on its online runners, and every model any of its
   // runners reported, kept after they go (ADR 0044).
   models: Type.Array(modelRef),

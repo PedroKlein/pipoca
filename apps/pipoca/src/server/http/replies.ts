@@ -16,6 +16,10 @@ const rejections = {
   archived: [409, "The Session is archived."],
   not_kept: [409, "The Session has no kept workspace to remove."],
   unknown_environment: [400, "There is no such Environment."],
+  unreachable_host: [
+    409,
+    "The repository is on a private host this Environment doesn't reach.",
+  ],
   environment_exists: [409, "An Environment of that name already exists."],
   unknown_template: [400, "There is no such template."],
   from_template: [

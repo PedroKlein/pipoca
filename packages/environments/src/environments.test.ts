@@ -288,3 +288,79 @@ test("the server's own runner keeps its tokens in memory, where a new key leaves
 function never(): never {
   throw new Error("expected a caller");
 }
+
+test("a Session on a private host goes only to runners that reached it, and the Environment lists what its runners reach", () => {
+  const environments = new Environments(memoryEnvironments(), {
+    privateHost: (host) => host === "github.acme.internal",
+  });
+
+  environments.create("vm", "ana");
+
+  const reaching = environments.beginPoll(
+    { name: "a", environment: "vm" },
+    {
+      capacity: null,
+      inventory: {
+        folders: [],
+        models: [],
+        reach: [{ host: "github.acme.internal", port: 443, reached: true }],
+      },
+    },
+  );
+
+  const other = poll(environments, "b");
+
+  const internal: Workspace = {
+    kind: "clone",
+    repository: "git@github.acme.internal:acme/payments.git",
+    branch: "pipoca/1",
+  };
+
+  const session = { id: "s1", runner: null, workspace: internal };
+
+  expect(environments.reaches("vm", internal)).toBe(true);
+  expect(environments.mayTake("vm", session, "a")).toBe(true);
+  expect(environments.mayTake("vm", session, "b")).toBe(false);
+
+  expect(
+    environments.mayTake("vm", { ...session, workspace: clone }, "b"),
+  ).toBe(true);
+
+  expect(environments.list()[0]?.reaches).toEqual([
+    { host: "github.acme.internal", port: 443, reached: true },
+  ]);
+
+  reaching();
+  other();
+});
+
+test("an Environment whose runners didn't reach a private host doesn't reach a repository there", () => {
+  const environments = new Environments(memoryEnvironments(), {
+    privateHost: (host) => host === "github.acme.internal",
+  });
+
+  environments.create("vm", "ana");
+
+  const end = environments.beginPoll(
+    { name: "a", environment: "vm" },
+    {
+      capacity: null,
+      inventory: {
+        folders: [],
+        models: [],
+        reach: [{ host: "github.acme.internal", port: 443, reached: false }],
+      },
+    },
+  );
+
+  expect(
+    environments.reaches("vm", {
+      kind: "clone",
+      repository: "https://github.acme.internal/acme/payments",
+    }),
+  ).toBe(false);
+
+  expect(environments.reaches("vm", folder)).toBe(true);
+
+  end();
+});
