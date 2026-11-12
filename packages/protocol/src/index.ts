@@ -48,6 +48,7 @@ export {
 } from "./browser";
 export { packageIdentity } from "./packages";
 export {
+  type EnvironmentRelays,
   type HostPort,
   hostPortOf,
   hostPortText,
@@ -55,6 +56,7 @@ export {
   type PrivateHosts,
   privateHosts,
   type ReachedHost,
+  type Relayed,
   repositoryHost,
 } from "./reach";
 export { type ErrorCode } from "./errors";

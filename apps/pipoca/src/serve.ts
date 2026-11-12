@@ -35,7 +35,9 @@ import { configFiles, configFolder } from "./config";
 import { sessionDocs } from "./docs";
 import { hubSettings } from "./hub";
 import { newcomerSetup } from "./newcomers";
+import { networkRouter } from "./network";
 import { privateHostList } from "./private-hosts";
+import { type RelayData, relayBroker } from "./relays";
 import { serverConfig, useServerFor } from "./server-config";
 import { teamSettings } from "./team";
 import {
@@ -317,6 +319,10 @@ export function serve(options: ServeOptions): {
       if (topic === "profiles") {
         providers.check();
       }
+
+      if (topic === "environments" || topic === "private-hosts") {
+        network.sweep();
+      }
     },
   };
 
@@ -419,6 +425,14 @@ export function serve(options: ServeOptions): {
   });
 
   const auth = { people, signIn, runners };
+  const relays = relayBroker(auth, options.log);
+
+  const network = networkRouter({
+    relays,
+    privateHosts,
+    environments,
+    log: options.log,
+  });
 
   if (
     options.solo !== undefined &&
@@ -453,6 +467,7 @@ export function serve(options: ServeOptions): {
     manifests: known,
     sessions,
     environments,
+    network: (plugin) => network.of(plugin),
     runners: {
       token: (environment, runner) => runners.runnerToken(environment, runner),
       revoke: (environment, runner) => {
@@ -596,6 +611,7 @@ export function serve(options: ServeOptions): {
     hub: hubSettings(config("hub"), options.log),
     newcomers: newcomerSetup(config("newcomers"), options.log),
     privateHosts,
+    network,
     team,
     serverFor: {
       usedBy: () => ownConfig().usedBy,
@@ -655,6 +671,7 @@ export function serve(options: ServeOptions): {
     }
 
     const upgraded =
+      relays.upgrade(request, bunServer) ??
       terminals.upgrade(request, bunServer) ??
       previews.upgrade(request, bunServer);
 
@@ -706,21 +723,27 @@ export function serve(options: ServeOptions): {
     },
     websocket: {
       open: (ws) => {
-        if (isPreview(ws)) {
+        if (isRelay(ws)) {
+          relays.websocket.open(ws);
+        } else if (isPreview(ws)) {
           previews.websocket.open(ws);
         } else if (isTerminal(ws)) {
           terminals.websocket.open(ws);
         }
       },
       message: (ws, message) => {
-        if (isPreview(ws)) {
+        if (isRelay(ws)) {
+          relays.websocket.message(ws, message);
+        } else if (isPreview(ws)) {
           previews.websocket.message(ws, message);
         } else if (isTerminal(ws)) {
           terminals.websocket.message(ws, message);
         }
       },
       close: (ws, code, reason) => {
-        if (isPreview(ws)) {
+        if (isRelay(ws)) {
+          relays.websocket.close(ws, code, reason);
+        } else if (isPreview(ws)) {
           previews.websocket.close(ws, code, reason);
         } else if (isTerminal(ws)) {
           terminals.websocket.close(ws, code, reason);
@@ -793,6 +816,8 @@ export function serve(options: ServeOptions): {
       await providers.stop();
       await agent;
       await links?.stop(true);
+      relays.close();
+      network.close();
       await server.stop(true);
       environments.close();
       store.close();
@@ -865,6 +890,12 @@ function isPreview(
   ws: ServerWebSocket<SocketData>,
 ): ws is ServerWebSocket<PreviewData> {
   return ws.data.kind === "preview";
+}
+
+function isRelay(
+  ws: ServerWebSocket<SocketData>,
+): ws is ServerWebSocket<RelayData> {
+  return ws.data.kind === "relay";
 }
 
 function isTerminal(

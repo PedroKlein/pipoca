@@ -1,8 +1,7 @@
 import { createSign } from "node:crypto";
 import type { Urls } from "@pipoca/plugins";
 import type { TechnicalUserItem } from "../plugin";
-import { HostRefused, reach } from "./github";
-import type { HostConfig } from "./hosts";
+import { type HostCall, HostRefused, reach } from "./github";
 
 // A bot identity on a git host that an admin registered (ADR 0060).
 export type TechnicalUser = TechnicalUserItem;
@@ -83,7 +82,7 @@ interface CreatedApp {
 // Trades the code GitHub sends back from the manifest flow for the App's
 // credentials. The code works once, within an hour.
 export async function convertManifest(
-  host: HostConfig,
+  host: HostCall,
   code: string,
 ): Promise<CreatedApp> {
   const response = await reach(
@@ -129,7 +128,7 @@ export async function convertManifest(
 
 // The accounts an App is installed on, which it can act in.
 export async function installationsOf(
-  host: HostConfig,
+  host: HostCall,
   app: AppUser["app"],
   now: number,
 ): Promise<readonly { readonly id: number; readonly account: string }[]> {
@@ -189,7 +188,7 @@ const readOnly = {
 // A token for one installation of the App, which GitHub lets live an hour,
 // with every permission the App has, or only to read.
 export async function installationToken(
-  host: HostConfig,
+  host: HostCall,
   app: AppUser["app"],
   installation: number,
   now: number,

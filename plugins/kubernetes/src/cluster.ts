@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { Network } from "@pipoca/plugins";
 
 export interface RunnerPod {
   readonly name: string;
@@ -107,7 +108,11 @@ export function inClusterApi(
   };
 }
 
-export function clusterAt(options: ApiAccess, now: () => number): Cluster {
+export function clusterAt(
+  options: ApiAccess,
+  now: () => number,
+  fetch: Network["fetch"],
+): Cluster {
   const base = `${options.url}/api/v1/namespaces/${options.namespace}`;
 
   const call = async (

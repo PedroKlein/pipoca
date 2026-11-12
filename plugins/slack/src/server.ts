@@ -196,6 +196,7 @@ export const server = defineServer(slack, (context) => {
 
     for (const bot of listed.filter(({ name }) => !connections.has(name))) {
       const connection = connect(api, bot.appToken, {
+        fetch: context.network.fetch,
         onEvent: (event) => {
           heard(bot.name, event);
         },
@@ -251,6 +252,7 @@ export const server = defineServer(slack, (context) => {
     }
 
     const answer = await call(
+      context.network.fetch,
       config.get().api,
       bot.botToken,
       "chat.postMessage",
@@ -328,6 +330,7 @@ export const server = defineServer(slack, (context) => {
       }
 
       const { team, userId } = await botOf(
+        context.network.fetch,
         config.get().api,
         body.botToken.trim(),
       ).catch((failure: unknown) => {

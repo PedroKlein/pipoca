@@ -1,3 +1,4 @@
+import { isHttpError, type Network, type Owner } from "@pipoca/plugins";
 import type { HostConfig, OAuthApp } from "./hosts";
 import type { HostEmails } from "./model";
 
@@ -6,11 +7,25 @@ export class HostRefused extends Error {}
 
 const timeoutMs = 15_000;
 
-// The account a token signs in as, which also proves the token works.
-export async function loginOf(
+// A host as one owner's calls reach it, through an Environment of theirs
+// when it is private (ADR 0080).
+export interface HostCall extends HostConfig {
+  readonly fetch: (url: string, init: RequestInit) => Promise<Response>;
+}
+
+export function hostCall(
   host: HostConfig,
-  token: string,
-): Promise<string> {
+  network: Network,
+  owner: Owner,
+): HostCall {
+  return {
+    ...host,
+    fetch: async (url, init) => network.fetch(url, init, owner),
+  };
+}
+
+// The account a token signs in as, which also proves the token works.
+export async function loginOf(host: HostCall, token: string): Promise<string> {
   const response = await reach(host, `${host.api}/user`, {
     headers: {
       accept: "application/vnd.github+json",
@@ -41,7 +56,7 @@ export async function loginOf(
 // without the user:email scope can't list them, and then the account's
 // public email is all there is.
 export async function emailsOf(
-  host: HostConfig,
+  host: HostCall,
   token: string,
 ): Promise<HostEmails> {
   const headers = {
@@ -113,7 +128,7 @@ export function authorizationUrl(
 }
 
 export async function redeem(
-  host: HostConfig,
+  host: HostCall,
   oauth: OAuthApp,
   redirectUri: string,
   code: string,
@@ -166,7 +181,7 @@ export interface Repository {
 // name holds the query, and with a query, the matching ones anywhere on the
 // host it can see.
 export async function repositoriesOf(
-  host: HostConfig,
+  host: HostCall,
   token: string,
   query: string,
 ): Promise<readonly Repository[]> {
@@ -213,7 +228,7 @@ export async function repositoriesOf(
 
 // The repositories a GitHub App's installation reaches, for what was typed.
 export async function installationRepositoriesOf(
-  host: HostConfig,
+  host: HostCall,
   token: string,
   query: string,
 ): Promise<readonly Repository[]> {
@@ -257,16 +272,20 @@ function repositoriesIn(list: unknown): readonly Repository[] {
 }
 
 export async function reach(
-  host: HostConfig,
+  host: HostCall,
   url: string,
   init: RequestInit,
 ): Promise<Response> {
   try {
-    return await fetch(url, {
+    return await host.fetch(url, {
       ...init,
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (failure) {
+    if (isHttpError(failure)) {
+      throw failure;
+    }
+
     throw new HostRefused(
       `couldn't reach ${host.host}: ${failure instanceof Error ? failure.message : String(failure)}`,
     );

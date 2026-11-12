@@ -1,6 +1,6 @@
-import type { ServerContext } from "@pipoca/plugins";
+import { owners, type ServerContext } from "@pipoca/plugins";
 import type { gitHosts } from "../plugin";
-import { HostRefused } from "./github";
+import { hostCall, HostRefused } from "./github";
 import type { Hosts } from "./hosts";
 import { type Answers, pullStateOf } from "./pulls";
 import { newsOf, rules, viewOf, type Watch, type WatchStore } from "./watch";
@@ -36,9 +36,10 @@ export function startPoller(
     schedule,
     clock,
     log,
+    network,
   }: Pick<
     ServerContext<typeof gitHosts>,
-    "sessions" | "routes" | "config" | "schedule" | "clock" | "log"
+    "sessions" | "routes" | "config" | "schedule" | "clock" | "log" | "network"
   >,
 ): Poller {
   const answers: Answers = new Map();
@@ -113,7 +114,13 @@ export function startPoller(
       return "quiet";
     }
 
-    const state = await pullStateOf(host, account.token, watch, answers);
+    const state = await pullStateOf(
+      hostCall(host, network, owners.fromSql(watch.userId)),
+      account.token,
+      watch,
+      answers,
+    );
+
     const { news, seen } = newsOf(watch.seen, state, account.login);
     const ends = state.state !== "open";
 

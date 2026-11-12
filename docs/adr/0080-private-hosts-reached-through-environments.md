@@ -85,6 +85,16 @@ Reaching a host is a fact about machines. The server is one more machine that ma
 - Personal Sessions in a cluster that can't reach a private host still can't work on its repositories. Each person who needs that joins a machine of their own.
 - Running several people's Sessions on one shared machine still needs isolation per person, which this doesn't add.
 
+## As built
+
+Where the first build differs from the decision above (2026-11-12):
+
+- Plugins pass the owner to `network.fetch` and `network.env` themselves, from the caller, Session or routine they handle. The kernel doesn't derive it yet, so a plugin could name an owner it isn't acting for.
+- The relay signs in with the runner's own token. A separate relay credential is left for later.
+- git gets its ticket as the password in the proxy address of an `http.<url>.proxy` entry in its environment, since git asks no credential helper for proxy credentials without a prompt. Only the process and the server see it.
+- The tunnel log is kept in memory, the last 50 per Environment, and is lost on restart.
+- Tunnels have a 10 second open timeout and 16 open per runner on each side, and an idle limit of 5 minutes on the runner. There is no rate limit yet.
+
 ## Later
 
 - Sending a Session's own traffic for a private host through the server's router, so pods could clone from it without a machine of their own. Every Session's code could then reach that host through the relay, which makes the policy question wider.

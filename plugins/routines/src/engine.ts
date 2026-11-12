@@ -23,6 +23,7 @@ import type { Question } from "@pipoca/protocol";
 import { usage } from "@pipoca/usage/plugin";
 import type { routines } from "../plugin";
 import { checkChecks } from "./checks";
+import { checkWatch } from "./watch";
 import { dayAfter, dayOf } from "./cron";
 import {
   coordinatorLimitsOf,
@@ -160,6 +161,7 @@ type Context = Pick<
   | "routes"
   | "schedule"
   | "environments"
+  | "network"
   | "config"
   | "secrets"
   | "clock"
@@ -3569,6 +3571,12 @@ export function routinesEngine(context: Context): Routines {
         allowedOf(routine);
         destinationsOf(routine, context.destinations.declared());
         checkChecks(routine, context.checks.declared());
+
+        for (const each of routine.when) {
+          if (each.kind === "watch") {
+            checkWatch(each.url, context.network, owner);
+          }
+        }
 
         withGroup(
           routine,

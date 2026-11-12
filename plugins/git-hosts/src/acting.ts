@@ -2,8 +2,8 @@ import type { Collection, ServerContext } from "@pipoca/plugins";
 import type { GitLogin, Owner, Session } from "@pipoca/protocol";
 import type { gitHosts, TechnicalUserItem } from "../plugin";
 import type { Identity } from "./model";
-import { HostRefused, reach } from "./github";
-import type { HostConfig, Hosts } from "./hosts";
+import { type HostCall, hostCall, HostRefused, reach } from "./github";
+import type { Hosts } from "./hosts";
 import {
   type AppUser,
   botLogin,
@@ -84,10 +84,21 @@ export function acting(
     clock,
     log,
     schedule,
-  }: Pick<ServerContext<typeof gitHosts>, "clock" | "log" | "schedule">,
+    network,
+  }: Pick<
+    ServerContext<typeof gitHosts>,
+    "clock" | "log" | "schedule" | "network"
+  >,
   hosts: Hosts,
   users: Collection<TechnicalUserItem>,
 ): Acting {
+  // A technical user's calls are the team's (ADR 0080).
+  const teamHost = (name: string): HostCall | undefined => {
+    const host = hosts.get(name);
+
+    return host && hostCall(host, network, "team");
+  };
+
   const tokens = new Map<string, Cached>();
   // Each installation token's read-only twin.
   const reading = new Map<string, Cached>();
@@ -100,7 +111,7 @@ export function acting(
     cached !== undefined && cached.expiresAt > clock.now();
 
   const refreshApp = async (user: AppUser): Promise<void> => {
-    const host = hosts.get(user.host);
+    const host = teamHost(user.host);
 
     if (host === undefined) {
       return;
@@ -306,7 +317,7 @@ export function acting(
       }),
     identity: async (name) => {
       const user = users.get(name);
-      const host = user && hosts.get(user.host);
+      const host = user && teamHost(user.host);
 
       if (user === undefined || host === undefined) {
         return undefined;
@@ -337,7 +348,7 @@ export function acting(
 }
 
 async function userIdOf(
-  host: HostConfig,
+  host: HostCall,
   login: string,
 ): Promise<number | undefined> {
   const response = await reach(

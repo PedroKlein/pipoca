@@ -121,6 +121,7 @@ export async function forward(
   rest: string,
   key: string,
   onUsage: (usage: CallUsage) => void,
+  call: (url: URL, init: RequestInit) => Promise<Response>,
 ): Promise<Response> {
   const url = new URL(
     `${upstream.baseUrl.replace(/\/$/, "")}/${rest}${new URL(request.url).search}`,
@@ -141,7 +142,7 @@ export async function forward(
 
   const body = request.body === null ? null : await request.text();
 
-  const answer = await fetch(url, {
+  const answer = await call(url, {
     method: request.method,
     headers,
     ...(body !== null && { body }),

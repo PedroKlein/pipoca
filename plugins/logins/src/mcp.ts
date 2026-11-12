@@ -7,7 +7,6 @@ import {
 import type { ProfileMcpServer } from "@pipoca/plugins";
 import type { SignIn } from "./connect";
 import { mcpKey } from "./model";
-import { publicFetch } from "./private-address";
 
 // An MCP server that signs people in with OAuth, as a Profile's mcp.json
 // configures it.
@@ -123,7 +122,7 @@ export function mcpSignIn(
     state: string,
     signal: AbortSignal,
   ) => Promise<AuthorizationResponse>,
-  privateHosts: readonly string[],
+  reach: (input: string | URL, init?: RequestInit) => Promise<Response>,
 ): SignIn {
   return async (interaction) => {
     const signal = interaction.signal ?? new AbortController().signal;
@@ -147,7 +146,7 @@ export function mcpSignIn(
     const flow = {
       serverUrl: server.url,
       signal,
-      fetch: publicFetch(privateHosts),
+      fetch: reach,
       ...(server.scope !== undefined && { scope: server.scope }),
       ...(server.authServerMetadataUrl !== undefined && {
         authorizationServerMetadataUrl: new URL(server.authServerMetadataUrl),

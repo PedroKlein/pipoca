@@ -26,6 +26,7 @@ import type {
 import type { Static, TObject, TSchema } from "typebox";
 import type { EventDef, Events, PluginDefinition } from "./definition";
 import type { KernelEvent, KernelEventOf } from "./events";
+import type { Network } from "./network";
 import type {
   QuestionDesk,
   QuestionKeeper,
@@ -775,6 +776,7 @@ export interface ServerContext<P extends PluginDefinition = PluginDefinition> {
   readonly checks: PluginChecks;
   readonly secrets: Secrets;
   readonly environments: PluginEnvironments;
+  readonly network: Network;
   readonly profiles: PluginProfiles;
   // A folder of the plugin's own with the server's data, for files it
   // writes as it works. It may not exist yet.

@@ -69,6 +69,7 @@ export const server = defineServer(
     config,
     events,
     log,
+    network,
     people,
     routes,
     schedule,
@@ -111,7 +112,7 @@ export const server = defineServer(
       },
     );
 
-    const sender = { store, clock, log, keys };
+    const sender = { store, clock, log, keys, network };
 
     const tell = (userId: string, notice: Notice, urgent: boolean): void => {
       const subscriptions = store.all<Subscription>(
@@ -349,7 +350,10 @@ function vapidToken(audience: string, keys: VapidKeys, now: number): string {
   return `${unsigned}.${signature.toString("base64url")}`;
 }
 
-interface Sender extends Pick<ServerContext, "store" | "clock" | "log"> {
+interface Sender extends Pick<
+  ServerContext,
+  "store" | "clock" | "log" | "network"
+> {
   readonly keys: VapidKeys;
 }
 
@@ -357,7 +361,7 @@ async function deliver(
   target: Subscription,
   notice: Notice,
   urgent: boolean,
-  { store, clock, log, keys }: Sender,
+  { store, clock, log, keys, network }: Sender,
 ): Promise<void> {
   const endpoint = new URL(target.endpoint);
 
@@ -369,7 +373,7 @@ async function deliver(
       await newSender(),
     );
 
-    const response = await fetch(endpoint, {
+    const response = await network.fetch(endpoint, {
       method: "POST",
       headers: {
         authorization: `vapid t=${vapidToken(endpoint.origin, keys, clock.now())}, k=${keys.publicKey}`,

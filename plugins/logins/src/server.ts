@@ -41,6 +41,7 @@ import {
   type Upstream,
   upstreams,
 } from "./proxy";
+import { publicFetch } from "./private-address";
 
 const text = Type.String({ minLength: 1 });
 
@@ -455,7 +456,7 @@ export const server = defineServer(logins, (ctx) => {
           mcpStateOfOwner(mcp, owner, found.key),
           urls.public("callback"),
           returns.wait(browser),
-          ctx.config.get().privateHosts,
+          publicFetch(ctx.config.get().privateHosts, ctx.network, caller.owner),
         ),
       );
 
@@ -551,6 +552,7 @@ export const server = defineServer(logins, (ctx) => {
           { to: [session.ownedBy] },
         );
       },
+      async (url, init) => ctx.network.fetch(url, init, "team"),
     );
 
     log("model call proxied", {

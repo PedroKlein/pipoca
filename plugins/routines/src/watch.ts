@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
-import type { Owner } from "@pipoca/plugins";
+import type { Network, Owner } from "@pipoca/plugins";
 import type { Watch } from "./routine";
 
 const timeoutMs = 30_000;
@@ -30,9 +30,14 @@ export interface Looked {
 }
 
 // Fetches the watch's address and takes the value at its path in the JSON,
-// or else the whole text, with a hash to tell whether it changed.
-export async function look(watch: Watch): Promise<Looked> {
-  const response = await publicFetch(watch.url, {
+// or else the whole text, with a hash to tell whether it changed. A listed
+// private host goes through an Environment of the routine's owner (ADR 0080).
+export async function look(
+  watch: Watch,
+  network: Network,
+  owner: Owner,
+): Promise<Looked> {
+  const response = await publicFetch(watch.url, network, owner, {
     headers: { accept: "application/json, text/plain;q=0.9, */*;q=0.5" },
     signal: AbortSignal.timeout(timeoutMs),
   });
@@ -67,6 +72,22 @@ export async function look(watch: Watch): Promise<Looked> {
         : value,
     seen: createHash("sha256").update(json).digest("hex"),
   };
+}
+
+// Every user can start team routines, so they watch a private host only
+// where an admin allowed it (ADR 0080).
+export function checkWatch(
+  url: string | URL,
+  network: Network,
+  owner: Owner,
+): void {
+  const { host } = new URL(url);
+
+  if (owner === "team" && network.privateHost(url)?.teamWatch === false) {
+    throw new Error(
+      `${host} is private. An admin hasn't allowed team routines to watch it, since every user can start team routines. Ask an admin, or make it a personal routine.`,
+    );
+  }
 }
 
 // A dotted path such as items.0.version, with an optional leading $.
@@ -111,19 +132,37 @@ for (const [network, prefix] of [
 
 // A fetch that keeps away from private, loopback and link-local addresses,
 // such as the server's own, on every redirect too, and connects only to the
-// address it checked, as the logins plugin's does.
+// address it checked, as the logins plugin's does. Only the first address
+// may be a private host, and only its own redirects stay on it.
 async function publicFetch(
   input: string,
+  network: Network,
+  owner: Owner,
   init: RequestInit,
 ): Promise<Response> {
-  let url = new URL(input);
+  const first = new URL(input);
+  let url = first;
 
   for (let hop = 0; hop < 5; hop++) {
     if (url.protocol !== "https:") {
       throw new Error(`${url.href} isn't an https address`);
     }
 
-    const response = await pinnedFetch(url, init);
+    const listed = network.privateHost(url);
+
+    if (listed !== undefined && hop > 0 && url.host !== first.host) {
+      throw new Error(
+        `${first.host} redirected to the private host ${url.host}`,
+      );
+    }
+
+    checkWatch(url, network, owner);
+
+    const response =
+      listed === undefined
+        ? await pinnedFetch(url, network, init)
+        : await network.fetch(url, { ...init, redirect: "manual" }, owner);
+
     const location = response.headers.get("location");
 
     if (response.status < 300 || response.status > 399 || location === null) {
@@ -136,7 +175,11 @@ async function publicFetch(
   throw new Error(`${url.host} redirected too many times`);
 }
 
-async function pinnedFetch(url: URL, init: RequestInit): Promise<Response> {
+async function pinnedFetch(
+  url: URL,
+  network: Network,
+  init: RequestInit,
+): Promise<Response> {
   const bare = url.hostname.replace(/^\[(.*)\]$/, "$1");
 
   const addresses =
@@ -165,7 +208,7 @@ async function pinnedFetch(url: URL, init: RequestInit): Promise<Response> {
   const headers = new Headers(init.headers);
   headers.set("host", url.host);
 
-  return fetch(pinned, {
+  return network.fetch(pinned, {
     ...init,
     headers,
     redirect: "manual",

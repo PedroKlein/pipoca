@@ -12,6 +12,7 @@ import { type Logins, machineModels } from "./models";
 import { writeWhole } from "./parts";
 import { pollForWork } from "./poll";
 import { watchReach } from "./reach";
+import { relay } from "./relay";
 import type { Binary } from "./session-process";
 import { hostedSessions } from "./sessions";
 import { environmentSetup } from "./setup";
@@ -220,6 +221,12 @@ async function runAs(
   });
 
   const reach = watchReach(options.reach ?? [], log, options.signal);
+  const polling = AbortSignal.any([options.signal, letGo.signal, idle.signal]);
+
+  const relaying =
+    options.reach !== undefined && options.reach.length > 0
+      ? relay(agent, options.reach, log, polling)
+      : Promise.resolve();
 
   await pollForWork({
     controlPlane: {
@@ -231,7 +238,7 @@ async function runAs(
       },
     },
     log,
-    signal: AbortSignal.any([options.signal, letGo.signal, idle.signal]),
+    signal: polling,
     folders: [...new Set([...options.folders, ...checkouts])],
     ...(options.capacity !== undefined && { capacity: options.capacity }),
     ...(options.session !== undefined && { session: options.session }),
@@ -249,6 +256,8 @@ async function runAs(
     idle.stop();
     stopRelisting();
   });
+
+  await relaying;
 
   await sessions.stopAll(options.signal.aborted);
 

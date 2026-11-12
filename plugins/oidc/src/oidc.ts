@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import type { Network } from "@pipoca/plugins";
 
 const timeoutMs = 15_000;
 
@@ -35,7 +36,10 @@ export interface Identity {
 export class LoginFailed extends Error {}
 
 // OpenID Connect Discovery 1.0, section 4.
-export async function discover(issuer: string): Promise<Provider> {
+export async function discover(
+  issuer: string,
+  fetch: Network["fetch"],
+): Promise<Provider> {
   const base = issuer.replace(/\/+$/, "");
   checkSecure(base);
 
@@ -43,7 +47,7 @@ export async function discover(issuer: string): Promise<Provider> {
     ok,
     status,
     body: found,
-  } = await reach(`${base}/.well-known/openid-configuration`);
+  } = await reach(fetch, `${base}/.well-known/openid-configuration`);
 
   if (!ok) {
     throw new LoginFailed(`discovery at ${base} answered ${String(status)}`);
@@ -110,8 +114,9 @@ export async function redeem(
   attempt: Attempt,
   code: string,
   now: number,
+  fetch: Network["fetch"],
 ): Promise<Identity> {
-  const { ok, status, body } = await reach(provider.tokenEndpoint, {
+  const { ok, status, body } = await reach(fetch, provider.tokenEndpoint, {
     method: "POST",
     headers: {
       "content-type": "application/x-www-form-urlencoded",
@@ -206,6 +211,7 @@ function claimsOf(idToken: string): Record<string, unknown> {
 // A provider that hangs would otherwise hold the sign-in, and the cached
 // discovery every later one waits on, forever.
 async function reach(
+  fetch: Network["fetch"],
   url: string,
   init: RequestInit = {},
 ): Promise<{

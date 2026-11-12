@@ -1,5 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
+import type { Network, Owner } from "@pipoca/plugins";
 
 const privateRanges = new BlockList();
 
@@ -25,17 +26,21 @@ for (const [network, prefix] of [
 
 // A fetch that keeps away from private, loopback and link-local addresses,
 // such as a cluster's own Services, on every redirect too, unless an admin
-// allows the host. It connects only to the address it checked.
+// allows the host. It connects only to the address it checked. A host
+// listed as private goes through an Environment of the owner (ADR 0080).
 export function publicFetch(
   allowed: readonly string[],
+  network: Network,
+  owner: Owner,
 ): (input: string | URL, init?: RequestInit) => Promise<Response> {
   return async (input, init) => {
     let url = new URL(input);
 
     for (let hop = 0; hop < 5; hop++) {
-      const response = allowed.includes(url.host)
-        ? await fetch(url, { ...init, redirect: "manual" })
-        : await pinnedFetch(url, init);
+      const response =
+        allowed.includes(url.host) || network.privateHost(url) !== undefined
+          ? await network.fetch(url, { ...init, redirect: "manual" }, owner)
+          : await pinnedFetch(url, network, init);
 
       const location = response.headers.get("location");
 
@@ -50,7 +55,11 @@ export function publicFetch(
   };
 }
 
-async function pinnedFetch(url: URL, init?: RequestInit): Promise<Response> {
+async function pinnedFetch(
+  url: URL,
+  network: Network,
+  init?: RequestInit,
+): Promise<Response> {
   const bare = url.hostname.replace(/^\[(.*)\]$/, "$1");
 
   const addresses =
@@ -79,7 +88,7 @@ async function pinnedFetch(url: URL, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
   headers.set("host", url.host);
 
-  return fetch(pinned, {
+  return network.fetch(pinned, {
     ...init,
     headers,
     redirect: "manual",

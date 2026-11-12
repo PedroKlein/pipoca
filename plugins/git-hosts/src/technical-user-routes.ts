@@ -8,7 +8,7 @@ import {
   Type,
 } from "@pipoca/plugins";
 import type { gitHosts, TechnicalUserItem } from "../plugin";
-import { HostRefused, loginOf } from "./github";
+import { hostCall, HostRefused, loginOf } from "./github";
 import type { Hosts } from "./hosts";
 import type { TechnicalUserView } from "./model";
 import {
@@ -63,7 +63,7 @@ const teamChoice = Type.Object({ team: Type.Boolean() });
 // Admins register technical users: GitHub Apps through GitHub's manifest
 // flow, and machine users by their token (ADR 0060).
 export function technicalUserRoutes(
-  { routes, urls, clock, log }: ServerContext<typeof gitHosts>,
+  { routes, urls, clock, log, network }: ServerContext<typeof gitHosts>,
   hosts: Hosts,
   users: Collection<TechnicalUserItem>,
   added: () => void,
@@ -115,7 +115,11 @@ export function technicalUserRoutes(
     }
 
     try {
-      const installations = await installationsOf(host, user.app, clock.now());
+      const installations = await installationsOf(
+        hostCall(host, network, "team"),
+        user.app,
+        clock.now(),
+      );
 
       return {
         ...app,
@@ -223,7 +227,10 @@ export function technicalUserRoutes(
       pending.delete(state);
 
       try {
-        const app = await convertManifest(host, query.code ?? "");
+        const app = await convertManifest(
+          hostCall(host, network, "team"),
+          query.code ?? "",
+        );
 
         add({
           name: app.slug,
@@ -293,11 +300,13 @@ export function technicalUserRoutes(
       const name = body.name.trim();
       const token = body.token.trim();
 
-      const login = await loginOf(host, token).catch((failure: unknown) => {
-        throw failure instanceof HostRefused
-          ? new BadRequest(failure.message)
-          : failure;
-      });
+      const login = await loginOf(hostCall(host, network, "team"), token).catch(
+        (failure: unknown) => {
+          throw failure instanceof HostRefused
+            ? new BadRequest(failure.message)
+            : failure;
+        },
+      );
 
       add({
         name,

@@ -8,6 +8,7 @@ import {
   type Secrets,
   type Store,
   Type,
+  Unreachable,
 } from "@pipoca/plugins";
 import type {
   GitLogin,
@@ -23,6 +24,7 @@ import { commitAsBody, commitAsStore } from "./commit-as";
 import {
   authorizationUrl,
   emailsOf,
+  hostCall,
   HostRefused,
   installationRepositoriesOf,
   loginOf,
@@ -129,7 +131,11 @@ export const server = defineServer(gitHosts, (context) => {
     host: HostConfig,
     token: string,
   ): Promise<void> => {
-    const login = await loginOf(host, token);
+    const login = await loginOf(
+      hostCall(host, context.network, owners.of(userId)),
+      token,
+    );
+
     connections.save(userId, host.host, login, token);
     log("host connected", { userId, host: host.host, login });
   };
@@ -147,10 +153,17 @@ export const server = defineServer(gitHosts, (context) => {
         return host === undefined || (only !== undefined && only !== name)
           ? []
           : [
-              repositoriesOf(host, token, query).then(
+              repositoriesOf(
+                hostCall(host, context.network, owners.of(userId)),
+                token,
+                query,
+              ).then(
                 (repositories): HostSearch => ({ host, login, repositories }),
                 (failure: unknown): HostSearch => {
-                  if (!(failure instanceof HostRefused)) {
+                  if (!(
+                    failure instanceof HostRefused ||
+                    failure instanceof Unreachable
+                  )) {
                     throw failure;
                   }
 
@@ -184,10 +197,12 @@ export const server = defineServer(gitHosts, (context) => {
             return [];
           }
 
+          const call = hostCall(host, context.network, "team");
+
           const listed =
             kind === "app"
-              ? installationRepositoriesOf(host, token, query)
-              : repositoriesOf(host, token, query);
+              ? installationRepositoriesOf(call, token, query)
+              : repositoriesOf(call, token, query);
 
           return [
             listed.then(
@@ -198,7 +213,10 @@ export const server = defineServer(gitHosts, (context) => {
                   group: host.label,
                 })),
               (failure: unknown) => {
-                if (!(failure instanceof HostRefused)) {
+                if (!(
+                  failure instanceof HostRefused ||
+                  failure instanceof Unreachable
+                )) {
                   throw failure;
                 }
 
@@ -327,7 +345,10 @@ export const server = defineServer(gitHosts, (context) => {
         throw new NotFound(`connect ${params.host} first`);
       }
 
-      return emailsOf(host, signedIn.token).catch((failure: unknown) => {
+      return emailsOf(
+        hostCall(host, context.network, caller.owner),
+        signedIn.token,
+      ).catch((failure: unknown) => {
         throw failure instanceof HostRefused
           ? new BadRequest(failure.message)
           : failure;
@@ -470,7 +491,7 @@ export const server = defineServer(gitHosts, (context) => {
 
       try {
         const token = await redeem(
-          host,
+          hostCall(host, context.network, owners.of(attempt.userId)),
           host.oauth,
           callback(),
           query.code ?? "",
@@ -478,7 +499,9 @@ export const server = defineServer(gitHosts, (context) => {
 
         await connect(attempt.userId, host, token);
       } catch (failure) {
-        if (!(failure instanceof HostRefused)) {
+        if (!(
+          failure instanceof HostRefused || failure instanceof Unreachable
+        )) {
           throw failure;
         }
 
