@@ -1,3 +1,4 @@
+import type { Network } from "@pipoca/plugins";
 import type { Log } from "@pipoca/protocol";
 import { call, SlackRefused } from "./slack";
 
@@ -19,6 +20,7 @@ export function connect(
   api: string,
   appToken: string,
   o: {
+    readonly fetch: Network["fetch"];
     readonly onEvent: (event: Readonly<Record<string, unknown>>) => void;
     readonly retryIn: (ms: number) => void;
     readonly log: Log;
@@ -72,7 +74,7 @@ export function connect(
   };
 
   const start = (): void => {
-    call(api, appToken, "apps.connections.open").then(
+    call(o.fetch, api, appToken, "apps.connections.open").then(
       ({ url }) => {
         if (closed || typeof url !== "string") {
           return;

@@ -1,7 +1,7 @@
-import { owners, type ServerContext } from "@pipoca/plugins";
+import { type Owner, owners, type ServerContext } from "@pipoca/plugins";
 import type { gitHosts } from "../plugin";
 import type { Acting } from "./acting";
-import { HostRefused, reach } from "./github";
+import { hostCall, HostRefused, reach } from "./github";
 import type { Hosts } from "./hosts";
 import { watchStore } from "./watch";
 
@@ -29,7 +29,7 @@ interface Posted {
 export function questionReplies(
   context: Pick<
     ServerContext<typeof gitHosts>,
-    "store" | "clock" | "provide" | "questions" | "log"
+    "store" | "clock" | "provide" | "questions" | "log" | "network"
   >,
   hosts: Hosts,
   acting: Acting,
@@ -45,12 +45,14 @@ export function questionReplies(
     session: Parameters<Acting["postsAs"]>[0],
     host: string,
     repository: string,
-  ): { readonly token: string; readonly via: boolean } | undefined => {
+  ):
+    | { readonly token: string; readonly via: boolean; readonly owner: Owner }
+    | undefined => {
     const account = repository.split("/")[0] ?? "";
     const bot = acting.postsAs(session, host, account);
 
     if (bot !== undefined) {
-      return { token: bot.token, via: false };
+      return { token: bot.token, via: false, owner: "team" };
     }
 
     const person = owners.personId(session.ownedBy);
@@ -65,7 +67,9 @@ export function questionReplies(
 
     const own = signed(person).find((each) => each.host === host);
 
-    return own === undefined ? undefined : { token: own.token, via: true };
+    return own === undefined
+      ? undefined
+      : { token: own.token, via: true, owner: owners.of(person) };
   };
 
   context.provide.replies({
@@ -86,7 +90,7 @@ export function questionReplies(
       }
 
       const response = await reach(
-        host,
+        hostCall(host, context.network, as.owner),
         `${host.api}/repos/${repository}/issues/${String(number)}/comments`,
         {
           method: "POST",

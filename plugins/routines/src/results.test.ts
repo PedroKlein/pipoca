@@ -569,3 +569,39 @@ test("a watch fetches no private address and says so, and waits at least 5 minut
     "127.0.0.1 is on a private address, which a watch doesn't fetch",
   );
 });
+
+test("a watch of a private host goes through the owner's Environments, and team routines need an admin's leave", async () => {
+  await using t = await testPlugin(server, {
+    people,
+    plugins: [subagents],
+    kernelConfig: {
+      privateHosts: {
+        hosts: [{ host: "status.acme.internal", ca: null, teamWatch: false }],
+      },
+    },
+  });
+
+  const watching = {
+    title: "Inside status",
+    when: [
+      { kind: "watch", url: "https://status.acme.internal/", every: "5m" },
+    ],
+    do: work,
+  };
+
+  const refused = await t
+    .as("ana")
+    .put("team/routines/inside", watching)
+    .catch((error: unknown) => error);
+
+  expect(String(refused)).toContain(
+    "status.acme.internal is private. An admin hasn't allowed team routines to watch it",
+  );
+
+  await save(t, "inside", watching);
+  await t.clock.advance("1s");
+
+  expect((await detail(t, "inside")).watches?.[0]?.error).toBe(
+    "status.acme.internal is a private host and no Environment of yours reaches it.",
+  );
+});

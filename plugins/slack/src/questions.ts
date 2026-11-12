@@ -19,9 +19,10 @@ export function questionReplies(
     provide,
     questions,
     log,
+    network,
   }: Pick<
     ServerContext<typeof slack>,
-    "store" | "clock" | "config" | "provide" | "questions" | "log"
+    "store" | "clock" | "config" | "provide" | "questions" | "log" | "network"
   >,
   bots: Collection<Bot>,
 ): {
@@ -65,11 +66,17 @@ export function questionReplies(
         return false;
       }
 
-      await call(config.get().api, bot.botToken, "chat.postMessage", {
-        channel,
-        thread_ts: thread,
-        text: `${asked.replaceAll("**", "*")}\n\nReply in this thread to answer.`,
-      });
+      await call(
+        network.fetch,
+        config.get().api,
+        bot.botToken,
+        "chat.postMessage",
+        {
+          channel,
+          thread_ts: thread,
+          text: `${asked.replaceAll("**", "*")}\n\nReply in this thread to answer.`,
+        },
+      );
 
       store.run(
         "insert into slack_questions (question_id, bot, channel, thread_ts, posted_at) values (?, ?, ?, ?, ?)",
@@ -93,6 +100,7 @@ export function questionReplies(
 
     do {
       const page = await call(
+        network.fetch,
         config.get().api,
         bot.botToken,
         "conversations.members",

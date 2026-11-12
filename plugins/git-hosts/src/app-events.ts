@@ -1,7 +1,7 @@
 import type { Collection, ServerContext } from "@pipoca/plugins";
 import type { gitHosts, TechnicalUserItem } from "../plugin";
-import { HostRefused, reach } from "./github";
-import type { HostConfig, Hosts } from "./hosts";
+import { type HostCall, hostCall, HostRefused, reach } from "./github";
+import type { Hosts } from "./hosts";
 import { type AppUser, hearsWebhooks, isApp } from "./technical-users";
 import { eventOf } from "./webhooks";
 
@@ -56,9 +56,17 @@ export function appEvents(
     clock,
     urls,
     log,
+    network,
   }: Pick<
     ServerContext<typeof gitHosts>,
-    "store" | "events" | "config" | "schedule" | "clock" | "urls" | "log"
+    | "store"
+    | "events"
+    | "config"
+    | "schedule"
+    | "clock"
+    | "urls"
+    | "log"
+    | "network"
   >,
   hosts: Hosts,
   users: Collection<TechnicalUserItem>,
@@ -115,8 +123,11 @@ export function appEvents(
         }
 
         for (const token of installations(user.name)) {
-          const poller = pollerOf(host, token, (kind, payload) =>
-            heard(user, kind, payload),
+          // An App's events are team work (ADR 0080).
+          const poller = pollerOf(
+            hostCall(host, network, "team"),
+            token,
+            (kind, payload) => heard(user, kind, payload),
           );
 
           try {
@@ -164,7 +175,7 @@ interface Saved {
 }
 
 function pollerOf(
-  host: HostConfig,
+  host: HostCall,
   token: string,
   heard: (kind: string, payload: unknown) => boolean,
 ) {

@@ -9,7 +9,7 @@ import {
 import type { Session } from "@pipoca/protocol";
 import type { gitHosts } from "../plugin";
 import type { TeamBot } from "./acting";
-import { HostRefused } from "./github";
+import { hostCall, HostRefused } from "./github";
 import type { Hosts } from "./hosts";
 import type { PullWatch, WatchedPull } from "./model";
 import { type Account, startPoller } from "./poller";
@@ -236,7 +236,11 @@ export function pullRequests(
       }
 
       try {
-        await mergePull(host, account.token, found);
+        await mergePull(
+          hostCall(host, context.network, owners.fromSql(found.userId)),
+          account.token,
+          found,
+        );
       } catch (failure) {
         throw failure instanceof HostRefused
           ? new BadRequest(failure.message)

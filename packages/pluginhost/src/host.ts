@@ -6,6 +6,7 @@ import type {
   ActionCall,
   Applied,
   Delivery,
+  Network,
   Person,
   PluginActions,
   PluginChecks,
@@ -209,6 +210,13 @@ export interface PluginHost {
   readonly extRoutes: () => readonly ExtRoute[];
 }
 
+// A server that lists no private hosts calls everything straight out.
+const directNetwork: Network = {
+  fetch: async (url, init) => fetch(url, init),
+  env: async () => Promise.resolve({ env: {}, done: () => undefined }),
+  privateHost: () => undefined,
+};
+
 function runnersOf(
   sessions: Sessions,
   environments: Environments,
@@ -248,6 +256,8 @@ export function startPlugins(
     readonly manifests: readonly PluginManifest[];
     readonly sessions: Sessions;
     readonly environments: Environments;
+    // A plugin's calls out; straight out when unset.
+    readonly network?: (plugin: string) => Network;
     readonly runners: {
       readonly token: (environment: string, runner: string) => string;
       readonly revoke: (environment: string, runner: string) => void;
@@ -1050,6 +1060,7 @@ export function startPlugins(
             templates: () => deps.environments.templates(),
             templateConfig: templateConfigOf(id, log),
           },
+          network: deps.network?.(id) ?? directNetwork,
           profiles: {
             mcpServers: deps.mcpServers ?? (() => []),
             buildsOn: deps.buildsOn ?? (() => []),

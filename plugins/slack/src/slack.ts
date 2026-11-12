@@ -1,3 +1,5 @@
+import type { Network } from "@pipoca/plugins";
+
 // What Slack answered, in words for an admin or a Session.
 export class SlackRefused extends Error {}
 
@@ -5,6 +7,7 @@ const timeoutMs = 15_000;
 
 // One Web API method, which answers ok: false instead of an HTTP error.
 export async function call(
+  fetch: Network["fetch"],
   api: string,
   token: string,
   method: string,
@@ -46,10 +49,11 @@ export async function call(
 
 // Who a bot token posts as.
 export async function botOf(
+  fetch: Network["fetch"],
   api: string,
   token: string,
 ): Promise<{ readonly team: string; readonly userId: string }> {
-  const answer = await call(api, token, "auth.test");
+  const answer = await call(fetch, api, token, "auth.test");
   const { team, user_id: userId } = answer;
 
   if (typeof team !== "string" || typeof userId !== "string") {

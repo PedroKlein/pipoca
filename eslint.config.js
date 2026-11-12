@@ -159,7 +159,7 @@ export default tseslint.config(
   },
   {
     // Plugins tell time by their context's clock and wait through its
-    // schedule, so a test's clock moves them too.
+    // schedule, so a test's clock moves them too, and call out through it.
     files: [
       "plugins/*/*.ts",
       "plugins/*/src/**/*.ts",
@@ -175,6 +175,9 @@ export default tseslint.config(
           name,
           message: "Use schedule.at or schedule.every.",
         })),
+        // Calls out go through the kernel, which reaches private hosts
+        // through Environments (ADR 0080).
+        { name: "fetch", message: "Use network.fetch." },
       ],
       "no-restricted-syntax": [
         "error",

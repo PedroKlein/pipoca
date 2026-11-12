@@ -1,11 +1,12 @@
 import type { Server, ServerWebSocket } from "bun";
 import { protocolVersion, versionHeader } from "@pipoca/protocol";
 import type { Sessions } from "@pipoca/sessions";
+import type { RelayData } from "./relays";
 import type { Auth } from "./server/http/deps";
 
 // The server's WebSockets: terminals, keyed by Session and terminal id, and
-// the Session host's end of a preview request.
-export type SocketData = TerminalData | PreviewData;
+// the Session host's end of a preview request, and runners' relays.
+export type SocketData = TerminalData | PreviewData | RelayData;
 
 export interface TerminalData {
   readonly kind: "terminal";

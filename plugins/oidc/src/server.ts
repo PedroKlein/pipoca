@@ -68,7 +68,9 @@ export const server = defineServer(oidc, (context) => {
   });
 
   const discovery = async (issuer: string): Promise<Provider> => {
-    const found = discovered.get(issuer) ?? discover(issuer);
+    const found =
+      discovered.get(issuer) ?? discover(issuer, context.network.fetch);
+
     discovered.set(issuer, found);
 
     // A failed discovery is tried again on the next sign-in.
@@ -279,6 +281,7 @@ export const server = defineServer(oidc, (context) => {
           attempt,
           query.code ?? "",
           clock.now(),
+          context.network.fetch,
         );
 
         return signIn(raw, config, identity, attempt);
@@ -376,7 +379,7 @@ export const server = defineServer(oidc, (context) => {
       throw new NotFound(`no provider ${params.id}`);
     }
 
-    const test = await discover(config.issuer).then(
+    const test = await discover(config.issuer, context.network.fetch).then(
       (): ProviderTest => ({ ok: true, error: null }),
       (failure: unknown): ProviderTest => {
         if (!(failure instanceof LoginFailed)) {

@@ -81,3 +81,33 @@ export const reachedHost = Type.Object({
 });
 
 export type ReachedHost = Wire<typeof reachedHost>;
+
+// One tunnel the server opened through a runner, as the Environment page
+// lists them.
+export const relayed = Type.Object({
+  at: Type.Number(),
+  runner: Type.String(),
+  host: Type.String(),
+  port: Type.Integer(),
+  plugin: Type.String(),
+  owner: Type.String(),
+  bytes: Type.Integer(),
+  ms: Type.Integer(),
+});
+
+export type Relayed = Wire<typeof relayed>;
+
+// The hosts the server checked itself through each runner, and its last
+// tunnels, newest first.
+export const environmentRelays = Type.Object({
+  confirmed: Type.Array(
+    Type.Object({
+      runner: Type.String(),
+      host: Type.String(),
+      port: Type.Integer(),
+    }),
+  ),
+  recent: Type.Array(relayed),
+});
+
+export type EnvironmentRelays = Wire<typeof environmentRelays>;

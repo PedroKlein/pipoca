@@ -45,6 +45,15 @@ The handler gets `{ caller, params, body, query, raw }` and returns a value, sen
 
 `schedule.at(key, time, data)` and `schedule.every(key, ms, run)` run work later, and survive a restart. `timer` waits in memory, for a long poll. `clock` tells the time. Never use `Date.now()` or `setTimeout`, so tests can move time.
 
+## Calling out
+
+Plugins call other servers through `network`, never the global `fetch`, which the lint refuses ([ADR 0080](../adr/0080-private-hosts-reached-through-environments.md)).
+
+- `network.fetch(url, init, owner)` works like `fetch`. A call to a host an admin listed as private goes through an online runner of one of the owner's Environments that reaches it: a person's own for a person, a team Environment for `"team"`. Other calls go straight out, and need no owner.
+- `network.env(url, owner)` gives the variables that send a child process such as git to that host the same way, and `done()` ends them once the process exits.
+- `network.privateHost(url)` says whether the URL is on a listed private host, and whether team routines may watch it.
+- With no route, both throw `Unreachable`, a 409 with the code `unreachable` and the host, which routes answer as is.
+
 ## Sessions and what the kernel keeps
 
 - `sessions` starts, lists, messages and archives Sessions. The ones it starts with a `key` are its own, and show inside its page rather than in the Session list. `sessions.need(id, key, { for })` makes a Session wait for a person, in Needs you and with a notification, for something the plugin keeps itself, until `sessions.need(id, key, null)` clears it.

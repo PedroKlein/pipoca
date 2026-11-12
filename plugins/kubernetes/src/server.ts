@@ -201,7 +201,7 @@ export const server = defineServer(kubernetes, (context) => {
     return;
   }
 
-  const cluster = clusterAt(api, clock.now);
+  const cluster = clusterAt(api, clock.now, context.network.fetch);
   let imageId: string | undefined;
 
   const pods: Pods = {

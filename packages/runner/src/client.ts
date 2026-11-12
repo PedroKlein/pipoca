@@ -59,7 +59,7 @@ export interface Agent {
   readonly token: string;
 }
 
-function agentHeaders(agent: Agent): Record<string, string> {
+export function agentHeaders(agent: Agent): Record<string, string> {
   return {
     [versionHeader]: String(protocolVersion),
     authorization: `Bearer ${agent.token}`,

@@ -67,6 +67,9 @@ Some hosts only some machines reach, such as a company's GitHub Enterprise insid
 - A machine's owner names the private hosts it reaches with `--reach`, repeated for more: `PIPOCA_KEY=pck_… pipoca agent --reach github.acme.internal`. Names are exact, with no wildcards, IP addresses or `localhost`, and a name that resolves to a loopback or link-local address counts as not reached.
 - The agent checks each one with a TLS connection at start and every 5 minutes, and the Environments page shows what each Environment reaches.
 - A Session whose repository is on a private host starts only in an Environment with a runner that reached it, and only such a runner takes it. Elsewhere it's refused with `unreachable_host`.
+- The server's own calls to a private host, such as a git host's API or a push, go through a relay: the agent keeps a socket open to the server, and the server opens a tunnel over it to the host's port. TLS runs from the server to the host, checked against the host's `ca` when it has one, so the machine forwards bytes it can't read. A person's calls go only through their own Environments, and the team's only through team Environments.
+- The server checks each host with a TLS handshake of its own through the tunnel before using it, and the Environment's page lists the hosts confirmed and the last 50 tunnels with who they were for. Deleting the Environment or taking the host off the list closes its tunnels.
+- Team routines watch a private host only when its `teamWatch` is true, since every user can start team routines.
 
 ## Templates
 

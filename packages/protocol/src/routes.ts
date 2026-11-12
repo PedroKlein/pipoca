@@ -1,5 +1,5 @@
 import { type TObject, type TProperties, Type } from "typebox";
-import { privateHosts } from "./reach";
+import { environmentRelays, privateHosts } from "./reach";
 import {
   account,
   accountChange,
@@ -713,6 +713,13 @@ export const routes = {
     response: environmentKey,
     status: 201,
     changes: ["environments"],
+  },
+  // The Environment's tunnels to private hosts (ADR 0080), for its owner.
+  "environments.relays": {
+    method: "GET",
+    path: "/api/environments/:id/relays",
+    auth: "person",
+    response: environmentRelays,
   },
   "joinKeys.create": {
     method: "POST",

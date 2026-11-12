@@ -3,18 +3,20 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { ServerContext } from "@pipoca/plugins";
+import type { Network, ServerContext } from "@pipoca/plugins";
 import type { GitLogin, Owner, Session } from "@pipoca/protocol";
 import type { gitHosts } from "../plugin";
-import { reach } from "./github";
-import type { HostConfig, Hosts } from "./hosts";
+import { type HostCall, hostCall, reach } from "./github";
+import type { Hosts } from "./hosts";
 
 const run = promisify(execFile);
 
 const pushTimeoutMs = 5 * 60_000;
 
 interface Target {
-  readonly host: HostConfig;
+  readonly host: HostCall;
+  readonly network: Network;
+  readonly owner: Owner;
   readonly repository: string;
   readonly token: string;
 }
@@ -22,7 +24,7 @@ interface Target {
 // The actions a routine's run proposes on a git host (ADR 0076), written
 // with the token of the identity the run acts as (ADR 0060).
 export function hostActions(
-  context: Pick<ServerContext<typeof gitHosts>, "provide" | "log">,
+  context: Pick<ServerContext<typeof gitHosts>, "provide" | "log" | "network">,
   hosts: Hosts,
   loginsOf: (
     owner: Owner,
@@ -63,7 +65,16 @@ export function hostActions(
       throw new Error(`the run has no login on ${host.host} to write with`);
     }
 
-    return { host, repository: match[2], token };
+    // A technical user's calls are the team's (ADR 0080).
+    const owner = session.actsAs === null ? session.ownedBy : "team";
+
+    return {
+      host: hostCall(host, context.network, owner),
+      network: context.network,
+      owner,
+      repository: match[2],
+      token,
+    };
   };
 
   const call = async (
@@ -351,7 +362,12 @@ async function pushBundle(
   const dir = await mkdtemp(join(tmpdir(), "pipoca-push-"));
   const file = join(dir, "commits.bundle");
   const repo = join(dir, "repo");
-  const env = authEnv(target.host.host, target.token);
+  const reaching = await target.network.env(remote, target.owner);
+
+  const env = authEnv(target.host.host, target.token, {
+    ...process.env,
+    ...reaching.env,
+  });
 
   const git = async (...args: string[]): Promise<void> => {
     await run("git", args, { env, timeout: pushTimeoutMs });
@@ -375,6 +391,7 @@ async function pushBundle(
       { cause: error },
     );
   } finally {
+    reaching.done();
     await rm(dir, { recursive: true, force: true });
   }
 }
@@ -408,14 +425,18 @@ function bundleHeader(bundle: Uint8Array): {
 }
 
 // git signs in to the host with the token as a header, so the token is in
-// no command line. The entries follow any the server's environment has.
-function authEnv(host: string, token: string): NodeJS.ProcessEnv {
-  const count = Number(process.env["GIT_CONFIG_COUNT"] ?? 0);
+// no command line. The entries follow any the environment has.
+function authEnv(
+  host: string,
+  token: string,
+  base: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+  const count = Number(base["GIT_CONFIG_COUNT"] ?? 0);
   const first = Number.isSafeInteger(count) && count > 0 ? count : 0;
   const basic = Buffer.from(`x-access-token:${token}`).toString("base64");
 
   return {
-    ...process.env,
+    ...base,
     GIT_TERMINAL_PROMPT: "0",
     GIT_CONFIG_COUNT: String(first + 1),
     [`GIT_CONFIG_KEY_${String(first)}`]: `http.https://${host}/.extraheader`,

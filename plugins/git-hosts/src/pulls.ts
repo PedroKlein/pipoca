@@ -1,5 +1,4 @@
-import { HostRefused, reach } from "./github";
-import type { HostConfig } from "./hosts";
+import { type HostCall, HostRefused, reach } from "./github";
 
 // owner/name#number on a host.
 export interface PullRef {
@@ -57,7 +56,7 @@ export function pullRefOf(url: string): PullRef | undefined {
 }
 
 export async function pullStateOf(
-  host: HostConfig,
+  host: HostCall,
   token: string,
   ref: PullRef,
   answers: Answers,
@@ -130,7 +129,7 @@ export async function pullStateOf(
 
 // The repository's merge methods, the first one it allows first.
 export async function mergePull(
-  host: HostConfig,
+  host: HostCall,
   token: string,
   ref: PullRef,
 ): Promise<void> {

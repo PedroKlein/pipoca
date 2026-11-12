@@ -20,6 +20,7 @@ const teamOwner = "team";
 export function environmentRoutes({
   environments,
   runners,
+  network,
   log,
 }: ApiDeps): Handlers<Group<"environments"> | Group<"joinKeys">> {
   const reached = (id: string, caller: PersonCaller, may: typeof canSteer) => {
@@ -126,6 +127,20 @@ export function environmentRoutes({
       log("environment deleted", { environmentId: id });
 
       return undefined;
+    },
+    "environments.relays": ({ params: { id }, caller }) => {
+      const { provider } = reached(id, caller, canSteer);
+
+      return {
+        confirmed: environments
+          .runners(provider)
+          .flatMap(({ name }) =>
+            (
+              network?.confirmed({ environment: provider, runner: name }) ?? []
+            ).map((to) => ({ runner: name, ...to })),
+          ),
+        recent: [...(network?.recent(provider) ?? [])],
+      };
     },
     "joinKeys.create": ({ caller }) => {
       log("join key made", {});

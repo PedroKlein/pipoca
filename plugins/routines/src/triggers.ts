@@ -63,7 +63,7 @@ interface Extras<L extends Routined> {
 export function triggerExtras<L extends Routined>(
   context: Pick<
     ServerContext<typeof routines>,
-    "schedule" | "store" | "clock" | "log" | "checks"
+    "schedule" | "store" | "clock" | "log" | "checks" | "network"
   >,
   deps: {
     readonly loadedOf: (owner: Owner, name: string) => L | undefined;
@@ -315,7 +315,7 @@ export function triggerExtras<L extends Routined>(
     let looked;
 
     try {
-      looked = await look(due);
+      looked = await look(due, context.network, watching.owner);
     } catch (error) {
       schedule.at(key, next, {
         ...omit(watching, "error"),
