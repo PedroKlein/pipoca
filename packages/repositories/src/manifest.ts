@@ -10,6 +10,13 @@ const manifestFile = "pipoca.json";
 
 const maxManifestBytes = 256 * 1024;
 
+// Whether a clone has a pipoca.json at its root.
+export function manifestFound(dir: string): boolean {
+  return (
+    lstatSync(join(dir, manifestFile), { throwIfNoEntry: false }) !== undefined
+  );
+}
+
 // What a clone's pipoca.json lists of one kind, or nothing without one.
 export function listedIn(
   dir: string,

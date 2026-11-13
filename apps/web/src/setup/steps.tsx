@@ -102,13 +102,15 @@ const personKernel: Readonly<
     optional: true,
     // Pi's defaults is an answer too, kept as the step's reminder put away.
     done: async () => {
-      const [profiles, setup] = await Promise.all([
+      const [profiles, setup, defaults] = await Promise.all([
         request("profiles.list"),
         request("me.setup"),
+        request("me.profileDefaults.files"),
       ]);
 
       return (
         setup.dismissed.includes("profile") ||
+        defaults.length > 0 ||
         profiles.some(
           (profile) =>
             profile.ownerId !== null &&

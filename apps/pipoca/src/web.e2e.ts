@@ -2644,6 +2644,197 @@ test("someone who joins finds the team's template picked in Where, and Continue 
   await admin(`/api/environment-templates/${template.id}`, "DELETE");
 }, 30_000);
 
+test("someone who joins brings their Pi setup into My defaults, adding to it and leaving the shared Default alone", async () => {
+  const folder = join(root, "lia-agent");
+
+  await mkdir(join(folder, "skills", "review"), { recursive: true });
+  await writeFile(join(folder, "skills", "review", "SKILL.md"), "# Review");
+  await writeFile(join(folder, "AGENTS.md"), "Lia's rules");
+
+  await writeFile(
+    join(folder, "settings.json"),
+    JSON.stringify({ packages: ["npm:pi-brought"] }),
+  );
+
+  const sharedBefore = await (
+    await fetch(new URL("/api/profiles/default", server.url), {
+      headers: { cookie },
+    })
+  ).json();
+
+  const [invite] = (await (
+    await fetch(new URL("/api/invites", server.url), {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: "{}",
+    })
+  ).json()) as { readonly token: string }[];
+
+  const context = await browser.newContext();
+
+  try {
+    const tab = await context.newPage();
+    await tab.goto(new URL(`/#join/${invite?.token ?? ""}`, server.url).href);
+
+    const account = tab.getByRole("form", { name: "Make your account" });
+    await account.getByLabel("Username").fill("lia");
+    await account.getByLabel("Password").fill("correct horse");
+    await account.getByRole("button", { name: "Join" }).click();
+
+    await tab.getByRole("list", { name: "Your steps" }).waitFor();
+
+    await tab.evaluate(async () =>
+      fetch("/api/me/profile-defaults", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ packages: ["npm:pi-kept"] }),
+      }),
+    );
+
+    await tab.goto(`${server.url.href}#get-started/profile`);
+    await tab.getByRole("heading", { name: "Make Pi yours" }).waitFor();
+    await tab.getByRole("radio", { name: /^Bring my Pi setup/ }).check();
+    await tab.getByLabel("Pick the folder").setInputFiles(folder);
+
+    await tab
+      .getByRole("button", { name: /^Import \d+ items into My defaults$/ })
+      .click();
+
+    await tab
+      .getByRole("status")
+      .getByText(/into My defaults\.$/)
+      .waitFor();
+
+    const defaults = (await tab.evaluate(async () =>
+      (await fetch("/api/me/profile-defaults")).json(),
+    )) as { agentsMd: string; packages: unknown[] };
+
+    expect(defaults.agentsMd).toBe("Lia's rules");
+    expect(defaults.packages).toEqual(["npm:pi-kept", "npm:pi-brought"]);
+  } finally {
+    await context.close();
+  }
+
+  expect(
+    await (
+      await fetch(new URL("/api/profiles/default", server.url), {
+        headers: { cookie },
+      })
+    ).json(),
+  ).toEqual(sharedBefore);
+}, 30_000);
+
+test("starts a person's default Profile from a Profile a repository's pipoca.json lists, or says what to add", async () => {
+  const url = "https://git.example.com/me/dotfiles.git";
+  let made: unknown;
+
+  await page.route("**/api/repositories/manifest?*", async (route) =>
+    route.fulfill({
+      json:
+        new URL(route.request().url()).searchParams
+          .get("url")
+          ?.endsWith("bare.git") === true
+          ? {
+              found: false,
+              commit: "0".repeat(40),
+              profiles: [],
+              templates: [],
+            }
+          : {
+              found: true,
+              commit: "3f9c2e1".padEnd(40, "0"),
+              profiles: [
+                {
+                  name: "My Pi",
+                  path: ".pi/agent",
+                  holds: { skills: 6, packages: 2, agentsMd: true },
+                },
+                {
+                  name: "Minimal",
+                  path: ".pi/minimal",
+                  holds: { skills: 0, packages: 0, agentsMd: true },
+                },
+              ],
+              templates: [],
+            },
+    }),
+  );
+
+  await page.route("**/api/profiles", async (route) => {
+    if (route.request().method() !== "POST") {
+      return route.fallback();
+    }
+
+    made = route.request().postDataJSON();
+
+    return route.fulfill({
+      json: { id: "minimal", name: "Minimal", isDefault: false },
+    });
+  });
+
+  await page.route("**/api/profiles/minimal", async (route) =>
+    route.fulfill({
+      json: { id: "minimal", name: "Minimal", isDefault: true },
+    }),
+  );
+
+  try {
+    await page.goto(`${server.url.href}#get-started/profile`);
+    await page.getByRole("heading", { name: "Make Pi yours" }).waitFor();
+
+    await page
+      .getByRole("radio", { name: /^Start from a git repository/ })
+      .check();
+
+    await page
+      .getByLabel("Repository address")
+      .fill(url.replace("dotfiles", "bare"));
+
+    await page.getByRole("button", { name: "Look" }).click();
+
+    const nothing = page.getByRole("group", { name: "Nothing listed" });
+
+    await nothing
+      .getByText("No pipoca.json at the root of this repository")
+      .waitFor();
+
+    await nothing
+      .getByRole("link", { name: "How pipoca.json works" })
+      .waitFor();
+
+    await page.getByLabel("Repository address").fill(url);
+    await page.getByRole("button", { name: "Look" }).click();
+
+    const listed = page.getByRole("group", {
+      name: "Profiles in the repository",
+    });
+
+    await listed.getByText("pipoca.json lists 2 Profiles").waitFor();
+    await listed.getByText("dotfiles @ 3f9c2e1").waitFor();
+
+    await listed
+      .getByText(".pi/agent · 6 skills, 2 packages, AGENTS.md")
+      .waitFor();
+
+    expect(await nothing.count()).toBe(0);
+
+    await listed.getByRole("radio", { name: /^Minimal/ }).check();
+
+    await listed
+      .getByRole("button", { name: "Make “Minimal” my default Profile" })
+      .click();
+
+    await page
+      .getByRole("status")
+      .getByText("Made Minimal your default Profile.")
+      .waitFor();
+
+    expect(made).toEqual({ source: { url, path: ".pi/minimal" } });
+  } finally {
+    await page.unrouteAll({ behavior: "wait" });
+  }
+});
+
 test("shows why an Environment's last runner pod failed", async () => {
   await page.route("**/api/ext/kubernetes/environments/*", async (route) =>
     route.fulfill({

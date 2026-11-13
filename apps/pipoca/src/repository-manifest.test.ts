@@ -17,6 +17,7 @@ import type {
   EnvironmentTemplate,
   ManifestEntry,
   Profile,
+  RepositoryManifest,
 } from "@pipoca/protocol";
 import { definePlugin, defineServer } from "@pipoca/plugins";
 import { json, testServer, type TestServer } from "./testdata/harness";
@@ -269,13 +270,24 @@ test("imports the Profiles a repository's pipoca.json lists and follows the repo
     "profiles/docs/AGENTS.md": "Write docs.",
   });
 
-  const listed = await json<{ readonly profiles: ManifestEntry[] }>(
+  const listed = await json<RepositoryManifest>(
     server.api(`/api/repositories/manifest?url=${encodeURIComponent(url)}`),
   );
 
+  expect(listed.found).toBe(true);
+  expect(listed.commit).toMatch(/^[0-9a-f]{40}$/);
+
   expect(listed.profiles).toEqual([
-    { name: "Team review", path: "profiles/review" },
-    { name: "Team docs", path: "profiles/docs" },
+    {
+      name: "Team review",
+      path: "profiles/review",
+      holds: { skills: 1, packages: 0, agentsMd: true },
+    },
+    {
+      name: "Team docs",
+      path: "profiles/docs",
+      holds: { skills: 0, packages: 0, agentsMd: true },
+    },
   ]);
 
   const review = await json<Profile>(
@@ -623,3 +635,20 @@ async function httpBackend(
 
   return new Response(output.subarray(end + 4), { status, headers });
 }
+
+test("says whether a repository has a pipoca.json at all, apart from one that lists no Profiles", async () => {
+  const bare = await repository({ "README.md": "dotfiles" }, "bare");
+
+  const empty = await repository(
+    { "pipoca.json": JSON.stringify({ templates: [] }) },
+    "empty",
+  );
+
+  const read = async (url: string) =>
+    json<RepositoryManifest>(
+      server.api(`/api/repositories/manifest?url=${encodeURIComponent(url)}`),
+    );
+
+  expect(await read(bare)).toMatchObject({ found: false, profiles: [] });
+  expect(await read(empty)).toMatchObject({ found: true, profiles: [] });
+});

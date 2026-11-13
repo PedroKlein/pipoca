@@ -192,68 +192,77 @@ export const server = defineServer(gitHosts, (context) => {
     );
 
   // Team work reaches only what the team's bots reach (ADR 0060).
-  const teamRepositories = async (
+  const teamSearch = async (
     query: string,
-  ): Promise<readonly RepositoryChoice[]> =>
-    (
-      await Promise.all(
-        actingAs.teamReach().flatMap(({ host: name, kind, token }) => {
-          const host = hosts.get(name);
+    only?: string,
+  ): Promise<readonly HostSearch[]> =>
+    Promise.all(
+      actingAs.teamReach().flatMap(({ host: name, login, kind, token }) => {
+        const host = hosts.get(name);
 
-          if (host === undefined) {
-            return [];
-          }
+        if (host === undefined || (only !== undefined && only !== name)) {
+          return [];
+        }
 
-          const call = hostCall(host, context.network, {
-            owner: "team",
-            action: "team repo picker search",
-          });
+        const call = hostCall(host, context.network, {
+          owner: "team",
+          action: "team repo picker search",
+        });
 
-          const listed =
-            kind === "app"
-              ? installationRepositoriesOf(call, token, query)
-              : repositoriesOf(call, token, query);
+        const listed =
+          kind === "app"
+            ? installationRepositoriesOf(call, token, query)
+            : repositoriesOf(call, token, query);
 
-          return [
-            listed.then(
-              (found) =>
-                found.map(({ url, name: repository }) => ({
-                  url,
-                  name: repository,
-                  group: host.label,
-                })),
-              (failure: unknown) => {
-                if (!(
-                  failure instanceof HostRefused ||
-                  failure instanceof Unreachable
-                )) {
-                  throw failure;
-                }
+        return [
+          listed.then(
+            (repositories): HostSearch => ({ host, login, repositories }),
+            (failure: unknown): HostSearch => {
+              if (!(
+                failure instanceof HostRefused || failure instanceof Unreachable
+              )) {
+                throw failure;
+              }
 
-                log("team repository search failed", {
-                  host: name,
-                  error: failure.message,
-                });
+              log("team repository search failed", {
+                host: name,
+                error: failure.message,
+              });
 
-                return [];
-              },
-            ),
-          ];
-        }),
-      )
-    ).flat();
+              return {
+                host,
+                login,
+                repositories: [],
+                failure: failure.message,
+              };
+            },
+          ),
+        ];
+      }),
+    );
+
+  const choices = (found: readonly HostSearch[]): readonly RepositoryChoice[] =>
+    found.flatMap(({ host, repositories }) =>
+      repositories.map(({ url, name }) => ({ url, name, group: host.label })),
+    );
 
   context.tools.define(
     repositoriesTool({
-      accounts: (userId) =>
-        connections.accounts(userId).flatMap(({ host: name, login }) => {
+      accounts: ({ owner, session }) =>
+        (owner === "team"
+          ? actingAs.teamReach()
+          : connections.accounts(session.startedBy ?? "")
+        ).flatMap(({ host: name, login }) => {
           const host = hosts.get(name);
 
           return host === undefined
             ? []
             : [{ host: host.host, label: host.label, login }];
         }),
-      search,
+      search: async ({ owner, session }, query, only) =>
+        owner === "team"
+          ? teamSearch(query, only)
+          : search(session.startedBy ?? "", query, only),
     }),
   );
 
@@ -292,13 +301,10 @@ export const server = defineServer(gitHosts, (context) => {
     async ({ caller, query }): Promise<readonly RepositoryChoice[]> => {
       const typed = query.q.trim();
 
-      if (caller.owner === "team") {
-        return teamRepositories(typed);
-      }
-
-      return (await search(caller.person.id, typed)).flatMap(
-        ({ host, repositories: found }) =>
-          found.map(({ url, name }) => ({ url, name, group: host.label })),
+      return choices(
+        caller.owner === "team"
+          ? await teamSearch(typed)
+          : await search(caller.person.id, typed),
       );
     },
   );

@@ -141,11 +141,21 @@ export async function pickedOf(chosen: readonly File[]): Promise<Picked> {
   };
 }
 
+// What the folder goes into already holds, which the import adds to.
+export interface Existing {
+  readonly packages: readonly unknown[];
+  readonly settings: Readonly<Record<string, unknown>>;
+  readonly mcpServers: Readonly<Record<string, unknown>>;
+}
+
+const nothing: Existing = { packages: [], settings: {}, mcpServers: {} };
+
 // The picked folder's files without what the person left out, with
-// settings.json and mcp.json rewritten to match.
+// settings.json and mcp.json rewritten to match and added to what is there.
 export async function filesToImport(
   picked: Picked,
   left: ReadonlySet<string>,
+  existing: Existing = nothing,
 ): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
 
@@ -166,21 +176,35 @@ export async function filesToImport(
     files[path] = base64(new Uint8Array(await file.arrayBuffer()));
   }
 
-  const packages = picked.packages.filter(
+  const kept = picked.packages.filter(
     (entry) => !left.has(`package/${packageName(entry)}`),
   );
 
+  const there = new Set(existing.packages.map(packageName));
+
+  const packages = [
+    ...existing.packages,
+    ...kept.filter((entry) => !there.has(packageName(entry))),
+  ];
+
   if (picked.files.has("settings.json")) {
     files["settings.json"] = encode(
-      JSON.stringify({ ...picked.settings, packages }, null, 2),
+      JSON.stringify(
+        { ...existing.settings, ...picked.settings, packages },
+        null,
+        2,
+      ),
     );
   }
 
-  const mcpServers = Object.fromEntries(
-    Object.entries(picked.mcpServers).filter(
-      ([name]) => !left.has(`mcp/${name}`),
+  const mcpServers = {
+    ...existing.mcpServers,
+    ...Object.fromEntries(
+      Object.entries(picked.mcpServers).filter(
+        ([name]) => !left.has(`mcp/${name}`),
+      ),
     ),
-  );
+  };
 
   if (Object.keys(mcpServers).length > 0) {
     files["mcp.json"] = encode(JSON.stringify({ mcpServers }, null, 2));

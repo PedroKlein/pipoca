@@ -8,6 +8,7 @@ export {
 export {
   InvalidRepository,
   listedIn,
+  manifestFound,
   picked,
   repositoryFile,
   repositoryFolder,

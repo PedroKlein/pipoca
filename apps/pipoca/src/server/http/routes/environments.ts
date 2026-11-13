@@ -245,7 +245,7 @@ export function templateRoutes({
         templates?.listed(url, clone) ?? [],
       ]);
 
-      return { profiles: listedProfiles, templates: listedTemplates };
+      return { ...listedProfiles, templates: listedTemplates };
     },
   };
 }

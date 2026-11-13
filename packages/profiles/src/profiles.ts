@@ -1,7 +1,7 @@
 import { lstat, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import {
-  type ManifestEntry,
+  type ListedProfile,
   type PiPackage,
   type Profile,
   type ProfileContent,
@@ -23,6 +23,7 @@ import { InvalidProfile } from "./invalid";
 import {
   type CloneOptions,
   listedIn,
+  manifestFound,
   picked,
   repositoryFolder,
   syncFollowers,
@@ -577,12 +578,29 @@ export class Profiles {
     );
   }
 
-  // The Profiles a repository's pipoca.json lists (ADR 0063).
+  // The Profiles a repository's pipoca.json lists (ADR 0063), with what
+  // each folder holds, at the commit read.
   async listed(
     url: string,
     clone: CloneOptions = {},
-  ): Promise<readonly ManifestEntry[]> {
-    return withClone(url, ({ dir }) => listedIn(dir, "profiles"), clone);
+  ): Promise<{
+    readonly found: boolean;
+    readonly commit: string;
+    readonly profiles: readonly ListedProfile[];
+  }> {
+    return withClone(
+      url,
+      ({ dir, commit }) => ({
+        found: manifestFound(dir),
+        commit,
+        profiles: listedIn(dir, "profiles").map((entry) => {
+          const holds = holdings(dir, entry.path);
+
+          return holds === undefined ? entry : { ...entry, holds };
+        }),
+      }),
+      clone,
+    );
   }
 
   // Each picked folder becomes a Profile of the importer's that follows the
@@ -1002,4 +1020,42 @@ function folderFiles(dir: string, path: string): ReadonlyMap<string, Buffer> {
       readFileSync(join(folder, file)),
     ]),
   );
+}
+
+// A listed folder's skills, packages and AGENTS.md, or nothing when the
+// folder isn't there.
+function holdings(dir: string, path: string): ListedProfile["holds"] {
+  let files: ReadonlyMap<string, Buffer>;
+  try {
+    files = folderFiles(dir, path);
+  } catch {
+    return undefined;
+  }
+
+  const skills = new Set(
+    [...files.keys()].flatMap((file) => {
+      const [top, name, leaf] = file.split("/");
+
+      return top === "skills" && leaf === "SKILL.md" && name !== undefined
+        ? [name]
+        : [];
+    }),
+  );
+
+  return {
+    skills: skills.size,
+    packages: packageCount(files.get("settings.json")),
+    agentsMd: files.has("AGENTS.md"),
+  };
+}
+
+function packageCount(settings: Buffer | undefined): number {
+  try {
+    const parsed: unknown = JSON.parse(settings?.toString("utf8") ?? "{}");
+    const listed = isRecord(parsed) ? parsed["packages"] : undefined;
+
+    return Array.isArray(listed) ? listed.length : 0;
+  } catch {
+    return 0;
+  }
 }

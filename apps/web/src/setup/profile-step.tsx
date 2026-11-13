@@ -1,4 +1,3 @@
-import type { Profile } from "@pipoca/protocol";
 import {
   Button,
   ChoiceCard,
@@ -7,6 +6,7 @@ import {
   Icon,
   TextInput,
 } from "@pipoca/ui";
+import type { ListedProfile, RepositoryManifest } from "@pipoca/protocol";
 import { type ReactElement, useState } from "react";
 import { request } from "../data/client";
 import { seed, useAction } from "../data/hooks";
@@ -15,14 +15,22 @@ import { groups, type Picked, pickedOf, filesToImport } from "./profile-import";
 
 type Choice = "team" | "folder" | "git" | "clean";
 
-// Starts the person's default Profile from a team Profile, an existing Pi
-// setup item by item, or a repository (ADR 0063). Pi's defaults is an
+interface Found {
+  readonly url: string;
+  readonly manifest: RepositoryManifest;
+}
+
+const manifestDocs =
+  "https://pipoca.dev/docs/use/profiles/#profiles-from-a-repository";
+
+const manifestExample = `{ "profiles": [ { "name": "My Pi", "path": ".pi/agent" } ] }`;
+
+// Starts the person's own setup from a team Profile, an existing Pi setup
+// item by item into My defaults, or a repository (ADR 0063). Pi's defaults is an
 // answer too, so the step always has one and no Skip (ADR 0072).
 export function ProfileStep({
-  profiles,
   team,
 }: {
-  readonly profiles: readonly Profile[];
   // The team Profiles on offer, drawn as chips to pick.
   readonly team?: ReactElement | undefined;
 }): ReactElement {
@@ -30,9 +38,9 @@ export function ProfileStep({
   const [picked, setPicked] = useState<Picked>();
   const [left, setLeft] = useState<ReadonlySet<string>>(new Set());
   const [url, setUrl] = useState("");
+  const [found, setFound] = useState<Found>();
+  const [path, setPath] = useState<string>();
   const [done, setDone] = useState<string>();
-
-  const target = profiles.find(({ isDefault }) => isDefault);
 
   const toggle = (id: string): void => {
     const next = new Set(left);
@@ -46,7 +54,8 @@ export function ProfileStep({
 
   const action = useAction(async (work: () => Promise<string>) => {
     setDone(undefined);
-    setDone(await work());
+    const said = await work();
+    setDone(said === "" ? undefined : said);
   });
 
   const run = (work: () => Promise<string>): void => {
@@ -159,63 +168,100 @@ export function ProfileStep({
                 })}
               </ul>
             )}
-            {picked !== undefined && target !== undefined && (
-              <Button
-                variant="primary"
-                className="self-start"
-                onClick={() => {
-                  run(async () => {
-                    await request("profiles.files.upload", {
-                      params: { id: target.id },
-                      body: { files: await filesToImport(picked, left) },
-                    });
+            {picked !== undefined && (
+              <>
+                <p className="text-label text-fg-dim">
+                  Goes into{" "}
+                  <span className="font-medium text-fg">My defaults</span>,
+                  yours alone, under every Profile of yours. Packages and MCP
+                  servers are added to what's there, never replace it. The
+                  server's shared Default stays as it is.
+                </p>
+                <Button
+                  variant="primary"
+                  className="self-start"
+                  onClick={() => {
+                    run(async () => {
+                      const existing = await request("me.profileDefaults");
 
-                    return `Imported ${String(kept)} items into ${target.name}.`;
-                  });
-                }}
-              >
-                Import {kept} {kept === 1 ? "item" : "items"}
-              </Button>
+                      await request("me.profileDefaults.files.upload", {
+                        body: {
+                          files: await filesToImport(picked, left, existing),
+                        },
+                      });
+
+                      return `Imported ${String(kept)} ${kept === 1 ? "item" : "items"} into My defaults.`;
+                    });
+                  }}
+                >
+                  Import {kept} {kept === 1 ? "item" : "items"} into My defaults
+                </Button>
+              </>
             )}
           </div>,
         )}
         {option(
           "git",
           "Start from a git repository",
-          "A repository with a Pi agent folder, such as your dotfiles. It becomes your default Profile.",
-          <form
-            className="flex flex-wrap gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
+          "A repository with a pipoca.json at its root that says where its Pi config is.",
+          <div className="flex flex-col gap-3">
+            <form
+              className="flex flex-wrap gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const looked = url.trim();
 
-              run(async () => {
-                const made = await request("profiles.create", {
-                  body: { source: { url } },
+                run(async () => {
+                  setFound(undefined);
+
+                  const manifest = await request("repositories.manifest", {
+                    query: { url: looked },
+                  });
+
+                  setFound({ url: looked, manifest });
+                  setPath(manifest.profiles[0]?.path);
+
+                  return "";
                 });
-
-                await request("profiles.update", {
-                  params: { id: made.id },
-                  body: { isDefault: true },
-                });
-
-                return `Made ${made.name} your default Profile.`;
-              });
-            }}
-          >
-            <TextInput
-              aria-label="Repository address"
-              required
-              value={url}
-              placeholder="https://git.example.com/you/dotfiles.git"
-              onChange={(event) => {
-                setUrl(event.target.value);
               }}
-              className="min-w-60 flex-1"
-            />
-            <Button variant="primary" type="submit">
-              Import
-            </Button>
-          </form>,
+            >
+              <TextInput
+                aria-label="Repository address"
+                required
+                value={url}
+                placeholder="https://git.example.com/you/dotfiles.git"
+                onChange={(event) => {
+                  setUrl(event.target.value);
+                }}
+                className="min-w-60 flex-1"
+              />
+              <Button type="submit">Look</Button>
+            </form>
+            {found !== undefined && found.manifest.profiles.length > 0 && (
+              <Listed
+                found={found}
+                path={path}
+                onPath={setPath}
+                onPick={(entry) => {
+                  run(async () => {
+                    const made = await request("profiles.create", {
+                      body: { source: { url: found.url, path: entry.path } },
+                    });
+
+                    await request("profiles.update", {
+                      params: { id: made.id },
+                      body: { isDefault: true },
+                    });
+
+                    return `Made ${made.name} your default Profile.`;
+                  });
+                }}
+              />
+            )}
+            {found?.manifest.profiles.length === 0 && (
+              <NothingListed found={found.manifest.found} />
+            )}
+          </div>,
         )}
         {option(
           "clean",
@@ -248,6 +294,131 @@ export function ProfileStep({
         Profiles: from scratch, a copy of a team Profile, a folder or a
         repository.
       </p>
+    </div>
+  );
+}
+
+function holdings({ path, holds }: ListedProfile): string {
+  if (holds === undefined) {
+    return `${path} · not in the repository`;
+  }
+
+  const parts = [
+    holds.skills > 0 &&
+      `${String(holds.skills)} ${holds.skills === 1 ? "skill" : "skills"}`,
+    holds.packages > 0 &&
+      `${String(holds.packages)} ${holds.packages === 1 ? "package" : "packages"}`,
+    holds.agentsMd && "AGENTS.md",
+  ].filter((part) => part !== false);
+
+  return [path, parts.length === 0 ? "empty" : parts.join(", ")].join(" · ");
+}
+
+// The Profiles a repository's pipoca.json lists, one to make the default.
+function Listed({
+  found: { url, manifest },
+  path,
+  onPath,
+  onPick,
+}: {
+  readonly found: Found;
+  readonly path: string | undefined;
+  readonly onPath: (path: string) => void;
+  readonly onPick: (entry: ListedProfile) => void;
+}): ReactElement {
+  const count = manifest.profiles.length;
+  const picked = manifest.profiles.find((entry) => entry.path === path);
+
+  const repository =
+    url
+      .replace(/\.git$/, "")
+      .split("/")
+      .at(-1) ?? url;
+
+  return (
+    <div
+      role="group"
+      aria-label="Profiles in the repository"
+      className="flex flex-col gap-3 rounded-lg border border-line bg-bg p-4"
+    >
+      <span className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="text-ui font-medium text-fg-strong">
+          pipoca.json lists {count} {count === 1 ? "Profile" : "Profiles"}
+        </span>
+        <span className="font-mono text-mono-sm text-fg-dim">
+          {repository} @ {manifest.commit.slice(0, 7)}
+        </span>
+      </span>
+      <ul className="flex flex-col gap-1.5">
+        {manifest.profiles.map((entry) => (
+          <li key={entry.path}>
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-md px-2 py-1.5 hover:bg-hover">
+              <input
+                type="radio"
+                name="listed-profile"
+                className="mt-1"
+                checked={entry.path === path}
+                onChange={() => {
+                  onPath(entry.path);
+                }}
+              />
+              <span className="flex flex-col">
+                <span className="text-label font-medium text-fg">
+                  {entry.name}
+                </span>
+                <span className="font-mono text-mono-sm text-fg-dim">
+                  {holdings(entry)}
+                </span>
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <span className="text-caption text-fg-dim">
+        It stays in sync: pushes to the repository update the Profile.
+      </span>
+      {picked !== undefined && (
+        <Button
+          variant="primary"
+          className="self-start"
+          onClick={() => {
+            onPick(picked);
+          }}
+        >
+          Make “{picked.name}” my default Profile
+        </Button>
+      )}
+    </div>
+  );
+}
+
+// What to add when a repository lists no Profile.
+function NothingListed({ found }: { readonly found: boolean }): ReactElement {
+  return (
+    <div
+      role="group"
+      aria-label="Nothing listed"
+      className="flex flex-col gap-2 rounded-lg border border-line bg-bg p-4"
+    >
+      <span className="text-ui font-medium text-fg-strong">
+        {found
+          ? "This repository's pipoca.json lists no Profiles"
+          : "No pipoca.json at the root of this repository"}
+      </span>
+      <span className="text-label text-fg-dim">
+        Add one that points at your Pi config, push, then look again:
+      </span>
+      <code className="rounded-md bg-elevated px-3 py-2 font-mono text-mono-sm text-fg">
+        {manifestExample}
+      </code>
+      <a
+        href={manifestDocs}
+        target="_blank"
+        rel="noreferrer"
+        className="self-start text-label text-fg underline"
+      >
+        How pipoca.json works
+      </a>
     </div>
   );
 }
