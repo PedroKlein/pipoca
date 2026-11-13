@@ -175,8 +175,13 @@ export function RepoPicker({
         }
       : undefined;
 
+  // A path or URL is what the person means; a word is a search, so what it
+  // matches comes first.
+  const madeFirst = listed.length === 0 || /[/:~]|^\./.test(typed);
+  const typedSection = made ? [{ title: "", options: [made], more: 0 }] : [];
+
   const sections = [
-    ...(made ? [{ title: "", options: [made], more: 0 }] : []),
+    ...(madeFirst ? typedSection : []),
     ...(recentShown.length > 0
       ? [{ title: "Recent", options: recentShown, more: 0 }]
       : []),
@@ -185,6 +190,7 @@ export function RepoPicker({
       options: options.slice(0, perHost),
       more: Math.max(0, options.length - perHost),
     })),
+    ...(madeFirst ? [] : typedSection),
   ];
 
   const rows = sections.flatMap(({ options }) => options);

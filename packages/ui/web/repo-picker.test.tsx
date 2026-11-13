@@ -102,7 +102,7 @@ test("filters by host, and lists the Environment's folders on their own", () => 
   expect(names(page)).not.toContain("notes");
 });
 
-test("a search narrows every host, and picks several, shown as chips to remove", () => {
+test("a search narrows every host, matches first, and picks several, shown as chips to remove", () => {
   let picked: readonly string[] = [];
   const searched: string[] = [];
 
@@ -120,9 +120,8 @@ test("a search narrows every host, and picks several, shown as chips to remove",
   type(search, "notes");
 
   expect(searched.at(-1)).toBe("notes");
-  expect(names(page)).toEqual(["Use notes", "pedro/terraform-notes"]);
+  expect(names(page)).toEqual(["pedro/terraform-notes", "Use notes"]);
 
-  press(search, "ArrowDown");
   press(search, "Enter");
 
   expect(picked).toEqual([
