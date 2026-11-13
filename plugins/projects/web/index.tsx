@@ -19,6 +19,8 @@ import {
   checkoutName,
   type Environment,
   type Profile,
+  type ProfileContent,
+  profileModel,
   type Session,
 } from "@pipoca/protocol";
 import {
@@ -933,6 +935,19 @@ function CreateForm({
       { topics: ["profiles"] },
     ).value ?? [];
 
+  const under =
+    useLoaded(
+      async () =>
+        Promise.all([
+          ...(team
+            ? []
+            : [api.get<ProfileContent>("/api/me/profile-defaults")]),
+          api.get<ProfileContent>("/api/settings/base-profile"),
+        ]),
+      team ? "team-layers" : "layers",
+      { topics: ["profiles"] },
+    ).value ?? [];
+
   const [repositories, setRepositories] = useState<readonly string[]>([]);
   const [environment, setEnvironment] = useState("");
   const [profile, setProfile] = useState("");
@@ -954,7 +969,8 @@ function CreateForm({
     unavailable: runsOn?.unavailableModels ?? [],
   });
 
-  const picked = models.find(({ value }) => value === model);
+  const starting = model || profileModel(profileShown, profiles, under);
+  const picked = models.find(({ value }) => value === starting);
   const defaultModel = team ? "Team default" : "Default model";
 
   const submit = (event: SubmitEvent<HTMLFormElement>): void => {
@@ -1098,12 +1114,12 @@ function CreateForm({
               onPick={setModel}
             >
               {picked === undefined
-                ? model || defaultModel
+                ? (starting ?? defaultModel)
                 : `${picked.name ?? picked.id} · ${picked.providerName}`}
             </ModelField>
             <p className="text-caption text-fg-dim">
               {team
-                ? "With the team's keys."
+                ? `${model === "" ? "Team default, with" : "With"} the team's keys.`
                 : "The Profile's model unless you pick one."}
             </p>
           </div>

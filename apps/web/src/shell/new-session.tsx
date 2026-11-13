@@ -2,6 +2,7 @@ import {
   availability,
   type ApiInput,
   type Environment,
+  profileModel,
   repositoryHost,
   thinkingLevels,
 } from "@pipoca/protocol";
@@ -284,6 +285,17 @@ export function NewSessionForm({
     profiles.find(({ isDefault }) => isDefault) ??
     (team ? profiles[0] : undefined);
 
+  const base = useQuery("settings.baseProfile").data;
+  const myDefaults = useQuery("me.profileDefaults").data;
+
+  const profileDefault = profileModel(
+    profile,
+    profiles,
+    [team ? undefined : myDefaults, base].filter(
+      (layer) => layer !== undefined,
+    ),
+  );
+
   const recent = recentPlaces(sessions, chosen?.id);
 
   const models = pickerModels(chosen?.models ?? [], {
@@ -499,7 +511,9 @@ export function NewSessionForm({
           }}
         >
           {choices.model === ""
-            ? "Default model"
+            ? (models.find(({ value }) => value === profileDefault)?.name ??
+              profileDefault ??
+              "Default model")
             : (models.find(({ value }) => value === choices.model)?.name ??
               choices.model)}
           {choices.thinking !== "" && ` · ${choices.thinking}`}
