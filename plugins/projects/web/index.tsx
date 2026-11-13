@@ -93,9 +93,11 @@ export const web = defineWeb(projects, {
     {
       path: "",
       label: "Assistant",
+      icon: "star",
       Page: ProjectsPage,
       nav: {
         Items,
+        Live: OwnLive,
         fills: (path) => path !== "" && path !== projectList,
         pinned: true,
       },
@@ -113,7 +115,7 @@ export const web = defineWeb(projects, {
       icon: "folder",
       Page: TeamProjectsPage,
       area: "hub",
-      nav: { Items: TeamItems },
+      nav: { Live: TeamLive },
     },
   ],
   sessionPath: (session) => `${session.plugin?.key ?? ""}/${session.id}`,
@@ -526,50 +528,10 @@ function MessageNotice({
 }
 
 function Items({ path }: NavItemsProps): ReactElement {
-  const api = useApi(projects);
-
-  const list = useLoaded(
-    async () => api.get<ProjectSummary[]>("projects"),
-    "projects",
-    watched,
-  ).value;
-
-  return (
-    <>
-      <AssistantItems path={path} />
-      <ul id="project-nav" className="flex flex-col gap-0.5">
-        {list
-          ?.filter((project) => project.coordinatorState !== "archived")
-          .map((project) => (
-            <li key={project.id}>
-              <a
-                href={link(project.id)}
-                aria-current={
-                  path?.split("/")[0] === project.id ? "page" : undefined
-                }
-                className="grid grid-cols-[1fr_auto] items-center gap-x-2 gap-y-0.5 rounded-md py-1.5 pr-2 pl-10.5 text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:text-fg-strong"
-              >
-                <span className="truncate text-label font-medium">
-                  {project.name}
-                </span>
-                {project.needsYou > 0 ? (
-                  <Badge state="waiting">{project.needsYou} needs you</Badge>
-                ) : (
-                  <span />
-                )}
-                <span className="col-span-2 truncate text-caption text-fg-dim">
-                  {counted(project.repositories, "repository", "repositories")}{" "}
-                  · coordinator {project.coordinatorState}
-                </span>
-              </a>
-            </li>
-          ))}
-      </ul>
-    </>
-  );
+  return <AssistantItems path={path} />;
 }
 
-function teamTone(project: ProjectSummary): DotTone | undefined {
+function tone(project: ProjectSummary): DotTone | undefined {
   if (project.needsYou > 0) {
     return "waiting";
   }
@@ -577,13 +539,24 @@ function teamTone(project: ProjectSummary): DotTone | undefined {
   return project.coordinatorState === "working" ? "working" : undefined;
 }
 
-// Under the team's main entries, its Projects that aren't archived.
-function TeamItems({ path }: NavItemsProps): ReactElement | null {
+function OwnLive({ path }: NavItemsProps): ReactElement | null {
+  return <ActiveProjects path={path} team={false} />;
+}
+
+function TeamLive({ path }: NavItemsProps): ReactElement | null {
+  return <ActiveProjects path={path} team />;
+}
+
+// Below the sidebar's entries, the Projects that aren't archived.
+function ActiveProjects({
+  path,
+  team,
+}: NavItemsProps & { readonly team: boolean }): ReactElement | null {
   const api = useApi(projects);
 
   const list = useLoaded(
-    async () => teamList(api),
-    "team-projects",
+    async () => (team ? teamList(api) : api.get<ProjectSummary[]>("projects")),
+    team ? "team-projects" : "projects",
     watched,
   ).value?.filter(({ coordinatorState }) => coordinatorState !== "archived");
 
@@ -596,25 +569,28 @@ function TeamItems({ path }: NavItemsProps): ReactElement | null {
       <h2 className="px-2 pb-1 text-caption font-medium text-fg-dim">
         Active Projects
       </h2>
-      <ul className="flex flex-col gap-0.5">
+      <ul
+        id={team ? "team-project-nav" : "project-nav"}
+        className="flex flex-col gap-0.5"
+      >
         {list.map((project) => (
           <li key={project.id}>
             <a
-              href={link(project.id, true)}
+              href={link(project.id, team)}
               aria-current={
                 path?.split("/")[0] === project.id ? "page" : undefined
               }
               className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:text-fg-strong"
             >
-              <StatusDot tone={teamTone(project)} />
+              <StatusDot tone={tone(project)} />
               <span className="flex min-w-0 flex-col">
                 <span className="truncate text-label font-medium">
                   {project.name}
                 </span>
                 <span className="truncate text-caption text-fg-dim">
                   {project.needsYou > 0
-                    ? `${counted(project.needsYou, "thread needs", "threads need")} someone`
-                    : `${counted(project.threads, "thread", "threads")} · coordinator ${project.coordinatorState}`}
+                    ? `${counted(project.needsYou, "thread needs", "threads need")} ${team ? "someone" : "you"}`
+                    : `${counted(project.repositories, "repository", "repositories")} · coordinator ${project.coordinatorState}`}
                 </span>
               </span>
             </a>

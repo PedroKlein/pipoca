@@ -17,6 +17,7 @@ import type { PluginInfo, RepositoryChoice, Session } from "@pipoca/protocol";
 import * as sdk from "@pipoca/plugins";
 import * as plugins from "@pipoca/plugins/web";
 import * as ui from "@pipoca/ui";
+import type { IconName } from "@pipoca/ui";
 import * as react from "react";
 import {
   type ComponentType,
@@ -272,7 +273,9 @@ export function permissionRenderer(
 export interface NavEntry {
   readonly name: string;
   readonly label: string;
+  readonly icon?: IconName;
   readonly Items?: ComponentType<NavItemsProps>;
+  readonly Live?: ComponentType<NavItemsProps>;
   readonly pinned: boolean;
 }
 
@@ -322,7 +325,9 @@ export function navEntries(): readonly NavEntry[] {
             name: id,
             label: listed.label,
             pinned: listed.nav?.pinned === true,
+            ...(listed.icon && { icon: listed.icon }),
             ...(listed.nav?.Items && { Items: listed.nav.Items }),
+            ...(listed.nav?.Live && { Live: listed.nav.Live }),
           },
         ]
       : [];

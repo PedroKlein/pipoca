@@ -1784,7 +1784,7 @@ test("draws a defined plugin's page and slots, pinned for someone who never chan
     const nav = page.locator("#plugin-nav");
 
     await nav.getByRole("link", { name: "Assistant", exact: true }).waitFor();
-    expect(await nav.getByRole("link", { name: "Routines" }).count()).toBe(0);
+    expect(await nav.getByRole("link", { name: "Artifacts", exact: true }).count()).toBe(0);
 
     await nav.getByRole("link", { name: "Vault" }).click();
     await page.getByRole("heading", { name: "Vault" }).waitFor();
@@ -1847,23 +1847,23 @@ test("says why an installed plugin's web part didn't load, and draws the rest", 
 test("pins a plugin page to the sidebar and keeps the rest under More", async () => {
   await page.goto(server.url.href);
   const nav = page.locator("#plugin-nav");
-  const routines = nav.getByRole("link", { name: "Routines" });
+  const artifacts = nav.getByRole("link", { name: "Artifacts", exact: true });
 
   await nav.getByRole("link", { name: "Assistant", exact: true }).waitFor();
-  expect(await routines.count()).toBe(0);
+  expect(await artifacts.count()).toBe(0);
 
   await nav.getByRole("button", { name: "More" }).click();
-  await nav.getByRole("button", { name: "Pin Routines" }).click();
-  await nav.getByRole("button", { name: "Unpin Routines" }).waitFor();
+  await nav.getByRole("button", { name: "Pin Artifacts" }).click();
+  await nav.getByRole("button", { name: "Unpin Artifacts" }).waitFor();
 
   await page.reload();
-  await routines.waitFor();
+  await artifacts.waitFor();
   expect(await nav.getByRole("button", { name: "More" }).count()).toBe(1);
 
-  await nav.getByRole("button", { name: "Unpin Routines" }).click();
+  await nav.getByRole("button", { name: "Unpin Artifacts" }).click();
   await page.reload();
   await nav.getByRole("link", { name: "Assistant", exact: true }).waitFor();
-  expect(await routines.count()).toBe(0);
+  expect(await artifacts.count()).toBe(0);
 });
 
 test("puts a pin back when the server doesn't save it", async () => {
@@ -1888,12 +1888,12 @@ test("puts a pin back when the server doesn't save it", async () => {
   const nav = page.locator("#plugin-nav");
 
   await nav.getByRole("button", { name: "More" }).click();
-  await nav.getByRole("button", { name: "Pin Routines" }).click();
-  await nav.getByRole("button", { name: "Unpin Routines" }).waitFor();
+  await nav.getByRole("button", { name: "Pin Artifacts" }).click();
+  await nav.getByRole("button", { name: "Unpin Artifacts" }).waitFor();
   refuse(undefined);
 
   await nav
-    .getByRole("button", { name: "Pin Routines", exact: true })
+    .getByRole("button", { name: "Pin Artifacts", exact: true })
     .waitFor({ timeout: 2000 });
 
   await page.unroute("**/api/me/pinned-pages");

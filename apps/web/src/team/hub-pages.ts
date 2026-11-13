@@ -51,7 +51,7 @@ export function screens(): readonly Screen[] {
               label,
               icon: icon ?? "panel-right",
               Page,
-              Items: nav?.Items,
+              Items: nav?.Live,
             },
           ]
         : [],

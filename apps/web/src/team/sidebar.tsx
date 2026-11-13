@@ -175,7 +175,10 @@ export function TeamSidebar({
         </div>
 
         {items.map(({ plugin, path, Items }) => (
-          <div key={plugin} className="mt-2 border-t border-line px-2 pt-3">
+          <div
+            key={plugin}
+            className="mt-2 border-t border-line px-2 pt-3 empty:hidden"
+          >
             <PluginBoundary name={plugin}>
               <Items path={path} />
             </PluginBoundary>

@@ -25,7 +25,7 @@ import {
 } from "react";
 import type { TypedClient } from "@pipoca/plugins";
 import { projects } from "../plugin";
-import type { ProjectView } from "../src/model";
+import type { ProjectSummary, ProjectView } from "../src/model";
 
 const modelKey = "pipoca.projects.model";
 
@@ -162,6 +162,13 @@ export function AssistantItems({
   readonly path: string | undefined;
 }): ReactElement {
   const assistant = useAssistant();
+  const api = useApi(projects);
+
+  const active = useLoaded(
+    async () => api.get<ProjectSummary[]>("projects"),
+    "projects",
+    { topics: ["sessions"], changes: ["projects"] },
+  ).value?.filter(({ coordinatorState }) => coordinatorState !== "archived");
 
   const item = (to: string, label: string): ReactElement => (
     <li>
@@ -177,7 +184,28 @@ export function AssistantItems({
 
   return (
     <ul className="flex flex-col gap-0.5">
-      {item(projectList, "Projects")}
+      <li>
+        <a
+          href={href(projects, projectList)}
+          aria-current={
+            path?.split("/")[0] === projectList ? "page" : undefined
+          }
+          className="group/nav flex items-center gap-2.5 rounded-md px-2 py-1.5 text-ui text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:text-fg-strong"
+        >
+          <span
+            aria-hidden="true"
+            className="grid size-6 place-items-center text-fg-dim group-aria-[current=page]/nav:text-accent"
+          >
+            <Icon name="folder" />
+          </span>
+          <span className="flex-1">Projects</span>
+          {active !== undefined && active.length > 0 && (
+            <span className="text-caption text-fg-dim tabular-nums">
+              {active.length}
+            </span>
+          )}
+        </a>
+      </li>
       {assistant && assistant.formerCoordinators.length > 0
         ? item(earlier, "Earlier conversations")
         : null}
