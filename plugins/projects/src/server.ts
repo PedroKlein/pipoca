@@ -31,7 +31,12 @@ import {
   threadNotice,
   threadView,
 } from "./prompts";
-import { type Member, type Project, projectStore } from "./store";
+import {
+  type Member,
+  type Project,
+  projectStore,
+  type Settings,
+} from "./store";
 import { modelRef, projectTools } from "./tools";
 
 type Context = ServerContext<typeof projects>;
@@ -63,18 +68,29 @@ const settingsFields = {
   ),
 };
 
-const settingsChange = Type.Object(settingsFields);
+const repositoriesField = Type.Array(Type.String(), {
+  description:
+    "Clone URLs of git repositories, such as https://github.com/owner/name.git, each with a different name. Use URLs the user gave or a tool found, never guessed ones. A folder that isn't a git repository can't be one.",
+});
+
+const settingsChange = Type.Object({
+  ...settingsFields,
+  repositories: Type.Optional(repositoriesField),
+});
 
 const newProject = Type.Object({
   ...settingsFields,
   name: Type.String(),
-  repositories: Type.Array(Type.String(), {
-    description:
-      "Clone URLs of git repositories, such as https://github.com/owner/name.git, each with a different name. Use URLs the user gave or a tool found, never guessed ones. A folder that isn't a git repository can't be one.",
-  }),
+  repositories: repositoriesField,
   environment: Type.Optional(Type.String({ description: "Environment id" })),
   model: Type.Optional(
     Type.String({ description: "provider/id of the coordinator's model" }),
+  ),
+  firstMessage: Type.Optional(
+    Type.String({
+      description:
+        "What the coordinator starts on, in the user's words, so it begins the work instead of waiting",
+    }),
   ),
 });
 
@@ -556,18 +572,7 @@ export const server = defineServer(projects, (context) => {
       throw new BadRequest("name is required");
     }
 
-    const urls = body.repositories.filter((url) => url.trim() !== "");
-    const names = urls.map(checkoutName);
-
-    if (
-      urls.length === 0 ||
-      names.includes(undefined) ||
-      new Set(names).size !== names.length
-    ) {
-      throw new BadRequest(
-        "a Project needs one or more repositories with different names",
-      );
-    }
+    const urls = checkedRepositories(body.repositories);
 
     const threadModel = (body.threadModel ?? "").trim() || null;
     checkedModel(threadModel);
@@ -587,7 +592,14 @@ export const server = defineServer(projects, (context) => {
         threadModel,
       },
       caller.person.id,
-      { model: body.model, profile },
+      {
+        model: body.model,
+        profile,
+        ...(body.firstMessage !== undefined &&
+          body.firstMessage.trim() !== "" && {
+            firstMessage: body.firstMessage,
+          }),
+      },
     );
   };
 
@@ -710,7 +722,7 @@ export const server = defineServer(projects, (context) => {
       tool: {
         name: "projects_update",
         description:
-          "Change a Project's settings. Only the fields given change.",
+          "Change a Project's settings. Only the fields given change. New repositories start its coordinator afresh with them checked out.",
         annotations: { destructiveHint: true },
         asks: {
           lookup: (input) =>
@@ -725,6 +737,41 @@ export const server = defineServer(projects, (context) => {
     ({ caller, params, body }) => {
       const project = theirs(params.id, caller, "steers");
       store.update(project.id, settingsOf(project, body));
+
+      const updated = store.get(project.id) ?? project;
+
+      return view(
+        body.repositories === undefined
+          ? updated
+          : startFresh(updated, caller.person.id),
+      );
+    },
+  );
+
+  routes.post(
+    "projects/:id/archive",
+    {
+      auth: "person",
+      team: true,
+      changes: ["projects"],
+      tool: {
+        name: "projects_archive",
+        description:
+          "Archive a Project with its coordinator and threads. It stays readable, and unarchiving its coordinator brings it back.",
+        annotations: { destructiveHint: true },
+        asks: {
+          lookup: (input) =>
+            `projects/${encodeURIComponent(typeof input["id"] === "string" ? input["id"] : "")}`,
+          text: (_input, found) =>
+            found === undefined
+              ? "Archive this Project?"
+              : `Archive “${(found as ProjectView).name}” with its threads?`,
+        },
+      },
+    },
+    ({ caller, params }) => {
+      const project = theirs(params.id, caller, "steers");
+      sessions.archive(project.coordinatorId);
 
       return view(store.get(project.id) ?? project);
     },
@@ -889,8 +936,25 @@ function checkedModel(name: string | null): void {
   }
 }
 
-// The settings a Project can change after it starts. The repositories and
-// Environment stay, since the coordinator's workspace was built from them.
+function checkedRepositories(repositories: readonly string[]): string[] {
+  const urls = repositories.filter((url) => url.trim() !== "");
+  const names = urls.map(checkoutName);
+
+  if (
+    urls.length === 0 ||
+    names.includes(undefined) ||
+    new Set(names).size !== names.length
+  ) {
+    throw new BadRequest(
+      "a Project needs one or more repositories with different names",
+    );
+  }
+
+  return urls;
+}
+
+// The settings a Project can change after it starts. Its Environment stays,
+// since the coordinator's workspace was built in it.
 function settingsOf(
   project: Project,
   {
@@ -899,11 +963,9 @@ function settingsOf(
     instructions,
     threadModel,
     profile,
+    repositories,
   }: Static<typeof settingsChange>,
-): Pick<
-  Project,
-  "name" | "goal" | "instructions" | "threadModel" | "profileId"
-> {
+): Settings {
   if (name?.trim() === "") {
     throw new BadRequest("name must not be empty");
   }
@@ -924,6 +986,10 @@ function settingsOf(
     instructions: instructions ?? project.instructions,
     threadModel: model,
     profileId: profileId === undefined ? project.profileId : profileId,
+    repositories:
+      repositories === undefined
+        ? project.repositories
+        : checkedRepositories(repositories),
   };
 }
 
