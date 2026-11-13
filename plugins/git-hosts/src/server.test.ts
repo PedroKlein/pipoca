@@ -404,7 +404,11 @@ function fakeHost(now: () => number) {
             ]);
       case "/api/v3/user/repos":
         return Response.json([
-          repository("acme/aicore-provider"),
+          {
+            ...(repository("acme/aicore-provider") as Item),
+            pushed_at: "2026-11-12T10:00:00Z",
+            language: "TypeScript",
+          },
           repository("acme/dotfiles"),
           ...Array.from({ length: 30 }, (_, at) =>
             repository(`acme/tool-${String(at)}`),
@@ -815,7 +819,7 @@ test("connects an account through the host's OAuth app, only in the browser that
   expect(again.status).toBe(400);
 });
 
-test("finds the repositories of each connected host for what the person typed", async () => {
+test("finds the repositories of each connected host for what the person typed, with when they were pushed", async () => {
   await using run = await start();
   const { t } = run;
 
@@ -826,11 +830,15 @@ test("finds the repositories of each connected host for what the person typed", 
       url: `https://${host}/acme/aicore-provider.git`,
       name: "acme/aicore-provider",
       group: "Example Git",
+      host,
+      pushedAt: "2026-11-12T10:00:00Z",
+      language: "TypeScript",
     },
     {
       url: `https://${host}/ai-core/aicore-sdk.git`,
       name: "ai-core/aicore-sdk",
       group: "Example Git",
+      host,
     },
   ]);
 });

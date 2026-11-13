@@ -177,6 +177,7 @@ const shell: Omit<Shell, "viewer"> = {
     prefillComposer(sessionId, text);
     location.hash = href("session", { id: sessionId });
   },
+  repositories: searchRepositories,
 };
 
 // What the plugins' parts draw inside: who looks, and every enabled
@@ -295,7 +296,7 @@ export function pageLabel(name: string): string | undefined {
 }
 
 // A plugin whose search fails offers nothing, so the others still show.
-export async function searchRepositories(
+async function searchRepositories(
   query: string,
   team: boolean,
 ): Promise<readonly RepositoryChoice[]> {

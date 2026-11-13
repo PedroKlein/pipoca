@@ -7,6 +7,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from "react";
+import type { RepositoryChoice } from "@pipoca/protocol";
 import type { PluginDefinition } from "../src/definition";
 import type { MountedSession, WebPart } from "./index";
 import { SessionPanel } from "./session-panel";
@@ -27,10 +28,12 @@ const { createRoot } = await import("react-dom/client");
 function TestShell({
   plugin,
   fills = {},
+  repositories = [],
   children,
 }: {
   readonly plugin: Pick<PluginDefinition, "id">;
   readonly fills?: Readonly<Record<string, ComponentType<never>>>;
+  readonly repositories?: readonly RepositoryChoice[];
   readonly children: ReactNode;
 }): ReactElement {
   const shell: Shell = {
@@ -50,6 +53,10 @@ function TestShell({
     draft: (sessionId, text) => {
       drafts.push({ sessionId, text });
     },
+    repositories: async (query) =>
+      Promise.resolve(
+        repositories.filter(({ url }) => url.includes(query.toLowerCase())),
+      ),
   };
 
   return (
@@ -72,6 +79,8 @@ export function renderPart(
   props: object,
   o: {
     readonly fills?: Readonly<Record<string, ComponentType<never>>>;
+    // What a search of the git hosts finds.
+    readonly repositories?: readonly RepositoryChoice[];
     // What the page's requests get, in place of the network.
     readonly fetch?: (url: string, init?: RequestInit) => Promise<Response>;
   } = {},
@@ -117,6 +126,7 @@ export function renderPart(
       createElement(TestShell, {
         plugin: part.plugin,
         ...(o.fills && { fills: o.fills }),
+        ...(o.repositories && { repositories: o.repositories }),
         children: createElement(Part, props),
       }),
     );

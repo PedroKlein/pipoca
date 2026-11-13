@@ -18,6 +18,7 @@ import { topicOf, useScope } from "./shell";
 
 export { ConfigForm } from "./config-form";
 export { ModelField, pickerModels, providerName } from "./models";
+export { RepositoryField } from "./repositories";
 export { SessionPanel, SessionTab } from "./session-panel";
 export { uploadBlob } from "./upload";
 export {

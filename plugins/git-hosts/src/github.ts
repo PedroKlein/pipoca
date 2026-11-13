@@ -175,6 +175,8 @@ export interface Repository {
   readonly url: string;
   // owner/name
   readonly name: string;
+  readonly pushedAt?: string;
+  readonly language?: string;
 }
 
 // The repositories the token's account pushed to last, those of them whose
@@ -260,13 +262,27 @@ export async function installationRepositoriesOf(
 
 function repositoriesIn(list: unknown): readonly Repository[] {
   return (Array.isArray(list) ? list : []).flatMap((item: unknown) => {
-    const { clone_url: url, full_name: name } = (item ?? {}) as {
+    const {
+      clone_url: url,
+      full_name: name,
+      pushed_at: pushedAt,
+      language,
+    } = (item ?? {}) as {
       clone_url?: unknown;
       full_name?: unknown;
+      pushed_at?: unknown;
+      language?: unknown;
     };
 
     return typeof url === "string" && typeof name === "string"
-      ? [{ url, name }]
+      ? [
+          {
+            url,
+            name,
+            ...(typeof pushedAt === "string" && { pushedAt }),
+            ...(typeof language === "string" && { language }),
+          },
+        ]
       : [];
   });
 }

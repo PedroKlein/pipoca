@@ -242,9 +242,20 @@ export const server = defineServer(gitHosts, (context) => {
     );
 
   const choices = (found: readonly HostSearch[]): readonly RepositoryChoice[] =>
-    found.flatMap(({ host, repositories }) =>
-      repositories.map(({ url, name }) => ({ url, name, group: host.label })),
-    );
+    found.flatMap(({ host, repositories }) => {
+      const isPrivate =
+        context.network.privateHost(`https://${host.host}/`) !== undefined;
+
+      return repositories.map(({ url, name, pushedAt, language }) => ({
+        url,
+        name,
+        group: host.label,
+        host: host.host,
+        ...(pushedAt !== undefined && { pushedAt }),
+        ...(language !== undefined && { language }),
+        ...(isPrivate && { private: true }),
+      }));
+    });
 
   context.tools.define(
     repositoriesTool({

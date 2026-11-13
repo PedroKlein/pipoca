@@ -514,7 +514,10 @@ async function pickWorkspace(
 
   await form.getByRole("button", { name: "Folder or repository" }).click();
   const search = form.getByRole("combobox", { name: "Folder or repository" });
-  const picked = form.getByRole("option", { selected: true });
+
+  const picked = form
+    .getByRole("list", { name: "Picked" })
+    .getByRole("button", { name: /^Remove / });
 
   // The composer remembers the last pick.
   while ((await picked.count()) > 0) {

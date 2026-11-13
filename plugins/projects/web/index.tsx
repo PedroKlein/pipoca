@@ -11,6 +11,7 @@ import {
   href as pageHref,
   ModelField,
   pickerModels,
+  RepositoryField,
   SessionView,
   useApi,
 } from "@pipoca/plugins/web";
@@ -36,7 +37,6 @@ import {
   Menu,
   Page,
   Picker,
-  type PickerOption,
   popClass,
   Section,
   Select,
@@ -781,14 +781,6 @@ function recentRepositories(sessions: readonly Session[]): string[] {
   return [...new Set(repositories)].slice(0, 8);
 }
 
-function repositoryOption(repository: string): PickerOption {
-  return {
-    value: repository,
-    label: checkoutName(repository) ?? repository,
-    detail: repository,
-  };
-}
-
 // A name, the repositories and a goal; the rest takes its defaults and is
 // changed behind the Project's gear (ADR 0040).
 function CreateForm({
@@ -828,10 +820,6 @@ function CreateForm({
   const [error, setError] = useState<string>();
   const offered = team ? teamEnvironments : environments;
   const chosen = offered.find(({ id }) => id === environment);
-
-  const options = [
-    ...new Set([...recentRepositories(sessions), ...repositories]),
-  ].map(repositoryOption);
 
   const runsOn = chosen ?? offered[0];
 
@@ -898,17 +886,16 @@ function CreateForm({
         />
       </Field>
       <div className="flex flex-wrap items-center gap-1.5">
-        <Picker
+        <RepositoryField
           label="Repositories"
-          options={options}
           selected={repositories}
-          multiple
-          placeholder="Search, or paste a repository URL"
-          create={(query) => ({
-            value: query,
-            label: `Use ${query}`,
-            detail: "clone",
-          })}
+          recent={recentRepositories(sessions)}
+          team={team}
+          hint={
+            team
+              ? "Only repositories the team's bots reach."
+              : "Only repositories your logins reach."
+          }
           onChange={setRepositories}
         >
           {repositories.length === 0 ? (
@@ -918,7 +905,7 @@ function CreateForm({
               .map((repository) => checkoutName(repository) ?? repository)
               .join(", ")
           )}
-        </Picker>
+        </RepositoryField>
         {offered.length > 1 && (
           <Picker
             label="Environment"
