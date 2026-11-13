@@ -1,3 +1,4 @@
+import type { Profile } from "@pipoca/protocol";
 import {
   Badge,
   buttonClass,
@@ -5,14 +6,17 @@ import {
   ErrorText,
   Icon,
   initialsOf,
+  Menu,
   Page,
+  plural,
   Row,
   Rows,
+  useConfirm,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { request } from "../../data/client";
 import { useAction, useMe, useQuery } from "../../data/hooks";
-import { href, scopedHref } from "../../router";
+import { href, navigate, scopedHref } from "../../router";
 import { layerFolder, profileFolder } from "./folder";
 import { LayerOverview, ProfileOverviewOf } from "./targets";
 import { SettingsSlot } from "../settings-slot";
@@ -174,26 +178,7 @@ export function ProfilesPage({
       )}
       {selected === "" && !team && <Import />}
       {selected === "" && team && profiles.length > 0 && (
-        <Rows label="Team Profiles">
-          {profiles.map((each) => (
-            <Row
-              key={each.id}
-              title={each.name}
-              initials={initialsOf(each.name)}
-              description={
-                each.description ||
-                `Builds on ${profiles.find(({ id: under }) => under === each.buildsOn)?.name ?? "the Server base"}`
-              }
-            >
-              <a
-                href={`${root}/${each.id}`}
-                className="inline-flex h-control items-center rounded-md border border-line bg-elevated px-3 text-ui font-medium text-fg shadow-xs hover:bg-hover"
-              >
-                Edit
-              </a>
-            </Row>
-          ))}
-        </Rows>
+        <TeamProfiles profiles={profiles} root={root} admin={admin} />
       )}
       {selected === "" && team && profiles.length === 0 && (
         <EmptyState>
@@ -201,5 +186,131 @@ export function ProfilesPage({
         </EmptyState>
       )}
     </Page>
+  );
+}
+
+// The team's Profiles, the default first, each with what uses it and what an
+// admin can do with it.
+function TeamProfiles({
+  profiles,
+  root,
+  admin,
+}: {
+  readonly profiles: readonly Profile[];
+  readonly root: string;
+  readonly admin: boolean;
+}): ReactElement {
+  const sessions =
+    useQuery("sessions.list", { query: { scope: "team" } }).data ?? [];
+
+  const [ask, asking] = useConfirm();
+
+  const act = useAction(async (go: () => Promise<unknown>) => go());
+
+  const remove = (profile: Profile): void => {
+    void ask({
+      title: `Delete the Profile "${profile.name}"?`,
+      confirm: "Delete",
+      danger: true,
+    }).then((yes) => {
+      if (yes) {
+        void act.run(async () =>
+          request("profiles.remove", { params: { id: profile.id } }),
+        );
+      }
+    });
+  };
+
+  return (
+    <>
+      <ErrorText size="caption">{act.error}</ErrorText>
+      <Rows label="Team Profiles">
+        {profiles.map((each) => {
+          const used = sessions.filter(
+            ({ profileId }) => profileId === each.id,
+          ).length;
+
+          return (
+            <Row
+              key={each.id}
+              title={
+                <span className="flex items-center gap-2">
+                  {each.name}
+                  {each.isDefault && <Badge state="done">Team default</Badge>}
+                </span>
+              }
+              initials={initialsOf(each.name)}
+              description={
+                each.description ||
+                `Builds on ${profiles.find(({ id: under }) => under === each.buildsOn)?.name ?? "the Server base"}`
+              }
+            >
+              <span className="ml-auto text-caption text-fg-dim">
+                {plural(used, "Session", "Sessions")}
+              </span>
+              {admin ? (
+                <Menu
+                  label={`${each.name} actions`}
+                  align="end"
+                  items={[
+                    ...(each.isDefault
+                      ? []
+                      : [
+                          {
+                            label: "Make team default",
+                            icon: "star" as const,
+                            run: () => {
+                              void act.run(async () =>
+                                request("profiles.update", {
+                                  params: { id: each.id },
+                                  body: { isDefault: true },
+                                }),
+                              );
+                            },
+                          },
+                        ]),
+                    {
+                      label: "Edit",
+                      icon: "settings",
+                      run: () => {
+                        navigate(`${root}/${each.id}`);
+                      },
+                    },
+                    {
+                      label: "Duplicate",
+                      icon: "git-fork",
+                      run: () => {
+                        void act.run(async () =>
+                          request("profiles.create", {
+                            body: { from: each.id },
+                          }),
+                        );
+                      },
+                    },
+                    ...(each.isDefault
+                      ? []
+                      : [
+                          {
+                            label: "Delete",
+                            icon: "trash" as const,
+                            danger: true,
+                            run: () => {
+                              remove(each);
+                            },
+                          },
+                        ]),
+                  ]}
+                />
+              ) : (
+                <a href={`${root}/${each.id}`} className={buttonClass({})}>
+                  Open
+                </a>
+              )}
+            </Row>
+          );
+        })}
+      </Rows>
+      {asking}
+    </>
   );
 }

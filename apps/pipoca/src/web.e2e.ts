@@ -6358,6 +6358,28 @@ test("an admin sets up team work from Team setup: its Profiles, Environments, cr
     .getByText("Default")
     .waitFor();
 
+  await nav.getByRole("link", { name: /^Profiles/ }).click();
+
+  const rows = page.getByRole("list", { name: "Team Profiles" });
+
+  const row = (name: string): Locator =>
+    rows.getByRole("listitem").filter({ hasText: name });
+
+  await row("Frontend").getByText("Team default").waitFor();
+  await row("Backend").getByText("0 Sessions").waitFor();
+
+  await row("Backend").getByRole("button", { name: "Backend actions" }).click();
+  await page.getByRole("menuitem", { name: "Duplicate" }).click();
+  await row("Backend copy").waitFor();
+
+  await row("Backend")
+    .first()
+    .getByRole("button", { name: "Backend actions" })
+    .click();
+
+  await page.getByRole("menuitem", { name: "Make team default" }).click();
+  await row("Backend").first().getByText("Team default").waitFor();
+
   await nav.getByRole("link", { name: /^Environments/ }).click();
   await page.getByRole("heading", { name: "Team Environments" }).waitFor();
   await page.getByRole("button", { name: "New Environment" }).click();

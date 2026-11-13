@@ -772,6 +772,12 @@ test("only admins make and change team Profiles, which every user sees apart", a
 
   expect(created.ownerId).toBe("team");
 
+  const copy = await json<Profile>(
+    server.api("/api/profiles", { body: { from: created.id } }),
+  );
+
+  expect([copy.name, copy.ownerId]).toEqual(["Team work copy", "team"]);
+
   const ana = await secondUser();
   const theirs = await json<Profile[]>(server.as(ana)("/api/profiles"));
 
@@ -780,10 +786,14 @@ test("only admins make and change team Profiles, which every user sees apart", a
   );
 
   expect(theirs.map(({ id }) => id)).not.toContain(created.id);
-  expect(teams.map(({ id }) => id)).toEqual([created.id]);
+
+  expect(teams.map(({ id }) => id).sort()).toEqual(
+    [created.id, copy.id].sort(),
+  );
 
   const statuses = await Promise.all([
     server.as(ana)("/api/profiles", { body: { name: "x", team: true } }),
+    server.as(ana)("/api/profiles", { body: { from: created.id } }),
     server.as(ana)(`/api/profiles/${created.id}`, {
       method: "PATCH",
       body: { agentsMd: "x" },
@@ -795,7 +805,9 @@ test("only admins make and change team Profiles, which every user sees apart", a
     }),
   ]);
 
-  expect(statuses.map(({ status }) => status)).toEqual([403, 403, 403, 403]);
+  expect(statuses.map(({ status }) => status)).toEqual([
+    403, 403, 403, 403, 403,
+  ]);
 });
 
 test("a personal Session can't run on a team Profile", async () => {

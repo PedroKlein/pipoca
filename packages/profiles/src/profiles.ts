@@ -661,10 +661,17 @@ export class Profiles {
   }
 
   // A Profile of the person's own with the same files, which they can edit.
-  copy(userId: string, id: string): Result<Profile> {
+  // A copy of a team Profile is the team's too, so only an admin makes one.
+  copy(userId: string, id: string, admin: boolean): Result<Profile> {
     const profile = this.#visible(userId, id);
     if (!profile) {
       return { ok: false, reason: "not_found" };
+    }
+
+    const team = profile.ownerId === "team";
+
+    if (team && !admin) {
+      return { ok: false, reason: "admin_only" };
     }
 
     const files = new Map(
@@ -677,7 +684,13 @@ export class Profiles {
 
     return {
       ok: true,
-      value: this.#createWith(userId, `${profile.name} copy`, files),
+      value: this.#createWith(
+        userId,
+        `${profile.name} copy`,
+        files,
+        undefined,
+        team,
+      ),
     };
   }
 
@@ -686,8 +699,9 @@ export class Profiles {
     name: string,
     files: ReadonlyMap<string, Buffer>,
     source?: RepositorySource,
+    team = false,
   ): Profile {
-    const created = this.create(userId, { name }, false);
+    const created = this.create(userId, { name, team }, team);
     if (!created.ok) {
       throw new InvalidProfile(created.reason);
     }
