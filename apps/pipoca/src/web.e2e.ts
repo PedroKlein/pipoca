@@ -429,9 +429,8 @@ async function setUpServerAndPerson(): Promise<void> {
   await welcome.waitFor();
   await setup.getByText("Your setup").waitFor();
 
-  expect(await page.getByRole("button", { name: "Back" }).isDisabled()).toBe(
-    true,
-  );
+  expect(await page.getByRole("button", { name: "Back" }).count()).toBe(0);
+  await page.getByText("Server setup is done.").waitFor();
 
   await page.getByRole("button", { name: "Start" }).click();
 

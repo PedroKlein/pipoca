@@ -42,15 +42,18 @@ export function StepFooter({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-3">
-        <Button
-          variant="ghost"
-          disabled={back === undefined}
-          title={back === undefined ? "This is the first step" : undefined}
-          onClick={back}
-        >
-          Back
-        </Button>
-        <span className="flex-1" />
+        {back === undefined ? (
+          <span className="flex-1 text-caption text-fg-dim">
+            Leave anytime: the rest waits on Home.
+          </span>
+        ) : (
+          <>
+            <Button variant="ghost" onClick={back}>
+              Back
+            </Button>
+            <span className="flex-1" />
+          </>
+        )}
         {skippable && !ready && (
           <Button
             variant="ghost"
