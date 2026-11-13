@@ -11,6 +11,7 @@ import {
   Icon,
   initialsOf,
   Page,
+  plural,
   Row,
   Rows,
   Section,
@@ -204,7 +205,7 @@ function InThePicker({
                       .slice(0, 3)
                       .map(({ id }) => id)
                       .join(", ")}{" "}
-                    · {listed.length} {listed.length === 1 ? "model" : "models"}
+                    · {plural(listed.length, "model")}
                   </span>
                   {choosing === provider && (
                     <span

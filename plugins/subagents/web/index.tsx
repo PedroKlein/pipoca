@@ -16,6 +16,7 @@ import {
   Code,
   Icon,
   isComposing,
+  plural,
   SidePanel,
   StatusMark,
   TextInput,
@@ -260,11 +261,7 @@ function Child({
 
   const facts = [
     stateLabel(child.state),
-    ...(child.toolCount > 0
-      ? [
-          `${String(child.toolCount)} ${child.toolCount === 1 ? "tool" : "tools"}`,
-        ]
-      : []),
+    ...(child.toolCount > 0 ? [plural(child.toolCount, "tool")] : []),
     ...(time === undefined ? [] : [elapsed(time)]),
   ];
 

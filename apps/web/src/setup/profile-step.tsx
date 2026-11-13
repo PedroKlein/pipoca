@@ -4,6 +4,7 @@ import {
   ErrorText,
   FileButton,
   Icon,
+  plural,
   TextInput,
 } from "@pipoca/ui";
 import type { ListedProfile, RepositoryManifest } from "@pipoca/protocol";
@@ -186,11 +187,11 @@ export function ProfileStep({
                         },
                       });
 
-                      return `Imported ${String(kept)} ${kept === 1 ? "item" : "items"} into My defaults.`;
+                      return `Imported ${plural(kept, "item")} into My defaults.`;
                     });
                   }}
                 >
-                  Import {kept} {kept === 1 ? "item" : "items"} into My defaults
+                  Import {plural(kept, "item")} into My defaults
                 </Button>
               </>
             )}
@@ -300,10 +301,8 @@ function holdings({ path, holds }: ListedProfile): string {
   }
 
   const parts = [
-    holds.skills > 0 &&
-      `${String(holds.skills)} ${holds.skills === 1 ? "skill" : "skills"}`,
-    holds.packages > 0 &&
-      `${String(holds.packages)} ${holds.packages === 1 ? "package" : "packages"}`,
+    holds.skills > 0 && plural(holds.skills, "skill"),
+    holds.packages > 0 && plural(holds.packages, "package"),
     holds.agentsMd && "AGENTS.md",
   ].filter((part) => part !== false);
 
@@ -339,7 +338,7 @@ function Listed({
     >
       <span className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="text-ui font-medium text-fg-strong">
-          pipoca.json lists {count} {count === 1 ? "Profile" : "Profiles"}
+          pipoca.json lists {plural(count, "Profile")}
         </span>
         <span className="font-mono text-mono-sm text-fg-dim">
           {repository} @ {manifest.commit.slice(0, 7)}

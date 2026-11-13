@@ -9,6 +9,7 @@ import {
   Field,
   Icon,
   initialsOf,
+  plural,
   Row,
   Rows,
   Section,
@@ -230,7 +231,7 @@ function hostDescription(host: HostView): string {
 
   return host.clientId === ""
     ? `${where} · people paste a token until a Connect button is set up`
-    : `${where} · OAuth app · ${String(host.connected)} ${host.connected === 1 ? "person" : "people"} connected`;
+    : `${where} · OAuth app · ${plural(host.connected, "person", "people")} connected`;
 }
 
 export function kindOf(host: string): string {
