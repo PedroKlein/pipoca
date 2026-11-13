@@ -1424,13 +1424,6 @@ function ProjectPage({
             </Button>
           </header>
           <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-4">
-            <ul className="flex flex-col gap-1 font-mono text-mono-sm text-fg-dim">
-              {project.repositories.map((repository) => (
-                <li key={repository} className="truncate">
-                  {repository}
-                </li>
-              ))}
-            </ul>
             <Settings
               path={path}
               project={project}
@@ -1787,12 +1780,19 @@ function Settings({
   };
 
   const [draft, setDraft] = useState(saved);
+  const [repositories, setRepositories] = useState(project.repositories);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const changed = (Object.keys(saved) as (keyof typeof saved)[]).some(
-    (key) => draft[key] !== saved[key],
-  );
+  const moved =
+    repositories.length !== project.repositories.length ||
+    repositories.some((each, at) => each !== project.repositories[at]);
+
+  const changed =
+    moved ||
+    (Object.keys(saved) as (keyof typeof saved)[]).some(
+      (key) => draft[key] !== saved[key],
+    );
 
   const edit =
     (key: keyof typeof saved) =>
@@ -1808,7 +1808,10 @@ function Settings({
         setSaving(true);
 
         api
-          .post(`${path}/settings`, draft)
+          .post(`${path}/settings`, {
+            ...draft,
+            ...(moved && { repositories }),
+          })
           .then(onSaved, (failure: unknown) => {
             setError(
               failure instanceof Error ? failure.message : String(failure),
@@ -1826,6 +1829,38 @@ function Settings({
       <Field label="Goal">
         <TextArea rows={2} value={draft.goal} onChange={edit("goal")} />
       </Field>
+      <div className="flex flex-col gap-1.5">
+        <span className="text-label font-medium text-fg-strong">
+          Repositories
+        </span>
+        <div>
+          <RepositoryField
+            label="Repositories"
+            selected={repositories}
+            recent={project.repositories}
+            team={project.team}
+            hint={
+              project.team
+                ? "Only repositories the team's bots reach."
+                : "Only repositories your logins reach."
+            }
+            onChange={setRepositories}
+          >
+            {repositories.length === 0 ? (
+              <span className="text-fg-dim">Add repositories</span>
+            ) : (
+              repositories
+                .map((repository) => checkoutName(repository) ?? repository)
+                .join(", ")
+            )}
+          </RepositoryField>
+        </div>
+        {moved && (
+          <p className="text-caption text-fg-dim">
+            Saving starts the coordinator afresh with these checked out.
+          </p>
+        )}
+      </div>
       <Field label="Thread model">
         <TextInput
           list="project-settings-models"

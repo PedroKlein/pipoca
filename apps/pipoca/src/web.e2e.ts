@@ -4408,6 +4408,20 @@ test("creates a Project and shares a file through its folder", async () => {
     "Publish the docs site.",
   );
 
+  const saves: Record<string, unknown>[] = [];
+
+  await page.route("**/api/ext/projects/projects/*/settings", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    saves.push(body);
+
+    await ("repositories" in body
+      ? route.fulfill({
+          status: 400,
+          json: { error: "bad_request", message: "not this time" },
+        })
+      : route.continue());
+  });
+
   await settings.getByLabel("Name").fill("Site docs");
   await settings.getByLabel("Thread model").fill("faux/faux-1");
   await settings.getByRole("button", { name: "Save settings" }).click();
@@ -4419,6 +4433,25 @@ test("creates a Project and shares a file through its folder", async () => {
   expect(await settings.getByLabel("Thread model").inputValue()).toBe(
     "faux/faux-1",
   );
+
+  expect(
+    await settings.getByRole("button", { name: "Repositories" }).textContent(),
+  ).toBe("site");
+
+  await settings.getByRole("button", { name: "Repositories" }).click();
+  const more = settings.getByRole("combobox", { name: "Repositories" });
+  await more.fill("https://example.com/extra.git");
+  await more.press("Enter");
+  await more.press("Escape");
+  await settings.getByText("Saving starts the coordinator afresh").waitFor();
+  await settings.getByRole("button", { name: "Save settings" }).click();
+  await settings.getByText("not this time").waitFor();
+  await page.unroute("**/api/ext/projects/projects/*/settings");
+
+  expect(saves.map((body) => body["repositories"])).toEqual([
+    undefined,
+    [repository, "https://example.com/extra.git"],
+  ]);
 
   await settings.getByRole("button", { name: "Close settings" }).click();
 
