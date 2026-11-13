@@ -25,6 +25,7 @@ import {
   NotifyButton,
   ownedByEnabled,
   SidebarSession,
+  useStartedBy,
 } from "../shell/sidebar-parts";
 import { WorkspaceSwitcher } from "../shell/workspace-switcher";
 
@@ -78,13 +79,7 @@ export function TeamSidebar({
   const [moreOpen, setMoreOpen] = useState(false);
   const showMore = moreOpen || more.some(({ current }) => current);
 
-  const nameOf = (id: string | null): string | undefined => {
-    if (id === me.user.id) {
-      return "You";
-    }
-
-    return people.find((person) => person.id === id)?.name;
-  };
+  const nameOf = useStartedBy();
 
   const environmentName = (session: Session): string =>
     environments.find(({ id }) => id === session.environmentId)?.name ??

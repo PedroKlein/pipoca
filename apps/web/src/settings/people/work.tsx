@@ -1,8 +1,10 @@
 import type { Environment, Person, Session } from "@pipoca/protocol";
 import { Badge, Button, initialsOf, plural, Row, Rows } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
+import { useNow } from "@pipoca/plugins/web";
 import { AvailabilityBadge } from "../../shell/availability";
-import { ago } from "../../names";
+import { ago, sessionTitle } from "../../names";
+import { sessionMeta, SessionState } from "../../shell/sidebar-parts";
 import { kindName } from "../environments/kinds";
 
 const busy = new Set(["queued", "starting", "running"]);
@@ -71,8 +73,7 @@ export function Work({
   readonly onArchive: (session: Session) => void;
   readonly onDelete: (environment: Environment) => void;
 }): ReactNode {
-  const environmentName = (id: string): string =>
-    environments.find((each) => each.id === id)?.name ?? id;
+  const now = useNow();
 
   if (environments.length === 0 && sessions.length === 0) {
     return (
@@ -116,9 +117,15 @@ export function Work({
           {sessions.map((session) => (
             <Row
               key={session.id}
-              title={session.title ?? "Untitled Session"}
-              description={`${environmentName(session.environmentId)} · ${session.status}`}
+              title={sessionTitle(session)}
+              description={sessionMeta(session, {
+                environment: environments.find(
+                  ({ id }) => id === session.environmentId,
+                ),
+                now,
+              })}
             >
+              <SessionState session={session} />
               {busy.has(session.status) && (
                 <Button
                   variant="ghost"
