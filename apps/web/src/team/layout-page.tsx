@@ -1,7 +1,6 @@
 import { useNow } from "@pipoca/plugins/web";
 import type { HubPage, Session } from "@pipoca/protocol";
 import {
-  Badge,
   Button,
   cardClass,
   cn,
@@ -15,7 +14,13 @@ import {
   Select,
 } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useState } from "react";
-import { ago, sessionBadge, shortName } from "../names";
+import { sessionTitle } from "../names";
+import { useQuery } from "../data/hooks";
+import {
+  sessionMeta,
+  SessionState,
+  useStartedBy,
+} from "../shell/sidebar-parts";
 import { href } from "../router";
 import { PluginBoundary } from "../plugin-boundary";
 import { panels } from "./hub-pages";
@@ -276,6 +281,10 @@ function SessionRows({
   readonly empty: ReactNode;
 }): ReactElement {
   const now = useNow();
+  const startedBy = useStartedBy();
+
+  const environments =
+    useQuery("environments.list", { query: { scope: "team" } }).data ?? [];
 
   if (sessions.length === 0) {
     return <p className="text-label text-fg-dim">{empty}</p>;
@@ -284,8 +293,6 @@ function SessionRows({
   return (
     <Rows>
       {sessions.map((session) => {
-        const badge = sessionBadge(session);
-
         return (
           <Row
             key={session.id}
@@ -294,12 +301,18 @@ function SessionRows({
                 href={href("teamSession", { id: session.id })}
                 className="hover:underline focus-visible:underline"
               >
-                {session.title ?? shortName(session.workspace)}
+                {sessionTitle(session)}
               </a>
             }
-            description={`${shortName(session.workspace)} · ${ago(session.createdAt, now)}`}
+            description={sessionMeta(session, {
+              environment: environments.find(
+                ({ id }) => id === session.environmentId,
+              ),
+              who: startedBy(session.startedBy),
+              now,
+            })}
           >
-            {badge && <Badge state={badge.state}>{badge.label}</Badge>}
+            <SessionState session={session} />
           </Row>
         );
       })}

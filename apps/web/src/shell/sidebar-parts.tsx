@@ -1,15 +1,17 @@
 import { ThemeSwitch } from "../theme";
 import { availability, type Environment, type Session } from "@pipoca/protocol";
-import { Button, Icon, SessionRow, StatusDot } from "@pipoca/ui";
+import { Badge, Button, Icon, SessionRow, StatusDot } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useState } from "react";
 import { useNow } from "@pipoca/plugins/web";
 import {
   ago,
   modelName,
   sessionBadge,
+  sessionTitle,
   shortName,
   workspaceName,
 } from "../names";
+import { useMe, useQuery } from "../data/hooks";
 import { enabledPlugins, pageLabel, sessionHref } from "../plugins";
 
 export function ownedByEnabled({ plugin }: Session): boolean {
@@ -35,9 +37,41 @@ export function SidebarSession({
 }): ReactElement {
   const badge = sessionBadge(session);
   const now = useNow();
+
+  return (
+    <SessionRow
+      id={session.id}
+      href={link ?? sessionHref(session)}
+      title={sessionTitle(session)}
+      titleHint={workspaceName(session.workspace)}
+      meta={sessionMeta(session, { environment, who, now, state: true })}
+      current={current}
+      leading={<StatusDot tone={badge?.state} />}
+    />
+  );
+}
+
+// What a Session row says under its title, wherever Sessions are listed.
+// With state, it names the work state too, for a row that shows only a dot.
+export function sessionMeta(
+  session: Session,
+  {
+    environment,
+    who,
+    now,
+    state = false,
+  }: {
+    readonly environment: Environment | undefined;
+    // Who started it, in team work.
+    readonly who?: string | undefined;
+    readonly now: number;
+    readonly state?: boolean;
+  },
+): string {
+  const badge = state ? sessionBadge(session) : undefined;
   const team = who !== undefined;
 
-  const meta = [
+  return [
     ...(team ? [who] : []),
     ...(session.plugin === null ? [] : [ownerLabel(session.plugin.id)]),
     ...(session.title === null ? [] : [shortName(session.workspace)]),
@@ -46,18 +80,26 @@ export function SidebarSession({
     ...(!team && session.model ? [modelName(session.model)] : []),
     session.archivedAt === null ? ago(session.createdAt, now) : "archived",
   ].join(" · ");
+}
 
-  return (
-    <SessionRow
-      id={session.id}
-      href={link ?? sessionHref(session)}
-      title={session.title ?? shortName(session.workspace)}
-      titleHint={workspaceName(session.workspace)}
-      meta={meta}
-      current={current}
-      leading={<StatusDot tone={badge?.state} />}
-    />
-  );
+// A Session's work state as a badge, for a row with room for one.
+export function SessionState({
+  session,
+}: {
+  readonly session: Session;
+}): ReactElement | null {
+  const badge = sessionBadge(session);
+
+  return badge ? <Badge state={badge.state}>{badge.label}</Badge> : null;
+}
+
+// Who started a Session, as team lists name them.
+export function useStartedBy(): (id: string | null) => string | undefined {
+  const { user } = useMe();
+  const people = useQuery("people.list").data ?? [];
+
+  return (id) =>
+    id === user.id ? "You" : people.find((person) => person.id === id)?.name;
 }
 
 function ownerLabel(plugin: string): string {

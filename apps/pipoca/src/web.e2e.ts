@@ -6330,6 +6330,14 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
 
   await page.getByRole("heading", { name: "Sessions" }).waitFor();
 
+  // The Sessions page says who started each one, as the sidebar does.
+  await page
+    .getByRole("main")
+    .getByRole("listitem")
+    .filter({ hasText: "release-notes" })
+    .getByText(/^You · /)
+    .waitFor();
+
   // A model picked for one's own assistant may not run on team machines.
   await page.evaluate(() => {
     localStorage.setItem("pipoca.projects.model", "faux/faux-deep");

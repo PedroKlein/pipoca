@@ -8,6 +8,11 @@ const removalText = {
   kept: "unpushed work",
 } as const;
 
+// A Session without a title goes by its folder or repository.
+export function sessionTitle(session: Session): string {
+  return session.title ?? shortName(session.workspace);
+}
+
 export function describe(session: Session): string {
   if (session.archivedAt !== null) {
     return session.workspaceRemoval === null
