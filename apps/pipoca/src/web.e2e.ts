@@ -4255,6 +4255,56 @@ test("folds a working turn to one line, and opens every step when the chat is se
     .click();
 }, 30_000);
 
+test("sends a new Project's first message and preselected Profile, and keeps the dialog open on a refusal", async () => {
+  const asked: unknown[] = [];
+
+  await page.route("**/api/ext/projects/projects", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+
+      return;
+    }
+
+    asked.push(route.request().postDataJSON());
+
+    await route.fulfill({
+      status: 400,
+      json: { error: "bad_request", message: "not this time" },
+    });
+  });
+
+  await page.goto(`${server.url.href}#plugin/projects/all`);
+  await page.getByRole("button", { name: "New Project" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "New Project" });
+
+  await dialog.getByLabel("Name").fill("Docs");
+  await dialog.getByRole("button", { name: "Repositories" }).click();
+  const search = dialog.getByRole("combobox", { name: "Repositories" });
+  await search.fill("https://example.com/docs.git");
+  await search.press("Enter");
+  await search.press("Escape");
+
+  await dialog
+    .getByLabel("First message to the coordinator")
+    .fill("Check every README.");
+
+  await dialog.getByRole("button", { name: "Create Project" }).click();
+  await dialog.getByText("not this time").waitFor();
+  await page.unroute("**/api/ext/projects/projects");
+
+  expect(asked).toMatchObject([
+    {
+      name: "Docs",
+      repositories: ["https://example.com/docs.git"],
+      firstMessage: "Check every README.",
+    },
+  ]);
+
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await dialog.waitFor({ state: "hidden" });
+});
+
 test("creates a Project and shares a file through its folder", async () => {
   const repository = join(root, "site");
   execFileSync("git", ["init", "--quiet", "--initial-branch=main", repository]);
@@ -4274,8 +4324,11 @@ test("creates a Project and shares a file through its folder", async () => {
     .getByRole("link", { name: "Projects" })
     .click();
 
+  await page.getByRole("button", { name: "New Project" }).click();
+
   const form = page.locator("form.project-create");
   await form.getByLabel("Name").fill("Site");
+
   await form.getByLabel("Goal").fill("Publish the docs site.");
   await form.getByRole("button", { name: "Repositories" }).click();
   const search = form.getByRole("combobox", { name: "Repositories" });
@@ -4648,7 +4701,7 @@ test("shows a plugin page's failure without taking the app down", async () => {
 
   await page.unroute("**/api/ext/projects/projects");
   await pluginPage.getByRole("button", { name: "Try again" }).click();
-  await page.getByRole("heading", { name: "New Project" }).waitFor();
+  await page.getByRole("button", { name: "New Project" }).waitFor();
   await page.getByRole("button", { name: "New session" }).waitFor();
 });
 
