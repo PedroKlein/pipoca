@@ -546,12 +546,22 @@ async function firstModel(
     };
   }
 
-  const model =
-    options.model === undefined
-      ? options.models?.model
-      : await availableModel(runtime, options.model);
+  if (options.model !== undefined) {
+    return { model: await availableModel(runtime, options.model) };
+  }
 
-  return model && { model };
+  // Pi picks its default from the models it has, and a provider that lists
+  // its models only from the network, like SAP AI Core, has none yet.
+  if (
+    options.models?.model === undefined &&
+    (await runtime.getAvailable()).length === 0
+  ) {
+    await runtime
+      .refresh({ signal: AbortSignal.timeout(refreshMs) })
+      .catch(() => undefined);
+  }
+
+  return options.models && { model: options.models.model };
 }
 
 async function agentOf(
