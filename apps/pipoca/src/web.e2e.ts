@@ -5926,7 +5926,24 @@ test("an admin sets up team work from Team setup: its Profiles, Environments, cr
   await page.waitForURL("**/#team/setup/profiles/new");
   await page.getByLabel("Name").fill("Frontend");
   await page.getByRole("button", { name: "Create Profile" }).click();
-  await page.getByRole("button", { name: "Make team default" }).click();
+
+  await page
+    .getByRole("button", { name: "Make team default" })
+    .click({ timeout: 4000 })
+    .catch(async (failure: unknown) => {
+      console.log(
+        "DIAG",
+        page.url(),
+        await page.locator("main").innerText(),
+        await (
+          await page.request.get(
+            new URL("/api/profiles?scope=team", server.url).href,
+          )
+        ).text(),
+      );
+
+      throw failure;
+    });
 
   await page
     .getByRole("navigation", { name: "Profiles" })
