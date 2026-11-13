@@ -21,7 +21,8 @@ export function ModelMenu({
   readonly hiddenModels: readonly string[];
   readonly modelMenu: RefObject<HTMLButtonElement | null>;
   readonly onModel: (model: ModelRef) => void;
-  readonly onLogin: () => void;
+  // Team work runs on the team's keys and takes no logins.
+  readonly onLogin?: (() => void) | undefined;
   readonly onThinking: (level: Settings["thinking"]) => void;
 }): ReactElement {
   const current = settings.model ? modelName(settings.model) : "";
@@ -51,7 +52,9 @@ export function ModelMenu({
       {...(openGroups && { openGroups })}
       selected={[current]}
       {...(known.length > 6 && { placeholder: "Search models" })}
-      actions={[{ label: "Log in to a provider…", run: onLogin }]}
+      {...(onLogin && {
+        actions: [{ label: "Log in to a provider…", run: onLogin }],
+      })}
       {...(settings.levels.length > 1 && {
         footer: (
           <Slider

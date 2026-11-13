@@ -289,6 +289,7 @@ export function Composer({
             models={models}
             hiddenModels={hiddenModels}
             modelMenu={modelMenu}
+            team={team}
             talk={talk}
             target={target}
             onTarget={setTarget}
