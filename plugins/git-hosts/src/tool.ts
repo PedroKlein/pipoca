@@ -1,4 +1,4 @@
-import { type ToolDef, Type } from "@pipoca/plugins";
+import { type ToolCall, type ToolDef, Type } from "@pipoca/plugins";
 import type { Repository } from "./github";
 import type { HostConfig } from "./hosts";
 
@@ -16,10 +16,11 @@ export interface Account {
   readonly login: string;
 }
 
+// A person's own accounts, or for team work the team's bots (ADR 0066).
 interface Sources {
-  readonly accounts: (userId: string) => readonly Account[];
+  readonly accounts: (call: ToolCall) => readonly Account[];
   readonly search: (
-    userId: string,
+    call: ToolCall,
     query: string,
     only?: string,
   ) => Promise<readonly HostSearch[]>;
@@ -39,19 +40,18 @@ const params = Type.Object({
   ),
 });
 
-// Lets an agent find the person's real repositories instead of guessing
-// their URLs, on every host they connected. It names only the few that
-// match what it asks, never every repository.
+// Lets an agent find real repositories instead of guessing their URLs, on
+// every host the person connected, or that the team's bots reach in team
+// work. It names only the few that match what it asks, never every one.
 export function repositoriesTool({
   accounts,
   search,
 }: Sources): ToolDef<typeof params> {
   return {
     name: "git_hosts_repositories",
-    description: `Search the user's git hosts (such as github.com or a GitHub Enterprise host) for repositories by name, and get their clone URLs. Without a query it only names the connected hosts and the account on each. Returns at most ${String(shown)} repositories. Where the Session has a shell, git and gh are already signed in to the same accounts; use gh --hostname <host> for an enterprise host.`,
+    description: `Search the git hosts this Session reaches (such as github.com or a GitHub Enterprise host: the user's own accounts, or in team work the team's bots) for repositories by name, and get their clone URLs. Without a query it only names the connected hosts and the account on each. Returns at most ${String(shown)} repositories. Where the Session has a shell, git and gh are already signed in to the same accounts; use gh --hostname <host> for an enterprise host.`,
     params,
-    // A person's git accounts never serve team work (ADR 0066).
-    when: { owner: "person" },
+    when: { owner: "any" },
     exposure: "direct",
     annotations: { readOnly: true },
     prompt: {
@@ -60,17 +60,16 @@ export function repositoriesTool({
         "Never guess a repository's URL or owner. Find it with git_hosts_repositories, or ask the user when it isn't there.",
       ],
     },
-    run: async (input, { session }) => {
-      const userId = session.startedBy ?? "";
+    run: async (input, call) => {
       const text = input.query?.trim() ?? "";
       const only = input.host?.trim().toLowerCase() ?? "";
 
-      const signed = accounts(userId).filter(
+      const signed = accounts(call).filter(
         (account) => only === "" || account.host === only,
       );
 
       if (signed.length === 0) {
-        return unconnected(only);
+        return call.owner === "team" ? teamUnreached(only) : unconnected(only);
       }
 
       const heading = `Signed in on ${signed
@@ -81,7 +80,7 @@ export function repositoriesTool({
         return `${heading}\n\nGive a query to search their repositories by name.`;
       }
 
-      const found = await search(userId, text, only || undefined);
+      const found = await search(call, text, only || undefined);
 
       return [heading, ...failures(found), listing(found, text)].join("\n\n");
     },
@@ -92,6 +91,12 @@ function unconnected(host: string): string {
   return host === ""
     ? "The user hasn't connected a git host. They can connect one in Pipoca's Settings, under Git hosts."
     : `The user hasn't connected ${host}. They can connect it in Pipoca's Settings, under Git hosts.`;
+}
+
+function teamUnreached(host: string): string {
+  return host === ""
+    ? "No bot signs team work in to a git host, so it reaches no repository. An admin picks one in Settings, under Git hosts, in Bots."
+    : `No bot signs team work in to ${host}. An admin picks one in Settings, under Git hosts, in Bots.`;
 }
 
 function failures(found: readonly HostSearch[]): readonly string[] {

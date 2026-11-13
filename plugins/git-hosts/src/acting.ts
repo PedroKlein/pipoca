@@ -32,6 +32,7 @@ export interface TeamBot {
 
 interface TeamReach {
   readonly host: string;
+  readonly login: string;
   readonly kind: "app" | "token";
   readonly token: string;
 }
@@ -309,6 +310,7 @@ export function acting(
         if (isApp(user)) {
           return installed(user.name).map(({ token }) => ({
             host: user.host,
+            login: botLogin(user),
             kind: "app",
             token,
           }));
@@ -316,7 +318,14 @@ export function acting(
 
         return user.token === undefined
           ? []
-          : [{ host: user.host, kind: "token", token: user.token }];
+          : [
+              {
+                host: user.host,
+                login: botLogin(user),
+                kind: "token",
+                token: user.token,
+              },
+            ];
       }),
     identity: async (name) => {
       const user = users.get(name);
