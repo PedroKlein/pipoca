@@ -247,6 +247,14 @@ interface Me {
 }
 
 // Who is signed in, from the page's first read of the server.
+// The name people see for the signed-in person: the one they chose, or else
+// the username they sign in with.
+export function useDisplayName(): string {
+  const { user } = useMe();
+
+  return useQuery("me").data?.displayName ?? user.name;
+}
+
 export function useMe(): Me {
   const status = useQuery("auth.status").data;
   const user = status?.user;

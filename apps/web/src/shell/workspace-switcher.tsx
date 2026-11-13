@@ -1,7 +1,7 @@
 import type { Session } from "@pipoca/protocol";
 import { Avatar, Icon, Menu, plural } from "@pipoca/ui";
 import { type ReactElement, useEffect } from "react";
-import { useMe, useQuery } from "../data/hooks";
+import { useDisplayName, useQuery } from "../data/hooks";
 import { sessionBadge } from "../names";
 import { href, navigate } from "../router";
 
@@ -75,7 +75,7 @@ export function WorkspaceSwitcher({
 }: {
   readonly inTeam: boolean;
 }): ReactElement {
-  const { user } = useMe();
+  const you = useDisplayName();
   const team = useQuery("settings.team").data?.name ?? "Team";
   const people = useQuery("people.list").data;
 
@@ -119,10 +119,10 @@ export function WorkspaceSwitcher({
       triggerClassName="h-auto w-full justify-start gap-2.5 px-1.5 py-1 text-left"
       trigger={
         <>
-          {inTeam ? <TeamMark name={team} /> : <PersonMark name={user.name} />}
+          {inTeam ? <TeamMark name={team} /> : <PersonMark name={you} />}
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="truncate text-ui font-medium text-fg-strong">
-              {inTeam ? team : user.name}
+              {inTeam ? team : you}
             </span>
             <span className="truncate text-caption text-fg-dim">{detail}</span>
           </span>
@@ -131,9 +131,9 @@ export function WorkspaceSwitcher({
       }
       items={[
         {
-          label: user.name,
+          label: you,
           description: `Your workspace · ${summary(own)}`,
-          mark: <PersonMark name={user.name} size="sm" />,
+          mark: <PersonMark name={you} size="sm" />,
           shortcut: shortcut("1"),
           checked: !inTeam,
           run: () => {

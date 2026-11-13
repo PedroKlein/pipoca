@@ -146,7 +146,7 @@ export function Sidebar({
 
       <NotifyButton />
       <EnvironmentStatus environments={environments} />
-      <AccountMenu user={me.user.name} />
+      <AccountMenu />
     </nav>
   );
 }

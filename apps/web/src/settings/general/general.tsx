@@ -13,7 +13,7 @@ import {
 } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { request } from "../../data/client";
-import { useMe, useQuery } from "../../data/hooks";
+import { useDisplayName, useMe, useQuery } from "../../data/hooks";
 import { SettingsSlot } from "../settings-slot";
 import { useTheme } from "../../theme";
 import {
@@ -35,7 +35,7 @@ export function GeneralPage(): ReactElement {
   const [theme, setTheme] = useTheme();
   const [verbosity, setVerbosity] = useVerbosity();
   const account = useQuery("me").data;
-  const shown = account?.displayName ?? user;
+  const shown = useDisplayName();
 
   return (
     <Page

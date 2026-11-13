@@ -1729,6 +1729,29 @@ test("edits the person's name and what new Sessions start with on General", asyn
   await dialog.waitFor({ state: "detached" });
   await you.getByText("Pedro K.").waitFor();
 
+  // Everywhere one's own name shows, it is the name chosen here.
+  await page.goto(server.url.href);
+
+  await page
+    .getByRole("button", { name: "Account" })
+    .filter({ hasText: "Pedro K." })
+    .waitFor();
+
+  expect(
+    await page
+      .getByRole("button", { name: "Account" })
+      .locator("[aria-hidden=true]")
+      .first()
+      .textContent(),
+  ).toBe("PK");
+
+  await page
+    .getByRole("button", { name: "Switch workspace" })
+    .filter({ hasText: "Pedro K." })
+    .waitFor();
+
+  await openSettings("General");
+
   const startWith = page.locator("section", {
     has: page.getByRole("heading", { name: "New Sessions start with" }),
   });

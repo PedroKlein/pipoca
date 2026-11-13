@@ -12,7 +12,7 @@ import {
 } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
 import { AccountsPage } from "./accounts/accounts";
-import { useMe, useQuery } from "../data/hooks";
+import { useDisplayName, useMe, useQuery } from "../data/hooks";
 import { EnvironmentsPage } from "./environments/environments";
 import { GeneralPage } from "./general/general";
 import { PluginBoundary } from "../plugin-boundary";
@@ -73,7 +73,7 @@ export function SettingsLayout({
   readonly rest: string;
 }): ReactElement {
   const { user, admin, team } = useMe();
-  const shown = useQuery("me").data?.displayName ?? user.name;
+  const shown = useDisplayName();
   const people = admin && team;
   const open = page === "" ? "general" : page;
   const environments = useQuery("environments.list").data;

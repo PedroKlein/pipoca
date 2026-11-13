@@ -6,7 +6,6 @@ import {
   Checkbox,
   cn,
   ErrorText,
-  personInitials,
   Select,
   TextArea,
 } from "@pipoca/ui";
@@ -402,9 +401,7 @@ function short(text: string): string {
 function CommentBody({ comment }: { readonly comment: Comment }): ReactElement {
   return (
     <div className="flex gap-2">
-      <Avatar name={comment.author} size="sm">
-        {personInitials(comment.author)}
-      </Avatar>
+      <Avatar name={comment.author} size="sm" />
       <div className="flex min-w-0 flex-col gap-0.5">
         <span className="text-caption text-fg-dim">
           <b className="font-medium text-fg-strong">{comment.author}</b>
