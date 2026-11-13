@@ -19,7 +19,6 @@ import { SetupReminders } from "../setup/reminders";
 import { SetupWizard } from "../setup/wizard";
 import { Sidebar } from "./sidebar";
 import { TeamHub } from "../team/hub";
-import { TeamSetup } from "../team/setup";
 import { MenuButton, PluginPage } from "./plugin-page";
 
 export function App(): ReactElement {
@@ -42,7 +41,7 @@ export function App(): ReactElement {
 
 function Screens(): ReactElement {
   const route = useRoute();
-  const { admin, team } = useMe();
+  const { team } = useMe();
   const setup = useQuery("me.setup").data;
 
   // The wizard stays until it is left, while finishing the server's setup
@@ -67,14 +66,6 @@ function Screens(): ReactElement {
     return (
       <Area>
         <SettingsLayout page={route.params.page} rest={route.params.rest} />
-      </Area>
-    );
-  }
-
-  if (route.name === "teamSetup" && team && admin) {
-    return (
-      <Area>
-        <TeamSetup section={route.params.section} rest={route.params.rest} />
       </Area>
     );
   }

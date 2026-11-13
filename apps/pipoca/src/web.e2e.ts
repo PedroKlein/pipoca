@@ -6324,6 +6324,51 @@ test("shows plugin panels on the team hub and lets an admin lay out a page of th
   await nav.getByRole("link", { name: "Costs" }).waitFor({ state: "detached" });
 });
 
+test("an admin orders and removes the hub's pages from Team setup's Hub layout tab", async () => {
+  await page.goto(new URL("/#team/setup", server.url).href);
+
+  const team = page.getByRole("navigation", { name: "Team" });
+
+  await team.getByRole("link", { name: "Team setup" }).waitFor();
+
+  await page
+    .getByRole("navigation", { name: "Team setup" })
+    .getByRole("link", { name: "Hub layout" })
+    .click();
+
+  await page.waitForURL("**/#team/setup/layout");
+
+  const main = page.getByRole("main");
+
+  for (const title of ["Ops", "Costs"]) {
+    await main.getByRole("button", { name: "Add page" }).click();
+    await main.getByLabel("New page title").fill(title);
+    await main.getByLabel("New page title").press("Enter");
+    await page.getByRole("heading", { name: title }).waitFor();
+    await page.goto(new URL("/#team/setup/layout", server.url).href);
+  }
+
+  const pages = page.getByRole("list", { name: "Hub pages" });
+
+  await pages.getByText("Costs").waitFor();
+  await page.getByRole("button", { name: "Move Costs up" }).click();
+
+  await page
+    .getByRole("button", { name: "Move Costs up", disabled: true })
+    .waitFor();
+
+  const links = await team.getByRole("link").allTextContents();
+
+  expect(links.indexOf("Costs")).toBeGreaterThan(-1);
+  expect(links.indexOf("Costs")).toBeLessThan(links.indexOf("Ops"));
+
+  for (const title of ["Costs", "Ops"]) {
+    await page.getByRole("button", { name: `Remove ${title}` }).click();
+    await confirmIn("Remove");
+    await pages.getByText(title).waitFor({ state: "detached" });
+  }
+});
+
 test("an admin sets up team work from Team setup: its Profiles, Environments, credentials, budgets and audit log", async () => {
   await page.goto(new URL("/#team", server.url).href);
 
@@ -6441,7 +6486,8 @@ test("an admin sets up team work from Team setup: its Profiles, Environments, cr
 
   expect(await answer.inputValue()).toBe("10");
 
-  await nav.getByRole("link", { name: "Team home" }).click();
+  await team.getByRole("link", { name: "Team setup" }).waitFor();
+  await team.getByRole("link", { name: "Home", exact: true }).click();
   await page.getByRole("heading", { name: "Team home" }).waitFor();
 }, 30_000);
 
@@ -6474,11 +6520,6 @@ test("an admin names the team, and the hub and sidebar show it", async () => {
   await page.getByLabel("Team name").fill("Acme platform");
   await page.getByRole("button", { name: "Save" }).click();
   await page.getByRole("status").getByText("Saved").waitFor();
-
-  await page
-    .getByRole("navigation", { name: "Team setup" })
-    .getByRole("link", { name: "Team home" })
-    .click();
 
   await page
     .getByRole("navigation", { name: "Team" })
@@ -6915,7 +6956,7 @@ test("keeps team work inside the team's area, with the server's pages shared fro
 
   await page
     .getByRole("navigation", { name: "Team setup" })
-    .getByRole("link", { name: "Plugins", exact: true })
+    .getByRole("link", { name: "Server plugins", exact: true })
     .click();
 
   await page.waitForURL("**/#team/setup/server/plugins");

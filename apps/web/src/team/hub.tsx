@@ -10,6 +10,7 @@ import { href, navigate, type Route, routeHref } from "../router";
 import { screens, pagesOf, hrefOf, newPageId } from "./hub-pages";
 import { AddPage } from "./add-page";
 import { LayoutPage, TeamSessions } from "./layout-page";
+import { TeamSetup } from "./setup";
 import { TeamSidebar, type TeamEntry } from "./sidebar";
 import { Drawer } from "../shell/drawer";
 import { MenuButton } from "../shell/plugin-page";
@@ -92,7 +93,7 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
             href: href("teamSetup"),
             label: "Team setup",
             icon: "settings" as const,
-            current: false,
+            current: route.name === "teamSetup",
           },
         ]
       : []),
@@ -123,6 +124,12 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
     if (opened !== undefined) {
       return (
         <SessionView key={opened} sessionId={opened} onMenu={openDrawer} />
+      );
+    }
+
+    if (route.name === "teamSetup" && admin) {
+      return (
+        <TeamSetup section={route.params.section} rest={route.params.rest} />
       );
     }
 
