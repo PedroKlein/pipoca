@@ -260,6 +260,12 @@ const sessionStatus = Type.Enum([
 
 export type SessionStatus = Wire<typeof sessionStatus>;
 
+// Waiting for a runner, starting on one, or working: a Session someone may
+// still want to stop, and that settles once this is false.
+export function isBusy(status: SessionStatus): boolean {
+  return status === "queued" || status === "starting" || status === "running";
+}
+
 export const workspaceRemoval = Type.Enum([
   "pending",
   "forced",

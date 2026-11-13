@@ -1,5 +1,5 @@
 import { useNow } from "@pipoca/plugins/web";
-import type { HubPage, Session } from "@pipoca/protocol";
+import { type HubPage, isBusy, type Session } from "@pipoca/protocol";
 import {
   Button,
   cardClass,
@@ -24,8 +24,6 @@ import {
 import { href } from "../router";
 import { PluginBoundary } from "../plugin-boundary";
 import { panels } from "./hub-pages";
-
-const busy = new Set<Session["status"]>(["queued", "starting", "running"]);
 
 // Home shows this panel beside Running now, as a column of its own.
 const sidePanel = "usage/activity";
@@ -62,7 +60,7 @@ export function LayoutPage({
   const bottom = shown.filter((panel) => panel !== side);
 
   const running = sessions.filter(
-    ({ status, waiting }) => !waiting && busy.has(status),
+    ({ status, waiting }) => !waiting && isBusy(status),
   );
 
   const move = (index: number, by: number): void => {

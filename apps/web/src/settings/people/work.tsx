@@ -1,4 +1,9 @@
-import type { Environment, Person, Session } from "@pipoca/protocol";
+import {
+  type Environment,
+  isBusy,
+  type Person,
+  type Session,
+} from "@pipoca/protocol";
 import { Badge, Button, initialsOf, plural, Row, Rows } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
 import { useNow } from "@pipoca/plugins/web";
@@ -6,8 +11,6 @@ import { AvailabilityBadge } from "../../shell/availability";
 import { ago, sessionTitle } from "../../names";
 import { sessionMeta, SessionState } from "../../shell/sidebar-parts";
 import { kindName } from "../environments/kinds";
-
-const busy = new Set(["queued", "starting", "running"]);
 
 export function Doing({
   person,
@@ -17,7 +20,7 @@ export function Doing({
   readonly sessions: readonly Session[];
 }): ReactElement {
   const waiting = sessions.filter((session) => session.waiting).length;
-  const running = sessions.filter(({ status }) => busy.has(status)).length;
+  const running = sessions.filter(({ status }) => isBusy(status)).length;
 
   if (waiting > 0) {
     return (
@@ -126,7 +129,7 @@ export function Work({
               })}
             >
               <SessionState session={session} />
-              {busy.has(session.status) && (
+              {isBusy(session.status) && (
                 <Button
                   variant="ghost"
                   onClick={() => {

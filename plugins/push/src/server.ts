@@ -10,7 +10,7 @@ import {
   type Store,
   Type,
 } from "@pipoca/plugins";
-import type { Session, SessionStatus } from "@pipoca/protocol";
+import { isBusy, type Session, type SessionStatus } from "@pipoca/protocol";
 import { routines } from "@pipoca/routines/plugin";
 import { usage } from "@pipoca/usage/plugin";
 import { push } from "../plugin";
@@ -35,8 +35,6 @@ const subscription = Type.Object({
 });
 
 const unsubscription = Type.Object({ endpoint: Type.String() });
-
-const busy: readonly SessionStatus[] = ["queued", "starting", "running"];
 
 const remind = "remind:";
 
@@ -243,8 +241,8 @@ export const server = defineServer(
     // instead of to a person.
     events.on("SessionStateChanged", ({ session, previous }) => {
       const stopped =
-        busy.includes(previous) &&
-        !busy.includes(session.status) &&
+        isBusy(previous) &&
+        !isBusy(session.status) &&
         (previous === "running" || session.status !== "idle");
 
       if (stopped && session.plugin === null) {
