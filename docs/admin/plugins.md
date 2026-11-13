@@ -2,7 +2,7 @@
 title: Plugins
 description: The built-in plugins, turning plugins on and off, and installing others.
 sidebar:
-  order: 5
+  order: 6
 ---
 
 Everything past Pipoca's small kernel is a plugin, the built-in ones included ([ADR 0015](../adr/0015-plugins.md), [ADR 0069](../adr/0069-plugin-sdk-v2.md)). No plugin is special: an admin can turn any of them off on the Plugins page, and the kernel never names one. When something the kernel needs, such as runners started on demand, has no plugin to provide it, the UI says what is missing.

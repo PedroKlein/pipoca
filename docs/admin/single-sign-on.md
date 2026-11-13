@@ -2,7 +2,7 @@
 title: Single sign-on
 description: Sign people in through OpenID Connect providers such as SAP IAS, Okta or Google.
 sidebar:
-  order: 6
+  order: 7
 ---
 
 The `oidc` plugin signs people in through any OpenID Connect provider you add, and lets in the groups or emails you choose ([ADR 0038](../adr/0038-single-sign-on-and-admins.md)). It is on by default on a team server.

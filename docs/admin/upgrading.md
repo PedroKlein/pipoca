@@ -2,7 +2,7 @@
 title: Upgrading
 description: Move a server to a new version, and what to do coming from before the rebuild.
 sidebar:
-  order: 7
+  order: 8
 ---
 
 At start the server brings the database up to date in place, so data survives an upgrade ([ADR 0070](../adr/0070-schema-migrations.md)). It refuses a database a newer Pipoca made, such as after going back to an older image: run the newer version again, or restore a backup taken before the upgrade. A plugin whose tables can't be upgraded shows as failed on the Plugins page, with its data kept until an admin resets it.

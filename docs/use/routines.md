@@ -79,7 +79,7 @@ The default is `tell` with a key and `skip` without one, when the whole routine 
 
 ### `do`: what a run does
 
-- **Start a Session**: `"kind": "session"`, a `prompt` and a `workspace`, which can be `{ "kind": "event-repository" }` for the repository the event names, and optionally an `environment`, `profile` and `model`.
+- **Start a Session**: `"kind": "session"`, a `prompt` and a `workspace`, which can be `{ "kind": "event-repository" }` for the repository the event names, and optionally an `environment`, `profile` and `model`. A routine that clones from a [private host](../admin/private-hosts.md) needs an Environment that reaches it, and its page warns and offers one when it names one that can't.
 - **Message one**: `"kind": "message"`, a `prompt` and a `session`.
 
 A started Session can name an `agent` or a `workflow`:
@@ -157,7 +157,7 @@ Fixed steps go in a workflow in one run, one job after another in a chain, and s
 
 ## Team routines
 
-Anyone on a team server can make a team routine. It runs on a team Profile and Environment, and acts as a technical user that admins let the team use ([ADR 0067](../adr/0067-team-plugins-projects-and-assistant.md#team-routines)). A team routine's `editors`, people by id or name, are the only ones who may change or remove it; anyone on the team may otherwise. Its page says who made it and who changed it last, with every change in its history.
+Anyone on a team server can make a team routine. It runs on a team Profile and Environment, and acts as a technical user that admins let the team use ([ADR 0067](../adr/0067-team-plugins-projects-and-assistant.md#team-routines)). A team routine's `editors`, people by id or name, are the only ones who may change or remove it; anyone on the team may otherwise. Its page says who made it and who changed it last, with every change in its history. A team routine reaches a private host only through a team Environment, and watches a URL on one only when an admin allowed it.
 
 ## Older files
 
