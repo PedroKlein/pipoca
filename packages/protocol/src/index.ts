@@ -160,6 +160,7 @@ export {
   actsAs,
   type ActsAs,
   checkoutName,
+  recentPlaces,
   type ForkedSession,
   type ModelInfo,
   modelInfoOf,
