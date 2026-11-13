@@ -69,6 +69,13 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
       label: each.label,
       icon: each.icon,
       current: each === screen,
+      ...(each.Count && {
+        count: (
+          <PluginBoundary name={each.plugin}>
+            <each.Count />
+          </PluginBoundary>
+        ),
+      }),
     })),
   ];
 

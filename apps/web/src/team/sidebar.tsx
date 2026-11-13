@@ -32,6 +32,7 @@ export interface TeamEntry {
   readonly label: string;
   readonly icon: IconName;
   readonly current: boolean;
+  readonly count?: ReactNode;
 }
 
 // What a plugin lists live under the main entries, such as active Projects.
@@ -98,7 +99,13 @@ export function TeamSidebar({
 
   const here = people.filter((person) => person.here === true);
 
-  const row = ({ href: to, label, icon, current }: TeamEntry): ReactElement => (
+  const row = ({
+    href: to,
+    label,
+    icon,
+    current,
+    count,
+  }: TeamEntry): ReactElement => (
     <a
       key={to}
       href={to}
@@ -107,6 +114,11 @@ export function TeamSidebar({
     >
       <Icon name={icon} className="text-fg-dim" />
       <span className="truncate">{label}</span>
+      {count !== undefined && (
+        <span className="ml-auto text-caption text-fg-dim tabular-nums">
+          {count}
+        </span>
+      )}
     </a>
   );
 
@@ -175,7 +187,10 @@ export function TeamSidebar({
         </div>
 
         {items.map(({ plugin, path, Items }) => (
-          <div key={plugin} className="mt-2 border-t border-line px-2 pt-3">
+          <div
+            key={plugin}
+            className="mt-2 border-t border-line px-2 pt-3 empty:hidden"
+          >
             <PluginBoundary name={plugin}>
               <Items path={path} />
             </PluginBoundary>

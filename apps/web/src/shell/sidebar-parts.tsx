@@ -35,13 +35,15 @@ export function SidebarSession({
 }): ReactElement {
   const badge = sessionBadge(session);
   const now = useNow();
+  const team = who !== undefined;
 
   const meta = [
-    ...(who === undefined ? [] : [who]),
+    ...(team ? [who] : []),
     ...(session.plugin === null ? [] : [ownerLabel(session.plugin.id)]),
     ...(session.title === null ? [] : [shortName(session.workspace)]),
     environment?.name ?? session.provider,
-    ...(session.model ? [modelName(session.model)] : []),
+    ...(badge ? [badge.label.toLowerCase()] : []),
+    ...(!team && session.model ? [modelName(session.model)] : []),
     session.archivedAt === null ? ago(session.createdAt, now) : "archived",
   ].join(" · ");
 
@@ -53,7 +55,7 @@ export function SidebarSession({
       titleHint={workspaceName(session.workspace)}
       meta={meta}
       current={current}
-      {...(badge && { badge })}
+      leading={<StatusDot tone={badge?.state} />}
     />
   );
 }

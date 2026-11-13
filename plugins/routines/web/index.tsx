@@ -53,8 +53,10 @@ export const web = defineWeb(routines, {
     {
       path: "",
       label: "Routines",
+      icon: "clock",
       Page: RoutinesPage,
       nav: {
+        pinned: true,
         fills: (path) =>
           path
             .slice(path.startsWith(teams.prefix) ? teams.prefix.length : 0)

@@ -58,14 +58,23 @@ export function PluginNav({
           }
           className="group/nav flex items-center gap-2.5 rounded-md px-2 py-1.5 text-ui text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:text-fg-strong"
         >
-          <Avatar
-            name={entry.label}
-            size="xs"
-            square
-            className="bg-elevated text-fg-dim group-aria-[current=page]/nav:border-accent group-aria-[current=page]/nav:text-accent"
-          >
-            {entry.label.slice(0, 1).toUpperCase()}
-          </Avatar>
+          {entry.icon === undefined ? (
+            <Avatar
+              name={entry.label}
+              size="xs"
+              square
+              className="bg-elevated text-fg-dim group-aria-[current=page]/nav:border-accent group-aria-[current=page]/nav:text-accent"
+            >
+              {entry.label.slice(0, 1).toUpperCase()}
+            </Avatar>
+          ) : (
+            <span
+              aria-hidden="true"
+              className="grid size-6 place-items-center text-fg-dim group-aria-[current=page]/nav:text-accent"
+            >
+              <Icon name={entry.icon} />
+            </span>
+          )}
           {entry.label}
         </a>
         <button
@@ -98,30 +107,46 @@ export function PluginNav({
     </div>
   );
 
+  const live = nav.filter(({ Live }) => Live !== undefined);
+
   return (
-    <div id="plugin-nav" className="flex flex-col gap-0.5 px-2 pb-1">
-      {pinned.map((item) => row(item, true))}
-      {rest.length > 0 && (
-        <>
-          <button
-            type="button"
-            aria-expanded={showRest}
-            onClick={() => {
-              setMore(!showRest);
-            }}
-            className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-ui text-fg-dim hover:bg-hover hover:text-fg"
-          >
-            <span
-              aria-hidden="true"
-              className="grid size-6 place-items-center rounded-md text-fg-dim"
+    <>
+      <div id="plugin-nav" className="flex flex-col gap-0.5 px-2 pb-1">
+        {pinned.map((item) => row(item, true))}
+        {rest.length > 0 && (
+          <>
+            <button
+              type="button"
+              aria-expanded={showRest}
+              onClick={() => {
+                setMore(!showRest);
+              }}
+              className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-ui text-fg-dim hover:bg-hover hover:text-fg"
             >
-              <Icon name="more" />
-            </span>
-            {showRest ? "Less" : "More"}
-          </button>
-          {showRest && rest.map((item) => row(item, false))}
-        </>
+              <span
+                aria-hidden="true"
+                className="grid size-6 place-items-center rounded-md text-fg-dim"
+              >
+                <Icon name="more" />
+              </span>
+              {showRest ? "Less" : "More"}
+            </button>
+            {showRest && rest.map((item) => row(item, false))}
+          </>
+        )}
+      </div>
+      {live.map(({ name, Live }) =>
+        Live === undefined ? null : (
+          <div
+            key={name}
+            className="mt-2 border-t border-line px-2 pt-3 empty:hidden"
+          >
+            <PluginBoundary name={name}>
+              <Live path={page?.name === name ? page.path : undefined} />
+            </PluginBoundary>
+          </div>
+        ),
       )}
-    </div>
+    </>
   );
 }

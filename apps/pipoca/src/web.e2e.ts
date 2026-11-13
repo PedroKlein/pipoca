@@ -1784,7 +1784,10 @@ test("draws a defined plugin's page and slots, pinned for someone who never chan
     const nav = page.locator("#plugin-nav");
 
     await nav.getByRole("link", { name: "Assistant", exact: true }).waitFor();
-    expect(await nav.getByRole("link", { name: "Routines" }).count()).toBe(0);
+
+    expect(
+      await nav.getByRole("link", { name: "Artifacts", exact: true }).count(),
+    ).toBe(0);
 
     await nav.getByRole("link", { name: "Vault" }).click();
     await page.getByRole("heading", { name: "Vault" }).waitFor();
@@ -1847,23 +1850,23 @@ test("says why an installed plugin's web part didn't load, and draws the rest", 
 test("pins a plugin page to the sidebar and keeps the rest under More", async () => {
   await page.goto(server.url.href);
   const nav = page.locator("#plugin-nav");
-  const routines = nav.getByRole("link", { name: "Routines" });
+  const artifacts = nav.getByRole("link", { name: "Artifacts", exact: true });
 
   await nav.getByRole("link", { name: "Assistant", exact: true }).waitFor();
-  expect(await routines.count()).toBe(0);
+  expect(await artifacts.count()).toBe(0);
 
   await nav.getByRole("button", { name: "More" }).click();
-  await nav.getByRole("button", { name: "Pin Routines" }).click();
-  await nav.getByRole("button", { name: "Unpin Routines" }).waitFor();
+  await nav.getByRole("button", { name: "Pin Artifacts" }).click();
+  await nav.getByRole("button", { name: "Unpin Artifacts" }).waitFor();
 
   await page.reload();
-  await routines.waitFor();
+  await artifacts.waitFor();
   expect(await nav.getByRole("button", { name: "More" }).count()).toBe(1);
 
-  await nav.getByRole("button", { name: "Unpin Routines" }).click();
+  await nav.getByRole("button", { name: "Unpin Artifacts" }).click();
   await page.reload();
   await nav.getByRole("link", { name: "Assistant", exact: true }).waitFor();
-  expect(await routines.count()).toBe(0);
+  expect(await artifacts.count()).toBe(0);
 });
 
 test("puts a pin back when the server doesn't save it", async () => {
@@ -1888,12 +1891,12 @@ test("puts a pin back when the server doesn't save it", async () => {
   const nav = page.locator("#plugin-nav");
 
   await nav.getByRole("button", { name: "More" }).click();
-  await nav.getByRole("button", { name: "Pin Routines" }).click();
-  await nav.getByRole("button", { name: "Unpin Routines" }).waitFor();
+  await nav.getByRole("button", { name: "Pin Artifacts" }).click();
+  await nav.getByRole("button", { name: "Unpin Artifacts" }).waitFor();
   refuse(undefined);
 
   await nav
-    .getByRole("button", { name: "Pin Routines", exact: true })
+    .getByRole("button", { name: "Pin Artifacts", exact: true })
     .waitFor({ timeout: 2000 });
 
   await page.unroute("**/api/me/pinned-pages");
@@ -3864,7 +3867,11 @@ test("answers the agent's questions in the prompt card", async () => {
 
   const card = page.locator('[data-role="prompt"]');
   await card.getByRole("heading", { level: 2, name: "Which size?" }).waitFor();
-  await page.locator("#sessions").getByText("Needs you").waitFor();
+
+  await page
+    .locator("#sessions")
+    .getByText(/ · needs you · /)
+    .waitFor();
 
   await page
     .locator('#chat li[data-role="assistant"]', {
@@ -3897,7 +3904,7 @@ test("answers the agent's questions in the prompt card", async () => {
 
   await page
     .locator("#sessions")
-    .getByText("Needs you")
+    .getByText(/ · needs you · /)
     .waitFor({ state: "detached" });
 
   await page
@@ -4656,6 +4663,11 @@ test("opens team Projects in the team's area, wherever the link came from", asyn
     .getByRole("navigation", { name: "Team" })
     .getByRole("region", { name: "Active Projects" })
     .getByRole("link", { name: /^Concur Infra Automation/ })
+    .waitFor();
+
+  await page
+    .getByRole("navigation", { name: "Team" })
+    .getByRole("link", { name: /^Projects\s*1$/ })
     .waitFor();
 
   await page.getByRole("button", { name: /^Concur Infra Automation/ }).click();
@@ -6018,6 +6030,13 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
     .filter({ hasText: /^.*You · / })
     .waitFor();
 
+  expect(
+    await teamNav
+      .locator("#team-sessions")
+      .getByText(/^(Offline|Working)$/)
+      .count(),
+  ).toBe(0);
+
   await teamNav.getByText(/^\d+ here now$/).waitFor();
 
   await page
@@ -6040,7 +6059,7 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
     .getByRole("link", { name: "Sessions" })
     .click();
 
-  await page.getByRole("link", { name: "release-notes" }).click();
+  await page.getByRole("link", { name: "release-notes", exact: true }).click();
 
   await page.waitForURL("**/#team/sessions/*");
 
