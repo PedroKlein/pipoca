@@ -5937,25 +5937,13 @@ test("an admin sets up team work from Team setup: its Profiles, Environments, cr
 
   expect(teamProfiles.map(({ name }) => name)).toContain("Backend");
 
+  // The open Profile's form shows until the new one replaces it.
   await page.getByRole("link", { name: "New team Profile" }).click();
-  await page.waitForURL("**/#team/setup/profiles/new");
+  await page.getByRole("button", { name: "Create Profile" }).waitFor();
   await page.getByLabel("Name").fill("Frontend");
   await page.getByRole("button", { name: "Create Profile" }).click();
 
-  await page
-    .getByRole("button", { name: "Make team default" })
-    .click({ timeout: 4000 })
-    .catch(async () => {
-      const shown = await page.locator("body").innerText();
-
-      const listed = await (
-        await page.request.get(
-          new URL("/api/profiles?scope=team", server.url).href,
-        )
-      ).text();
-
-      throw new Error(`DIAG ${page.url()}\n${shown}\n${listed}`);
-    });
+  await page.getByRole("button", { name: "Make team default" }).click();
 
   await page
     .getByRole("navigation", { name: "Profiles" })
