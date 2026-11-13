@@ -671,6 +671,46 @@ test("starts a new session on a model its provider lists only from the network",
   }
 }, 20_000);
 
+test("starts a Session that names no model on one its provider lists only from the network", async () => {
+  const extension = await fetchingProviderExtension(root);
+
+  const { AWS_ACCESS_KEY_ID: keyId, AWS_SECRET_ACCESS_KEY: secret } =
+    process.env;
+
+  delete process.env["PI_OFFLINE"];
+  delete process.env["AWS_ACCESS_KEY_ID"];
+  delete process.env["AWS_SECRET_ACCESS_KEY"];
+
+  try {
+    const session = await startSession(
+      sessionOptions(root, { extensionPaths: [extension] }),
+      {
+        ui: {} as SessionHost["ui"],
+        tools: [],
+        extensions: [],
+        onError: () => undefined,
+        logins: {
+          models: memoryLogins([
+            ["vault", { type: "api_key", key: "vault-key" }],
+          ]),
+          mcp: noMcpLogins,
+        },
+      },
+    );
+
+    await stopSession(session);
+
+    expect(modelName(session)).toBe("vault/vault-large");
+  } finally {
+    process.env["PI_OFFLINE"] = "1";
+
+    Object.assign(process.env, {
+      ...(keyId !== undefined && { AWS_ACCESS_KEY_ID: keyId }),
+      ...(secret !== undefined && { AWS_SECRET_ACCESS_KEY: secret }),
+    });
+  }
+}, 20_000);
+
 test("records an interrupted result for a tool call cut off by a crash", async () => {
   const crashing = spawn(
     process.execPath,
