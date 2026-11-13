@@ -10,5 +10,10 @@
     "test-setup.ts",
     "test-watchdog.ts"
   ],
-  "exclude": ["node_modules", "apps/web", "packages/plugins/web"]
+  "exclude": [
+    "node_modules",
+    "apps/web",
+    "packages/plugins/web",
+    "packages/ui/web"
+  ]
 }

@@ -11,7 +11,7 @@ import {
   Button,
   ErrorText,
   Icon,
-  isComposing,
+  sendsOnEnter,
   Page,
   type PickerModel,
 } from "@pipoca/ui";
@@ -379,19 +379,10 @@ function Composer({
           setText(event.target.value);
         }}
         onKeyDown={(event) => {
-          const forced = event.metaKey || event.ctrlKey;
-
-          if (
-            isComposing(event) ||
-            event.key !== "Enter" ||
-            event.shiftKey ||
-            (!forced && matchMedia("(pointer: coarse)").matches)
-          ) {
-            return;
+          if (sendsOnEnter(event)) {
+            event.preventDefault();
+            send();
           }
-
-          event.preventDefault();
-          send();
         }}
         className="max-h-80 min-h-18 resize-none field-sizing-content bg-transparent pt-1 text-prose text-fg placeholder:text-fg-dim focus:outline-none"
       />
