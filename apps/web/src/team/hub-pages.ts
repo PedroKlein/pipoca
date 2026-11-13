@@ -28,6 +28,7 @@ interface Screen {
   readonly Page: ComponentType<PageProps>;
   readonly Items: ComponentType<NavItemsProps> | undefined;
   readonly Count: ComponentType | undefined;
+  readonly fills: ((path: string) => boolean) | undefined;
 }
 
 export function panels(): readonly Placed[] {
@@ -54,6 +55,7 @@ export function screens(): readonly Screen[] {
               Page,
               Items: nav?.Live,
               Count: nav?.Count,
+              fills: nav?.fills,
             },
           ]
         : [],

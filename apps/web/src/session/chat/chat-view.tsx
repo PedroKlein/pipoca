@@ -34,6 +34,7 @@ export function ChatView({
   readonly onReply?: (quote: Quote) => void;
 }): ReactElement {
   const scroller = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLOListElement>(null);
   const atBottom = useRef(true);
   const top = useRef(0);
   const people = useQuery("people.list").data;
@@ -68,10 +69,13 @@ export function ChatView({
     }
   }, [feed.items, feed.streaming, feed.tools, feed.prompts, hidden]);
 
-  // Widgets drawn around the composer shrink the chat after it has scrolled.
+  // Widgets drawn around the composer shrink the chat after it has scrolled,
+  // and turns grow after it, as off-screen ones get drawn and diagrams,
+  // images and folded tool runs take their size.
   useEffect(() => {
     const box = scroller.current;
-    if (!box || hidden) {
+    const list = content.current;
+    if (!box || !list || hidden) {
       return;
     }
 
@@ -82,6 +86,7 @@ export function ChatView({
     });
 
     observer.observe(box);
+    observer.observe(list);
 
     return () => {
       observer.disconnect();
@@ -110,6 +115,7 @@ export function ChatView({
         <Greeting place={place} />
       )}
       <ol
+        ref={content}
         id={chatId}
         className="mx-auto flex max-w-chat flex-col gap-5 px-4 pt-8 pb-10"
       >

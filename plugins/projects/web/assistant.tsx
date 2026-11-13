@@ -288,19 +288,22 @@ export function TeamAssistant(): ReactElement {
     );
   }
 
+  // It fills the team area, so it scrolls itself.
   return (
-    <Page
-      title="Team assistant"
-      description="Ask it to start team work, look up what the team is doing, or set up a routine for the team. Its chat is yours alone; what it starts belongs to the team, on the team's key."
-    >
-      {models !== undefined && models !== null ? (
-        <Composer models={models} picksModel team />
-      ) : (
-        <p className="text-fg-dim">
-          An admin has to set up a team Environment first.
-        </p>
-      )}
-    </Page>
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <Page
+        title="Team assistant"
+        description="Ask it to start team work, look up what the team is doing, or set up a routine for the team. Its chat is yours alone; what it starts belongs to the team, on the team's key."
+      >
+        {models !== undefined && models !== null ? (
+          <Composer models={models} picksModel team />
+        ) : (
+          <p className="text-fg-dim">
+            An admin has to set up a team Environment first.
+          </p>
+        )}
+      </Page>
+    </div>
   );
 }
 
