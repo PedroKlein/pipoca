@@ -22,16 +22,22 @@ export function ownedByEnabled({ plugin }: Session): boolean {
 export function SidebarSession({
   session,
   environment,
+  who,
+  link,
   current,
 }: {
   readonly session: Session;
   readonly environment: Environment | undefined;
+  // Who started it, in team work.
+  readonly who?: string | undefined;
+  readonly link?: string;
   readonly current: boolean;
 }): ReactElement {
   const badge = sessionBadge(session);
   const now = useNow();
 
   const meta = [
+    ...(who === undefined ? [] : [who]),
     ...(session.plugin === null ? [] : [ownerLabel(session.plugin.id)]),
     ...(session.title === null ? [] : [shortName(session.workspace)]),
     environment?.name ?? session.provider,
@@ -42,7 +48,7 @@ export function SidebarSession({
   return (
     <SessionRow
       id={session.id}
-      href={sessionHref(session)}
+      href={link ?? sessionHref(session)}
       title={session.title ?? shortName(session.workspace)}
       titleHint={workspaceName(session.workspace)}
       meta={meta}

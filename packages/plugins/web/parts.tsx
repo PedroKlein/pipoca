@@ -60,7 +60,8 @@ export interface WebPage {
   readonly path: string;
   readonly label: string;
   readonly Page: ComponentType<PageProps>;
-  // In the sidebar. Pinned is for someone who never changed their pins.
+  // In the sidebar. Pinned is for someone who never changed their pins. On
+  // a hub page, Items list live work in the team's sidebar.
   readonly nav?: {
     readonly Items?: ComponentType<NavItemsProps>;
     readonly pinned?: boolean;

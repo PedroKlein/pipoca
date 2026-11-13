@@ -11,12 +11,22 @@ export function peopleRoutes({
   url,
 }: ApiDeps): Handlers<Group<"people"> | Group<"invites">> {
   return {
-    // Everyone names people in team work; admins also see their roles and
-    // when they were last active.
-    "people.list": ({ caller }) =>
-      caller.admin
-        ? people.people()
-        : people.users().map(({ id, name }): Teammate => ({ id, name })),
+    // Everyone names people in team work and sees who is here; admins also
+    // see their roles and when they were last active.
+    "people.list": ({ caller }) => {
+      const here = people.here();
+
+      return caller.admin
+        ? people.people().map((person) => ({
+            ...person,
+            here: here.has(person.id),
+          }))
+        : people.users().map(({ id, name }): Teammate => ({
+            id,
+            name,
+            here: here.has(id),
+          }));
+    },
     "people.update": ({ params: { id }, body: { admin } }) => {
       const changed = people.changeRole(id, admin);
 

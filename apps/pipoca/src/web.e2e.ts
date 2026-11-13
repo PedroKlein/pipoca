@@ -483,6 +483,12 @@ async function setUpServerAndPerson(): Promise<void> {
   );
 }
 
+// Opens the workspace whose switcher entry matches.
+async function switchWorkspace(name: RegExp): Promise<void> {
+  await page.getByRole("button", { name: "Switch workspace" }).click();
+  await page.getByRole("menuitemradio", { name }).click();
+}
+
 // Picks the e2e Environment and the folder in the New session composer.
 // A folder is shared unless share is false, which makes a worktree of it.
 async function pickWorkspace(
@@ -4593,6 +4599,12 @@ test("opens team Projects in the team's area, wherever the link came from", asyn
   await page.waitForURL("**/#team/plugin/projects/projects/all");
   await page.getByRole("heading", { name: "Team Projects" }).waitFor();
 
+  await page
+    .getByRole("navigation", { name: "Team" })
+    .getByRole("region", { name: "Active Projects" })
+    .getByRole("link", { name: /^Concur Infra Automation/ })
+    .waitFor();
+
   await page.getByRole("button", { name: /^Concur Infra Automation/ }).click();
 
   await page.waitForURL("**/#team/plugin/projects/projects/teamwork");
@@ -5939,11 +5951,21 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
   });
 
   await page.goto(server.url.href);
-  await page.getByRole("link", { name: "Team", exact: true }).click();
+  await switchWorkspace(/^Team/);
 
   const running = page.locator("section").filter({ hasText: "Running now" });
 
   await running.getByRole("link", { name: "release-notes" }).waitFor();
+
+  const teamNav = page.getByRole("navigation", { name: "Team" });
+
+  await teamNav
+    .locator("#team-sessions")
+    .getByRole("link", { name: /release-notes/ })
+    .filter({ hasText: /^.*You · / })
+    .waitFor();
+
+  await teamNav.getByText(/^\d+ here now$/).waitFor();
 
   await page
     .getByRole("navigation", { name: "Team" })
@@ -6082,7 +6104,11 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
   await page.getByText(/Vote closed\. "Ship it today\?": Ship 1/).waitFor();
 
   await page.goto(new URL("/#team/sessions", server.url).href);
-  await page.getByRole("link", { name: "team-docs" }).waitFor();
+
+  await page
+    .getByRole("main")
+    .getByRole("link", { name: "team-docs" })
+    .waitFor();
 
   const mine = (await post("/api/sessions", {
     workspace: {
@@ -6187,6 +6213,7 @@ test("shows plugin panels on the team hub and lets an admin lay out a page of th
 
   const nav = page.getByRole("navigation", { name: "Team" });
 
+  await nav.getByRole("button", { name: /^More/ }).click();
   await nav.getByRole("button", { name: "Add page" }).click();
   await nav.getByLabel("New page title").fill("Costs");
   await nav.getByLabel("New page title").press("Enter");
@@ -6217,10 +6244,10 @@ test("shows plugin panels on the team hub and lets an admin lay out a page of th
 test("an admin sets up team work from Team setup: its Profiles, Environments, credentials, budgets and audit log", async () => {
   await page.goto(new URL("/#team", server.url).href);
 
-  await page
-    .getByRole("navigation", { name: "Team" })
-    .getByRole("link", { name: "Team setup" })
-    .click();
+  const team = page.getByRole("navigation", { name: "Team" });
+
+  await team.getByRole("button", { name: /^More/ }).click();
+  await team.getByRole("link", { name: "Team setup" }).click();
 
   const nav = page.getByRole("navigation", { name: "Team setup" });
 
@@ -6350,17 +6377,32 @@ test("an admin names the team, and the hub and sidebar show it", async () => {
 
   await page
     .getByRole("navigation", { name: "Team" })
-    .getByRole("heading", { name: "Acme platform" })
+    .getByRole("button", { name: "Switch workspace" })
+    .filter({ hasText: "Acme platform" })
     .waitFor();
 
-  await page.getByRole("link", { name: "My work" }).click();
-  await page.getByRole("link", { name: "Acme platform" }).waitFor();
+  await switchWorkspace(/Your workspace/);
+  await page.locator("#sessions").waitFor();
+  await page.getByRole("button", { name: "Switch workspace" }).click();
+  await page.getByRole("menuitemradio", { name: /^Acme platform/ }).waitFor();
 
   await page.request.put(new URL("/api/settings/team", server.url).href, {
     data: { name: null },
   });
 
-  await page.getByRole("link", { name: "Team", exact: true }).waitFor();
+  await page.getByRole("menuitemradio", { name: /^Team/ }).waitFor();
+});
+
+test("switches between your workspace and the team's with the keyboard", async () => {
+  await page.goto(server.url.href);
+  await page.locator("#sessions").waitFor();
+
+  await page.keyboard.press("Control+2");
+  await page.getByRole("navigation", { name: "Team" }).waitFor();
+  expect(new URL(page.url()).hash).toBe("#team");
+
+  await page.keyboard.press("Control+1");
+  await page.locator("#sessions").waitFor();
 });
 
 test("keeps team talk off team work nobody else sees, such as a Team assistant", async () => {

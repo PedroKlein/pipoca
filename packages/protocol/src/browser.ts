@@ -463,7 +463,12 @@ export type Person = Wire<typeof person>;
 export const personUpdate = Type.Object({ admin: Type.Boolean() });
 
 // Who a user may name in team work, such as the people it is limited to.
-const teammate = Type.Object({ id: Type.String(), name: Type.String() });
+const teammate = Type.Object({
+  id: Type.String(),
+  name: Type.String(),
+  // Used the web app in the last few minutes.
+  here: Type.Optional(Type.Boolean()),
+});
 
 export type Teammate = Wire<typeof teammate>;
 

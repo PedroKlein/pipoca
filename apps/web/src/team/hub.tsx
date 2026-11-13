@@ -1,5 +1,5 @@
 import type { HubPage } from "@pipoca/protocol";
-import { AreaLayout, Page, plural } from "@pipoca/ui";
+import { Page } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useState } from "react";
 import { request } from "../data/client";
 import { useAction, useMe, useQuery } from "../data/hooks";
@@ -7,44 +7,39 @@ import { NewSessionDialog } from "../shell/new-session";
 import { PluginBoundary } from "../plugin-boundary";
 import { SessionView } from "../session/session-view";
 import { href, navigate, type Route, routeHref } from "../router";
-import { type Entry, screens, pagesOf, hrefOf, newPageId } from "./hub-pages";
+import { screens, pagesOf, hrefOf, newPageId } from "./hub-pages";
 import { AddPage } from "./add-page";
 import { LayoutPage, TeamSessions } from "./layout-page";
+import { TeamSidebar, type TeamEntry } from "./sidebar";
+import { Drawer } from "../shell/drawer";
+import { MenuButton } from "../shell/plugin-page";
 
-// The team's own area, apart from a person's work, with its own menu. Its
-// pages are layouts of the panels plugins give it (ADRs 0065 and 0067).
+// The team's own workspace, apart from a person's work, with a sidebar of
+// the same shape as theirs. Its pages are layouts of the panels plugins give
+// it (ADRs 0065 and 0067).
 export function TeamHub({ route }: { readonly route: Route }): ReactElement {
   const { admin } = useMe();
-  const name = useQuery("settings.team").data?.name ?? null;
-  const people = useQuery("people.list").data;
+  const people = useQuery("people.list").data ?? [];
   const sessions = useQuery("sessions.list", { query: { scope: "team" } }).data;
+
+  const environments =
+    useQuery("environments.list", { query: { scope: "team" } }).data ?? [];
+
   const layout = useQuery("settings.hub").data;
   const [starting, setStarting] = useState(false);
+  const [drawer, setDrawer] = useState(false);
+  const [drawerRoute, setDrawerRoute] = useState(route);
   const pages = pagesOf(layout?.pages ?? null);
   const current = routeHref(route);
+
+  if (drawerRoute !== route) {
+    setDrawerRoute(route);
+    setDrawer(false);
+  }
 
   const lay = useAction(async (next: readonly HubPage[]) =>
     request("settings.hub.update", { body: { pages: next } }),
   );
-
-  const entries: readonly Entry[] = [
-    ...pages.map((page) => ({
-      href: hrefOf(page),
-      label: page.title,
-      icon: page.id === "home" ? ("home" as const) : ("panel-right" as const),
-    })),
-    {
-      href: href("teamSessions"),
-      label: "Sessions",
-      icon: "menu",
-      ...(sessions !== undefined && { count: sessions.length }),
-    },
-    ...screens().map((screen) => ({
-      href: screen.href,
-      label: screen.label,
-      icon: "panel-right" as const,
-    })),
-  ];
 
   const opened = route.name === "teamSession" ? route.params.id : undefined;
 
@@ -56,9 +51,72 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
         )
       : undefined;
 
+  const [home, ...laid] = pages;
+
+  const entries: readonly TeamEntry[] = [
+    ...(home === undefined
+      ? []
+      : [
+          {
+            href: hrefOf(home),
+            label: home.id === "home" ? "Home" : home.title,
+            icon: "home" as const,
+            current: hrefOf(home) === current,
+          },
+        ]),
+    ...screens().map((each) => ({
+      href: each.href,
+      label: each.label,
+      icon: "panel-right" as const,
+      current: each === screen,
+    })),
+  ];
+
+  const more: readonly TeamEntry[] = [
+    ...laid.map((page) => ({
+      href: hrefOf(page),
+      label: page.title,
+      icon: "panel-right" as const,
+      current: hrefOf(page) === current,
+    })),
+    ...(admin
+      ? [
+          {
+            href: href("teamSetup"),
+            label: "Team setup",
+            icon: "settings" as const,
+            current: false,
+          },
+        ]
+      : []),
+  ];
+
+  const openPath = route.name === "teamPlugin" ? route.params.rest : undefined;
+
+  const items = screens().flatMap(({ plugin, key, Items }) =>
+    Items === undefined
+      ? []
+      : [
+          {
+            plugin,
+            Items,
+            path:
+              screen?.plugin === plugin && screen.key === key
+                ? openPath
+                : undefined,
+          },
+        ],
+  );
+
+  const openDrawer = (): void => {
+    setDrawer(true);
+  };
+
   const content = (): ReactNode => {
     if (opened !== undefined) {
-      return <SessionView key={opened} sessionId={opened} />;
+      return (
+        <SessionView key={opened} sessionId={opened} onMenu={openDrawer} />
+      );
     }
 
     if (route.name === "teamSessions") {
@@ -75,7 +133,7 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
       );
     }
 
-    const page = pages.find((each) => hrefOf(each) === current) ?? pages[0];
+    const page = pages.find((each) => hrefOf(each) === current) ?? home;
 
     if (page === undefined) {
       return null;
@@ -105,63 +163,57 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
   };
 
   return (
-    <AreaLayout
-      label="Team"
-      back={{ href: href("home"), label: "My work" }}
-      heading={name ?? "Team"}
-      mark={
-        <span
-          aria-hidden="true"
-          className="grid size-8.5 shrink-0 place-items-center rounded-md bg-butter text-label font-semibold text-on-butter"
-        >
-          {Array.from(name ?? "Team")[0]?.toUpperCase()}
-        </span>
-      }
-      detail={
-        people === undefined
-          ? undefined
-          : plural(people.length, "person", "people")
-      }
-      groups={[
-        {
-          items: [
-            ...entries.map((entry) => ({
-              href: entry.href,
-              label: entry.label,
-              icon: entry.icon,
-              ...(entry.count !== undefined && { count: entry.count }),
-              current:
-                entry.href === current ||
-                entry.href === screen?.href ||
-                (opened !== undefined && entry.href === href("teamSessions")),
-            })),
-            ...(admin
-              ? [
-                  {
-                    href: href("teamSetup"),
-                    label: "Team setup",
-                    icon: "settings" as const,
-                  },
-                ]
-              : []),
-          ],
-        },
-      ]}
-      footer={
-        admin && (
-          <AddPage
-            onAdd={(title) => {
-              const page = { id: newPageId(title, pages), title, panels: [] };
+    <>
+      <Drawer
+        open={drawer}
+        onClose={() => {
+          setDrawer(false);
+        }}
+      >
+        <TeamSidebar
+          entries={entries}
+          more={more}
+          items={items}
+          sessions={sessions ?? []}
+          people={people}
+          environments={environments}
+          opened={opened}
+          sessionsCurrent={route.name === "teamSessions"}
+          onNewSession={() => {
+            setStarting(true);
+          }}
+          {...(admin && {
+            footer: (
+              <AddPage
+                onAdd={(title) => {
+                  const page = {
+                    id: newPageId(title, pages),
+                    title,
+                    panels: [],
+                  };
 
-              void lay.run([...pages, page]);
-              navigate(hrefOf(page));
-            }}
-          />
-        )
-      }
-      fill={opened !== undefined}
-    >
-      {content()}
+                  void lay.run([...pages, page]);
+                  navigate(hrefOf(page));
+                }}
+              />
+            ),
+          })}
+        />
+      </Drawer>
+
+      <main inert={drawer} className="flex min-w-0 flex-1 flex-col">
+        {opened === undefined ? (
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            <div className="p-2 md:hidden">
+              <MenuButton onMenu={openDrawer} />
+            </div>
+            {content()}
+          </div>
+        ) : (
+          content()
+        )}
+      </main>
+
       <NewSessionDialog
         open={starting}
         team
@@ -169,6 +221,6 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
           setStarting(false);
         }}
       />
-    </AreaLayout>
+    </>
   );
 }

@@ -108,6 +108,7 @@ export const web = defineWeb(projects, {
       label: "Projects",
       Page: TeamProjectsPage,
       area: "hub",
+      nav: { Items: TeamItems },
     },
   ],
   sessionPath: (session) => `${session.plugin?.key ?? ""}/${session.id}`,
@@ -560,6 +561,54 @@ function Items({ path }: NavItemsProps): ReactElement {
           ))}
       </ul>
     </>
+  );
+}
+
+// Under the team's main entries, its Projects that aren't archived.
+function TeamItems({ path }: NavItemsProps): ReactElement | null {
+  const api = useApi(projects);
+
+  const list = useLoaded(
+    async () => teamList(api),
+    "team-projects",
+    watched,
+  ).value?.filter(({ coordinatorState }) => coordinatorState !== "archived");
+
+  if (list === undefined || list.length === 0) {
+    return null;
+  }
+
+  return (
+    <section aria-label="Active Projects" className="flex flex-col gap-0.5">
+      <h2 className="px-2 pb-1 text-caption font-medium text-fg-dim">
+        Active Projects
+      </h2>
+      <ul className="flex flex-col gap-0.5">
+        {list.map((project) => (
+          <li key={project.id}>
+            <a
+              href={link(project.id, true)}
+              aria-current={
+                path?.split("/")[0] === project.id ? "page" : undefined
+              }
+              className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:text-fg-strong"
+            >
+              <StatusDot tone={project.needsYou > 0 ? "waiting" : "done"} />
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate text-label font-medium">
+                  {project.name}
+                </span>
+                <span className="truncate text-caption text-fg-dim">
+                  {project.needsYou > 0
+                    ? `${counted(project.needsYou, "thread needs", "threads need")} someone`
+                    : `${counted(project.threads, "thread", "threads")} · coordinator ${project.coordinatorState}`}
+                </span>
+              </span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
