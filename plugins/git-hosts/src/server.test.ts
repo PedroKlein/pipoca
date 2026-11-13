@@ -421,6 +421,14 @@ function fakeHost(now: () => number) {
             repository("ai-core/aicore-sdk"),
           ],
         });
+      case "/api/v3/repos/acme/aicore-provider":
+        return Response.json({ default_branch: "main" });
+      case "/api/v3/repos/acme/aicore-provider/branches":
+        return Response.json([
+          { name: "feature/thinking" },
+          { name: "main" },
+          { name: "release" },
+        ]);
       default:
         return Response.json({ message: "Not Found" }, { status: 404 });
     }
@@ -841,6 +849,34 @@ test("finds the repositories of each connected host for what the person typed, w
       host,
     },
   ]);
+});
+
+test("lists a repository's branches, its default first, for where a Session starts from", async () => {
+  await using run = await start();
+  const { t } = run;
+
+  const branches = async (url: string): Promise<unknown> =>
+    t.as("pedro").get("branches", { url });
+
+  expect(await branches(`https://${host}/acme/aicore-provider.git`)).toEqual(
+    [],
+  );
+
+  await connected(t);
+
+  for (const url of [
+    `https://${host}/acme/aicore-provider.git`,
+    `git@${host}:acme/aicore-provider.git`,
+  ]) {
+    expect(await branches(url)).toEqual([
+      "main",
+      "feature/thinking",
+      "release",
+    ]);
+  }
+
+  expect(await branches(`https://${host}/acme/missing.git`)).toEqual([]);
+  expect(await branches("https://elsewhere.example/acme/app.git")).toEqual([]);
 });
 
 test("gives a Session the person's accounts and real repository URLs instead of a guess", async () => {

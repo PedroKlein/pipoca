@@ -228,6 +228,68 @@ export async function repositoriesOf(
   );
 }
 
+// The repository's branches, its default one first.
+export async function branchesOf(
+  host: HostCall,
+  token: string,
+  repository: string,
+): Promise<readonly string[]> {
+  const name = repositoryName(repository);
+
+  if (name === undefined) {
+    return [];
+  }
+
+  const get = async (path: string): Promise<unknown> => {
+    const response = await reach(host, `${host.api}${path}`, {
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new HostRefused(
+        `${host.host} answered ${String(response.status)} to ${path}`,
+      );
+    }
+
+    return response.json();
+  };
+
+  const [about, listed] = await Promise.all([
+    get(`/repos/${name}`),
+    get(`/repos/${name}/branches?per_page=100`),
+  ]);
+
+  const main = (about as { default_branch?: unknown }).default_branch;
+
+  const names = (Array.isArray(listed) ? listed : []).flatMap(
+    (item: unknown) => {
+      const { name: branch } = (item ?? {}) as { name?: unknown };
+
+      return typeof branch === "string" ? [branch] : [];
+    },
+  );
+
+  return typeof main === "string" && names.includes(main)
+    ? [main, ...names.filter((branch) => branch !== main)]
+    : names;
+}
+
+// owner/name from an https or scp-style clone URL.
+function repositoryName(repository: string): string | undefined {
+  const path =
+    URL.parse(repository)?.pathname ??
+    /^[^@/\s]+@[^:/\s]+:(.+)$/.exec(repository)?.[1];
+
+  const name = path?.replace(/^\/+/, "").replace(/\.git$/, "");
+
+  return name !== undefined && /^[\w.-]+\/[\w.-]+$/.test(name)
+    ? name
+    : undefined;
+}
+
 // The repositories a GitHub App's installation reaches, for what was typed.
 export async function installationRepositoriesOf(
   host: HostCall,

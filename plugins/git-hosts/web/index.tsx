@@ -66,6 +66,8 @@ export const web = defineWeb(gitHosts, {
     api.get<readonly RepositoryChoice[]>(`${team ? "team/" : ""}repositories`, {
       q: query,
     }),
+  branches: async (url, team, api) =>
+    api.get<readonly string[]>(`${team ? "team/" : ""}branches`, { url }),
 });
 
 // Admins pick the hosts people can connect and the bots routines act as

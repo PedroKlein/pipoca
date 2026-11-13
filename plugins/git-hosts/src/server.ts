@@ -10,11 +10,12 @@ import {
   Type,
   Unreachable,
 } from "@pipoca/plugins";
-import type {
-  GitLogin,
-  Owner,
-  RepositoryChoice,
-  Session,
+import {
+  type GitLogin,
+  type Owner,
+  type RepositoryChoice,
+  repositoryHost,
+  type Session,
 } from "@pipoca/protocol";
 import { gitHosts } from "../plugin";
 import { acting } from "./acting";
@@ -23,6 +24,7 @@ import { appEvents } from "./app-events";
 import { commitAsBody, commitAsStore } from "./commit-as";
 import {
   authorizationUrl,
+  branchesOf,
   emailsOf,
   hostCall,
   HostRefused,
@@ -317,6 +319,44 @@ export const server = defineServer(gitHosts, (context) => {
           ? await teamSearch(typed)
           : await search(caller.person.id, typed),
       );
+    },
+  );
+
+  // A host that refuses or can't be reached offers no branches, and a
+  // branch can still be typed.
+  routes.get(
+    "branches",
+    { auth: "person", team: true, query: Type.Object({ url: Type.String() }) },
+    async ({ caller, query: { url } }): Promise<readonly string[]> => {
+      const team = caller.owner === "team";
+      const where = repositoryHost(url);
+
+      const login = (
+        team ? actingAs.teamReach() : connections.accounts(caller.person.id)
+      ).find((each) => each.host === where);
+
+      const host = login && hosts.get(login.host);
+
+      if (login === undefined || host === undefined) {
+        return [];
+      }
+
+      const call = hostCall(host, context.network, {
+        owner: team ? "team" : owners.of(caller.person.id),
+        action: "branch picker",
+      });
+
+      return branchesOf(call, login.token, url).catch((failure: unknown) => {
+        if (!(
+          failure instanceof HostRefused || failure instanceof Unreachable
+        )) {
+          throw failure;
+        }
+
+        log("branch list failed", { host: host.host, error: failure.message });
+
+        return [];
+      });
     },
   );
 
