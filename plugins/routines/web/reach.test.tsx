@@ -28,7 +28,7 @@ const environment = (id: string, reached: boolean) => ({
 // The warning, drawn as a slot.
 const slots = { step: ReachWarning };
 
-function warning(chosen: string) {
+function warning(chosen: string, listed = "github.acme.internal") {
   const used: string[] = [];
 
   const page = renderPart(
@@ -47,7 +47,7 @@ function warning(chosen: string) {
         Promise.resolve(
           Response.json(
             url.endsWith("private-hosts")
-              ? { hosts: [{ host: "github.acme.internal" }] }
+              ? { hosts: [{ host: listed }] }
               : [environment("pods", false), environment("faraday", true)],
           ),
         ),
@@ -90,4 +90,14 @@ test("a routine on an Environment that reaches its private host shows no warning
   }
 
   expect(page.textContent).toBe("");
+});
+
+test("a private host saved with a port still warns", async () => {
+  const { page } = warning("pods", "github.acme.internal:8443");
+
+  await until(async () => {
+    await settle();
+
+    return page.textContent.includes("pods can't reach github.acme.internal");
+  });
 });

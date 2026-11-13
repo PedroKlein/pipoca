@@ -58,6 +58,7 @@ export {
   hostPortText,
   type PrivateHost,
   type PrivateHosts,
+  privateHostOf,
   privateHosts,
   type ReachedHost,
   type Relayed,

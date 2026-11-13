@@ -2,7 +2,7 @@ import { useApi, useLoaded } from "@pipoca/plugins/web";
 import {
   type Environment,
   type PrivateHosts,
-  repositoryHost,
+  privateHostOf,
 } from "@pipoca/protocol";
 import { Button, Notice } from "@pipoca/ui";
 import type { ReactElement } from "react";
@@ -23,7 +23,6 @@ export function ReachWarning({
   readonly onUse: (environment: string) => void;
 }): ReactElement | null {
   const api = useApi(routines);
-  const host = repositoryHost(repository);
 
   // A warning only, so a failed load leaves the routine's page as it is.
   const listed = useLoaded(
@@ -47,11 +46,9 @@ export function ReachWarning({
     { topics: ["environments"] },
   );
 
-  const isPrivate =
-    host !== undefined &&
-    listed.value?.some((each) => each.host === host) === true;
+  const host = privateHostOf(repository, listed.value ?? []);
 
-  if (!isPrivate || environments.value === undefined) {
+  if (host === undefined || environments.value === undefined) {
     return null;
   }
 

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { hostPortOf, repositoryHost } from "./index";
+import { hostPortOf, privateHostOf, repositoryHost } from "./index";
 
 test("a private host is an exact name with an optional port", () => {
   expect(hostPortOf("GitHub.Acme.Internal")).toEqual({
@@ -40,4 +40,16 @@ test("a repository's host comes from https, ssh and scp-like URLs", () => {
   );
 
   expect(repositoryHost("/home/ana/app")).toBeUndefined();
+});
+
+test("a repository lives on a private host listed with or without a port", () => {
+  const hosts = [{ host: "github.acme.internal:8443" }];
+
+  expect(
+    privateHostOf("https://github.acme.internal/acme/payments", hosts),
+  ).toBe("github.acme.internal");
+
+  expect(privateHostOf("git@github.com:acme/payments.git", hosts)).toBe(
+    undefined,
+  );
 });

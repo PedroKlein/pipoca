@@ -49,6 +49,20 @@ export function repositoryHost(repository: string): string | undefined {
   return /^[^@/\s]+@([^:/\s]+):/.exec(repository)?.[1]?.toLowerCase();
 }
 
+// The private host a repository lives on, if any. A listed host may name
+// a port, which a repository URL's host is compared without.
+export function privateHostOf(
+  repository: string,
+  hosts: readonly { readonly host: string }[],
+): string | undefined {
+  const host = repositoryHost(repository);
+
+  return host !== undefined &&
+    hosts.some((each) => hostPortOf(each.host)?.host === host)
+    ? host
+    : undefined;
+}
+
 const hostName = Type.Refine(
   Type.String({ minLength: 1, maxLength: 260 }),
   (text) => hostPortOf(text) !== undefined,
