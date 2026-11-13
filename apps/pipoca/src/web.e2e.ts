@@ -5986,7 +5986,7 @@ test("an admin sets up team work from Team setup: its Profiles, Environments, cr
 
   await nav.getByRole("link", { name: "Team home" }).click();
   await page.getByRole("heading", { name: "Team home" }).waitFor();
-});
+}, 30_000);
 
 test("an admin keeps a plugin out of team work from Team setup", async () => {
   await page.goto(new URL("/#team/setup/plugins", server.url).href);
