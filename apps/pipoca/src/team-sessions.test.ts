@@ -485,6 +485,7 @@ test("a team Session gets only the git tools its team bot serves", async () => {
   ]);
 
   expect(gitTools(await toolsOf(team.runner))).toEqual([
+    "git_hosts_repositories",
     "git_hosts_watch",
     "git_hosts_unwatch",
   ]);
