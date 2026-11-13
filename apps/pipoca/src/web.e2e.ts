@@ -1052,6 +1052,7 @@ test("shows a Project the assistant makes as a card that stays in the chat, with
 
   for (let tries = 0; project === undefined && tries < 50; tries++) {
     await page.waitForTimeout(100);
+
     project = (await projectsNamed()).find(
       ({ name }) => name === "Readme check",
     );
@@ -1073,6 +1074,7 @@ test("shows a Project the assistant makes as a card that stays in the chat, with
   await page.goto(
     new URL(`/#plugin/projects/${assistant.id}`, server.url).href,
   );
+
   await page.reload();
 
   const card = page.locator('#chat [aria-label="Project Readme check"]');
