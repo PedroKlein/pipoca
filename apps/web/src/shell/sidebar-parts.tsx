@@ -86,10 +86,7 @@ export function EnvironmentStatus({
                 availability(environment) === "Offline" ? "offline" : "done"
               }
             />
-            {environment.name}{" "}
-            {availability(environment) === "Starts runners on demand"
-              ? "on demand"
-              : availability(environment).toLowerCase()}
+            {environment.name} {availability(environment).toLowerCase()}
           </li>
         ))}
       </ul>

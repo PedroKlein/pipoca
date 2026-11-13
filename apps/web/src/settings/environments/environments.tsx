@@ -1,5 +1,4 @@
 import {
-  availability,
   type Environment,
   type EnvironmentTemplate,
   hostPortText,
@@ -21,6 +20,7 @@ import {
   TextInput,
 } from "@pipoca/ui";
 import { type ReactElement, type SubmitEvent, useState } from "react";
+import { AvailabilityBadge } from "../../shell/availability";
 import { request } from "../../data/client";
 import { useAction, useQuery } from "../../data/hooks";
 import { navigate, scopedHref } from "../../router";
@@ -152,8 +152,6 @@ function EnvironmentCard({
   readonly environment: Environment;
   readonly template: EnvironmentTemplate | undefined;
 }): ReactElement {
-  const status = availability(environment);
-
   const plain =
     environment.runnersFrom === null && environment.isolation !== "container";
 
@@ -202,9 +200,7 @@ function EnvironmentCard({
           </span>
         )}
       </span>
-      <Badge state={status === "Offline" ? "offline" : "done"}>
-        {status === "Starts runners on demand" ? "Starts on demand" : status}
-      </Badge>
+      <AvailabilityBadge environment={environment} />
       <span className="hidden w-32 text-right text-label text-fg-dim sm:block">
         {running === 0 ? "Idle" : `${plural(running, "Session")} running`}
       </span>

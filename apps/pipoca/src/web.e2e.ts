@@ -3084,6 +3084,7 @@ test("names the plugin an Environment's runners come from", async () => {
         each.name === "e2e"
           ? {
               ...each,
+              online: false,
               onDemand: true,
               runnersFrom: { plugin: "pods", label: "Pod farm", icon: "cloud" },
             }
@@ -3099,6 +3100,14 @@ test("names the plugin an Environment's runners come from", async () => {
     .getByRole("list", { name: "Your Environments" })
     .getByRole("link", { name: /^e2e/ })
     .getByText("Pod farm", { exact: true })
+    .waitFor();
+
+  // An Environment that starts runners on demand says so the same way
+  // everywhere.
+  await page
+    .getByRole("list", { name: "Your Environments" })
+    .getByRole("link", { name: /^e2e/ })
+    .getByText("On demand", { exact: true })
     .waitFor();
 
   await openEnvironment("e2e");
