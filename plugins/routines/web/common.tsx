@@ -1,4 +1,5 @@
-import { href as pageHref } from "@pipoca/plugins/web";
+import { href as pageHref, useApi, useLoaded } from "@pipoca/plugins/web";
+import type { Environment } from "@pipoca/protocol";
 import { Badge, type BadgeState } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { routines } from "../plugin";
@@ -64,4 +65,23 @@ export function summaryOf(routine: RoutineView): string {
   return routine.nextAt === null
     ? "Nothing scheduled"
     : `Next run ${new Date(routine.nextAt).toLocaleString()}`;
+}
+
+// The Environments a routine of a person's own, or of the team's, may name.
+// Undefined while loading or when the list can't load.
+export function useEnvironments(
+  team: boolean,
+): readonly Environment[] | undefined {
+  const api = useApi(routines);
+
+  return useLoaded(
+    async () =>
+      api
+        .get<readonly Environment[]>(
+          `/api/environments${team ? "?scope=team" : ""}`,
+        )
+        .catch(() => undefined),
+    `environments ${String(team)}`,
+    { topics: ["environments"] },
+  ).value;
 }

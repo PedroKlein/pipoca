@@ -108,10 +108,27 @@ function known({ url }: Asked): unknown {
     return [{ id: "git-hosts", title: "Git hosts" }];
   }
 
+  if (url.endsWith("/api/me/model-choices")) {
+    return { favorites: [], recent: [], hidden: [] };
+  }
+
+  if (url.endsWith("/api/environments")) {
+    return [
+      {
+        id: "env-faraday",
+        name: "faraday",
+        reaches: [],
+        models: [{ provider: "faux", id: "faux-deep", name: "Faux deep" }],
+        hiddenModels: [],
+        unavailableModels: [],
+      },
+    ];
+  }
+
   return undefined;
 }
 
-function page(answers: (asked: Asked) => unknown = () => []) {
+function page(answers: (asked: Asked) => unknown = () => undefined) {
   const asked: Asked[] = [];
 
   const shown = renderPart(
@@ -309,6 +326,28 @@ test("one sentence is drafted into a sentence with chips, in the group and Profi
 
   await typeInto(card.querySelector("input[aria-label='Daily spend']"), "10");
 
+  // The Environment is picked by name from the person's own, not typed.
+  await settled(
+    () =>
+      card.querySelector(
+        "select[aria-label='Environment'] option[value='env-faraday']",
+      )?.textContent === "faraday",
+  );
+
+  await act(async () => {
+    const environment = card.querySelector<HTMLSelectElement>(
+      "select[aria-label='Environment']",
+    );
+
+    if (environment === null) {
+      throw new Error("no Environment field");
+    }
+
+    environment.value = "env-faraday";
+    environment.dispatchEvent(new Event("change", { bubbles: true }));
+    await Promise.resolve();
+  });
+
   expect(card.textContent).toContain(
     "At most $10 a day, then it pauses until tomorrow.",
   );
@@ -344,6 +383,7 @@ test("one sentence is drafted into a sentence with chips, in the group and Profi
       do: {
         ...drafted.do,
         profile: "p1",
+        environment: "env-faraday",
         workspace: {
           kind: "clone",
           repository: "https://github.com/acme/docs-site",
