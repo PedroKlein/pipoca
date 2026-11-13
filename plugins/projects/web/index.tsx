@@ -37,7 +37,6 @@ import {
   type PickerOption,
   popClass,
   Section,
-  Segmented,
   Select,
   SessionRow,
   StatusDot,
@@ -50,6 +49,7 @@ import {
   type ReactElement,
   type ReactNode,
   type SubmitEvent,
+  useEffect,
   useState,
 } from "react";
 import type { TypedClient } from "@pipoca/plugins";
@@ -75,6 +75,8 @@ import {
   workStates,
 } from "../src/model";
 
+const teamProjects = "projects";
+
 // Thread states follow their Sessions.
 const watched = { topics: ["sessions"], changes: ["projects"] };
 
@@ -99,6 +101,12 @@ export const web = defineWeb(projects, {
       Page: TeamAssistant,
       area: "hub",
     },
+    {
+      path: teamProjects,
+      label: "Projects",
+      Page: TeamProjectsPage,
+      area: "hub",
+    },
   ],
   sessionPath: (session) => `${session.plugin?.key ?? ""}/${session.id}`,
   slots: {
@@ -112,23 +120,18 @@ export const web = defineWeb(projects, {
   },
 });
 
-// The person's own Projects, then the team's. A person outside team work
-// gets none of the team's.
-async function allProjects(api: TypedClient): Promise<ProjectSummary[]> {
-  const [own, team] = await Promise.all([
-    api.get<ProjectSummary[]>("projects"),
-    api
-      .raw("team/projects")
-      .then(async (response) =>
-        response.ok ? ((await response.json()) as ProjectSummary[]) : [],
-      ),
-  ]);
+// A person outside team work gets none of the team's.
+async function teamList(api: TypedClient): Promise<ProjectSummary[]> {
+  const response = await api.raw("team/projects");
 
-  return [...own, ...team];
+  return response.ok ? ((await response.json()) as ProjectSummary[]) : [];
 }
 
-function link(path: string): string {
-  return pageHref(projects, path);
+// Team Projects open only in the team's area, wherever the link came from.
+function link(path: string, team = false): string {
+  return team
+    ? `#team/plugin/${projects.id}/${teamProjects}/${path}`
+    : pageHref(projects, path);
 }
 
 function useThread(id: string | undefined): ThreadLinkView | undefined {
@@ -388,7 +391,7 @@ function Items({ path }: NavItemsProps): ReactElement {
   const api = useApi(projects);
 
   const list = useLoaded(
-    async () => allProjects(api),
+    async () => api.get<ProjectSummary[]>("projects"),
     "projects",
     watched,
   ).value;
@@ -432,13 +435,20 @@ function counted(count: number, one: string, many: string): string {
   return `${String(count)} ${count === 1 ? one : many}`;
 }
 
-function ProjectsPage({ path }: PageProps): ReactElement {
+function TeamProjectsPage({ path }: PageProps): ReactElement {
+  return <ProjectsPage path={path} team />;
+}
+
+function ProjectsPage({
+  path,
+  team = false,
+}: PageProps & { readonly team?: boolean }): ReactElement {
   const api = useApi(projects);
 
-  const [open = "", ...rest] = path.split("/");
+  const [open = team ? projectList : "", ...rest] = path.split("/");
 
   const go = (to: string): void => {
-    location.hash = link(to);
+    location.hash = link(to, team);
   };
 
   const environments =
@@ -457,12 +467,13 @@ function ProjectsPage({ path }: PageProps): ReactElement {
   }
 
   return open === projectList ? (
-    <ProjectList environments={environments} onOpen={go} />
+    <ProjectList environments={environments} team={team} onOpen={go} />
   ) : (
     <ProjectPage
       key={open}
       id={open}
       rest={rest.join("/")}
+      team={team}
       environments={environments}
     />
   );
@@ -470,16 +481,24 @@ function ProjectsPage({ path }: PageProps): ReactElement {
 
 function ProjectList({
   environments,
+  team,
   onOpen,
 }: {
   readonly environments: readonly Environment[];
+  readonly team: boolean;
   readonly onOpen: (id: string) => void;
 }): ReactElement {
   const api = useApi(projects);
 
   const list = useLoaded(
-    async () => allProjects(api),
-    "projects",
+    async () => (team ? teamList(api) : api.get<ProjectSummary[]>("projects")),
+    team ? "team-projects" : "projects",
+    watched,
+  ).value;
+
+  const others = useLoaded(
+    async () => (team ? [] : teamList(api)),
+    team ? "no-team-projects" : "team-projects",
     watched,
   ).value;
 
@@ -493,18 +512,41 @@ function ProjectList({
 
   return (
     <Page
-      title="Projects"
+      title={team ? "Team Projects" : "Projects"}
       description="A Project is a coordinator session that starts threads across one or more repositories."
     >
       {active?.length === 0 && <p className="text-fg-dim">No Projects yet.</p>}
       <ProjectCards projects={active ?? []} onOpen={onOpen} />
+      {others !== undefined && others.length > 0 && (
+        <a
+          href={link(projectList, true)}
+          className={cn(
+            linkCardClass,
+            "flex items-center gap-3 px-4 py-3 no-underline hover:bg-hover",
+          )}
+        >
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="font-medium text-fg-strong">
+              {counted(others.length, "team Project", "team Projects")}
+            </span>
+            <span className="truncate text-caption text-fg-dim">
+              {others.map(({ name }) => name).join(", ")} · in the team's area
+            </span>
+          </span>
+          <span className="text-caption text-fg-dim">Open the team's →</span>
+        </a>
+      )}
       {archived !== undefined && archived.length > 0 && (
         <Section title="Archived">
           <ProjectCards projects={archived} onOpen={onOpen} />
         </Section>
       )}
       <Section title="New Project">
-        <CreateForm environments={environments} onCreated={onOpen} />
+        <CreateForm
+          environments={environments}
+          team={team}
+          onCreated={onOpen}
+        />
       </Section>
     </Page>
   );
@@ -533,7 +575,6 @@ function ProjectCards({
           >
             <span className="flex min-w-0 items-center gap-2 font-medium text-fg-strong">
               {project.name}
-              {project.team && <Badge>Team</Badge>}
             </span>
             <span className="text-caption text-fg-dim">
               {project.threads} {project.threads === 1 ? "thread" : "threads"}
@@ -620,9 +661,11 @@ function repositoryOption(repository: string): PickerOption {
 // changed behind the Project's gear (ADR 0040).
 function CreateForm({
   environments,
+  team,
   onCreated,
 }: {
   readonly environments: readonly Environment[];
+  readonly team: boolean;
   readonly onCreated: (id: string) => void;
 }): ReactElement {
   const api = useApi(projects);
@@ -648,10 +691,9 @@ function CreateForm({
 
   const [repositories, setRepositories] = useState<readonly string[]>([]);
   const [environment, setEnvironment] = useState("");
-  const [forTeam, setForTeam] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string>();
-  const offered = forTeam ? teamEnvironments : environments;
+  const offered = team ? teamEnvironments : environments;
   const chosen = offered.find(({ id }) => id === environment);
 
   const options = [
@@ -676,12 +718,12 @@ function CreateForm({
     setError(undefined);
 
     api
-      .post<ProjectView>(forTeam ? "team/projects" : "projects", {
+      .post<ProjectView>(team ? "team/projects" : "projects", {
         name: field("name"),
         goal: field("goal"),
         repositories,
         environment: chosen?.id ?? offered[0]?.id ?? "",
-        ...(forTeam && { profile: teamProfile?.id ?? "" }),
+        ...(team && { profile: teamProfile?.id ?? "" }),
       })
       .then(
         (project) => {
@@ -702,20 +744,6 @@ function CreateForm({
       onSubmit={submit}
       className={cn(cardClass, "project-create grid max-w-xl gap-3 p-5")}
     >
-      {teamEnvironments.length > 0 && teamProfile !== undefined && (
-        <Segmented
-          label="Whose Project"
-          value={forTeam ? "team" : "mine"}
-          onChange={(value) => {
-            setForTeam(value === "team");
-            setEnvironment("");
-          }}
-          options={[
-            { value: "mine", label: "Mine" },
-            { value: "team", label: "The team's" },
-          ]}
-        />
-      )}
       <Field label="Name">
         <TextInput name="name" required />
       </Field>
@@ -833,10 +861,12 @@ function useRail(): readonly [boolean, (open: boolean) => void] {
 function ProjectPage({
   id,
   rest,
+  team,
   environments,
 }: {
   readonly id: string;
   readonly rest: string;
+  readonly team: boolean;
   readonly environments: readonly Environment[];
 }): ReactElement {
   const api = useApi(projects);
@@ -858,7 +888,18 @@ function ProjectPage({
     watched,
   );
 
-  if (project === undefined) {
+  const elsewhere =
+    project && project.team !== team
+      ? link(rest === "" ? id : `${id}/${rest}`, project.team)
+      : undefined;
+
+  useEffect(() => {
+    if (elsewhere !== undefined) {
+      location.replace(elsewhere);
+    }
+  }, [elsewhere]);
+
+  if (project === undefined || elsewhere !== undefined) {
     return <div className="flex-1" />;
   }
 
@@ -866,7 +907,7 @@ function ProjectPage({
     return (
       <div className="m-auto flex flex-col items-center gap-3 p-8">
         <p className="text-fg-dim">Project not found.</p>
-        <a href={link("")} className="text-accent hover:underline">
+        <a href={link("", team)} className="text-accent hover:underline">
           All Projects
         </a>
       </div>
@@ -876,7 +917,7 @@ function ProjectPage({
   const panel = panelOf(rest, project);
 
   const to = (where: string): string =>
-    link(where === "" ? id : `${id}/${where}`);
+    link(where === "" ? id : `${id}/${where}`, project.team);
 
   const go = (where: string): void => {
     location.hash = to(where);

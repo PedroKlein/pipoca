@@ -91,10 +91,16 @@ test("a link and its address open the same page", () => {
 
   expect(parse(link)).toEqual({
     name: "teamPlugin",
-    params: { plugin: "usage", key: "costs" },
+    params: { plugin: "usage", key: "costs", rest: "" },
   });
 
   expect(routeHref(parse(link))).toBe(link);
+
+  expect(parse("#team/plugin/projects/projects/p1/s1")).toEqual({
+    name: "teamPlugin",
+    params: { plugin: "projects", key: "projects", rest: "p1/s1" },
+  });
+
   expect(routeHref(parse("team/"))).toBe("#team");
 });
 
