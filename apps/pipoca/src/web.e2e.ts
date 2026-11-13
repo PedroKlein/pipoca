@@ -2644,6 +2644,86 @@ test("someone who joins finds the team's template picked in Where, and Continue 
   await admin(`/api/environment-templates/${template.id}`, "DELETE");
 }, 30_000);
 
+test("someone who joins brings their Pi setup into My defaults, adding to it and leaving the shared Default alone", async () => {
+  const folder = join(root, "lia-agent");
+
+  await mkdir(join(folder, "skills", "review"), { recursive: true });
+  await writeFile(join(folder, "skills", "review", "SKILL.md"), "# Review");
+  await writeFile(join(folder, "AGENTS.md"), "Lia's rules");
+
+  await writeFile(
+    join(folder, "settings.json"),
+    JSON.stringify({ packages: ["npm:pi-brought"] }),
+  );
+
+  const sharedBefore = await (
+    await fetch(new URL("/api/profiles/default", server.url), {
+      headers: { cookie },
+    })
+  ).json();
+
+  const [invite] = (await (
+    await fetch(new URL("/api/invites", server.url), {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: "{}",
+    })
+  ).json()) as { readonly token: string }[];
+
+  const context = await browser.newContext();
+
+  try {
+    const tab = await context.newPage();
+    await tab.goto(new URL(`/#join/${invite?.token ?? ""}`, server.url).href);
+
+    const account = tab.getByRole("form", { name: "Make your account" });
+    await account.getByLabel("Username").fill("lia");
+    await account.getByLabel("Password").fill("correct horse");
+    await account.getByRole("button", { name: "Join" }).click();
+
+    await tab.getByRole("list", { name: "Your steps" }).waitFor();
+
+    await tab.evaluate(async () =>
+      fetch("/api/me/profile-defaults", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ packages: ["npm:pi-kept"] }),
+      }),
+    );
+
+    await tab.goto(`${server.url.href}#get-started/profile`);
+    await tab.getByRole("heading", { name: "Make Pi yours" }).waitFor();
+    await tab.getByRole("radio", { name: /^Bring my Pi setup/ }).check();
+    await tab.getByLabel("Pick the folder").setInputFiles(folder);
+
+    await tab
+      .getByRole("button", { name: /^Import \d+ items into My defaults$/ })
+      .click();
+
+    await tab
+      .getByRole("status")
+      .getByText(/into My defaults\.$/)
+      .waitFor();
+
+    const defaults = (await tab.evaluate(async () =>
+      (await fetch("/api/me/profile-defaults")).json(),
+    )) as { agentsMd: string; packages: unknown[] };
+
+    expect(defaults.agentsMd).toBe("Lia's rules");
+    expect(defaults.packages).toEqual(["npm:pi-kept", "npm:pi-brought"]);
+  } finally {
+    await context.close();
+  }
+
+  expect(
+    await (
+      await fetch(new URL("/api/profiles/default", server.url), {
+        headers: { cookie },
+      })
+    ).json(),
+  ).toEqual(sharedBefore);
+}, 30_000);
+
 test("shows why an Environment's last runner pod failed", async () => {
   await page.route("**/api/ext/kubernetes/environments/*", async (route) =>
     route.fulfill({

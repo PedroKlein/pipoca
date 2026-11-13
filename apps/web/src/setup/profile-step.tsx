@@ -1,4 +1,3 @@
-import type { Profile } from "@pipoca/protocol";
 import {
   Button,
   ChoiceCard,
@@ -15,14 +14,12 @@ import { groups, type Picked, pickedOf, filesToImport } from "./profile-import";
 
 type Choice = "team" | "folder" | "git" | "clean";
 
-// Starts the person's default Profile from a team Profile, an existing Pi
-// setup item by item, or a repository (ADR 0063). Pi's defaults is an
+// Starts the person's own setup from a team Profile, an existing Pi setup
+// item by item into My defaults, or a repository (ADR 0063). Pi's defaults is an
 // answer too, so the step always has one and no Skip (ADR 0072).
 export function ProfileStep({
-  profiles,
   team,
 }: {
-  readonly profiles: readonly Profile[];
   // The team Profiles on offer, drawn as chips to pick.
   readonly team?: ReactElement | undefined;
 }): ReactElement {
@@ -31,8 +28,6 @@ export function ProfileStep({
   const [left, setLeft] = useState<ReadonlySet<string>>(new Set());
   const [url, setUrl] = useState("");
   const [done, setDone] = useState<string>();
-
-  const target = profiles.find(({ isDefault }) => isDefault);
 
   const toggle = (id: string): void => {
     const next = new Set(left);
@@ -159,23 +154,35 @@ export function ProfileStep({
                 })}
               </ul>
             )}
-            {picked !== undefined && target !== undefined && (
-              <Button
-                variant="primary"
-                className="self-start"
-                onClick={() => {
-                  run(async () => {
-                    await request("profiles.files.upload", {
-                      params: { id: target.id },
-                      body: { files: await filesToImport(picked, left) },
-                    });
+            {picked !== undefined && (
+              <>
+                <p className="text-label text-fg-dim">
+                  Goes into{" "}
+                  <span className="font-medium text-fg">My defaults</span>,
+                  yours alone, under every Profile of yours. Packages and MCP
+                  servers are added to what's there, never replace it. The
+                  server's shared Default stays as it is.
+                </p>
+                <Button
+                  variant="primary"
+                  className="self-start"
+                  onClick={() => {
+                    run(async () => {
+                      const existing = await request("me.profileDefaults");
 
-                    return `Imported ${String(kept)} items into ${target.name}.`;
-                  });
-                }}
-              >
-                Import {kept} {kept === 1 ? "item" : "items"}
-              </Button>
+                      await request("me.profileDefaults.files.upload", {
+                        body: {
+                          files: await filesToImport(picked, left, existing),
+                        },
+                      });
+
+                      return `Imported ${String(kept)} ${kept === 1 ? "item" : "items"} into My defaults.`;
+                    });
+                  }}
+                >
+                  Import {kept} {kept === 1 ? "item" : "items"} into My defaults
+                </Button>
+              </>
             )}
           </div>,
         )}
