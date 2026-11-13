@@ -1,6 +1,6 @@
 import type { Environment } from "@pipoca/protocol";
 import { Button, Command, ErrorText, useConfirm } from "@pipoca/ui";
-import type { ReactElement } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { request } from "../../data/client";
 import { useAction } from "../../data/hooks";
 import { useReachFlags } from "./reach";
@@ -15,7 +15,6 @@ export function JoinKey({
   readonly onKey: (key: string) => void;
 }): ReactElement {
   const [ask, asking] = useConfirm();
-  const [reach, reachPicker] = useReachFlags();
 
   const replace = useAction(async () => {
     if (
@@ -46,15 +45,9 @@ export function JoinKey({
             : "No agent can join until the Environment has a key."}
         </p>
       ) : (
-        <>
-          <p className="text-fg-dim">
-            Start an agent with this key. It is shown only now.
-          </p>
-          {reachPicker}
-          <Command label="Join command">
-            {`PIPOCA_KEY=${madeKey} pipoca agent --server ${location.origin}${reach}`}
-          </Command>
-        </>
+        <JoinCommand joinKey={madeKey}>
+          Start an agent with this key. It is shown only now.
+        </JoinCommand>
       )}
       <div className="flex flex-wrap items-center gap-2">
         <Button
@@ -67,6 +60,29 @@ export function JoinKey({
         <ErrorText size="caption">{replace.error}</ErrorText>
       </div>
       {asking}
+    </div>
+  );
+}
+
+// The command that joins a machine with a key shown once, with the private
+// hosts it should say it reaches.
+export function JoinCommand({
+  joinKey,
+  children,
+}: {
+  readonly joinKey: string;
+  // What to do with it, such as where to run it.
+  readonly children: ReactNode;
+}): ReactElement {
+  const [reach, reachPicker] = useReachFlags();
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-label text-fg-dim">{children}</p>
+      {reachPicker}
+      <Command label="Join command">
+        {`PIPOCA_KEY=${joinKey} pipoca agent --server ${location.origin}${reach}`}
+      </Command>
     </div>
   );
 }
