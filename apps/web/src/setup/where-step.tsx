@@ -10,7 +10,7 @@ import {
 import { type ReactElement, useState } from "react";
 import { request } from "../data/client";
 import { useAction, useQuery } from "../data/hooks";
-import { useReachFlags } from "../settings/environments/reach";
+import { ReachChecklist, useReachFlags } from "../settings/environments/reach";
 import { useNewcomers } from "../settings/people/newcomers";
 import { StepFooter } from "./footer";
 import { connected } from "./step";
@@ -76,6 +76,7 @@ export function WhereStep(): ReactElement {
             }
             checked
           >
+            <ReachChecklist environment={environment} />
             {environment.folders.length > 0 && (
               <div className="flex flex-col gap-2">
                 <span className="text-label font-medium text-fg">

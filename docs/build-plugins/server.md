@@ -49,8 +49,8 @@ The handler gets `{ caller, params, body, query, raw }` and returns a value, sen
 
 Plugins call other servers through `network`, never the global `fetch`, which the lint refuses ([ADR 0080](../adr/0080-private-hosts-reached-through-environments.md)).
 
-- `network.fetch(url, init, owner)` works like `fetch`. A call to a host an admin listed as private goes through an online runner of one of the owner's Environments that reaches it: a person's own for a person, a team Environment for `"team"`. Other calls go straight out, and need no owner.
-- `network.env(url, owner)` gives the variables that send a child process such as git to that host the same way, and `done()` ends them once the process exits.
+- `network.fetch(url, init, { owner, action })` works like `fetch`. A call to a host an admin listed as private goes through an online runner of one of the owner's Environments that reaches it: a person's own for a person, a team Environment for `"team"`. `action` names what the call does in a few words, such as `"repo picker search"`, and the Environment's Recent relays show it. Other calls go straight out, and need neither.
+- `network.env(url, { owner, action })` gives the variables that send a child process such as git to that host the same way, and `done()` ends them once the process exits.
 - `network.privateHost(url)` says whether the URL is on a listed private host, and whether team routines may watch it.
 - With no route, both throw `Unreachable`, a 409 with the code `unreachable` and the host, which routes answer as is.
 

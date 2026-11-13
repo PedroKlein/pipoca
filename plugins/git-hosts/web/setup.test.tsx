@@ -310,3 +310,71 @@ test("server setup says a private host needs a team Environment for team work", 
   expect(card).toContain("Needs a team Environment for team work");
   expect(card).toContain("Set up a team Environment");
 });
+
+test("server setup sets a private host's own CA in place", async () => {
+  const { page, sent } = step("server", {
+    hosts: [{ ...enterprise, reach: { private: true, through: [] } }],
+    setup: { ...state, server: true },
+    "technical-users": [],
+    "/api/settings/private-hosts": {
+      hosts: [{ host: enterprise.host, ca: null, teamWatch: false }],
+    },
+  });
+
+  await shows(page, "Add CA certificate");
+
+  const add = [...page.querySelectorAll("button")].find(
+    ({ textContent }) => textContent === "Add CA certificate",
+  );
+
+  await act(async () => {
+    add?.click();
+    await Promise.resolve();
+  });
+
+  const box = page.querySelector<HTMLTextAreaElement>(
+    "textarea[aria-label='CA certificate in PEM']",
+  );
+
+  await act(async () => {
+    if (box !== null) {
+      // Past React's own value property, so it sees the change.
+      Reflect.set(
+        HTMLTextAreaElement.prototype,
+        "value",
+        "-----BEGIN CERTIFICATE-----",
+        box,
+      );
+
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+
+    await Promise.resolve();
+  });
+
+  await act(async () => {
+    page
+      .querySelector<HTMLFormElement>(
+        `form[aria-label='CA for ${enterprise.host}']`,
+      )
+      ?.requestSubmit();
+
+    await until(() => sent.length > 0);
+  });
+
+  expect(sent).toEqual([
+    {
+      method: "PUT",
+      path: "/api/settings/private-hosts",
+      body: {
+        hosts: [
+          {
+            host: enterprise.host,
+            ca: "-----BEGIN CERTIFICATE-----",
+            teamWatch: false,
+          },
+        ],
+      },
+    },
+  ]);
+});

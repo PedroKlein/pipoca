@@ -7,15 +7,22 @@ export interface Network {
   readonly fetch: (
     url: string | URL,
     init?: RequestInit,
-    owner?: Owner,
+    on?: OnBehalf,
   ) => Promise<Response>;
   // The variables that send a child process's https calls to the URL's host
   // the same way, such as git's. Done ends them.
-  readonly env: (url: string, owner?: Owner) => Promise<NetworkEnv>;
+  readonly env: (url: string, on?: OnBehalf) => Promise<NetworkEnv>;
   // The private host an admin listed at the URL, if it is one.
   readonly privateHost: (
     url: string | URL,
   ) => { readonly teamWatch: boolean } | undefined;
+}
+
+// Whose call it is, which picks the Environments it may go through, and
+// what it does, in a few words for the relay log, such as "repo search".
+export interface OnBehalf {
+  readonly owner: Owner;
+  readonly action?: string;
 }
 
 export interface NetworkEnv {

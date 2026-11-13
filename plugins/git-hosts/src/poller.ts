@@ -115,7 +115,10 @@ export function startPoller(
     }
 
     const state = await pullStateOf(
-      hostCall(host, network, owners.fromSql(watch.userId)),
+      hostCall(host, network, {
+        owner: owners.fromSql(watch.userId),
+        action: "pull request watching",
+      }),
       account.token,
       watch,
       answers,

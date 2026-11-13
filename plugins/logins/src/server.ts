@@ -552,7 +552,8 @@ export const server = defineServer(logins, (ctx) => {
           { to: [session.ownedBy] },
         );
       },
-      async (url, init) => ctx.network.fetch(url, init, "team"),
+      async (url, init) =>
+        ctx.network.fetch(url, init, { owner: "team", action: "model call" }),
     );
 
     log("model call proxied", {

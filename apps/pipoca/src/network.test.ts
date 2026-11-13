@@ -26,7 +26,14 @@ const callerServer = defineServer(caller, ({ routes, network }) => {
     "hello",
     { auth: "person", query: Type.Object({ path: Type.String() }) },
     async ({ caller: { owner }, query: { path } }) => {
-      const response = await network.fetch(`https://${host}${path}`, {}, owner);
+      const response = await network.fetch(
+        `https://${host}${path}`,
+        {},
+        {
+          owner,
+          action: "test call",
+        },
+      );
 
       return { status: response.status, text: await response.text() };
     },
@@ -34,7 +41,7 @@ const callerServer = defineServer(caller, ({ routes, network }) => {
 
   routes.get("git", { auth: "person" }, async ({ caller: { owner } }) => {
     const url = `https://${host}/acme/payments.git`;
-    const { env, done } = await network.env(url, owner);
+    const { env, done } = await network.env(url, { owner });
 
     try {
       const git = Bun.spawn(["git", "ls-remote", url], {
@@ -214,7 +221,7 @@ async function hello(path = "/hello"): Promise<Response> {
   return server.api(`/api/ext/caller/hello?path=${encodeURIComponent(path)}`);
 }
 
-test("a plugin reaches a private host through its caller's own Environment", async () => {
+test("a plugin reaches a private host through its caller's own Environment, logged with what the call does", async () => {
   await listHost();
   await joinRelay("vm");
 
@@ -238,12 +245,18 @@ test("a plugin reaches a private host through its caller's own Environment", asy
   expect(relayed.confirmed).toEqual([{ runner: "vm", host, port: 443 }]);
 
   expect(
-    relayed.recent.map(({ runner, host: to, plugin }) => ({
+    relayed.recent.map(({ runner, host: to, plugin, action }) => ({
       runner,
       host: to,
       plugin,
+      action,
     })),
-  ).toContainEqual({ runner: "vm", host, plugin: "caller" });
+  ).toContainEqual({
+    runner: "vm",
+    host,
+    plugin: "caller",
+    action: "test call",
+  });
 });
 
 test("a call to a private host no Environment of the caller reaches fails as unreachable", async () => {

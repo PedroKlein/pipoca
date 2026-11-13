@@ -24,6 +24,13 @@ export interface RelayRunner {
 }
 
 // One relayed connection, as the server's end of a tunnel to a host.
+// Who a tunnel is for: the plugin, its owner, and what the call does.
+export interface RelayedBy {
+  readonly plugin: string;
+  readonly owner: string;
+  readonly action: string | null;
+}
+
 export interface RelayedTunnel {
   readonly stream: Duplex;
   readonly runner: RelayRunner;
@@ -40,7 +47,7 @@ export interface Relays {
   readonly open: (
     runner: RelayRunner,
     to: { readonly host: string; readonly port: number },
-    by: { readonly plugin: string; readonly owner: string },
+    by: RelayedBy,
   ) => Promise<RelayedTunnel>;
   // The last tunnels through an Environment's runners, newest first.
   readonly recent: (environment: string) => readonly Relayed[];
@@ -61,7 +68,7 @@ interface Pending {
   readonly runner: RelayRunner;
   readonly host: string;
   readonly port: number;
-  readonly by: { readonly plugin: string; readonly owner: string };
+  readonly by: RelayedBy;
   readonly started: number;
   readonly resolve: (tunnel: RelayedTunnel) => void;
   readonly reject: (error: Error) => void;
@@ -99,6 +106,7 @@ export function relayBroker(auth: Auth, log: Log): Relays {
       port: tunnel.port,
       plugin: tunnel.by.plugin,
       owner: tunnel.by.owner,
+      action: tunnel.by.action,
       bytes: tunnel.bytes,
       ms: Date.now() - tunnel.started,
     };

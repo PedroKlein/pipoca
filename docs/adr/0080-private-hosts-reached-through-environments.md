@@ -93,6 +93,7 @@ Where the first build differs from the decision above (2026-11-12):
 - The relay signs in with the runner's own token. A separate relay credential is left for later.
 - git gets its ticket as the password in the proxy address of an `http.<url>.proxy` entry in its environment, since git asks no credential helper for proxy credentials without a prompt. Only the process and the server see it.
 - The tunnel log is kept in memory, the last 50 per Environment, and is lost on restart.
+- Pipoca confirms a host with its own TLS check on the first call through a runner, not when the runner joins, so a machine that just joined shows "confirms it on first use" until then.
 - Tunnels have a 10 second open timeout and 16 open per runner on each side, and an idle limit of 5 minutes on the runner. There is no rate limit yet.
 
 ## Later

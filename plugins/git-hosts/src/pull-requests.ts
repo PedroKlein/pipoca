@@ -237,7 +237,10 @@ export function pullRequests(
 
       try {
         await mergePull(
-          hostCall(host, context.network, owners.fromSql(found.userId)),
+          hostCall(host, context.network, {
+            owner: owners.fromSql(found.userId),
+            action: "pull request merge",
+          }),
           account.token,
           found,
         );

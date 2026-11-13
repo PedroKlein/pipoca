@@ -161,7 +161,11 @@ async function publicFetch(
     const response =
       listed === undefined
         ? await pinnedFetch(url, network, init)
-        : await network.fetch(url, { ...init, redirect: "manual" }, owner);
+        : await network.fetch(
+            url,
+            { ...init, redirect: "manual" },
+            { owner, action: "watching a URL" },
+          );
 
     const location = response.headers.get("location");
 

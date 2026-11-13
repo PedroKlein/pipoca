@@ -1,5 +1,14 @@
 import { type Environment, hostPortText, type Relayed } from "@pipoca/protocol";
-import { Badge, Checkbox, Notice, Row, Rows, Section } from "@pipoca/ui";
+import {
+  Badge,
+  Checkbox,
+  cn,
+  Icon,
+  Notice,
+  Row,
+  Rows,
+  Section,
+} from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { useQuery } from "../../data/hooks";
 import { pluginTitle } from "../../plugins";
@@ -106,10 +115,14 @@ function RelayRow({ relayed }: { readonly relayed: Relayed }): ReactElement {
       leading={
         <span className="w-12 font-mono text-label text-fg-dim">{time}</span>
       }
-      title={pluginTitle(relayed.plugin)}
+      title={
+        relayed.action === null
+          ? pluginTitle(relayed.plugin)
+          : `${pluginTitle(relayed.plugin)} · ${relayed.action}`
+      }
       description={
         <>
-          <span className="font-mono">{relayed.host}</span>
+          <span className="font-mono">{hostPortText(relayed)}</span>
           {relayed.owner === "team" ? " · for the team" : ""}
         </>
       }
@@ -176,6 +189,109 @@ export function useReachFlags(): readonly [string, ReactElement | null] {
     </fieldset>,
   ];
 }
+
+// How a machine that just joined stands with each private host it names:
+// joined, reached from the machine, and confirmed by Pipoca's own check.
+export function ReachChecklist({
+  environment,
+}: {
+  readonly environment: Environment;
+}): ReactElement | null {
+  const relays = useQuery("environments.relays", {
+    params: { id: environment.id },
+  }).data;
+
+  if (environment.reaches.length === 0) {
+    return null;
+  }
+
+  const joined = environment.runners.filter(({ online }) => online);
+
+  const steps: readonly ReachStep[] = [
+    {
+      key: "joined",
+      state: joined.length > 0 ? "done" : "waiting",
+      title: `${environment.name} joined`,
+      description: "Sessions run there only for you.",
+    },
+    ...environment.reaches.flatMap(({ host, port, reached }): ReachStep[] => {
+      const at = hostPortText({ host, port });
+
+      const confirmed =
+        relays?.confirmed.some(
+          (each) => each.host === host && each.port === port,
+        ) === true;
+
+      const reachedStep: ReachStep = {
+        key: `reached ${at}`,
+        state: reached ? "done" : "failed",
+        title: reached
+          ? `${environment.name} reached ${at}`
+          : `${environment.name} couldn't reach ${at}`,
+        description: reached
+          ? "Checked from the machine."
+          : "Named with --reach, but it didn't answer from there.",
+      };
+
+      if (!reached) {
+        return [reachedStep];
+      }
+
+      return [
+        reachedStep,
+        {
+          key: `confirmed ${at}`,
+          state: confirmed ? "done" : "waiting",
+          title: confirmed
+            ? `Pipoca confirmed it through ${environment.name}`
+            : "Pipoca confirms it on first use",
+          description:
+            "Its own TLS check, with the host's CA, so the machine can't stand in for it.",
+        },
+      ];
+    }),
+  ];
+
+  return (
+    <ul
+      aria-label={`How ${environment.name} reaches its private hosts`}
+      className="flex flex-col"
+    >
+      {steps.map(({ key, state, title, description }) => (
+        <li
+          key={key}
+          className="flex gap-2.5 border-b border-line py-2 last:border-b-0"
+        >
+          <Icon
+            name={stepIcons[state]}
+            className={cn("mt-0.5 size-3.5 shrink-0", stepTones[state])}
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-label font-medium text-fg-strong">
+              {title}
+            </span>
+            <span className="text-caption text-fg-dim">{description}</span>
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+interface ReachStep {
+  readonly key: string;
+  readonly state: keyof typeof stepIcons;
+  readonly title: string;
+  readonly description: string;
+}
+
+const stepIcons = { done: "check", waiting: "clock", failed: "x" } as const;
+
+const stepTones = {
+  done: "text-done",
+  waiting: "text-fg-dim",
+  failed: "text-failed",
+} as const;
 
 function reachDescription(reached: boolean, confirmed: boolean): string {
   if (!reached) {

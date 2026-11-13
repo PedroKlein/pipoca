@@ -133,7 +133,10 @@ export const server = defineServer(gitHosts, (context) => {
     token: string,
   ): Promise<void> => {
     const login = await loginOf(
-      hostCall(host, context.network, owners.of(userId)),
+      hostCall(host, context.network, {
+        owner: owners.of(userId),
+        action: "sign-in check",
+      }),
       token,
     );
 
@@ -155,7 +158,10 @@ export const server = defineServer(gitHosts, (context) => {
           ? []
           : [
               repositoriesOf(
-                hostCall(host, context.network, owners.of(userId)),
+                hostCall(host, context.network, {
+                  owner: owners.of(userId),
+                  action: "repo picker search",
+                }),
                 token,
                 query,
               ).then(
@@ -198,7 +204,10 @@ export const server = defineServer(gitHosts, (context) => {
             return [];
           }
 
-          const call = hostCall(host, context.network, "team");
+          const call = hostCall(host, context.network, {
+            owner: "team",
+            action: "team repo picker search",
+          });
 
           const listed =
             kind === "app"
@@ -362,7 +371,10 @@ export const server = defineServer(gitHosts, (context) => {
       }
 
       return emailsOf(
-        hostCall(host, context.network, caller.owner),
+        hostCall(host, context.network, {
+          owner: caller.owner,
+          action: "commit emails",
+        }),
         signedIn.token,
       ).catch((failure: unknown) => {
         throw failure instanceof HostRefused
@@ -511,7 +523,10 @@ export const server = defineServer(gitHosts, (context) => {
 
       try {
         const token = await redeem(
-          hostCall(host, context.network, owners.of(attempt.userId)),
+          hostCall(host, context.network, {
+            owner: owners.of(attempt.userId),
+            action: "OAuth sign-in",
+          }),
           host.oauth,
           callback(),
           query.code ?? "",
