@@ -47,7 +47,6 @@ export function SessionView({
   const [moving, setMoving] = useState(false);
   const { user, admin, team: hasTeam } = useMe();
   const me = { id: user.id, admin, team: hasTeam };
-  const environments = useQuery("environments.list").data ?? [];
   const report = useRef<(error: unknown) => void>(() => undefined);
   const [channel] = useState(() => sessionChannel(sessionId));
 
@@ -74,6 +73,13 @@ export function SessionView({
   }, [sessionId, channel]);
 
   const { session } = feed;
+
+  // A team Session runs on a team Environment, which only the team's list has.
+  const environments =
+    useQuery(
+      "environments.list",
+      session?.ownedBy === "team" ? { query: { scope: "team" } } : {},
+    ).data ?? [];
 
   const environment = environments.find(
     ({ id }) => id === session?.environmentId,
