@@ -166,6 +166,8 @@ export {
   type ModelInfo,
   modelInfoOf,
   type ModelRef,
+  modelName,
+  modelRefOf,
   movable,
   owner,
   type Owner,

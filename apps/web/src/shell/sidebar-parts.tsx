@@ -1,11 +1,15 @@
 import { ThemeSwitch } from "../theme";
-import { availability, type Environment, type Session } from "@pipoca/protocol";
+import {
+  availability,
+  type Environment,
+  modelName,
+  type Session,
+} from "@pipoca/protocol";
 import { Badge, Button, Icon, SessionRow, StatusDot } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useState } from "react";
 import { useNow } from "@pipoca/plugins/web";
 import {
   ago,
-  modelName,
   sessionBadge,
   sessionTitle,
   shortName,

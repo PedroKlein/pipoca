@@ -6,7 +6,7 @@ import {
   Type,
   type When,
 } from "@pipoca/plugins";
-import type { Actor, ModelRef } from "@pipoca/protocol";
+import { type Actor, type ModelRef, modelRefOf } from "@pipoca/protocol";
 import type { projects } from "../plugin";
 import { type Role, workStates } from "./model";
 import { threadNotice, threadPrompt, threadView, unreachable } from "./prompts";
@@ -439,11 +439,11 @@ export function modelRef(name: string | undefined): ModelRef | undefined {
     return undefined;
   }
 
-  const slash = name.indexOf("/");
+  const ref = modelRefOf(name);
 
-  if (slash <= 0 || slash === name.length - 1) {
+  if (ref === undefined) {
     throw new ToolError("model must be provider/id");
   }
 
-  return { provider: name.slice(0, slash), id: name.slice(slash + 1) };
+  return ref;
 }

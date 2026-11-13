@@ -12,7 +12,7 @@ import type {
   SessionEvent,
 } from "@pipoca/protocol";
 import { serve } from "./serve";
-import { readSse } from "@pipoca/protocol";
+import { modelRefOf, readSse } from "@pipoca/protocol";
 
 interface AssistantEntry {
   readonly message?: {
@@ -100,12 +100,12 @@ const agentExited = new Promise((resolve) => agent.once("exit", resolve));
 let failures = 0;
 
 function modelRef(name: string): ModelRef {
-  const slash = name.indexOf("/");
-  if (slash <= 0 || slash === name.length - 1) {
+  const ref = modelRefOf(name);
+  if (ref === undefined) {
     throw new Error(`--model must be provider/id, got ${name}`);
   }
 
-  return { provider: name.slice(0, slash), id: name.slice(slash + 1) };
+  return ref;
 }
 
 function report(ok: boolean, name: string, detail: string): void {

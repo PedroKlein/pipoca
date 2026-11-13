@@ -8,6 +8,20 @@ export const modelRef = Type.Object({
 
 export type ModelRef = Wire<typeof modelRef>;
 
+// "provider/id", as Pi's --model takes it. Provider names have no slash,
+// but some model ids do.
+export function modelRefOf(name: string): ModelRef | undefined {
+  const slash = name.indexOf("/");
+
+  return slash > 0 && slash < name.length - 1
+    ? { provider: name.slice(0, slash), id: name.slice(slash + 1) }
+    : undefined;
+}
+
+export function modelName({ provider, id }: ModelRef): string {
+  return `${provider}/${id}`;
+}
+
 // A model as its provider registers it, to show it by name with what it
 // takes, in the model pickers.
 export const modelInfo = Type.Object({
