@@ -115,6 +115,7 @@ export const web = defineWeb(projects, {
     "notice:thread_message": ThreadMessageNotice,
     "notice:coordinator_message": CoordinatorMessageNotice,
     "link:thread": ThreadLink,
+    "session.toolCall:projects_create": ProjectCard,
     "session.toolCall:start_thread": StartThreadCard,
     "session.toolCall:message_thread": MessageThreadCard,
   },
@@ -187,6 +188,135 @@ function argument(args: unknown, name: string): string | undefined {
   const value = (args as Record<string, unknown> | null)?.[name];
 
   return typeof value === "string" ? value : undefined;
+}
+
+function createdId(call: ToolCall): string | undefined {
+  try {
+    const { id } = JSON.parse(call.result?.text ?? "") as { id?: unknown };
+
+    return typeof id === "string" ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const creationStates: Partial<Record<ToolCall["status"], string>> = {
+  running: "Creating…",
+  done: "Created",
+};
+
+function ProjectCard({ call }: ToolCallProps): ReactElement {
+  const api = useApi(projects);
+  const id = call.status === "done" ? createdId(call) : undefined;
+
+  const project = useLoaded(
+    async () =>
+      id === undefined
+        ? undefined
+        : api.get<ProjectView>(`projects/${encodeURIComponent(id)}`),
+    id ?? "",
+    watched,
+  ).value;
+
+  const coordinator = useLoaded(
+    async () =>
+      project === undefined
+        ? undefined
+        : api.get<Session>(
+            `/api/sessions/${encodeURIComponent(project.coordinatorId)}`,
+          ),
+    project?.coordinatorId ?? "",
+  ).value;
+
+  const profiles =
+    useLoaded(
+      async () =>
+        project === undefined
+          ? []
+          : api.get<Profile[]>(
+              project.team ? "/api/profiles?scope=team" : "/api/profiles",
+            ),
+      project === undefined ? "" : String(project.team),
+      { topics: ["profiles"] },
+    ).value ?? [];
+
+  const name = project?.name ?? argument(call.args, "name") ?? "Project";
+
+  if (call.status !== "done" || project === undefined) {
+    return (
+      <Card
+        padding="none"
+        aria-label={`Project ${name}`}
+        className="flex flex-col px-3 py-2"
+      >
+        <span className="truncate text-label font-medium text-fg-strong">
+          {name}
+        </span>
+        <span
+          className={cn(
+            "truncate text-caption",
+            call.status === "failed" ? "text-failed" : "text-fg-dim",
+          )}
+        >
+          {creationStates[call.status] ?? call.result?.text ?? "Wasn't created"}
+        </span>
+      </Card>
+    );
+  }
+
+  const profile = profiles.find((each) =>
+    project.profileId === null ? each.isDefault : each.id === project.profileId,
+  );
+
+  const thread = project.threads.at(-1);
+  const repositories = project.repositories.length;
+
+  return (
+    <Card
+      padding="none"
+      aria-label={`Project ${project.name}`}
+      className="flex flex-col"
+    >
+      <div className="flex items-center gap-3 px-3 py-2">
+        <Icon name="git-fork" className="size-4 shrink-0 text-fg-dim" />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="flex items-center gap-2 truncate text-label font-medium text-fg-strong">
+            {project.name}
+            {project.team && <Badge>Team</Badge>}
+          </span>
+          <span className="truncate text-caption text-fg-dim">
+            {[
+              `${String(repositories)} ${repositories === 1 ? "repository" : "repositories"}`,
+              profile &&
+                `Profile: ${profile.name}${profile.isDefault ? " (default)" : ""}`,
+              coordinator?.model?.id,
+            ]
+              .filter((part) => part !== undefined)
+              .join(" · ")}
+          </span>
+        </div>
+        <a
+          href={link(project.id, project.team)}
+          className={buttonClass({ size: "sm" })}
+        >
+          {project.team ? "Open in Team" : "Open"}
+        </a>
+      </div>
+      <div className="flex items-center gap-3 border-t border-line px-3 py-2">
+        <StateDot thread={thread} />
+        <span className="min-w-0 flex-1 truncate text-caption text-fg-dim">
+          {thread ? (
+            <>
+              <span className="font-medium text-fg">{thread.title}</span>
+              {` · Thread in ${project.name} · ${workStateNames[thread.workState]}`}
+            </>
+          ) : (
+            `Coordinator ${runBadges[project.coordinatorState]?.label.toLowerCase() ?? project.coordinatorState}`
+          )}
+        </span>
+      </div>
+    </Card>
+  );
 }
 
 function StartThreadCard({ call }: ToolCallProps): ReactElement {
