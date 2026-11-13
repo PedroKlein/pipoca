@@ -4,11 +4,11 @@ import {
   type ReactNode,
   type RefObject,
   useId,
-  useLayoutEffect,
   useRef,
   useState,
 } from "react";
 import { Badge } from "./badge";
+import { useAnchored } from "./anchored";
 import { cn } from "./cn";
 import { Icon } from "./icon";
 import { Segmented } from "./segmented";
@@ -27,8 +27,6 @@ export interface PickerModel {
 }
 
 type View = "favorites" | "recent" | { readonly provider: string };
-
-const gutter = 16;
 
 const viewNames = { favorites: "Favorites", recent: "Recent" } as const;
 
@@ -96,30 +94,12 @@ export function ModelPicker({
   const trigger = given ?? own;
   const panel = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const [above, setAbove] = useState(false);
-  const [end, setEnd] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const [hiding, setHiding] = useState(false);
   const [view, setView] = useState<View>();
 
-  // A chip in the middle of a phone screen has room on neither side, so the
-  // list moves back inside the 16px gutter.
-  useLayoutEffect(() => {
-    const box = panel.current;
-    if (box === null) {
-      return;
-    }
-
-    const { left: scaledLeft, width } = box.getBoundingClientRect();
-    const left = scaledLeft + width / 2 - box.offsetWidth / 2;
-    const right = left + box.offsetWidth;
-
-    const shift =
-      left < gutter ? gutter - left : Math.min(0, innerWidth - gutter - right);
-
-    box.style.translate = `${String(shift)}px`;
-  }, [open]);
+  const anchored = useAnchored(trigger, panel, open);
 
   const shown = models.filter(
     ({ value }) => value === selected || !hidden.includes(value),
@@ -428,17 +408,6 @@ export function ModelPicker({
             return;
           }
 
-          const { top, bottom, left, right } =
-            trigger.current?.getBoundingClientRect() ?? {
-              top: 0,
-              bottom: 0,
-              left: 0,
-              right: 0,
-            };
-
-          // The list opens toward the side with more room.
-          setAbove(innerHeight - bottom < top);
-          setEnd(innerWidth - left < right);
           setOpen(true);
         }}
         className={cn(
@@ -454,12 +423,11 @@ export function ModelPicker({
       {open && (
         <div
           ref={panel}
+          style={anchored.style}
           role="dialog"
           aria-label={`Pick a ${label.toLowerCase()}`}
           className={cn(
-            "absolute z-30 flex w-[680px] max-w-[calc(100vw-32px)] animate-pop-in flex-col overflow-hidden rounded-2xl border border-line bg-elevated shadow-pop",
-            above ? "bottom-full mb-1" : "top-full mt-1",
-            end ? "right-0" : "left-0",
+            "z-30 flex w-[680px] max-w-[calc(100vw-32px)] animate-pop-in flex-col overflow-hidden rounded-2xl border border-line bg-elevated shadow-pop",
           )}
         >
           <div className="flex items-center gap-2.5 border-b border-line px-4">

@@ -3,12 +3,12 @@ import {
   type ReactElement,
   type ReactNode,
   useId,
-  useLayoutEffect,
   useRef,
   useState,
 } from "react";
 import { Badge } from "./badge";
 import { Button } from "./button";
+import { useAnchored } from "./anchored";
 import { cn } from "./cn";
 import { Icon } from "./icon";
 
@@ -22,8 +22,6 @@ export interface RepoOption {
   readonly meta?: string | undefined;
   readonly private?: boolean | undefined;
 }
-
-const gutter = 16;
 
 // How many matches a host lists before asking for more typing.
 const perHost = 5;
@@ -69,29 +67,11 @@ export function RepoPicker({
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const [above, setAbove] = useState(false);
-  const [room, setRoom] = useState<number>();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const [filter, setFilter] = useState<Filter>("all");
 
-  // A chip in the middle of a phone screen has room on neither side, so the
-  // list moves back inside the 16px gutter.
-  useLayoutEffect(() => {
-    const box = panel.current;
-    if (box === null) {
-      return;
-    }
-
-    const { left: scaledLeft, width } = box.getBoundingClientRect();
-    const left = scaledLeft + width / 2 - box.offsetWidth / 2;
-    const right = left + box.offsetWidth;
-
-    const shift =
-      left < gutter ? gutter - left : Math.min(0, innerWidth - gutter - right);
-
-    box.style.translate = `${String(shift)}px`;
-  }, [open]);
+  const anchored = useAnchored(trigger, panel, open);
 
   const typed = query.trim();
   const words = typed.toLowerCase().split(/\s+/).filter(Boolean);
@@ -292,13 +272,6 @@ export function RepoPicker({
             return;
           }
 
-          const { top, bottom } = trigger.current?.getBoundingClientRect() ?? {
-            top: 0,
-            bottom: 0,
-          };
-
-          setAbove(innerHeight - bottom < top);
-          setRoom(Math.max(top, innerHeight - bottom) - gutter);
           setOpen(true);
         }}
         className="inline-flex h-8 max-w-80 cursor-pointer items-center gap-1.5 rounded-full border border-line bg-elevated px-3 text-label text-fg shadow-xs transition-colors duration-150 hover:border-line-strong hover:bg-hover aria-expanded:border-line-focus aria-expanded:bg-hover"
@@ -311,10 +284,9 @@ export function RepoPicker({
           ref={panel}
           role="dialog"
           aria-label={label}
-          style={{ maxHeight: room }}
+          style={{ ...anchored.style, maxHeight: anchored.room }}
           className={cn(
-            "absolute left-0 z-30 flex w-[720px] max-w-[calc(100vw-32px)] animate-pop-in flex-col overflow-hidden rounded-2xl border border-line bg-elevated shadow-pop",
-            above ? "bottom-full mb-1" : "top-full mt-1",
+            "z-30 flex w-[720px] max-w-[calc(100vw-32px)] animate-pop-in flex-col overflow-hidden rounded-2xl border border-line bg-elevated shadow-pop",
           )}
         >
           <div className="flex shrink-0 flex-col gap-2.5 border-b border-line px-4 pt-1 pb-3">

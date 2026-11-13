@@ -21,6 +21,7 @@ import {
   type Profile,
   type ProfileContent,
   profileModel,
+  recentPlaces,
   type Session,
 } from "@pipoca/protocol";
 import {
@@ -44,7 +45,6 @@ import {
   Row,
   Rows,
   Section,
-  Select,
   SessionRow,
   StatusDot,
   type DotTone,
@@ -640,8 +640,11 @@ function ProjectsPage({
 
   const environments =
     useLoaded(
-      async () => api.get<Environment[]>("/api/environments"),
-      "environments",
+      async () =>
+        api.get<Environment[]>(
+          team ? "/api/environments?scope=team" : "/api/environments",
+        ),
+      team ? "team-environments" : "environments",
       { topics: ["environments"] },
     ).value ?? [];
 
@@ -829,67 +832,53 @@ function ProjectRows({
   );
 }
 
-function modelNames(environments: readonly Environment[]): string[] {
-  return [
-    ...new Set(
-      environments.flatMap((option) =>
-        option.models.map(({ provider, id }) => `${provider}/${id}`),
-      ),
-    ),
-  ];
-}
-
-function ProfileSelect({
-  team,
-  value,
-  onChange,
-}: {
-  readonly team: boolean;
-  readonly value: string;
-  readonly onChange: (event: {
-    readonly target: { readonly value: string };
-  }) => void;
-}): ReactElement {
+function useProfiles(team: boolean): readonly Profile[] {
   const api = useApi(projects);
 
-  const profiles =
+  return (
     useLoaded(
       async () =>
         api.get<Profile[]>(team ? "/api/profiles?scope=team" : "/api/profiles"),
       team ? "team-profiles" : "profiles",
-      {
-        topics: ["profiles"],
-      },
-    ).value ?? [];
-
-  return (
-    <Select value={value} onChange={onChange}>
-      {!team && <option value="">The default Profile</option>}
-      {profiles.map((profile) => (
-        <option key={profile.id} value={profile.id}>
-          {profile.name}
-        </option>
-      ))}
-    </Select>
+      { topics: ["profiles"] },
+    ).value ?? []
   );
 }
 
-function recentRepositories(sessions: readonly Session[]): string[] {
-  const repositories = [...sessions]
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .flatMap(({ workspace }) => {
-      switch (workspace.kind) {
-        case "folder":
-        case "worktree":
-          return [workspace.path];
-        case "clone":
-          return [workspace.repository];
-        case "repositories":
-          return workspace.repositories.map(({ repository }) => repository);
-      }
-    });
-
-  return [...new Set(repositories)].slice(0, 8);
+// The Profile a Project's work runs with, its default marked. Team work has
+// no "default" choice of its own: the team default comes preselected.
+function ProfileField({
+  profiles,
+  team,
+  shown,
+  onChange,
+}: {
+  readonly profiles: readonly Profile[];
+  readonly team: boolean;
+  readonly shown: Profile | undefined;
+  readonly onChange: (id: string) => void;
+}): ReactElement {
+  return (
+    <Picker
+      label="Profile"
+      options={[
+        ...(team ? [] : [{ value: "", label: "The default Profile" }]),
+        ...profiles.map(({ id, name, isDefault }) => ({
+          value: id,
+          label: name,
+          ...(isDefault && {
+            detail: team ? "team default" : "default",
+          }),
+        })),
+      ]}
+      selected={[shown?.id ?? ""]}
+      onChange={([id]) => {
+        onChange(id ?? "");
+      }}
+    >
+      {profileLabel(shown, team)}
+    </Picker>
+  );
 }
 
 function profileLabel(profile: Profile | undefined, team: boolean): string {
@@ -921,24 +910,14 @@ function CreateForm({
   const api = useApi(projects);
 
   const sessions =
-    useLoaded(async () => api.get<Session[]>("/api/sessions"), "sessions", {
-      topics: ["sessions"],
-    }).value ?? [];
-
-  const teamEnvironments =
-    useLoaded(
-      async () => api.get<Environment[]>("/api/environments?scope=team"),
-      "team-environments",
-      { topics: ["environments"] },
-    ).value ?? [];
-
-  const profiles =
     useLoaded(
       async () =>
-        api.get<Profile[]>(team ? "/api/profiles?scope=team" : "/api/profiles"),
-      team ? "team-profiles" : "profiles",
-      { topics: ["profiles"] },
+        api.get<Session[]>(team ? "/api/sessions?scope=team" : "/api/sessions"),
+      team ? "team-sessions" : "sessions",
+      { topics: ["sessions"] },
     ).value ?? [];
+
+  const profiles = useProfiles(team);
 
   const under =
     useLoaded(
@@ -959,7 +938,7 @@ function CreateForm({
   const [model, setModel] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string>();
-  const offered = team ? teamEnvironments : environments;
+  const offered = environments;
   const chosen = offered.find(({ id }) => id === environment);
   const runsOn = chosen ?? offered[0];
 
@@ -1040,7 +1019,7 @@ function CreateForm({
             <RepositoryField
               label="Repositories"
               selected={repositories}
-              recent={recentRepositories(sessions)}
+              recent={recentPlaces(sessions, runsOn?.id)}
               team={team}
               hint={
                 team
@@ -1084,25 +1063,12 @@ function CreateForm({
             <span className="text-label font-medium text-fg-strong">
               Profile
             </span>
-            <Picker
-              label="Profile"
-              options={[
-                ...(team ? [] : [{ value: "", label: "The default Profile" }]),
-                ...profiles.map(({ id, name, isDefault }) => ({
-                  value: id,
-                  label: name,
-                  ...(isDefault && {
-                    detail: team ? "team default" : "default",
-                  }),
-                })),
-              ]}
-              selected={[profileShown?.id ?? ""]}
-              onChange={([id]) => {
-                setProfile(id ?? "");
-              }}
-            >
-              {profileLabel(profileShown, team)}
-            </Picker>
+            <ProfileField
+              profiles={profiles}
+              team={team}
+              shown={profileShown}
+              onChange={setProfile}
+            />
             <p className="text-caption text-fg-dim">
               {team
                 ? "Preselected. Only team Profiles are listed."
@@ -1449,13 +1415,11 @@ function ProjectPage({
               path={path}
               project={project}
               onSaved={reload}
-              models={modelNames(
-                environments.filter(
-                  (environment) =>
-                    project.environmentId === null ||
-                    environment.id === project.environmentId,
-                ),
-              )}
+              environment={
+                environments.find(
+                  (each) => each.id === project.environmentId,
+                ) ?? environments[0]
+              }
             />
             <section aria-label="Memory" className="flex flex-col gap-2">
               <h3 className="text-label font-medium text-fg-dim">Memory</h3>
@@ -1783,14 +1747,20 @@ function Settings({
   path,
   project,
   onSaved,
-  models,
+  environment,
 }: {
   readonly path: string;
   readonly project: ProjectView;
   readonly onSaved: () => void;
-  readonly models: readonly string[];
+  readonly environment: Environment | undefined;
 }): ReactElement {
   const api = useApi(projects);
+  const profiles = useProfiles(project.team);
+
+  const models = pickerModels(environment?.models ?? [], {
+    hidden: environment?.hiddenModels ?? [],
+    unavailable: environment?.unavailableModels ?? [],
+  });
 
   const saved = {
     name: project.name,
@@ -1882,27 +1852,43 @@ function Settings({
           </p>
         )}
       </div>
-      <Field label="Thread model">
-        <TextInput
-          list="project-settings-models"
-          placeholder="The coordinator's model"
-          value={draft.threadModel}
-          onChange={edit("threadModel")}
-          className="font-mono text-mono-sm"
-        />
-      </Field>
-      <Field label="Profile">
-        <ProfileSelect
-          team={project.team}
-          value={draft.profile}
-          onChange={edit("profile")}
-        />
-      </Field>
-      <datalist id="project-settings-models">
-        {models.map((ref) => (
-          <option key={ref} value={ref} />
-        ))}
-      </datalist>
+      <div className="flex flex-col gap-1.5">
+        <span className="text-label font-medium text-fg-strong">
+          Thread model
+        </span>
+        <div>
+          <ModelField
+            label="Thread model"
+            models={models}
+            selected={draft.threadModel}
+            none="The coordinator's model"
+            onPick={(threadModel) => {
+              setDraft({ ...draft, threadModel });
+            }}
+          >
+            {models.find(({ value }) => value === draft.threadModel)?.name ??
+              (draft.threadModel || "The coordinator's model")}
+          </ModelField>
+        </div>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <span className="text-label font-medium text-fg-strong">Profile</span>
+        <div>
+          <ProfileField
+            profiles={profiles}
+            team={project.team}
+            shown={
+              profiles.find(({ id }) => id === draft.profile) ??
+              (project.team
+                ? profiles.find(({ isDefault }) => isDefault)
+                : undefined)
+            }
+            onChange={(profile) => {
+              setDraft({ ...draft, profile });
+            }}
+          />
+        </div>
+      </div>
       <Field label="Instructions">
         <TextArea
           rows={4}

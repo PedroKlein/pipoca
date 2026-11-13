@@ -4444,16 +4444,22 @@ test("creates a Project and shares a file through its folder", async () => {
   });
 
   await settings.getByLabel("Name").fill("Site docs");
-  await settings.getByLabel("Thread model").fill("faux/faux-1");
+  await settings.getByRole("button", { name: "Thread model" }).click();
+
+  await page.getByRole("option", { name: "faux-deep", exact: true }).click();
+
   await settings.getByRole("button", { name: "Save settings" }).click();
 
   await page
     .getByRole("heading", { level: 1, name: "Site docs" })
     .waitFor({ timeout: 1000 });
 
-  expect(await settings.getByLabel("Thread model").inputValue()).toBe(
-    "faux/faux-1",
-  );
+  await settings
+    .getByRole("button", { name: "Thread model" })
+    .filter({ hasText: "faux-deep" })
+    .waitFor();
+
+  expect(saves[0]).toMatchObject({ threadModel: "faux/faux-deep" });
 
   expect(
     await settings.getByRole("button", { name: "Repositories" }).textContent(),
@@ -4786,8 +4792,33 @@ test("opens team Projects in the team's area, wherever the link came from", asyn
     .locator("#plugin-page[data-plugin=projects]")
     .waitFor();
 
+  const environments = (await (
+    await page.request.get(new URL("/api/environments", server.url).href)
+  ).json()) as Environment[];
+
+  await page.route("**/api/environments?scope=team", async (route) =>
+    route.fulfill({
+      json: environments.slice(0, 1).map((each) => ({
+        ...each,
+        models: [{ provider: "team-core", id: "team-model" }],
+        hiddenModels: [],
+        unavailableModels: [],
+      })),
+    }),
+  );
+
   await page.goto(`${server.url.href}#plugin/projects/teamwork/settings`);
   await page.waitForURL("**/#team/plugin/projects/projects/teamwork/settings");
+
+  // A team Project's settings offer the team Environment's models.
+  await page
+    .getByRole("complementary", { name: "Project settings" })
+    .getByRole("button", { name: "Thread model" })
+    .click();
+
+  await page.getByRole("option", { name: /team-model/ }).waitFor();
+  await page.keyboard.press("Escape");
+  await page.unroute("**/api/environments?scope=team");
 
   await page.unroute("**/api/ext/projects/projects/teamwork");
   await page.unroute("**/api/ext/projects/team/projects");

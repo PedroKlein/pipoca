@@ -4,10 +4,10 @@ import {
   type ReactNode,
   type RefObject,
   useId,
-  useLayoutEffect,
   useRef,
   useState,
 } from "react";
+import { useAnchored } from "./anchored";
 import { cn } from "./cn";
 import { Icon } from "./icon";
 
@@ -17,8 +17,6 @@ export interface PickerOption {
   readonly detail?: string;
   readonly group?: string;
 }
-
-const gutter = 16;
 
 type Row =
   | { readonly kind: "option"; readonly option: PickerOption }
@@ -82,31 +80,12 @@ export function Picker({
   const own = useRef<HTMLButtonElement>(null);
   const trigger = given ?? own;
   const [open, setOpen] = useState(false);
-  const [above, setAbove] = useState(false);
-  const [end, setEnd] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const [unfolded, setUnfolded] = useState<readonly string[]>([]);
   const panel = useRef<HTMLDivElement>(null);
 
-  // A chip in the middle of a phone screen has room on neither side, so the
-  // list moves back inside the 16px gutter.
-  useLayoutEffect(() => {
-    const box = panel.current;
-    if (box === null) {
-      return;
-    }
-
-    // Measured around its centre, which the pop-in animation doesn't scale.
-    const { left: scaledLeft, width } = box.getBoundingClientRect();
-    const left = scaledLeft + width / 2 - box.offsetWidth / 2;
-    const right = left + box.offsetWidth;
-
-    const shift =
-      left < gutter ? gutter - left : Math.min(0, innerWidth - gutter - right);
-
-    box.style.translate = `${String(shift)}px`;
-  }, [open]);
+  const anchored = useAnchored(trigger, panel, open);
 
   const needle = query.trim().toLowerCase();
   const words = needle.split(/\s+/).filter((word) => word !== "");
@@ -271,17 +250,6 @@ export function Picker({
           if (open) {
             close();
           } else {
-            const { top, bottom, left, right } =
-              trigger.current?.getBoundingClientRect() ?? {
-                top: 0,
-                bottom: 0,
-                left: 0,
-                right: 0,
-              };
-
-            // The list opens toward the side with more room.
-            setAbove(innerHeight - bottom < top);
-            setEnd(innerWidth - left < right);
             setOpen(true);
           }
         }}
@@ -305,10 +273,9 @@ export function Picker({
       {open && (
         <div
           ref={panel}
+          style={anchored.style}
           className={cn(
-            "absolute z-30 flex w-80 max-w-[calc(100vw-32px)] animate-pop-in flex-col gap-1 rounded-lg border border-line bg-elevated p-1.5 shadow-pop",
-            above ? "bottom-full mb-1" : "top-full mt-1",
-            end ? "right-0" : "left-0",
+            "z-30 flex w-80 max-w-[calc(100vw-32px)] animate-pop-in flex-col gap-1 rounded-lg border border-line bg-elevated p-1.5 shadow-pop",
           )}
         >
           {placeholder !== undefined && (

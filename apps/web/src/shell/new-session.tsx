@@ -3,6 +3,7 @@ import {
   type ApiInput,
   type Environment,
   profileModel,
+  recentPlaces,
   repositoryHost,
   thinkingLevels,
 } from "@pipoca/protocol";
@@ -38,7 +39,6 @@ import {
   isRepository,
   lastSegment,
   workspaceRequest,
-  recentPlaces,
 } from "./workspace";
 
 type Steer = "team" | "view";

@@ -99,6 +99,30 @@ const repositoryCheckout = Type.Object({
 // The directory a repository is checked out into inside a repositories
 // Workspace: the last segment of its URL, without ".git". Undefined when that
 // is "", "." or "..", which can't name a folder of its own.
+// The folders and repositories Sessions on the Environment used last,
+// newest first.
+export function recentPlaces(
+  sessions: readonly Session[],
+  environmentId: string | undefined,
+): string[] {
+  const places = [...sessions]
+    .filter((session) => session.environmentId === environmentId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .flatMap(({ workspace }) => {
+      switch (workspace.kind) {
+        case "folder":
+        case "worktree":
+          return [workspace.path];
+        case "clone":
+          return [workspace.repository];
+        case "repositories":
+          return workspace.repositories.map(({ repository }) => repository);
+      }
+    });
+
+  return [...new Set(places)].slice(0, 5);
+}
+
 export function checkoutName(repository: string): string | undefined {
   const name = repository
     .replace(/[/\\]+$/, "")

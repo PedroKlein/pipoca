@@ -1,8 +1,4 @@
-import type {
-  Session,
-  ThinkingLevel,
-  WorkspaceRequest,
-} from "@pipoca/protocol";
+import type { ThinkingLevel, WorkspaceRequest } from "@pipoca/protocol";
 
 // The New session composer remembers its last choices in this browser, like
 // Claude Code's (ADR 0040).
@@ -85,26 +81,4 @@ export function workspaceRequest(
     kind: "repositories",
     repositories: where.map((repository) => ({ repository, ...from })),
   };
-}
-
-export function recentPlaces(
-  sessions: readonly Session[],
-  environmentId: string | undefined,
-): string[] {
-  const places = [...sessions]
-    .filter((session) => session.environmentId === environmentId)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .flatMap(({ workspace }) => {
-      switch (workspace.kind) {
-        case "folder":
-        case "worktree":
-          return [workspace.path];
-        case "clone":
-          return [workspace.repository];
-        case "repositories":
-          return workspace.repositories.map(({ repository }) => repository);
-      }
-    });
-
-  return [...new Set(places)].slice(0, 5);
 }
