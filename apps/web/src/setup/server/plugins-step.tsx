@@ -7,7 +7,6 @@ import {
   initialsOf,
   Row,
   Rows,
-  Switch,
   TextInput,
   useConfirm,
 } from "@pipoca/ui";
@@ -15,7 +14,7 @@ import { type ReactElement, type SubmitEvent, useState } from "react";
 import { request } from "../../data/client";
 import { useAction, useQuery } from "../../data/hooks";
 import { addsSetupStep } from "../../plugins";
-import { turnPlugin } from "../../settings/plugins/plugin-card";
+import { PluginSwitch, turnPlugin } from "../../settings/plugins/plugin-card";
 import {
   Restart,
   switchesAtRestart,
@@ -113,17 +112,14 @@ function PluginRow({
           {plugin.state === "on" ? "On" : "Off"} until restart
         </Badge>
       )}
-      <span title={plugin.switchLocked}>
-        <Switch
-          label={plugin.title}
-          labelHidden
-          checked={plugin.turnedOn}
-          disabled={plugin.switchLocked !== undefined}
-          onChange={() => {
-            void turn.run();
-          }}
-        />
-      </span>
+      <PluginSwitch
+        plugin={plugin}
+        label={plugin.title}
+        checked={plugin.turnedOn}
+        onChange={() => {
+          void turn.run();
+        }}
+      />
       {asking}
     </Row>
   );

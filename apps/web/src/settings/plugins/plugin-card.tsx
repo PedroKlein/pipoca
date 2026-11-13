@@ -128,15 +128,12 @@ export function PluginCard({
             <Badge>Update</Badge>
           )}
         </span>
-        <span title={plugin.switchLocked}>
-          <Switch
-            label="On"
-            labelHidden
-            checked={plugin.turnedOn}
-            disabled={plugin.switchLocked !== undefined}
-            onChange={turn}
-          />
-        </span>
+        <PluginSwitch
+          plugin={plugin}
+          label="On"
+          checked={plugin.turnedOn}
+          onChange={turn}
+        />
       </div>
       <p className="text-label text-fg-dim">{plugin.description}</p>
       <Links plugin={plugin} plugins={plugins} />
@@ -288,17 +285,18 @@ export async function turnPlugin(
 
   if (
     (also.length > 0 || installed.length > 0) &&
-    !(await ask({
-      title: `Turn ${on ? "on" : "off"} ${plugin.title}?`,
-      description: [
-        ...(also.length > 0
-          ? [alsoSwitched(plugin.title, also.map(title), on)]
-          : []),
-        ...(installed.length > 0 ? [trustQuestion(plugin, installed)] : []),
-      ].join(" "),
-      confirm: on ? "Turn on" : "Turn off",
-      danger: !on,
-    }))
+    !(await ask(
+      switchQuestion(
+        plugin.title,
+        [
+          ...(also.length > 0
+            ? [alsoSwitched(plugin.title, also.map(title), on)]
+            : []),
+          ...(installed.length > 0 ? [trustQuestion(plugin, installed)] : []),
+        ],
+        on,
+      ),
+    ))
   ) {
     return;
   }
@@ -307,6 +305,46 @@ export async function turnPlugin(
     params: { plugin: plugin.id },
     body: { enabled: !plugin.turnedOn, digest: plugin.digest },
   });
+}
+
+// Turning off is the danger, since what needs the plugin goes off with it.
+export function switchQuestion(
+  what: string,
+  reasons: readonly string[],
+  on: boolean,
+): ConfirmOptions {
+  return {
+    title: `Turn ${on ? "on" : "off"} ${what}?`,
+    description: reasons.join(" "),
+    confirm: on ? "Turn on" : "Turn off",
+    danger: !on,
+  };
+}
+
+// A switch that says why it can't move when the plugin's switches are set
+// elsewhere.
+export function PluginSwitch({
+  plugin,
+  label,
+  checked,
+  onChange,
+}: {
+  readonly plugin: PluginInfo;
+  readonly label: string;
+  readonly checked: boolean;
+  readonly onChange: (on: boolean) => void;
+}): ReactElement {
+  return (
+    <span title={plugin.switchLocked}>
+      <Switch
+        label={label}
+        labelHidden
+        checked={checked}
+        disabled={plugin.switchLocked !== undefined}
+        onChange={onChange}
+      />
+    </span>
+  );
 }
 
 export function alsoSwitched(

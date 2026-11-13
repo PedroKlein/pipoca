@@ -7,7 +7,6 @@ import {
   Page,
   Row,
   Rows,
-  Switch,
   TextInput,
   useConfirm,
 } from "@pipoca/ui";
@@ -15,7 +14,11 @@ import { type HubPage, switchingWith } from "@pipoca/protocol";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import { request } from "../data/client";
 import { useAction, useQuery } from "../data/hooks";
-import { alsoSwitched } from "../settings/plugins/plugin-card";
+import {
+  alsoSwitched,
+  PluginSwitch,
+  switchQuestion,
+} from "../settings/plugins/plugin-card";
 import { navigate } from "../router";
 import { AddPage } from "./add-page";
 import { hrefOf, newPageId, pagesOf } from "./hub-pages";
@@ -90,11 +93,13 @@ export function TeamPlugins(): ReactElement {
 
     if (
       also.length > 0 &&
-      !(await ask({
-        title: `Turn ${on ? "on" : "off"} ${title(id)} in team work?`,
-        description: alsoSwitched(title(id), also.map(title), on),
-        confirm: on ? "Turn on" : "Turn off",
-      }))
+      !(await ask(
+        switchQuestion(
+          `${title(id)} in team work`,
+          [alsoSwitched(title(id), also.map(title), on)],
+          on,
+        ),
+      ))
     ) {
       return;
     }
@@ -114,14 +119,18 @@ export function TeamPlugins(): ReactElement {
       <Rows label="Plugins in team work">
         {plugins
           .filter(({ state }) => state === "on")
-          .map(({ id, title, description, teamWork }) => (
-            <Row key={id} title={title} description={description}>
-              <Switch
-                label={`${title} in team work`}
-                labelHidden
-                checked={teamWork}
+          .map((plugin) => (
+            <Row
+              key={plugin.id}
+              title={plugin.title}
+              description={plugin.description}
+            >
+              <PluginSwitch
+                plugin={plugin}
+                label={`${plugin.title} in team work`}
+                checked={plugin.teamWork}
                 onChange={(on) => {
-                  void turn.run(id, on);
+                  void turn.run(plugin.id, on);
                 }}
               />
             </Row>
