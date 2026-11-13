@@ -3001,6 +3001,50 @@ test("starts a person's default Profile from a Profile a repository's pipoca.jso
   }
 });
 
+test("imports a Profile in Settings only from a repository's pipoca.json, as setup does", async () => {
+  const made: unknown[] = [];
+
+  await page.route("**/api/repositories/manifest?*", async (route) =>
+    route.fulfill({
+      json: {
+        found: false,
+        commit: "0".repeat(40),
+        profiles: [],
+        templates: [],
+      },
+    }),
+  );
+
+  await page.route("**/api/profiles", async (route) => {
+    if (route.request().method() === "POST") {
+      made.push(route.request().postDataJSON());
+    }
+
+    return route.fallback();
+  });
+
+  try {
+    await page.goto(server.url.href);
+    await openSettings("Profiles");
+
+    await page
+      .getByLabel("From a git repository whose pipoca.json lists Profiles")
+      .fill("https://git.example.com/me/bare.git");
+
+    await page.getByRole("button", { name: "Import", exact: true }).click();
+
+    await page
+      .getByRole("group", { name: "Nothing listed" })
+      .getByText("No pipoca.json at the root of this repository")
+      .waitFor();
+
+    expect(made).toEqual([]);
+  } finally {
+    await page.unroute("**/api/repositories/manifest?*");
+    await page.unroute("**/api/profiles");
+  }
+});
+
 test("shows why an Environment's last runner pod failed", async () => {
   await page.route("**/api/ext/kubernetes/environments/*", async (route) =>
     route.fulfill({
