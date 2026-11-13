@@ -503,7 +503,12 @@ async function pickWorkspace(
 
   if ((await model.textContent())?.trim() !== "Default model") {
     await model.click();
-    await form.getByTitle("default", { exact: true }).click();
+
+    await form
+      .getByRole("group", { name: "Reasoning" })
+      .getByRole("button", { name: "default", exact: true })
+      .click();
+
     await form.getByRole("option", { name: /^Environment default/ }).click();
   }
 
@@ -5076,7 +5081,7 @@ test("switches a session's model and reasoning level from the composer", async (
 
   const composer = page.locator("form#prompt");
   const model = composer.getByRole("button", { name: "Model" });
-  const reasoning = composer.getByRole("slider", { name: "Reasoning" });
+  const reasoning = composer.getByRole("group", { name: "Reasoning" });
 
   await model.filter({ hasText: "faux-1" }).waitFor();
   await model.click();
@@ -5087,9 +5092,7 @@ test("switches a session's model and reasoning level from the composer", async (
     .click();
 
   await model.click();
-  await composer.getByTitle("high", { exact: true }).click();
-  await reasoning.press("ArrowLeft");
-  await reasoning.press("ArrowRight");
+  await reasoning.getByRole("button", { name: "high", exact: true }).click();
   await model.filter({ hasText: "faux-deep · high" }).waitFor();
 
   let asked: { model: string; reasoning: unknown } | undefined;
@@ -5162,7 +5165,7 @@ test("an admin hides a model on the Models page, and the composer's menu leaves 
   await providers.getByText("2 of 2 shown").waitFor();
 }, 30_000);
 
-test("folds other providers' models away in the composer's model menu, and keeps recent ones on top", async () => {
+test("lists one provider's models at a time in the composer's model menu, and keeps recent ones for the person", async () => {
   await page.goto(server.url.href);
   await page.getByRole("button", { name: "New session" }).click();
   const form = page.locator("form#create");
@@ -5178,31 +5181,34 @@ test("folds other providers' models away in the composer's model menu, and keeps
   const option = (name: string) =>
     composer.getByRole("option", { name, exact: true });
 
+  const rail = (name: RegExp) =>
+    composer.getByRole("group", { name: "Providers" }).getByRole("button", {
+      name,
+    });
+
   await model.filter({ hasText: "faux-1" }).waitFor();
   await model.click();
 
   await option("faux-deep").waitFor();
   expect(await option("wide-1").count()).toBe(0);
-  expect(await option("wide (8)").getAttribute("aria-expanded")).toBe("false");
+  await rail(/^Wide\s*8$/).waitFor();
 
   await search.fill("wide 3");
 
-  expect(await composer.getByRole("option").allTextContents()).toEqual([
-    "wide-3",
-  ]);
+  expect(await composer.getByRole("option").count()).toBe(1);
+  await option("wide-3").waitFor();
 
   await search.fill("");
-  await option("wide (8)").click();
+  await rail(/^Wide/).click();
   await option("wide-2").click();
   await model.filter({ hasText: "wide-2" }).waitFor();
 
   await model.click();
+  await rail(/^Recent/).click();
 
-  const options = composer.getByRole("option");
-
-  expect(await options.first().getAttribute("aria-label")).toMatch(/^Recent/);
-  expect(await options.nth(1).textContent()).toBe("wide-2wide");
-  expect(await option("faux (2)").getAttribute("aria-expanded")).toBe("false");
+  expect(
+    await composer.getByRole("option").first().getAttribute("aria-label"),
+  ).toBe("wide-2");
 
   await page.keyboard.press("Escape");
 }, 30_000);
@@ -5217,7 +5223,12 @@ test("starts a session at the reasoning level picked in the New session form", a
   await form.getByRole("combobox", { name: "Model" }).fill("faux/faux-deep");
   await form.getByRole("combobox", { name: "Model" }).press("Enter");
   await form.getByRole("button", { name: "Model" }).click();
-  await form.getByTitle("high", { exact: true }).click();
+
+  await form
+    .getByRole("group", { name: "Reasoning" })
+    .getByRole("button", { name: "high", exact: true })
+    .click();
+
   await form.getByRole("button", { name: "Start session" }).click();
   await page.locator("#status", { hasText: "idle" }).waitFor();
 
@@ -5282,7 +5293,12 @@ test("logs in to a provider from the model menu", async () => {
     .waitFor();
 
   await composer.getByRole("button", { name: "Model" }).click();
-  await composer.getByText("openai", { exact: true }).waitFor();
+
+  await composer
+    .getByRole("group", { name: "Providers" })
+    .getByRole("button", { name: /^OpenAI/ })
+    .waitFor();
+
   await page.keyboard.press("Escape");
 
   const box = page.locator("#prompt-text");

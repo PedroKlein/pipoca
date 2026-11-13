@@ -16,7 +16,12 @@ import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
-import type { Environment, Session, SessionEvent } from "@pipoca/protocol";
+import type {
+  Environment,
+  ModelRef,
+  Session,
+  SessionEvent,
+} from "@pipoca/protocol";
 import { readSse } from "@pipoca/protocol";
 import { runnerCredentials } from "./testdata/runners";
 import { firstUserCookie, setupTokenOf } from "./testdata/sign-in";
@@ -698,7 +703,7 @@ test.each(["server", "agent"] as const)(
         await sleep(20);
       }
 
-      expect(environment.models).toContainEqual({
+      expect(refs(environment.models)).toContainEqual({
         provider: "proxy",
         id: "proxy-small",
       });
@@ -807,4 +812,10 @@ async function gitRepository(path: string): Promise<void> {
     "-m",
     "first",
   ]);
+}
+
+function refs(
+  models: readonly ModelRef[] | undefined,
+): readonly ModelRef[] | undefined {
+  return models?.map(({ provider, id }) => ({ provider, id }));
 }

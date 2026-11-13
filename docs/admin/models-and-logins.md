@@ -49,3 +49,11 @@ The `models` plugin gives each Environment model aliases with fallbacks ([ADR 00
 - An Environment can set a default alias, which a Session with no model uses.
 - The Models page edits each Environment's aliases and shows which model each one routes to now and which it skips until when.
 - `models.hidden` keeps models out of the model pickers, as `provider/id`.
+
+## The model picker
+
+The composer, New Session, New Project and the assistant share one model picker. It lists one provider at a time beside a rail of providers, with each model's readable name, its id, its context size and whether it reasons. A search covers every provider, and "reasoning" finds the models that reason.
+
+- Each person stars favorites, sees their recent picks, and hides models they never use. The server keeps these per person, so they follow them to every browser.
+- A model that failed in a Session of the Environment shows as Unavailable, with the error, for as long as it is benched above. This covers every model, alias or not.
+- Team Sessions have no "Log in to a provider…" link, since team work runs on the team's keys.

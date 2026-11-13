@@ -1,4 +1,3 @@
-import { modelOptions, rememberModel, shownModels } from "../models";
 import {
   availability,
   type ApiInput,
@@ -16,8 +15,8 @@ import {
   isComposing,
   Picker,
   Segmented,
-  Slider,
 } from "@pipoca/ui";
+import { ModelField, pickerModels } from "@pipoca/plugins/web";
 import {
   type ReactElement,
   type ReactNode,
@@ -311,9 +310,10 @@ export function NewSessionForm({
       })),
   ];
 
-  const { options: modelChoices, openGroups } = modelOptions(
-    shownModels(chosen?.models ?? [], chosen?.hiddenModels ?? []),
-  );
+  const models = pickerModels(chosen?.models ?? [], {
+    hidden: chosen?.hiddenModels ?? [],
+    unavailable: chosen?.unavailableModels ?? [],
+  });
 
   const sharing =
     choices.share &&
@@ -480,44 +480,38 @@ export function NewSessionForm({
           </Picker>
         )}
 
-        <Picker
+        <ModelField
           label="Model"
-          options={[
-            { value: "", label: "Environment default" },
-            ...modelChoices,
-          ]}
-          {...(openGroups && { openGroups })}
-          selected={[choices.model]}
-          placeholder="Search models"
-          create={(query) =>
-            modelRef(query) === undefined
-              ? undefined
-              : { value: query, label: `Use ${query}` }
-          }
-          footer={
-            <Slider
-              label="Reasoning"
-              stops={(["", ...thinkingLevels] as const).map((level) => ({
-                value: level,
-                label: level === "" ? "default" : level,
-              }))}
-              value={choices.thinking}
-              onChange={(level) => {
-                choose({ thinking: level });
-              }}
-            />
-          }
-          onChange={([model]) => {
-            if (model !== undefined && model !== "") {
-              rememberModel(model);
-            }
+          models={models}
+          selected={choices.model}
+          none="Environment default"
+          create
+          reasoning={{
+            levels: (["", ...thinkingLevels] as const).map((level) => ({
+              value: level,
+              label: level === "" ? "default" : level,
+            })),
+            value: choices.thinking,
+            onChange: (level) => {
+              const thinking = (["", ...thinkingLevels] as const).find(
+                (known) => known === level,
+              );
 
-            choose({ model: model ?? "" });
+              if (thinking !== undefined) {
+                choose({ thinking });
+              }
+            },
+          }}
+          onPick={(model) => {
+            choose({ model });
           }}
         >
-          {choices.model === "" ? "Default model" : choices.model}
+          {choices.model === ""
+            ? "Default model"
+            : (models.find(({ value }) => value === choices.model)?.name ??
+              choices.model)}
           {choices.thinking !== "" && ` · ${choices.thinking}`}
-        </Picker>
+        </ModelField>
 
         {(team ? profiles.length > 0 : profiles.length > 1) && (
           <Picker

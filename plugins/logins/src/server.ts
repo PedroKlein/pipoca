@@ -14,7 +14,7 @@ import {
   type SessionCaller,
   Type,
 } from "@pipoca/plugins";
-import type { ModelRef } from "@pipoca/protocol";
+import { type ModelInfo, modelInfoOf } from "@pipoca/protocol";
 import { logins } from "../plugin";
 import { callbacks } from "./callback";
 import { connections, modelSignIn } from "./connect";
@@ -125,15 +125,13 @@ export const server = defineServer(logins, (ctx) => {
   // and the providers Settings can sign them in to. Providers that
   // packages add come from the server's listing of its base Profile and
   // the runners' lists, and take /login in a Session.
-  let catalog: readonly ModelRef[] = [];
+  let catalog: readonly ModelInfo[] = [];
   let connectable: readonly Connectable[] = [];
   let proxied: ReadonlyMap<string, Upstream> = new Map();
 
   void ModelRuntime.create({ modelsPath: null, allowModelNetwork: false })
     .then((runtime) => {
-      catalog = runtime
-        .getModels()
-        .map(({ provider, id }) => ({ provider, id }));
+      catalog = runtime.getModels().map(modelInfoOf);
 
       proxied = upstreams(runtime.getModels());
 

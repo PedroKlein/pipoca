@@ -1,4 +1,9 @@
-import { type ModelRef, type Quote, teamTalkSince } from "@pipoca/protocol";
+import {
+  type Environment,
+  type ModelInfo,
+  type Quote,
+  teamTalkSince,
+} from "@pipoca/protocol";
 import type { MountedSession } from "@pipoca/plugins/web";
 import { Button, Icon, isComposing } from "@pipoca/ui";
 import { type ReactElement, useEffect, useId, useRef, useState } from "react";
@@ -35,6 +40,7 @@ export function Composer({
   feed,
   models,
   hiddenModels,
+  unavailableModels,
   hidden,
   report,
   team = false,
@@ -46,8 +52,9 @@ export function Composer({
   readonly sessionId: string;
   readonly session: MountedSession;
   readonly feed: Feed;
-  readonly models: readonly ModelRef[];
+  readonly models: readonly ModelInfo[];
   readonly hiddenModels: readonly string[];
+  readonly unavailableModels: Environment["unavailableModels"];
   readonly hidden: boolean;
   readonly report: (error: unknown) => void;
   readonly team?: boolean;
@@ -288,6 +295,7 @@ export function Composer({
             feed={feed}
             models={models}
             hiddenModels={hiddenModels}
+            unavailableModels={unavailableModels}
             modelMenu={modelMenu}
             team={team}
             talk={talk}

@@ -60,7 +60,7 @@ function inside(root: string, folder: string): boolean {
   );
 }
 
-export function uniqueModels(models: readonly ModelRef[]): ModelRef[] {
+export function uniqueModels<M extends ModelRef>(models: readonly M[]): M[] {
   const seen = new Set<string>();
 
   return models.filter(({ provider, id }) => {

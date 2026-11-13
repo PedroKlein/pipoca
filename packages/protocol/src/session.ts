@@ -8,6 +8,34 @@ export const modelRef = Type.Object({
 
 export type ModelRef = Wire<typeof modelRef>;
 
+// A model as its provider registers it, to show it by name with what it
+// takes, in the model pickers.
+export const modelInfo = Type.Object({
+  ...modelRef.properties,
+  name: Type.Optional(Type.String()),
+  contextWindow: Type.Optional(Type.Number()),
+  reasoning: Type.Optional(Type.Boolean()),
+});
+
+export type ModelInfo = Wire<typeof modelInfo>;
+
+// Only what the pickers show of a provider's model, which carries much more.
+export function modelInfoOf({
+  provider,
+  id,
+  name,
+  contextWindow,
+  reasoning,
+}: ModelInfo): ModelInfo {
+  return {
+    provider,
+    id,
+    ...(name !== undefined && name !== id && { name }),
+    ...(contextWindow !== undefined && { contextWindow }),
+    ...(reasoning !== undefined && { reasoning }),
+  };
+}
+
 // Pi's reasoning levels, from none to the most a model allows.
 export const thinkingLevels = [
   "off",

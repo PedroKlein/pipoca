@@ -1,4 +1,4 @@
-import type { Invite, SetupState } from "@pipoca/protocol";
+import type { Invite, ModelChoices, SetupState } from "@pipoca/protocol";
 import type { AccessToken, PeopleStore, StoredUser } from "../people";
 
 export function memoryStore(): PeopleStore {
@@ -7,6 +7,7 @@ export function memoryStore(): PeopleStore {
   const invites = new Map<string, Invite & { tokenHash: string }>();
   const tokens = new Map<string, AccessToken>();
   const pinned = new Map<string, readonly string[] | null>();
+  const choices = new Map<string, ModelChoices>();
   const setups = new Map<string, Omit<SetupState, "serverPending">>();
   let serverSetupBy: string | undefined;
   const defaults = new Map<string, string | null>();
@@ -132,6 +133,11 @@ export function memoryStore(): PeopleStore {
       );
 
       return found !== undefined && tokens.delete(found[0]);
+    },
+    modelChoices: (userId) =>
+      choices.get(userId) ?? { favorites: [], recent: [], hidden: [] },
+    setModelChoices: (userId, chosen) => {
+      choices.set(userId, chosen);
     },
     pinnedPages: (userId) => pinned.get(userId) ?? null,
     setPinnedPages: (userId, pages) => {

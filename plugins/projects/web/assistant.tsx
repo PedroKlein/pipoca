@@ -1,6 +1,20 @@
-import { href, SessionView, useLoaded, useApi } from "@pipoca/plugins/web";
+import {
+  href,
+  ModelField,
+  pickerModels,
+  SessionView,
+  useLoaded,
+  useApi,
+} from "@pipoca/plugins/web";
 import type { Environment, ModelRef, Session } from "@pipoca/protocol";
-import { Button, ErrorText, Icon, isComposing, Page, Picker } from "@pipoca/ui";
+import {
+  Button,
+  ErrorText,
+  Icon,
+  isComposing,
+  Page,
+  type PickerModel,
+} from "@pipoca/ui";
 import {
   type ReactElement,
   type SubmitEvent,
@@ -39,7 +53,9 @@ function useAssistant(team = false): ProjectView | null | undefined {
 }
 
 // Undefined while loading, null when there is no Environment to run on.
-function useModels(scope: "" | "team"): readonly string[] | null | undefined {
+function useModels(
+  scope: "" | "team",
+): readonly PickerModel[] | null | undefined {
   const api = useApi(projects);
 
   const environments = useLoaded(
@@ -53,7 +69,17 @@ function useModels(scope: "" | "team"): readonly string[] | null | undefined {
 
   return (
     environments &&
-    (environments.length === 0 ? null : modelNames(environments))
+    (environments.length === 0
+      ? null
+      : pickerModels(
+          environments.flatMap(({ models }) => models),
+          {
+            hidden: environments.flatMap(({ hiddenModels }) => hiddenModels),
+            unavailable: environments.flatMap(
+              ({ unavailableModels }) => unavailableModels,
+            ),
+          },
+        ))
   );
 }
 
@@ -255,7 +281,7 @@ function Composer({
   picksModel,
   team = false,
 }: {
-  readonly models: readonly string[];
+  readonly models: readonly PickerModel[];
   readonly picksModel: boolean;
   readonly team?: boolean;
 }): ReactElement {
@@ -267,17 +293,7 @@ function Composer({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
 
-  const options = [...new Set([model, ...models])]
-    .flatMap((name) => {
-      const ref = modelRef(name);
-
-      return ref ? [{ value: name, label: ref.id, group: ref.provider }] : [];
-    })
-    .sort(
-      (a, b) =>
-        Number(b.group === "alias") - Number(a.group === "alias") ||
-        a.group.localeCompare(b.group),
-    );
+  const picked = models.find(({ value }) => value === model);
 
   const send = (): void => {
     if (text.trim() === "" || sending) {
@@ -355,21 +371,21 @@ function Composer({
           </ErrorText>
         )}
         {picksModel && (
-          <Picker
+          <ModelField
             label="Model"
             quiet
-            options={[{ value: "", label: "Default model" }, ...options]}
-            selected={[model]}
-            {...(models.length > 6 && { placeholder: "Search models" })}
-            onChange={([name = ""]) => {
+            models={models}
+            selected={model}
+            none="Default model"
+            onPick={(name) => {
               setModel(name);
               remember(name);
             }}
           >
             {model === ""
               ? "Default model"
-              : model.slice(model.indexOf("/") + 1)}
-          </Picker>
+              : (picked?.name ?? model.slice(model.indexOf("/") + 1))}
+          </ModelField>
         )}
         <Button
           variant="primary"
@@ -424,16 +440,6 @@ function Continue({
       </a>
     </div>
   );
-}
-
-function modelNames(environments: readonly Environment[]): string[] {
-  return [
-    ...new Set(
-      environments.flatMap(({ models }) =>
-        models.map(({ provider, id }) => `${provider}/${id}`),
-      ),
-    ),
-  ];
 }
 
 function modelRef(name: string): ModelRef | undefined {

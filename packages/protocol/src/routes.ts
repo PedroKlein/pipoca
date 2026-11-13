@@ -32,6 +32,7 @@ import {
   person,
   personUpdate,
   personView,
+  modelChoices,
   pinnedPages,
   pinnedPagesChange,
   profile,
@@ -299,6 +300,20 @@ export const routes = {
     body: pinnedPagesChange,
     response: pinnedPages,
     changes: ["pinned-pages"],
+  },
+  "me.modelChoices": {
+    method: "GET",
+    path: "/api/me/model-choices",
+    auth: "person",
+    response: modelChoices,
+  },
+  "me.modelChoices.update": {
+    method: "PUT",
+    path: "/api/me/model-choices",
+    auth: "person",
+    body: modelChoices,
+    response: modelChoices,
+    changes: ["model-choices"],
   },
   "me.accessTokens": {
     method: "GET",

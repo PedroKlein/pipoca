@@ -1,24 +1,25 @@
-import { modelOptions, rememberModel, shownModels } from "../../models";
-import type { ModelRef } from "@pipoca/protocol";
-import { Picker, Slider } from "@pipoca/ui";
+import type { Environment, ModelInfo, ModelRef } from "@pipoca/protocol";
+import { ModelField, pickerModels } from "@pipoca/plugins/web";
 import type { ReactElement, RefObject } from "react";
 import { modelName, modelRef } from "../../names";
 import type { Settings } from "../feed";
 
-// Claude Code's model menu with its effort levels, on Pi's model and reasoning level
-// (ADR 0023).
+// Claude Code's model menu with its effort levels, on Pi's model and
+// reasoning level (ADR 0023).
 export function ModelMenu({
   settings,
   models,
   hiddenModels,
+  unavailableModels,
   modelMenu,
   onModel,
   onLogin,
   onThinking,
 }: {
   readonly settings: Settings;
-  readonly models: readonly ModelRef[];
+  readonly models: readonly ModelInfo[];
   readonly hiddenModels: readonly string[];
+  readonly unavailableModels: Environment["unavailableModels"];
   readonly modelMenu: RefObject<HTMLButtonElement | null>;
   readonly onModel: (model: ModelRef) => void;
   // Team work runs on the team's keys and takes no logins.
@@ -27,60 +28,56 @@ export function ModelMenu({
 }): ReactElement {
   const current = settings.model ? modelName(settings.model) : "";
 
-  const known = [
-    ...new Map(
-      shownModels(
-        [
-          ...(settings.model ? [settings.model] : []),
-          ...models,
-          ...settings.models,
-        ],
-        hiddenModels,
-        settings.model,
-      ).map((model) => [modelName(model), model] as const),
-    ).values(),
-  ];
+  const known = pickerModels(
+    [
+      ...models,
+      ...settings.models,
+      ...(settings.model ? [settings.model] : []),
+    ],
+    {
+      hidden: hiddenModels.filter((name) => name !== current),
+      unavailable: unavailableModels,
+    },
+  );
 
-  const { options, openGroups } = modelOptions(known);
+  const picked = known.find(({ value }) => value === current);
 
   return (
-    <Picker
+    <ModelField
       label="Model"
       quiet
       trigger={modelMenu}
-      options={options}
-      {...(openGroups && { openGroups })}
-      selected={[current]}
-      {...(known.length > 6 && { placeholder: "Search models" })}
-      {...(onLogin && {
-        actions: [{ label: "Log in to a provider…", run: onLogin }],
-      })}
+      models={known}
+      selected={current}
       {...(settings.levels.length > 1 && {
-        footer: (
-          <Slider
-            label="Reasoning"
-            stops={settings.levels.map((level) => ({
-              value: level,
-              label: level,
-            }))}
-            value={settings.thinking}
-            onChange={onThinking}
-          />
-        ),
-      })}
-      onChange={([name]) => {
-        const model = modelRef(name ?? "");
+        reasoning: {
+          levels: settings.levels.map((level) => ({
+            value: level,
+            label: level,
+          })),
+          value: settings.thinking,
+          onChange: (level) => {
+            const chosen = settings.levels.find((each) => each === level);
 
-        if (model && name !== undefined) {
-          rememberModel(name);
+            if (chosen !== undefined) {
+              onThinking(chosen);
+            }
+          },
+        },
+      })}
+      onLogin={onLogin}
+      onPick={(name) => {
+        const model = modelRef(name);
+
+        if (model) {
           onModel(model);
         }
       }}
     >
-      {settings.model?.id ?? "Choose a model"}
+      {picked?.name ?? settings.model?.id ?? "Choose a model"}
       {settings.levels.length > 1 &&
         settings.thinking !== "off" &&
         ` · ${settings.thinking}`}
-    </Picker>
+    </ModelField>
   );
 }

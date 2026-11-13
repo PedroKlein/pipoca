@@ -178,6 +178,39 @@ test("takes a provider that hit its cap out of routing for the whole Environment
   await until(async () => session(capped.id), settled);
 });
 
+test("shows a model that failed in a Session as unavailable, with why, in its Environment", async () => {
+  primary.setResponses([
+    fauxAssistantMessage("", {
+      stopReason: "error",
+      errorMessage: "404 deployment not found",
+    }),
+  ]);
+
+  const failed = (await (
+    await server.api("/api/sessions", {
+      body: {
+        workspace: { kind: "folder", path: root },
+        model: { provider: "primary", id: primary.getModel().id },
+        firstMessage: "hi",
+      },
+    })
+  ).json()) as Session;
+
+  const { unavailableModels } = await until(
+    environment,
+    (found) => found.unavailableModels.length > 0,
+  );
+
+  expect(unavailableModels).toEqual([
+    {
+      target: `primary/${primary.getModel().id}`,
+      reason: "404 deployment not found",
+    },
+  ]);
+
+  await until(async () => session(failed.id), settled);
+});
+
 test("refuses an alias config without aliases or with a malformed one", async () => {
   const { id: environmentId } = await environment();
 

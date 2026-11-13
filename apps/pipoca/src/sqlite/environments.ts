@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { Clock } from "@pipoca/protocol";
+import type { Clock, ModelInfo } from "@pipoca/protocol";
 import type {
   CredentialStore,
   EnvironmentStore,
@@ -67,7 +67,7 @@ export function environmentStore(
   );
 
   const selectRunnerModels = db.prepare(
-    "select runner_models.provider, model_id from runner_models join environments on environments.id = environment_id where slug = ? order by reported_at, runner, position",
+    "select runner_models.provider, model_id, runner_models.name, context_window, reasoning from runner_models join environments on environments.id = environment_id where slug = ? order by reported_at, runner, position",
   );
 
   const deleteRunnerModels = db.prepare(
@@ -75,7 +75,7 @@ export function environmentStore(
   );
 
   const insertRunnerModel = db.prepare(
-    "insert into runner_models (environment_id, runner, position, provider, model_id, reported_at) values ((select id from environments where slug = ?), ?, ?, ?, ?, ?)",
+    "insert into runner_models (environment_id, runner, position, provider, model_id, name, context_window, reasoning, reported_at) values ((select id from environments where slug = ?), ?, ?, ?, ?, ?, ?, ?, ?)",
   );
 
   // Runners started on demand each have a name of their own, so what the
@@ -111,8 +111,19 @@ export function environmentStore(
         selectRunnerModels.all(provider) as {
           provider: string;
           model_id: string;
+          name: string | null;
+          context_window: number | null;
+          reasoning: number | null;
         }[]
-      ).map((row) => ({ provider: row.provider, id: row.model_id })),
+      ).map((row): ModelInfo => ({
+        provider: row.provider,
+        id: row.model_id,
+        ...(row.name !== null && { name: row.name }),
+        ...(row.context_window !== null && {
+          contextWindow: row.context_window,
+        }),
+        ...(row.reasoning !== null && { reasoning: row.reasoning === 1 }),
+      })),
     setRegisteredModels: (provider, runner, models) => {
       const now = clock.now();
 
@@ -126,6 +137,9 @@ export function environmentStore(
             position,
             model.provider,
             model.id,
+            model.name ?? null,
+            model.contextWindow ?? null,
+            model.reasoning === undefined ? null : Number(model.reasoning),
             now,
           );
         });

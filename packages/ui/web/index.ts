@@ -32,6 +32,7 @@ export { type KeyValue, KeyValues } from "./key-values";
 export { ListInput } from "./list-input";
 export { Menu, type MenuItem, popClass } from "./menu";
 export { Page, Section } from "./page";
+export { ModelPicker, type PickerModel } from "./model-picker";
 export { Picker, type PickerOption } from "./picker";
 export { Row, Rows } from "./rows";
 export { Segmented } from "./segmented";

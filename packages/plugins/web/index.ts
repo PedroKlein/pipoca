@@ -17,6 +17,7 @@ import { responseOrder } from "./responses";
 import { topicOf, useScope } from "./shell";
 
 export { ConfigForm } from "./config-form";
+export { ModelField, pickerModels, providerName } from "./models";
 export { SessionPanel, SessionTab } from "./session-panel";
 export { uploadBlob } from "./upload";
 export {

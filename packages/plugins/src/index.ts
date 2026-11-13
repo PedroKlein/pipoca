@@ -49,6 +49,7 @@ export {
   defineServer,
   type Delivery,
   type Handler,
+  type ModelUnavailable,
   type OfferedModels,
   type Params,
   type ParamsOf,

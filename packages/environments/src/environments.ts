@@ -5,7 +5,7 @@ import {
   type EnvironmentTemplate,
   type EnvironmentUpdate,
   leaseMs,
-  type ModelRef,
+  type ModelInfo,
   type ReachedHost,
   repositoryHost,
   type RunnersFrom,
@@ -33,6 +33,7 @@ export type StoredEnvironment = Omit<
   | "reaches"
   | "models"
   | "hiddenModels"
+  | "unavailableModels"
   | "registeredModels"
   | "secrets"
 > & { readonly secrets: Readonly<Record<string, string>> };
@@ -51,11 +52,11 @@ export interface EnvironmentStore {
   // With its runners' tokens and its Sessions, transcripts included.
   readonly deleteEnvironment: (id: string) => void;
   // The models each runner of an Environment last reported (ADR 0044).
-  readonly registeredModels: (provider: string) => readonly ModelRef[];
+  readonly registeredModels: (provider: string) => readonly ModelInfo[];
   readonly setRegisteredModels: (
     provider: string,
     runner: string,
-    models: readonly ModelRef[],
+    models: readonly ModelInfo[],
   ) => void;
 }
 
@@ -303,6 +304,7 @@ export class Environments {
           ...this.#store.registeredModels(environment.provider),
         ]),
         hiddenModels: offer.hidden ?? [],
+        unavailableModels: offer.unavailable ?? [],
       };
     });
   }
@@ -350,7 +352,7 @@ export class Environments {
     poll: {
       readonly capacity: number | null;
       readonly inventory: Inventory;
-      readonly registeredModels?: readonly ModelRef[] | undefined;
+      readonly registeredModels?: readonly ModelInfo[] | undefined;
     },
   ): () => void {
     // A runner's Environment is made before it gets a token, except the
@@ -372,7 +374,7 @@ export class Environments {
 
   #rememberModels(
     runner: { readonly name: string; readonly environment: string },
-    models: readonly ModelRef[],
+    models: readonly ModelInfo[],
   ): void {
     const key = JSON.stringify(models);
     const reporter = JSON.stringify([runner.environment, runner.name]);

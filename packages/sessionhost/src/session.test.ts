@@ -30,6 +30,7 @@ import {
   startSession,
   stopSession,
 } from "./session";
+import type { ModelRef } from "@pipoca/protocol";
 import type { McpLoginState, McpLoginStore } from "@pipoca/plugins";
 import { until } from "@pipoca/testing/until";
 import { fetchingProviderExtension } from "./testdata/fetching-provider";
@@ -556,12 +557,12 @@ test("lists the models Pi can use, with the ones extensions register and later l
 
   const before = await list();
 
-  expect(before.available).toContainEqual({
+  expect(refs(before.available)).toContainEqual({
     provider: "proxy",
     id: "proxy-small",
   });
 
-  expect(before.available).toContainEqual({
+  expect(refs(before.available)).toContainEqual({
     provider: "proxy",
     id: "proxy-large",
   });
@@ -593,8 +594,18 @@ test("lists the models an extension's provider registers even before a login", a
   const { available, registered } = await list();
 
   expect(registered).toEqual([
-    { provider: "proxy", id: "proxy-small" },
-    { provider: "proxy", id: "proxy-large" },
+    {
+      provider: "proxy",
+      id: "proxy-small",
+      contextWindow: 1000,
+      reasoning: false,
+    },
+    {
+      provider: "proxy",
+      id: "proxy-large",
+      contextWindow: 1000,
+      reasoning: false,
+    },
   ]);
 
   expect(available.some(({ provider }) => provider === "proxy")).toBe(false);
@@ -634,7 +645,12 @@ test("fetches an extension provider's models with the host's login, and the runn
   }
 
   expect((await list()).registered).toEqual([
-    { provider: "vault", id: "vault-large" },
+    {
+      provider: "vault",
+      id: "vault-large",
+      contextWindow: 1000,
+      reasoning: false,
+    },
   ]);
 }, 20_000);
 
@@ -859,3 +875,9 @@ test("leaves out the machine's own ~/.agents skills and ~/AGENTS.md", async () =
     process.env["HOME"] = previous;
   }
 });
+
+function refs(
+  models: readonly ModelRef[] | undefined,
+): readonly ModelRef[] | undefined {
+  return models?.map(({ provider, id }) => ({ provider, id }));
+}

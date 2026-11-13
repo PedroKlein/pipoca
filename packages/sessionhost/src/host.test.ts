@@ -19,7 +19,7 @@ import {
 import { Type } from "@earendil-works/pi-ai";
 import { definePlugin, defineSession } from "@pipoca/plugins";
 import type { SessionPart } from "@pipoca/plugins/host";
-import type { Command, LiveEvent, ToolSpec } from "@pipoca/protocol";
+import type { Command, LiveEvent, ModelRef, ToolSpec } from "@pipoca/protocol";
 import { session as askPart } from "@pipoca/ask/session";
 import { session as changesPart } from "@pipoca/changes/session";
 import {
@@ -3477,7 +3477,7 @@ test("switches the session's model and reasoning level on command", async () => 
     levels: ["off"],
   });
 
-  expect(settings()[0]?.models).toContainEqual({ provider, id: "deep" });
+  expect(refs(settings()[0]?.models)).toContainEqual({ provider, id: "deep" });
 
   fake.send({
     actor: "user:local",
@@ -4315,3 +4315,9 @@ test("starts a plugin's child session on the Session's own models", async () => 
   expect(fake.lines.join()).toContain(join(root, "sessions", "children"));
   expect(fake.lines.join()).toContain('"tools":["read"]');
 });
+
+function refs(
+  models: readonly ModelRef[] | undefined,
+): readonly ModelRef[] | undefined {
+  return models?.map(({ provider, id }) => ({ provider, id }));
+}

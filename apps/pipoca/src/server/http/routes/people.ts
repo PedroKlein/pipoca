@@ -142,6 +142,12 @@ export function meRoutes({
 
       return { pages: people.pinnedPages(caller.id) };
     },
+    "me.modelChoices": ({ caller }) => people.modelChoices(caller.id),
+    "me.modelChoices.update": ({ body, caller }) => {
+      people.chooseModels(caller.id, body);
+
+      return people.modelChoices(caller.id);
+    },
     "me.accessTokens": ({ caller }) =>
       people.accessTokens(caller.id).map(tokenView),
     "me.accessTokens.create": ({ body: { name }, caller }) => {

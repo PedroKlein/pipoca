@@ -273,6 +273,18 @@ create table base_profile_edits (
   "alter table sessions add column agent text check (agent is null or json_valid(agent));",
   // A Session that proposes what it writes outside (ADR 0076).
   "alter table sessions add column proposes integer not null default 0 check (proposes in (0, 1));",
+  // What a runner's provider says of each model, for the model pickers.
+  `alter table runner_models add column name text;
+alter table runner_models add column context_window integer;
+alter table runner_models add column reasoning integer check (reasoning in (0, 1));`,
+  // The models each person starred, last picked and hid in the pickers.
+  `create table user_model_choices (
+  user_id text not null references users (id) on delete cascade,
+  kind text not null check (kind in ('favorite', 'recent', 'hidden')),
+  position integer not null,
+  model text not null,
+  primary key (user_id, kind, position)
+) strict, without rowid;`,
 ];
 
 export const kernelSchema: Schema = { owner: "kernel", sql, migrations };

@@ -31,6 +31,7 @@ const topicsOf: Readonly<Partial<Record<QueryKey, readonly string[]>>> = {
   me: ["people"],
   "me.setup": ["setup"],
   "me.pinnedPages": ["pinned-pages"],
+  "me.modelChoices": ["model-choices"],
   "me.accessTokens": ["access-tokens"],
   "me.profileDefaults": ["profiles"],
   "me.profileDefaults.files": ["profiles"],

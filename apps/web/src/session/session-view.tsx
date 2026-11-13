@@ -265,6 +265,7 @@ export function SessionView({
                   feed={feed}
                   models={environment?.models ?? []}
                   hiddenModels={environment?.hiddenModels ?? []}
+                  unavailableModels={environment?.unavailableModels ?? []}
                   hidden={archived || watching}
                   report={reportError}
                   team={team}

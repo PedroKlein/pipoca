@@ -31,11 +31,13 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { AgentOptions, Checkout, SessionLogins } from "@pipoca/plugins";
 import type { ChildOptions } from "@pipoca/plugins/host";
-import type {
-  ModelRef,
-  RegisteredProvider,
-  StartAgent,
-  ThinkingLevel,
+import {
+  type ModelInfo,
+  modelInfoOf,
+  type ModelRef,
+  type RegisteredProvider,
+  type StartAgent,
+  type ThinkingLevel,
 } from "@pipoca/protocol";
 import chalk from "chalk";
 import { childTools } from "./children";
@@ -371,11 +373,11 @@ export function asksForTrust(
 }
 
 export interface ListedModels {
-  readonly available: readonly ModelRef[];
+  readonly available: readonly ModelInfo[];
   // The models of providers that extensions and models.json add, logged in
   // or not. Pi's own providers, over a thousand models, are left to /login
   // (ADR 0044).
-  readonly registered: readonly ModelRef[];
+  readonly registered: readonly ModelInfo[];
   // Those providers, with or without models.
   readonly providers: readonly Pick<
     RegisteredProvider,
@@ -401,8 +403,8 @@ export async function modelLister(
       .map(({ id }) => id),
   );
 
-  const refs = (models: readonly ModelRef[]): readonly ModelRef[] =>
-    models.map(({ provider, id }) => ({ provider, id }));
+  const refs = (models: readonly ModelInfo[]): readonly ModelInfo[] =>
+    models.map(modelInfoOf);
 
   return async () => {
     await modelRuntime.refresh({ allowNetwork: false });

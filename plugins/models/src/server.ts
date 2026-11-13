@@ -96,10 +96,19 @@ export const server = defineServer(models, (context) => {
   // Admins keep models nobody here should use out of the pickers.
   const hidden = (): readonly string[] => config.get().hidden;
 
-  context.provide.models(({ id, templateId }) => ({
-    ...offered(effective(id, templateId).aliases),
-    hidden: hidden(),
-  }));
+  context.provide.models(({ id, templateId }) => {
+    const { aliases, health } = effective(id, templateId);
+    const now = clock.now();
+
+    return {
+      ...offered(aliases),
+      hidden: hidden(),
+      unavailable: Object.entries(health.unhealthyUntil).flatMap(
+        ([target, { until, reason }]) =>
+          Date.parse(until) > now ? [{ target, reason }] : [],
+      ),
+    };
+  });
 
   routes.get(
     "config",
@@ -146,6 +155,7 @@ export const server = defineServer(models, (context) => {
       if (JSON.stringify(health) !== JSON.stringify(current)) {
         store.setHealth(environmentId, health);
         versions.bump(environmentId);
+        environments.modelsChanged();
 
         log("model health changed", {
           environmentId,

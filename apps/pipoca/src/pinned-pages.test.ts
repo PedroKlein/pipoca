@@ -45,3 +45,27 @@ test("needs a signed-in user", async () => {
 
   expect(response.status).toBe(401);
 });
+
+test("keeps the models a person stars, last picked and hid, with only the last few picks", async () => {
+  const choices = async (body?: unknown): Promise<unknown> =>
+    (
+      await server.api("/api/me/model-choices", {
+        method: body === undefined ? "GET" : "PUT",
+        body,
+      })
+    ).json();
+
+  expect(await choices()).toEqual({ favorites: [], recent: [], hidden: [] });
+
+  await choices({
+    favorites: ["core/sonnet", "core/sonnet", "core/opus"],
+    recent: ["a/1", "a/2", "a/3", "a/4", "a/5", "a/6"],
+    hidden: ["core/old"],
+  });
+
+  expect(await choices()).toEqual({
+    favorites: ["core/sonnet", "core/opus"],
+    recent: ["a/1", "a/2", "a/3", "a/4", "a/5"],
+    hidden: ["core/old"],
+  });
+});
