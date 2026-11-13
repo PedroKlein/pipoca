@@ -115,7 +115,7 @@ export const web = defineWeb(projects, {
       icon: "folder",
       Page: TeamProjectsPage,
       area: "hub",
-      nav: { Live: TeamLive },
+      nav: { Live: TeamLive, Count: TeamCount },
     },
   ],
   sessionPath: (session) => `${session.plugin?.key ?? ""}/${session.id}`,
@@ -547,18 +547,28 @@ function TeamLive({ path }: NavItemsProps): ReactElement | null {
   return <ActiveProjects path={path} team />;
 }
 
+function TeamCount(): ReactElement | null {
+  const count = useActive(true)?.length ?? 0;
+
+  return count === 0 ? null : <>{count}</>;
+}
+
+function useActive(team: boolean): readonly ProjectSummary[] | undefined {
+  const api = useApi(projects);
+
+  return useLoaded(
+    async () => (team ? teamList(api) : api.get<ProjectSummary[]>("projects")),
+    team ? "team-projects" : "projects",
+    watched,
+  ).value?.filter(({ coordinatorState }) => coordinatorState !== "archived");
+}
+
 // Below the sidebar's entries, the Projects that aren't archived.
 function ActiveProjects({
   path,
   team,
 }: NavItemsProps & { readonly team: boolean }): ReactElement | null {
-  const api = useApi(projects);
-
-  const list = useLoaded(
-    async () => (team ? teamList(api) : api.get<ProjectSummary[]>("projects")),
-    team ? "team-projects" : "projects",
-    watched,
-  ).value?.filter(({ coordinatorState }) => coordinatorState !== "archived");
+  const list = useActive(team);
 
   if (list === undefined || list.length === 0) {
     return null;
@@ -751,7 +761,6 @@ function ProjectList({
             ? "Everyone on the team can see and steer it."
             : "Only you work on it."
         }
-        size="lg"
         sheet
       >
         {creating && (

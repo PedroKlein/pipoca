@@ -1784,7 +1784,10 @@ test("draws a defined plugin's page and slots, pinned for someone who never chan
     const nav = page.locator("#plugin-nav");
 
     await nav.getByRole("link", { name: "Assistant", exact: true }).waitFor();
-    expect(await nav.getByRole("link", { name: "Artifacts", exact: true }).count()).toBe(0);
+
+    expect(
+      await nav.getByRole("link", { name: "Artifacts", exact: true }).count(),
+    ).toBe(0);
 
     await nav.getByRole("link", { name: "Vault" }).click();
     await page.getByRole("heading", { name: "Vault" }).waitFor();
@@ -4658,6 +4661,11 @@ test("opens team Projects in the team's area, wherever the link came from", asyn
     .getByRole("link", { name: /^Concur Infra Automation/ })
     .waitFor();
 
+  await page
+    .getByRole("navigation", { name: "Team" })
+    .getByRole("link", { name: /^Projects\s*1$/ })
+    .waitFor();
+
   await page.getByRole("button", { name: /^Concur Infra Automation/ }).click();
 
   await page.waitForURL("**/#team/plugin/projects/projects/teamwork");
@@ -6017,6 +6025,13 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
     .getByRole("link", { name: /release-notes/ })
     .filter({ hasText: /^.*You · / })
     .waitFor();
+
+  expect(
+    await teamNav
+      .locator("#team-sessions")
+      .getByText(/^(Offline|Working)$/)
+      .count(),
+  ).toBe(0);
 
   await teamNav.getByText(/^\d+ here now$/).waitFor();
 

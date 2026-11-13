@@ -27,6 +27,7 @@ interface Screen {
   readonly icon: IconName;
   readonly Page: ComponentType<PageProps>;
   readonly Items: ComponentType<NavItemsProps> | undefined;
+  readonly Count: ComponentType | undefined;
 }
 
 export function panels(): readonly Placed[] {
@@ -52,6 +53,7 @@ export function screens(): readonly Screen[] {
               icon: icon ?? "panel-right",
               Page,
               Items: nav?.Live,
+              Count: nav?.Count,
             },
           ]
         : [],
