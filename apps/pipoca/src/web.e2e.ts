@@ -359,6 +359,18 @@ async function setUpServerAndPerson(): Promise<void> {
 
   expect(made.map(({ name }) => name)).toContain("Release");
 
+  const row = (name: string): Locator =>
+    teamProfiles.getByRole("listitem").filter({ hasText: name });
+
+  await row("Release").getByText("Team default").waitFor();
+
+  await teamProfiles.getByRole("button", { name: "Add", exact: true }).click();
+  await teamProfiles.getByLabel("Team Profile name").fill("Docs");
+  await teamProfiles.getByRole("button", { name: "Add", exact: true }).click();
+  await row("Docs").getByRole("button", { name: "Make default" }).click();
+  await row("Docs").getByText("Team default").waitFor();
+  await row("Release").getByRole("button", { name: "Make default" }).waitFor();
+
   await page.getByRole("button", { name: "Skip for now" }).click();
 
   // No provider is required, and the list has every provider Pi knows plus
@@ -429,9 +441,8 @@ async function setUpServerAndPerson(): Promise<void> {
   await welcome.waitFor();
   await setup.getByText("Your setup").waitFor();
 
-  expect(await page.getByRole("button", { name: "Back" }).isDisabled()).toBe(
-    true,
-  );
+  expect(await page.getByRole("button", { name: "Back" }).count()).toBe(0);
+  await page.getByText("Server setup is done.").waitFor();
 
   await page.getByRole("button", { name: "Start" }).click();
 

@@ -1,6 +1,7 @@
 import { Badge, Hero, Icon, Row, Rows } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { useMe, useQuery } from "../data/hooks";
+import { href } from "../router";
 import { useNewcomers } from "../settings/people/newcomers";
 import { packageText } from "../settings/profiles/layers";
 import { nameOf } from "../settings/profiles/packages";
@@ -57,6 +58,18 @@ export function WelcomeStep({
           ))}
         </Rows>
       </section>
+      {admin && (
+        <p className="flex items-center gap-2.5 rounded-lg bg-hover px-4 py-3 text-label text-fg">
+          <Icon name="check" className="text-fg-dim" />
+          <span>
+            Server setup is done. Change any of it later in{" "}
+            <a href={href("teamSetup")} className="underline">
+              Team setup
+            </a>
+            .
+          </span>
+        </p>
+      )}
       <StepFooter />
     </>
   );
