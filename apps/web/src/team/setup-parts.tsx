@@ -1,7 +1,9 @@
 import {
   Button,
+  buttonClass,
   ErrorText,
   Field,
+  Icon,
   Page,
   Row,
   Rows,
@@ -9,11 +11,14 @@ import {
   TextInput,
   useConfirm,
 } from "@pipoca/ui";
-import { switchingWith } from "@pipoca/protocol";
+import { type HubPage, switchingWith } from "@pipoca/protocol";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import { request } from "../data/client";
 import { useAction, useQuery } from "../data/hooks";
 import { alsoSwitched } from "../settings/plugins/plugin-card";
+import { navigate } from "../router";
+import { AddPage } from "./add-page";
+import { hrefOf, newPageId, pagesOf } from "./hub-pages";
 
 export function TeamNaming(): ReactElement {
   const name = useQuery("settings.team").data?.name;
@@ -122,6 +127,119 @@ export function TeamPlugins(): ReactElement {
             </Row>
           ))}
       </Rows>
+      {asking}
+    </Page>
+  );
+}
+
+// The hub's pages in sidebar order. Home always comes first and stays.
+export function HubLayout(): ReactElement {
+  const pages = pagesOf(useQuery("settings.hub").data?.pages ?? null);
+  const [ask, asking] = useConfirm();
+
+  const lay = useAction(async (next: readonly HubPage[]) =>
+    request("settings.hub.update", { body: { pages: next } }),
+  );
+
+  const move = (from: number, to: number): void => {
+    const next = [...pages];
+    const [page] = next.splice(from, 1);
+
+    if (page !== undefined) {
+      next.splice(to, 0, page);
+      void lay.run(next);
+    }
+  };
+
+  const remove = async (page: HubPage): Promise<void> => {
+    if (
+      await ask({
+        title: `Remove ${page.title}?`,
+        description: "Its panels stay available to place on other pages.",
+        confirm: "Remove",
+        danger: true,
+      })
+    ) {
+      void lay.run(pages.filter((each) => each.id !== page.id));
+    }
+  };
+
+  return (
+    <Page
+      title="Hub layout"
+      description="The pages under More in everyone's team sidebar, and the panels on each. Open a page to place its panels."
+    >
+      <ErrorText className="mb-4">{lay.error}</ErrorText>
+      <Rows label="Hub pages">
+        {pages.map((page, index) => {
+          const home = index === 0;
+
+          return (
+            <Row
+              key={page.id}
+              title={home ? "Home" : page.title}
+              description={`${String(page.panels.length)} ${page.panels.length === 1 ? "panel" : "panels"}`}
+            >
+              <div className="ml-auto flex items-center gap-1">
+                {!home && (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      iconOnly
+                      aria-label={`Move ${page.title} up`}
+                      disabled={index === 1}
+                      onClick={() => {
+                        move(index, index - 1);
+                      }}
+                    >
+                      <Icon name="arrow-up" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      iconOnly
+                      aria-label={`Move ${page.title} down`}
+                      disabled={index === pages.length - 1}
+                      onClick={() => {
+                        move(index, index + 1);
+                      }}
+                    >
+                      <Icon name="arrow-up" className="rotate-180" />
+                    </Button>
+                  </>
+                )}
+                <a href={hrefOf(page)} className={buttonClass({ size: "sm" })}>
+                  Open
+                </a>
+                {!home && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    iconOnly
+                    aria-label={`Remove ${page.title}`}
+                    onClick={() => {
+                      void remove(page);
+                    }}
+                  >
+                    <Icon name="trash" />
+                  </Button>
+                )}
+              </div>
+            </Row>
+          );
+        })}
+      </Rows>
+      <div className="mt-3">
+        <AddPage
+          onAdd={(title) => {
+            const page = { id: newPageId(title, pages), title, panels: [] };
+
+            void lay.run([...pages, page]);
+            navigate(hrefOf(page));
+          }}
+        />
+      </div>
       {asking}
     </Page>
   );

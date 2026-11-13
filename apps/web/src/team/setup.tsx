@@ -1,6 +1,6 @@
-import { AreaLayout, Page } from "@pipoca/ui";
+import { Page, Tabs } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
-import { useMe, useQuery } from "../data/hooks";
+import { useMe } from "../data/hooks";
 import { EnvironmentsPage } from "../settings/environments/environments";
 import { PluginBoundary } from "../plugin-boundary";
 import { enabledPlugins } from "../plugins";
@@ -12,13 +12,12 @@ import {
   serverPages,
   SharedNote,
 } from "../settings/server-pages";
-import { TeamNaming, TeamPlugins } from "./setup-parts";
+import { HubLayout, TeamNaming, TeamPlugins } from "./setup-parts";
 
 interface Entry {
   readonly section: string;
   readonly rest?: string;
   readonly label: string;
-  readonly count?: number;
 }
 
 function screens() {
@@ -41,7 +40,8 @@ function screens() {
 }
 
 // What team work runs on and its rules, which only admins change, and the
-// server's own pages that personal Settings shows too (ADRs 0064 and 0067).
+// server's own pages that personal Settings shows too, as tabs inside the
+// team workspace (ADRs 0064 and 0067).
 export function TeamSetup({
   section: given,
   rest,
@@ -50,42 +50,23 @@ export function TeamSetup({
   readonly rest: string;
 }): ReactElement {
   const { admin, team } = useMe();
-  const scope = { query: { scope: "team" } } as const;
-  const profiles = useQuery("profiles.list", scope).data ?? [];
-  const environments = useQuery("environments.list", scope).data ?? [];
   const plugins = screens();
   const server = serverPages(admin && team);
   const section = given === "" ? "profiles" : given;
 
-  const groups: readonly (readonly [string, readonly Entry[]])[] = [
-    [
-      "What team work runs on",
-      [
-        { section: "profiles", label: "Profiles", count: profiles.length },
-        {
-          section: "environments",
-          label: "Environments",
-          count: environments.length,
-        },
-        ...plugins.filter(({ group }) => group === "runs-on"),
-      ],
-    ],
-    [
-      "Rules",
-      [
-        { section: "name", label: "Name" },
-        { section: "plugins", label: "Plugins in team work" },
-        ...plugins.filter(({ group }) => group === "rules"),
-      ],
-    ],
-    [
-      "Shared with personal work",
-      server.map(({ page, label }) => ({
-        section: "server",
-        rest: page,
-        label,
-      })),
-    ],
+  const entries: readonly Entry[] = [
+    { section: "profiles", label: "Profiles" },
+    { section: "environments", label: "Environments" },
+    ...plugins.filter(({ group }) => group === "runs-on"),
+    { section: "plugins", label: "Plugins" },
+    ...plugins.filter(({ group }) => group === "rules"),
+    { section: "layout", label: "Hub layout" },
+    { section: "name", label: "Name" },
+    ...server.map(({ page, label }) => ({
+      section: "server",
+      rest: page,
+      label: page === "plugins" ? "Server plugins" : label,
+    })),
   ];
 
   const [page = "", ...more] = rest.split("/");
@@ -115,6 +96,8 @@ export function TeamSetup({
         return <EnvironmentsPage team selected={rest} />;
       case "plugins":
         return <TeamPlugins />;
+      case "layout":
+        return <HubLayout />;
       case "name":
         return <TeamNaming />;
       case "profiles":
@@ -125,43 +108,39 @@ export function TeamSetup({
 
     return (
       screen !== undefined && (
-        <Page>
-          <PluginBoundary name={screen.plugin}>
-            <screen.Page path="" />
-          </PluginBoundary>
-        </Page>
+        <PluginBoundary name={screen.plugin}>
+          <screen.Page path="" />
+        </PluginBoundary>
       )
     );
   };
 
-  const current = (entry: Entry): boolean =>
-    entry.section === section &&
-    (entry.rest === undefined ||
-      rest === entry.rest ||
-      rest.startsWith(`${entry.rest}/`));
+  const current = entries.find(
+    (entry) =>
+      entry.section === section &&
+      (entry.rest === undefined ||
+        rest === entry.rest ||
+        rest.startsWith(`${entry.rest}/`)),
+  );
+
+  const key = (entry: Entry): string =>
+    entry.rest === undefined ? entry.section : `${entry.section}/${entry.rest}`;
 
   return (
-    <AreaLayout
-      label="Team setup"
-      back={{ href: href("team"), label: "Team home" }}
-      heading="Team setup"
-      groups={groups.map(([label, entries]) => ({
-        label,
-        items: entries.map((entry) => ({
+    <Page>
+      <Tabs
+        label="Team setup"
+        value={current && key(current)}
+        tabs={entries.map((entry) => ({
+          value: key(entry),
+          label: entry.label,
           href: href("teamSetup", {
             section: entry.section,
             rest: entry.rest ?? "",
           }),
-          label: entry.label,
-          current: current(entry),
-          ...(entry.count !== undefined && { count: entry.count }),
-        })),
-      }))}
-      phone="menu"
-      menuOpen={given === ""}
-      menuHref={href("teamSetup")}
-    >
-      {content()}
-    </AreaLayout>
+        }))}
+      />
+      <div className="mt-10">{content()}</div>
+    </Page>
   );
 }
