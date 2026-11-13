@@ -2,11 +2,14 @@ import type {
   Account,
   AccountChange,
   Invite,
+  ModelChoices,
   Person,
   SetupState,
 } from "@pipoca/protocol";
 import { type Clock, systemClock } from "@pipoca/protocol";
 import { secretToken, tokenHash } from "./tokens";
+
+const recentModels = 5;
 
 export interface User {
   readonly id: string;
@@ -84,6 +87,8 @@ export interface PeopleStore {
     userId: string,
     pages: readonly string[] | null,
   ) => void;
+  readonly modelChoices: (userId: string) => ModelChoices;
+  readonly setModelChoices: (userId: string, choices: ModelChoices) => void;
   readonly setup: (userId: string) => PersonalSetup;
   readonly setSetup: (userId: string, state: PersonalSetup) => void;
   readonly serverSetupFinished: () => boolean;
@@ -325,6 +330,23 @@ export class People {
 
   pinPages(userId: string, pages: readonly string[] | null): void {
     this.#store.setPinnedPages(userId, pages);
+  }
+
+  modelChoices(userId: string): ModelChoices {
+    return this.#store.modelChoices(userId);
+  }
+
+  // Only the last few picks count as recent.
+  chooseModels(userId: string, choices: ModelChoices): void {
+    const unique = (models: readonly string[]): readonly string[] => [
+      ...new Set(models),
+    ];
+
+    this.#store.setModelChoices(userId, {
+      favorites: unique(choices.favorites),
+      recent: unique(choices.recent).slice(0, recentModels),
+      hidden: unique(choices.hidden),
+    });
   }
 
   // An admin's setup starts with the server's until an admin finishes it

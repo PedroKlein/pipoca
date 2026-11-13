@@ -18,9 +18,9 @@ import {
 const pauseMs = 1000;
 
 // Registers the Environment's aliases as Pi virtual models under the gateway
-// provider. Each request goes to the alias's first healthy model, and a model
-// or provider that fails is reported so every Session in the Environment
-// stops using it.
+// provider. Each request goes to the alias's first healthy model. Any model or
+// provider that fails is reported, so every Session in the Environment stops
+// routing to it and the model pickers show it unavailable.
 export const session = defineSession(models, (s) => {
   s.extension(async (pi) => {
     const first = await read(s, undefined, undefined).catch(
@@ -69,9 +69,12 @@ export const session = defineSession(models, (s) => {
     const report = (model: ModelRef, errorMessage: string): void => {
       const now = new Date(s.clock.now());
 
-      const failed = config.aliases
-        ? failure(config.aliases, model, errorMessage, now)
-        : undefined;
+      const failed = failure(
+        config.aliases ?? { models: {} },
+        model,
+        errorMessage,
+        now,
+      );
 
       if (failed === undefined) {
         return;
@@ -93,13 +96,9 @@ export const session = defineSession(models, (s) => {
       });
     };
 
-    pi.on("message_end", (event, ctx) => {
+    pi.on("message_end", (event) => {
       const { message } = event;
-      if (
-        message.role === "assistant" &&
-        message.stopReason === "error" &&
-        ctx.model?.provider === gatewayProvider
-      ) {
+      if (message.role === "assistant" && message.stopReason === "error") {
         report(
           { provider: message.provider, id: message.model },
           message.errorMessage ?? "",

@@ -26,6 +26,7 @@ import {
   type Environment,
   protocolVersion,
   type ForkedSession,
+  type ModelRef,
   type Session,
   type SessionEvent,
   type Work,
@@ -2010,7 +2011,7 @@ test("lists an Environment for each provider with the folders and models its age
     },
   ]);
 
-  expect(environments[0]?.models).toContainEqual({
+  expect(refs(environments[0]?.models)).toContainEqual({
     provider: faux.getModel().provider,
     id: "faux-large",
   });
@@ -4691,3 +4692,9 @@ test("a Session on a private host starts only in an Environment whose runner rea
     { host: "github.acme.internal", port: 443, reached: true },
   ]);
 });
+
+function refs(
+  models: readonly ModelRef[] | undefined,
+): readonly ModelRef[] | undefined {
+  return models?.map(({ provider, id }) => ({ provider, id }));
+}

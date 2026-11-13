@@ -1,4 +1,4 @@
-import { imageTypes, type ModelRef } from "@pipoca/protocol";
+import { type Environment, imageTypes, type ModelInfo } from "@pipoca/protocol";
 import { Button, FileButton, Icon, Segmented } from "@pipoca/ui";
 import type { ReactElement, RefObject } from "react";
 import { command } from "../../data/client";
@@ -17,6 +17,7 @@ export function Toolbar({
   feed,
   models,
   hiddenModels,
+  unavailableModels,
   modelMenu,
   team,
   talk,
@@ -31,8 +32,9 @@ export function Toolbar({
 }: {
   readonly sessionId: string;
   readonly feed: Feed;
-  readonly models: readonly ModelRef[];
+  readonly models: readonly ModelInfo[];
   readonly hiddenModels: readonly string[];
+  readonly unavailableModels: Environment["unavailableModels"];
   readonly modelMenu: RefObject<HTMLButtonElement | null>;
   readonly team: boolean;
   readonly talk: boolean;
@@ -64,6 +66,7 @@ export function Toolbar({
           settings={feed.settings}
           models={models}
           hiddenModels={hiddenModels}
+          unavailableModels={unavailableModels}
           modelMenu={modelMenu}
           onModel={(model) => {
             command(sessionId, { type: "set_model", model }).catch(report);

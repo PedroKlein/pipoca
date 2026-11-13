@@ -6,6 +6,7 @@ import type {
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import {
   type LiveEvent,
+  modelInfoOf,
   type SlashCommand,
   thinkingLevels,
 } from "@pipoca/protocol";
@@ -152,7 +153,7 @@ export async function settings(session: AgentSession): Promise<LiveEvent> {
     model: model ? { provider: model.provider, id: model.id } : null,
     thinking: session.thinkingLevel,
     levels: session.getAvailableThinkingLevels(),
-    models: available.map(({ provider, id }) => ({ provider, id })),
+    models: available.map(modelInfoOf),
   };
 }
 

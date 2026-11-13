@@ -3,6 +3,7 @@ import { postedEvent } from "./events";
 import { reachedHost } from "./reach";
 import {
   isolation,
+  modelInfo,
   modelRef,
   startAgent,
   thinkingLevel,
@@ -165,8 +166,8 @@ export const workPoll = Type.Object({
   folders: strings,
   // The models logged in on the runner, and every model its providers
   // register, logged in or not (ADR 0044).
-  models: Type.Array(modelRef),
-  registeredModels: Type.Optional(Type.Array(modelRef)),
+  models: Type.Array(modelInfo),
+  registeredModels: Type.Optional(Type.Array(modelInfo)),
   // How many Sessions the runner takes at once. Absent means no limit.
   capacity: Type.Optional(Type.Integer({ minimum: 1 })),
   // A runner started for one Session, such as a pod on that Session's own

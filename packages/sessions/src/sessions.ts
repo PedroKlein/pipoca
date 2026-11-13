@@ -11,6 +11,7 @@ import {
   movable,
   type LivePost,
   liveSurface,
+  type ModelInfo,
   type ModelRef,
   type Owner,
   type ProfileContent,
@@ -73,7 +74,7 @@ interface SessionEnvironments {
         WorkPoll,
         "folders" | "models" | "session" | "reach"
       >;
-      readonly registeredModels?: readonly ModelRef[] | undefined;
+      readonly registeredModels?: readonly ModelInfo[] | undefined;
     },
   ) => () => void;
   readonly waitForWork: (

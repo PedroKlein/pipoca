@@ -4,6 +4,7 @@ import { reachedHost } from "./reach";
 import { runnerName } from "./runner";
 import {
   isolation,
+  modelInfo,
   modelRef,
   sessionAccess,
   thinkingLevel,
@@ -197,9 +198,14 @@ export const environment = Type.Object({
   reaches: Type.Array(reachedHost),
   // The models logged in on its online runners, and every model any of its
   // runners reported, kept after they go (ADR 0044).
-  models: Type.Array(modelRef),
+  models: Type.Array(modelInfo),
   // `provider/id` of models an admin keeps out of the model pickers.
   hiddenModels: strings,
+  // Models, by `provider/id`, or whole providers that failed recently, and
+  // why.
+  unavailableModels: Type.Array(
+    Type.Object({ target: Type.String(), reason: Type.String() }),
+  ),
   isolation,
   // Null runs containers from the default image.
   image: nullable(Type.String()),
@@ -605,6 +611,16 @@ export const setupChange = Type.Union([
 export const pinnedPages = Type.Object({ pages: nullable(strings) });
 
 export const pinnedPagesChange = Type.Object({ pages: strings });
+
+// The models, by `provider/id`, a person starred, last picked, newest first,
+// and keeps out of their pickers.
+export const modelChoices = Type.Object({
+  favorites: strings,
+  recent: strings,
+  hidden: strings,
+});
+
+export type ModelChoices = Wire<typeof modelChoices>;
 
 export const accessTokenRequest = Type.Object({ name: Type.String() });
 

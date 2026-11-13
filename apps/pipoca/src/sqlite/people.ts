@@ -149,6 +149,18 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
     "insert into user_pinned_pages (user_id, position, page) values (?, ?, ?)",
   );
 
+  const selectModelChoices = db.prepare(
+    "select kind, model from user_model_choices where user_id = ? order by kind, position",
+  );
+
+  const deleteModelChoices = db.prepare(
+    "delete from user_model_choices where user_id = ?",
+  );
+
+  const insertModelChoice = db.prepare(
+    "insert into user_model_choices (user_id, kind, position, model) values (?, ?, ?, ?)",
+  );
+
   const selectSetupFinished = db.prepare(
     "select setup_finished_at from users where id = ?",
   );
@@ -357,6 +369,36 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
         pages?.forEach((page, position) => {
           insertPinnedPage.run(userId, position, page);
         });
+      });
+    },
+    modelChoices: (userId) => {
+      const rows = selectModelChoices.all(userId) as {
+        kind: "favorite" | "recent" | "hidden";
+        model: string;
+      }[];
+
+      const of = (kind: string): readonly string[] =>
+        rows.flatMap((row) => (row.kind === kind ? [row.model] : []));
+
+      return {
+        favorites: of("favorite"),
+        recent: of("recent"),
+        hidden: of("hidden"),
+      };
+    },
+    setModelChoices: (userId, { favorites, recent, hidden }) => {
+      transaction(db, () => {
+        deleteModelChoices.run(userId);
+
+        for (const [kind, models] of [
+          ["favorite", favorites],
+          ["recent", recent],
+          ["hidden", hidden],
+        ] as const) {
+          models.forEach((model, position) => {
+            insertModelChoice.run(userId, kind, position, model);
+          });
+        }
       });
     },
     setup: (userId) => {

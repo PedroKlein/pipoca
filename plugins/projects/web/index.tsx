@@ -9,6 +9,8 @@ import {
   useNow,
   defineWeb,
   href as pageHref,
+  ModelField,
+  pickerModels,
   SessionView,
   useApi,
 } from "@pipoca/plugins/web";
@@ -821,6 +823,7 @@ function CreateForm({
 
   const [repositories, setRepositories] = useState<readonly string[]>([]);
   const [environment, setEnvironment] = useState("");
+  const [model, setModel] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string>();
   const offered = team ? teamEnvironments : environments;
@@ -829,6 +832,15 @@ function CreateForm({
   const options = [
     ...new Set([...recentRepositories(sessions), ...repositories]),
   ].map(repositoryOption);
+
+  const runsOn = chosen ?? offered[0];
+
+  const models = pickerModels(runsOn?.models ?? [], {
+    hidden: runsOn?.hiddenModels ?? [],
+    unavailable: runsOn?.unavailableModels ?? [],
+  });
+
+  const picked = models.find(({ value }) => value === model);
 
   const submit = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -852,7 +864,8 @@ function CreateForm({
         name: field("name"),
         goal: field("goal"),
         repositories,
-        environment: chosen?.id ?? offered[0]?.id ?? "",
+        environment: runsOn?.id ?? "",
+        ...(model !== "" && { model }),
         ...(team && { profile: teamProfile?.id ?? "" }),
       })
       .then(
@@ -919,9 +932,18 @@ function CreateForm({
             }}
           >
             <span className="text-fg-dim">on </span>
-            {(chosen ?? offered[0])?.name}
+            {runsOn?.name}
           </Picker>
         )}
+        <ModelField
+          label="Model"
+          models={models}
+          selected={model}
+          none="Default model"
+          onPick={setModel}
+        >
+          {picked?.name ?? (model === "" ? "Default model" : model)}
+        </ModelField>
         <Button
           variant="primary"
           type="submit"

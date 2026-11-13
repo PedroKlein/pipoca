@@ -3,6 +3,7 @@ import { Value } from "typebox/value";
 import {
   activityStatus,
   actor,
+  modelInfo,
   modelRef,
   session,
   thinkingLevel,
@@ -280,7 +281,7 @@ const liveEvent = Type.Union([
     model: nullable(modelRef),
     thinking: thinkingLevel,
     levels: Type.Array(thinkingLevel),
-    models: Type.Array(modelRef),
+    models: Type.Array(modelInfo),
   }),
   // Pi's estimate of how much of the model's context the Session fills,
   // with no tokens while Pi can't tell, such as after a compaction (ADR 0038).

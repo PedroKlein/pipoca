@@ -1,4 +1,4 @@
-import type { Log, ModelRef } from "@pipoca/protocol";
+import type { Log, ModelInfo } from "@pipoca/protocol";
 import {
   type ListedModels,
   modelLister,
@@ -15,8 +15,8 @@ export interface Logins {
 // The machine's models, and those of providers its Profiles' packages add,
 // each agent folder listed apart.
 export interface MachineModels {
-  readonly models: () => readonly ModelRef[];
-  readonly registered: () => readonly ModelRef[];
+  readonly models: () => readonly ModelInfo[];
+  readonly registered: () => readonly ModelInfo[];
   // False when the folder was listed already.
   readonly add: (agentDir: string) => boolean;
   readonly forget: (agentDir: string) => void;
@@ -34,8 +34,8 @@ export function machineModels(options: {
 }): MachineModels {
   const { log } = options;
   const listers = new Map<string, Promise<() => Promise<ListedModels>>>();
-  let models: readonly ModelRef[] = [];
-  let registered: readonly ModelRef[] = [];
+  let models: readonly ModelInfo[] = [];
+  let registered: readonly ModelInfo[] = [];
   let listings = 0;
 
   const relist = async (): Promise<void> => {
@@ -112,7 +112,7 @@ export function machineModels(options: {
   };
 }
 
-function unique(all: readonly ModelRef[]): readonly ModelRef[] {
+function unique(all: readonly ModelInfo[]): readonly ModelInfo[] {
   return [
     ...new Map(
       all.map((model) => [`${model.provider}/${model.id}`, model]),

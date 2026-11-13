@@ -3,7 +3,7 @@ import {
   leaseMs,
   type Log,
   loggedStart,
-  type ModelRef,
+  type ModelInfo,
   movable,
   type ReachedHost,
   type Removal,
@@ -29,8 +29,8 @@ interface PollOptions {
   readonly folders: readonly string[];
   readonly capacity?: number;
   readonly session?: string;
-  readonly models: () => readonly ModelRef[];
-  readonly registeredModels?: () => readonly ModelRef[];
+  readonly models: () => readonly ModelInfo[];
+  readonly registeredModels?: () => readonly ModelInfo[];
   readonly reach?: () => readonly ReachedHost[];
   readonly log: Log;
   readonly signal: AbortSignal;

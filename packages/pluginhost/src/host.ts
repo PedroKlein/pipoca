@@ -1059,6 +1059,9 @@ export function startPlugins(
                 .find((each) => each.id === environmentId),
             templates: () => deps.environments.templates(),
             templateConfig: templateConfigOf(id, log),
+            modelsChanged: () => {
+              deps.changes("environments");
+            },
           },
           network: deps.network?.(id) ?? directNetwork,
           profiles: {
@@ -1723,11 +1726,13 @@ export function startPlugins(
       const fallback = offered.find((each) => each.default)?.default;
 
       const hidden = [...new Set(offered.flatMap((each) => each.hidden ?? []))];
+      const unavailable = offered.flatMap((each) => each.unavailable ?? []);
 
       return {
         models: offered.flatMap((each) => each.models),
         ...(fallback && { default: fallback }),
         ...(hidden.length > 0 && { hidden }),
+        ...(unavailable.length > 0 && { unavailable }),
       };
     },
     startsRunners: (environment) => {

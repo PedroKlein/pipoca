@@ -1299,9 +1299,16 @@ test("refuses a Profile that would build on itself or on someone else's", async 
   ).toMatchObject({ buildsOn: null });
 });
 
-test("offers the models extension providers registered on runners, after a restart", async () => {
+test("offers the models extension providers registered on runners, with their names and sizes, after a restart", async () => {
   const gemini = { provider: "google", id: "gemini-flash" };
-  const aiCore = { provider: "aicore", id: "gpt-x" };
+
+  const aiCore = {
+    provider: "aicore",
+    id: "anthropic--claude-4.6-sonnet",
+    name: "Claude Sonnet 4.6",
+    contextWindow: 200_000,
+    reasoning: true,
+  };
 
   await poll({ models: [gemini], registeredModels: [gemini, aiCore] });
 

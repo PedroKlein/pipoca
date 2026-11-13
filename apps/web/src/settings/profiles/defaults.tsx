@@ -2,7 +2,7 @@ import { type ProfileContent, thinkingLevels } from "@pipoca/protocol";
 import { Button, Picker, Row, Rows, Section } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { useQuery } from "../../data/hooks";
-import { modelOptions, shownModels } from "../../models";
+import { ModelField, pickerModels } from "@pipoca/plugins/web";
 import { modelRef } from "../../names";
 import { SourceTag } from "./inherited";
 import type { StackLayer } from "./stack";
@@ -52,9 +52,8 @@ export function Defaults({
   const environments = useQuery("environments.list").data ?? [];
   const settings = own.content.settings;
 
-  const models = shownModels(
+  const models = pickerModels(
     environments.flatMap((environment) => environment.models),
-    [],
   );
 
   const set = (setting: Default, values: readonly string[]): void => {
@@ -119,7 +118,6 @@ export function Defaults({
   };
 
   const setLabel = below.length > 0 ? `Set for ${own.name}` : "Set";
-  const { options, openGroups } = modelOptions(models);
 
   return (
     <Section
@@ -133,15 +131,14 @@ export function Defaults({
       <Rows label="Defaults">
         {row(
           model,
-          <Picker
+          <ModelField
             label={`${model.title} for ${own.name}`}
             quiet
-            options={options}
-            {...(openGroups && { openGroups })}
-            selected={[model.valueOf(settings) ?? ""]}
-            {...(options.length > 6 && { placeholder: "Search models" })}
-            onChange={([name]) => {
-              const picked = modelRef(name ?? "");
+            models={models}
+            selected={model.valueOf(settings) ?? ""}
+            create
+            onPick={(name) => {
+              const picked = modelRef(name);
 
               if (picked) {
                 set(model, [picked.provider, picked.id]);
@@ -149,7 +146,7 @@ export function Defaults({
             }}
           >
             {setLabel}
-          </Picker>,
+          </ModelField>,
         )}
         {row(
           thinking,
