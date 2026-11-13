@@ -48,6 +48,14 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
 
   const opened = route.name === "teamSession" ? route.params.id : undefined;
 
+  const screen =
+    route.name === "teamPlugin"
+      ? screens().find(
+          ({ plugin, key }) =>
+            plugin === route.params.plugin && key === route.params.key,
+        )
+      : undefined;
+
   const content = (): ReactNode => {
     if (opened !== undefined) {
       return <SessionView key={opened} sessionId={opened} />;
@@ -57,13 +65,11 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
       return <TeamSessions sessions={sessions ?? []} />;
     }
 
-    const screen = screens().find((each) => each.href === current);
-
-    if (screen !== undefined) {
+    if (screen !== undefined && route.name === "teamPlugin") {
       return (
         <Page>
           <PluginBoundary name={screen.plugin}>
-            <screen.Page path="" />
+            <screen.Page path={route.params.rest} />
           </PluginBoundary>
         </Page>
       );
@@ -126,6 +132,7 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
               ...(entry.count !== undefined && { count: entry.count }),
               current:
                 entry.href === current ||
+                entry.href === screen?.href ||
                 (opened !== undefined && entry.href === href("teamSessions")),
             })),
             ...(admin

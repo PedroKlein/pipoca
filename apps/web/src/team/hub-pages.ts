@@ -22,6 +22,7 @@ interface Placed {
 interface Screen {
   readonly href: string;
   readonly plugin: string;
+  readonly key: string;
   readonly label: string;
   readonly Page: ComponentType<PageProps>;
 }
@@ -44,6 +45,7 @@ export function screens(): readonly Screen[] {
             {
               href: href("teamPlugin", { plugin: id, key: path }),
               plugin: id,
+              key: path,
               label,
               Page,
             },

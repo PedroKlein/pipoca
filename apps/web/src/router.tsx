@@ -10,7 +10,7 @@ const table = {
   teamSession: "team/sessions/:id",
   teamSessions: "team/sessions",
   teamPage: "team/page/:id",
-  teamPlugin: "team/plugin/:plugin/:key",
+  teamPlugin: "team/plugin/:plugin/:key/*rest",
   team: "team",
   plugin: "plugin/:name/*path",
   setup: "setup/:token",

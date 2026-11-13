@@ -4226,6 +4226,73 @@ test("shows a Project made elsewhere on the open Projects page", async () => {
   await page.unroute("**/api/ext/projects/projects");
 });
 
+test("opens team Projects in the team's area, wherever the link came from", async () => {
+  const summary = {
+    id: "teamwork",
+    name: "Concur Infra Automation",
+    coordinatorId: "coordinator",
+    threads: 0,
+    needsYou: 0,
+    repositories: 1,
+    coordinatorState: "idle",
+    team: true,
+  };
+
+  await page.route("**/api/ext/projects/projects", async (route) =>
+    route.fulfill({ json: [] }),
+  );
+
+  await page.route("**/api/ext/projects/team/projects", async (route) =>
+    route.fulfill({ json: [summary] }),
+  );
+
+  await page.route("**/api/ext/projects/projects/teamwork", async (route) =>
+    route.fulfill({
+      json: {
+        ...summary,
+        goal: "",
+        instructions: "",
+        repositories: ["https://git.example.com/infra.git"],
+        environmentId: null,
+        profileId: null,
+        threadModel: null,
+        assistant: false,
+        formerCoordinators: [],
+        threads: [],
+        memory: [],
+      },
+    }),
+  );
+
+  await page.goto(`${server.url.href}#plugin/projects/all`);
+  await page.reload();
+
+  const pluginPage = page.locator("#plugin-page");
+
+  await pluginPage.getByText("No Projects yet.").waitFor();
+
+  expect(
+    await pluginPage
+      .getByRole("button", { name: /^Concur Infra Automation/ })
+      .count(),
+  ).toBe(0);
+
+  await pluginPage.getByRole("link", { name: /^1 team Project/ }).click();
+  await page.waitForURL("**/#team/plugin/projects/projects/all");
+  await page.getByRole("heading", { name: "Team Projects" }).waitFor();
+
+  await page.getByRole("button", { name: /^Concur Infra Automation/ }).click();
+
+  await page.waitForURL("**/#team/plugin/projects/projects/teamwork");
+
+  await page.goto(`${server.url.href}#plugin/projects/teamwork/settings`);
+  await page.waitForURL("**/#team/plugin/projects/projects/teamwork/settings");
+
+  await page.unroute("**/api/ext/projects/projects/teamwork");
+  await page.unroute("**/api/ext/projects/team/projects");
+  await page.unroute("**/api/ext/projects/projects");
+});
+
 test("shows a plugin page's failure without taking the app down", async () => {
   await page.route("**/api/ext/projects/projects", async (route) =>
     route.fulfill({
