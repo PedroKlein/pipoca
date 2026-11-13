@@ -6249,6 +6249,11 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
 
   await page.getByRole("heading", { name: "Sessions" }).waitFor();
 
+  // A model picked for one's own assistant may not run on team machines.
+  await page.evaluate(() => {
+    localStorage.setItem("pipoca.projects.model", "faux/faux-deep");
+  });
+
   await page
     .getByRole("navigation", { name: "Team" })
     .getByRole("link", { name: "Team assistant" })
@@ -6256,6 +6261,10 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
 
   await page.getByRole("heading", { name: "Team assistant" }).waitFor();
   await page.getByLabel("Ask the Pipoca assistant").waitFor();
+
+  expect(
+    (await page.getByRole("button", { name: "Model" }).textContent())?.trim(),
+  ).toBe("Default model");
 
   await page
     .getByRole("main")
