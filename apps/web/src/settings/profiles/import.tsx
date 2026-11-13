@@ -14,11 +14,13 @@ import { request } from "../../data/client";
 import { useAction } from "../../data/hooks";
 import { href, navigate } from "../../router";
 import { profileFolder, upload } from "./folder";
+import { NothingListed } from "./nothing-listed";
 
 export function Import(): ReactElement {
   const [listed, setListed] = useState<{
     readonly url: string;
     readonly profiles: readonly ManifestEntry[];
+    readonly found: boolean;
   }>();
 
   const action = useAction(async (work: () => Promise<Profile | undefined>) => {
@@ -105,24 +107,21 @@ export function Import(): ReactElement {
             const repository = typeof url === "string" ? url.trim() : "";
 
             imported(async () => {
-              const { profiles } = await request("repositories.manifest", {
-                query: { url: repository },
-              });
+              setListed(undefined);
 
-              if (profiles.length > 0) {
-                setListed({ url: repository, profiles });
+              const { profiles, found } = await request(
+                "repositories.manifest",
+                { query: { url: repository } },
+              );
 
-                return undefined;
-              }
+              setListed({ url: repository, profiles, found });
 
-              return request("profiles.create", {
-                body: { source: { url: repository } },
-              });
+              return undefined;
             });
           }}
           className="flex flex-col gap-1.5"
         >
-          <Field label="From a git repository that holds a Profile folder">
+          <Field label="From a git repository whose pipoca.json lists Profiles">
             <span className="flex gap-2">
               <TextInput
                 name="url"
@@ -134,7 +133,10 @@ export function Import(): ReactElement {
             </span>
           </Field>
         </form>
-        {listed && (
+        {listed?.profiles.length === 0 && (
+          <NothingListed found={listed.found} />
+        )}
+        {listed !== undefined && listed.profiles.length > 0 && (
           <form
             aria-label="Profiles in the repository"
             onSubmit={(event) => {
