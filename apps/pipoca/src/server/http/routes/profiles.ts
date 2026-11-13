@@ -86,7 +86,7 @@ export function profileRoutes({
     }
 
     if (from !== undefined) {
-      const copied = ok(profiles.copy(caller.id, from));
+      const copied = ok(profiles.copy(caller.id, from, caller.admin));
       log("profile copied", { profileId: copied.id, from });
 
       return copied;
