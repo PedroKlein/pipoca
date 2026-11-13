@@ -1,7 +1,5 @@
-import type { Session, SessionStatus } from "@pipoca/protocol";
+import { isBusy, type Session } from "@pipoca/protocol";
 import { shortName } from "./names";
-
-const busy: readonly SessionStatus[] = ["queued", "starting", "running"];
 
 // Sessions that were busy in the last poll and have stopped since, or have
 // started waiting on an answer. A session that only started and went idle
@@ -20,8 +18,8 @@ export function settled(
     }
 
     const stopped =
-      busy.includes(was.status) &&
-      !busy.includes(session.status) &&
+      isBusy(was.status) &&
+      !isBusy(session.status) &&
       (was.status === "running" || session.status !== "idle");
 
     return stopped || (!was.waiting && session.waiting);

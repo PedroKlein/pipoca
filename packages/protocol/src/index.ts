@@ -175,6 +175,7 @@ export {
   type SessionAccess,
   type SessionPlugin,
   type SessionStatus,
+  isBusy,
   type StartAgent,
   type ThinkingLevel,
   thinkingLevels,
