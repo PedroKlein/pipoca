@@ -344,6 +344,21 @@ async function setUpServerAndPerson(): Promise<void> {
 
   await page.getByRole("heading", { name: "Server default Profile" }).waitFor();
   expect(await continueButton().isDisabled()).toBe(true);
+
+  // What team Sessions run with belongs to the team, not to everyone.
+  const teamProfiles = page.getByRole("list", { name: "Team Profiles" });
+
+  await teamProfiles.getByRole("button", { name: "Add", exact: true }).click();
+  await teamProfiles.getByLabel("Team Profile name").fill("Release");
+  await teamProfiles.getByRole("button", { name: "Add", exact: true }).click();
+  await teamProfiles.getByText("Release").waitFor();
+
+  const made = (await (
+    await page.request.get(new URL("/api/profiles?scope=team", server.url).href)
+  ).json()) as Profile[];
+
+  expect(made.map(({ name }) => name)).toContain("Release");
+
   await page.getByRole("button", { name: "Skip for now" }).click();
 
   // No provider is required, and the list has every provider Pi knows plus
