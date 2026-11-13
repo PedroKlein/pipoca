@@ -1,10 +1,11 @@
-import { Avatar, cn, Icon } from "@pipoca/ui";
+import { cn, Icon } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { request } from "../data/client";
 import { seed, useQuery } from "../data/hooks";
 import { PluginBoundary } from "../plugin-boundary";
 import type { NavEntry } from "../plugins";
 import { href, type Route } from "../router";
+import { NavRow } from "./sidebar-parts";
 
 export function PluginNav({
   nav,
@@ -51,32 +52,12 @@ export function PluginNav({
   const row = (entry: NavEntry, isPinned: boolean): ReactElement => (
     <div key={entry.name} className="flex flex-col gap-0.5">
       <div className="group/row relative">
-        <a
+        <NavRow
           href={href("plugin", { name: entry.name })}
-          aria-current={
-            page?.name === entry.name && page.path === "" ? "page" : undefined
-          }
-          className="group/nav flex items-center gap-2.5 rounded-md px-2 py-1.5 text-ui text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:text-fg-strong"
-        >
-          {entry.icon === undefined ? (
-            <Avatar
-              name={entry.label}
-              size="xs"
-              square
-              className="bg-elevated text-fg-dim group-aria-[current=page]/nav:border-accent group-aria-[current=page]/nav:text-accent"
-            >
-              {entry.label.slice(0, 1).toUpperCase()}
-            </Avatar>
-          ) : (
-            <span
-              aria-hidden="true"
-              className="grid size-6 place-items-center text-fg-dim group-aria-[current=page]/nav:text-accent"
-            >
-              <Icon name={entry.icon} />
-            </span>
-          )}
-          {entry.label}
-        </a>
+          label={entry.label}
+          icon={entry.icon}
+          current={page?.name === entry.name && page.path === ""}
+        />
         <button
           type="button"
           aria-label={`${isPinned ? "Unpin" : "Pin"} ${entry.label}`}
