@@ -54,7 +54,7 @@ There are three kinds, and setup keeps them apart:
 - **Your default Profile** (My defaults, [ADR 0063](0063-settings-and-first-run-setup.md)) sits on top of it, under a person's personal Sessions. "Make Pi yours" sets it up.
 - **Team Profiles** ([ADR 0064](0064-one-team-per-server.md)) are the concrete Profiles team Sessions run with. The server default sits under them, and no person's default does. Separately, a person may copy one as the start of their own Profile, and the team Profile stays as it is.
 
-"Make Pi yours" offers: copy a team Profile (on a team server), bring `~/.pi/agent`, start from a git repository, or Pi's defaults. Pi's defaults is an answer, so it finishes the step, and the step has no Skip. More Profiles can be made any time in Settings.
+"Make Pi yours" offers: copy a team Profile (on a team server), bring `~/.pi/agent`, start from a git repository, or Pi's defaults. Pi's defaults is an answer, so it finishes the step, and the step has no Skip. More Profiles can be made any time in Settings. Bringing `~/.pi/agent` writes into My defaults, adding its packages and MCP servers to what is there. Starting from a git repository reads the `pipoca.json` at its root and makes one Profile it lists the default, synced with the repository; a repository that lists none gets told what to add, never imported from its root.
 
 ### Models
 
