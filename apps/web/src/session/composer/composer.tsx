@@ -5,7 +5,7 @@ import {
   teamTalkSince,
 } from "@pipoca/protocol";
 import type { MountedSession } from "@pipoca/plugins/web";
-import { Button, Icon, isComposing } from "@pipoca/ui";
+import { Button, Icon, isComposing, sendsOnEnter } from "@pipoca/ui";
 import { type ReactElement, useEffect, useId, useRef, useState } from "react";
 import { command } from "../../data/client";
 import { PluginBoundary } from "../../plugin-boundary";
@@ -273,20 +273,10 @@ export function Composer({
                 return;
               }
 
-              const steer = event.metaKey || event.ctrlKey;
-
-              // On a phone Enter is the only way to start a new line, so the
-              // Send button sends, as in Claude Code on the web.
-              if (
-                event.key !== "Enter" ||
-                event.shiftKey ||
-                (!steer && matchMedia("(pointer: coarse)").matches)
-              ) {
-                return;
+              if (sendsOnEnter(event)) {
+                event.preventDefault();
+                send(event.metaKey || event.ctrlKey ? "steer" : "followUp");
               }
-
-              event.preventDefault();
-              send(steer ? "steer" : "followUp");
             }}
             className="max-h-72 min-h-12 resize-none field-sizing-content bg-transparent pt-1 text-prose text-fg placeholder:text-fg-dim focus:outline-none"
           />

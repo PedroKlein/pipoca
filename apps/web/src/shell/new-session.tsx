@@ -14,7 +14,7 @@ import {
   Dialog,
   ErrorText,
   Icon,
-  isComposing,
+  sendsOnEnter,
   Picker,
   Segmented,
 } from "@pipoca/ui";
@@ -365,19 +365,10 @@ export function NewSessionForm({
           setText(event.target.value);
         }}
         onKeyDown={(event) => {
-          const forced = event.metaKey || event.ctrlKey;
-
-          if (
-            isComposing(event) ||
-            event.key !== "Enter" ||
-            event.shiftKey ||
-            (!forced && matchMedia("(pointer: coarse)").matches)
-          ) {
-            return;
+          if (sendsOnEnter(event)) {
+            event.preventDefault();
+            submit();
           }
-
-          event.preventDefault();
-          submit();
         }}
         className="max-h-80 min-h-24 resize-none field-sizing-content bg-transparent px-5 py-2 text-prose text-fg placeholder:text-fg-dim focus:outline-none"
       />
