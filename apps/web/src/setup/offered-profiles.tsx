@@ -15,7 +15,6 @@ export function ProfileStepPage(): ReactElement {
 
   return (
     <ProfileStep
-      profiles={profiles}
       team={
         offered.length > 0 ? (
           <OfferedProfiles offered={offered} profiles={profiles} />
