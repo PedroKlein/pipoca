@@ -125,7 +125,10 @@ export function appEvents(
         for (const token of installations(user.name)) {
           // An App's events are team work (ADR 0080).
           const poller = pollerOf(
-            hostCall(host, network, "team"),
+            hostCall(host, network, {
+              owner: "team",
+              action: "App events poll",
+            }),
             token,
             (kind, payload) => heard(user, kind, payload),
           );

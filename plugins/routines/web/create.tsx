@@ -20,6 +20,7 @@ import {
   TextInput,
 } from "@pipoca/ui";
 import type { DeclaredAction, DeclaredEvent } from "@pipoca/protocol";
+import { ReachWarning } from "./reach";
 import { type ReactElement, useState } from "react";
 import { routines } from "../plugin";
 import type {
@@ -1074,6 +1075,20 @@ function DraftCard({
                 className="h-auto"
               />
             </Field>
+          )}
+          {work["kind"] !== "message" && (
+            <ReachWarning
+              repository={
+                objectOf(work["workspace"])["kind"] === "clone"
+                  ? stringOf(objectOf(work["workspace"])["repository"])
+                  : ""
+              }
+              environment={stringOf(work["environment"])}
+              team={prefix !== ""}
+              onUse={(environment) => {
+                set(put(value, "do", put(work, "environment", environment)));
+              }}
+            />
           )}
           <ul aria-label="Defaults" className="flex flex-col gap-1.5">
             {defaultsOf(value, {

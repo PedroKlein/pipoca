@@ -42,6 +42,7 @@ import {
 } from "./common";
 import { GroupPage, GroupPicker } from "./groups";
 import { RoutineList, TeamRoutinesScreen } from "./list";
+import { ReachWarning } from "./reach";
 import { starters } from "./starters";
 import { placeWords, shortTime, whenWords } from "./words";
 
@@ -352,6 +353,29 @@ function RoutinePage({
           <ErrorText size="inherit" className="text-ui">
             {routine.error}
           </ErrorText>
+          {routine.routine?.do.kind === "session" &&
+            routine.routine.do.workspace.kind === "clone" && (
+              <ReachWarning
+                repository={routine.routine.do.workspace.repository}
+                environment={routine.routine.do.environment ?? ""}
+                team={scope.prefix !== ""}
+                onUse={(environment) => {
+                  const saved = routine.routine;
+
+                  if (saved?.do.kind === "session") {
+                    api
+                      .put(path, { ...saved, do: { ...saved.do, environment } })
+                      .then(reload, (error: unknown) => {
+                        setFailure(
+                          error instanceof Error
+                            ? error.message
+                            : String(error),
+                        );
+                      });
+                  }
+                }}
+              />
+            )}
           {writesOnOutsideInput(routine) && (
             <p className="text-ui text-waiting">
               Its runs write directly, so text strangers write in an issue,

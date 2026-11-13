@@ -31,7 +31,12 @@ export {
   ToolError,
 } from "./http";
 export { type Static, Type } from "typebox";
-export { type Network, type NetworkEnv, Unreachable } from "./network";
+export {
+  type Network,
+  type NetworkEnv,
+  type OnBehalf,
+  Unreachable,
+} from "./network";
 export { owners } from "./owners";
 export {
   type ActionCall,

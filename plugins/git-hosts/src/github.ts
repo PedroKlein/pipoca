@@ -1,4 +1,4 @@
-import { isHttpError, type Network, type Owner } from "@pipoca/plugins";
+import { isHttpError, type Network, type OnBehalf } from "@pipoca/plugins";
 import type { HostConfig, OAuthApp } from "./hosts";
 import type { HostEmails } from "./model";
 
@@ -16,11 +16,11 @@ export interface HostCall extends HostConfig {
 export function hostCall(
   host: HostConfig,
   network: Network,
-  owner: Owner,
+  on: OnBehalf,
 ): HostCall {
   return {
     ...host,
-    fetch: async (url, init) => network.fetch(url, init, owner),
+    fetch: async (url, init) => network.fetch(url, init, on),
   };
 }
 

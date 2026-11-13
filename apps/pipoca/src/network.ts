@@ -6,10 +6,15 @@ import { createServer, type Server, type Socket } from "node:net";
 import type { Duplex } from "node:stream";
 import { connect as tlsConnect } from "node:tls";
 import type { Environments } from "@pipoca/environments";
-import { type Network, type NetworkEnv, Unreachable } from "@pipoca/plugins";
+import {
+  type Network,
+  type NetworkEnv,
+  type OnBehalf,
+  Unreachable,
+} from "@pipoca/plugins";
 import type { HostPort, Log, Owner } from "@pipoca/protocol";
 import type { PrivateHostList } from "./private-hosts";
-import type { RelayRunner, Relays } from "./relays";
+import type { RelayedBy, RelayRunner, Relays } from "./relays";
 
 export interface NetworkRouter {
   // The network calls of one plugin.
@@ -23,8 +28,7 @@ export interface NetworkRouter {
 }
 
 interface Ticket {
-  readonly owner: Owner;
-  readonly plugin: string;
+  readonly by: RelayedBy;
   readonly to: HostPort;
   readonly runner: RelayRunner;
   readonly until: number;
@@ -97,14 +101,13 @@ export function networkRouter(deps: {
     runner: RelayRunner,
     to: HostPort,
     ca: string | null,
-    plugin: string,
-    owner: Owner,
+    by: RelayedBy,
   ): Promise<void> => {
     if (confirmed.has(keyOf(runner, to))) {
       return;
     }
 
-    const { stream } = await relays.open(runner, to, { plugin, owner });
+    const { stream } = await relays.open(runner, to, by);
 
     await new Promise<void>((resolve, reject) => {
       const socket = tlsConnect({
@@ -155,7 +158,7 @@ export function networkRouter(deps: {
           : undefined;
       },
       async (ticket) =>
-        (await relays.open(ticket.runner, ticket.to, ticket)).stream,
+        (await relays.open(ticket.runner, ticket.to, ticket.by)).stream,
       log,
     );
   });
@@ -176,7 +179,7 @@ export function networkRouter(deps: {
   const ticketFor = async (
     url: URL,
     plugin: string,
-    owner: Owner | undefined,
+    on: OnBehalf | undefined,
   ): Promise<
     { readonly token: string; readonly ca: string | null } | undefined
   > => {
@@ -191,26 +194,27 @@ export function networkRouter(deps: {
       throw new Unreachable(to.host, "is reached over https only");
     }
 
-    if (owner === undefined) {
+    if (on === undefined) {
       throw new Unreachable(
         to.host,
         "this call isn't for anyone it could go through",
       );
     }
 
-    const [runner] = routes(owner, to);
+    const [runner] = routes(on.owner, to);
 
     if (runner === undefined) {
       throw new Unreachable(to.host, "no Environment reaches it");
     }
 
-    await confirm(runner, to, listed.ca, plugin, owner);
+    const by = { plugin, owner: on.owner, action: on.action ?? null };
+
+    await confirm(runner, to, listed.ca, by);
 
     const token = randomBytes(24).toString("base64url");
 
     tickets.set(token, {
-      owner,
-      plugin,
+      by,
       to,
       runner,
       until: Date.now() + ticketMs,
@@ -223,12 +227,12 @@ export function networkRouter(deps: {
     plugin: string,
     url: URL,
     init: RequestInit,
-    owner: Owner | undefined,
+    on: OnBehalf | undefined,
   ): Promise<Response> => {
     let at = url;
 
     for (let hop = 0; hop <= maxHops; hop++) {
-      const ticket = await ticketFor(at, plugin, owner);
+      const ticket = await ticketFor(at, plugin, on);
 
       if (ticket === undefined) {
         return fetch(at, init);
@@ -285,11 +289,11 @@ export function networkRouter(deps: {
 
         return listed && { teamWatch: listed.teamWatch };
       },
-      fetch: async (url, init = {}, owner) =>
-        routedFetch(plugin, new URL(url), init, owner),
-      env: async (url, owner): Promise<NetworkEnv> => {
+      fetch: async (url, init = {}, on) =>
+        routedFetch(plugin, new URL(url), init, on),
+      env: async (url, on): Promise<NetworkEnv> => {
         const at = new URL(url);
-        const ticket = await ticketFor(at, plugin, owner);
+        const ticket = await ticketFor(at, plugin, on);
 
         if (ticket === undefined) {
           return { env: {}, done: () => undefined };

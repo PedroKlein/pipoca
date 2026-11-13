@@ -90,7 +90,10 @@ export function questionReplies(
       }
 
       const response = await reach(
-        hostCall(host, context.network, as.owner),
+        hostCall(host, context.network, {
+          owner: as.owner,
+          action: "review reply",
+        }),
         `${host.api}/repos/${repository}/issues/${String(number)}/comments`,
         {
           method: "POST",

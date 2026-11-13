@@ -1,6 +1,13 @@
-import { useApi } from "@pipoca/plugins/web";
+import { useApi, useLoaded } from "@pipoca/plugins/web";
 import type { PrivateHosts } from "@pipoca/protocol";
-import { Badge, buttonClass, ErrorText, Switch } from "@pipoca/ui";
+import {
+  Badge,
+  Button,
+  buttonClass,
+  ErrorText,
+  Switch,
+  TextArea,
+} from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useState } from "react";
 import { gitHosts } from "../plugin";
 import type { Reach } from "../src/model";
@@ -107,17 +114,7 @@ export function NetworkRows({
       </NetworkRow>
       {reach.private && (
         <>
-          <NetworkRow
-            title="Certificate authority"
-            description="Your company's CA, trusted for this host only. Leave it empty if its certificate is public."
-          >
-            <a
-              className={buttonClass({ size: "sm", className: "no-underline" })}
-              href="#settings/private-hosts"
-            >
-              Set in Private hosts
-            </a>
-          </NetworkRow>
+          <CaRow host={host} locked={locked} />
           <NetworkRow
             title="Team calls"
             description={reachText(host, reach, true)}
@@ -137,6 +134,126 @@ export function NetworkRows({
         </>
       )}
     </>
+  );
+}
+
+// The private host's own CA, which the server trusts for that host only.
+function CaRow({
+  host,
+  locked,
+}: {
+  readonly host: string;
+  readonly locked: boolean;
+}): ReactElement {
+  const api = useApi(gitHosts);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string>();
+
+  const listed = useLoaded(
+    async () => api.get<PrivateHosts>("/api/settings/private-hosts"),
+    "private-hosts",
+    { topics: ["private-hosts"] },
+  );
+
+  const ca = listed.value?.hosts.find((each) => each.host === host)?.ca;
+
+  const save = async (next: string | null): Promise<void> => {
+    const { hosts } = await api.get<PrivateHosts>(
+      "/api/settings/private-hosts",
+    );
+
+    await api.put("/api/settings/private-hosts", {
+      hosts: hosts.map((each) =>
+        each.host === host ? { ...each, ca: next } : each,
+      ),
+    });
+  };
+
+  const run = (next: string | null): void => {
+    save(next).then(
+      () => {
+        setError(undefined);
+        setEditing(false);
+        listed.reload();
+      },
+      (failure: unknown) => {
+        setError(failure instanceof Error ? failure.message : String(failure));
+      },
+    );
+  };
+
+  return (
+    <NetworkRow
+      title="Certificate authority"
+      description={
+        typeof ca === "string"
+          ? "Its own CA is set, trusted for this host only, by Pipoca and by the git it runs."
+          : "Your company's CA, trusted for this host only. Leave it empty if its certificate is public."
+      }
+    >
+      {!locked && !editing && (
+        <span className="flex gap-2">
+          {typeof ca === "string" && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                run(null);
+              }}
+            >
+              Remove
+            </Button>
+          )}
+          <Button
+            size="sm"
+            onClick={() => {
+              setDraft("");
+              setEditing(true);
+            }}
+          >
+            {typeof ca === "string" ? "Replace" : "Add CA certificate"}
+          </Button>
+        </span>
+      )}
+      {editing && (
+        <form
+          aria-label={`CA for ${host}`}
+          className="flex w-full flex-col gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            run(draft.trim() === "" ? null : draft);
+          }}
+        >
+          <TextArea
+            rows={4}
+            aria-label="CA certificate in PEM"
+            className="font-mono text-caption"
+            placeholder="-----BEGIN CERTIFICATE-----"
+            value={draft}
+            onChange={(event) => {
+              setDraft(event.target.value);
+            }}
+          />
+          <ErrorText size="caption">{error}</ErrorText>
+          <span className="flex justify-end gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setEditing(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button size="sm" type="submit" variant="primary">
+              Save
+            </Button>
+          </span>
+        </form>
+      )}
+      {!editing && <ErrorText size="caption">{error}</ErrorText>}
+    </NetworkRow>
   );
 }
 

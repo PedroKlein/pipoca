@@ -39,7 +39,11 @@ export function publicFetch(
     for (let hop = 0; hop < 5; hop++) {
       const response =
         allowed.includes(url.host) || network.privateHost(url) !== undefined
-          ? await network.fetch(url, { ...init, redirect: "manual" }, owner)
+          ? await network.fetch(
+              url,
+              { ...init, redirect: "manual" },
+              { owner, action: "MCP sign-in" },
+            )
           : await pinnedFetch(url, network, init);
 
       const location = response.headers.get("location");

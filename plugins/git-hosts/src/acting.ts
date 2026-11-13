@@ -96,7 +96,10 @@ export function acting(
   const teamHost = (name: string): HostCall | undefined => {
     const host = hosts.get(name);
 
-    return host && hostCall(host, network, "team");
+    return (
+      host &&
+      hostCall(host, network, { owner: "team", action: "acting as a bot" })
+    );
   };
 
   const tokens = new Map<string, Cached>();

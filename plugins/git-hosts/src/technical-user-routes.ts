@@ -116,7 +116,7 @@ export function technicalUserRoutes(
 
     try {
       const installations = await installationsOf(
-        hostCall(host, network, "team"),
+        hostCall(host, network, { owner: "team", action: "App installations" }),
         user.app,
         clock.now(),
       );
@@ -228,7 +228,7 @@ export function technicalUserRoutes(
 
       try {
         const app = await convertManifest(
-          hostCall(host, network, "team"),
+          hostCall(host, network, { owner: "team", action: "App creation" }),
           query.code ?? "",
         );
 
@@ -300,13 +300,17 @@ export function technicalUserRoutes(
       const name = body.name.trim();
       const token = body.token.trim();
 
-      const login = await loginOf(hostCall(host, network, "team"), token).catch(
-        (failure: unknown) => {
-          throw failure instanceof HostRefused
-            ? new BadRequest(failure.message)
-            : failure;
-        },
-      );
+      const login = await loginOf(
+        hostCall(host, network, {
+          owner: "team",
+          action: "machine user check",
+        }),
+        token,
+      ).catch((failure: unknown) => {
+        throw failure instanceof HostRefused
+          ? new BadRequest(failure.message)
+          : failure;
+      });
 
       add({
         name,

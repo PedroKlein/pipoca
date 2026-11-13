@@ -69,7 +69,10 @@ export function hostActions(
     const owner = session.actsAs === null ? session.ownedBy : "team";
 
     return {
-      host: hostCall(host, context.network, owner),
+      host: hostCall(host, context.network, {
+        owner,
+        action: "a Session's pull request",
+      }),
       network: context.network,
       owner,
       repository: match[2],
@@ -362,7 +365,11 @@ async function pushBundle(
   const dir = await mkdtemp(join(tmpdir(), "pipoca-push-"));
   const file = join(dir, "commits.bundle");
   const repo = join(dir, "repo");
-  const reaching = await target.network.env(remote, target.owner);
+
+  const reaching = await target.network.env(remote, {
+    owner: target.owner,
+    action: "push",
+  });
 
   const env = authEnv(target.host.host, target.token, {
     ...process.env,

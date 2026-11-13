@@ -91,6 +91,7 @@ export const relayed = Type.Object({
   port: Type.Integer(),
   plugin: Type.String(),
   owner: Type.String(),
+  action: nullable(Type.String()),
   bytes: Type.Integer(),
   ms: Type.Integer(),
 });
