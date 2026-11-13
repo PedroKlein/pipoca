@@ -3872,7 +3872,28 @@ test("finds sessions by search and notifies when one finishes", async () => {
       title.startsWith("Pi finished in"),
     ),
   );
-}, 30_000);
+
+  // From the team's workspace too.
+  faux.setResponses([
+    fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 3" })], {
+      stopReason: "toolUse",
+    }),
+    fauxAssistantMessage([fauxText("done again")]),
+  ]);
+
+  await page.evaluate(`location.hash = "#${id}"`);
+  await page.locator("#prompt-text").fill("finish again");
+  await page.locator("#prompt-text").press("Enter");
+  await page.evaluate('location.hash = "#team"');
+  await page.getByRole("navigation", { name: "Team" }).waitFor();
+
+  await page.waitForFunction(
+    () =>
+      (globalThis as unknown as { shown: string[] }).shown.filter((title) =>
+        title.startsWith("Pi finished in"),
+      ).length === 2,
+  );
+}, 45_000);
 
 test("answers the agent's questions in the prompt card", async () => {
   faux.setResponses([

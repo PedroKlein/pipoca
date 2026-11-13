@@ -44,6 +44,18 @@ function Screens(): ReactElement {
   const { team } = useMe();
   const setup = useQuery("me.setup").data;
 
+  // A finished Session is told about from either workspace.
+  const own =
+    useQuery("sessions.list", { query: { archived: false, plugins: true } })
+      .data ?? [];
+
+  useSettledNotices(
+    own,
+    route.name === "session" || route.name === "teamSession"
+      ? route.params.id
+      : "",
+  );
+
   // The wizard stays until it is left, while finishing the server's setup
   // and then the person's changes what the server says is left to do.
   const [settingUp, setSettingUp] = useState(
@@ -102,7 +114,6 @@ function Work({ route }: { readonly route: Route }): ReactElement {
     }).data ?? [];
 
   const opened = route.name === "session" ? route.params.id : "";
-  useSettledNotices(sessions, opened);
 
   if (drawerRoute !== route) {
     setDrawerRoute(route);
