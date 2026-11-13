@@ -27,7 +27,11 @@ import type { TypedClient } from "@pipoca/plugins";
 import { projects } from "../plugin";
 import type { ProjectSummary, ProjectView } from "../src/model";
 
-const modelKey = "pipoca.projects.model";
+// Team work runs on team Environments, whose models differ from a person's.
+const modelKeys = {
+  own: "pipoca.projects.model",
+  team: "pipoca.projects.team-model",
+};
 
 // Earlier conversations: the coordinators a fresh one replaced.
 export const earlier = "earlier";
@@ -320,7 +324,7 @@ function Composer({
   const textId = useId();
   const textRef = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState("");
-  const [model, setModel] = useState(remembered);
+  const [model, setModel] = useState(() => remembered(team));
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -410,7 +414,7 @@ function Composer({
             none="Default model"
             onPick={(name) => {
               setModel(name);
-              remember(name);
+              remember(team, name);
             }}
           >
             {model === ""
@@ -482,17 +486,17 @@ function modelRef(name: string): ModelRef | undefined {
 }
 
 // The model the user last asked the assistant with, on this browser only.
-function remembered(): string {
+function remembered(team: boolean): string {
   try {
-    return localStorage.getItem(modelKey) ?? "";
+    return localStorage.getItem(modelKeys[team ? "team" : "own"]) ?? "";
   } catch {
     return "";
   }
 }
 
-function remember(model: string): void {
+function remember(team: boolean, model: string): void {
   try {
-    localStorage.setItem(modelKey, model);
+    localStorage.setItem(modelKeys[team ? "team" : "own"], model);
   } catch {
     // The choice only lasts this visit.
   }
