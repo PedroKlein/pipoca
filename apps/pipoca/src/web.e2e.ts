@@ -5946,7 +5946,7 @@ test("an admin sets up team work from Team setup: its Profiles, Environments, cr
     .getByRole("button", { name: "Make team default" })
     .click({ timeout: 4000 })
     .catch(async () => {
-      const shown = await page.locator("main").innerText();
+      const shown = await page.locator("body").innerText();
 
       const listed = await (
         await page.request.get(
