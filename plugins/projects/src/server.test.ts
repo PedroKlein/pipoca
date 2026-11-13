@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { definePlugin, defineServer } from "@pipoca/plugins";
-import { blobRoutes } from "@pipoca/protocol";
+import { blobRoutes, type Session } from "@pipoca/protocol";
 import {
   type PluginTest,
   person,
@@ -603,4 +603,79 @@ test("a turn report whose transcript never arrives goes after a minute with what
   await s.t.clock.advance("5s");
 
   expect(s.coordinator.delivered()).toHaveLength(1);
+});
+
+test("new repositories start the coordinator afresh with them checked out", async () => {
+  const s = await started();
+  await using _ = s.t;
+  const docs = "https://example.com/docs.git";
+
+  const updated = await s.t
+    .as("ana")
+    .post<ProjectView>(`projects/${s.project.id}/settings`, {
+      repositories: [repository, docs],
+    });
+
+  expect(updated.repositories).toEqual([repository, docs]);
+  expect(updated.formerCoordinators).toEqual([s.project.coordinatorId]);
+
+  const fresh = await s.t
+    .as("ana")
+    .get<Session>(`/api/sessions/${updated.coordinatorId}`);
+
+  expect(fresh.workspace).toMatchObject({
+    kind: "repositories",
+    repositories: [{ repository }, { repository: docs }],
+  });
+
+  const renamed = await s.t
+    .as("ana")
+    .post<ProjectView>(`projects/${s.project.id}/settings`, { name: "Store" });
+
+  expect(renamed.coordinatorId).toBe(updated.coordinatorId);
+
+  const twice = await s.t.as("ana").raw(`projects/${s.project.id}/settings`, {
+    method: "POST",
+    body: JSON.stringify({ repositories: [repository, repository] }),
+  });
+
+  expect(twice.status).toBe(400);
+});
+
+test("archiving a Project archives its coordinator and threads", async () => {
+  const s = await started();
+  await using _ = s.t;
+  const thread = await threadOf(s, "Docs");
+
+  await s.t.as("ana").post(`projects/${s.project.id}/archive`);
+
+  const found = await until(async () => {
+    const project = await s.t
+      .as("ana")
+      .get<ProjectView>(`projects/${s.project.id}`);
+
+    return project.threads[0]?.runState === "archived" ? project : undefined;
+  });
+
+  expect(found?.coordinatorState).toBe("archived");
+  expect(thread.id).not.toBe("");
+});
+
+test("a Project's first message gets its coordinator working right away", async () => {
+  const t = await testPlugin(server, { people });
+  await using _ = t;
+  const environment = await t.environment({ owner: person("ana") });
+
+  const project = await t.as("ana").post<ProjectView>("projects", {
+    name: "Shop",
+    repositories: [repository],
+    environment: environment.id,
+    firstMessage: "Check every README",
+  });
+
+  const coordinator = await t
+    .as("ana")
+    .get<Session>(`/api/sessions/${project.coordinatorId}`);
+
+  expect(coordinator.firstMessage).toBe("Check every README");
 });

@@ -213,15 +213,14 @@ function Instructions({
 // Concrete Profiles for team Sessions, on the server default and never on
 // anyone's own default (ADR 0064).
 function TeamProfiles(): ReactElement {
-  const shared = (useQuery("profiles.list").data ?? []).filter(
-    ({ ownerId }) => ownerId === null,
-  );
+  const team =
+    useQuery("profiles.list", { query: { scope: "team" } }).data ?? [];
 
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
 
   const add = useAction(async () => {
-    await request("profiles.create", { body: { name, shared: true } });
+    await request("profiles.create", { body: { name, team: true } });
     setName("");
     setNaming(false);
   });
@@ -235,14 +234,14 @@ function TeamProfiles(): ReactElement {
         </span>
       </h2>
       <Rows label="Team Profiles">
-        {shared.map((profile) => (
+        {team.map((profile) => (
           <Row
             key={profile.id}
             initials={initialsOf(profile.name)}
             title={profile.name}
             description={
               profile.agentsMd === ""
-                ? "A Profile the team shares"
+                ? "A Profile team work runs on"
                 : firstLine(profile.agentsMd)
             }
           />
