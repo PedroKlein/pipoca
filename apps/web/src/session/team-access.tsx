@@ -21,6 +21,13 @@ export function steers(
   );
 }
 
+// Team work only its starter sees, such as their Team assistant, has nobody to talk to.
+export function talks({ ownedBy, access }: Session): boolean {
+  return (
+    ownedBy === "team" && (access.kind !== "named" || access.people.length > 0)
+  );
+}
+
 export const accessLabels = {
   team: "Everyone steers",
   view: "View only",

@@ -5958,6 +5958,59 @@ test("an admin names the team, and the hub and sidebar show it", async () => {
   await page.getByRole("link", { name: "Team", exact: true }).waitFor();
 });
 
+test("keeps team talk off team work nobody else sees, such as a Team assistant", async () => {
+  await page.goto(server.url.href);
+
+  const signedIn = (await page.context().cookies()).find(
+    ({ name }) => name === "pipoca-session",
+  );
+
+  const current = `${signedIn?.name ?? ""}=${signedIn?.value ?? ""}`;
+
+  const post = async (path: string, body: unknown): Promise<unknown> =>
+    (
+      await fetch(new URL(path, server.url), {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: current },
+        body: JSON.stringify(body),
+      })
+    ).json();
+
+  const environment = (await post("/api/environments", {
+    name: "own-pods",
+    team: true,
+  })) as Environment;
+
+  const profile = (await post("/api/profiles", {
+    name: "Own",
+    team: true,
+  })) as Profile;
+
+  const folder = join(root, "own-talk");
+
+  await mkdir(folder, { recursive: true });
+
+  const session = (await post("/api/sessions", {
+    team: true,
+    environment: environment.id,
+    profile: profile.id,
+    workspace: { kind: "folder", path: folder },
+  })) as Session;
+
+  await fetch(new URL(`/api/sessions/${session.id}`, server.url), {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie: current },
+    body: JSON.stringify({ access: { kind: "named", people: [] } }),
+  });
+
+  await page.goto(new URL(`/#team/sessions/${session.id}`, server.url).href);
+
+  await page.locator("header").getByText("own-talk", { exact: true }).waitFor();
+  await page.locator("#prompt-text").waitFor();
+
+  expect(await page.getByRole("group", { name: "Send to" }).count()).toBe(0);
+});
+
 test("offers a fork once the team said more than Pi reads", async () => {
   await page.goto(server.url.href);
 
