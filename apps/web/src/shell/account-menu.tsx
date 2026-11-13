@@ -1,11 +1,14 @@
 import { Avatar, Icon, Menu } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { request } from "../data/client";
+import { useDisplayName } from "../data/hooks";
 import { href, navigate } from "../router";
 
 // Settings and signing out, behind the user's name like Claude Code's account
 // menu (ADR 0040).
-export function AccountMenu({ user }: { readonly user: string }): ReactElement {
+export function AccountMenu(): ReactElement {
+  const user = useDisplayName();
+
   return (
     <Menu
       label="Account"
@@ -15,9 +18,11 @@ export function AccountMenu({ user }: { readonly user: string }): ReactElement {
       triggerClassName="w-full justify-start text-label text-fg"
       trigger={
         <>
-          <Avatar name={user} size="xs" className="bg-accent-tint text-accent">
-            {user.slice(0, 1).toUpperCase()}
-          </Avatar>
+          <Avatar
+            name={user}
+            size="xs"
+            className="bg-accent-tint text-accent"
+          />
           <span className="flex-1 truncate text-left">{user}</span>
           <Icon name="settings" className="text-fg-dim" />
         </>

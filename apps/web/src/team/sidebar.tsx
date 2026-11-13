@@ -274,9 +274,7 @@ export function TeamSidebar({
                     name={person.name}
                     size="xs"
                     className="bg-elevated text-fg-dim ring-2 ring-panel"
-                  >
-                    {Array.from(person.name).slice(0, 2).join("").toUpperCase()}
-                  </Avatar>
+                  />
                 ))}
               </span>
               <span className="text-caption text-fg-dim">
@@ -286,7 +284,7 @@ export function TeamSidebar({
           )
         }
       />
-      <AccountMenu user={me.user.name} />
+      <AccountMenu />
     </nav>
   );
 }
