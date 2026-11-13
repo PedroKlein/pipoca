@@ -1,4 +1,10 @@
-import { href as pageHref, useApi, useLoaded } from "@pipoca/plugins/web";
+import {
+  href as pageHref,
+  ModelField,
+  pickerModels,
+  useApi,
+  useLoaded,
+} from "@pipoca/plugins/web";
 import {
   Badge,
   Button,
@@ -30,7 +36,7 @@ import type {
   RoutineView,
   WouldFire,
 } from "../src/model";
-import { changes } from "./common";
+import { changes, useEnvironments } from "./common";
 import {
   chipClass,
   ChipMenu,
@@ -1110,7 +1116,7 @@ function DraftCard({
             <summary className="cursor-pointer text-ui text-fg underline decoration-line-strong underline-offset-3 hover:decoration-fg">
               More: same work, limits, model, workflow
             </summary>
-            <MoreFields value={value} onChange={set} />
+            <MoreFields value={value} team={prefix !== ""} onChange={set} />
           </details>
         </>
       )}
@@ -1457,12 +1463,38 @@ const limitFields = [
 
 function MoreFields({
   value,
+  team,
   onChange,
 }: {
   readonly value: Json;
+  readonly team: boolean;
   readonly onChange: (value: Json) => void;
 }): ReactElement {
   const work = objectOf(value["do"]);
+  const environments = useEnvironments(team) ?? [];
+  const environment = stringOf(work["environment"]);
+  const model = stringOf(work["model"]);
+  const chosen = environments.find(({ id }) => id === environment);
+
+  const models = pickerModels(
+    chosen?.models ?? environments.flatMap((each) => each.models),
+    {
+      hidden: chosen?.hiddenModels ?? [],
+      unavailable: chosen?.unavailableModels ?? [],
+    },
+  );
+
+  const picked = models.find(({ value: each }) => each === model);
+
+  const modelLabel =
+    picked === undefined
+      ? model || "Default model"
+      : `${picked.name ?? picked.id} · ${picked.providerName}`;
+
+  const setWork = (name: string, next: string): void => {
+    onChange(put(value, "do", put(work, name, next)));
+  };
+
   const sameWork = objectOf(value["sameWork"]);
   const limits = objectOf(value["limits"]);
 
@@ -1558,8 +1590,41 @@ function MoreFields({
           "Workflow",
           "A saved workflow, in place of the agent",
         )}
-        {text("model", "Model", "provider/id, such as openai/gpt-5")}
-        {text("environment", "Environment")}
+        <Field label="Environment">
+          <Select
+            aria-label="Environment"
+            value={environment}
+            onChange={(event) => {
+              setWork("environment", event.target.value);
+            }}
+          >
+            <option value="">
+              {team ? "Any team Environment" : "Any of your Environments"}
+            </option>
+            {environments.map(({ id, name }) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+            {environment !== "" && chosen === undefined && (
+              <option value={environment}>{environment}</option>
+            )}
+          </Select>
+        </Field>
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <span className="text-label font-medium text-fg">Model</span>
+          <ModelField
+            label="Model"
+            models={models}
+            selected={model}
+            none="Default model"
+            onPick={(name) => {
+              setWork("model", name);
+            }}
+          >
+            {modelLabel}
+          </ModelField>
+        </div>
         {text("as", "Acts on git as", "A technical user, such as a GitHub App")}
         <Field label="Runs that outside input fires">
           <Select

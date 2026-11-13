@@ -1,12 +1,9 @@
 import { useApi, useLoaded } from "@pipoca/plugins/web";
-import {
-  type Environment,
-  type PrivateHosts,
-  privateHostOf,
-} from "@pipoca/protocol";
+import { type PrivateHosts, privateHostOf } from "@pipoca/protocol";
 import { Button, Notice } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { routines } from "../plugin";
+import { useEnvironments } from "./common";
 
 // Warns when a routine clones a repository on a private host but names an
 // Environment that can't reach it, and offers one that can (ADR 0080).
@@ -35,28 +32,19 @@ export function ReachWarning({
     { topics: ["private-hosts"] },
   );
 
-  const environments = useLoaded(
-    async () =>
-      api
-        .get<readonly Environment[]>(
-          `/api/environments${team ? "?scope=team" : ""}`,
-        )
-        .catch(() => undefined),
-    `environments ${String(team)}`,
-    { topics: ["environments"] },
-  );
+  const environments = useEnvironments(team);
 
   const host = privateHostOf(repository, listed.value ?? []);
 
-  if (host === undefined || environments.value === undefined) {
+  if (host === undefined || environments === undefined) {
     return null;
   }
 
-  const reaching = environments.value.filter(({ reaches }) =>
+  const reaching = environments.filter(({ reaches }) =>
     reaches.some((each) => each.reached && each.host === host),
   );
 
-  const named = environments.value.find(({ id }) => id === environment);
+  const named = environments.find(({ id }) => id === environment);
 
   if (environment === "" && reaching.length > 0) {
     return null;
