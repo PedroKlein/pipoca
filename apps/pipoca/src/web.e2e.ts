@@ -5922,6 +5922,18 @@ test("an admin sets up team work from Team setup: its Profiles, Environments, cr
 
   expect(teamProfiles.map(({ name }) => name)).toContain("Backend");
 
+  await page.getByRole("link", { name: "New team Profile" }).click();
+  await page.waitForURL("**/#team/setup/profiles/new");
+  await page.getByLabel("Name").fill("Frontend");
+  await page.getByRole("button", { name: "Create Profile" }).click();
+  await page.getByRole("button", { name: "Make team default" }).click();
+
+  await page
+    .getByRole("navigation", { name: "Profiles" })
+    .getByRole("link", { name: /^Frontend/ })
+    .getByText("Default")
+    .waitFor();
+
   await nav.getByRole("link", { name: /^Environments/ }).click();
   await page.getByRole("heading", { name: "Team Environments" }).waitFor();
   await page.getByRole("button", { name: "New Environment" }).click();

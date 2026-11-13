@@ -44,6 +44,12 @@ export interface ProfileStore {
   readonly defaultFor: (id: string) => readonly string[];
 }
 
+// Where the team's pick of its default Profile is kept.
+export interface TeamDefault {
+  readonly get: () => string | undefined;
+  readonly set: (id: string) => void;
+}
+
 export type Layer = "base" | "defaults";
 
 type Rejection =
@@ -73,10 +79,16 @@ const maxExportBytes = 1024 * 1024;
 export class Profiles {
   readonly #folders: ProfileFolders;
   readonly #store: ProfileStore;
+  readonly #teamDefault: TeamDefault;
 
-  constructor(folders: ProfileFolders, store: ProfileStore) {
+  constructor(
+    folders: ProfileFolders,
+    store: ProfileStore,
+    teamDefault: TeamDefault = keptInMemory(),
+  ) {
     this.#folders = folders;
     this.#store = store;
+    this.#teamDefault = teamDefault;
   }
 
   // Every user's Profiles, which runners keep.
@@ -101,6 +113,37 @@ export class Profiles {
           Number(b.id === defaultProfileId) -
             Number(a.id === defaultProfileId) || a.name.localeCompare(b.name),
       );
+  }
+
+  // A team always has a default Profile, like a person, so team work that
+  // names none starts on it. The first ask makes one if the team has none.
+  teamDefault(): string {
+    const team = this.#folders
+      .ids()
+      .flatMap((id) => {
+        const profile = this.#folders.read(id);
+
+        return profile?.ownerId === teamOwner ? [profile] : [];
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const stored = this.#teamDefault.get();
+
+    if (stored !== undefined && team.some(({ id }) => id === stored)) {
+      return stored;
+    }
+
+    const made =
+      team[0] === undefined
+        ? this.create("", { name: "Default", team: true }, true)
+        : undefined;
+
+    const id = made?.ok === true ? made.value.id : (team[0]?.id ?? "");
+
+    // Kept, so a team Profile made later doesn't take over by its name.
+    this.#teamDefault.set(id);
+
+    return id;
   }
 
   get(userId: string, id: string): Profile | undefined {
@@ -257,7 +300,8 @@ export class Profiles {
 
     if (
       id === defaultProfileId ||
-      this.#store.defaultProfileId(userId) === id
+      this.#store.defaultProfileId(userId) === id ||
+      (profile.ownerId === teamOwner && this.teamDefault() === id)
     ) {
       return { ok: false, reason: "default" };
     }
@@ -271,17 +315,21 @@ export class Profiles {
     return { ok: true, value: undefined };
   }
 
-  makeDefault(userId: string, id: string): Result<Profile> {
+  makeDefault(userId: string, id: string, admin: boolean): Result<Profile> {
     const profile = this.#visible(userId, id);
     if (!profile) {
       return { ok: false, reason: "not_found" };
     }
 
-    if (profile.ownerId === teamOwner) {
-      return { ok: false, reason: "team" };
+    if (profile.ownerId === teamOwner && !admin) {
+      return { ok: false, reason: "admin_only" };
     }
 
-    this.#store.setDefaultProfile(userId, id);
+    if (profile.ownerId === teamOwner) {
+      this.#teamDefault.set(id);
+    } else {
+      this.#store.setDefaultProfile(userId, id);
+    }
 
     return { ok: true, value: this.#view(userId, profile) };
   }
@@ -739,12 +787,26 @@ export class Profiles {
   #view(userId: string, profile: StoredProfile): Profile {
     return {
       ...profile,
-      isDefault: this.#store.defaultProfileId(userId) === profile.id,
+      isDefault:
+        profile.ownerId === teamOwner
+          ? this.teamDefault() === profile.id
+          : this.#store.defaultProfileId(userId) === profile.id,
     };
   }
 }
 
 const teamOwner = "team";
+
+function keptInMemory(): TeamDefault {
+  let id: string | undefined;
+
+  return {
+    get: () => id,
+    set: (next) => {
+      id = next;
+    },
+  };
+}
 
 function ownerOf(
   userId: string,

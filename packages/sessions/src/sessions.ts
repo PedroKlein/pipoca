@@ -232,6 +232,8 @@ interface SessionsOptions {
   readonly offeredModels?: ModelOffer;
   // A Profile a plugin provides, which only the plugin's own Sessions run on.
   readonly pluginProfile?: (id: string) => PluginProfile | undefined;
+  // The team's default Profile, for team work that names none.
+  readonly teamProfile?: () => string;
   // The git hosts a user connected (ADR 0043).
   readonly gitLogins?: (
     owner: Owner,
@@ -284,6 +286,7 @@ export class Sessions {
   readonly #sessionPlugins: () => SessionPlugins;
   readonly #offeredModels: ModelOffer;
   readonly #pluginProfile: (id: string) => PluginProfile | undefined;
+  readonly #teamProfile: () => string;
   readonly #gitLogins: NonNullable<SessionsOptions["gitLogins"]>;
   readonly #teamMessagesRead: () => number;
   readonly #names: (person: string) => string | undefined;
@@ -322,6 +325,7 @@ export class Sessions {
 
     this.#offeredModels = options.offeredModels ?? (() => ({ models: [] }));
     this.#pluginProfile = options.pluginProfile ?? (() => undefined);
+    this.#teamProfile = options.teamProfile ?? (() => "");
     this.#gitLogins = options.gitLogins ?? (() => []);
 
     this.#teamMessagesRead =
@@ -380,7 +384,8 @@ export class Sessions {
         ? sharedProfileId
         : this.#store.defaultProfileId(startedBy);
 
-    const profileId = request.profile ?? (team ? "" : ownDefault);
+    const profileId =
+      request.profile ?? (team ? this.#teamProfile() : ownDefault);
 
     const provided = this.#pluginProfile(profileId);
 

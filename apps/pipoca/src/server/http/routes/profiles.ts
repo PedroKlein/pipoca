@@ -168,7 +168,7 @@ export function profileRoutes({
       }
 
       if (isDefault === true) {
-        updated = ok(profiles.makeDefault(caller.id, id));
+        updated = ok(profiles.makeDefault(caller.id, id, caller.admin));
       }
 
       return found(updated);

@@ -15,7 +15,7 @@ Admins lay the hub out without code: they add pages and pick the panels on each,
 
 ## Start team work
 
-In New session, **Whose work** picks the team. Pick a team Profile; a person's My defaults, personal Profiles and personal logins never load in team work. Anyone on the team can start team Sessions, Projects and routines.
+In New session, **Whose work** picks the team. Pick a team Profile, or leave it to the team's default, which an admin picks in Team setup; a person's My defaults, personal Profiles and personal logins never load in team work. Anyone on the team can start team Sessions, Projects and routines.
 
 ## Who sees and steers it
 

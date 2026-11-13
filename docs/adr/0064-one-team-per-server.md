@@ -26,7 +26,7 @@ Some of it already exists. Single sign-on decides who becomes a user and who is 
 
 ### The team has its own Profiles and Environments
 
-- Team Sessions run on team Profiles: Profiles the team owns, that build on the base, and that admins manage (decided 2026-11-03). The starter picks one. A user's My defaults, personal Profiles and personal logins never load in team work.
+- Team Sessions run on team Profiles: Profiles the team owns, that build on the base, and that admins manage (decided 2026-11-03). The starter picks one, or gets the team's default Profile. A team always has a default Profile, as a person does: an admin picks it, it can't be deleted while it is the default, and a team with no Profile gets one named Default (amended 2026-11-13). A user's My defaults, personal Profiles and personal logins never load in team work.
 - A team Profile uses only logins on the base or on team Profiles.
 - The team has its own Environments, managed by admins (decided 2026-11-03). Their runners host only team Sessions, and personal runners only personal ones, so one person's credentials still never share a machine with anyone else's ([ADR 0049](0049-personal-environments-and-templates.md)).
 - These are different from what admins share today. A Profile on offer ([ADR 0063](0063-settings-and-first-run-setup.md#joining-a-team)) and an Environment template ([ADR 0049](0049-personal-environments-and-templates.md)) are copied into something a person owns. A team Profile and a team Environment stay the team's: users use them and can't change them.
