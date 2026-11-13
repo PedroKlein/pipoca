@@ -5930,19 +5930,16 @@ test("an admin sets up team work from Team setup: its Profiles, Environments, cr
   await page
     .getByRole("button", { name: "Make team default" })
     .click({ timeout: 4000 })
-    .catch(async (failure: unknown) => {
-      console.log(
-        "DIAG",
-        page.url(),
-        await page.locator("main").innerText(),
-        await (
-          await page.request.get(
-            new URL("/api/profiles?scope=team", server.url).href,
-          )
-        ).text(),
-      );
+    .catch(async () => {
+      const shown = await page.locator("main").innerText();
 
-      throw failure;
+      const listed = await (
+        await page.request.get(
+          new URL("/api/profiles?scope=team", server.url).href,
+        )
+      ).text();
+
+      throw new Error(`DIAG ${page.url()}\n${shown}\n${listed}`);
     });
 
   await page
