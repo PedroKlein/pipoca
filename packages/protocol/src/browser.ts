@@ -399,6 +399,41 @@ export const profile = Type.Object({
 
 export type Profile = Wire<typeof profile>;
 
+// The provider/id new Sessions on the Profile start with when they pick no
+// model: each setting from the nearest of the Profile, the ones it builds
+// on, then the layers under every Profile, nearest first (ADR 0074).
+export function profileModel(
+  picked: Profile | undefined,
+  profiles: readonly Profile[],
+  under: readonly ProfileContent[],
+): string | undefined {
+  const layers: ProfileContent[] = [];
+
+  for (
+    let at = picked;
+    at !== undefined && !layers.includes(at);
+    at = profiles.find(({ id }) => id === at.buildsOn)
+  ) {
+    layers.push(at);
+  }
+
+  const nearest = (key: string): string | undefined =>
+    [...layers, ...under]
+      .flatMap(({ settings }) => {
+        const value = settings[key];
+
+        return typeof value === "string" ? [value] : [];
+      })
+      .at(0);
+
+  const provider = nearest("defaultProvider");
+  const model = nearest("defaultModel");
+
+  return provider === undefined || model === undefined
+    ? undefined
+    : `${provider}/${model}`;
+}
+
 export const uploadedFiles = Type.Object({ files: textMap });
 
 // Pipoca's own file, and what each machine keeps for itself: logins,

@@ -33,6 +33,7 @@ export {
   type PiPackage,
   type Profile,
   type ProfileContent,
+  profileModel,
   profilePath,
   type RepositoryChoice,
   type RepositorySource,

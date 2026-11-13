@@ -1,5 +1,12 @@
 import { expect, test } from "bun:test";
-import { type Assignment, checkoutName, loggedStart } from "./index";
+import {
+  type Assignment,
+  checkoutName,
+  emptyProfile,
+  loggedStart,
+  type Profile,
+  profileModel,
+} from "./index";
 
 test("names a checkout after the last segment of its URL", () => {
   expect(checkoutName("https://github.com/org/app.git")).toBe("app");
@@ -66,4 +73,38 @@ test("logs a Session's start without its messages, settings or URL credentials",
 
   expect(JSON.stringify(logged)).not.toContain("secret");
   expect(JSON.stringify(logged)).not.toContain("private");
+});
+
+test("takes the model a Profile starts with from the nearest layer that sets each part", () => {
+  const made = (
+    id: string,
+    settings: Record<string, string>,
+    buildsOn: string | null = null,
+  ): Profile => ({
+    ...emptyProfile,
+    settings,
+    id,
+    name: id,
+    description: "",
+    ownerId: "team",
+    buildsOn,
+    source: null,
+    createdAt: "",
+    isDefault: false,
+  });
+
+  const base = made("base", {
+    defaultProvider: "aicore",
+    defaultModel: "sonnet",
+  });
+
+  const backend = made("backend", { defaultModel: "opus" }, "lead");
+  const lead = made("lead", { defaultProvider: "copilot" }, "backend");
+  const plain = made("plain", {});
+  const profiles = [backend, lead, plain];
+
+  expect(profileModel(backend, profiles, [base])).toBe("copilot/opus");
+  expect(profileModel(plain, profiles, [base])).toBe("aicore/sonnet");
+  expect(profileModel(plain, profiles, [])).toBeUndefined();
+  expect(profileModel(undefined, profiles, [base])).toBe("aicore/sonnet");
 });

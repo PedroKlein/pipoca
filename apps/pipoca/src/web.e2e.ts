@@ -4766,6 +4766,52 @@ test("opens team Projects in the team's area, wherever the link came from", asyn
   await page.unroute("**/api/ext/projects/projects");
 });
 
+test("names the team default model on New team Project's Model button", async () => {
+  const environments = (await (
+    await page.request.get(new URL("/api/environments", server.url).href)
+  ).json()) as Environment[];
+
+  const environment = environments.find(({ models }) => models.length > 0);
+  const model = environment?.models[0];
+
+  expect(model).toBeDefined();
+
+  await page.route("**/api/environments?scope=team", async (route) =>
+    route.fulfill({ json: [environment] }),
+  );
+
+  await page.route("**/api/settings/base-profile", async (route) => {
+    const real = (await (await route.fetch()).json()) as {
+      settings: Record<string, unknown>;
+    };
+
+    await route.fulfill({
+      json: {
+        ...real,
+        settings: {
+          ...real.settings,
+          defaultProvider: model?.provider,
+          defaultModel: model?.id,
+        },
+      },
+    });
+  });
+
+  await page.goto(`${server.url.href}#team/plugin/projects/projects/all`);
+  await page.getByRole("button", { name: "New team Project" }).click();
+  const dialog = page.getByRole("dialog", { name: "New team Project" });
+
+  await dialog
+    .getByRole("button", { name: "Model" })
+    .filter({ hasText: model?.name ?? model?.id ?? "" })
+    .waitFor();
+
+  await dialog.getByText("Team default, with the team's keys.").waitFor();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await page.unroute("**/api/settings/base-profile");
+  await page.unroute("**/api/environments?scope=team");
+});
+
 test("shows a plugin page's failure without taking the app down", async () => {
   await page.route("**/api/ext/projects/projects", async (route) =>
     route.fulfill({
