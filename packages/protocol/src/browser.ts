@@ -254,11 +254,29 @@ const manifestEntry = Type.Object({
 
 export type ManifestEntry = Wire<typeof manifestEntry>;
 
-// What a repository's pipoca.json lists, by kind.
+// What a listed Profile's folder holds, to tell them apart before picking.
+const listedProfile = Type.Object({
+  ...manifestEntry.properties,
+  holds: Type.Optional(
+    Type.Object({
+      skills: Type.Number(),
+      packages: Type.Number(),
+      agentsMd: Type.Boolean(),
+    }),
+  ),
+});
+
+export type ListedProfile = Wire<typeof listedProfile>;
+
+// What a repository's pipoca.json lists, by kind, at the commit read.
 export const repositoryManifest = Type.Object({
-  profiles: Type.Array(manifestEntry),
+  found: Type.Boolean({ description: "Whether it has a pipoca.json" }),
+  commit: Type.String(),
+  profiles: Type.Array(listedProfile),
   templates: Type.Array(manifestEntry),
 });
+
+export type RepositoryManifest = Wire<typeof repositoryManifest>;
 
 // Where a Profile or template comes from: a folder a repository's
 // pipoca.json lists, or for a Profile the repository's root.

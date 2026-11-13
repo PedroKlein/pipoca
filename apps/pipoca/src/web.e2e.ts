@@ -2724,6 +2724,106 @@ test("someone who joins brings their Pi setup into My defaults, adding to it and
   ).toEqual(sharedBefore);
 }, 30_000);
 
+test("starts a person's default Profile from a Profile a repository's pipoca.json lists, or says what to add", async () => {
+  const url = "https://git.example.com/me/dotfiles.git";
+  let made: unknown;
+
+  await page.route("**/api/repositories/manifest?*", async (route) =>
+    route.fulfill({
+      json: new URL(route.request().url()).searchParams
+        .get("url")
+        ?.endsWith("bare.git")
+        ? { found: false, commit: "0".repeat(40), profiles: [], templates: [] }
+        : {
+            found: true,
+            commit: "3f9c2e1".padEnd(40, "0"),
+            profiles: [
+              {
+                name: "My Pi",
+                path: ".pi/agent",
+                holds: { skills: 6, packages: 2, agentsMd: true },
+              },
+              {
+                name: "Minimal",
+                path: ".pi/minimal",
+                holds: { skills: 0, packages: 0, agentsMd: true },
+              },
+            ],
+            templates: [],
+          },
+    }),
+  );
+
+  await page.route("**/api/profiles", async (route) => {
+    if (route.request().method() !== "POST") {
+      return route.fallback();
+    }
+
+    made = route.request().postDataJSON();
+
+    return route.fulfill({
+      json: { id: "minimal", name: "Minimal", isDefault: false },
+    });
+  });
+
+  await page.route("**/api/profiles/minimal", async (route) =>
+    route.fulfill({
+      json: { id: "minimal", name: "Minimal", isDefault: true },
+    }),
+  );
+
+  try {
+    await page.goto(`${server.url.href}#get-started/profile`);
+    await page.getByRole("heading", { name: "Make Pi yours" }).waitFor();
+    await page
+      .getByRole("radio", { name: /^Start from a git repository/ })
+      .check();
+
+    await page
+      .getByLabel("Repository address")
+      .fill(url.replace("dotfiles", "bare"));
+    await page.getByRole("button", { name: "Look" }).click();
+
+    const nothing = page.getByRole("group", { name: "Nothing listed" });
+
+    await nothing
+      .getByText("No pipoca.json at the root of this repository")
+      .waitFor();
+
+    await nothing
+      .getByRole("link", { name: "How pipoca.json works" })
+      .waitFor();
+
+    await page.getByLabel("Repository address").fill(url);
+    await page.getByRole("button", { name: "Look" }).click();
+
+    const listed = page.getByRole("group", {
+      name: "Profiles in the repository",
+    });
+
+    await listed.getByText("pipoca.json lists 2 Profiles").waitFor();
+    await listed.getByText("dotfiles @ 3f9c2e1").waitFor();
+    await listed
+      .getByText(".pi/agent · 6 skills, 2 packages, AGENTS.md")
+      .waitFor();
+    expect(await nothing.count()).toBe(0);
+
+    await listed.getByRole("radio", { name: /^Minimal/ }).check();
+    await listed
+      .getByRole("button", { name: "Make “Minimal” my default Profile" })
+      .click();
+
+    await page
+      .getByRole("status")
+      .getByText("Made Minimal your default Profile.")
+      .waitFor();
+
+    expect(made).toEqual({ source: { url, path: ".pi/minimal" } });
+  } finally {
+    await page.unrouteAll({ behavior: "wait" });
+  }
+});
+
 test("shows why an Environment's last runner pod failed", async () => {
   await page.route("**/api/ext/kubernetes/environments/*", async (route) =>
     route.fulfill({
