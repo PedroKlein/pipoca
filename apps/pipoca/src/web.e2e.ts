@@ -4758,6 +4758,13 @@ test("opens team Projects in the team's area, wherever the link came from", asyn
 
   await page.waitForURL("**/#team/plugin/projects/projects/teamwork");
 
+  // The Project fills the team area instead of sitting in a page column,
+  // so its chat scrolls on its own and its header stays put.
+  await page
+    .getByRole("main")
+    .locator("#plugin-page[data-plugin=projects]")
+    .waitFor();
+
   await page.goto(`${server.url.href}#plugin/projects/teamwork/settings`);
   await page.waitForURL("**/#team/plugin/projects/projects/teamwork/settings");
 
@@ -5614,6 +5621,20 @@ test("draws an extension's widget and footer as Pi's TUI does, at the composer's
     ),
   ).toBeLessThan(2);
 
+  // A turn that grows after it is drawn, as a diagram or an image does when
+  // it loads, keeps the chat at its end.
+  await page.evaluate(
+    "(() => { const grown = document.createElement('div'); grown.style.height = '1500px'; document.querySelector('#chat > li:last-child').append(grown); })()",
+  );
+
+  await Bun.sleep(300);
+
+  expect(
+    await page.evaluate(
+      "(() => { const box = document.querySelector('#chat').parentElement; return box.scrollHeight - box.scrollTop - box.clientHeight; })()",
+    ),
+  ).toBeLessThan(2);
+
   await page.setViewportSize({ width: 1280, height: 720 });
 }, 30_000);
 
@@ -6183,6 +6204,11 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
 
   await page.getByRole("heading", { name: "Team assistant" }).waitFor();
   await page.getByLabel("Ask the Pipoca assistant").waitFor();
+
+  await page
+    .getByRole("main")
+    .locator("#plugin-page[data-plugin=projects]")
+    .waitFor();
 
   await page
     .getByRole("navigation", { name: "Team" })

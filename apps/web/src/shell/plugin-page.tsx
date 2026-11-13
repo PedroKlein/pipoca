@@ -1,6 +1,6 @@
 import type { WebPage } from "@pipoca/plugins/web";
 import { Button, Icon, Page } from "@pipoca/ui";
-import { createElement, type ReactElement } from "react";
+import { createElement, type ReactElement, type ReactNode } from "react";
 import { ShellMenu } from "../session/embedded-session";
 import { PluginBoundary } from "../plugin-boundary";
 import { ownPages, pageFills } from "../plugins";
@@ -43,15 +43,35 @@ export function PluginPage({
       <p className="text-fg-dim">This page isn&apos;t available.</p>
     );
 
-  if (pageFills(name, path)) {
+  return (
+    <PluginFrame plugin={name} fills={pageFills(name, path)} onMenu={onMenu}>
+      {body}
+    </PluginFrame>
+  );
+}
+
+// Where a plugin's page sits in either workspace: filling the main column
+// and scrolling itself, such as a Project, or in a scrolling page column.
+export function PluginFrame({
+  plugin,
+  fills,
+  onMenu,
+  children,
+}: {
+  readonly plugin: string;
+  readonly fills: boolean;
+  readonly onMenu: () => void;
+  readonly children: ReactNode;
+}): ReactElement {
+  if (fills) {
     return (
       <ShellMenu value={onMenu}>
         <div
           id="plugin-page"
-          data-plugin={name}
+          data-plugin={plugin}
           className="flex min-h-0 min-w-0 flex-1"
         >
-          {body}
+          {children}
         </div>
       </ShellMenu>
     );
@@ -62,7 +82,7 @@ export function PluginPage({
       <div className="p-2 md:hidden">
         <MenuButton onMenu={onMenu} />
       </div>
-      <Page id="plugin-page">{body}</Page>
+      <Page id="plugin-page">{children}</Page>
     </div>
   );
 }

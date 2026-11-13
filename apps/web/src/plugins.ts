@@ -367,7 +367,7 @@ export function pageFills(name: string, path: string): boolean {
 
 // A plugin's function the shell calls while it draws, outside any plugin's
 // error boundary, so a throw counts as no answer instead of breaking the app.
-function guarded<T>(call: () => T): T | undefined {
+export function guarded<T>(call: () => T): T | undefined {
   try {
     return call();
   } catch {

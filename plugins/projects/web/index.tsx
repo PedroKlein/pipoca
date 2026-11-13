@@ -110,6 +110,7 @@ export const web = defineWeb(projects, {
       icon: "star",
       Page: TeamAssistant,
       area: "hub",
+      nav: { fills: () => true },
     },
     {
       path: teamProjects,
@@ -117,7 +118,11 @@ export const web = defineWeb(projects, {
       icon: "folder",
       Page: TeamProjectsPage,
       area: "hub",
-      nav: { Live: TeamLive, Count: TeamCount },
+      nav: {
+        Live: TeamLive,
+        Count: TeamCount,
+        fills: (path) => path !== "" && path !== projectList,
+      },
     },
   ],
   sessionPath: (session) => `${session.plugin?.key ?? ""}/${session.id}`,

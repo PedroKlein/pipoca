@@ -1,10 +1,10 @@
 import type { HubPage } from "@pipoca/protocol";
-import { Page } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useState } from "react";
 import { request } from "../data/client";
 import { useAction, useMe, useQuery } from "../data/hooks";
 import { NewSessionDialog } from "../shell/new-session";
 import { PluginBoundary } from "../plugin-boundary";
+import { guarded } from "../plugins";
 import { SessionView } from "../session/session-view";
 import { href, navigate, type Route, routeHref } from "../router";
 import { screens, pagesOf, hrefOf, newPageId } from "./hub-pages";
@@ -13,7 +13,7 @@ import { LayoutPage, TeamSessions } from "./layout-page";
 import { TeamSetup } from "./setup";
 import { TeamSidebar, type TeamEntry } from "./sidebar";
 import { Drawer } from "../shell/drawer";
-import { MenuButton } from "../shell/plugin-page";
+import { MenuButton, PluginFrame } from "../shell/plugin-page";
 
 // The team's own workspace, apart from a person's work, with a sidebar of
 // the same shape as theirs. Its pages are layouts of the panels plugins give
@@ -101,6 +101,11 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
 
   const openPath = route.name === "teamPlugin" ? route.params.rest : undefined;
 
+  // A Session and a plugin's page frame themselves, the way they do in a
+  // person's own workspace.
+  const framed =
+    opened !== undefined || (screen !== undefined && openPath !== undefined);
+
   const items = screens().flatMap(({ plugin, key, Items }) =>
     Items === undefined
       ? []
@@ -138,12 +143,18 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
     }
 
     if (screen !== undefined && route.name === "teamPlugin") {
+      const path = route.params.rest;
+
       return (
-        <Page>
+        <PluginFrame
+          plugin={screen.plugin}
+          fills={guarded(() => screen.fills?.(path)) === true}
+          onMenu={openDrawer}
+        >
           <PluginBoundary name={screen.plugin}>
-            <screen.Page path={route.params.rest} />
+            <screen.Page path={path} />
           </PluginBoundary>
-        </Page>
+        </PluginFrame>
       );
     }
 
@@ -216,7 +227,7 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
       </Drawer>
 
       <main inert={drawer} className="flex min-w-0 flex-1 flex-col">
-        {opened === undefined ? (
+        {!framed ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
             <div className="p-2 md:hidden">
               <MenuButton onMenu={openDrawer} />
