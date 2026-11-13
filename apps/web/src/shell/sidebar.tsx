@@ -1,10 +1,10 @@
 import type { Session } from "@pipoca/protocol";
-import { Avatar, Button, Checkbox, Icon, Mark, TextInput } from "@pipoca/ui";
+import { Button, Checkbox, Icon, Mark, TextInput } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { useMe, useQuery } from "../data/hooks";
 import { matches } from "../notices";
 import type { NavEntry } from "../plugins";
-import { href, type Route } from "../router";
+import type { Route } from "../router";
 import {
   ownedByEnabled,
   SidebarSession,
@@ -13,6 +13,7 @@ import {
 } from "./sidebar-parts";
 import { AccountMenu } from "./account-menu";
 import { PluginNav } from "./plugin-nav";
+import { WorkspaceSwitcher } from "./workspace-switcher";
 
 interface SidebarProps {
   readonly nav: readonly NavEntry[];
@@ -36,11 +37,6 @@ export function Sidebar({
   const me = useMe();
   const environments = useQuery("environments.list").data ?? [];
 
-  const teamName = useQuery("settings.team", undefined, {
-    enabled: me.team,
-  }).data?.name;
-
-  const team = me.team ? (teamName ?? "Team") : undefined;
   const opened = route.name === "session" ? route.params.id : undefined;
 
   const environmentName = (session: Session): string =>
@@ -58,10 +54,14 @@ export function Sidebar({
   return (
     <nav aria-label="Pipoca" className="flex h-full flex-col bg-panel">
       <div className="flex items-center justify-between gap-2 py-3 pr-3 pl-4">
-        <span className="flex items-center gap-2 font-serif text-wordmark font-light text-fg-strong">
-          <Mark className="size-7" />
-          pipoca
-        </span>
+        {me.team ? (
+          <WorkspaceSwitcher inTeam={false} />
+        ) : (
+          <span className="flex items-center gap-2 font-serif text-wordmark font-light text-fg-strong">
+            <Mark className="size-7" />
+            pipoca
+          </span>
+        )}
         <span className="flex items-center gap-1">
           <Button
             variant="ghost"
@@ -86,22 +86,6 @@ export function Sidebar({
         </span>
       </div>
 
-      {team !== undefined && (
-        <a
-          href={href("team")}
-          className="mx-2 flex items-center gap-2.5 rounded-md px-2 py-1.5 text-ui text-fg hover:bg-hover"
-        >
-          <Avatar
-            name={team}
-            size="xs"
-            square
-            className="bg-elevated text-fg-dim"
-          >
-            <Icon name="users" className="size-3.5" />
-          </Avatar>
-          <span className="truncate">{team}</span>
-        </a>
-      )}
       <PluginNav nav={nav} route={route} />
 
       <div className="mt-2 flex items-center justify-between border-t border-line px-4 pt-4 pb-2">

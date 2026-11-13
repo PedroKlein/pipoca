@@ -1,4 +1,4 @@
-import type { PageProps } from "@pipoca/plugins/web";
+import type { NavItemsProps, PageProps } from "@pipoca/plugins/web";
 import type { HubPage } from "@pipoca/protocol";
 import type { IconName } from "@pipoca/ui";
 import type { ComponentType } from "react";
@@ -24,7 +24,9 @@ interface Screen {
   readonly plugin: string;
   readonly key: string;
   readonly label: string;
+  readonly icon: IconName;
   readonly Page: ComponentType<PageProps>;
+  readonly Items: ComponentType<NavItemsProps> | undefined;
 }
 
 export function panels(): readonly Placed[] {
@@ -39,7 +41,7 @@ export function panels(): readonly Placed[] {
 
 export function screens(): readonly Screen[] {
   return enabledPlugins().flatMap(({ plugin: { id }, pages }) =>
-    (pages ?? []).flatMap(({ area, path, label, Page }) =>
+    (pages ?? []).flatMap(({ area, path, label, icon, Page, nav }) =>
       area === "hub"
         ? [
             {
@@ -47,7 +49,9 @@ export function screens(): readonly Screen[] {
               plugin: id,
               key: path,
               label,
+              icon: icon ?? "panel-right",
               Page,
+              Items: nav?.Items,
             },
           ]
         : [],

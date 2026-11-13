@@ -1,7 +1,7 @@
 import { ThemeSwitch } from "../theme";
 import { availability, type Environment, type Session } from "@pipoca/protocol";
 import { Button, Icon, SessionRow, StatusDot } from "@pipoca/ui";
-import { type ReactElement, useState } from "react";
+import { type ReactElement, type ReactNode, useState } from "react";
 import { useNow } from "@pipoca/plugins/web";
 import {
   ago,
@@ -22,16 +22,22 @@ export function ownedByEnabled({ plugin }: Session): boolean {
 export function SidebarSession({
   session,
   environment,
+  who,
+  link,
   current,
 }: {
   readonly session: Session;
   readonly environment: Environment | undefined;
+  // Who started it, in team work.
+  readonly who?: string | undefined;
+  readonly link?: string;
   readonly current: boolean;
 }): ReactElement {
   const badge = sessionBadge(session);
   const now = useNow();
 
   const meta = [
+    ...(who === undefined ? [] : [who]),
     ...(session.plugin === null ? [] : [ownerLabel(session.plugin.id)]),
     ...(session.title === null ? [] : [shortName(session.workspace)]),
     environment?.name ?? session.provider,
@@ -42,7 +48,7 @@ export function SidebarSession({
   return (
     <SessionRow
       id={session.id}
-      href={sessionHref(session)}
+      href={link ?? sessionHref(session)}
       title={session.title ?? shortName(session.workspace)}
       titleHint={workspaceName(session.workspace)}
       meta={meta}
@@ -61,11 +67,15 @@ function ownerLabel(plugin: string): string {
 
 export function EnvironmentStatus({
   environments,
+  before,
 }: {
   readonly environments: readonly Environment[];
+  // At the start of the row, such as who is here.
+  readonly before?: ReactNode;
 }): ReactElement {
   return (
     <div className="flex items-start gap-2 border-t border-line py-2.5 pr-2 pl-4">
+      {before}
       <ul className="flex flex-1 flex-wrap gap-x-4 gap-y-1 pt-1 text-caption text-fg-dim">
         {environments.map((environment) => (
           <li key={environment.id} className="flex items-center gap-1.5">

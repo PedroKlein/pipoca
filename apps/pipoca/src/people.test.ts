@@ -374,7 +374,7 @@ test("an owner or an admin deletes an Environment once its Sessions are archived
   expect(work.status).toBe(401);
 });
 
-test("only an admin lists everyone in full; others see names", async () => {
+test("only an admin lists everyone in full; others see names and who is here", async () => {
   const anas = await ana();
 
   const everyone = await json<{ id: string; name: string; admin: boolean }[]>(
@@ -387,8 +387,23 @@ test("only an admin lists everyone in full; others see names", async () => {
   ]);
 
   expect(await json(server.as(anas)("/api/people"))).toEqual(
-    everyone.map(({ id, name }) => ({ id, name })),
+    everyone.map(({ id, name }) => ({ id, name, here: true })),
   );
+});
+
+test("shows someone as here while they use the web app", async () => {
+  const anas = await ana();
+
+  const hereOf = async (): Promise<boolean | undefined> =>
+    (
+      await json<{ name: string; here?: boolean }[]>(server.api("/api/people"))
+    ).find(({ name }) => name === "ana")?.here;
+
+  const before = await hereOf();
+
+  await server.as(anas)("/api/environments");
+
+  expect([before, await hereOf()]).toEqual([false, true]);
 });
 
 test("an admin changes roles, but never leaves the server without an admin", async () => {

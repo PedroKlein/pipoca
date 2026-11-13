@@ -105,12 +105,16 @@ export const maxNameLength = 64;
 // written again.
 const lastActiveStepMs = 60_000;
 
+// Someone who used the web app this recently is here now.
+const hereMs = 5 * 60_000;
+
 // The people of a server: their roles, invites, access tokens and what each
 // keeps for themselves.
 export class People {
   readonly #store: PeopleStore;
   readonly #clock: Clock;
   readonly #lastActive = new Map<string, number>();
+  readonly #seen = new Map<string, number>();
   // The one user of a solo install (ADR 0053).
   readonly #soloUser: User | undefined;
 
@@ -169,12 +173,23 @@ export class People {
 
   active(userId: string): void {
     const now = this.#clock.now();
+
+    this.#seen.set(userId, now);
     if (now - (this.#lastActive.get(userId) ?? 0) < lastActiveStepMs) {
       return;
     }
 
     this.#lastActive.set(userId, now);
     this.#store.setLastActive(userId, new Date(now).toISOString());
+  }
+
+  // Who used the web app in the last few minutes.
+  here(): ReadonlySet<string> {
+    const now = this.#clock.now();
+
+    return new Set(
+      [...this.#seen].flatMap(([id, at]) => (now - at < hereMs ? [id] : [])),
+    );
   }
 
   // A user without a password, or undefined when the name is taken.

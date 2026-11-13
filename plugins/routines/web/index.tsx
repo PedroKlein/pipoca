@@ -63,7 +63,8 @@ export const web = defineWeb(routines, {
     },
     {
       path: "team-routines",
-      label: "Team routines",
+      label: "Routines",
+      icon: "clock",
       Page: TeamRoutinesScreen,
       area: "hub",
     },

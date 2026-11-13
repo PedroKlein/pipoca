@@ -15,6 +15,10 @@ export interface MenuItem {
   // A line under the label on what the item does.
   readonly description?: string;
   readonly icon?: IconName;
+  // Drawn before the label in place of an icon, such as an avatar.
+  readonly mark?: ReactNode;
+  // The keys that do the same, such as ⌘1.
+  readonly shortcut?: string;
   readonly danger?: boolean;
   // Makes the item one of a set, checked or not.
   readonly checked?: boolean;
@@ -131,15 +135,21 @@ export function Menu({
                   />
                 )}
                 {item.icon !== undefined && <Icon name={item.icon} />}
+                {item.mark}
                 {item.description === undefined ? (
                   item.label
                 ) : (
-                  <span className="flex flex-col py-0.5">
+                  <span className="flex flex-1 flex-col py-0.5">
                     {item.label}
                     <span className="text-caption text-fg-dim">
                       {item.description}
                     </span>
                   </span>
+                )}
+                {item.shortcut !== undefined && (
+                  <kbd className="ml-auto pl-3 font-mono text-mono-sm text-fg-dim">
+                    {item.shortcut}
+                  </kbd>
                 )}
               </button>
             </Fragment>

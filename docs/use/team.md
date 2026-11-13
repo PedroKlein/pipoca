@@ -9,9 +9,9 @@ On a [team server](../run/team.md), each person has their own work, which nobody
 
 ## The team hub
 
-Team work has its own area, the team hub, apart from your own Sessions, Projects and Settings. **My work** goes back to yours. Its home shows what needs someone, what is running now, and panels that plugins add, such as recent activity, spend this month, the team's pull requests and its routines.
+Team work has its own workspace, the team hub, apart from your own Sessions, Projects and Settings. The switcher at the top of the sidebar moves between your workspace and the team's, and so do ⌘1 and ⌘2 (Ctrl 1 and Ctrl 2 off a Mac). The team's sidebar has the same shape as yours: search and a new team Session at the top, then Home and the pages plugins add, such as the Team assistant, Projects and routines, then the team's active Projects and its Sessions with who started each. **Mine only** narrows the Sessions to yours. At the bottom it shows who is here now and whether the team's Environments are online.
 
-Admins lay the hub out without code: they add pages and pick the panels on each, and the layouts live in `pipoca.json` under `hub` ([ADR 0067](../adr/0067-team-plugins-projects-and-assistant.md#teams-shape-their-hub)). A plugin can also add whole pages to the hub. **Team setup** has the team's Profiles, Environments, the plugins on in team work, and the server's pages.
+Home shows what needs someone, what is running now, and panels that plugins add, such as recent activity, spend this month, the team's pull requests and its routines. Admins lay the hub out without code: they add pages and pick the panels on each, and the layouts live in `pipoca.json` under `hub` ([ADR 0067](../adr/0067-team-plugins-projects-and-assistant.md#teams-shape-their-hub)). Those pages sit under **More** in the sidebar, with **Team setup**, which has the team's Profiles, Environments, the plugins on in team work, and the server's pages.
 
 ## Start team work
 
