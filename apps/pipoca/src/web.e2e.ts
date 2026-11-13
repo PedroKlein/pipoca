@@ -27,7 +27,12 @@ import {
   type Route,
 } from "playwright-core";
 import { definePlugin } from "@pipoca/plugins";
-import type { Environment, Profile, Session } from "@pipoca/protocol";
+import type {
+  Environment,
+  PluginInfo,
+  Profile,
+  Session,
+} from "@pipoca/protocol";
 import { until } from "@pipoca/testing/until";
 import { protocolVersion, versionHeader } from "@pipoca/protocol";
 import { installedPlugins } from "./installed";
@@ -6679,6 +6684,27 @@ test("an admin keeps a plugin out of team work from Team setup", async () => {
   await page
     .getByRole("switch", { name: "Ask in team work", checked: true })
     .waitFor();
+});
+
+test("a plugin whose switches a deploy file sets can't switch in team work either", async () => {
+  await page.route("**/api/plugins", async (route) => {
+    const real = (await (await route.fetch()).json()) as PluginInfo[];
+
+    await route.fulfill({
+      json: real.map((each) => ({
+        ...each,
+        switchLocked: "pipoca.json sets which plugins are on",
+      })),
+    });
+  });
+
+  await page.goto(new URL("/#team/setup/plugins", server.url).href);
+
+  await page
+    .getByRole("switch", { name: "Ask in team work", disabled: true })
+    .waitFor();
+
+  await page.unroute("**/api/plugins");
 });
 
 test("an admin names the team, and the hub and sidebar show it", async () => {
