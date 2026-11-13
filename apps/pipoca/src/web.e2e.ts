@@ -3867,7 +3867,11 @@ test("answers the agent's questions in the prompt card", async () => {
 
   const card = page.locator('[data-role="prompt"]');
   await card.getByRole("heading", { level: 2, name: "Which size?" }).waitFor();
-  await page.locator("#sessions").getByText("Needs you").waitFor();
+
+  await page
+    .locator("#sessions")
+    .getByText(/ · needs you · /)
+    .waitFor();
 
   await page
     .locator('#chat li[data-role="assistant"]', {
@@ -3900,7 +3904,7 @@ test("answers the agent's questions in the prompt card", async () => {
 
   await page
     .locator("#sessions")
-    .getByText("Needs you")
+    .getByText(/ · needs you · /)
     .waitFor({ state: "detached" });
 
   await page
@@ -6055,7 +6059,7 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
     .getByRole("link", { name: "Sessions" })
     .click();
 
-  await page.getByRole("link", { name: "release-notes" }).click();
+  await page.getByRole("link", { name: "release-notes", exact: true }).click();
 
   await page.waitForURL("**/#team/sessions/*");
 
