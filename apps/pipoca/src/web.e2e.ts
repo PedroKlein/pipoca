@@ -1005,6 +1005,102 @@ test("shows a routine the assistant wants to create as a card, which Create allo
   expect(await card.count()).toBe(0);
 }, 30_000);
 
+test("shows a Project the assistant makes as a card that stays in the chat, with what it starts on", async () => {
+  const repository = join(root, "readmes");
+  execFileSync("git", ["init", "--quiet", "--initial-branch=main", repository]);
+  await writeFile(join(repository, "README.md"), "readmes\n");
+  execFileSync("git", ["add", "."], { cwd: repository });
+
+  execFileSync(
+    "git",
+    ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"],
+    { cwd: repository },
+  );
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("projects_create", {
+          name: "Readme check",
+          repositories: [repository],
+          firstMessage: "Check every README against the code",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("on it")]),
+    fauxAssistantMessage([fauxText("on it")]),
+  ]);
+
+  await page.goto(server.url.href);
+  const composer = page.getByLabel("Ask the Pipoca assistant");
+  await composer.fill("Make a Project that checks the READMEs");
+  await composer.press("Enter");
+
+  const projectsNamed = async (): Promise<
+    { id: string; name: string; coordinatorId: string }[]
+  > =>
+    (await (
+      await fetch(new URL("/api/ext/projects/projects", server.url), {
+        headers: { cookie },
+      })
+    ).json()) as { id: string; name: string; coordinatorId: string }[];
+
+  let project = (await projectsNamed()).find(
+    ({ name }) => name === "Readme check",
+  );
+
+  for (let tries = 0; project === undefined && tries < 50; tries++) {
+    await page.waitForTimeout(100);
+    project = (await projectsNamed()).find(
+      ({ name }) => name === "Readme check",
+    );
+  }
+
+  // A wide screen goes to what the assistant made; its chat keeps the card.
+  await page
+    .waitForURL((url) => url.hash.includes(project?.id ?? "-"), {
+      timeout: 2000,
+    })
+    .catch(() => undefined);
+
+  const assistant = (await (
+    await fetch(new URL("/api/ext/projects/assistant", server.url), {
+      headers: { cookie },
+    })
+  ).json()) as { id: string };
+
+  await page.goto(
+    new URL(`/#plugin/projects/${assistant.id}`, server.url).href,
+  );
+  await page.reload();
+
+  const card = page.locator('#chat [aria-label="Project Readme check"]');
+
+  await card.getByText(/^1 repository/).waitFor();
+  await card.getByRole("link", { name: "Open", exact: true }).waitFor();
+  await card.getByText(/^Coordinator /).waitFor();
+
+  await page
+    .locator('#chat li[data-role="assistant"]', { hasText: "on it" })
+    .waitFor();
+
+  await card.waitFor();
+
+  expect(await page.locator("#chat").getByText("projects_create").count()).toBe(
+    0,
+  );
+
+  const coordinator = (await (
+    await fetch(
+      new URL(`/api/sessions/${project?.coordinatorId ?? ""}`, server.url),
+      { headers: { cookie } },
+    )
+  ).json()) as { firstMessage?: string };
+
+  expect(coordinator.firstMessage).toBe("Check every README against the code");
+}, 30_000);
+
 test("infers the workspace from what the New session composer picks and remembers it", async () => {
   const asked: unknown[] = [];
 
