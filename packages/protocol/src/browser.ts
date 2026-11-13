@@ -234,12 +234,12 @@ export const createdEnvironment = Type.Object({
 // one when a Session needs it, or none can take a Session now (ADR 0040).
 export function availability(
   of: Pick<Environment, "online" | "onDemand">,
-): "Online" | "Starts runners on demand" | "Offline" {
+): "Online" | "On demand" | "Offline" {
   if (of.online) {
     return "Online";
   }
 
-  return of.onDemand ? "Starts runners on demand" : "Offline";
+  return of.onDemand ? "On demand" : "Offline";
 }
 
 // A folder or file a repository's pipoca.json lists, at the commit last

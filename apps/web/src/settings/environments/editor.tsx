@@ -1,8 +1,7 @@
-import {
-  availability,
-  type Environment,
-  type EnvironmentTemplate,
-  type EnvironmentUpdate,
+import type {
+  Environment,
+  EnvironmentTemplate,
+  EnvironmentUpdate,
 } from "@pipoca/protocol";
 import {
   Badge,
@@ -26,6 +25,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { AvailabilityBadge } from "../../shell/availability";
 import { request } from "../../data/client";
 import { useAction } from "../../data/hooks";
 import { navigate, scopedHref } from "../../router";
@@ -122,7 +122,6 @@ export function Editor({
   };
 
   const area = "min-h-24 resize-y font-mono text-mono-sm";
-  const status = availability(environment);
   const machines = environment.runnersFrom === null ? "Machines" : "Runners";
 
   return (
@@ -131,9 +130,7 @@ export function Editor({
         <h1 className="text-display font-medium text-fg-strong">
           {environment.name}
         </h1>
-        <Badge state={status === "Offline" ? "offline" : "done"}>
-          {status === "Starts runners on demand" ? "Starts on demand" : status}
-        </Badge>
+        <AvailabilityBadge environment={environment} />
       </div>
       <p className="mt-1 max-w-prose text-ui text-fg-dim">
         {kindAbout(environment)} Changes reach a Session the next time it

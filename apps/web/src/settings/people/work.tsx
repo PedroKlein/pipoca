@@ -1,11 +1,7 @@
-import {
-  availability,
-  type Environment,
-  type Person,
-  type Session,
-} from "@pipoca/protocol";
+import type { Environment, Person, Session } from "@pipoca/protocol";
 import { Badge, Button, initialsOf, plural, Row, Rows } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
+import { AvailabilityBadge } from "../../shell/availability";
 import { ago } from "../../names";
 import { kindName } from "../environments/kinds";
 
@@ -97,17 +93,7 @@ export function Work({
               title={
                 <>
                   {environment.name}
-                  <Badge
-                    state={
-                      availability(environment) === "Offline"
-                        ? "offline"
-                        : "done"
-                    }
-                  >
-                    {availability(environment) === "Starts runners on demand"
-                      ? "On demand"
-                      : availability(environment)}
-                  </Badge>
+                  <AvailabilityBadge environment={environment} />
                 </>
               }
               description={kindName(environment)}
