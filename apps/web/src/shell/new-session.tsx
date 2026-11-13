@@ -3,8 +3,8 @@ import {
   type ApiInput,
   type Environment,
   profileModel,
+  privateHostOf,
   recentPlaces,
-  repositoryHost,
   thinkingLevels,
 } from "@pipoca/protocol";
 import {
@@ -262,12 +262,8 @@ export function NewSessionForm({
   // reach it (ADR 0080).
   const privateHost = choices.where
     .filter(isRepository)
-    .map(repositoryHost)
-    .find(
-      (host) =>
-        host !== undefined &&
-        privateHosts.some((each) => each.host.split(":")[0] === host),
-    );
+    .map((repository) => privateHostOf(repository, privateHosts))
+    .find((host) => host !== undefined);
 
   const reaches = (environment: Environment): boolean =>
     privateHost === undefined ||
