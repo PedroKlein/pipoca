@@ -7191,6 +7191,24 @@ test("keeps team work inside the team's area, with the server's pages shared fro
     .waitFor();
 }, 30_000);
 
+test("asks before replacing the team machines' key in server setup, as Settings does", async () => {
+  await page.goto(new URL("/#get-started/server:where", server.url).href);
+
+  const card = page.getByRole("listitem").filter({
+    hasText: "Shared team machines",
+  });
+
+  await card.getByRole("button", { name: "Replace key" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Replace the key?" });
+
+  await dialog.waitFor();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await dialog.waitFor({ state: "hidden" });
+
+  expect(await card.getByLabel("Join command").count()).toBe(0);
+});
+
 // Answers the confirm dialog that the last click opened.
 async function confirmIn(name: string): Promise<void> {
   await page

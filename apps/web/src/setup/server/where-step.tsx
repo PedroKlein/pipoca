@@ -3,7 +3,6 @@ import {
   Badge,
   Button,
   ChoiceCard,
-  Command,
   ErrorText,
   Field,
   TextInput,
@@ -12,6 +11,7 @@ import { type ReactElement, useState } from "react";
 import { request } from "../../data/client";
 import { useAction, useQuery } from "../../data/hooks";
 import { pluginTitle } from "../../plugins";
+import { JoinCommand, JoinKey } from "../../settings/environments/join-key";
 import { useNewcomers } from "../../settings/people/newcomers";
 
 const teamScope = { query: { scope: "team" } } as const;
@@ -131,6 +131,7 @@ function TemplateFields({
 }
 
 // A VM or build box the whole team uses, as a team Environment (ADR 0064).
+// Once it exists, its key is replaced only after asking, as in Settings.
 function TeamMachines(): ReactElement {
   const team = useQuery("environments.list", teamScope).data ?? [];
   const [key, setKey] = useState<string>();
@@ -138,14 +139,9 @@ function TeamMachines(): ReactElement {
   const [first] = team;
 
   const make = useAction(async () => {
-    const made =
-      first === undefined
-        ? await request("environments.create", {
-            body: { name: "team-machines", team: true },
-          })
-        : await request("environments.keys.create", {
-            params: { id: first.id },
-          });
+    const made = await request("environments.create", {
+      body: { name: "team-machines", team: true },
+    });
 
     setKey(made.key);
   });
@@ -160,7 +156,15 @@ function TeamMachines(): ReactElement {
       disabled={first !== undefined}
       onChange={setWanted}
     >
-      {key === undefined ? (
+      {first !== undefined && (
+        <JoinKey environment={first} madeKey={key} onKey={setKey} />
+      )}
+      {first === undefined && key !== undefined && (
+        <JoinCommand joinKey={key}>
+          Run it on the machine. The key is shown only now.
+        </JoinCommand>
+      )}
+      {first === undefined && key === undefined && (
         <div className="flex flex-wrap items-center gap-2">
           <Button
             onClick={() => {
@@ -170,15 +174,6 @@ function TeamMachines(): ReactElement {
             Show the command
           </Button>
           <ErrorText size="caption">{make.error}</ErrorText>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          <p className="text-label text-fg-dim">
-            Run it on the machine. The key is shown only now.
-          </p>
-          <Command label="Team join command">
-            {`PIPOCA_KEY=${key} pipoca agent --server ${location.origin}`}
-          </Command>
         </div>
       )}
     </ChoiceCard>
