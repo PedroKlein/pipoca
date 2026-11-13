@@ -22,6 +22,7 @@ import { href } from "../router";
 import { AccountMenu } from "../shell/account-menu";
 import {
   EnvironmentStatus,
+  NotifyButton,
   ownedByEnabled,
   SidebarSession,
 } from "../shell/sidebar-parts";
@@ -260,6 +261,7 @@ export function TeamSidebar({
         </ul>
       </div>
 
+      <NotifyButton />
       <EnvironmentStatus
         environments={environments}
         before={
