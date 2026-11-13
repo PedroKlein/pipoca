@@ -306,12 +306,68 @@ test("a team Session starts only in a team Environment, on a team Profile", asyn
       body: {
         team: true,
         environment: team.environment,
+        profile: "default",
         workspace: workspace(),
       },
     }),
   ]);
 
   expect(refused.map(({ status }) => status)).toEqual([400, 400]);
+});
+
+test("team work that names no Profile starts on the team's default, which an admin picks", async () => {
+  const anas = await ana();
+
+  const environment = await json<Environment>(
+    server.api("/api/environments", { body: { name: "pods", team: true } }),
+  );
+
+  const start = async (): Promise<Session> =>
+    json<Session>(
+      server.as(anas)("/api/sessions", {
+        body: {
+          team: true,
+          environment: environment.id,
+          workspace: workspace(),
+        },
+      }),
+    );
+
+  const first = await start();
+
+  const [made] = await json<Profile[]>(server.api("/api/profiles?scope=team"));
+
+  expect(made).toMatchObject({ name: "Default", ownerId: "team" });
+  expect(made?.isDefault).toBe(true);
+  expect(first.profileId).toBe(made?.id ?? "");
+
+  const release = await json<Profile>(
+    server.api("/api/profiles", { body: { name: "Release", team: true } }),
+  );
+
+  const statuses = await Promise.all([
+    server.as(anas)(`/api/profiles/${release.id}`, {
+      method: "PATCH",
+      body: { isDefault: true },
+    }),
+    server.api(`/api/profiles/${release.id}`, {
+      method: "PATCH",
+      body: { isDefault: true },
+    }),
+  ]);
+
+  expect(statuses.map(({ status }) => status)).toEqual([403, 200]);
+  expect((await start()).profileId).toBe(release.id);
+
+  const removed = await server.api(`/api/profiles/${release.id}`, {
+    method: "DELETE",
+  });
+
+  expect(removed.status).toBe(409);
+
+  const own = await json<Profile[]>(server.as(anas)("/api/profiles"));
+
+  expect(own.find(({ id }) => id === release.id)).toBeUndefined();
 });
 
 test("every user can open and list team work, and it stays out of their own list", async () => {

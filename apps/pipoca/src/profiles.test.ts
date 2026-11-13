@@ -795,7 +795,7 @@ test("only admins make and change team Profiles, which every user sees apart", a
     }),
   ]);
 
-  expect(statuses.map(({ status }) => status)).toEqual([403, 403, 403, 400]);
+  expect(statuses.map(({ status }) => status)).toEqual([403, 403, 403, 403]);
 });
 
 test("a personal Session can't run on a team Profile", async () => {

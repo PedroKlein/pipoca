@@ -6226,6 +6226,20 @@ test("an admin sets up team work from Team setup: its Profiles, Environments, cr
 
   expect(teamProfiles.map(({ name }) => name)).toContain("Backend");
 
+  // The open Profile's form shows until the new one replaces it.
+  await page.getByRole("link", { name: "New team Profile" }).click();
+  await page.getByRole("button", { name: "Create Profile" }).waitFor();
+  await page.getByLabel("Name").fill("Frontend");
+  await page.getByRole("button", { name: "Create Profile" }).click();
+
+  await page.getByRole("button", { name: "Make team default" }).click();
+
+  await page
+    .getByRole("navigation", { name: "Profiles" })
+    .getByRole("link", { name: /^Frontend/ })
+    .getByText("Default")
+    .waitFor();
+
   await nav.getByRole("link", { name: /^Environments/ }).click();
   await page.getByRole("heading", { name: "Team Environments" }).waitFor();
   await page.getByRole("button", { name: "New Environment" }).click();
@@ -6278,7 +6292,7 @@ test("an admin sets up team work from Team setup: its Profiles, Environments, cr
 
   await nav.getByRole("link", { name: "Team home" }).click();
   await page.getByRole("heading", { name: "Team home" }).waitFor();
-});
+}, 30_000);
 
 test("an admin keeps a plugin out of team work from Team setup", async () => {
   await page.goto(new URL("/#team/setup/plugins", server.url).href);

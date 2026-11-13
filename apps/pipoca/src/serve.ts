@@ -371,6 +371,7 @@ export function serve(options: ServeOptions): {
     offeredModels: (environment, userId) =>
       pluginHost.offeredModels(environment, userId),
     pluginProfile: (id) => pluginHost.profile(id),
+    teamProfile: () => userProfiles.teamDefault(),
     gitLogins: (owner, session) => pluginHost.gitLogins(owner, session),
     teamMessagesRead: team.messagesRead,
     names: (person) => people.userById(person)?.name,
@@ -441,7 +442,10 @@ export function serve(options: ServeOptions): {
     solo = thisMachineEnvironment(store, options.solo.folders ?? []);
   }
 
-  const userProfiles = new Profiles(profiles, store.profiles);
+  const userProfiles = new Profiles(profiles, store.profiles, {
+    get: team.defaultProfile,
+    set: team.setDefaultProfile,
+  });
 
   // Profiles and templates that follow a repository keep up with it
   // (ADR 0063).

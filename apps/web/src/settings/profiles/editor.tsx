@@ -142,20 +142,24 @@ export function Editor({
               {profile ? "Save" : "Create Profile"}
             </Button>
           )}
-          {profile && !profile.isDefault && profile.ownerId !== "team" && (
-            <Button
-              onClick={() => {
-                run(async () => {
-                  await request("profiles.update", {
-                    params: { id: profile.id },
-                    body: { isDefault: true },
+          {profile &&
+            !profile.isDefault &&
+            (profile.ownerId !== "team" || admin) && (
+              <Button
+                onClick={() => {
+                  run(async () => {
+                    await request("profiles.update", {
+                      params: { id: profile.id },
+                      body: { isDefault: true },
+                    });
                   });
-                });
-              }}
-            >
-              Make default
-            </Button>
-          )}
+                }}
+              >
+                {profile.ownerId === "team"
+                  ? "Make team default"
+                  : "Make default"}
+              </Button>
+            )}
           {profile &&
             admin &&
             profile.id !== "default" &&
