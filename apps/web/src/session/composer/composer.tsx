@@ -38,6 +38,7 @@ export function Composer({
   hidden,
   report,
   team = false,
+  talk = false,
   replying,
   onReplied,
   onFork,
@@ -49,8 +50,9 @@ export function Composer({
   readonly hiddenModels: readonly string[];
   readonly hidden: boolean;
   readonly report: (error: unknown) => void;
-  // Team work's composer also talks to people (ADR 0065).
   readonly team?: boolean;
+  // Team work others see also talks to people (ADR 0065).
+  readonly talk?: boolean;
   readonly replying?: Replying | undefined;
   readonly onReplied?: () => void;
   // Starts a fork whose composer holds what was typed here.
@@ -73,7 +75,7 @@ export function Composer({
   const starting =
     (feed.session?.status === "queued" ||
       feed.session?.status === "starting") &&
-    (!team || target === "pi");
+    (!talk || target === "pi");
 
   useEffect(() => {
     if (columns === undefined || !hosted) {
@@ -103,7 +105,7 @@ export function Composer({
     uploading,
     starting,
     feed,
-    team,
+    talk,
     target,
     replying,
     onReplied,
@@ -173,7 +175,7 @@ export function Composer({
         >
           {suggestions.menu}
           <label htmlFor={textId} className="sr-only">
-            {placeholders[team ? target : "pi"]}
+            {placeholders[talk ? target : "pi"]}
           </label>
           {replying && (
             <p className="flex items-start gap-2 border-l-2 border-line-strong pl-2 text-label text-fg-dim">
@@ -192,7 +194,7 @@ export function Composer({
               </Button>
             </p>
           )}
-          {team && target === "pi" && (
+          {talk && target === "pi" && (
             <TeamTalk
               unread={teamTalkSince(feed.voices).length}
               onFork={
@@ -235,14 +237,14 @@ export function Composer({
             name="text"
             rows={2}
             placeholder={
-              starting ? "Pi is starting…" : placeholders[team ? target : "pi"]
+              starting ? "Pi is starting…" : placeholders[talk ? target : "pi"]
             }
 
             {...suggestions.box}
             onInput={(event) => {
               suggestions.box.onInput(event);
 
-              if (team && event.currentTarget.value.includes("@pipoca")) {
+              if (talk && event.currentTarget.value.includes("@pipoca")) {
                 setTarget("pi");
               }
             }}
@@ -287,7 +289,7 @@ export function Composer({
             models={models}
             hiddenModels={hiddenModels}
             modelMenu={modelMenu}
-            team={team}
+            talk={talk}
             target={target}
             onTarget={setTarget}
             running={running}

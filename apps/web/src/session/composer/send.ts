@@ -12,7 +12,7 @@ import type { Target } from "./target";
 export function useSend({
   sessionId,
   feed,
-  team,
+  talk,
   target,
   replying,
   onReplied,
@@ -25,7 +25,7 @@ export function useSend({
 }: {
   readonly sessionId: string;
   readonly feed: Feed;
-  readonly team: boolean;
+  readonly talk: boolean;
   readonly target: Target;
   readonly replying: Replying | undefined;
   readonly onReplied: (() => void) | undefined;
@@ -108,7 +108,7 @@ export function useSend({
       return;
     }
 
-    const toPeople = team && target !== "pi";
+    const toPeople = talk && target !== "pi";
 
     if (toPeople && images.length > 0) {
       report("Images go to Pi only. Switch to To Pi to send them.");

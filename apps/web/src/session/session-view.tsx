@@ -24,7 +24,7 @@ import { PresenceLine, usePresence, useTyping } from "./presence";
 import { SessionActions } from "./session-actions";
 import { sessionChannel } from "./session-channel";
 import { PagesNotice, PiViewNotice, UiActionNotice } from "./session-notices";
-import { AccessDialog, steers } from "./team-access";
+import { AccessDialog, steers, talks } from "./team-access";
 import { TerminalScreen, TerminalView } from "./terminal/terminal-view";
 import type { View } from "./view-switch";
 
@@ -87,8 +87,9 @@ export function SessionView({
   const watching = session !== undefined && !steers(session, me);
 
   const team = session?.ownedBy === "team";
-  const present = usePresence(sessionId, team);
-  const typed = useTyping(sessionId, team);
+  const talk = session !== undefined && talks(session);
+  const present = usePresence(sessionId, talk);
+  const typed = useTyping(sessionId, talk);
   const [replying, setReplying] = useState<Replying>();
   const teammates = useQuery("people.list").data ?? [];
 
@@ -222,7 +223,7 @@ export function SessionView({
                 place={place}
                 hidden={shown !== "chat"}
                 session={channel.session}
-                {...(team &&
+                {...(talk &&
                   !watching &&
                   !archived && {
                     onReply: (quote) => {
@@ -267,6 +268,7 @@ export function SessionView({
                   hidden={archived || watching}
                   report={reportError}
                   team={team}
+                  talk={talk}
                   replying={replying}
                   onReplied={() => {
                     setReplying(undefined);

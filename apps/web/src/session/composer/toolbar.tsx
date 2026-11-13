@@ -18,7 +18,7 @@ export function Toolbar({
   models,
   hiddenModels,
   modelMenu,
-  team,
+  talk,
   target,
   onTarget,
   running,
@@ -33,7 +33,7 @@ export function Toolbar({
   readonly models: readonly ModelRef[];
   readonly hiddenModels: readonly string[];
   readonly modelMenu: RefObject<HTMLButtonElement | null>;
-  readonly team: boolean;
+  readonly talk: boolean;
   readonly target: Target;
   readonly onTarget: (target: Target) => void;
   readonly running: boolean;
@@ -79,7 +79,7 @@ export function Toolbar({
           }}
         />
       )}
-      {team && (
+      {talk && (
         <Segmented
           label="Send to"
           value={target}
