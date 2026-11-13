@@ -1,15 +1,15 @@
 import type { Session } from "@pipoca/protocol";
-import { Button, Checkbox, Icon, Mark, TextInput } from "@pipoca/ui";
-import { type ReactElement, useState } from "react";
+import { Button, Checkbox, Icon, Mark } from "@pipoca/ui";
+import type { ReactElement } from "react";
 import { useMe, useQuery } from "../data/hooks";
-import { matches } from "../notices";
 import type { NavEntry } from "../plugins";
 import type { Route } from "../router";
 import {
-  ownedByEnabled,
-  SidebarSession,
   EnvironmentStatus,
+  listedSessions,
   NotifyButton,
+  SessionList,
+  useSessionSearch,
 } from "./sidebar-parts";
 import { AccountMenu } from "./account-menu";
 import { PluginNav } from "./plugin-nav";
@@ -32,24 +32,11 @@ export function Sidebar({
   onShowArchived,
   onNewSession,
 }: SidebarProps): ReactElement {
-  const [query, setQuery] = useState("");
-  const [searching, setSearching] = useState(false);
   const me = useMe();
   const environments = useQuery("environments.list").data ?? [];
-
+  const search = useSessionSearch("Search sessions");
   const opened = route.name === "session" ? route.params.id : undefined;
-
-  const environmentName = (session: Session): string =>
-    environments.find((e) => e.id === session.environmentId)?.name ??
-    session.provider;
-
-  // A plugin's own Sessions show inside the plugin, and here only in a search
-  // or once the plugin is off (ADR 0028).
-  const shown = sessions.filter(
-    (session) =>
-      (query !== "" || !ownedByEnabled(session)) &&
-      matches(session, query, environmentName(session)),
-  );
+  const shown = listedSessions(sessions, search.query, environments);
 
   return (
     <nav aria-label="Pipoca" className="flex h-full flex-col bg-panel">
@@ -63,18 +50,7 @@ export function Sidebar({
           </span>
         )}
         <span className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            iconOnly
-            aria-label="Search"
-            aria-expanded={searching}
-            onClick={() => {
-              setSearching(!searching);
-              setQuery("");
-            }}
-          >
-            <Icon name="search" />
-          </Button>
+          {search.toggle}
           <Button
             variant="primary"
             iconOnly
@@ -101,48 +77,17 @@ export function Sidebar({
         />
       </div>
 
-      {searching && (
-        <div className="px-3 pb-2">
-          <TextInput
-            type="search"
-            aria-label="Search sessions"
-            placeholder="Search sessions"
-            autoFocus
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                setSearching(false);
-                setQuery("");
-              }
-            }}
-            className="w-full py-1 text-label"
-          />
-        </div>
-      )}
+      {search.field}
 
-      <ul
+      <SessionList
         id="sessions"
+        sessions={shown}
+        environments={environments}
+        searched={search.query !== ""}
+        none="No sessions yet."
+        opened={opened}
         className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2"
-      >
-        {shown.length === 0 && (
-          <li className="px-3 py-2 text-caption text-fg-dim">
-            {query === "" ? "No sessions yet." : "No sessions match."}
-          </li>
-        )}
-        {shown.map((session) => (
-          <SidebarSession
-            key={session.id}
-            session={session}
-            environment={environments.find(
-              (e) => e.id === session.environmentId,
-            )}
-            current={session.id === opened}
-          />
-        ))}
-      </ul>
+      />
 
       <NotifyButton />
       <EnvironmentStatus environments={environments} />

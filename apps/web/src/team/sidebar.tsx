@@ -1,13 +1,5 @@
 import type { Environment, Session, Teammate } from "@pipoca/protocol";
-import {
-  Avatar,
-  Button,
-  Checkbox,
-  cn,
-  Icon,
-  type IconName,
-  TextInput,
-} from "@pipoca/ui";
+import { Avatar, Button, Checkbox, cn, Icon, type IconName } from "@pipoca/ui";
 import {
   type ComponentType,
   type ReactElement,
@@ -16,15 +8,16 @@ import {
 } from "react";
 import type { NavItemsProps } from "@pipoca/plugins/web";
 import { useMe } from "../data/hooks";
-import { matches } from "../notices";
 import { PluginBoundary } from "../plugin-boundary";
 import { href } from "../router";
 import { AccountMenu } from "../shell/account-menu";
 import {
   EnvironmentStatus,
+  listedSessions,
+  NavRow,
   NotifyButton,
-  ownedByEnabled,
-  SidebarSession,
+  SessionList,
+  useSessionSearch,
   useStartedBy,
 } from "../shell/sidebar-parts";
 import { WorkspaceSwitcher } from "../shell/workspace-switcher";
@@ -73,67 +66,34 @@ export function TeamSidebar({
   readonly onNewSession: () => void;
 }): ReactElement {
   const me = useMe();
-  const [query, setQuery] = useState("");
-  const [searching, setSearching] = useState(false);
+  const search = useSessionSearch("Search team sessions");
   const [mine, setMine] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const showMore = moreOpen || more.some(({ current }) => current);
 
   const nameOf = useStartedBy();
 
-  const environmentName = (session: Session): string =>
-    environments.find(({ id }) => id === session.environmentId)?.name ??
-    session.provider;
-
-  const shown = sessions.filter(
-    (session) =>
-      session.archivedAt === null &&
-      (query !== "" || !ownedByEnabled(session)) &&
-      (!mine || session.startedBy === me.user.id) &&
-      matches(session, query, environmentName(session)),
+  const shown = listedSessions(
+    sessions.filter(
+      (session) =>
+        session.archivedAt === null &&
+        (!mine || session.startedBy === me.user.id),
+    ),
+    search.query,
+    environments,
   );
 
   const here = people.filter((person) => person.here === true);
 
-  const row = ({
-    href: to,
-    label,
-    icon,
-    current,
-    count,
-  }: TeamEntry): ReactElement => (
-    <a
-      key={to}
-      href={to}
-      aria-current={current ? "page" : undefined}
-      className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-ui text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:text-fg-strong"
-    >
-      <Icon name={icon} className="text-fg-dim" />
-      <span className="truncate">{label}</span>
-      {count !== undefined && (
-        <span className="ml-auto text-caption text-fg-dim tabular-nums">
-          {count}
-        </span>
-      )}
-    </a>
+  const row = (entry: TeamEntry): ReactElement => (
+    <NavRow key={entry.href} {...entry} />
   );
 
   return (
     <nav aria-label="Team" className="flex h-full flex-col bg-panel">
       <div className="flex items-center gap-1 py-3 pr-3 pl-2.5">
         <WorkspaceSwitcher inTeam />
-        <Button
-          variant="ghost"
-          iconOnly
-          aria-label="Search"
-          aria-expanded={searching}
-          onClick={() => {
-            setSearching(!searching);
-            setQuery("");
-          }}
-        >
-          <Icon name="search" />
-        </Button>
+        {search.toggle}
         <Button
           variant="primary"
           iconOnly
@@ -213,47 +173,19 @@ export function TeamSidebar({
           />
         </div>
 
-        {searching && (
-          <div className="px-3 pb-2">
-            <TextInput
-              type="search"
-              aria-label="Search sessions"
-              placeholder="Search team sessions"
-              autoFocus
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  setSearching(false);
-                  setQuery("");
-                }
-              }}
-              className="w-full py-1 text-label"
-            />
-          </div>
-        )}
+        {search.field}
 
-        <ul id="team-sessions" className="flex flex-col gap-0.5 px-2 pb-2">
-          {shown.length === 0 && (
-            <li className="px-3 py-2 text-caption text-fg-dim">
-              {query === "" ? "No team sessions yet." : "No sessions match."}
-            </li>
-          )}
-          {shown.map((session) => (
-            <SidebarSession
-              key={session.id}
-              session={session}
-              environment={environments.find(
-                ({ id }) => id === session.environmentId,
-              )}
-              who={nameOf(session.startedBy)}
-              link={href("teamSession", { id: session.id })}
-              current={session.id === opened}
-            />
-          ))}
-        </ul>
+        <SessionList
+          id="team-sessions"
+          sessions={shown}
+          environments={environments}
+          searched={search.query !== ""}
+          none="No team sessions yet."
+          opened={opened}
+          who={({ startedBy }) => nameOf(startedBy)}
+          link={({ id }) => href("teamSession", { id })}
+          className="flex flex-col gap-0.5 px-2 pb-2"
+        />
       </div>
 
       <NotifyButton />
