@@ -6,7 +6,7 @@ import {
   useLoaded,
   useApi,
 } from "@pipoca/plugins/web";
-import type { Environment, ModelRef, Session } from "@pipoca/protocol";
+import { type Environment, modelRefOf, type Session } from "@pipoca/protocol";
 import {
   Button,
   ErrorText,
@@ -338,9 +338,9 @@ function Composer({
     setSending(true);
     setError(undefined);
 
-    const ref = picksModel ? modelRef(model) : undefined;
+    const picks = picksModel && modelRefOf(model) !== undefined;
 
-    ask(api, text, ref, team).then(
+    ask(api, text, picks ? model : undefined, team).then(
       (where) => {
         if (!team) {
           location.hash = where;
@@ -440,14 +440,14 @@ function Composer({
 async function ask(
   api: TypedClient,
   text: string,
-  model: ModelRef | undefined,
+  model: string | undefined,
   team: boolean,
 ): Promise<string> {
   const project = await api.post<{ id: string }>(
     team ? "team/assistant" : "assistant",
     {
       text,
-      ...(model && { model: `${model.provider}/${model.id}` }),
+      ...(model !== undefined && { model }),
     },
   );
 
@@ -475,14 +475,6 @@ function Continue({
       </a>
     </div>
   );
-}
-
-function modelRef(name: string): ModelRef | undefined {
-  const slash = name.indexOf("/");
-
-  return slash > 0 && slash < name.length - 1
-    ? { provider: name.slice(0, slash), id: name.slice(slash + 1) }
-    : undefined;
 }
 
 // The model the user last asked the assistant with, on this browser only.

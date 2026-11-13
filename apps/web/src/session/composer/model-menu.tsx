@@ -1,7 +1,12 @@
-import type { Environment, ModelInfo, ModelRef } from "@pipoca/protocol";
+import {
+  type Environment,
+  type ModelInfo,
+  modelName,
+  type ModelRef,
+  modelRefOf,
+} from "@pipoca/protocol";
 import { ModelField, pickerModels } from "@pipoca/plugins/web";
 import type { ReactElement, RefObject } from "react";
-import { modelName, modelRef } from "../../names";
 import type { Settings } from "../feed";
 
 // Claude Code's model menu with its effort levels, on Pi's model and
@@ -67,7 +72,7 @@ export function ModelMenu({
       })}
       onLogin={onLogin}
       onPick={(name) => {
-        const model = modelRef(name);
+        const model = modelRefOf(name);
 
         if (model) {
           onModel(model);

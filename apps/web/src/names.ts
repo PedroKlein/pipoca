@@ -1,4 +1,4 @@
-import type { ModelRef, Session, Workspace } from "@pipoca/protocol";
+import type { Session, Workspace } from "@pipoca/protocol";
 export { ago } from "@pipoca/plugins/web";
 
 const removalText = {
@@ -40,18 +40,6 @@ export function workspaceName(workspace: Workspace): string {
 
       return `${workspace.repositories.map((r) => r.repository).join(", ")} (${workspace.branch})`;
   }
-}
-
-export function modelName({ provider, id }: ModelRef): string {
-  return `${provider}/${id}`;
-}
-
-export function modelRef(name: string): ModelRef | undefined {
-  const slash = name.indexOf("/");
-
-  return slash > 0 && slash < name.length - 1
-    ? { provider: name.slice(0, slash), id: name.slice(slash + 1) }
-    : undefined;
 }
 
 interface SessionBadge {

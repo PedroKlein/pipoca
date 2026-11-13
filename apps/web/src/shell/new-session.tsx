@@ -2,6 +2,7 @@ import {
   availability,
   type ApiInput,
   type Environment,
+  modelRefOf,
   profileModel,
   privateHostOf,
   recentPlaces,
@@ -30,7 +31,6 @@ import { request } from "../data/client";
 import { useAction, useMe, useQuery } from "../data/hooks";
 import { branchesOf } from "../plugins";
 import { href, navigate } from "../router";
-import { modelRef } from "../names";
 import { accessLabels } from "../session/team-access";
 import {
   type Choices,
@@ -329,7 +329,7 @@ export function NewSessionForm({
       return;
     }
 
-    const model = choices.model === "" ? null : modelRef(choices.model);
+    const model = choices.model === "" ? null : modelRefOf(choices.model);
 
     setInvalid(undefined);
     remember(choices, team);

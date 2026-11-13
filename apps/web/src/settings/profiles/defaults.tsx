@@ -1,9 +1,12 @@
-import { type ProfileContent, thinkingLevels } from "@pipoca/protocol";
+import {
+  modelRefOf,
+  type ProfileContent,
+  thinkingLevels,
+} from "@pipoca/protocol";
 import { Button, Picker, Row, Rows, Section } from "@pipoca/ui";
 import type { ReactElement } from "react";
 import { useQuery } from "../../data/hooks";
 import { ModelField, pickerModels } from "@pipoca/plugins/web";
-import { modelRef } from "../../names";
 import { SourceTag } from "./inherited";
 import type { StackLayer } from "./stack";
 
@@ -138,7 +141,7 @@ export function Defaults({
             selected={model.valueOf(settings) ?? ""}
             create
             onPick={(name) => {
-              const picked = modelRef(name);
+              const picked = modelRefOf(name);
 
               if (picked) {
                 set(model, [picked.provider, picked.id]);

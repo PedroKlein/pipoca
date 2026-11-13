@@ -1,4 +1,9 @@
-import { apiClient, type ModelChoices, type ModelInfo } from "@pipoca/protocol";
+import {
+  apiClient,
+  type ModelChoices,
+  type ModelInfo,
+  modelName,
+} from "@pipoca/protocol";
 import { ModelPicker, type PickerModel } from "@pipoca/ui";
 import { type ComponentProps, type ReactElement, useState } from "react";
 import { useLoaded } from "./index";
@@ -55,7 +60,7 @@ export function pickerModels(
   const merged = new Map<string, ModelInfo>();
 
   for (const model of models) {
-    const value = `${model.provider}/${model.id}`;
+    const value = modelName(model);
 
     merged.set(value, { ...model, ...merged.get(value) });
   }
