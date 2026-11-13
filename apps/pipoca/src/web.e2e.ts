@@ -2730,27 +2730,33 @@ test("starts a person's default Profile from a Profile a repository's pipoca.jso
 
   await page.route("**/api/repositories/manifest?*", async (route) =>
     route.fulfill({
-      json: new URL(route.request().url()).searchParams
-        .get("url")
-        ?.endsWith("bare.git")
-        ? { found: false, commit: "0".repeat(40), profiles: [], templates: [] }
-        : {
-            found: true,
-            commit: "3f9c2e1".padEnd(40, "0"),
-            profiles: [
-              {
-                name: "My Pi",
-                path: ".pi/agent",
-                holds: { skills: 6, packages: 2, agentsMd: true },
-              },
-              {
-                name: "Minimal",
-                path: ".pi/minimal",
-                holds: { skills: 0, packages: 0, agentsMd: true },
-              },
-            ],
-            templates: [],
-          },
+      json:
+        new URL(route.request().url()).searchParams
+          .get("url")
+          ?.endsWith("bare.git") === true
+          ? {
+              found: false,
+              commit: "0".repeat(40),
+              profiles: [],
+              templates: [],
+            }
+          : {
+              found: true,
+              commit: "3f9c2e1".padEnd(40, "0"),
+              profiles: [
+                {
+                  name: "My Pi",
+                  path: ".pi/agent",
+                  holds: { skills: 6, packages: 2, agentsMd: true },
+                },
+                {
+                  name: "Minimal",
+                  path: ".pi/minimal",
+                  holds: { skills: 0, packages: 0, agentsMd: true },
+                },
+              ],
+              templates: [],
+            },
     }),
   );
 
@@ -2775,6 +2781,7 @@ test("starts a person's default Profile from a Profile a repository's pipoca.jso
   try {
     await page.goto(`${server.url.href}#get-started/profile`);
     await page.getByRole("heading", { name: "Make Pi yours" }).waitFor();
+
     await page
       .getByRole("radio", { name: /^Start from a git repository/ })
       .check();
@@ -2782,6 +2789,7 @@ test("starts a person's default Profile from a Profile a repository's pipoca.jso
     await page
       .getByLabel("Repository address")
       .fill(url.replace("dotfiles", "bare"));
+
     await page.getByRole("button", { name: "Look" }).click();
 
     const nothing = page.getByRole("group", { name: "Nothing listed" });
@@ -2803,12 +2811,15 @@ test("starts a person's default Profile from a Profile a repository's pipoca.jso
 
     await listed.getByText("pipoca.json lists 2 Profiles").waitFor();
     await listed.getByText("dotfiles @ 3f9c2e1").waitFor();
+
     await listed
       .getByText(".pi/agent · 6 skills, 2 packages, AGENTS.md")
       .waitFor();
+
     expect(await nothing.count()).toBe(0);
 
     await listed.getByRole("radio", { name: /^Minimal/ }).check();
+
     await listed
       .getByRole("button", { name: "Make “Minimal” my default Profile" })
       .click();
