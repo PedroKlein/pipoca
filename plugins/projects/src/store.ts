@@ -40,7 +40,12 @@ export interface Member {
 
 export type Settings = Pick<
   Project,
-  "name" | "goal" | "instructions" | "threadModel" | "profileId"
+  | "name"
+  | "goal"
+  | "instructions"
+  | "threadModel"
+  | "profileId"
+  | "repositories"
 >;
 
 interface ProjectRow {
@@ -201,6 +206,17 @@ export function projectStore(store: Store, clock: Clock) {
         settings.profileId,
         id,
       );
+
+      store.run("delete from projects_repositories where project_id = ?", id);
+
+      settings.repositories.forEach((repository, position) => {
+        store.run(
+          "insert into projects_repositories (project_id, position, repository) values (?, ?, ?)",
+          id,
+          position,
+          repository,
+        );
+      });
     },
     addThread: (projectId: string, sessionId: string, title: string): void => {
       addMember({
