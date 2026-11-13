@@ -256,3 +256,58 @@ export default async function () {
     await rm(dir, { recursive: true, force: true });
   }
 }, 30_000);
+
+// The image library reads its wasm beside its own source, and a deployed
+// binary has no build folder, so every image sent to a Session was dropped.
+test("a compiled binary resizes images without its build folder", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pipoca-image-"));
+  const marker = join(dir, "resized");
+  const extension = join(dir, "resize.js");
+  const buildFolder = fileURLToPath(new URL("../../..", import.meta.url));
+
+  const pixel =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==";
+
+  await writeFile(
+    extension,
+    `import fs, { writeFileSync } from "node:fs";
+import { resizeImage } from "@earendil-works/pi-coding-agent";
+const read = fs.readFileSync;
+fs.readFileSync = (file, ...rest) => {
+  if (String(file).startsWith(${JSON.stringify(buildFolder)})) {
+    throw Object.assign(new Error("gone"), { code: "ENOENT" });
+  }
+  return read(file, ...rest);
+};
+export default async function () {
+  const resized = await resizeImage(Buffer.from(${JSON.stringify(pixel)}, "base64"), "image/png");
+  writeFileSync(${JSON.stringify(marker)}, JSON.stringify(resized?.width ?? null));
+  process.exit(0);
+}
+`,
+  );
+
+  try {
+    await run(
+      binary,
+      [
+        "--no-extensions",
+        "--no-skills",
+        "--no-prompt-templates",
+        "--no-session",
+        "--mode",
+        "rpc",
+        "--extension",
+        extension,
+      ],
+      {
+        cwd: dir,
+        env: { ...process.env, PI_CODING_AGENT_DIR: join(dir, "agent") },
+      },
+    );
+
+    expect(await readFile(marker, "utf8")).toBe("1");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}, 30_000);
