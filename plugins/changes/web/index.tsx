@@ -12,6 +12,7 @@ import {
   ErrorText,
   Icon,
   isComposing,
+  plural,
   popClass,
 } from "@pipoca/ui";
 import { Fragment, type ReactElement, useMemo, useState } from "react";
@@ -62,7 +63,7 @@ function SessionHeader({
       name="changes"
       order={30}
       label={`Changes ${String(count)}`}
-      button={`Diff, ${String(count)} ${count === 1 ? "file" : "files"} changed`}
+      button={`Diff, ${plural(count, "file")} changed`}
       icon="git-pull-request"
     >
       {changed.map((checkout) => (
@@ -122,7 +123,7 @@ function Checkout({
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-start gap-2">
         <h3 className="flex min-h-control flex-1 items-center gap-1.5 text-label text-fg-dim">
-          {`${name === "" ? "Changes" : `Changes in ${name}`} (${String(fileCount)} ${fileCount === 1 ? "file" : "files"})`}
+          {`${name === "" ? "Changes" : `Changes in ${name}`} (${plural(fileCount, "file")})`}
           {!truncated && (
             <span className="font-mono text-mono-sm">
               <span className="text-done">+{added}</span>{" "}
@@ -147,7 +148,7 @@ function Checkout({
       )}
       {comments.length > 0 && (
         <div className="mt-2 flex flex-wrap items-center gap-2 text-label text-fg-dim">
-          {`${String(comments.length)} ${comments.length === 1 ? "comment" : "comments"} on the diff`}
+          {`${plural(comments.length, "comment")} on the diff`}
           <Button variant="primary" onClick={send}>
             Send to Pi
           </Button>

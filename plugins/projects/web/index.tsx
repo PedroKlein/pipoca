@@ -34,6 +34,7 @@ import {
   cn,
   Code,
   Dialog,
+  type DotTone,
   ErrorText,
   Field,
   Icon,
@@ -41,13 +42,13 @@ import {
   Menu,
   Page,
   Picker,
+  plural,
   popClass,
   Row,
   Rows,
   Section,
   SessionRow,
   StatusDot,
-  type DotTone,
   TextArea,
   TextInput,
   useConfirm,
@@ -303,7 +304,7 @@ function ProjectCard({ call }: ToolCallProps): ReactElement {
           </span>
           <span className="truncate text-caption text-fg-dim">
             {[
-              `${String(repositories)} ${repositories === 1 ? "repository" : "repositories"}`,
+              plural(repositories, "repository", "repositories"),
               profile &&
                 `Profile: ${profile.name}${profile.isDefault ? " (default)" : ""}`,
               coordinator?.model?.id,

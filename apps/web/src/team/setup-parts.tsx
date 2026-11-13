@@ -5,6 +5,7 @@ import {
   Field,
   Icon,
   Page,
+  plural,
   Row,
   Rows,
   TextInput,
@@ -187,7 +188,7 @@ export function HubLayout(): ReactElement {
             <Row
               key={page.id}
               title={home ? "Home" : page.title}
-              description={`${String(page.panels.length)} ${page.panels.length === 1 ? "panel" : "panels"}`}
+              description={plural(page.panels.length, "panel")}
             >
               <div className="ml-auto flex items-center gap-1">
                 {!home && (

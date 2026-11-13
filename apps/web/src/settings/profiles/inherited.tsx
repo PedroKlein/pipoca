@@ -1,4 +1,4 @@
-import { cn, Menu, type MenuItem, Row, Switch } from "@pipoca/ui";
+import { cn, Menu, type MenuItem, plural, Row, Switch } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
 import { navigate } from "../../router";
 import type { Inherited, StackLayer } from "./stack";
@@ -145,7 +145,7 @@ export function summaryOf(text: string): string {
       .map((line) => line.replace(/^#+\s*/, "").trim())
       .find((line) => line !== "") ?? "";
 
-  const count = `${String(lines.length)} ${lines.length === 1 ? "line" : "lines"}`;
+  const count = plural(lines.length, "line");
 
   return next === ""
     ? count

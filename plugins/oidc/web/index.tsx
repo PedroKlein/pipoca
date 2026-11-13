@@ -19,6 +19,7 @@ import {
   linkCardClass,
   Notice,
   Page,
+  plural,
   Row,
   Rows,
   Section,
@@ -398,8 +399,8 @@ function ProviderRow({
       description={
         <span className="flex flex-col gap-0.5">
           <span className="font-mono">
-            {provider.issuer} · {people} {people === 1 ? "person" : "people"}{" "}
-            signed in this week
+            {provider.issuer} · {plural(people, "person", "people")} signed in
+            this week
           </span>
           {typeof test === "object" && test.error !== null && (
             <ErrorText inline size="inherit">
