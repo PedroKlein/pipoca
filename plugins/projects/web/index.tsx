@@ -969,11 +969,8 @@ function CreateForm({
     unavailable: runsOn?.unavailableModels ?? [],
   });
 
-  const picked = models.find(
-    ({ value }) =>
-      value === (model || profileModel(profileShown, profiles, under)),
-  );
-
+  const starting = model || profileModel(profileShown, profiles, under);
+  const picked = models.find(({ value }) => value === starting);
   const defaultModel = team ? "Team default" : "Default model";
 
   const submit = (event: SubmitEvent<HTMLFormElement>): void => {
@@ -1117,7 +1114,7 @@ function CreateForm({
               onPick={setModel}
             >
               {picked === undefined
-                ? model || defaultModel
+                ? (starting ?? defaultModel)
                 : `${picked.name ?? picked.id} · ${picked.providerName}`}
             </ModelField>
             <p className="text-caption text-fg-dim">

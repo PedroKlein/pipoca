@@ -512,6 +512,7 @@ export function NewSessionForm({
         >
           {choices.model === ""
             ? (models.find(({ value }) => value === profileDefault)?.name ??
+              profileDefault ??
               "Default model")
             : (models.find(({ value }) => value === choices.model)?.name ??
               choices.model)}
