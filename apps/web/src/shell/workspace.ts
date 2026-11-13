@@ -3,10 +3,6 @@ import type {
   ThinkingLevel,
   WorkspaceRequest,
 } from "@pipoca/protocol";
-import type { PickerOption } from "@pipoca/ui";
-
-// Typing searches the git hosts once it pauses for this long.
-export const searchDelayMs = 250;
 
 // The New session composer remembers its last choices in this browser, like
 // Claude Code's (ADR 0040).
@@ -111,8 +107,4 @@ export function recentPlaces(
     });
 
   return [...new Set(places)].slice(0, 5);
-}
-
-export function placeOption(where: string, group: string): PickerOption {
-  return { value: where, label: lastSegment(where), detail: where, group };
 }

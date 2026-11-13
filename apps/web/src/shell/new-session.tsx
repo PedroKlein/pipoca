@@ -3,7 +3,6 @@ import {
   type ApiInput,
   type Environment,
   repositoryHost,
-  type RepositoryChoice,
   thinkingLevels,
 } from "@pipoca/protocol";
 import {
@@ -16,13 +15,11 @@ import {
   Picker,
   Segmented,
 } from "@pipoca/ui";
-import { ModelField, pickerModels } from "@pipoca/plugins/web";
+import { ModelField, pickerModels, RepositoryField } from "@pipoca/plugins/web";
 import {
   type ReactElement,
   type ReactNode,
   type SubmitEvent,
-  useEffect,
-  useEffectEvent,
   useRef,
   useState,
 } from "react";
@@ -31,9 +28,7 @@ import { useAction, useMe, useQuery } from "../data/hooks";
 import { href, navigate } from "../router";
 import { modelRef } from "../names";
 import { accessLabels } from "../session/team-access";
-import { searchRepositories } from "../plugins";
 import {
-  searchDelayMs,
   type Choices,
   remembered,
   remember,
@@ -41,7 +36,6 @@ import {
   lastSegment,
   workspaceRequest,
   recentPlaces,
-  placeOption,
 } from "./workspace";
 
 type Steer = "team" | "view";
@@ -220,37 +214,6 @@ export function NewSessionForm({
     setInvalid(reason);
   };
 
-  const [found, setFound] = useState<readonly RepositoryChoice[]>([]);
-  const searches = useRef(0);
-
-  // Only the latest search's answer is shown, whichever arrives first.
-  const search = (query: string): void => {
-    const ticket = ++searches.current;
-
-    setTimeout(
-      () => {
-        if (ticket !== searches.current) {
-          return;
-        }
-
-        void searchRepositories(query, team).then((repositories) => {
-          if (ticket === searches.current) {
-            setFound(repositories);
-          }
-        });
-      },
-      query === "" ? 0 : searchDelayMs,
-    );
-  };
-
-  const opened = useEffectEvent(() => {
-    search("");
-  });
-
-  useEffect(() => {
-    opened();
-  }, []);
-
   const choose = (change: Partial<Choices>): void => {
     setChoices((current) => ({ ...current, ...change }));
   };
@@ -283,32 +246,6 @@ export function NewSessionForm({
     (team ? profiles[0] : undefined);
 
   const recent = recentPlaces(sessions, chosen?.id);
-
-  const places = [
-    ...recent.map((where) => placeOption(where, "Recent")),
-    ...(chosen?.folders ?? [])
-      .filter((folder) => !recent.includes(folder))
-      .map((folder) => placeOption(folder, `On ${chosen?.name ?? ""}`)),
-    ...choices.where
-      .filter(
-        (where) =>
-          !recent.includes(where) &&
-          !(chosen?.folders.includes(where) ?? false),
-      )
-      .map((where) => placeOption(where, "Picked")),
-  ];
-
-  const offered = [
-    ...places,
-    ...found
-      .filter(({ url }) => !places.some(({ value }) => value === url))
-      .map(({ url, name, group }) => ({
-        value: url,
-        label: name,
-        detail: URL.parse(url)?.host ?? url,
-        group,
-      })),
-  ];
 
   const models = pickerModels(chosen?.models ?? [], {
     hidden: chosen?.hiddenModels ?? [],
@@ -399,18 +336,18 @@ export function NewSessionForm({
       />
 
       <div className="flex flex-wrap items-center gap-1.5 px-4 pb-3">
-        <Picker
+        <RepositoryField
           label="Folder or repository"
-          options={offered}
           selected={choices.where}
-          multiple
-          onSearch={search}
-          placeholder="Search, or paste a path or repository URL"
-          create={(query) => ({
-            value: query,
-            label: `Use ${query}`,
-            detail: isRepository(query) ? "clone" : "folder",
+          recent={recent}
+          team={team}
+          {...(chosen && {
+            folders: {
+              label: `Folders on ${chosen.name}`,
+              paths: chosen.folders,
+            },
           })}
+          placeholder="Search, or paste a path or repository URL"
           footer={
             <Checkbox
               label="Share the folder instead of a worktree of it"
@@ -419,6 +356,19 @@ export function NewSessionForm({
                 choose({ share: event.target.checked });
               }}
             />
+          }
+          hint={
+            <span>
+              {team
+                ? "Only repositories the team's bots reach."
+                : "Only repositories your logins reach."}{" "}
+              <a
+                className="text-fg underline"
+                href={href("settings", { page: "accounts" })}
+              >
+                Connect another host
+              </a>
+            </span>
           }
           onChange={(where) => {
             choose({ where });
@@ -429,7 +379,7 @@ export function NewSessionForm({
           ) : (
             choices.where.map(lastSegment).join(", ")
           )}
-        </Picker>
+        </RepositoryField>
 
         {!sharing && (
           <Picker

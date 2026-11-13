@@ -438,6 +438,12 @@ export const repositoryChoice = Type.Object({
   name: Type.String(),
   // The heading it is listed under, such as its host.
   group: Type.String(),
+  // Its host, such as github.com, to filter by.
+  host: Type.Optional(Type.String()),
+  pushedAt: Type.Optional(Type.String()),
+  language: Type.Optional(Type.String()),
+  // On a host only some Environments reach (ADR 0080).
+  private: Type.Optional(Type.Boolean()),
 });
 
 export type RepositoryChoice = Wire<typeof repositoryChoice>;

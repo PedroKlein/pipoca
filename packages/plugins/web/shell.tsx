@@ -5,7 +5,7 @@ import {
   type ReactNode,
   useContext,
 } from "react";
-import type { Person } from "@pipoca/protocol";
+import type { Person, RepositoryChoice } from "@pipoca/protocol";
 import type { EmbeddedSessionProps } from "./index";
 
 export interface Viewer {
@@ -28,6 +28,11 @@ export interface Shell {
   readonly SessionView: ComponentType<EmbeddedSessionProps>;
   // Opens the Session with text in its composer for the person to send.
   readonly draft: (sessionId: string, text: string) => void;
+  // What every plugin's repository search finds for the query.
+  readonly repositories: (
+    query: string,
+    team: boolean,
+  ) => Promise<readonly RepositoryChoice[]>;
 }
 
 const ShellContext = createContext<Shell | undefined>(undefined);
