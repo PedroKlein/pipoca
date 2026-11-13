@@ -1,6 +1,7 @@
 import type { SetupStepProps } from "@pipoca/plugins/web";
 import type { PiPackage, ProfileContent } from "@pipoca/protocol";
 import {
+  Badge,
   Button,
   Code,
   ErrorText,
@@ -219,6 +220,10 @@ function TeamProfiles(): ReactElement {
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
 
+  const makeDefault = useAction(async (id: string) =>
+    request("profiles.update", { params: { id }, body: { isDefault: true } }),
+  );
+
   const add = useAction(async () => {
     await request("profiles.create", { body: { name, team: true } });
     setName("");
@@ -238,13 +243,30 @@ function TeamProfiles(): ReactElement {
           <Row
             key={profile.id}
             initials={initialsOf(profile.name)}
-            title={profile.name}
+            title={
+              <span className="flex items-center gap-2">
+                {profile.name}
+                {profile.isDefault && <Badge state="done">Team default</Badge>}
+              </span>
+            }
             description={
               profile.agentsMd === ""
                 ? "A Profile team work runs on"
                 : firstLine(profile.agentsMd)
             }
-          />
+          >
+            {!profile.isDefault && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  void makeDefault.run(profile.id);
+                }}
+              >
+                Make default
+              </Button>
+            )}
+          </Row>
         ))}
         <Row
           initials="+"
@@ -289,7 +311,7 @@ function TeamProfiles(): ReactElement {
           )}
         </Row>
       </Rows>
-      <ErrorText size="caption">{add.error}</ErrorText>
+      <ErrorText size="caption">{add.error ?? makeDefault.error}</ErrorText>
     </section>
   );
 }
