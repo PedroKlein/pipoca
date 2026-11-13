@@ -1197,6 +1197,46 @@ test("infers the workspace from what the New session composer picks and remember
   ).toBe("a, b");
 }, 30_000);
 
+test("starts a session from a branch of the repository the New session composer lists", async () => {
+  const asked: unknown[] = [];
+
+  await page.route("**/api/ext/git-hosts/branches?*", async (route) =>
+    route.fulfill({ json: ["main", "release/1.2"] }),
+  );
+
+  await page.route("**/api/sessions", async (route) => {
+    asked.push(route.request().postDataJSON());
+
+    await route.fulfill({
+      status: 400,
+      json: { error: "bad_request", message: "not this time" },
+    });
+  });
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, "https://example.com/a.git", false);
+  await form.getByRole("button", { name: "Start from" }).click();
+  await form.getByRole("option", { name: "release/1.2" }).click();
+  await form.getByRole("button", { name: "Start session" }).click();
+  await form.getByRole("alert").filter({ hasText: "not this time" }).waitFor();
+
+  await page.unroute("**/api/sessions");
+  await page.unroute("**/api/ext/git-hosts/branches?*");
+
+  expect(asked).toMatchObject([
+    {
+      workspace: {
+        kind: "clone",
+        repository: "https://example.com/a.git",
+        startPoint: "release/1.2",
+      },
+    },
+  ]);
+}, 30_000);
+
 test("starts a session with the task from the New session form", async () => {
   faux.setResponses([fauxAssistantMessage([fauxText("on it")])]);
   await page.goto(server.url.href);

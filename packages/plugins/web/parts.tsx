@@ -104,6 +104,12 @@ export interface WebPart<P extends PluginDefinition = PluginDefinition> {
     team: boolean,
     api: TypedClient,
   ) => Promise<readonly RepositoryChoice[]>;
+  // A repository's branches, for where a Session starts from.
+  readonly branches?: (
+    url: string,
+    team: boolean,
+    api: TypedClient,
+  ) => Promise<readonly string[]>;
 }
 
 export function defineWeb<P extends PluginDefinition>(

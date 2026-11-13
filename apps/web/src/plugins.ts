@@ -315,6 +315,23 @@ async function searchRepositories(
   return found.flat();
 }
 
+// Every plugin's branches for the repository, each listed once.
+export async function branchesOf(
+  url: string,
+  team: boolean,
+): Promise<readonly string[]> {
+  const found = await Promise.all(
+    enabled.map(
+      async ({ plugin, branches }) =>
+        branches?.(url, team, pluginClient({ id: plugin.id })).catch(
+          () => [],
+        ) ?? [],
+    ),
+  );
+
+  return [...new Set(found.flat())];
+}
+
 export function navEntries(): readonly NavEntry[] {
   return enabled.flatMap(({ plugin: { id } }) => {
     const listed = listedPage(id);

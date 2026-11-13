@@ -20,11 +20,13 @@ import {
   type ReactElement,
   type ReactNode,
   type SubmitEvent,
+  useEffect,
   useRef,
   useState,
 } from "react";
 import { request } from "../data/client";
 import { useAction, useMe, useQuery } from "../data/hooks";
+import { branchesOf } from "../plugins";
 import { href, navigate } from "../router";
 import { modelRef } from "../names";
 import { accessLabels } from "../session/team-access";
@@ -39,6 +41,42 @@ import {
 } from "./workspace";
 
 type Steer = "team" | "view";
+
+// The branches of the one repository picked, which Start from offers.
+function useBranches(
+  where: readonly string[],
+  team: boolean,
+): readonly string[] {
+  const [only] = where;
+
+  const url =
+    where.length === 1 && only !== undefined && isRepository(only) ? only : "";
+
+  const [listed, setListed] = useState<{
+    url: string;
+    branches: readonly string[];
+  }>();
+
+  useEffect(() => {
+    if (url === "") {
+      return;
+    }
+
+    let current = true;
+
+    void branchesOf(url, team).then((branches) => {
+      if (current) {
+        setListed({ url, branches });
+      }
+    });
+
+    return () => {
+      current = false;
+    };
+  }, [url, team]);
+
+  return listed?.url === url ? listed.branches : [];
+}
 
 const steerLabels = {
   team: "Team can steer",
@@ -180,6 +218,7 @@ export function NewSessionForm({
   const [choices, setChoices] = useState(() => remembered(team));
   const [text, setText] = useState("");
   const [startPoint, setStartPoint] = useState("");
+  const branches = useBranches(choices.where, team);
   const [invalid, setInvalid] = useState<string>();
   const [steer, setSteer] = useState<Steer>("team");
 
@@ -384,7 +423,10 @@ export function NewSessionForm({
         {!sharing && (
           <Picker
             label="Start from"
-            options={[{ value: "", label: "Current branch" }]}
+            options={[
+              { value: "", label: "Current branch" },
+              ...branches.map((branch) => ({ value: branch, label: branch })),
+            ]}
             selected={[startPoint]}
             placeholder="Branch, tag or commit"
             create={(query) => ({ value: query, label: query })}
