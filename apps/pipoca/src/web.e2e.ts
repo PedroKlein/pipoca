@@ -7093,6 +7093,20 @@ test("keeps team work inside the team's area, with the server's pages shared fro
   await page.waitForURL(`**/#team/sessions/${session.id}`);
   await team.waitFor();
 
+  // Its header and composer take the team Environment from the team's list.
+  await page.route("**/api/environments?scope=team", async (route) =>
+    route.fulfill({ json: [{ ...environment, name: "Team machines" }] }),
+  );
+
+  await page.reload();
+
+  await page
+    .getByText(/^Team machines · /)
+    .first()
+    .waitFor();
+
+  await page.unroute("**/api/environments?scope=team");
+
   await page.goto(new URL(`/#${session.id}`, server.url).href);
   await page.waitForURL(`**/#team/sessions/${session.id}`);
   await team.waitFor();
