@@ -22,14 +22,15 @@ import {
   type Session,
 } from "@pipoca/protocol";
 import {
+  Avatar,
   Badge,
   type BadgeState,
   Button,
   buttonClass,
   Card,
-  cardClass,
   cn,
   Code,
+  Dialog,
   ErrorText,
   Field,
   Icon,
@@ -38,6 +39,8 @@ import {
   Page,
   Picker,
   popClass,
+  Row,
+  Rows,
   Section,
   Select,
   SessionRow,
@@ -680,6 +683,7 @@ function ProjectList({
   readonly onOpen: (id: string) => void;
 }): ReactElement {
   const api = useApi(projects);
+  const [creating, setCreating] = useState(false);
 
   const list = useLoaded(
     async () => (team ? teamList(api) : api.get<ProjectSummary[]>("projects")),
@@ -693,6 +697,14 @@ function ProjectList({
     watched,
   ).value;
 
+  const teamName =
+    useLoaded(
+      async () =>
+        (await api.get<{ name: string | null }>("/api/settings/team")).name,
+      "team-name",
+      { topics: ["settings"] },
+    ).value ?? "the team";
+
   const active = list?.filter(
     ({ coordinatorState }) => coordinatorState !== "archived",
   );
@@ -703,77 +715,125 @@ function ProjectList({
 
   return (
     <Page
-      title={team ? "Team Projects" : "Projects"}
-      description="A Project is a coordinator session that starts threads across one or more repositories."
+      title={team ? "Team Projects" : "Your Projects"}
+      description={
+        team
+          ? "Everyone on the team can see and steer these."
+          : "Projects only you work on."
+      }
+      actions={
+        <Button
+          variant="primary"
+          onClick={() => {
+            setCreating(true);
+          }}
+        >
+          {team ? "New team Project" : "New Project"}
+        </Button>
+      }
     >
       {active?.length === 0 && <p className="text-fg-dim">No Projects yet.</p>}
-      <ProjectCards projects={active ?? []} onOpen={onOpen} />
+      <ProjectRows projects={active ?? []} onOpen={onOpen} />
       {others !== undefined && others.length > 0 && (
         <a
           href={link(projectList, true)}
           className={cn(
             linkCardClass,
-            "flex items-center gap-3 px-4 py-3 no-underline hover:bg-hover",
+            "mt-4 flex items-center gap-3.5 px-4 py-3.5 no-underline hover:bg-hover",
           )}
         >
+          <Avatar name="Team" square size="md">
+            Te
+          </Avatar>
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="font-medium text-fg-strong">
               {counted(others.length, "team Project", "team Projects")}
             </span>
             <span className="truncate text-caption text-fg-dim">
-              {others.map(({ name }) => name).join(", ")} · in the team's area
+              {others.map(({ name }) => name).join(", ")} · in the {teamName}{" "}
+              workspace
             </span>
           </span>
-          <span className="text-caption text-fg-dim">Open the team's →</span>
+          <span className="text-caption text-fg-dim">
+            Switch to {teamName} →
+          </span>
         </a>
       )}
       {archived !== undefined && archived.length > 0 && (
         <Section title="Archived">
-          <ProjectCards projects={archived} onOpen={onOpen} />
+          <ProjectRows projects={archived} onOpen={onOpen} />
         </Section>
       )}
-      <Section title="New Project">
-        <CreateForm
-          environments={environments}
-          team={team}
-          onCreated={onOpen}
-        />
-      </Section>
+      <Dialog
+        open={creating}
+        onClose={() => {
+          setCreating(false);
+        }}
+        title={team ? "New team Project" : "New Project"}
+        description={
+          team
+            ? "Everyone on the team can see and steer it."
+            : "Only you work on it."
+        }
+        size="lg"
+        sheet
+      >
+        {creating && (
+          <CreateForm
+            environments={environments}
+            team={team}
+            onCreated={onOpen}
+            onCancel={() => {
+              setCreating(false);
+            }}
+          />
+        )}
+      </Dialog>
     </Page>
   );
 }
 
-function ProjectCards({
+function ProjectRows({
   projects: shown,
   onOpen,
 }: {
   readonly projects: readonly ProjectSummary[];
   readonly onOpen: (id: string) => void;
-}): ReactElement {
+}): ReactElement | null {
+  if (shown.length === 0) {
+    return null;
+  }
+
   return (
-    <ul className="grid gap-2 sm:grid-cols-2">
+    <Rows>
       {shown.map((project) => (
-        <li key={project.id}>
-          <button
-            type="button"
-            onClick={() => {
-              onOpen(project.id);
-            }}
-            className={cn(
-              linkCardClass,
-              "flex w-full cursor-pointer items-center justify-between gap-3 px-4 py-3 text-left hover:bg-hover",
-            )}
-          >
-            <span className="flex min-w-0 items-center gap-2 font-medium text-fg-strong">
+        <Row
+          key={project.id}
+          className="relative hover:bg-hover"
+          initials={Array.from(project.name).slice(0, 2).join("")}
+          title={
+            <button
+              type="button"
+              onClick={() => {
+                onOpen(project.id);
+              }}
+              className="cursor-pointer text-left after:absolute after:inset-0"
+            >
               {project.name}
-            </span>
-            <span className="text-caption text-fg-dim">
-              {project.threads} {project.threads === 1 ? "thread" : "threads"}
-            </span>
-          </button>
-        </li>
+            </button>
+          }
+          description={`${counted(project.repositories, "repository", "repositories")} · ${
+            project.coordinatorState === "archived"
+              ? "archived"
+              : counted(project.threads, "thread", "threads")
+          }`}
+        >
+          {project.needsYou > 0 && (
+            <Badge state="waiting">{project.needsYou} needs you</Badge>
+          )}
+        </Row>
       ))}
-    </ul>
+    </Rows>
   );
 }
 
@@ -840,16 +900,31 @@ function recentRepositories(sessions: readonly Session[]): string[] {
   return [...new Set(repositories)].slice(0, 8);
 }
 
-// A name, the repositories and a goal; the rest takes its defaults and is
-// changed behind the Project's gear (ADR 0040).
+function profileLabel(profile: Profile | undefined, team: boolean): string {
+  if (profile === undefined) {
+    return "The default Profile";
+  }
+
+  if (!profile.isDefault) {
+    return profile.name;
+  }
+
+  return `${profile.name} · ${team ? "team default" : "default"}`;
+}
+
+// A name, the repositories and a goal, with the Profile and model
+// preselected to the defaults; the rest takes its defaults and is changed
+// behind the Project's gear (ADR 0040).
 function CreateForm({
   environments,
   team,
   onCreated,
+  onCancel,
 }: {
   readonly environments: readonly Environment[];
   readonly team: boolean;
   readonly onCreated: (id: string) => void;
+  readonly onCancel: () => void;
 }): ReactElement {
   const api = useApi(projects);
 
@@ -865,22 +940,29 @@ function CreateForm({
       { topics: ["environments"] },
     ).value ?? [];
 
-  const [teamProfile] =
+  const profiles =
     useLoaded(
-      async () => api.get<Profile[]>("/api/profiles?scope=team"),
-      "team-profiles",
+      async () =>
+        api.get<Profile[]>(team ? "/api/profiles?scope=team" : "/api/profiles"),
+      team ? "team-profiles" : "profiles",
       { topics: ["profiles"] },
     ).value ?? [];
 
   const [repositories, setRepositories] = useState<readonly string[]>([]);
   const [environment, setEnvironment] = useState("");
+  const [profile, setProfile] = useState("");
   const [model, setModel] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string>();
   const offered = team ? teamEnvironments : environments;
   const chosen = offered.find(({ id }) => id === environment);
-
   const runsOn = chosen ?? offered[0];
+
+  const fallback =
+    profiles.find(({ isDefault }) => isDefault) ??
+    (team ? profiles[0] : undefined);
+
+  const profileShown = profiles.find(({ id }) => id === profile) ?? fallback;
 
   const models = pickerModels(runsOn?.models ?? [], {
     hidden: runsOn?.hiddenModels ?? [],
@@ -888,6 +970,7 @@ function CreateForm({
   });
 
   const picked = models.find(({ value }) => value === model);
+  const defaultModel = team ? "Team default" : "Default model";
 
   const submit = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -900,7 +983,7 @@ function CreateForm({
     const field = (name: string): string => {
       const value = data.get(name);
 
-      return typeof value === "string" ? value : "";
+      return typeof value === "string" ? value.trim() : "";
     };
 
     setCreating(true);
@@ -913,7 +996,8 @@ function CreateForm({
         repositories,
         environment: runsOn?.id ?? "",
         ...(model !== "" && { model }),
-        ...(team && { profile: teamProfile?.id ?? "" }),
+        ...(profileShown && { profile: profileShown.id }),
+        ...(field("first") !== "" && { firstMessage: field("first") }),
       })
       .then(
         (project) => {
@@ -930,76 +1014,139 @@ function CreateForm({
   };
 
   return (
-    <form
-      onSubmit={submit}
-      className={cn(cardClass, "project-create grid max-w-xl gap-3 p-5")}
-    >
-      <Field label="Name">
-        <TextInput name="name" required />
-      </Field>
-      <Field label="Goal">
-        <TextArea
-          name="goal"
-          rows={2}
-          placeholder="What is this Project for? Every thread sees it."
-        />
-      </Field>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <RepositoryField
-          label="Repositories"
-          selected={repositories}
-          recent={recentRepositories(sessions)}
-          team={team}
-          hint={
-            team
-              ? "Only repositories the team's bots reach."
-              : "Only repositories your logins reach."
-          }
-          onChange={setRepositories}
-        >
-          {repositories.length === 0 ? (
-            <span className="text-fg-dim">Pick repositories</span>
-          ) : (
-            repositories
-              .map((repository) => checkoutName(repository) ?? repository)
-              .join(", ")
-          )}
-        </RepositoryField>
-        {offered.length > 1 && (
-          <Picker
-            label="Environment"
-            options={offered.map(({ id, name }) => ({
-              value: id,
-              label: name,
-            }))}
-            selected={[chosen?.id ?? offered[0]?.id ?? ""]}
-            onChange={([id]) => {
-              setEnvironment(id ?? "");
-            }}
-          >
-            <span className="text-fg-dim">on </span>
-            {runsOn?.name}
-          </Picker>
-        )}
-        <ModelField
-          label="Model"
-          models={models}
-          selected={model}
-          none="Default model"
-          onPick={setModel}
-        >
-          {picked?.name ?? (model === "" ? "Default model" : model)}
-        </ModelField>
+    <form onSubmit={submit} className="project-create flex flex-col">
+      <div className="grid gap-4 px-6 pb-5">
+        <Field label="Name">
+          <TextInput name="name" required />
+        </Field>
+        <Field label="Goal">
+          <TextArea
+            name="goal"
+            rows={2}
+            placeholder="What is this Project for? Every thread sees it."
+          />
+        </Field>
+        <div className="flex flex-col gap-1.5">
+          <span className="text-label font-medium text-fg-strong">
+            Repositories
+          </span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <RepositoryField
+              label="Repositories"
+              selected={repositories}
+              recent={recentRepositories(sessions)}
+              team={team}
+              hint={
+                team
+                  ? "Only repositories the team's bots reach."
+                  : "Only repositories your logins reach."
+              }
+              onChange={setRepositories}
+            >
+              {repositories.length === 0 ? (
+                <span className="text-fg-dim">Add repositories</span>
+              ) : (
+                repositories
+                  .map((repository) => checkoutName(repository) ?? repository)
+                  .join(", ")
+              )}
+            </RepositoryField>
+            {offered.length > 1 && (
+              <Picker
+                label="Environment"
+                options={offered.map(({ id, name }) => ({
+                  value: id,
+                  label: name,
+                }))}
+                selected={[chosen?.id ?? offered[0]?.id ?? ""]}
+                onChange={([id]) => {
+                  setEnvironment(id ?? "");
+                  setModel("");
+                }}
+              >
+                <span className="text-fg-dim">on </span>
+                {runsOn?.name}
+              </Picker>
+            )}
+          </div>
+          <p className="text-caption text-fg-dim">
+            Each repository is checked out for the coordinator and its threads.
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-label font-medium text-fg-strong">
+              Profile
+            </span>
+            <Picker
+              label="Profile"
+              options={[
+                ...(team ? [] : [{ value: "", label: "The default Profile" }]),
+                ...profiles.map(({ id, name, isDefault }) => ({
+                  value: id,
+                  label: name,
+                  ...(isDefault && {
+                    detail: team ? "team default" : "default",
+                  }),
+                })),
+              ]}
+              selected={[profileShown?.id ?? ""]}
+              onChange={([id]) => {
+                setProfile(id ?? "");
+              }}
+            >
+              {profileLabel(profileShown, team)}
+            </Picker>
+            <p className="text-caption text-fg-dim">
+              {team
+                ? "Preselected. Only team Profiles are listed."
+                : "Preselected to your default."}
+            </p>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-label font-medium text-fg-strong">Model</span>
+            <ModelField
+              label="Model"
+              models={models}
+              selected={model}
+              none={defaultModel}
+              onPick={setModel}
+            >
+              {picked === undefined
+                ? model || defaultModel
+                : `${picked.name ?? picked.id} · ${picked.providerName}`}
+            </ModelField>
+            <p className="text-caption text-fg-dim">
+              {team
+                ? "With the team's keys."
+                : "The Profile's model unless you pick one."}
+            </p>
+          </div>
+        </div>
+        <Field label="First message to the coordinator">
+          <TextArea
+            name="first"
+            rows={3}
+            placeholder="Optional. Without one, the coordinator waits for you."
+          />
+        </Field>
+        <ErrorText size="caption">{error}</ErrorText>
+      </div>
+      <div className="flex items-center gap-2 border-t border-line px-6 py-4">
+        <span className="flex-1 text-caption text-fg-dim">
+          Opens in {team ? "Team › Projects" : "Projects"}
+        </span>
+        <Button variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
         <Button
           variant="primary"
           type="submit"
           disabled={creating || repositories.length === 0}
-          className="ml-auto"
         >
           Create Project
         </Button>
       </div>
-      <ErrorText size="caption">{error}</ErrorText>
     </form>
   );
 }
