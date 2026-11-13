@@ -100,12 +100,14 @@ export const web = defineWeb(projects, {
     {
       path: "team-assistant",
       label: "Team assistant",
+      icon: "star",
       Page: TeamAssistant,
       area: "hub",
     },
     {
       path: teamProjects,
       label: "Projects",
+      icon: "folder",
       Page: TeamProjectsPage,
       area: "hub",
       nav: { Items: TeamItems },
@@ -564,6 +566,14 @@ function Items({ path }: NavItemsProps): ReactElement {
   );
 }
 
+function teamTone(project: ProjectSummary): DotTone | undefined {
+  if (project.needsYou > 0) {
+    return "waiting";
+  }
+
+  return project.coordinatorState === "working" ? "working" : undefined;
+}
+
 // Under the team's main entries, its Projects that aren't archived.
 function TeamItems({ path }: NavItemsProps): ReactElement | null {
   const api = useApi(projects);
@@ -593,7 +603,7 @@ function TeamItems({ path }: NavItemsProps): ReactElement | null {
               }
               className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-fg hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:text-fg-strong"
             >
-              <StatusDot tone={project.needsYou > 0 ? "waiting" : "done"} />
+              <StatusDot tone={teamTone(project)} />
               <span className="flex min-w-0 flex-col">
                 <span className="truncate text-label font-medium">
                   {project.name}

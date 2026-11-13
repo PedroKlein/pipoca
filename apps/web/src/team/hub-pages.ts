@@ -24,6 +24,7 @@ interface Screen {
   readonly plugin: string;
   readonly key: string;
   readonly label: string;
+  readonly icon: IconName;
   readonly Page: ComponentType<PageProps>;
   readonly Items: ComponentType<NavItemsProps> | undefined;
 }
@@ -40,7 +41,7 @@ export function panels(): readonly Placed[] {
 
 export function screens(): readonly Screen[] {
   return enabledPlugins().flatMap(({ plugin: { id }, pages }) =>
-    (pages ?? []).flatMap(({ area, path, label, Page, nav }) =>
+    (pages ?? []).flatMap(({ area, path, label, icon, Page, nav }) =>
       area === "hub"
         ? [
             {
@@ -48,6 +49,7 @@ export function screens(): readonly Screen[] {
               plugin: id,
               key: path,
               label,
+              icon: icon ?? "panel-right",
               Page,
               Items: nav?.Items,
             },

@@ -6189,7 +6189,7 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
 
   await page
     .getByRole("navigation", { name: "Team" })
-    .getByRole("link", { name: "Team routines" })
+    .getByRole("link", { name: "Routines", exact: true })
     .click();
 
   await page

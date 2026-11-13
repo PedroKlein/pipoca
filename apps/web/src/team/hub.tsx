@@ -67,7 +67,7 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
     ...screens().map((each) => ({
       href: each.href,
       label: each.label,
-      icon: "panel-right" as const,
+      icon: each.icon,
       current: each === screen,
     })),
   ];

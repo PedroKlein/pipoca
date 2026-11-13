@@ -1,4 +1,5 @@
 import type { RepositoryChoice, Session } from "@pipoca/protocol";
+import type { IconName } from "@pipoca/ui";
 import {
   type ComponentType,
   createElement,
@@ -59,6 +60,7 @@ export interface WebPage {
   // Under the plugin's page, "" for the page itself.
   readonly path: string;
   readonly label: string;
+  readonly icon?: IconName;
   readonly Page: ComponentType<PageProps>;
   // In the sidebar. Pinned is for someone who never changed their pins. On
   // a hub page, Items list live work in the team's sidebar.

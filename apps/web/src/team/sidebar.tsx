@@ -20,7 +20,11 @@ import { matches } from "../notices";
 import { PluginBoundary } from "../plugin-boundary";
 import { href } from "../router";
 import { AccountMenu } from "../shell/account-menu";
-import { EnvironmentStatus, SidebarSession } from "../shell/sidebar-parts";
+import {
+  EnvironmentStatus,
+  ownedByEnabled,
+  SidebarSession,
+} from "../shell/sidebar-parts";
 import { WorkspaceSwitcher } from "../shell/workspace-switcher";
 
 export interface TeamEntry {
@@ -87,6 +91,7 @@ export function TeamSidebar({
   const shown = sessions.filter(
     (session) =>
       session.archivedAt === null &&
+      (query !== "" || !ownedByEnabled(session)) &&
       (!mine || session.startedBy === me.user.id) &&
       matches(session, query, environmentName(session)),
   );
@@ -240,26 +245,30 @@ export function TeamSidebar({
         </ul>
       </div>
 
-      {here.length > 0 && (
-        <div className="flex items-center gap-2 border-t border-line px-4 py-2.5">
-          <span className="flex -space-x-1.5">
-            {here.slice(0, 4).map((person) => (
-              <Avatar
-                key={person.id}
-                name={person.name}
-                size="xs"
-                className="bg-elevated text-fg-dim ring-2 ring-panel"
-              >
-                {Array.from(person.name).slice(0, 2).join("").toUpperCase()}
-              </Avatar>
-            ))}
-          </span>
-          <span className="text-caption text-fg-dim">
-            {String(here.length)} here now
-          </span>
-        </div>
-      )}
-      <EnvironmentStatus environments={environments} />
+      <EnvironmentStatus
+        environments={environments}
+        before={
+          here.length > 0 && (
+            <span className="flex shrink-0 items-center gap-2 pt-0.5">
+              <span className="flex -space-x-1.5">
+                {here.slice(0, 4).map((person) => (
+                  <Avatar
+                    key={person.id}
+                    name={person.name}
+                    size="xs"
+                    className="bg-elevated text-fg-dim ring-2 ring-panel"
+                  >
+                    {Array.from(person.name).slice(0, 2).join("").toUpperCase()}
+                  </Avatar>
+                ))}
+              </span>
+              <span className="text-caption text-fg-dim">
+                {String(here.length)} here now
+              </span>
+            </span>
+          )
+        }
+      />
       <AccountMenu user={me.user.name} />
     </nav>
   );
