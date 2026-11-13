@@ -238,3 +238,21 @@ test("a team Session points the team's providers at the proxy, with its token as
 
   expect(personal.provider("anthropic")).toBeUndefined();
 });
+
+test("/login in team work says the team's keys run it, instead of signing in", async () => {
+  await using t = await testPlugin(server, { people });
+
+  const team = await t.session({ owner: "team", startedBy: "ana" });
+  const part = await testSession(session, { request: team.api.raw });
+
+  const [told] = (await part.command("login", "")) as {
+    readonly content: string;
+  }[];
+
+  expect(told?.content).toContain("Team setup");
+
+  const mine = await t.session({ owner: person("ana") });
+  const personal = await testSession(session, { request: mine.api.raw });
+
+  expect(personal.command("login", "")).rejects.toThrow("no command login");
+});

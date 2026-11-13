@@ -10,9 +10,12 @@ import {
   type McpLoginStore,
   type TypedClient,
 } from "@pipoca/plugins";
-import type { Log } from "@pipoca/protocol";
+import { type Log, noticeType } from "@pipoca/protocol";
 import { logins } from "../plugin";
 import { type Lease, mcpKey, type Release } from "./model";
+
+const teamWorkLogins =
+  "Team work runs on the team's keys and keeps no personal logins. An admin adds a key in Team setup, under Credentials.";
 
 // The server answers busy after waiting a while for another runner's
 // refresh, so a few asks cover a slow one.
@@ -42,6 +45,24 @@ export const session = defineSession(logins, (s) => {
 
     for (const { provider, baseUrl } of proxy?.providers ?? []) {
       pi.registerProvider(provider, { baseUrl, apiKey: proxy?.token ?? "" });
+    }
+
+    if (proxy?.token !== undefined) {
+      for (const name of ["login", "logout"]) {
+        pi.registerCommand(name, {
+          description: "Team work runs on the team's keys",
+          handler: async () => {
+            pi.sendMessage({
+              customType: noticeType,
+              content: teamWorkLogins,
+              display: true,
+              details: { plugin: logins.id, kind: "team-login", data: {} },
+            });
+
+            return Promise.resolve();
+          },
+        });
+      }
     }
   });
 

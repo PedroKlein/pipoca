@@ -18,6 +18,7 @@ export function Toolbar({
   models,
   hiddenModels,
   modelMenu,
+  team,
   talk,
   target,
   onTarget,
@@ -33,6 +34,7 @@ export function Toolbar({
   readonly models: readonly ModelRef[];
   readonly hiddenModels: readonly string[];
   readonly modelMenu: RefObject<HTMLButtonElement | null>;
+  readonly team: boolean;
   readonly talk: boolean;
   readonly target: Target;
   readonly onTarget: (target: Target) => void;
@@ -66,14 +68,16 @@ export function Toolbar({
           onModel={(model) => {
             command(sessionId, { type: "set_model", model }).catch(report);
           }}
-          onLogin={() => {
-            command(sessionId, {
-              type: "message",
-              text: "/login",
-              requestId: crypto.randomUUID(),
-              delivery: "followUp",
-            }).catch(report);
-          }}
+          {...(!team && {
+            onLogin: () => {
+              command(sessionId, {
+                type: "message",
+                text: "/login",
+                requestId: crypto.randomUUID(),
+                delivery: "followUp",
+              }).catch(report);
+            },
+          })}
           onThinking={(level) => {
             command(sessionId, { type: "set_thinking", level }).catch(report);
           }}
