@@ -9,7 +9,7 @@ A Session is one full Pi conversation, with its own transcript, workspace, Profi
 
 ## Start one
 
-Open **New session**, type what Pi should do, pick a folder or paste a repository URL in the folder chip, and press Enter. The other chips pick the model and its reasoning level and, when you have more than one, the Environment and the Profile. On a team server, **Whose work** picks your own work or the team's ([Team work](team.md)). The composer remembers what you picked for next time.
+Open **New session**, type what Pi should do, pick a folder or paste a repository URL in the folder chip, and press Enter. The other chips pick the model and its reasoning level and, when you have more than one, the Environment and the Profile. On a team server, **Whose work** picks your own work or the team's ([Team work](team.md)). The composer remembers what you picked for next time. A repository on a [private host](../admin/private-hosts.md) starts only on an Environment that reaches it, and the Environment chip groups them by whether they reach it and picks one that does.
 
 ### Workspaces
 

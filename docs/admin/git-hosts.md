@@ -7,7 +7,7 @@ sidebar:
 
 ## Git hosts
 
-Admins list the git hosts people can connect in Settings > Git hosts (the `git-hosts` plugin, [ADR 0043](../adr/0043-git-hosts.md)). No host is listed until one is added. **Add GitHub** adds github.com, and **Add a host** takes a GitHub Enterprise host. **Set up Connect** registers an OAuth app on the host, so people get a Connect button instead of pasting a token; its callback is `<url>/api/ext/git-hosts/callback`. The hosts and their OAuth apps are kept in `pipoca.json` under `git-hosts.hosts`.
+Admins list the git hosts people can connect in Settings > Git hosts (the `git-hosts` plugin, [ADR 0043](../adr/0043-git-hosts.md)). No host is listed until one is added. **Add GitHub** adds github.com, and **Add a host** takes a GitHub Enterprise host. **Set up Connect** registers an OAuth app on the host, so people get a Connect button instead of pasting a token; its callback is `<url>/api/ext/git-hosts/callback`. The hosts and their OAuth apps are kept in `pipoca.json` under `git-hosts.hosts`. A host inside your company network is marked with its **Private host** switch, and Pipoca then reaches it through an Environment that can ([Private hosts](private-hosts.md)).
 
 Each person connects their own account in Settings > Accounts, and their Sessions then clone, push, use `gh` and install Profile packages as them. There they pick the name and email their Sessions commit as on each host they connected, from the emails the host verified, plus a default for repositories on other hosts. Connect asks for the `user:email` scope to list those emails; with a pasted token that lacks it, the account's public email is offered.
 
