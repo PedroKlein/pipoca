@@ -918,15 +918,26 @@ test("tells a Session where the person connects a git host when they have none, 
   });
 });
 
-test("offers repository search only to a person's Sessions, and watching to team work too", async () => {
+test("tells a team Session that no bot reaches a host, never searching as its starter", async () => {
   await using run = await start();
-  const { t } = run;
+  const { t, fake } = run;
 
+  await connected(t);
   const team = await t.session({ owner: "team", startedBy: "pedro" });
+  const asked = fake.asked.length;
 
   expect(
-    t.tool("git_hosts_repositories", {}, { session: team }),
-  ).rejects.toThrow("isn't offered");
+    await t.tool(
+      "git_hosts_repositories",
+      { query: "aicore" },
+      { session: team },
+    ),
+  ).toEqual({
+    isError: false,
+    text: "No bot signs team work in to a git host, so it reaches no repository. An admin picks one in Settings, under Git hosts, in Bots.",
+  });
+
+  expect(fake.asked).toHaveLength(asked);
 
   for (const name of ["git_hosts_watch", "git_hosts_unwatch"]) {
     expect(
@@ -1700,6 +1711,26 @@ test("team work reaches only what the team's GitHub App is installed on", async 
   expect(
     (await t.session({ owner: "team", startedBy: "pedro" })).gitLogins(),
   ).toEqual([{ host, token: "ghs_installation" }]);
+});
+
+test("finds a team Session only the repositories the team's bot reaches", async () => {
+  await using run = await start();
+  const { t } = run;
+
+  await connected(t);
+  await createApp(t);
+  await t.as("pedro").patch("technical-users/pipoca-bot", { team: true });
+
+  const team = await t.session({ owner: "team", startedBy: "pedro" });
+
+  const { text } = await t.tool(
+    "git_hosts_repositories",
+    { query: "aicore" },
+    { session: team },
+  );
+
+  expect(text).toContain(`acme/aicore-bot https://${host}/acme/aicore-bot.git`);
+  expect(text).not.toContain("acme/aicore-provider");
 });
 
 test("a pull request whose host answers with a page instead of JSON doesn't stop the others' news", async () => {
