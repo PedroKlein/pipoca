@@ -287,8 +287,8 @@ async function podTemplate(route: Route): Promise<void> {
   });
 }
 
-// The first admin goes through the server's setup, then their own, with
-// Back from their own into the server's (ADR 0072).
+// The first admin goes through the server's setup, then their own, and
+// once the server's is finished Back no longer leads into it.
 async function setUpServerAndPerson(): Promise<void> {
   const setup = page.getByRole("banner");
 
@@ -413,10 +413,11 @@ async function setUpServerAndPerson(): Promise<void> {
 
   await welcome.waitFor();
   await setup.getByText("Your setup").waitFor();
-  await page.getByRole("button", { name: "Back" }).click();
-  await page.getByRole("heading", { name: "What new people get" }).waitFor();
-  await finish.click();
-  await welcome.waitFor();
+
+  expect(await page.getByRole("button", { name: "Back" }).isDisabled()).toBe(
+    true,
+  );
+
   await page.getByRole("button", { name: "Start" }).click();
 
   // No git host is listed yet, which isn't done until the person goes on

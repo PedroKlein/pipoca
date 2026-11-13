@@ -65,7 +65,7 @@ There are three kinds, and setup keeps them apart:
 ### Every step shows
 
 - No step is skipped behind a person's back. What the server or the team already chose is preselected, so the step takes one click and can still be changed.
-- Every step has Back, including from your setup back into server setup for the admin.
+- Every step has Back. Server setup is done once: after it is finished, an admin's setup doesn't lead back into it, and the server's answers change in Team setup (amended 2026-11-13).
 - Skip exists only on steps that have no answer yet. A skipped step comes back as a reminder on home, as ADR 0063 says.
 - An admin can mark a whole step required for new people. Required applies to a whole step, never to one provider or host, and the plugin decides what done means for its own step.
 

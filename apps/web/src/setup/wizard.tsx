@@ -27,7 +27,7 @@ const phaseOf = (screen: Screen | undefined): Phase =>
 const asScreen = (step: WizardStep): Screen => ({ kind: "step", step });
 
 // A full-screen setup after the account step on the sign-in page (ADR 0063).
-// An admin goes through the server's setup first, then their own like
+// An admin goes through the server's setup once, then their own like
 // everyone else (ADR 0072). Every step shows, with Back, and what the team
 // already answered comes preselected.
 export function SetupWizard({
@@ -53,8 +53,13 @@ export function SetupWizard({
   const team = admin ? !solo : shared;
   const people = personSteps(solo);
 
+  // A link can still open a server step, such as a plugin's flow coming back.
+  const inServer =
+    admin &&
+    (server?.finished === false || start?.startsWith("server:") === true);
+
   const screens: readonly Screen[] = [
-    ...(admin ? serverSteps({ solo, install }).map(asScreen) : []),
+    ...(inServer ? serverSteps({ solo, install }).map(asScreen) : []),
     ...(team ? [{ kind: "welcome" } as const] : []),
     ...people.map(asScreen),
     { kind: "ready" },
