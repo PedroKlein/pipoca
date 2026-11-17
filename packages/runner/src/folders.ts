@@ -174,6 +174,12 @@ function installHint(
   source: string,
   logins: readonly GitLogin[],
 ): string {
+  const program = /Executable not found in \$PATH: "([^"]+)"/.exec(error)?.[1];
+
+  if (program !== undefined) {
+    return `${error}\n\nInstall ${program} on this machine for the user that runs pipoca, then restart pipoca so it finds it.`;
+  }
+
   const host =
     /^(?:git:(?:git@)?|(?:https?|ssh):\/\/(?:[^@/]+@)?|git@)([^/:]+)/.exec(
       source,
