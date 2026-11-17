@@ -256,7 +256,8 @@ test("the list shows each routine's place, chain, schedule, last run and action,
     title: "Triage new issues",
     paused: null,
     pausedUntil: null,
-    nextAt: "2026-11-09T07:00:00.000Z",
+    // Times within a few days show as a weekday, so the next run stays near.
+    nextAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
     lastRun: {
       id: "r1",
       firedAt: "2026-11-08T07:00:00.000Z",
