@@ -42,7 +42,7 @@ export const projectList = "all";
 // Each person's assistant is a Project of their own, and the Team assistant
 // one each person has for team work (ADR 0052, ADR 0067). Undefined while
 // loading, null before the person's first ask.
-function useAssistant(team = false): ProjectView | null | undefined {
+export function useAssistant(team = false): ProjectView | null | undefined {
   const api = useApi(projects);
 
   return useLoaded(
@@ -56,20 +56,24 @@ function useAssistant(team = false): ProjectView | null | undefined {
   ).value;
 }
 
-// Undefined while loading, null when there is no Environment to run on.
-function useModels(
-  scope: "" | "team",
-): readonly PickerModel[] | null | undefined {
+export function useEnvironments(
+  team: boolean,
+): readonly Environment[] | undefined {
   const api = useApi(projects);
 
-  const environments = useLoaded(
+  return useLoaded(
     async () =>
       api.get<Environment[]>(
-        scope === "team" ? "/api/environments?scope=team" : "/api/environments",
+        team ? "/api/environments?scope=team" : "/api/environments",
       ),
-    `environments-${scope}`,
+    team ? "team-environments" : "environments",
     { topics: ["environments"] },
   ).value;
+}
+
+// Undefined while loading, null when there is no Environment to run on.
+function useModels(team: boolean): readonly PickerModel[] | null | undefined {
+  const environments = useEnvironments(team);
 
   return (
     environments &&
@@ -95,7 +99,7 @@ export function Home({
   readonly onNewSession: () => void;
 }): ReactElement {
   const assistant = useAssistant();
-  const models = useModels("");
+  const models = useModels(false);
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-12 md:py-24">
@@ -132,7 +136,7 @@ export function Home({
 // it the first thing before it exists (ADR 0052).
 export function Opening(): ReactElement {
   const assistant = useAssistant();
-  const models = useModels("");
+  const models = useModels(false);
 
   useEffect(() => {
     if (assistant) {
@@ -272,25 +276,10 @@ export function Earlier({ path }: { readonly path: string }): ReactElement {
   );
 }
 
-// Each person's Team assistant, opened only from the team hub. Its chat is
-// theirs alone, and what it starts belongs to the team (ADR 0067).
-export function TeamAssistant(): ReactElement {
-  const project = useAssistant(true);
-  const models = useModels("team");
-
-  if (project === undefined) {
-    return <></>;
-  }
-
-  if (project !== null) {
-    return (
-      <SessionView
-        sessionId={project.coordinatorId}
-        layout="full"
-        title="Team assistant"
-      />
-    );
-  }
+// Asks each person's Team assistant the first thing before it exists. Its
+// chat is theirs alone, and what it starts belongs to the team (ADR 0067).
+export function TeamOpening(): ReactElement {
+  const models = useModels(true);
 
   // It fills the team area, so it scrolls itself.
   return (

@@ -6647,6 +6647,40 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
     .waitFor();
 }, 30_000);
 
+test("opens the Team assistant as the same Project page as a person's own assistant", async () => {
+  await page.goto(server.url.href);
+
+  const signedIn = (await page.context().cookies()).find(
+    ({ name }) => name === "pipoca-session",
+  );
+
+  const current = `${signedIn?.name ?? ""}=${signedIn?.value ?? ""}`;
+
+  const assistant = (await (
+    await fetch(new URL("/api/ext/projects/team/assistant", server.url), {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: current },
+      body: JSON.stringify({ text: "What is the team doing?" }),
+    })
+  ).json()) as { id: string };
+
+  await page.goto(
+    new URL(`/#team/plugin/projects/projects/${assistant.id}`, server.url).href,
+  );
+
+  await page.waitForURL("**/#team/plugin/projects/team-assistant/");
+  await page.getByRole("button", { name: "Project settings" }).click();
+  await page.waitForURL("**/#team/plugin/projects/team-assistant/settings");
+
+  const settings = page.getByRole("complementary", {
+    name: "Project settings",
+  });
+
+  await settings.getByLabel("Name").waitFor();
+  await settings.getByRole("region", { name: "Memory" }).waitFor();
+  await page.getByRole("button", { name: "Project folder" }).waitFor();
+});
+
 test("shows plugin panels on the team hub and lets an admin lay out a page of them", async () => {
   await page.goto(new URL("/#team", server.url).href);
 
