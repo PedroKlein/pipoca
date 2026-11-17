@@ -60,7 +60,7 @@ Pods run Sessions as processes, so the Environment's isolation must be `process`
 
 ## Runners outside the cluster
 
-Agents on other machines, such as people's laptops, join with an Environment's key as on any server: `PIPOCA_KEY=pck_… pipoca agent --server https://pipoca.example.com`. They need to reach `/runner` through your gateway.
+Agents on other machines, such as people's laptops, join with the command an Environment's page shows, as on any server ([Join a machine](../admin/environments.md#join-a-machine)). They need to reach `/runner` through your gateway.
 
 ## On Kyma
 

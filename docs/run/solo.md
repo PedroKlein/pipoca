@@ -9,7 +9,7 @@ A solo install is a Pipoca server for one person, on their own machine ([ADR 005
 
 ## Install
 
-Install it with Homebrew, `brew install pedroklein/pipoca/pipoca`, or take the binary for your system from a [release](https://github.com/PedroKlein/pipoca/releases). The [desktop app](desktop-and-phone.md) does the same as this page without a terminal.
+Install it with `curl -fsSL https://pipoca.dev/install.sh | sh`, with Homebrew (`brew install pedroklein/pipoca/pipoca`), or take the binary for your system from a [release](https://github.com/PedroKlein/pipoca/releases). The [desktop app](desktop-and-phone.md) does the same as this page without a terminal.
 
 ## Start it
 

@@ -82,16 +82,20 @@ sign-in link. Only your own system user can ask.`,
   },
   {
     name: "service",
-    summary: "start pipoca up or pipoca connect at every login",
+    summary: "start pipoca up, pipoca connect or pipoca agent at every login",
     usage: `pipoca service install up [up's options]
 pipoca service install connect <user@host> [connect's options]
+PIPOCA_KEY=<Environment key> pipoca service install agent [agent's options]
 pipoca service uninstall`,
     about: `Installs a launchd agent on macOS or a systemd user unit on Linux that
 runs the command at login and starts it again when it stops. It opens no
 browser; get a link with pipoca link. Folders default to the folder you
-install it from.`,
+install it from. One service per user: installing another replaces it.`,
     options: [],
-    examples: ["cd ~/code && pipoca service install up"],
+    examples: [
+      "cd ~/code && pipoca service install up",
+      "PIPOCA_KEY=pck_… pipoca service install agent --server https://pipoca.example",
+    ],
   },
   {
     name: "server",

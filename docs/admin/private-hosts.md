@@ -24,7 +24,7 @@ The list is kept in `pipoca.json` under `privateHosts.hosts`, each as `{ "host":
 Each person who works on the host connects a VM or laptop on that network as one of their Environments. The join command in Settings > Environments, and the **Where should Pi work** step of setup, offer a checkbox for each listed host and add its `--reach`:
 
 ```sh
-PIPOCA_KEY=pck_… pipoca agent --server https://pipoca.example.com --reach github.acme.internal
+curl -fsSL https://pipoca.dev/install.sh | PIPOCA_VERSION=0.1.4 PIPOCA_KEY=pck_… sh -s -- service install agent --server https://pipoca.example.com --reach github.acme.internal
 ```
 
 `--reach` is the machine owner's consent. The machine relays only to the hosts named there, and the server can't add more. Names are exact, with no wildcards, IP addresses or `localhost`. A name that resolves to a loopback or link-local address counts as not reached. The agent checks each one with a TLS connection at start and every 5 minutes.

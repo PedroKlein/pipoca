@@ -9,7 +9,10 @@ const label = "dev.pipoca";
 // launchd agent on macOS and a systemd user unit elsewhere (ADR 0053).
 interface Manager {
   readonly path: string;
-  readonly unit: (command: readonly string[], path: string) => string;
+  readonly unit: (
+    command: readonly string[],
+    environment: Readonly<Record<string, string>>,
+  ) => string;
   readonly start: readonly (readonly string[])[];
   readonly stop: readonly (readonly string[])[];
 }
@@ -41,15 +44,19 @@ function manager(): Manager {
 // Runs the command at every login, and again whenever it exits with an
 // error. One unit per user: installing again replaces it. It keeps the PATH
 // it was installed from, since a login service starts with a bare one that
-// misses tools such as docker.
+// misses tools such as docker. The unit can hold an agent's join key, so
+// only its user may read it.
 export async function installService(
   command: readonly string[],
+  secrets: Readonly<Record<string, string>> = {},
 ): Promise<string> {
   const { path, unit, start, stop } = manager();
+  const environment = { PATH: process.env["PATH"] ?? "", ...secrets };
 
   await mkdir(dirname(path), { recursive: true });
   await runAll(stop, false);
-  await writeFile(path, unit(command, process.env["PATH"] ?? ""));
+  await rm(path, { force: true });
+  await writeFile(path, unit(command, environment), { mode: 0o600 });
   await runAll(start, true);
 
   return path;
@@ -84,14 +91,20 @@ async function runAll(
   }
 }
 
-function systemdUnit(command: readonly string[], path: string): string {
+function systemdUnit(
+  command: readonly string[],
+  environment: Readonly<Record<string, string>>,
+): string {
+  const variables = Object.entries(environment).map(
+    ([name, value]) => `Environment=${systemdWord(`${name}=${value}`)}\n`,
+  );
+
   return `[Unit]
 Description=Pipoca
 After=network-online.target
 
 [Service]
-Environment=${systemdWord(`PATH=${path}`)}
-ExecStart=${command.map(systemdWord).join(" ")}
+${variables.join("")}ExecStart=${command.map(systemdWord).join(" ")}
 Restart=on-failure
 RestartSec=5
 
@@ -109,7 +122,15 @@ function systemdWord(word: string): string {
     : `"${escaped.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
 
-function launchdAgent(command: readonly string[], path: string): string {
+function launchdAgent(
+  command: readonly string[],
+  environment: Readonly<Record<string, string>>,
+): string {
+  const variables = Object.entries(environment).map(
+    ([name, value]) =>
+      `    <key>${xml(name)}</key>\n    <string>${xml(value)}</string>\n`,
+  );
+
   const log = join(homedir(), "Library", "Logs", "pipoca.log");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -124,9 +145,7 @@ ${command.map((word) => `    <string>${xml(word)}</string>`).join("\n")}
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PATH</key>
-    <string>${xml(path)}</string>
-  </dict>
+${variables.join("")}  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>

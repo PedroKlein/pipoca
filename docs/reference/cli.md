@@ -55,13 +55,16 @@ Prints a link that signs you in to the server `pipoca up` started on this machin
 
 ## `pipoca service`
 
-Starts `pipoca up` or `pipoca connect` at every login. It installs a launchd agent on macOS (`~/Library/LaunchAgents/dev.pipoca.plist`) or a systemd user unit on Linux (`~/.config/systemd/user/pipoca.service`) that runs the command at login and starts it again when it stops. It opens no browser; get a link with `pipoca link`. Folders default to the folder you install it from.
+Starts `pipoca up`, `pipoca connect` or `pipoca agent` at every login. It installs a launchd agent on macOS (`~/Library/LaunchAgents/dev.pipoca.plist`) or a systemd user unit on Linux (`~/.config/systemd/user/pipoca.service`) that runs the command at login and starts it again when it stops. It opens no browser; get a link with `pipoca link`. Folders default to the folder you install it from. One service per user: installing another replaces it.
 
 ```text
 pipoca service install up [up's options]
 pipoca service install connect <user@host> [connect's options]
+PIPOCA_KEY=<Environment key> pipoca service install agent [agent's options]
 pipoca service uninstall
 ```
+
+An agent's service keeps its key in the unit, which only your user can read. A systemd user unit stops when you log out unless lingering is on (`loginctl enable-linger "$USER"`).
 
 ## `pipoca server`
 
