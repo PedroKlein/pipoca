@@ -1298,8 +1298,12 @@ test("keeps a setup step on home until it's done, and opens it from there", asyn
   const command = page.getByLabel("Join command");
   await command.filter({ hasText: "PIPOCA_KEY=pck_" }).waitFor();
 
+  expect(await command.textContent()).toMatch(
+    /^curl -fsSL https:\/\/pipoca\.dev\/install\.sh \| PIPOCA_VERSION=\S+ PIPOCA_KEY=pck_\S+ sh -s -- service install agent --server /,
+  );
+
   expect(await command.textContent()).toEndWith(
-    `pipoca agent --server ${server.url.origin}`,
+    `--server ${server.url.origin}`,
   );
 
   phase = "no models";
