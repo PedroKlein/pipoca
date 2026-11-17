@@ -63,12 +63,11 @@ Sessions in your laptop's Environment run only while `connect` is running. A Ses
 
 ## Update it
 
-The running server keeps its binary busy, so put the new one next to it and move it into place, then restart the service:
+The install script moves the new binary into place, so it's safe to run while the server is running. Point it at the folder `connect` installed into, then restart the service:
 
 ```sh
-ssh me@my-vm 'curl -fsSL -o ~/.pipoca/bin/pipoca.new https://github.com/PedroKlein/pipoca/releases/download/v<version>/pipoca-linux-x64 \
-  && chmod +x ~/.pipoca/bin/pipoca.new && mv ~/.pipoca/bin/pipoca.new ~/.pipoca/bin/pipoca \
+ssh me@my-vm 'curl -fsSL https://pipoca.dev/install.sh | PIPOCA_VERSION=<version> PIPOCA_BIN_DIR=~/.pipoca/bin sh \
   && systemctl --user restart pipoca'
 ```
 
-Use `pipoca-linux-arm64` on an ARM VM, and update `pipoca` on your laptop to the same version. Running Sessions are interrupted and reload from their transcript; a tool that was running is recorded as interrupted by a restart. See [Upgrading](../admin/upgrading.md).
+Update `pipoca` on your laptop to the same version. Running Sessions are interrupted and reload from their transcript; a tool that was running is recorded as interrupted by a restart. See [Upgrading](../admin/upgrading.md).

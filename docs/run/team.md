@@ -56,7 +56,7 @@ A browser stays signed in for 30 days. Ten wrong passwords for a name from one a
 
 Each person's Sessions run on runners only they use, so one person's credentials never share a machine with another's ([ADR 0049](../adr/0049-personal-environments-and-templates.md)):
 
-- **Their own machine.** A person makes an Environment in Settings > Environments and starts `pipoca agent` with the key it shows. The runner connects out to the server, so the machine needs no open port.
+- **Their own machine.** A person makes an Environment in Settings > Environments and runs the command it shows there, which installs `pipoca` and starts the agent with the Environment's key. The runner connects out to the server, so the machine needs no open port.
 - **A template.** Admins share an Environment's settings as a template, and each person makes their own Environment from it, with their own secrets and runners.
 - **Pods.** With the `kubernetes` plugin, a pod template starts runner pods for each person's Environment on demand.
 

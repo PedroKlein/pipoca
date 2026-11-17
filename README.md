@@ -80,12 +80,14 @@ Pipoca keeps Pi as Pi. Sessions load real Pi packages, skills and extensions, an
 
 ## Quick start
 
-With [Homebrew](https://brew.sh) on macOS or Linux, install `pipoca` and run it in the folder with your code:
+Install `pipoca` on macOS or Linux and run it in the folder with your code:
 
 ```sh
-brew install pedroklein/pipoca/pipoca
+curl -fsSL https://pipoca.dev/install.sh | sh
 cd ~/code && pipoca up
 ```
+
+Or with [Homebrew](https://brew.sh): `brew install pedroklein/pipoca/pipoca`.
 
 Your browser opens signed in. Start a Session, pick a folder, say what Pi should do, and log in to a model provider once with `/login`. The [Quick start](https://pipoca.dev/docs/get-started/quick-start/) walks through it, including the release binaries.
 

@@ -455,6 +455,66 @@ test("service install runs up at login as a solo server with systemd, and uninst
   }
 });
 
+test("service install agent keeps the join key in a unit only its user reads", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "pipoca-service-")));
+  const bin = join(root, "bin");
+  await mkdir(bin);
+  await executable(join(bin, "systemctl"), "#!/bin/sh\n");
+
+  const run = async (key: string | undefined): Promise<number | null> => {
+    const { PIPOCA_KEY: _, ...inherited } = process.env;
+
+    const child = spawn(
+      process.execPath,
+      [
+        main,
+        "service",
+        "install",
+        "agent",
+        "--server",
+        "https://pipoca.example",
+      ],
+      {
+        cwd: root,
+        env: {
+          ...inherited,
+          HOME: root,
+          PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+          ...(key !== undefined && { PIPOCA_KEY: key }),
+        },
+        stdio: "ignore",
+      },
+    );
+
+    const [code] = (await once(child, "exit")) as [number | null];
+
+    return code;
+  };
+
+  try {
+    const unitPath = join(root, ".config", "systemd", "user", "pipoca.service");
+    const withoutKey = await run(undefined);
+    const withKey = await run("pck_secret");
+    const unit = await readFile(unitPath, "utf8");
+
+    expect({
+      withoutKey,
+      withKey,
+      key: unit.split("\n").find((line) => line.includes("PIPOCA_KEY")),
+      execStart: unit.split("\n").find((line) => line.startsWith("ExecStart=")),
+      mode: (await stat(unitPath)).mode & 0o777,
+    }).toEqual({
+      withoutKey: 2,
+      withKey: 0,
+      key: "Environment=PIPOCA_KEY=pck_secret",
+      execStart: `ExecStart=${process.execPath} --config=${bunfig} ${main} agent --folder ${root} --server https://pipoca.example`,
+      mode: 0o600,
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("service uninstall says so when no service is installed", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "pipoca-service-")));
   const bin = join(root, "bin");

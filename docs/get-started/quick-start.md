@@ -9,13 +9,21 @@ This gets Pipoca running on your own laptop, for you alone, and starts a first S
 
 ## 1. Install it
 
-With [Homebrew](https://brew.sh) on macOS or Linux:
+On macOS or Linux, such as Ubuntu:
+
+```sh
+curl -fsSL https://pipoca.dev/install.sh | sh
+```
+
+The script downloads the latest [release](https://github.com/PedroKlein/pipoca/releases) for your system, checks it against the release's `SHA256SUMS` and puts it in `~/.local/bin`. It needs `curl`. Set `PIPOCA_VERSION` for another release, `PIPOCA_BIN_DIR` for another folder, or `PIPOCA_RELEASES` to download from a mirror. Run it again to update.
+
+Or with [Homebrew](https://brew.sh):
 
 ```sh
 brew install pedroklein/pipoca/pipoca
 ```
 
-Or take the binary for your system from a [release](https://github.com/PedroKlein/pipoca/releases). To build from source instead, see [Contributing](https://github.com/PedroKlein/pipoca/blob/main/CONTRIBUTING.md).
+Or take the binary for your system from a release yourself. To build from source instead, see [Contributing](https://github.com/PedroKlein/pipoca/blob/main/CONTRIBUTING.md).
 
 ### Or use the desktop app
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { existsSync } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { homedir, hostname, userInfo } from "node:os";
@@ -374,9 +375,10 @@ switch (command) {
     break;
   }
 
-  // Runs `pipoca up` or `pipoca connect` at every login. A service opens no
-  // browser: `up` runs as the solo server it starts, and `connect` with
-  // --no-open. Folders resolve against where it was installed from.
+  // Runs `pipoca up`, `pipoca connect` or `pipoca agent` at every login. A
+  // service opens no browser: `up` runs as the solo server it starts, and
+  // `connect` with --no-open. Folders resolve against where it was installed
+  // from, and an agent keeps the key it was installed with.
   case "service": {
     const [action, what, ...options] = rest;
 
@@ -392,7 +394,13 @@ switch (command) {
       break;
     }
 
-    if (action !== "install" || (what !== "up" && what !== "connect")) {
+    const key = process.env["PIPOCA_KEY"];
+
+    if (
+      action !== "install" ||
+      !(what === "up" || what === "connect" || what === "agent") ||
+      (what === "agent" && key === undefined)
+    ) {
       process.stderr.write(`${help(command) ?? overview()}\n`);
       process.exit(2);
     }
@@ -401,12 +409,30 @@ switch (command) {
       ? []
       : ["--folder", process.cwd()];
 
-    const unit =
-      what === "up"
-        ? [...pipoca, "server", "--solo", ...folders, ...options]
-        : [...pipoca, "connect", "--no-open", ...folders, ...options];
+    const unit = {
+      up: [...pipoca, "server", "--solo", ...folders, ...options],
+      connect: [...pipoca, "connect", "--no-open", ...folders, ...options],
+      agent: [...pipoca, "agent", ...folders, ...options],
+    }[what];
 
-    process.stdout.write(`installed ${await installService(unit)}\n`);
+    const path = await installService(
+      unit,
+      what === "agent" && key !== undefined ? { PIPOCA_KEY: key } : {},
+    );
+
+    process.stdout.write(`installed ${path}\n`);
+
+    const { username } = userInfo();
+
+    if (
+      process.platform === "linux" &&
+      !existsSync(join("/var/lib/systemd/linger", username))
+    ) {
+      process.stdout.write(
+        `It stops when you log out, unless lingering is on: loginctl enable-linger ${username}\n`,
+      );
+    }
+
     break;
   }
 

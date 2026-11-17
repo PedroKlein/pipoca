@@ -11,7 +11,15 @@ A new Session runs in the Environment it names, as a Project's Sessions name the
 
 ## Join a machine
 
-In Settings > Environments, make an Environment, such as one named `laptop`. The page shows its key once, in the command that starts an agent:
+In Settings > Environments, make an Environment, such as one named `laptop`. The page shows its key once, in a command to run on the machine, in the folder Sessions should work in:
+
+```sh
+curl -fsSL https://pipoca.dev/install.sh | PIPOCA_VERSION=0.1.4 PIPOCA_KEY=pck_… sh -s -- service install agent --server https://pipoca.example.com
+```
+
+It installs the server's own version of `pipoca`, since a runner of another version can't join, and starts the agent as a service that runs at login and starts again when it stops (see [`pipoca service`](../reference/cli.md#pipoca-service)). On a Linux VM, turn lingering on so it keeps running while you're logged out: `loginctl enable-linger "$USER"`, then `journalctl --user -u pipoca -f` shows its log.
+
+With `pipoca` already installed, start the agent in the foreground instead:
 
 ```sh
 PIPOCA_KEY=pck_… pipoca agent --name laptop --server https://pipoca.example.com --folder ~/code
