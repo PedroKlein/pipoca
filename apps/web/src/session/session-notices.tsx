@@ -1,7 +1,8 @@
-import type { OpenedPage } from "@pipoca/protocol";
-import { Button, Icon } from "@pipoca/ui";
+import type { OpenedPage, Session } from "@pipoca/protocol";
+import { Button, Code, ErrorText, Icon, Notice } from "@pipoca/ui";
 import { type ReactElement, useEffect, useRef, useState } from "react";
-import { command } from "../data/client";
+import { command, request } from "../data/client";
+import { useAction } from "../data/hooks";
 import { addressHref, navigate } from "../router";
 import type { Feed } from "./feed";
 import { pageLink } from "./page-link";
@@ -141,5 +142,51 @@ export function PiViewNotice({
         Open Pi view
       </Button>
     </p>
+  );
+}
+
+// Why a Session didn't start, in full, and a way to start it again in place.
+export function StartFailedNotice({
+  session,
+}: {
+  readonly session: Session;
+}): ReactElement | null {
+  const retry = useAction(async () =>
+    request("sessions.retry", { params: { id: session.id } }),
+  );
+
+  if (session.status !== "failed") {
+    return null;
+  }
+
+  return (
+    <div className="mx-auto w-full max-w-chat px-4 pb-2">
+      <Notice
+        tone="failed"
+        title="This Session couldn't start"
+        action={
+          <Button
+            disabled={retry.pending}
+            onClick={() => {
+              void retry.run();
+            }}
+          >
+            <Icon name="rotate-ccw" />
+            Retry
+          </Button>
+        }
+      >
+        {session.error !== null && (
+          <Code
+            wrap
+            label="Start error"
+            className="mt-2 max-h-60 overflow-y-auto"
+          >
+            {session.error}
+          </Code>
+        )}
+        <ErrorText className="mt-2">{retry.error}</ErrorText>
+      </Notice>
+    </div>
   );
 }

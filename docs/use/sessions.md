@@ -46,6 +46,10 @@ Slash commands from Pi and from the Session's Profile work as in Pi, such as `/l
 
 The **Pi** tab shows Pi's own terminal UI for the Session, so extensions that only work in a terminal work there too ([ADR 0027](../adr/0027-pi-tui-view.md)). **Terminal** opens a shell in the Session's folder, or in its container when the Environment runs Sessions in containers. Terminals survive reloads ([ADR 0026](../adr/0026-terminals-that-survive.md)).
 
+## When a Session doesn't start
+
+A Session that couldn't start, such as when a package of its Profile didn't install, says why above the composer, in full. Fix the cause, then press **Retry** to start the same Session again, with its workspace and chat. A package from a git host that the machine can't reach, or that needs a login you haven't connected, says which.
+
 ## Come back later
 
 To come back to something later, such as CI that is still running, Pi schedules a wake-up with `schedule_wakeup` (the `routines` plugin, [ADR 0059](../adr/0059-routines-and-wake-ups.md)) instead of sleeping. At that time the Session gets Pi's message as a new turn, shown as **Woke up** with its reason. A wake-up is 1 minute to 30 days ahead, a Session has at most 10 pending and 48 a day, and archiving the Session cancels them. Pending wake-ups are listed above the composer, where you can cancel one.

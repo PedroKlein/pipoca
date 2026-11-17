@@ -218,6 +218,44 @@ test("a package that can't be installed stops the Session, naming it", async () 
   expect(failed.error).toContain(`package ${missing} failed to install`);
 });
 
+test("a Session that failed to start starts again on retry", async () => {
+  const kit = join(root, "late-kit");
+  const session = await sessionWith({ packages: [kit] });
+
+  await sessionUntil(session.id, ({ status }) => status === "failed");
+
+  await mkdir(join(kit, "extensions"), { recursive: true });
+
+  await writeFile(
+    join(kit, "package.json"),
+    JSON.stringify({ name: "kit", pi: { extensions: ["./extensions"] } }),
+  );
+
+  await writeFile(
+    join(kit, "extensions", "kit.ts"),
+    "export default () => {};",
+  );
+
+  const retried = await json<Session>(
+    server.api(`/api/sessions/${session.id}/retry`, { method: "POST" }),
+  );
+
+  expect(retried).toMatchObject({ status: "queued", error: null });
+
+  await sessionUntil(session.id, ({ status }) => status === "idle");
+});
+
+test("only a failed Session can be retried", async () => {
+  const session = await sessionWith({});
+  await sessionUntil(session.id, ({ status }) => status === "idle");
+
+  const retried = await server.api(`/api/sessions/${session.id}/retry`, {
+    method: "POST",
+  });
+
+  expect(retried.status).toBe(409);
+});
+
 test("a machine deletes a deleted Profile's folder once its Sessions stop", async () => {
   const session = await sessionWith({ agentsMd: "Be brief." });
   await sessionUntil(session.id, ({ status }) => status === "idle");
@@ -290,7 +328,12 @@ test("a git package that fails says what git said, and which host to connect", a
     ({ status }) => status === "failed",
   );
 
-  expect(failed.error).toContain(`package ${source} failed to install`);
+  expect(failed.error).toStartWith(`package ${source} failed to install: `);
+  expect(failed.error).not.toContain("Error:");
   expect(failed.error).toContain("unable to access");
   expect(failed.error).toContain("connect 127.0.0.1 in Settings");
+
+  expect(failed.error).toContain(
+    "If this machine can't reach 127.0.0.1, start the Session on an Environment whose machine can.",
+  );
 });

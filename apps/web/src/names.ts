@@ -20,9 +20,9 @@ export function describe(session: Session): string {
       : `archived, ${removalText[session.workspaceRemoval]}`;
   }
 
-  const where = session.online ? "" : ", provider offline";
-
-  return `${session.status}${where}${session.error === null ? "" : `: ${session.error}`}`;
+  return session.online
+    ? session.status
+    : `${session.status}, provider offline`;
 }
 
 export function workspaceName(workspace: Workspace): string {

@@ -282,6 +282,14 @@ export function sessionRoutes({
 
       return session;
     },
+    "sessions.retry": ({ params: { id }, caller }) => {
+      reached(id, caller, canSteer);
+
+      const retried = ok(sessions.retry(id));
+      log("session start retried", { sessionId: id });
+
+      return retried;
+    },
     "sessions.workspace.remove": ({ params: { id }, caller }) => {
       reached(id, caller, canManage);
 

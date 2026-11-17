@@ -106,7 +106,7 @@ export async function startSession(
 
     await reportStartFailure(machine.agent, sessionId, {
       generation,
-      error: String(error),
+      error: error instanceof Error ? error.message : String(error),
     }).catch((reportError: unknown) => {
       log("start failure not reported", { error: String(reportError) });
     });

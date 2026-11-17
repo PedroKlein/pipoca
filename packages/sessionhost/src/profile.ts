@@ -228,7 +228,9 @@ async function installPackages(
     log("installing profile package", { source });
 
     await install(dir, source).catch((error: unknown) => {
-      throw new Error(`package ${source} failed to install: ${String(error)}`, {
+      const why = error instanceof Error ? error.message : String(error);
+
+      throw new Error(`package ${source} failed to install: ${why}`, {
         cause: error,
       });
     });
