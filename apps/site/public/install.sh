@@ -57,6 +57,11 @@ main() {
     *) echo "Add $bin_dir to your PATH to run pipoca from any shell." ;;
   esac
 
+  # Sessions clone with git and Pi installs packages with npm.
+  for tool in git npm; do
+    command -v "$tool" > /dev/null || echo "Sessions on this machine need $tool, which isn't on your PATH. On Ubuntu: sudo apt-get install -y git nodejs npm"
+  done
+
   if [ "$#" -gt 0 ]; then
     exec "$bin_dir/pipoca" "$@"
   fi

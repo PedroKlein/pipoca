@@ -337,3 +337,25 @@ test("a git package that fails says what git said, and which host to connect", a
     "If this machine can't reach 127.0.0.1, start the Session on an Environment whose machine can.",
   );
 });
+
+test("a package that needs a program this machine lacks says to install it", async () => {
+  const path = process.env["PATH"];
+  process.env["PATH"] = join(root, "empty-path");
+
+  try {
+    const session = await sessionWith({ packages: ["npm:pipoca-kit"] });
+
+    const failed = await sessionUntil(
+      session.id,
+      ({ status }) => status === "failed",
+    );
+
+    expect(failed.error).toContain(
+      "Install npm on this machine for the user that runs pipoca, then restart pipoca so it finds it.",
+    );
+
+    expect(failed.error).not.toContain("is private");
+  } finally {
+    process.env["PATH"] = path;
+  }
+});

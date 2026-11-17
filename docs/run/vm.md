@@ -43,6 +43,7 @@ The server on the VM is the same solo server as [on your laptop](solo.md). If yo
 Sessions on the VM use the VM's own tools, so set these up as the user that runs the server:
 
 - **git**, with access to the repositories you'll clone, or connect a [git host](../admin/git-hosts.md) in Settings > Accounts so Sessions clone and push as you.
+- **Node.js with npm**, which Pi uses to install the packages your Profile lists, such as `sudo apt-get install -y nodejs npm` on Ubuntu.
 - **Whatever your projects need** to build and test. The service keeps the `PATH` it was installed from, so install it from a shell that has your tools.
 - **Nothing from your own Pi setup.** Sessions take their packages, instructions and settings from their [Profile](../use/profiles.md), and logins live on the server.
 

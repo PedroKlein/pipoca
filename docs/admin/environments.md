@@ -19,6 +19,8 @@ curl -fsSL https://pipoca.dev/install.sh | PIPOCA_VERSION=0.1.4 PIPOCA_KEY=pck_â
 
 It installs the server's own version of `pipoca`, since a runner of another version can't join, and starts the agent as a service that runs at login and starts again when it stops (see [`pipoca service`](../reference/cli.md#pipoca-service)). On a Linux VM, turn lingering on so it keeps running while you're logged out: `loginctl enable-linger "$USER"`, then `journalctl --user -u pipoca -f` shows its log.
 
+Sessions on the machine use its own `git` and `npm`, which Pi installs Profile packages with, so install both first (`sudo apt-get install -y git nodejs npm` on Ubuntu). The install script warns when either is missing.
+
 With `pipoca` already installed, start the agent in the foreground instead:
 
 ```sh

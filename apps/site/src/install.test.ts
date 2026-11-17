@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -15,7 +15,10 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map(async (cleanup) => cleanup()));
 });
 
-async function install(sums: string): Promise<{
+async function install(
+  sums: string,
+  path?: string,
+): Promise<{
   readonly code: number;
   readonly output: string;
   readonly installed: boolean;
@@ -53,6 +56,7 @@ async function install(sums: string): Promise<{
       stderr: "pipe",
       env: {
         ...process.env,
+        ...(path !== undefined && { PATH: path }),
         HOME: home,
         PIPOCA_RELEASES: `http://127.0.0.1:${String(releases.port)}`,
         PIPOCA_VERSION: "v1.2.3",
@@ -93,4 +97,39 @@ test("refuses a download that doesn't match the release's SHA256SUMS", async () 
 
   expect(result).toMatchObject({ code: 1, installed: false });
   expect(result.output).toContain("doesn't match the release's SHA256SUMS");
+});
+
+test("says when this machine lacks git or npm, which Sessions need", async () => {
+  const tools = await mkdtemp(join(tmpdir(), "pipoca-tools-"));
+  cleanups.push(async () => rm(tools, { recursive: true }));
+  await mkdir(tools, { recursive: true });
+
+  const needed = [
+    "sh",
+    "uname",
+    "curl",
+    "mktemp",
+    "rm",
+    "awk",
+    "sha256sum",
+    "chmod",
+    "mkdir",
+    "mv",
+  ];
+
+  await Promise.all(
+    needed.map(async (tool) => {
+      const found = Bun.which(tool);
+
+      if (found !== null) {
+        await symlink(found, join(tools, tool));
+      }
+    }),
+  );
+
+  const result = await install(`${sha256(release)}  ${asset}\n`, tools);
+
+  expect(result).toMatchObject({ code: 0, installed: true });
+  expect(result.output).toContain("Sessions on this machine need git");
+  expect(result.output).toContain("Sessions on this machine need npm");
 });
