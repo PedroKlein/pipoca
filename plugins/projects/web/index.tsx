@@ -69,7 +69,9 @@ import {
   Home,
   Opening,
   projectList,
-  TeamAssistant,
+  TeamOpening,
+  useAssistant,
+  useEnvironments,
 } from "./assistant";
 import { Folder } from "./folder";
 import {
@@ -84,6 +86,7 @@ import {
 } from "../src/model";
 
 const teamProjects = "projects";
+const teamAssistantPath = "team-assistant";
 
 // Thread states follow their Sessions.
 const watched = { topics: ["sessions"], changes: ["projects"] };
@@ -106,10 +109,10 @@ export const web = defineWeb(projects, {
       },
     },
     {
-      path: "team-assistant",
+      path: teamAssistantPath,
       label: "Team assistant",
       icon: "star",
-      Page: TeamAssistant,
+      Page: TeamAssistantPage,
       area: "hub",
       nav: { fills: () => true },
     },
@@ -151,6 +154,19 @@ function link(path: string, team = false): string {
   return team
     ? `#team/plugin/${projects.id}/${teamProjects}/${path}`
     : pageHref(projects, path);
+}
+
+// Where a Project and the panel open in it live: a person's Team assistant
+// under its own team entry, as a person's assistant is under theirs.
+function projectLink(
+  project: Pick<ProjectView, "id" | "team" | "assistant">,
+  rest: string,
+): string {
+  if (project.team && project.assistant) {
+    return `#team/plugin/${projects.id}/${teamAssistantPath}/${rest}`;
+  }
+
+  return link(rest === "" ? project.id : `${project.id}/${rest}`, project.team);
 }
 
 function useThread(id: string | undefined): ThreadLinkView | undefined {
@@ -627,27 +643,43 @@ function TeamProjectsPage({ path }: PageProps): ReactElement {
   return <ProjectsPage path={path} team />;
 }
 
+// Each person's Team assistant is a team Project of their own, so it opens
+// as the Project page their own assistant does (ADR 0052, ADR 0067).
+function TeamAssistantPage({ path }: PageProps): ReactElement {
+  const assistant = useAssistant(true);
+  const environments = useEnvironments(true) ?? [];
+
+  if (assistant === undefined) {
+    return <div className="flex-1" />;
+  }
+
+  if (assistant === null) {
+    return <TeamOpening />;
+  }
+
+  return (
+    <ProjectPage
+      key={assistant.id}
+      id={assistant.id}
+      rest={path}
+      team
+      environments={environments}
+      teamAssistant
+    />
+  );
+}
+
 function ProjectsPage({
   path,
   team = false,
 }: PageProps & { readonly team?: boolean }): ReactElement {
-  const api = useApi(projects);
-
   const [open = team ? projectList : "", ...rest] = path.split("/");
 
   const go = (to: string): void => {
     location.hash = link(to, team);
   };
 
-  const environments =
-    useLoaded(
-      async () =>
-        api.get<Environment[]>(
-          team ? "/api/environments?scope=team" : "/api/environments",
-        ),
-      team ? "team-environments" : "environments",
-      { topics: ["environments"] },
-    ).value ?? [];
+  const environments = useEnvironments(team) ?? [];
 
   if (open === earlier) {
     return <Earlier path={rest.join("/")} />;
@@ -1181,11 +1213,13 @@ function ProjectPage({
   rest,
   team,
   environments,
+  teamAssistant = false,
 }: {
   readonly id: string;
   readonly rest: string;
   readonly team: boolean;
   readonly environments: readonly Environment[];
+  readonly teamAssistant?: boolean;
 }): ReactElement {
   const api = useApi(projects);
 
@@ -1207,8 +1241,10 @@ function ProjectPage({
   );
 
   const elsewhere =
-    project && project.team !== team
-      ? link(rest === "" ? id : `${id}/${rest}`, project.team)
+    project &&
+    (project.team !== team ||
+      (project.team && project.assistant !== teamAssistant))
+      ? projectLink(project, rest)
       : undefined;
 
   useEffect(() => {
@@ -1234,8 +1270,7 @@ function ProjectPage({
 
   const panel = panelOf(rest, project);
 
-  const to = (where: string): string =>
-    link(where === "" ? id : `${id}/${where}`, project.team);
+  const to = (where: string): string => projectLink(project, where);
 
   const go = (where: string): void => {
     location.hash = to(where);
